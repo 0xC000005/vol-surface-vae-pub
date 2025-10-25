@@ -1,0 +1,17 @@
+[project]
+name = "vol-surface-vae-pub"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.7.2",
+    "scipy>=1.16.2",
+    "statsmodels>=0.14.5",
+    "torch>=2.9.0",
+    "tqdm>=4.67.1",
+    "yfinance>=0.2.66",
+]

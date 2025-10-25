@@ -100,7 +100,7 @@ for (file_path, use_ex, return_ex) in [
     print(file_path)
     file_name = os.path.splitext(os.path.basename(file_path))[0]
 
-    model_data = torch.load(file_path) # latent_dim=5, surface_hidden=[5,5,5], mem_hidden=100
+    model_data = torch.load(file_path, weights_only=False) # latent_dim=5, surface_hidden=[5,5,5], mem_hidden=100
     model_config = model_data["model_config"]
     model_config["mem_dropout"] = 0.
     model = CVAEMemRand(model_config)

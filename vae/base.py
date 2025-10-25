@@ -145,5 +145,5 @@ class BaseVAE(nn.Module):
         '''
         assert (f is not None) or (dict_to_load is not None), "One of file path or dict_to_load must not be None"
         if f is not None:
-            dict_to_load = torch.load(f)
+            dict_to_load = torch.load(f, weights_only=False)
         self.load_state_dict(dict_to_load["model"])
