@@ -46,6 +46,18 @@ Creates visualizations comparing all 3 models across different grid points, show
 - `teacher_forcing_implied_vol.png` - 9-panel comparison (3 models × 3 grid points)
 - `teacher_forcing_returns.png` - Return predictions for EX Loss model
 
+**Confidence Interval Calibration Analysis:**
+```bash
+python verify_mean_tracking_vs_ci.py       # Verify R² vs CI violation coexistence
+python compare_reconstruction_losses.py    # Compare MSE with CI calibration
+python visualize_distribution_comparison.py # Compare marginal distributions
+```
+These scripts analyze uncertainty calibration in model predictions:
+- `verify_mean_tracking_vs_ci.py`: Proves that good mean tracking (high R²) can coexist with poor CI calibration (high violation rates). Generates scatter plots and regression analysis.
+- `compare_reconstruction_losses.py`: Shows relationship between reconstruction loss (MSE) and CI calibration metrics.
+- `visualize_distribution_comparison.py`: Compares marginal distributions (pooled across all days) vs ground truth histograms.
+- See `CI_CALIBRATION_OBSERVATIONS.md` for detailed empirical findings.
+
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
 - See `data_preproc/` directory for preprocessing utilities

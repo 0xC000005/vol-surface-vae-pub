@@ -4,6 +4,42 @@ import torch.nn.functional as F
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
 
+
+class QuantileLoss(nn.Module):
+    """
+    Pinball loss for quantile regression.
+
+    For quantile τ ∈ [0,1]:
+    L_τ(y, ŷ) = max((τ-1)×(y-ŷ), τ×(y-ŷ))
+
+    Asymmetric penalty:
+    - τ=0.05: penalizes under-prediction more (wants most values above)
+    - τ=0.50: reduces to MAE (mean absolute error)
+    - τ=0.95: penalizes over-prediction more (wants most values below)
+    """
+    def __init__(self, quantiles=[0.05, 0.5, 0.95]):
+        super().__init__()
+        self.register_buffer('quantiles', torch.tensor(quantiles))
+
+    def forward(self, preds, target):
+        """
+        Args:
+            preds: (B, T, num_quantiles, H, W) - quantile predictions
+            target: (B, T, H, W) - ground truth
+
+        Returns:
+            Scalar loss (averaged over all quantiles and elements)
+        """
+        losses = []
+        for i, q in enumerate(self.quantiles):
+            pred_q = preds[:, :, i, :, :]  # (B, T, H, W)
+            error = target - pred_q  # (B, T, H, W)
+            loss_q = torch.max((q-1)*error, q*error)
+            losses.append(torch.mean(loss_q))
+
+        return torch.mean(torch.stack(losses))
+
+
 class CVAEMemRandEncoder(BaseEncoder):
     def __init__(self, config: dict):
         '''
@@ -361,7 +397,9 @@ class CVAEMemRandDecoder(BaseDecoder):
             final_size = feat_dim[0] * feat_dim[1]
             surface_decoder["dec_final"] = nn.Linear(in_feats, final_size)
             surface_decoder["dec_final_activation"] = nn.ReLU()
-            surface_decoder["dec_output"] = nn.Linear(final_size, final_size)
+            # Output 3 quantiles worth of values
+            num_quantiles = config.get("num_quantiles", 3)
+            surface_decoder["dec_output"] = nn.Linear(final_size, final_size * num_quantiles)
         else:
             padding = config["padding"]
             deconv_output_padding = config["deconv_output_padding"]
@@ -380,8 +418,10 @@ class CVAEMemRandDecoder(BaseDecoder):
                 kernel_size=3, stride=1, padding=padding, output_padding=deconv_output_padding,
             )
             surface_decoder["dec_final_activation"] = nn.ReLU()
+            # Output 3 channels for quantiles [p5, p50, p95]
+            num_quantiles = config.get("num_quantiles", 3)
             surface_decoder["dec_output"] = nn.Conv2d(
-                in_feats, 1,
+                in_feats, num_quantiles,
                 kernel_size=3, padding="same"
             )
         self.surface_decoder = nn.Sequential(surface_decoder)
@@ -441,6 +481,7 @@ class CVAEMemRandDecoder(BaseDecoder):
         '''
         feat_dim = self.config["feat_dim"]
         ex_feats_dim = self.config["ex_feats_dim"]
+        num_quantiles = self.config.get("num_quantiles", 3)
         # should be on device already
         x, _ = self.mem(x) # (B, T, n_surface+n_info)
         x = self.interaction(x)
@@ -448,10 +489,14 @@ class CVAEMemRandDecoder(BaseDecoder):
         surface_x = self.surface_decoder_input(x) # (B, T, n_surface)
         if self.config["use_dense_surface"]:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size) # (BxT, surface_final_hidden_size)
+            decoded_surface = self.surface_decoder(surface_x)
+            # Reshape to (B, T, num_quantiles, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
         else:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size, feat_dim[0], feat_dim[1]) # (BxT, surface_final_hidden_size, H, W)
-        decoded_surface = self.surface_decoder(surface_x)
-        decoded_surface = decoded_surface.reshape((B, T, feat_dim[0], feat_dim[1]))
+            decoded_surface = self.surface_decoder(surface_x)  # (BxT, num_quantiles, H, W)
+            # Reshape to (B, T, num_quantiles, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
 
         if ex_feats_dim > 0:
             info_x = self.ex_feats_decoder_input(x) # (B, T, n_info)
@@ -517,6 +562,12 @@ class CVAEMemRand(BaseVAE):
         else:
             self.ex_feats_loss_fn = nn.L1Loss()
 
+        # Initialize quantile loss function
+        if config.get("use_quantile_regression", True):
+            self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
+        else:
+            self.quantile_loss_fn = None
+
     def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
         '''
             Input:
@@ -556,10 +607,12 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in c:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :]
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :]
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-            return decoded_surface[:, C:, :, :]
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :]
     
     def check_input(self, config: dict):
         for req in ["feat_dim", "latent_dim"]:
@@ -608,6 +661,13 @@ class CVAEMemRand(BaseVAE):
         
         if "compress_context" not in config:
             config["compress_context"] = False
+
+        if "num_quantiles" not in config:
+            config["num_quantiles"] = 3
+        if "quantiles" not in config:
+            config["quantiles"] = [0.05, 0.5, 0.95]
+        if "use_quantile_regression" not in config:
+            config["use_quantile_regression"] = True
     
     def forward(self, x: dict[str, torch.Tensor]):
         '''
@@ -650,12 +710,12 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in x:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-
-            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-
-            return decoded_surface[:, C:, :, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], z_mean, z_log_var, z
 
     def train_step(self, x, optimizer: torch.optim.Optimizer):
         '''
@@ -688,8 +748,14 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # RE = 1/M \sum_{i=1}^M (x_i - y_i)^2
-        re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
+        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
+            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
+            # surface_real: (B, 1, H, W)
+            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
+        else:
+            # Legacy MSE loss
+            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -734,8 +800,14 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # RE = 1/M \sum_{i=1}^M (x_i - y_i)^2
-        re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
+        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
+            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
+            # surface_real: (B, 1, H, W)
+            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
+        else:
+            # Legacy MSE loss
+            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
