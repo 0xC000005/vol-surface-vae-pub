@@ -13,7 +13,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Parameters
 CONTEXT_LEN = 5
 START_DAY = 5
-LAST_N_DAYS = 1000  # Last 1000 days to visualize
+LAST_N_DAYS = 60  # Last 60 days to visualize
 
 # Grid points to visualize (row, col)
 GRID_POINTS = {
@@ -93,7 +93,7 @@ violation_stats = []
 
 # Figure 1: Implied Vol - 3 rows (grid points) x 3 columns (models)
 fig1, axes = plt.subplots(3, 3, figsize=(20, 14))
-fig1.suptitle("Teacher Forcing Performance: Implied Volatility Predictions\n" +
+fig1.suptitle("Teacher Forcing Performance: Implied Volatility Predictions (Independent One-Step-Ahead Forecasts)\n" +
               f"Context Length = {CONTEXT_LEN} days | Time Period: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}",
               fontsize=16, fontweight='bold')
 
@@ -146,7 +146,7 @@ for row_idx, (grid_name, (grid_row, grid_col)) in enumerate(GRID_POINTS.items())
         # Plot MLE prediction
         model_color = MODELS[model_key]["color"]
         ax.plot(dates, mle_surface, color=model_color, linewidth=1.5,
-                label='MLE (z=0)', zorder=2)
+                label='MLE (z=0, independent)', zorder=2)
 
         # Shaded uncertainty band
         ax.fill_between(dates, p5, p95, alpha=0.25, color=model_color,
@@ -188,7 +188,7 @@ for row_idx, (grid_name, (grid_row, grid_col)) in enumerate(GRID_POINTS.items())
         ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-output_file_1 = f"{OUTPUT_DIR}/teacher_forcing_implied_vol.png"
+output_file_1 = f"{OUTPUT_DIR}/teacher_forcing_implied_vol_{LAST_N_DAYS}days.png"
 plt.savefig(output_file_1, dpi=300, bbox_inches='tight')
 print(f"Saved: {output_file_1}")
 plt.close()
@@ -236,7 +236,7 @@ if "stochastic_returns" in model_data["ex_loss"]:
 
     # Plot MLE prediction
     ax.plot(dates, mle_returns, color=MODELS["ex_loss"]["color"], linewidth=1.5,
-            label='MLE Predicted Returns (z=0)', zorder=2)
+            label='MLE Predicted Returns (z=0, independent)', zorder=2)
 
     # Shaded uncertainty band
     ax.fill_between(dates, p5_ret, p95_ret, alpha=0.25,
@@ -255,7 +255,7 @@ if "stochastic_returns" in model_data["ex_loss"]:
     ax.axhline(0, color='gray', linestyle='-', alpha=0.3, linewidth=1)
 
     # Title and labels
-    ax.set_title(f"Teacher Forcing Performance: Return Predictions (EX Loss Model)\n" +
+    ax.set_title(f"Teacher Forcing Performance: Return Predictions (EX Loss Model) - Independent One-Step-Ahead Forecasts\n" +
                 f"Context Length = {CONTEXT_LEN} days | Time Period: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}",
                 fontsize=14, fontweight='bold')
     ax.set_ylabel('Daily Log Return', fontsize=12, fontweight='bold')
@@ -276,7 +276,7 @@ if "stochastic_returns" in model_data["ex_loss"]:
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    output_file_2 = f"{OUTPUT_DIR}/teacher_forcing_returns.png"
+    output_file_2 = f"{OUTPUT_DIR}/teacher_forcing_returns_{LAST_N_DAYS}days.png"
     plt.savefig(output_file_2, dpi=300, bbox_inches='tight')
     print(f"Saved: {output_file_2}")
     plt.close()
@@ -319,7 +319,7 @@ for stat in violation_stats:
         print(f"  No violations detected!")
 
 # Save report to file
-report_file = f"{OUTPUT_DIR}/ci_violations_report.txt"
+report_file = f"{OUTPUT_DIR}/ci_violations_report_{LAST_N_DAYS}days.txt"
 with open(report_file, 'w') as f:
     f.write("="*80 + "\n")
     f.write("CI VIOLATION ANALYSIS REPORT\n")
