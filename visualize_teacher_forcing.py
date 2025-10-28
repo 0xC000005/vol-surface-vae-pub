@@ -88,6 +88,9 @@ for model_key in MODELS.keys():
 
 print("Creating Figure 1: Implied Volatility Comparison...")
 
+# Data structure to store CI violations for reporting
+violation_stats = []
+
 # Figure 1: Implied Vol - 3 rows (grid points) x 3 columns (models)
 fig1, axes = plt.subplots(3, 3, figsize=(20, 14))
 fig1.suptitle("Teacher Forcing Performance: Implied Volatility Predictions\n" +
@@ -115,8 +118,30 @@ for row_idx, (grid_name, (grid_row, grid_col)) in enumerate(GRID_POINTS.items())
         # Calculate RMSE
         rmse = np.sqrt(np.mean((mle_surface - gt_surface) ** 2))
 
-        # Plot ground truth
-        ax.plot(dates, gt_surface, 'k-', linewidth=2, label='Ground Truth', zorder=3)
+        # Detect CI violations
+        outside_ci = (gt_surface < p5) | (gt_surface > p95)
+        num_violations = np.sum(outside_ci)
+        pct_violations = 100 * num_violations / len(gt_surface)
+
+        # Store violation statistics
+        violation_stats.append({
+            "model": MODELS[model_key]["name"].replace("\n", " "),
+            "grid_point": grid_name,
+            "num_violations": num_violations,
+            "pct_violations": pct_violations,
+            "total_days": len(gt_surface),
+            "rmse": rmse,
+            "violation_dates": dates[outside_ci].tolist()
+        })
+
+        # Plot ground truth (semi-transparent to see CI violations)
+        ax.plot(dates, gt_surface, 'k-', linewidth=2, alpha=0.6, label='Ground Truth', zorder=3)
+
+        # Plot CI violations as red markers
+        if num_violations > 0:
+            ax.scatter(dates[outside_ci], gt_surface[outside_ci],
+                      color='red', s=20, marker='o', alpha=0.7,
+                      label='Outside 90% CI', zorder=4)
 
         # Plot MLE prediction
         model_color = MODELS[model_key]["color"]
@@ -145,9 +170,10 @@ for row_idx, (grid_name, (grid_row, grid_col)) in enumerate(GRID_POINTS.items())
         if row_idx == 2:
             ax.set_xlabel('Date', fontsize=11)
 
-        # RMSE annotation
-        ax.text(0.02, 0.98, f'RMSE: {rmse:.4f}',
-               transform=ax.transAxes, fontsize=10, va='top',
+        # RMSE and violation annotation
+        annotation_text = f'RMSE: {rmse:.4f}\nOutside CI: {num_violations}/{len(gt_surface)} ({pct_violations:.1f}%)'
+        ax.text(0.02, 0.98, annotation_text,
+               transform=ax.transAxes, fontsize=9, va='top',
                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
         # Format x-axis
@@ -183,8 +209,30 @@ if "stochastic_returns" in model_data["ex_loss"]:
     # Calculate RMSE
     rmse_ret = np.sqrt(np.mean((mle_returns - ground_truth_returns) ** 2))
 
-    # Plot ground truth
-    ax.plot(dates, ground_truth_returns, 'k-', linewidth=2, label='Ground Truth Returns', zorder=3)
+    # Detect CI violations
+    outside_ci_ret = (ground_truth_returns < p5_ret) | (ground_truth_returns > p95_ret)
+    num_violations_ret = np.sum(outside_ci_ret)
+    pct_violations_ret = 100 * num_violations_ret / len(ground_truth_returns)
+
+    # Store violation statistics for returns
+    violation_stats.append({
+        "model": "EX Loss (Returns)",
+        "grid_point": "Returns",
+        "num_violations": num_violations_ret,
+        "pct_violations": pct_violations_ret,
+        "total_days": len(ground_truth_returns),
+        "rmse": rmse_ret,
+        "violation_dates": dates[outside_ci_ret].tolist()
+    })
+
+    # Plot ground truth (semi-transparent to see CI violations)
+    ax.plot(dates, ground_truth_returns, 'k-', linewidth=2, alpha=0.6, label='Ground Truth Returns', zorder=3)
+
+    # Plot CI violations as red markers
+    if num_violations_ret > 0:
+        ax.scatter(dates[outside_ci_ret], ground_truth_returns[outside_ci_ret],
+                  color='red', s=20, marker='o', alpha=0.7,
+                  label='Outside 90% CI', zorder=4)
 
     # Plot MLE prediction
     ax.plot(dates, mle_returns, color=MODELS["ex_loss"]["color"], linewidth=1.5,
@@ -213,8 +261,9 @@ if "stochastic_returns" in model_data["ex_loss"]:
     ax.set_ylabel('Daily Log Return', fontsize=12, fontweight='bold')
     ax.set_xlabel('Date', fontsize=12)
 
-    # RMSE annotation
-    ax.text(0.02, 0.98, f'RMSE: {rmse_ret:.6f}',
+    # RMSE and violation annotation
+    annotation_text_ret = f'RMSE: {rmse_ret:.6f}\nOutside CI: {num_violations_ret}/{len(ground_truth_returns)} ({pct_violations_ret:.1f}%)'
+    ax.text(0.02, 0.98, annotation_text_ret,
            transform=ax.transAxes, fontsize=11, va='top',
            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
@@ -233,11 +282,90 @@ if "stochastic_returns" in model_data["ex_loss"]:
     plt.close()
 
 print("\n" + "="*80)
-print("Visualization complete!")
+print("CI VIOLATION ANALYSIS")
+print("="*80)
+
+# Print summary table
+print("\n" + "="*80)
+print("SUMMARY TABLE: Confidence Interval Violations")
+print("="*80)
+print(f"{'Model':<30} {'Grid Point':<20} {'Violations':<15} {'Percentage':<12} {'RMSE':<10}")
+print("-" * 90)
+
+for stat in violation_stats:
+    print(f"{stat['model']:<30} {stat['grid_point']:<20} "
+          f"{stat['num_violations']}/{stat['total_days']:<10} "
+          f"{stat['pct_violations']:>6.2f}%     {stat['rmse']:.6f}")
+
+print("="*80)
+
+# Print detailed violation dates for each model/grid point
+print("\n" + "="*80)
+print("DETAILED VIOLATION DATES")
+print("="*80)
+
+for stat in violation_stats:
+    print(f"\n{stat['model']} - {stat['grid_point']}")
+    print(f"  Total violations: {stat['num_violations']} out of {stat['total_days']} days ({stat['pct_violations']:.2f}%)")
+
+    if stat['num_violations'] > 0:
+        print(f"  First 10 violation dates:")
+        for i, date in enumerate(stat['violation_dates'][:10]):
+            print(f"    {i+1}. {date.strftime('%Y-%m-%d')}")
+
+        if stat['num_violations'] > 10:
+            print(f"    ... and {stat['num_violations'] - 10} more")
+    else:
+        print(f"  No violations detected!")
+
+# Save report to file
+report_file = f"{OUTPUT_DIR}/ci_violations_report.txt"
+with open(report_file, 'w') as f:
+    f.write("="*80 + "\n")
+    f.write("CI VIOLATION ANALYSIS REPORT\n")
+    f.write("="*80 + "\n")
+    f.write(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    f.write(f"Time Period: {dates[0].strftime('%Y-%m-%d')} to {dates[-1].strftime('%Y-%m-%d')}\n")
+    f.write(f"Context Length: {CONTEXT_LEN} days\n")
+    f.write(f"Total Days: {LAST_N_DAYS}\n\n")
+
+    f.write("="*80 + "\n")
+    f.write("SUMMARY TABLE: Confidence Interval Violations\n")
+    f.write("="*80 + "\n")
+    f.write(f"{'Model':<30} {'Grid Point':<20} {'Violations':<15} {'Percentage':<12} {'RMSE':<10}\n")
+    f.write("-" * 90 + "\n")
+
+    for stat in violation_stats:
+        f.write(f"{stat['model']:<30} {stat['grid_point']:<20} "
+                f"{stat['num_violations']}/{stat['total_days']:<10} "
+                f"{stat['pct_violations']:>6.2f}%     {stat['rmse']:.6f}\n")
+
+    f.write("="*80 + "\n")
+
+    f.write("\n" + "="*80 + "\n")
+    f.write("DETAILED VIOLATION DATES\n")
+    f.write("="*80 + "\n")
+
+    for stat in violation_stats:
+        f.write(f"\n{stat['model']} - {stat['grid_point']}\n")
+        f.write(f"  Total violations: {stat['num_violations']} out of {stat['total_days']} days ({stat['pct_violations']:.2f}%)\n")
+
+        if stat['num_violations'] > 0:
+            f.write(f"  All violation dates:\n")
+            for i, date in enumerate(stat['violation_dates']):
+                f.write(f"    {i+1}. {date.strftime('%Y-%m-%d')}\n")
+        else:
+            f.write(f"  No violations detected!\n")
+
+print(f"\nReport saved to: {report_file}")
+
+print("\n" + "="*80)
+print("VISUALIZATION COMPLETE!")
 print("="*80)
 print(f"\nGenerated files:")
 print(f"  1. {output_file_1}")
 print(f"  2. {output_file_2}")
+print(f"  3. {report_file}")
 print(f"\nKey insights to look for:")
 print(f"  - How well does MLE (z=0) track ground truth?")
 print(f"  - Are uncertainty bands well-calibrated (ground truth within 90% CI)?")
@@ -245,3 +373,4 @@ print(f"  - Do models with extra features (ex_no_loss, ex_loss) outperform no_ex
 print(f"  - How do models perform during COVID crisis (2020)?")
 print(f"  - Are ATM predictions more accurate than OTM?")
 print(f"  - Does ex_loss model predict returns well?")
+print(f"\nNote: Red markers on plots indicate when ground truth falls outside 90% CI")
