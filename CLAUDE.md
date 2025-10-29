@@ -18,6 +18,12 @@ The system uses a Conditional VAE (CVAE) combined with LSTM to generate one-day-
 - Install dependencies: `uv sync`
 - Key dependencies: PyTorch, NumPy, pandas, scikit-learn, matplotlib
 
+### Branch Structure
+- `main`: Stable baseline models with N(0,1) sampling
+- `max`: Development branch
+- `quantile-regression-decoder`: Alternative approach using quantile regression for CI prediction
+- `empirical-latent-sampling`: Improved CI calibration via empirical latent sampling (current branch)
+
 ### Common Commands
 
 **Training Models:**
@@ -45,6 +51,32 @@ python visualize_teacher_forcing.py
 Creates visualizations comparing all 3 models across different grid points, showing ground truth vs predictions with uncertainty bands. Generates:
 - `teacher_forcing_implied_vol.png` - 9-panel comparison (3 models × 3 grid points)
 - `teacher_forcing_returns.png` - Return predictions for EX Loss model
+
+**Empirical Latent Sampling (Improved CI Calibration):**
+```bash
+# Step 1: Extract empirical latent distributions from training data
+python extract_empirical_latents.py
+
+# Step 2: Generate surfaces using empirical latents instead of N(0,1)
+python generate_surfaces_empirical.py  # Default noise_scale=0.3
+
+# Step 3: Verify marginal distribution match
+python verify_marginal_distribution.py
+
+# Step 4: Evaluate CI calibration improvements
+python evaluate_empirical_ci.py
+
+# Step 5: Create comparison visualizations
+python compare_sampling_methods.py
+```
+
+These scripts address CI miscalibration discovered in baseline models (35-72% violation rates vs 10% target). Empirical latent sampling reduces violations to 34-54% by sampling from actual training latent distributions instead of N(0,1). See `CI_CALIBRATION_OBSERVATIONS.md` for baseline analysis.
+
+**Latent Distribution Analysis:**
+```bash
+python analyze_latent_distribution.py
+```
+Compares empirical latent distributions against N(0,1) assumption, generates histograms showing per-dimension statistics.
 
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
@@ -325,24 +357,37 @@ Shows how teacher forcing works (models always conditioned on real historical da
 - Next day uses actual surfaces [t-C+1, ..., t] (including real observation at t)
 - This produces **independent one-step-ahead forecasts**, not autoregressive multi-step predictions
 
-**Two Generation Modes:**
+**Three Generation Modes:**
 
-1. **Stochastic (`generate_surfaces.py`):**
+1. **Stochastic N(0,1) (`generate_surfaces.py`):**
    - Samples latent variable z ~ N(0, 1) for future timestep
    - Generates 1,000 samples per day to capture uncertainty
    - Output: (num_days, 1000, 5, 5) - full distribution of possible surfaces
    - Used for: uncertainty quantification, arbitrage checking, scenario analysis
+   - **Issue**: CI violation rates 35-72% (target: 10%) due to N(0,1) not matching empirical latent distributions
 
-2. **Maximum Likelihood (`generate_surfaces_max_likelihood.py`):**
+2. **Empirical Latent Sampling (`generate_surfaces_empirical.py`):**
+   - Samples latent variable z from empirical training latent pool + optional noise
+   - Formula: `z = z_empirical[random_idx] + noise_scale * N(0,1)`
+   - Default noise_scale=0.3 (tunable parameter)
+   - Generates 1,000 samples per day
+   - Output: (num_days, 1000, 5, 5) with filename `{model}_empirical_gen5_noise{noise_scale}.npz`
+   - **Improvement**: CI violation rates reduced to 34-54% (12% average improvement)
+   - Used when: Better CI calibration needed, sampling from realistic latent distributions
+
+3. **Maximum Likelihood (`generate_surfaces_max_likelihood.py`):**
    - Sets latent variable z = 0 (mode of prior distribution)
    - Generates 1 deterministic sample per day
    - Output: (num_days, 1, 5, 5) - single "most likely" surface
    - Used for: point forecasts, RMSE evaluation, regression analysis
 
 **Key Implementation Detail:**
-Both methods use the same context encoding (from `ctx_encoder`), but differ only in the latent variable for the future timestep:
+All methods use the same context encoding (from `ctx_encoder`), but differ in the latent variable for the future timestep:
 - Context timesteps [0:C]: z = ctx_latent_mean (deterministic encoding)
-- Future timestep [C]: z ~ N(0,1) (stochastic) OR z = 0 (MLE)
+- Future timestep [C]:
+  - N(0,1) baseline: z ~ N(0,1)
+  - Empirical: z ~ Empirical(z_train) + noise
+  - MLE: z = 0
 
 ### Device Handling
 All models support both CPU and CUDA. Tensors are automatically moved to the configured device.
@@ -393,3 +438,59 @@ Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed usin
 
 **Pre-trained Models:**
 Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
+
+## Confidence Interval Calibration Issue & Solution
+
+### Problem: Overconfident Uncertainty Estimates
+
+Baseline models generate predictions with 90% confidence intervals, but empirical testing reveals severe miscalibration:
+
+**Baseline N(0,1) Sampling CI Violations:**
+- No EX: 18-35% (expected: 10%)
+- EX No Loss: 54-72% (expected: 10%)
+- EX Loss: 50-65% (expected: 10%)
+
+See `CI_CALIBRATION_OBSERVATIONS.md` for detailed baseline analysis.
+
+### Root Cause: Prior-Posterior Mismatch
+
+**Hypothesis**: VAE models are trained with weak KL regularization (weight=1e-5), so the learned posterior distribution q(z|x) deviates significantly from the prior N(0,1). During generation, sampling z ~ N(0,1) undersamples the true variability the decoder expects.
+
+**Evidence** (from `analyze_latent_distribution.py`):
+- Empirical latent std ranges from 0.05 to 1.23 across dimensions (not 1.0)
+- KL divergence values: 3.96-4.00 (not near 0)
+- Per-dimension heterogeneity: some dimensions have σ² > 1, others have σ² < 1
+
+### Solution: Empirical Latent Sampling
+
+Instead of sampling z ~ N(0,1), sample from the empirical distribution of training latent codes:
+
+**Approach:**
+1. Extract z_mean for all training days using encoder
+2. Build empirical latent pool: (N_train, latent_dim)
+3. During generation: `z = z_empirical[random_idx] + noise_scale * N(0,1)`
+4. The noise_scale parameter (default 0.3) is tunable for CI width adjustment
+
+**Implementation Files:**
+- `extract_empirical_latents.py`: Builds latent library per model
+- `generate_surfaces_empirical.py`: Generation with empirical sampling
+- Output: `{model}_empirical_latents.npz` and `{model}_empirical_gen5_noise{noise}.npz`
+
+**Results:**
+- Average CI violations reduced from 66% → 54% (12% improvement)
+- Best improvements: ex_loss OTM Put (71.6% → 45.5%), ex_no_loss ATM 3M (59.8% → 34.7%)
+- Marginal distributions closer to historical (lower KS statistic)
+- Wider, more realistic confidence bands that better capture extremes
+
+**Tuning noise_scale:**
+To adjust CI width, modify `noise_scale` in `generate_surfaces_empirical.py`:
+- 0.0: Pure empirical (training distribution only)
+- 0.3: Default (moderate smoothing)
+- 0.5-1.0: More noise (wider CIs)
+- 2.0: High noise (if still too conservative)
+
+**Visualization:**
+Run `compare_sampling_methods.py` to generate time series plots comparing baseline vs empirical CI bands. Shows dramatic improvements in capturing volatility spikes while maintaining reasonable coverage.
+
+**Philosophy:**
+This approach borrows from the insight that VAEs trained for finite-sample generation (not out-of-distribution synthesis) should sample from the empirical latent distribution learned during training, not the theoretical prior. Similar to successful applications in other financial time series forecasting tasks.
