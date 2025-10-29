@@ -101,63 +101,64 @@ def generate_surfaces_multiday(model_data, ex_data, vol_surface_data,
 
     return (all_day_surfaces_p05, all_day_surfaces_p50, all_day_surfaces_p95), all_day_ex_feats
 
-set_seeds(0)
-torch.set_default_dtype(torch.float64)
-num_epochs = 500
-ctx_len = 5
-start_day = 5
-days_to_generate = 5810
-num_vaes = 1000
+if __name__ == "__main__":
+    set_seeds(0)
+    torch.set_default_dtype(torch.float64)
+    num_epochs = 500
+    ctx_len = 5
+    start_day = 5
+    days_to_generate = 5810
+    num_vaes = 1000
 
-data = np.load("data/vol_surface_with_ret.npz")
-vol_surf_data = data["surface"]
-ret_data = data["ret"]
-level_data = data["levels"]
-skew_data = data["skews"]
-slope_data = data["slopes"]
-ex_data = np.concatenate([ret_data[...,np.newaxis], skew_data[...,np.newaxis], slope_data[...,np.newaxis]], axis=-1)
+    data = np.load("data/vol_surface_with_ret.npz")
+    vol_surf_data = data["surface"]
+    ret_data = data["ret"]
+    level_data = data["levels"]
+    skew_data = data["skews"]
+    slope_data = data["slopes"]
+    ex_data = np.concatenate([ret_data[...,np.newaxis], skew_data[...,np.newaxis], slope_data[...,np.newaxis]], axis=-1)
 
-base_folder = "test_spx/2024_11_09"
-for (file_path, use_ex, return_ex) in [
-    (f"{base_folder}/no_ex.pt", False, False),
-    (f"{base_folder}/ex_no_loss.pt", True, False),
-    (f"{base_folder}/ex_loss.pt", True, True),
-]:
-    print(file_path)
-    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    base_folder = "test_spx/2024_11_09"
+    for (file_path, use_ex, return_ex) in [
+        (f"{base_folder}/no_ex.pt", False, False),
+        (f"{base_folder}/ex_no_loss.pt", True, False),
+        (f"{base_folder}/ex_loss.pt", True, True),
+    ]:
+        print(file_path)
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
 
-    model_data = torch.load(file_path, weights_only=False) # latent_dim=5, surface_hidden=[5,5,5], mem_hidden=100
-    model_config = model_data["model_config"]
-    model_config["mem_dropout"] = 0.
-    model = CVAEMemRand(model_config)
-    model.load_weights(dict_to_load=model_data)
-    model.eval()
-    print(model)
+        model_data = torch.load(file_path, weights_only=False) # latent_dim=5, surface_hidden=[5,5,5], mem_hidden=100
+        model_config = model_data["model_config"]
+        model_config["mem_dropout"] = 0.
+        model = CVAEMemRand(model_config)
+        model.load_weights(dict_to_load=model_data)
+        model.eval()
+        print(model)
 
-    i = ctx_len
-    gen_fn = f"{base_folder}/{file_name}_gen{i}.npz"
-    if not os.path.exists(gen_fn):
-        print(f"Generating quantile surfaces for {file_name}...")
-        if return_ex:
-            (p05, p50, p95), ex_feats = generate_surfaces_multiday(
-                model_data=model_data,
-                ex_data=ex_data, vol_surface_data=vol_surf_data,
-                start_day=i, days_to_generate=days_to_generate, num_vaes=num_vaes,
-                model_type=CVAEMemRand, check_ex_feats=return_ex, ctx_len=i)
-            np.savez(gen_fn, surfaces_p05=p05, surfaces_p50=p50, surfaces_p95=p95, ex_feats=ex_feats)
-            print(f"Saved: {gen_fn}")
-            print(f"  - surfaces_p05: {p05.shape}")
-            print(f"  - surfaces_p50: {p50.shape}")
-            print(f"  - surfaces_p95: {p95.shape}")
-            print(f"  - ex_feats: {ex_feats.shape}")
-        else:
-            (p05, p50, p95), _ = generate_surfaces_multiday(
-                model_data=model_data,
-                ex_data=ex_data, vol_surface_data=vol_surf_data,
-                start_day=i, days_to_generate=days_to_generate, num_vaes=num_vaes,
-                model_type=CVAEMemRand, check_ex_feats=return_ex, ctx_len=i)
-            np.savez(gen_fn, surfaces_p05=p05, surfaces_p50=p50, surfaces_p95=p95)
-            print(f"Saved: {gen_fn}")
-            print(f"  - surfaces_p05: {p05.shape}")
-            print(f"  - surfaces_p50: {p50.shape}")
-            print(f"  - surfaces_p95: {p95.shape}")
+        i = ctx_len
+        gen_fn = f"{base_folder}/{file_name}_gen{i}.npz"
+        if not os.path.exists(gen_fn):
+            print(f"Generating quantile surfaces for {file_name}...")
+            if return_ex:
+                (p05, p50, p95), ex_feats = generate_surfaces_multiday(
+                    model_data=model_data,
+                    ex_data=ex_data, vol_surface_data=vol_surf_data,
+                    start_day=i, days_to_generate=days_to_generate, num_vaes=num_vaes,
+                    model_type=CVAEMemRand, check_ex_feats=return_ex, ctx_len=i)
+                np.savez(gen_fn, surfaces_p05=p05, surfaces_p50=p50, surfaces_p95=p95, ex_feats=ex_feats)
+                print(f"Saved: {gen_fn}")
+                print(f"  - surfaces_p05: {p05.shape}")
+                print(f"  - surfaces_p50: {p50.shape}")
+                print(f"  - surfaces_p95: {p95.shape}")
+                print(f"  - ex_feats: {ex_feats.shape}")
+            else:
+                (p05, p50, p95), _ = generate_surfaces_multiday(
+                    model_data=model_data,
+                    ex_data=ex_data, vol_surface_data=vol_surf_data,
+                    start_day=i, days_to_generate=days_to_generate, num_vaes=num_vaes,
+                    model_type=CVAEMemRand, check_ex_feats=return_ex, ctx_len=i)
+                np.savez(gen_fn, surfaces_p05=p05, surfaces_p50=p50, surfaces_p95=p95)
+                print(f"Saved: {gen_fn}")
+                print(f"  - surfaces_p05: {p05.shape}")
+                print(f"  - surfaces_p50: {p50.shape}")
+                print(f"  - surfaces_p95: {p95.shape}")
