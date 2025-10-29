@@ -48,15 +48,24 @@ Creates visualizations comparing all 3 models across different grid points, show
 
 **Confidence Interval Calibration Analysis:**
 ```bash
+# Original MSE models - CI computed from MC samples
 python verify_mean_tracking_vs_ci.py       # Verify R² vs CI violation coexistence
 python compare_reconstruction_losses.py    # Compare MSE with CI calibration
 python visualize_distribution_comparison.py # Compare marginal distributions
+
+# Quantile regression models - CI directly predicted
+python train_quantile_models.py                 # Train with pinball loss
+python generate_quantile_surfaces.py            # Generate quantile surfaces
+python evaluate_quantile_ci_calibration.py      # Evaluate CI calibration metrics
+python visualize_quantile_teacher_forcing.py    # Visualize quantile predictions
 ```
 These scripts analyze uncertainty calibration in model predictions:
 - `verify_mean_tracking_vs_ci.py`: Proves that good mean tracking (high R²) can coexist with poor CI calibration (high violation rates). Generates scatter plots and regression analysis.
 - `compare_reconstruction_losses.py`: Shows relationship between reconstruction loss (MSE) and CI calibration metrics.
 - `visualize_distribution_comparison.py`: Compares marginal distributions (pooled across all days) vs ground truth histograms.
-- See `CI_CALIBRATION_OBSERVATIONS.md` for detailed empirical findings.
+- `train_quantile_models.py`: Trains models with quantile regression decoder for direct CI prediction.
+- `evaluate_quantile_ci_calibration.py`: Evaluates CI calibration for quantile regression models.
+- See `CI_CALIBRATION_OBSERVATIONS.md` for MSE model findings and `QUANTILE_REGRESSION_RESULTS.md` for quantile regression analysis.
 
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
@@ -316,13 +325,158 @@ Generates:
 
 Shows how teacher forcing works (models always conditioned on real historical data) and performance differences across conditioning strategies.
 
+## Quantile Regression Decoder (Recent Development)
+
+A quantile regression variant has been implemented to address CI calibration issues in uncertainty quantification. This represents an architectural enhancement to directly predict confidence intervals rather than computing them from Monte Carlo samples.
+
+### Motivation
+
+Original MSE models showed CI violation rates of 35-72%, far exceeding the target ~10%. The quantile decoder explicitly learns conditional quantiles during training to improve calibration and provides dramatically faster inference.
+
+### Architecture Changes
+
+**Decoder Output:**
+- **Original**: 1 channel (mean prediction)
+- **Quantile**: 3 channels (p5, p50, p95 quantiles)
+- Output shape: `(B, T, 3, H, W)` where dim=2 represents quantiles
+
+**Loss Function:**
+- **Original**: MSE (Mean Squared Error)
+- **Quantile**: Pinball Loss (asymmetric quantile loss)
+- For τ=0.05: Over-predictions penalized 19× more → learns conservative lower bound
+- For τ=0.95: Under-predictions penalized 19× more → learns conservative upper bound
+
+**Pinball Loss Formula:**
+```python
+def pinball_loss(y_true, y_pred, quantile):
+    error = y_true - y_pred
+    return torch.where(error >= 0, quantile * error, (quantile - 1) * error)
+```
+
+**Generation Speedup:**
+- **Original**: 1,000 forward passes with z ~ N(0,1) → compute empirical quantiles
+- **Quantile**: 1 forward pass → get all 3 quantiles directly
+- **Result**: ~1000× faster generation
+
+### Training Configuration
+
+All three model variants (no_ex, ex_no_loss, ex_loss) support quantile regression:
+
+```python
+model_config = {
+    "use_quantile_regression": True,
+    "num_quantiles": 3,
+    "quantiles": [0.05, 0.5, 0.95],
+    # ... other params same as baseline
+    "latent_dim": 5,
+    "mem_hidden": 100,
+    "surface_hidden": [5, 5, 5],
+    "kl_weight": 1e-5,
+}
+```
+
+### Current Performance
+
+**Training Performance (Test Set):**
+
+| Model | Surface RE Loss | KL Loss | Total Loss |
+|-------|-----------------|---------|------------|
+| **no_ex** | 0.006349 | 6.033 | 0.006409 |
+| **ex_no_loss** | 0.006269 | 7.768 | 0.006347 |
+| **ex_loss** | 0.006206 | 5.876 | 0.006392 |
+
+Note: RE loss is pinball loss, not directly comparable to MSE.
+
+**CI Calibration Results:**
+
+| Model | CI Violations | Below p05 | Above p95 | Mean CI Width |
+|-------|---------------|-----------|-----------|---------------|
+| **no_ex** | 44.50% | 4.79% | 39.71% | 0.0811 |
+| **ex_no_loss** | 35.43% | 17.82% | 17.60% | 0.0855 |
+| **ex_loss** | 34.28% | 5.55% | 28.72% | 0.0892 |
+
+- **Expected**: ~10% violations (well-calibrated)
+- **Actual**: 34-45% violations (improvement from baseline ~50%+ but needs further work)
+- **Best model**: ex_loss with 34.28% violations
+
+### Key Observations
+
+1. **Improvement over baseline**: Reduced violations from ~50%+ to ~34% (ex_loss model)
+2. **Asymmetric violations**: Most models have more violations above p95 than below p05
+3. **Generation speed**: Dramatically faster (1000× speedup)
+4. **Trade-off**: Better calibration vs more complex loss function
+
+### Usage
+
+**Training quantile models:**
+```bash
+python train_quantile_models.py
+```
+
+**Generating quantile surfaces:**
+```bash
+python generate_quantile_surfaces.py
+```
+
+**Evaluating CI calibration:**
+```bash
+python evaluate_quantile_ci_calibration.py
+```
+
+**Visualizing quantile predictions:**
+```bash
+python visualize_quantile_teacher_forcing.py
+```
+
+### Model Output Format
+
+Quantile models output 3 surfaces per prediction:
+- `surfaces[:, :, 0, :, :]` - p05 (5th percentile, lower bound)
+- `surfaces[:, :, 1, :, :]` - p50 (median, point forecast)
+- `surfaces[:, :, 2, :, :]` - p95 (95th percentile, upper bound)
+
+For EX Loss models, also outputs quantiles for extra features:
+- `ex_feats[:, :, 0, :]` - p05 features [return, skew, slope]
+- `ex_feats[:, :, 1, :]` - p50 features
+- `ex_feats[:, :, 2, :]` - p95 features
+
+### Current Status & Next Steps
+
+**Status**: ✓ Implementation successful, ✗ Calibration needs improvement
+
+**Completed:**
+- Stable training with pinball loss
+- 1000× generation speedup
+- ~16% reduction in CI violations vs baseline
+
+**Remaining challenges:**
+- CI violations at 34% (target: 10%)
+- Models underestimate upper tail uncertainty
+- Need calibration techniques (e.g., conformal prediction)
+
+**Recommended next steps:**
+1. Apply conformal prediction for post-hoc calibration
+2. Retrain with loss reweighting (emphasize tail quantiles)
+3. Explore heteroscedastic quantile regression
+
+See `QUANTILE_REGRESSION_RESULTS.md` for detailed analysis and recommendations.
+
 ## Important Implementation Details
 
 ### Loss Function
+
+**Standard VAE Models:**
 - Reconstruction error uses MSE for surfaces
 - KL divergence term weighted by `kl_weight` (typically 1e-5)
 - Extra features use L1 or L2 loss weighted by `re_feat_weight`
 - When `ex_loss_on_ret_only=True`, only return (first feature) gets loss optimization
+
+**Quantile Regression Models:**
+- Reconstruction error uses Pinball Loss (quantile loss) instead of MSE
+- Pinball loss computed separately for each quantile (p05, p50, p95)
+- KL divergence term still weighted by `kl_weight`
+- Extra features (if used) also use pinball loss for quantile prediction
+- Total loss: `loss = pinball_loss + kl_weight * kl_loss`
 
 ### Sequence Generation and Teacher Forcing
 
@@ -370,7 +524,7 @@ model.load_weights(dict_to_load=model_data)
 model.eval()
 ```
 
-**Generating Surfaces:**
+**Generating Surfaces (Standard Models):**
 ```python
 ctx_data = {
     "surface": torch.tensor(...),  # (B, C, 5, 5)
@@ -378,6 +532,19 @@ ctx_data = {
 }
 generated_surface = model.get_surface_given_conditions(ctx_data)
 # Returns: (B, 1, 5, 5) surface for next day
+```
+
+**Generating Surfaces (Quantile Models):**
+```python
+ctx_data = {
+    "surface": torch.tensor(...),  # (B, C, 5, 5)
+    "ex_feats": torch.tensor(...)  # (B, C, 3) - optional
+}
+generated_surfaces = model.get_surface_given_conditions(ctx_data)
+# Returns: (B, 1, 3, 5, 5) - 3 quantile surfaces for next day
+# generated_surfaces[:, :, 0, :, :] - p05 (lower bound)
+# generated_surfaces[:, :, 1, :, :] - p50 (median)
+# generated_surfaces[:, :, 2, :, :] - p95 (upper bound)
 ```
 
 **Data Preprocessing:**
