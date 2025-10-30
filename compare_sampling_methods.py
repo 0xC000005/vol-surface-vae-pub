@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import argparse
 
 def plot_ci_comparison_timeseries(actual, baseline_gen, empirical_gen, dates,
                                    model_name, grid_name, noise_scale, output_path):
@@ -92,16 +93,24 @@ def plot_violation_rate_comparison(results, output_path):
     plt.close()
 
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Compare baseline vs empirical sampling visualizations")
+    parser.add_argument("--noise-scale", type=float, default=0.3,
+                        help="Noise scale to visualize (default: 0.3)")
+    args = parser.parse_args()
+
     print("="*70)
     print("Comparison Visualization: Baseline vs Empirical Sampling")
     print("="*70)
 
     # Parameters
     base_folder = "test_spx/2024_11_09"
-    noise_scale = 0.3
+    noise_scale = args.noise_scale  # From command line or default
     start_day = 5
     days_to_generate = 5810
     PLOT_LAST_N = 200  # Plot last 200 days for clarity
+
+    print(f"\nVisualizing noise_scale = {noise_scale}")
 
     # Grid points
     grid_points = [

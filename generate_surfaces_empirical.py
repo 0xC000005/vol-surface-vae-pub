@@ -8,6 +8,7 @@ from vae.cvae_with_mem_randomized import CVAEMemRand
 from vae.utils import *
 from eval_scripts.eval_utils import *
 import os, sys
+import argparse
 
 
 def generate_surfaces_empirical(model: CVAEMemRand, ex_data, vol_surface_data, day, ctx_len,
@@ -121,130 +122,141 @@ def generate_surfaces_multiday_empirical(model_data, ex_data, vol_surface_data,
 
 
 # Main generation script
-set_seeds(0)
-torch.set_default_dtype(torch.float64)
+if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Generate volatility surfaces using empirical latent sampling")
+    parser.add_argument("--noise-scale", type=float, default=0.3,
+                        help="Noise scale for empirical latent sampling (default: 0.3)")
+    parser.add_argument("--start-day", type=int, default=5,
+                        help="Starting day for generation (default: 5, minimum is ctx_len)")
+    parser.add_argument("--days-to-generate", type=int, default=5810,
+                        help="Number of days to generate (default: 5810)")
+    args = parser.parse_args()
 
-# Generation parameters
-ctx_len = 5
-start_day = 5
-days_to_generate = 5810
-num_vaes = 1000
-noise_scale = 0.3  # Default noise level (tunable parameter)
+    set_seeds(0)
+    torch.set_default_dtype(torch.float64)
 
-# Load data
-print("="*70)
-print("Empirical Latent Sampling Surface Generation")
-print("="*70)
-print(f"\nGeneration parameters:")
-print(f"  Context length: {ctx_len}")
-print(f"  Start day: {start_day}")
-print(f"  Days to generate: {days_to_generate}")
-print(f"  Samples per day: {num_vaes}")
-print(f"  Noise scale: {noise_scale}")
+    # Generation parameters
+    ctx_len = 5
+    start_day = args.start_day  # From command line or default
+    days_to_generate = args.days_to_generate  # From command line or default
+    num_vaes = 1000
+    noise_scale = args.noise_scale  # From command line or default
 
-print("\nLoading data...")
-data = np.load("data/vol_surface_with_ret.npz")
-vol_surf_data = data["surface"]
-ret_data = data["ret"]
-level_data = data["levels"]
-skew_data = data["skews"]
-slope_data = data["slopes"]
-ex_data = np.concatenate([ret_data[...,np.newaxis], skew_data[...,np.newaxis], slope_data[...,np.newaxis]], axis=-1)
+    # Load data
+    print("="*70)
+    print("Empirical Latent Sampling Surface Generation")
+    print("="*70)
+    print(f"\nGeneration parameters:")
+    print(f"  Context length: {ctx_len}")
+    print(f"  Start day: {start_day}")
+    print(f"  Days to generate: {days_to_generate}")
+    print(f"  Samples per day: {num_vaes}")
+    print(f"  Noise scale: {noise_scale}")
 
-base_folder = "test_spx/2024_11_09"
+    print("\nLoading data...")
+    data = np.load("data/vol_surface_with_ret.npz")
+    vol_surf_data = data["surface"]
+    ret_data = data["ret"]
+    level_data = data["levels"]
+    skew_data = data["skews"]
+    slope_data = data["slopes"]
+    ex_data = np.concatenate([ret_data[...,np.newaxis], skew_data[...,np.newaxis], slope_data[...,np.newaxis]], axis=-1)
 
-# Model configurations
-models_config = [
-    {
-        "path": f"{base_folder}/no_ex.pt",
-        "name": "no_ex",
-        "use_ex": False,
-        "return_ex": False
-    },
-    {
-        "path": f"{base_folder}/ex_no_loss.pt",
-        "name": "ex_no_loss",
-        "use_ex": True,
-        "return_ex": False
-    },
-    {
-        "path": f"{base_folder}/ex_loss.pt",
-        "name": "ex_loss",
-        "use_ex": True,
-        "return_ex": True
-    }
-]
+    base_folder = "test_spx/2024_11_09"
 
-# Generate for each model
-for model_cfg in models_config:
-    print(f"\n{'='*70}")
-    print(f"Processing model: {model_cfg['name']}")
-    print(f"{'='*70}")
+    # Model configurations
+    models_config = [
+        {
+            "path": f"{base_folder}/no_ex.pt",
+            "name": "no_ex",
+            "use_ex": False,
+            "return_ex": False
+        },
+        {
+            "path": f"{base_folder}/ex_no_loss.pt",
+            "name": "ex_no_loss",
+            "use_ex": True,
+            "return_ex": False
+        },
+        {
+            "path": f"{base_folder}/ex_loss.pt",
+            "name": "ex_loss",
+            "use_ex": True,
+            "return_ex": True
+        }
+    ]
 
-    file_path = model_cfg["path"]
-    file_name = model_cfg["name"]
+    # Generate for each model
+    for model_cfg in models_config:
+        print(f"\n{'='*70}")
+        print(f"Processing model: {model_cfg['name']}")
+        print(f"{'='*70}")
 
-    # Load model
-    print(f"\nLoading model from {file_path}...")
-    model_data = torch.load(file_path, weights_only=False)
-    model_config = model_data["model_config"]
-    model_config["mem_dropout"] = 0.
-    model = CVAEMemRand(model_config)
-    model.load_weights(dict_to_load=model_data)
-    model.eval()
+        file_path = model_cfg["path"]
+        file_name = model_cfg["name"]
 
-    # Load empirical latents for this model
-    empirical_latents_path = f"{base_folder}/{file_name}_empirical_latents.npz"
-    print(f"Loading empirical latents from {empirical_latents_path}...")
-    empirical_latents = np.load(empirical_latents_path)
-    z_mean_pool = empirical_latents["z_mean_pool"]
-    print(f"  Latent pool shape: {z_mean_pool.shape}")
-    print(f"  Latent pool stats: mean={np.mean(z_mean_pool):.4f}, std={np.std(z_mean_pool):.4f}")
+        # Load model
+        print(f"\nLoading model from {file_path}...")
+        model_data = torch.load(file_path, weights_only=False)
+        model_config = model_data["model_config"]
+        model_config["mem_dropout"] = 0.
+        model = CVAEMemRand(model_config)
+        model.load_weights(dict_to_load=model_data)
+        model.eval()
 
-    # Generate surfaces
-    gen_fn = f"{base_folder}/{file_name}_empirical_gen{ctx_len}_noise{noise_scale}.npz"
-    if not os.path.exists(gen_fn):
-        print(f"\nGenerating surfaces...")
-        if model_cfg["return_ex"]:
-            surfaces, ex_feats = generate_surfaces_multiday_empirical(
-                model_data=model_data,
-                ex_data=ex_data,
-                vol_surface_data=vol_surf_data,
-                start_day=ctx_len,
-                days_to_generate=days_to_generate,
-                num_vaes=num_vaes,
-                z_mean_pool=z_mean_pool,
-                noise_scale=noise_scale,
-                model_type=CVAEMemRand,
-                check_ex_feats=model_cfg["return_ex"],
-                ctx_len=ctx_len
-            )
-            np.savez(gen_fn, surfaces=surfaces, ex_feats=ex_feats)
+        # Load empirical latents for this model
+        empirical_latents_path = f"{base_folder}/{file_name}_empirical_latents.npz"
+        print(f"Loading empirical latents from {empirical_latents_path}...")
+        empirical_latents = np.load(empirical_latents_path)
+        z_mean_pool = empirical_latents["z_mean_pool"]
+        print(f"  Latent pool shape: {z_mean_pool.shape}")
+        print(f"  Latent pool stats: mean={np.mean(z_mean_pool):.4f}, std={np.std(z_mean_pool):.4f}")
+
+        # Generate surfaces
+        gen_fn = f"{base_folder}/{file_name}_empirical_gen{ctx_len}_noise{noise_scale}_days{start_day}-{start_day+days_to_generate}.npz"
+        if not os.path.exists(gen_fn):
+            print(f"\nGenerating surfaces...")
+            if model_cfg["return_ex"]:
+                surfaces, ex_feats = generate_surfaces_multiday_empirical(
+                    model_data=model_data,
+                    ex_data=ex_data,
+                    vol_surface_data=vol_surf_data,
+                    start_day=ctx_len,
+                    days_to_generate=days_to_generate,
+                    num_vaes=num_vaes,
+                    z_mean_pool=z_mean_pool,
+                    noise_scale=noise_scale,
+                    model_type=CVAEMemRand,
+                    check_ex_feats=model_cfg["return_ex"],
+                    ctx_len=ctx_len
+                )
+                np.savez(gen_fn, surfaces=surfaces, ex_feats=ex_feats)
+            else:
+                surfaces, _ = generate_surfaces_multiday_empirical(
+                    model_data=model_data,
+                    ex_data=ex_data,
+                    vol_surface_data=vol_surf_data,
+                    start_day=ctx_len,
+                    days_to_generate=days_to_generate,
+                    num_vaes=num_vaes,
+                    z_mean_pool=z_mean_pool,
+                    noise_scale=noise_scale,
+                    model_type=CVAEMemRand,
+                    check_ex_feats=model_cfg["return_ex"],
+                    ctx_len=ctx_len
+                )
+                np.savez(gen_fn, surfaces=surfaces)
+
+            print(f"  ✓ Saved to: {gen_fn}")
+            print(f"  Surface shape: {surfaces.shape}")
         else:
-            surfaces, _ = generate_surfaces_multiday_empirical(
-                model_data=model_data,
-                ex_data=ex_data,
-                vol_surface_data=vol_surf_data,
-                start_day=ctx_len,
-                days_to_generate=days_to_generate,
-                num_vaes=num_vaes,
-                z_mean_pool=z_mean_pool,
-                noise_scale=noise_scale,
-                model_type=CVAEMemRand,
-                check_ex_feats=model_cfg["return_ex"],
-                ctx_len=ctx_len
-            )
-            np.savez(gen_fn, surfaces=surfaces)
+            print(f"\n  ✓ Already exists: {gen_fn}")
 
-        print(f"  ✓ Saved to: {gen_fn}")
-        print(f"  Surface shape: {surfaces.shape}")
-    else:
-        print(f"\n  ✓ Already exists: {gen_fn}")
-
-print("\n" + "="*70)
-print("Generation Complete!")
-print("="*70)
-print(f"\nGenerated files:")
-for model_cfg in models_config:
-    gen_fn = f"{base_folder}/{model_cfg['name']}_empirical_gen{ctx_len}_noise{noise_scale}.npz"
-    print(f"  {gen_fn}")
+    print("\n" + "="*70)
+    print("Generation Complete!")
+    print("="*70)
+    print(f"\nGenerated files:")
+    for model_cfg in models_config:
+        gen_fn = f"{base_folder}/{model_cfg['name']}_empirical_gen{ctx_len}_noise{noise_scale}_days{start_day}-{start_day+days_to_generate}.npz"
+        print(f"  {gen_fn}")

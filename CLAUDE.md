@@ -22,7 +22,7 @@ The system uses a Conditional VAE (CVAE) combined with LSTM to generate one-day-
 - `main`: Stable baseline models with N(0,1) sampling
 - `max`: Development branch
 - `quantile-regression-decoder`: Alternative approach using quantile regression for CI prediction
-- `empirical-latent-sampling`: Improved CI calibration via empirical latent sampling (current branch)
+- `empirical-latent-sampling`: Experiments with improved CI calibration via empirical latent sampling
 
 ### Common Commands
 
@@ -52,31 +52,38 @@ Creates visualizations comparing all 3 models across different grid points, show
 - `teacher_forcing_implied_vol.png` - 9-panel comparison (3 models × 3 grid points)
 - `teacher_forcing_returns.png` - Return predictions for EX Loss model
 
-**Empirical Latent Sampling (Improved CI Calibration):**
+**Empirical Latent Sampling (CI Calibration Experiments):**
 ```bash
 # Step 1: Extract empirical latent distributions from training data
 python extract_empirical_latents.py
 
-# Step 2: Generate surfaces using empirical latents instead of N(0,1)
-python generate_surfaces_empirical.py  # Default noise_scale=0.3
+# Step 2: Generate surfaces using empirical latents with custom noise and day ranges
+python generate_surfaces_empirical.py --noise-scale 0.3 --start-day 5 --days-to-generate 5810
 
-# Step 3: Verify marginal distribution match
-python verify_marginal_distribution.py
+# Step 3: Evaluate CI calibration
+python evaluate_empirical_ci.py --noise-scale 0.3
 
-# Step 4: Evaluate CI calibration improvements
-python evaluate_empirical_ci.py
+# Step 4: Batch test multiple noise values
+python batch_test_noise_scales.py  # Tests noise=[0.0, 0.1, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0]
 
-# Step 5: Create comparison visualizations
+# Step 5: Analyze noise sweep results
+python analyze_noise_sweep.py
+
+# Step 6: Compare sampling methods
 python compare_sampling_methods.py
 ```
 
-These scripts address CI miscalibration discovered in baseline models (35-72% violation rates vs 10% target). Empirical latent sampling reduces violations to 34-54% by sampling from actual training latent distributions instead of N(0,1). See `CI_CALIBRATION_OBSERVATIONS.md` for baseline analysis.
-
-**Latent Distribution Analysis:**
+**Distribution Analysis:**
 ```bash
+# Analyze latent distributions
 python analyze_latent_distribution.py
+
+# Analyze train/val/test distribution shift
+python analyze_distribution_shift.py
+
+# Visualize marginal distributions
+python visualize_marginal_distributions.py
 ```
-Compares empirical latent distributions against N(0,1) assumption, generates histograms showing per-dimension statistics.
 
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
@@ -107,7 +114,7 @@ Compares empirical latent distributions against N(0,1) assumption, generates his
 
 **Configuration Parameters:**
 - `feat_dim`: Volatility surface dimensions (typically (5, 5))
-- `latent_dim`: Latent space dimensionality
+- `latent_dim`: Latent space dimensionality (typically 5)
 - `surface_hidden`: Hidden layer sizes for surface encoding
 - `ex_feats_dim`: Number of extra features (0 for surface only, 3 for ret/skew/slope)
 - `mem_type`: Memory type (lstm/gru/rnn)
@@ -154,8 +161,17 @@ Volatility surfaces are stored as numpy arrays:
 - `ex_data`: (N, 3) - Concatenated [ret, skew, slope]
 
 Data files:
-- `data/vol_surface_with_ret.npz`: Main training data
+- `data/vol_surface_with_ret.npz`: Main training data (5822 days)
 - `data/spx_vol_surface_history_full_data_fixed.parquet`: Full SPX history
+
+### Data Splits
+```
+Training:   days 0-3999     (2000-01-03 to 2015-11-27)
+Validation: days 4000-4999  (2015-11-30 to 2019-11-18)
+Test:       days 5000-5821  (2019-11-19 to 2023-02-14)
+```
+
+**Important**: Evaluation typically uses last 1000 days (days 4822-5821) which spans validation + test sets.
 
 ### Model Outputs
 Generated surfaces stored in npz files:
@@ -349,6 +365,7 @@ Shows how teacher forcing works (models always conditioned on real historical da
 **Training:**
 - Context length `C` is variable during training (randomized between min_seq_len and max_seq_len)
 - Model learns to predict 1-day-ahead: given surfaces at [t-C, ..., t-1], predict surface at t
+- **Critical**: Encoder sees the actual day t surface and encodes it into latent z_t during training
 
 **Generation (Inference):**
 - Uses **teacher forcing**: always conditions on real historical data, not model predictions
@@ -369,11 +386,10 @@ Shows how teacher forcing works (models always conditioned on real historical da
 2. **Empirical Latent Sampling (`generate_surfaces_empirical.py`):**
    - Samples latent variable z from empirical training latent pool + optional noise
    - Formula: `z = z_empirical[random_idx] + noise_scale * N(0,1)`
-   - Default noise_scale=0.3 (tunable parameter)
+   - Tunable parameters: `--noise-scale` (default 0.3), `--start-day`, `--days-to-generate`
    - Generates 1,000 samples per day
-   - Output: (num_days, 1000, 5, 5) with filename `{model}_empirical_gen5_noise{noise_scale}.npz`
-   - **Improvement**: CI violation rates reduced to 34-54% (12% average improvement)
-   - Used when: Better CI calibration needed, sampling from realistic latent distributions
+   - Output: (num_days, 1000, 5, 5) with filename `{model}_empirical_gen5_noise{noise_scale}_days{start}-{end}.npz`
+   - Used for: CI calibration experiments, exploring noise parameter space
 
 3. **Maximum Likelihood (`generate_surfaces_max_likelihood.py`):**
    - Sets latent variable z = 0 (mode of prior distribution)
@@ -439,58 +455,143 @@ Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed usin
 **Pre-trained Models:**
 Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
 
-## Confidence Interval Calibration Issue & Solution
+## Confidence Interval Calibration Issues
 
-### Problem: Overconfident Uncertainty Estimates
+### CRITICAL FINDING: Structural Mismatch Between Training and Generation
 
-Baseline models generate predictions with 90% confidence intervals, but empirical testing reveals severe miscalibration:
+The models exhibit **severe CI miscalibration** with a counter-intuitive pattern: **in-distribution calibration is WORSE than out-of-distribution**. This reveals a fundamental structural issue with how teacher forcing VAEs handle uncertainty quantification.
 
-**Baseline N(0,1) Sampling CI Violations:**
-- No EX: 18-35% (expected: 10%)
-- EX No Loss: 54-72% (expected: 10%)
-- EX Loss: 50-65% (expected: 10%)
+### Problem Summary
 
-See `CI_CALIBRATION_OBSERVATIONS.md` for detailed baseline analysis.
+**Baseline N(0,1) Sampling CI Violations (target: 10%):**
 
-### Root Cause: Prior-Posterior Mismatch
+| Evaluation Set | No EX | EX No Loss | EX Loss | Average |
+|---------------|-------|------------|---------|---------|
+| **OOD** (days 4822-5821, test set) | 18-35% | 54-72% | 50-65% | **54%** |
+| **In-Dist** (days 1000-1059, training) | 88-100% | 68-100% | 88-100% | **91%** |
 
-**Hypothesis**: VAE models are trained with weak KL regularization (weight=1e-5), so the learned posterior distribution q(z|x) deviates significantly from the prior N(0,1). During generation, sampling z ~ N(0,1) undersamples the true variability the decoder expects.
+**With Optimal Noise (2.0):**
 
-**Evidence** (from `analyze_latent_distribution.py`):
-- Empirical latent std ranges from 0.05 to 1.23 across dimensions (not 1.0)
-- KL divergence values: 3.96-4.00 (not near 0)
-- Per-dimension heterogeneity: some dimensions have σ² > 1, others have σ² < 1
+| Evaluation Set | Average Violations | Distance from Target |
+|---------------|-------------------|---------------------|
+| **OOD** (test set) | 37% | 27% above target |
+| **In-Dist** (training) | 83% | **73% above target** |
 
-### Solution: Empirical Latent Sampling
+**Key Observation**: In-distribution calibration is **46 percentage points worse** than out-of-distribution at noise=2.0. This is the opposite of what distribution shift alone would predict.
 
-Instead of sampling z ~ N(0,1), sample from the empirical distribution of training latent codes:
+### Root Cause: Teacher Forcing Structural Mismatch
 
-**Approach:**
-1. Extract z_mean for all training days using encoder
-2. Build empirical latent pool: (N_train, latent_dim)
-3. During generation: `z = z_empirical[random_idx] + noise_scale * N(0,1)`
-4. The noise_scale parameter (default 0.3) is tunable for CI width adjustment
+**The Problem:**
 
-**Implementation Files:**
-- `extract_empirical_latents.py`: Builds latent library per model
-- `generate_surfaces_empirical.py`: Generation with empirical sampling
-- Output: `{model}_empirical_latents.npz` and `{model}_empirical_gen5_noise{noise}.npz`
+**During Training:**
+- Encoder sees the **actual next-day surface** at timestep t and encodes it into latent z_t
+- Model learns: p(surface_t | context, z_t_true) where z_t_true comes from encoding the actual future
+- Has privileged information: sees the future before predicting it
 
-**Results:**
-- Average CI violations reduced from 66% → 54% (12% improvement)
-- Best improvements: ex_loss OTM Put (71.6% → 45.5%), ex_no_loss ATM 3M (59.8% → 34.7%)
-- Marginal distributions closer to historical (lower KS statistic)
-- Wider, more realistic confidence bands that better capture extremes
+**During Generation:**
+- Model only has context [t-5...t-1], no access to actual day t
+- Must **randomly sample** z_t from N(0,1) or empirical latents
+- Sampled z_t is uncorrelated with the actual future that will occur
+- Model must use: p(surface_t | context, z_t_sampled)
 
-**Tuning noise_scale:**
-To adjust CI width, modify `noise_scale` in `generate_surfaces_empirical.py`:
-- 0.0: Pure empirical (training distribution only)
-- 0.3: Default (moderate smoothing)
-- 0.5-1.0: More noise (wider CIs)
-- 2.0: High noise (if still too conservative)
+**Why This Breaks:**
+The model learned conditional distributions that expect correlated latent variables. During generation, sampling violates these learned correlations, leading to:
+- **Systematic bias** on training data where model memorized context-latent patterns
+- **100% violations at ATM 3-Month** grid point (all predictions above actual values)
+- **Better OOD performance** because model is already uncertain about unfamiliar patterns
 
-**Visualization:**
-Run `compare_sampling_methods.py` to generate time series plots comparing baseline vs empirical CI bands. Shows dramatic improvements in capturing volatility spikes while maintaining reasonable coverage.
+### Evidence from Experiments
 
-**Philosophy:**
-This approach borrows from the insight that VAEs trained for finite-sample generation (not out-of-distribution synthesis) should sample from the empirical latent distribution learned during training, not the theoretical prior. Similar to successful applications in other financial time series forecasting tasks.
+**1. Systematic Bias at ATM 3-Month:**
+- All three models show 98-100% CI violations on in-distribution data
+- 100% of actual values fall BELOW the 5th percentile
+- Model systematically overestimates volatility at this grid point
+- Even noise=2.0 barely helps (98-100% violations persist)
+
+**2. Distribution Shift Analysis:**
+- Training period (2000-2015): mean vol = 0.1937
+- Validation period (2015-2019): mean vol = 0.1446 (unusually calm)
+- Test period (2019-2023): mean vol = 0.2162 (includes COVID spike)
+- **But**: Negative correlation (-0.08) between distribution shift magnitude and CI violations
+- Grid points with larger shifts have BETTER calibration, not worse
+
+**3. Noise Parameter Sweep:**
+- Tested noise scales: [0.0, 0.1, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0]
+- OOD improvement (noise 0.3→2.0): 54% → 37% (-17 points)
+- In-dist improvement (noise 0.3→2.0): 91% → 83% (-8 points)
+- Noise is **twice as effective** on OOD data
+
+**4. In-Distribution vs OOD Results:**
+
+See `in_distribution_vs_ood_comparison.md` for detailed analysis.
+
+| Metric | In-Dist (training) | OOD (test) |
+|--------|-------------------|------------|
+| Avg violations @ noise=0.3 | 91.11% | 54.00% |
+| Avg violations @ noise=2.0 | 83.15% | 37.12% |
+| ATM 3M violations @ noise=2.0 | 98-100% | 3.7-20.2% |
+| Best case | 53% (ex_no_loss OTM Put) | 3.7% (no_ex ATM 3M) |
+
+### Implementation Files
+
+**Empirical Latent Sampling:**
+- `extract_empirical_latents.py`: Extract latent distributions from training data
+- `generate_surfaces_empirical.py`: Generate with empirical sampling (supports custom day ranges)
+- `evaluate_empirical_ci.py`: Evaluate CI calibration (supports custom evaluation windows)
+- `batch_test_noise_scales.py`: Automated testing of multiple noise values
+
+**Analysis:**
+- `analyze_latent_distribution.py`: Compare empirical latents vs N(0,1)
+- `analyze_noise_sweep.py`: Analyze results across noise parameter space
+- `analyze_distribution_shift.py`: Statistical analysis of train/val/test distribution differences
+- `compare_sampling_methods.py`: Visualize baseline vs empirical sampling results
+
+**Documentation:**
+- `CI_CALIBRATION_OBSERVATIONS.md`: Initial baseline CI miscalibration findings
+- `in_distribution_vs_ood_comparison.md`: Detailed comparison of in-dist vs OOD calibration
+- `noise_sweep_results.csv`: Violation rates for all models/grid points/noise values
+
+### Recommendations
+
+**❌ DO NOT USE for Uncertainty Quantification:**
+- Confidence intervals are severely miscalibrated (37-91% violations vs 10% target)
+- Particularly unreliable on training data (backfilling)
+- Systematic bias at certain grid points (ATM 3-Month overestimates by ~1 std)
+
+**✓ CAN USE for Point Forecasts:**
+- Teacher forcing works well for deterministic predictions (MLE generation)
+- Surface reconstruction losses are low (0.0017-0.0025)
+- Good performance for relative comparisons and scenario analysis
+
+**For Improved Calibration:**
+1. **Remove teacher forcing during training** - force model to generate without seeing future latents
+2. **Use variational dropout** - inject noise during training to match generation conditions
+3. **Post-calibration** - learn empirical correction factors from validation set
+4. **Alternative approaches** - conformal prediction, quantile regression, ensemble methods
+
+**If Forced to Use Current Model:**
+- Use `noise_scale=2.0` for best (but still poor) calibration
+- Acknowledge 37% violation rate (vs 10% target) in any analysis
+- Consider using wider confidence levels (95% or 99%) to compensate
+- Focus on qualitative insights rather than precise probability statements
+
+### Key Takeaways
+
+1. **Primary issue is NOT distribution shift** - it's a structural mismatch between training and generation
+2. **Empirical latent sampling helps** but doesn't solve the fundamental problem
+3. **Noise scaling provides marginal improvement** - optimal at 2.0 but still 27% above target
+4. **All three model variants** (no_ex, ex_no_loss, ex_loss) show similar miscalibration patterns
+5. **Teacher forcing is excellent for point forecasts** but incompatible with uncertainty quantification in this architecture
+
+### Related Work and Context
+
+This finding is consistent with known issues in VAE-based probabilistic forecasting:
+- VAEs with weak KL regularization (1e-5) develop posterior collapse
+- Teacher forcing creates train-test distribution mismatch
+- Empirical latent sampling is a partial fix but requires architectural changes for full calibration
+
+For applications requiring reliable uncertainty estimates, consider alternative architectures:
+- Direct quantile regression (see `quantile-regression-decoder` branch)
+- Conformal prediction post-processing
+- Ensemble methods with proper diversity
+- Explicit uncertainty modeling (e.g., heteroscedastic outputs)

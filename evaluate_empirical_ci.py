@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import argparse
 
 def compute_ci_violations(actual, generated, percentile_low=5, percentile_high=95):
     """
@@ -51,16 +52,53 @@ def compute_ci_violations(actual, generated, percentile_low=5, percentile_high=9
     }
 
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Evaluate CI calibration for empirical latent sampling")
+    parser.add_argument("--noise-scale", type=float, default=0.3,
+                        help="Noise scale to evaluate (default: 0.3)")
+    parser.add_argument("--start-day", type=int, default=5,
+                        help="Starting day for generation (default: 5)")
+    parser.add_argument("--days-to-generate", type=int, default=5810,
+                        help="Number of days generated (default: 5810)")
+    parser.add_argument("--eval-start-day", type=int, default=None,
+                        help="Starting day for evaluation (default: None, uses last 1000 days)")
+    parser.add_argument("--eval-end-day", type=int, default=None,
+                        help="Ending day for evaluation (default: None, uses last 1000 days)")
+    args = parser.parse_args()
+
     print("="*70)
     print("CI Calibration Evaluation: Baseline vs Empirical Sampling")
     print("="*70)
 
     # Parameters
     base_folder = "test_spx/2024_11_09"
-    noise_scale = 0.3
-    start_day = 5
-    days_to_generate = 5810
-    LAST_N_DAYS = 1000  # Evaluate on last 1000 days (test set)
+    noise_scale = args.noise_scale  # From command line or default
+    start_day = args.start_day
+    days_to_generate = args.days_to_generate
+
+    # Determine evaluation window
+    if args.eval_start_day is not None and args.eval_end_day is not None:
+        # Explicit evaluation window specified
+        eval_start_day = args.eval_start_day
+        eval_end_day = args.eval_end_day
+        # Convert to indices in the generated array (offset by start_day)
+        eval_start_idx = eval_start_day - start_day
+        eval_end_idx = eval_end_day - start_day
+        eval_description = f"days {eval_start_day}-{eval_end_day}"
+    else:
+        # Default: use last 1000 days
+        LAST_N_DAYS = 1000
+        eval_start_idx = days_to_generate - LAST_N_DAYS
+        eval_end_idx = days_to_generate
+        eval_start_day = start_day + eval_start_idx
+        eval_end_day = start_day + eval_end_idx
+        eval_description = f"last {LAST_N_DAYS} days (days {eval_start_day}-{eval_end_day})"
+
+    num_eval_days = eval_end_idx - eval_start_idx
+
+    print(f"\nEvaluating noise_scale = {noise_scale}")
+    print(f"Generation window: days {start_day}-{start_day+days_to_generate} ({days_to_generate} days)")
+    print(f"Evaluation window: {eval_description} ({num_eval_days} days)")
 
     # Grid points to analyze
     grid_points = [
@@ -75,9 +113,8 @@ def main():
     # Load actual data
     print(f"\nLoading actual data...")
     data = np.load("data/vol_surface_with_ret.npz")
-    actual_surfaces = data["surface"][start_day:start_day+days_to_generate]  # (5810, 5, 5)
+    actual_surfaces = data["surface"][start_day:start_day+days_to_generate]
     print(f"  Shape: {actual_surfaces.shape}")
-    print(f"  Evaluating on last {LAST_N_DAYS} days")
 
     # Results storage
     results = []
@@ -90,7 +127,7 @@ def main():
 
         # Load generations
         baseline_path = f"{base_folder}/{model_name}_gen5.npz"
-        empirical_path = f"{base_folder}/{model_name}_empirical_gen5_noise{noise_scale}.npz"
+        empirical_path = f"{base_folder}/{model_name}_empirical_gen5_noise{noise_scale}_days{start_day}-{start_day+days_to_generate}.npz"
 
         print(f"  Loading baseline: {baseline_path}")
         baseline_data = np.load(baseline_path)
@@ -100,10 +137,10 @@ def main():
         empirical_data = np.load(empirical_path)
         empirical_surfaces = empirical_data["surfaces"]  # (5810, 1000, 5, 5)
 
-        # Focus on last N days
-        actual_test = actual_surfaces[-LAST_N_DAYS:]
-        baseline_test = baseline_surfaces[-LAST_N_DAYS:]
-        empirical_test = empirical_surfaces[-LAST_N_DAYS:]
+        # Focus on evaluation window
+        actual_test = actual_surfaces[eval_start_idx:eval_end_idx]
+        baseline_test = baseline_surfaces[eval_start_idx:eval_end_idx]
+        empirical_test = empirical_surfaces[eval_start_idx:eval_end_idx]
 
         for grid_point in grid_points:
             grid_name = grid_point["name"]
