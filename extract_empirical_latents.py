@@ -4,7 +4,7 @@ from vae.cvae_with_mem_randomized import CVAEMemRand
 
 def extract_future_latents(model, surf_data, ex_data, ctx_len=5):
     """
-    Extract latent codes (z_mean) for the future timestep from all available days.
+    Extract latent codes (z_mean and z_log_var) for the future timestep from all available days.
 
     Args:
         model: Trained CVAEMemRand model
@@ -14,10 +14,12 @@ def extract_future_latents(model, surf_data, ex_data, ctx_len=5):
 
     Returns:
         z_mean_future: (num_days, latent_dim) - latent mean for future timestep only
+        z_log_var_future: (num_days, latent_dim) - latent log variance for future timestep only
     """
     num_days = len(surf_data) - ctx_len
     latent_dim = model.config["latent_dim"]
     z_mean_future = np.zeros((num_days, latent_dim))
+    z_log_var_future = np.zeros((num_days, latent_dim))
 
     model.eval()
     print(f"  Extracting latents from {num_days} days...")
@@ -41,8 +43,9 @@ def extract_future_latents(model, surf_data, ex_data, ctx_len=5):
 
             # Extract last timestep only (the future timestep we want to predict)
             z_mean_future[i] = z_mean[0, -1, :].cpu().numpy()
+            z_log_var_future[i] = z_log_var[0, -1, :].cpu().numpy()
 
-    return z_mean_future
+    return z_mean_future, z_log_var_future
 
 
 def main():
@@ -101,7 +104,7 @@ def main():
         print(f"  Model has ex_feats: {model.config['ex_feats_dim'] > 0}")
 
         # Extract future timestep latents
-        z_mean_future = extract_future_latents(
+        z_mean_future, z_log_var_future = extract_future_latents(
             model,
             surf_data,
             ex_data if model_cfg['has_ex_feats'] else None,
@@ -113,14 +116,17 @@ def main():
         np.savez(
             output_path,
             z_mean_pool=z_mean_future,
+            z_log_var_pool=z_log_var_future,
             ctx_len=ctx_len,
             latent_dim=model.config['latent_dim']
         )
 
         print(f"  ✓ Extracted {z_mean_future.shape[0]} latent codes")
         print(f"  ✓ Saved to: {output_path}")
-        print(f"     Shape: {z_mean_future.shape}")
-        print(f"     Stats: mean={np.mean(z_mean_future):.4f}, std={np.std(z_mean_future):.4f}")
+        print(f"     z_mean shape: {z_mean_future.shape}")
+        print(f"     z_mean stats: mean={np.mean(z_mean_future):.4f}, std={np.std(z_mean_future):.4f}")
+        print(f"     z_log_var shape: {z_log_var_future.shape}")
+        print(f"     z_log_var stats: mean={np.mean(z_log_var_future):.4f}, std={np.std(z_log_var_future):.4f}")
 
     print("\n" + "="*70)
     print("Extraction Complete!")

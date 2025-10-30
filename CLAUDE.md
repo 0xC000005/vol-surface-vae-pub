@@ -583,15 +583,102 @@ See `in_distribution_vs_ood_comparison.md` for detailed analysis.
 4. **All three model variants** (no_ex, ex_no_loss, ex_loss) show similar miscalibration patterns
 5. **Teacher forcing is excellent for point forecasts** but incompatible with uncertainty quantification in this architecture
 
+### Posterior Collapse: Root Cause Analysis
+
+**NEW FINDING (2025)**: Comprehensive verification tests confirm **severe decoder collapse** as the root cause of CI miscalibration. Even when using exact training latent distributions, CIs remain severely miscalibrated (84% violations vs 10% target).
+
+**Verification Scripts:**
+```bash
+# Extract empirical latents (includes z_mean AND z_log_var)
+python extract_empirical_latents.py
+
+# Visualize uncertainty over time (check if model learned higher variance during crises)
+python visualize_uncertainty_over_time.py
+
+# Test with EXACT training latents (2008-2010)
+python visualize_exact_training_latents.py
+
+# Residual analysis (quantify decoder underestimation)
+python analyze_residuals_exact_latents.py
+
+# Comprehensive posterior collapse verification
+python verify_posterior_collapse.py
+```
+
+**Evidence of Posterior Collapse:**
+
+1. **Posterior Variance Too Low:**
+   - All models: mean(z_log_var) = -2.1 to -2.9 (expected: 0)
+   - Actual variance: 0.17-0.50 (expected: 1.0)
+   - Encoder learned to produce low-variance posteriors (2-6x smaller than prior)
+
+2. **Decoder Sensitivity Near Zero (SMOKING GUN):**
+   - Decoder sensitivity (±2σ perturbation): 0.0015-0.0023
+   - Typical residual std: ~0.010
+   - **Decoder is 5-7x less sensitive than actual prediction errors**
+   - Perturbing latents by ±2σ changes output by only 0.002, but real errors are ~0.01
+
+3. **Residual Analysis Results:**
+   - Mean predictions are unbiased (good MSE)
+   - BUT: Predicted uncertainty drastically underestimated
+   - No EX: 4-7x too narrow
+   - EX No Loss: 10-20x too narrow
+   - EX Loss: 14-28x too narrow (worst!)
+
+4. **Exact Training Latents Test (2008-2010):**
+   - Used z ~ N(μ_train[day], σ²_train[day]) for each day
+   - Result: Still 64-94% violations (vs 10% target)
+   - **Proves latent sampling is NOT the primary issue**
+   - Decoder is fundamentally miscalibrated
+
+5. **Uncertainty Learning Analysis:**
+   - Only EX No Loss learned correct behavior (positive correlation +0.39 between |returns| and variance during crises)
+   - No EX and EX Loss: NEGATIVE correlation (-0.22, -0.41) - more confident during volatility!
+
+**Mechanism:**
+
+1. Weak KL regularization (1e-5) allows posterior collapse
+2. Encoder produces nearly deterministic latents (z ≈ μ)
+3. During training, decoder sees stable z values
+4. Decoder learns deterministic mapping: f(z) ≈ constant
+5. Result: Decoder ignores latent variance → generates narrow distributions regardless of input
+
+**Total Uncertainty Decomposition:**
+```
+Total Uncertainty = Latent Uncertainty × Decoder Sensitivity
+
+If decoder sensitivity ≈ 0, doesn't matter if latent variance increases 100x during crisis.
+```
+
+**Generated Diagnostic Files:**
+- `posterior_collapse_analysis.png` - 4-panel verification visualization
+- `posterior_collapse_report.txt` - Detailed diagnostic summary
+- `exact_training_latents_2008_2010.png` - Teacher forcing with exact latents
+- `residual_analysis_exact_latents.png` - Residual vs predicted uncertainty
+- `empirical_uncertainty_vs_returns.png` - Time-varying uncertainty analysis
+
 ### Related Work and Context
 
 This finding is consistent with known issues in VAE-based probabilistic forecasting:
 - VAEs with weak KL regularization (1e-5) develop posterior collapse
 - Teacher forcing creates train-test distribution mismatch
-- Empirical latent sampling is a partial fix but requires architectural changes for full calibration
+- **Decoder becomes deterministic** even when posteriors are well-calibrated
+- Empirical latent sampling is insufficient - requires architectural changes
+
+**Why Weak KL Causes Overconfidence:**
+```
+KL term: KL(q(z|x) || p(z)) where p(z) = N(0,1)
+Weak KL weight (1e-5) → encoder can make variance tiny without penalty
+Result: z ≈ μ (almost no noise) → decoder learns deterministic mapping
+```
+
+**Critical Insight:**
+Even if the true latent distribution is not N(0,1), increasing KL weight forces wrong distribution and hurts reconstruction. This is the fundamental VAE dilemma: strong KL → bad fit if prior is wrong, weak KL → posterior collapse.
 
 For applications requiring reliable uncertainty estimates, consider alternative architectures:
 - Direct quantile regression (see `quantile-regression-decoder` branch)
 - Conformal prediction post-processing
 - Ensemble methods with proper diversity
-- Explicit uncertainty modeling (e.g., heteroscedastic outputs)
+- Explicit heteroscedastic decoder (model uncertainty directly)
+- Normalizing flows to learn flexible priors
+- Two-stage VAE: learn q(z|x), then fit p(z) to empirical latents
