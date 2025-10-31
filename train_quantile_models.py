@@ -132,8 +132,7 @@ for i, param in enumerate(params):
         "compress_context": True,
         "ex_loss_on_ret_only": True,
         "ex_feats_loss_type": "l2",
-        # Quantile regression configuration
-        "use_quantile_regression": True,
+        # Quantile regression configuration (required)
         "num_quantiles": 3,
         "quantiles": [0.05, 0.5, 0.95],
     }

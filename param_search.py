@@ -49,7 +49,7 @@ conv_param_grid = {
     "kl_weight": 1e-5,
 }
 
-base_folder_name = "test_spx/2024_11_09"
+base_folder_name = "test_spx/quantile_regression_monotone"
 
 df = {
     "fn": [],
@@ -104,6 +104,9 @@ for i, param in enumerate(params):
         "compress_context": True,
         "ex_loss_on_ret_only": True,  # assume that the ret is the first feature in the tensor
         "ex_feats_loss_type": "l2",
+        # Quantile regression parameters (required)
+        "num_quantiles": 3,
+        "quantiles": [0.05, 0.5, 0.95],
     }
     
     model = CVAEMemRand(config)
