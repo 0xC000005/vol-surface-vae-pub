@@ -1,0 +1,78 @@
+============================================================
+MONOTONIC QUANTILE IMPLEMENTATION TEST
+============================================================
+Device: cuda
+Epochs: 10
+
+Model Configuration:
+  Latent dim: 3
+  Surface hidden: [3, 3]
+  Memory hidden: 20
+  Quantiles: [0.05, 0.5, 0.95]
+
+Loading data...
+  Surface shape: (1000, 5, 5)
+  Data type: float32
+  Train size: 800
+  Val size: 200
+
+Creating model...
+  Parameters: 51,826
+
+============================================================
+TRAINING
+============================================================
+Epoch  1/10: train_loss=0.045370, val_loss=0.018156
+Epoch  2/10: train_loss=0.013500, val_loss=0.017005
+Epoch  3/10: train_loss=0.011703, val_loss=0.020738
+Epoch  4/10: train_loss=0.011475, val_loss=0.011443
+Epoch  5/10: train_loss=0.011367, val_loss=0.015410
+Epoch  6/10: train_loss=0.011018, val_loss=0.012660
+Epoch  7/10: train_loss=0.010842, val_loss=0.013572
+Epoch  8/10: train_loss=0.010876, val_loss=0.011276
+Epoch  9/10: train_loss=0.010220, val_loss=0.008835
+Epoch 10/10: train_loss=0.008913, val_loss=0.008247
+
+✓ Training completed
+
+============================================================
+VERIFICATION
+============================================================
+Generating predictions on validation set...
+  Predictions shape: (1182, 3, 5, 5)
+  Targets shape: (1182, 5, 5)
+
+Checking quantile ordering...
+  Total predictions: 29,550
+  Quantile violations: 0
+  Crossing rate: 0.00%
+  ✓ PERFECT MONOTONICITY - No crossings detected!
+
+Sample predictions:
+  Day 0, Grid (2, 2):
+    p05: 0.128412
+    p50: 0.167397  (> p05: True)
+    p95: 0.205581  (> p50: True)
+    Target: 0.159303
+
+    Target within CI: True
+
+============================================================
+TEST SUMMARY
+============================================================
+Training: 10 epochs
+  Initial loss: 0.045370
+  Final loss: 0.008913
+  Loss improvement: 80.4%
+
+Verification:
+  Total predictions: 29,550
+  Quantile violations: 0
+  Crossing rate: 0.0000%
+
+✓✓✓ TEST PASSED ✓✓✓
+  - Model trains successfully
+  - Loss converges
+  - Zero quantile crossings
+  - Monotonic transform works correctly
+============================================================

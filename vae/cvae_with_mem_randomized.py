@@ -457,6 +457,31 @@ class CVAEMemRandDecoder(BaseDecoder):
         else:
             self.interaction = nn.Identity()
 
+    def apply_monotonic_transform(self, raw_output):
+        """
+        Transform raw decoder output [base, width1, width2] to monotonic quantiles [p05, p50, p95].
+
+        Guarantees p05 ≤ p50 ≤ p95 by construction using:
+        - p05 = base
+        - p50 = p05 + softplus(width1)
+        - p95 = p50 + softplus(width2)
+
+        Args:
+            raw_output: (B, T, 3, H, W) - raw decoder output [base, width1, width2]
+
+        Returns:
+            (B, T, 3, H, W) - monotonic quantiles [p05, p50, p95]
+        """
+        base = raw_output[:, :, 0:1, :, :]      # (B, T, 1, H, W)
+        width1 = raw_output[:, :, 1:2, :, :]    # (B, T, 1, H, W)
+        width2 = raw_output[:, :, 2:3, :, :]    # (B, T, 1, H, W)
+
+        p05 = base
+        p50 = p05 + F.softplus(width1)
+        p95 = p50 + F.softplus(width2)
+
+        return torch.cat([p05, p50, p95], dim=2)  # (B, T, 3, H, W)
+
     def __get_mem(self, config, input_size, hidden_size):
         # Memory using LSTM/RNN/GRU
         mem_type = config["mem_type"]
@@ -476,8 +501,14 @@ class CVAEMemRandDecoder(BaseDecoder):
     
     def forward(self, x):
         '''
+            Decoder forward pass with monotonic quantile transformation.
+
             Input:
-                x should be (B, T, latent_dim + mem_hidden), where x[:,T-C:,latent_dim:] should be 0
+                x: (B, T, latent_dim + mem_hidden), where x[:,T-C:,latent_dim:] should be 0
+
+            Returns:
+                decoded_surface: (B, T, 3, H, W) - monotonic quantiles [p05, p50, p95]
+                decoded_ex_feat: (B, T, ex_feats_dim) - if ex_feats_dim > 0
         '''
         feat_dim = self.config["feat_dim"]
         ex_feats_dim = self.config["ex_feats_dim"]
@@ -492,11 +523,15 @@ class CVAEMemRandDecoder(BaseDecoder):
             decoded_surface = self.surface_decoder(surface_x)
             # Reshape to (B, T, num_quantiles, H, W)
             decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
+            # Apply monotonic transform: [base, width1, width2] -> [p05, p50, p95]
+            decoded_surface = self.apply_monotonic_transform(decoded_surface)
         else:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size, feat_dim[0], feat_dim[1]) # (BxT, surface_final_hidden_size, H, W)
             decoded_surface = self.surface_decoder(surface_x)  # (BxT, num_quantiles, H, W)
             # Reshape to (B, T, num_quantiles, H, W)
             decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
+            # Apply monotonic transform: [base, width1, width2] -> [p05, p50, p95]
+            decoded_surface = self.apply_monotonic_transform(decoded_surface)
 
         if ex_feats_dim > 0:
             info_x = self.ex_feats_decoder_input(x) # (B, T, n_info)
@@ -511,15 +546,20 @@ class CVAEMemRandDecoder(BaseDecoder):
 class CVAEMemRand(BaseVAE):
     def __init__(self, config: dict):
         '''
-            Similar to CVAEMem in cvae_with_mem, but we don't assume anything about seq_len (T) or ctx_len (C) here.
-            The input size should be (B,T,H,W), sequence length will be used as the color channel, for now, we assume T=seq_len = ctx_len(C)+1
-            
-            Input:
-                config: must contain feat_dim, latent_dim, device, kl_weight, re_feat_weight, surface_hidden, ex_feats_dim, ex_feats_hidden, mem_type, mem_hidden, mem_layers, mem_dropout, ctx_surface_hidden, ctx_ex_feats_hidden
+            Conditional VAE with LSTM memory for quantile regression on volatility surfaces.
+
+            Uses monotonic reparameterization to guarantee p05 ≤ p50 ≤ p95:
+            - Decoder outputs [base, width1, width2]
+            - Transforms to [p05=base, p50=p05+softplus(width1), p95=p50+softplus(width2)]
+
+            The input size should be (B,T,H,W), where T=seq_len = ctx_len(C)+1.
+            Loss function uses pinball loss for quantile regression.
+
+            Config parameters:
                 feat_dim: the feature dimension of each time step, integer if 1D, tuple of integers if 2D
                 latent_dim: dimension for latent space
-                kl_weight: weight \beta used for loss = RE + \beta * KL, (default: 1.0)
-                re_feat_weight: weight \alpha used for RE = RE(surface) + \alpha * RE(ex_feats), (default: 1.0)
+                kl_weight: weight β used for loss = RE + β * KL, (default: 1.0)
+                re_feat_weight: weight α used for RE = RE(surface) + α * RE(ex_feats), (default: 1.0)
                 ex_feats_loss_type: loss type for RE(ex_feats), (default: l1)
                 surface_hidden: hidden layer sizes for vol surface encoding
                 ex_feats_dim: the number of extra features
@@ -534,6 +574,8 @@ class CVAEMemRand(BaseVAE):
                 use_dense_surface: whether or not flatten the surface into 1D and use Dense Layers for encoding/decoding (default: False)
                 compress_context: whether or not compress the context encoding to the same size as the latent dimension (default: True)
                 ex_loss_on_ret_only: whether or not the return should only be optimized on surface & return. Any extra features will not get loss optimized. We assume that ret is always the first ex_feature, index=0. (default: False)
+                num_quantiles: must be 3 (REQUIRED)
+                quantiles: list of quantile levels, must be [0.05, 0.5, 0.95] (REQUIRED)
         '''
         super(CVAEMemRand, self).__init__(config)
         self.check_input(config)
@@ -562,11 +604,8 @@ class CVAEMemRand(BaseVAE):
         else:
             self.ex_feats_loss_fn = nn.L1Loss()
 
-        # Initialize quantile loss function
-        if config.get("use_quantile_regression", True):
-            self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
-        else:
-            self.quantile_loss_fn = None
+        # Initialize quantile loss function (required for quantile regression)
+        self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
 
     def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
         '''
@@ -662,12 +701,16 @@ class CVAEMemRand(BaseVAE):
         if "compress_context" not in config:
             config["compress_context"] = False
 
-        if "num_quantiles" not in config:
-            config["num_quantiles"] = 3
-        if "quantiles" not in config:
-            config["quantiles"] = [0.05, 0.5, 0.95]
-        if "use_quantile_regression" not in config:
-            config["use_quantile_regression"] = True
+        # Quantile regression parameters (required)
+        for req in ["num_quantiles", "quantiles"]:
+            if req not in config:
+                raise ValueError(f"config doesn't contain required quantile parameter: {req}")
+
+        # Validate quantile configuration
+        if config["num_quantiles"] != 3:
+            raise ValueError(f"num_quantiles must be 3 for monotonic transform, got {config['num_quantiles']}")
+        if len(config["quantiles"]) != 3:
+            raise ValueError(f"quantiles must have exactly 3 values, got {len(config['quantiles'])}")
     
     def forward(self, x: dict[str, torch.Tensor]):
         '''
@@ -748,14 +791,10 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss (pinball loss for each quantile)
+        # surface_reconstruciton: (B, 1, num_quantiles, H, W) - [p05, p50, p95]
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -800,14 +839,10 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss (pinball loss for each quantile)
+        # surface_reconstruciton: (B, 1, num_quantiles, H, W) - [p05, p50, p95]
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
