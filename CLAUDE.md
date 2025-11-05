@@ -428,6 +428,33 @@ python evaluate_quantile_ci_calibration.py
 python visualize_quantile_teacher_forcing.py
 ```
 
+**Verification Scripts (Ground Truth vs Context-Only):**
+```bash
+# Ground truth latent verification (uses full sequence encoding)
+python verify_reconstruction_plotly_2008_2010.py  # Interactive HTML + analysis for 2008-2010
+
+# Context-only verification (realistic generation without future knowledge)
+python verify_reconstruction_2008_2010_context_only.py  # Both Plotly HTML and Matplotlib PNG
+
+# Marginal distribution analysis
+python visualize_marginal_distribution_quantile_encoded.py      # Ground truth latent
+python visualize_marginal_distribution_quantile_context_only.py  # Context-only latent
+```
+
+These scripts test different aspects of model performance:
+- **Ground truth latent**: Encodes full sequence [t-5,...,t] → tests decoder quality when given perfect information
+- **Context-only latent**: Encodes only context [t-5,...,t-1] → tests realistic generation scenario
+- **Marginal distributions**: Pool predictions across all days to test if model captures unconditional distribution
+
+**Key Findings from Verification (2008-2010 period):**
+
+| Latent Type | no_ex | ex_no_loss | ex_loss | Interpretation |
+|-------------|-------|------------|---------|----------------|
+| **Ground truth** | 7.32% | 5.33% | 6.89% | Well-calibrated when decoder has perfect info |
+| **Context-only** | 18.63% | 20.44% | 19.65% | ~3× higher violations in realistic generation |
+
+The large gap between ground truth and context-only CI violations reveals a **fundamental VAE prior mismatch**: p(z|context) ≠ p(z|context+target). The decoder learns correct quantiles for encoded latents, but the prior distribution doesn't match the posterior well enough for realistic forecasting.
+
 ### Model Output Format
 
 Quantile models output 3 surfaces per prediction:
