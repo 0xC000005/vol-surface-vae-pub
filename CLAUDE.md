@@ -599,3 +599,162 @@ Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed usin
 
 **Pre-trained Models:**
 Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
+
+## 1D Time Series VAE (Stock Returns Forecasting)
+
+A parallel implementation exists for 1D scalar time series (stock returns) using the same architectural principles as the 2D surface VAE. This was created to test conditioning strategies on simpler data.
+
+### Architecture: CVAE1DMemRand
+
+**Location:** `vae/cvae_1d_with_mem_randomized.py`
+
+**Key Differences from 2D Surface VAE:**
+
+| Aspect | 2D Surface VAE | 1D Time Series VAE |
+|--------|----------------|-------------------|
+| **Input data** | `"surface"` (B,T,5,5) + `"ex_feats"` (B,T,3) | `"target"` (B,T,1) + `"cond_feats"` (B,T,K) |
+| **Target** | SPX volatility surfaces | Amazon stock returns |
+| **Conditioning features** | SPX return + skew + slope (derived from vol surface) | SP500 and/or MSFT returns (raw returns only) |
+| **Encoder** | Conv2D → Flatten → LSTM → Latent | Linear layers → LSTM → Latent |
+| **Decoder** | LSTM → ConvTranspose2D → (B,T,5,5) | LSTM → Linear layers → (B,T,1) |
+| **Core architecture** | [ctx_embed \|\| z] concatenation | [ctx_embed \|\| z] concatenation ✓ SAME |
+
+**Critical Implementation Note:**
+```python
+# CORRECT (follows 2D VAE pattern, respects torch.set_default_dtype):
+self.encoder = CVAE1DMemRandEncoder(config)
+self.ctx_encoder = CVAE1DCtxMemRandEncoder(config)
+self.decoder = CVAE1DMemRandDecoder(config)
+self.to(self.device)  # Single call on entire model
+
+# INCORRECT (dtype issues):
+self.encoder = CVAE1DMemRandEncoder(config).to(self.device)  # Separate .to() calls
+```
+
+### Dataset: TimeSeriesDataSetRand
+
+**Location:** `vae/datasets_1d_randomized.py`
+
+Handles 1D time series with variable sequence lengths, analogous to `VolSurfaceDataSetRand` but for scalar sequences.
+
+### Model Variants
+
+Four variants test different conditioning strategies:
+
+1. **Amazon only (baseline)**: `cond_feats_dim=0`, no conditioning
+2. **Amazon + SP500 (no loss)**: `cond_feats_dim=1`, passive conditioning on market index
+3. **Amazon + MSFT (no loss)**: `cond_feats_dim=1`, passive conditioning on tech sector peer
+4. **Amazon + SP500 + MSFT (no loss)**: `cond_feats_dim=2`, both market and sector conditioning
+
+All use `cond_feat_weight=0.0` (passive conditioning) to mirror the "EX No Loss" approach from 2D models.
+
+### Common Commands
+
+**Data Preparation:**
+```bash
+# Fetch market data from Yahoo Finance
+python fetch_market_data.py  # Downloads AMZN, ^GSPC, MSFT, etc.
+
+# Prepare training data (compute returns, create NPZ)
+python prepare_stock_data.py
+# Output: data/stock_returns.npz
+```
+
+**Training:**
+```bash
+# Test model architecture before training
+python test_1d_model_sanity.py  # Runs all sanity checks
+
+# Train all 4 model variants (30-60 min per model)
+python train_1d_models.py
+# Output: models_1d/*.pt and models_1d/results.csv
+```
+
+**Generation and Evaluation:**
+```bash
+# Generate predictions using teacher forcing
+python generate_1d_predictions.py
+# Output: predictions_1d/*.npz (stochastic + MLE)
+
+# Visualize predictions
+python visualize_1d_predictions.py
+# Output: plots_1d/predictions_comparison.png
+
+# Compute evaluation metrics
+python evaluate_1d_models.py
+# Output: results_1d/evaluation_metrics.csv
+```
+
+### Data Format
+
+**Input (data/stock_returns.npz):**
+```python
+{
+    "amzn_returns": (5824,),      # Amazon log returns (target)
+    "sp500_returns": (5824,),     # SP500 log returns
+    "msft_returns": (5824,),      # MSFT log returns
+    "dates": (5824,),             # Trading dates
+    "cond_sp500": (5824, 1),      # SP500 for conditioning
+    "cond_msft": (5824, 1),       # MSFT for conditioning
+    "cond_both": (5824, 2),       # [SP500, MSFT] for conditioning
+}
+```
+
+**Model Input:**
+```python
+{
+    "target": (B, T, 1),           # Amazon returns
+    "cond_feats": (B, T, K),       # Optional: K=1 (SP500 or MSFT) or K=2 (both)
+}
+```
+
+**Model Output:**
+```python
+# Stochastic generation
+predictions: (num_days, num_samples, 1)  # Multiple samples per day
+
+# MLE generation
+prediction: (num_days, 1)  # Single deterministic prediction
+```
+
+### Evaluation Metrics
+
+The `evaluate_1d_models.py` script computes:
+- **RMSE**: Root mean squared error (point forecast accuracy)
+- **MAE**: Mean absolute error
+- **R²**: Coefficient of determination (predictive power)
+- **Direction Accuracy**: % of correct sign predictions (better than random = >50%)
+- **CI Violation Rate**: % outside 90% confidence interval (target: ~10%)
+- **Mean CI Width**: Average uncertainty band width
+
+### Research Questions
+
+1. **Does market context help?** Compare Amazon-only vs Amazon+SP500
+2. **What's more informative?** Compare SP500 vs MSFT vs Both
+3. **Is the model better than random?** Direction accuracy >50% indicates signal
+4. **Are uncertainties well-calibrated?** CI violations near 10% = well-calibrated
+
+### Architecture Equivalence
+
+Despite different data dimensions, the 1D and 2D VAEs share identical core architecture:
+
+**Decoder Input Construction (both models):**
+```python
+# Encode context to get embeddings
+ctx_embeddings = self.ctx_encoder(context)  # (B, C, ctx_dim)
+
+# Pad context embeddings to full sequence length T
+ctx_padded = torch.zeros((B, T, ctx_dim), ...)
+ctx_padded[:, :C, :] = ctx_embeddings
+
+# Construct latent variable
+z = torch.zeros((B, T, latent_dim), ...)
+z[:, :C, :] = encoded_z_mean        # Use encoded mean for context
+z[:, C:, :] = sampled_z_future      # Sample for future timesteps
+
+# Concatenate and decode
+decoder_input = torch.cat([ctx_padded, z], dim=-1)  # [context || latent]
+output = self.decoder(decoder_input)
+```
+
+This pattern is identical in both `CVAEMemRand.get_surface_given_conditions()` (2D) and `CVAE1DMemRand.get_prediction_given_context()` (1D).
