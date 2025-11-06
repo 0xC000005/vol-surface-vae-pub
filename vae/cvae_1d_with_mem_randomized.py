@@ -17,6 +17,41 @@ from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
 
 
+class QuantileLoss(nn.Module):
+    """
+    Pinball loss for quantile regression (1D version).
+
+    For quantile τ ∈ [0,1]:
+    L_τ(y, ŷ) = max((τ-1)×(y-ŷ), τ×(y-ŷ))
+
+    Asymmetric penalty:
+    - τ=0.05: penalizes under-prediction more (wants most values above)
+    - τ=0.50: reduces to MAE (mean absolute error)
+    - τ=0.95: penalizes over-prediction more (wants most values below)
+    """
+    def __init__(self, quantiles=[0.05, 0.5, 0.95]):
+        super().__init__()
+        self.register_buffer('quantiles', torch.tensor(quantiles))
+
+    def forward(self, preds, target):
+        """
+        Args:
+            preds: (B, T, num_quantiles) - quantile predictions for 1D target
+            target: (B, T, 1) - ground truth
+
+        Returns:
+            Scalar loss (averaged over all quantiles and elements)
+        """
+        losses = []
+        for i, q in enumerate(self.quantiles):
+            pred_q = preds[:, :, i:i+1]  # (B, T, 1)
+            error = target - pred_q  # (B, T, 1)
+            loss_q = torch.max((q-1)*error, q*error)
+            losses.append(torch.mean(loss_q))
+
+        return torch.mean(torch.stack(losses))
+
+
 class CVAE1DMemRandEncoder(BaseEncoder):
     """
     Encoder for 1D time series with optional conditioning features.
@@ -450,8 +485,9 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             target_decoder[f"dec_target_activation_{i}"] = nn.ReLU()
             in_feats = out_feats
 
-        # Final layer: output scalar
-        target_decoder["dec_target_output"] = nn.Linear(in_feats, 1)
+        # Final layer: output quantiles
+        num_quantiles = config.get("num_quantiles", 3)
+        target_decoder["dec_target_output"] = nn.Linear(in_feats, num_quantiles)
 
         self.target_decoder = nn.Sequential(target_decoder)
 
@@ -468,7 +504,7 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             x: (B, T, ctx_dim + latent_dim) - Concatenated context and latent
 
         Returns:
-            decoded_target: (B, T, 1)
+            decoded_target: (B, T, num_quantiles) - Quantile predictions
             decoded_cond_feats: (B, T, K) or None
         """
         # LSTM
@@ -486,7 +522,7 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             cond_features = combined[..., target_hidden_dim:]
 
             # Decode target
-            decoded_target = self.target_decoder(target_features)  # (B, T, 1)
+            decoded_target = self.target_decoder(target_features)  # (B, T, num_quantiles)
 
             # Decode conditioning features
             decoded_cond_feats = self.cond_feats_decoder(cond_features)  # (B, T, K)
@@ -494,7 +530,7 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             return decoded_target, decoded_cond_feats
         else:
             # Only decode target
-            decoded_target = self.target_decoder(combined)  # (B, T, 1)
+            decoded_target = self.target_decoder(combined)  # (B, T, num_quantiles)
             return decoded_target, None
 
 
@@ -529,6 +565,12 @@ class CVAE1DMemRand(BaseVAE):
         self.cond_feat_weight = config.get("cond_feat_weight", 0.0)
         self.cond_loss_type = config.get("cond_loss_type", "l2")
 
+        # Quantile regression defaults
+        if "num_quantiles" not in config:
+            config["num_quantiles"] = 3
+        if "quantiles" not in config:
+            config["quantiles"] = [0.05, 0.5, 0.95]
+
         # Create all modules first
         self.encoder = CVAE1DMemRandEncoder(config)
         self.ctx_encoder = CVAE1DCtxMemRandEncoder(config)
@@ -536,6 +578,16 @@ class CVAE1DMemRand(BaseVAE):
 
         # Move entire model to device at once (respects torch.set_default_dtype)
         self.to(self.device)
+
+        # Initialize quantile loss function
+        self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
+
+        # Initialize conditional features loss if needed
+        if self.cond_feat_weight > 0:
+            if self.cond_loss_type == "l2":
+                self.cond_feat_loss_fn = nn.MSELoss()
+            else:
+                self.cond_feat_loss_fn = nn.L1Loss()
 
     def forward(self, x):
         """
@@ -547,7 +599,9 @@ class CVAE1DMemRand(BaseVAE):
                 - "cond_feats": (B, T, K) - Optional conditioning features
 
         Returns:
-            decoded_target, decoded_cond_feats, z_mean, z_log_var, z
+            decoded_target: (B, 1, num_quantiles) - Quantile predictions for future timestep
+            decoded_cond_feats: (B, 1, K) or None
+            z_mean, z_log_var, z: Latent variables
             Note: Returns only FUTURE timestep (C:T), not full sequence
         """
         target = x["target"]
@@ -592,9 +646,9 @@ class CVAE1DMemRand(BaseVAE):
         """
         Compute VAE loss: reconstruction + KL divergence.
 
-        Loss = MSE(target) + cond_feat_weight * MSE(cond_feats) + kl_weight * KL
+        Loss = Quantile(target) + cond_feat_weight * Loss(cond_feats) + kl_weight * KL
 
-        Note: decoded_target is only future prediction (shape B, 1, feat_dim).
+        Note: decoded_target is only future prediction (shape B, 1, num_quantiles).
               We need to extract future ground truth from x["target"].
         """
         target = x["target"]
@@ -604,18 +658,16 @@ class CVAE1DMemRand(BaseVAE):
         # Extract future ground truth (last timestep)
         target_future = target[:, C:, :]
 
-        # Reconstruction loss for target (MSE)
-        recon_loss_target = F.mse_loss(decoded_target, target_future, reduction='mean')
+        # Reconstruction loss for target (Quantile Loss)
+        # decoded_target: (B, 1, num_quantiles), target_future: (B, 1, 1)
+        recon_loss_target = self.quantile_loss_fn(decoded_target, target_future)
 
         # Reconstruction loss for conditioning features (if used)
         if decoded_cond_feats is not None and self.cond_feat_weight > 0:
             cond_feats = x["cond_feats"]
             # Extract future ground truth (last timestep)
             cond_feats_future = cond_feats[:, C:, :]
-            if self.cond_loss_type == "l1":
-                recon_loss_cond = F.l1_loss(decoded_cond_feats, cond_feats_future, reduction='mean')
-            else:
-                recon_loss_cond = F.mse_loss(decoded_cond_feats, cond_feats_future, reduction='mean')
+            recon_loss_cond = self.cond_feat_loss_fn(decoded_cond_feats, cond_feats_future)
         else:
             recon_loss_cond = torch.zeros(1, device=self.device)
 
@@ -674,19 +726,17 @@ class CVAE1DMemRand(BaseVAE):
 
         return loss_dict
 
-    def get_prediction_given_context(self, c, num_samples=1, use_mean=False):
+    def get_prediction_given_context(self, c):
         """
-        Generate predictions given historical context.
+        Generate quantile predictions given historical context.
 
         Args:
             c: dict with keys
                 - "target": (B, C, 1) - Historical context
                 - "cond_feats": (B, C, K) - Optional conditioning features
-            num_samples: Number of samples to generate (for stochastic)
-            use_mean: If True, use z=0 for deterministic prediction
 
         Returns:
-            predictions: (B, num_samples, 1) - Predicted next timestep
+            predictions: (B, num_quantiles) - Quantile predictions [p05, p50, p95]
         """
         self.eval()
         with torch.no_grad():
@@ -702,32 +752,22 @@ class CVAE1DMemRand(BaseVAE):
             ctx_padded = torch.zeros((B, C + 1, ctx_dim), device=self.device, dtype=ctx_embeddings.dtype)
             ctx_padded[:, :C, :] = ctx_embeddings
 
-            # Generate multiple samples
-            all_predictions = []
+            # Sample latent for future timestep (use mode of prior z~N(0,1))
+            z_future = torch.zeros((B, 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
 
-            for _ in range(num_samples):
-                # Sample latent for future timestep
-                if use_mean:
-                    z_future = torch.zeros((B, 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
-                else:
-                    z_future = torch.randn((B, 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
+            # Prepare latent: (B, C+1, latent_dim)
+            # Use zeros for context (deterministic encoding), zeros for future (mode)
+            z_full = torch.zeros((B, C + 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
+            z_full[:, C:, :] = z_future
 
-                # Prepare latent: (B, C+1, latent_dim)
-                # Use zeros for context (deterministic encoding), sample for future
-                z_full = torch.zeros((B, C + 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
-                z_full[:, C:, :] = z_future
+            # Concatenate context and latent
+            decoder_input = torch.cat([ctx_padded, z_full], dim=-1)
 
-                # Concatenate context and latent
-                decoder_input = torch.cat([ctx_padded, z_full], dim=-1)
+            # Decode
+            decoded_target, _ = self.decoder(decoder_input)
 
-                # Decode
-                decoded_target, _ = self.decoder(decoder_input)
+            # Extract future prediction
+            # decoded_target: (B, 1, num_quantiles)
+            prediction = decoded_target[:, C:, :].squeeze(1)  # (B, num_quantiles)
 
-                # Extract future prediction
-                prediction = decoded_target[:, C:, :]  # (B, 1, 1)
-                all_predictions.append(prediction.squeeze(-1))  # (B, 1)
-
-            # Stack predictions: (B, num_samples, 1)
-            predictions = torch.stack(all_predictions, dim=1)
-
-            return predictions
+            return prediction

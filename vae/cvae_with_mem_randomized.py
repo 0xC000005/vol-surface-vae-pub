@@ -563,10 +563,7 @@ class CVAEMemRand(BaseVAE):
             self.ex_feats_loss_fn = nn.L1Loss()
 
         # Initialize quantile loss function
-        if config.get("use_quantile_regression", True):
-            self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
-        else:
-            self.quantile_loss_fn = None
+        self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
 
     def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
         '''
@@ -666,9 +663,7 @@ class CVAEMemRand(BaseVAE):
             config["num_quantiles"] = 3
         if "quantiles" not in config:
             config["quantiles"] = [0.05, 0.5, 0.95]
-        if "use_quantile_regression" not in config:
-            config["use_quantile_regression"] = True
-    
+
     def forward(self, x: dict[str, torch.Tensor]):
         '''
             Input:
@@ -748,14 +743,10 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss
+        # surface_reconstruciton: (B, 1, num_quantiles, H, W)
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -800,14 +791,10 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss: quantile loss
+        # surface_reconstruciton: (B, 1, num_quantiles, H, W)
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]

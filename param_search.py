@@ -104,8 +104,11 @@ for i, param in enumerate(params):
         "compress_context": True,
         "ex_loss_on_ret_only": True,  # assume that the ret is the first feature in the tensor
         "ex_feats_loss_type": "l2",
+        # Quantile regression
+        "num_quantiles": 3,
+        "quantiles": [0.05, 0.5, 0.95],
     }
-    
+
     model = CVAEMemRand(config)
     if not os.path.exists(f"{base_folder_name}/{model_name}"):
         train(model, train_data, valid_data, epochs=num_epochs, lr=1e-05, model_dir=base_folder_name, file_name=model_name)

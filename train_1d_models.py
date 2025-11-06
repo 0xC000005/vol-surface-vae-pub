@@ -315,6 +315,9 @@ for model_config_dict in model_configs:
         "interaction_layers": 2,  # Nonlinear mixing layers
         "compress_context": True,
         "cond_loss_type": "l2",
+        # Quantile regression
+        "num_quantiles": 3,
+        "quantiles": [0.05, 0.5, 0.95],
     }
 
     print(f"Model configuration:")
@@ -324,6 +327,7 @@ for model_config_dict in model_configs:
     print(f"  mem_hidden: {config['mem_hidden']}")
     print(f"  kl_weight: {config['kl_weight']}")
     print(f"  cond_feat_weight: {config['cond_feat_weight']}")
+    print(f"  num_quantiles: {config['num_quantiles']}")
     print(f"  device: {config['device']}")
     print()
 

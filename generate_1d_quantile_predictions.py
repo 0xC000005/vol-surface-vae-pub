@@ -1,10 +1,10 @@
 """
-Generate predictions from trained 1D VAE models using teacher forcing.
+Generate quantile predictions from trained 1D VAE models using teacher forcing.
 
 For each day in the test set:
-- Use context (past 5-10 days)
-- Generate prediction for next day
-- Produce both stochastic (1000 samples) and MLE (deterministic) predictions
+- Use context (past C days)
+- Generate quantile prediction for next day (p05, p50, p95)
+- Single forward pass (no Monte Carlo sampling needed)
 """
 
 import numpy as np
@@ -22,7 +22,6 @@ DATA_FILE = "data/stock_returns.npz"
 MODELS_DIR = "models_1d"
 OUTPUT_DIR = "predictions_1d"
 CONTEXT_LEN = 5
-NUM_SAMPLES = 1000  # For stochastic generation
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Test set configuration
@@ -33,11 +32,10 @@ VALID_END = 5000
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 print("=" * 80)
-print("GENERATING 1D VAE PREDICTIONS (TEACHER FORCING)")
+print("GENERATING 1D VAE QUANTILE PREDICTIONS (TEACHER FORCING)")
 print("=" * 80)
 print(f"Device: {DEVICE}")
 print(f"Context length: {CONTEXT_LEN}")
-print(f"Stochastic samples: {NUM_SAMPLES}")
 print()
 
 # Load data
@@ -115,21 +113,19 @@ def load_model(model_path):
     return model, model_config
 
 
-def generate_predictions(model, target_data, cond_data, num_days, context_len, num_samples):
+def generate_quantile_predictions(model, target_data, cond_data, num_days, context_len):
     """
-    Generate predictions using teacher forcing.
+    Generate quantile predictions using teacher forcing.
 
     For each day t:
     - Context: [t-C, ..., t-1]
-    - Predict: day t
+    - Predict: day t (returns p05, p50, p95)
     - Use actual data for next iteration
 
     Returns:
-        stochastic_preds: (num_days, num_samples)
-        mle_preds: (num_days,)
+        quantile_preds: (num_days, 3) - [p05, p50, p95] for each day
     """
-    stochastic_preds = []
-    mle_preds = []
+    quantile_preds = []
 
     for day_idx in tqdm(range(num_days), desc="  Generating"):
         # Extract context window
@@ -153,33 +149,17 @@ def generate_predictions(model, target_data, cond_data, num_days, context_len, n
             ).unsqueeze(0)  # (1, C, K)
             ctx_dict["cond_feats"] = ctx_cond
 
-        # Generate stochastic predictions
+        # Generate quantile prediction (single forward pass)
         with torch.no_grad():
-            stoch_pred = model.get_prediction_given_context(
-                ctx_dict,
-                num_samples=num_samples,
-                use_mean=False
-            )  # (1, num_samples, 1)
+            pred = model.get_prediction_given_context(ctx_dict)  # (1, 3)
 
-        # Generate MLE prediction
-        with torch.no_grad():
-            mle_pred = model.get_prediction_given_context(
-                ctx_dict,
-                num_samples=1,
-                use_mean=True
-            )  # (1, 1, 1)
+        # Extract quantiles
+        pred = pred[0].cpu().numpy()  # (3,) - [p05, p50, p95]
+        quantile_preds.append(pred)
 
-        # Extract predictions
-        stoch_pred = stoch_pred[0, :, 0].cpu().numpy()  # (num_samples,)
-        mle_pred = mle_pred[0, 0, 0].cpu().item()
+    quantile_preds = np.array(quantile_preds)  # (num_days, 3)
 
-        stochastic_preds.append(stoch_pred)
-        mle_preds.append(mle_pred)
-
-    stochastic_preds = np.array(stochastic_preds)  # (num_days, num_samples)
-    mle_preds = np.array(mle_preds)  # (num_days,)
-
-    return stochastic_preds, mle_preds
+    return quantile_preds
 
 
 # Generate predictions for all models
@@ -194,24 +174,23 @@ for model_dict in models:
     model, model_config = load_model(model_path)
 
     # Generate predictions
-    stochastic_preds, mle_preds = generate_predictions(
+    quantile_preds = generate_quantile_predictions(
         model,
         amzn_full,
         model_dict["cond_data"],
         num_test_days,
-        CONTEXT_LEN,
-        NUM_SAMPLES
+        CONTEXT_LEN
     )
 
-    print(f"  Stochastic predictions shape: {stochastic_preds.shape}")
-    print(f"  MLE predictions shape: {mle_preds.shape}")
+    print(f"  Quantile predictions shape: {quantile_preds.shape}")
 
     # Save predictions
-    output_file = os.path.join(OUTPUT_DIR, f"{model_dict['name']}_predictions.npz")
+    output_file = os.path.join(OUTPUT_DIR, f"{model_dict['name']}_quantile_predictions.npz")
     np.savez(
         output_file,
-        stochastic=stochastic_preds,
-        mle=mle_preds,
+        p05=quantile_preds[:, 0],
+        p50=quantile_preds[:, 1],
+        p95=quantile_preds[:, 2],
         ground_truth=amzn_test,
         dates=dates_test.values,
     )
@@ -219,14 +198,14 @@ for model_dict in models:
     print()
 
 print("=" * 80)
-print("PREDICTION GENERATION COMPLETE")
+print("QUANTILE PREDICTION GENERATION COMPLETE")
 print("=" * 80)
 print(f"Output directory: {OUTPUT_DIR}")
 print()
 print("Generated predictions:")
 for model_dict in models:
-    print(f"  - {model_dict['name']}_predictions.npz")
+    print(f"  - {model_dict['name']}_quantile_predictions.npz")
 print()
 print("Next steps:")
-print("  1. Run: python visualize_1d_predictions.py")
-print("  2. Run: python evaluate_1d_models.py")
+print("  1. Run: python analysis_code/visualize_1d_quantile_teacher_forcing.py")
+print("  2. Run: python evaluate_1d_quantile_models.py")

@@ -2,13 +2,15 @@
 
 This document proves that the new 1D VAE (`CVAE1DMemRand`) is architecturally identical to the old 2D VAE (`CVAEMemRand`), differing only in input/output data dimensions.
 
+**UPDATED (Nov 2025):** Both models now use **quantile regression exclusively** with identical loss functions (pinball loss). The MSE mode has been removed for code simplicity.
+
 ## Executive Summary
 
-**Claim:** The 1D VAE and 2D VAE are the same architecture, with the only difference being:
-- **Old VAE**: Processes 2D surfaces (B, T, H, W) where H=W=5
-- **New VAE**: Processes 1D scalars (B, T, 1) where 1 is the feature dimension
+**Claim:** The 1D VAE and 2D VAE are the same architecture, with the only differences being:
+- **2D VAE**: Processes 2D surfaces (B, T, 3, 5, 5) where 3 = quantiles, 5×5 = grid
+- **1D VAE**: Processes 1D scalars (B, T, 3) where 3 = quantiles
 
-All other architectural choices (LSTM memory, context extraction, latent space, decoder input pattern) are **IDENTICAL**.
+All other architectural choices (LSTM memory, context extraction, latent space, decoder input pattern, **quantile regression loss**) are **IDENTICAL**.
 
 ---
 

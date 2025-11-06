@@ -10,7 +10,7 @@ from eval_scripts.eval_utils import *
 import os, sys
 
 
-def generate_surfaces_random(model: CVAEMemRand, ex_data, vol_surface_data, day, ctx_len, num_vaes, use_ex_feats, check_ex_feats):
+def generate_quantile_surface_single_day(model: CVAEMemRand, ex_data, vol_surface_data, day, ctx_len, num_vaes, use_ex_feats, check_ex_feats):
     """
     Generate quantile surfaces for a single day.
 
@@ -57,7 +57,7 @@ def generate_surfaces_random(model: CVAEMemRand, ex_data, vol_surface_data, day,
     else:
         return (surf_p05, surf_p50, surf_p95), None
 
-def generate_surfaces_multiday(model_data, ex_data, vol_surface_data,
+def generate_quantile_surfaces_multiday(model_data, ex_data, vol_surface_data,
                                 start_day, days_to_generate, num_vaes,
                                 model_type: Union[CVAE, CVAEMem, CVAEMemRand] = CVAEMemRand,
                                 check_ex_feats=False, ctx_len=None):
@@ -90,7 +90,7 @@ def generate_surfaces_multiday(model_data, ex_data, vol_surface_data,
     for day in range(start_day, start_day+days_to_generate):
         if day % 500 == 0:
             print(f"Generating day {day}")
-        (p05, p50, p95), vae_ex_feats = generate_surfaces_random(model, ex_data, vol_surface_data, day, ctx_len, num_vaes, use_ex_feats, check_ex_feats)
+        (p05, p50, p95), vae_ex_feats = generate_quantile_surface_single_day(model, ex_data, vol_surface_data, day, ctx_len, num_vaes, use_ex_feats, check_ex_feats)
 
         all_day_surfaces_p05[day - start_day, ...] = p05
         all_day_surfaces_p50[day - start_day, ...] = p50

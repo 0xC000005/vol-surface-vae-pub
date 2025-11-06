@@ -122,8 +122,9 @@ for config_dict in configs:
 
             # Check shapes
             T = sample["target"].shape[0]
-            # Forward returns only FUTURE prediction (1 timestep), not full sequence
-            assert decoded_target.shape == (1, 1, 1), f"Expected (1, 1, 1), got {decoded_target.shape}"
+            # Forward returns only FUTURE prediction (1 timestep), with 3 quantiles
+            num_quantiles = config.get("num_quantiles", 3)
+            assert decoded_target.shape == (1, 1, num_quantiles), f"Expected (1, 1, {num_quantiles}), got {decoded_target.shape}"
             assert z_mean.shape == (1, T, config["latent_dim"])  # Encoder sees full sequence
             print("✓ PASSED")
     except Exception as e:
@@ -156,8 +157,8 @@ for config_dict in configs:
         print(f"✗ FAILED: {e}")
         continue
 
-    # Test 6: Prediction generation
-    print("Test 6: Prediction generation... ", end="")
+    # Test 6: Quantile prediction generation
+    print("Test 6: Quantile prediction generation... ", end="")
     try:
         model.eval()
         # Extract context (first 4 timesteps)
@@ -168,13 +169,16 @@ for config_dict in configs:
         if "cond_feats" in batch:
             ctx_dict["cond_feats"] = batch["cond_feats"][:, :ctx_len, :]
 
-        # Generate stochastic predictions
-        preds_stoch = model.get_prediction_given_context(ctx_dict, num_samples=10, use_mean=False)
-        assert preds_stoch.shape == (1, 10, 1), f"Expected (1, 10, 1), got {preds_stoch.shape}"
+        # Generate quantile predictions (single forward pass)
+        quantile_preds = model.get_prediction_given_context(ctx_dict)
 
-        # Generate MLE prediction
-        preds_mle = model.get_prediction_given_context(ctx_dict, num_samples=1, use_mean=True)
-        assert preds_mle.shape == (1, 1, 1), f"Expected (1, 1, 1), got {preds_mle.shape}"
+        # Check shape: (batch_size, num_quantiles)
+        num_quantiles = config.get("num_quantiles", 3)
+        assert quantile_preds.shape == (1, num_quantiles), f"Expected (1, {num_quantiles}), got {quantile_preds.shape}"
+
+        # Note: Quantile ordering (p05 ≤ p50 ≤ p95) is learned during training
+        # via pinball loss, not enforced by architecture. Untrained models may
+        # produce unordered quantiles.
 
         print("✓ PASSED")
     except Exception as e:
