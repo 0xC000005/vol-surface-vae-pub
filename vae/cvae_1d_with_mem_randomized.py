@@ -548,20 +548,31 @@ class CVAE1DMemRand(BaseVAE):
 
         Returns:
             decoded_target, decoded_cond_feats, z_mean, z_log_var, z
+            Note: Returns only FUTURE timestep (C:T), not full sequence
         """
-        # Encode
-        z_mean, z_log_var, z = self.encoder(x)
+        target = x["target"]
+        B = target.shape[0]
+        T = target.shape[1]
+        C = T - 1  # Context length
 
-        # Get context embeddings
-        ctx_input = {k: v for k, v in x.items()}  # Copy input
+        # Extract context (first C timesteps)
+        ctx_target = target[:, :C, :]
+        ctx_input = {"target": ctx_target}
+
+        if "cond_feats" in x:
+            cond_feats = x["cond_feats"]
+            ctx_cond_feats = cond_feats[:, :C, :]
+            ctx_input["cond_feats"] = ctx_cond_feats
+
+        # Encode full sequence
+        encoder_input = x
+        z_mean, z_log_var, z = self.encoder(encoder_input)
+
+        # Get context embeddings (only from context, not full sequence)
         ctx_embeddings = self.ctx_encoder(ctx_input)
-
-        # Pad context embeddings to match sequence length
-        B, T, _ = z.shape
-        C = ctx_embeddings.shape[1]
         ctx_dim = ctx_embeddings.shape[2]
 
-        # Create padded context: (B, T, ctx_dim)
+        # Pad context embeddings to match full sequence length T
         ctx_padded = torch.zeros((B, T, ctx_dim), device=self.device, dtype=z.dtype)
         ctx_padded[:, :C, :] = ctx_embeddings
 
@@ -571,28 +582,42 @@ class CVAE1DMemRand(BaseVAE):
         # Decode
         decoded_target, decoded_cond_feats = self.decoder(decoder_input)
 
-        return decoded_target, decoded_cond_feats, z_mean, z_log_var, z
+        # Return ONLY future prediction (timestep C onwards)
+        if decoded_cond_feats is not None:
+            return decoded_target[:, C:, :], decoded_cond_feats[:, C:, :], z_mean, z_log_var, z
+        else:
+            return decoded_target[:, C:, :], None, z_mean, z_log_var, z
 
     def compute_loss(self, x, decoded_target, decoded_cond_feats, z_mean, z_log_var):
         """
         Compute VAE loss: reconstruction + KL divergence.
 
         Loss = MSE(target) + cond_feat_weight * MSE(cond_feats) + kl_weight * KL
+
+        Note: decoded_target is only future prediction (shape B, 1, feat_dim).
+              We need to extract future ground truth from x["target"].
         """
         target = x["target"]
+        T = target.shape[1]
+        C = T - 1
+
+        # Extract future ground truth (last timestep)
+        target_future = target[:, C:, :]
 
         # Reconstruction loss for target (MSE)
-        recon_loss_target = F.mse_loss(decoded_target, target, reduction='mean')
+        recon_loss_target = F.mse_loss(decoded_target, target_future, reduction='mean')
 
         # Reconstruction loss for conditioning features (if used)
         if decoded_cond_feats is not None and self.cond_feat_weight > 0:
             cond_feats = x["cond_feats"]
+            # Extract future ground truth (last timestep)
+            cond_feats_future = cond_feats[:, C:, :]
             if self.cond_loss_type == "l1":
-                recon_loss_cond = F.l1_loss(decoded_cond_feats, cond_feats, reduction='mean')
+                recon_loss_cond = F.l1_loss(decoded_cond_feats, cond_feats_future, reduction='mean')
             else:
-                recon_loss_cond = F.mse_loss(decoded_cond_feats, cond_feats, reduction='mean')
+                recon_loss_cond = F.mse_loss(decoded_cond_feats, cond_feats_future, reduction='mean')
         else:
-            recon_loss_cond = 0.0
+            recon_loss_cond = torch.zeros(1, device=self.device)
 
         # KL divergence
         kl_loss = -0.5 * torch.mean(1 + z_log_var - z_mean.pow(2) - z_log_var.exp())
@@ -612,24 +637,42 @@ class CVAE1DMemRand(BaseVAE):
     def train_step(self, x, optimizer):
         """Single training step."""
         self.train()
+
+        # Move tensors to device
+        x_device = {}
+        for k, v in x.items():
+            if isinstance(v, torch.Tensor):
+                x_device[k] = v.to(self.device)
+            else:
+                x_device[k] = v
+
         optimizer.zero_grad()
 
-        decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x)
-        loss_dict = self.compute_loss(x, decoded_target, decoded_cond_feats, z_mean, z_log_var)
+        decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x_device)
+        loss_dict = self.compute_loss(x_device, decoded_target, decoded_cond_feats, z_mean, z_log_var)
 
         loss_dict["loss"].backward()
         optimizer.step()
 
-        return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+        return loss_dict
 
     def test_step(self, x):
         """Single test/validation step."""
         self.eval()
-        with torch.no_grad():
-            decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x)
-            loss_dict = self.compute_loss(x, decoded_target, decoded_cond_feats, z_mean, z_log_var)
 
-        return {k: v.item() if torch.is_tensor(v) else v for k, v in loss_dict.items()}
+        # Move tensors to device
+        x_device = {}
+        for k, v in x.items():
+            if isinstance(v, torch.Tensor):
+                x_device[k] = v.to(self.device)
+            else:
+                x_device[k] = v
+
+        with torch.no_grad():
+            decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x_device)
+            loss_dict = self.compute_loss(x_device, decoded_target, decoded_cond_feats, z_mean, z_log_var)
+
+        return loss_dict
 
     def get_prediction_given_context(self, c, num_samples=1, use_mean=False):
         """

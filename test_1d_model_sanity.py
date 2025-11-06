@@ -122,8 +122,9 @@ for config_dict in configs:
 
             # Check shapes
             T = sample["target"].shape[0]
-            assert decoded_target.shape == (1, T, 1), f"Expected (1, {T}, 1), got {decoded_target.shape}"
-            assert z_mean.shape == (1, T, config["latent_dim"])
+            # Forward returns only FUTURE prediction (1 timestep), not full sequence
+            assert decoded_target.shape == (1, 1, 1), f"Expected (1, 1, 1), got {decoded_target.shape}"
+            assert z_mean.shape == (1, T, config["latent_dim"])  # Encoder sees full sequence
             print("✓ PASSED")
     except Exception as e:
         print(f"✗ FAILED: {e}")

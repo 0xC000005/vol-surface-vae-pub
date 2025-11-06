@@ -158,3 +158,6 @@ models/
 .vscode/
 test_spx/
 tables
+models_1d/
+plots_1d/
+predictions_1d/

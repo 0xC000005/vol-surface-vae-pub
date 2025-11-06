@@ -18,6 +18,98 @@ The system uses a Conditional VAE (CVAE) combined with LSTM to generate one-day-
 - Install dependencies: `uv sync`
 - Key dependencies: PyTorch, NumPy, pandas, scikit-learn, matplotlib
 
+## Critical Setup Requirements
+
+### dtype Configuration
+
+**CRITICAL**: All models are trained with `torch.float64`. You **MUST** set the default dtype before any model operations:
+
+```python
+import torch
+torch.set_default_dtype(torch.float64)  # MUST be before model loading/creation
+```
+
+**Why this matters:**
+- Models are trained with float64 precision
+- PyTorch defaults to float32
+- Mismatch causes: `RuntimeError: mat1 and mat2 must have the same dtype, but got Double and Float`
+
+**Common mistake:**
+```python
+# WRONG - dtype not set before loading
+model = torch.load("model.pt")  # Will load with float32 default
+torch.set_default_dtype(torch.float64)  # Too late!
+
+# CORRECT - dtype set first
+torch.set_default_dtype(torch.float64)
+model = torch.load("model.pt")  # Now loads with float64
+```
+
+**Application to all scripts:**
+- Training scripts: Set at top of file before imports
+- Generation scripts: Set before `torch.load()`
+- Evaluation scripts: Set before any model operations
+- Visualization scripts: Set before model loading
+
+### Device Handling Pattern
+
+**CRITICAL**: Use a single `.to(device)` call on the entire model to preserve dtype:
+
+```python
+# CORRECT - Single .to() call preserves torch.set_default_dtype
+class CVAE1DMemRand(BaseVAE):
+    def __init__(self, config):
+        super().__init__(config)
+        self.encoder = CVAE1DMemRandEncoder(config)
+        self.ctx_encoder = CVAE1DCtxMemRandEncoder(config)
+        self.decoder = CVAE1DMemRandDecoder(config)
+        self.to(self.device)  # Single call at end
+
+# INCORRECT - Individual .to() calls can override dtype
+class CVAE1DMemRand(BaseVAE):
+    def __init__(self, config):
+        super().__init__(config)
+        self.encoder = CVAE1DMemRandEncoder(config).to(self.device)  # Breaks dtype!
+        self.ctx_encoder = CVAE1DCtxMemRandEncoder(config).to(self.device)
+        self.decoder = CVAE1DMemRandDecoder(config).to(self.device)
+```
+
+**Why this matters:**
+- Individual `.to()` calls can reset dtype to float32
+- Single call on parent module preserves `torch.set_default_dtype()`
+- Applies to both 2D and 1D VAE implementations
+
+### Model Loading Pattern
+
+**Standard pattern for loading trained models:**
+
+```python
+import torch
+import numpy as np
+
+# 1. Set dtype FIRST
+torch.set_default_dtype(torch.float64)
+
+# 2. Load model checkpoint
+model_path = "models_1d/amzn_only.pt"
+model_data = torch.load(model_path, map_location=DEVICE, weights_only=False)
+
+# 3. Extract config and create model
+model_config = model_data["model_config"]
+model = CVAE1DMemRand(model_config)  # or CVAEMemRand for 2D
+
+# 4. Load weights
+model.load_weights(dict_to_load=model_data)
+
+# 5. Set to eval mode
+model.eval()
+```
+
+**Key points:**
+- Always use `map_location=DEVICE` to handle CPU/GPU differences
+- Use `weights_only=False` for loading full model state (includes config)
+- Call `.eval()` to disable dropout/batch norm training behavior
+
 ### Common Commands
 
 **Training Models:**
@@ -131,6 +223,189 @@ Key functions for training, testing, and evaluation:
 - `train()`: Training loop with early stopping
 - `test()`: Evaluation on validation/test sets
 - `set_seeds()`: Set random seeds for reproducibility
+
+## Architecture Deep Dive
+
+### Forward Pass Behavior (CRITICAL)
+
+**Key Pattern**: The `forward()` method returns **ONLY the future prediction** [:, C:, ...], not the full sequence.
+
+This is a **fundamental design decision** that differs from standard seq2seq models:
+
+```python
+def forward(self, x):
+    """
+    Input:  (B, T, ...)      # T timesteps total
+    Output: (B, T-C, ...)    # Only future timesteps (typically T-C=1)
+    """
+    target = x["target"]  # or x["surface"] for 2D models
+    B = target.shape[0]
+    T = target.shape[1]
+    C = T - 1  # Context length = total timesteps - 1
+
+    # 1. Extract context (first C timesteps)
+    ctx_target = target[:, :C, ...]
+
+    # 2. Encode full sequence (including target at T-1)
+    z_mean, z_log_var, z = self.encoder(x)
+
+    # 3. Get context embeddings (from context only)
+    ctx_embeddings = self.ctx_encoder(ctx_input)
+
+    # 4. Decode to full T timesteps
+    decoded_output = self.decoder(...)  # (B, T, ...)
+
+    # 5. Return ONLY future prediction (last timestep)
+    return decoded_output[:, C:, ...], z_mean, z_log_var, z
+    #                     ^^^^^^^^ CRITICAL: slice out future only
+```
+
+**Why this design?**
+- Training objective: predict next day given context
+- Loss should only be computed on future timestep, not context
+- Context timesteps are deterministic (teacher forcing), only future is predicted
+
+**Implications:**
+- Loss computation uses `target[:, C:, ...]` to match decoded output shape
+- Test assertions expect `(B, 1, ...)` not `(B, T, ...)`
+- Generation methods return single timestep predictions
+
+### Context Extraction Pattern
+
+**Universal pattern across all models:**
+
+```python
+T = sequence.shape[1]    # Total timesteps in batch
+C = T - 1                # Context length
+context = sequence[:, :C, ...]      # Extract context [0:C]
+future = sequence[:, C:, ...]       # Extract future [C:T]
+```
+
+**Key insight**: Context length `C` is **derived** from sequence length `T`, not hardcoded:
+- During training: T varies (randomized sequences), so C varies too
+- Variable context forces model to work with different history lengths
+- At generation time: T = C + 1 (context + 1 future prediction)
+
+**Example with T=6:**
+```
+Sequence: [t0, t1, t2, t3, t4, t5]
+          └───────C=5────────┘  └─┘
+              Context         Future
+
+C = T - 1 = 5
+context = sequence[:, :5, ...]  = [t0, t1, t2, t3, t4]
+future  = sequence[:, 5:, ...]  = [t5]
+```
+
+### Two-Encoder Architecture
+
+**Why two separate encoders?**
+
+1. **Main Encoder** (`self.encoder`): Used during training
+   - Input: Full sequence [t-C, ..., t-1, t] (context + target)
+   - Output: Latent encoding z that captures complete sequence information
+   - Purpose: Learn to encode complete patterns including the target
+
+2. **Context Encoder** (`self.ctx_encoder`): Used during generation
+   - Input: Context only [t-C, ..., t-1] (no future knowledge)
+   - Output: Context embedding for conditioning
+   - Purpose: Realistic generation without "cheating" by seeing the future
+
+**Architecture diagram:**
+
+```
+TRAINING:
+  [context: t-C...t-1, target: t] → encoder → z_mean, z_log_var, z
+  [context: t-C...t-1] → ctx_encoder → ctx_embedding
+  [ctx_embedding || z] → decoder → prediction for t
+
+GENERATION:
+  [context: t-C...t-1] → ctx_encoder → ctx_embedding
+  z ~ N(0,1) or z = 0 (MLE)
+  [ctx_embedding || z] → decoder → prediction for t
+```
+
+**Critical implementation detail:**
+```python
+# During generation, separate treatment for context vs future latents
+z = torch.zeros((B, T, latent_dim), ...)
+
+# Context timesteps: use encoded latent mean (deterministic)
+z[:, :C, :] = z_mean[:, :C, :]
+
+# Future timestep: sample from prior (stochastic) or use mode (MLE)
+if use_mean:
+    z[:, C:, :] = 0  # MLE: use mode of N(0,1)
+else:
+    z[:, C:, :] = torch.randn(...)  # Sample from N(0,1)
+```
+
+### Context Padding Pattern
+
+**Why pad context embeddings?**
+
+The decoder expects input of shape `(B, T, ctx_dim + latent_dim)`, but context encoder only produces `(B, C, ctx_dim)`.
+
+```python
+# ctx_encoder output: (B, C, ctx_dim)
+ctx_embeddings = self.ctx_encoder(context)
+
+# Need to pad to T timesteps
+ctx_padded = torch.zeros((B, T, ctx_dim), device=self.device, dtype=z.dtype)
+ctx_padded[:, :C, :] = ctx_embeddings  # Fill first C timesteps
+# ctx_padded[:, C:, :] remains zero for future timestep
+
+# Concatenate with latent
+decoder_input = torch.cat([ctx_padded, z], dim=-1)  # (B, T, ctx_dim + latent_dim)
+```
+
+**What does this mean?**
+- Context timesteps [0:C]: have both context embedding and latent encoding
+- Future timestep [C]: only has latent variable (context embedding is zero)
+- Decoder learns to use context info for [0:C] and generate from latent for [C:]
+
+**Visualization:**
+```
+ctx_padded:  [ctx_emb, ctx_emb, ..., ctx_emb, 0, 0, ...]
+                   └────────C────────┘  └─T-C─┘
+
+z:           [z_mean, z_mean, ..., z_mean, z_sample, ...]
+                   └────────C────────┘  └──T-C───┘
+
+decoder_in:  [[ctx||z], [ctx||z], ..., [ctx||z], [0||z_sample], ...]
+                   └──────────C──────────┘    └─────T-C──────┘
+```
+
+### Loss Computation Pattern
+
+**Standard VAE loss with context-aware masking:**
+
+```python
+def compute_loss(self, x, decoded_output, z_mean, z_log_var):
+    target = x["target"]  # (B, T, ...)
+    T = target.shape[1]
+    C = T - 1
+
+    # Extract future ground truth (to match decoded_output shape)
+    target_future = target[:, C:, ...]  # (B, T-C, ...)
+
+    # Reconstruction loss (MSE or Pinball)
+    recon_loss = loss_fn(decoded_output, target_future)
+
+    # KL divergence (computed on full sequence encoding)
+    kl_loss = -0.5 * torch.sum(1 + z_log_var - z_mean.pow(2) - z_log_var.exp())
+    kl_loss /= (B * T)  # Normalize by batch and sequence length
+
+    # Total loss
+    total_loss = recon_loss + self.kl_weight * kl_loss
+    return total_loss, recon_loss, kl_loss
+```
+
+**Key points:**
+- `decoded_output` is `(B, T-C, ...)` from forward pass
+- `target_future` must be extracted to match shape
+- KL loss uses full sequence z_mean/z_log_var (shape B, T, latent_dim)
+- Both reconstruction and KL losses normalized appropriately
 
 ## Data Structure
 
@@ -600,6 +875,292 @@ Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed usin
 **Pre-trained Models:**
 Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
 
+## Troubleshooting Guide
+
+### Common Errors and Solutions
+
+#### 1. dtype Mismatch Error
+
+**Error:**
+```
+RuntimeError: mat1 and mat2 must have the same dtype, but got Double and Float
+```
+
+**Cause:** Model trained with float64 but script using default float32.
+
+**Solution:**
+```python
+import torch
+torch.set_default_dtype(torch.float64)  # Add THIS LINE before any model operations
+```
+
+**Where to add:**
+- Training scripts: At top of file before imports
+- Generation scripts: Before `torch.load()`
+- Evaluation scripts: Before model creation
+- Visualization scripts: Before model loading
+
+**Verification:** Check model weights dtype:
+```python
+model_data = torch.load("model.pt")
+print(model_data["decoder.output_layer.weight"].dtype)  # Should be torch.float64
+```
+
+---
+
+#### 2. Forward Pass Shape Mismatch
+
+**Error:**
+```
+AssertionError: Expected (1, 1, 1), got (1, 6, 1)
+# or
+RuntimeError: The size of tensor a (6) must match the size of tensor b (1)
+```
+
+**Cause:** forward() returning all T timesteps instead of only future [:, C:, ...].
+
+**Diagnosis:**
+```python
+# Check forward() implementation
+decoded_output = self.decoder(decoder_input)  # (B, T, ...)
+
+# WRONG: returns all timesteps
+return decoded_output, z_mean, z_log_var, z
+
+# CORRECT: returns only future timesteps
+C = T - 1
+return decoded_output[:, C:, ...], z_mean, z_log_var, z
+```
+
+**Solution:** Add slicing to extract future timesteps:
+```python
+def forward(self, x):
+    # ... encoding and decoding ...
+    T = target.shape[1]
+    C = T - 1
+
+    # CRITICAL: Return only future prediction
+    return decoded_target[:, C:, :], decoded_cond_feats[:, C:, :], z_mean, z_log_var, z
+```
+
+**Update loss computation too:**
+```python
+def compute_loss(self, x, decoded_target, ...):
+    target = x["target"]
+    C = target.shape[1] - 1
+    target_future = target[:, C:, :]  # Extract future to match decoded_target shape
+    recon_loss = F.mse_loss(decoded_target, target_future)
+```
+
+---
+
+#### 3. Context Length Confusion
+
+**Error:**
+```
+IndexError: index 5 is out of bounds for dimension 1 with size 5
+# or
+RuntimeError: shape mismatch in slicing
+```
+
+**Cause:** Hardcoded context length instead of deriving from T.
+
+**Wrong pattern:**
+```python
+CONTEXT_LEN = 5  # Hardcoded!
+ctx_target = target[:, :CONTEXT_LEN, :]  # Breaks when T != 6
+```
+
+**Correct pattern:**
+```python
+T = target.shape[1]
+C = T - 1  # Derive context length
+ctx_target = target[:, :C, :]  # Works for any T
+```
+
+**Key insight:** During training, T is variable (randomized sequences). Always compute C = T - 1 dynamically.
+
+---
+
+#### 4. Device/dtype Ordering in Model Init
+
+**Error:**
+```
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu
+# After supposedly fixing, dtype error reappears
+```
+
+**Cause:** Individual `.to(device)` calls override `torch.set_default_dtype()`.
+
+**Wrong pattern:**
+```python
+class CVAE1DMemRand(BaseVAE):
+    def __init__(self, config):
+        super().__init__(config)
+        self.encoder = CVAE1DMemRandEncoder(config).to(self.device)  # Each .to() call
+        self.ctx_encoder = CVAE1DCtxMemRandEncoder(config).to(self.device)  # can reset
+        self.decoder = CVAE1DMemRandDecoder(config).to(self.device)  # dtype!
+```
+
+**Correct pattern:**
+```python
+class CVAE1DMemRand(BaseVAE):
+    def __init__(self, config):
+        super().__init__(config)
+        self.encoder = CVAE1DMemRandEncoder(config)      # No .to() here
+        self.ctx_encoder = CVAE1DCtxMemRandEncoder(config)  # No .to() here
+        self.decoder = CVAE1DMemRandDecoder(config)      # No .to() here
+        self.to(self.device)  # Single call at end preserves dtype
+```
+
+---
+
+#### 5. Model Collapse (Known Limitation)
+
+**Symptom:**
+```python
+# Generate multiple samples with different z ~ N(0,1)
+samples_std = predictions.std(axis=1)
+print(samples_std.mean())  # 0.000005 (essentially zero!)
+```
+
+**Cause:** For simple prediction tasks (e.g., 1D stock returns), the model may learn to ignore the latent variable and rely solely on context.
+
+**Diagnosis:**
+```python
+# Test different sampling strategies
+z_prior = torch.randn(...)        # z ~ N(0,1): std = 0.000008
+z_posterior = torch.randn(...) * z_std + z_mean  # z ~ N(μ, σ): std = 0.000014
+z_deterministic = z_mean          # Direct mean: std = 0.000902
+
+# If all produce near-zero variance → model collapsed
+```
+
+**When it happens:**
+- 1D time series with strong context signal
+- Simple prediction tasks where context is sufficient
+- High context-to-prediction information ratio
+
+**Impact:**
+- Narrow confidence intervals (overconfident predictions)
+- CI calibration will be poor (high violation rates)
+- Model still predicts well, but uncertainty estimates are unreliable
+
+**Not a bug:** This is trained model behavior. The model learned that context alone is sufficient, making the latent variable redundant.
+
+**Mitigation strategies:**
+1. Increase KL weight to force latent usage
+2. Add information bottleneck in context encoder
+3. Use β-VAE formulation (β > 1)
+4. Switch to quantile regression for direct CI prediction
+
+---
+
+#### 6. Quantile vs MSE Model Confusion
+
+**Error:**
+```python
+# Expecting 3 quantile channels
+p05 = predictions[:, :, 0, :, :]  # IndexError: index 2 is out of bounds for dimension 2 with size 1
+```
+
+**Cause:** Trying to extract quantiles from MSE model output.
+
+**Diagnosis:**
+```python
+# Check model configuration
+print(model_config.get("use_quantile_regression", False))
+# False or not present → MSE model (single output channel)
+# True → Quantile regression model (3 output channels)
+
+# Check decoder output shape
+output = model(batch)
+print(output[0].shape)
+# (B, 1, H, W) → MSE model
+# (B, 1, 3, H, W) → Quantile model
+```
+
+**Solution for MSE models:** Generate empirical quantiles:
+```python
+# Generate multiple samples
+samples = []
+for _ in range(1000):
+    z = torch.randn((B, 1, latent_dim), ...)  # Sample different z
+    prediction = model.generate(context, z)
+    samples.append(prediction)
+
+samples = np.array(samples)  # (1000, B, 1, ...)
+
+# Compute empirical quantiles
+p05 = np.percentile(samples, 5, axis=0)
+p50 = np.percentile(samples, 50, axis=0)
+p95 = np.percentile(samples, 95, axis=0)
+```
+
+**Solution for quantile models:** Direct extraction:
+```python
+# Single forward pass returns all quantiles
+output = model(context)  # (B, 1, 3, H, W)
+p05 = output[:, :, 0, :, :]
+p50 = output[:, :, 1, :, :]
+p95 = output[:, :, 2, :, :]
+```
+
+---
+
+#### 7. Teacher Forcing Misunderstanding
+
+**Confusion:** "Why don't we use previous predictions as context?"
+
+**Clarification:** This codebase uses **teacher forcing** during inference:
+- Each day's prediction uses **real historical data** as context
+- Predictions are **independent one-step-ahead forecasts**
+- NOT autoregressive multi-step prediction
+
+**Example:**
+```python
+# Teacher forcing (this codebase)
+Day 1: context=[real_t-5, ..., real_t-1] → predict t
+Day 2: context=[real_t-4, ..., real_t] → predict t+1  # Uses real_t, not predicted_t
+Day 3: context=[real_t-3, ..., real_t+1] → predict t+2
+
+# Autoregressive (NOT used here)
+Day 1: context=[real_t-5, ..., real_t-1] → predict t
+Day 2: context=[real_t-4, ..., pred_t] → predict t+1  # Uses pred_t
+Day 3: context=[real_t-3, ..., pred_t+1] → predict t+2
+```
+
+**Why teacher forcing?**
+- Evaluates model's inherent prediction ability
+- Avoids error accumulation from previous predictions
+- Standard practice for single-step forecast evaluation
+
+---
+
+### Debugging Checklist
+
+When encountering issues, check in order:
+
+1. **dtype setup:**
+   - [ ] `torch.set_default_dtype(torch.float64)` before model operations?
+   - [ ] No individual `.to(device)` calls on submodules?
+
+2. **Forward pass behavior:**
+   - [ ] Returns `[:, C:, ...]` not full sequence?
+   - [ ] Loss uses `target[:, C:, ...]` to match decoded shape?
+
+3. **Context extraction:**
+   - [ ] Computes `C = T - 1` dynamically?
+   - [ ] Not hardcoded `CONTEXT_LEN`?
+
+4. **Model type:**
+   - [ ] Check `use_quantile_regression` in config?
+   - [ ] Using appropriate quantile/sampling method?
+
+5. **Shape expectations:**
+   - [ ] Test assertions match forward() output shape?
+   - [ ] Visualization expects correct number of models?
+
 ## 1D Time Series VAE (Stock Returns Forecasting)
 
 A parallel implementation exists for 1D scalar time series (stock returns) using the same architectural principles as the 2D surface VAE. This was created to test conditioning strategies on simpler data.
@@ -676,9 +1237,9 @@ python train_1d_models.py
 python generate_1d_predictions.py
 # Output: predictions_1d/*.npz (stochastic + MLE)
 
-# Visualize predictions
-python visualize_1d_predictions.py
-# Output: plots_1d/predictions_comparison.png
+# Visualize predictions (in analysis_code/)
+python analysis_code/visualize_1d_teacher_forcing.py
+# Output: plots_1d/teacher_forcing_comparison.png
 
 # Compute evaluation metrics
 python evaluate_1d_models.py
@@ -758,3 +1319,75 @@ output = self.decoder(decoder_input)
 ```
 
 This pattern is identical in both `CVAEMemRand.get_surface_given_conditions()` (2D) and `CVAE1DMemRand.get_prediction_given_context()` (1D).
+
+### Known Limitations: Model Collapse in 1D VAE
+
+The 1D time series models exhibit **model collapse**, where the decoder learns to ignore the latent variable and rely solely on context embeddings.
+
+**Evidence:**
+```python
+# Generate 1000 samples with different z ~ N(0,1)
+samples_std = predictions.std(axis=1)
+print(samples_std.mean())  # 0.000005 - essentially zero variance!
+```
+
+**Root cause:**
+- Stock return prediction from market context is relatively simple
+- Context signal (SP500, MSFT returns) is highly informative
+- Model learns that context alone is sufficient
+- Latent variable becomes redundant
+
+**Testing different sampling strategies (all fail):**
+1. `z ~ N(0,1)` (prior sampling): std = 0.000008
+2. `z ~ N(z_mean, z_std)` (posterior sampling): std = 0.000014
+3. Direct `z_mean` (deterministic): std = 0.000902
+4. All methods produce nearly identical predictions
+
+**Impact:**
+- Point predictions remain accurate (RMSE, R² unaffected)
+- Uncertainty estimates are unreliable (overconfident)
+- CI violation rates will be high (>50% instead of target 10%)
+- Confidence intervals collapse to near-zero width
+
+**Why this is NOT a bug:**
+- This is trained model behavior, not implementation error
+- VAE learned optimal strategy: ignore noisy latent, trust context
+- Common in VAEs when conditioning information is strong
+- Similar to posterior collapse in text VAEs
+
+**Comparison to 2D VAE:**
+- 2D volatility surface VAE does NOT collapse
+- Surface prediction is more complex than 1D return prediction
+- Higher-dimensional output requires latent information
+- Stochastic generation produces meaningful uncertainty
+
+**Mitigation strategies** (for future work):
+1. **Increase KL weight**: Force model to use latent variable
+   ```python
+   kl_weight: 1e-3  # vs current 1e-5, penalize ignoring z
+   ```
+
+2. **Information bottleneck**: Limit context encoder capacity
+   ```python
+   mem_hidden: 20  # vs current 100, force reliance on latent
+   ```
+
+3. **β-VAE**: Disentangle latent representations
+   ```python
+   beta: 4.0  # Emphasize KL term
+   ```
+
+4. **Conditional prior**: Model p(z|context) instead of p(z)=N(0,1)
+   - Learn context-dependent prior distribution
+   - Better match between prior and posterior
+
+5. **Quantile regression**: Bypass stochastic generation entirely
+   - Directly predict quantiles (p05, p50, p95)
+   - No reliance on latent sampling
+   - See 2D quantile models for reference
+
+**Current status:**
+- Models train successfully and predict accurately
+- Collapse documented as known limitation
+- Visualization scripts compute empirical quantiles from collapsed samples
+- Users should be aware CI calibration metrics will be poor

@@ -14,6 +14,9 @@ from tqdm import tqdm
 from vae.cvae_1d_with_mem_randomized import CVAE1DMemRand
 import os
 
+# Set default dtype to match training (MUST be before model loading)
+torch.set_default_dtype(torch.float64)
+
 # Configuration
 DATA_FILE = "data/stock_returns.npz"
 MODELS_DIR = "models_1d"
