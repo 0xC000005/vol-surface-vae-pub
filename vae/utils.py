@@ -42,9 +42,23 @@ def model_eval(model: BaseVAE, dataloader):
     return eval_losses
     
 
-def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLoader, 
-          lr=1e-5, epochs=100, 
-          model_dir="./", file_name="vanilla.pt"):
+def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLoader,
+          lr=1e-5, epochs=100,
+          model_dir="./", file_name="vanilla.pt", mask_prob=0.0):
+    """
+    Train a VAE model.
+
+    Args:
+        model: VAE model to train
+        train_dataloader: Training data loader
+        valid_dataloader: Validation data loader
+        lr: Learning rate (default: 1e-5)
+        epochs: Number of training epochs (default: 100)
+        model_dir: Directory to save model checkpoints (default: "./")
+        file_name: Filename for saved model (default: "vanilla.pt")
+        mask_prob: Probability of using masked training step (backfilling scenario).
+                   0.0 = standard training only, 0.3 = 30% masked batches. (default: 0.0)
+    """
     model.train()
     optimizer = opt.AdamW(model.parameters(), lr)
     best_dev_loss = np.inf
@@ -62,6 +76,8 @@ def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLo
     print(json.dumps(model.config, indent=True), file=log_file)
     print(f"LR: {lr}", file=log_file)
     print(f"Epochs: {epochs}", file=log_file)
+    if mask_prob > 0:
+        print(f"Mask probability: {mask_prob} (backfilling training)", file=log_file)
     print("", file=log_file)
     log_file.flush()
     start_time = time.time()
@@ -69,20 +85,47 @@ def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLo
         epoch_start_time = time.time()
         model.train()
         train_losses = defaultdict(float)
+        train_losses_masked = defaultdict(float)
+        train_losses_standard = defaultdict(float)
         num_batches = 0
+        num_masked_batches = 0
+        num_standard_batches = 0
+
         for step, batch in enumerate(tqdm(train_dataloader, desc=f"train-{epoch}")):
             try:
                 batch.to(model.device)
             except:
                 pass
 
-            losses = model.train_step(batch, optimizer)
+            # Select training mode: masked (backfilling) or standard
+            use_masked = mask_prob > 0 and random.random() < mask_prob
+
+            if use_masked and hasattr(model, 'train_step_masked'):
+                losses = model.train_step_masked(batch, optimizer)
+                num_masked_batches += 1
+                for k, v in losses.items():
+                    train_losses_masked[k] += v.item()
+            else:
+                losses = model.train_step(batch, optimizer)
+                num_standard_batches += 1
+                for k, v in losses.items():
+                    train_losses_standard[k] += v.item()
 
             for k, v in losses.items():
                 train_losses[k] += v.item()
             num_batches += 1
+
+        # Average losses
         for k, v in train_losses.items():
-            train_losses[k] = v / (num_batches)
+            train_losses[k] = v / num_batches
+
+        # Average masked/standard losses separately (if applicable)
+        if num_masked_batches > 0:
+            for k, v in train_losses_masked.items():
+                train_losses_masked[k] = v / num_masked_batches
+        if num_standard_batches > 0:
+            for k, v in train_losses_standard.items():
+                train_losses_standard[k] = v / num_standard_batches
         
         dev_losses = model_eval(model, valid_dataloader)
 
@@ -92,8 +135,24 @@ def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLo
 
         formatted_train_loss = ", ".join([f'{k}: {v:.3f}' for k, v in train_losses.items()])
         formatted_dev_loss = ", ".join([f'{k}: {v:.3f}' for k, v in dev_losses.items()])
-        print(f"epoch {epoch}: \ntrain loss :: {formatted_train_loss}, \ndev loss :: {formatted_dev_loss}, \ntime elapsed :: {time.time() - epoch_start_time}")
-        print(f"epoch {epoch}: \ntrain loss :: {formatted_train_loss}, \ndev loss :: {formatted_dev_loss}, \ntime elapsed :: {time.time() - epoch_start_time}", file=log_file)
+
+        # Log batch distribution if using masking
+        batch_info = ""
+        if mask_prob > 0:
+            batch_info = f" (masked: {num_masked_batches}/{num_batches}, standard: {num_standard_batches}/{num_batches})"
+
+            # Log separate losses for masked and standard batches
+            if num_masked_batches > 0:
+                formatted_masked_loss = ", ".join([f'{k}: {v:.3f}' for k, v in train_losses_masked.items()])
+                print(f"  masked batches :: {formatted_masked_loss}")
+                print(f"  masked batches :: {formatted_masked_loss}", file=log_file)
+            if num_standard_batches > 0:
+                formatted_standard_loss = ", ".join([f'{k}: {v:.3f}' for k, v in train_losses_standard.items()])
+                print(f"  standard batches :: {formatted_standard_loss}")
+                print(f"  standard batches :: {formatted_standard_loss}", file=log_file)
+
+        print(f"epoch {epoch}{batch_info}: \ntrain loss :: {formatted_train_loss}, \ndev loss :: {formatted_dev_loss}, \ntime elapsed :: {time.time() - epoch_start_time}")
+        print(f"epoch {epoch}{batch_info}: \ntrain loss :: {formatted_train_loss}, \ndev loss :: {formatted_dev_loss}, \ntime elapsed :: {time.time() - epoch_start_time}", file=log_file)
     print(f"training finished, total time :: {time.time() - start_time}")
     print(f"training finished, total time :: {time.time() - start_time}", file=log_file)
     log_file.close()

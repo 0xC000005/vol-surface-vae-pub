@@ -708,6 +708,92 @@ class CVAE1DMemRand(BaseVAE):
 
         return loss_dict
 
+    def train_step_masked(self, x, optimizer):
+        """
+        Training step with masked target (backfilling scenario).
+
+        Simulates missing target data at T+1 by forward-filling the last known value.
+        This trains the model to handle realistic backfilling conditions where:
+        - Target (AMZN) is only available up to time T
+        - Extra features (MSFT, SP500) are available through T+1
+
+        Uses latent from previous timestep (T) instead of current (T+1) since
+        the model cannot see the true target at T+1.
+
+        Args:
+            x: Batch dictionary with keys "target" and optionally "ex_feats"
+            optimizer: PyTorch optimizer
+
+        Returns:
+            loss_dict: Dictionary with loss components
+        """
+        self.train()
+
+        # Move tensors to device
+        x_device = {}
+        for k, v in x.items():
+            if isinstance(v, torch.Tensor):
+                x_device[k] = v.to(self.device)
+            else:
+                x_device[k] = v
+
+        # Extract shapes
+        target = x_device["target"]  # (B, T, 1)
+        B, T = target.shape[0], target.shape[1]
+        C = T - 1  # Context length (last timestep is future)
+
+        # Forward fill target: repeat last known value instead of using T+1
+        # This simulates missing AMZN data at T+1
+        target_masked = torch.cat([target[:, :C, :], target[:, C-1:C, :]], dim=1)  # (B, T, 1)
+
+        # Create masked batch
+        x_masked = {"target": target_masked}
+        if "ex_feats" in x_device:
+            # Extra features (MSFT, SP500) remain unmasked - they're available at T+1
+            x_masked["ex_feats"] = x_device["ex_feats"]
+
+        optimizer.zero_grad()
+
+        # Encode with masked data
+        z_mean, z_log_var, z = self.encoder(x_masked)
+
+        # Get context embeddings (use real context, not masked)
+        ctx_target = target[:, :C, :]  # Real historical data
+        ctx_input = {"target": ctx_target}
+        if "ex_feats" in x_device:
+            ctx_input["ex_feats"] = x_device["ex_feats"][:, :C, :]
+
+        ctx_embeddings = self.ctx_encoder(ctx_input)
+        ctx_dim = ctx_embeddings.shape[2]
+
+        # Pad context embeddings to full sequence length
+        ctx_padded = torch.zeros((B, T, ctx_dim), device=self.device, dtype=z.dtype)
+        ctx_padded[:, :C, :] = ctx_embeddings
+
+        # Create modified latent that uses previous timestep for prediction
+        # Context: use encoded means (as in standard training)
+        # Future: use latent from T instead of T+1 (since T+1 is masked)
+        z_for_decoding = torch.zeros_like(z)
+        z_for_decoding[:, :C, :] = z_mean[:, :C, :]  # Context: deterministic
+        z_for_decoding[:, C:, :] = z[:, C-1:C, :]     # Future: use previous timestep latent
+
+        # Decode
+        decoder_input = torch.cat([ctx_padded, z_for_decoding], dim=-1)
+        decoded_target, decoded_ex_feats = self.decoder(decoder_input)
+
+        # Compute loss against REAL ground truth (not masked version)
+        # This teaches the model to predict accurately despite incomplete information
+        decoded_target_future = decoded_target[:, C:, :]
+        decoded_ex_future = decoded_ex_feats[:, C:, :] if decoded_ex_feats is not None else None
+
+        loss_dict = self.compute_loss(x_device, decoded_target_future, decoded_ex_future,
+                                       z_mean, z_log_var)
+
+        loss_dict["loss"].backward()
+        optimizer.step()
+
+        return loss_dict
+
     def test_step(self, x):
         """Single test/validation step."""
         self.eval()
