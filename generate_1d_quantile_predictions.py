@@ -142,12 +142,12 @@ def generate_quantile_predictions(model, target_data, cond_data, num_days, conte
         ctx_dict = {"target": ctx_target}
 
         if cond_data is not None:
-            ctx_cond = torch.tensor(
+            ctx_ex = torch.tensor(
                 cond_data[start_idx:end_idx],  # (C, K)
                 dtype=torch.float64,
                 device=DEVICE
             ).unsqueeze(0)  # (1, C, K)
-            ctx_dict["cond_feats"] = ctx_cond
+            ctx_dict["ex_feats"] = ctx_ex
 
         # Generate quantile prediction (single forward pass)
         with torch.no_grad():

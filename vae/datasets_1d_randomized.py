@@ -77,7 +77,7 @@ class TimeSeriesDataSetRand(Dataset):
 
     Supports:
     - Target-only (e.g., Amazon returns only)
-    - Target + conditioning features (e.g., Amazon + SP500/MSFT)
+    - Target + extra features (e.g., Amazon + SP500/MSFT)
 
     Each sample is a random-length subsequence drawn from the full time series.
     This provides data augmentation and tests model robustness to different context windows.
@@ -85,9 +85,9 @@ class TimeSeriesDataSetRand(Dataset):
     Args:
         dataset: Either:
             - Single numpy array (N,) for target-only
-            - Tuple (target, cond_feats) where:
+            - Tuple (target, ex_feats) where:
                 - target: (N,) numpy array (e.g., Amazon returns)
-                - cond_feats: (N, K) numpy array (e.g., SP500, MSFT returns)
+                - ex_feats: (N, K) numpy array (e.g., SP500, MSFT returns)
         min_seq_len: Minimum sequence length (default: 4)
         max_seq_len: Maximum sequence length (default: 10)
         dtype: torch dtype (default: torch.float64)
@@ -95,41 +95,41 @@ class TimeSeriesDataSetRand(Dataset):
     Returns:
         Dictionary with keys:
             - "target": (T, 1) - Target time series
-            - "cond_feats": (T, K) - Conditioning features (if provided)
+            - "ex_feats": (T, K) - Extra features (if provided)
 
         where T ∈ [min_seq_len, max_seq_len]
     """
 
     def __init__(self, dataset, min_seq_len=4, max_seq_len=10, dtype=torch.float64):
         if isinstance(dataset, tuple):
-            # Target + conditioning features
+            # Target + extra features
             target_data = dataset[0]
-            cond_data = dataset[1]
+            ex_data = dataset[1]
 
             # Convert to torch tensors
             self.target = torch.from_numpy(target_data)
-            self.cond_feats = torch.from_numpy(cond_data)
+            self.ex_feats = torch.from_numpy(ex_data)
 
             # Cast to desired dtype
             if dtype == torch.float32:
                 self.target = self.target.float()
-                self.cond_feats = self.cond_feats.float()
+                self.ex_feats = self.ex_feats.float()
 
             # Verify matching lengths
-            assert len(self.target) == len(self.cond_feats), \
-                "target and cond_feats should have the same length"
+            assert len(self.target) == len(self.ex_feats), \
+                "target and ex_feats should have the same length"
 
-            # Ensure target is (N, 1) and cond_feats is (N, K)
+            # Ensure target is (N, 1) and ex_feats is (N, K)
             if len(self.target.shape) == 1:
                 self.target = self.target.unsqueeze(-1)
 
-            if len(self.cond_feats.shape) == 1:
-                self.cond_feats = self.cond_feats.unsqueeze(-1)
+            if len(self.ex_feats.shape) == 1:
+                self.ex_feats = self.ex_feats.unsqueeze(-1)
 
         else:
-            # Target only (no conditioning)
+            # Target only (no extra features)
             self.target = torch.from_numpy(dataset)
-            self.cond_feats = None
+            self.ex_feats = None
 
             # Cast to desired dtype
             if dtype == torch.float32:
@@ -160,7 +160,7 @@ class TimeSeriesDataSetRand(Dataset):
         - seq_start_idx: where to start the subsequence
 
         Returns:
-            Dictionary with "target" and optionally "cond_feats"
+            Dictionary with "target" and optionally "ex_feats"
         """
         seq_len_idx, seq_start_idx = divmod(idx, len(self.target))
         seq_len = self.seq_lens[seq_len_idx]
@@ -168,9 +168,9 @@ class TimeSeriesDataSetRand(Dataset):
         # Extract target subsequence
         target_seq = self.target[seq_start_idx:seq_start_idx + seq_len]
 
-        if self.cond_feats is not None:
-            # Extract conditioning features subsequence
-            cond_seq = self.cond_feats[seq_start_idx:seq_start_idx + seq_len]
-            return {"target": target_seq, "cond_feats": cond_seq}
+        if self.ex_feats is not None:
+            # Extract extra features subsequence
+            ex_seq = self.ex_feats[seq_start_idx:seq_start_idx + seq_len]
+            return {"target": target_seq, "ex_feats": ex_seq}
 
         return {"target": target_seq}

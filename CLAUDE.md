@@ -127,14 +127,14 @@ Three variants test conditioning strategies:
 
 Four variants test market conditioning:
 
-| Variant | cond_feats_dim | Conditioning Features |
-|---------|----------------|----------------------|
+| Variant | ex_feats_dim | Extra Features |
+|---------|--------------|----------------|
 | **amzn_only** | 0 | None (baseline) |
 | **amzn_sp500** | 1 | SP500 returns |
 | **amzn_msft** | 1 | MSFT returns |
 | **amzn_both** | 2 | SP500 + MSFT returns |
 
-All use `cond_feat_weight=0.0` (passive conditioning).
+All use `ex_feat_weight=0.0` (passive extra features).
 
 ## Data
 
@@ -221,7 +221,7 @@ quantile_preds = model.get_surface_given_conditions(ctx_dict)
 
 **TimeSeriesDataSetRand** (vae/datasets_1d_randomized.py):
 - 1D version for scalar time series
-- Returns dict: `{"target": (T, 1), "cond_feats": (T, K)}`
+- Returns dict: `{"target": (T, 1), "ex_feats": (T, K)}`
 
 ## Data Preprocessing
 

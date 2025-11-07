@@ -7,7 +7,7 @@ Trains 4 model variants:
 3. Amazon + MSFT (no loss on MSFT)
 4. Amazon + SP500 + MSFT (no loss on both)
 
-All models use passive conditioning (cond_feat_weight=0) to test whether
+All models use passive extra features (ex_feat_weight=0) to test whether
 external features improve predictions without multi-task learning overhead.
 """
 
@@ -29,7 +29,7 @@ LEARNING_RATE = 1e-5
 
 # Training hyperparameters
 LATENT_DIM = 5
-TARGET_HIDDEN = [32, 32, 32]
+TARGET_HIDDEN = [5, 5, 5]  # Match 2D model capacity
 MEM_HIDDEN = 100
 MEM_LAYERS = 2
 MEM_DROPOUT = 0.2
@@ -232,8 +232,8 @@ model_configs = [
         "train_loader": train_loader_amzn,
         "valid_loader": valid_loader_amzn,
         "test_loader": test_loader_amzn,
-        "cond_feats_dim": 0,
-        "cond_feat_weight": 0.0,
+        "ex_feats_dim": 0,
+        "ex_feat_weight": 0.0,
     },
     {
         "name": "amzn_sp500_no_loss",
@@ -241,8 +241,8 @@ model_configs = [
         "train_loader": train_loader_sp500,
         "valid_loader": valid_loader_sp500,
         "test_loader": test_loader_sp500,
-        "cond_feats_dim": 1,
-        "cond_feat_weight": 0.0,
+        "ex_feats_dim": 1,
+        "ex_feat_weight": 0.0,
     },
     {
         "name": "amzn_msft_no_loss",
@@ -250,8 +250,8 @@ model_configs = [
         "train_loader": train_loader_msft,
         "valid_loader": valid_loader_msft,
         "test_loader": test_loader_msft,
-        "cond_feats_dim": 1,
-        "cond_feat_weight": 0.0,
+        "ex_feats_dim": 1,
+        "ex_feat_weight": 0.0,
     },
     {
         "name": "amzn_both_no_loss",
@@ -259,8 +259,8 @@ model_configs = [
         "train_loader": train_loader_both,
         "valid_loader": valid_loader_both,
         "test_loader": test_loader_both,
-        "cond_feats_dim": 2,
-        "cond_feat_weight": 0.0,
+        "ex_feats_dim": 2,
+        "ex_feat_weight": 0.0,
     },
 ]
 
@@ -268,7 +268,7 @@ model_configs = [
 results = {
     "model_name": [],
     "description": [],
-    "cond_feats_dim": [],
+    "ex_feats_dim": [],
     "latent_dim": [],
     "target_hidden": [],
     "mem_hidden": [],
@@ -276,7 +276,7 @@ results = {
     "valid_loss": [],
     "valid_recon_loss": [],
     "valid_target_loss": [],
-    "valid_cond_loss": [],
+    "valid_ex_loss": [],
     "valid_kl_loss": [],
     "test_loss": [],
     "test_recon_loss": [],
@@ -302,19 +302,19 @@ for model_config_dict in model_configs:
         "latent_dim": LATENT_DIM,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "kl_weight": KL_WEIGHT,
-        "cond_feat_weight": model_config_dict["cond_feat_weight"],
+        "ex_feat_weight": model_config_dict["ex_feat_weight"],
         "target_hidden": TARGET_HIDDEN,
-        "cond_feats_dim": model_config_dict["cond_feats_dim"],
-        "cond_feats_hidden": None,  # Identity mapping for conditioning
+        "ex_feats_dim": model_config_dict["ex_feats_dim"],
+        "ex_feats_hidden": None,  # Identity mapping for extra features
         "mem_type": "lstm",
         "mem_hidden": MEM_HIDDEN,
         "mem_layers": MEM_LAYERS,
         "mem_dropout": MEM_DROPOUT,
         "ctx_target_hidden": TARGET_HIDDEN,
-        "ctx_cond_feats_hidden": None,
-        "interaction_layers": 2,  # Nonlinear mixing layers
+        "ctx_ex_feats_hidden": None,
+        "interaction_layers": None,  # Match 2D model (disabled)
         "compress_context": True,
-        "cond_loss_type": "l2",
+        "ex_loss_type": "l2",
         # Quantile regression
         "num_quantiles": 3,
         "quantiles": [0.05, 0.5, 0.95],
@@ -323,10 +323,10 @@ for model_config_dict in model_configs:
     print(f"Model configuration:")
     print(f"  latent_dim: {config['latent_dim']}")
     print(f"  target_hidden: {config['target_hidden']}")
-    print(f"  cond_feats_dim: {config['cond_feats_dim']}")
+    print(f"  ex_feats_dim: {config['ex_feats_dim']}")
     print(f"  mem_hidden: {config['mem_hidden']}")
     print(f"  kl_weight: {config['kl_weight']}")
-    print(f"  cond_feat_weight: {config['cond_feat_weight']}")
+    print(f"  ex_feat_weight: {config['ex_feat_weight']}")
     print(f"  num_quantiles: {config['num_quantiles']}")
     print(f"  device: {config['device']}")
     print()
@@ -363,7 +363,7 @@ for model_config_dict in model_configs:
     # Record results
     results["model_name"].append(model_config_dict["name"])
     results["description"].append(model_config_dict["description"])
-    results["cond_feats_dim"].append(config["cond_feats_dim"])
+    results["ex_feats_dim"].append(config["ex_feats_dim"])
     results["latent_dim"].append(config["latent_dim"])
     results["target_hidden"].append(str(config["target_hidden"]))
     results["mem_hidden"].append(config["mem_hidden"])

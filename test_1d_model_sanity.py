@@ -40,17 +40,17 @@ print()
 configs = [
     {
         "name": "Target only",
-        "cond_feats_dim": 0,
+        "ex_feats_dim": 0,
         "dataset": TimeSeriesDataSetRand(target_data, min_seq_len=4, max_seq_len=6),
     },
     {
-        "name": "Target + 1 cond",
-        "cond_feats_dim": 1,
+        "name": "Target + 1 ex",
+        "ex_feats_dim": 1,
         "dataset": TimeSeriesDataSetRand((target_data, cond_data1), min_seq_len=4, max_seq_len=6),
     },
     {
-        "name": "Target + 2 conds",
-        "cond_feats_dim": 2,
+        "name": "Target + 2 ex",
+        "ex_feats_dim": 2,
         "dataset": TimeSeriesDataSetRand((target_data, cond_data2), min_seq_len=4, max_seq_len=6),
     },
 ]
@@ -66,19 +66,19 @@ for config_dict in configs:
         "latent_dim": 3,
         "device": "cpu",
         "kl_weight": 1e-5,
-        "cond_feat_weight": 0.0,
+        "ex_feat_weight": 0.0,
         "target_hidden": [8, 8],
-        "cond_feats_dim": config_dict["cond_feats_dim"],
-        "cond_feats_hidden": None,
+        "ex_feats_dim": config_dict["ex_feats_dim"],
+        "ex_feats_hidden": None,
         "mem_type": "lstm",
         "mem_hidden": 16,
         "mem_layers": 1,
         "mem_dropout": 0.0,
         "ctx_target_hidden": [8, 8],
-        "ctx_cond_feats_hidden": None,
-        "interaction_layers": 1,
+        "ctx_ex_feats_hidden": None,
+        "interaction_layers": None,  # Match 2D model (disabled)
         "compress_context": True,
-        "cond_loss_type": "l2",
+        "ex_loss_type": "l2",
     }
 
     # Test 1: Instantiation
@@ -108,10 +108,10 @@ for config_dict in configs:
         with torch.no_grad():
             # Prepare batch
             batch = {}
-            if "cond_feats" in sample:
+            if "ex_feats" in sample:
                 batch = {
                     "target": sample["target"].unsqueeze(0),
-                    "cond_feats": sample["cond_feats"].unsqueeze(0),
+                    "ex_feats": sample["ex_feats"].unsqueeze(0),
                 }
             else:
                 batch = {
@@ -166,8 +166,8 @@ for config_dict in configs:
         ctx_dict = {
             "target": batch["target"][:, :ctx_len, :]
         }
-        if "cond_feats" in batch:
-            ctx_dict["cond_feats"] = batch["cond_feats"][:, :ctx_len, :]
+        if "ex_feats" in batch:
+            ctx_dict["ex_feats"] = batch["ex_feats"][:, :ctx_len, :]
 
         # Generate quantile predictions (single forward pass)
         quantile_preds = model.get_prediction_given_context(ctx_dict)

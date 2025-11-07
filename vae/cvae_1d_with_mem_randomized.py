@@ -77,14 +77,14 @@ class CVAE1DMemRandEncoder(BaseEncoder):
         # Target embedding (scalar input → hidden layers)
         target_embedding_final_dim = self.__get_target_embedding(config)
 
-        # Conditioning features embedding (optional)
-        if config["cond_feats_dim"] > 0:
-            cond_feats_embedding_final_dim = self.__get_cond_feats_embedding(config)
+        # Extra features embedding (optional)
+        if config["ex_feats_dim"] > 0:
+            ex_feats_embedding_final_dim = self.__get_ex_feats_embedding(config)
         else:
-            cond_feats_embedding_final_dim = 0
+            ex_feats_embedding_final_dim = 0
 
         # Interaction layers (optional nonlinear mixing)
-        total_embedding_dim = target_embedding_final_dim + cond_feats_embedding_final_dim
+        total_embedding_dim = target_embedding_final_dim + ex_feats_embedding_final_dim
         self.__get_interaction_layers(config, total_embedding_dim)
 
         # LSTM memory module
@@ -109,26 +109,26 @@ class CVAE1DMemRandEncoder(BaseEncoder):
         self.target_embedding = nn.Sequential(target_embedding)
         return in_feats
 
-    def __get_cond_feats_embedding(self, config):
-        """Linear layers for conditioning features (optional)."""
-        cond_feats_dim = config["cond_feats_dim"]
-        cond_feats_hidden = config.get("cond_feats_hidden", None)
+    def __get_ex_feats_embedding(self, config):
+        """Linear layers for extra features (optional)."""
+        ex_feats_dim = config["ex_feats_dim"]
+        ex_feats_hidden = config.get("ex_feats_hidden", None)
 
-        if cond_feats_hidden is None:
+        if ex_feats_hidden is None:
             # Identity mapping (no transformation)
-            self.cond_feats_embedding = nn.Identity()
-            return cond_feats_dim
+            self.ex_feats_embedding = nn.Identity()
+            return ex_feats_dim
         else:
             # Linear layers
-            cond_embedding = OrderedDict()
-            in_feats = cond_feats_dim
+            ex_embedding = OrderedDict()
+            in_feats = ex_feats_dim
 
-            for i, out_feats in enumerate(cond_feats_hidden):
-                cond_embedding[f"cond_linear_{i}"] = nn.Linear(in_feats, out_feats)
-                cond_embedding[f"cond_activation_{i}"] = nn.ReLU()
+            for i, out_feats in enumerate(ex_feats_hidden):
+                ex_embedding[f"ex_linear_{i}"] = nn.Linear(in_feats, out_feats)
+                ex_embedding[f"ex_activation_{i}"] = nn.ReLU()
                 in_feats = out_feats
 
-            self.cond_feats_embedding = nn.Sequential(cond_embedding)
+            self.ex_feats_embedding = nn.Sequential(ex_embedding)
             return in_feats
 
     def __get_interaction_layers(self, config, embedding_dim):
@@ -182,7 +182,7 @@ class CVAE1DMemRandEncoder(BaseEncoder):
         Args:
             x: dict with keys
                 - "target": (B, T, 1) - Target time series
-                - "cond_feats": (B, T, K) - Optional conditioning features
+                - "ex_feats": (B, T, K) - Optional extra features
 
         Returns:
             z_mean, z_log_var, z: (B, T, latent_dim) each
@@ -193,11 +193,11 @@ class CVAE1DMemRandEncoder(BaseEncoder):
         # Embed target
         target_embedded = self.target_embedding(target)  # (B, T, target_hidden[-1])
 
-        # Embed conditioning features (if present)
-        if "cond_feats" in x and x["cond_feats"] is not None:
-            cond_feats = x["cond_feats"]  # (B, T, K)
-            cond_embedded = self.cond_feats_embedding(cond_feats)  # (B, T, cond_dim)
-            embeddings = torch.cat([target_embedded, cond_embedded], dim=-1)
+        # Embed extra features (if present)
+        if "ex_feats" in x and x["ex_feats"] is not None:
+            ex_feats = x["ex_feats"]  # (B, T, K)
+            ex_embedded = self.ex_feats_embedding(ex_feats)  # (B, T, ex_dim)
+            embeddings = torch.cat([target_embedded, ex_embedded], dim=-1)
         else:
             embeddings = target_embedded
 
@@ -228,7 +228,7 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
 
     Input:
         target: (B, C, 1) - Historical context (C timesteps)
-        cond_feats: (B, C, K) - Optional conditioning features
+        ex_feats: (B, C, K) - Optional extra features
 
     Output:
         context_embeddings: (B, C, compressed_dim)
@@ -240,14 +240,14 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
         # Target embedding
         target_embedding_final_dim = self.__get_target_embedding(config)
 
-        # Conditioning features embedding
-        if config["cond_feats_dim"] > 0:
-            cond_feats_embedding_final_dim = self.__get_cond_feats_embedding(config)
+        # Extra features embedding
+        if config["ex_feats_dim"] > 0:
+            ex_feats_embedding_final_dim = self.__get_ex_feats_embedding(config)
         else:
-            cond_feats_embedding_final_dim = 0
+            ex_feats_embedding_final_dim = 0
 
         # Interaction layers
-        total_embedding_dim = target_embedding_final_dim + cond_feats_embedding_final_dim
+        total_embedding_dim = target_embedding_final_dim + ex_feats_embedding_final_dim
         self.__get_interaction_layers(config, total_embedding_dim)
 
         # LSTM memory
@@ -276,24 +276,24 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
         self.target_embedding = nn.Sequential(target_embedding)
         return in_feats
 
-    def __get_cond_feats_embedding(self, config):
-        """Conditioning features embedding (same as encoder)."""
-        cond_feats_dim = config["cond_feats_dim"]
-        ctx_cond_feats_hidden = config.get("ctx_cond_feats_hidden", config.get("cond_feats_hidden", None))
+    def __get_ex_feats_embedding(self, config):
+        """Extra features embedding (same as encoder)."""
+        ex_feats_dim = config["ex_feats_dim"]
+        ctx_ex_feats_hidden = config.get("ctx_ex_feats_hidden", config.get("ex_feats_hidden", None))
 
-        if ctx_cond_feats_hidden is None:
-            self.cond_feats_embedding = nn.Identity()
-            return cond_feats_dim
+        if ctx_ex_feats_hidden is None:
+            self.ex_feats_embedding = nn.Identity()
+            return ex_feats_dim
         else:
-            cond_embedding = OrderedDict()
-            in_feats = cond_feats_dim
+            ex_embedding = OrderedDict()
+            in_feats = ex_feats_dim
 
-            for i, out_feats in enumerate(ctx_cond_feats_hidden):
-                cond_embedding[f"ctx_cond_linear_{i}"] = nn.Linear(in_feats, out_feats)
-                cond_embedding[f"ctx_cond_activation_{i}"] = nn.ReLU()
+            for i, out_feats in enumerate(ctx_ex_feats_hidden):
+                ex_embedding[f"ctx_ex_linear_{i}"] = nn.Linear(in_feats, out_feats)
+                ex_embedding[f"ctx_ex_activation_{i}"] = nn.ReLU()
                 in_feats = out_feats
 
-            self.cond_feats_embedding = nn.Sequential(cond_embedding)
+            self.ex_feats_embedding = nn.Sequential(ex_embedding)
             return in_feats
 
     def __get_interaction_layers(self, config, embedding_dim):
@@ -347,7 +347,7 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
         Args:
             x: dict with keys
                 - "target": (B, C, 1) - Historical context
-                - "cond_feats": (B, C, K) - Optional conditioning features
+                - "ex_feats": (B, C, K) - Optional extra features
 
         Returns:
             context_embeddings: (B, C, compressed_dim)
@@ -357,11 +357,11 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
         # Embed target
         target_embedded = self.target_embedding(target)
 
-        # Embed conditioning features
-        if "cond_feats" in x and x["cond_feats"] is not None:
-            cond_feats = x["cond_feats"]
-            cond_embedded = self.cond_feats_embedding(cond_feats)
-            embeddings = torch.cat([target_embedded, cond_embedded], dim=-1)
+        # Embed extra features
+        if "ex_feats" in x and x["ex_feats"] is not None:
+            ex_feats = x["ex_feats"]
+            ex_embedded = self.ex_feats_embedding(ex_feats)
+            embeddings = torch.cat([target_embedded, ex_embedded], dim=-1)
         else:
             embeddings = target_embedded
 
@@ -386,12 +386,12 @@ class CVAE1DMemRandDecoder(BaseDecoder):
 
     Output:
         decoded_target: (B, T, 1) - Reconstructed target
-        decoded_cond_feats: (B, T, K) - Reconstructed conditioning features (if present)
+        decoded_ex_feats: (B, T, K) - Reconstructed extra features (if present)
 
     Architecture:
         LSTM → Interaction layers → Split branches:
             - Target branch: Linear layers → (B, T, 1)
-            - Cond branch: Linear layers → (B, T, K) [optional]
+            - Ex branch: Linear layers → (B, T, K) [optional]
     """
 
     def __init__(self, config: dict):
@@ -405,11 +405,11 @@ class CVAE1DMemRandDecoder(BaseDecoder):
         target_hidden = config["target_hidden"]
         target_output_dim = target_hidden[-1]
 
-        # Determine conditioning output dimension
-        has_cond_feats = config["cond_feats_dim"] > 0
-        if has_cond_feats:
-            cond_output_dim = config["cond_feats_dim"]
-            mem_output_dim = target_output_dim + cond_output_dim
+        # Determine extra features output dimension
+        has_ex_feats = config["ex_feats_dim"] > 0
+        if has_ex_feats:
+            ex_output_dim = config["ex_feats_dim"]
+            mem_output_dim = target_output_dim + ex_output_dim
         else:
             mem_output_dim = target_output_dim
 
@@ -422,11 +422,11 @@ class CVAE1DMemRandDecoder(BaseDecoder):
         # Target decoder branch
         self.__get_target_decoder(config)
 
-        # Conditioning features decoder branch (optional)
-        if has_cond_feats:
-            self.__get_cond_feats_decoder(config)
+        # Extra features decoder branch (optional)
+        if has_ex_feats:
+            self.__get_ex_feats_decoder(config)
         else:
-            self.cond_feats_decoder = None
+            self.ex_feats_decoder = None
 
     def __get_mem(self, config, input_dim, output_dim):
         """LSTM memory module."""
@@ -491,12 +491,12 @@ class CVAE1DMemRandDecoder(BaseDecoder):
 
         self.target_decoder = nn.Sequential(target_decoder)
 
-    def __get_cond_feats_decoder(self, config):
-        """Conditioning features decoder branch (simple linear projection)."""
-        cond_feats_dim = config["cond_feats_dim"]
+    def __get_ex_feats_decoder(self, config):
+        """Extra features decoder branch (simple linear projection)."""
+        ex_feats_dim = config["ex_feats_dim"]
 
         # Simple linear projection (no deep layers for now)
-        self.cond_feats_decoder = nn.Linear(cond_feats_dim, cond_feats_dim)
+        self.ex_feats_decoder = nn.Linear(ex_feats_dim, ex_feats_dim)
 
     def forward(self, x):
         """
@@ -505,7 +505,7 @@ class CVAE1DMemRandDecoder(BaseDecoder):
 
         Returns:
             decoded_target: (B, T, num_quantiles) - Quantile predictions
-            decoded_cond_feats: (B, T, K) or None
+            decoded_ex_feats: (B, T, K) or None
         """
         # LSTM
         mem_output, _ = self.mem(x)  # (B, T, mem_output_dim)
@@ -513,21 +513,21 @@ class CVAE1DMemRandDecoder(BaseDecoder):
         # Interaction
         combined = self.interaction(mem_output)
 
-        # Split into target and conditioning branches
+        # Split into target and extra features branches
         target_hidden_dim = self.target_decoder[0].in_features if len(self.target_decoder) > 0 else combined.shape[-1]
 
-        if self.cond_feats_decoder is not None:
-            cond_dim = self.cond_feats_decoder.in_features
+        if self.ex_feats_decoder is not None:
+            ex_dim = self.ex_feats_decoder.in_features
             target_features = combined[..., :target_hidden_dim]
-            cond_features = combined[..., target_hidden_dim:]
+            ex_features = combined[..., target_hidden_dim:]
 
             # Decode target
             decoded_target = self.target_decoder(target_features)  # (B, T, num_quantiles)
 
-            # Decode conditioning features
-            decoded_cond_feats = self.cond_feats_decoder(cond_features)  # (B, T, K)
+            # Decode extra features
+            decoded_ex_feats = self.ex_feats_decoder(ex_features)  # (B, T, K)
 
-            return decoded_target, decoded_cond_feats
+            return decoded_target, decoded_ex_feats
         else:
             # Only decode target
             decoded_target = self.target_decoder(combined)  # (B, T, num_quantiles)
@@ -538,12 +538,12 @@ class CVAE1DMemRand(BaseVAE):
     """
     1D Time Series Conditional VAE with LSTM Memory and Variable Sequence Length.
 
-    Architecture for scalar time series (e.g., stock returns) with optional conditioning.
+    Architecture for scalar time series (e.g., stock returns) with optional extra features.
 
     Model variants:
-    - cond_feats_dim=0: Target only (baseline)
-    - cond_feats_dim>0, cond_feat_weight=0: Passive conditioning (no loss)
-    - cond_feats_dim>0, cond_feat_weight>0: Active conditioning (with loss)
+    - ex_feats_dim=0: Target only (baseline)
+    - ex_feats_dim>0, ex_feat_weight=0: Passive extra features (no loss)
+    - ex_feats_dim>0, ex_feat_weight>0: Active extra features (with loss)
 
     Training:
         Input: Full sequence [context + target]
@@ -562,8 +562,8 @@ class CVAE1DMemRand(BaseVAE):
 
         # Loss weights
         self.kl_weight = config.get("kl_weight", 1e-5)
-        self.cond_feat_weight = config.get("cond_feat_weight", 0.0)
-        self.cond_loss_type = config.get("cond_loss_type", "l2")
+        self.ex_feat_weight = config.get("ex_feat_weight", 0.0)
+        self.ex_loss_type = config.get("ex_loss_type", "l2")
 
         # Quantile regression defaults
         if "num_quantiles" not in config:
@@ -582,12 +582,12 @@ class CVAE1DMemRand(BaseVAE):
         # Initialize quantile loss function
         self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
 
-        # Initialize conditional features loss if needed
-        if self.cond_feat_weight > 0:
-            if self.cond_loss_type == "l2":
-                self.cond_feat_loss_fn = nn.MSELoss()
+        # Initialize extra features loss if needed
+        if self.ex_feat_weight > 0:
+            if self.ex_loss_type == "l2":
+                self.ex_feat_loss_fn = nn.MSELoss()
             else:
-                self.cond_feat_loss_fn = nn.L1Loss()
+                self.ex_feat_loss_fn = nn.L1Loss()
 
     def forward(self, x):
         """
@@ -596,11 +596,11 @@ class CVAE1DMemRand(BaseVAE):
         Args:
             x: dict with keys
                 - "target": (B, T, 1) - Full sequence
-                - "cond_feats": (B, T, K) - Optional conditioning features
+                - "ex_feats": (B, T, K) - Optional extra features
 
         Returns:
             decoded_target: (B, 1, num_quantiles) - Quantile predictions for future timestep
-            decoded_cond_feats: (B, 1, K) or None
+            decoded_ex_feats: (B, 1, K) or None
             z_mean, z_log_var, z: Latent variables
             Note: Returns only FUTURE timestep (C:T), not full sequence
         """
@@ -613,10 +613,10 @@ class CVAE1DMemRand(BaseVAE):
         ctx_target = target[:, :C, :]
         ctx_input = {"target": ctx_target}
 
-        if "cond_feats" in x:
-            cond_feats = x["cond_feats"]
-            ctx_cond_feats = cond_feats[:, :C, :]
-            ctx_input["cond_feats"] = ctx_cond_feats
+        if "ex_feats" in x:
+            ex_feats = x["ex_feats"]
+            ctx_ex_feats = ex_feats[:, :C, :]
+            ctx_input["ex_feats"] = ctx_ex_feats
 
         # Encode full sequence
         encoder_input = x
@@ -634,19 +634,19 @@ class CVAE1DMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_padded, z], dim=-1)
 
         # Decode
-        decoded_target, decoded_cond_feats = self.decoder(decoder_input)
+        decoded_target, decoded_ex_feats = self.decoder(decoder_input)
 
         # Return ONLY future prediction (timestep C onwards)
-        if decoded_cond_feats is not None:
-            return decoded_target[:, C:, :], decoded_cond_feats[:, C:, :], z_mean, z_log_var, z
+        if decoded_ex_feats is not None:
+            return decoded_target[:, C:, :], decoded_ex_feats[:, C:, :], z_mean, z_log_var, z
         else:
             return decoded_target[:, C:, :], None, z_mean, z_log_var, z
 
-    def compute_loss(self, x, decoded_target, decoded_cond_feats, z_mean, z_log_var):
+    def compute_loss(self, x, decoded_target, decoded_ex_feats, z_mean, z_log_var):
         """
         Compute VAE loss: reconstruction + KL divergence.
 
-        Loss = Quantile(target) + cond_feat_weight * Loss(cond_feats) + kl_weight * KL
+        Loss = Quantile(target) + ex_feat_weight * Loss(ex_feats) + kl_weight * KL
 
         Note: decoded_target is only future prediction (shape B, 1, num_quantiles).
               We need to extract future ground truth from x["target"].
@@ -662,27 +662,27 @@ class CVAE1DMemRand(BaseVAE):
         # decoded_target: (B, 1, num_quantiles), target_future: (B, 1, 1)
         recon_loss_target = self.quantile_loss_fn(decoded_target, target_future)
 
-        # Reconstruction loss for conditioning features (if used)
-        if decoded_cond_feats is not None and self.cond_feat_weight > 0:
-            cond_feats = x["cond_feats"]
+        # Reconstruction loss for extra features (if used)
+        if decoded_ex_feats is not None and self.ex_feat_weight > 0:
+            ex_feats = x["ex_feats"]
             # Extract future ground truth (last timestep)
-            cond_feats_future = cond_feats[:, C:, :]
-            recon_loss_cond = self.cond_feat_loss_fn(decoded_cond_feats, cond_feats_future)
+            ex_feats_future = ex_feats[:, C:, :]
+            recon_loss_ex = self.ex_feat_loss_fn(decoded_ex_feats, ex_feats_future)
         else:
-            recon_loss_cond = torch.zeros(1, device=self.device)
+            recon_loss_ex = torch.zeros(1, device=self.device)
 
         # KL divergence
         kl_loss = -0.5 * torch.mean(1 + z_log_var - z_mean.pow(2) - z_log_var.exp())
 
         # Total loss
-        total_recon_loss = recon_loss_target + self.cond_feat_weight * recon_loss_cond
+        total_recon_loss = recon_loss_target + self.ex_feat_weight * recon_loss_ex
         total_loss = total_recon_loss + self.kl_weight * kl_loss
 
         return {
             "loss": total_loss,
             "recon_loss": total_recon_loss,
             "target_loss": recon_loss_target,
-            "cond_loss": recon_loss_cond,
+            "ex_loss": recon_loss_ex,
             "kl_loss": kl_loss,
         }
 
@@ -700,8 +700,8 @@ class CVAE1DMemRand(BaseVAE):
 
         optimizer.zero_grad()
 
-        decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x_device)
-        loss_dict = self.compute_loss(x_device, decoded_target, decoded_cond_feats, z_mean, z_log_var)
+        decoded_target, decoded_ex_feats, z_mean, z_log_var, z = self.forward(x_device)
+        loss_dict = self.compute_loss(x_device, decoded_target, decoded_ex_feats, z_mean, z_log_var)
 
         loss_dict["loss"].backward()
         optimizer.step()
@@ -721,8 +721,8 @@ class CVAE1DMemRand(BaseVAE):
                 x_device[k] = v
 
         with torch.no_grad():
-            decoded_target, decoded_cond_feats, z_mean, z_log_var, z = self.forward(x_device)
-            loss_dict = self.compute_loss(x_device, decoded_target, decoded_cond_feats, z_mean, z_log_var)
+            decoded_target, decoded_ex_feats, z_mean, z_log_var, z = self.forward(x_device)
+            loss_dict = self.compute_loss(x_device, decoded_target, decoded_ex_feats, z_mean, z_log_var)
 
         return loss_dict
 
@@ -733,7 +733,7 @@ class CVAE1DMemRand(BaseVAE):
         Args:
             c: dict with keys
                 - "target": (B, C, 1) - Historical context
-                - "cond_feats": (B, C, K) - Optional conditioning features
+                - "ex_feats": (B, C, K) - Optional extra features
 
         Returns:
             predictions: (B, num_quantiles) - Quantile predictions [p05, p50, p95]
