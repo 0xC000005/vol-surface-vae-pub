@@ -318,6 +318,14 @@ See `QUANTILE_REGRESSION_RESULTS.md` and `CI_CALIBRATION_OBSERVATIONS.md` for de
 4. **Context length off by one** → Use C = T - 1, not C = T
 5. **Expecting MSE mode** → All models are quantile-only now
 
+## Future Work
+
+**Multi-stock backfilling architecture:** See `BACKFILLING_PROPOSAL.md` for detailed design of:
+- Expanding 1D model to 3 stocks (AMZN, MSFT, SP500) × 4 features (return, vol, volume, range)
+- 80/20 training strategy to improve CI calibration
+- Leveraging cointegration for backfilling missing stock data
+- Preventing posterior collapse through 12D information asymmetry
+
 ## Version History
 
 - **Nov 2025**: Removed MSE mode, quantile regression only
