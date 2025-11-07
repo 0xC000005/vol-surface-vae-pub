@@ -857,3 +857,57 @@ class CVAE1DMemRand(BaseVAE):
             prediction = decoded_target[:, C:, :].squeeze(1)  # (B, num_quantiles)
 
             return prediction
+
+    def get_prediction_with_latent(self, c, z_mean, z_logvar):
+        """
+        Generate quantile predictions using pre-computed latent distribution.
+
+        Uses reparameterization trick to sample from N(z_mean, exp(z_logvar)).
+        This method is used for backfilling scenarios where we have already
+        encoded the available data (possibly with masked target) and want to
+        generate predictions using a specific latent value.
+
+        Args:
+            c: dict with keys
+                - "target": (B, C, 1) - Historical context
+                - "ex_feats": (B, C, K) - Optional extra features
+            z_mean: (B, latent_dim) - Mean of latent distribution for timestep T
+            z_logvar: (B, latent_dim) - Log variance of latent distribution for timestep T
+
+        Returns:
+            predictions: (B, num_quantiles) - Quantile predictions [p05, p50, p95]
+        """
+        self.eval()
+        with torch.no_grad():
+            B = c["target"].shape[0]
+            C = c["target"].shape[1]
+
+            # Get context embeddings
+            ctx_embeddings = self.ctx_encoder(c)  # (B, C, ctx_dim)
+            ctx_dim = ctx_embeddings.shape[2]
+            latent_dim = self.config["latent_dim"]
+
+            # Prepare padded context: (B, C+1, ctx_dim)
+            ctx_padded = torch.zeros((B, C + 1, ctx_dim), device=self.device, dtype=ctx_embeddings.dtype)
+            ctx_padded[:, :C, :] = ctx_embeddings
+
+            # Sample latent using reparameterization trick: z = μ + σ * ε
+            std = torch.exp(0.5 * z_logvar)
+            eps = torch.randn_like(std)
+            z_sampled = z_mean + std * eps  # (B, latent_dim)
+
+            # Prepare latent: (B, C+1, latent_dim)
+            z_full = torch.zeros((B, C + 1, latent_dim), device=self.device, dtype=ctx_embeddings.dtype)
+            z_full[:, C:, :] = z_sampled.unsqueeze(1)  # Add time dimension
+
+            # Concatenate context and latent
+            decoder_input = torch.cat([ctx_padded, z_full], dim=-1)
+
+            # Decode
+            decoded_target, _ = self.decoder(decoder_input)
+
+            # Extract future prediction
+            # decoded_target: (B, 1, num_quantiles)
+            prediction = decoded_target[:, C:, :].squeeze(1)  # (B, num_quantiles)
+
+            return prediction
