@@ -1,23 +1,17 @@
 """
-Generate 1D Backfilling Predictions with 3 Latent Selection Scenarios.
+Generate 1D Backfilling IN-SAMPLE Predictions (2008-2010).
+
+⚠️ WARNING: These are IN-SAMPLE predictions on TRAINING DATA.
+The model was trained on this data, so these predictions are NOT for evaluation.
+Use only for visualization and understanding model behavior on historical periods.
 
 Tests 3 different ways to select the latent variable for prediction:
 
 1. **Scenario 1 (Oracle)**: Use true latent from encoding with real AMZN at T+1
-   - Encode: [AMZN[0:T+1], MSFT[0:T+1], SP500[0:T+1]] (all real data)
-   - Use: z_mean[:, T] and z_logvar[:, T]
-   - Performance: Upper bound (has future information)
-
 2. **Scenario 2 (Mixed 80/20)**: Randomly use oracle (80%) or masked (20%)
-   - Mimics training distribution
-   - Tests if mixed training helps
-
 3. **Scenario 3 (Realistic Backfilling)**: Forward-fill AMZN at T+1, use previous latent
-   - Encode: [AMZN_fwd_fill[0:T+1], MSFT[0:T+1], SP500[0:T+1]]
-   - Use: z_mean[:, T-1] and z_logvar[:, T-1] (previous timestep)
-   - Performance: Production scenario
 
-All scenarios sample from N(z_mean, exp(z_logvar)) using reparameterization.
+Target period: 2008-2010 (includes 2008 financial crisis)
 """
 
 import numpy as np
@@ -30,16 +24,22 @@ from tqdm import tqdm
 # Configuration
 DATA_FILE = "data/stock_returns_multifeature.npz"
 MODEL_PATH = "models_1d_backfilling/backfill_model.pt"
-OUTPUT_FILE = "models_1d_backfilling/backfill_predictions_ctx5.npz"
+OUTPUT_FILE = "models_1d_backfilling/backfill_predictions_insample.npz"
 CONTEXT_LEN = 5  # Number of historical days to use
 SEED = 42  # For reproducibility
 
+# In-sample date range (2008-2010)
+INSAMPLE_START = 2000  # ~2008-01-16
+INSAMPLE_END = 2700    # ~2010-10-26
+
 print("=" * 80)
-print("GENERATING 1D BACKFILLING PREDICTIONS - 3 SCENARIOS")
+print("GENERATING 1D BACKFILLING IN-SAMPLE PREDICTIONS")
+print("⚠️  WARNING: IN-SAMPLE PREDICTIONS ON TRAINING DATA")
 print("=" * 80)
 print(f"Model: {MODEL_PATH}")
 print(f"Data: {DATA_FILE}")
 print(f"Context length: {CONTEXT_LEN}")
+print(f"Date range: Indices {INSAMPLE_START}-{INSAMPLE_END} (~2008-2010)")
 print(f"Output: {OUTPUT_FILE}")
 print()
 
@@ -64,18 +64,12 @@ print(f"  All features shape: {all_features.shape}")
 print(f"  Features: 12D (AMZN×4 + MSFT×4 + SP500×4)")
 print()
 
-# Test set split
-TRAIN_END = 4000
-VALID_END = 5000
-test_start = VALID_END
-
-all_test = all_features[test_start:]
-dates_test = dates[test_start:]
-
-print(f"Test set:")
-print(f"  Start index: {test_start}")
-print(f"  Size: {len(all_test)}")
-print(f"  First prediction at index: {test_start + CONTEXT_LEN} (need {CONTEXT_LEN} days context)")
+# In-sample subset
+print(f"In-sample subset:")
+print(f"  Start index: {INSAMPLE_START} ({dates[INSAMPLE_START]})")
+print(f"  End index: {INSAMPLE_END} ({dates[INSAMPLE_END]})")
+print(f"  Size: {INSAMPLE_END - INSAMPLE_START}")
+print(f"  First prediction at index: {INSAMPLE_START + CONTEXT_LEN} (need {CONTEXT_LEN} days context)")
 print()
 
 # Load model
@@ -198,16 +192,17 @@ def generate_scenario_3_realistic(model, all_features_full, day, ctx_len):
     return prediction_amzn.cpu().numpy()  # (3,)
 
 
-# Generate predictions for all test days
+# Generate predictions for in-sample period
 print("=" * 80)
-print("GENERATING PREDICTIONS")
+print("GENERATING IN-SAMPLE PREDICTIONS (2008-2010)")
 print("=" * 80)
 
 # First valid day for prediction (need ctx_len days of history)
-first_day = test_start + CONTEXT_LEN
-num_predictions = len(all_test) - CONTEXT_LEN
+first_day = INSAMPLE_START + CONTEXT_LEN
+num_predictions = INSAMPLE_END - first_day
 
-print(f"First prediction day: {first_day}")
+print(f"First prediction day: {first_day} ({dates[first_day]})")
+print(f"Last prediction day: {INSAMPLE_END - 1} ({dates[INSAMPLE_END - 1]})")
 print(f"Number of predictions: {num_predictions}")
 print()
 
@@ -228,7 +223,7 @@ s3_p50 = []
 s3_p95 = []
 
 # Generate predictions
-for i, day in enumerate(tqdm(range(first_day, len(all_features)), desc="Generating predictions")):
+for i, day in enumerate(tqdm(range(first_day, INSAMPLE_END), desc="Generating predictions")):
     # Actual value (AMZN return is channel 0)
     actual = all_features[day, 0]
     actuals.append(actual)
@@ -299,6 +294,7 @@ print()
 print("Quick statistics:")
 print("-" * 80)
 print(f"Total predictions: {len(actuals)}")
+print(f"Date range: {dates_pred[0]} to {dates_pred[-1]}")
 print(f"Actuals: mean={actuals.mean():.4f}, std={actuals.std():.4f}")
 print()
 print(f"Scenario 1 (Oracle):")
@@ -318,5 +314,6 @@ print("=" * 80)
 print("GENERATION COMPLETE")
 print("=" * 80)
 print()
+print("⚠️  REMINDER: These are IN-SAMPLE predictions (model trained on this data)")
 print("Next step:")
-print("  Run: python evaluate_1d_backfilling_model.py")
+print("  Run: python visualize_1d_backfilling_predictions_insample.py")

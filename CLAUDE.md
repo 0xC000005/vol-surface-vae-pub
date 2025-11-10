@@ -33,6 +33,11 @@ def __init__(self, config):
 # WRONG - Individual .to() can break dtype
 def __init__(self, config):
     self.encoder = Encoder(config).to(self.device)  # ✗
+
+# CRITICAL - Input tensors must match model device
+# When loading models for inference:
+tensor = torch.from_numpy(data).to(model.config['device'])  # ✓ Correct
+tensor = torch.from_numpy(data)  # ✗ Wrong - stays on CPU
 ```
 
 ## Commands
@@ -55,11 +60,16 @@ python main_analysis.py                         # Regression, PCA, arbitrage
 python fetch_market_data_ohlcv.py               # Download OHLCV from Yahoo Finance
 python prepare_stock_data_multifeature.py       # Create stock_returns_multifeature.npz
 
-# Training & Evaluation
+# Training & Evaluation (Test Set 2019-2023)
 python test_1d_backfilling_sanity.py            # Architecture sanity check
 python train_1d_backfilling_model.py            # Train with 30% masked batches
-python generate_1d_backfilling_predictions.py   # Generate 3-scenario predictions
+python generate_1d_backfilling_predictions.py   # Generate 3-scenario predictions (test set)
 python evaluate_1d_backfilling_model.py         # Compute comparison metrics
+python visualize_1d_backfilling_predictions.py  # Visualize test set predictions
+
+# In-Sample Analysis (Training Set 2008-2010)
+python generate_1d_backfilling_predictions_insample.py   # Generate predictions on training data
+python visualize_1d_backfilling_predictions_insample.py  # Visualize 2008-2010 period (⚠️ not for evaluation)
 ```
 
 ## Architecture
@@ -170,9 +180,14 @@ Three variants test conditioning strategies:
   - Legacy: `amzn_return` (N, 1), `extra_features` (N, 11) for backward compatibility
 
 **Data splits:**
-- Train: [0:4000]
-- Valid: [4000:5000]
-- Test: [5000:]
+- Train: [0:4000] (~2000-05-17 to ~2015-11-13)
+- Valid: [4000:5000] (~2015-11-16 to ~2019-12-19)
+- Test: [5000:] (~2019-12-23 onwards)
+
+**Date mappings (1D data):**
+- Index 2000 ≈ 2008-01-16
+- Index 2700 ≈ 2010-10-26
+- Use in-sample scripts for historical period analysis (e.g., 2008 financial crisis)
 
 ## Teacher Forcing
 
@@ -338,10 +353,12 @@ See `QUANTILE_REGRESSION_RESULTS.md` and `CI_CALIBRATION_OBSERVATIONS.md` for de
 
 1. **dtype not set first** → RuntimeError about Double vs Float
 2. **Individual .to() calls** → dtype reset to float32
-3. **Confusing forward() output** → Returns only future [:, C:], not full [:, :]
-4. **Context length off by one** → Use C = T - 1, not C = T
-5. **Expecting MSE mode** → All models are quantile-only now
-6. **1D shape assumptions** → Decoder outputs (B, T, 3, target_dim), not (B, T, 3)
+3. **Device mismatch** → Input tensors on CPU, model on CUDA → add `.to(model.config['device'])`
+4. **Confusing forward() output** → Returns only future [:, C:], not full [:, :]
+5. **Context length off by one** → Use C = T - 1, not C = T
+6. **Expecting MSE mode** → All models are quantile-only now
+7. **1D shape assumptions** → Decoder outputs (B, T, 3, target_dim), not (B, T, 3)
+8. **Negative R²** → Expected for near-random-walk returns; focus on CI calibration instead
 
 ## Backfilling Implementation
 

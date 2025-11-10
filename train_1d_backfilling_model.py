@@ -36,8 +36,8 @@ LATENT_DIM = 12  # Increased from 5 to handle 12D state space
 TARGET_HIDDEN = [32, 32]  # AMZN return embedding
 MEM_HIDDEN = 32  # Match proposal (was 100 in old models)
 MEM_LAYERS = 2
-MEM_DROPOUT = 0.2
-KL_WEIGHT = 1e-5
+MEM_DROPOUT = 0.3
+KL_WEIGHT = 1e-4
 MASK_PROB = 0.3  # 30% batches use forward-fill masking (80/20 split from proposal)
 
 # Sequence length
