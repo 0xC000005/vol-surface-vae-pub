@@ -375,8 +375,32 @@ See `QUANTILE_REGRESSION_RESULTS.md` and `CI_CALIBRATION_OBSERVATIONS.md` for de
 - `get_prediction_with_latent(c, z_mean, z_logvar)`: Sample from N(μ, σ²)
 - Evaluation: 3 scenarios (Oracle, Mixed 80/20, Realistic backfilling)
 
+## Known Issues
+
+### 1D Backfilling: Encoder Ignores Cross-Stock Information
+
+**Problem:** Realistic scenario achieves 49% direction accuracy (random). Linear regression achieves 76%.
+
+**Root cause:** `target_loss_on_channel_0_only=True` gives encoder zero gradient signal for MSFT/SP500. Encoder learns to encode only AMZN. When AMZN is masked, latent becomes uninformative (z→AMZN correlation drops 0.884→0.012).
+
+**Fix:** Multi-task loss on all stocks
+```python
+target_loss = (
+    1.0 * pinball_loss(decoded_target[:, :, :, 0:1], batch["target"][:, C:, 0:1]) +
+    0.5 * pinball_loss(decoded_target[:, :, :, 4:5], batch["target"][:, C:, 4:5]) +
+    0.5 * pinball_loss(decoded_target[:, :, :, 8:9], batch["target"][:, C:, 8:9])
+)
+```
+
+See `INVESTIGATION_REPORT_1D_BACKFILLING.md` and `WHY_ENCODER_IGNORES_CROSS_STOCK_INFO.md`.
+
+### CI Calibration
+
+Both models show 35-56% CI violations vs 10% target. Root causes: VAE prior mismatch p(z|context) ≠ p(z|context+target), fixed CI widths. See `QUANTILE_REGRESSION_RESULTS.md`.
+
 ## Version History
 
+- **Nov 2025**: Identified 1D backfilling loss function mismatch (encoder ignores cross-stock info)
 - **Nov 2025**: Restructured 1D to multi-channel architecture (target_dim parameter, clean design)
 - **Nov 2025**: Implemented 1D backfilling model with masked training
 - **Nov 2025**: Removed MSE mode, quantile regression only
