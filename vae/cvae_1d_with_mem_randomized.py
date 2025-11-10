@@ -19,7 +19,7 @@ from collections import OrderedDict
 
 class QuantileLoss(nn.Module):
     """
-    Pinball loss for quantile regression (1D version).
+    Pinball loss for quantile regression (multi-dimensional version).
 
     For quantile τ ∈ [0,1]:
     L_τ(y, ŷ) = max((τ-1)×(y-ŷ), τ×(y-ŷ))
@@ -36,16 +36,16 @@ class QuantileLoss(nn.Module):
     def forward(self, preds, target):
         """
         Args:
-            preds: (B, T, num_quantiles) - quantile predictions for 1D target
-            target: (B, T, 1) - ground truth
+            preds: (B, T, num_quantiles, target_dim) - quantile predictions for multi-dim target
+            target: (B, T, target_dim) - ground truth
 
         Returns:
             Scalar loss (averaged over all quantiles and elements)
         """
         losses = []
         for i, q in enumerate(self.quantiles):
-            pred_q = preds[:, :, i:i+1]  # (B, T, 1)
-            error = target - pred_q  # (B, T, 1)
+            pred_q = preds[:, :, i, :]  # (B, T, target_dim)
+            error = target - pred_q  # (B, T, target_dim)
             loss_q = torch.max((q-1)*error, q*error)
             losses.append(torch.mean(loss_q))
 
@@ -99,7 +99,7 @@ class CVAE1DMemRandEncoder(BaseEncoder):
         target_hidden = config["target_hidden"]
 
         target_embedding = OrderedDict()
-        in_feats = 1  # Scalar input per timestep
+        in_feats = config["target_dim"]  # Multi-dimensional target (e.g., 12 for multi-stock)
 
         for i, out_feats in enumerate(target_hidden):
             target_embedding[f"target_linear_{i}"] = nn.Linear(in_feats, out_feats)
@@ -266,7 +266,7 @@ class CVAE1DCtxMemRandEncoder(BaseEncoder):
         ctx_target_hidden = config.get("ctx_target_hidden", config["target_hidden"])
 
         target_embedding = OrderedDict()
-        in_feats = 1
+        in_feats = config["target_dim"]  # Multi-dimensional target
 
         for i, out_feats in enumerate(ctx_target_hidden):
             target_embedding[f"ctx_target_linear_{i}"] = nn.Linear(in_feats, out_feats)
@@ -401,6 +401,10 @@ class CVAE1DMemRandDecoder(BaseDecoder):
         latent_dim = config["latent_dim"]
         input_dim = ctx_dim + latent_dim
 
+        # Store dimensions for reshaping in forward pass
+        self.target_dim = config["target_dim"]
+        self.num_quantiles = config.get("num_quantiles", 3)
+
         # Determine target output dimension
         target_hidden = config["target_hidden"]
         target_output_dim = target_hidden[-1]
@@ -485,9 +489,10 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             target_decoder[f"dec_target_activation_{i}"] = nn.ReLU()
             in_feats = out_feats
 
-        # Final layer: output quantiles
+        # Final layer: output num_quantiles * target_dim
+        target_dim = config["target_dim"]
         num_quantiles = config.get("num_quantiles", 3)
-        target_decoder["dec_target_output"] = nn.Linear(in_feats, num_quantiles)
+        target_decoder["dec_target_output"] = nn.Linear(in_feats, num_quantiles * target_dim)
 
         self.target_decoder = nn.Sequential(target_decoder)
 
@@ -504,7 +509,7 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             x: (B, T, ctx_dim + latent_dim) - Concatenated context and latent
 
         Returns:
-            decoded_target: (B, T, num_quantiles) - Quantile predictions
+            decoded_target: (B, T, num_quantiles, target_dim) - Quantile predictions for each target dimension
             decoded_ex_feats: (B, T, K) or None
         """
         # LSTM
@@ -521,16 +526,20 @@ class CVAE1DMemRandDecoder(BaseDecoder):
             target_features = combined[..., :target_hidden_dim]
             ex_features = combined[..., target_hidden_dim:]
 
-            # Decode target
-            decoded_target = self.target_decoder(target_features)  # (B, T, num_quantiles)
+            # Decode target and reshape
+            decoded_target = self.target_decoder(target_features)  # (B, T, num_quantiles * target_dim)
+            B, T = decoded_target.shape[0], decoded_target.shape[1]
+            decoded_target = decoded_target.view(B, T, self.num_quantiles, self.target_dim)  # (B, T, num_quantiles, target_dim)
 
             # Decode extra features
             decoded_ex_feats = self.ex_feats_decoder(ex_features)  # (B, T, K)
 
             return decoded_target, decoded_ex_feats
         else:
-            # Only decode target
-            decoded_target = self.target_decoder(combined)  # (B, T, num_quantiles)
+            # Only decode target and reshape
+            decoded_target = self.target_decoder(combined)  # (B, T, num_quantiles * target_dim)
+            B, T = decoded_target.shape[0], decoded_target.shape[1]
+            decoded_target = decoded_target.view(B, T, self.num_quantiles, self.target_dim)  # (B, T, num_quantiles, target_dim)
             return decoded_target, None
 
 
@@ -648,7 +657,7 @@ class CVAE1DMemRand(BaseVAE):
 
         Loss = Quantile(target) + ex_feat_weight * Loss(ex_feats) + kl_weight * KL
 
-        Note: decoded_target is only future prediction (shape B, 1, num_quantiles).
+        Note: decoded_target is only future prediction (shape B, 1, num_quantiles, target_dim).
               We need to extract future ground truth from x["target"].
         """
         target = x["target"]
@@ -656,11 +665,20 @@ class CVAE1DMemRand(BaseVAE):
         C = T - 1
 
         # Extract future ground truth (last timestep)
-        target_future = target[:, C:, :]
+        target_future = target[:, C:, :]  # (B, 1, target_dim)
 
         # Reconstruction loss for target (Quantile Loss)
-        # decoded_target: (B, 1, num_quantiles), target_future: (B, 1, 1)
-        recon_loss_target = self.quantile_loss_fn(decoded_target, target_future)
+        # decoded_target: (B, 1, num_quantiles, target_dim), target_future: (B, 1, target_dim)
+
+        # Optional: Apply loss only to channel 0 (e.g., AMZN return for backfilling)
+        if self.config.get("target_loss_on_channel_0_only", False):
+            decoded_target_for_loss = decoded_target[:, :, :, 0:1]  # (B, 1, num_quantiles, 1)
+            target_future_for_loss = target_future[:, :, 0:1]  # (B, 1, 1)
+        else:
+            decoded_target_for_loss = decoded_target
+            target_future_for_loss = target_future
+
+        recon_loss_target = self.quantile_loss_fn(decoded_target_for_loss, target_future_for_loss)
 
         # Reconstruction loss for extra features (if used)
         if decoded_ex_feats is not None and self.ex_feat_weight > 0:
@@ -738,13 +756,19 @@ class CVAE1DMemRand(BaseVAE):
                 x_device[k] = v
 
         # Extract shapes
-        target = x_device["target"]  # (B, T, 1)
+        target = x_device["target"]  # (B, T, target_dim)
         B, T = target.shape[0], target.shape[1]
         C = T - 1  # Context length (last timestep is future)
 
         # Forward fill target: repeat last known value instead of using T+1
-        # This simulates missing AMZN data at T+1
-        target_masked = torch.cat([target[:, :C, :], target[:, C-1:C, :]], dim=1)  # (B, T, 1)
+        # This simulates missing target data at T+1
+        if self.config.get("mask_channel_0_only", False):
+            # Forward-fill only channel 0 (e.g., AMZN return), leave other channels unmasked
+            target_masked = target.clone()
+            target_masked[:, C:, 0:1] = target[:, C-1:C, 0:1]  # Mask channel 0 only, preserve dimensions
+        else:
+            # Forward-fill all channels (default behavior)
+            target_masked = torch.cat([target[:, :C, :], target[:, C-1:C, :]], dim=1)  # (B, T, target_dim)
 
         # Create masked batch
         x_masked = {"target": target_masked}
@@ -818,11 +842,11 @@ class CVAE1DMemRand(BaseVAE):
 
         Args:
             c: dict with keys
-                - "target": (B, C, 1) - Historical context
+                - "target": (B, C, target_dim) - Historical context
                 - "ex_feats": (B, C, K) - Optional extra features
 
         Returns:
-            predictions: (B, num_quantiles) - Quantile predictions [p05, p50, p95]
+            predictions: (B, num_quantiles, target_dim) - Quantile predictions for each target dimension
         """
         self.eval()
         with torch.no_grad():
@@ -853,8 +877,8 @@ class CVAE1DMemRand(BaseVAE):
             decoded_target, _ = self.decoder(decoder_input)
 
             # Extract future prediction
-            # decoded_target: (B, 1, num_quantiles)
-            prediction = decoded_target[:, C:, :].squeeze(1)  # (B, num_quantiles)
+            # decoded_target: (B, C+1, num_quantiles, target_dim)
+            prediction = decoded_target[:, C:, :, :].squeeze(1)  # (B, num_quantiles, target_dim)
 
             return prediction
 
@@ -907,7 +931,7 @@ class CVAE1DMemRand(BaseVAE):
             decoded_target, _ = self.decoder(decoder_input)
 
             # Extract future prediction
-            # decoded_target: (B, 1, num_quantiles)
-            prediction = decoded_target[:, C:, :].squeeze(1)  # (B, num_quantiles)
+            # decoded_target: (B, C+1, num_quantiles, target_dim)
+            prediction = decoded_target[:, C:, :, :].squeeze(1)  # (B, num_quantiles, target_dim)
 
             return prediction

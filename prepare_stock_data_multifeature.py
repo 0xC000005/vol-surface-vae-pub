@@ -136,7 +136,10 @@ amzn_feat_arr = all_features_clean[amzn_cols].values  # (N, 4)
 msft_feat_arr = all_features_clean[msft_cols].values  # (N, 4)
 sp500_feat_arr = all_features_clean[sp500_cols].values  # (N, 4)
 
-# Create target and extra features
+# Create unified target array (all 12 features)
+all_stock_features = all_features_clean[amzn_cols + msft_cols + sp500_cols].values  # (N, 12) - Unified target
+
+# Legacy format (for backward compatibility)
 amzn_return = all_features_clean[['amzn_return']].values  # (N, 1) - Target
 extra_features = all_features_clean[
     ['amzn_vol', 'amzn_volume_change', 'amzn_range'] +
@@ -169,7 +172,9 @@ print("=" * 80)
 print("Saving to NPZ file...")
 np.savez(
     OUTPUT_FILE,
-    # Model-ready format
+    # Unified multi-channel target (NEW)
+    all_features=all_stock_features,  # (N, 12) - All stock features as unified target
+    # Legacy format (for backward compatibility)
     amzn_return=amzn_return,  # (N, 1) - Target
     extra_features=extra_features,  # (N, 11) - Conditioning
     # Individual stock features (for analysis)
@@ -187,8 +192,9 @@ print()
 print("Verifying saved data...")
 loaded = np.load(OUTPUT_FILE)
 print("  Keys:", list(loaded.keys()))
-print("  amzn_return shape:", loaded["amzn_return"].shape, "- Target")
-print("  extra_features shape:", loaded["extra_features"].shape, "- Conditioning (11 features)")
+print("  all_features shape:", loaded["all_features"].shape, "- Unified target (12 features: 3 stocks × 4 features)")
+print("  amzn_return shape:", loaded["amzn_return"].shape, "- Target (legacy)")
+print("  extra_features shape:", loaded["extra_features"].shape, "- Conditioning (legacy, 11 features)")
 print("  amzn_features shape:", loaded["amzn_features"].shape)
 print("  msft_features shape:", loaded["msft_features"].shape)
 print("  sp500_features shape:", loaded["sp500_features"].shape)

@@ -70,46 +70,41 @@ if not os.path.exists(DATA_FILE):
     )
 
 data = np.load(DATA_FILE)
-amzn_return = data["amzn_return"]  # (N, 1) - Target
-extra_features = data["extra_features"]  # (N, 11) - Conditioning
+all_features = data["all_features"]  # (N, 12) - Unified target: 3 stocks × 4 features
 
-print(f"  AMZN return shape: {amzn_return.shape}")
-print(f"  Extra features shape: {extra_features.shape}")
-print(f"  Total samples: {len(amzn_return)}")
+print(f"  All features shape: {all_features.shape}")
+print(f"  Total samples: {len(all_features)}")
+print(f"  Features: 12D (AMZN×4 + MSFT×4 + SP500×4)")
 print()
 
 # Split data: train (4000), valid (1000), test (805)
 TRAIN_END = 4000
 VALID_END = 5000
 
-amzn_train = amzn_return[:TRAIN_END]
-amzn_valid = amzn_return[TRAIN_END:VALID_END]
-amzn_test = amzn_return[VALID_END:]
-
-extra_train = extra_features[:TRAIN_END]
-extra_valid = extra_features[TRAIN_END:VALID_END]
-extra_test = extra_features[VALID_END:]
+all_train = all_features[:TRAIN_END]
+all_valid = all_features[TRAIN_END:VALID_END]
+all_test = all_features[VALID_END:]
 
 print("Data splits:")
 print(f"  Train: {TRAIN_END} samples")
 print(f"  Valid: {VALID_END - TRAIN_END} samples")
-print(f"  Test:  {len(amzn_return) - VALID_END} samples")
+print(f"  Test:  {len(all_features) - VALID_END} samples")
 print()
 
 # Create datasets
 print("Creating datasets...")
 train_dataset = TimeSeriesDataSetRand(
-    (amzn_train, extra_train),
+    all_train,
     min_seq_len=MIN_SEQ_LEN,
     max_seq_len=MAX_SEQ_LEN
 )
 valid_dataset = TimeSeriesDataSetRand(
-    (amzn_valid, extra_valid),
+    all_valid,
     min_seq_len=MIN_SEQ_LEN,
     max_seq_len=MAX_SEQ_LEN
 )
 test_dataset = TimeSeriesDataSetRand(
-    (amzn_test, extra_test),
+    all_test,
     min_seq_len=MIN_SEQ_LEN,
     max_seq_len=MAX_SEQ_LEN
 )
@@ -133,14 +128,14 @@ print()
 
 # Model configuration
 config = {
-    "feat_dim": 1,  # Scalar time series for target (AMZN return)
+    "target_dim": 12,  # Multi-channel target: 3 stocks × 4 features
     "latent_dim": LATENT_DIM,  # Increased to handle 12D state space
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "kl_weight": KL_WEIGHT,
-    "ex_feat_weight": 0.0,  # Passive conditioning (no loss on extra features)
-    "target_hidden": TARGET_HIDDEN,  # AMZN return embedding
-    "ex_feats_dim": 11,  # AMZN vol/volume/range + MSFT×4 + SP500×4
-    "ex_feats_hidden": None,  # Identity mapping for extra features
+    "ex_feat_weight": 0.0,  # No additional conditioning features
+    "target_hidden": TARGET_HIDDEN,  # Embedding for 12D input
+    "ex_feats_dim": 0,  # No additional conditioning (all features in target)
+    "ex_feats_hidden": None,
     "mem_type": "lstm",
     "mem_hidden": MEM_HIDDEN,
     "mem_layers": MEM_LAYERS,
@@ -153,22 +148,27 @@ config = {
     # Quantile regression
     "num_quantiles": 3,
     "quantiles": [0.05, 0.5, 0.95],
+    # Multi-channel loss and masking
+    "target_loss_on_channel_0_only": True,  # Optimize only AMZN return (channel 0)
+    "mask_channel_0_only": True,  # Forward-fill only AMZN in masked training
 }
 
 print("=" * 80)
 print("MODEL CONFIGURATION")
 print("=" * 80)
 print(f"Architecture:")
+print(f"  target_dim: {config['target_dim']} (12 features: 3 stocks × 4 features)")
 print(f"  latent_dim: {config['latent_dim']} (increased from 5)")
 print(f"  target_hidden: {config['target_hidden']}")
-print(f"  ex_feats_dim: {config['ex_feats_dim']} (11 conditioning features)")
+print(f"  ex_feats_dim: {config['ex_feats_dim']} (no additional conditioning)")
 print(f"  mem_hidden: {config['mem_hidden']}")
 print(f"  mem_type: {config['mem_type']}")
 print()
 print(f"Training:")
 print(f"  kl_weight: {config['kl_weight']}")
-print(f"  ex_feat_weight: {config['ex_feat_weight']} (passive conditioning)")
 print(f"  mask_prob: {MASK_PROB} (forward-fill masking)")
+print(f"  target_loss_on_channel_0_only: {config['target_loss_on_channel_0_only']} (optimize only AMZN)")
+print(f"  mask_channel_0_only: {config['mask_channel_0_only']} (mask only AMZN)")
 print()
 print(f"Quantile regression:")
 print(f"  num_quantiles: {config['num_quantiles']}")
@@ -235,14 +235,17 @@ print()
 
 # Save results
 results = {
-    "model_name": "backfill_model",
-    "description": "Backfilling: AMZN return + 11 multifeatures (3 stocks × 4 features - AMZN return)",
+    "model_name": "backfill_model_multichannel",
+    "description": "Multi-channel backfilling: 12D target (3 stocks × 4 features), loss on channel 0 (AMZN return) only",
+    "target_dim": config["target_dim"],
     "latent_dim": config["latent_dim"],
     "ex_feats_dim": config["ex_feats_dim"],
     "target_hidden": str(config["target_hidden"]),
     "mem_hidden": config["mem_hidden"],
     "kl_weight": config["kl_weight"],
     "mask_prob": MASK_PROB,
+    "target_loss_on_channel_0_only": config["target_loss_on_channel_0_only"],
+    "mask_channel_0_only": config["mask_channel_0_only"],
     "valid_loss": valid_losses.get("loss", 0),
     "valid_target_loss": valid_losses.get("target_loss", 0),
     "valid_kl_loss": valid_losses.get("kl_loss", 0),

@@ -56,13 +56,12 @@ if not os.path.exists(DATA_FILE):
 # Load data
 print("Loading data...")
 data = np.load(DATA_FILE)
-amzn_return = data["amzn_return"]  # (N, 1)
-extra_features = data["extra_features"]  # (N, 11)
+all_features = data["all_features"]  # (N, 12) - Unified target: 3 stocks × 4 features
 dates = data["dates"]
 
-print(f"  Total samples: {len(amzn_return)}")
-print(f"  AMZN return shape: {amzn_return.shape}")
-print(f"  Extra features shape: {extra_features.shape}")
+print(f"  Total samples: {len(all_features)}")
+print(f"  All features shape: {all_features.shape}")
+print(f"  Features: 12D (AMZN×4 + MSFT×4 + SP500×4)")
 print()
 
 # Test set split
@@ -70,13 +69,12 @@ TRAIN_END = 4000
 VALID_END = 5000
 test_start = VALID_END
 
-amzn_test = amzn_return[test_start:]
-extra_test = extra_features[test_start:]
+all_test = all_features[test_start:]
 dates_test = dates[test_start:]
 
 print(f"Test set:")
 print(f"  Start index: {test_start}")
-print(f"  Size: {len(amzn_test)}")
+print(f"  Size: {len(all_test)}")
 print(f"  First prediction at index: {test_start + CONTEXT_LEN} (need {CONTEXT_LEN} days context)")
 print()
 
@@ -92,29 +90,27 @@ print(f"  Config: latent_dim={model.config['latent_dim']}, ex_feats_dim={model.c
 print()
 
 
-def generate_scenario_1_oracle(model, amzn_full, extra_full, day, ctx_len):
+def generate_scenario_1_oracle(model, all_features_full, day, ctx_len):
     """
-    Scenario 1 (Oracle): Use true latent from encoding with real AMZN at T+1.
+    Scenario 1 (Oracle): Use true latent from encoding with real data at T+1.
 
     Args:
         model: Trained CVAE model
-        amzn_full: Full AMZN data (N, 1)
-        extra_full: Full extra features (N, 11)
+        all_features_full: Full features (N, 12) - All stock features
         day: Current day index (prediction for day)
         ctx_len: Context length
 
     Returns:
-        prediction: (3,) array [p05, p50, p95]
+        prediction: (3,) array [p05, p50, p95] for AMZN return (channel 0)
     """
     # Extract full sequence [0:day+1] including target at day
     start_idx = day - ctx_len
     end_idx = day + 1
 
-    target_seq = torch.from_numpy(amzn_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 1)
-    extra_seq = torch.from_numpy(extra_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 11)
+    target_seq = torch.from_numpy(all_features_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 12)
 
     # Encode with REAL data at T+1
-    x = {"target": target_seq, "ex_feats": extra_seq}
+    x = {"target": target_seq}
     z_mean, z_log_var, _ = model.encoder(x)
 
     # Use latent at T+1 (index ctx_len)
@@ -122,70 +118,67 @@ def generate_scenario_1_oracle(model, amzn_full, extra_full, day, ctx_len):
     z_logvar_t = z_log_var[:, ctx_len, :]  # (1, latent_dim)
 
     # Context (historical data only)
-    context = {
-        "target": target_seq[:, :ctx_len, :],
-        "ex_feats": extra_seq[:, :ctx_len, :]
-    }
+    context = {"target": target_seq[:, :ctx_len, :]}
 
     # Generate prediction with oracle latent
     prediction = model.get_prediction_with_latent(context, z_mean_t, z_logvar_t)
+    # prediction shape: (1, num_quantiles, target_dim) = (1, 3, 12)
 
-    return prediction.squeeze(0).cpu().numpy()  # (3,)
+    # Extract channel 0 (AMZN return)
+    prediction_amzn = prediction[0, :, 0]  # (3,) - [p05, p50, p95] for AMZN
+
+    return prediction_amzn.cpu().numpy()  # (3,)
 
 
-def generate_scenario_2_mixed(model, amzn_full, extra_full, day, ctx_len, oracle_prob=0.8):
+def generate_scenario_2_mixed(model, all_features_full, day, ctx_len, oracle_prob=0.8):
     """
     Scenario 2 (Mixed 80/20): Randomly use oracle or forward-masked latent.
 
     Args:
         model: Trained CVAE model
-        amzn_full: Full AMZN data (N, 1)
-        extra_full: Full extra features (N, 11)
+        all_features_full: Full features (N, 12) - All stock features
         day: Current day index (prediction for day)
         ctx_len: Context length
         oracle_prob: Probability of using oracle latent (default: 0.8)
 
     Returns:
-        prediction: (3,) array [p05, p50, p95]
+        prediction: (3,) array [p05, p50, p95] for AMZN return (channel 0)
     """
     # Randomly decide: oracle or masked
     if np.random.random() < oracle_prob:
         # Use oracle (scenario 1)
-        return generate_scenario_1_oracle(model, amzn_full, extra_full, day, ctx_len)
+        return generate_scenario_1_oracle(model, all_features_full, day, ctx_len)
     else:
         # Use forward-masked (scenario 3)
-        return generate_scenario_3_realistic(model, amzn_full, extra_full, day, ctx_len)
+        return generate_scenario_3_realistic(model, all_features_full, day, ctx_len)
 
 
-def generate_scenario_3_realistic(model, amzn_full, extra_full, day, ctx_len):
+def generate_scenario_3_realistic(model, all_features_full, day, ctx_len):
     """
-    Scenario 3 (Realistic Backfilling): Forward-fill AMZN at T+1, use previous latent.
+    Scenario 3 (Realistic Backfilling): Forward-fill AMZN (channel 0) at T+1, use previous latent.
 
     Args:
         model: Trained CVAE model
-        amzn_full: Full AMZN data (N, 1)
-        extra_full: Full extra features (N, 11)
+        all_features_full: Full features (N, 12) - All stock features
         day: Current day index (prediction for day)
         ctx_len: Context length
 
     Returns:
-        prediction: (3,) array [p05, p50, p95]
+        prediction: (3,) array [p05, p50, p95] for AMZN return (channel 0)
     """
     # Extract sequence [0:day+1]
     start_idx = day - ctx_len
     end_idx = day + 1
 
-    target_seq = torch.from_numpy(amzn_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 1)
-    extra_seq = torch.from_numpy(extra_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 11)
+    target_seq = torch.from_numpy(all_features_full[start_idx:end_idx]).unsqueeze(0)  # (1, T+1, 12)
 
-    # Forward-fill AMZN at T+1: repeat last known value
-    target_masked = torch.cat([
-        target_seq[:, :ctx_len, :],  # Real AMZN [0:T]
-        target_seq[:, ctx_len-1:ctx_len, :]  # Repeat AMZN[T] (forward fill)
-    ], dim=1)  # (1, T+1, 1)
+    # Forward-fill AMZN (channel 0) at T+1: repeat last known value
+    # Other channels (MSFT, SP500) remain unmasked
+    target_masked = target_seq.clone()
+    target_masked[:, ctx_len:, 0:1] = target_seq[:, ctx_len-1:ctx_len, 0:1]  # Forward-fill channel 0 only, preserve dimensions
 
-    # Encode with masked target but REAL extra features
-    x_masked = {"target": target_masked, "ex_feats": extra_seq}
+    # Encode with masked data
+    x_masked = {"target": target_masked}
     z_mean, z_log_var, _ = model.encoder(x_masked)
 
     # Use PREVIOUS timestep latent (index ctx_len-1, not ctx_len)
@@ -193,15 +186,16 @@ def generate_scenario_3_realistic(model, amzn_full, extra_full, day, ctx_len):
     z_logvar_prev = z_log_var[:, ctx_len-1, :]  # (1, latent_dim)
 
     # Context (historical data only)
-    context = {
-        "target": target_seq[:, :ctx_len, :],  # Real historical AMZN
-        "ex_feats": extra_seq[:, :ctx_len, :]
-    }
+    context = {"target": target_seq[:, :ctx_len, :]}  # Real historical data
 
     # Generate prediction with previous-day latent
     prediction = model.get_prediction_with_latent(context, z_mean_prev, z_logvar_prev)
+    # prediction shape: (1, num_quantiles, target_dim) = (1, 3, 12)
 
-    return prediction.squeeze(0).cpu().numpy()  # (3,)
+    # Extract channel 0 (AMZN return)
+    prediction_amzn = prediction[0, :, 0]  # (3,) - [p05, p50, p95] for AMZN
+
+    return prediction_amzn.cpu().numpy()  # (3,)
 
 
 # Generate predictions for all test days
@@ -211,7 +205,7 @@ print("=" * 80)
 
 # First valid day for prediction (need ctx_len days of history)
 first_day = test_start + CONTEXT_LEN
-num_predictions = len(amzn_test) - CONTEXT_LEN
+num_predictions = len(all_test) - CONTEXT_LEN
 
 print(f"First prediction day: {first_day}")
 print(f"Number of predictions: {num_predictions}")
@@ -234,26 +228,26 @@ s3_p50 = []
 s3_p95 = []
 
 # Generate predictions
-for i, day in enumerate(tqdm(range(first_day, len(amzn_return)), desc="Generating predictions")):
-    # Actual value
-    actual = amzn_return[day, 0]
+for i, day in enumerate(tqdm(range(first_day, len(all_features)), desc="Generating predictions")):
+    # Actual value (AMZN return is channel 0)
+    actual = all_features[day, 0]
     actuals.append(actual)
     dates_pred.append(dates[day])
 
     # Scenario 1: Oracle
-    pred_s1 = generate_scenario_1_oracle(model, amzn_return, extra_features, day, CONTEXT_LEN)
+    pred_s1 = generate_scenario_1_oracle(model, all_features, day, CONTEXT_LEN)
     s1_p05.append(pred_s1[0])
     s1_p50.append(pred_s1[1])
     s1_p95.append(pred_s1[2])
 
     # Scenario 2: Mixed 80/20
-    pred_s2 = generate_scenario_2_mixed(model, amzn_return, extra_features, day, CONTEXT_LEN, oracle_prob=0.8)
+    pred_s2 = generate_scenario_2_mixed(model, all_features, day, CONTEXT_LEN, oracle_prob=0.8)
     s2_p05.append(pred_s2[0])
     s2_p50.append(pred_s2[1])
     s2_p95.append(pred_s2[2])
 
     # Scenario 3: Realistic Backfilling
-    pred_s3 = generate_scenario_3_realistic(model, amzn_return, extra_features, day, CONTEXT_LEN)
+    pred_s3 = generate_scenario_3_realistic(model, all_features, day, CONTEXT_LEN)
     s3_p05.append(pred_s3[0])
     s3_p50.append(pred_s3[1])
     s3_p95.append(pred_s3[2])

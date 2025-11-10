@@ -49,18 +49,17 @@ python visualize_teacher_forcing.py             # Visualize predictions
 python main_analysis.py                         # Regression, PCA, arbitrage
 ```
 
-**1D Time Series VAE:**
+**1D Backfilling VAE (Multi-Stock):**
 ```bash
 # Data prep
-python fetch_market_data.py                     # Download from Yahoo Finance
-python prepare_stock_data.py                    # Create stock_returns.npz
+python fetch_market_data_ohlcv.py               # Download OHLCV from Yahoo Finance
+python prepare_stock_data_multifeature.py       # Create stock_returns_multifeature.npz
 
 # Training & Evaluation
-python test_1d_model_sanity.py                  # Architecture sanity check
-python train_1d_models.py                       # Train all 4 variants
-python generate_1d_quantile_predictions.py      # Generate predictions
-python analysis_code/visualize_1d_quantile_teacher_forcing.py
-python evaluate_1d_quantile_models.py           # Compute metrics
+python test_1d_backfilling_sanity.py            # Architecture sanity check
+python train_1d_backfilling_model.py            # Train with 30% masked batches
+python generate_1d_backfilling_predictions.py   # Generate 3-scenario predictions
+python evaluate_1d_backfilling_model.py         # Compute comparison metrics
 ```
 
 ## Architecture
@@ -73,9 +72,9 @@ python evaluate_1d_quantile_models.py           # Compute metrics
    - Decoder: [Context LSTM embeddings || z] → Quantile surfaces (3 channels)
 
 2. **CVAE1DMemRand** (vae/cvae_1d_with_mem_randomized.py) - 1D time series VAE
-   - Same architecture as 2D but for scalars instead of 5×5 grids
-   - Encoder: Target → Optional cond features → LSTM → Latent (z)
-   - Decoder: [Context LSTM embeddings || z] → Quantile values (3 channels)
+   - Multi-channel architecture for joint time series modeling
+   - Encoder: Multi-dim target → LSTM → Latent (z)
+   - Decoder: [Context LSTM embeddings || z] → Multi-channel quantile predictions
 
 ### Two-Encoder Pattern
 
@@ -90,8 +89,8 @@ python evaluate_1d_quantile_models.py           # Compute metrics
 **All models use quantile regression exclusively (no MSE mode).**
 
 **Decoder output:**
-- 2D: (B, T, 3, H, W) where 3 = [p05, p50, p95] quantiles
-- 1D: (B, T, 3) where 3 = [p05, p50, p95] quantiles
+- 2D: (B, T, 3, H, W) where 3 = [p05, p50, p95] quantiles, (H, W) = grid dimensions
+- 1D: (B, T, 3, D) where 3 = [p05, p50, p95] quantiles, D = target dimensions
 
 **Loss:**
 ```python
@@ -99,14 +98,31 @@ loss = pinball_loss(predictions, target) + kl_weight * kl_divergence
 # Pinball loss: asymmetric quantile loss, optimizes CI calibration
 ```
 
-**Config:**
+**Config (2D):**
 ```python
 {
+    "feat_dim": (5, 5),  # Grid dimensions
     "num_quantiles": 3,
     "quantiles": [0.05, 0.5, 0.95],
     "latent_dim": 5,
     "mem_type": "lstm",
     "mem_hidden": 100,
+    "kl_weight": 1e-5,
+}
+```
+
+**Config (1D multi-channel):**
+```python
+{
+    "target_dim": 12,  # Multi-channel target dimensions
+    "num_quantiles": 3,
+    "quantiles": [0.05, 0.5, 0.95],
+    "latent_dim": 12,
+    "ex_feats_dim": 0,  # No additional conditioning
+    "target_loss_on_channel_0_only": True,  # Optimize only channel 0
+    "mask_channel_0_only": True,  # Mask only channel 0 in training
+    "mem_type": "lstm",
+    "mem_hidden": 32,
     "kl_weight": 1e-5,
 }
 ```
@@ -123,18 +139,22 @@ Three variants test conditioning strategies:
 
 **Research question:** Does conditioning on returns/skew/slope improve surface forecasts?
 
-### Model Variants (1D Time Series VAE)
+### 1D Backfilling Model (Multi-Channel)
 
-Four variants test market conditioning:
+**Architecture:** Clean multi-channel design following 2D pattern
+- **Target**: 12D unified array (AMZN×4 + MSFT×4 + SP500×4 features)
+- **Ex_feats**: None (ex_feats_dim=0, all features in target)
+- **Latent**: 12D (encodes full joint distribution)
+- **Decoder output**: (B, T, 3, 12) - 3 quantiles × 12 channels
+- **Loss**: Only channel 0 (AMZN return) via `target_loss_on_channel_0_only=True`
 
-| Variant | ex_feats_dim | Extra Features |
-|---------|--------------|----------------|
-| **amzn_only** | 0 | None (baseline) |
-| **amzn_sp500** | 1 | SP500 returns |
-| **amzn_msft** | 1 | MSFT returns |
-| **amzn_both** | 2 | SP500 + MSFT returns |
+**Key insight:** All 12 features flow through encoder → latent must encode joint state → but optimize only AMZN predictions.
 
-All use `ex_feat_weight=0.0` (passive extra features).
+**Training strategy (70/30 mixed):**
+- 70% batches: Standard (all real data)
+- 30% batches: Masked (forward-fill channel 0 only via `mask_channel_0_only=True`)
+
+**Evaluation:** 3 latent selection scenarios (Oracle, Mixed, Realistic backfilling)
 
 ## Data
 
@@ -144,10 +164,10 @@ All use `ex_feat_weight=0.0` (passive extra features).
   - `ret`, `skews`, `slopes`: (N,) extra features
   - `ex_data`: (N, 3) concatenated [ret, skew, slope]
 
-**1D Time Series VAE:**
-- `data/stock_returns.npz`: Stock returns
-  - `amzn_returns`: (N,) target
-  - `cond_sp500`, `cond_msft`, `cond_both`: Conditioning features
+**1D Backfilling VAE:**
+- `data/stock_returns_multifeature.npz`: Multi-stock OHLCV data
+  - `all_features`: (N, 12) unified target - 3 stocks × 4 features (return, vol, volume_change, range)
+  - Legacy: `amzn_return` (N, 1), `extra_features` (N, 11) for backward compatibility
 
 **Data splits:**
 - Train: [0:4000]
@@ -186,9 +206,11 @@ model.eval()
 # Input: batch with T timesteps (C context + 1 future)
 decoded_target, _, z_mean, z_log_var, z = model.forward(batch)
 
-# Output shapes:
+# Output shapes (2D):
 # decoded_target: (B, 1, num_quantiles, H, W)  # Only future timestep!
-# z_mean: (B, T, latent_dim)                   # Full sequence
+# Output shapes (1D):
+# decoded_target: (B, 1, num_quantiles, target_dim)  # Only future timestep!
+# z_mean: (B, T, latent_dim)  # Full sequence (both models)
 ```
 
 ### Context Extraction
@@ -207,9 +229,11 @@ ctx_dict = {
 
 ```python
 # Single forward pass → get all 3 quantiles
-quantile_preds = model.get_surface_given_conditions(ctx_dict)
-# Returns: (B, 1, 3, 5, 5) for 2D or (B, 3) for 1D
-# quantile_preds[:, :, 0] = p05, [:, :, 1] = p50, [:, :, 2] = p95
+quantile_preds = model.get_surface_given_conditions(ctx_dict)  # 2D
+# Returns: (B, 1, 3, 5, 5) - 3 quantiles × 5×5 grid
+
+quantile_preds = model.get_prediction_given_context(ctx_dict)  # 1D
+# Returns: (B, 3, target_dim) - 3 quantiles × target dimensions
 ```
 
 ## Dataset Classes
@@ -220,8 +244,8 @@ quantile_preds = model.get_surface_given_conditions(ctx_dict)
 - Returns dict: `{"surface": (T, H, W), "ex_feats": (T, K)}`
 
 **TimeSeriesDataSetRand** (vae/datasets_1d_randomized.py):
-- 1D version for scalar time series
-- Returns dict: `{"target": (T, 1), "ex_feats": (T, K)}`
+- 1D version for multi-dimensional time series
+- Returns dict: `{"target": (T, target_dim)}` (ex_feats optional)
 
 ## Data Preprocessing
 
@@ -317,17 +341,27 @@ See `QUANTILE_REGRESSION_RESULTS.md` and `CI_CALIBRATION_OBSERVATIONS.md` for de
 3. **Confusing forward() output** → Returns only future [:, C:], not full [:, :]
 4. **Context length off by one** → Use C = T - 1, not C = T
 5. **Expecting MSE mode** → All models are quantile-only now
+6. **1D shape assumptions** → Decoder outputs (B, T, 3, target_dim), not (B, T, 3)
 
-## Future Work
+## Backfilling Implementation
 
-**Multi-stock backfilling architecture:** See `BACKFILLING_PROPOSAL.md` for detailed design of:
-- Expanding 1D model to 3 stocks (AMZN, MSFT, SP500) × 4 features (return, vol, volume, range)
-- 80/20 training strategy to improve CI calibration
-- Leveraging cointegration for backfilling missing stock data
-- Preventing posterior collapse through 12D information asymmetry
+**Implementation complete.** Multi-channel architecture following 2D pattern. See `BACKFILLING_PROPOSAL.md` for rationale.
+
+**Architecture:**
+- Unified 12D target (all features in one array, no ex_feats split)
+- Decoder outputs (B, T, 3, 12) - 3 quantiles × 12 channels
+- Loss only on channel 0 via `target_loss_on_channel_0_only=True`
+- Masked training (30%): Forward-fill channel 0 only via `mask_channel_0_only=True`
+
+**Critical methods:**
+- `train_step_masked()`: Channel-specific masking, use z[T-1]
+- `get_prediction_with_latent(c, z_mean, z_logvar)`: Sample from N(μ, σ²)
+- Evaluation: 3 scenarios (Oracle, Mixed 80/20, Realistic backfilling)
 
 ## Version History
 
+- **Nov 2025**: Restructured 1D to multi-channel architecture (target_dim parameter, clean design)
+- **Nov 2025**: Implemented 1D backfilling model with masked training
 - **Nov 2025**: Removed MSE mode, quantile regression only
 - **Oct 2025**: Added quantile regression variant alongside MSE
 - **2025**: Initial implementation for paper

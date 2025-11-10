@@ -119,7 +119,8 @@ class TimeSeriesDataSetRand(Dataset):
             assert len(self.target) == len(self.ex_feats), \
                 "target and ex_feats should have the same length"
 
-            # Ensure target is (N, 1) and ex_feats is (N, K)
+            # Ensure target is (N, target_dim) and ex_feats is (N, K)
+            # Auto-expand 1D arrays to 2D if needed
             if len(self.target.shape) == 1:
                 self.target = self.target.unsqueeze(-1)
 
@@ -135,7 +136,8 @@ class TimeSeriesDataSetRand(Dataset):
             if dtype == torch.float32:
                 self.target = self.target.float()
 
-            # Ensure target is (N, 1)
+            # Ensure target is (N, target_dim)
+            # Auto-expand 1D arrays to 2D if needed
             if len(self.target.shape) == 1:
                 self.target = self.target.unsqueeze(-1)
 
