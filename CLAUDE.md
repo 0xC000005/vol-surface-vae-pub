@@ -38,34 +38,27 @@ python main_analysis.py
 ```
 Generates tables and plots for regression analysis, PCA, arbitrage checks, and classification tasks.
 
-**Visualize Teacher Forcing Performance:**
+**Visualization and Verification (analysis_code/):**
 ```bash
-python visualize_teacher_forcing.py
-```
-Creates visualizations comparing all 3 models across different grid points, showing ground truth vs predictions with uncertainty bands. Generates:
-- `teacher_forcing_implied_vol.png` - 9-panel comparison (3 models × 3 grid points)
-- `teacher_forcing_returns.png` - Return predictions for EX Loss model
+# Visualization scripts
+python analysis_code/visualize_teacher_forcing.py          # Compare all models (teacher forcing)
+python analysis_code/visualize_quantile_teacher_forcing.py # Quantile-specific visualization
+python analysis_code/visualize_distribution_comparison.py  # Distribution comparisons
 
-**Confidence Interval Calibration Analysis:**
+# Verification scripts (2008-2010 crisis period)
+python analysis_code/verify_reconstruction_plotly_2008_2010.py        # Ground truth latent (interactive)
+python analysis_code/verify_reconstruction_2008_2010_context_only.py  # Context-only latent
+python analysis_code/visualize_marginal_distribution_quantile_encoded.py      # Marginal distributions
+python analysis_code/visualize_marginal_distribution_quantile_context_only.py # Context-only marginals
+```
+
+**Core Training and Evaluation:**
 ```bash
-# Original MSE models - CI computed from MC samples
-python verify_mean_tracking_vs_ci.py       # Verify R² vs CI violation coexistence
-python compare_reconstruction_losses.py    # Compare MSE with CI calibration
-python visualize_distribution_comparison.py # Compare marginal distributions
-
-# Quantile regression models - CI directly predicted
-python train_quantile_models.py                 # Train with pinball loss
-python generate_quantile_surfaces.py            # Generate quantile surfaces
-python evaluate_quantile_ci_calibration.py      # Evaluate CI calibration metrics
-python visualize_quantile_teacher_forcing.py    # Visualize quantile predictions
+python train_quantile_models.py            # Train quantile regression models
+python generate_quantile_surfaces.py       # Generate quantile predictions
+python evaluate_quantile_ci_calibration.py # Evaluate CI calibration
+python compare_reconstruction_losses.py    # Compare losses across models
 ```
-These scripts analyze uncertainty calibration in model predictions:
-- `verify_mean_tracking_vs_ci.py`: Proves that good mean tracking (high R²) can coexist with poor CI calibration (high violation rates). Generates scatter plots and regression analysis.
-- `compare_reconstruction_losses.py`: Shows relationship between reconstruction loss (MSE) and CI calibration metrics.
-- `visualize_distribution_comparison.py`: Compares marginal distributions (pooled across all days) vs ground truth histograms.
-- `train_quantile_models.py`: Trains models with quantile regression decoder for direct CI prediction.
-- `evaluate_quantile_ci_calibration.py`: Evaluates CI calibration for quantile regression models.
-- See `CI_CALIBRATION_OBSERVATIONS.md` for MSE model findings and `QUANTILE_REGRESSION_RESULTS.md` for quantile regression analysis.
 
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
@@ -314,16 +307,12 @@ All three models generate two types of forecasts:
 
 ### Visualization
 
-Run `visualize_teacher_forcing.py` to compare model performance:
+Visualization scripts are in `analysis_code/`:
 ```bash
-python visualize_teacher_forcing.py
+python analysis_code/visualize_teacher_forcing.py
 ```
 
-Generates:
-- `teacher_forcing_implied_vol.png`: 9-panel comparison (3 models × 3 grid points)
-- `teacher_forcing_returns.png`: Return predictions for EX Loss model
-
-Shows how teacher forcing works (models always conditioned on real historical data) and performance differences across conditioning strategies.
+Generates 9-panel comparison (3 models × 3 grid points) showing ground truth vs predictions with uncertainty bands. Demonstrates teacher forcing behavior where models condition on real historical data for independent one-step-ahead forecasts.
 
 ## Quantile Regression Decoder (Recent Development)
 
@@ -423,37 +412,27 @@ python generate_quantile_surfaces.py
 python evaluate_quantile_ci_calibration.py
 ```
 
-**Visualizing quantile predictions:**
+**Verification Scripts (in analysis_code/):**
 ```bash
-python visualize_quantile_teacher_forcing.py
-```
+# Ground truth latent (full sequence encoding)
+python analysis_code/verify_reconstruction_plotly_2008_2010.py
 
-**Verification Scripts (Ground Truth vs Context-Only):**
-```bash
-# Ground truth latent verification (uses full sequence encoding)
-python verify_reconstruction_plotly_2008_2010.py  # Interactive HTML + analysis for 2008-2010
-
-# Context-only verification (realistic generation without future knowledge)
-python verify_reconstruction_2008_2010_context_only.py  # Both Plotly HTML and Matplotlib PNG
+# Context-only latent (realistic generation)
+python analysis_code/verify_reconstruction_2008_2010_context_only.py
 
 # Marginal distribution analysis
-python visualize_marginal_distribution_quantile_encoded.py      # Ground truth latent
-python visualize_marginal_distribution_quantile_context_only.py  # Context-only latent
+python analysis_code/visualize_marginal_distribution_quantile_encoded.py
+python analysis_code/visualize_marginal_distribution_quantile_context_only.py
 ```
 
-These scripts test different aspects of model performance:
-- **Ground truth latent**: Encodes full sequence [t-5,...,t] → tests decoder quality when given perfect information
-- **Context-only latent**: Encodes only context [t-5,...,t-1] → tests realistic generation scenario
-- **Marginal distributions**: Pool predictions across all days to test if model captures unconditional distribution
+**Verification Results (2008-2010 CI Violations):**
 
-**Key Findings from Verification (2008-2010 period):**
+| Latent Type | no_ex | ex_no_loss | ex_loss |
+|-------------|-------|------------|---------|
+| **Ground truth** | 7.32% | 5.33% | 6.89% |
+| **Context-only** | 18.63% | 20.44% | 19.65% |
 
-| Latent Type | no_ex | ex_no_loss | ex_loss | Interpretation |
-|-------------|-------|------------|---------|----------------|
-| **Ground truth** | 7.32% | 5.33% | 6.89% | Well-calibrated when decoder has perfect info |
-| **Context-only** | 18.63% | 20.44% | 19.65% | ~3× higher violations in realistic generation |
-
-The large gap between ground truth and context-only CI violations reveals a **fundamental VAE prior mismatch**: p(z|context) ≠ p(z|context+target). The decoder learns correct quantiles for encoded latents, but the prior distribution doesn't match the posterior well enough for realistic forecasting.
+The 3× gap reveals **VAE prior mismatch**: p(z|context) ≠ p(z|context+target). Decoder learns correct quantiles when given encoded latents, but prior distribution doesn't match posterior for realistic generation.
 
 ### Model Output Format
 
@@ -485,8 +464,6 @@ For EX Loss models, also outputs quantiles for extra features:
 1. Apply conformal prediction for post-hoc calibration
 2. Retrain with loss reweighting (emphasize tail quantiles)
 3. Explore heteroscedastic quantile regression
-
-See `QUANTILE_REGRESSION_RESULTS.md` for detailed analysis and recommendations.
 
 ## Important Implementation Details
 
