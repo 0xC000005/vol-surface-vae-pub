@@ -565,6 +565,11 @@ class CVAEMemRand(BaseVAE):
         # Initialize quantile loss function (always used)
         self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
 
+        # Multi-horizon training configuration
+        self.horizon = config.get("horizon", 1)
+        if self.horizon < 1:
+            raise ValueError(f"horizon must be >= 1, got {self.horizon}")
+
     def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
         '''
             Input:
@@ -725,16 +730,24 @@ class CVAEMemRand(BaseVAE):
         """
         # Update surfaces: shift left (drop oldest), append new
         old_surfaces = context["surface"]  # (B, C, 5, 5)
+
+        # Ensure new_surface is on same device as old_surfaces
+        new_surface_device = new_surface.to(old_surfaces.device)
+
         new_surfaces = torch.cat([old_surfaces[:, 1:, :, :],
-                                  new_surface.unsqueeze(1)], dim=1)
+                                  new_surface_device.unsqueeze(1)], dim=1)
 
         updated = {"surface": new_surfaces}
 
         # Update ex_feats if present
         if "ex_feats" in context and new_ex_feat is not None:
             old_ex_feats = context["ex_feats"]  # (B, C, 3)
+
+            # Ensure new_ex_feat is on same device as old_ex_feats
+            new_ex_feat_device = new_ex_feat.to(old_ex_feats.device)
+
             new_ex_feats = torch.cat([old_ex_feats[:, 1:, :],
-                                      new_ex_feat.unsqueeze(1)], dim=1)
+                                      new_ex_feat_device.unsqueeze(1)], dim=1)
             updated["ex_feats"] = new_ex_feats
 
         return updated
@@ -796,13 +809,14 @@ class CVAEMemRand(BaseVAE):
         '''
             Input:
                 x should be a dictionary with 2 keys:
-                - surface: volatility surface of shape (B,T,H,W), 
+                - surface: volatility surface of shape (B,T,H,W),
                     surface[:,:context_len,:,:] are the context surfaces (previous days),
-                    surface[:,context_len:,:,:] is the surface to predict
+                    surface[:,context_len:,:,:] are the surfaces to predict (H timesteps)
                 - ex_feats: extra features of shape (B,T,n), not necessarily needed
             Returns:
-                a tuple of reconstruction, z_mean, z_log_var, z, 
+                a tuple of reconstruction, z_mean, z_log_var, z,
                 where z is sampled from distribution defined by z_mean and z_log_var
+                reconstruction shape: (B, H, num_quantiles, H, W) where H=self.horizon
         '''
         surface = x["surface"].to(self.device)
         if len(surface.shape) == 3:
@@ -810,7 +824,12 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
+
+        if C < 1:
+            raise ValueError(f"Insufficient sequence length: T={T}, horizon={self.horizon}, "
+                           f"resulting in C={C}. Need at least C >= 1.")
+
         ctx_surface = surface[:, :C, :, :] # c
         ctx_encoder_input = {"surface": ctx_surface}
 
@@ -844,9 +863,9 @@ class CVAEMemRand(BaseVAE):
         '''
             Input:
                 x should be a dictionary with 2 keys:
-                - surface: volatility surface of shape (B,T,H,W), 
+                - surface: volatility surface of shape (B,T,H,W),
                     surface[:,:context_len,:,:] are the context surfaces (previous days),
-                    surface[:,context_len:,:,:] is the surface to predict
+                    surface[:,context_len:,:,:] are the surfaces to predict (horizon timesteps)
                 - ex_feats: extra features of shape (B,T,n)
         '''
 
@@ -856,7 +875,7 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
         surface_real = surface[:,C:, :, :].to(self.device)
 
         if "ex_feats" in x:
@@ -872,8 +891,8 @@ class CVAEMemRand(BaseVAE):
             surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
         # Reconstruction loss using quantile regression
-        # surface_reconstruction: (B, 1, num_quantiles, H, W)
-        # surface_real: (B, 1, H, W)
+        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+        # surface_real: (B, horizon, H, W)
         re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
@@ -905,7 +924,7 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
         surface_real = surface[:, C:, :, :].to(self.device)
 
         if "ex_feats" in x:
@@ -913,15 +932,15 @@ class CVAEMemRand(BaseVAE):
             if len(ex_feats.shape) == 2:
                 ex_feats = ex_feats.unsqueeze(0)
             ex_feats_real = ex_feats[:, C:, :,].to(self.device)
-        
+
         if "ex_feats" in x:
             surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
         else:
             surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
         # Reconstruction loss using quantile regression
-        # surface_reconstruction: (B, 1, num_quantiles, H, W)
-        # surface_real: (B, 1, H, W)
+        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+        # surface_real: (B, horizon, H, W)
         re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:

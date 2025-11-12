@@ -160,3 +160,7 @@ test_spx/
 tables
 models_1d_backfilling/
 
+*.log
+
+test_horizon5/
+
