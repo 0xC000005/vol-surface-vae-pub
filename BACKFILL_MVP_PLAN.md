@@ -480,6 +480,111 @@ print("=" * 60)
 print(f"Model saved to: {output_dir}/{model_name}")
 ```
 
+### 3.3 Context Length Ablation Study (Optional but Recommended)
+
+**Objective**: If context_len=5 performs poorly, systematically try longer contexts.
+
+**Rationale**:
+- Context=5 is conservative (1 trading week) - may be too limited for crisis modeling
+- 2008 financial crisis had volatility regimes lasting weeks/months
+- Longer context can capture more market history but increases computation
+
+**When to run this**:
+- After Phase 4+5 evaluation if results are poor:
+  - 30-day RMSE > 0.055
+  - CI violations > 25%
+  - Doesn't beat GARCH baseline
+- Before Phase 4 if you want comprehensive comparison upfront
+
+**Context lengths to try**:
+1. **context_len=5** (baseline, already trained)
+2. **context_len=10** (~2 weeks)
+3. **context_len=20** (~1 month)
+4. **context_len=30** (~6 weeks)
+
+**How to run**:
+
+For each context length:
+
+1. Update `config/backfill_config.py`:
+```python
+context_len = 20  # Change this value
+```
+
+2. Retrain model:
+```bash
+python train_backfill_model.py
+# Saves to: models_backfill/backfill_3yr.pt (overwrites!)
+# Or rename model_name to preserve previous versions
+```
+
+3. Generate + evaluate:
+```bash
+python generate_backfill_sequences.py
+python evaluate_backfill.py
+```
+
+4. Compare results in table
+
+**Expected trade-offs**:
+
+| Context Length | Pros | Cons | When to Use |
+|----------------|------|------|-------------|
+| **5 days** | Fast training, less memory | Limited historical info | Quick MVP validation |
+| **10 days** | Balanced | Moderate improvement | Good default |
+| **20 days** | ~1 month history | 4× slower training | Recommended for production |
+| **30 days** | Maximum context | 6× slower, fewer samples | Best for crisis periods |
+
+**Computational impact**:
+- Training time: Linear with context length (context=20 is ~4× slower than context=5)
+- Memory usage: Increases with context length
+- Dataset size: Decreases (need longer sequences, fewer valid samples)
+
+**Script for batch comparison** (optional):
+
+Create `ablation_context_lengths.sh`:
+```bash
+#!/bin/bash
+# Run ablation study across all context lengths
+
+for ctx in 5 10 20 30; do
+    echo "====================================================="
+    echo "Training with context_len=$ctx"
+    echo "====================================================="
+
+    # Update config
+    sed -i "s/context_len = [0-9]\+/context_len = $ctx/" config/backfill_config.py
+
+    # Train
+    python train_backfill_model.py
+
+    # Rename model to preserve
+    mv models_backfill/backfill_3yr.pt models_backfill/backfill_3yr_ctx${ctx}.pt
+
+    # Generate
+    python generate_backfill_sequences.py
+
+    # Rename predictions
+    mv models_backfill/backfill_predictions_3yr.npz \
+       models_backfill/backfill_predictions_3yr_ctx${ctx}.npz
+
+    # Evaluate
+    python evaluate_backfill.py > results_ctx${ctx}.txt
+done
+
+echo "====================================================="
+echo "Ablation study complete! Check results_ctx*.txt"
+echo "====================================================="
+```
+
+**Expected results**:
+- **context=5**: Fast baseline (may underperform on crisis)
+- **context=10**: Small improvement (~5-10% RMSE reduction)
+- **context=20**: Best balance (likely sweet spot for crisis modeling)
+- **context=30**: Marginal gains over 20 (diminishing returns)
+
+**Recommendation**: Start with context=5 for MVP, then try context=20 if results warrant it.
+
 ---
 
 ## Phase 4: Generation Script (Week 4)

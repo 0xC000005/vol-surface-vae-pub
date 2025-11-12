@@ -99,6 +99,166 @@ def train(model: BaseVAE, train_dataloader: DataLoader, valid_dataloader: DataLo
     log_file.close()
     return train_losses, dev_losses
 
+def train_with_scheduled_sampling(
+    model: BaseVAE,
+    train_dataloader: DataLoader,
+    valid_dataloader: DataLoader,
+    lr=1e-5,
+    epochs=400,
+    model_dir="./",
+    file_name="backfill_model.pt",
+    teacher_forcing_epochs=200,
+    horizons=[1, 7, 14, 30]
+):
+    """
+    Two-phase training with scheduled sampling for backfilling.
+
+    Phase 1 (epochs 0 to teacher_forcing_epochs):
+        - Standard single-step teacher forcing using train_step()
+        - Model learns to predict 1 day ahead with ground truth context
+        - Builds strong short-term prediction capability
+
+    Phase 2 (epochs teacher_forcing_epochs+1 to epochs):
+        - Multi-horizon training using train_step_multihorizon()
+        - Model learns to predict multiple horizons [1, 7, 14, 30] simultaneously
+        - Improves long-term forecasting without forgetting short-term
+
+    This approach follows the BACKFILL_MVP_PLAN.md Phase 2.2 design:
+    - Gradual transition from teacher forcing to multi-horizon
+    - Prevents catastrophic forgetting of short-term predictions
+    - Improves stability compared to multi-horizon from scratch
+
+    Args:
+        model: CVAEMemRand instance (must have train_step_multihorizon method)
+        train_dataloader: Training data (must have T >= 5 + 30 = 35 for max horizon)
+        valid_dataloader: Validation data
+        lr: Learning rate (default 1e-5)
+        epochs: Total training epochs (default 400)
+        model_dir: Directory to save model checkpoints
+        file_name: Model filename (will add .pt extension)
+        teacher_forcing_epochs: When to switch to multi-horizon (default 200)
+        horizons: List of horizons for Phase 2 (default [1, 7, 14, 30])
+
+    Returns:
+        Tuple of (train_losses, dev_losses) from last epoch
+    """
+    model.train()
+    optimizer = opt.AdamW(model.parameters(), lr)
+    best_dev_loss = np.inf
+
+    # Setup logging
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    if "." in file_name:
+        file_prefix = file_name.split(".")[0]
+    else:
+        file_prefix = file_name
+    log_file = open(f"{model_dir}/{file_prefix}-{epochs}-log.txt", "w", encoding="utf-8")
+
+    print("=" * 80, file=log_file)
+    print("SCHEDULED SAMPLING TRAINING", file=log_file)
+    print("=" * 80, file=log_file)
+    print("Model config: ", file=log_file)
+    print(json.dumps(model.config, indent=True), file=log_file)
+    print(f"LR: {lr}", file=log_file)
+    print(f"Total Epochs: {epochs}", file=log_file)
+    print(f"Teacher Forcing Epochs: {teacher_forcing_epochs} (Phase 1)", file=log_file)
+    print(f"Multi-Horizon Epochs: {epochs - teacher_forcing_epochs} (Phase 2)", file=log_file)
+    print(f"Multi-Horizon Targets: {horizons}", file=log_file)
+    print("=" * 80, file=log_file)
+    print("", file=log_file)
+    log_file.flush()
+
+    start_time = time.time()
+
+    for epoch in range(epochs):
+        epoch_start_time = time.time()
+        model.train()
+        train_losses = defaultdict(float)
+        num_batches = 0
+
+        # Determine training mode for this epoch
+        if epoch < teacher_forcing_epochs:
+            # Phase 1: Teacher Forcing (single-step)
+            mode_str = f"Phase 1 - Teacher Forcing (epoch {epoch+1}/{teacher_forcing_epochs})"
+            print(f"\n{mode_str}")
+
+            for step, batch in enumerate(tqdm(train_dataloader, desc=f"train-{epoch}")):
+                try:
+                    batch.to(model.device)
+                except:
+                    pass
+
+                # Standard single-step training
+                losses = model.train_step(batch, optimizer)
+
+                for k, v in losses.items():
+                    train_losses[k] += v.item()
+                num_batches += 1
+
+        else:
+            # Phase 2: Multi-Horizon Training
+            mode_str = f"Phase 2 - Multi-Horizon {horizons} (epoch {epoch+1-teacher_forcing_epochs}/{epochs-teacher_forcing_epochs})"
+            print(f"\n{mode_str}")
+
+            for step, batch in enumerate(tqdm(train_dataloader, desc=f"train-{epoch}")):
+                try:
+                    batch.to(model.device)
+                except:
+                    pass
+
+                # Multi-horizon training
+                losses = model.train_step_multihorizon(batch, optimizer, horizons=horizons)
+
+                for k, v in losses.items():
+                    if isinstance(v, dict):
+                        # horizon_losses is a dict, log each separately
+                        for h, loss_val in v.items():
+                            train_losses[f"{k}_h{h}"] += loss_val
+                    else:
+                        train_losses[k] += v if isinstance(v, float) else v.item()
+                num_batches += 1
+
+        # Average training losses
+        for k, v in train_losses.items():
+            train_losses[k] = v / num_batches
+
+        # Validation (use single-step for consistency)
+        dev_losses = model_eval(model, valid_dataloader)
+
+        # Save best model based on validation loss
+        if dev_losses["loss"] < best_dev_loss:
+            best_dev_loss = dev_losses["loss"]
+            model.save_weights(optimizer, model_dir, file_prefix)
+            save_marker = "✓ BEST"
+        else:
+            save_marker = ""
+
+        # Format and print losses
+        formatted_train_loss = ", ".join([f'{k}: {v:.3f}' for k, v in train_losses.items()])
+        formatted_dev_loss = ", ".join([f'{k}: {v:.3f}' for k, v in dev_losses.items()])
+        epoch_time = time.time() - epoch_start_time
+
+        print(f"{mode_str}")
+        print(f"train loss :: {formatted_train_loss}")
+        print(f"dev loss :: {formatted_dev_loss}")
+        print(f"time :: {epoch_time:.1f}s {save_marker}")
+
+        print(f"epoch {epoch}: \ntrain loss :: {formatted_train_loss}, \ndev loss :: {formatted_dev_loss}, \ntime elapsed :: {epoch_time} {save_marker}", file=log_file)
+        log_file.flush()
+
+    total_time = time.time() - start_time
+    print(f"\n{'=' * 80}")
+    print(f"Training finished! Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
+    print(f"Best validation loss: {best_dev_loss:.6f}")
+    print(f"{'=' * 80}")
+
+    print(f"\ntraining finished, total time :: {total_time}", file=log_file)
+    print(f"best validation loss :: {best_dev_loss}", file=log_file)
+    log_file.close()
+
+    return train_losses, dev_losses
+
 def test(model: BaseVAE, valid_dataloader: DataLoader, test_dataloader: DataLoader, model_fn="./vanilla"):
     model.load_weights(f=model_fn)
     dev_losses = model_eval(model, valid_dataloader)

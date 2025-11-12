@@ -558,6 +558,56 @@ Both methods use the same context encoding (from `ctx_encoder`), but differ only
 ### Device Handling
 All models support both CPU and CUDA. Tensors are automatically moved to the configured device.
 
+## Autoregressive Backfilling (Crisis Period Generation)
+
+The codebase includes capability to generate 30-day autoregressive sequences for historical periods with limited data (e.g., 2008-2010 financial crisis). Implementation follows `BACKFILL_MVP_PLAN.md`.
+
+**Key Features:**
+- **Multi-horizon training**: Model trained on [1, 7, 14, 30] day horizons simultaneously
+- **Scheduled sampling**: 2-phase training (teacher forcing → multi-horizon)
+- **Limited data**: Trains on 1-3 years of recent data, generates for historical crisis
+- **Autoregressive generation**: 30-day sequences by feeding predictions back as context
+
+**Core Methods (in CVAEMemRand):**
+- `train_step_multihorizon()` - Train on multiple horizons with weighted loss
+- `generate_autoregressive_sequence()` - Generate multi-day sequences autoregressively
+
+**Configuration and Training:**
+```bash
+# Configure training parameters
+# Edit config/backfill_config.py:
+#   - train_period_years: 1, 2, or 3 years
+#   - context_len: 5, 10, 20, or 30 days
+#   - training_horizons: [1, 7, 14, 30]
+
+# Train model with scheduled sampling
+python train_backfill_model.py
+# Output: models_backfill/backfill_3yr.pt
+
+# Generate 30-day backfill sequences
+python generate_backfill_sequences.py  # (Phase 4 - to be implemented)
+# Output: models_backfill/backfill_predictions_3yr.npz
+```
+
+**Configuration (config/backfill_config.py):**
+- `train_period_years`: Years of training data (1, 2, or 3)
+- `train_end_idx`: 5000 (before test set)
+- `backfill_start_idx`: 2000 (2008 crisis start)
+- `backfill_end_idx`: 2765 (2010 end)
+- `context_len`: Initial context window (5 days default, can increase to 20-30)
+- `training_horizons`: [1, 7, 14, 30] days
+- `teacher_forcing_epochs`: 200 (Phase 1), then multi-horizon for remaining epochs
+
+**Context Length Ablation:**
+If context_len=5 performs poorly, try longer contexts (10, 20, 30) - see Phase 3.3 in `BACKFILL_MVP_PLAN.md`.
+
+**Validation Scripts:**
+```bash
+python test_multihorizon_loss.py       # Validate multi-horizon training
+python test_scheduled_sampling.py      # Validate 2-phase training
+python test_phase3_config.py           # Validate config + full pipeline
+```
+
 ## Common Development Patterns
 
 **Loading a Trained Model:**

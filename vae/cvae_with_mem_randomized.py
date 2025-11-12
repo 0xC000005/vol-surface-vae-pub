@@ -916,7 +916,133 @@ class CVAEMemRand(BaseVAE):
             "reconstruction_loss": reconstruction_error,
             "kl_loss": kl_loss,
         }
-    
+
+    def train_step_multihorizon(self, x, optimizer: torch.optim.Optimizer,
+                                horizons=[1, 7, 14, 30]):
+        '''
+        Train on multiple horizons simultaneously with weighted loss.
+
+        This method trains the model to predict multiple future horizons
+        [1, 7, 14, 30] days ahead in a single training step, using weighted
+        loss to balance short-term and long-term prediction quality.
+
+        Input:
+            x: Dictionary with keys:
+                - surface: (B, T, 5, 5) where T >= context_len + max(horizons)
+                - ex_feats: (B, T, n) optional extra features
+            optimizer: PyTorch optimizer
+            horizons: List of horizons to train on (default: [1, 7, 14, 30])
+
+        Returns:
+            Dictionary with loss components:
+                - loss: Weighted total loss across all horizons
+                - reconstruction_loss: Weighted reconstruction loss
+                - kl_loss: Weighted KL divergence loss
+                - horizon_losses: Dict mapping each horizon to its loss
+
+        Method:
+            For each horizon h in [1, 7, 14, 30]:
+                1. Temporarily set self.horizon = h
+                2. Forward pass (predicts h days ahead)
+                3. Compute loss with weight w[h]
+                4. Accumulate weighted loss
+            5. Single backward pass on accumulated loss
+            6. Optimizer step
+
+        Horizon weights (from BACKFILL_MVP_PLAN.md):
+            - horizon=1:  weight=1.0 (highest priority, most accurate)
+            - horizon=7:  weight=0.8
+            - horizon=14: weight=0.6
+            - horizon=30: weight=0.4 (lower priority, harder to predict)
+        '''
+        # Horizon weights - prioritize short-term predictions
+        weights = {1: 1.0, 7: 0.8, 14: 0.6, 30: 0.4}
+
+        # Validate input sequence length
+        surface = x["surface"]
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+        T = surface.shape[1]
+        max_horizon = max(horizons)
+        min_context = 1  # Minimum context length
+
+        if T < min_context + max_horizon:
+            raise ValueError(f"Insufficient sequence length: T={T}, max_horizon={max_horizon}, "
+                           f"need at least T >= {min_context + max_horizon}")
+
+        # Store original horizon to restore later
+        original_horizon = self.horizon
+
+        # Accumulate losses across horizons
+        total_loss = 0
+        total_re = 0
+        total_kl = 0
+        horizon_losses = {}
+
+        # Zero gradients once at start
+        optimizer.zero_grad()
+
+        for h in horizons:
+            # Temporarily set horizon for this forward pass
+            self.horizon = h
+
+            # Forward pass (uses self.horizon internally to determine context length)
+            if "ex_feats" in x:
+                surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            else:
+                surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+
+            # Compute ground truth for this horizon
+            C = T - h  # Context length for this horizon
+            surface_real = surface[:, C:, :, :].to(self.device)
+
+            # Reconstruction loss (quantile regression)
+            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+
+            if "ex_feats" in x:
+                ex_feats = x["ex_feats"]
+                if len(ex_feats.shape) == 2:
+                    ex_feats = ex_feats.unsqueeze(0)
+                ex_feats_real = ex_feats[:, C:, :].to(self.device)
+
+                if self.config["ex_loss_on_ret_only"]:
+                    ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
+                    ex_feats_real = ex_feats_real[:, :, :1]
+
+                re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
+                reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
+            else:
+                reconstruction_error = re_surface
+
+            # KL divergence loss
+            kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
+            kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
+
+            # Weighted loss for this horizon
+            horizon_loss = reconstruction_error + self.kl_weight * kl_loss
+            weight = weights.get(h, 1.0)  # Default to 1.0 if horizon not in weights dict
+            weighted_loss = weight * horizon_loss
+
+            # Accumulate
+            total_loss += weighted_loss
+            total_re += weight * reconstruction_error.item()
+            total_kl += weight * kl_loss.item()
+            horizon_losses[h] = horizon_loss.item()
+
+        # Restore original horizon
+        self.horizon = original_horizon
+
+        # Single backward pass with accumulated gradients
+        total_loss.backward()
+        optimizer.step()
+
+        return {
+            "loss": total_loss.item(),
+            "reconstruction_loss": total_re,
+            "kl_loss": total_kl,
+            "horizon_losses": horizon_losses,  # Per-horizon loss for logging
+        }
+
     def test_step(self, x):
         surface = x["surface"]
         if len(surface.shape) == 3:
