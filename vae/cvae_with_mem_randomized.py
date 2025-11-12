@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from typing import Dict, Union, Tuple, Optional
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
 
@@ -562,11 +562,8 @@ class CVAEMemRand(BaseVAE):
         else:
             self.ex_feats_loss_fn = nn.L1Loss()
 
-        # Initialize quantile loss function
-        if config.get("use_quantile_regression", True):
-            self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
-        else:
-            self.quantile_loss_fn = None
+        # Initialize quantile loss function (always used)
+        self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
 
     def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
         '''
@@ -613,7 +610,135 @@ class CVAEMemRand(BaseVAE):
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
             # decoded_surface: (B, T, num_quantiles, H, W)
             return decoded_surface[:, C:, :, :, :]
-    
+
+    def generate_autoregressive_sequence(
+        self,
+        initial_context: Dict[str, torch.Tensor],
+        horizon: int = 30,
+        z: Optional[torch.Tensor] = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Generate multi-step sequence by iteratively feeding predictions back as context.
+
+        This method supports all 3 model variants:
+        - no_ex: Only surface predictions
+        - ex_no_loss: Surface + ex_feats (passive conditioning)
+        - ex_loss: Surface + ex_feats (joint optimization)
+
+        Args:
+            initial_context: dict with keys:
+                - "surface": (B, C, 5, 5) or (C, 5, 5) - context surfaces
+                - "ex_feats": optional, (B, C, 3) or (C, 3) - extra features
+            horizon: int, number of days to generate (default 30)
+            z: optional pre-sampled latents for reproducibility
+
+        Returns:
+            If ex_feats in context:
+                tuple of (surfaces, ex_feats)
+                - surfaces: (B, horizon, 3, 5, 5) - 3 quantiles [p05, p50, p95]
+                - ex_feats: (B, horizon, 3) - 3 features [ret, skew, slope] (no quantiles)
+            Else:
+                surfaces: (B, horizon, 3, 5, 5)
+        """
+        # Validate input
+        if "surface" not in initial_context:
+            raise ValueError("initial_context must contain 'surface' key")
+
+        surface_shape = initial_context["surface"].shape
+        if len(surface_shape) not in [3, 4]:
+            raise ValueError(
+                f"surface must be (C, H, W) or (B, C, H, W), got shape {surface_shape}"
+            )
+
+        # Detect if we have ex_feats
+        has_ex_feats = "ex_feats" in initial_context
+
+        if has_ex_feats:
+            ex_feats_shape = initial_context["ex_feats"].shape
+            if len(ex_feats_shape) not in [2, 3]:
+                raise ValueError(
+                    f"ex_feats must be (C, D) or (B, C, D), got shape {ex_feats_shape}"
+                )
+
+        # Initialize storage
+        generated_surfaces = []
+        generated_ex_feats = [] if has_ex_feats else None
+
+        # Clone initial context to avoid modifying input
+        context = {k: v.clone() if torch.is_tensor(v) else v
+                   for k, v in initial_context.items()}
+
+        for step in range(horizon):
+            # Generate one-step prediction using existing method
+            result = self.get_surface_given_conditions(context, z=None)
+
+            # Handle return format (tuple for ex_feats, single tensor otherwise)
+            if has_ex_feats:
+                pred_surface, pred_ex_feat = result  # (B, 1, 3, 5, 5), (B, 1, 3)
+                generated_surfaces.append(pred_surface)
+                generated_ex_feats.append(pred_ex_feat)
+
+                # Extract median (p50) as point estimate for next context
+                # Surface dimension 2 is quantiles: [p05=0, p50=1, p95=2]
+                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
+                # Ex_feats have no quantile dimension, just take the timestep
+                new_ex_feat = pred_ex_feat[:, 0, :]        # (B, 3)
+            else:
+                pred_surface = result  # (B, 1, 3, 5, 5)
+                generated_surfaces.append(pred_surface)
+
+                # Extract median (p50) as point estimate
+                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
+                new_ex_feat = None
+
+            # Update context: drop oldest, append new
+            context = self._update_context(context, new_surface, new_ex_feat)
+
+        # Concatenate all generated timesteps
+        surfaces_out = torch.cat(generated_surfaces, dim=1)  # (B, horizon, 3, 5, 5)
+
+        if has_ex_feats:
+            ex_feats_out = torch.cat(generated_ex_feats, dim=1)  # (B, horizon, 3)
+            return surfaces_out, ex_feats_out
+        else:
+            return surfaces_out
+
+    def _update_context(
+        self,
+        context: Dict[str, torch.Tensor],
+        new_surface: torch.Tensor,
+        new_ex_feat: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Update context window: drop oldest timestep, append new prediction.
+
+        Implements sliding window: [t-C+1, ..., t] becomes [t-C+2, ..., t+1]
+        Updates both surface and ex_feats (if present) to maintain consistency.
+
+        Args:
+            context: dict with "surface" (B, C, 5, 5) and optional "ex_feats" (B, C, 3)
+            new_surface: (B, 5, 5) - surface to append
+            new_ex_feat: optional (B, 3) - ex_feats to append (must be provided if context has ex_feats)
+
+        Returns:
+            Updated context dict with same keys and shapes as input
+        """
+        # Update surfaces: shift left (drop oldest), append new
+        old_surfaces = context["surface"]  # (B, C, 5, 5)
+        new_surfaces = torch.cat([old_surfaces[:, 1:, :, :],
+                                  new_surface.unsqueeze(1)], dim=1)
+
+        updated = {"surface": new_surfaces}
+
+        # Update ex_feats if present
+        if "ex_feats" in context and new_ex_feat is not None:
+            old_ex_feats = context["ex_feats"]  # (B, C, 3)
+            new_ex_feats = torch.cat([old_ex_feats[:, 1:, :],
+                                      new_ex_feat.unsqueeze(1)], dim=1)
+            updated["ex_feats"] = new_ex_feats
+
+        return updated
+
     def check_input(self, config: dict):
         for req in ["feat_dim", "latent_dim"]:
             if req not in config:
@@ -662,12 +787,10 @@ class CVAEMemRand(BaseVAE):
         if "compress_context" not in config:
             config["compress_context"] = False
 
-        if "num_quantiles" not in config:
-            config["num_quantiles"] = 3
         if "quantiles" not in config:
             config["quantiles"] = [0.05, 0.5, 0.95]
-        if "use_quantile_regression" not in config:
-            config["use_quantile_regression"] = True
+        # Derive num_quantiles from quantiles list (ensures consistency)
+        config["num_quantiles"] = len(config["quantiles"])
     
     def forward(self, x: dict[str, torch.Tensor]):
         '''
@@ -744,18 +867,14 @@ class CVAEMemRand(BaseVAE):
 
         optimizer.zero_grad()
         if "ex_feats" in x:
-            surface_reconstruciton, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
         else:
-            surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss using quantile regression
+        # surface_reconstruction: (B, 1, num_quantiles, H, W)
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -796,18 +915,14 @@ class CVAEMemRand(BaseVAE):
             ex_feats_real = ex_feats[:, C:, :,].to(self.device)
         
         if "ex_feats" in x:
-            surface_reconstruciton, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
         else:
-            surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss: quantile loss for quantile regression, MSE otherwise
-        if self.config.get("use_quantile_regression", True) and self.quantile_loss_fn is not None:
-            # surface_reconstruciton: (B, 1, num_quantiles, H, W)
-            # surface_real: (B, 1, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruciton, surface_real)
-        else:
-            # Legacy MSE loss
-            re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss using quantile regression
+        # surface_reconstruction: (B, 1, num_quantiles, H, W)
+        # surface_real: (B, 1, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]

@@ -60,6 +60,12 @@ python evaluate_quantile_ci_calibration.py # Evaluate CI calibration
 python compare_reconstruction_losses.py    # Compare losses across models
 ```
 
+**Test Autoregressive Generation:**
+```bash
+python test_autoregressive_generation.py   # Test multi-step generation (all 3 variants)
+```
+Tests: shapes, quantile ordering, different horizons, visual checks, ex_feats coherence.
+
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
 - See `data_preproc/` directory for preprocessing utilities
@@ -550,6 +556,41 @@ generated_surfaces = model.get_surface_given_conditions(ctx_data)
 # generated_surfaces[:, :, 1, :, :] - p50 (median)
 # generated_surfaces[:, :, 2, :, :] - p95 (upper bound)
 ```
+
+**Autoregressive Multi-Step Generation:**
+```python
+# Generate 30-day sequence by feeding predictions back as context
+initial_context = {
+    "surface": torch.tensor(...),  # (B, C, 5, 5)
+    "ex_feats": torch.tensor(...)  # (B, C, 3) - optional
+}
+
+with torch.no_grad():
+    result = model.generate_autoregressive_sequence(
+        initial_context=initial_context,
+        horizon=30
+    )
+
+# For surface-only models (no_ex):
+# result = (B, 30, 3, 5, 5) - 3 quantiles × 30 days
+
+# For ex_feats models (ex_no_loss, ex_loss):
+# result = (surfaces, ex_feats) tuple
+# surfaces: (B, 30, 3, 5, 5)
+# ex_feats: (B, 30, 3)
+
+# Extract quantiles across all 30 days
+p05 = result[:, :, 0, :, :]  # (B, 30, 5, 5) - lower bound
+p50 = result[:, :, 1, :, :]  # (B, 30, 5, 5) - median forecast
+p95 = result[:, :, 2, :, :]  # (B, 30, 5, 5) - upper bound
+```
+
+**Key details:**
+- Uses p50 (median) as point estimate for context updates
+- Sliding window: drops oldest, appends new prediction each step
+- Supports all 3 variants without modification
+- **Not trained for multi-step** (uses teacher forcing weights)
+- See `BACKFILL_MVP_PLAN.md` for multi-horizon training approach
 
 **Data Preprocessing:**
 Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed using notebooks in the project root. The preprocessing pipeline generates 5×5 interpolated volatility surface grids from option prices.
