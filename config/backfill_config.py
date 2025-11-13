@@ -14,7 +14,7 @@ class BackfillConfig:
     # Training Data Parameters (CONFIGURABLE)
     # ========================================================================
 
-    train_period_years = 3  # Options: 1, 2, or 3 years
+    train_period_years = 16  # Use 4000 days (~16 years) of training data
     train_end_idx = 5000    # Use recent data (before test set starts at 5000)
 
     # Auto-compute start index (assuming ~250 trading days per year)
@@ -32,7 +32,7 @@ class BackfillConfig:
     # Model Hyperparameters (Reuse Existing Quantile Architecture)
     # ========================================================================
 
-    context_len = 5       # Initial context window (can increase to 30 later)
+    context_len = 20      # Longer context window for better regime understanding
     latent_dim = 5        # Latent space dimensionality
     mem_hidden = 100      # LSTM hidden size
     mem_layers = 2        # LSTM layers
@@ -46,6 +46,7 @@ class BackfillConfig:
     use_quantile_regression = True
     num_quantiles = 3
     quantiles = [0.05, 0.5, 0.95]
+    quantile_loss_weights = [5.0, 1.0, 5.0]  # 5× penalty on tail quantiles
 
     # ========================================================================
     # Training Parameters
@@ -117,4 +118,5 @@ class BackfillConfig:
         print(f"  Memory hidden: {cls.mem_hidden}")
         print(f"  Quantile regression: {cls.use_quantile_regression}")
         print(f"  Quantiles: {cls.quantiles}")
+        print(f"  Quantile loss weights: {cls.quantile_loss_weights}")
         print("=" * 80)

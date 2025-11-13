@@ -17,9 +17,12 @@ class QuantileLoss(nn.Module):
     - τ=0.50: reduces to MAE (mean absolute error)
     - τ=0.95: penalizes over-prediction more (wants most values below)
     """
-    def __init__(self, quantiles=[0.05, 0.5, 0.95]):
+    def __init__(self, quantiles=[0.05, 0.5, 0.95], weights=None):
         super().__init__()
-        self.register_buffer('quantiles', torch.tensor(quantiles))
+        self.register_buffer('quantiles', torch.tensor(quantiles, dtype=torch.float64))
+        if weights is None:
+            weights = [1.0] * len(quantiles)
+        self.register_buffer('weights', torch.tensor(weights, dtype=torch.float64))
 
     def forward(self, preds, target):
         """
@@ -37,7 +40,8 @@ class QuantileLoss(nn.Module):
             loss_q = torch.max((q-1)*error, q*error)
             losses.append(torch.mean(loss_q))
 
-        return torch.mean(torch.stack(losses))
+        losses_tensor = torch.stack(losses)
+        return torch.sum(losses_tensor * self.weights) / torch.sum(self.weights)
 
 
 class CVAEMemRandEncoder(BaseEncoder):
@@ -555,7 +559,6 @@ class CVAEMemRand(BaseVAE):
         self.encoder = CVAEMemRandEncoder(config)
         self.ctx_encoder = CVAECtxMemRandEncoder(config)
         self.decoder = CVAEMemRandDecoder(config)
-        self.to(self.device)
 
         if config["ex_feats_loss_type"] == "l2":
             self.ex_feats_loss_fn = nn.MSELoss()
@@ -563,7 +566,13 @@ class CVAEMemRand(BaseVAE):
             self.ex_feats_loss_fn = nn.L1Loss()
 
         # Initialize quantile loss function (always used)
-        self.quantile_loss_fn = QuantileLoss(quantiles=config["quantiles"])
+        self.quantile_loss_fn = QuantileLoss(
+            quantiles=config["quantiles"],
+            weights=config.get("quantile_loss_weights")
+        )
+
+        # Move all modules to device
+        self.to(self.device)
 
         # Multi-horizon training configuration
         self.horizon = config.get("horizon", 1)

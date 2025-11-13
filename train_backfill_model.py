@@ -169,6 +169,7 @@ model_config = {
     "use_quantile_regression": BackfillConfig.use_quantile_regression,
     "num_quantiles": BackfillConfig.num_quantiles,
     "quantiles": BackfillConfig.quantiles,
+    "quantile_loss_weights": BackfillConfig.quantile_loss_weights,
 
     # Extra features configuration
     "ex_loss_on_ret_only": True,  # Only optimize return, not skew/slope
