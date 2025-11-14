@@ -608,6 +608,45 @@ python test_scheduled_sampling.py      # Validate 2-phase training
 python test_phase3_config.py           # Validate config + full pipeline
 ```
 
+### Evaluation & Analysis (backfill_16yr)
+
+**Out-of-Sample Evaluation:**
+```bash
+# Generate test set predictions (2019-2023)
+python test_oos_reconstruction_16yr.py
+# Output: models_backfill/oos_reconstruction_16yr.npz
+
+# In-sample predictions already in: models_backfill/insample_reconstruction_16yr.npz
+```
+
+**VAE Health Analysis:**
+```bash
+# In-sample (training set 2004-2019)
+python analyze_vae_health_16yr.py          # Extract latent metrics
+python visualize_vae_health_16yr.py        # Generate 11 figures
+# Output: models_backfill/vae_health_16yr.npz, models_backfill/vae_health_figs/
+
+# Out-of-sample (test set 2019-2023)
+python analyze_vae_health_oos_16yr.py      # Extract latent metrics
+python visualize_vae_health_oos_16yr.py    # Generate 9 figures
+# Output: models_backfill/vae_health_oos_16yr.npz, models_backfill/vae_health_figs_oos/
+```
+
+**Interactive Visualizations:**
+```bash
+# Teacher forcing dashboards (12-panel: 3 grid points × 4 horizons)
+python analysis_code/visualize_backfill_16yr_plotly.py      # In-sample
+python analysis_code/visualize_backfill_oos_16yr_plotly.py  # Out-of-sample
+# Output: tables/backfill_plots/*.html (open in browser)
+```
+
+**Key Findings (backfill_16yr):**
+- In-sample: 18.1% CI violations (moderate)
+- Out-of-sample: 28.0% CI violations (+55% degradation)
+- VAE architecture healthy (effective dim ~3/5, consistent collapse pattern)
+- RMSE increases 57-92% across horizons OOS
+- See: `tables/backfill_plots/insample_vs_oos_comparison_16yr.md`
+
 ## Common Development Patterns
 
 **Loading a Trained Model:**
