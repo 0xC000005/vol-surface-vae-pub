@@ -170,3 +170,12 @@ test_phase3_output/
 
 test_scheduled_sampling_output/
 
+# Econometric baseline comparison (confidential implementation)
+analysis_code/cointegration_analysis.py
+analysis_code/visualize_econometric_vs_vae.py
+analysis_code/visualize_preservation_and_oos.py
+econometric_backfill_2008_2010.py
+econometric_backfill_oos.py
+test_cointegration_preservation.py
+compare_econometric_vs_vae_backfill.py
+compare_econometric_vs_vae_oos.py

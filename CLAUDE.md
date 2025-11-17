@@ -647,6 +647,10 @@ python analysis_code/visualize_backfill_oos_16yr_plotly.py  # Out-of-sample
 - RMSE increases 57-92% across horizons OOS
 - See: `tables/backfill_plots/insample_vs_oos_comparison_16yr.md`
 
+## Baseline Comparisons
+
+Additional baseline comparison studies available. See `tables/ANALYSIS_SUMMARY.md` for details.
+
 ## Common Development Patterns
 
 **Loading a Trained Model:**
