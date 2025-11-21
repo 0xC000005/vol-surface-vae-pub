@@ -23,7 +23,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 START_DAY = 2008  # 2008-01-02 (financial crisis period)
 NUM_DAYS = 757    # Through 2010-12-31
 CONTEXT_LEN = 5   # Context length for generation
-OUTPUT_DIR = "tables/2024_1213/plots"
+OUTPUT_DIR = "results/2024_1213/plots"
 
 # Model paths
 MODEL_PATHS = {

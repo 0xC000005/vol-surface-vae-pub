@@ -157,18 +157,26 @@ model/
 models/
 .vscode/
 test_spx/
-tables
 models_1d_backfilling/
 
 *.log
 
-test_horizon5/
+# Generated results and analysis outputs (renamed from tables/)
+results/
+tables/  # Keep for backwards compatibility
 
-models_backfill/
+# Archived test outputs and experiments
+archived_experiments/test_*/
+archived_experiments/**/test_*/
+test_horizon5/  # Legacy location, now in archived_experiments/
+test_phase3_output/  # Legacy location, now in archived_experiments/
+test_scheduled_sampling_output/  # Legacy location, now in archived_experiments/
+models_backfill/  # Legacy location, now models/backfill/ (covered by models/ above)
 
-test_phase3_output/
-
-test_scheduled_sampling_output/
+# OS-specific files
+.DS_Store
+*.DS_Store
+Thumbs.db
 
 # Econometric baseline model (CONFIDENTIAL - all scripts and data)
 # Generation scripts

@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Configuration
 CRISIS_PERIOD = 'crisis'
-OUTPUT_DIR = Path("tables/multihorizon_cointegration_viz")
+OUTPUT_DIR = Path("results/multihorizon_cointegration_viz")
 OUTPUT_FILE = OUTPUT_DIR / "6_crisis_grid_comparison.png"
 
 # Moneyness and maturity labels
@@ -35,9 +35,9 @@ print()
 
 print("1. Loading co-integration test results...")
 
-gt_results = np.load("tables/cointegration_preservation/ground_truth_results.npz", allow_pickle=True)
-vae_results = np.load("tables/cointegration_preservation/vae_results.npz", allow_pickle=True)
-econ_results = np.load("tables/cointegration_preservation/econometric_results.npz", allow_pickle=True)
+gt_results = np.load("results/cointegration_preservation/ground_truth_results.npz", allow_pickle=True)
+vae_results = np.load("results/cointegration_preservation/vae_results.npz", allow_pickle=True)
+econ_results = np.load("results/cointegration_preservation/econometric_results.npz", allow_pickle=True)
 
 # Extract crisis period grids
 gt_crisis = gt_results[CRISIS_PERIOD]

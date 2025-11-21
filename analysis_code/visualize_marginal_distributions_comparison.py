@@ -8,7 +8,7 @@ Compares Oracle, VAE Prior, and Econometric predictions across:
 For each grid point (5x5 surface), plots overlaid histograms showing
 the distribution of predicted values across all test days.
 
-Output: 8 figures (4 horizons × 2 periods) saved to tables/marginal_distribution_plots/
+Output: 8 figures (4 horizons × 2 periods) saved to results/marginal_distribution_plots/
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,7 +33,7 @@ colors = {
 }
 
 # Output directory
-output_dir = Path("tables/marginal_distribution_plots")
+output_dir = Path("results/marginal_distribution_plots")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
@@ -44,13 +44,13 @@ def load_predictions(period, horizon):
     """Load predictions from all three methods for given period and horizon."""
 
     if period == 'insample':
-        oracle_file = "models_backfill/insample_reconstruction_16yr.npz"
-        vae_file = "models_backfill/vae_prior_insample_16yr.npz"
-        econ_file = "tables/econometric_backfill/econometric_backfill_insample.npz"
+        oracle_file = "models/backfill/insample_reconstruction_16yr.npz"
+        vae_file = "models/backfill/vae_prior_insample_16yr.npz"
+        econ_file = "results/econometric_backfill/econometric_backfill_insample.npz"
     else:  # oos
-        oracle_file = "models_backfill/oos_reconstruction_16yr.npz"
-        vae_file = "models_backfill/vae_prior_oos_16yr.npz"
-        econ_file = "tables/econometric_backfill/econometric_backfill_oos.npz"
+        oracle_file = "models/backfill/oos_reconstruction_16yr.npz"
+        vae_file = "models/backfill/vae_prior_oos_16yr.npz"
+        econ_file = "results/econometric_backfill/econometric_backfill_oos.npz"
 
     # Load data
     oracle_data = np.load(oracle_file)

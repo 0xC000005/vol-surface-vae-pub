@@ -40,7 +40,7 @@ CRISIS_START = 2000
 CRISIS_END = 2765
 
 # Output directory
-OUTPUT_DIR = Path("tables/backfill_plots")
+OUTPUT_DIR = Path("results/backfill_plots")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 print(f"Output directory: {OUTPUT_DIR}")
@@ -53,7 +53,7 @@ print()
 print("Loading data...")
 
 # Load reconstructions
-recon_file = "models_backfill/insample_reconstruction_16yr.npz"
+recon_file = "models/backfill/insample_reconstruction_16yr.npz"
 recon_data = np.load(recon_file)
 
 # Load ground truth

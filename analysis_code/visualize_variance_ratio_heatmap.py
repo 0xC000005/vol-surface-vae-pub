@@ -16,7 +16,7 @@ from pathlib import Path
 moneyness_labels = ['0.70', '0.85', '1.00', '1.15', '1.30']
 maturity_labels = ['1M', '3M', '6M', '1Y', '2Y']
 
-output_dir = Path("tables/variance_ratio_analysis")
+output_dir = Path("results/variance_ratio_analysis")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
@@ -27,13 +27,13 @@ def compute_variance_ratios(period, horizon):
     """Compute variance ratios for all grid points."""
 
     if period == 'insample':
-        oracle_file = "models_backfill/insample_reconstruction_16yr.npz"
-        vae_file = "models_backfill/vae_prior_insample_16yr.npz"
-        econ_file = "tables/econometric_backfill/econometric_backfill_insample.npz"
+        oracle_file = "models/backfill/insample_reconstruction_16yr.npz"
+        vae_file = "models/backfill/vae_prior_insample_16yr.npz"
+        econ_file = "results/econometric_backfill/econometric_backfill_insample.npz"
     else:  # oos
-        oracle_file = "models_backfill/oos_reconstruction_16yr.npz"
-        vae_file = "models_backfill/vae_prior_oos_16yr.npz"
-        econ_file = "tables/econometric_backfill/econometric_backfill_oos.npz"
+        oracle_file = "models/backfill/oos_reconstruction_16yr.npz"
+        vae_file = "models/backfill/vae_prior_oos_16yr.npz"
+        econ_file = "results/econometric_backfill/econometric_backfill_oos.npz"
 
     # Load data
     oracle_data = np.load(oracle_file)

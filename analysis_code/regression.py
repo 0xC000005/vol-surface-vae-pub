@@ -94,7 +94,7 @@ def latex_format_grid_points(df: pd.DataFrame):
 
 
 def regression_surface_grids_mle(simulated_surfaces, spx_df: pd.DataFrame, ctx_len=3, days_to_generate = 5819,
-                             base_folder="tables/iv_all", model_type="loss"):
+                             base_folder="results/iv_all", model_type="loss"):
     os.makedirs(f"{base_folder}", exist_ok=True)
     df_cols = ["K/S=0.7", "K/S=0.85", "K/S=1", "K/S=1.15", "K/S=1.3"]
     df_rows = ["1 month", "3 month", "6 month", "1 year", "2 year"]
@@ -148,7 +148,7 @@ def regression_surface_grids_mle(simulated_surfaces, spx_df: pd.DataFrame, ctx_l
         f.write(latex_format_grid_points(val_df_r2))
 
 def regression_surface_grids_std(simulated_surfaces, spx_df: pd.DataFrame, ctx_len=3, days_to_generate = 5819,
-                             base_folder="tables/iv_all", model_type="loss"):
+                             base_folder="results/iv_all", model_type="loss"):
     os.makedirs(f"{base_folder}", exist_ok=True)
     df_cols = ["K/S=0.7", "K/S=0.85", "K/S=1", "K/S=1.15", "K/S=1.3"]
     df_rows = ["1 month", "3 month", "6 month", "1 year", "2 year"]
@@ -203,7 +203,7 @@ def regression_surface_grids_std(simulated_surfaces, spx_df: pd.DataFrame, ctx_l
 
 def plot_surface_grids(simulated_surfaces, spx_df: pd.DataFrame, 
                        ctx_len=3, days_to_generate = 5819,
-                       base_folder="tables/iv_all", model_type="loss"):
+                       base_folder="results/iv_all", model_type="loss"):
     os.makedirs(f"{base_folder}/plots", exist_ok=True)
     fig, ax = plt.subplots(5, 5, figsize=(30, 30))
     # fig_std, ax_std = plt.subplots(5, 5, figsize=(30, 30))
@@ -235,7 +235,7 @@ def plot_surface_grids(simulated_surfaces, spx_df: pd.DataFrame,
                 
 def regression_return(simulated_returns_mle, simulated_returns, spx_df: pd.DataFrame, 
                        ctx_len=3, days_to_generate = 5819, 
-                      base_folder="tables/iv_all"):
+                      base_folder="results/iv_all"):
     os.makedirs(f"{base_folder}", exist_ok=True)
     stock_price = pd.read_csv("data/GSPC.csv").rename(columns={"Date": "date"})
     stock_price["date"] = pd.to_datetime(stock_price["date"])
@@ -269,7 +269,7 @@ def regression_return(simulated_returns_mle, simulated_returns, spx_df: pd.DataF
 
 def benchmark_with_rmse(simulated_surfaces, spx_df: pd.DataFrame, 
                        ctx_len=3, days_to_generate = 5819,
-                             base_folder="tables/iv_all", model_type="loss"):
+                             base_folder="results/iv_all", model_type="loss"):
     os.makedirs(base_folder, exist_ok=True)
     df_cols = ["K/S=0.7", "K/S=0.85", "K/S=1", "K/S=1.15", "K/S=1.3"]
     df_rows = ["1 month", "3 month", "6 month", "1 year", "2 year"]

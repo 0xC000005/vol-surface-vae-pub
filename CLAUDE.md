@@ -10,6 +10,53 @@ This codebase implements a Variational Autoencoder (VAE) approach for conditiona
 
 The system uses a Conditional VAE (CVAE) combined with LSTM to generate one-day-ahead volatility surface forecasts based on variable context lengths. The models use **teacher forcing** during inference - conditioning on real historical data rather than previous predictions - to produce independent forecasts for evaluation.
 
+## Repository Structure
+
+The codebase is organized into clear directories separating core functionality from experiments:
+
+```
+vol-surface-vae-pub/
+├── vae/                    # Core VAE model implementations
+├── analysis_code/          # Reusable analysis modules
+├── config/                 # Configuration files (backfill configs)
+├── data/                   # Input data files
+├── experiments/            # Experiment-specific scripts (organized by research question)
+│   ├── backfill/          # Multi-horizon backfilling experiments
+│   │   ├── context20/     # Production model (16-year training, 18 scripts)
+│   │   ├── context60/     # Context length ablation study (3 scripts)
+│   │   └── horizon5/      # Multi-horizon validation (4 scripts)
+│   ├── econometric_baseline/  # Co-integration baseline (9 scripts)
+│   ├── oracle_vs_prior/   # VAE prior mismatch analysis (4 scripts)
+│   ├── cointegration/     # Co-integration preservation tests (2 scripts)
+│   ├── vol_smile/         # Volatility smile preservation (3 scripts)
+│   └── diagnostics/       # Model diagnostics (1 script)
+├── models/                 # Trained model checkpoints
+│   ├── backfill/          # Backfill model variants
+│   │   ├── context20_production/  # Main 16yr model
+│   │   ├── context60_experiment/  # Context ablation checkpoints
+│   │   └── archived/      # Old experiment models
+│   └── 1d_backfilling/    # 1D backfilling experiments
+├── results/                # All generated results and analyses (not in git)
+│   ├── presentations/     # Main reports and documentation
+│   ├── backfill_16yr/     # Context20 model results
+│   ├── econometric_baseline/  # Baseline comparison results
+│   └── ...                # Other analysis results
+├── archived_experiments/   # Old test outputs and validation scripts
+├── eval_scripts/          # Evaluation utilities
+├── data_preproc/          # Data preprocessing code
+├── test_code/             # Unit tests
+├── test_spx/              # Test models directory (not in git, 31GB)
+└── [core scripts]         # 10 core scripts in root
+```
+
+**Key Principles:**
+- **Core scripts** (training, generation, analysis) stay in root
+- **Experiment-specific scripts** go in `experiments/` subdirectories
+- **Config files** stay in root `config/` directory for easy importing
+- **Results** go in `results/` with clear organization (not committed to git)
+- **Models** go in `models/` organized by experiment type (not committed to git)
+- **Run all scripts from repository root:** `python experiments/backfill/context20/script.py`
+
 ## Development Environment
 
 ### Package Management
@@ -66,14 +113,23 @@ python test_autoregressive_generation.py   # Test multi-step generation (all 3 v
 ```
 Tests: shapes, quantile ordering, different horizons, visual checks, ex_feats coherence.
 
-**Multi-Horizon Training (Experimental):**
+**Backfill Experiments (experiments/backfill/):**
 ```bash
-python train_horizon5_test.py              # Train horizon=5 model (validation)
-python compare_horizon5_to_baseline.py     # Compare horizon=5 vs baseline
-python visualize_horizon5_success.py       # 9-panel comparison visualization
-python visualize_improvement_heatmap.py    # Grid-wise improvement analysis
+# Context20 (production model - 16-year training)
+python experiments/backfill/context20/train_backfill_model.py
+python experiments/backfill/context20/test_insample_reconstruction_16yr.py
+python experiments/backfill/context20/test_oos_reconstruction_16yr.py
+python experiments/backfill/context20/evaluate_insample_ci_16yr.py
+
+# Context60 (context length ablation)
+python experiments/backfill/context60/train_backfill_context60.py
+
+# Horizon5 validation
+python experiments/backfill/horizon5/train_horizon5_test.py
+python experiments/backfill/horizon5/compare_horizon5_to_baseline.py
 ```
-Validates multi-horizon training: horizon=5 shows 43-54% RMSE improvement and 80% better CI calibration vs autoregressive baseline.
+
+See `experiments/README.md` and `experiments/backfill/*/README.md` for details on each experiment.
 
 **Data Preprocessing:**
 - Data preprocessing requires Jupyter notebooks (not included in main codebase)
@@ -577,16 +633,16 @@ The codebase includes capability to generate 30-day autoregressive sequences for
 # Configure training parameters
 # Edit config/backfill_config.py:
 #   - train_period_years: 1, 2, or 3 years
-#   - context_len: 5, 10, 20, or 30 days
+#   - context_len: 5, 10, 20, or 30 days (20 for production)
 #   - training_horizons: [1, 7, 14, 30]
 
-# Train model with scheduled sampling
-python train_backfill_model.py
-# Output: models_backfill/backfill_3yr.pt
+# Train model with scheduled sampling (run from repository root)
+python experiments/backfill/context20/train_backfill_model.py
+# Output: models/backfill/context20_production/backfill_16yr.pt
 
 # Generate 30-day backfill sequences
 python generate_backfill_sequences.py  # (Phase 4 - to be implemented)
-# Output: models_backfill/backfill_predictions_3yr.npz
+# Output: results/backfill_16yr/predictions/backfill_predictions_16yr.npz
 ```
 
 **Configuration (config/backfill_config.py):**
@@ -613,23 +669,23 @@ python test_phase3_config.py           # Validate config + full pipeline
 **Out-of-Sample Evaluation:**
 ```bash
 # Generate test set predictions (2019-2023)
-python test_oos_reconstruction_16yr.py
-# Output: models_backfill/oos_reconstruction_16yr.npz
+python experiments/backfill/context20/test_oos_reconstruction_16yr.py
+# Output: results/backfill_16yr/predictions/oos_reconstruction_16yr.npz
 
-# In-sample predictions already in: models_backfill/insample_reconstruction_16yr.npz
+# In-sample predictions already in: results/backfill_16yr/predictions/insample_reconstruction_16yr.npz
 ```
 
 **VAE Health Analysis:**
 ```bash
 # In-sample (training set 2004-2019)
-python analyze_vae_health_16yr.py          # Extract latent metrics
-python visualize_vae_health_16yr.py        # Generate 11 figures
-# Output: models_backfill/vae_health_16yr.npz, models_backfill/vae_health_figs/
+python experiments/backfill/context20/analyze_vae_health_16yr.py          # Extract latent metrics
+python experiments/backfill/context20/visualize_vae_health_16yr.py        # Generate 11 figures
+# Output: results/backfill_16yr/vae_health/
 
 # Out-of-sample (test set 2019-2023)
-python analyze_vae_health_oos_16yr.py      # Extract latent metrics
-python visualize_vae_health_oos_16yr.py    # Generate 9 figures
-# Output: models_backfill/vae_health_oos_16yr.npz, models_backfill/vae_health_figs_oos/
+python experiments/backfill/context20/analyze_vae_health_oos_16yr.py      # Extract latent metrics
+python experiments/backfill/context20/visualize_vae_health_oos_16yr.py    # Generate 9 figures
+# Output: results/backfill_16yr/vae_health/
 ```
 
 **Interactive Visualizations:**
@@ -637,19 +693,114 @@ python visualize_vae_health_oos_16yr.py    # Generate 9 figures
 # Teacher forcing dashboards (12-panel: 3 grid points × 4 horizons)
 python analysis_code/visualize_backfill_16yr_plotly.py      # In-sample
 python analysis_code/visualize_backfill_oos_16yr_plotly.py  # Out-of-sample
-# Output: tables/backfill_plots/*.html (open in browser)
+# Output: results/backfill_16yr/visualizations/plotly_dashboards/*.html (open in browser)
 ```
 
-**Key Findings (backfill_16yr):**
+**Key Findings (backfill_16yr / context20):**
 - In-sample: 18.1% CI violations (moderate)
 - Out-of-sample: 28.0% CI violations (+55% degradation)
 - VAE architecture healthy (effective dim ~3/5, consistent collapse pattern)
 - RMSE increases 57-92% across horizons OOS
-- See: `tables/backfill_plots/insample_vs_oos_comparison_16yr.md`
+- See: `results/backfill_16yr/visualizations/insample_vs_oos_comparison_16yr.md` and `experiments/backfill/context20/README.md`
+
+## Econometric Baseline (Co-Integration Model)
+
+An econometric baseline using co-integration and EWMA realized volatility is implemented for comparison. This follows the methodology from the SSRN23 paper (Section 1.3).
+
+**Model Components:**
+- **EWMA realized volatility**: λ=0.94, 20-day warmup
+- **Co-integration regression**: IV(t) = β + α₁·EWMA_RV(t) + ε(t)
+- **Weighted least squares**: Variance function σ²(t) = exp(γ₀ + γ₁·EWMA_RV)
+- **Bootstrap sampling**: AR(1) backward recursion with correlated innovations
+
+**Key Scripts:**
+```bash
+# Generate in-sample predictions (2004-2019)
+python experiments/econometric_baseline/econometric_backfill_insample.py
+# Output: results/econometric_baseline/predictions/insample_reconstruction_H{1,7,14,30}.npz
+
+# Generate OOS predictions (2019-2023)
+python experiments/econometric_baseline/econometric_backfill_oos.py
+# Output: results/econometric_baseline/predictions/oos_reconstruction_H{1,7,14,30}.npz
+
+# Generate crisis period predictions (2008-2010)
+python experiments/econometric_baseline/econometric_backfill_2008_2010.py
+# Output: results/econometric_baseline/predictions/crisis_reconstruction_H{1,7,14,30}.npz
+```
+
+**Comparison Analysis:**
+```bash
+# Compare econometric vs VAE (OOS period)
+python experiments/econometric_baseline/compare_econometric_vs_vae_oos.py
+# Output: results/econometric_baseline/comparisons/vs_vae_oos/
+
+# Compare all methods on crisis period
+python experiments/econometric_baseline/compare_econometric_vs_vae_backfill.py
+# Output: results/econometric_baseline/comparisons/vs_vae_2008_2010/
+```
+
+**Key Findings:**
+- Crisis (2008-2010): VAE wins 87% comparisons, 38% lower RMSE
+- OOS (2019-2023): VAE slightly better on extremes, econometric better on ATM
+- Econometric shows 65-68% CI violations (poorly calibrated) vs VAE 18-28%
+- See: `tables/ANALYSIS_SUMMARY.md` for detailed comparison
+
+## Visualization Tools
+
+**Interactive Streamlit App:**
+```bash
+streamlit run streamlit_vol_surface_viewer.py
+```
+Provides web-based 3D visualization comparing Oracle, VAE Prior, and Econometric predictions vs ground truth. Features:
+- Rotatable 3D surface plots overlaid for structural comparison
+- Period selection: In-Sample, Crisis (2008-2010), OOS
+- Date slider with actual calendar dates
+- Grid point selection (5×5 moneyness × maturity)
+- Quantile display (p05, p50, p95)
+
+**Analysis Output Structure:**
+- `results/presentations/ANALYSIS_SUMMARY.md` - Comprehensive econometric vs VAE comparison
+- `results/presentations/MILESTONE_PRESENTATION.md` - Main presentation with all results
+- `results/presentations/VAE_PRIOR_ANALYSIS_SUMMARY.md` - VAE prior performance analysis
+- `results/presentations/IMAGE_INTERPRETATION_GUIDE.md` - Guide for interpreting visualizations
+- `results/backfill_16yr/visualizations/` - HTML interactive plots (Plotly)
+- `results/cointegration/` - Co-integration preservation analysis
+- `results/distribution_analysis/marginal_distributions/` - Distribution comparison plots
+- `results/distribution_analysis/variance_ratio/` - Variance tracking heatmaps
+
+See `results/README.md` for complete structure.
+
+## Additional Evaluation Scripts
+
+**Core utility in root:**
+```bash
+python compute_grid_ci_stats.py              # CI violations per grid point
+```
+
+**Experiment-specific scripts (see experiments/ subdirectories):**
+- Context20 evaluation: `experiments/backfill/context20/evaluate_*.py`
+- Oracle vs Prior: `experiments/oracle_vs_prior/evaluate_*.py`
+- Econometric grid stats: `experiments/econometric_baseline/compute_*.py`
+- Co-integration tests: `experiments/cointegration/test_*.py`
+- Volatility smile: `experiments/vol_smile/compare_*.py`
+
+**eval_scripts/ directory:**
+- `sabr_backward_model.py` - SABR model implementation for comparison
+- `eval_single_day.py` / `eval_multi_day.py` - Evaluation utilities
+- `eval_utils.py` - Common evaluation functions
+- `gradient_check.py` - Gradient verification for training
+
+**test_code/ directory:**
+- `test_autoregressive_generation.py` - Test autoregressive sequence generation
+- `test_quantile_decoder.py` - Test quantile regression decoder
+
+**archived_experiments/ directory:**
+- `validation_scripts/` - Old validation and test scripts
+- `test_horizon5/`, `test_phase3_output/`, etc. - Experimental outputs
 
 ## Baseline Comparisons
 
-Additional baseline comparison studies available. See `tables/ANALYSIS_SUMMARY.md` for details.
+Additional baseline comparison studies available. See `results/presentations/ANALYSIS_SUMMARY.md` for details.
 
 ## Common Development Patterns
 
@@ -745,3 +896,31 @@ Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed usin
 
 **Pre-trained Models:**
 Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
+
+## Important Notes After Reorganization
+
+**Running Scripts:**
+- All scripts must be run from the repository root directory
+- Example: `python experiments/backfill/context20/test_insample_reconstruction_16yr.py`
+- Do NOT cd into subdirectories before running scripts
+
+**Import Structure:**
+- Core modules: `from vae.utils import train` (vae/ at root)
+- Config files: `from config.backfill_config import BackfillConfig` (config/ at root)
+- Data files: Use relative paths from root (e.g., `"data/vol_surface_with_ret.npz"`)
+- Output paths: Write to `results/` or `models/` from root
+
+**Path Conventions:**
+- Model checkpoints: `models/backfill/context20_production/backfill_16yr.pt`
+- Generated results: `results/backfill_16yr/predictions/`
+- Config files: `config/backfill_config.py`
+- Never use old paths: `models_backfill/` or `tables/` (these are obsolete)
+
+**Git Ignored Directories:**
+- `results/` - Generated analysis outputs (230MB)
+- `models/` - Model checkpoints (GB-sized)
+- `test_spx/` - Test experiments (31GB)
+- `archived_experiments/test_*/` - Old test outputs
+- `data/` - Input data files
+
+See `REORGANIZATION_SUMMARY.md` for complete details on the recent codebase reorganization.

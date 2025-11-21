@@ -35,13 +35,13 @@ print()
 
 # File paths
 if PERIOD == 'insample':
-    oracle_file = "models_backfill/insample_reconstruction_16yr.npz"
-    vae_file = "models_backfill/vae_prior_insample_16yr.npz"
-    econ_file = "tables/econometric_backfill/econometric_backfill_insample.npz"
+    oracle_file = "models/backfill/insample_reconstruction_16yr.npz"
+    vae_file = "models/backfill/vae_prior_insample_16yr.npz"
+    econ_file = "results/econometric_backfill/econometric_backfill_insample.npz"
 else:  # oos
-    oracle_file = "models_backfill/oos_reconstruction_16yr.npz"
-    vae_file = "models_backfill/vae_prior_oos_16yr.npz"
-    econ_file = "tables/econometric_backfill/econometric_backfill_oos.npz"
+    oracle_file = "models/backfill/oos_reconstruction_16yr.npz"
+    vae_file = "models/backfill/vae_prior_oos_16yr.npz"
+    econ_file = "results/econometric_backfill/econometric_backfill_oos.npz"
 
 print("Loading data...")
 oracle_data = np.load(oracle_file)

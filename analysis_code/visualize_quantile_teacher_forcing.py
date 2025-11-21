@@ -12,7 +12,7 @@ import os
 # Configuration
 BASELINE_DIR = "test_spx/2024_11_09"
 QUANTILE_DIR = "test_spx/quantile_regression"
-OUTPUT_DIR = "tables/quantile_plots"
+OUTPUT_DIR = "results/quantile_plots"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Parameters

@@ -35,7 +35,7 @@ GRID_POINTS = [
 HORIZONS = [1, 7, 14, 30]
 
 # Create output directory
-output_dir = Path("tables/backfill_plots")
+output_dir = Path("results/backfill_plots")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
@@ -45,7 +45,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 print("Loading data...")
 
 # Load out-of-sample predictions
-oos_data = np.load("models_backfill/oos_reconstruction_16yr.npz")
+oos_data = np.load("models/backfill/oos_reconstruction_16yr.npz")
 
 # Load ground truth
 full_data = np.load("data/vol_surface_with_ret.npz")

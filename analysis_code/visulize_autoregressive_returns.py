@@ -9,7 +9,7 @@ import os
 
 # Configuration
 BASE_MODEL_DIR = "test_spx/2024_11_09"
-OUTPUT_DIR = "tables/2024_1213/plots"
+OUTPUT_DIR = "results/2024_1213/plots"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CONTEXT_LEN = 5

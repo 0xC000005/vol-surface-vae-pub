@@ -22,7 +22,7 @@ sns.set_style("whitegrid")
 plt.rcParams['figure.facecolor'] = 'white'
 plt.rcParams['axes.facecolor'] = 'white'
 
-output_dir = Path("tables/multihorizon_cointegration_viz")
+output_dir = Path("results/multihorizon_cointegration_viz")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print("=" * 80)
@@ -37,12 +37,12 @@ print()
 print("1. Loading data...")
 
 # Load summary CSV
-summary_df = pd.read_csv("tables/cointegration_preservation/summary_comparison.csv")
+summary_df = pd.read_csv("results/cointegration_preservation/summary_comparison.csv")
 
 # Load detailed results
-ground_truth_results = np.load("tables/cointegration_preservation/ground_truth_results.npz", allow_pickle=True)
-vae_results = np.load("tables/cointegration_preservation/vae_results.npz", allow_pickle=True)
-econ_results = np.load("tables/cointegration_preservation/econometric_results.npz", allow_pickle=True)
+ground_truth_results = np.load("results/cointegration_preservation/ground_truth_results.npz", allow_pickle=True)
+vae_results = np.load("results/cointegration_preservation/vae_results.npz", allow_pickle=True)
+econ_results = np.load("results/cointegration_preservation/econometric_results.npz", allow_pickle=True)
 
 print("  ✓ Data loaded")
 print()

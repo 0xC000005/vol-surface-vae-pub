@@ -15,13 +15,13 @@ print()
 
 # Load files
 if period == 'insample':
-    oracle_file = "models_backfill/insample_reconstruction_16yr.npz"
-    vae_file = "models_backfill/vae_prior_insample_16yr.npz"
-    econ_file = "tables/econometric_backfill/econometric_backfill_insample.npz"
+    oracle_file = "models/backfill/insample_reconstruction_16yr.npz"
+    vae_file = "models/backfill/vae_prior_insample_16yr.npz"
+    econ_file = "results/econometric_backfill/econometric_backfill_insample.npz"
 else:
-    oracle_file = "models_backfill/oos_reconstruction_16yr.npz"
-    vae_file = "models_backfill/vae_prior_oos_16yr.npz"
-    econ_file = "tables/econometric_backfill/econometric_backfill_oos.npz"
+    oracle_file = "models/backfill/oos_reconstruction_16yr.npz"
+    vae_file = "models/backfill/vae_prior_oos_16yr.npz"
+    econ_file = "results/econometric_backfill/econometric_backfill_oos.npz"
 
 oracle_data = np.load(oracle_file)
 vae_data = np.load(vae_file)
@@ -122,8 +122,8 @@ ax.legend()
 ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('tables/debug_histogram_alignment.png', dpi=150, bbox_inches='tight')
-print("Saved comparison plot to: tables/debug_histogram_alignment.png")
+plt.savefig('results/debug_histogram_alignment.png', dpi=150, bbox_inches='tight')
+print("Saved comparison plot to: results/debug_histogram_alignment.png")
 print()
 
 # Check if alignment matters

@@ -20,7 +20,7 @@ from vae.cvae_with_mem_randomized import CVAEMemRand
 
 # Configuration
 MODEL_DIR = "test_spx/quantile_regression"
-OUTPUT_DIR = "tables/2024_1213/plots"
+OUTPUT_DIR = "results/2024_1213/plots"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Parameters
