@@ -211,6 +211,10 @@ analyze_vol_smile_training.py
 # Streamlit viewer (allows econometric visualization)
 streamlit_vol_surface_viewer.py
 
+# Econometric methodology documentation
+experiments/econometric_baseline/ECONOMETRIC_METHODOLOGY.md
+experiments/econometric_baseline/README.md
+
 # Note: Econometric data/results already covered by:
 # - tables/ (line 160) - covers all econometric result directories
 # - models_backfill/ (line 167) - covers any econometric models

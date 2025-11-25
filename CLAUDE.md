@@ -705,7 +705,7 @@ python analysis_code/visualize_backfill_oos_16yr_plotly.py  # Out-of-sample
 
 ## Econometric Baseline (Co-Integration Model)
 
-An econometric baseline using co-integration and EWMA realized volatility is implemented for comparison. This follows the methodology from the SSRN23 paper (Section 1.3).
+An econometric baseline using co-integration and EWMA realized volatility is implemented for comparison. See [`experiments/econometric_baseline/`](experiments/econometric_baseline/) for full methodology documentation.
 
 **Model Components:**
 - **EWMA realized volatility**: λ=0.94, 20-day warmup

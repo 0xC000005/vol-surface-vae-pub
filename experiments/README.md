@@ -28,7 +28,7 @@ Studies on multi-horizon volatility surface backfilling using VAE models.
 
 ### Baselines & Comparisons
 
-- **`econometric_baseline/`** - Co-integration baseline implementation
+- **`econometric_baseline/`** - Co-integration baseline implementation ([Full Methodology](econometric_baseline/ECONOMETRIC_METHODOLOGY.md))
   - EWMA realized volatility model
   - Bootstrap sampling with AR(1) backward recursion
   - Comparison scripts vs VAE models
