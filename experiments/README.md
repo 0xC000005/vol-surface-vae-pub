@@ -8,6 +8,11 @@ This directory contains experiment-specific scripts organized by research questi
 
 Studies on multi-horizon volatility surface backfilling using VAE models.
 
+**Documentation:**
+- [Model Variants Guide](backfill/MODEL_VARIANTS.md) - Detailed comparison of 3 model variants (no_ex, ex_no_loss, ex_loss)
+- [Quantile Regression Guide](backfill/QUANTILE_REGRESSION.md) - Quantile decoder methodology and performance
+
+**Subdirectories:**
 - **`context20/`** - Main 16-year backfill model (production)
   - Training: `train_backfill_model.py`
   - Config: `config/backfill_config.py`

@@ -61,141 +61,53 @@ vol-surface-vae-pub/
 
 ### Package Management
 - Uses `uv` for Python dependency management (Python >=3.13)
-- Dependencies defined in `pyproject.toml`
-- Install dependencies: `uv sync`
-- Key dependencies: PyTorch, NumPy, pandas, scikit-learn, matplotlib
+- Dependencies: `pyproject.toml`, install with `uv sync`
+- Key packages: PyTorch, NumPy, pandas, scikit-learn, matplotlib
 
 ### Common Commands
 
-**Training Models:**
+**Training:**
 ```bash
-python param_search.py
-```
-Trains CVAE models with different configurations (with/without extra features). Saves models to `test_spx/` directory.
-
-**Generate Volatility Surfaces:**
-```bash
-python generate_surfaces.py  # Generate distributions over time horizon
-python generate_surfaces_max_likelihood.py  # Generate maximum likelihood surfaces
+python param_search.py                                              # Train 3 model variants
+python train_quantile_models.py                                     # Train quantile models
+python experiments/backfill/context20/train_backfill_model.py       # Train backfill model
 ```
 
-**Run Analysis and Generate Tables/Plots:**
+**Generation & Analysis:**
 ```bash
-python main_analysis.py
-```
-Generates tables and plots for regression analysis, PCA, arbitrage checks, and classification tasks.
-
-**Visualization and Verification (analysis_code/):**
-```bash
-# Visualization scripts
-python analysis_code/visualize_teacher_forcing.py          # Compare all models (teacher forcing)
-python analysis_code/visualize_quantile_teacher_forcing.py # Quantile-specific visualization
-python analysis_code/visualize_distribution_comparison.py  # Distribution comparisons
-
-# Verification scripts (2008-2010 crisis period)
-python analysis_code/verify_reconstruction_plotly_2008_2010.py        # Ground truth latent (interactive)
-python analysis_code/verify_reconstruction_2008_2010_context_only.py  # Context-only latent
-python analysis_code/visualize_marginal_distribution_quantile_encoded.py      # Marginal distributions
-python analysis_code/visualize_marginal_distribution_quantile_context_only.py # Context-only marginals
+python generate_surfaces.py                  # Stochastic forecasts
+python generate_quantile_surfaces.py         # Quantile forecasts
+python main_analysis.py                      # Full analysis pipeline
+python evaluate_quantile_ci_calibration.py   # CI calibration metrics
 ```
 
-**Core Training and Evaluation:**
+**Visualization:**
 ```bash
-python train_quantile_models.py            # Train quantile regression models
-python generate_quantile_surfaces.py       # Generate quantile predictions
-python evaluate_quantile_ci_calibration.py # Evaluate CI calibration
-python compare_reconstruction_losses.py    # Compare losses across models
+python analysis_code/visualize_teacher_forcing.py                # Model comparison
+python analysis_code/visualize_backfill_16yr_plotly.py           # Interactive dashboards
 ```
 
-**Test Autoregressive Generation:**
-```bash
-python test_autoregressive_generation.py   # Test multi-step generation (all 3 variants)
-```
-Tests: shapes, quantile ordering, different horizons, visual checks, ex_feats coherence.
-
-**Backfill Experiments (experiments/backfill/):**
-```bash
-# Context20 (production model - 16-year training)
-python experiments/backfill/context20/train_backfill_model.py
-python experiments/backfill/context20/test_insample_reconstruction_16yr.py
-python experiments/backfill/context20/test_oos_reconstruction_16yr.py
-python experiments/backfill/context20/evaluate_insample_ci_16yr.py
-
-# Context60 (context length ablation)
-python experiments/backfill/context60/train_backfill_context60.py
-
-# Horizon5 validation
-python experiments/backfill/horizon5/train_horizon5_test.py
-python experiments/backfill/horizon5/compare_horizon5_to_baseline.py
-```
-
-See `experiments/README.md` and `experiments/backfill/*/README.md` for details on each experiment.
-
-**Data Preprocessing:**
-- Data preprocessing requires Jupyter notebooks (not included in main codebase)
-- See `data_preproc/` directory for preprocessing utilities
+For complete command reference, see `experiments/README.md` and subdirectory READMEs. Code examples in `DEVELOPMENT.md`.
 
 ## Architecture
 
 ### Core VAE Models (vae/)
 
-**Base Classes (vae/base.py):**
-- `BaseVAE`: Abstract base class for all VAE models
-  - Implements standard VAE loss: `loss = reconstruction_error + kl_weight * kl_loss`
-  - Provides `train_step()`, `test_step()`, `save_weights()`, `load_weights()`
-- `BaseEncoder` / `BaseDecoder`: Abstract encoder/decoder interfaces
-
 **Model Hierarchy:**
-1. `VAEConv2D` (vae/conv_vae.py): Basic 2D convolutional VAE
-2. `CVAE` (vae/cvae.py): Conditional VAE with context encoder
-   - Input: (B, T, H, W) where T = context_len + 1
-   - Uses separate context encoder for conditioning
-3. `CVAEMem` (vae/cvae_with_mem.py): CVAE with LSTM/GRU/RNN memory
-4. **`CVAEMemRand` (vae/cvae_with_mem_randomized.py)**: Primary model used in paper
-   - Supports variable context lengths (randomized during training)
-   - Supports configurable prediction horizon (default: 1 day, validated up to 5 days)
-   - Can optionally encode extra features (returns, skew, slope)
+1. `VAEConv2D`: Basic 2D convolutional VAE
+2. `CVAE`: Conditional VAE with context encoder
+3. `CVAEMem`: CVAE with LSTM/GRU/RNN memory
+4. **`CVAEMemRand`**: Primary model (variable context lengths, multi-horizon prediction, optional extra features)
 
-### Key Model Features (CVAEMemRand)
+**Key features:**
+- Variable context lengths (randomized during training)
+- Configurable prediction horizon (1-30 days)
+- Optional extra features (returns, skew, slope)
+- Quantile regression support for uncertainty quantification
 
-**Configuration Parameters:**
-- `feat_dim`: Volatility surface dimensions (typically (5, 5))
-- `latent_dim`: Latent space dimensionality
-- `horizon`: Number of days to predict (default: 1, configurable for multi-horizon training)
-- `surface_hidden`: Hidden layer sizes for surface encoding
-- `ex_feats_dim`: Number of extra features (0 for surface only, 3 for ret/skew/slope)
-- `mem_type`: Memory type (lstm/gru/rnn)
-- `mem_hidden`: Hidden size for memory module
-- `mem_layers`: Number of memory layers
-- `compress_context`: Whether to compress context to latent_dim size
-- `use_dense_surface`: Use fully connected layers instead of Conv2D
+**Input format:** Dictionary with `"surface"` (B, T, 5, 5) and optional `"ex_feats"` (B, T, 3)
 
-**Training Data Format:**
-Input is a dictionary with keys:
-- `"surface"`: Tensor of shape (B, T, 5, 5) - volatility surfaces
-- `"ex_feats"`: (Optional) Tensor of shape (B, T, n) - extra features
-
-**Model Components:**
-1. **CVAEMemRandEncoder**: Encodes full sequence (context + target)
-   - Surface embedding → Optional ex_feats embedding → Concatenate → LSTM → Latent space
-2. **CVAECtxMemRandEncoder**: Encodes context only
-   - Similar architecture but for conditioning
-3. **CVAEMemRandDecoder**: Decodes latent + context to surface
-   - LSTM → Split into surface and ex_feats decoders
-
-### Dataset Handling (vae/datasets_randomized.py)
-
-**VolSurfaceDataSetRand:**
-- Generates variable-length sequences (min_seq_len to max_seq_len)
-- Each data point consists of T consecutive surfaces
-- Uses `CustomBatchSampler` to ensure all samples in a batch have the same sequence length
-
-### Training Utilities (vae/utils.py)
-
-Key functions for training, testing, and evaluation:
-- `train()`: Training loop with early stopping
-- `test()`: Evaluation on validation/test sets
-- `set_seeds()`: Set random seeds for reproducibility
+For detailed architecture documentation, configuration parameters, and model components, see `vae/README.md`.
 
 ## Data Structure
 
@@ -238,516 +150,125 @@ Generated surfaces stored in npz files:
 
 ## Model Variants
 
-The codebase trains three model variants to test different conditioning strategies. These variants explore a fundamental hypothesis: **Can we improve volatility surface forecasts by jointly modeling returns and surfaces, or is surface-only modeling sufficient?**
+Three model variants test the hypothesis: **Can we improve forecasts by jointly modeling returns and surfaces, or is surface-only modeling sufficient?**
 
-### 1. No EX (Surface Only - Baseline)
+| Variant | Features | Loss on Features | Use Case |
+|---------|----------|------------------|----------|
+| **No EX** | Surface only | 0.0 | Baseline (surface dynamics alone) |
+| **EX No Loss** | Surface + ret/skew/slope | 0.0 | Passive conditioning (features as context) |
+| **EX Loss** | Surface + ret/skew/slope | 1.0 (returns only) | Joint optimization (multi-task learning) |
 
-**Configuration:**
-```python
-ex_feats_dim: 0                # No extra features
-re_feat_weight: 0.0            # No feature loss
-```
+**Test Set Performance:**
 
-**Input:** Only volatility surfaces (5×5 grids)
-- Context: Last C days of surfaces
-- No additional market information
-
-**Architecture:**
-```
-Surface[t-C:t] → LSTM Encoder → Latent z → LSTM Decoder → Surface[t+1]
-```
-
-**What it learns:**
-- Pure surface-to-surface mapping
-- Pattern recognition in volatility surface evolution
-- No explicit conditioning on returns/skew/slope
-
-**Use case:** Baseline model to test if surface dynamics alone contain sufficient information for forecasting.
-
----
-
-### 2. EX No Loss (Features as Passive Conditioning)
-
-**Configuration:**
-```python
-ex_feats_dim: 3                # Has 3 extra features (return, skew, slope)
-re_feat_weight: 0.0            # NO loss on features!
-```
-
-**Input:** Surfaces + Extra features
-- Surface: 5×5 volatility grids
-- Extra features: [daily log return, volatility skew, term structure slope]
-
-**Architecture:**
-```
-Surface[t-C:t] + Features[t-C:t] → LSTM Encoder → Latent z → Decoder → Surface[t+1]
-                                                                        (Features ignored in loss)
-```
-
-**What it learns:**
-- Uses extra features as **conditioning information** only
-- Model sees the features during encoding but isn't trained to reconstruct them
-- Features help encoder understand market state (e.g., "market crashed yesterday")
-- Decoder can use this context to generate better surfaces
-
-**Key insight:** Tests whether passively providing market context improves predictions without requiring the model to learn feature dynamics.
-
----
-
-### 3. EX Loss (Features with Joint Optimization)
-
-**Configuration:**
-```python
-ex_feats_dim: 3                # Has 3 extra features
-re_feat_weight: 1.0            # YES - optimize feature reconstruction!
-ex_loss_on_ret_only: True      # Only optimize returns (not skew/slope)
-ex_feats_loss_type: "l2"       # L2 loss for return predictions
-```
-
-**Input:** Same as EX No Loss (surfaces + features)
-
-**Architecture:**
-```
-Surface[t-C:t] + Features[t-C:t] → LSTM Encoder → Latent z → LSTM Decoder → Surface[t+1]
-                                                                           → Return[t+1]
-                                                                           (Both optimized!)
-```
-
-**Loss function:**
-```
-Total Loss = MSE(surface) + re_feat_weight × L2(return) + kl_weight × KL_divergence
-           = MSE(surface) + 1.0 × L2(return) + 1e-5 × KL
-```
-
-**What it learns:**
-- Jointly optimizes surface AND return prediction
-- Multi-task learning forces latent space to capture return dynamics
-- Model must generate coherent predictions across both modalities
-- Creates shared representation that understands both surface shape and return magnitudes
-
-**Key insight:** Tests whether forcing the model to predict returns improves surface forecasts by creating better latent representations.
-
----
-
-### Model Comparison Summary
-
-| Aspect | No EX | EX No Loss | EX Loss |
-|--------|-------|------------|---------|
-| **Input features** | Surface only | Surface + return/skew/slope | Surface + return/skew/slope |
-| **Encoder sees extras?** | ❌ No | ✅ Yes (conditioning) | ✅ Yes (conditioning) |
-| **Decoder outputs extras?** | ❌ No | ✅ Yes (ignored) | ✅ Yes (optimized) |
-| **Loss on features** | 0.0 | 0.0 | 1.0 (returns only) |
-| **Learning objective** | Surface only | Surface (conditioned on features) | Surface + Returns (joint learning) |
-| **Training data** | `train_simple` | `train_ex` | `train_ex` |
-
-### Test Set Performance (from param_search.py results)
-
-| Model | Surface Reconstruction Loss | Feature Reconstruction Loss | KL Loss |
-|-------|------------------------------|----------------------------|---------|
+| Model | Surface Loss | Feature Loss | KL Loss |
+|-------|--------------|--------------|---------|
 | **No EX** | 0.001722 | 0.000000 | 3.956 |
 | **EX No Loss** | 0.002503 | 0.924496 (not optimized) | 3.711 |
 | **EX Loss** | 0.001899 | 0.000161 | 4.000 |
 
-**Observations:**
-- **No EX** achieves lowest surface reconstruction error (baseline)
-- **EX No Loss** has highest surface error - features help conditioning but high feature loss suggests model doesn't learn feature structure well
-- **EX Loss** balances both objectives - competitive surface error with excellent return prediction (0.000161)
+**Key findings:**
+- No EX: Lowest surface error (baseline)
+- EX Loss: Balances both objectives, excellent return prediction
 
-### Research Questions Addressed
+**Generation outputs:**
+- Stochastic: `{model}_gen5.npz` (1000 samples/day)
+- Deterministic: `{model}_mle_gen5.npz` (1 sample/day, z=0)
 
-1. **No EX vs EX No Loss**: Does passive conditioning on market features improve predictions?
-   - Tests information benefit without optimization overhead
+For detailed architecture, research questions, and analysis, see `experiments/backfill/MODEL_VARIANTS.md`.
 
-2. **EX No Loss vs EX Loss**: Should we actively optimize feature predictions?
-   - Tests multi-task learning hypothesis
-   - Does forcing coherent return predictions improve surface quality?
+## Quantile Regression Decoder
 
-3. **Practical implications**:
-   - **No EX**: Simplest, but ignores market context (e.g., doesn't know if crash occurred)
-   - **EX No Loss**: Uses context but may not fully leverage feature information
-   - **EX Loss**: Joint prediction may create more robust latent representations
+Quantile regression variant addresses CI calibration issues by directly predicting confidence intervals instead of Monte Carlo sampling.
 
-### Generation Outputs
-
-All three models generate two types of forecasts:
-
-**Stochastic (probabilistic):**
-- `{model}_gen5.npz`: 1,000 samples per day by sampling z ~ N(0, 1)
-- Shape: (num_days, 1000, 5, 5) surfaces
-- EX Loss also outputs: (num_days, 1000, 3) features [return, skew, slope]
-
-**Maximum Likelihood (deterministic):**
-- `{model}_mle_gen5.npz`: 1 sample per day using z = 0 (distribution mode)
-- Shape: (num_days, 1, 5, 5) surfaces
-- EX Loss also outputs: (num_days, 1, 3) features
-
-### Visualization
-
-Visualization scripts are in `analysis_code/`:
-```bash
-python analysis_code/visualize_teacher_forcing.py
-```
-
-Generates 9-panel comparison (3 models × 3 grid points) showing ground truth vs predictions with uncertainty bands. Demonstrates teacher forcing behavior where models condition on real historical data for independent one-step-ahead forecasts.
-
-## Quantile Regression Decoder (Recent Development)
-
-A quantile regression variant has been implemented to address CI calibration issues in uncertainty quantification. This represents an architectural enhancement to directly predict confidence intervals rather than computing them from Monte Carlo samples.
-
-### Motivation
-
-Original MSE models showed CI violation rates of 35-72%, far exceeding the target ~10%. The quantile decoder explicitly learns conditional quantiles during training to improve calibration and provides dramatically faster inference.
-
-### Architecture Changes
-
-**Decoder Output:**
-- **Original**: 1 channel (mean prediction)
-- **Quantile**: 3 channels (p5, p50, p95 quantiles)
-- Output shape: `(B, T, 3, H, W)` where dim=2 represents quantiles
-
-**Loss Function:**
-- **Original**: MSE (Mean Squared Error)
-- **Quantile**: Pinball Loss (asymmetric quantile loss)
-- For τ=0.05: Over-predictions penalized 19× more → learns conservative lower bound
-- For τ=0.95: Under-predictions penalized 19× more → learns conservative upper bound
-
-**Pinball Loss Formula:**
-```python
-def pinball_loss(y_true, y_pred, quantile):
-    error = y_true - y_pred
-    return torch.where(error >= 0, quantile * error, (quantile - 1) * error)
-```
-
-**Generation Speedup:**
-- **Original**: 1,000 forward passes with z ~ N(0,1) → compute empirical quantiles
-- **Quantile**: 1 forward pass → get all 3 quantiles directly
-- **Result**: ~1000× faster generation
-
-### Training Configuration
-
-All three model variants (no_ex, ex_no_loss, ex_loss) support quantile regression:
-
-```python
-model_config = {
-    "use_quantile_regression": True,
-    "num_quantiles": 3,
-    "quantiles": [0.05, 0.5, 0.95],
-    # ... other params same as baseline
-    "latent_dim": 5,
-    "mem_hidden": 100,
-    "surface_hidden": [5, 5, 5],
-    "kl_weight": 1e-5,
-}
-```
-
-### Current Performance
-
-**Training Performance (Test Set):**
-
-| Model | Surface RE Loss | KL Loss | Total Loss |
-|-------|-----------------|---------|------------|
-| **no_ex** | 0.006349 | 6.033 | 0.006409 |
-| **ex_no_loss** | 0.006269 | 7.768 | 0.006347 |
-| **ex_loss** | 0.006206 | 5.876 | 0.006392 |
-
-Note: RE loss is pinball loss, not directly comparable to MSE.
+**Architecture changes:**
+- Decoder outputs 3 channels: p05, p50, p95 quantiles
+- Pinball loss (asymmetric) instead of MSE
+- ~1000× faster generation (1 forward pass vs 1000)
 
 **CI Calibration Results:**
 
-| Model | CI Violations | Below p05 | Above p95 | Mean CI Width |
-|-------|---------------|-----------|-----------|---------------|
-| **no_ex** | 44.50% | 4.79% | 39.71% | 0.0811 |
-| **ex_no_loss** | 35.43% | 17.82% | 17.60% | 0.0855 |
-| **ex_loss** | 34.28% | 5.55% | 28.72% | 0.0892 |
+| Model | CI Violations | Best: ex_loss |
+|-------|---------------|---------------|
+| **Target** | 10% | (well-calibrated) |
+| **Achieved** | 34-45% | 34.28% violations |
+| **Baseline MSE** | ~50%+ | 16% improvement |
 
-- **Expected**: ~10% violations (well-calibrated)
-- **Actual**: 34-45% violations (improvement from baseline ~50%+ but needs further work)
-- **Best model**: ex_loss with 34.28% violations
+**Key findings:**
+- Significant speedup and partial calibration improvement
+- VAE prior mismatch: 3× gap between ground truth (7%) and context-only (19%) latents
+- Asymmetric violations (underestimate upper tail uncertainty)
 
-### Key Observations
+**Next steps:** Conformal prediction, loss reweighting, heteroscedastic quantile regression
 
-1. **Improvement over baseline**: Reduced violations from ~50%+ to ~34% (ex_loss model)
-2. **Asymmetric violations**: Most models have more violations above p95 than below p05
-3. **Generation speed**: Dramatically faster (1000× speedup)
-4. **Trade-off**: Better calibration vs more complex loss function
-
-### Usage
-
-**Training quantile models:**
-```bash
-python train_quantile_models.py
-```
-
-**Generating quantile surfaces:**
-```bash
-python generate_quantile_surfaces.py
-```
-
-**Evaluating CI calibration:**
-```bash
-python evaluate_quantile_ci_calibration.py
-```
-
-**Verification Scripts (in analysis_code/):**
-```bash
-# Ground truth latent (full sequence encoding)
-python analysis_code/verify_reconstruction_plotly_2008_2010.py
-
-# Context-only latent (realistic generation)
-python analysis_code/verify_reconstruction_2008_2010_context_only.py
-
-# Marginal distribution analysis
-python analysis_code/visualize_marginal_distribution_quantile_encoded.py
-python analysis_code/visualize_marginal_distribution_quantile_context_only.py
-```
-
-**Verification Results (2008-2010 CI Violations):**
-
-| Latent Type | no_ex | ex_no_loss | ex_loss |
-|-------------|-------|------------|---------|
-| **Ground truth** | 7.32% | 5.33% | 6.89% |
-| **Context-only** | 18.63% | 20.44% | 19.65% |
-
-The 3× gap reveals **VAE prior mismatch**: p(z|context) ≠ p(z|context+target). Decoder learns correct quantiles when given encoded latents, but prior distribution doesn't match posterior for realistic generation.
-
-### Model Output Format
-
-Quantile models output 3 surfaces per prediction:
-- `surfaces[:, :, 0, :, :]` - p05 (5th percentile, lower bound)
-- `surfaces[:, :, 1, :, :]` - p50 (median, point forecast)
-- `surfaces[:, :, 2, :, :]` - p95 (95th percentile, upper bound)
-
-For EX Loss models, also outputs quantiles for extra features:
-- `ex_feats[:, :, 0, :]` - p05 features [return, skew, slope]
-- `ex_feats[:, :, 1, :]` - p50 features
-- `ex_feats[:, :, 2, :]` - p95 features
-
-### Current Status & Next Steps
-
-**Status**: ✓ Implementation successful, ✗ Calibration needs improvement
-
-**Completed:**
-- Stable training with pinball loss
-- 1000× generation speedup
-- ~16% reduction in CI violations vs baseline
-
-**Remaining challenges:**
-- CI violations at 34% (target: 10%)
-- Models underestimate upper tail uncertainty
-- Need calibration techniques (e.g., conformal prediction)
-
-**Recommended next steps:**
-1. Apply conformal prediction for post-hoc calibration
-2. Retrain with loss reweighting (emphasize tail quantiles)
-3. Explore heteroscedastic quantile regression
+For detailed methodology, pinball loss formula, verification results, and implementation, see `experiments/backfill/QUANTILE_REGRESSION.md`.
 
 ## Multi-Horizon Training
 
-Models support training with `horizon > 1` to predict multiple days simultaneously, avoiding error accumulation in autoregressive generation.
+Models support `horizon > 1` to predict multiple days simultaneously, avoiding autoregressive error accumulation.
 
-**Configuration:**
-```python
-model_config = {
-    "horizon": 5,  # Predict 5 days ahead in one shot
-    # ... other params same as horizon=1
-}
-```
+**Configuration:** Set `"horizon": 5` in model_config to predict 5 days in one shot.
 
-**Validation Results (horizon=5 vs baseline):**
-- **RMSE improvement**: 43-54% reduction across volatility surface
-- **CI calibration**: 80% reduction in violations (89% → 18%)
-- **Training time**: ~3.7× longer per epoch (acceptable given improvements)
+**Results (horizon=5 vs baseline):**
+- RMSE: 43-54% reduction
+- CI violations: 80% reduction (89% → 18%)
+- Training time: 3.7× longer per epoch
 
-**Latent Sampling Strategies:**
-Three approaches for generating future latents documented in `LATENT_SAMPLING_STRATEGIES.md`:
-1. **Ground truth latent** (~7% violations): Oracle reconstruction, testing only
-2. **VAE prior sampling** (~19% violations): Theoretically correct, sample z ~ N(0,1)
-3. **Zero-padding encoding** (~18% violations): Current implementation, encodes zero-padded future
-
-All three are valid for backfilling (don't use future information). Current implementation uses zero-padding where LSTM propagates context through hidden states.
+For latent sampling strategies and implementation details, see `experiments/backfill/horizon5/README.md`.
 
 ## Important Implementation Details
 
 ### Loss Function
 
-**Standard VAE Models:**
-- Reconstruction error uses MSE for surfaces
-- KL divergence term weighted by `kl_weight` (typically 1e-5)
-- Extra features use L1 or L2 loss weighted by `re_feat_weight`
-- When `ex_loss_on_ret_only=True`, only return (first feature) gets loss optimization
+- **Standard VAE**: `loss = MSE(surface) + kl_weight * KL_divergence`
+- **Quantile VAE**: `loss = pinball_loss(quantiles) + kl_weight * KL_divergence`
+- **With extra features**: Add `re_feat_weight * L2(return)` when `ex_loss_on_ret_only=True`
 
-**Quantile Regression Models:**
-- Reconstruction error uses Pinball Loss (quantile loss) instead of MSE
-- Pinball loss computed separately for each quantile (p05, p50, p95)
-- KL divergence term still weighted by `kl_weight`
-- Extra features (if used) also use pinball loss for quantile prediction
-- Total loss: `loss = pinball_loss + kl_weight * kl_loss`
+### Teacher Forcing
 
-### Sequence Generation and Teacher Forcing
+**Training:** Variable context length (randomized), predicts 1-day-ahead
+**Inference:** Always conditions on real historical data, not model predictions
+**Result:** Independent one-step-ahead forecasts (not autoregressive)
+
+**Generation modes:**
+- **Stochastic**: Sample z ~ N(0,1), 1000 samples/day, captures uncertainty
+- **Maximum Likelihood**: Set z = 0, deterministic point forecast
+
+For code examples, see `DEVELOPMENT.md`.
+
+## Autoregressive Backfilling
+
+Generates 30-day autoregressive sequences for historical periods with limited data (e.g., 2008-2010 financial crisis).
+
+**Key features:**
+- Multi-horizon training: [1, 7, 14, 30] day horizons simultaneously
+- 2-phase training: teacher forcing → multi-horizon
+- Context length: 20 days (production model)
 
 **Training:**
-- Context length `C` is variable during training (randomized between min_seq_len and max_seq_len)
-- Model learns to predict 1-day-ahead: given surfaces at [t-C, ..., t-1], predict surface at t
-
-**Generation (Inference):**
-- Uses **teacher forcing**: always conditions on real historical data, not model predictions
-- For each day t, uses actual observed surfaces [t-C, ..., t-1] as context
-- Generates prediction for day t
-- Next day uses actual surfaces [t-C+1, ..., t] (including real observation at t)
-- This produces **independent one-step-ahead forecasts**, not autoregressive multi-step predictions
-
-**Two Generation Modes:**
-
-1. **Stochastic (`generate_surfaces.py`):**
-   - Samples latent variable z ~ N(0, 1) for future timestep
-   - Generates 1,000 samples per day to capture uncertainty
-   - Output: (num_days, 1000, 5, 5) - full distribution of possible surfaces
-   - Used for: uncertainty quantification, arbitrage checking, scenario analysis
-
-2. **Maximum Likelihood (`generate_surfaces_max_likelihood.py`):**
-   - Sets latent variable z = 0 (mode of prior distribution)
-   - Generates 1 deterministic sample per day
-   - Output: (num_days, 1, 5, 5) - single "most likely" surface
-   - Used for: point forecasts, RMSE evaluation, regression analysis
-
-**Key Implementation Detail:**
-Both methods use the same context encoding (from `ctx_encoder`), but differ only in the latent variable for the future timestep:
-- Context timesteps [0:C]: z = ctx_latent_mean (deterministic encoding)
-- Future timestep [C]: z ~ N(0,1) (stochastic) OR z = 0 (MLE)
-
-### Device Handling
-All models support both CPU and CUDA. Tensors are automatically moved to the configured device.
-
-## Autoregressive Backfilling (Crisis Period Generation)
-
-The codebase includes capability to generate 30-day autoregressive sequences for historical periods with limited data (e.g., 2008-2010 financial crisis). Implementation follows `BACKFILL_MVP_PLAN.md`.
-
-**Key Features:**
-- **Multi-horizon training**: Model trained on [1, 7, 14, 30] day horizons simultaneously
-- **Scheduled sampling**: 2-phase training (teacher forcing → multi-horizon)
-- **Limited data**: Trains on 1-3 years of recent data, generates for historical crisis
-- **Autoregressive generation**: 30-day sequences by feeding predictions back as context
-
-**Core Methods (in CVAEMemRand):**
-- `train_step_multihorizon()` - Train on multiple horizons with weighted loss
-- `generate_autoregressive_sequence()` - Generate multi-day sequences autoregressively
-
-**Configuration and Training:**
 ```bash
-# Configure training parameters
-# Edit config/backfill_config.py:
-#   - train_period_years: 1, 2, or 3 years
-#   - context_len: 5, 10, 20, or 30 days (20 for production)
-#   - training_horizons: [1, 7, 14, 30]
-
-# Train model with scheduled sampling (run from repository root)
 python experiments/backfill/context20/train_backfill_model.py
-# Output: models/backfill/context20_production/backfill_16yr.pt
-
-# Generate 30-day backfill sequences
-python generate_backfill_sequences.py  # (Phase 4 - to be implemented)
-# Output: results/backfill_16yr/predictions/backfill_predictions_16yr.npz
 ```
+Output: `models/backfill/context20_production/backfill_16yr.pt`
 
-**Configuration (config/backfill_config.py):**
-- `train_period_years`: Years of training data (1, 2, or 3)
-- `train_end_idx`: 5000 (before test set)
-- `backfill_start_idx`: 2000 (2008 crisis start)
-- `backfill_end_idx`: 2765 (2010 end)
-- `context_len`: Initial context window (5 days default, can increase to 20-30)
-- `training_horizons`: [1, 7, 14, 30] days
-- `teacher_forcing_epochs`: 200 (Phase 1), then multi-horizon for remaining epochs
+**Results (backfill_16yr / context20):**
+- In-sample CI violations: 18.1%
+- Out-of-sample CI violations: 28.0% (+55% degradation)
+- RMSE increase: 57-92% across horizons (OOS)
 
-**Context Length Ablation:**
-If context_len=5 performs poorly, try longer contexts (10, 20, 30) - see Phase 3.3 in `BACKFILL_MVP_PLAN.md`.
+For complete evaluation, analysis scripts, and interactive visualizations, see `experiments/backfill/context20/README.md`.
 
-**Validation Scripts:**
-```bash
-python test_multihorizon_loss.py       # Validate multi-horizon training
-python test_scheduled_sampling.py      # Validate 2-phase training
-python test_phase3_config.py           # Validate config + full pipeline
-```
+## Econometric Baseline
 
-### Evaluation & Analysis (backfill_16yr)
+Econometric baseline using IV-EWMA co-integration for comparison with VAE.
 
-**Out-of-Sample Evaluation:**
-```bash
-# Generate test set predictions (2019-2023)
-python experiments/backfill/context20/test_oos_reconstruction_16yr.py
-# Output: results/backfill_16yr/predictions/oos_reconstruction_16yr.npz
+**Components:** EWMA realized volatility (λ=0.94), co-integration regression, weighted least squares, bootstrap sampling with AR(1) backward recursion.
 
-# In-sample predictions already in: results/backfill_16yr/predictions/insample_reconstruction_16yr.npz
-```
-
-**VAE Health Analysis:**
-```bash
-# In-sample (training set 2004-2019)
-python experiments/backfill/context20/analyze_vae_health_16yr.py          # Extract latent metrics
-python experiments/backfill/context20/visualize_vae_health_16yr.py        # Generate 11 figures
-# Output: results/backfill_16yr/vae_health/
-
-# Out-of-sample (test set 2019-2023)
-python experiments/backfill/context20/analyze_vae_health_oos_16yr.py      # Extract latent metrics
-python experiments/backfill/context20/visualize_vae_health_oos_16yr.py    # Generate 9 figures
-# Output: results/backfill_16yr/vae_health/
-```
-
-**Interactive Visualizations:**
-```bash
-# Teacher forcing dashboards (12-panel: 3 grid points × 4 horizons)
-python analysis_code/visualize_backfill_16yr_plotly.py      # In-sample
-python analysis_code/visualize_backfill_oos_16yr_plotly.py  # Out-of-sample
-# Output: results/backfill_16yr/visualizations/plotly_dashboards/*.html (open in browser)
-```
-
-**Key Findings (backfill_16yr / context20):**
-- In-sample: 18.1% CI violations (moderate)
-- Out-of-sample: 28.0% CI violations (+55% degradation)
-- VAE architecture healthy (effective dim ~3/5, consistent collapse pattern)
-- RMSE increases 57-92% across horizons OOS
-- See: `results/backfill_16yr/visualizations/insample_vs_oos_comparison_16yr.md` and `experiments/backfill/context20/README.md`
-
-## Econometric Baseline (Co-Integration Model)
-
-An econometric baseline using co-integration and EWMA realized volatility is implemented for comparison. See [`experiments/econometric_baseline/`](experiments/econometric_baseline/) for full methodology documentation.
-
-**Model Components:**
-- **EWMA realized volatility**: λ=0.94, 20-day warmup
-- **Co-integration regression**: IV(t) = β + α₁·EWMA_RV(t) + ε(t)
-- **Weighted least squares**: Variance function σ²(t) = exp(γ₀ + γ₁·EWMA_RV)
-- **Bootstrap sampling**: AR(1) backward recursion with correlated innovations
-
-**Key Scripts:**
-```bash
-# Generate in-sample predictions (2004-2019)
-python experiments/econometric_baseline/econometric_backfill_insample.py
-# Output: results/econometric_baseline/predictions/insample_reconstruction_H{1,7,14,30}.npz
-
-# Generate OOS predictions (2019-2023)
-python experiments/econometric_baseline/econometric_backfill_oos.py
-# Output: results/econometric_baseline/predictions/oos_reconstruction_H{1,7,14,30}.npz
-
-# Generate crisis period predictions (2008-2010)
-python experiments/econometric_baseline/econometric_backfill_2008_2010.py
-# Output: results/econometric_baseline/predictions/crisis_reconstruction_H{1,7,14,30}.npz
-```
-
-**Comparison Analysis:**
-```bash
-# Compare econometric vs VAE (OOS period)
-python experiments/econometric_baseline/compare_econometric_vs_vae_oos.py
-# Output: results/econometric_baseline/comparisons/vs_vae_oos/
-
-# Compare all methods on crisis period
-python experiments/econometric_baseline/compare_econometric_vs_vae_backfill.py
-# Output: results/econometric_baseline/comparisons/vs_vae_2008_2010/
-```
-
-**Key Findings:**
+**Performance:**
 - Crisis (2008-2010): VAE wins 87% comparisons, 38% lower RMSE
-- OOS (2019-2023): VAE slightly better on extremes, econometric better on ATM
-- Econometric shows 65-68% CI violations (poorly calibrated) vs VAE 18-28%
-- See: `tables/ANALYSIS_SUMMARY.md` for detailed comparison
+- OOS (2019-2023): VAE better on extremes, econometric competitive on ATM
+- CI calibration: Econometric 65-68% violations vs VAE 18-28%
+
+For methodology, scripts, and detailed comparison, see `experiments/econometric_baseline/README.md`.
 
 ## Visualization Tools
 
@@ -755,74 +276,27 @@ python experiments/econometric_baseline/compare_econometric_vs_vae_backfill.py
 ```bash
 streamlit run streamlit_vol_surface_viewer.py
 ```
-Provides web-based 3D visualization comparing Oracle, VAE Prior, and Econometric predictions vs ground truth. Features:
-- Rotatable 3D surface plots overlaid for structural comparison
-- Period selection: In-Sample, Crisis (2008-2010), OOS
-- Date slider with actual calendar dates
-- Grid point selection (5×5 moneyness × maturity)
-- Quantile display (p05, p50, p95)
+Web-based 3D visualization comparing Oracle, VAE Prior, and Econometric predictions. Features rotatable plots, period selection, date slider, grid point selection.
 
-**Analysis Output Structure:**
-- `results/presentations/ANALYSIS_SUMMARY.md` - Comprehensive econometric vs VAE comparison
-- `results/presentations/MILESTONE_PRESENTATION.md` - Main presentation with all results
-- `results/presentations/VAE_PRIOR_ANALYSIS_SUMMARY.md` - VAE prior performance analysis
-- `results/presentations/IMAGE_INTERPRETATION_GUIDE.md` - Guide for interpreting visualizations
-- `results/backfill_16yr/visualizations/` - HTML interactive plots (Plotly)
-- `results/cointegration/` - Co-integration preservation analysis
-- `results/distribution_analysis/marginal_distributions/` - Distribution comparison plots
-- `results/distribution_analysis/variance_ratio/` - Variance tracking heatmaps
+**Analysis outputs:** `results/presentations/` (summary reports), `results/backfill_16yr/visualizations/` (interactive Plotly dashboards), `results/distribution_analysis/` (distribution plots).
 
 See `results/README.md` for complete structure.
 
 ## Additional Evaluation Scripts
 
-**Core utility in root:**
-```bash
-python compute_grid_ci_stats.py              # CI violations per grid point
-```
+**Core utility:** `compute_grid_ci_stats.py` (CI violations per grid point)
 
-**Experiment-specific scripts (see experiments/ subdirectories):**
-- Context20 evaluation: `experiments/backfill/context20/evaluate_*.py`
-- Oracle vs Prior: `experiments/oracle_vs_prior/evaluate_*.py`
-- Econometric grid stats: `experiments/econometric_baseline/compute_*.py`
-- Co-integration tests: `experiments/cointegration/test_*.py`
-- Volatility smile: `experiments/vol_smile/compare_*.py`
+**Experiment-specific scripts:** See `experiments/` subdirectories for evaluation scripts (backfill, oracle_vs_prior, econometric_baseline, cointegration, vol_smile).
 
-**eval_scripts/ directory:**
-- `sabr_backward_model.py` - SABR model implementation for comparison
-- `eval_single_day.py` / `eval_multi_day.py` - Evaluation utilities
-- `eval_utils.py` - Common evaluation functions
-- `gradient_check.py` - Gradient verification for training
+**Utilities:** `eval_scripts/` (SABR model, evaluation utilities), `test_code/` (autoregressive tests, quantile decoder tests)
 
-**test_code/ directory:**
-- `test_autoregressive_generation.py` - Test autoregressive sequence generation
-- `test_quantile_decoder.py` - Test quantile regression decoder
-
-**archived_experiments/ directory:**
-- `validation_scripts/` - Old validation and test scripts
-- `test_horizon5/`, `test_phase3_output/`, etc. - Experimental outputs
+For complete script listing, see `experiments/README.md`.
 
 ## Bootstrap Baseline
 
-Non-parametric baseline using bootstrap sampling and autoregressive generation. See [`experiments/bootstrap_baseline/`](experiments/bootstrap_baseline/) for implementation.
+Non-parametric baseline using bootstrap sampling from historical residuals and autoregressive 30-day sequence generation. Includes in-sequence IV-EWMA co-integration tests and comparison vs VAE/econometric baselines.
 
-**Key Scripts:**
-```bash
-# Generate bootstrap predictions
-python experiments/bootstrap_baseline/generate_bootstrap_predictions.py
-python experiments/bootstrap_baseline/generate_bootstrap_autoregressive.py
-
-# Analysis
-python experiments/bootstrap_baseline/test_insequence_cointegration.py  # Co-integration testing
-python experiments/bootstrap_baseline/compare_ci_calibration.py         # CI calibration
-python experiments/bootstrap_baseline/compare_rmse_all_methods.py       # RMSE comparison
-```
-
-**Features:**
-- Bootstrap sampling from historical residuals
-- Autoregressive 30-day sequence generation
-- In-sequence IV-EWMA co-integration tests (dual-level: per-sequence + aggregate)
-- Comparison vs VAE and econometric baselines
+See `experiments/bootstrap_baseline/` for implementation and scripts.
 
 ## Baseline Comparisons
 
@@ -830,98 +304,34 @@ Additional baseline comparison studies available. See `results/presentations/ANA
 
 ## Common Development Patterns
 
-**Loading a Trained Model:**
+**Loading a model:**
 ```python
 model_data = torch.load("path/to/model.pt")
-model_config = model_data["model_config"]
-model = CVAEMemRand(model_config)
+model = CVAEMemRand(model_data["model_config"])
 model.load_weights(dict_to_load=model_data)
 model.eval()
 ```
 
-**Generating Surfaces (Standard Models):**
-```python
-ctx_data = {
-    "surface": torch.tensor(...),  # (B, C, 5, 5)
-    "ex_feats": torch.tensor(...)  # (B, C, 3) - optional
-}
-generated_surface = model.get_surface_given_conditions(ctx_data)
-# Returns: (B, 1, 5, 5) surface for next day
-```
+**Generating predictions:**
+- Standard models: Returns (B, 1, 5, 5)
+- Quantile models: Returns (B, 1, 3, 5, 5) for p05/p50/p95
 
-**Generating Surfaces (Quantile Models):**
-```python
-ctx_data = {
-    "surface": torch.tensor(...),  # (B, C, 5, 5)
-    "ex_feats": torch.tensor(...)  # (B, C, 3) - optional
-}
-generated_surfaces = model.get_surface_given_conditions(ctx_data)
-# Returns: (B, 1, 3, 5, 5) - 3 quantile surfaces for next day
-# generated_surfaces[:, :, 0, :, :] - p05 (lower bound)
-# generated_surfaces[:, :, 1, :, :] - p50 (median)
-# generated_surfaces[:, :, 2, :, :] - p95 (upper bound)
-```
+**Autoregressive generation:** `model.generate_autoregressive_sequence(initial_context, horizon=30)`
 
-**Autoregressive Multi-Step Generation:**
-```python
-# Generate 30-day sequence by feeding predictions back as context
-initial_context = {
-    "surface": torch.tensor(...),  # (B, C, 5, 5)
-    "ex_feats": torch.tensor(...)  # (B, C, 3) - optional
-}
+For detailed code examples, data preprocessing workflow, and usage patterns, see `DEVELOPMENT.md`.
 
-with torch.no_grad():
-    result = model.generate_autoregressive_sequence(
-        initial_context=initial_context,
-        horizon=30
-    )
+## Data Preprocessing
 
-# For surface-only models (no_ex):
-# result = (B, 30, 3, 5, 5) - 3 quantiles × 30 days
+**Source data:** WRDS OptionMetrics Ivy DB (SPX options, 2000-2023) + Yahoo Finance (SPX prices)
 
-# For ex_feats models (ex_no_loss, ex_loss):
-# result = (surfaces, ex_feats) tuple
-# surfaces: (B, 30, 3, 5, 5)
-# ex_feats: (B, 30, 3)
+**Preprocessing pipeline:**
+1. `spx_volsurface_generation.ipynb`: Clean raw data, generate interpolated IVS
+2. `spx_convert_to_grid.ipynb`: Convert to 5×5 grids
+3. Output: `data/vol_surface_with_ret.npz` (main training data)
 
-# Extract quantiles across all 30 days
-p05 = result[:, :, 0, :, :]  # (B, 30, 5, 5) - lower bound
-p50 = result[:, :, 1, :, :]  # (B, 30, 5, 5) - median forecast
-p95 = result[:, :, 2, :, :]  # (B, 30, 5, 5) - upper bound
-```
+**Pre-trained models:** https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
 
-**Key details:**
-- Uses p50 (median) as point estimate for context updates
-- Sliding window: drops oldest, appends new prediction each step
-- Supports all 3 variants without modification
-- **Autoregressive** (error accumulation): For better performance, use multi-horizon training (see Multi-Horizon Training section)
-- Models trained with `horizon > 1` predict multiple days simultaneously without autoregressive error accumulation
-
-**Data Preprocessing:**
-Data should be downloaded from WRDS (OptionMetrics Ivy DB) and preprocessed using notebooks in the project root. The preprocessing pipeline generates 5×5 interpolated volatility surface grids from option prices.
-
-**WRDS Data Download Instructions:**
-1. OptionMetrics/Ivy DB US/Options/Option Prices
-2. Date Range: 2000-01-01 to 2023-02-28
-3. SECID = 108105 (S&P 500)
-4. Option Type: Both, Exercise Type: Both, Security Type: Both
-5. Query Variables: all
-6. Output Format: *.csv, Compression: *.zip, Date Format: YYYY-MM-DD
-7. Save as `data/spx.zip`
-
-**Additional Data Required:**
-- S&P 500 stock prices from Yahoo Finance (ticker: `^GSPC`)
-- Save as `data/GSPC.csv`
-
-**Preprocessing Workflow:**
-1. Run `spx_volsurface_generation.ipynb`: Cleans raw data and generates interpolated IVS dataframe
-2. Run `spx_convert_to_grid.ipynb`: Converts dataframe to 5×5 numpy grids
-3. Output files:
-   - `data/vol_surface_with_ret.npz` - Main training data
-   - `data/spx_vol_surface_history_full_data_fixed.parquet` - Full SPX history
-
-**Pre-trained Models:**
-Models and parsed data available at: https://drive.google.com/drive/folders/1W3KsAJ0YQzK2qnk0c-OIgj26oCAO3NI1?usp=sharing
+For detailed download instructions and workflow, see `DEVELOPMENT.md`.
 
 ## Important Notes After Reorganization
 
