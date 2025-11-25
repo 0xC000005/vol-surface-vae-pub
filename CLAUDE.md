@@ -223,6 +223,10 @@ Generated surfaces stored in npz files:
 - `latent_pca.py`: PCA analysis of latent space
 - `arbitrage.py`: Check for arbitrage-free properties in generated surfaces
 - `loss_table.py`: Format and generate loss comparison tables
+- `diagnose_distribution_shape.py`: Distribution shape diagnostics (kurtosis/skewness)
+- `analyze_shape_vs_horizon.py`: Shape mismatch degradation across horizons
+- `create_shape_diagnostic_heatmaps.py`: 5×5 grid heatmaps of shape differences
+- `visualize_tail_behavior.py`: Q-Q plots and tail probability analysis
 
 **Main Analysis Workflow (main_analysis.py):**
 1. Load trained models and generate surfaces
@@ -797,6 +801,28 @@ python compute_grid_ci_stats.py              # CI violations per grid point
 **archived_experiments/ directory:**
 - `validation_scripts/` - Old validation and test scripts
 - `test_horizon5/`, `test_phase3_output/`, etc. - Experimental outputs
+
+## Bootstrap Baseline
+
+Non-parametric baseline using bootstrap sampling and autoregressive generation. See [`experiments/bootstrap_baseline/`](experiments/bootstrap_baseline/) for implementation.
+
+**Key Scripts:**
+```bash
+# Generate bootstrap predictions
+python experiments/bootstrap_baseline/generate_bootstrap_predictions.py
+python experiments/bootstrap_baseline/generate_bootstrap_autoregressive.py
+
+# Analysis
+python experiments/bootstrap_baseline/test_insequence_cointegration.py  # Co-integration testing
+python experiments/bootstrap_baseline/compare_ci_calibration.py         # CI calibration
+python experiments/bootstrap_baseline/compare_rmse_all_methods.py       # RMSE comparison
+```
+
+**Features:**
+- Bootstrap sampling from historical residuals
+- Autoregressive 30-day sequence generation
+- In-sequence IV-EWMA co-integration tests (dual-level: per-sequence + aggregate)
+- Comparison vs VAE and econometric baselines
 
 ## Baseline Comparisons
 

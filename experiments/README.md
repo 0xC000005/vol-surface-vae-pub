@@ -33,6 +33,12 @@ Studies on multi-horizon volatility surface backfilling using VAE models.
   - Bootstrap sampling with AR(1) backward recursion
   - Comparison scripts vs VAE models
 
+- **`bootstrap_baseline/`** - Non-parametric bootstrap baseline
+  - Bootstrap sampling from historical residuals
+  - Autoregressive 30-day sequence generation
+  - In-sequence co-integration testing
+  - RMSE and CI calibration comparisons
+
 - **`oracle_vs_prior/`** - VAE prior mismatch analysis
   - Oracle (posterior sampling) vs Prior (z ~ N(0,1))
   - Performance evaluation scripts
