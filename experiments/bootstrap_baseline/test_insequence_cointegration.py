@@ -44,14 +44,14 @@ from insequence_cointegration_utils import (
 )
 
 
-def load_data():
+def load_data(period):
     """Load bootstrap AR predictions and ground truth data."""
     print("Loading data...")
 
     # Bootstrap AR predictions
-    ar_file = "results/bootstrap_baseline/predictions/autoregressive/bootstrap_ar_crisis.npz"
+    ar_file = f"results/bootstrap_baseline/predictions/autoregressive/bootstrap_ar_{period}.npz"
     ar_data = np.load(ar_file)
-    ar_surfaces = ar_data['surfaces']  # (766, 30, 3, 5, 5)
+    ar_surfaces = ar_data['surfaces']  # (n_days, 30, 3, 5, 5)
     print(f"  Bootstrap AR: {ar_surfaces.shape}")
 
     # Ground truth data
@@ -65,9 +65,9 @@ def load_data():
     return ar_surfaces, returns, gt_surfaces
 
 
-def test_per_sequence_cointegration(ar_surfaces, returns, crisis_start, crisis_end):
+def test_per_sequence_cointegration(ar_surfaces, returns, period_start, period_end):
     """
-    Test co-integration for each of 766 sequences individually.
+    Test co-integration for each sequence individually.
 
     For each sequence and grid point:
     - Extract 30-day IV series
@@ -76,24 +76,23 @@ def test_per_sequence_cointegration(ar_surfaces, returns, crisis_start, crisis_e
     - Record pass/fail, p-value, regression stats
 
     Args:
-        ar_surfaces: (766, 30, 3, 5, 5)
+        ar_surfaces: (n_seq, 30, 3, 5, 5)
         returns: (5822,)
-        crisis_start: int (e.g., 2000)
-        crisis_end: int (e.g., 2765)
+        period_start: int (e.g., 2000 for crisis, 0 for insample)
+        period_end: int (e.g., 2765 for crisis, 3900 for insample)
 
     Returns:
         dict with:
-            - pvalues: (737, 5, 5) p-values
-            - cointegrated: (737, 5, 5) bool pass/fail
+            - pvalues: (n_valid_seq, 5, 5) p-values
+            - cointegrated: (n_valid_seq, 5, 5) bool pass/fail
             - pass_rates: (5, 5) % of sequences passing per grid
-            - rsquared: (737, 5, 5) R² values
-            - alpha1: (737, 5, 5) EWMA coefficients
+            - rsquared: (n_valid_seq, 5, 5) R² values
+            - alpha1: (n_valid_seq, 5, 5) EWMA coefficients
     """
     n_seq, n_days, n_quantiles, n_rows, n_cols = ar_surfaces.shape
 
     # Only process sequences that have full 30-day EWMA data
-    # Crisis period: 766 days, 30-day sequences can start from day 0 to 736
-    n_valid_seq = crisis_end - crisis_start + 1 - n_days + 1  # 766 - 30 + 1 = 737
+    n_valid_seq = period_end - period_start + 1 - n_days + 1
     print(f"  Valid sequences with full 30-day data: {n_valid_seq} (out of {n_seq})")
 
     # Initialize storage
@@ -104,10 +103,10 @@ def test_per_sequence_cointegration(ar_surfaces, returns, crisis_start, crisis_e
     beta = np.zeros((n_valid_seq, n_rows, n_cols))
 
     # Extract p50 median
-    p50 = ar_surfaces[:, :, 1, :, :]  # (766, 30, 5, 5)
+    p50 = ar_surfaces[:, :, 1, :, :]  # (n_seq, 30, 5, 5)
 
-    # Extract crisis returns
-    crisis_returns = returns[crisis_start:crisis_end+1]
+    # Extract period returns
+    period_returns = returns[period_start:period_end+1]
 
     print(f"\nTesting per-sequence co-integration ({n_valid_seq} sequences × 25 grid points)...")
 
@@ -117,10 +116,10 @@ def test_per_sequence_cointegration(ar_surfaces, returns, crisis_start, crisis_e
         iv_sequence = p50[seq_idx, :, :, :]  # (30, 5, 5)
 
         # Compute EWMA for this sequence
-        # Sequence starts at crisis_start + seq_idx
+        # Sequence starts at period_start + seq_idx
         start_idx = seq_idx
         ewma_sequence = compute_ewma_for_sequence(
-            crisis_returns, start_idx, n_days=30
+            period_returns, start_idx, n_days=30
         )
 
         # Test each grid point
@@ -170,9 +169,9 @@ def main():
     parser.add_argument(
         '--period',
         type=str,
-        choices=['crisis'],
+        choices=['crisis', 'insample', 'oos'],
         default='crisis',
-        help='Period to analyze (currently only crisis supported)'
+        help='Period to analyze: crisis (2008-2010), insample (2004-2019), oos (2019-2023)'
     )
     args = parser.parse_args()
 
@@ -184,27 +183,50 @@ def main():
     print(f"  ADF lags: {ADF_LAGS} (reduced for 30-day sequences)")
     print(f"  Significance: {ADF_ALPHA} (conservative for low power)")
 
-    # Crisis period configuration
-    crisis_start = 2000
-    crisis_end = 2765
-    n_crisis_days = crisis_end - crisis_start + 1
+    # Period configuration
+    PERIOD_CONFIG = {
+        'crisis': {
+            'start_idx': 2000,
+            'end_idx': 2765,
+            'name': 'Crisis (2008-2010)',
+            'ground_truth_rate': 0.84
+        },
+        'insample': {
+            'start_idx': 0,
+            'end_idx': 3900,
+            'name': 'In-Sample (2004-2019)',
+            'ground_truth_rate': 0.96
+        },
+        'oos': {
+            'start_idx': 5000,
+            'end_idx': 5792,
+            'name': 'Out-of-Sample (2019-2023)',
+            'ground_truth_rate': 0.72
+        }
+    }
 
-    print(f"\nCrisis Period:")
-    print(f"  Indices: {crisis_start}-{crisis_end}")
-    print(f"  Days: {n_crisis_days}")
+    config = PERIOD_CONFIG[args.period]
+    period_start = config['start_idx']
+    period_end = config['end_idx']
+    period_name = config['name']
+    n_period_days = period_end - period_start + 1
+
+    print(f"\n{period_name}:")
+    print(f"  Indices: {period_start}-{period_end}")
+    print(f"  Days: {n_period_days}")
 
     # Load data
     print("\n" + "="*80)
     print("Loading Data")
     print("="*80)
-    ar_surfaces, returns, gt_surfaces = load_data()
+    ar_surfaces, returns, gt_surfaces = load_data(args.period)
 
     # Layer 1: Per-Sequence Testing
     print("\n" + "="*80)
     print("Layer 1: Per-Sequence Individual Tests")
     print("="*80)
     per_seq_results = test_per_sequence_cointegration(
-        ar_surfaces, returns, crisis_start, crisis_end
+        ar_surfaces, returns, period_start, period_end
     )
 
     # Layer 2: Aggregate Pooled Testing
@@ -213,7 +235,7 @@ def main():
     print("="*80)
     print("Pooling all sequences for robust inference...")
     aggregate_results = test_aggregate_pooled(
-        ar_surfaces, returns, crisis_start, crisis_end,
+        ar_surfaces, returns, period_start, period_end,
         lags=ADF_LAGS, alpha=ADF_ALPHA
     )
 
@@ -228,10 +250,10 @@ def main():
     print("Layer 3: Comparative Context")
     print("="*80)
 
-    # Compare to ground truth baseline (84% for crisis from milestone)
+    # Compare to ground truth baseline from config
     comparison = compute_baseline_comparison(
         per_seq_results['pass_rates'],
-        ground_truth_rate=0.84
+        ground_truth_rate=config['ground_truth_rate']
     )
 
     print(f"\nComparison to Ground Truth (Milestone Baseline):")
@@ -245,7 +267,7 @@ def main():
     print("Saving Results")
     print("="*80)
 
-    output_dir = Path("results/bootstrap_baseline/analysis/insequence")
+    output_dir = Path(f"results/bootstrap_baseline/analysis/insequence/{args.period}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save NPZ files
