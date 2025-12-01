@@ -214,6 +214,7 @@ streamlit_vol_surface_viewer.py
 # Econometric methodology documentation
 experiments/econometric_baseline/ECONOMETRIC_METHODOLOGY.md
 experiments/econometric_baseline/README.md
+experiments/econometric_baseline/
 
 # Note: Econometric data/results already covered by:
 # - tables/ (line 160) - covers all econometric result directories

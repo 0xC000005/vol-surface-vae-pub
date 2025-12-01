@@ -51,6 +51,76 @@ python experiments/backfill/context20/test_vae_prior_insample_16yr.py
 python experiments/backfill/context20/test_vae_prior_oos_16yr.py
 ```
 
+## Teacher Forcing Sequence Generation (Multi-Period, Multi-Horizon)
+
+**Generate full H-day sequences with configurable sampling strategy:**
+
+The generation pipeline supports two sampling modes:
+- **`oracle`** (default): Posterior sampling q(z|context,target) - uses future knowledge (upper bound)
+- **`prior`**: Realistic sampling with context only - z[:,:C] = posterior_mean, z[:,C:] ~ N(0,1)
+
+```bash
+# Generate single period with oracle sampling
+python experiments/backfill/context20/generate_vae_tf_sequences.py --period crisis --sampling_mode oracle
+
+# Generate single period with prior sampling (realistic)
+python experiments/backfill/context20/generate_vae_tf_sequences.py --period oos --sampling_mode prior
+
+# Generate all periods (crisis, insample, oos, gap) for one sampling mode
+bash experiments/backfill/context20/run_generate_all_tf_sequences.sh oracle
+bash experiments/backfill/context20/run_generate_all_tf_sequences.sh prior
+
+# Validate generated files
+python experiments/backfill/context20/validate_vae_tf_sequences.py --sampling_mode oracle
+python experiments/backfill/context20/validate_vae_tf_sequences.py --sampling_mode prior
+```
+
+**Output structure:**
+```
+results/vae_baseline/predictions/autoregressive/
+├── oracle/
+│   ├── vae_tf_crisis_h{1,7,14,30}.npz
+│   ├── vae_tf_insample_h{1,7,14,30}.npz
+│   ├── vae_tf_oos_h{1,7,14,30}.npz
+│   └── vae_tf_gap_h{1,7,14,30}.npz
+└── prior/
+    ├── vae_tf_crisis_h{1,7,14,30}.npz
+    ├── vae_tf_insample_h{1,7,14,30}.npz
+    ├── vae_tf_oos_h{1,7,14,30}.npz
+    └── vae_tf_gap_h{1,7,14,30}.npz
+```
+
+**Analysis Pipeline:**
+
+All analysis scripts support `--sampling_mode oracle/prior` parameter:
+
+```bash
+# 1. Compute CI width statistics
+python experiments/backfill/context20/compute_sequence_ci_width_stats.py --sampling_mode oracle
+python experiments/backfill/context20/compute_sequence_ci_width_stats.py --sampling_mode prior
+
+# 2. Merge gap period statistics (if needed)
+python experiments/backfill/context20/compute_gap_ci_stats.py --sampling_mode oracle
+
+# 3. Visualize time series
+python experiments/backfill/context20/visualize_sequence_ci_width.py --period insample --sampling_mode oracle
+python experiments/backfill/context20/visualize_sequence_ci_width_combined.py --sampling_mode prior
+
+# 4. Correlation analysis
+python experiments/backfill/context20/analyze_sequence_ci_correlations.py --sampling_mode oracle
+
+# 5. Identify extreme events
+python experiments/backfill/context20/identify_ci_width_events.py --sampling_mode prior
+
+# 6. Compare oracle vs prior
+python experiments/backfill/context20/compare_oracle_vs_prior_ci.py
+```
+
+**Key Findings:**
+- Prior CIs are ~2-3× wider than oracle CIs (VAE prior mismatch)
+- All differences statistically significant (p < 0.001)
+- Demonstrates realistic uncertainty quantification vs upper bound performance
+
 ## Evaluation
 
 **CI Calibration:**

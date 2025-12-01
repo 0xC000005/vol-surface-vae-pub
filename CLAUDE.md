@@ -22,7 +22,7 @@ vol-surface-vae-pub/
 ├── data/                   # Input data files
 ├── experiments/            # Experiment-specific scripts (organized by research question)
 │   ├── backfill/          # Multi-horizon backfilling experiments
-│   │   ├── context20/     # Production model (16-year training, 18 scripts)
+│   │   ├── context20/     # Production model (16-year training, 34 scripts)
 │   │   ├── context60/     # Context length ablation study (3 scripts)
 │   │   └── horizon5/      # Multi-horizon validation (4 scripts)
 │   ├── econometric_baseline/  # Co-integration baseline (9 scripts)
@@ -202,6 +202,59 @@ Quantile regression variant addresses CI calibration issues by directly predicti
 
 For detailed methodology, pinball loss formula, verification results, and implementation, see `experiments/backfill/QUANTILE_REGRESSION.md`.
 
+## VAE Sampling Strategies
+
+The VAE teacher forcing generation supports two sampling strategies for latent variable z, controlled via `--sampling_mode` parameter:
+
+**Oracle (Posterior) Sampling:**
+- Uses `model.forward(context+target)` → z ~ q(z|context, target)
+- Encoder sees full sequence including future target data
+- Represents upper bound performance (not realistic deployment)
+- Produces tighter confidence intervals (~2-3× narrower than prior)
+
+**Prior (Realistic) Sampling:**
+- Uses `model.get_surface_given_conditions(context)` with hybrid sampling
+- z[:,:C] = posterior_mean (deterministic context encoding)
+- z[:,C:] ~ N(0,1) (stochastic future, no target knowledge)
+- Represents realistic deployment scenario
+- Produces wider confidence intervals due to VAE prior mismatch
+
+**File Organization:**
+```
+results/vae_baseline/
+├── predictions/autoregressive/
+│   ├── oracle/           # Posterior sampling results
+│   │   └── vae_tf_*.npz
+│   └── prior/            # Prior sampling results
+│       └── vae_tf_*.npz
+└── analysis/
+    ├── oracle/           # Oracle CI statistics and reports
+    └── prior/            # Prior CI statistics and reports
+```
+
+**Usage:**
+```bash
+# Oracle sampling (default)
+python experiments/backfill/context20/generate_vae_tf_sequences.py --period crisis --sampling_mode oracle
+
+# Prior sampling (realistic)
+python experiments/backfill/context20/generate_vae_tf_sequences.py --period crisis --sampling_mode prior
+
+# Run all periods for prior mode
+bash experiments/backfill/context20/run_generate_all_tf_sequences.sh prior
+
+# Compare oracle vs prior
+python experiments/backfill/context20/compare_oracle_vs_prior_ci.py
+```
+
+**Key Findings:**
+- Prior CIs are ~2-3× wider than oracle CIs on average
+- All significant differences (p < 0.001) across periods and horizons
+- Demonstrates VAE prior mismatch: p(z|context) ≠ p(z|context+target)
+- Critical for understanding realistic model uncertainty in deployment
+
+All analysis scripts support `--sampling_mode oracle/prior` parameter for separate analysis of each strategy.
+
 ## Multi-Horizon Training
 
 Models support `horizon > 1` to predict multiple days simultaneously, avoiding autoregressive error accumulation.
@@ -296,7 +349,9 @@ For complete script listing, see `experiments/README.md`.
 
 Non-parametric baseline using bootstrap sampling from historical residuals and autoregressive 30-day sequence generation. Includes in-sequence IV-EWMA co-integration tests and comparison vs VAE/econometric baselines.
 
-See `experiments/bootstrap_baseline/` for implementation and scripts.
+**Important methodological note:** Bootstrap co-integration tests use **in-sequence** testing (testing all 30 days within each generated sequence), while VAE and econometric tests use **cross-sectional** testing (testing predictions at specific horizons across many dates). Both use ADF tests but measure different properties - cross-sectional tests measure endpoint accuracy, in-sequence tests measure trajectory coherence. Results are not directly comparable.
+
+See `experiments/bootstrap_baseline/` for implementation and `experiments/README.md` for detailed methodology comparison.
 
 ## Baseline Comparisons
 

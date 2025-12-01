@@ -579,12 +579,24 @@ class CVAEMemRand(BaseVAE):
         if self.horizon < 1:
             raise ValueError(f"horizon must be >= 1, got {self.horizon}")
 
-    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
+    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None):
         '''
-            Input:
-                c: context dictionary, "surface" have shape (B,C,H,W) or (C,H,W), "ex_feats" have shape (B, C, ex_feats_dim) or (C, ex_feats_dim)
-                z: pre-generated latent samples, must be of shape (T,latent_dim) or (B,T,latent_dim), 
-                mu, std: if z is not given, will be sampled from mu and std as normal distribution
+        Generate surface given context only (realistic deployment).
+
+        Args:
+            c: context dictionary with "surface" (B,C,H,W) and "ex_feats" (B,C,3)
+            z: pre-generated latent samples (B,T,latent_dim). If None, uses hybrid sampling:
+               - z[:, :C, :] = posterior mean from context (deterministic)
+               - z[:, C:C+horizon, :] = sampled from N(mu, std) (stochastic)
+            mu: Mean for future latent sampling (default: 0)
+            std: Std for future latent sampling (default: 1)
+            horizon: Number of days to forecast. If None, uses self.horizon
+
+        Returns:
+            If ex_feats present: (surf_pred, ex_pred) where:
+                - surf_pred: (B, horizon, 3, 5, 5)
+                - ex_pred: (B, horizon, 3)
+            Otherwise: surf_pred only
         '''
 
         ctx_surface = c["surface"].to(self.device)
@@ -592,7 +604,12 @@ class CVAEMemRand(BaseVAE):
             ctx_surface = ctx_surface.unsqueeze(0)
         C = ctx_surface.shape[1]
         B = ctx_surface.shape[0]
-        T = C + 1
+
+        # Use provided horizon or model's default
+        if horizon is None:
+            horizon = self.horizon
+
+        T = C + horizon
         ctx = {"surface": ctx_surface}
 
         if "ex_feats" in c:
