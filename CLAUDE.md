@@ -323,6 +323,14 @@ Econometric baseline using IV-EWMA co-integration for comparison with VAE.
 
 For methodology, scripts, and detailed comparison, see `experiments/econometric_baseline/README.md`.
 
+## CI Width Analysis & Regime Visualization
+
+8-script suite for investigating why the VAE widens confidence intervals and demonstrating intelligent pattern recognition across market regimes. Includes systematic regression analysis, multi-regime overlay visualizations, and extreme moment analysis.
+
+**Key findings:** Spatial features (slopes, skews) dominate CI width explanation (68-75%); model demonstrates pre-crisis detection by widening CIs based on surface shape anomalies, not just volatility levels.
+
+See `experiments/backfill/context20/CI_WIDTH_ANALYSIS.md` for detailed documentation of all scripts, usage examples, and outputs.
+
 ## Visualization Tools
 
 **Interactive Streamlit App:**
