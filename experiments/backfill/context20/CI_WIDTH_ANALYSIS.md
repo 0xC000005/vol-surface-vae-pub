@@ -161,8 +161,11 @@ python experiments/backfill/context20/visualize_top_ci_width_moments.py --sampli
 
 4. **VAE prior mismatch**: Prior CIs are ~2-3× wider than oracle (all p < 0.001)
 
+5. **OOS feature importance shifts**: Period-stratified analysis reveals spatial dominance weakens in out-of-sample data (1.33× → 1.13×, -15% at H=30) while feature distributions shift significantly (1.5-1.9× variance increase). Explains why CI violations increase 55% in OOS (18% → 28%) - see detailed analysis below.
+
 ## Related Documentation
 
+- **Period comparison analysis:** `results/vae_baseline/analysis/period_comparison/INSAMPLE_VS_OOS_COMPARISON.md` - Comprehensive investigation of why OOS CI violations increase instead of model widening CIs
 - Main project docs: `CLAUDE.md` (VAE Sampling Strategies section)
 - Quantile regression: `experiments/backfill/QUANTILE_REGRESSION.md`
 - Context20 workflow: `experiments/backfill/context20/README.md`
