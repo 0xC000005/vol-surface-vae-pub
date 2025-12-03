@@ -734,6 +734,122 @@ class CVAEMemRand(BaseVAE):
         else:
             return surfaces_out
 
+    def generate_autoregressive_offset(
+        self,
+        initial_context: Dict[str, torch.Tensor],
+        ar_steps: int = 3,
+        horizon: int = 60,
+        offset: int = 60,
+        z: Optional[torch.Tensor] = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Generate multi-step autoregressive sequence using offset-based chunking.
+
+        This method matches the training approach for phases 3-4:
+        - Phase 3: ar_steps=3, horizon=60, offset=60 → 180 days total
+        - Phase 4: ar_steps=3, horizon=90, offset=90 → 270 days total
+
+        Each step generates 'horizon' days, then slides context window by 'offset' days.
+        This is MUCH faster than day-by-day AR (3 calls vs 180/270 calls).
+
+        Args:
+            initial_context: dict with keys:
+                - "surface": (B, C, 5, 5) - C days of context
+                - "ex_feats": optional (B, C, 3) - extra features
+            ar_steps: Number of AR steps (default 3)
+            horizon: Days to generate per step (60 or 90)
+            offset: Context window shift amount (60 or 90 for deployment)
+            z: Optional pre-sampled latents (not used, model samples internally)
+
+        Returns:
+            If ex_feats in context:
+                tuple of (surfaces, ex_feats)
+                - surfaces: (B, ar_steps*horizon, 3, 5, 5)
+                - ex_feats: (B, ar_steps*horizon, 3)
+            Else:
+                surfaces: (B, ar_steps*horizon, 3, 5, 5)
+
+        Example:
+            # 180-day generation
+            surf, ex = model.generate_autoregressive_offset(
+                context, ar_steps=3, horizon=60, offset=60
+            )
+            # surf.shape = (1, 180, 3, 5, 5)
+        """
+        # Validate inputs
+        if "surface" not in initial_context:
+            raise ValueError("initial_context must contain 'surface' key")
+
+        C = self.config.get("context_len", 60)
+        has_ex_feats = "ex_feats" in initial_context
+
+        # Validate context length
+        context_surface_len = initial_context["surface"].shape[1]
+        if context_surface_len != C:
+            raise ValueError(f"Context length must be {C}, got {context_surface_len}")
+
+        # Clone initial context to avoid modifying input
+        context = {k: v.clone() if torch.is_tensor(v) else v
+                   for k, v in initial_context.items()}
+
+        # Storage for all predictions
+        all_surfaces = []
+        all_ex_feats = [] if has_ex_feats else None
+
+        # Store median predictions for context updates
+        median_surfaces = []
+        median_ex_feats = [] if has_ex_feats else None
+
+        # Autoregressive rollout
+        for step in range(ar_steps):
+            # Temporarily set model horizon
+            original_horizon = self.horizon
+            self.horizon = horizon
+
+            # Generate prediction for this step
+            result = self.get_surface_given_conditions(context, z=None)
+
+            self.horizon = original_horizon
+
+            # Handle return format
+            if has_ex_feats:
+                pred_surface, pred_ex_feat = result  # (B, horizon, 3, 5, 5), (B, horizon, 3)
+                all_surfaces.append(pred_surface)
+                all_ex_feats.append(pred_ex_feat)
+
+                # Extract p50 median for context update
+                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
+                median_surfaces.append(pred_median_surf)
+                median_ex_feats.append(pred_ex_feat)  # Ex_feats have no quantiles
+            else:
+                pred_surface = result  # (B, horizon, 3, 5, 5)
+                all_surfaces.append(pred_surface)
+
+                # Extract p50 median
+                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
+                median_surfaces.append(pred_median_surf)
+
+            # Update context for next step (if not last step)
+            if step < ar_steps - 1:
+                # Concatenate all median predictions so far
+                concat_medians = torch.cat(median_surfaces, dim=1)  # (B, (step+1)*horizon, 5, 5)
+
+                # Take last C days as new context
+                context["surface"] = concat_medians[:, -C:, :, :]  # (B, C, 5, 5)
+
+                if has_ex_feats:
+                    concat_ex = torch.cat(median_ex_feats, dim=1)  # (B, (step+1)*horizon, 3)
+                    context["ex_feats"] = concat_ex[:, -C:, :]  # (B, C, 3)
+
+        # Concatenate all predictions
+        surfaces_out = torch.cat(all_surfaces, dim=1)  # (B, ar_steps*horizon, 3, 5, 5)
+
+        if has_ex_feats:
+            ex_feats_out = torch.cat(all_ex_feats, dim=1)  # (B, ar_steps*horizon, 3)
+            return surfaces_out, ex_feats_out
+        else:
+            return surfaces_out
+
     def _update_context(
         self,
         context: Dict[str, torch.Tensor],
