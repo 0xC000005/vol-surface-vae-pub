@@ -157,4 +157,65 @@ model/
 models/
 .vscode/
 test_spx/
-tables
+models_1d_backfilling/
+
+*.log
+
+# Generated results and analysis outputs (renamed from tables/)
+results/
+tables/  # Keep for backwards compatibility
+
+# Archived test outputs and experiments
+archived_experiments/test_*/
+archived_experiments/**/test_*/
+test_horizon5/  # Legacy location, now in archived_experiments/
+test_phase3_output/  # Legacy location, now in archived_experiments/
+test_scheduled_sampling_output/  # Legacy location, now in archived_experiments/
+models_backfill/  # Legacy location, now models/backfill/ (covered by models/ above)
+
+# OS-specific files
+.DS_Store
+*.DS_Store
+Thumbs.db
+
+# Econometric baseline model (CONFIDENTIAL - all scripts and data)
+# Generation scripts
+econometric_backfill_*.py
+econometric_backfill_2008_2010.py
+econometric_backfill_oos.py
+econometric_backfill_insample.py
+
+# Computation scripts
+compute_econometric_*.py
+compute_econometric_grid_stats.py
+compute_all_econometric_grid_stats.py
+compute_econometric_rmse_grid_stats.py
+compute_econometric_insample_violations.py
+
+# Comparison scripts
+compare_econometric_*.py
+compare_econometric_vs_vae_backfill.py
+compare_econometric_vs_vae_oos.py
+test_cointegration_preservation.py
+
+# Analysis scripts
+analysis_code/cointegration_analysis.py
+analysis_code/visualize_econometric_vs_vae.py
+analysis_code/visualize_preservation_and_oos.py
+
+# Smile preservation (includes econometric)
+compare_vol_smile_preservation.py
+compile_vol_smile_tables.py
+analyze_vol_smile_training.py
+
+# Streamlit viewer (allows econometric visualization)
+streamlit_vol_surface_viewer.py
+
+# Econometric methodology documentation
+experiments/econometric_baseline/ECONOMETRIC_METHODOLOGY.md
+experiments/econometric_baseline/README.md
+experiments/econometric_baseline/
+
+# Note: Econometric data/results already covered by:
+# - tables/ (line 160) - covers all econometric result directories
+# - models_backfill/ (line 167) - covers any econometric models

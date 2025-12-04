@@ -1,8 +1,48 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from typing import Dict, Union, Tuple, Optional
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
+
+
+class QuantileLoss(nn.Module):
+    """
+    Pinball loss for quantile regression.
+
+    For quantile τ ∈ [0,1]:
+    L_τ(y, ŷ) = max((τ-1)×(y-ŷ), τ×(y-ŷ))
+
+    Asymmetric penalty:
+    - τ=0.05: penalizes under-prediction more (wants most values above)
+    - τ=0.50: reduces to MAE (mean absolute error)
+    - τ=0.95: penalizes over-prediction more (wants most values below)
+    """
+    def __init__(self, quantiles=[0.05, 0.5, 0.95], weights=None):
+        super().__init__()
+        self.register_buffer('quantiles', torch.tensor(quantiles, dtype=torch.float64))
+        if weights is None:
+            weights = [1.0] * len(quantiles)
+        self.register_buffer('weights', torch.tensor(weights, dtype=torch.float64))
+
+    def forward(self, preds, target):
+        """
+        Args:
+            preds: (B, T, num_quantiles, H, W) - quantile predictions
+            target: (B, T, H, W) - ground truth
+
+        Returns:
+            Scalar loss (averaged over all quantiles and elements)
+        """
+        losses = []
+        for i, q in enumerate(self.quantiles):
+            pred_q = preds[:, :, i, :, :]  # (B, T, H, W)
+            error = target - pred_q  # (B, T, H, W)
+            loss_q = torch.max((q-1)*error, q*error)
+            losses.append(torch.mean(loss_q))
+
+        losses_tensor = torch.stack(losses)
+        return torch.sum(losses_tensor * self.weights) / torch.sum(self.weights)
+
 
 class CVAEMemRandEncoder(BaseEncoder):
     def __init__(self, config: dict):
@@ -361,7 +401,9 @@ class CVAEMemRandDecoder(BaseDecoder):
             final_size = feat_dim[0] * feat_dim[1]
             surface_decoder["dec_final"] = nn.Linear(in_feats, final_size)
             surface_decoder["dec_final_activation"] = nn.ReLU()
-            surface_decoder["dec_output"] = nn.Linear(final_size, final_size)
+            # Output 3 quantiles worth of values
+            num_quantiles = config.get("num_quantiles", 3)
+            surface_decoder["dec_output"] = nn.Linear(final_size, final_size * num_quantiles)
         else:
             padding = config["padding"]
             deconv_output_padding = config["deconv_output_padding"]
@@ -380,8 +422,10 @@ class CVAEMemRandDecoder(BaseDecoder):
                 kernel_size=3, stride=1, padding=padding, output_padding=deconv_output_padding,
             )
             surface_decoder["dec_final_activation"] = nn.ReLU()
+            # Output 3 channels for quantiles [p5, p50, p95]
+            num_quantiles = config.get("num_quantiles", 3)
             surface_decoder["dec_output"] = nn.Conv2d(
-                in_feats, 1,
+                in_feats, num_quantiles,
                 kernel_size=3, padding="same"
             )
         self.surface_decoder = nn.Sequential(surface_decoder)
@@ -441,6 +485,7 @@ class CVAEMemRandDecoder(BaseDecoder):
         '''
         feat_dim = self.config["feat_dim"]
         ex_feats_dim = self.config["ex_feats_dim"]
+        num_quantiles = self.config.get("num_quantiles", 3)
         # should be on device already
         x, _ = self.mem(x) # (B, T, n_surface+n_info)
         x = self.interaction(x)
@@ -448,10 +493,14 @@ class CVAEMemRandDecoder(BaseDecoder):
         surface_x = self.surface_decoder_input(x) # (B, T, n_surface)
         if self.config["use_dense_surface"]:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size) # (BxT, surface_final_hidden_size)
+            decoded_surface = self.surface_decoder(surface_x)
+            # Reshape to (B, T, num_quantiles, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
         else:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size, feat_dim[0], feat_dim[1]) # (BxT, surface_final_hidden_size, H, W)
-        decoded_surface = self.surface_decoder(surface_x)
-        decoded_surface = decoded_surface.reshape((B, T, feat_dim[0], feat_dim[1]))
+            decoded_surface = self.surface_decoder(surface_x)  # (BxT, num_quantiles, H, W)
+            # Reshape to (B, T, num_quantiles, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
 
         if ex_feats_dim > 0:
             info_x = self.ex_feats_decoder_input(x) # (B, T, n_info)
@@ -510,19 +559,44 @@ class CVAEMemRand(BaseVAE):
         self.encoder = CVAEMemRandEncoder(config)
         self.ctx_encoder = CVAECtxMemRandEncoder(config)
         self.decoder = CVAEMemRandDecoder(config)
-        self.to(self.device)
 
         if config["ex_feats_loss_type"] == "l2":
             self.ex_feats_loss_fn = nn.MSELoss()
         else:
             self.ex_feats_loss_fn = nn.L1Loss()
 
-    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1):
+        # Initialize quantile loss function (always used)
+        self.quantile_loss_fn = QuantileLoss(
+            quantiles=config["quantiles"],
+            weights=config.get("quantile_loss_weights")
+        )
+
+        # Move all modules to device
+        self.to(self.device)
+
+        # Multi-horizon training configuration
+        self.horizon = config.get("horizon", 1)
+        if self.horizon < 1:
+            raise ValueError(f"horizon must be >= 1, got {self.horizon}")
+
+    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None):
         '''
-            Input:
-                c: context dictionary, "surface" have shape (B,C,H,W) or (C,H,W), "ex_feats" have shape (B, C, ex_feats_dim) or (C, ex_feats_dim)
-                z: pre-generated latent samples, must be of shape (T,latent_dim) or (B,T,latent_dim), 
-                mu, std: if z is not given, will be sampled from mu and std as normal distribution
+        Generate surface given context only (realistic deployment).
+
+        Args:
+            c: context dictionary with "surface" (B,C,H,W) and "ex_feats" (B,C,3)
+            z: pre-generated latent samples (B,T,latent_dim). If None, uses hybrid sampling:
+               - z[:, :C, :] = posterior mean from context (deterministic)
+               - z[:, C:C+horizon, :] = sampled from N(mu, std) (stochastic)
+            mu: Mean for future latent sampling (default: 0)
+            std: Std for future latent sampling (default: 1)
+            horizon: Number of days to forecast. If None, uses self.horizon
+
+        Returns:
+            If ex_feats present: (surf_pred, ex_pred) where:
+                - surf_pred: (B, horizon, 3, 5, 5)
+                - ex_pred: (B, horizon, 3)
+            Otherwise: surf_pred only
         '''
 
         ctx_surface = c["surface"].to(self.device)
@@ -530,7 +604,12 @@ class CVAEMemRand(BaseVAE):
             ctx_surface = ctx_surface.unsqueeze(0)
         C = ctx_surface.shape[1]
         B = ctx_surface.shape[0]
-        T = C + 1
+
+        # Use provided horizon or model's default
+        if horizon is None:
+            horizon = self.horizon
+
+        T = C + horizon
         ctx = {"surface": ctx_surface}
 
         if "ex_feats" in c:
@@ -556,11 +635,149 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in c:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :]
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :]
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-            return decoded_surface[:, C:, :, :]
-    
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :]
+
+    def generate_autoregressive_sequence(
+        self,
+        initial_context: Dict[str, torch.Tensor],
+        horizon: int = 30,
+        z: Optional[torch.Tensor] = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Generate multi-step sequence by iteratively feeding predictions back as context.
+
+        This method supports all 3 model variants:
+        - no_ex: Only surface predictions
+        - ex_no_loss: Surface + ex_feats (passive conditioning)
+        - ex_loss: Surface + ex_feats (joint optimization)
+
+        Args:
+            initial_context: dict with keys:
+                - "surface": (B, C, 5, 5) or (C, 5, 5) - context surfaces
+                - "ex_feats": optional, (B, C, 3) or (C, 3) - extra features
+            horizon: int, number of days to generate (default 30)
+            z: optional pre-sampled latents for reproducibility
+
+        Returns:
+            If ex_feats in context:
+                tuple of (surfaces, ex_feats)
+                - surfaces: (B, horizon, 3, 5, 5) - 3 quantiles [p05, p50, p95]
+                - ex_feats: (B, horizon, 3) - 3 features [ret, skew, slope] (no quantiles)
+            Else:
+                surfaces: (B, horizon, 3, 5, 5)
+        """
+        # Validate input
+        if "surface" not in initial_context:
+            raise ValueError("initial_context must contain 'surface' key")
+
+        surface_shape = initial_context["surface"].shape
+        if len(surface_shape) not in [3, 4]:
+            raise ValueError(
+                f"surface must be (C, H, W) or (B, C, H, W), got shape {surface_shape}"
+            )
+
+        # Detect if we have ex_feats
+        has_ex_feats = "ex_feats" in initial_context
+
+        if has_ex_feats:
+            ex_feats_shape = initial_context["ex_feats"].shape
+            if len(ex_feats_shape) not in [2, 3]:
+                raise ValueError(
+                    f"ex_feats must be (C, D) or (B, C, D), got shape {ex_feats_shape}"
+                )
+
+        # Initialize storage
+        generated_surfaces = []
+        generated_ex_feats = [] if has_ex_feats else None
+
+        # Clone initial context to avoid modifying input
+        context = {k: v.clone() if torch.is_tensor(v) else v
+                   for k, v in initial_context.items()}
+
+        for step in range(horizon):
+            # Generate one-step prediction using existing method
+            result = self.get_surface_given_conditions(context, z=None)
+
+            # Handle return format (tuple for ex_feats, single tensor otherwise)
+            if has_ex_feats:
+                pred_surface, pred_ex_feat = result  # (B, 1, 3, 5, 5), (B, 1, 3)
+                generated_surfaces.append(pred_surface)
+                generated_ex_feats.append(pred_ex_feat)
+
+                # Extract median (p50) as point estimate for next context
+                # Surface dimension 2 is quantiles: [p05=0, p50=1, p95=2]
+                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
+                # Ex_feats have no quantile dimension, just take the timestep
+                new_ex_feat = pred_ex_feat[:, 0, :]        # (B, 3)
+            else:
+                pred_surface = result  # (B, 1, 3, 5, 5)
+                generated_surfaces.append(pred_surface)
+
+                # Extract median (p50) as point estimate
+                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
+                new_ex_feat = None
+
+            # Update context: drop oldest, append new
+            context = self._update_context(context, new_surface, new_ex_feat)
+
+        # Concatenate all generated timesteps
+        surfaces_out = torch.cat(generated_surfaces, dim=1)  # (B, horizon, 3, 5, 5)
+
+        if has_ex_feats:
+            ex_feats_out = torch.cat(generated_ex_feats, dim=1)  # (B, horizon, 3)
+            return surfaces_out, ex_feats_out
+        else:
+            return surfaces_out
+
+    def _update_context(
+        self,
+        context: Dict[str, torch.Tensor],
+        new_surface: torch.Tensor,
+        new_ex_feat: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Update context window: drop oldest timestep, append new prediction.
+
+        Implements sliding window: [t-C+1, ..., t] becomes [t-C+2, ..., t+1]
+        Updates both surface and ex_feats (if present) to maintain consistency.
+
+        Args:
+            context: dict with "surface" (B, C, 5, 5) and optional "ex_feats" (B, C, 3)
+            new_surface: (B, 5, 5) - surface to append
+            new_ex_feat: optional (B, 3) - ex_feats to append (must be provided if context has ex_feats)
+
+        Returns:
+            Updated context dict with same keys and shapes as input
+        """
+        # Update surfaces: shift left (drop oldest), append new
+        old_surfaces = context["surface"]  # (B, C, 5, 5)
+
+        # Ensure new_surface is on same device as old_surfaces
+        new_surface_device = new_surface.to(old_surfaces.device)
+
+        new_surfaces = torch.cat([old_surfaces[:, 1:, :, :],
+                                  new_surface_device.unsqueeze(1)], dim=1)
+
+        updated = {"surface": new_surfaces}
+
+        # Update ex_feats if present
+        if "ex_feats" in context and new_ex_feat is not None:
+            old_ex_feats = context["ex_feats"]  # (B, C, 3)
+
+            # Ensure new_ex_feat is on same device as old_ex_feats
+            new_ex_feat_device = new_ex_feat.to(old_ex_feats.device)
+
+            new_ex_feats = torch.cat([old_ex_feats[:, 1:, :],
+                                      new_ex_feat_device.unsqueeze(1)], dim=1)
+            updated["ex_feats"] = new_ex_feats
+
+        return updated
+
     def check_input(self, config: dict):
         for req in ["feat_dim", "latent_dim"]:
             if req not in config:
@@ -608,18 +825,24 @@ class CVAEMemRand(BaseVAE):
         
         if "compress_context" not in config:
             config["compress_context"] = False
+
+        if "quantiles" not in config:
+            config["quantiles"] = [0.05, 0.5, 0.95]
+        # Derive num_quantiles from quantiles list (ensures consistency)
+        config["num_quantiles"] = len(config["quantiles"])
     
     def forward(self, x: dict[str, torch.Tensor]):
         '''
             Input:
                 x should be a dictionary with 2 keys:
-                - surface: volatility surface of shape (B,T,H,W), 
+                - surface: volatility surface of shape (B,T,H,W),
                     surface[:,:context_len,:,:] are the context surfaces (previous days),
-                    surface[:,context_len:,:,:] is the surface to predict
+                    surface[:,context_len:,:,:] are the surfaces to predict (H timesteps)
                 - ex_feats: extra features of shape (B,T,n), not necessarily needed
             Returns:
-                a tuple of reconstruction, z_mean, z_log_var, z, 
+                a tuple of reconstruction, z_mean, z_log_var, z,
                 where z is sampled from distribution defined by z_mean and z_log_var
+                reconstruction shape: (B, H, num_quantiles, H, W) where H=self.horizon
         '''
         surface = x["surface"].to(self.device)
         if len(surface.shape) == 3:
@@ -627,7 +850,12 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
+
+        if C < 1:
+            raise ValueError(f"Insufficient sequence length: T={T}, horizon={self.horizon}, "
+                           f"resulting in C={C}. Need at least C >= 1.")
+
         ctx_surface = surface[:, :C, :, :] # c
         ctx_encoder_input = {"surface": ctx_surface}
 
@@ -650,20 +878,20 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in x:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-
-            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-
-            return decoded_surface[:, C:, :, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, num_quantiles, H, W)
+            return decoded_surface[:, C:, :, :, :], z_mean, z_log_var, z
 
     def train_step(self, x, optimizer: torch.optim.Optimizer):
         '''
             Input:
                 x should be a dictionary with 2 keys:
-                - surface: volatility surface of shape (B,T,H,W), 
+                - surface: volatility surface of shape (B,T,H,W),
                     surface[:,:context_len,:,:] are the context surfaces (previous days),
-                    surface[:,context_len:,:,:] is the surface to predict
+                    surface[:,context_len:,:,:] are the surfaces to predict (horizon timesteps)
                 - ex_feats: extra features of shape (B,T,n)
         '''
 
@@ -673,7 +901,7 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
         surface_real = surface[:,C:, :, :].to(self.device)
 
         if "ex_feats" in x:
@@ -684,12 +912,14 @@ class CVAEMemRand(BaseVAE):
 
         optimizer.zero_grad()
         if "ex_feats" in x:
-            surface_reconstruciton, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
         else:
-            surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
+            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # RE = 1/M \sum_{i=1}^M (x_i - y_i)^2
-        re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        # Reconstruction loss using quantile regression
+        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+        # surface_real: (B, horizon, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -712,7 +942,133 @@ class CVAEMemRand(BaseVAE):
             "reconstruction_loss": reconstruction_error,
             "kl_loss": kl_loss,
         }
-    
+
+    def train_step_multihorizon(self, x, optimizer: torch.optim.Optimizer,
+                                horizons=[1, 7, 14, 30]):
+        '''
+        Train on multiple horizons simultaneously with weighted loss.
+
+        This method trains the model to predict multiple future horizons
+        [1, 7, 14, 30] days ahead in a single training step, using weighted
+        loss to balance short-term and long-term prediction quality.
+
+        Input:
+            x: Dictionary with keys:
+                - surface: (B, T, 5, 5) where T >= context_len + max(horizons)
+                - ex_feats: (B, T, n) optional extra features
+            optimizer: PyTorch optimizer
+            horizons: List of horizons to train on (default: [1, 7, 14, 30])
+
+        Returns:
+            Dictionary with loss components:
+                - loss: Weighted total loss across all horizons
+                - reconstruction_loss: Weighted reconstruction loss
+                - kl_loss: Weighted KL divergence loss
+                - horizon_losses: Dict mapping each horizon to its loss
+
+        Method:
+            For each horizon h in [1, 7, 14, 30]:
+                1. Temporarily set self.horizon = h
+                2. Forward pass (predicts h days ahead)
+                3. Compute loss with weight w[h]
+                4. Accumulate weighted loss
+            5. Single backward pass on accumulated loss
+            6. Optimizer step
+
+        Horizon weights (from BACKFILL_MVP_PLAN.md):
+            - horizon=1:  weight=1.0 (highest priority, most accurate)
+            - horizon=7:  weight=0.8
+            - horizon=14: weight=0.6
+            - horizon=30: weight=0.4 (lower priority, harder to predict)
+        '''
+        # Horizon weights - prioritize short-term predictions
+        weights = {1: 1.0, 7: 0.8, 14: 0.6, 30: 0.4}
+
+        # Validate input sequence length
+        surface = x["surface"]
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+        T = surface.shape[1]
+        max_horizon = max(horizons)
+        min_context = 1  # Minimum context length
+
+        if T < min_context + max_horizon:
+            raise ValueError(f"Insufficient sequence length: T={T}, max_horizon={max_horizon}, "
+                           f"need at least T >= {min_context + max_horizon}")
+
+        # Store original horizon to restore later
+        original_horizon = self.horizon
+
+        # Accumulate losses across horizons
+        total_loss = 0
+        total_re = 0
+        total_kl = 0
+        horizon_losses = {}
+
+        # Zero gradients once at start
+        optimizer.zero_grad()
+
+        for h in horizons:
+            # Temporarily set horizon for this forward pass
+            self.horizon = h
+
+            # Forward pass (uses self.horizon internally to determine context length)
+            if "ex_feats" in x:
+                surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            else:
+                surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+
+            # Compute ground truth for this horizon
+            C = T - h  # Context length for this horizon
+            surface_real = surface[:, C:, :, :].to(self.device)
+
+            # Reconstruction loss (quantile regression)
+            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+
+            if "ex_feats" in x:
+                ex_feats = x["ex_feats"]
+                if len(ex_feats.shape) == 2:
+                    ex_feats = ex_feats.unsqueeze(0)
+                ex_feats_real = ex_feats[:, C:, :].to(self.device)
+
+                if self.config["ex_loss_on_ret_only"]:
+                    ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
+                    ex_feats_real = ex_feats_real[:, :, :1]
+
+                re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
+                reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
+            else:
+                reconstruction_error = re_surface
+
+            # KL divergence loss
+            kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
+            kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
+
+            # Weighted loss for this horizon
+            horizon_loss = reconstruction_error + self.kl_weight * kl_loss
+            weight = weights.get(h, 1.0)  # Default to 1.0 if horizon not in weights dict
+            weighted_loss = weight * horizon_loss
+
+            # Accumulate
+            total_loss += weighted_loss
+            total_re += weight * reconstruction_error.item()
+            total_kl += weight * kl_loss.item()
+            horizon_losses[h] = horizon_loss.item()
+
+        # Restore original horizon
+        self.horizon = original_horizon
+
+        # Single backward pass with accumulated gradients
+        total_loss.backward()
+        optimizer.step()
+
+        return {
+            "loss": total_loss.item(),
+            "reconstruction_loss": total_re,
+            "kl_loss": total_kl,
+            "horizon_losses": horizon_losses,  # Per-horizon loss for logging
+        }
+
     def test_step(self, x):
         surface = x["surface"]
         if len(surface.shape) == 3:
@@ -720,7 +1076,7 @@ class CVAEMemRand(BaseVAE):
             surface = surface.unsqueeze(0)
         B = surface.shape[0]
         T = surface.shape[1]
-        C = T - 1
+        C = T - self.horizon  # Context length = total length - horizon
         surface_real = surface[:, C:, :, :].to(self.device)
 
         if "ex_feats" in x:
@@ -728,14 +1084,16 @@ class CVAEMemRand(BaseVAE):
             if len(ex_feats.shape) == 2:
                 ex_feats = ex_feats.unsqueeze(0)
             ex_feats_real = ex_feats[:, C:, :,].to(self.device)
-        
-        if "ex_feats" in x:
-            surface_reconstruciton, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
-        else:
-            surface_reconstruciton, z_mean, z_log_var, z = self.forward(x)
 
-        # RE = 1/M \sum_{i=1}^M (x_i - y_i)^2
-        re_surface = F.mse_loss(surface_reconstruciton, surface_real)
+        if "ex_feats" in x:
+            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+        else:
+            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+
+        # Reconstruction loss using quantile regression
+        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+        # surface_real: (B, horizon, H, W)
+        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]

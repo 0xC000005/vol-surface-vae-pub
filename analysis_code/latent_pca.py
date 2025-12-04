@@ -160,7 +160,7 @@ def compute_pca_embedding(base_embedding, gen_embedding, df):
     return df
 
 def get_pca_plot(ctx_embedding, ctx_embedding2, start_day=START_DAY, days_to_generate=DAYS_TO_GENERATE,
-                             base_folder="tables/iv_all", model_type="loss"):
+                             base_folder="results/iv_all", model_type="loss"):
     os.makedirs(f"{base_folder}/plots", exist_ok=True)
     
     df = build_regress_dataset(start_day, days_to_generate)
