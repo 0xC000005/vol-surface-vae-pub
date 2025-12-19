@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.cuda.amp import autocast
 from typing import Dict, Union, Tuple, Optional
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
@@ -579,7 +580,66 @@ class CVAEMemRand(BaseVAE):
         if self.horizon < 1:
             raise ValueError(f"horizon must be >= 1, got {self.horizon}")
 
-    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None):
+    def load_fitted_prior(self, prior_params_path: str):
+        """
+        Load pre-fitted aggregated posterior for realistic sampling.
+
+        Instead of sampling future latents from N(0,1), we sample from a GMM
+        fitted to the empirical aggregated posterior q(z) = E_x[q(z|x)].
+        This addresses the VAE prior mismatch that causes systematic bias.
+
+        Args:
+            prior_params_path: Path to fitted GMM parameters (.pt file)
+        """
+        params = torch.load(prior_params_path, map_location=self.device)
+        self.fitted_prior = {
+            'means': params['means'].to(self.device).to(torch.float64),
+            'covariances': params['covariances'].to(self.device).to(torch.float64),
+            'weights': params['weights'].to(self.device).to(torch.float64),
+            'n_components': params['n_components']
+        }
+        # Pre-compute Cholesky decomposition for efficient sampling
+        self.fitted_prior['cholesky'] = torch.linalg.cholesky(self.fitted_prior['covariances'])
+        print(f"Loaded fitted prior with {params['n_components']} components from {prior_params_path}")
+
+    def _sample_from_fitted_prior(self, batch_size: int, seq_len: int) -> torch.Tensor:
+        """
+        Sample latents from fitted GMM prior instead of N(0,1).
+
+        This method samples from the empirical aggregated posterior, matching
+        the distribution the decoder was trained on and eliminating systematic bias.
+
+        Args:
+            batch_size: Batch size (B)
+            seq_len: Sequence length (T = context + horizon)
+
+        Returns:
+            Sampled latents (B, T, latent_dim)
+        """
+        if not hasattr(self, 'fitted_prior') or self.fitted_prior is None:
+            raise ValueError("Fitted prior not loaded. Call load_fitted_prior() first.")
+
+        total_samples = batch_size * seq_len
+        latent_dim = self.config["latent_dim"]
+
+        # Sample component indices based on weights
+        weights = self.fitted_prior['weights']
+        component_idx = torch.multinomial(
+            weights.expand(total_samples, -1),
+            num_samples=1
+        ).squeeze(-1)  # (B*T,)
+
+        # Get means and Cholesky factors for selected components
+        means = self.fitted_prior['means'][component_idx]  # (B*T, latent_dim)
+        L = self.fitted_prior['cholesky'][component_idx]   # (B*T, latent_dim, latent_dim)
+
+        # Sample using reparameterization: z = mean + L @ eps
+        eps = torch.randn(total_samples, latent_dim, device=self.device, dtype=torch.float64)
+        z = means + torch.einsum('bij,bj->bi', L, eps)
+
+        return z.reshape(batch_size, seq_len, latent_dim)
+
+    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None, prior_mode="standard"):
         '''
         Generate surface given context only (realistic deployment).
 
@@ -587,10 +647,13 @@ class CVAEMemRand(BaseVAE):
             c: context dictionary with "surface" (B,C,H,W) and "ex_feats" (B,C,3)
             z: pre-generated latent samples (B,T,latent_dim). If None, uses hybrid sampling:
                - z[:, :C, :] = posterior mean from context (deterministic)
-               - z[:, C:C+horizon, :] = sampled from N(mu, std) (stochastic)
-            mu: Mean for future latent sampling (default: 0)
-            std: Std for future latent sampling (default: 1)
+               - z[:, C:C+horizon, :] = sampled from prior (stochastic)
+            mu: Mean for standard prior (only used if prior_mode="standard")
+            std: Std for standard prior (only used if prior_mode="standard")
             horizon: Number of days to forecast. If None, uses self.horizon
+            prior_mode: Prior sampling mode:
+                - "standard": Sample from N(mu, std) - default N(0,1)
+                - "fitted": Sample from fitted GMM (requires load_fitted_prior())
 
         Returns:
             If ex_feats present: (surf_pred, ex_pred) where:
@@ -618,13 +681,22 @@ class CVAEMemRand(BaseVAE):
                 ctx_ex_feats = ctx_ex_feats.unsqueeze(0)
             assert ctx_ex_feats.shape[1] == C, "context length mismatch"
             ctx["ex_feats"] = ctx_ex_feats
+
+        # Sample latent z based on prior_mode
         if z is not None:
             if len(z.shape) == 2:
                 z = z.unsqueeze(0)
         else:
-            z = mu + torch.randn((ctx_surface.shape[0], T, self.config["latent_dim"])) * std
-        
+            if prior_mode == "fitted":
+                z = self._sample_from_fitted_prior(B, T)
+            else:
+                z = mu + torch.randn((B, T, self.config["latent_dim"]),
+                                     device=self.device, dtype=torch.float64) * std
+
+        # Encode context to get posterior mean for context positions
         ctx_latent_mean, ctx_latent_log_var, ctx_latent = self.encoder(ctx)
+
+        # Replace context positions with deterministic posterior mean
         z[:, :C, ...] = ctx_latent_mean
 
         ctx_embedding = self.ctx_encoder(ctx) # embedded c
@@ -1027,28 +1099,33 @@ class CVAEMemRand(BaseVAE):
             ex_feats_real = ex_feats[:, C:, :,].to(self.device)
 
         optimizer.zero_grad()
-        if "ex_feats" in x:
-            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
-        else:
-            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss using quantile regression
-        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
-        # surface_real: (B, horizon, H, W)
-        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
-        if "ex_feats" in x:
-            if self.config["ex_loss_on_ret_only"]:
-                ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
-                ex_feats_real = ex_feats_real[:, :, :1]
-            re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
-            reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
-        else:
-            reconstruction_error = re_surface
-        # KL = -1/2 \sum_{i=1}^M (1+log(\sigma_k^2) - \sigma_k^2 - \mu_k^2)
-        kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
-        kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
-        total_loss = reconstruction_error + self.kl_weight * kl_loss
+        # Mixed precision training with BF16
+        with autocast(dtype=torch.bfloat16):
+            if "ex_feats" in x:
+                surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            else:
+                surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+
+            # Reconstruction loss using quantile regression
+            # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+            # surface_real: (B, horizon, H, W)
+            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            if "ex_feats" in x:
+                if self.config["ex_loss_on_ret_only"]:
+                    ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
+                    ex_feats_real = ex_feats_real[:, :, :1]
+                re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
+                reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
+            else:
+                reconstruction_error = re_surface
+            # KL = -1/2 \sum_{i=1}^M (1+log(\sigma_k^2) - \sigma_k^2 - \mu_k^2)
+            kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
+            kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
+            total_loss = reconstruction_error + self.kl_weight * kl_loss
+
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
         optimizer.step()
 
         return {
