@@ -58,7 +58,7 @@ def get_period_config(period_name):
 
 def generate_and_save_horizon(model, vol_surf, ex_data,
                               period_start, period_end,
-                              horizon, period_name, sampling_mode):
+                              horizon, period_name, sampling_mode, prior_mode="standard"):
     """
     Generate full in-sequence data for a single horizon using teacher forcing.
 
@@ -139,7 +139,7 @@ def generate_and_save_horizon(model, vol_surf, ex_data,
                 # Always conditions on real 60-day context (no prediction feedback)
                 # Only difference from oracle: z sampled from prior for future steps
                 surf_pred, ex_pred = model.get_surface_given_conditions(
-                    context, z=None, mu=0, std=1, horizon=horizon
+                    context, z=None, mu=0, std=1, horizon=horizon, prior_mode=prior_mode
                 )
                 forecast = surf_pred  # (1, H, 3, 5, 5)
 
@@ -163,7 +163,7 @@ def generate_and_save_horizon(model, vol_surf, ex_data,
     print(f"  Output shape: {sequences_array.shape}")
 
     # Save to NPZ file (subdirectory by sampling mode)
-    output_dir = Path(f"results/context60_baseline/predictions/teacher_forcing/{sampling_mode}")
+    output_dir = Path(f"results/context60_latent12_v2/predictions/teacher_forcing/{sampling_mode}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_file = output_dir / f"vae_tf_{period_name}_h{horizon}.npz"
@@ -196,6 +196,12 @@ def main():
     parser.add_argument('--sampling_mode', type=str, default='oracle',
                        choices=['oracle', 'prior'],
                        help='Sampling strategy: oracle (posterior, with future) or prior (realistic, context only)')
+    parser.add_argument('--prior_mode', type=str, default='standard',
+                       choices=['standard', 'fitted'],
+                       help='Prior sampling mode (only for --sampling_mode prior): standard=N(0,1), fitted=GMM')
+    parser.add_argument('--fitted_prior_path', type=str,
+                       default='models/backfill/context60_experiment/fitted_prior_gmm.pt',
+                       help='Path to fitted prior parameters (only for --prior_mode fitted)')
     args = parser.parse_args()
 
     # Set seeds and dtype
@@ -207,6 +213,10 @@ def main():
     print("=" * 80)
     print(f"Period: {args.period}")
     print(f"Sampling mode: {args.sampling_mode}")
+    if args.sampling_mode == 'prior':
+        print(f"Prior mode: {args.prior_mode}")
+        if args.prior_mode == 'fitted':
+            print(f"Fitted prior path: {args.fitted_prior_path}")
     print()
 
     # ========================================================================
@@ -214,7 +224,7 @@ def main():
     # ========================================================================
 
     print("Loading model...")
-    model_file = "models/backfill/context60_experiment/checkpoints/backfill_context60_best.pt"
+    model_file = "models/backfill/context60_experiment/checkpoints/backfill_context60_latent12_v2_best.pt"
     model_data = torch.load(model_file, weights_only=False)
     model_config = model_data["model_config"]
 
@@ -228,6 +238,12 @@ def main():
     model.load_weights(dict_to_load=model_data)
     model.eval()
     print("✓ Model loaded")
+
+    # Load fitted prior if using fitted mode
+    if args.sampling_mode == 'prior' and args.prior_mode == 'fitted':
+        print(f"\nLoading fitted prior from {args.fitted_prior_path}...")
+        model.load_fitted_prior(args.fitted_prior_path)
+        print("✓ Fitted prior loaded")
 
     # ========================================================================
     # Load Data
@@ -274,7 +290,8 @@ def main():
         generate_and_save_horizon(
             model, vol_surf, ex_data,
             period_start, period_end,
-            horizon, args.period, args.sampling_mode
+            horizon, args.period, args.sampling_mode,
+            prior_mode=args.prior_mode if args.sampling_mode == 'prior' else 'standard'
         )
 
     # ========================================================================
