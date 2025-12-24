@@ -6,45 +6,6 @@ from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
 
 
-class QuantileLoss(nn.Module):
-    """
-    Pinball loss for quantile regression.
-
-    For quantile τ ∈ [0,1]:
-    L_τ(y, ŷ) = max((τ-1)×(y-ŷ), τ×(y-ŷ))
-
-    Asymmetric penalty:
-    - τ=0.05: penalizes under-prediction more (wants most values above)
-    - τ=0.50: reduces to MAE (mean absolute error)
-    - τ=0.95: penalizes over-prediction more (wants most values below)
-    """
-    def __init__(self, quantiles=[0.05, 0.5, 0.95], weights=None):
-        super().__init__()
-        self.register_buffer('quantiles', torch.tensor(quantiles, dtype=torch.float64))
-        if weights is None:
-            weights = [1.0] * len(quantiles)
-        self.register_buffer('weights', torch.tensor(weights, dtype=torch.float64))
-
-    def forward(self, preds, target):
-        """
-        Args:
-            preds: (B, T, num_quantiles, H, W) - quantile predictions
-            target: (B, T, H, W) - ground truth
-
-        Returns:
-            Scalar loss (averaged over all quantiles and elements)
-        """
-        losses = []
-        for i, q in enumerate(self.quantiles):
-            pred_q = preds[:, :, i, :, :]  # (B, T, H, W)
-            error = target - pred_q  # (B, T, H, W)
-            loss_q = torch.max((q-1)*error, q*error)
-            losses.append(torch.mean(loss_q))
-
-        losses_tensor = torch.stack(losses)
-        return torch.sum(losses_tensor * self.weights) / torch.sum(self.weights)
-
-
 class CVAEMemRandEncoder(BaseEncoder):
     def __init__(self, config: dict):
         '''
@@ -402,9 +363,8 @@ class CVAEMemRandDecoder(BaseDecoder):
             final_size = feat_dim[0] * feat_dim[1]
             surface_decoder["dec_final"] = nn.Linear(in_feats, final_size)
             surface_decoder["dec_final_activation"] = nn.ReLU()
-            # Output 3 quantiles worth of values
-            num_quantiles = config.get("num_quantiles", 3)
-            surface_decoder["dec_output"] = nn.Linear(final_size, final_size * num_quantiles)
+            # Output layer (single surface prediction)
+            surface_decoder["dec_output"] = nn.Linear(final_size, final_size)
         else:
             padding = config["padding"]
             deconv_output_padding = config["deconv_output_padding"]
@@ -423,10 +383,9 @@ class CVAEMemRandDecoder(BaseDecoder):
                 kernel_size=3, stride=1, padding=padding, output_padding=deconv_output_padding,
             )
             surface_decoder["dec_final_activation"] = nn.ReLU()
-            # Output 3 channels for quantiles [p5, p50, p95]
-            num_quantiles = config.get("num_quantiles", 3)
+            # Output layer (single channel surface prediction)
             surface_decoder["dec_output"] = nn.Conv2d(
-                in_feats, num_quantiles,
+                in_feats, 1,
                 kernel_size=3, padding="same"
             )
         self.surface_decoder = nn.Sequential(surface_decoder)
@@ -486,7 +445,6 @@ class CVAEMemRandDecoder(BaseDecoder):
         '''
         feat_dim = self.config["feat_dim"]
         ex_feats_dim = self.config["ex_feats_dim"]
-        num_quantiles = self.config.get("num_quantiles", 3)
         # should be on device already
         x, _ = self.mem(x) # (B, T, n_surface+n_info)
         x = self.interaction(x)
@@ -495,13 +453,13 @@ class CVAEMemRandDecoder(BaseDecoder):
         if self.config["use_dense_surface"]:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size) # (BxT, surface_final_hidden_size)
             decoded_surface = self.surface_decoder(surface_x)
-            # Reshape to (B, T, num_quantiles, H, W)
-            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
+            # Reshape to (B, T, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, feat_dim[0], feat_dim[1]))
         else:
             surface_x = surface_x.reshape(-1, self.surface_final_hidden_size, feat_dim[0], feat_dim[1]) # (BxT, surface_final_hidden_size, H, W)
-            decoded_surface = self.surface_decoder(surface_x)  # (BxT, num_quantiles, H, W)
-            # Reshape to (B, T, num_quantiles, H, W)
-            decoded_surface = decoded_surface.reshape((B, T, num_quantiles, feat_dim[0], feat_dim[1]))
+            decoded_surface = self.surface_decoder(surface_x)  # (BxT, 1, H, W)
+            # Reshape to (B, T, H, W)
+            decoded_surface = decoded_surface.reshape((B, T, feat_dim[0], feat_dim[1]))
 
         if ex_feats_dim > 0:
             info_x = self.ex_feats_decoder_input(x) # (B, T, n_info)
@@ -565,12 +523,6 @@ class CVAEMemRand(BaseVAE):
             self.ex_feats_loss_fn = nn.MSELoss()
         else:
             self.ex_feats_loss_fn = nn.L1Loss()
-
-        # Initialize quantile loss function (always used)
-        self.quantile_loss_fn = QuantileLoss(
-            quantiles=config["quantiles"],
-            weights=config.get("quantile_loss_weights")
-        )
 
         # Move all modules to device
         self.to(self.device)
@@ -707,12 +659,12 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in c:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-            # decoded_surface: (B, T, num_quantiles, H, W)
-            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :]
+            # decoded_surface: (B, T, H, W)
+            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :]
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-            # decoded_surface: (B, T, num_quantiles, H, W)
-            return decoded_surface[:, C:, :, :, :]
+            # decoded_surface: (B, T, H, W)
+            return decoded_surface[:, C:, :, :]
 
     def generate_autoregressive_sequence(
         self,
@@ -738,10 +690,10 @@ class CVAEMemRand(BaseVAE):
         Returns:
             If ex_feats in context:
                 tuple of (surfaces, ex_feats)
-                - surfaces: (B, horizon, 3, 5, 5) - 3 quantiles [p05, p50, p95]
-                - ex_feats: (B, horizon, 3) - 3 features [ret, skew, slope] (no quantiles)
+                - surfaces: (B, horizon, 5, 5) - predicted surfaces
+                - ex_feats: (B, horizon, 3) - 3 features [ret, skew, slope]
             Else:
-                surfaces: (B, horizon, 3, 5, 5)
+                surfaces: (B, horizon, 5, 5)
         """
         # Validate input
         if "surface" not in initial_context:
@@ -777,21 +729,19 @@ class CVAEMemRand(BaseVAE):
 
             # Handle return format (tuple for ex_feats, single tensor otherwise)
             if has_ex_feats:
-                pred_surface, pred_ex_feat = result  # (B, 1, 3, 5, 5), (B, 1, 3)
+                pred_surface, pred_ex_feat = result  # (B, 1, 5, 5), (B, 1, 3)
                 generated_surfaces.append(pred_surface)
                 generated_ex_feats.append(pred_ex_feat)
 
-                # Extract median (p50) as point estimate for next context
-                # Surface dimension 2 is quantiles: [p05=0, p50=1, p95=2]
-                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
-                # Ex_feats have no quantile dimension, just take the timestep
-                new_ex_feat = pred_ex_feat[:, 0, :]        # (B, 3)
+                # Extract prediction for next context
+                new_surface = pred_surface[:, 0, :, :]  # (B, 5, 5)
+                new_ex_feat = pred_ex_feat[:, 0, :]     # (B, 3)
             else:
-                pred_surface = result  # (B, 1, 3, 5, 5)
+                pred_surface = result  # (B, 1, 5, 5)
                 generated_surfaces.append(pred_surface)
 
-                # Extract median (p50) as point estimate
-                new_surface = pred_surface[:, 0, 1, :, :]  # (B, 5, 5)
+                # Extract prediction for next context
+                new_surface = pred_surface[:, 0, :, :]  # (B, 5, 5)
                 new_ex_feat = None
 
             # Update context: drop oldest, append new
@@ -885,29 +835,27 @@ class CVAEMemRand(BaseVAE):
 
             # Handle return format
             if has_ex_feats:
-                pred_surface, pred_ex_feat = result  # (B, horizon, 3, 5, 5), (B, horizon, 3)
+                pred_surface, pred_ex_feat = result  # (B, horizon, 5, 5), (B, horizon, 3)
                 all_surfaces.append(pred_surface)
                 all_ex_feats.append(pred_ex_feat)
 
-                # Extract p50 median for context update
-                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
-                median_surfaces.append(pred_median_surf)
-                median_ex_feats.append(pred_ex_feat)  # Ex_feats have no quantiles
+                # Store predictions for context update
+                median_surfaces.append(pred_surface)
+                median_ex_feats.append(pred_ex_feat)
             else:
-                pred_surface = result  # (B, horizon, 3, 5, 5)
+                pred_surface = result  # (B, horizon, 5, 5)
                 all_surfaces.append(pred_surface)
 
-                # Extract p50 median
-                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
-                median_surfaces.append(pred_median_surf)
+                # Store predictions for context update
+                median_surfaces.append(pred_surface)
 
             # Update context for next step (if not last step)
             if step < ar_steps - 1:
-                # Concatenate all median predictions so far
-                concat_medians = torch.cat(median_surfaces, dim=1)  # (B, (step+1)*horizon, 5, 5)
+                # Concatenate all predictions so far
+                concat_surfaces = torch.cat(median_surfaces, dim=1)  # (B, (step+1)*horizon, 5, 5)
 
                 # Take last C days as new context
-                context["surface"] = concat_medians[:, -C:, :, :]  # (B, C, 5, 5)
+                context["surface"] = concat_surfaces[:, -C:, :, :]  # (B, C, 5, 5)
 
                 if has_ex_feats:
                     concat_ex = torch.cat(median_ex_feats, dim=1)  # (B, (step+1)*horizon, 3)
@@ -1014,11 +962,6 @@ class CVAEMemRand(BaseVAE):
         if "compress_context" not in config:
             config["compress_context"] = False
 
-        if "quantiles" not in config:
-            config["quantiles"] = [0.05, 0.5, 0.95]
-        # Derive num_quantiles from quantiles list (ensures consistency)
-        config["num_quantiles"] = len(config["quantiles"])
-    
     def forward(self, x: dict[str, torch.Tensor]):
         '''
             Input:
@@ -1030,7 +973,7 @@ class CVAEMemRand(BaseVAE):
             Returns:
                 a tuple of reconstruction, z_mean, z_log_var, z,
                 where z is sampled from distribution defined by z_mean and z_log_var
-                reconstruction shape: (B, H, num_quantiles, H, W) where H=self.horizon
+                reconstruction shape: (B, H, H, W) where H=self.horizon
         '''
         surface = x["surface"].to(self.device)
         if len(surface.shape) == 3:
@@ -1066,12 +1009,12 @@ class CVAEMemRand(BaseVAE):
         decoder_input = torch.cat([ctx_embedding_padded, z], dim=-1)
         if "ex_feats" in x:
             decoded_surface, decoded_ex_feat = self.decoder(decoder_input) # P(x|c,z,t)
-            # decoded_surface: (B, T, num_quantiles, H, W)
-            return decoded_surface[:, C:, :, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, H, W)
+            return decoded_surface[:, C:, :, :], decoded_ex_feat[:, C:, :], z_mean, z_log_var, z
         else:
             decoded_surface = self.decoder(decoder_input) # P(x|c,z,t)
-            # decoded_surface: (B, T, num_quantiles, H, W)
-            return decoded_surface[:, C:, :, :, :], z_mean, z_log_var, z
+            # decoded_surface: (B, T, H, W)
+            return decoded_surface[:, C:, :, :], z_mean, z_log_var, z
 
     def train_step(self, x, optimizer: torch.optim.Optimizer):
         '''
@@ -1107,10 +1050,10 @@ class CVAEMemRand(BaseVAE):
             else:
                 surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-            # Reconstruction loss using quantile regression
-            # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+            # Reconstruction loss using MSE
+            # surface_reconstruction: (B, horizon, H, W)
             # surface_real: (B, horizon, H, W)
-            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
             if "ex_feats" in x:
                 if self.config["ex_loss_on_ret_only"]:
                     ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
@@ -1215,8 +1158,8 @@ class CVAEMemRand(BaseVAE):
             C = T - h  # Context length for this horizon
             surface_real = surface[:, C:, :, :].to(self.device)
 
-            # Reconstruction loss (quantile regression)
-            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            # Reconstruction loss (MSE)
+            re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
 
             if "ex_feats" in x:
                 ex_feats = x["ex_feats"]
@@ -1283,10 +1226,10 @@ class CVAEMemRand(BaseVAE):
         else:
             surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss using quantile regression
-        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+        # Reconstruction loss using MSE
+        # surface_reconstruction: (B, horizon, H, W)
         # surface_real: (B, horizon, H, W)
-        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+        re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
         if "ex_feats" in x:
             if self.config["ex_loss_on_ret_only"]:
                 ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]

@@ -497,8 +497,8 @@ def train_autoregressive_step(
 
         model.horizon = original_horizon
 
-        # Reconstruction loss (quantile regression)
-        recon_loss = model.quantile_loss_fn(surf_recon, target_surface)
+        # Reconstruction loss (MSE)
+        recon_loss = nn.functional.mse_loss(surf_recon, target_surface)
 
         # Handle ex_feats if present
         if "ex_feats" in model_input:
@@ -522,8 +522,8 @@ def train_autoregressive_step(
         total_recon += recon_loss.item()
         total_kl += kl_loss.item()
 
-        # Store prediction (use p50 median quantile)
-        pred_surface = surf_recon[:, :, 1, :, :]  # (B, horizon, H, W)
+        # Store prediction
+        pred_surface = surf_recon  # (B, horizon, H, W)
         predictions.append(pred_surface)
 
         # Update context for next step (if not last step)

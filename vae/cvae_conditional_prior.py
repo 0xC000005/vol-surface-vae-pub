@@ -267,7 +267,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
                 surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
             # Reconstruction loss
-            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
 
             if "ex_feats" in x:
                 if self.config["ex_loss_on_ret_only"]:
@@ -387,7 +387,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
 
                     # Reconstruction loss
                     surface_real = surface[:, C:, :, :]
-                    re_surface = self.quantile_loss_fn(surface_reconstruction[:, C:, :, :, :], surface_real)
+                    re_surface = nn.functional.mse_loss(surface_reconstruction[:, C:, :, :], surface_real)
 
                     if has_ex_feats:
                         if self.config["ex_loss_on_ret_only"]:
@@ -440,7 +440,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
                         surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
                         re_ex_feats = torch.zeros(1)
 
-                    re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+                    re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
 
                     if has_ex_feats:
                         reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
@@ -504,7 +504,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
                 surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
             # Reconstruction loss
-            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
 
             if "ex_feats" in x:
                 if self.config["ex_loss_on_ret_only"]:
