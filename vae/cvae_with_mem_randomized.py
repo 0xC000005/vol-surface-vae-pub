@@ -936,9 +936,9 @@ class CVAEMemRand(BaseVAE):
         for req in ["ex_feats_hidden", "ctx_ex_feats_hidden"]:
             if req not in config:
                 config[req] = None
-        if config["ex_feats_hidden"] is not None and isinstance(config["ex_feats_hidden"]):
+        if config["ex_feats_hidden"] is not None and isinstance(config["ex_feats_hidden"], int):
             config["ex_feats_hidden"] = [config["ex_feats_hidden"]]
-        if config["ctx_ex_feats_hidden"] is not None and isinstance(config["ctx_ex_feats_hidden"]):
+        if config["ctx_ex_feats_hidden"] is not None and isinstance(config["ctx_ex_feats_hidden"], int):
             config["ctx_ex_feats_hidden"] = [config["ctx_ex_feats_hidden"]]
         
         if "mem_type" not in config:
