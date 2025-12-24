@@ -251,10 +251,10 @@ class TestFP32Conversion:
 
 
 class TestPerformanceImprovement:
-    """Verify optimizations actually improve performance."""
+    """Verify optimizations actually improve performance (CPU)."""
 
     def test_cholesky_vectorized_is_faster(self):
-        """Vectorized Cholesky should be faster than loop version."""
+        """Vectorized Cholesky should be faster than loop version (CPU)."""
         import time
 
         phi, sigma, H = 0.7, 1.0, 90
@@ -278,13 +278,13 @@ class TestPerformanceImprovement:
         time_loop = time.perf_counter() - start
 
         speedup = time_loop / time_vectorized
-        print(f"\n  Cholesky speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+        print(f"\n  [CPU] Cholesky speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
 
         # Vectorized should be at least 2x faster
         assert speedup >= 2.0, f"Vectorized not faster enough: {speedup:.2f}x speedup"
 
     def test_kl_vectorized_is_faster(self):
-        """Vectorized KL should be faster than loop version."""
+        """Vectorized KL should be faster than loop version (CPU)."""
         import time
 
         B, H, D = 16, 90, 12
@@ -313,10 +313,162 @@ class TestPerformanceImprovement:
         time_loop = time.perf_counter() - start
 
         speedup = time_loop / time_vectorized
-        print(f"\n  KL divergence speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+        print(f"\n  [CPU] KL divergence speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
 
         # Vectorized should be at least 1.5x faster (more conservative for KL)
         assert speedup >= 1.5, f"Vectorized not faster enough: {speedup:.2f}x speedup"
+
+
+class TestGPUPerformance:
+    """Verify optimizations work correctly and efficiently on GPU."""
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_cholesky_vectorized_matches_loop_cuda(self):
+        """Verify vectorized Cholesky matches loop on GPU."""
+        for phi in [0.5, 0.9]:
+            for sigma in [0.5, 1.0]:
+                for horizon in [30, 90]:
+                    L_vectorized = build_ar1_cholesky_direct(phi, sigma, horizon, 'cuda')
+                    L_loop = _build_ar1_cholesky_direct_loop(phi, sigma, horizon, 'cuda')
+
+                    assert torch.allclose(L_vectorized, L_loop, atol=1e-6, rtol=1e-5), \
+                        f"GPU: Vectorized != loop for phi={phi}, sigma={sigma}, H={horizon}"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_kl_vectorized_matches_loop_cuda(self):
+        """Verify vectorized KL matches loop on GPU."""
+        for _ in range(5):
+            B, H, D = np.random.randint(8, 32), np.random.randint(30, 90), 12
+
+            mu_q = torch.randn(B, H, D, device='cuda')
+            logvar_q = torch.randn(B, H, D, device='cuda')
+            mu_p = torch.randn(B, H, D, device='cuda')
+            Sigma_p = build_ar1_covariance(0.7, 1.0, H, 'cuda')
+
+            kl_vectorized = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+            kl_loop = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+
+            assert torch.allclose(kl_vectorized, kl_loop, atol=1e-5, rtol=1e-4), \
+                f"GPU: Vectorized != loop: {kl_vectorized} vs {kl_loop}"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_cholesky_vectorized_faster_cuda(self):
+        """Verify vectorized Cholesky is faster on GPU."""
+        import time
+
+        phi, sigma, H = 0.7, 1.0, 90
+        num_iter = 100
+
+        # Warmup
+        for _ in range(10):
+            _ = build_ar1_cholesky_direct(phi, sigma, H, 'cuda')
+            _ = _build_ar1_cholesky_direct_loop(phi, sigma, H, 'cuda')
+        torch.cuda.synchronize()
+
+        # Benchmark vectorized
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = build_ar1_cholesky_direct(phi, sigma, H, 'cuda')
+        torch.cuda.synchronize()
+        time_vectorized = time.perf_counter() - start
+
+        # Benchmark loop
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = _build_ar1_cholesky_direct_loop(phi, sigma, H, 'cuda')
+        torch.cuda.synchronize()
+        time_loop = time.perf_counter() - start
+
+        speedup = time_loop / time_vectorized
+        print(f"\n  [GPU] Cholesky speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+
+        # Vectorized should be at least 2x faster on GPU
+        assert speedup >= 2.0, f"GPU vectorized not faster enough: {speedup:.2f}x speedup"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_kl_vectorized_faster_cuda(self):
+        """Verify vectorized KL is faster on GPU."""
+        import time
+
+        B, H, D = 16, 90, 12
+        num_iter = 50
+
+        mu_q = torch.randn(B, H, D, device='cuda')
+        logvar_q = torch.randn(B, H, D, device='cuda')
+        mu_p = torch.randn(B, H, D, device='cuda')
+        Sigma_p = build_ar1_covariance(0.7, 1.0, H, 'cuda')
+
+        # Warmup
+        for _ in range(5):
+            _ = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+            _ = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+        torch.cuda.synchronize()
+
+        # Benchmark vectorized
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+        torch.cuda.synchronize()
+        time_vectorized = time.perf_counter() - start
+
+        # Benchmark loop
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+        torch.cuda.synchronize()
+        time_loop = time.perf_counter() - start
+
+        speedup = time_loop / time_vectorized
+        print(f"\n  [GPU] KL divergence speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+
+        # Vectorized should be at least 1.5x faster on GPU
+        assert speedup >= 1.5, f"GPU vectorized not faster enough: {speedup:.2f}x speedup"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_cholesky_correctness_under_mixed_precision(self):
+        """Verify Cholesky correctness under BFloat16 autocast."""
+        from torch.amp import autocast
+
+        phi, sigma, H = 0.7, 1.0, 90
+
+        with autocast('cuda', dtype=torch.bfloat16):
+            L = build_ar1_cholesky_direct(phi, sigma, H, 'cuda')
+            Sigma = build_ar1_covariance(phi, sigma**2, H, 'cuda')
+
+        # Verify L @ L.T ≈ Sigma (with larger tolerance for BF16)
+        reconstructed = L @ L.T
+        assert torch.allclose(reconstructed.float(), Sigma.float(), atol=1e-3, rtol=1e-2), \
+            "Cholesky property L @ L.T = Σ fails under mixed precision"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_kl_performance_realistic_training_conditions(self):
+        """Test KL under realistic training conditions (B=32, H=90, D=12)."""
+        import time
+
+        # Match actual training batch size and dimensions
+        B, H, D = 32, 90, 12
+
+        mu_q = torch.randn(B, H, D, device='cuda')
+        logvar_q = torch.randn(B, H, D, device='cuda')
+        mu_p = torch.randn(B, H, D, device='cuda')
+        Sigma_p = build_ar1_covariance(0.7, 1.0, H, 'cuda')
+
+        # Warmup
+        for _ in range(10):
+            _ = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+        torch.cuda.synchronize()
+
+        # Benchmark
+        start = time.perf_counter()
+        for _ in range(50):
+            kl = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+        torch.cuda.synchronize()
+        time_per_call = (time.perf_counter() - start) / 50 * 1000  # ms
+
+        print(f"\n  [GPU] KL (B=32, H=90, D=12): {time_per_call:.3f} ms/call")
+
+        # Should be fast enough for training (< 10ms per call)
+        assert time_per_call < 10.0, f"KL too slow for training: {time_per_call:.2f}ms"
 
 
 if __name__ == "__main__":
