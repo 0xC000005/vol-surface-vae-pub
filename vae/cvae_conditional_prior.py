@@ -117,7 +117,9 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
         mu=0,
         std=1,
         horizon=None,
-        prior_mode="standard"
+        prior_mode="standard",
+        sample_context: bool = False,
+        ar_phi: float = 0.0
     ):
         """
         Generate surface given context only.
@@ -131,6 +133,8 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
             std: Std for standard prior (ignored if conditional prior used)
             horizon: Forecast horizon
             prior_mode: "standard" or "fitted" (ignored if conditional prior used)
+            sample_context: If True, sample context latents instead of using posterior mean (Exp 2)
+            ar_phi: AR(1) persistence parameter for future latents. 0.0 = iid noise (default), >0 = correlated (Exp 4)
 
         Returns:
             Generated surfaces (and ex_feats if present)
@@ -167,12 +171,25 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
                     prior_mean, prior_logvar = self.prior_network(ctx)
 
                 # Sample future latents from conditional prior
-                eps = torch.randn((B, horizon, self.config["latent_dim"]),
-                                 device=self.device, dtype=torch.float32)
                 # Extend prior_mean and prior_logvar for horizon
                 # Use last context timestep's prior for all future timesteps
                 future_prior_mean = prior_mean[:, -1:, :].expand(B, horizon, -1)
                 future_prior_logvar = prior_logvar[:, -1:, :].expand(B, horizon, -1)
+
+                # Experiment 4: AR(1) correlated noise
+                if ar_phi > 0:
+                    # Generate AR(1) autocorrelated noise: eps_t = phi * eps_{t-1} + sqrt(1-phi^2) * innovation
+                    import math
+                    ar_noise_list = [torch.randn(B, 1, self.config["latent_dim"], device=self.device, dtype=torch.float32)]
+                    for t in range(1, horizon):
+                        innovation = torch.randn(B, 1, self.config["latent_dim"], device=self.device, dtype=torch.float32)
+                        ar_noise_t = ar_phi * ar_noise_list[-1] + math.sqrt(1 - ar_phi**2) * innovation
+                        ar_noise_list.append(ar_noise_t)
+                    eps = torch.cat(ar_noise_list, dim=1)  # (B, horizon, latent_dim)
+                else:
+                    # Standard iid noise
+                    eps = torch.randn((B, horizon, self.config["latent_dim"]),
+                                     device=self.device, dtype=torch.float32)
 
                 z_future = future_prior_mean + torch.exp(0.5 * future_prior_logvar) * eps
 
@@ -191,8 +208,14 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
         # Encode context to get posterior mean for context positions
         ctx_latent_mean, ctx_latent_log_var, ctx_latent = self.encoder(ctx)
 
-        # Replace context positions with deterministic posterior mean
-        z[:, :C, ...] = ctx_latent_mean
+        # Experiment 2: Sample context latents instead of using deterministic mean
+        if sample_context:
+            # Sample from posterior: z = mean + exp(0.5 * logvar) * eps
+            eps_ctx = torch.randn_like(ctx_latent_mean)
+            z[:, :C, ...] = ctx_latent_mean + torch.exp(0.5 * ctx_latent_log_var) * eps_ctx
+        else:
+            # Deterministic posterior mean (original behavior)
+            z[:, :C, ...] = ctx_latent_mean
 
         # Decode
         ctx_embedding = self.ctx_encoder(ctx)
