@@ -250,6 +250,75 @@ class TestFP32Conversion:
         assert rel_diff < 0.01, f"KL FP32 vs FP64 mismatch: {rel_diff:.2%}"
 
 
+class TestPerformanceImprovement:
+    """Verify optimizations actually improve performance."""
+
+    def test_cholesky_vectorized_is_faster(self):
+        """Vectorized Cholesky should be faster than loop version."""
+        import time
+
+        phi, sigma, H = 0.7, 1.0, 90
+        num_iter = 100
+
+        # Warmup
+        for _ in range(10):
+            _ = build_ar1_cholesky_direct(phi, sigma, H, 'cpu')
+            _ = _build_ar1_cholesky_direct_loop(phi, sigma, H, 'cpu')
+
+        # Benchmark vectorized
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = build_ar1_cholesky_direct(phi, sigma, H, 'cpu')
+        time_vectorized = time.perf_counter() - start
+
+        # Benchmark loop
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = _build_ar1_cholesky_direct_loop(phi, sigma, H, 'cpu')
+        time_loop = time.perf_counter() - start
+
+        speedup = time_loop / time_vectorized
+        print(f"\n  Cholesky speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+
+        # Vectorized should be at least 2x faster
+        assert speedup >= 2.0, f"Vectorized not faster enough: {speedup:.2f}x speedup"
+
+    def test_kl_vectorized_is_faster(self):
+        """Vectorized KL should be faster than loop version."""
+        import time
+
+        B, H, D = 16, 90, 12
+        num_iter = 50
+
+        mu_q = torch.randn(B, H, D)
+        logvar_q = torch.randn(B, H, D)
+        mu_p = torch.randn(B, H, D)
+        Sigma_p = build_ar1_covariance(0.7, 1.0, H, 'cpu')
+
+        # Warmup
+        for _ in range(5):
+            _ = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+            _ = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+
+        # Benchmark vectorized
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+        time_vectorized = time.perf_counter() - start
+
+        # Benchmark loop
+        start = time.perf_counter()
+        for _ in range(num_iter):
+            _ = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+        time_loop = time.perf_counter() - start
+
+        speedup = time_loop / time_vectorized
+        print(f"\n  KL divergence speedup: {speedup:.1f}x (vectorized: {time_vectorized*1000:.2f}ms, loop: {time_loop*1000:.2f}ms)")
+
+        # Vectorized should be at least 1.5x faster (more conservative for KL)
+        assert speedup >= 1.5, f"Vectorized not faster enough: {speedup:.2f}x speedup"
+
+
 if __name__ == "__main__":
     # Run tests
     pytest.main([__file__, "-v"])
