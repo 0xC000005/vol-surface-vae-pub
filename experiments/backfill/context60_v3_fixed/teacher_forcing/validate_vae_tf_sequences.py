@@ -185,6 +185,9 @@ def main():
     parser.add_argument('--sampling_mode', type=str, default='oracle',
                        choices=['oracle', 'prior'],
                        help='Sampling strategy to validate (oracle/prior)')
+    parser.add_argument('--output_dir', type=str,
+                       default='results/context60_latent12_v3',
+                       help='Base output directory for predictions')
     args = parser.parse_args()
 
     print("=" * 80)
@@ -205,7 +208,7 @@ def main():
         'gap': {1: 968, 7: 962, 14: 955, 30: 939, 60: 909, 90: 879},
     }
 
-    base_dir = Path(f"results/context60_baseline/predictions/teacher_forcing/{args.sampling_mode}")
+    base_dir = Path(f"{args.output_dir}/predictions/teacher_forcing/{args.sampling_mode}")
 
     # Check directory existence
     if not base_dir.exists():

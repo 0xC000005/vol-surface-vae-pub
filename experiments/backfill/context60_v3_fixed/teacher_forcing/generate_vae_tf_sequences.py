@@ -38,7 +38,17 @@ import torch
 from pathlib import Path
 from tqdm import tqdm
 from vae.cvae_with_mem_randomized import CVAEMemRand
+from vae.cvae_conditional_prior import CVAEMemRandConditionalPrior
 from vae.utils import set_seeds
+
+
+def strip_compiled_prefix(state_dict):
+    """Strip _orig_mod. prefix from state dict keys (from torch.compile)."""
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        new_key = k.replace("_orig_mod.", "") if k.startswith("_orig_mod.") else k
+        new_state_dict[new_key] = v
+    return new_state_dict
 
 
 def get_period_config(period_name):
@@ -58,7 +68,7 @@ def get_period_config(period_name):
 
 def generate_and_save_horizon(model, vol_surf, ex_data,
                               period_start, period_end,
-                              horizon, period_name, sampling_mode, prior_mode="standard"):
+                              horizon, period_name, sampling_mode, prior_mode="standard", output_base_dir="results/context60_latent12_v3"):
     """
     Generate full in-sequence data for a single horizon using teacher forcing.
 
@@ -163,7 +173,7 @@ def generate_and_save_horizon(model, vol_surf, ex_data,
     print(f"  Output shape: {sequences_array.shape}")
 
     # Save to NPZ file (subdirectory by sampling mode)
-    output_dir = Path(f"results/context60_latent12_v2/predictions/teacher_forcing/{sampling_mode}")
+    output_dir = Path(f"{output_base_dir}/predictions/teacher_forcing/{sampling_mode}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_file = output_dir / f"vae_tf_{period_name}_h{horizon}.npz"
@@ -202,6 +212,12 @@ def main():
     parser.add_argument('--fitted_prior_path', type=str,
                        default='models/backfill/context60_experiment/fitted_prior_gmm.pt',
                        help='Path to fitted prior parameters (only for --prior_mode fitted)')
+    parser.add_argument('--model_path', type=str,
+                       default='models/backfill/context60_experiment/checkpoints/backfill_context60_latent12_v3_conditional_prior_phase2_ep599.pt',
+                       help='Path to model checkpoint')
+    parser.add_argument('--output_dir', type=str,
+                       default='results/context60_latent12_v3',
+                       help='Output directory for predictions (will create predictions/teacher_forcing/{sampling_mode}/ subdirs)')
     args = parser.parse_args()
 
     # Set seeds and dtype
@@ -224,7 +240,8 @@ def main():
     # ========================================================================
 
     print("Loading model...")
-    model_file = "models/backfill/context60_experiment/checkpoints/backfill_context60_latent12_v2_best.pt"
+    model_file = args.model_path
+    print(f"  Model path: {model_file}")
     model_data = torch.load(model_file, weights_only=False)
     model_config = model_data["model_config"]
 
@@ -233,9 +250,27 @@ def main():
     print(f"  Latent dim: {model_config['latent_dim']}")
     print(f"  Quantiles: {model_config['quantiles']}")
     print(f"  Quantile weights: {model_config.get('quantile_loss_weights', [1,1,1])}")
+    print(f"  Use conditional prior: {model_config.get('use_conditional_prior', False)}")
 
-    model = CVAEMemRand(model_config)
-    model.load_weights(dict_to_load=model_data)
+    # Use conditional prior model if config specifies it
+    if model_config.get('use_conditional_prior', False):
+        print("  Using CVAEMemRandConditionalPrior (with learned prior network)")
+        model = CVAEMemRandConditionalPrior(model_config)
+    else:
+        print("  Using CVAEMemRand (standard N(0,1) prior)")
+        model = CVAEMemRand(model_config)
+
+    # Strip _orig_mod. prefix from compiled models
+    if "model" in model_data and any(k.startswith("_orig_mod.") for k in model_data["model"].keys()):
+        print("  Stripping torch.compile prefix...")
+        model_data["model"] = strip_compiled_prefix(model_data["model"])
+
+    # Load weights (strict=False for backward compatibility)
+    missing, unexpected = model.load_state_dict(model_data["model"], strict=False)
+    if missing:
+        print(f"  Warning: {len(missing)} missing keys")
+    if unexpected:
+        print(f"  Warning: {len(unexpected)} unexpected keys")
     model.eval()
     print("✓ Model loaded")
 
@@ -291,7 +326,8 @@ def main():
             model, vol_surf, ex_data,
             period_start, period_end,
             horizon, args.period, args.sampling_mode,
-            prior_mode=args.prior_mode if args.sampling_mode == 'prior' else 'standard'
+            prior_mode=args.prior_mode if args.sampling_mode == 'prior' else 'standard',
+            output_base_dir=args.output_dir
         )
 
     # ========================================================================
@@ -303,7 +339,7 @@ def main():
     print("GENERATION COMPLETE")
     print("=" * 80)
     print(f"\n✓ Generated {len(horizons)} files for period '{args.period}' with sampling mode '{args.sampling_mode}'")
-    print(f"\nOutput directory: results/context60_baseline/predictions/teacher_forcing/{args.sampling_mode}/")
+    print(f"\nOutput directory: {args.output_dir}/predictions/teacher_forcing/{args.sampling_mode}/")
     print(f"Files created:")
     for h in horizons:
         print(f"  - vae_tf_{args.period}_h{h}.npz")
