@@ -11,7 +11,7 @@ from generate_surfaces_max_likelihood import generate_surfaces_multiday_mle
 
 # Set seeds and dtype
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 print("=" * 60)
 print("GENERATING QUANTILE SURFACES")

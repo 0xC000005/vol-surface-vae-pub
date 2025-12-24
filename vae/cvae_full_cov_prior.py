@@ -98,7 +98,7 @@ class CVAEFullCovPrior(CVAEMemRand):
         if "ex_feats" in x:
             x_device["ex_feats"] = ex_feats.to(self.device)
 
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         # Mixed precision training with BF16
         with autocast('cuda', dtype=torch.bfloat16):
@@ -195,7 +195,7 @@ class CVAEFullCovPrior(CVAEMemRand):
             if len(ex_feats.shape) == 2:
                 ex_feats = ex_feats.unsqueeze(0)
 
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         # Uniform weighting across all horizons
         weights = {h: 1.0 / len(horizons) for h in horizons}

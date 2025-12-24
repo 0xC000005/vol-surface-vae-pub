@@ -9,7 +9,7 @@ from vae.utils import *
 import os
 
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 num_epochs = 500
 
 data = np.load("data/vol_surface_with_ret.npz")

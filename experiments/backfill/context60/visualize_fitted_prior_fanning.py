@@ -306,7 +306,7 @@ def main():
     print("=" * 80)
     print()
 
-    torch.set_default_dtype(torch.float64)
+    torch.set_default_dtype(torch.float32)
 
     # Load model
     print("Loading model...")

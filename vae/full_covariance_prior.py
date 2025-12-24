@@ -174,15 +174,12 @@ def build_ar1_covariance(phi, sigma_sq, horizon, device='cpu', dtype=None):
     return Sigma
 
 
-def build_ar1_cholesky_direct(phi, sigma, horizon, device='cpu', dtype=None):
+def _build_ar1_cholesky_direct_loop(phi, sigma, horizon, device='cpu', dtype=None):
     """
-    Build Cholesky factor L directly for AR(1) covariance.
+    Build Cholesky factor L directly for AR(1) covariance - ORIGINAL loop-based implementation.
 
-    Uses closed-form formula for AR(1) Cholesky factor.
-    ~25% faster than generic torch.linalg.cholesky().
-    Result can be cached and reused for all samples.
-
-    Derivation: For AR(1), the Cholesky factor has structure:
+    This is the original implementation with Python loops, kept for correctness verification
+    of the vectorized version. Uses closed-form formula for AR(1) Cholesky factor:
     - First column: L[i,0] = sigma * phi^i
     - Diagonal: L[i,i] = sigma * sqrt(1 - phi²) for i > 0
     - Lower triangle: L[i,j] = sigma * phi^(i-j) * sqrt(1 - phi²)
@@ -220,6 +217,60 @@ def build_ar1_cholesky_direct(phi, sigma, horizon, device='cpu', dtype=None):
         L[i, i] = sigma * sqrt_1_minus_phi2
         for j in range(1, i):
             L[i, j] = sigma * (phi ** (i - j)) * sqrt_1_minus_phi2
+
+    return L
+
+
+def build_ar1_cholesky_direct(phi, sigma, horizon, device='cpu', dtype=None):
+    """
+    Build Cholesky factor L directly for AR(1) covariance.
+
+    Vectorized implementation - O(H) instead of O(H²) Python loops.
+    Uses closed-form formula for AR(1) Cholesky factor:
+    - First column: L[i,0] = sigma * phi^i
+    - Diagonal: L[i,i] = sigma * sqrt(1 - phi²) for i > 0
+    - Lower triangle: L[i,j] = sigma * phi^(i-j) * sqrt(1 - phi²)
+
+    Args:
+        phi: AR(1) coefficient (0 < phi < 1) - can be float or tensor
+        sigma: Standard deviation σ - can be float or tensor
+        horizon: Forecast horizon H
+        device: Device for tensor
+        dtype: Data type (if None, inferred from phi/sigma or uses default)
+
+    Returns:
+        L: (H, H) lower triangular Cholesky factor
+    """
+    # Convert to tensors if needed, preserving dtype
+    if not isinstance(phi, torch.Tensor):
+        if dtype is None:
+            dtype = torch.get_default_dtype()
+        phi = torch.tensor(phi, device=device, dtype=dtype)
+    else:
+        dtype = phi.dtype if dtype is None else dtype
+
+    if not isinstance(sigma, torch.Tensor):
+        sigma = torch.tensor(sigma, device=device, dtype=dtype)
+
+    L = torch.zeros(horizon, horizon, device=device, dtype=dtype)
+    sqrt_1_minus_phi2 = torch.sqrt(1 - phi**2)
+
+    # First column: L[i,0] = sigma * phi^i (vectorized)
+    indices = torch.arange(horizon, device=device, dtype=dtype)
+    L[:, 0] = sigma * torch.pow(phi, indices)
+
+    if horizon > 1:
+        # Diagonal (i>0): L[i,i] = sigma * sqrt(1-phi²)
+        diag_indices = torch.arange(1, horizon, device=device)
+        L[diag_indices, diag_indices] = sigma * sqrt_1_minus_phi2
+
+        # Lower triangle (j>0, j<i): L[i,j] = sigma * phi^(i-j) * sqrt(1-phi²)
+        if horizon > 2:
+            row_idx, col_idx = torch.tril_indices(horizon, horizon, offset=-1, device=device)
+            mask = col_idx > 0
+            row_idx, col_idx = row_idx[mask], col_idx[mask]
+            if len(row_idx) > 0:
+                L[row_idx, col_idx] = sigma * torch.pow(phi, (row_idx - col_idx).to(dtype)) * sqrt_1_minus_phi2
 
     return L
 
@@ -262,35 +313,14 @@ def compute_empirical_quantiles(samples, quantiles=None):
     return result
 
 
-def kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p):
+def _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p):
     """
-    KL divergence: KL(q || p) where:
-    - q ~ N(mu_q, diag(exp(logvar_q))) - diagonal Gaussian (posterior)
-    - p ~ N(mu_p, Sigma_p) - full covariance Gaussian (prior)
+    KL divergence - ORIGINAL loop-based implementation (for verification).
 
-    Formula:
-    KL(q || p) = 0.5 * (
-        tr(Sigma_p^{-1} Sigma_q) +
-        (mu_p - mu_q)^T Sigma_p^{-1} (mu_p - mu_q) -
-        k + log(det(Sigma_p) / det(Sigma_q))
-    )
-
-    Where:
-    - Sigma_q = diag(exp(logvar_q))
-    - det(Sigma_q) = prod(exp(logvar_q))
-    - tr(Sigma_p^{-1} Sigma_q) = sum of diagonal elements of Sigma_p^{-1} * Sigma_q
-
-    Args:
-        mu_q: (B, H, latent_dim) posterior mean
-        logvar_q: (B, H, latent_dim) posterior log-variance (diagonal)
-        mu_p: (B, H, latent_dim) prior mean
-        Sigma_p: (H, H) prior covariance (shared across latent dims and batch)
-
-    Returns:
-        kl: Scalar KL divergence
+    This version iterates over latent dimensions. Kept temporarily for correctness
+    verification of the vectorized version.
     """
     B, H, latent_dim = mu_q.shape
-    device = mu_q.device
 
     # Expand Sigma_p if needed
     if Sigma_p.dim() == 2:
@@ -308,7 +338,6 @@ def kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p):
         var_q_d = torch.exp(logvar_q[:, :, d])  # (B, H)
 
         # Term 1: tr(Sigma_p^{-1} Sigma_q)
-        # Sigma_q is diagonal, so tr(Sigma_p^{-1} * diag(var_q)) = sum(diag(Sigma_p^{-1}) * var_q)
         trace_term = torch.sum(torch.diagonal(Sigma_p_inv, dim1=1, dim2=2) * var_q_d, dim=1)  # (B,)
 
         # Term 2: (mu_p - mu_q)^T Sigma_p^{-1} (mu_p - mu_q)
@@ -319,19 +348,70 @@ def kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p):
         ).squeeze()  # (B,)
 
         # Term 3: log(det(Sigma_p) / det(Sigma_q))
-        # det(Sigma_q) = prod(var_q) => log det = sum(log var_q) = sum(logvar_q)
         log_det_Sigma_q = torch.sum(logvar_q[:, :, d], dim=1)  # (B,)
-
-        # det(Sigma_p) is constant across batch
         sign_p, log_det_Sigma_p = torch.linalg.slogdet(Sigma_p)
         log_det_ratio = log_det_Sigma_p - log_det_Sigma_q  # (B,)
 
         # Combine: KL = 0.5 * (trace + mahalanobis - k + log_det_ratio)
         kl_d = 0.5 * (trace_term + mahalanobis - H + log_det_ratio)  # (B,)
-
         kl_total += kl_d.mean()
 
     return kl_total
+
+
+def kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p):
+    """
+    KL divergence: KL(q || p) where q is diagonal, p has full covariance.
+
+    Vectorized implementation - computes all latent dimensions in parallel.
+
+    Args:
+        mu_q: (B, H, latent_dim) posterior mean
+        logvar_q: (B, H, latent_dim) posterior log-variance (diagonal)
+        mu_p: (B, H, latent_dim) prior mean
+        Sigma_p: (H, H) prior covariance (shared across latent dims and batch)
+
+    Returns:
+        kl: Scalar KL divergence
+    """
+    B, H, latent_dim = mu_q.shape
+
+    # Expand Sigma_p: (H, H) -> (B, H, H)
+    if Sigma_p.dim() == 2:
+        Sigma_p = Sigma_p.unsqueeze(0).expand(B, -1, -1)
+
+    # Compute Sigma_p^{-1} once
+    Sigma_p_inv = torch.linalg.inv(Sigma_p)  # (B, H, H)
+
+    # Get diagonal of Sigma_p_inv for trace computation
+    Sigma_p_inv_diag = torch.diagonal(Sigma_p_inv, dim1=1, dim2=2)  # (B, H)
+
+    # Variance from posterior: (B, H, D)
+    var_q = torch.exp(logvar_q)
+
+    # Term 1: tr(Sigma_p^{-1} @ diag(var_q)) for each latent dim
+    # = sum over H of (Sigma_p_inv_diag * var_q)
+    # Shape: (B, H) * (B, H, D) -> sum over H -> (B, D)
+    trace_term = torch.einsum('bh,bhd->bd', Sigma_p_inv_diag, var_q)  # (B, D)
+
+    # Term 2: Mahalanobis distance (mu_p - mu_q)^T Sigma_p^{-1} (mu_p - mu_q)
+    mu_diff = mu_p - mu_q  # (B, H, D)
+    # For each d: mu_diff[:,:,d]^T @ Sigma_p_inv @ mu_diff[:,:,d]
+    # Use einsum: (B,H,D) @ (B,H,H) @ (B,H,D) -> (B,D)
+    mahal = torch.einsum('bhd,bhk,bkd->bd', mu_diff, Sigma_p_inv, mu_diff)  # (B, D)
+
+    # Term 3: log det ratio
+    # log det(Sigma_p) - log det(Sigma_q) where Sigma_q is diagonal
+    # log det(Sigma_q) = sum of logvar_q over H for each d
+    log_det_Sigma_q = logvar_q.sum(dim=1)  # (B, D)
+    _, log_det_Sigma_p = torch.linalg.slogdet(Sigma_p)  # (B,)
+    log_det_ratio = log_det_Sigma_p.unsqueeze(-1) - log_det_Sigma_q  # (B, D)
+
+    # KL per dimension: 0.5 * (trace + mahal - H + log_det_ratio)
+    kl_per_dim = 0.5 * (trace_term + mahal - H + log_det_ratio)  # (B, D)
+
+    # Sum over dimensions, mean over batch
+    return kl_per_dim.sum(dim=1).mean()
 
 
 class FullCovariancePrior(nn.Module):

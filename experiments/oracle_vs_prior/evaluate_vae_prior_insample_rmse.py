@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 # Set seeds and dtype
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 print("=" * 80)
 print("VAE PRIOR (z~N(0,1)) IN-SAMPLE RMSE EVALUATION")

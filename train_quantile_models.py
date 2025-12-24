@@ -17,7 +17,7 @@ print("QUANTILE REGRESSION - FULL MODEL TRAINING")
 print("=" * 60)
 
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 num_epochs = 500
 
 # Load data

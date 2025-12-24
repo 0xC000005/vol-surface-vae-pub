@@ -104,7 +104,7 @@ def generate_surfaces_multiday_mle(model_data, ex_data, vol_surface_data,
 
 if __name__ == "__main__":
     set_seeds(0)
-    torch.set_default_dtype(torch.float64)
+    torch.set_default_dtype(torch.float32)
     num_epochs = 500
     ctx_len = 5
     start_day = 5

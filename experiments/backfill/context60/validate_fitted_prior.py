@@ -223,5 +223,5 @@ def validate():
 
 
 if __name__ == "__main__":
-    torch.set_default_dtype(torch.float64)
+    torch.set_default_dtype(torch.float32)
     validate()

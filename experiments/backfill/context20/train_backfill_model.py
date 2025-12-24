@@ -26,7 +26,7 @@ import os
 
 # Set seeds and dtype for reproducibility
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 # Print configuration
 BackfillConfig.summary()

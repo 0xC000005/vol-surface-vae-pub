@@ -444,7 +444,7 @@ def train_phase4_ar_h90(model, optimizer, train_loader, valid_loader,
 def main():
     # Setup
     set_seeds(0)
-    torch.set_default_dtype(torch.float64)
+    torch.set_default_dtype(torch.float32)
 
     cfg = BackfillContext60Config
     output_dir = cfg.checkpoint_dir

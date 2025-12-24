@@ -5,7 +5,7 @@ warnings.filterwarnings("ignore")
 plt.rcParams["font.size"] = 15
 
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 BASE_MODEL_DIR = "test_spx/2024_11_09"
 BASE_TABLE_DIR = "tables/2024_1213"

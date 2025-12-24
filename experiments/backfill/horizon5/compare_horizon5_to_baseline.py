@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 # Set seeds and dtype
 set_seeds(42)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 print("=" * 80)
 print("HORIZON=5 vs HORIZON=1 COMPARISON")

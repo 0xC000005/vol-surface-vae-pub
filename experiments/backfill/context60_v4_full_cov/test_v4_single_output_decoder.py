@@ -23,7 +23,7 @@ print()
 
 # Set seeds for reproducibility
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 
 # ============================================================================
 # Test 1: Model Configuration and Initialization
@@ -88,8 +88,8 @@ print("-" * 80)
 # Create dummy input
 batch_size = 2
 seq_len = 25  # 20 context + 5 horizon
-surface = torch.randn(batch_size, seq_len, 5, 5, dtype=torch.float64)
-ex_feats = torch.randn(batch_size, seq_len, 3, dtype=torch.float64)
+surface = torch.randn(batch_size, seq_len, 5, 5, dtype=torch.float32)
+ex_feats = torch.randn(batch_size, seq_len, 3, dtype=torch.float32)
 
 x = {
     "surface": surface,

@@ -53,7 +53,7 @@ class CustomBatchSampler(BatchSampler):
             yield batch
                 
 class VolSurfaceDataSetRand(Dataset):
-    def __init__(self, dataset, min_seq_len=4, max_seq_len=10, dtype=torch.float64):
+    def __init__(self, dataset, min_seq_len=4, max_seq_len=10, dtype=torch.float32):
         '''
             Inputs:
                 dataset: if only surface, then dataset is a numpy array (N, feat_dims), 

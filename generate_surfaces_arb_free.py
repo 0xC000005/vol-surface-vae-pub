@@ -10,7 +10,7 @@ from eval_scripts.eval_utils import *
 import os, sys
 
 set_seeds(0)
-torch.set_default_dtype(torch.float64)
+torch.set_default_dtype(torch.float32)
 num_epochs = 500
 ctx_len = 3
 start_day = 3

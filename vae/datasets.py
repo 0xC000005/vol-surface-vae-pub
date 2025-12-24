@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 
 class VolSurfaceDataSet(Dataset):
-    def __init__(self, dataset, seq_len, dtype=torch.float64):
+    def __init__(self, dataset, seq_len, dtype=torch.float32):
         '''
             Inputs:
                 dataset: dataset numpy array (N, feat_dims)
@@ -22,7 +22,7 @@ class VolSurfaceDataSet(Dataset):
         return ele
     
 class VolSurfaceDataSetDict(Dataset):
-    def __init__(self, dataset, seq_len, dtype=torch.float64):
+    def __init__(self, dataset, seq_len, dtype=torch.float32):
         '''
             Inputs:
                 dataset: dataset numpy array (N, feat_dims)
@@ -41,7 +41,7 @@ class VolSurfaceDataSetDict(Dataset):
         return {"surface": ele}
 
 class VolSurfaceExFeatsDataSet(Dataset):
-    def __init__(self, dataset, ex_feats, seq_len, dtype=torch.float64):
+    def __init__(self, dataset, ex_feats, seq_len, dtype=torch.float32):
         '''
             Inputs:
                 dataset: dataset numpy array (N, feat_dims)
@@ -69,7 +69,7 @@ class VolSurfaceExFeatsDataSet(Dataset):
         return {"surface": ds_ele, "ex_feats": feat_ele}
 
 class SABRDataset(Dataset):
-    def __init__(self, dataset, seq_len, dtype=torch.float64):
+    def __init__(self, dataset, seq_len, dtype=torch.float32):
         '''
             Inputs:
                 dataset: dataset numpy array (num_paths, num_period, ttm_grid, moneyness_grid)
@@ -95,7 +95,7 @@ class SABRDataset(Dataset):
         return {"surface": self.dataset[idx]}
 
 class SABRExFeatsDataset(Dataset):
-    def __init__(self, dataset, ex_feats, seq_len, dtype=torch.float64):
+    def __init__(self, dataset, ex_feats, seq_len, dtype=torch.float32):
         '''
             Inputs:
                 dataset: dataset numpy array (num_paths, num_period, ttm_grid, moneyness_grid)
