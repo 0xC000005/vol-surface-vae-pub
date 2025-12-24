@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+**For product requirements, target metrics, risk management applications, and acceptance criteria, see [PRODUCT_SPEC.md](PRODUCT_SPEC.md).**
+
+**For standardized testing workflow and complete script inventory, see [EXPERIMENT_INVENTORY.md](EXPERIMENT_INVENTORY.md).**
+
 This codebase implements a Variational Autoencoder (VAE) approach for conditional generation of future volatility surfaces, as described in the paper:
 
 **Jacky Chen, John Hull, Zissis Poulos, Haris Rasul, Andreas Veneris, Yuntao Wu**, "*A Variational Autoencoder Approach to Conditional Generation of Possible Future Volatility Surfaces*", Journal of Financial Data Science, 2025.
@@ -22,8 +26,8 @@ vol-surface-vae-pub/
 ├── data/                   # Input data files
 ├── experiments/            # Experiment-specific scripts (organized by research question)
 │   ├── backfill/          # Multi-horizon backfilling experiments
-│   │   ├── context20/     # Production model (16-year training, 34 scripts)
-│   │   ├── context60/     # Context length ablation study (3 scripts)
+│   │   ├── context20/     # Production model (16-year training, 44 scripts)
+│   │   ├── context60/     # Context length ablation study (53 scripts)
 │   │   └── horizon5/      # Multi-horizon validation (4 scripts)
 │   ├── econometric_baseline/  # Co-integration baseline (9 scripts)
 │   ├── oracle_vs_prior/   # VAE prior mismatch analysis (4 scripts)
@@ -41,6 +45,7 @@ vol-surface-vae-pub/
 │   ├── backfill_16yr/     # Context20 model results
 │   ├── econometric_baseline/  # Baseline comparison results
 │   └── ...                # Other analysis results
+├── archived_docs/          # Historical planning documents
 ├── archived_experiments/   # Old test outputs and validation scripts
 ├── eval_scripts/          # Evaluation utilities
 ├── data_preproc/          # Data preprocessing code
@@ -422,4 +427,4 @@ For detailed download instructions and workflow, see `DEVELOPMENT.md`.
 - `archived_experiments/test_*/` - Old test outputs
 - `data/` - Input data files
 
-See `REORGANIZATION_SUMMARY.md` for complete details on the recent codebase reorganization.
+See `archived_docs/REORGANIZATION_SUMMARY.md` for historical planning documents.

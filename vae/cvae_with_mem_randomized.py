@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.cuda.amp import autocast
 from typing import Dict, Union, Tuple, Optional
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
@@ -579,7 +580,66 @@ class CVAEMemRand(BaseVAE):
         if self.horizon < 1:
             raise ValueError(f"horizon must be >= 1, got {self.horizon}")
 
-    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None):
+    def load_fitted_prior(self, prior_params_path: str):
+        """
+        Load pre-fitted aggregated posterior for realistic sampling.
+
+        Instead of sampling future latents from N(0,1), we sample from a GMM
+        fitted to the empirical aggregated posterior q(z) = E_x[q(z|x)].
+        This addresses the VAE prior mismatch that causes systematic bias.
+
+        Args:
+            prior_params_path: Path to fitted GMM parameters (.pt file)
+        """
+        params = torch.load(prior_params_path, map_location=self.device)
+        self.fitted_prior = {
+            'means': params['means'].to(self.device).to(torch.float64),
+            'covariances': params['covariances'].to(self.device).to(torch.float64),
+            'weights': params['weights'].to(self.device).to(torch.float64),
+            'n_components': params['n_components']
+        }
+        # Pre-compute Cholesky decomposition for efficient sampling
+        self.fitted_prior['cholesky'] = torch.linalg.cholesky(self.fitted_prior['covariances'])
+        print(f"Loaded fitted prior with {params['n_components']} components from {prior_params_path}")
+
+    def _sample_from_fitted_prior(self, batch_size: int, seq_len: int) -> torch.Tensor:
+        """
+        Sample latents from fitted GMM prior instead of N(0,1).
+
+        This method samples from the empirical aggregated posterior, matching
+        the distribution the decoder was trained on and eliminating systematic bias.
+
+        Args:
+            batch_size: Batch size (B)
+            seq_len: Sequence length (T = context + horizon)
+
+        Returns:
+            Sampled latents (B, T, latent_dim)
+        """
+        if not hasattr(self, 'fitted_prior') or self.fitted_prior is None:
+            raise ValueError("Fitted prior not loaded. Call load_fitted_prior() first.")
+
+        total_samples = batch_size * seq_len
+        latent_dim = self.config["latent_dim"]
+
+        # Sample component indices based on weights
+        weights = self.fitted_prior['weights']
+        component_idx = torch.multinomial(
+            weights.expand(total_samples, -1),
+            num_samples=1
+        ).squeeze(-1)  # (B*T,)
+
+        # Get means and Cholesky factors for selected components
+        means = self.fitted_prior['means'][component_idx]  # (B*T, latent_dim)
+        L = self.fitted_prior['cholesky'][component_idx]   # (B*T, latent_dim, latent_dim)
+
+        # Sample using reparameterization: z = mean + L @ eps
+        eps = torch.randn(total_samples, latent_dim, device=self.device, dtype=torch.float64)
+        z = means + torch.einsum('bij,bj->bi', L, eps)
+
+        return z.reshape(batch_size, seq_len, latent_dim)
+
+    def get_surface_given_conditions(self, c: dict[str, torch.Tensor], z: torch.Tensor=None, mu=0, std=1, horizon=None, prior_mode="standard"):
         '''
         Generate surface given context only (realistic deployment).
 
@@ -587,10 +647,13 @@ class CVAEMemRand(BaseVAE):
             c: context dictionary with "surface" (B,C,H,W) and "ex_feats" (B,C,3)
             z: pre-generated latent samples (B,T,latent_dim). If None, uses hybrid sampling:
                - z[:, :C, :] = posterior mean from context (deterministic)
-               - z[:, C:C+horizon, :] = sampled from N(mu, std) (stochastic)
-            mu: Mean for future latent sampling (default: 0)
-            std: Std for future latent sampling (default: 1)
+               - z[:, C:C+horizon, :] = sampled from prior (stochastic)
+            mu: Mean for standard prior (only used if prior_mode="standard")
+            std: Std for standard prior (only used if prior_mode="standard")
             horizon: Number of days to forecast. If None, uses self.horizon
+            prior_mode: Prior sampling mode:
+                - "standard": Sample from N(mu, std) - default N(0,1)
+                - "fitted": Sample from fitted GMM (requires load_fitted_prior())
 
         Returns:
             If ex_feats present: (surf_pred, ex_pred) where:
@@ -618,13 +681,22 @@ class CVAEMemRand(BaseVAE):
                 ctx_ex_feats = ctx_ex_feats.unsqueeze(0)
             assert ctx_ex_feats.shape[1] == C, "context length mismatch"
             ctx["ex_feats"] = ctx_ex_feats
+
+        # Sample latent z based on prior_mode
         if z is not None:
             if len(z.shape) == 2:
                 z = z.unsqueeze(0)
         else:
-            z = mu + torch.randn((ctx_surface.shape[0], T, self.config["latent_dim"])) * std
-        
+            if prior_mode == "fitted":
+                z = self._sample_from_fitted_prior(B, T)
+            else:
+                z = mu + torch.randn((B, T, self.config["latent_dim"]),
+                                     device=self.device, dtype=torch.float64) * std
+
+        # Encode context to get posterior mean for context positions
         ctx_latent_mean, ctx_latent_log_var, ctx_latent = self.encoder(ctx)
+
+        # Replace context positions with deterministic posterior mean
         z[:, :C, ...] = ctx_latent_mean
 
         ctx_embedding = self.ctx_encoder(ctx) # embedded c
@@ -730,6 +802,122 @@ class CVAEMemRand(BaseVAE):
 
         if has_ex_feats:
             ex_feats_out = torch.cat(generated_ex_feats, dim=1)  # (B, horizon, 3)
+            return surfaces_out, ex_feats_out
+        else:
+            return surfaces_out
+
+    def generate_autoregressive_offset(
+        self,
+        initial_context: Dict[str, torch.Tensor],
+        ar_steps: int = 3,
+        horizon: int = 60,
+        offset: int = 60,
+        z: Optional[torch.Tensor] = None
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Generate multi-step autoregressive sequence using offset-based chunking.
+
+        This method matches the training approach for phases 3-4:
+        - Phase 3: ar_steps=3, horizon=60, offset=60 → 180 days total
+        - Phase 4: ar_steps=3, horizon=90, offset=90 → 270 days total
+
+        Each step generates 'horizon' days, then slides context window by 'offset' days.
+        This is MUCH faster than day-by-day AR (3 calls vs 180/270 calls).
+
+        Args:
+            initial_context: dict with keys:
+                - "surface": (B, C, 5, 5) - C days of context
+                - "ex_feats": optional (B, C, 3) - extra features
+            ar_steps: Number of AR steps (default 3)
+            horizon: Days to generate per step (60 or 90)
+            offset: Context window shift amount (60 or 90 for deployment)
+            z: Optional pre-sampled latents (not used, model samples internally)
+
+        Returns:
+            If ex_feats in context:
+                tuple of (surfaces, ex_feats)
+                - surfaces: (B, ar_steps*horizon, 3, 5, 5)
+                - ex_feats: (B, ar_steps*horizon, 3)
+            Else:
+                surfaces: (B, ar_steps*horizon, 3, 5, 5)
+
+        Example:
+            # 180-day generation
+            surf, ex = model.generate_autoregressive_offset(
+                context, ar_steps=3, horizon=60, offset=60
+            )
+            # surf.shape = (1, 180, 3, 5, 5)
+        """
+        # Validate inputs
+        if "surface" not in initial_context:
+            raise ValueError("initial_context must contain 'surface' key")
+
+        C = self.config.get("context_len", 60)
+        has_ex_feats = "ex_feats" in initial_context
+
+        # Validate context length
+        context_surface_len = initial_context["surface"].shape[1]
+        if context_surface_len != C:
+            raise ValueError(f"Context length must be {C}, got {context_surface_len}")
+
+        # Clone initial context to avoid modifying input
+        context = {k: v.clone() if torch.is_tensor(v) else v
+                   for k, v in initial_context.items()}
+
+        # Storage for all predictions
+        all_surfaces = []
+        all_ex_feats = [] if has_ex_feats else None
+
+        # Store median predictions for context updates
+        median_surfaces = []
+        median_ex_feats = [] if has_ex_feats else None
+
+        # Autoregressive rollout
+        for step in range(ar_steps):
+            # Temporarily set model horizon
+            original_horizon = self.horizon
+            self.horizon = horizon
+
+            # Generate prediction for this step
+            result = self.get_surface_given_conditions(context, z=None)
+
+            self.horizon = original_horizon
+
+            # Handle return format
+            if has_ex_feats:
+                pred_surface, pred_ex_feat = result  # (B, horizon, 3, 5, 5), (B, horizon, 3)
+                all_surfaces.append(pred_surface)
+                all_ex_feats.append(pred_ex_feat)
+
+                # Extract p50 median for context update
+                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
+                median_surfaces.append(pred_median_surf)
+                median_ex_feats.append(pred_ex_feat)  # Ex_feats have no quantiles
+            else:
+                pred_surface = result  # (B, horizon, 3, 5, 5)
+                all_surfaces.append(pred_surface)
+
+                # Extract p50 median
+                pred_median_surf = pred_surface[:, :, 1, :, :]  # (B, horizon, 5, 5)
+                median_surfaces.append(pred_median_surf)
+
+            # Update context for next step (if not last step)
+            if step < ar_steps - 1:
+                # Concatenate all median predictions so far
+                concat_medians = torch.cat(median_surfaces, dim=1)  # (B, (step+1)*horizon, 5, 5)
+
+                # Take last C days as new context
+                context["surface"] = concat_medians[:, -C:, :, :]  # (B, C, 5, 5)
+
+                if has_ex_feats:
+                    concat_ex = torch.cat(median_ex_feats, dim=1)  # (B, (step+1)*horizon, 3)
+                    context["ex_feats"] = concat_ex[:, -C:, :]  # (B, C, 3)
+
+        # Concatenate all predictions
+        surfaces_out = torch.cat(all_surfaces, dim=1)  # (B, ar_steps*horizon, 3, 5, 5)
+
+        if has_ex_feats:
+            ex_feats_out = torch.cat(all_ex_feats, dim=1)  # (B, ar_steps*horizon, 3)
             return surfaces_out, ex_feats_out
         else:
             return surfaces_out
@@ -911,28 +1099,33 @@ class CVAEMemRand(BaseVAE):
             ex_feats_real = ex_feats[:, C:, :,].to(self.device)
 
         optimizer.zero_grad()
-        if "ex_feats" in x:
-            surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
-        else:
-            surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
 
-        # Reconstruction loss using quantile regression
-        # surface_reconstruction: (B, horizon, num_quantiles, H, W)
-        # surface_real: (B, horizon, H, W)
-        re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
-        if "ex_feats" in x:
-            if self.config["ex_loss_on_ret_only"]:
-                ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
-                ex_feats_real = ex_feats_real[:, :, :1]
-            re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
-            reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
-        else:
-            reconstruction_error = re_surface
-        # KL = -1/2 \sum_{i=1}^M (1+log(\sigma_k^2) - \sigma_k^2 - \mu_k^2)
-        kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
-        kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
-        total_loss = reconstruction_error + self.kl_weight * kl_loss
+        # Mixed precision training with BF16
+        with autocast(dtype=torch.bfloat16):
+            if "ex_feats" in x:
+                surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+            else:
+                surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+
+            # Reconstruction loss using quantile regression
+            # surface_reconstruction: (B, horizon, num_quantiles, H, W)
+            # surface_real: (B, horizon, H, W)
+            re_surface = self.quantile_loss_fn(surface_reconstruction, surface_real)
+            if "ex_feats" in x:
+                if self.config["ex_loss_on_ret_only"]:
+                    ex_feats_reconstruction = ex_feats_reconstruction[:, :, :1]
+                    ex_feats_real = ex_feats_real[:, :, :1]
+                re_ex_feats = self.ex_feats_loss_fn(ex_feats_reconstruction, ex_feats_real)
+                reconstruction_error = re_surface + self.config["re_feat_weight"] * re_ex_feats
+            else:
+                reconstruction_error = re_surface
+            # KL = -1/2 \sum_{i=1}^M (1+log(\sigma_k^2) - \sigma_k^2 - \mu_k^2)
+            kl_loss = -0.5 * (1 + z_log_var - torch.exp(z_log_var) - torch.square(z_mean))
+            kl_loss = torch.mean(torch.sum(kl_loss, dim=-1))
+            total_loss = reconstruction_error + self.kl_weight * kl_loss
+
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
         optimizer.step()
 
         return {
