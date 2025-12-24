@@ -25,7 +25,7 @@ model_config = {
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from typing import Dict, Tuple, Optional, Union
 from vae.cvae_with_mem_randomized import CVAEMemRand
 from vae.conditional_prior_network import ConditionalPriorNetwork, kl_divergence_gaussians
@@ -260,7 +260,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
         optimizer.zero_grad()
 
         # Mixed precision training with BF16
-        with autocast(dtype=torch.bfloat16):
+        with autocast('cuda', dtype=torch.bfloat16):
             if "ex_feats" in x:
                 surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
             else:
@@ -341,7 +341,7 @@ class CVAEMemRandConditionalPrior(CVAEMemRand):
         use_cache = self.config.get("cache_encoder_multihorizon", True)
 
         # Mixed precision training with BF16
-        with autocast(dtype=torch.bfloat16):
+        with autocast('cuda', dtype=torch.bfloat16):
             if use_cache:
                 # === OPTIMIZED PATH: Encode once, resample z per horizon ===
 

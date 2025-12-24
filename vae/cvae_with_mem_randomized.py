@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from typing import Dict, Union, Tuple, Optional
 from vae.base import BaseVAE, BaseDecoder, BaseEncoder
 from collections import OrderedDict
@@ -1044,7 +1044,7 @@ class CVAEMemRand(BaseVAE):
         optimizer.zero_grad()
 
         # Mixed precision training with BF16
-        with autocast(dtype=torch.bfloat16):
+        with autocast('cuda', dtype=torch.bfloat16):
             if "ex_feats" in x:
                 surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
             else:
