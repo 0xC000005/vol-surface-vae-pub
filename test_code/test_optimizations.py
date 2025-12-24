@@ -11,7 +11,9 @@ import numpy as np
 from vae.full_covariance_prior import (
     build_ar1_covariance,
     build_ar1_cholesky_direct,
-    kl_divergence_full_covariance
+    _build_ar1_cholesky_direct_loop,  # Original reference
+    kl_divergence_full_covariance,
+    _kl_divergence_full_covariance_loop,  # Original reference
 )
 
 
@@ -84,6 +86,17 @@ class TestCholeskyVectorization:
             L = build_ar1_cholesky_direct(phi, sigma, 10, 'cpu', dtype=dtype)
 
             assert L.dtype == dtype, f"Wrong dtype: expected {dtype}, got {L.dtype}"
+
+    def test_vectorized_matches_loop(self):
+        """Verify vectorized Cholesky matches original loop implementation."""
+        for phi in [0.1, 0.5, 0.7, 0.9, 0.99]:
+            for sigma in [0.1, 1.0, 5.0]:
+                for horizon in [1, 5, 10, 30, 90]:
+                    L_vectorized = build_ar1_cholesky_direct(phi, sigma, horizon, 'cpu')
+                    L_loop = _build_ar1_cholesky_direct_loop(phi, sigma, horizon, 'cpu')
+
+                    assert torch.allclose(L_vectorized, L_loop, atol=1e-6, rtol=1e-5), \
+                        f"Vectorized != loop for phi={phi}, sigma={sigma}, H={horizon}"
 
 
 class TestKLDivergenceVectorization:
@@ -180,6 +193,22 @@ class TestKLDivergenceVectorization:
             assert not torch.isnan(kl), f"NaN KL for H={H}"
             assert not torch.isinf(kl), f"Inf KL for H={H}"
             assert kl >= -1e-5, f"Negative KL for H={H}: {kl}"
+
+    def test_vectorized_matches_loop(self):
+        """Verify vectorized KL matches original loop implementation."""
+        for _ in range(10):
+            B, H, D = np.random.randint(2, 16), np.random.randint(5, 30), 12
+
+            mu_q = torch.randn(B, H, D)
+            logvar_q = torch.randn(B, H, D)
+            mu_p = torch.randn(B, H, D)
+            Sigma_p = build_ar1_covariance(0.7, 1.0, H, 'cpu')
+
+            kl_vectorized = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+            kl_loop = _kl_divergence_full_covariance_loop(mu_q, logvar_q, mu_p, Sigma_p)
+
+            assert torch.allclose(kl_vectorized, kl_loop, atol=1e-5, rtol=1e-4), \
+                f"Vectorized != loop: {kl_vectorized} vs {kl_loop}"
 
 
 class TestFP32Conversion:
