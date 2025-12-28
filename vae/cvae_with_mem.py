@@ -154,7 +154,7 @@ class CVAEMemEncoder(BaseEncoder):
         embeddings = embeddings.reshape((embeddings.shape[0] * embeddings.shape[1], embeddings.shape[2])) # (BxT, n_lstm)
         z_mean = self.z_mean_layer(embeddings).reshape((-1, seq_len, latent_dim)) # (B, T, latent_dim)
         z_log_var = self.z_log_var_layer(embeddings).reshape((-1, seq_len, latent_dim)) # (B, T, latent_dim)
-        eps = torch.rand_like(z_log_var)
+        eps = torch.randn_like(z_log_var)
         z = z_mean + torch.exp(0.5 * z_log_var) * eps
         return (z_mean, z_log_var, z)
 

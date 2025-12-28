@@ -36,7 +36,7 @@ class Conv2DEncoder(BaseEncoder):
         x = self.encoder_layers(x) # (B,hidden[-1]xHxW)
         z_mean = self.z_mean_layer(x)
         z_log_var = self.z_log_var_layer(x)
-        eps = torch.rand_like(z_log_var)
+        eps = torch.randn_like(z_log_var)
         z = z_mean + torch.exp(0.5 * z_log_var) * eps
         return (z_mean, z_log_var, z)
 
