@@ -129,6 +129,164 @@ class PositionEncodedPriorMean(nn.Module):
         return mu_p
 
 
+class RNNPriorMean(nn.Module):
+    """
+    RNN-based prior mean network with temporal dependency.
+
+    Unlike PositionEncodedPriorMean which processes each timestep independently,
+    this network autoregressively generates μ_t where each mean depends on
+    the previous hidden state, creating temporal dependency in the prior means.
+
+    Architecture:
+        h_0 = f(context_summary)
+        For t in [0, horizon):
+            input_t = pos_enc(t) [if use_position_encoding] else zeros
+            h_t, mu_t = RNN(input_t, h_{t-1})
+
+    Args:
+        context_dim: Dimension of context summary (latent_dim when compress_context=True)
+        max_horizon: Maximum forecast horizon
+        latent_dim: Dimension of latent space z
+        rnn_type: 'lstm' or 'gru'
+        hidden_dim: Hidden dimension of RNN
+        num_layers: Number of RNN layers (default: 1)
+        use_position_encoding: If True, feed position encoding as input (default: False)
+        pos_dim: Dimension of position encoding if used (default: 64)
+        dropout: Dropout rate (only applies if num_layers > 1, default: 0.1)
+    """
+    def __init__(self, context_dim=12, max_horizon=90, latent_dim=12,
+                 rnn_type='lstm', hidden_dim=32, num_layers=1,
+                 use_position_encoding=False, pos_dim=64, dropout=0.1):
+        super().__init__()
+        self.context_dim = context_dim
+        self.latent_dim = latent_dim
+        self.max_horizon = max_horizon
+        self.rnn_type = rnn_type.lower()
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.use_position_encoding = use_position_encoding
+
+        # Context encoder: project context_summary to initial hidden state
+        self.context_to_hidden = nn.Linear(context_dim, hidden_dim * num_layers)
+
+        # Optional position encoding
+        if use_position_encoding:
+            self.pos_encoder = SinusoidalPositionEncoding(d_model=pos_dim, max_len=max_horizon)
+            rnn_input_dim = pos_dim
+        else:
+            self.pos_encoder = None
+            rnn_input_dim = latent_dim  # Feed back previous output
+
+        # RNN cell
+        if self.rnn_type == 'lstm':
+            self.rnn = nn.LSTM(
+                input_size=rnn_input_dim,
+                hidden_size=hidden_dim,
+                num_layers=num_layers,
+                dropout=dropout if num_layers > 1 else 0.0,
+                batch_first=False  # (seq_len, batch, features)
+            )
+        elif self.rnn_type == 'gru':
+            self.rnn = nn.GRU(
+                input_size=rnn_input_dim,
+                hidden_size=hidden_dim,
+                num_layers=num_layers,
+                dropout=dropout if num_layers > 1 else 0.0,
+                batch_first=False
+            )
+        else:
+            raise ValueError(f"rnn_type must be 'lstm' or 'gru', got '{rnn_type}'")
+
+        # Output layer: RNN hidden -> latent_dim
+        self.output_layer = nn.Linear(hidden_dim, latent_dim)
+
+        # Initial input (if not using position encoding)
+        if not use_position_encoding:
+            self.init_input = nn.Parameter(torch.zeros(1, 1, latent_dim))
+
+    def init_hidden(self, context_summary):
+        """
+        Initialize RNN hidden state from context summary.
+
+        Args:
+            context_summary: (B, context_dim)
+
+        Returns:
+            h_0: Initial hidden state for RNN
+                 LSTM: tuple of (h_0, c_0), each (num_layers, B, hidden_dim)
+                 GRU: (num_layers, B, hidden_dim)
+        """
+        B = context_summary.shape[0]
+        device = context_summary.device
+
+        # Project context to hidden state
+        h_flat = self.context_to_hidden(context_summary)  # (B, num_layers * hidden_dim)
+        h_0 = h_flat.view(B, self.num_layers, self.hidden_dim)  # (B, num_layers, hidden_dim)
+        h_0 = h_0.transpose(0, 1).contiguous()  # (num_layers, B, hidden_dim)
+
+        if self.rnn_type == 'lstm':
+            # LSTM needs both hidden and cell state
+            c_0 = torch.zeros_like(h_0)
+            return (h_0, c_0)
+        else:
+            # GRU only needs hidden state
+            return h_0
+
+    def forward(self, context_summary, horizon):
+        """
+        Autoregressively generate prior means with temporal dependency.
+
+        Args:
+            context_summary: (B, context_dim) context embedding
+            horizon: Integer, forecast horizon
+
+        Returns:
+            mu_p: (B, H, latent_dim) temporally-dependent prior means
+        """
+        B = context_summary.shape[0]
+        device = context_summary.device
+
+        # Initialize hidden state from context
+        hidden = self.init_hidden(context_summary)
+
+        outputs = []
+
+        if self.use_position_encoding:
+            # Use position encoding as input at each timestep
+            timesteps = torch.arange(horizon, device=device)
+            pos_encodings = self.pos_encoder(timesteps)  # (H, pos_dim)
+
+            for t in range(horizon):
+                # Input: position encoding for timestep t
+                input_t = pos_encodings[t:t+1].unsqueeze(1).expand(-1, B, -1)  # (1, B, pos_dim)
+
+                # RNN step
+                output_t, hidden = self.rnn(input_t, hidden)  # output_t: (1, B, hidden_dim)
+
+                # Project to latent_dim
+                mu_t = self.output_layer(output_t.squeeze(0))  # (B, latent_dim)
+                outputs.append(mu_t)
+        else:
+            # Use previous output as input (or initial learned embedding for t=0)
+            prev_output = self.init_input.expand(-1, B, -1)  # (1, B, latent_dim)
+
+            for t in range(horizon):
+                # RNN step
+                output_t, hidden = self.rnn(prev_output, hidden)  # (1, B, hidden_dim)
+
+                # Project to latent_dim
+                mu_t = self.output_layer(output_t.squeeze(0))  # (B, latent_dim)
+                outputs.append(mu_t)
+
+                # Use current output as next input
+                prev_output = mu_t.unsqueeze(0)  # (1, B, latent_dim)
+
+        # Stack outputs: (B, H, latent_dim)
+        mu_p = torch.stack(outputs, dim=1)
+
+        return mu_p
+
+
 def build_ar1_covariance(phi, sigma_sq, horizon, device='cpu', dtype=None):
     """
     Build AR(1) covariance matrix: Σ[i,j] = σ² × φ^|i-j|
@@ -417,39 +575,68 @@ def kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p):
 class FullCovariancePrior(nn.Module):
     """
     Complete Full Covariance Prior combining:
-    1. Position-encoded means: μ_t = f(context, pos(t))
+    1. Position-encoded or RNN-based means: μ_t = f(context, t)
     2. Global AR(1) covariance: Σ[i,j] = σ² × φ^|i-j|
 
-    Only 2 learnable scalar parameters: φ, σ²
+    Only 2 learnable scalar parameters for covariance: φ, σ²
     (vs 187K parameters in baseline conditional prior)
 
     Args:
         context_dim: Dimension of context summary
         max_horizon: Maximum forecast horizon
         latent_dim: Dimension of latent space
-        pos_dim: Position encoding dimension
-        hidden_dims: List of hidden layer dimensions for mean network (default: [128, 128])
+        mean_network_type: 'mlp', 'lstm', or 'gru' (default: 'mlp')
+        use_position_encoding: Whether to use position encoding (default: True for MLP, configurable for RNN)
+        pos_dim: Position encoding dimension (default: 64)
+        hidden_dims: List of hidden layer dimensions for MLP mean network (default: [128, 128])
+        rnn_hidden_dim: Hidden dimension for RNN mean network (default: 32)
+        rnn_num_layers: Number of RNN layers (default: 1)
         dropout: Dropout rate for mean network (default: 0.1)
         init_phi: Initial value for φ (0 < phi < 1)
         init_sigma_sq: Initial value for σ²
     """
     def __init__(self, context_dim=12, max_horizon=90, latent_dim=12,
-                 pos_dim=64, hidden_dims=None, dropout=0.1,
-                 init_phi=0.5, init_sigma_sq=1.0):
+                 mean_network_type='mlp', use_position_encoding=None,
+                 pos_dim=64, hidden_dims=None, rnn_hidden_dim=32, rnn_num_layers=1,
+                 dropout=0.1, init_phi=0.5, init_sigma_sq=1.0):
         super().__init__()
         self.context_dim = context_dim
         self.max_horizon = max_horizon
         self.latent_dim = latent_dim
+        self.mean_network_type = mean_network_type.lower()
 
-        # Position-encoded mean network
-        self.mean_network = PositionEncodedPriorMean(
-            context_dim=context_dim,
-            max_horizon=max_horizon,
-            latent_dim=latent_dim,
-            pos_dim=pos_dim,
-            hidden_dims=hidden_dims,
-            dropout=dropout
-        )
+        # Default position encoding based on network type
+        if use_position_encoding is None:
+            use_position_encoding = (self.mean_network_type == 'mlp')
+
+        # Create appropriate mean network
+        if self.mean_network_type == 'mlp':
+            # Position-encoded MLP mean network
+            self.mean_network = PositionEncodedPriorMean(
+                context_dim=context_dim,
+                max_horizon=max_horizon,
+                latent_dim=latent_dim,
+                pos_dim=pos_dim,
+                hidden_dims=hidden_dims,
+                dropout=dropout
+            )
+        elif self.mean_network_type in ['lstm', 'gru']:
+            # RNN-based mean network
+            self.mean_network = RNNPriorMean(
+                context_dim=context_dim,
+                max_horizon=max_horizon,
+                latent_dim=latent_dim,
+                rnn_type=self.mean_network_type,
+                hidden_dim=rnn_hidden_dim,
+                num_layers=rnn_num_layers,
+                use_position_encoding=use_position_encoding,
+                pos_dim=pos_dim,
+                dropout=dropout
+            )
+        else:
+            raise ValueError(
+                f"mean_network_type must be 'mlp', 'lstm', or 'gru', got '{mean_network_type}'"
+            )
 
         # Learnable AR(1) parameters (only 2 scalars!)
         # Use log parameterization for numerical stability

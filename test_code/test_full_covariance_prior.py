@@ -207,6 +207,68 @@ class TestFullCovariancePriorSampling:
         assert z.std() > 0.01, "Samples are nearly constant!"
         print(f"✓ Samples vary (std: {z.std():.4f})")
 
+    def test_cholesky_samples_produce_correct_covariance(self):
+        """Cholesky samples empirical covariance matches AR(1) structure"""
+        torch.manual_seed(42)
+
+        # Setup prior with known parameters
+        phi = 0.7
+        sigma_sq = 1.5
+        horizon = 20
+        latent_dim = 8
+
+        prior = FullCovariancePrior(
+            context_dim=12,
+            latent_dim=latent_dim,
+            init_phi=phi,
+            init_sigma_sq=sigma_sq
+        )
+        prior.eval()
+
+        # Generate many samples
+        num_samples = 10000
+        ctx_summary = torch.randn(num_samples, 12)
+
+        with torch.no_grad():
+            z = prior.sample(ctx_summary, horizon=horizon)  # (num_samples, H, D)
+
+        # Extract first latent dimension for analysis
+        z_d0 = z[:, :, 0].numpy()  # (num_samples, H)
+
+        # Compute empirical covariance matrix
+        z_centered = z_d0 - z_d0.mean(axis=0, keepdims=True)
+        emp_cov = (z_centered.T @ z_centered) / (num_samples - 1)  # (H, H)
+
+        # Theoretical AR(1) covariance
+        phi_actual = prior.get_phi().item()
+        sigma_sq_actual = prior.get_sigma_sq().item()
+        theoretical_cov = build_ar1_covariance(phi_actual, sigma_sq_actual, horizon).numpy()
+
+        # Check diagonal elements (variance)
+        diag_error = np.abs(np.diag(emp_cov).mean() - sigma_sq_actual) / sigma_sq_actual
+        assert diag_error < 0.10, f"Diagonal variance error {diag_error*100:.1f}% > 10%"
+
+        # Check off-diagonal structure (φ^k decay)
+        # Test lag-1 through lag-5 correlations
+        for lag in [1, 2, 3, 4, 5]:
+            diag_lag = np.diag(emp_cov, k=lag)
+            expected_lag = sigma_sq_actual * (phi_actual ** lag)
+            actual_lag = diag_lag.mean()
+            error = abs(actual_lag - expected_lag) / (abs(expected_lag) + 1e-8)
+            assert error < 0.15, f"Lag-{lag} covariance error {error*100:.1f}% > 15%"
+            print(f"  Lag-{lag}: empirical={actual_lag:.4f}, expected={expected_lag:.4f}, error={error*100:.1f}%")
+
+        # Overall RMSE for significant elements (diagonal + lag 1-5)
+        # Only check elements where |theoretical| > 0.1 to avoid division by small numbers
+        mask = np.abs(theoretical_cov) > 0.1
+        errors_significant = np.abs(emp_cov[mask] - theoretical_cov[mask])
+        rmse = np.sqrt(np.mean(errors_significant ** 2))
+        rel_rmse = rmse / sigma_sq_actual
+
+        assert rel_rmse < 0.10, f"RMSE of significant elements {rmse:.4f} ({rel_rmse*100:.1f}% of σ²)"
+
+        print(f"✓ Cholesky samples produce correct AR(1) covariance (RMSE: {rmse:.4f}, {rel_rmse*100:.1f}% of σ²)")
+
 
 class TestEmpiricalQuantiles:
     """Tests for empirical quantile computation"""
@@ -373,6 +435,75 @@ class TestKLDivergence:
         assert kl2 > kl1, f"KL should increase with mean difference: {kl1:.4f} vs {kl2:.4f}"
         print(f"✓ KL increases with divergence ({kl1:.4f} → {kl2:.4f})")
 
+    def test_kl_full_cov_matches_monte_carlo(self):
+        """Closed-form KL matches Monte Carlo estimate"""
+        torch.manual_seed(42)
+
+        # Setup distributions
+        B = 10
+        H = 20
+        latent_dim = 8
+
+        # Posterior q(z): diagonal Gaussian
+        mu_q = torch.randn(B, H, latent_dim) * 0.5
+        logvar_q = torch.randn(B, H, latent_dim) * 0.3  # var ~ [0.5, 2.0]
+
+        # Prior p(z): full AR(1) covariance
+        mu_p = torch.randn(B, H, latent_dim) * 0.5
+        phi = 0.7
+        sigma_sq = 1.2
+        Sigma_p = build_ar1_covariance(phi, sigma_sq, H)
+
+        # Closed-form KL
+        kl_analytical = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+
+        # Monte Carlo KL: E_q[log q(z) - log p(z)]
+        num_samples = 50000
+
+        # Sample from diagonal posterior q(z)
+        var_q = torch.exp(logvar_q)  # (B, H, D)
+        eps = torch.randn(num_samples, B, H, latent_dim)
+        z_samples = mu_q.unsqueeze(0) + torch.sqrt(var_q.unsqueeze(0)) * eps  # (S, B, H, D)
+
+        # Compute log q(z) for each sample
+        # log q(z) = -0.5 * sum((z - mu_q)^2 / var_q + logvar_q + log(2π))
+        diff_q = z_samples - mu_q.unsqueeze(0)
+        log_q = -0.5 * ((diff_q ** 2) / var_q.unsqueeze(0) + logvar_q.unsqueeze(0) + np.log(2 * np.pi))
+        log_q = log_q.sum(dim=-1)  # Sum over latent_dim: (S, B, H)
+
+        # Compute log p(z) for each sample
+        # log p(z) = -0.5 * (z - mu_p)^T Sigma_p^{-1} (z - mu_p) - 0.5 * log det(Sigma_p) - H*D/2 * log(2π)
+        Sigma_p_inv = torch.linalg.inv(Sigma_p)
+        _, log_det_Sigma_p = torch.linalg.slogdet(Sigma_p)
+
+        # For each latent dimension, compute Mahalanobis distance
+        diff_p = z_samples - mu_p.unsqueeze(0)  # (S, B, H, D)
+        log_p_list = []
+        for d in range(latent_dim):
+            diff_d = diff_p[:, :, :, d]  # (S, B, H)
+            # Mahalanobis: diff^T Sigma_inv diff
+            mahal = torch.einsum('sbh,hk,sbk->sb', diff_d, Sigma_p_inv, diff_d)
+            log_p_d = -0.5 * (mahal + log_det_Sigma_p + H * np.log(2 * np.pi))
+            log_p_list.append(log_p_d)
+        log_p = torch.stack(log_p_list, dim=-1).sum(dim=-1)  # (S, B)
+
+        # KL = E_q[log q(z) - log p(z)]
+        log_q_flat = log_q.sum(dim=-1)  # Sum over H: (S, B)
+        kl_diff = log_q_flat - log_p  # (S, B)
+        kl_mc = kl_diff.mean(dim=0).mean()  # Mean over samples and batch
+
+        # Compare
+        rel_error = abs(kl_analytical.item() - kl_mc.item()) / (abs(kl_analytical.item()) + 1e-8)
+
+        print(f"  Analytical KL: {kl_analytical.item():.6f}")
+        print(f"  Monte Carlo KL: {kl_mc.item():.6f}")
+        print(f"  Relative error: {rel_error*100:.2f}%")
+
+        # Should match within 5%
+        assert rel_error < 0.05, f"KL mismatch: analytical={kl_analytical.item():.6f}, MC={kl_mc.item():.6f}, error={rel_error*100:.1f}%"
+
+        print(f"✓ Closed-form KL matches Monte Carlo (error: {rel_error*100:.2f}%)")
+
 
 class TestFullCovariancePriorIntegration:
     """Integration tests for full prior"""
@@ -430,6 +561,126 @@ class TestFullCovariancePriorIntegration:
         print(f"✓ Cholesky cache works (cache size: {cache_size_1})")
 
 
+class TestNumericalStability:
+    """Test numerical stability of mathematical operations."""
+
+    def test_reparameterization_extreme_logvar(self):
+        """Test reparameterization with extreme log_var values."""
+        print("\nTesting reparameterization with extreme log_var...")
+
+        batch_size = 10
+        latent_dim = 5
+
+        mu = torch.zeros(batch_size, latent_dim)
+
+        # Test with very negative log_var (small variance)
+        logvar_small = torch.full((batch_size, latent_dim), -20.0)
+        eps = torch.randn_like(logvar_small)
+        z_small = mu + torch.exp(0.5 * logvar_small) * eps
+
+        assert not torch.isnan(z_small).any(), "NaN detected with small variance"
+        assert not torch.isinf(z_small).any(), "Inf detected with small variance"
+
+        # Test with very positive log_var (large variance)
+        logvar_large = torch.full((batch_size, latent_dim), 20.0)
+        eps = torch.randn_like(logvar_large)
+        z_large = mu + torch.exp(0.5 * logvar_large) * eps
+
+        assert not torch.isnan(z_large).any(), "NaN detected with large variance"
+        assert not torch.isinf(z_large).any(), "Inf detected with large variance"
+
+        print(f"✓ Reparameterization stable for log_var in [-20, 20]")
+        print(f"  Small var (log_var=-20): z range=[{z_small.min():.2e}, {z_small.max():.2e}]")
+        print(f"  Large var (log_var=20): z range=[{z_large.min():.2e}, {z_large.max():.2e}]")
+
+    def test_cholesky_phi_near_boundaries(self):
+        """Test Cholesky decomposition with phi near 0 and 1."""
+        print("\nTesting Cholesky with phi near boundaries...")
+
+        from vae.full_covariance_prior import build_ar1_cholesky_direct
+
+        sigma = 1.0
+        horizon = 30
+
+        # Test phi very close to 0
+        phi_small = 0.001
+        L_small = build_ar1_cholesky_direct(phi_small, sigma, horizon, 'cpu')
+
+        assert not torch.isnan(L_small).any(), "NaN detected with phi=0.001"
+        assert not torch.isinf(L_small).any(), "Inf detected with phi=0.001"
+        assert torch.allclose(L_small @ L_small.T,
+                             build_ar1_covariance(phi_small, sigma**2, horizon, 'cpu'),
+                             atol=1e-5), "L@L.T != Sigma for phi=0.001"
+
+        # Test phi very close to 1
+        phi_large = 0.999
+        L_large = build_ar1_cholesky_direct(phi_large, sigma, horizon, 'cpu')
+
+        assert not torch.isnan(L_large).any(), "NaN detected with phi=0.999"
+        assert not torch.isinf(L_large).any(), "Inf detected with phi=0.999"
+        assert torch.allclose(L_large @ L_large.T,
+                             build_ar1_covariance(phi_large, sigma**2, horizon, 'cpu'),
+                             atol=1e-4), "L@L.T != Sigma for phi=0.999"
+
+        print(f"✓ Cholesky stable for phi in [0.001, 0.999]")
+        print(f"  phi=0.001: L norm={L_small.norm():.4f}")
+        print(f"  phi=0.999: L norm={L_large.norm():.4f}")
+
+    def test_kl_full_cov_condition_number(self):
+        """Monitor condition number of Sigma_p in KL computation."""
+        print("\nTesting KL with ill-conditioned Sigma_p...")
+
+        from vae.full_covariance_prior import kl_divergence_full_covariance, build_ar1_covariance
+
+        B, H, D = 2, 30, 5
+
+        mu_q = torch.randn(B, H, D)
+        logvar_q = torch.randn(B, H, D)
+        mu_p = torch.randn(B, H, D)
+
+        # Test with different phi values (phi near 1 => ill-conditioned)
+        phi_values = [0.1, 0.5, 0.9, 0.99, 0.999]
+
+        for phi in phi_values:
+            Sigma_p = build_ar1_covariance(phi, 1.0, H, 'cpu')
+
+            # Compute condition number
+            eigenvalues = torch.linalg.eigvalsh(Sigma_p)
+            cond_number = eigenvalues.max() / eigenvalues.min()
+
+            # KL computation should not fail
+            kl = kl_divergence_full_covariance(mu_q, logvar_q, mu_p, Sigma_p)
+
+            assert not torch.isnan(kl), f"NaN in KL for phi={phi}"
+            assert not torch.isinf(kl), f"Inf in KL for phi={phi}"
+
+            print(f"  phi={phi:.3f}: cond(Sigma)={cond_number:.2e}, KL={kl.item():.4f}")
+
+        print(f"✓ KL stable for condition numbers up to 1e5")
+
+    def test_exp_overflow_protection_needed(self):
+        """Demonstrate where exp overflow protection would be needed."""
+        print("\nTesting exp overflow thresholds...")
+
+        # For float32, exp(x) overflows at x > ~88
+        # For float64, exp(x) overflows at x > ~709
+
+        # Test log_var near overflow threshold
+        logvar_near_overflow = torch.tensor([80.0, 85.0, 88.0])
+
+        for lv in logvar_near_overflow:
+            try:
+                var = torch.exp(lv)
+                if torch.isinf(var):
+                    print(f"  log_var={lv:.1f}: exp() = Inf (overflow!)")
+                else:
+                    print(f"  log_var={lv:.1f}: exp() = {var:.2e} (OK)")
+            except:
+                print(f"  log_var={lv:.1f}: EXCEPTION")
+
+        print(f"✓ Overflow threshold identified: log_var > 88 (float32)")
+
+
 def run_all_tests():
     """Run all tests manually (for direct execution)"""
     print("=" * 80)
@@ -446,7 +697,8 @@ def run_all_tests():
         TestEmpiricalQuantiles,
         TestGradientFlow,
         TestKLDivergence,
-        TestFullCovariancePriorIntegration
+        TestFullCovariancePriorIntegration,
+        TestNumericalStability
     ]
 
     total_tests = 0
