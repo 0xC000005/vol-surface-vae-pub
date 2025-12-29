@@ -45,7 +45,7 @@ Model Comparison:
 |--------------------|------------------------|------------------------|
 | latent_dim         | 12                     | 12                     |
 | kl_weight          | 1e-5                   | 1e-5                   |
-| Prior type         | p(z\|context) diagonal | p(z\|context) AR(1)    |
+| Prior type         | p(z|context) diagonal  | p(z|context) AR(1)     |
 | Covariance params  | 187K                   | **2 (φ, σ²)**          |
 | Temporal structure | None (IID reuse)       | **AR(1) correlated**   |
 | Roughness ratio    | 9.7%                   | **Target: >40%**       |
@@ -104,12 +104,40 @@ class BackfillContext60ConfigV4FullCov(BackfillContext60ConfigLatent12V3Conditio
     horizon = 30                   # Default training horizon
 
     # ============================================================================
+    # TRAINING SCHEDULE (OPTIMIZED FOR V4)
+    # ============================================================================
+
+    # CHANGED: Reduced epochs (V4 has simpler prior - 2 params vs 187K)
+    total_epochs = 400             # Was 600
+    phase1_end = 100               # Was 200 - Teacher forcing
+    phase2_end = 400               # Was 600 - Multi-horizon
+
+    # CHANGED: Removed H=7 and H=14 (33% fewer iterations, focus on key horizons)
+    phase2_horizons = [1, 30, 60, 90]  # Was [1, 7, 14, 30, 60, 90]
+    phase2_weights = {
+        1: 1.0,
+        30: 1.0,
+        60: 1.0,
+        90: 1.0
+    }
+
+    # ============================================================================
     # PATHS
     # ============================================================================
 
     checkpoint_dir = "models/backfill/context60_v4_full_cov/checkpoints"
     checkpoint_prefix = "backfill_context60_latent12_v4_full_cov"
     results_dir = "results/context60_v4_full_cov"
+
+    @classmethod
+    def get_checkpoint_name(cls, epoch):
+        """Generate checkpoint filename for given epoch (V4 uses epochs 99, 399)."""
+        if epoch == 99 or epoch == cls.phase1_end - 1:
+            return f"{cls.checkpoint_prefix}_phase1_ep99.pt"
+        elif epoch == 399 or epoch == cls.phase2_end - 1:
+            return f"{cls.checkpoint_prefix}_phase2_ep399.pt"
+        else:
+            return f"{cls.checkpoint_prefix}_ep{epoch}.pt"
 
     @classmethod
     def summary(cls):
@@ -163,6 +191,6 @@ class BackfillContext60ConfigV4FullCov(BackfillContext60ConfigLatent12V3Conditio
         print(f"    Weights: UNIFORM (all 1.0)")
         print()
         print("Checkpoints will be saved:")
-        print(f"  {cls.get_checkpoint_name(199)}")
-        print(f"  {cls.get_checkpoint_name(599)}")
+        print(f"  {cls.get_checkpoint_name(99)}")
+        print(f"  {cls.get_checkpoint_name(399)}")
         print("=" * 80)

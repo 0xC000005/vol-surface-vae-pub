@@ -55,8 +55,12 @@ class CVAEFullCovPrior(CVAEMemRand):
             context_dim=config["latent_dim"],  # compress_context=True
             max_horizon=config["max_horizon"],
             latent_dim=config["latent_dim"],
+            mean_network_type=config.get("mean_network_type", "mlp"),
+            use_position_encoding=config.get("use_position_encoding", None),
             pos_dim=config.get("full_cov_pos_dim", 64),
             hidden_dims=config.get("full_cov_hidden_dims", [128, 128]),  # NEW: configurable hidden dims
+            rnn_hidden_dim=config.get("rnn_hidden_dim", 32),
+            rnn_num_layers=config.get("rnn_num_layers", 1),
             dropout=config.get("full_cov_dropout", 0.1),  # NEW: dropout for generalization
             init_phi=config.get("full_cov_init_phi", 0.5),
             init_sigma_sq=config.get("full_cov_init_sigma_sq", 1.0)
@@ -195,6 +199,11 @@ class CVAEFullCovPrior(CVAEMemRand):
             if len(ex_feats.shape) == 2:
                 ex_feats = ex_feats.unsqueeze(0)
 
+        # Move input data to device for forward pass
+        x_device = {"surface": surface.to(self.device)}
+        if "ex_feats" in x:
+            x_device["ex_feats"] = ex_feats.to(self.device)
+
         optimizer.zero_grad(set_to_none=True)
 
         # Uniform weighting across all horizons
@@ -219,9 +228,9 @@ class CVAEFullCovPrior(CVAEMemRand):
 
                 # Forward pass
                 if "ex_feats" in x:
-                    surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x)
+                    surface_reconstruction, ex_feats_reconstruction, z_mean, z_log_var, z = self.forward(x_device)
                 else:
-                    surface_reconstruction, z_mean, z_log_var, z = self.forward(x)
+                    surface_reconstruction, z_mean, z_log_var, z = self.forward(x_device)
 
                 # Reconstruction loss
                 re_surface = nn.functional.mse_loss(surface_reconstruction, surface_real)
@@ -235,10 +244,10 @@ class CVAEFullCovPrior(CVAEMemRand):
                     reconstruction_error = re_surface
 
                 # Full covariance prior KL loss
-                ctx_surface = surface[:, :C, :, :]
+                ctx_surface = x_device["surface"][:, :C, :, :]
                 ctx_encoder_input = {"surface": ctx_surface}
                 if "ex_feats" in x:
-                    ctx_encoder_input["ex_feats"] = ex_feats[:, :C, :]
+                    ctx_encoder_input["ex_feats"] = x_device["ex_feats"][:, :C, :]
 
                 ctx_embedding = self.ctx_encoder(ctx_encoder_input)
                 context_summary = ctx_embedding[:, -1, :]

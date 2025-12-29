@@ -60,7 +60,8 @@ from vae.utils import set_seeds, model_eval
 from config.backfill_context60_config_v4_full_cov import (
     BackfillContext60ConfigV4FullCov
 )
-from torch.amp import autocast, GradScaler
+# Mixed precision (autocast) is handled inside model.train_step()
+# GradScaler not needed for BFloat16 (same dynamic range as FP32)
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(
@@ -110,7 +111,6 @@ def create_dataloaders(train_dataset, valid_dataset, batch_size, valid_batch_siz
         ),
         pin_memory=True,
         num_workers=2,          # Parallel data loading
-        persistent_workers=True, # Reuse workers between epochs
         prefetch_factor=2       # Prefetch 2 batches per worker
     )
 
@@ -123,7 +123,6 @@ def create_dataloaders(train_dataset, valid_dataset, batch_size, valid_batch_siz
         ),
         pin_memory=True,
         num_workers=2,
-        persistent_workers=True,
         prefetch_factor=2
     )
 
@@ -225,7 +224,7 @@ def validate(model, valid_loader, device, kl_weight, horizon=1):
 
 def main():
     print("=" * 80)
-    print("CONTEXT=60 CONDITIONAL PRIOR NETWORK TRAINING (V3)")
+    print("CONTEXT=60 FULL COVARIANCE PRIOR TRAINING (V4)")
     print("=" * 80)
     print()
 
@@ -294,6 +293,11 @@ def main():
         "full_cov_dropout": cfg.full_cov_dropout,  # 0.1
         "full_cov_init_phi": cfg.full_cov_init_phi,  # 0.5
         "full_cov_init_sigma_sq": cfg.full_cov_init_sigma_sq,  # 1.0
+        # LSTM PRIOR MEAN NETWORK (from ablation study - 9.7% better KL)
+        "mean_network_type": "lstm",         # Use LSTM instead of MLP
+        "use_position_encoding": False,      # No position encoding (critical!)
+        "rnn_hidden_dim": 32,                # Match ablation study config
+        "rnn_num_layers": 1,                 # Single layer LSTM
     }
 
     model = CVAEFullCovPrior(model_config)
@@ -315,9 +319,9 @@ def main():
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=cfg.learning_rate)
 
-    # Mixed precision training
-    scaler = GradScaler('cuda')
-    print("✓ Mixed precision (AMP) enabled")
+    # Mixed precision training (BFloat16 autocast in model, no scaler needed)
+    scaler = None  # GradScaler not needed for BF16 (same dynamic range as FP32)
+    print("✓ Mixed precision (BFloat16) enabled - no gradient scaling needed")
 
     # Resume from checkpoint if specified
     start_epoch = 0
@@ -333,9 +337,6 @@ def main():
     output_dir = cfg.checkpoint_dir
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Log file
-    log_file = Path(output_dir) / "context60_latent12_v4_full_cov_training_log.txt"
-
     # Training loop
     print("\n" + "=" * 80)
     print("STARTING TRAINING")
@@ -350,6 +351,15 @@ def main():
         horizon = phase_info['horizon']
 
         print(f"\nEpoch {epoch}/{cfg.total_epochs-1} - Phase {phase_num}: {phase_info['phase_name']}")
+
+        # KL Annealing: Linear warmup over first 50 epochs
+        kl_anneal_epochs = 50
+        if epoch < kl_anneal_epochs:
+            effective_kl_weight = cfg.kl_weight * (epoch / kl_anneal_epochs)
+            model.kl_weight = effective_kl_weight
+            print(f"  KL annealing: {effective_kl_weight:.6f} ({100*epoch/kl_anneal_epochs:.1f}% of target)")
+        else:
+            model.kl_weight = cfg.kl_weight
 
         # Create datasets for current phase
         train_dataset, valid_dataset = create_datasets(
@@ -397,7 +407,18 @@ def main():
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             best_path = Path(output_dir) / f"{cfg.checkpoint_prefix}_best.pt"
-            model.save_model(str(best_path))
+            checkpoint = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "model_config": model_config,
+                "epoch": epoch,
+                "phase": phase_num,
+                "val_metrics": val_metrics,
+                "phi": phi,
+                "sigma_sq": sigma_sq,
+                "history": history,
+            }
+            torch.save(checkpoint, best_path)
             print(f"✓ Saved best model (val_loss={best_val_loss:.6f})")
 
         # Save checkpoint every 50 epochs (both phases)
