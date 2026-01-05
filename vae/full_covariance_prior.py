@@ -651,8 +651,9 @@ class FullCovariancePrior(nn.Module):
         return torch.sigmoid(self.log_phi)
 
     def get_sigma_sq(self):
-        """Get σ² parameter (positive)"""
-        return torch.exp(self.log_sigma_sq)
+        """Get σ² parameter (positive, with floor to prevent collapse)"""
+        min_sigma_sq = 0.01  # Prevent variance collapse
+        return torch.exp(self.log_sigma_sq).clamp(min=min_sigma_sq)
 
     def get_cholesky(self, horizon, device, dtype=None, use_cache=True):
         """
