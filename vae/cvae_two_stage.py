@@ -687,6 +687,349 @@ class TwoStageHeteroscedasticDecoder(TwoStageDecoder):
         return decoded_mean, decoded_logvar
 
 
+class TwoStageFullCovarianceDecoder(TwoStageDecoder):
+    """
+    Full covariance decoder using Cholesky parameterization.
+
+    Instead of predicting independent variance per grid point, this decoder
+    predicts a full 25x25 covariance matrix via its Cholesky factor L.
+
+    Outputs:
+    - mean: (B, T, H, W) - mean surface prediction
+    - L: (B, T, 25, 25) - lower triangular Cholesky factor
+
+    Covariance: Σ = L @ L.T
+    Sampling: x = μ + L @ ε, where ε ~ N(0, I)
+
+    This enables correlated sampling across grid points, preserving the
+    spatial correlation structure of volatility surfaces.
+    """
+
+    def __init__(self, config: dict):
+        super(TwoStageFullCovarianceDecoder, self).__init__(config)
+
+        feat_dim = config["feat_dim"]
+        self.grid_size = feat_dim[0] * feat_dim[1]  # 25 for 5x5
+        self.n_cholesky = self.grid_size * (self.grid_size + 1) // 2  # 325
+
+        # Get projection dimension from parent
+        decoder_compress = config.get("decoder_compress", False)
+        decoder_compress_dim = config.get("decoder_compress_dim", 4)
+        decoder_mem_hidden = config.get("decoder_mem_hidden", 8)
+
+        if decoder_compress:
+            project_dim = decoder_compress_dim
+        else:
+            project_dim = decoder_mem_hidden
+
+        # Cholesky output head
+        self.cholesky_head = nn.Linear(project_dim, self.n_cholesky)
+
+        # Numerical stability parameters
+        self.diag_floor = config.get("cholesky_diag_floor", 1e-3)
+        self.diag_init = config.get("cholesky_diag_init", -2.0)  # softplus(-2) ≈ 0.13
+
+        # Initialize Cholesky head for stability
+        self._init_cholesky_head()
+
+        # Cache tril indices for efficiency
+        self.register_buffer(
+            '_tril_indices_row',
+            torch.tril_indices(self.grid_size, self.grid_size)[0]
+        )
+        self.register_buffer(
+            '_tril_indices_col',
+            torch.tril_indices(self.grid_size, self.grid_size)[1]
+        )
+        self.register_buffer(
+            '_diag_indices',
+            torch.arange(self.grid_size)
+        )
+
+    def _init_cholesky_head(self):
+        """Initialize Cholesky head for training stability."""
+        # Small weights for off-diagonal (start near independent)
+        nn.init.normal_(self.cholesky_head.weight, mean=0.0, std=0.01)
+
+        # Bias: diagonal elements get diag_init, off-diagonal get 0
+        with torch.no_grad():
+            bias = torch.zeros(self.n_cholesky)
+            # Diagonal indices in the flattened lower triangular
+            diag_positions = []
+            idx = 0
+            for i in range(self.grid_size):
+                diag_positions.append(idx + i)
+                idx += i + 1
+            for pos in diag_positions:
+                bias[pos] = self.diag_init
+            self.cholesky_head.bias.copy_(bias)
+
+    def _construct_cholesky(self, chol_params: torch.Tensor) -> torch.Tensor:
+        """
+        Construct lower triangular L from flat parameters.
+
+        Args:
+            chol_params: (B, T, 325) - flat Cholesky parameters
+
+        Returns:
+            L: (B, T, 25, 25) - lower triangular with positive diagonal
+        """
+        B, T, _ = chol_params.shape
+        device = chol_params.device
+        dtype = chol_params.dtype
+
+        # Initialize L as zeros with same dtype as input
+        L = torch.zeros(B, T, self.grid_size, self.grid_size, device=device, dtype=dtype)
+
+        # Fill lower triangular (including diagonal)
+        L[:, :, self._tril_indices_row, self._tril_indices_col] = chol_params
+
+        # Ensure positive diagonal via softplus + floor
+        # Note: F.softplus always returns float32, so we cast back to original dtype
+        diag_vals = L[:, :, self._diag_indices, self._diag_indices]
+        diag_positive = (F.softplus(diag_vals) + self.diag_floor).to(dtype)
+
+        # Clone to avoid in-place modification, then update diagonal
+        L = L.clone()
+        L[:, :, self._diag_indices, self._diag_indices] = diag_positive
+
+        return L
+
+    def forward(self, ctx_emb: torch.Tensor, z: torch.Tensor):
+        """
+        Decode [ctx_emb, z] to (mean, L), with z modulating via FiLM.
+
+        Args:
+            ctx_emb: (B, T, ctx_embedding_dim) - context embedding
+            z: (B, T, latent_dim) - latent variable
+
+        Returns:
+            decoded_mean: (B, T, H, W) - mean surface prediction
+            L: (B, T, 25, 25) - Cholesky factor of covariance
+        """
+        feat_dim = self.config["feat_dim"]
+        use_dense = self.config.get("use_dense_surface", True)
+
+        # LSTM processes [ctx_emb, z]
+        x = torch.cat([ctx_emb, z], dim=-1)
+        mem_out, _ = self.mem(x)
+        B, T = mem_out.shape[:2]
+
+        # FiLM: z modulates LSTM output
+        gamma = self.gamma_net(z)
+        beta = self.beta_net(z)
+        features = gamma * mem_out + beta
+
+        # Optional compression
+        if self.use_compress:
+            features = self.compress(features)
+
+        # Decode mean surface (same as parent)
+        surface_in = self.surface_input(features)
+
+        if use_dense:
+            surface_flat = surface_in.reshape(B * T, self.surface_final_hidden)
+            decoded_mean = self.surface_decoder(surface_flat)
+            decoded_mean = decoded_mean.reshape(B, T, feat_dim[0], feat_dim[1])
+        else:
+            surface_flat = surface_in.reshape(
+                B * T, self.surface_final_hidden, feat_dim[0], feat_dim[1]
+            )
+            decoded_mean = self.surface_decoder(surface_flat)
+            decoded_mean = decoded_mean.reshape(B, T, feat_dim[0], feat_dim[1])
+
+        # Decode Cholesky factor
+        chol_params = self.cholesky_head(features)  # (B, T, 325)
+        L = self._construct_cholesky(chol_params)  # (B, T, 25, 25)
+
+        return decoded_mean, L
+
+    def sample(self, mean: torch.Tensor, L: torch.Tensor) -> torch.Tensor:
+        """
+        Sample from N(mean, L @ L.T) with correlated noise.
+
+        Args:
+            mean: (B, T, H, W) - mean prediction
+            L: (B, T, 25, 25) - Cholesky factor
+
+        Returns:
+            sample: (B, T, H, W) - correlated sample
+        """
+        B, T, H, W = mean.shape
+        mean_flat = mean.reshape(B, T, -1)  # (B, T, 25)
+
+        # Sample standard normal
+        eps = torch.randn_like(mean_flat)  # (B, T, 25)
+
+        # Correlated sample: x = μ + L @ ε
+        # Using einsum for batched matrix-vector multiply
+        sample_flat = mean_flat + torch.einsum('btij,btj->bti', L, eps)
+
+        return sample_flat.reshape(B, T, H, W)
+
+
+class TwoStageStudentTDecoder(TwoStageFullCovarianceDecoder):
+    """
+    Multivariate Student-t decoder for fat-tailed distributions.
+
+    Extends TwoStageFullCovarianceDecoder by adding:
+    - Learnable degrees of freedom (nu) parameter - per grid point (25 params)
+    - Student-t sampling via Gamma scale mixture
+    - Student-t NLL loss
+
+    This addresses:
+    1. Fat tails missing (kurtosis 1.4 vs GT 21.3)
+    2. Better correlation learning via higher NLL weight
+    3. Heterogeneous kurtosis across grid (GT varies 3-180)
+
+    Sampling:
+        eps ~ N(0, I)
+        u_i ~ Gamma(nu_i/2, nu_i/2) for each grid point i
+        x = mu + L @ eps / sqrt(u)
+
+    The 1/sqrt(u) scaling produces occasional large deviations when u is small,
+    naturally creating fat tails while preserving the correlation structure from L.
+    Per-grid-point nu allows different tail heaviness across the volatility surface.
+    """
+
+    def __init__(self, config: dict):
+        super(TwoStageStudentTDecoder, self).__init__(config)
+
+        # Student-t degrees of freedom parameters
+        self.nu_floor = config.get("nu_floor", 2.1)  # nu > 2 for finite variance
+        self.nu_max = config.get("nu_max", 100.0)    # Prevent collapse to Gaussian
+        nu_init = config.get("nu_init", 5.0)         # Initial df, kurtosis ~ 9
+
+        # Option to fix nu from GT kurtosis (literature-recommended approach)
+        # Learning nu via gradient descent is known to be difficult
+        self.learn_nu = config.get("learn_nu", True)
+
+        # Per-grid-point nu: 25 parameters (one per grid point)
+        # Parameterize nu via softplus: nu = softplus(nu_raw) + nu_floor
+        # Inverse softplus to get nu_raw from nu_init
+        nu_raw_init = np.log(np.exp(nu_init - self.nu_floor) - 1)
+
+        if self.learn_nu:
+            # Learnable nu (may not differentiate - gradient issues)
+            self.nu_raw = nn.Parameter(torch.full((25,), nu_raw_init, dtype=torch.float32))
+        else:
+            # Fixed nu - use register_buffer so it's not a Parameter
+            # Will be set later via set_nu_from_kurtosis()
+            self.register_buffer('nu_raw', torch.full((25,), nu_raw_init, dtype=torch.float32))
+
+    def set_nu_from_kurtosis(self, gt_excess_kurtosis: np.ndarray):
+        """
+        Fix nu values from ground truth excess kurtosis via method of moments.
+
+        For Student-t with nu > 4: excess_kurtosis = 6 / (nu - 4)
+        Inverting: nu = 4 + 6 / excess_kurtosis
+
+        Literature shows learning nu via gradient descent is fundamentally difficult
+        (multiple local maxima, weak gradients). This method sets nu directly from data.
+
+        Args:
+            gt_excess_kurtosis: (25,) array of excess kurtosis per grid point
+        """
+        # Method of moments: nu = 4 + 6 / excess_kurtosis
+        gt_kurt_clipped = np.clip(gt_excess_kurtosis, 0.1, 1000)  # Avoid div-by-zero
+        nu_from_kurt = 4.0 + 6.0 / gt_kurt_clipped
+
+        # Clamp to valid range
+        nu_from_kurt = np.clip(nu_from_kurt, self.nu_floor + 0.01, self.nu_max)
+
+        # Convert to nu_raw (inverse softplus)
+        # nu = softplus(nu_raw) + nu_floor
+        # nu - nu_floor = softplus(nu_raw)
+        # nu_raw = inverse_softplus(nu - nu_floor)
+        nu_minus_floor = nu_from_kurt - self.nu_floor
+        nu_raw_values = np.log(np.exp(nu_minus_floor) - 1)
+
+        # Handle numerical issues for small values
+        nu_raw_values = np.clip(nu_raw_values, -10, 10)
+
+        # Update the buffer (not a parameter when learn_nu=False)
+        self.nu_raw.data.copy_(torch.tensor(nu_raw_values, dtype=torch.float32))
+
+        # Verify the resulting nu values
+        nu_result = F.softplus(self.nu_raw) + self.nu_floor
+        nu_result = torch.clamp(nu_result, max=self.nu_max)
+
+        print(f"Fixed nu from GT kurtosis:")
+        print(f"  GT excess kurtosis: min={gt_excess_kurtosis.min():.2f}, "
+              f"max={gt_excess_kurtosis.max():.2f}, mean={gt_excess_kurtosis.mean():.2f}")
+        print(f"  Resulting nu: min={nu_result.min():.3f}, max={nu_result.max():.3f}, "
+              f"mean={nu_result.mean():.3f}, std={nu_result.std():.4f}")
+        print(f"  learn_nu={self.learn_nu} (nu {'IS' if self.learn_nu else 'is NOT'} trainable)")
+
+    def forward(self, ctx_emb: torch.Tensor, z: torch.Tensor):
+        """
+        Decode [ctx_emb, z] to (mean, L, nu).
+
+        Args:
+            ctx_emb: (B, T, ctx_embedding_dim) - context embedding
+            z: (B, T, latent_dim) - latent variable
+
+        Returns:
+            decoded_mean: (B, T, H, W) - mean surface prediction
+            L: (B, T, 25, 25) - Cholesky factor of covariance
+            nu: (25,) - per-grid-point degrees of freedom
+        """
+        # Get mean and L from parent
+        decoded_mean, L = super().forward(ctx_emb, z)
+
+        # Transform nu: softplus + floor, clamp to max
+        # nu is (25,) - one per grid point
+        nu = F.softplus(self.nu_raw) + self.nu_floor
+        nu = torch.clamp(nu, max=self.nu_max)
+
+        return decoded_mean, L, nu
+
+    def sample(self, mean: torch.Tensor, L: torch.Tensor, nu: torch.Tensor) -> torch.Tensor:
+        """
+        Sample from multivariate Student-t distribution with per-grid-point nu.
+
+        Uses Gamma scale mixture representation:
+            x = mu + L @ eps / sqrt(u)
+        where eps ~ N(0, I) and u_i ~ Gamma(nu_i/2, nu_i/2) for each grid point i
+
+        Args:
+            mean: (B, T, H, W) - mean prediction
+            L: (B, T, 25, 25) - Cholesky factor
+            nu: (25,) - per-grid-point degrees of freedom
+
+        Returns:
+            sample: (B, T, H, W) - Student-t sample with fat tails
+        """
+        B, T, H, W = mean.shape
+        device = mean.device
+        dtype = mean.dtype
+        mean_flat = mean.reshape(B, T, -1)  # (B, T, 25)
+
+        # Sample standard normal
+        eps = torch.randn_like(mean_flat)  # (B, T, 25)
+
+        # Sample scaling from Gamma(nu_i/2, nu_i/2) for each grid point
+        # This gives u_i with mean=1 and variance=2/nu_i
+        # Per-grid-point sampling allows different tail heaviness across the surface
+        nu_float = nu.float().to(device)  # (25,)
+
+        # Sample u independently for each of the 25 grid points
+        u = torch.zeros(B, T, 25, device=device, dtype=torch.float32)
+        for i in range(25):
+            gamma_dist = torch.distributions.Gamma(nu_float[i] / 2, nu_float[i] / 2)
+            u[:, :, i] = gamma_dist.sample((B, T)).squeeze(-1)
+
+        # Clamp to prevent numerical issues with very small u
+        u = torch.clamp(u, min=1e-6)
+
+        # Student-t sample: x = mu + L @ eps / sqrt(u)
+        # The 1/sqrt(u) scaling creates fat tails, with different tail heaviness per point
+        correlated_noise = torch.einsum('btij,btj->bti', L, eps)
+        sample_flat = mean_flat + correlated_noise * torch.rsqrt(u)
+
+        return sample_flat.reshape(B, T, H, W).to(dtype)
+
+
 class CVAETwoStage(BaseVAE):
     """
     Two-Stage CVAE with Tiny Context Bottleneck.
@@ -1439,3 +1782,725 @@ class CVAETwoStageHeteroscedastic(CVAETwoStage):
                 return mean, std
         else:
             return decoded[:, C:]
+
+
+class CVAETwoStageFullCovariance(CVAETwoStage):
+    """
+    Two-Stage CVAE with Full Covariance Decoder.
+
+    Key differences from CVAETwoStageHeteroscedastic:
+    - Decoder outputs Cholesky factor L (25x25) instead of diagonal variance
+    - Samples are correlated across grid points via x = μ + L @ ε
+    - Uses multivariate Gaussian NLL loss for proper covariance learning
+
+    This addresses Issue #3: Cross-grid correlation destroyed (0.02 vs GT 0.32)
+    by enabling the model to learn and sample from correlated distributions.
+    """
+
+    def __init__(self, config: dict):
+        # Set full covariance defaults before parent init
+        config.setdefault("full_covariance", True)
+        config.setdefault("cholesky_diag_floor", 1e-3)
+        config.setdefault("cholesky_diag_init", -2.0)
+        config.setdefault("mse_weight", 1.0)
+        config.setdefault("nll_weight", 0.1)
+        config.setdefault("decoder_mem_hidden", 32)  # Need more capacity for 325 outputs
+
+        super(CVAETwoStageFullCovariance, self).__init__(config)
+
+        # Replace decoder with full covariance version
+        self.decoder = TwoStageFullCovarianceDecoder(config)
+        self.decoder.to(self.device)
+
+        # Store config
+        self.mse_weight = config["mse_weight"]
+        self.nll_weight = config["nll_weight"]
+
+    def multivariate_gaussian_nll(self, mean: torch.Tensor, L: torch.Tensor,
+                                   target: torch.Tensor) -> torch.Tensor:
+        """
+        Multivariate Gaussian NLL with Cholesky parameterization.
+
+        NLL = 0.5 * (k*log(2π) + log|Σ| + (x-μ)^T Σ^{-1} (x-μ))
+            = 0.5 * (k*log(2π) + 2*sum(log(diag(L))) + ||L^{-1}(x-μ)||²)
+
+        Args:
+            mean: (B, T, H, W) - predicted mean
+            L: (B, T, 25, 25) - Cholesky factor
+            target: (B, T, H, W) - ground truth
+
+        Returns:
+            scalar NLL loss (averaged over batch and time)
+        """
+        B, T = mean.shape[:2]
+        original_dtype = mean.dtype
+
+        # Flatten spatial dimensions
+        mean_flat = mean.reshape(B, T, -1)  # (B, T, 25)
+        target_flat = target.reshape(B, T, -1)  # (B, T, 25)
+
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        # solve_triangular doesn't support bfloat16, so upcast if needed
+        if L.dtype == torch.bfloat16:
+            L_f32 = L.float()
+            residual_f32 = residual.float()
+            z = torch.linalg.solve_triangular(
+                L_f32, residual_f32.unsqueeze(-1), upper=False
+            ).squeeze(-1)
+            z = z.to(original_dtype)
+            L_diag = L_f32.diagonal(dim1=-2, dim2=-1)
+        else:
+            z = torch.linalg.solve_triangular(
+                L, residual.unsqueeze(-1), upper=False
+            ).squeeze(-1)
+            L_diag = L.diagonal(dim1=-2, dim2=-1)
+
+        # Mahalanobis term: ||z||² = ||L^{-1}(x-μ)||²
+        mahal = (z ** 2).sum(dim=-1)  # (B, T)
+
+        # Log determinant: log|Σ| = 2 * sum(log(diag(L)))
+        log_det = 2 * torch.log(L_diag).sum(dim=-1)  # (B, T)
+
+        # NLL (ignoring constant k*log(2π))
+        nll = 0.5 * (log_det.to(original_dtype) + mahal)
+
+        return nll.mean()
+
+    def forward(self, x: Dict[str, torch.Tensor], return_full_sequence: bool = False):
+        """
+        Forward pass with full covariance decoder.
+
+        Returns:
+            (surface_mean, L, z_mean, z_logvar, z)
+        """
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+
+        # Build encoder input
+        encoder_input = {"surface": surface}
+        if "ex_feats" in x:
+            ex_feats = x["ex_feats"].to(self.device)
+            if len(ex_feats.shape) == 2:
+                ex_feats = ex_feats.unsqueeze(0)
+            encoder_input["ex_feats"] = ex_feats
+
+        # Encode context embedding for ALL positions
+        ctx_emb = self.ctx_encoder(encoder_input)  # (B, T, ctx_embedding_dim)
+
+        # Encode latent for all positions
+        z_mean, z_logvar, z = self.encoder(encoder_input)  # (B, T, latent_dim)
+
+        # Decode with full covariance decoder
+        decoded_mean, L = self.decoder(ctx_emb, z)
+
+        if return_full_sequence:
+            return decoded_mean, L, z_mean, z_logvar, z
+        else:
+            C = T - self.horizon
+            return decoded_mean[:, C:], L[:, C:], z_mean, z_logvar, z
+
+    def train_step_autoencoder(self, x: Dict[str, torch.Tensor],
+                                optimizer: torch.optim.Optimizer,
+                                loss_mode: str = None):
+        """
+        Training step with MSE + Multivariate NLL loss.
+
+        MSE ensures mean accuracy, NLL calibrates full covariance.
+        """
+        if loss_mode is None:
+            loss_mode = self.config.get("loss_mode", "horizon")
+
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+        C = T - self.horizon
+
+        optimizer.zero_grad()
+
+        with autocast('cuda', dtype=torch.bfloat16):
+            # Forward with full sequence
+            recon_mean, L, z_mean, z_logvar, z = self.forward(
+                x, return_full_sequence=True
+            )
+
+            # Get target surface based on loss_mode
+            if loss_mode == "horizon":
+                target_surface = surface[:, C:]
+                pred_mean = recon_mean[:, C:]
+                pred_L = L[:, C:]
+            else:  # "full"
+                target_surface = surface
+                pred_mean = recon_mean
+                pred_L = L
+
+            # MSE loss for mean accuracy
+            mse_loss = F.mse_loss(pred_mean, target_surface)
+
+            # Multivariate NLL loss for covariance calibration
+            # Detach mean so NLL only affects Cholesky head
+            nll_loss = self.multivariate_gaussian_nll(
+                pred_mean.detach(), pred_L, target_surface
+            )
+
+            # Combined reconstruction loss
+            re_surface = self.mse_weight * mse_loss + self.nll_weight * nll_loss
+
+            # KL divergence
+            kl_loss = -0.5 * (1 + z_logvar - torch.exp(z_logvar) - z_mean.pow(2))
+            kl_loss = kl_loss.sum(dim=-1).mean()
+
+            # Total loss
+            total_loss = re_surface + self.kl_weight * kl_loss
+
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        # Monitor Cholesky statistics
+        with torch.no_grad():
+            L_diag = torch.diagonal(pred_L, dim1=-2, dim2=-1)
+            diag_mean = L_diag.mean()
+            diag_std = L_diag.std()
+
+            # Off-diagonal magnitude
+            mask = torch.ones_like(pred_L[0, 0], dtype=torch.bool)
+            mask.fill_diagonal_(False)
+            off_diag_mean = pred_L[:, :, mask].abs().mean()
+
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": re_surface,
+            "mse_loss": mse_loss,
+            "nll_loss": nll_loss,
+            "re_surface": re_surface,
+            "kl_loss": kl_loss,
+            "L_diag_mean": diag_mean,
+            "L_diag_std": diag_std,
+            "L_offdiag_mean": off_diag_mean,
+        }
+
+    def test_step(self, x: Dict[str, torch.Tensor]):
+        """Evaluate model on test data."""
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+        C = T - self.horizon
+
+        with torch.no_grad():
+            recon_mean, L, z_mean, z_logvar, z = self.forward(
+                x, return_full_sequence=True
+            )
+
+            target_surface = surface[:, C:]
+            pred_mean = recon_mean[:, C:]
+            pred_L = L[:, C:]
+
+            mse_loss = F.mse_loss(pred_mean, target_surface)
+            nll_loss = self.multivariate_gaussian_nll(pred_mean, pred_L, target_surface)
+            re_surface = self.mse_weight * mse_loss + self.nll_weight * nll_loss
+
+            kl_loss = -0.5 * (1 + z_logvar - torch.exp(z_logvar) - z_mean.pow(2))
+            kl_loss = kl_loss.sum(dim=-1).mean()
+
+            total_loss = re_surface + self.kl_weight * kl_loss
+
+            L_diag = torch.diagonal(pred_L, dim1=-2, dim2=-1)
+            diag_mean = L_diag.mean()
+
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": re_surface,
+            "mse_loss": mse_loss,
+            "nll_loss": nll_loss,
+            "re_surface": re_surface,
+            "kl_loss": kl_loss,
+            "L_diag_mean": diag_mean,
+        }
+
+    def sample_from_decoder(self, mean: torch.Tensor, L: torch.Tensor) -> torch.Tensor:
+        """Sample from N(mean, L @ L.T) with correlated noise."""
+        return self.decoder.sample(mean, L)
+
+    def get_surface_given_conditions(self, c: Dict[str, torch.Tensor],
+                                      z: Optional[torch.Tensor] = None,
+                                      horizon: Optional[int] = None,
+                                      sample_from_decoder: bool = True):
+        """
+        Generate surface given context with full covariance.
+
+        Args:
+            c: Context dict with "surface" (B, C, H, W)
+            z: Optional pre-sampled latents
+            horizon: Forecast horizon
+            sample_from_decoder: If True, sample from N(mean, Σ). If False, return (mean, L).
+
+        Returns:
+            If sample_from_decoder: sampled surface (B, H, 5, 5)
+            If not: (mean, L) tuple
+        """
+        ctx_surface = c["surface"].to(self.device)
+        if len(ctx_surface.shape) == 3:
+            ctx_surface = ctx_surface.unsqueeze(0)
+
+        B, C = ctx_surface.shape[:2]
+        if horizon is None:
+            horizon = self.horizon
+        T = C + horizon
+
+        ctx = {"surface": ctx_surface}
+        if "ex_feats" in c:
+            ctx_ex = c["ex_feats"].to(self.device)
+            if len(ctx_ex.shape) == 2:
+                ctx_ex = ctx_ex.unsqueeze(0)
+            ctx["ex_feats"] = ctx_ex
+
+        # Get ctx_embedding for context positions
+        ctx_emb_context = self.ctx_encoder(ctx)  # (B, C, ctx_dim)
+
+        # No predictors: use zeros for future ctx_emb, N(0,1) for z
+        ctx_embedding_dim = self.config.get("ctx_embedding_dim", 3)
+        ctx_emb_future = torch.zeros(B, horizon, ctx_embedding_dim, device=self.device)
+        ctx_emb = torch.cat([ctx_emb_context, ctx_emb_future], dim=1)
+
+        if z is None:
+            z = torch.randn(B, T, self.config["latent_dim"], device=self.device)
+
+        # Use encoder mean for context positions
+        z_mean_ctx, _, _ = self.encoder(ctx)
+        z[:, :C, :] = z_mean_ctx
+
+        # Decode to (mean, L)
+        mean, L = self.decoder(ctx_emb, z)
+        mean = mean[:, C:]
+        L = L[:, C:]
+
+        if sample_from_decoder:
+            return self.sample_from_decoder(mean, L)
+        else:
+            return mean, L
+
+
+class CVAETwoStageStudentT(CVAETwoStage):
+    """
+    Two-Stage CVAE with Multivariate Student-t Decoder.
+
+    Key differences from CVAETwoStageFullCovariance:
+    - Decoder outputs (mean, L, nu) where nu is degrees of freedom
+    - Samples have fat tails via Student-t distribution
+    - Uses multivariate Student-t NLL loss
+
+    This addresses:
+    - Issue #1: Fat tails missing (kurtosis 1.4 vs GT 21.3)
+    - Issue #3: Cross-grid correlation (with higher NLL weight)
+
+    Mathematical foundation:
+    - Sampling: x = μ + L @ ε / √u where u ~ Gamma(ν/2, ν/2)
+    - The 1/√u scaling produces fat tails
+    - Cholesky L preserves correlation structure
+    """
+
+    def __init__(self, config: dict):
+        # Set Student-t defaults before parent init
+        config.setdefault("student_t", True)
+        config.setdefault("nu_floor", 2.1)      # nu > 2 for finite variance
+        config.setdefault("nu_max", 100.0)      # Prevent collapse to Gaussian
+        config.setdefault("nu_init", 5.0)       # Initial df, kurtosis ~ 9
+        config.setdefault("mse_weight", 1.0)
+        config.setdefault("nll_weight", 1.0)    # HIGHER than Full Cov (0.1) for correlation
+        config.setdefault("cholesky_diag_floor", 1e-3)
+        config.setdefault("cholesky_diag_init", -2.0)
+        config.setdefault("decoder_mem_hidden", 32)
+
+        super(CVAETwoStageStudentT, self).__init__(config)
+
+        # Replace decoder with Student-t version
+        self.decoder = TwoStageStudentTDecoder(config)
+        self.decoder.to(self.device)
+
+        # Store config
+        self.mse_weight = config["mse_weight"]
+        self.nll_weight = config["nll_weight"]
+        self.kurtosis_loss_weight = config.get("kurtosis_loss_weight", 0.0)
+
+        # GT excess kurtosis for theoretical kurtosis loss supervision
+        # Set via set_gt_excess_kurtosis() before training
+        self.gt_excess_kurtosis = None
+
+    def set_gt_excess_kurtosis(self, gt_excess_kurtosis: np.ndarray):
+        """
+        Set ground truth excess kurtosis for theoretical kurtosis loss.
+
+        Args:
+            gt_excess_kurtosis: (25,) array of excess kurtosis per grid point
+        """
+        self.gt_excess_kurtosis = torch.tensor(
+            gt_excess_kurtosis, dtype=torch.float32, device=self.device
+        )
+        print(f"Set GT excess kurtosis: mean={self.gt_excess_kurtosis.mean():.2f}, "
+              f"range=[{self.gt_excess_kurtosis.min():.2f}, {self.gt_excess_kurtosis.max():.2f}]")
+
+    def fix_nu_from_kurtosis(self, gt_excess_kurtosis: np.ndarray):
+        """
+        Fix nu values from GT kurtosis using method of moments (not gradient-learned).
+
+        This is the literature-recommended approach since learning nu via gradient
+        descent is fundamentally difficult (multiple local maxima, weak gradients).
+
+        Also sets gt_excess_kurtosis for potential kurtosis loss supervision.
+
+        Args:
+            gt_excess_kurtosis: (25,) array of excess kurtosis per grid point
+        """
+        # Also set for kurtosis loss (in case it's used)
+        self.set_gt_excess_kurtosis(gt_excess_kurtosis)
+
+        # Fix nu via method of moments on decoder
+        self.decoder.set_nu_from_kurtosis(gt_excess_kurtosis)
+
+    def theoretical_kurtosis_loss(self, nu: torch.Tensor) -> torch.Tensor:
+        """
+        Compute loss to match nu to GT excess kurtosis via theoretical formula.
+
+        For Student-t with nu > 4, excess kurtosis = 6 / (nu - 4).
+        This loss directly supervises nu to match GT kurtosis.
+
+        Args:
+            nu: (25,) - current degrees of freedom per grid point
+
+        Returns:
+            scalar L1 loss between theoretical and GT excess kurtosis
+        """
+        if self.gt_excess_kurtosis is None:
+            return torch.tensor(0.0, device=self.device)
+
+        # Theoretical excess kurtosis: 6 / (nu - 4) for nu > 4
+        # Clamp (nu - 4) to avoid division by zero when nu is close to 4
+        theoretical_excess_kurt = 6.0 / torch.clamp(nu - 4.0, min=0.1)
+
+        # L1 loss is more robust for extreme GT values (some >100)
+        return F.l1_loss(theoretical_excess_kurt, self.gt_excess_kurtosis)
+
+    def multivariate_student_t_nll(self, mean: torch.Tensor, L: torch.Tensor,
+                                    target: torch.Tensor, nu: torch.Tensor) -> torch.Tensor:
+        """
+        Multivariate Student-t NLL with per-grid-point degrees of freedom.
+
+        Since each grid point has its own nu, we compute the NLL as a sum of
+        univariate Student-t NLLs after decorrelating via L^{-1}.
+
+        For univariate Student-t with nu_i degrees of freedom:
+            NLL_i = -log Γ((ν_i+1)/2) + log Γ(ν_i/2) + 0.5*log(ν_i*π)
+                    + 0.5*(ν_i+1)*log(1 + z_i²/ν_i)
+
+        Total NLL = log|L| + sum_i NLL_i
+
+        Args:
+            mean: (B, T, H, W) - predicted mean
+            L: (B, T, 25, 25) - Cholesky factor
+            target: (B, T, H, W) - ground truth
+            nu: (25,) - per-grid-point degrees of freedom
+
+        Returns:
+            scalar NLL loss (averaged over batch and time)
+        """
+        B, T = mean.shape[:2]
+        original_dtype = mean.dtype
+        device = mean.device
+
+        # Flatten spatial dimensions
+        mean_flat = mean.reshape(B, T, -1)  # (B, T, 25)
+        target_flat = target.reshape(B, T, -1)  # (B, T, 25)
+
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        # solve_triangular doesn't support bfloat16, so upcast if needed
+        if L.dtype == torch.bfloat16:
+            L_f32 = L.float()
+            residual_f32 = residual.float()
+            z = torch.linalg.solve_triangular(
+                L_f32, residual_f32.unsqueeze(-1), upper=False
+            ).squeeze(-1)
+            L_diag = L_f32.diagonal(dim1=-2, dim2=-1)
+        else:
+            z = torch.linalg.solve_triangular(
+                L, residual.unsqueeze(-1), upper=False
+            ).squeeze(-1)
+            L_diag = L.diagonal(dim1=-2, dim2=-1)
+
+        # Log determinant: log|L| (from Jacobian of decorrelation)
+        log_det = torch.log(L_diag).sum(dim=-1)  # (B, T)
+
+        # Ensure nu is float32 for lgamma and on correct device
+        nu_f32 = nu.float().to(device)  # (25,)
+
+        # Per-point univariate Student-t NLL
+        # NLL_i = -lgamma((nu_i+1)/2) + lgamma(nu_i/2) + 0.5*log(nu_i*pi)
+        #         + 0.5*(nu_i+1)*log(1 + z_i^2/nu_i)
+        nll_per_point = torch.zeros(B, T, 25, device=device, dtype=torch.float32)
+
+        for i in range(25):
+            nu_i = nu_f32[i]
+            z_i = z[:, :, i]  # (B, T)
+
+            # Constant terms
+            const_i = (torch.lgamma((nu_i + 1) / 2)
+                      - torch.lgamma(nu_i / 2)
+                      - 0.5 * torch.log(nu_i * torch.tensor(np.pi, device=device)))
+
+            # Student-t NLL for point i
+            nll_per_point[:, :, i] = (-const_i
+                                      + 0.5 * (nu_i + 1) * torch.log(1 + z_i ** 2 / nu_i))
+
+        # Sum over grid points and add log determinant
+        nll = log_det.to(original_dtype) + nll_per_point.sum(dim=-1)
+
+        return nll.mean()
+
+    def forward(self, x: Dict[str, torch.Tensor], return_full_sequence: bool = False):
+        """
+        Forward pass with Student-t decoder.
+
+        Returns:
+            (surface_mean, L, nu, z_mean, z_logvar, z)
+        """
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+
+        # Build encoder input
+        encoder_input = {"surface": surface}
+        if "ex_feats" in x:
+            ex_feats = x["ex_feats"].to(self.device)
+            if len(ex_feats.shape) == 2:
+                ex_feats = ex_feats.unsqueeze(0)
+            encoder_input["ex_feats"] = ex_feats
+
+        # Encode context embedding for ALL positions
+        ctx_emb = self.ctx_encoder(encoder_input)  # (B, T, ctx_embedding_dim)
+
+        # Encode latent for all positions
+        z_mean, z_logvar, z = self.encoder(encoder_input)  # (B, T, latent_dim)
+
+        # Decode with Student-t decoder
+        decoded_mean, L, nu = self.decoder(ctx_emb, z)
+
+        if return_full_sequence:
+            return decoded_mean, L, nu, z_mean, z_logvar, z
+        else:
+            C = T - self.horizon
+            return decoded_mean[:, C:], L[:, C:], nu, z_mean, z_logvar, z
+
+    def train_step_autoencoder(self, x: Dict[str, torch.Tensor],
+                                optimizer: torch.optim.Optimizer,
+                                loss_mode: str = None):
+        """
+        Training step with MSE + Multivariate Student-t NLL loss.
+
+        MSE ensures mean accuracy, Student-t NLL calibrates covariance AND tails.
+        """
+        if loss_mode is None:
+            loss_mode = self.config.get("loss_mode", "horizon")
+
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+        C = T - self.horizon
+
+        optimizer.zero_grad()
+
+        with autocast('cuda', dtype=torch.bfloat16):
+            # Forward with full sequence
+            recon_mean, L, nu, z_mean, z_logvar, z = self.forward(
+                x, return_full_sequence=True
+            )
+
+            # Get target surface based on loss_mode
+            if loss_mode == "horizon":
+                target_surface = surface[:, C:]
+                pred_mean = recon_mean[:, C:]
+                pred_L = L[:, C:]
+            else:  # "full"
+                target_surface = surface
+                pred_mean = recon_mean
+                pred_L = L
+
+            # MSE loss for mean accuracy
+            mse_loss = F.mse_loss(pred_mean, target_surface)
+
+            # Multivariate Student-t NLL loss for covariance AND tail calibration
+            # Detach mean so NLL only affects Cholesky head and nu
+            nll_loss = self.multivariate_student_t_nll(
+                pred_mean.detach(), pred_L, target_surface, nu
+            )
+
+            # Combined reconstruction loss
+            re_surface = self.mse_weight * mse_loss + self.nll_weight * nll_loss
+
+            # Theoretical kurtosis loss - supervises nu via closed-form formula
+            # excess_kurt = 6/(nu-4), so we match nu to GT kurtosis directly
+            kurt_loss = self.theoretical_kurtosis_loss(nu)
+
+            # KL divergence
+            kl_loss = -0.5 * (1 + z_logvar - torch.exp(z_logvar) - z_mean.pow(2))
+            kl_loss = kl_loss.sum(dim=-1).mean()
+
+            # Total loss
+            total_loss = (re_surface + self.kl_weight * kl_loss
+                          + self.kurtosis_loss_weight * kurt_loss)
+
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        # Monitor Cholesky and nu statistics
+        with torch.no_grad():
+            L_diag = torch.diagonal(pred_L, dim1=-2, dim2=-1)
+            diag_mean = L_diag.mean()
+            diag_std = L_diag.std()
+
+            # Off-diagonal magnitude
+            mask = torch.ones_like(pred_L[0, 0], dtype=torch.bool)
+            mask.fill_diagonal_(False)
+            off_diag_mean = pred_L[:, :, mask].abs().mean()
+
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": re_surface,
+            "mse_loss": mse_loss,
+            "nll_loss": nll_loss,
+            "kurt_loss": kurt_loss,
+            "re_surface": re_surface,
+            "kl_loss": kl_loss,
+            # Per-grid-point nu statistics
+            "nu_mean": nu.mean().item(),
+            "nu_min": nu.min().item(),
+            "nu_max": nu.max().item(),
+            "nu_std": nu.std().item(),
+            "L_diag_mean": diag_mean,
+            "L_diag_std": diag_std,
+            "L_offdiag_mean": off_diag_mean,
+        }
+
+    def test_step(self, x: Dict[str, torch.Tensor]):
+        """Evaluate model on test data."""
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+        C = T - self.horizon
+
+        with torch.no_grad():
+            recon_mean, L, nu, z_mean, z_logvar, z = self.forward(
+                x, return_full_sequence=True
+            )
+
+            target_surface = surface[:, C:]
+            pred_mean = recon_mean[:, C:]
+            pred_L = L[:, C:]
+
+            mse_loss = F.mse_loss(pred_mean, target_surface)
+            nll_loss = self.multivariate_student_t_nll(pred_mean, pred_L, target_surface, nu)
+            re_surface = self.mse_weight * mse_loss + self.nll_weight * nll_loss
+
+            kl_loss = -0.5 * (1 + z_logvar - torch.exp(z_logvar) - z_mean.pow(2))
+            kl_loss = kl_loss.sum(dim=-1).mean()
+
+            total_loss = re_surface + self.kl_weight * kl_loss
+
+            L_diag = torch.diagonal(pred_L, dim1=-2, dim2=-1)
+            diag_mean = L_diag.mean()
+
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": re_surface,
+            "mse_loss": mse_loss,
+            "nll_loss": nll_loss,
+            "re_surface": re_surface,
+            "kl_loss": kl_loss,
+            # Per-grid-point nu statistics
+            "nu_mean": nu.mean().item(),
+            "nu_min": nu.min().item(),
+            "nu_max": nu.max().item(),
+            "nu_std": nu.std().item(),
+            "L_diag_mean": diag_mean,
+        }
+
+    def sample_from_decoder(self, mean: torch.Tensor, L: torch.Tensor,
+                             nu: torch.Tensor = None) -> torch.Tensor:
+        """Sample from Student-t(mean, L @ L.T, nu) with fat tails."""
+        if nu is None:
+            # Get nu from decoder parameter
+            nu = F.softplus(self.decoder.nu_raw) + self.decoder.nu_floor
+            nu = torch.clamp(nu, max=self.decoder.nu_max)
+        return self.decoder.sample(mean, L, nu)
+
+    def get_surface_given_conditions(self, c: Dict[str, torch.Tensor],
+                                      z: Optional[torch.Tensor] = None,
+                                      horizon: Optional[int] = None,
+                                      sample_from_decoder: bool = True):
+        """
+        Generate surface given context with Student-t decoder.
+
+        Args:
+            c: Context dict with "surface" (B, C, H, W)
+            z: Optional pre-sampled latents
+            horizon: Forecast horizon
+            sample_from_decoder: If True, sample from Student-t. If False, return (mean, L, nu).
+
+        Returns:
+            If sample_from_decoder: sampled surface (B, H, 5, 5)
+            If not: (mean, L, nu) tuple
+        """
+        ctx_surface = c["surface"].to(self.device)
+        if len(ctx_surface.shape) == 3:
+            ctx_surface = ctx_surface.unsqueeze(0)
+
+        B, C = ctx_surface.shape[:2]
+        if horizon is None:
+            horizon = self.horizon
+        T = C + horizon
+
+        ctx = {"surface": ctx_surface}
+        if "ex_feats" in c:
+            ctx_ex = c["ex_feats"].to(self.device)
+            if len(ctx_ex.shape) == 2:
+                ctx_ex = ctx_ex.unsqueeze(0)
+            ctx["ex_feats"] = ctx_ex
+
+        # Get ctx_embedding for context positions
+        ctx_emb_context = self.ctx_encoder(ctx)  # (B, C, ctx_dim)
+
+        # No predictors: use zeros for future ctx_emb, N(0,1) for z
+        ctx_embedding_dim = self.config.get("ctx_embedding_dim", 3)
+        ctx_emb_future = torch.zeros(B, horizon, ctx_embedding_dim, device=self.device)
+        ctx_emb = torch.cat([ctx_emb_context, ctx_emb_future], dim=1)
+
+        if z is None:
+            z = torch.randn(B, T, self.config["latent_dim"], device=self.device)
+
+        # Use encoder mean for context positions
+        z_mean_ctx, _, _ = self.encoder(ctx)
+        z[:, :C, :] = z_mean_ctx
+
+        # Decode to (mean, L, nu)
+        mean, L, nu = self.decoder(ctx_emb, z)
+        mean = mean[:, C:]
+        L = L[:, C:]
+
+        if sample_from_decoder:
+            return self.sample_from_decoder(mean, L, nu)
+        else:
+            return mean, L, nu

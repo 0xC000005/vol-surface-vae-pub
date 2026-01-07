@@ -73,6 +73,39 @@ class TwoStageConfig:
     deconv_output_padding = 0           # Deconv output padding
 
     # ============================================================================
+    # Full Covariance Decoder (for CVAETwoStageFullCovariance)
+    # ============================================================================
+    # Outputs Cholesky factor L (25x25) instead of diagonal variance
+    # Enables correlated sampling: x = μ + L @ ε
+
+    full_covariance = False             # Set True to use full covariance decoder
+    cholesky_diag_floor = 1e-3          # Min diagonal value for numerical stability
+    cholesky_diag_init = -2.0           # Initial diagonal (softplus(-2) ≈ 0.13)
+
+    # ============================================================================
+    # Student-t Decoder (for CVAETwoStageStudentT)
+    # ============================================================================
+    # Extends Full Covariance with learnable degrees of freedom (nu)
+    # Enables fat-tailed sampling via Gamma scale mixture:
+    #   x = μ + L @ ε / √u where u_i ~ Gamma(ν_i/2, ν_i/2)
+    # For nu=5: kurtosis ≈ 9 (vs Gaussian kurtosis = 3)
+    #
+    # Per-grid-point nu: 25 learnable parameters (one per grid point)
+    # This allows different tail heaviness across the volatility surface
+    # (GT kurtosis varies from 3 to 180 across the 5x5 grid)
+
+    student_t = False                   # Set True to use Student-t decoder
+    nu_floor = 2.1                      # Min nu (need nu > 2 for finite variance)
+    nu_max = 100.0                      # Max nu (prevents collapse to Gaussian)
+    nu_init = 5.0                       # Initial nu (kurtosis ≈ 9 for nu=5)
+
+    # Loss weights for Student-t
+    mse_weight = 1.0                    # Weight for mean MSE loss
+    nll_weight = 1.0                    # Weight for NLL (higher than 0.1 for Full Cov)
+    kurtosis_loss_weight = 0.1          # Weight for theoretical kurtosis supervision
+                                        # Supervises nu via: excess_kurt = 6/(nu-4)
+
+    # ============================================================================
     # Extra Features (Optional)
     # ============================================================================
 
@@ -172,6 +205,20 @@ class TwoStageConfig:
             "decoder_mem_dropout": cls.decoder_mem_dropout,
             "padding": cls.padding,
             "deconv_output_padding": cls.deconv_output_padding,
+
+            # Full covariance decoder
+            "full_covariance": cls.full_covariance,
+            "cholesky_diag_floor": cls.cholesky_diag_floor,
+            "cholesky_diag_init": cls.cholesky_diag_init,
+
+            # Student-t decoder
+            "student_t": cls.student_t,
+            "nu_floor": cls.nu_floor,
+            "nu_max": cls.nu_max,
+            "nu_init": cls.nu_init,
+            "mse_weight": cls.mse_weight,
+            "nll_weight": cls.nll_weight,
+            "kurtosis_loss_weight": cls.kurtosis_loss_weight,
 
             # Extra features
             "ex_feats_dim": cls.ex_feats_dim,

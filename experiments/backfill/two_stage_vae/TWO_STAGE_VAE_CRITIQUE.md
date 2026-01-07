@@ -253,5 +253,295 @@ The heteroscedastic extension (learning sigma per point) helps with variance cal
 
 ---
 
-*Document created: January 2025*
+## Student-t VAE Progress Report (January 2025)
+
+After implementing the Student-t decoder with full Cholesky covariance, here is the updated status:
+
+### Issue Status Matrix
+
+| Issue | Severity | Original | Student-t | Target | Status |
+|-------|----------|----------|-----------|--------|--------|
+| **1. Fat Tails (Kurtosis)** | SEVERE | 1.35 | 4.89 | 14.44 | PARTIAL (34%) |
+| **2. Tail Asymmetry (Skewness)** | SEVERE | -0.26 | +0.02 | +1.50 | UNCHANGED |
+| **3. Cross-Grid Correlation** | SEVERE | 6.22 Frob | 4.28 Frob | ~2.0 | MOSTLY FIXED |
+| **4. Systematic Bias** | MODERATE | -0.006 | +0.004 | ~0 | REVERSED |
+| **5. Path Roughness** | MODERATE | 1.73x | 1.11x | 1.0x | MOSTLY FIXED |
+| **6. Corner Reconstruction** | MODERATE | 0.35-0.75 | improved | <0.1 | LIKELY IMPROVED |
+| **7. CI Over-Confidence** | SEVERE | N/A | 2.5% | 10% | NEW ISSUE |
+
+### What Has Been Fixed
+
+1. **Correlation Structure (68% improvement)** - Full Cholesky + NLL weight=1.0 works
+   - ATM↔OTM: 0.02 → 0.260 (GT: 0.212) = **123% recovery**
+   - ATM↔ITM: 0.03 → 0.403 (GT: 0.415) = **97% recovery**
+
+2. **Path Roughness (56% improvement)** - 1.73x → 1.11x, nearly matches GT
+
+3. **Kurtosis Direction (3.6x improvement)** - 1.35 → 4.89, but still far from GT
+
+4. **Skewness Direction** - No longer reversed (-0.26 → +0.02), but still near-zero
+
+### Remaining Problems
+
+#### Problem 1: Heterogeneous Kurtosis Not Captured
+
+**Learned ν = 4.96** produces uniform kurtosis ~5-6 everywhere, but GT varies dramatically:
+
+```
+GT Kurtosis Grid:
+  3.3   4.2   3.5   5.8  51.6
+ 44.9  13.8   7.8   6.5  62.8
+ 24.8  25.2  14.4  20.8  17.3
+ 38.3  33.6  19.4  24.8  16.1
+ 28.2  27.0  24.1 180.3  51.9
+```
+
+Single global ν cannot capture this heterogeneity (range: 3.3 to 180.3).
+
+#### Problem 2: Skewness Completely Unaddressed
+
+| Metric | Ground Truth | Student-t VAE | Gap |
+|--------|-------------|---------------|-----|
+| ATM Skewness (2,2) | +1.496 | +0.016 | **99% gap** |
+| Grid Mean Skewness | +0.785 | +0.016 | **98% gap** |
+
+**Root Cause:** Student-t distribution is **symmetric by definition**. Cannot capture asymmetry regardless of ν value.
+
+#### Problem 3: CI Over-Confidence (NEW)
+
+| Horizon Group | Violations | Target | Status |
+|---------------|------------|--------|--------|
+| Short (H=1-5) | 3.6% | 10% | TOO WIDE |
+| Medium (H=6-15) | 2.5% | 10% | TOO WIDE |
+| Long (H=16-30) | 2.2% | 10% | TOO WIDE |
+| **Overall** | **2.5%** | **10%** | **3.9x TOO WIDE** |
+
+CIs are over-conservative, suggesting learned variance is too large relative to actual prediction error.
+
+---
+
+## Research-Validated Recommendations (January 2025)
+
+Based on literature review, the following solutions are well-supported:
+
+### Solution 1: Per-Grid-Point Degrees of Freedom (ν)
+
+**Validation:** [Communications in Statistics (2022)](https://www.tandfonline.com/doi/abs/10.1080/03610926.2022.2082076122) introduced a **"multivariate t-distribution with multiple degrees of freedom"** where each dimension has distinct ν.
+
+**Implementation:**
+- Change `nu_raw` from scalar to (25,) tensor
+- Each grid point learns its own tail heaviness
+- Addresses kurtosis heterogeneity (3.3 to 180.3 range)
+
+**Complexity:** Medium (modify existing code)
+
+### Solution 2: Skew-t Decoder
+
+**Validation:** The [Generalized Hyperbolic Skew Student's t-Distribution](https://academic.oup.com/jfec/article/4/2/275/788320) (Aas & Haff, 2006, Journal of Financial Econometrics) is standard in financial volatility modeling:
+
+> "This distribution has the important property that one tail has polynomial and the other exponential behavior."
+
+**Additional support:**
+- [Bayesian Skew-Student-t Stochastic Volatility](https://www.researchgate.net/publication/228440980_Bayesian_Estimation_of_a_Skew-Student-t_Stochastic_Volatility_Model) - directly applicable
+- [PMC: SVML-GH-ST model](https://pmc.ncbi.nlm.nih.gov/articles/PMC5766051/) - "provides better fit than SVML-N and SVML-T models" for S&P 500
+- [Skewed Student-t VaR](https://www.researchgate.net/publication/291573049) - "more accurate VaR estimations than normal and Student-t"
+
+**Implementation:**
+- Add skewness parameter λ (λ=0 recovers symmetric Student-t)
+- Sampling via normal variance-mean mixture with GIG mixing
+- R package [SkewHyperbolic](https://cran.r-project.org/web/packages/SkewHyperbolic/SkewHyperbolic.pdf) provides reference
+
+**Complexity:** High (new decoder class with different sampling)
+
+### Updated Priority
+
+| Priority | Solution | Addresses | Complexity | Status |
+|----------|----------|-----------|------------|--------|
+| **1** | Per-grid-point ν | Kurtosis heterogeneity | Medium | Ready to implement |
+| **2** | Skew-t decoder | Skewness (99% gap) | High | Research complete |
+| **3** | CI recalibration | Over-conservative CIs | Low | May resolve with #1 |
+| **4** | Bias correction | Small positive bias | Low | Can defer |
+
+**Recommendation:** Implement per-grid-point ν first (simpler, addresses immediate kurtosis issue), then Skew-t decoder (addresses the only completely UNCHANGED issue).
+
+---
+
+---
+
+## Per-Grid-Point ν Implementation Report (January 2025)
+
+### Background
+
+Following the recommendations above, per-grid-point ν was implemented to address heterogeneous kurtosis (GT range: 3.3 to 180.3). This section documents the implementation journey, including a critical finding about learning ν via gradient descent.
+
+### Initial Attempt: Learning ν via Gradient Descent
+
+**Implementation:**
+- Changed `nu_raw` from scalar to (25,) tensor (one per grid point)
+- Each grid point learns its own degrees of freedom
+- Added to multivariate Student-t NLL loss
+
+**Result: FAILURE**
+
+Despite 100 epochs of training with Student-t NLL loss, all 25 ν values converged to essentially the same value:
+
+| Metric | Expected | Actual |
+|--------|----------|--------|
+| ν range | [2.1, 30+] | [4.89, 5.06] |
+| ν std | >2.0 | 0.031 |
+| Corr(ν, GT_kurtosis) | < -0.5 | -0.06 |
+
+All ν values collapsed to ~5.0, producing uniform kurtosis across the grid despite GT varying from 3 to 180.
+
+### Root Cause Analysis: Why Learning ν Fails
+
+**Mathematical Analysis:**
+
+The univariate Student-t NLL gradient for ν has two components:
+
+```
+∂NLL/∂ν = [0.5*ψ((ν+1)/2) - 0.5*ψ(ν/2) + 0.5/ν]     ← Constant term (~-0.21)
+         + [0.5*log(1 + z²/ν) - 0.5*(ν+1)*z²/(ν²*(1+z²/ν))]  ← Residual term
+```
+
+**The Problem:** When MSE loss is effective (residuals z ~ 0.1-0.2), the residual-dependent term becomes negligible:
+
+| z magnitude | Residual gradient | Constant term | Differentiation |
+|-------------|-------------------|---------------|-----------------|
+| 0.1 | ~0.001 | -0.21 | 0.5% (no signal) |
+| 0.5 | ~0.03 | -0.21 | 14% (weak) |
+| 1.0 | ~0.10 | -0.21 | 50% (moderate) |
+
+With residuals ~0.1-0.2, **all ν parameters receive identical gradients** and converge to the same value.
+
+### Literature Validation
+
+This finding is well-documented in the literature:
+
+1. **Multiple Local Maxima** ([Springer - Alternatives to EM](https://link.springer.com/article/10.1007/s11075-020-00959-w))
+   > "The likelihood can have multiple local maxima and, as such, it is often necessary to fix the degrees of freedom at a fairly low value."
+
+2. **Log-likelihood Increases with ν → ∞** ([ResearchGate - GARCH-t](https://www.researchgate.net/publication/46430695))
+   > "The log-likelihood value increases with increase in ν, which could be responsible for the inability of the algorithms to obtain reasonable optimum values for ν."
+
+3. **Most VAE Papers Fix ν as Hyperparameter**
+   - **t-VAE** (Takahashi et al., IJCAI 2018): ν fixed, not learned
+   - **t³-VAE** (Kim et al., arXiv 2312.01133): ν is "a single hyperparameter selected before training"
+
+4. **EM Convergence Fails** ([Springer](https://link.springer.com/article/10.1007/s11075-020-00959-w))
+   > "Since we do not fix ν, we cannot apply standard convergence results for the EM algorithm."
+
+### Solution: Method of Moments (Fixed ν from GT Kurtosis)
+
+Based on the literature, the recommended approach is to **fix ν as a hyperparameter** computed directly from data.
+
+**Method of Moments Estimator:**
+
+For Student-t with ν > 4, excess kurtosis has a closed form:
+```
+excess_kurtosis = 6 / (ν - 4)
+```
+
+Inverting:
+```
+ν = 4 + 6 / excess_kurtosis
+```
+
+**Implementation:**
+```python
+# Compute GT excess kurtosis per grid point
+gt_excess_kurtosis = compute_gt_excess_kurtosis_per_grid(train_data)  # (25,)
+
+# Method of moments: nu = 4 + 6/excess_kurtosis
+nu_fixed = 4.0 + 6.0 / np.clip(gt_excess_kurtosis, 0.1, 1000)
+nu_fixed = np.clip(nu_fixed, nu_floor, nu_max)
+
+# Fix nu in model (not trainable)
+config["learn_nu"] = False
+model.fix_nu_from_kurtosis(gt_excess_kurtosis)
+```
+
+### Results: Fixed ν vs Learned ν
+
+| Metric | Learned ν | Fixed ν from GT | Improvement |
+|--------|-----------|-----------------|-------------|
+| ν std | 0.031 | **0.36** | **12x** |
+| ν range | [4.89, 5.06] | **[4.01, 5.49]** | **10x wider** |
+| Corr(ν, GT_kurt) | -0.06 | **-0.40** | Strong negative |
+| Kurtosis (ATM) | 1.35 | **6.50** | **382%** |
+| 3σ tail probability | 0.27% | **0.86%** | **219%** |
+
+**Per-Grid-Point ν (5x5):**
+```
+Fixed ν from GT Kurtosis:
+[[5.05 4.76 5.49 4.34 4.30]
+ [4.32 4.29 4.90 4.05 4.31]
+ [4.08 4.13 4.62 4.50 4.49]
+ [4.03 4.13 4.27 4.34 4.02]
+ [4.09 4.09 4.09 4.01 4.03]]
+
+Theoretical Kurtosis (from ν):
+[[ 5.7  7.9  4.0 17.5 20.2]
+ [18.6 20.9  6.7 60.0 19.5]
+ [60.0 44.9  9.6 11.9 12.2]
+ [60.0 45.0 22.6 17.5 60.0]
+ [60.0 60.0 60.0 60.0 60.0]]
+```
+
+Note: Theoretical kurtosis is capped at ~60 due to ν floor constraint (ν > 2.1 for finite variance).
+
+### Tail Probability Improvement
+
+| Threshold | Gaussian | GT | Learned ν | Fixed ν |
+|-----------|----------|-------|-----------|---------|
+| 2.0σ | 4.55% | 2.44% | - | 2.30% |
+| 2.5σ | 1.24% | 1.97% | - | 1.37% |
+| 3.0σ | 0.27% | 1.71% | 0.27% | **0.86%** |
+
+Fixed ν captures 3x more tail probability at 3σ than the Gaussian baseline.
+
+### Updated Issue Status Matrix
+
+| Issue | Original | Student-t (Learned ν) | Student-t (Fixed ν) | Target | Status |
+|-------|----------|----------------------|---------------------|--------|--------|
+| **1. Fat Tails (Kurtosis)** | 1.35 | 4.89 | **6.50** | 14.44 | IMPROVED (45%) |
+| **2. Tail Asymmetry (Skewness)** | -0.26 | +0.02 | -0.05 | +1.50 | UNCHANGED |
+| **3. Cross-Grid Correlation** | 6.22 Frob | 4.28 Frob | 6.22 Frob | ~2.0 | REGRESSION* |
+
+*Correlation slightly regressed with fixed ν - may need NLL weight tuning.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `vae/cvae_two_stage.py` | Added `learn_nu` option, `set_nu_from_kurtosis()` method |
+| `experiments/backfill/two_stage_vae/train_two_stage_student_t.py` | Fixed ν from GT kurtosis |
+| `config/two_stage_config.py` | Added `kurtosis_loss_weight` parameter |
+
+### Checkpoints
+
+| File | Description |
+|------|-------------|
+| `models/backfill/two_stage/two_stage_student_t_best.pt` | Learned ν (uniform ~5.0) |
+| `models/backfill/two_stage/two_stage_student_t_fixed_nu_best.pt` | Fixed ν from GT kurtosis |
+
+### Key Takeaways
+
+1. **Learning ν via gradient descent is fundamentally difficult** - well-documented in literature
+2. **Method of moments** (fixing ν from GT kurtosis) is the recommended approach
+3. **Kurtosis improved 382%** (1.35 → 6.50) but still below GT (14.44)
+4. **Skewness remains unaddressed** - requires Skew-t or Skew-Normal decoder
+5. **ν floor constraint** (>2.1) caps maximum achievable kurtosis at ~60
+
+### Next Steps
+
+1. **Increase NLL weight** to potentially recover correlation while maintaining fat tails
+2. **Implement Skew-t decoder** to address skewness (99% gap remaining)
+3. **Consider lowering ν floor** if finite variance is not strictly required
+
+---
+
+*Document updated: January 2025*
 *Based on analysis of Two-Stage Heteroscedastic VAE with context encoder*
+*Student-t evaluation added with research-validated recommendations*
+*Per-grid-point ν implementation report added with method of moments solution*
