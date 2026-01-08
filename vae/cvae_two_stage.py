@@ -1053,6 +1053,11 @@ class CVAETwoStage(BaseVAE):
         self.encoder = TwoStageMainEncoder(config)
         self.decoder = TwoStageDecoder(config)
 
+        # z dropout to prevent z from becoming a lookup key
+        # Forces decoder to be robust to missing z information
+        z_dropout_rate = config.get("z_dropout", 0.0)
+        self.z_dropout = nn.Dropout(p=z_dropout_rate) if z_dropout_rate > 0 else None
+
         # Loss function for extra features
         if config.get("ex_feats_loss_type", "l1") == "l2":
             self.ex_feats_loss_fn = nn.MSELoss()
@@ -1146,6 +1151,11 @@ class CVAETwoStage(BaseVAE):
 
         # Encode latent for all positions
         z_mean, z_logvar, z = self.encoder(encoder_input)  # (B, T, latent_dim)
+
+        # Apply z dropout during training to prevent z from becoming a lookup key
+        # This forces decoder to be robust to missing z information
+        if self.z_dropout is not None and self.training:
+            z = self.z_dropout(z)
 
         # Decode with full ctx_emb (true autoencoder)
         # FiLM decoder: pass ctx_emb and z separately so z can modulate output

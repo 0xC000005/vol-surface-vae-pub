@@ -58,6 +58,12 @@ class TwoStageConfig:
     z_logvar_floor = -4.0               # exp(-4) ≈ 0.018, min_std ≈ 0.13
                                         # Set to None to disable floor
 
+    # z dropout to prevent z from becoming a lookup key
+    # Dropout forces decoder to be robust to missing z information
+    # Prevents deterministic (context,target) → z mapping from being memorized
+    z_dropout = 0.0                     # Default: no dropout
+                                        # Recommended: 0.3-0.5 for regularization
+
     # ============================================================================
     # Decoder
     # ============================================================================
@@ -195,6 +201,7 @@ class TwoStageConfig:
             "mem_layers": cls.mem_layers,
             "mem_dropout": cls.mem_dropout,
             "z_logvar_floor": cls.z_logvar_floor,
+            "z_dropout": cls.z_dropout,
 
             # Decoder
             "use_dense_surface": cls.use_dense_surface,
