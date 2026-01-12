@@ -2846,3 +2846,819 @@ class CVAETwoStageStudentTMLP(nn.Module):
             samples.append(sample)
 
         return torch.stack(samples, dim=0)
+
+
+# =============================================================================
+# Dual-Path Student-t Decoder (new architecture)
+# =============================================================================
+# This decoder uses ADDITIVE combination of context and z pathways:
+#   mean = ctx_mean + z_residual
+#
+# This forces both pathways to contribute (unlike FiLM which can be bypassed).
+# Key insight: decompose into predictable (ctx) + unpredictable (z) components.
+
+
+class StudentTDualPathDecoder(nn.Module):
+    """
+    Dual-path decoder with additive combination of context and z.
+
+    Architecture:
+        ctx_emb -> [Context MLP] -> ctx_mean (expected drift)
+        z       -> [Residual MLP] -> z_residual (innovation)
+        mean = ctx_mean + z_residual
+
+    Key insight: Additive combination forces both pathways to contribute.
+    Unlike FiLM (multiplicative), neither pathway can be "turned off".
+
+    This preserves:
+    - Kurtosis recovery (Student-t sampling unchanged)
+    - Z contribution (z_residual pathway)
+    - Context usage (ctx_mean pathway)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Context pathway: ctx_emb -> expected mean
+        # Smaller network than z pathway (context is coarse)
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z pathway: z -> residual mean
+        # Same architecture as original StudentTMLPDecoder
+        self.z_residual_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z-dependent covariance (unchanged from StudentTMLPDecoder)
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Initialize log_diag to reasonable variance
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+
+        # Initialize z_residual to small values so ctx dominates initially
+        # This helps with training stability
+        nn.init.zeros_(self.z_residual_net[-1].bias)
+        nn.init.normal_(self.z_residual_net[-1].weight, std=0.01)
+
+    def forward(self, ctx_emb, z, sample=True):
+        """
+        Forward pass with dual-path mean and Student-t sampling.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            sample: Whether to sample from Student-t
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Sampled surface (B, T, 5, 5) if sample=True, else mean
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway: ctx_emb -> expected mean
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat)  # (B*T, 25)
+        ctx_mean = ctx_mean.view(B, T, 5, 5)
+
+        # Z pathway: z -> residual mean
+        z_flat = z.view(B * T, -1)
+        z_residual = self.z_residual_net(z_flat)  # (B*T, 25)
+        z_residual = z_residual.view(B, T, 5, 5)
+
+        # ADDITIVE combination (key difference from FiLM)
+        mean = ctx_mean + z_residual
+
+        # Z-dependent covariance parameters
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling (same as StudentTMLPDecoder)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+
+        # Create Gaussian samples, then scale by Student-t factor
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)  # (B, T, 25)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag  # (B, T, 25)
+
+        total_gauss = correlated_gauss + independent_gauss  # (B, T, 25)
+
+        # Convert to Student-t by dividing by sqrt(chi2/nu)
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        # t = gaussian / sqrt(chi2) has Student-t distribution
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor  # (B, T, 25)
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid ν and full covariance."""
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        D = torch.exp(log_diag)  # (B, 25)
+        D = torch.clamp(D, min=1e-8)
+
+        # Total variance per grid point: Σ_ii = D_i + Σ_k F_ik^2
+        factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+        total_var = D + factor_sq  # (B, 25)
+
+        # Per-grid univariate Student-t NLL
+        nu = self.nu.view(1, 1, 25)  # (1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)  # (B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq  # (B, T, 25)
+
+        # Student-t NLL (ignoring normalizing constant)
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStageDualPath(nn.Module):
+    """
+    Two-Stage CVAE with dual-path additive decoder.
+
+    This addresses the fundamental trade-off:
+    - MLP decoder: 39.5% z contribution, 0% ctx contribution (ignores context)
+    - LSTM+FiLM: 3.8% z contribution, ~60% ctx contribution (washes out z)
+
+    Solution: Additive combination forces both pathways to contribute:
+        mean = f(ctx_emb) + g(z)
+
+    Expected improvements:
+    - ctx_contribution > 20%
+    - z_contribution > 20%
+    - Kurtosis recovery preserved (>100%)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTDualPathDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with dual-path decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        mean, samples, factor, log_diag = self.decoder(ctx_emb, z, sample=True)
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with dual-path decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(ctx_emb, z, sample=True)
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+    def get_pathway_contributions(self, batch):
+        """
+        Compute contribution of each pathway to the mean prediction.
+
+        Returns dict with:
+        - ctx_mean: Mean from context pathway only
+        - z_residual: Mean from z pathway only
+        - full_mean: ctx_mean + z_residual
+        """
+        surface = batch["surface"]
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway only
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.decoder.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway only
+        z_flat = z.view(B * T, -1)
+        z_residual = self.decoder.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        return {
+            "ctx_mean": ctx_mean,
+            "z_residual": z_residual,
+            "full_mean": ctx_mean + z_residual,
+        }
+
+
+# =============================================================================
+# Gated Residual Decoder (variant 2)
+# =============================================================================
+# This decoder uses z as the primary prediction, with context providing
+# a small gated correction: mean = z_pred + gate * ctx_correction
+#
+# Key insight: Keep z dominant (preserve kurtosis) but add context signal.
+
+
+class StudentTGatedResidualDecoder(nn.Module):
+    """
+    Decoder with gated residual connection from context.
+
+    Architecture:
+        z       -> [Z MLP] ---------> z_pred (main prediction, unchanged from StudentTMLPDecoder)
+        ctx_emb -> [Ctx MLP] -> ctx_correction
+        gate    -> [Gate Net] -> gate (0-1)
+        mean = z_pred + gate * ctx_correction
+
+    Key insight: Z provides main prediction (preserves kurtosis),
+    context provides small correction (enables context usage without bypass).
+    Gate prevents context from dominating.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+        self.gate_scale = config.get("gate_scale", 0.3)  # Max gate value
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Z pathway: z -> main prediction (UNCHANGED from StudentTMLPDecoder)
+        self.z_pred_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Context pathway: ctx_emb -> small correction
+        self.ctx_correction_net = nn.Sequential(
+            nn.Linear(ctx_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Gate network: combines z and ctx to produce gate (0-1)
+        # Gate controls how much context correction is applied
+        self.gate_net = nn.Sequential(
+            nn.Linear(latent_dim + ctx_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z-dependent covariance (unchanged from StudentTMLPDecoder)
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Initialize log_diag to reasonable variance
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+
+        # Initialize ctx_correction to small values
+        nn.init.zeros_(self.ctx_correction_net[-1].bias)
+        nn.init.normal_(self.ctx_correction_net[-1].weight, std=0.01)
+
+        # Initialize gate to start closed (near 0)
+        nn.init.constant_(self.gate_net[-1].bias, -2.0)
+
+    def forward(self, ctx_emb, z, sample=True):
+        """
+        Forward pass with gated residual context correction.
+
+        mean = z_pred + gate * ctx_correction
+        where gate ∈ [0, gate_scale]
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Z pathway: main prediction
+        z_flat = z.view(B * T, -1)
+        z_pred = self.z_pred_net(z_flat)  # (B*T, 25)
+        z_pred = z_pred.view(B, T, 5, 5)
+
+        # Context pathway: small correction
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_correction = self.ctx_correction_net(ctx_flat)  # (B*T, 25)
+        ctx_correction = ctx_correction.view(B, T, 5, 5)
+
+        # Gate: controls how much context is applied
+        combined = torch.cat([z_flat, ctx_flat], dim=-1)  # (B*T, latent_dim + ctx_dim)
+        gate_logits = self.gate_net(combined)  # (B*T, 25)
+        gate = torch.sigmoid(gate_logits) * self.gate_scale  # (B*T, 25), range [0, gate_scale]
+        gate = gate.view(B, T, 5, 5)
+
+        # Gated residual: mean = z_pred + gate * ctx_correction
+        mean = z_pred + gate * ctx_correction
+
+        # Z-dependent covariance parameters
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling (same as StudentTMLPDecoder)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid ν and full covariance."""
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStageGatedResidual(nn.Module):
+    """
+    Two-Stage CVAE with gated residual decoder.
+
+    Uses z as primary prediction with gated context correction.
+    Expected: preserve kurtosis (z dominant) while adding some context usage.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTGatedResidualDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with gated residual decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        mean, samples, factor, log_diag = self.decoder(ctx_emb, z, sample=True)
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with gated residual decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(ctx_emb, z, sample=True)
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+
+# =============================================================================
+# Dual-Path AR(1) Decoder (ACF preservation variant)
+# =============================================================================
+# This decoder adds autoregressive mean-reversion to the dual-path decoder:
+#   mean_t = ctx_mean_t + z_residual_t + φ * (x_{t-1} - μ)
+#
+# Key insight: Explicit AR(1) structure enforces temporal coherence and
+# mean-reversion, while still allowing both ctx and z to contribute.
+
+
+class StudentTDualPathARDecoder(nn.Module):
+    """
+    Dual-path decoder with AR(1) mean-reversion component.
+
+    Architecture:
+        ctx_emb -> [Context MLP] -> ctx_mean (expected drift)
+        z       -> [Residual MLP] -> z_residual (innovation)
+        AR(1)   -> φ * (x_{t-1} - μ) (mean-reversion correction)
+        mean = ctx_mean + z_residual + ar_correction
+
+    Key insight: Combines additive dual-path (for ctx+z contribution) with
+    explicit AR(1) structure (for ACF preservation / mean-reversion).
+
+    The AR(1) coefficient φ can be learned or fixed to GT value (-0.35).
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)  # GT value
+
+        if self.learn_phi:
+            # Learnable AR(1) coefficient, initialized near target
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            # Fixed AR(1) coefficient
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        # Long-run mean (learned per grid point)
+        self.mu = nn.Parameter(torch.zeros(25))
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Context pathway: ctx_emb -> expected mean
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z pathway: z -> residual mean
+        self.z_residual_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z-dependent covariance (unchanged)
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.z_residual_net[-1].bias)
+        nn.init.normal_(self.z_residual_net[-1].weight, std=0.01)
+
+    def get_phi(self):
+        """Get AR(1) coefficient, constrained to (-1, 1) for stationarity."""
+        if self.learn_phi:
+            # tanh constrains to (-1, 1)
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def forward(self, ctx_emb, z, prev_x=None, sample=True):
+        """
+        Forward pass with dual-path mean + AR(1) correction.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+                    If None, AR correction is skipped (first timestep)
+            sample: Whether to sample from Student-t
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Sampled surface (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway
+        z_flat = z.view(B * T, -1)
+        z_residual = self.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        # Base mean (without AR correction)
+        mean_base = ctx_mean + z_residual
+
+        # AR(1) correction
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            mean = mean_base + ar_correction
+        else:
+            mean = mean_base
+
+        # Z-dependent covariance
+        z_pooled = z.mean(dim=1)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling (unchanged)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid ν and full covariance."""
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStageDualPathAR(nn.Module):
+    """
+    Two-Stage CVAE with dual-path AR(1) decoder for ACF preservation.
+
+    Combines:
+    - Dual-path additive decoder (ctx + z contribution)
+    - AR(1) mean-reversion (temporal coherence / ACF preservation)
+    - Student-t sampling (kurtosis recovery)
+
+    Expected improvements:
+    - ACF preservation: >30% (up from 15-19%)
+    - Kurtosis recovery: preserved (>100%)
+    - ctx_contribution: preserved (>5%)
+    - z_contribution: preserved (>20%)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTDualPathARDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with AR(1) correction."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        # Construct prev_x for AR(1) correction
+        # prev_x[:, t] = surface[:, t] (the actual previous surface)
+        # For t=0, we don't have prev_x, so we use the first surface as placeholder
+        prev_x = surface.clone()
+
+        mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, prev_x=prev_x, sample=True
+        )
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with AR(1) decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        prev_x = surface.clone()
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(ctx_emb, z, prev_x=prev_x, sample=True)
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+    def get_ar_phi(self):
+        """Get the AR(1) coefficient for monitoring."""
+        return self.decoder.get_phi()
+
+    def get_pathway_contributions(self, batch):
+        """
+        Compute contribution of each pathway.
+
+        Returns dict with ctx_mean, z_residual, ar_correction, and full_mean.
+        """
+        surface = batch["surface"]
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        B, T, _ = z.shape
+
+        # Context pathway
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.decoder.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway
+        z_flat = z.view(B * T, -1)
+        z_residual = self.decoder.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        # AR(1) correction
+        phi = self.decoder.get_phi()
+        mu = self.decoder.mu.view(1, 1, 5, 5)
+        ar_correction = phi * (surface - mu)
+
+        return {
+            "ctx_mean": ctx_mean,
+            "z_residual": z_residual,
+            "ar_correction": ar_correction,
+            "full_mean": ctx_mean + z_residual + ar_correction,
+        }
