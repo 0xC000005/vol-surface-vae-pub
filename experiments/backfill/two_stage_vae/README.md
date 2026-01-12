@@ -413,6 +413,60 @@ The model correctly discovered that **SPX volatility smile varies by maturity**:
 python experiments/backfill/two_stage_vae/validate_student_t_oracle.py
 ```
 
+## ACF vs Kurtosis Trade-off (Critical Finding)
+
+### The Fundamental Trade-off
+
+**You cannot have both high kurtosis AND high ACF preservation simultaneously.**
+
+The ACF loss experiments (`exp_student_t_acf.py`) revealed a fundamental trade-off:
+
+| λ_acf | ACF Preservation | Kurtosis Recovery | Assessment |
+|-------|------------------|-------------------|------------|
+| 0.0 (baseline) | 16% | 135% | High kurtosis, low ACF |
+| 0.0 (no curriculum) | 41% | 69% | ACF up, kurtosis down |
+| 0.05 | ~45% | ~60% | Trade-off |
+| **0.3** | **49%** | **53%** | Source of "49% ACF" claim |
+| 0.5 | ~55% | ~45% | More ACF, less kurtosis |
+| Additive arch | **81%** | **61%** | Maximum ACF, poor kurtosis |
+
+### Why This Happens
+
+1. **Fat tails require high variance** in the Student-t noise
+2. **High variance dilutes autocorrelation** because ACF = Cov(X_t, X_{t-1}) / Var(X)
+3. **ACF loss pushes variance down** to preserve correlation structure
+4. **Lower variance → thinner tails** → kurtosis drops
+
+### The "Best Model" Definition
+
+The `compare_all_decoders.py` script uses **constrained optimization**:
+- **Constraint**: Kurtosis > 100% (must preserve fat tails)
+- **Objective**: Maximize ACF (subject to constraint)
+
+This is why it reports **34.8% ACF** as "best" - it's the highest ACF that doesn't sacrifice kurtosis below 100%.
+
+### What the Numbers Mean
+
+| Claimed ACF | Where it came from | Kurtosis at that point |
+|-------------|-------------------|------------------------|
+| 49% | `exp_student_t_acf.py` with λ=0.3 | 53% (FAILED kurtosis) |
+| 81% | Additive architecture experiment | 61% (FAILED kurtosis) |
+| **35%** | `compare_all_decoders.py` winner | **117%** (PASSED) |
+| 16% | Baseline Student-t MLP | 136% (PASSED) |
+
+### Recommendation
+
+**For production use:**
+- If fat tails are critical (risk management) → Accept 35% ACF, keep 117%+ kurtosis
+- If temporal dynamics are critical (forecasting) → Accept 53% kurtosis, push to 49% ACF
+- Document the trade-off for model governance
+
+### Files
+
+- `exp_student_t_acf.py` - ACF loss sweep experiment (λ = 0.0 to 0.5)
+- `compare_all_decoders.py` - Constrained comparison (kurtosis > 100%)
+- `vae/losses.py` - `differentiable_acf()` function for gradient-based ACF optimization
+
 ## Next Steps
 
 1. ~~Implement Student-t decoder for fat tails~~ ✓ Done
@@ -421,3 +475,4 @@ python experiments/backfill/two_stage_vae/validate_student_t_oracle.py
 4. ~~Model validation (oracle mode)~~ ✓ Done - APPROVED
 5. Evaluate under prior mode (z ~ N(0,1))
 6. Run arbitrage tests on IV levels
+7. Consider Skew-t distribution (current Student-t is symmetric, no skewness)
