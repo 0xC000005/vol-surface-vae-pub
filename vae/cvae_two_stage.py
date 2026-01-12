@@ -1273,6 +1273,98 @@ class CVAETwoStage(BaseVAE):
         """Alias for train_step_autoencoder for compatibility."""
         return self.train_step_autoencoder(x, optimizer)
 
+    def train_step_with_p1_loss(self, x: Dict[str, torch.Tensor],
+                                 optimizer: torch.optim.Optimizer,
+                                 p1_weight: float = 0.1,
+                                 n_z_samples: int = 5):
+        """
+        Training step with P1 loss to force decoder to respond to z variation.
+
+        P1 loss = -log(coefficient_of_variation) where CV = std/|mean|
+        This forces the decoder to produce output variance when z varies,
+        without targeting a specific variance level.
+
+        Args:
+            x: dict with "surface" (B, T, H, W)
+            optimizer: PyTorch optimizer
+            p1_weight: Weight for P1 loss term
+            n_z_samples: Number of z samples for variance estimation
+
+        Returns:
+            dict with loss components including p1_loss
+        """
+        surface = x["surface"].to(self.device)
+        if len(surface.shape) == 3:
+            surface = surface.unsqueeze(0)
+
+        B, T = surface.shape[:2]
+        C = T - self.horizon
+
+        optimizer.zero_grad()
+
+        # Get context embedding and z distribution
+        ctx_emb = self.ctx_encoder(x)
+        z_mean, z_logvar, z = self.encoder(x)
+
+        # Standard reconstruction with one z sample
+        recon = self.decoder(ctx_emb, z)
+
+        # MSE loss (horizon only)
+        mse_loss = F.mse_loss(recon[:, C:], surface[:, C:])
+
+        # KL divergence
+        kl_loss = -0.5 * (1 + z_logvar - torch.exp(z_logvar) - z_mean.pow(2))
+        kl_loss = kl_loss.sum(dim=-1).mean()
+
+        # P1 loss: sample multiple z, measure output variance
+        if p1_weight > 0:
+            samples = []
+            for _ in range(n_z_samples):
+                eps = torch.randn_like(z_logvar)
+                z_sample = z_mean + torch.exp(0.5 * z_logvar) * eps
+                # Apply z_dropout if present
+                if self.z_dropout is not None and self.training:
+                    z_sample = self.z_dropout(z_sample)
+                decoded = self.decoder(ctx_emb, z_sample)
+                samples.append(decoded[:, C:])  # Only horizon positions
+
+            samples = torch.stack(samples)  # (n_samples, B, horizon, 5, 5)
+            output_var = samples.var(dim=0)  # (B, horizon, 5, 5)
+            output_mean = samples.mean(dim=0)
+
+            # Scale-normalized P1 (coefficient of variation) to prevent shrinking
+            output_std = output_var.sqrt()
+            cv = output_std / (output_mean.abs() + 1e-6)
+
+            # Clamp cv to prevent numerical instability
+            cv_mean = cv.mean().clamp(min=1e-4, max=1e4)
+
+            # P1 loss: -log(cv), clamped to prevent gradient explosion
+            p1_loss = -torch.log(cv_mean)
+            p1_loss = p1_loss.clamp(min=-10, max=10)  # Prevent extreme gradients
+        else:
+            p1_loss = torch.tensor(0.0, device=self.device)
+            output_var = torch.tensor(0.0)
+            cv = torch.tensor(0.0)
+
+        # Total loss
+        total_loss = mse_loss + self.kl_weight * kl_loss + p1_weight * p1_loss
+
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        return {
+            "loss": total_loss,
+            "mse_loss": mse_loss,
+            "re_surface": mse_loss,  # Alias for compatibility
+            "kl_loss": kl_loss,
+            "p1_loss": p1_loss,
+            "output_var": output_var.mean().item() if torch.is_tensor(output_var) else 0.0,
+            "cv": cv.mean().item() if torch.is_tensor(cv) else 0.0,
+            "z_logvar_mean": z_logvar.mean().item(),
+        }
+
     def test_step(self, x: Dict[str, torch.Tensor]):
         """Evaluate model on test data."""
         surface = x["surface"].to(self.device)
@@ -2514,3 +2606,243 @@ class CVAETwoStageStudentT(CVAETwoStage):
             return self.sample_from_decoder(mean, L, nu)
         else:
             return mean, L, nu
+
+
+# =============================================================================
+# Simple MLP Student-t Decoder (ported from experiment)
+# =============================================================================
+# These classes achieve 135.8% kurtosis recovery and 39.5% z contribution
+# by using a direct z→mean MLP path instead of LSTM+FiLM.
+
+
+# GT kurtosis values from shape_diagnostics.json (Fisher/excess kurtosis)
+GT_KURTOSIS_MLP = np.array([
+    [5.53, 2.75, 2.21, 15.33, 19.66],    # Row 0 (short-term moneyness)
+    [21.96, 3.24, 2.51, 84.76, 18.65],   # Row 1
+    [65.47, 9.98, 5.02, 2.82, 12.75],    # Row 2 (ATM row)
+    [147.78, 47.95, 25.18, 8.50, 143.95],# Row 3
+    [75.01, 73.92, 69.44, 44.23, 244.48] # Row 4 (long-term)
+])
+
+
+def compute_nu_from_kurtosis_mlp(gt_kurtosis: np.ndarray) -> np.ndarray:
+    """
+    Compute fixed ν for Student-t from GT kurtosis.
+
+    For Student-t: kurtosis = 3 + 6/(ν-4) for ν>4
+    Excess kurtosis = 6/(ν-4)
+    Solving: ν = 4 + 6/excess_kurtosis
+
+    Args:
+        gt_kurtosis: Ground truth kurtosis (Fisher definition, normal=0)
+
+    Returns:
+        nu: Degrees of freedom, clamped to [4.1, 100]
+    """
+    excess_kurtosis = np.maximum(gt_kurtosis, 0.1)  # Ensure positive
+    nu = 4.0 + 6.0 / excess_kurtosis
+    nu = np.clip(nu, 4.1, 100.0)
+    return nu
+
+
+# Precomputed fixed ν values
+GT_NU_MLP = compute_nu_from_kurtosis_mlp(GT_KURTOSIS_MLP)
+
+
+class StudentTMLPDecoder(nn.Module):
+    """
+    Simple MLP decoder with Student-t output distribution for fat tails.
+
+    This is ported from the experiment that achieved:
+    - Kurtosis recovery: 135.8%
+    - Z contribution: 39.5%
+
+    Key architecture:
+    - Direct z → mean MLP path (no LSTM/FiLM)
+    - Per-grid fixed ν from GT kurtosis
+    - Full covariance (FF^T + D)
+    - Z-dependent covariance
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        self.rank = config.get("cov_rank", 4)
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Mean decoder: z → mean (direct MLP)
+        self.mean_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z-dependent covariance
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Initialize log_diag to reasonable variance
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+
+    def forward(self, ctx_emb, z, sample=True):
+        """
+        Forward pass with Student-t sampling.
+
+        Note: ctx_emb is ignored - this decoder uses only z for direct path.
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Mean prediction (z-dependent only)
+        z_flat = z.view(B * T, -1)
+        mean = self.mean_net(z_flat)
+        mean = mean.view(B, T, 5, 5)
+
+        # Z-dependent covariance parameters
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+
+        # Create Gaussian samples, then scale by Student-t factor
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)  # (B, T, 25)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag  # (B, T, 25)
+
+        total_gauss = correlated_gauss + independent_gauss  # (B, T, 25)
+
+        # Convert to Student-t by dividing by sqrt(chi2/nu)
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        # t = gaussian / sqrt(chi2) has Student-t distribution
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor  # (B, T, 25)
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid ν and full covariance."""
+        B, T = pred_mean.shape[:2]
+        device = pred_mean.device
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        D = torch.exp(log_diag)  # (B, 25)
+        D = torch.clamp(D, min=1e-8)
+
+        # Total variance per grid point: Σ_ii = D_i + Σ_k F_ik^2
+        factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+        total_var = D + factor_sq  # (B, 25)
+
+        # Per-grid univariate Student-t NLL
+        nu = self.nu.view(1, 1, 25)  # (1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)  # (B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq  # (B, T, 25)
+
+        # Student-t NLL (ignoring normalizing constant)
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStageStudentTMLP(nn.Module):
+    """
+    Two-Stage CVAE with simple MLP Student-t decoder.
+
+    This is ported from the experiment that achieved:
+    - Kurtosis recovery: 135.8%
+    - Z contribution: 39.5%
+    - Direction accuracy: 48.7%
+
+    Key differences from CVAETwoStageStudentT:
+    - Uses StudentTMLPDecoder (simple MLP) instead of TwoStageStudentTDecoder (LSTM+FiLM)
+    - Has prior_net for future z prediction
+    - Uses main_encoder naming (for checkpoint compatibility)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTMLPDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with Student-t decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        mean, samples, factor, log_diag = self.decoder(ctx_emb, z, sample=True)
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with Student-t decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(ctx_emb, z, sample=True)
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
