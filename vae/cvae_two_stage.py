@@ -3662,3 +3662,366 @@ class CVAETwoStageDualPathAR(nn.Module):
             "ar_correction": ar_correction,
             "full_mean": ctx_mean + z_residual + ar_correction,
         }
+
+
+# =============================================================================
+# SKEW STUDENT-T DECODER (Sinh-Arcsinh Transformation)
+# =============================================================================
+
+
+class StudentTSkewDecoder(nn.Module):
+    """
+    Student-t decoder with learnable skewness via sinh-arcsinh transformation.
+
+    Extends StudentTMLPDecoder by adding:
+    - epsilon (ε): Per-grid skewness parameter (learned from data)
+    - delta (δ): Per-grid tailweight parameter (optional, can fix to 1)
+
+    The distribution is:
+        Y = μ + L @ sinh((arcsinh(X) + ε) * δ)
+    where X ~ StudentT(ν)
+
+    This follows the "bitter lesson" - let the model learn skewness
+    from data rather than hand-engineering it.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        self.rank = config.get("cov_rank", 4)
+        self.learn_delta = config.get("learn_delta", False)  # Can fix delta=1
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Mean decoder: z → mean (direct MLP)
+        self.mean_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z-dependent covariance
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Skewness network: z → epsilon (per-grid skewness)
+        # Initialize to 0 (symmetric) and let it learn
+        self.epsilon_net = nn.Sequential(
+            nn.Linear(latent_dim, 32),
+            nn.Tanh(),  # Soft constraint on range
+            nn.Linear(32, 25),
+        )
+        # Initialize last layer to near-zero
+        nn.init.zeros_(self.epsilon_net[-1].weight)
+        nn.init.zeros_(self.epsilon_net[-1].bias)
+
+        # Optional: tailweight network
+        if self.learn_delta:
+            self.log_delta_net = nn.Sequential(
+                nn.Linear(latent_dim, 32),
+                nn.ReLU(),
+                nn.Linear(32, 25),
+            )
+            nn.init.zeros_(self.log_delta_net[-1].bias)  # delta=1 at init
+        else:
+            # Fixed delta=1
+            self.register_buffer("delta", torch.ones(25))
+
+        # Initialize log_diag to reasonable variance
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+
+    def get_epsilon(self, z_pooled: torch.Tensor) -> torch.Tensor:
+        """Get per-grid skewness parameters."""
+        epsilon = self.epsilon_net(z_pooled)  # (B, 25)
+        # Clamp to reasonable range
+        epsilon = torch.clamp(epsilon, min=-3.0, max=3.0)
+        return epsilon
+
+    def get_delta(self, z_pooled: torch.Tensor) -> torch.Tensor:
+        """Get per-grid tailweight parameters."""
+        if self.learn_delta:
+            log_delta = self.log_delta_net(z_pooled)
+            delta = torch.exp(torch.clamp(log_delta, min=-1.0, max=1.0))  # (0.37, 2.7)
+        else:
+            B = z_pooled.shape[0]
+            delta = self.delta.unsqueeze(0).expand(B, -1)
+        return delta
+
+    def sinh_arcsinh_forward(
+        self, x: torch.Tensor, epsilon: torch.Tensor, delta: torch.Tensor
+    ) -> torch.Tensor:
+        """Apply sinh-arcsinh transformation: X → Y (add skewness)."""
+        return torch.sinh((torch.asinh(x) + epsilon) * delta)
+
+    def sinh_arcsinh_inverse(
+        self, y: torch.Tensor, epsilon: torch.Tensor, delta: torch.Tensor
+    ) -> torch.Tensor:
+        """Inverse sinh-arcsinh transformation: Y → X (remove skewness)."""
+        return torch.sinh(torch.asinh(y) / delta - epsilon)
+
+    def sinh_arcsinh_log_jacobian(
+        self, y: torch.Tensor, epsilon: torch.Tensor, delta: torch.Tensor
+    ) -> torch.Tensor:
+        """Log |dX/dY| for density transformation."""
+        asinh_y = torch.asinh(y)
+        inner = asinh_y / delta - epsilon
+
+        # Numerically stable log(cosh(x))
+        log_cosh = torch.logaddexp(inner, -inner) - np.log(2.0)
+
+        log_jacobian = log_cosh - torch.log(delta) - 0.5 * torch.log1p(y ** 2)
+        return log_jacobian
+
+    def forward(self, ctx_emb, z, sample=True):
+        """
+        Forward pass with skewed Student-t sampling.
+
+        Note: ctx_emb is ignored - this decoder uses only z for direct path.
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Samples from skewed Student-t (B, T, 5, 5)
+            factor: Covariance factor (B, 25, rank)
+            log_diag: Log diagonal variance (B, 25)
+            epsilon: Skewness parameters (B, 25)
+            delta: Tailweight parameters (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Mean prediction (z-dependent only)
+        z_flat = z.view(B * T, -1)
+        mean = self.mean_net(z_flat)
+        mean = mean.view(B, T, 5, 5)
+
+        # Z-dependent parameters (pooled across time)
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        # Skewness parameters
+        epsilon = self.get_epsilon(z_pooled)  # (B, 25)
+        delta = self.get_delta(z_pooled)  # (B, 25)
+
+        if not sample:
+            return mean, mean, factor, log_diag, epsilon, delta
+
+        # Skewed Student-t sampling
+        # Step 1: Sample from standard Student-t (symmetric)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+
+        # Create Gaussian samples, then scale by Student-t factor
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)  # (B, T, 25)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag  # (B, T, 25)
+
+        total_gauss = correlated_gauss + independent_gauss  # (B, T, 25)
+
+        # Convert to Student-t by dividing by sqrt(chi2/nu)
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        # t = gaussian / sqrt(chi2) has Student-t distribution
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor  # (B, T, 25) - symmetric Student-t
+
+        # Step 2: Apply sinh-arcsinh transformation to add skewness
+        epsilon_expanded = epsilon.view(B, 1, 25)  # (B, 1, 25)
+        delta_expanded = delta.view(B, 1, 25)  # (B, 1, 25)
+        total_skewed = self.sinh_arcsinh_forward(total_t, epsilon_expanded, delta_expanded)
+
+        samples = mean + total_skewed.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag, epsilon, delta
+
+    def compute_skew_student_t_nll(self, pred_mean, target, factor, log_diag, epsilon, delta):
+        """
+        Skewed Student-t NLL with per-grid ν, ε, δ and full covariance.
+
+        The NLL includes:
+        1. Student-t log prob of transformed residuals
+        2. Jacobian of sinh-arcsinh transformation
+        3. Jacobian of covariance (log det)
+        """
+        B, T = pred_mean.shape[:2]
+        device = pred_mean.device
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        D = torch.exp(log_diag)  # (B, 25)
+        D = torch.clamp(D, min=1e-8)
+
+        # Total variance per grid point: Σ_ii = D_i + Σ_k F_ik^2
+        factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+        total_var = D + factor_sq  # (B, 25)
+        sigma = torch.sqrt(total_var)  # (B, 25)
+
+        # Standardize residuals
+        sigma_expanded = sigma.view(B, 1, 25)
+        y_std = residual / sigma_expanded  # (B, T, 25)
+
+        # Transform back to symmetric space via inverse sinh-arcsinh
+        epsilon_expanded = epsilon.view(B, 1, 25)
+        delta_expanded = delta.view(B, 1, 25)
+        x = self.sinh_arcsinh_inverse(y_std, epsilon_expanded, delta_expanded)  # (B, T, 25)
+
+        # Student-t NLL for symmetric variable x
+        nu = self.nu.view(1, 1, 25)  # (1, 1, 25)
+        log_prob_base = (
+            torch.lgamma((nu + 1) / 2)
+            - torch.lgamma(nu / 2)
+            - 0.5 * torch.log(nu * np.pi)
+            - ((nu + 1) / 2) * torch.log1p(x ** 2 / nu)
+        )
+
+        # Jacobian for sinh-arcsinh transform
+        log_jacobian_sa = self.sinh_arcsinh_log_jacobian(y_std, epsilon_expanded, delta_expanded)
+
+        # Jacobian for scale (sigma)
+        log_jacobian_scale = -torch.log(sigma_expanded)
+
+        # Total log prob
+        log_prob = log_prob_base + log_jacobian_sa + log_jacobian_scale
+
+        # NLL = -log_prob
+        nll = -log_prob.mean()
+
+        return nll
+
+
+class CVAETwoStageStudentTSkew(nn.Module):
+    """
+    Two-Stage CVAE with skewed Student-t decoder (sinh-arcsinh transformation).
+
+    This model learns per-grid skewness from data following the "bitter lesson":
+    - Don't hand-engineer which grids should have positive/negative skew
+    - Let the model learn epsilon (skewness) through NLL optimization
+    - When epsilon=0, reduces to symmetric Student-t (CVAETwoStageStudentTMLP)
+
+    Architecture:
+    - Context encoder: Historical surfaces → context embedding
+    - Main encoder: Full sequence → latent z (VAE)
+    - Skew decoder: z → μ, Σ, ν, ε, δ → skewed Student-t samples
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTSkewDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with skewed Student-t decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        mean, samples, factor, log_diag, epsilon, delta = self.decoder(ctx_emb, z, sample=True)
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag, epsilon, delta
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with skewed Student-t decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        all_samples = []
+        for _ in range(n_samples):
+            eps = torch.randn_like(z_mean)
+            z = z_mean + z_std * eps
+
+            _, samples, _, _, _, _ = self.decoder(ctx_emb, z, sample=True)
+            all_samples.append(samples)
+
+        return torch.stack(all_samples, dim=0)  # (n_samples, B, T, 5, 5)
+
+    def compute_loss(self, batch, kl_weight=1.0):
+        """Compute skewed Student-t NLL + KL loss."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        mean, z_mean, z_logvar, factor, log_diag, epsilon, delta = self.forward(
+            batch, return_full_sequence=True
+        )
+
+        # Skewed Student-t NLL
+        nll = self.decoder.compute_skew_student_t_nll(
+            mean, surface, factor, log_diag, epsilon, delta
+        )
+
+        # KL divergence
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = nll + kl_weight * kl
+
+        return {
+            "loss": total_loss,
+            "nll": nll,
+            "kl": kl,
+            "epsilon_mean": epsilon.mean().item(),
+            "epsilon_std": epsilon.std().item(),
+            "delta_mean": delta.mean().item() if self.decoder.learn_delta else 1.0,
+        }
+
+    def get_learned_skewness(self, batch):
+        """Extract the learned skewness parameters for analysis."""
+        surface = batch["surface"]
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        z_pooled = z.mean(dim=1)
+        epsilon = self.decoder.get_epsilon(z_pooled)
+        delta = self.decoder.get_delta(z_pooled)
+
+        return {
+            "epsilon": epsilon,  # (B, 25)
+            "delta": delta,  # (B, 25)
+            "epsilon_grid": epsilon.view(-1, 5, 5),  # (B, 5, 5)
+        }
