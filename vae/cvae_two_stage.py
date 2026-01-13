@@ -3825,19 +3825,15 @@ class StudentTSkewDecoder(nn.Module):
             return mean, mean, factor, log_diag, epsilon, delta
 
         # Skewed Student-t sampling
-        # Step 1: Sample from standard Student-t (symmetric)
-        eps_rank = torch.randn(B, T, self.rank, device=device)
+        # CORRECT ORDER: standard_t → sinh_arcsinh → scale by sigma
+        #
+        # The NLL assumes: sample = mean + sigma * sinh_arcsinh(standard_t)
+        # So we must sample in that order!
 
-        # Create Gaussian samples, then scale by Student-t factor
-        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)  # (B, T, 25)
+        # Step 1: Sample STANDARD Gaussian (variance = 1)
+        std_gauss = torch.randn(B, T, 25, device=device)
 
-        eps_diag = torch.randn(B, T, 25, device=device)
-        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
-        independent_gauss = diag_std * eps_diag  # (B, T, 25)
-
-        total_gauss = correlated_gauss + independent_gauss  # (B, T, 25)
-
-        # Convert to Student-t by dividing by sqrt(chi2/nu)
+        # Step 2: Convert to STANDARD Student-t by dividing by sqrt(chi2/nu)
         chi2_samples = torch.zeros(B, T, 25, device=device)
         for i in range(25):
             nu_i = self.nu[i].item()
@@ -3846,14 +3842,27 @@ class StudentTSkewDecoder(nn.Module):
             gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
             chi2_samples[:, :, i] = gamma_samples
 
-        # t = gaussian / sqrt(chi2) has Student-t distribution
         student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
-        total_t = total_gauss * student_t_factor  # (B, T, 25) - symmetric Student-t
+        std_t = std_gauss * student_t_factor  # (B, T, 25) - STANDARD Student-t
 
-        # Step 2: Apply sinh-arcsinh transformation to add skewness
+        # Step 3: Apply sinh-arcsinh transformation to STANDARDIZED samples
         epsilon_expanded = epsilon.view(B, 1, 25)  # (B, 1, 25)
         delta_expanded = delta.view(B, 1, 25)  # (B, 1, 25)
-        total_skewed = self.sinh_arcsinh_forward(total_t, epsilon_expanded, delta_expanded)
+        skewed_std = self.sinh_arcsinh_forward(std_t, epsilon_expanded, delta_expanded)
+
+        # Step 3b: MEAN CENTERING - correct for the mean shift introduced by sinh-arcsinh
+        # When ε ≠ 0, E[sinh(arcsinh(x) + ε)] ≠ 0 for symmetric x
+        # Approximate correction: subtract sinh(ε) (the transform of the median)
+        # This centers the samples so their median is at 0
+        median_shift = torch.sinh(epsilon_expanded)  # (B, 1, 25)
+        skewed_centered = skewed_std - median_shift
+
+        # Step 4: THEN scale by sigma (from factor + diag variance)
+        D = torch.exp(log_diag)  # (B, 25)
+        factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+        sigma = torch.sqrt(D + factor_sq + 1e-8).view(B, 1, 25)  # (B, 1, 25)
+
+        total_skewed = sigma * skewed_centered  # Use centered samples
 
         samples = mean + total_skewed.view(B, T, 5, 5)
 
@@ -3982,8 +3991,15 @@ class CVAETwoStageStudentTSkew(nn.Module):
 
         return torch.stack(all_samples, dim=0)  # (n_samples, B, T, 5, 5)
 
-    def compute_loss(self, batch, kl_weight=1.0):
-        """Compute skewed Student-t NLL + KL loss."""
+    def compute_loss(self, batch, kl_weight=1.0, var_reg_weight=0.0, min_log_diag=-6.0):
+        """Compute skewed Student-t NLL + KL loss with optional variance regularization.
+
+        Args:
+            batch: Input batch
+            kl_weight: Weight for KL divergence term
+            var_reg_weight: Weight for variance regularization (prevents collapse)
+            min_log_diag: Target minimum for log_diag (penalize below this)
+        """
         surface = batch["surface"]
         B, T = surface.shape[:2]
 
@@ -3999,15 +4015,36 @@ class CVAETwoStageStudentTSkew(nn.Module):
         # KL divergence
         kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
 
-        total_loss = nll + kl_weight * kl
+        # Variance regularization: penalize when log_diag is below min_log_diag
+        # This prevents the model from collapsing variance to near-zero
+        var_reg = torch.tensor(0.0, device=surface.device)
+        if var_reg_weight > 0:
+            # Penalize log_diag values below min_log_diag
+            below_min = torch.clamp(min_log_diag - log_diag, min=0)
+            var_reg = torch.mean(below_min ** 2)
+
+            # Also encourage factor to contribute (penalize near-zero factor norms)
+            factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+            factor_reg = torch.mean(torch.clamp(0.0001 - factor_sq, min=0))
+            var_reg = var_reg + factor_reg
+
+        total_loss = nll + kl_weight * kl + var_reg_weight * var_reg
+
+        # Compute sigma for monitoring
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
 
         return {
             "loss": total_loss,
             "nll": nll,
             "kl": kl,
+            "var_reg": var_reg.item() if var_reg_weight > 0 else 0.0,
             "epsilon_mean": epsilon.mean().item(),
             "epsilon_std": epsilon.std().item(),
             "delta_mean": delta.mean().item() if self.decoder.learn_delta else 1.0,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
         }
 
     def get_learned_skewness(self, batch):

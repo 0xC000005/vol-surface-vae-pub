@@ -467,12 +467,94 @@ This is why it reports **34.8% ACF** as "best" - it's the highest ACF that doesn
 - `compare_all_decoders.py` - Constrained comparison (kurtosis > 100%)
 - `vae/losses.py` - `differentiable_acf()` function for gradient-based ACF optimization
 
+## Skewed Student-t Decoder (Sinh-Arcsinh Transform)
+
+### Problem Statement
+The symmetric Student-t decoder captures fat tails but cannot model **asymmetric distributions**. Real IV log-returns exhibit skewness (mean abs skewness = 0.586).
+
+### Solution: Sinh-Arcsinh Transform
+
+We added learnable skewness via the sinh-arcsinh bijection:
+```python
+Y = sinh(arcsinh(X) + ε)  # ε = skewness parameter per grid point
+```
+
+When ε=0, reduces to symmetric Student-t (baseline).
+
+### Implementation
+
+- **Files:**
+  - `vae/transforms.py` - SinhArcsinhTransform class
+  - `vae/cvae_two_stage.py` - StudentTSkewDecoder, CVAETwoStageStudentTSkew
+  - `exp_student_t_skew.py` - Training script (v1)
+  - `exp_student_t_skew_v2.py` - Training with variance regularization
+
+### Critical Bug: Variance Collapse (v1)
+
+The first version suffered from **variance collapse** during training:
+
+| Parameter | Symmetric | Skewed v1 | Issue |
+|-----------|-----------|-----------|-------|
+| log_diag | -8.3 | -10.0 (clamped min!) | Model pushed variance to minimum |
+| sigma (ATM) | 0.0245 | 0.0068 | 3.6x lower variance |
+| CI Violations | 10% | 81.7% (fan chart) | Overconfident |
+
+**Root cause**: NLL optimization found a local minimum with low variance + small skewness.
+
+### Fix: Variance Regularization (v2)
+
+Added regularization to prevent variance collapse:
+```python
+def compute_loss(self, batch, kl_weight=1.0, var_reg_weight=1.0, min_log_diag=-6.0):
+    # Penalize log_diag values below min_log_diag
+    below_min = torch.clamp(min_log_diag - log_diag, min=0)
+    var_reg = torch.mean(below_min ** 2)
+```
+
+### Results Comparison (Single-Step Reconstruction)
+
+| Metric | Symmetric | Skewed v2 | Winner |
+|--------|-----------|-----------|--------|
+| CI Violations | **10.5%** | 2.3% | Symmetric (closer to 10%) |
+| RMSE | 0.0345 | **0.0215** | **Skewed** |
+| Bias | **-0.0037** | -0.0059 | Symmetric |
+| Kurtosis Recovery | 89.0% | **101.8%** | **Skewed** |
+
+**Final Score: TIE (2-2)**
+
+### Key Findings
+
+1. **Variance regularization essential** - Without it, skewed model collapses to minimum variance
+2. **Mean centering needed** - sinh(arcsinh(x) + ε) has non-zero mean when ε ≠ 0
+3. **Fan charts misleading** - Accumulating independent samples causes drift; use single-step evaluation
+4. **Trade-off exists** - Skewed model: better RMSE & kurtosis; Symmetric: better CI calibration & bias
+
+### Recommendation
+
+- **For risk management** (conservative): Use Symmetric - better CI calibration
+- **For point forecasting** (accuracy): Use Skewed v2 - lower RMSE, better kurtosis
+- **For deployment**: Consider ensemble or use case specific selection
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `exp_student_t_skew.py` | Training script v1 (variance collapse bug) |
+| `exp_student_t_skew_v2.py` | Training with variance regularization |
+| `compare_symmetric_vs_skew_fan_chart.py` | Fan chart comparison (flawed methodology) |
+| `compare_symmetric_vs_skew_single_step.py` | Single-step comparison (recommended) |
+
+### Model Checkpoints
+
+- `models/backfill/two_stage/student_t_skew/` - v1 (buggy, do not use)
+- `models/backfill/two_stage/student_t_skew_v2/` - v2 with variance regularization
+
 ## Next Steps
 
 1. ~~Implement Student-t decoder for fat tails~~ ✓ Done
 2. ~~Make context contribute~~ ✓ Done (Dual-Path achieves 16%)
 3. ~~Improve ACF preservation~~ ✓ Done (AR(1) achieves 35%)
 4. ~~Model validation (oracle mode)~~ ✓ Done - APPROVED
-5. Evaluate under prior mode (z ~ N(0,1))
-6. Run arbitrage tests on IV levels
-7. Consider Skew-t distribution (current Student-t is symmetric, no skewness)
+5. ~~Implement skewed Student-t~~ ✓ Done (v2 with variance reg)
+6. Evaluate under prior mode (z ~ N(0,1))
+7. Run arbitrage tests on IV levels
