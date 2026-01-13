@@ -549,6 +549,182 @@ def compute_loss(self, batch, kl_weight=1.0, var_reg_weight=1.0, min_log_diag=-6
 - `models/backfill/two_stage/student_t_skew/` - v1 (buggy, do not use)
 - `models/backfill/two_stage/student_t_skew_v2/` - v2 with variance regularization
 
+## LSTM Decoder Research (January 2025) - NOT RECOMMENDED
+
+### Motivation
+
+The MLP decoder lacks temporal dynamics, resulting in:
+- No volatility clustering (ACF of squared returns = -0.02 vs GT 0.39)
+- Position-independent outputs
+- No hidden state carryover between timesteps
+
+Research question: **Can LSTM decoder restore temporal dynamics while preserving z contribution?**
+
+### Why MLP Was Originally Chosen (NOT Speed)
+
+From `vae/cvae_two_stage.py` lines 3034-3036, the original LSTM+FiLM decoder had a critical flaw:
+
+| Decoder Type | Z Contrib | Ctx Contrib | Problem |
+|-------------|-----------|-------------|---------|
+| **LSTM+FiLM** | **3.8%** | ~60% | Z washed out by hidden state |
+| **Pure MLP** | **39.5%** | 0% | Ignores context but preserves z |
+
+The LSTM hidden state `h_{C-1}` accumulates so much context that the decoder learns to ignore z entirely. This causes **variance collapse** - the latent variable becomes redundant.
+
+### Experiments Conducted
+
+#### Experiment 1: LSTM + Additive Z Pathway (Fresh Training)
+
+**Architecture:**
+```python
+mean = LSTM_out(ctx_emb) + MLP_out(z)  # Additive forces both to contribute
+```
+
+**Results:**
+| Metric | Value | Target | Status |
+|--------|-------|--------|--------|
+| LSTM contribution | 6.1% | >20% | FAIL |
+| Z contribution | **-5.9%** | >25% | FAIL |
+| Kurtosis recovery | 25.3% | >100% | FAIL |
+
+**Finding:** Z contribution went **negative** - adding z made predictions worse. The optimizer learned to rely on LSTM only.
+
+#### Experiment 2: Warm-Start from MLP Decoder
+
+**Strategy:** Copy trained MLP z pathway weights → freeze z → train LSTM → joint fine-tune
+
+**Results by stage:**
+| Stage | LSTM % | Z % |
+|-------|--------|-----|
+| After warm-start (init) | 0.0% | 14.4% |
+| After LSTM training (z frozen) | 0.3% | 14.2% |
+| After joint fine-tuning | 0.1% | **-64.3%** |
+
+**Finding:** Joint fine-tuning with Student-t NLL causes **catastrophic forgetting** of z pathway.
+
+### Root Cause Analysis
+
+The LSTM+Additive approach fails because:
+
+1. **Optimization prefers one pathway**: Despite additive combination, gradient descent finds solutions where one pathway dominates
+2. **LSTM hidden state complicates training**: Recurrent structure interacts poorly with z optimization
+3. **Student-t NLL drives toward local minima**: Joint training destroys z pathway weights
+
+### Correct Understanding: Volatility Clustering
+
+The lack of volatility clustering is **NOT caused by MLP vs LSTM decoder**. The real causes:
+
+1. **Independent z sampling**: z ~ N(0,I) sampled independently per timestep
+2. **Independent noise**: Student-t noise sampled independently per timestep
+3. **No autoregressive structure**: Output x_t doesn't depend on x_{t-1}
+
+### Recommended Solution (NOT LSTM Decoder)
+
+To add volatility clustering without breaking z contribution:
+
+1. **AR(1) correlated noise** (already implemented with rho=-0.2) - creates temporal correlation in output
+2. **GARCH-style variance** (future work):
+   ```python
+   σ_t² = α + β·σ²_{t-1} + γ·ε²_{t-1}
+   ```
+
+### Conclusion
+
+**LSTM decoder is NOT RECOMMENDED** due to:
+- Z contribution wash-out (3.8% → -64%)
+- Catastrophic forgetting during joint training
+- Kurtosis recovery drops from 135% to 20-25%
+
+**Keep the MLP decoder** - it works. Address temporal dynamics through correlated noise, not decoder architecture.
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `exp_lstm_dual_path.py` | LSTM+Additive training (failed) |
+| `exp_lstm_warmstart.py` | Warm-start experiment (failed) |
+| `vae/cvae_two_stage.py` | Contains `StudentTLSTMDualPathDecoder`, `CVAETwoStageLSTMDualPath` |
+
+### Model Checkpoints (For Reference Only)
+
+- `models/backfill/two_stage/lstm_dual_path/` - Fresh training (z=-5.9%)
+- `models/backfill/two_stage/lstm_warmstart/` - Warm-start (z=-64.3%)
+
+## Horizon=60 Training Research (January 2025) - NOT EFFECTIVE
+
+### Motivation
+
+Volatility clustering is a long-memory phenomenon:
+- Full series ACF_sq = +0.39 (strong clustering)
+- 30-day windows ACF_sq = +0.054 (weak clustering)
+- Model ACF_sq = -0.03 (no clustering)
+
+**Hypothesis:** Training with longer horizon (60 days) would force the model to learn temporal persistence.
+
+### Experiment
+
+Trained Student-t MLP decoder with horizon=60 instead of horizon=30:
+
+```bash
+python experiments/backfill/two_stage_vae/exp_horizon60.py
+```
+
+**Configuration:**
+- Context length: 30 days
+- Horizon: 60 days (doubled from 30)
+- Sequence length: 91 days
+- Batch size: 32 (reduced from 64 for memory)
+
+### Results
+
+| Metric | Baseline (H=30) | Horizon=60 | Change |
+|--------|-----------------|------------|--------|
+| Vol. Clustering (ACF_sq) | -0.03 | -0.01 | No improvement |
+| ACF Preservation | ~6% | 6.5% | Negligible |
+| Kurtosis Recovery | ~135% | **40%** | **Worse** |
+
+### Why It Failed
+
+The MLP decoder is **position-independent** — it decodes each timestep using only (ctx_emb, z_t), without any state carryover:
+
+```
+t=0: decode(ctx_emb, z_0) → surface_0
+t=1: decode(ctx_emb, z_1) → surface_1  # No knowledge of surface_0
+t=2: decode(ctx_emb, z_2) → surface_2  # No knowledge of previous outputs
+```
+
+Longer horizon just means more independent predictions, not temporal learning. The decoder has no mechanism to "remember" that the previous step had high volatility.
+
+### Comparison: What Would Help
+
+| Approach | Effect on Clustering | Status |
+|----------|---------------------|--------|
+| LSTM decoder | Could help | REJECTED (z wash-out problem) |
+| Horizon=60 | No effect | REJECTED (position-independent) |
+| AR(1) correlated z | Minimal effect | Already implemented |
+| GARCH-style variance | Would help | Future work |
+| Regime conditioning | Would help | Future work |
+
+### Accepted Limitation
+
+For **30-day generation windows**, the gap is acceptable:
+- GT clustering: +0.054
+- Model clustering: -0.03
+- Gap: ~0.08 (small)
+
+For **longer autoregressive generation** (chaining multiple windows), volatility regime persistence would be lost. This is a known limitation of the current architecture.
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `exp_horizon60.py` | Training script for horizon=60 |
+| `verify_volatility_clustering.py` | Verification script for ACF_sq analysis |
+
+### Model Checkpoint
+
+- `models/backfill/two_stage/horizon60/student_t_horizon60.pt` - Horizon=60 model (for reference)
+
 ## Next Steps
 
 1. ~~Implement Student-t decoder for fat tails~~ ✓ Done

@@ -4062,3 +4062,326 @@ class CVAETwoStageStudentTSkew(nn.Module):
             "delta": delta,  # (B, 25)
             "epsilon_grid": epsilon.view(-1, 5, 5),  # (B, 5, 5)
         }
+
+
+# =============================================================================
+# LSTM + Additive Z Pathway Decoder (January 2025)
+# =============================================================================
+# This decoder combines LSTM temporal dynamics with forced z contribution.
+# Key insight: LSTM+FiLM washes out z (3.8% contribution), pure MLP ignores
+# context (0% contribution). This additive approach forces both to contribute.
+#
+# Architecture: mean = LSTM_out(ctx_emb) + MLP_out(z)
+
+
+class StudentTLSTMDualPathDecoder(nn.Module):
+    """
+    LSTM decoder with additive z pathway for Student-t output.
+
+    This decoder addresses the fundamental trade-off:
+    - LSTM+FiLM: 3.8% z contribution, ~60% ctx contribution (washes out z)
+    - Pure MLP: 39.5% z contribution, 0% ctx contribution (ignores context)
+
+    Solution: Additive combination forces both pathways to contribute:
+        mean = LSTM_out(ctx_emb) + Z_MLP(z)
+
+    Architecture:
+        ctx_emb -> [LSTM] -> [Linear] -> lstm_mean (temporal dynamics)
+        z       -> [MLP]             -> z_mean (stochastic innovation)
+        mean = lstm_mean + z_mean
+
+    Expected outcomes:
+    - LSTM contribution: >20% (temporal coherence, volatility clustering)
+    - Z contribution: >25% (stochastic variation, fat tails)
+    - ACF of squared returns: Improved from -0.02 toward GT 0.39
+    - Kurtosis recovery: Preserved (>100%)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        lstm_hidden = config.get("lstm_hidden", 64)
+        lstm_layers = config.get("lstm_layers", 2)
+        self.rank = config.get("cov_rank", 4)
+
+        # Fixed ν from GT kurtosis (not learned)
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # LSTM pathway: ctx_emb -> temporal dynamics
+        self.lstm = nn.LSTM(
+            input_size=ctx_dim,
+            hidden_size=lstm_hidden,
+            num_layers=lstm_layers,
+            batch_first=True,
+            dropout=0.1 if lstm_layers > 1 else 0,
+        )
+        self.lstm_out_net = nn.Sequential(
+            nn.Linear(lstm_hidden, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z pathway: z -> stochastic innovation (same architecture as StudentTMLPDecoder)
+        self.z_mean_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Z-dependent covariance (same as StudentTMLPDecoder)
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Initialize log_diag to reasonable variance
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+
+    def forward(self, ctx_emb, z, sample=True):
+        """
+        Forward pass with LSTM temporal dynamics + additive z contribution.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim) - from context encoder
+            z: Latent variable (B, T, latent_dim)
+            sample: Whether to sample (True) or return mean only (False)
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Samples from Student-t distribution (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # LSTM pathway: temporal dynamics from context
+        lstm_out, _ = self.lstm(ctx_emb)  # (B, T, lstm_hidden)
+        lstm_mean = self.lstm_out_net(lstm_out.reshape(B * T, -1))  # (B*T, 25)
+        lstm_mean = lstm_mean.view(B, T, 25)  # (B, T, 25)
+
+        # Z pathway: stochastic innovation
+        z_flat = z.view(B * T, -1)
+        z_mean = self.z_mean_net(z_flat)  # (B*T, 25)
+        z_mean = z_mean.view(B, T, 25)  # (B, T, 25)
+
+        # Additive combination (forces both to contribute)
+        mean_flat = lstm_mean + z_mean  # (B, T, 25)
+        mean = mean_flat.view(B, T, 5, 5)
+
+        # Z-dependent covariance parameters
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling (same as StudentTMLPDecoder)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)  # (B, T, 25)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag  # (B, T, 25)
+
+        total_gauss = correlated_gauss + independent_gauss  # (B, T, 25)
+
+        # Convert to Student-t by dividing by sqrt(chi2/nu)
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(torch.full((B, T), alpha, device=device)) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor  # (B, T, 25)
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def get_pathway_contributions(self, ctx_emb, z):
+        """
+        Compute contribution of each pathway to the mean prediction.
+
+        Useful for diagnosing whether both pathways are contributing.
+
+        Returns dict with:
+        - lstm_mean: Mean from LSTM pathway only
+        - z_mean: Mean from z pathway only
+        - full_mean: lstm_mean + z_mean
+        """
+        B, T, _ = z.shape
+
+        # LSTM pathway only
+        lstm_out, _ = self.lstm(ctx_emb)
+        lstm_mean = self.lstm_out_net(lstm_out.reshape(B * T, -1))
+        lstm_mean = lstm_mean.view(B, T, 5, 5)
+
+        # Z pathway only
+        z_flat = z.view(B * T, -1)
+        z_mean = self.z_mean_net(z_flat)
+        z_mean = z_mean.view(B, T, 5, 5)
+
+        return {
+            "lstm_mean": lstm_mean,
+            "z_mean": z_mean,
+            "full_mean": lstm_mean.view(B, T, 25) + z_mean.view(B, T, 25),
+        }
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid ν and full covariance."""
+        B, T = pred_mean.shape[:2]
+        device = pred_mean.device
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat  # (B, T, 25)
+
+        D = torch.exp(log_diag)  # (B, 25)
+        D = torch.clamp(D, min=1e-8)
+
+        # Total variance per grid point: Σ_ii = D_i + Σ_k F_ik^2
+        factor_sq = (factor ** 2).sum(dim=-1)  # (B, 25)
+        total_var = D + factor_sq  # (B, 25)
+
+        # Per-grid univariate Student-t NLL
+        nu = self.nu.view(1, 1, 25)  # (1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)  # (B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq  # (B, T, 25)
+
+        # Student-t NLL (ignoring normalizing constant)
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStageLSTMDualPath(nn.Module):
+    """
+    Two-Stage CVAE with LSTM + additive z pathway decoder.
+
+    This model combines LSTM temporal dynamics with forced z contribution:
+    - LSTM pathway: Captures temporal coherence, volatility clustering
+    - Z pathway: Provides stochastic variation, preserves fat tails
+
+    Expected metrics (vs StudentTMLPDecoder baseline):
+    - LSTM contribution: >20% (was 0% for MLP)
+    - Z contribution: >25% (was 39.5% for MLP)
+    - ACF of squared returns: Improved toward GT
+    - Kurtosis recovery: Preserved (>100%)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTLSTMDualPathDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with LSTM dual-path decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        mean, samples, factor, log_diag = self.decoder(ctx_emb, z, sample=True)
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples with LSTM dual-path decoder."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(ctx_emb, z, sample=True)
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+    def get_pathway_contributions(self, batch):
+        """
+        Compute contribution of each pathway to the mean prediction.
+
+        Returns dict with:
+        - lstm_mean: Mean from LSTM pathway only
+        - z_mean: Mean from z pathway only
+        - full_mean: lstm_mean + z_mean
+        """
+        surface = batch["surface"]
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        return self.decoder.get_pathway_contributions(ctx_emb, z)
+
+    def compute_loss(self, batch, kl_weight=1.0):
+        """Compute Student-t NLL + KL loss."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, return_full_sequence=True
+        )
+
+        # Student-t NLL
+        nll = self.decoder.compute_student_t_nll(mean, surface, factor, log_diag)
+
+        # KL divergence
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = nll + kl_weight * kl
+
+        # Compute sigma for monitoring
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        return {
+            "loss": total_loss,
+            "nll": nll,
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+        }
