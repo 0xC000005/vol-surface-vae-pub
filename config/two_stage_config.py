@@ -153,7 +153,7 @@ class TwoStageConfig:
     # ContextPredictor: context → ctx_emb for horizon positions
 
     predictor_surface_hidden = [2, 4, 2]  # Conv layers (flatten = 2*5*5 = 50)
-    predictor_hidden = 8                  # LSTM hidden size
+    predictor_hidden = 50                 # LSTM hidden size (matches embed_dim, no projection needed)
     predictor_layers = 1                  # Number of LSTM layers
     predictor_dropout = 0.2               # LSTM dropout
 
@@ -287,11 +287,11 @@ class TwoStageConfig:
         print(f"  Context encoder output: {cls.ctx_embedding_dim} dims (like k-means)")
         print(f"  Main encoder (z): {cls.latent_dim} dims (expressive)")
         print(f"  Decoder input: {cls.ctx_embedding_dim + cls.latent_dim} dims")
-        print(f"  LSTM hidden sizes (all tiny = 8):")
-        print(f"    - ctx_encoder:  {cls.ctx_mem_hidden}")
-        print(f"    - main_encoder: {cls.mem_hidden}")
-        print(f"    - decoder:      {cls.decoder_mem_hidden}")
-        print(f"    - predictors:   {cls.predictor_hidden}")
+        print(f"  LSTM hidden sizes:")
+        print(f"    - ctx_encoder:  {cls.ctx_mem_hidden} (tiny)")
+        print(f"    - main_encoder: {cls.mem_hidden} (tiny)")
+        print(f"    - decoder:      {cls.decoder_mem_hidden} (tiny)")
+        print(f"    - predictors:   {cls.predictor_hidden} (matches embed_dim)")
         print()
         print("TRAINING:")
         print(f"  Stage 1 (autoencoder): {cls.stage1_epochs} epochs")
@@ -305,9 +305,8 @@ class TwoStageConfig:
         print()
         print("PREDICTOR ARCHITECTURE (autoregressive LSTM):")
         print(f"  Surface hidden: {cls.predictor_surface_hidden}")
-        print(f"  LSTM hidden: {cls.predictor_hidden}")
+        print(f"  LSTM hidden: {cls.predictor_hidden} (= embed_dim, no feedback projection)")
         print(f"  LSTM layers: {cls.predictor_layers}")
-        print(f"  Feedback: LSTM output → Linear(8→50) → LSTM input")
         print()
         print(f"Context length: {cls.context_len} days")
         print(f"Max horizon: {cls.max_horizon} days")

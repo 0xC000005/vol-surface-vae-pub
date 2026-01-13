@@ -725,6 +725,72 @@ For **longer autoregressive generation** (chaining multiple windows), volatility
 
 - `models/backfill/two_stage/horizon60/student_t_horizon60.pt` - Horizon=60 model (for reference)
 
+## Predictor Hidden Size Optimization (January 2025)
+
+### Problem Statement
+
+The `LatentPredictor` had an unnecessary bottleneck in its LSTM architecture:
+
+```
+Conv2D → 50-dim → LSTM(hidden=8) → proj(8→50) → LSTM → z
+                        ↑                ↑
+                   bottleneck      redundant projection
+```
+
+With `embed_dim=50` (from Conv2D) and `hidden_size=8`, a feedback projection `Linear(8→50)` was needed to match dimensions. This raises the question: **Why not just set hidden_size=50 to eliminate the projection?**
+
+### Experiment
+
+**Script:** `exp_predictor_hidden_size.py`
+
+Trained 3 predictor variants with different hidden sizes:
+- `hidden_size=8` (baseline, with projection)
+- `hidden_size=32` (intermediate, with projection)
+- `hidden_size=50` (match embed_dim, no projection)
+
+### Results
+
+| Hidden | Params | feedback_proj | Val MSE | Kurtosis Recovery |
+|--------|--------|---------------|---------|-------------------|
+| 8 | 2,684 | Yes | 1.104 | 58.7% |
+| 32 | 13,100 | Yes | 1.100 | 59.4% |
+| **50** | **21,386** | **No** | **1.099** | **80.0%** |
+
+### Key Finding
+
+**Setting hidden_size=50 eliminates the redundant projection AND improves kurtosis recovery by 36% (58.7% → 80.0%).**
+
+The bottleneck was limiting the predictor's ability to preserve distributional properties during z prediction.
+
+### Configuration Changes
+
+Updated defaults to use `hidden_size=50`:
+
+| File | Parameter | Old | New |
+|------|-----------|-----|-----|
+| `config/two_stage_config.py` | `predictor_hidden` | 8 | **50** |
+| `vae/predictors.py` | default `hidden_size` | 8 | **50** |
+
+### Implementation Note
+
+When `hidden_size == embed_dim`, the predictor skips the feedback projection entirely:
+
+```python
+if hidden_size != embed_dim:
+    self.feedback_proj = nn.Linear(hidden_size, embed_dim)
+    self.use_feedback_proj = True
+else:
+    self.use_feedback_proj = False  # No projection needed
+```
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `exp_predictor_hidden_size.py` | Training and comparison script |
+| `config/two_stage_config.py` | Updated `predictor_hidden = 50` |
+| `vae/predictors.py` | Updated default `hidden_size = 50` |
+
 ## Next Steps
 
 1. ~~Implement Student-t decoder for fat tails~~ ✓ Done
@@ -732,5 +798,6 @@ For **longer autoregressive generation** (chaining multiple windows), volatility
 3. ~~Improve ACF preservation~~ ✓ Done (AR(1) achieves 35%)
 4. ~~Model validation (oracle mode)~~ ✓ Done - APPROVED
 5. ~~Implement skewed Student-t~~ ✓ Done (v2 with variance reg)
-6. Evaluate under prior mode (z ~ N(0,1))
-7. Run arbitrage tests on IV levels
+6. ~~Predictor hidden size optimization~~ ✓ Done (80% kurtosis with h=50)
+7. Evaluate under prior mode (z ~ N(0,1))
+8. Run arbitrage tests on IV levels

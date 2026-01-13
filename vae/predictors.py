@@ -81,7 +81,7 @@ class LatentPredictor(BasePredictor):
 
         feat_dim = config.get("feat_dim", (5, 5))
         latent_dim = config["latent_dim"]
-        hidden_size = config.get("hidden_size", 8)
+        hidden_size = config.get("hidden_size", 50)
         num_layers = config.get("num_layers", 1)
         dropout = config.get("dropout", 0.2)
         surface_hidden = config.get("surface_hidden", [2, 4, 2])
@@ -193,7 +193,7 @@ class LatentPredictorCov(BasePredictor):
 
         feat_dim = config.get("feat_dim", (5, 5))
         latent_dim = config["latent_dim"]
-        hidden_size = config.get("hidden_size", 8)
+        hidden_size = config.get("hidden_size", 50)
         num_layers = config.get("num_layers", 1)
         dropout = config.get("dropout", 0.2)
         surface_hidden = config.get("surface_hidden", [2, 4, 2])
@@ -403,7 +403,7 @@ class ContextPredictor(BasePredictor):
 
         feat_dim = config.get("feat_dim", (5, 5))
         ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
-        hidden_size = config.get("hidden_size", 8)
+        hidden_size = config.get("hidden_size", 50)
         num_layers = config.get("num_layers", 1)
         dropout = config.get("dropout", 0.2)
         surface_hidden = config.get("surface_hidden", [2, 4, 2])
