@@ -32,7 +32,11 @@ class TwoStageConfig:
     # ============================================================================
     # Goal: Force coarse representation like k-means clusters
     # Smaller encoder → less precise ctx_emb → z must carry variance
+    #
+    # NOTE: StudentTMLPDecoder ignores ctx_emb entirely, so ctx_encoder is dead code
+    # Set use_ctx_encoder=False to disable it and save computation
 
+    use_ctx_encoder = False             # Disable unused ctx_encoder and prior_net
     ctx_embedding_dim = 3               # Tiny output dim (like k-means clusters)
     ctx_surface_hidden = [2, 4, 2]      # Conv layers (flatten = 2*5*5 = 50)
     ctx_mem_type = "lstm"               # Memory type for ctx encoder
@@ -111,6 +115,11 @@ class TwoStageConfig:
     kurtosis_loss_weight = 0.1          # Weight for theoretical kurtosis supervision
                                         # Supervises nu via: excess_kurt = 6/(nu-4)
 
+    # β-NLL for unbiased mean estimation (Seitzer 2022, ICLR)
+    # Standard NLL allows model to trade mean accuracy for variance
+    # β-NLL weights loss by variance^β to prevent this exploitation
+    beta_nll = 0.5                      # 0.0=standard NLL, 0.5=recommended, 1.0=MSE-like
+
     # ============================================================================
     # Extra Features (Optional)
     # ============================================================================
@@ -186,6 +195,7 @@ class TwoStageConfig:
             "max_horizon": cls.max_horizon,
 
             # Context encoder (tiny bottleneck)
+            "use_ctx_encoder": cls.use_ctx_encoder,
             "ctx_embedding_dim": cls.ctx_embedding_dim,
             "ctx_surface_hidden": cls.ctx_surface_hidden,
             "ctx_mem_type": cls.ctx_mem_type,
@@ -226,6 +236,7 @@ class TwoStageConfig:
             "mse_weight": cls.mse_weight,
             "nll_weight": cls.nll_weight,
             "kurtosis_loss_weight": cls.kurtosis_loss_weight,
+            "beta_nll": cls.beta_nll,
 
             # Extra features
             "ex_feats_dim": cls.ex_feats_dim,

@@ -2754,8 +2754,23 @@ class StudentTMLPDecoder(nn.Module):
 
         return mean, samples, factor, log_diag
 
-    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
-        """Student-t NLL with per-grid ν and full covariance."""
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag, beta=0.0):
+        """
+        Student-t NLL with per-grid ν and full covariance.
+
+        Supports β-NLL (Seitzer 2022, ICLR) for unbiased mean estimation.
+
+        Args:
+            pred_mean: (B, T, 5, 5) predicted mean
+            target: (B, T, 5, 5) ground truth
+            factor: (B, 25, rank) low-rank covariance factor
+            log_diag: (B, 25) log diagonal variance
+            beta: β-NLL weight (0.0=standard NLL, 0.5=recommended, 1.0=MSE-like)
+                  Higher beta reduces variance's influence on mean gradients.
+
+        Returns:
+            Scalar loss value
+        """
         B, T = pred_mean.shape[:2]
         device = pred_mean.device
 
@@ -2779,6 +2794,12 @@ class StudentTMLPDecoder(nn.Module):
         # Student-t NLL (ignoring normalizing constant)
         nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
 
+        # β-NLL: Weight by variance^β with stop-gradient to prevent variance exploitation
+        # This ensures mean gradients aren't scaled down by inflated variance predictions
+        if beta > 0:
+            weight = sigma_sq.detach() ** beta  # Stop gradient on weight!
+            nll = nll * weight
+
         return nll.mean()
 
 
@@ -2801,24 +2822,36 @@ class CVAETwoStageStudentTMLP(nn.Module):
         super().__init__()
         self.config = config
 
-        self.ctx_encoder = TwoStageCtxEncoder(config)
+        # Config flag to disable unused components (default True for backward compat)
+        self.use_ctx_encoder = config.get("use_ctx_encoder", True)
+
+        if self.use_ctx_encoder:
+            self.ctx_encoder = TwoStageCtxEncoder(config)
+            # prior_net only makes sense with ctx_encoder
+            latent_dim = config.get("latent_dim", 16)
+            ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+            self.prior_net = nn.Sequential(
+                nn.Linear(ctx_embedding_dim, 32),
+                nn.ReLU(),
+                nn.Linear(32, latent_dim * 2),
+            )
+        else:
+            self.ctx_encoder = None
+            self.prior_net = None
+
         self.main_encoder = TwoStageMainEncoder(config)
         self.decoder = StudentTMLPDecoder(config)
-
-        latent_dim = config.get("latent_dim", 16)
-        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
-        self.prior_net = nn.Sequential(
-            nn.Linear(ctx_embedding_dim, 32),
-            nn.ReLU(),
-            nn.Linear(32, latent_dim * 2),
-        )
 
     def forward(self, batch, return_full_sequence=False):
         """Forward pass with Student-t decoder."""
         surface = batch["surface"]
         B, T = surface.shape[:2]
 
-        ctx_emb = self.ctx_encoder({"surface": surface})
+        if self.use_ctx_encoder:
+            ctx_emb = self.ctx_encoder({"surface": surface})
+        else:
+            ctx_emb = None  # Decoder ignores it anyway
+
         z_mean, z_logvar, z = self.main_encoder({"surface": surface})
 
         mean, samples, factor, log_diag = self.decoder(ctx_emb, z, sample=True)
@@ -2834,7 +2867,11 @@ class CVAETwoStageStudentTMLP(nn.Module):
         B, T = surface.shape[:2]
         device = surface.device
 
-        ctx_emb = self.ctx_encoder({"surface": surface})
+        if self.use_ctx_encoder:
+            ctx_emb = self.ctx_encoder({"surface": surface})
+        else:
+            ctx_emb = None  # Decoder ignores it anyway
+
         z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
         z_std = torch.exp(0.5 * z_logvar)
 
@@ -4384,4 +4421,1632 @@ class CVAETwoStageLSTMDualPath(nn.Module):
             "kl": kl,
             "log_diag_mean": log_diag.mean().item(),
             "sigma_mean": sigma.mean().item(),
+        }
+
+
+# =============================================================================
+# CUMULATIVE-AWARE DECODERS (Options 1-4 for chaining stability)
+# =============================================================================
+# These decoders let the VAE see cumulative/level information to prevent
+# explosion during autoregressive chaining. The root cause is that AR(1)
+# in log-return space doesn't prevent level drift.
+
+
+class StudentTCumulativeDecoder(nn.Module):
+    """
+    Option 1: Decoder that conditions on cumulative log-return.
+
+    Extends StudentTDualPathARDecoder by adding a cumulative pathway:
+        mean = ctx_mean + z_residual + cumul_contribution + ar_correction
+
+    The cumul_contribution allows the model to learn level-dependent dynamics
+    (e.g., stronger mean reversion when cumulative drift is large).
+
+    During chaining, pass cumulative sum of log-returns to let model know
+    "where it is" in level space.
+
+    IMPORTANT: Also includes explicit level reversion term:
+        level_reversion = -level_reversion_strength * cumul_log_ret
+    This directly encodes "if we've drifted up, predict down" behavior.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)
+
+        if self.learn_phi:
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        # Long-run mean (learned per grid point)
+        self.mu = nn.Parameter(torch.zeros(25))
+
+        # Fixed nu from GT kurtosis
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Level reversion strength
+        # FIXED (not learned) because GT cumulative ≈ 0 during training,
+        # so the model would learn lambda ≈ 0 which doesn't help during chaining.
+        # Value of 0.1 means: if cumul = +1.0 (100% IV increase), predict -0.1 return
+        # This creates a ~10 step half-life for level deviations
+        self.learn_level_reversion = config.get("learn_level_reversion", False)
+        level_reversion_init = config.get("level_reversion_strength", 0.1)
+
+        if self.learn_level_reversion:
+            # Learnable per grid point
+            self.level_reversion_logit = nn.Parameter(torch.zeros(25))
+        else:
+            # Fixed value
+            self.register_buffer(
+                "level_reversion_strength_fixed",
+                torch.full((25,), level_reversion_init)
+            )
+
+        # Context pathway: ctx_emb -> expected mean
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z pathway: z -> residual mean
+        self.z_residual_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Cumulative pathway - cumul_log_ret -> ADDITIONAL level adjustment
+        # This is on top of the explicit linear level reversion
+        self.cumul_net = nn.Sequential(
+            nn.Linear(25, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+        # Initialize to near-zero (no effect at start, learn from data)
+        nn.init.zeros_(self.cumul_net[-1].weight)
+        nn.init.zeros_(self.cumul_net[-1].bias)
+
+        # Z-dependent covariance
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.z_residual_net[-1].bias)
+        nn.init.normal_(self.z_residual_net[-1].weight, std=0.01)
+
+    def get_phi(self):
+        """Get AR(1) coefficient, constrained to (-1, 1)."""
+        if self.learn_phi:
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def get_level_reversion_strength(self):
+        """Get level reversion strength, constrained to (0, 0.5) for stability."""
+        if self.learn_level_reversion:
+            # Learnable, constrained via sigmoid
+            return torch.sigmoid(self.level_reversion_logit) * 0.5
+        else:
+            # Fixed value from config
+            return self.level_reversion_strength_fixed
+
+    def forward(self, ctx_emb, z, cumul_log_ret=None, prev_x=None, sample=True):
+        """
+        Forward pass with cumulative log-return conditioning.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            cumul_log_ret: Cumulative log-return (B, T, 5, 5) or (B, T, 25)
+                          This is the cumsum of log-returns from start of chaining
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+            sample: Whether to sample from Student-t
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Sampled surface (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway
+        z_flat = z.view(B * T, -1)
+        z_residual = self.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        # Base mean
+        mean_base = ctx_mean + z_residual
+
+        # NEW: Cumulative pathway with EXPLICIT level reversion
+        if cumul_log_ret is not None:
+            # Ensure shape is (B, T, 25)
+            if cumul_log_ret.dim() == 4:
+                cumul_flat = cumul_log_ret.view(B * T, 25)
+            else:
+                cumul_flat = cumul_log_ret.view(B * T, 25)
+
+            # 1. Explicit linear level reversion: -lambda * cumul
+            # This directly encodes "if we've drifted up, predict down"
+            level_reversion_strength = self.get_level_reversion_strength()  # (25,)
+            level_reversion = -level_reversion_strength.view(1, 25) * cumul_flat  # (B*T, 25)
+            level_reversion = level_reversion.view(B, T, 5, 5)
+
+            # 2. Learned nonlinear adjustment on top (optional flexibility)
+            cumul_contribution = self.cumul_net(cumul_flat).view(B, T, 5, 5)
+
+            mean_base = mean_base + level_reversion + cumul_contribution
+
+        # AR(1) correction
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            mean = mean_base + ar_correction
+        else:
+            mean = mean_base
+
+        # Z-dependent covariance
+        z_pooled = z.mean(dim=1)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid nu and full covariance."""
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class StudentTLevelDecoder(nn.Module):
+    """
+    Option 2: Decoder that conditions on current log-IV level.
+
+    Instead of cumulative log-return, directly pass current log(IV) level.
+    This is more direct - tells model exactly where in level space it is.
+
+    During chaining:
+        current_iv = starting_iv
+        for step in horizon:
+            log_iv = log(current_iv)
+            pred = decoder(ctx_emb, z, current_log_iv=log_iv)
+            current_iv = current_iv * exp(pred)
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)
+
+        if self.learn_phi:
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        self.mu = nn.Parameter(torch.zeros(25))
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Context pathway
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z pathway
+        self.z_residual_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # NEW: Level pathway - current_log_iv -> level adjustment
+        # Learn level-dependent mean reversion
+        self.level_net = nn.Sequential(
+            nn.Linear(25, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+        nn.init.zeros_(self.level_net[-1].weight)
+        nn.init.zeros_(self.level_net[-1].bias)
+
+        # Covariance networks
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.z_residual_net[-1].bias)
+        nn.init.normal_(self.z_residual_net[-1].weight, std=0.01)
+
+    def get_phi(self):
+        if self.learn_phi:
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def forward(self, ctx_emb, z, current_log_iv=None, prev_x=None, sample=True):
+        """
+        Forward pass with current log-IV level conditioning.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            current_log_iv: Current log(IV) level (B, T, 5, 5) or (B, T, 25)
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+            sample: Whether to sample from Student-t
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        z_flat = z.view(B * T, -1)
+        z_residual = self.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        mean_base = ctx_mean + z_residual
+
+        # NEW: Level pathway
+        if current_log_iv is not None:
+            if current_log_iv.dim() == 4:
+                level_flat = current_log_iv.view(B * T, 25)
+            else:
+                level_flat = current_log_iv.view(B * T, 25)
+            level_contribution = self.level_net(level_flat).view(B, T, 5, 5)
+            mean_base = mean_base + level_contribution
+
+        # AR(1) correction
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            mean = mean_base + ar_correction
+        else:
+            mean = mean_base
+
+        # Covariance
+        z_pooled = z.mean(dim=1)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling (same as above)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class StudentTMultiTaskDecoder(nn.Module):
+    """
+    Option 4: Multi-task decoder that predicts BOTH log-return AND log-IV level.
+
+    Two output heads:
+    - return_head: Predicts log-return (B, T, 5, 5)
+    - level_head: Predicts log-IV level (B, T, 5, 5)
+
+    Training loss is weighted sum of both:
+        loss = loss_return + lambda_level * loss_level
+
+    The level head provides implicit regularization - if predictions are
+    consistent, the cumulative returns should match the level predictions.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+        self.lambda_level = config.get("lambda_level", 0.1)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)
+
+        if self.learn_phi:
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        self.mu = nn.Parameter(torch.zeros(25))
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Context pathway
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Shared representation from z
+        self.z_shared_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+        )
+
+        # Two output heads
+        self.return_head = nn.Linear(64, 25)  # Predict log-return
+        self.level_head = nn.Linear(64, 25)   # Predict log-IV level
+
+        # Covariance networks
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.return_head.bias)
+        nn.init.normal_(self.return_head.weight, std=0.01)
+
+    def get_phi(self):
+        if self.learn_phi:
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def forward(self, ctx_emb, z, prev_x=None, prev_log_iv=None, sample=True):
+        """
+        Forward pass with dual output heads.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+            prev_log_iv: Previous log-IV level (B, T, 5, 5) for level prediction
+            sample: Whether to sample from Student-t
+
+        Returns:
+            return_mean: Predicted log-return mean (B, T, 5, 5)
+            level_mean: Predicted log-IV level mean (B, T, 5, 5)
+            samples: Sampled log-return (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        z_flat = z.view(B * T, -1)
+        z_shared = self.z_shared_net(z_flat)
+
+        # Two heads
+        return_pred = self.return_head(z_shared).view(B, T, 5, 5)
+        level_pred = self.level_head(z_shared).view(B, T, 5, 5)
+
+        # Return mean with AR(1)
+        mean_base = ctx_mean + return_pred
+
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            return_mean = mean_base + ar_correction
+        else:
+            return_mean = mean_base
+
+        # Level mean: if prev_log_iv provided, add predicted return
+        if prev_log_iv is not None:
+            level_mean = prev_log_iv + return_mean  # Autoregressive level
+        else:
+            level_mean = level_pred  # Direct level prediction
+
+        # Covariance
+        z_pooled = z.mean(dim=1)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return return_mean, level_mean, return_mean, factor, log_diag
+
+        # Student-t sampling for return
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = return_mean + total_t.view(B, T, 5, 5)
+
+        return return_mean, level_mean, samples, factor, log_diag
+
+    def compute_multi_task_loss(self, return_mean, level_mean, target_return, target_level,
+                                 factor, log_diag):
+        """Compute weighted multi-task loss."""
+        B, T = return_mean.shape[:2]
+
+        # Return NLL (Student-t)
+        mean_flat = return_mean.view(B, T, 25)
+        target_flat = target_return.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        return_nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+        return_nll = return_nll.mean()
+
+        # Level MSE (simpler loss for level)
+        level_mse = F.mse_loss(level_mean, target_level)
+
+        total_loss = return_nll + self.lambda_level * level_mse
+
+        return {
+            "loss": total_loss,
+            "return_nll": return_nll,
+            "level_mse": level_mse,
+        }
+
+
+# =============================================================================
+# MODEL CLASSES FOR CUMULATIVE-AWARE DECODERS
+# =============================================================================
+
+
+class CVAETwoStageCumulative(nn.Module):
+    """
+    Two-Stage CVAE with cumulative log-return conditioning (Option 1).
+
+    Uses StudentTCumulativeDecoder which conditions on cumulative log-return
+    to let model learn level-dependent dynamics.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTCumulativeDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass with cumulative log-return."""
+        surface = batch["surface"]  # Log-returns (B, T, 5, 5)
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        # Compute cumulative log-returns
+        # cumul[t] = sum(surface[0:t+1])
+        cumul_log_ret = torch.cumsum(surface, dim=1)
+
+        # prev_x for AR(1) correction
+        prev_x = surface.clone()
+
+        mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, cumul_log_ret=cumul_log_ret, prev_x=prev_x, sample=True
+        )
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, n_samples=100):
+        """Generate samples."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        cumul_log_ret = torch.cumsum(surface, dim=1)
+        prev_x = surface.clone()
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(
+                ctx_emb, z, cumul_log_ret=cumul_log_ret, prev_x=prev_x, sample=True
+            )
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+    def get_ar_phi(self):
+        return self.decoder.get_phi()
+
+    def compute_loss(self, batch, kl_weight=1.0):
+        """Compute Student-t NLL + KL loss."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, return_full_sequence=True
+        )
+
+        nll = self.decoder.compute_student_t_nll(mean, surface, factor, log_diag)
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = nll + kl_weight * kl
+
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        return {
+            "loss": total_loss,
+            "nll": nll,
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+            "phi": self.get_ar_phi().item(),
+        }
+
+
+class CVAETwoStageLevel(nn.Module):
+    """
+    Two-Stage CVAE with current log-IV level conditioning (Option 2).
+
+    Uses StudentTLevelDecoder which conditions on current log(IV) level.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTLevelDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, log_surfaces=None, return_full_sequence=False):
+        """
+        Forward pass with current log-IV level.
+
+        Args:
+            batch: Dict with "surface" (log-returns)
+            log_surfaces: Pre-computed log(IV) levels (B, T, 5, 5)
+                          If None, we need it from elsewhere
+        """
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        prev_x = surface.clone()
+
+        mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, current_log_iv=log_surfaces, prev_x=prev_x, sample=True
+        )
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def sample(self, batch, log_surfaces=None, n_samples=100):
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+        device = surface.device
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, _ = self.main_encoder({"surface": surface})
+        z_std = torch.exp(0.5 * z_logvar)
+
+        prev_x = surface.clone()
+
+        samples = []
+        for _ in range(n_samples):
+            eps_z = torch.randn_like(z_std)
+            z = z_mean + z_std * eps_z
+            _, sample, _, _ = self.decoder(
+                ctx_emb, z, current_log_iv=log_surfaces, prev_x=prev_x, sample=True
+            )
+            samples.append(sample)
+
+        return torch.stack(samples, dim=0)
+
+    def get_ar_phi(self):
+        return self.decoder.get_phi()
+
+    def compute_loss(self, batch, log_surfaces=None, kl_weight=1.0):
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, log_surfaces=log_surfaces, return_full_sequence=True
+        )
+
+        nll = self.decoder.compute_student_t_nll(mean, surface, factor, log_diag)
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = nll + kl_weight * kl
+
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        return {
+            "loss": total_loss,
+            "nll": nll,
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+            "phi": self.get_ar_phi().item(),
+        }
+
+
+class CVAETwoStageMultiTask(nn.Module):
+    """
+    Two-Stage CVAE with multi-task decoder (Option 4).
+
+    Predicts both log-return and log-IV level, with loss on both.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = StudentTMultiTaskDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, log_surfaces=None, return_full_sequence=False):
+        """
+        Forward pass with multi-task output.
+
+        Args:
+            batch: Dict with "surface" (log-returns)
+            log_surfaces: Ground truth log(IV) levels for level loss
+        """
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        prev_x = surface.clone()
+
+        # For level prediction, we need previous log_iv
+        if log_surfaces is not None:
+            prev_log_iv = log_surfaces.clone()
+        else:
+            prev_log_iv = None
+
+        return_mean, level_mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, prev_x=prev_x, prev_log_iv=prev_log_iv, sample=True
+        )
+
+        if return_full_sequence:
+            return return_mean, level_mean, z_mean, z_logvar, factor, log_diag
+
+        return return_mean
+
+    def get_ar_phi(self):
+        return self.decoder.get_phi()
+
+    def compute_loss(self, batch, log_surfaces=None, kl_weight=1.0):
+        """Compute multi-task loss."""
+        surface = batch["surface"]  # Log-returns (target for return head)
+        B, T = surface.shape[:2]
+
+        return_mean, level_mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, log_surfaces=log_surfaces, return_full_sequence=True
+        )
+
+        # Multi-task loss
+        loss_dict = self.decoder.compute_multi_task_loss(
+            return_mean, level_mean, surface, log_surfaces, factor, log_diag
+        )
+
+        # KL divergence
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = loss_dict["loss"] + kl_weight * kl
+
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        return {
+            "loss": total_loss,
+            "nll": loss_dict["return_nll"],
+            "level_mse": loss_dict["level_mse"],
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+            "phi": self.get_ar_phi().item(),
+        }
+
+
+# =============================================================================
+# Per-Grid-Point Level Reversion Decoder
+# =============================================================================
+
+# Empirical log-return variance per grid point (from training data)
+# Used to scale level reversion strength: OTM corners get stronger reversion
+GT_LOG_RETURN_VAR = np.array([
+    [0.689816, 0.024257, 0.006784, 0.311563, 0.288767],
+    [0.256308, 0.005620, 0.002817, 0.038372, 0.307763],
+    [0.038294, 0.002707, 0.001667, 0.002255, 0.368227],
+    [0.009929, 0.001303, 0.001018, 0.001144, 0.012389],
+    [0.045646, 0.001362, 0.000828, 0.001226, 0.027235],
+])
+
+
+class StudentTPerGridReversionDecoder(nn.Module):
+    """
+    Decoder with per-grid-point level reversion strength.
+
+    OTM corners get stronger reversion (up to 3x via sqrt scaling) based on their
+    empirical variance relative to ATM. This addresses the observation that:
+    - ATM [2,2] is nearly stable with uniform reversion
+    - OTM corners (especially [0,0], [2,4]) have 200-400x higher variance and explode
+
+    The per-grid reversion strength is computed as:
+        strength[i,j] = base_strength * sqrt(var[i,j] / var[ATM])
+    capped at 0.9 to prevent over-correction.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)
+
+        if self.learn_phi:
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        # Long-run mean (learned per grid point)
+        self.mu = nn.Parameter(torch.zeros(25))
+
+        # Fixed nu from GT kurtosis
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Per-grid-point level reversion strength (variance-scaled)
+        base_strength = config.get("base_reversion_strength", 0.3)
+        atm_var = GT_LOG_RETURN_VAR[2, 2]
+        var_ratio = GT_LOG_RETURN_VAR / atm_var
+
+        # sqrt scaling: corners get ~3x strength instead of 10x
+        per_grid_strength = base_strength * np.sqrt(var_ratio)
+        per_grid_strength = np.clip(per_grid_strength, 0.1, 0.9)
+
+        self.register_buffer(
+            "per_grid_reversion",
+            torch.tensor(per_grid_strength, dtype=torch.float32).view(25)
+        )
+
+        # Context pathway: ctx_emb -> expected mean
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Z pathway: z -> residual mean
+        self.z_residual_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Cumulative pathway - cumul_log_ret -> ADDITIONAL level adjustment
+        # This is on top of the explicit per-grid linear level reversion
+        self.cumul_net = nn.Sequential(
+            nn.Linear(25, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+        # Initialize to near-zero (no effect at start, learn from data)
+        nn.init.zeros_(self.cumul_net[-1].weight)
+        nn.init.zeros_(self.cumul_net[-1].bias)
+
+        # Z-dependent covariance
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.z_residual_net[-1].bias)
+        nn.init.normal_(self.z_residual_net[-1].weight, std=0.01)
+
+    def get_phi(self):
+        """Get AR(1) coefficient, constrained to (-1, 1)."""
+        if self.learn_phi:
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def get_per_grid_reversion(self):
+        """Get per-grid-point level reversion strength."""
+        return self.per_grid_reversion
+
+    def forward(self, ctx_emb, z, cumul_log_ret=None, prev_x=None, sample=True):
+        """
+        Forward pass with per-grid-point cumulative log-return conditioning.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            cumul_log_ret: Cumulative log-return (B, T, 5, 5) or (B, T, 25)
+                          This is the cumsum of log-returns from start of chaining
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+            sample: Whether to sample from Student-t
+
+        Returns:
+            mean: Predicted mean (B, T, 5, 5)
+            samples: Sampled surface (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway
+        z_flat = z.view(B * T, -1)
+        z_residual = self.z_residual_net(z_flat).view(B, T, 5, 5)
+
+        # Base mean
+        mean_base = ctx_mean + z_residual
+
+        # Per-grid cumulative pathway with VARIANCE-SCALED level reversion
+        if cumul_log_ret is not None:
+            # Ensure shape is (B*T, 25)
+            if cumul_log_ret.dim() == 4:
+                cumul_flat = cumul_log_ret.view(B * T, 25)
+            else:
+                cumul_flat = cumul_log_ret.view(B * T, 25)
+
+            # 1. Per-grid-point linear level reversion: -strength[i,j] * cumul[i,j]
+            # OTM corners (high variance) get stronger reversion
+            per_grid_strength = self.get_per_grid_reversion()  # (25,)
+            level_reversion = -per_grid_strength.view(1, 25) * cumul_flat  # (B*T, 25)
+            level_reversion = level_reversion.view(B, T, 5, 5)
+
+            # 2. Learned nonlinear adjustment on top (optional flexibility)
+            cumul_contribution = self.cumul_net(cumul_flat).view(B, T, 5, 5)
+
+            mean_base = mean_base + level_reversion + cumul_contribution
+
+        # AR(1) correction
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            mean = mean_base + ar_correction
+        else:
+            mean = mean_base
+
+        # Z-dependent covariance
+        z_pooled = z.mean(dim=1)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return mean, mean, factor, log_diag
+
+        # Student-t sampling with per-grid nu
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = mean + total_t.view(B, T, 5, 5)
+
+        return mean, samples, factor, log_diag
+
+    def compute_student_t_nll(self, pred_mean, target, factor, log_diag):
+        """Student-t NLL with per-grid nu and full covariance."""
+        B, T = pred_mean.shape[:2]
+
+        mean_flat = pred_mean.view(B, T, 25)
+        target_flat = target.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+
+        return nll.mean()
+
+
+class CVAETwoStagePerGridReversion(nn.Module):
+    """
+    Two-stage CVAE with per-grid-point level reversion decoder.
+
+    Uses StudentTPerGridReversionDecoder which applies stronger level reversion
+    to high-variance OTM corners, reducing explosion during chaining.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        # Context encoder (same as other cumulative models)
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+
+        # Main encoder (same as other cumulative models)
+        self.main_encoder = TwoStageMainEncoder(config)
+
+        # Per-grid reversion decoder
+        self.decoder = StudentTPerGridReversionDecoder(config)
+
+        # Prior network for sampling
+        latent_dim = config.get("latent_dim", 8)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, return_full_sequence=False):
+        """Forward pass."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        prev_x = surface.clone()
+
+        # For cumulative, compute cumsum during training (it's ~0 in expectation)
+        cumul_log_ret = torch.cumsum(surface, dim=1)
+
+        mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, cumul_log_ret=cumul_log_ret, prev_x=prev_x, sample=True
+        )
+
+        if return_full_sequence:
+            return mean, z_mean, z_logvar, factor, log_diag
+
+        return mean
+
+    def get_ar_phi(self):
+        return self.decoder.get_phi()
+
+    def get_per_grid_reversion(self):
+        return self.decoder.get_per_grid_reversion()
+
+    def compute_loss(self, batch, kl_weight=1.0):
+        """Compute loss with Student-t NLL."""
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, return_full_sequence=True
+        )
+
+        # Student-t NLL
+        nll = self.decoder.compute_student_t_nll(mean, surface, factor, log_diag)
+
+        # KL divergence
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = nll + kl_weight * kl
+
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        # Get per-grid reversion for logging
+        per_grid = self.get_per_grid_reversion()
+
+        return {
+            "loss": total_loss,
+            "nll": nll,
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+            "phi": self.get_ar_phi().item(),
+            "reversion_atm": per_grid[12].item(),  # [2,2] -> index 12
+            "reversion_corner": per_grid[0].item(),  # [0,0] -> index 0
+        }
+
+
+# =============================================================================
+# Option 6: Spatial Multi-Task Decoder (CNN + Multi-Task)
+# =============================================================================
+
+
+class SpatialMultiTaskDecoder(nn.Module):
+    """
+    Option 6: Multi-task decoder with CNN spatial smoothing.
+
+    Combines the promising multi-task approach (Option 4) with CNN spatial
+    structure to enforce spatial correlation. This addresses:
+    - ATM [2,2] is stable with multi-task MLP (0.4% explosion rate)
+    - OTM corners explode (74%) because MLP outputs 25 independent scalars
+    - No spatial propagation: ATM stability can't help OTM
+
+    Architecture:
+    1. z → shared MLP → 64-dim features (preserves z contribution)
+    2. Two MLP heads: return_features (64→25), level_features (64→25)
+    3. Reshape each to (B*T, 1, 5, 5)
+    4. Conv2d stack for spatial smoothing (3×3 kernel, padding=1)
+    5. Output: return_mean, level_mean (both B, T, 5, 5)
+
+    Key insight: Conv2d with 3×3 kernel means each output pixel is influenced
+    by its 8 neighbors. ATM [2,2] has all 8 neighbors; corners have only 3.
+    Spatial structure naturally propagates from stable ATM to OTM corners.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        latent_dim = config.get("latent_dim", 8)
+        ctx_dim = config.get("ctx_embedding_dim", 3)
+        self.rank = config.get("cov_rank", 4)
+        self.lambda_level = config.get("lambda_level", 0.1)
+
+        # AR(1) parameters
+        self.learn_phi = config.get("learn_ar_phi", True)
+        self.target_phi = config.get("target_ar_phi", -0.35)
+
+        if self.learn_phi:
+            self.phi_logit = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.register_buffer("phi", torch.tensor(self.target_phi))
+
+        self.mu = nn.Parameter(torch.zeros(25))
+        self.register_buffer("nu", torch.tensor(GT_NU_MLP, dtype=torch.float32).view(25))
+
+        # Context pathway (same as Option 4)
+        self.ctx_mean_net = nn.Sequential(
+            nn.Linear(ctx_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 25),
+        )
+
+        # Shared z features (MLP - preserves z contribution)
+        self.z_shared_net = nn.Sequential(
+            nn.Linear(latent_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+        )
+
+        # Per-grid feature heads (MLP - preserves z contribution)
+        self.return_feature_head = nn.Linear(64, 25)
+        self.level_feature_head = nn.Linear(64, 25)
+
+        # Spatial smoothing Conv2d stacks (enforces spatial correlation)
+        # 3×3 kernel with padding=1 means each pixel sees 8 neighbors
+        self.return_spatial = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(8, 4, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(4, 1, kernel_size=3, padding=1),
+        )
+
+        self.level_spatial = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(8, 4, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(4, 1, kernel_size=3, padding=1),
+        )
+
+        # Covariance networks (same as Option 4)
+        self.factor_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25 * self.rank),
+        )
+
+        self.log_diag_net = nn.Sequential(
+            nn.Linear(latent_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 25),
+        )
+
+        # Initialize output layers
+        nn.init.constant_(self.log_diag_net[-1].bias, -3.0)
+        nn.init.zeros_(self.return_feature_head.bias)
+        nn.init.normal_(self.return_feature_head.weight, std=0.01)
+
+        # Initialize conv layers with small weights for residual-like behavior
+        for conv_stack in [self.return_spatial, self.level_spatial]:
+            for layer in conv_stack:
+                if isinstance(layer, nn.Conv2d):
+                    nn.init.normal_(layer.weight, std=0.1)
+                    nn.init.zeros_(layer.bias)
+
+    def get_phi(self):
+        if self.learn_phi:
+            return torch.tanh(self.phi_logit)
+        return self.phi
+
+    def forward(self, ctx_emb, z, prev_x=None, prev_log_iv=None, sample=True):
+        """
+        Forward pass with spatial smoothing.
+
+        Args:
+            ctx_emb: Context embedding (B, T, ctx_dim)
+            z: Latent variable (B, T, latent_dim)
+            prev_x: Previous timestep surface (B, T, 5, 5) for AR correction
+            prev_log_iv: Previous log-IV level (B, T, 5, 5) for level prediction
+            sample: Whether to sample from Student-t
+
+        Returns:
+            return_mean: Predicted log-return mean (B, T, 5, 5)
+            level_mean: Predicted log-IV level mean (B, T, 5, 5)
+            samples: Sampled log-return (B, T, 5, 5)
+            factor: Low-rank covariance factor (B, 25, rank)
+            log_diag: Log diagonal covariance (B, 25)
+        """
+        B, T, _ = z.shape
+        device = z.device
+
+        # Context pathway
+        ctx_flat = ctx_emb.view(B * T, -1)
+        ctx_mean = self.ctx_mean_net(ctx_flat).view(B, T, 5, 5)
+
+        # Z pathway (shared features via MLP)
+        z_flat = z.view(B * T, -1)
+        z_shared = self.z_shared_net(z_flat)  # (B*T, 64)
+
+        # Per-grid features from MLP heads (preserves z contribution)
+        return_features = self.return_feature_head(z_shared)  # (B*T, 25)
+        level_features = self.level_feature_head(z_shared)    # (B*T, 25)
+
+        # Reshape to spatial grid for conv
+        return_grid = return_features.view(B * T, 1, 5, 5)
+        level_grid = level_features.view(B * T, 1, 5, 5)
+
+        # Apply spatial smoothing (Conv2d enforces correlation)
+        # Each pixel now influenced by 8 neighbors (3 for corners)
+        return_smoothed = self.return_spatial(return_grid)  # (B*T, 1, 5, 5)
+        level_smoothed = self.level_spatial(level_grid)     # (B*T, 1, 5, 5)
+
+        # Reshape back
+        return_pred = return_smoothed.view(B, T, 5, 5)
+        level_pred = level_smoothed.view(B, T, 5, 5)
+
+        # Return mean: context + z prediction + AR(1) correction
+        mean_base = ctx_mean + return_pred
+
+        if prev_x is not None:
+            phi = self.get_phi()
+            mu = self.mu.view(1, 1, 5, 5)
+            ar_correction = phi * (prev_x - mu)
+            return_mean = mean_base + ar_correction
+        else:
+            return_mean = mean_base
+
+        # Level mean: if prev_log_iv provided, add predicted return
+        if prev_log_iv is not None:
+            level_mean = prev_log_iv + return_mean  # Autoregressive level
+        else:
+            level_mean = level_pred  # Direct level prediction
+
+        # Covariance
+        z_pooled = z.mean(dim=1)  # (B, latent_dim)
+        factor_flat = self.factor_net(z_pooled)
+        factor = factor_flat.view(B, 25, self.rank)
+
+        log_diag = self.log_diag_net(z_pooled)
+        log_diag = torch.clamp(log_diag, min=-10, max=2)
+
+        if not sample:
+            return return_mean, level_mean, return_mean, factor, log_diag
+
+        # Student-t sampling for return (same as Option 4)
+        eps_rank = torch.randn(B, T, self.rank, device=device)
+        correlated_gauss = torch.einsum('bir,btr->bti', factor, eps_rank)
+
+        eps_diag = torch.randn(B, T, 25, device=device)
+        diag_std = torch.exp(0.5 * log_diag).view(B, 1, 25)
+        independent_gauss = diag_std * eps_diag
+
+        total_gauss = correlated_gauss + independent_gauss
+
+        chi2_samples = torch.zeros(B, T, 25, device=device)
+        for i in range(25):
+            nu_i = self.nu[i].item()
+            alpha = nu_i / 2
+            beta = nu_i / 2
+            gamma_samples = torch._standard_gamma(
+                torch.full((B, T), alpha, device=device)
+            ) / beta
+            chi2_samples[:, :, i] = gamma_samples
+
+        student_t_factor = 1.0 / torch.sqrt(chi2_samples + 1e-8)
+        total_t = total_gauss * student_t_factor
+
+        samples = return_mean + total_t.view(B, T, 5, 5)
+
+        return return_mean, level_mean, samples, factor, log_diag
+
+    def compute_multi_task_loss(self, return_mean, level_mean, target_return, target_level,
+                                 factor, log_diag):
+        """Compute weighted multi-task loss (same as Option 4)."""
+        B, T = return_mean.shape[:2]
+
+        # Return NLL (Student-t)
+        mean_flat = return_mean.view(B, T, 25)
+        target_flat = target_return.view(B, T, 25)
+        residual = target_flat - mean_flat
+
+        D = torch.exp(log_diag)
+        D = torch.clamp(D, min=1e-8)
+
+        factor_sq = (factor ** 2).sum(dim=-1)
+        total_var = D + factor_sq
+
+        nu = self.nu.view(1, 1, 25)
+        sigma_sq = total_var.view(B, 1, 25)
+
+        z_sq = residual ** 2 / sigma_sq
+
+        return_nll = 0.5 * (nu + 1) * torch.log(1 + z_sq / nu) + 0.5 * torch.log(sigma_sq)
+        return_nll = return_nll.mean()
+
+        # Level MSE (simpler loss for level)
+        level_mse = F.mse_loss(level_mean, target_level)
+
+        total_loss = return_nll + self.lambda_level * level_mse
+
+        return {
+            "loss": total_loss,
+            "return_nll": return_nll,
+            "level_mse": level_mse,
+        }
+
+
+class CVAETwoStageSpatialMultiTask(nn.Module):
+    """
+    Two-Stage CVAE with spatial multi-task decoder (Option 6).
+
+    Combines multi-task learning (Option 4) with CNN spatial smoothing.
+    Predicts both log-return and log-IV level, with spatial correlation
+    enforced via Conv2d layers.
+    """
+
+    def __init__(self, config: dict):
+        super().__init__()
+        self.config = config
+
+        self.ctx_encoder = TwoStageCtxEncoder(config)
+        self.main_encoder = TwoStageMainEncoder(config)
+        self.decoder = SpatialMultiTaskDecoder(config)
+
+        latent_dim = config.get("latent_dim", 16)
+        ctx_embedding_dim = config.get("ctx_embedding_dim", 3)
+        self.prior_net = nn.Sequential(
+            nn.Linear(ctx_embedding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, latent_dim * 2),
+        )
+
+    def forward(self, batch, log_surfaces=None, return_full_sequence=False):
+        """
+        Forward pass with spatial multi-task output.
+
+        Args:
+            batch: Dict with "surface" (log-returns)
+            log_surfaces: Ground truth log(IV) levels for level loss
+        """
+        surface = batch["surface"]
+        B, T = surface.shape[:2]
+
+        ctx_emb = self.ctx_encoder({"surface": surface})
+        z_mean, z_logvar, z = self.main_encoder({"surface": surface})
+
+        prev_x = surface.clone()
+
+        # For level prediction, we need previous log_iv
+        if log_surfaces is not None:
+            prev_log_iv = log_surfaces.clone()
+        else:
+            prev_log_iv = None
+
+        return_mean, level_mean, samples, factor, log_diag = self.decoder(
+            ctx_emb, z, prev_x=prev_x, prev_log_iv=prev_log_iv, sample=True
+        )
+
+        if return_full_sequence:
+            return return_mean, level_mean, z_mean, z_logvar, factor, log_diag
+
+        return return_mean
+
+    def get_ar_phi(self):
+        return self.decoder.get_phi()
+
+    def compute_loss(self, batch, log_surfaces=None, kl_weight=1.0):
+        """Compute spatial multi-task loss."""
+        surface = batch["surface"]  # Log-returns (target for return head)
+        B, T = surface.shape[:2]
+
+        return_mean, level_mean, z_mean, z_logvar, factor, log_diag = self.forward(
+            batch, log_surfaces=log_surfaces, return_full_sequence=True
+        )
+
+        # Multi-task loss
+        loss_dict = self.decoder.compute_multi_task_loss(
+            return_mean, level_mean, surface, log_surfaces, factor, log_diag
+        )
+
+        # KL divergence
+        kl = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())
+
+        total_loss = loss_dict["loss"] + kl_weight * kl
+
+        D = torch.exp(log_diag)
+        factor_sq = (factor ** 2).sum(dim=-1)
+        sigma = torch.sqrt(D + factor_sq + 1e-8)
+
+        return {
+            "loss": total_loss,
+            "nll": loss_dict["return_nll"],
+            "level_mse": loss_dict["level_mse"],
+            "kl": kl,
+            "log_diag_mean": log_diag.mean().item(),
+            "sigma_mean": sigma.mean().item(),
+            "phi": self.get_ar_phi().item(),
         }
