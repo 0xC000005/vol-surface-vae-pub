@@ -288,13 +288,475 @@ Use architectures designed for probabilistic time series:
 
 ---
 
+# RESEARCH SYNTHESIS: Multi-Step IV Surface Diffusion
+
+## The Innovation Gap
+
+### What Exists in Literature
+
+| Domain | Paper | What They Do | Limitation |
+|--------|-------|--------------|------------|
+| **Finance** | [IV Surface DDPM (arxiv:2511.07571)](https://arxiv.org/abs/2511.07571) | One-day-ahead IV surface forecasting with 90% CI coverage | **One-step only** |
+| **Video** | [HunyuanVideo](https://github.com/Tencent-Hunyuan/HunyuanVideo), [PA-VDM](https://arxiv.org/html/2410.08151v2) | Coherent multi-frame video generation | **No CI validation** |
+| **Time Series** | [ARMD](https://arxiv.org/html/2412.09328v1), [REDI](https://dl.acm.org/doi/10.1145/3627673.3679808) | Multi-horizon forecasting | **Not applied to IV surfaces** |
+
+### What's Missing (Our Innovation)
+
+**Nobody has combined:**
+1. Multi-step generation (60 days) with temporal coherence
+2. CI coverage validation at ALL horizons (h=1, 7, 14, 30, 60)
+3. IV surface domain constraints (arbitrage-free)
+
+```
+EXISTING:
+  One-step IV DDPM:    Day k → Day k+1 (90% CI ✓)
+  Video Diffusion:     Frame 1-60 coherent (CI not measured)
+
+OUR GOAL:
+  Multi-step IV DDPM:  Days 1-60 → Days 61-120 (90% CI at ALL horizons)
+```
+
+---
+
+## Key Techniques from Video Diffusion
+
+### 1. Progressive Noise Levels (from PA-VDM)
+
+**Problem**: Uniform noise across all frames causes abrupt transitions and error accumulation.
+
+**Solution**: Assign progressively increasing noise levels per frame:
+```
+τ = {0, T/S, 2T/S, ..., T}
+
+Day 61: noise level τ₁ (low)    → more certain
+Day 62: noise level τ₂          →
+...
+Day 120: noise level τ₆₀ (high) → less certain
+```
+
+**Benefit**: Earlier frames guide later frames. Later frames with higher uncertainty follow patterns from earlier, more certain frames.
+
+**Source**: [Progressive Autoregressive Video Diffusion Models (CVPR 2025)](https://arxiv.org/html/2410.08151v2)
+
+### 2. Chunked Frame Denoising (from PA-VDM)
+
+**Problem**: Naive progressive noise causes cumulative error in latent video diffusion.
+
+**Solution**: Treat chunks of C frames as a unit:
+- Assign identical noise levels to frames within a chunk
+- Add/remove chunks together from attention window
+- Prevents divergence in long sequences
+
+**Source**: PA-VDM
+
+### 3. Overlapped Conditioning (from PA-VDM)
+
+**Mechanism**: Prepend clean (context) frames to attention window:
+```
+Attention window: [Clean context frames | Noisy future frames]
+                   ↑                      ↑
+                   Already denoised       Being denoised
+```
+
+Later frames attend to clean frames, ensuring temporal consistency.
+
+### 4. Rolling KV Cache (from Rolling Forcing)
+
+**For long sequences**: Maintain two types of cached context:
+- **Recent frames**: Short-term consistency
+- **Initial frames**: Long-term consistency (prevents drift)
+
+**Source**: [Rolling Forcing: Autoregressive Long Video Diffusion](https://arxiv.org/html/2509.25161v1)
+
+### 5. Distribution Matching Distillation (from CausVid)
+
+**For faster inference**: Distill 50-step diffusion → 4-step generator:
+- Train bidirectional model first (sees all frames)
+- Distill to autoregressive model (causal)
+- Reduces inference time while maintaining quality
+
+**Source**: [CausVid (CVPR 2025)](https://github.com/tianweiy/CausVid)
+
+---
+
+## Key Techniques from Time Series Diffusion
+
+### 1. Sliding Diffusion (from ARMD)
+
+**Key insight**: Frame the forecasting as diffusion trajectory:
+```
+Future series = initial state (x₀)
+History series = final state (xₜ)
+Intermediate states = sliding between them
+```
+
+**Benefit**: Generate ALL future timesteps at once through reverse diffusion, avoiding autoregressive error accumulation.
+
+**Source**: [Auto-Regressive Moving Diffusion Models](https://arxiv.org/html/2412.09328v1)
+
+### 2. Multi-Resolution Decomposition (from mr-Diff)
+
+**Approach**: Seasonal-trend decomposition, coarse→fine:
+1. Extract multi-scale trends
+2. Forward diffusion: fine→coarse
+3. Reverse diffusion: coarse→fine (easy-to-hard)
+
+**Benefit**: Captures both global patterns and local dynamics.
+
+**Source**: [Multi-Resolution Diffusion Models (ICLR 2024)](https://iclr.cc/media/iclr-2024/Slides/17883_mrXtGgm.pdf)
+
+### 3. Recurrent Forward Process (from REDI)
+
+**Mechanism**: Weight recent history more heavily in diffusion process:
+- Recent past has stronger influence on near future
+- Distant past has weaker influence
+
+**Source**: [REDI (CIKM 2024)](https://dl.acm.org/doi/10.1145/3627673.3679808)
+
+---
+
+## Key Techniques from IV Surface DDPM
+
+### 1. FiLM Conditioning (from arxiv:2511.07571)
+
+**For scalar features** (VIX, returns, etc.):
+```python
+# Scalar features → 2-layer FC → scale (γ) and shift (β)
+# Conv output = γ * conv_output + β
+
+class FiLMLayer(nn.Module):
+    def __init__(self, scalar_dim, channel_dim):
+        self.fc = nn.Sequential(
+            nn.Linear(scalar_dim, channel_dim),
+            nn.SiLU(),
+            nn.Linear(channel_dim, channel_dim * 2)  # γ and β
+        )
+
+    def forward(self, x, scalars):
+        gamma, beta = self.fc(scalars).chunk(2, dim=-1)
+        return gamma * x + beta
+```
+
+### 2. SNR-Weighted Arbitrage Penalty
+
+**Problem**: Arbitrage constraints unreliable at high noise levels.
+
+**Solution**: Weight penalty by signal-to-noise ratio:
+```
+L_arb_weighted = w_SNR(t) · Φ(surface)
+
+where w_SNR(t) = ᾱₜ / (1 - ᾱₜ + ε)
+```
+
+- High noise (early steps): Low weight (unreliable estimates)
+- Low noise (late steps): High weight (reliable estimates)
+
+### 3. Multi-Timescale EWMA Context
+
+**Input channels**:
+- Current surface (1×5×5)
+- 5-day EWMA surface (1×5×5) - short-term trend
+- 20-day EWMA surface (1×5×5) - long-term trend
+
+**Benefit**: Captures both recent dynamics and longer-term patterns.
+
+---
+
+## Proposed Architecture: Multi-Horizon IV Surface DDPM
+
+### Overview
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│            MULTI-HORIZON IV SURFACE DIFFUSION MODEL                          │
+│            Combining: Video (temporal) + Time Series (multi-step) + Finance  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ CONTEXT ENCODER (from video diffusion)                                  │ │
+│  │                                                                         │ │
+│  │ Input: Past 60 days (60×5×5)                                           │ │
+│  │   + 5-day EWMA surface (5×5)                                           │ │
+│  │   + 20-day EWMA surface (5×5)                                          │ │
+│  │                                                                         │ │
+│  │ Architecture: 3D Conv Encoder → Context Features (C×T×5×5)             │ │
+│  │                                                                         │ │
+│  │ Scalar Features (via FiLM):                                            │ │
+│  │   - Timestep t                                                          │ │
+│  │   - VIX level                                                           │ │
+│  │   - Return EWMA (5d, 20d)                                              │ │
+│  │   - Squared return EWMA (vol proxy)                                    │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                       ↓                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ PROGRESSIVE NOISE ASSIGNMENT (from PA-VDM)                              │ │
+│  │                                                                         │ │
+│  │ Future 60 days with progressive noise levels:                          │ │
+│  │                                                                         │ │
+│  │   Day 61:  τ₁  = T/60  (low noise, high certainty)                     │ │
+│  │   Day 62:  τ₂  = 2T/60                                                 │ │
+│  │   Day 70:  τ₁₀ = 10T/60                                                │ │
+│  │   Day 90:  τ₃₀ = 30T/60                                                │ │
+│  │   Day 120: τ₆₀ = T      (high noise, low certainty)                    │ │
+│  │                                                                         │ │
+│  │ Benefit: Earlier days guide later days naturally                        │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                       ↓                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ 3D U-NET WITH CAUSAL TEMPORAL ATTENTION                                 │ │
+│  │                                                                         │ │
+│  │ Input: Concat(Context_features, Noisy_future) along channel dim        │ │
+│  │                                                                         │ │
+│  │ Architecture:                                                           │ │
+│  │   Encoder: 4 → 32 → 64 → 128 channels                                  │ │
+│  │   Bottleneck: 128 channels + Temporal Self-Attention (causal)          │ │
+│  │   Decoder: 128 → 64 → 32 → 1 channel                                   │ │
+│  │   Skip connections at each level                                        │ │
+│  │   FiLM conditioning injected at each block                             │ │
+│  │                                                                         │ │
+│  │ Causal Attention: Frame t only attends to frames ≤ t                   │ │
+│  │                                                                         │ │
+│  │ Output: Predicted noise ε (60×5×5) for all future days                 │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                       ↓                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ LOSS FUNCTION                                                           │ │
+│  │                                                                         │ │
+│  │ L = L_MSE + λ_arb · L_arbitrage + λ_temp · L_temporal                  │ │
+│  │                                                                         │ │
+│  │ L_MSE = ||ε - ε_pred||²                                                │ │
+│  │                                                                         │ │
+│  │ L_arbitrage = w_SNR(t) · [                                             │ │
+│  │     calendar_spread_violation +                                         │ │
+│  │     call_spread_violation +                                             │ │
+│  │     butterfly_spread_violation                                          │ │
+│  │ ]                                                                       │ │
+│  │                                                                         │ │
+│  │ L_temporal = ||surface_t - surface_{t-1}||² (smoothness)               │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+| Decision | Source | Rationale |
+|----------|--------|-----------|
+| Progressive noise levels | PA-VDM | Prevents error accumulation, earlier frames guide later |
+| All horizons at once | ARMD | Avoids autoregressive compounding errors |
+| Causal temporal attention | Video VAE | Frame t only sees ≤t, enables streaming |
+| FiLM for scalars | IV DDPM | Proven for market indicators |
+| SNR-weighted arbitrage | IV DDPM | Constraints reliable only at low noise |
+| Multi-timescale EWMA | IV DDPM | Captures short and long-term patterns |
+
+### Model Size Estimate
+
+```
+For 5×5 grid with 60-day horizon:
+
+Input:  (B, 4, 60, 5, 5)  = 6,000 values per sample
+Output: (B, 1, 60, 5, 5)  = 1,500 values per sample
+
+Estimated parameters: 500K - 2M
+(Much smaller than HunyuanVideo's billions - appropriate for our data scale)
+```
+
+### Training Procedure
+
+```python
+def train_step(model, context, future_gt, scalars):
+    """
+    Progressive noise training for multi-horizon diffusion.
+    """
+    B, T_future, H, W = future_gt.shape  # T_future = 60
+
+    # 1. Assign progressive noise levels to each future day
+    # Day 1: low noise, Day 60: high noise
+    noise_levels = torch.linspace(0.1, 1.0, T_future)  # Progressive τ
+
+    # 2. Sample noise
+    epsilon = torch.randn_like(future_gt)
+
+    # 3. Create noisy future with per-day noise levels
+    noisy_future = []
+    for t in range(T_future):
+        alpha_t = get_alpha(noise_levels[t])
+        noisy_day = sqrt(alpha_t) * future_gt[:, t] + sqrt(1 - alpha_t) * epsilon[:, t]
+        noisy_future.append(noisy_day)
+    noisy_future = torch.stack(noisy_future, dim=1)
+
+    # 4. Predict noise for all days
+    epsilon_pred = model(context, noisy_future, noise_levels, scalars)
+
+    # 5. Compute losses
+    loss_mse = F.mse_loss(epsilon_pred, epsilon)
+    loss_arb = compute_arbitrage_penalty(denoise(noisy_future, epsilon_pred), noise_levels)
+    loss_temp = compute_temporal_smoothness(denoise(noisy_future, epsilon_pred))
+
+    loss = loss_mse + lambda_arb * loss_arb + lambda_temp * loss_temp
+    return loss
+```
+
+### Sampling Procedure
+
+```python
+def sample(model, context, scalars, num_samples=100):
+    """
+    Generate diverse future scenarios with proper uncertainty.
+    """
+    B = context.shape[0]
+    T_future, H, W = 60, 5, 5
+
+    all_samples = []
+
+    for _ in range(num_samples):
+        # Start from pure noise
+        x = torch.randn(B, T_future, H, W)
+
+        # Progressive noise levels (same as training)
+        noise_levels = torch.linspace(0.1, 1.0, T_future)
+
+        # Denoise iteratively
+        for step in reversed(range(num_denoise_steps)):
+            t = step / num_denoise_steps
+            epsilon_pred = model(context, x, noise_levels * t, scalars)
+            x = denoise_step(x, epsilon_pred, t)
+
+        all_samples.append(x)
+
+    return torch.stack(all_samples, dim=1)  # (B, num_samples, T_future, H, W)
+```
+
+---
+
+## Evaluation Framework (Our Contribution)
+
+### CI Coverage at All Horizons
+
+```python
+def evaluate_coverage(samples, ground_truth, ci_level=0.90):
+    """
+    Evaluate CI coverage at each horizon.
+
+    samples: (num_test, num_samples, T_future, H, W)
+    ground_truth: (num_test, T_future, H, W)
+    """
+    alpha = (1 - ci_level) / 2
+
+    results = {}
+    for h in [1, 7, 14, 30, 60]:
+        # Get samples at horizon h
+        samples_h = samples[:, :, h-1, :, :]  # (num_test, num_samples, H, W)
+        gt_h = ground_truth[:, h-1, :, :]      # (num_test, H, W)
+
+        # Compute quantiles
+        lower = np.percentile(samples_h, alpha * 100, axis=1)
+        upper = np.percentile(samples_h, (1 - alpha) * 100, axis=1)
+
+        # Coverage
+        covered = (gt_h >= lower) & (gt_h <= upper)
+        coverage_rate = covered.mean()
+
+        results[f'h={h}'] = coverage_rate
+        print(f"Horizon {h}: Coverage = {coverage_rate:.1%} (target: {ci_level:.0%})")
+
+    return results
+```
+
+### Target Metrics
+
+| Metric | Target | Notes |
+|--------|--------|-------|
+| 90% CI Coverage @ h=1 | 90% | Near-term |
+| 90% CI Coverage @ h=7 | 90% | One week |
+| 90% CI Coverage @ h=14 | 90% | Two weeks |
+| 90% CI Coverage @ h=30 | 90% | One month |
+| 90% CI Coverage @ h=60 | 90% | Two months |
+| CRPS (all horizons) | Lower is better | Proper scoring rule |
+| Arbitrage violations | < 1% | No-arb constraints |
+| Explosion rate | 0% | Stability |
+
+### Calibration Plot
+
+```python
+def calibration_plot(samples, ground_truth):
+    """
+    Plot nominal vs empirical coverage across confidence levels.
+    Perfect calibration = diagonal line.
+    """
+    nominal_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    empirical_coverage = []
+
+    for level in nominal_levels:
+        alpha = (1 - level) / 2
+        lower = np.percentile(samples, alpha * 100, axis=1)
+        upper = np.percentile(samples, (1 - alpha) * 100, axis=1)
+        covered = (ground_truth >= lower) & (ground_truth <= upper)
+        empirical_coverage.append(covered.mean())
+
+    plt.plot([0, 1], [0, 1], 'k--', label='Perfect calibration')
+    plt.plot(nominal_levels, empirical_coverage, 'o-', label='Model')
+    plt.xlabel('Nominal Coverage')
+    plt.ylabel('Empirical Coverage')
+    plt.title('Calibration Plot')
+    plt.legend()
+```
+
+---
+
+## Implementation Roadmap
+
+### Phase 1: Core Diffusion Model
+
+1. Implement 3D U-Net with causal temporal attention
+2. Implement FiLM conditioning for scalars
+3. Implement progressive noise scheduler
+4. Basic MSE training (no arbitrage penalty yet)
+
+### Phase 2: Finance-Specific Additions
+
+1. Add SNR-weighted arbitrage penalty
+2. Add EWMA context channels
+3. Add temporal smoothness loss
+
+### Phase 3: Evaluation
+
+1. Implement CI coverage evaluation at all horizons
+2. Implement CRPS computation
+3. Implement calibration plots
+4. Compare against baselines (VAE, one-step DDPM)
+
+### Phase 4: Optimization
+
+1. Tune progressive noise schedule
+2. Tune loss weights (λ_arb, λ_temp)
+3. Experiment with model size
+4. Distillation for faster inference (optional)
+
+---
+
 # REFERENCES
 
+## Video Diffusion
 - [HunyuanVideo GitHub](https://github.com/Tencent-Hunyuan/HunyuanVideo) - Reference VAE implementation
 - [HunyuanCustom Paper](https://arxiv.org/abs/2505.04512) - Video conditioning mechanism
 - [HunyuanCustom GitHub](https://github.com/Tencent-Hunyuan/HunyuanCustom) - Video-conditioned diffusion
-- [IV-VAE Paper](https://arxiv.org/abs/2411.06449) - Group causal convolution
-- [CausVid](https://arxiv.org/html/2412.07772v1) - Bidirectional to causal distillation
+- [PA-VDM (CVPR 2025)](https://arxiv.org/html/2410.08151v2) - Progressive Autoregressive Video Diffusion
+- [Rolling Forcing](https://arxiv.org/html/2509.25161v1) - Long video generation with KV cache
+- [CausVid (CVPR 2025)](https://github.com/tianweiy/CausVid) - Bidirectional to causal distillation
+
+## Time Series Diffusion
+- [ARMD](https://arxiv.org/html/2412.09328v1) - Auto-Regressive Moving Diffusion
+- [REDI (CIKM 2024)](https://dl.acm.org/doi/10.1145/3627673.3679808) - Recurrent Diffusion for Time Series
+- [mr-Diff (ICLR 2024)](https://iclr.cc/media/iclr-2024/Slides/17883_mrXtGgm.pdf) - Multi-Resolution Diffusion
+- [Diffusion-TS (ICLR 2024)](https://github.com/Y-debug-sys/Diffusion-TS) - Interpretable Time Series Diffusion
+- [Awesome Time Series Diffusion](https://github.com/yyysjz1997/Awesome-TimeSeries-SpatioTemporal-Diffusion-Model) - Curated paper list
+
+## IV Surface / Finance
+- [IV Surface DDPM (arxiv:2511.07571)](https://arxiv.org/abs/2511.07571) - One-step IV forecasting with DDPM
+- [IV-VAE Paper](https://arxiv.org/abs/2411.06449) - Group causal convolution for IV
+- [Meta-Learning Neural Process (SABR prior)](https://arxiv.org/html/2509.11928v1) - Pretrained prior for IV surfaces
+- [Deep Learning from IV Surfaces](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4531181) - IV surface as image features
 
 ---
 
