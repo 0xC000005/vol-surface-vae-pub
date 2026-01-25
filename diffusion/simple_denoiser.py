@@ -1,0 +1,418 @@
+"""
+Simple 3D Denoiser for Volatility Surface Diffusion.
+
+This is a minimal denoiser for the POC that:
+1. Encodes history context using CausalConv3d
+2. Conditions on diffusion timestep
+3. Predicts noise in the future surfaces
+
+Reuses building blocks from vae/causal_3d_blocks.py.
+No temporal attention yet - just proves diffusion can work on vol surfaces.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from vae.causal_3d_blocks import (
+    CausalConv3d,
+    ResnetBlockCausal3D,
+)
+from diffusion.time_embedding import TimeEmbedding, AdaptiveGroupNorm
+
+# IV normalization constants (maps [IV_MIN, IV_MAX] ↔ [-1, 1])
+# Following standard DDPM practice from Ho et al. 2020
+# Empirical range from SPX data: min=0.01, max=0.9957
+# Use slightly wider range [0.0, 1.0] to handle edge cases
+IV_MIN = 0.0
+IV_MAX = 1.0
+
+
+def denormalize_iv(iv_norm: torch.Tensor) -> torch.Tensor:
+    """Denormalize IV from [-1, 1] to [0.05, 1.0]."""
+    return (iv_norm + 1.0) / 2.0 * (IV_MAX - IV_MIN) + IV_MIN
+
+
+@dataclass
+class DenoiserConfig:
+    """Configuration for SimpleDenoiser3D."""
+    # Data dimensions
+    history_len: int = 30
+    future_len: int = 30
+    surface_h: int = 5
+    surface_w: int = 5
+
+    # Model architecture
+    base_channels: int = 32
+    n_res_blocks: int = 4
+    condition_dim: int = 128
+    time_embed_dim: int = 64
+    groups: int = 8
+    dropout: float = 0.0
+
+    # Diffusion
+    n_steps: int = 100
+
+
+class HistoryEncoder(nn.Module):
+    """
+    Encodes history of volatility surfaces into a conditioning vector.
+
+    Uses CausalConv3d to process temporal information, then pools to a vector.
+    """
+
+    def __init__(self, config: DenoiserConfig):
+        super().__init__()
+        self.config = config
+
+        # Initial projection: (B, 1, T_hist, 5, 5) -> (B, C, T_hist, 5, 5)
+        self.conv_in = CausalConv3d(1, config.base_channels, kernel_size=3)
+
+        # Stack of ResNet blocks
+        self.blocks = nn.ModuleList([
+            ResnetBlockCausal3D(
+                config.base_channels,
+                config.base_channels,
+                groups=config.groups,
+                dropout=config.dropout,
+            )
+            for _ in range(2)
+        ])
+
+        # Pool to condition vector
+        # Global average pool over T, H, W -> (B, C)
+        # Then project to condition_dim
+        self.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.proj = nn.Linear(config.base_channels, config.condition_dim)
+
+    def forward(self, history: torch.Tensor) -> torch.Tensor:
+        """
+        Encode history surfaces.
+
+        Args:
+            history: (B, T_hist, H, W) past volatility surfaces
+
+        Returns:
+            condition: (B, condition_dim) conditioning vector
+        """
+        # Add channel dim: (B, T_hist, H, W) -> (B, 1, T_hist, H, W)
+        x = history.unsqueeze(1)
+
+        # Conv + ResNet blocks
+        x = self.conv_in(x)
+        for block in self.blocks:
+            x = block(x)
+
+        # Pool and project
+        x = self.pool(x)  # (B, C, 1, 1, 1)
+        x = x.view(x.shape[0], -1)  # (B, C)
+        condition = self.proj(x)  # (B, condition_dim)
+
+        return condition
+
+
+class SimpleDenoiser3D(nn.Module):
+    """
+    Minimal 3D denoiser for volatility surface diffusion POC.
+
+    Architecture:
+    1. History encoder -> condition vector
+    2. Time embedding -> t_emb vector
+    3. Future encoder: noisy_future -> features
+    4. Condition injection: features + condition + t_emb
+    5. ResNet blocks for denoising
+    6. Output: predicted noise
+
+    This is intentionally simple - no U-Net skip connections,
+    no temporal attention. Just enough to validate the approach.
+    """
+
+    def __init__(self, config: DenoiserConfig):
+        super().__init__()
+        self.config = config
+        C = config.base_channels
+
+        # History encoder
+        self.history_encoder = HistoryEncoder(config)
+
+        # Time embedding
+        self.time_embed = TimeEmbedding(
+            n_steps=config.n_steps,
+            embed_dim=config.time_embed_dim,
+        )
+
+        # Project condition + time to channels
+        self.cond_proj = nn.Sequential(
+            nn.Linear(config.condition_dim + config.time_embed_dim, C * 2),
+            nn.SiLU(),
+            nn.Linear(C * 2, C),
+        )
+
+        # Input conv: (B, 1, T_fut, 5, 5) -> (B, C, T_fut, 5, 5)
+        self.conv_in = CausalConv3d(1, C, kernel_size=3)
+
+        # Stack of ResNet blocks with adaptive norm for time/condition
+        self.blocks = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        for _ in range(config.n_res_blocks):
+            self.blocks.append(
+                ResnetBlockCausal3D(C, C, groups=config.groups, dropout=config.dropout)
+            )
+            self.norms.append(
+                AdaptiveGroupNorm(C, num_groups=config.groups, embed_dim=C)
+            )
+
+        # Output conv: (B, C, T_fut, 5, 5) -> (B, 1, T_fut, 5, 5)
+        self.conv_out = nn.Sequential(
+            nn.GroupNorm(config.groups, C),
+            nn.SiLU(),
+            CausalConv3d(C, 1, kernel_size=3),
+        )
+
+    def forward(
+        self,
+        x_noisy: torch.Tensor,
+        t: torch.Tensor,
+        history: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Predict noise in noisy future surfaces.
+
+        Args:
+            x_noisy: (B, T_fut, H, W) noisy future surfaces
+            t: (B,) diffusion timesteps
+            history: (B, T_hist, H, W) past surfaces for conditioning
+
+        Returns:
+            noise_pred: (B, T_fut, H, W) predicted noise
+        """
+        B = x_noisy.shape[0]
+
+        # Encode history
+        condition = self.history_encoder(history)  # (B, condition_dim)
+
+        # Time embedding
+        t_emb = self.time_embed(t)  # (B, time_embed_dim)
+
+        # Combine condition and time
+        cond_combined = torch.cat([condition, t_emb], dim=1)  # (B, condition_dim + time_embed_dim)
+        cond_emb = self.cond_proj(cond_combined)  # (B, C)
+
+        # Process noisy future
+        x = x_noisy.unsqueeze(1)  # (B, 1, T_fut, H, W)
+        x = self.conv_in(x)  # (B, C, T_fut, H, W)
+
+        # ResNet blocks with adaptive norm
+        for block, norm in zip(self.blocks, self.norms):
+            x = block(x)
+            x = norm(x, cond_emb)
+
+        # Output
+        x = self.conv_out(x)  # (B, 1, T_fut, H, W)
+        noise_pred = x.squeeze(1)  # (B, T_fut, H, W)
+
+        return noise_pred
+
+
+class ConditionalDDPM(nn.Module):
+    """
+    Full conditional DDPM model combining scheduler and denoiser.
+
+    This is a convenience wrapper for training and sampling.
+    """
+
+    def __init__(self, config: DenoiserConfig, scheduler_config: Optional[dict] = None):
+        super().__init__()
+        self.config = config
+        self.denoiser = SimpleDenoiser3D(config)
+
+        # Import scheduler here to avoid circular import
+        from diffusion.ddpm_scheduler import DDPMScheduler
+
+        scheduler_config = scheduler_config or {}
+        self.scheduler = DDPMScheduler(
+            n_steps=config.n_steps,
+            schedule=scheduler_config.get('schedule', 'cosine'),
+            device=scheduler_config.get('device', 'cpu'),
+        )
+
+    def forward(
+        self,
+        history: torch.Tensor,
+        future: torch.Tensor,
+    ) -> dict:
+        """
+        Training forward pass.
+
+        Args:
+            history: (B, T_hist, H, W) past surfaces
+            future: (B, T_fut, H, W) future surfaces (clean)
+
+        Returns:
+            dict with 'loss', 'noise_pred', 'noise'
+        """
+        B = history.shape[0]
+        device = history.device
+
+        # Sample random timesteps
+        t = torch.randint(0, self.config.n_steps, (B,), device=device)
+
+        # Add noise
+        noise = torch.randn_like(future)
+        x_noisy, _ = self.scheduler.q_sample(future, t, noise)
+
+        # Predict noise
+        noise_pred = self.denoiser(x_noisy, t, history)
+
+        # MSE loss on noise
+        loss = F.mse_loss(noise_pred, noise)
+
+        return {
+            'loss': loss,
+            'noise_pred': noise_pred,
+            'noise': noise,
+        }
+
+    @torch.no_grad()
+    def sample(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 1,
+        sampler: str = 'ddpm',
+        n_inference_steps: int = 20,
+    ) -> torch.Tensor:
+        """
+        Generate future surface samples.
+
+        Args:
+            history: (B, T_hist, H, W) past surfaces
+            n_samples: Number of samples to generate per history
+            sampler: 'ddpm' (default, all steps) or 'ddim' (fast, skip steps)
+            n_inference_steps: For DDIM, number of denoising steps (default: 20)
+
+        Returns:
+            samples: (B, n_samples, T_fut, H, W) generated futures
+        """
+        B = history.shape[0]
+        device = history.device
+        T_fut = self.config.future_len
+        H, W = self.config.surface_h, self.config.surface_w
+
+        # Update scheduler device if needed
+        if self.scheduler.device != device:
+            self.scheduler = self._move_scheduler_to_device(device)
+
+        samples = []
+        for _ in range(n_samples):
+            # Encode history once
+            condition = self.denoiser.history_encoder(history)
+
+            if sampler == 'ddim':
+                # Fast DDIM sampling with step-skipping
+                shape = (B, T_fut, H, W)
+                x_0 = self.scheduler.sample_ddim(
+                    self.denoiser, history, shape,
+                    n_inference_steps=n_inference_steps
+                )
+                samples.append(x_0)
+            else:
+                # Standard DDPM sampling (all steps)
+                x_t = torch.randn(B, T_fut, H, W, device=device)
+
+                # Reverse diffusion
+                for t_val in reversed(range(self.config.n_steps)):
+                    t = torch.full((B,), t_val, device=device, dtype=torch.long)
+                    x_t = self.scheduler.p_sample(self.denoiser, x_t, t, history)
+
+                samples.append(x_t)
+
+        # Stack samples: (B, n_samples, T_fut, H, W)
+        samples = torch.stack(samples, dim=1)
+
+        # Denormalize from [-1, 1] to [0.05, 1.0] (standard DDPM practice)
+        samples = denormalize_iv(samples)
+
+        return samples
+
+    def _move_scheduler_to_device(self, device):
+        """Create new scheduler on correct device."""
+        from diffusion.ddpm_scheduler import DDPMScheduler
+        return DDPMScheduler(
+            n_steps=self.config.n_steps,
+            schedule='cosine',
+            device=device,
+        )
+
+
+def test_simple_denoiser():
+    """Unit tests for SimpleDenoiser3D."""
+    print("Testing SimpleDenoiser3D...")
+
+    device = 'cpu'
+    config = DenoiserConfig(
+        history_len=30,
+        future_len=30,
+        surface_h=5,
+        surface_w=5,
+        base_channels=16,  # Small for testing
+        n_res_blocks=2,
+    )
+
+    model = SimpleDenoiser3D(config)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"  Model parameters: {n_params:,}")
+
+    # Test forward pass
+    B = 4
+    history = torch.randn(B, config.history_len, 5, 5)
+    x_noisy = torch.randn(B, config.future_len, 5, 5)
+    t = torch.randint(0, config.n_steps, (B,))
+
+    noise_pred = model(x_noisy, t, history)
+    assert noise_pred.shape == (B, config.future_len, 5, 5), f"Wrong output shape: {noise_pred.shape}"
+    print(f"  Forward pass: OK (output shape {noise_pred.shape})")
+
+    # Test gradient flow
+    loss = noise_pred.mean()
+    loss.backward()
+    has_grad = all(p.grad is not None for p in model.parameters() if p.requires_grad)
+    assert has_grad, "Some parameters have no gradient"
+    print("  Gradient flow: OK")
+
+    # Test full DDPM model
+    print("\nTesting ConditionalDDPM...")
+    ddpm = ConditionalDDPM(config)
+
+    # Training forward
+    future = torch.randn(B, config.future_len, 5, 5)
+    result = ddpm(history, future)
+    assert 'loss' in result, "Missing loss in output"
+    print(f"  Training forward: OK (loss={result['loss'].item():.6f})")
+
+    # Test sampling (just 2 steps to verify it runs)
+    config_fast = DenoiserConfig(
+        history_len=30,
+        future_len=30,
+        surface_h=5,
+        surface_w=5,
+        base_channels=16,
+        n_res_blocks=2,
+        n_steps=5,  # Very few steps for fast test
+    )
+    ddpm_fast = ConditionalDDPM(config_fast)
+    samples = ddpm_fast.sample(history[:2], n_samples=2)  # 2 history, 2 samples each
+    assert samples.shape == (2, 2, config.future_len, 5, 5), f"Wrong sample shape: {samples.shape}"
+    print(f"  Sampling: OK (shape {samples.shape})")
+
+    # Check sample diversity
+    sample_std = samples.std(dim=1).mean()
+    print(f"  Sample diversity (std across samples): {sample_std:.6f}")
+
+    print("\nSimpleDenoiser3D tests passed!\n")
+
+
+if __name__ == "__main__":
+    test_simple_denoiser()
