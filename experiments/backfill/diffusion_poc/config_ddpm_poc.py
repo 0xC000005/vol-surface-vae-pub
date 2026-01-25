@@ -39,6 +39,7 @@ class DDPMPOCConfig:
     # === Diffusion Process ===
     n_steps: int = 100  # Fast for POC (vs 1000 in production)
     schedule: str = 'cosine'
+    noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
 
     # === Training ===
     batch_size: int = 64

@@ -55,6 +55,7 @@ class DenoiserConfig:
 
     # Diffusion
     n_steps: int = 100
+    noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
 
 
 class HistoryEncoder(nn.Module):
@@ -183,29 +184,45 @@ class SimpleDenoiser3D(nn.Module):
 
         Args:
             x_noisy: (B, T_fut, H, W) noisy future surfaces
-            t: (B,) diffusion timesteps
+            t: (B,) uniform timesteps OR (B, T_fut) per-frame timesteps (Diffusion Forcing)
             history: (B, T_hist, H, W) past surfaces for conditioning
 
         Returns:
             noise_pred: (B, T_fut, H, W) predicted noise
         """
         B = x_noisy.shape[0]
+        T_fut = x_noisy.shape[1]
+        per_frame = (t.dim() == 2)
 
         # Encode history
         condition = self.history_encoder(history)  # (B, condition_dim)
 
-        # Time embedding
-        t_emb = self.time_embed(t)  # (B, time_embed_dim)
+        # Time embedding - handles both (B,) and (B, T) shapes
+        t_emb = self.time_embed(t)  # (B, time_embed_dim) or (B, T, time_embed_dim)
 
         # Combine condition and time
-        cond_combined = torch.cat([condition, t_emb], dim=1)  # (B, condition_dim + time_embed_dim)
-        cond_emb = self.cond_proj(cond_combined)  # (B, C)
+        if per_frame:
+            # Per-frame (Diffusion Forcing): broadcast condition to each frame
+            # condition: (B, condition_dim) -> (B, T, condition_dim)
+            condition_expanded = condition.unsqueeze(1).expand(-1, T_fut, -1)
+            # t_emb: (B, T, time_embed_dim)
+            cond_combined = torch.cat([condition_expanded, t_emb], dim=2)  # (B, T, condition_dim + time_embed_dim)
+
+            # Project per-frame: (B, T, ...) -> (B, T, C)
+            cond_combined_flat = cond_combined.view(B * T_fut, -1)
+            cond_emb_flat = self.cond_proj(cond_combined_flat)
+            cond_emb = cond_emb_flat.view(B, T_fut, -1)  # (B, T, C)
+        else:
+            # Uniform timestep (standard DDPM)
+            cond_combined = torch.cat([condition, t_emb], dim=1)  # (B, condition_dim + time_embed_dim)
+            cond_emb = self.cond_proj(cond_combined)  # (B, C)
 
         # Process noisy future
         x = x_noisy.unsqueeze(1)  # (B, 1, T_fut, H, W)
         x = self.conv_in(x)  # (B, C, T_fut, H, W)
 
         # ResNet blocks with adaptive norm
+        # AdaptiveGroupNorm handles both (B, C) and (B, T, C) embeddings
         for block, norm in zip(self.blocks, self.norms):
             x = block(x)
             x = norm(x, cond_emb)
@@ -252,29 +269,43 @@ class ConditionalDDPM(nn.Module):
             future: (B, T_fut, H, W) future surfaces (clean)
 
         Returns:
-            dict with 'loss', 'noise_pred', 'noise'
+            dict with 'loss', 'noise_pred', 'noise', and optionally 'snr' for Diffusion Forcing
         """
         B = history.shape[0]
+        T_fut = future.shape[1]
         device = history.device
 
-        # Sample random timesteps
-        t = torch.randint(0, self.config.n_steps, (B,), device=device)
-
-        # Add noise
+        # Generate noise
         noise = torch.randn_like(future)
-        x_noisy, _ = self.scheduler.q_sample(future, t, noise)
 
-        # Predict noise
+        # Sample timesteps and add noise based on noise schedule
+        if self.config.noise_schedule == 'independent':
+            # Diffusion Forcing: independent timestep per frame
+            # Each frame gets its own noise level τ_i ~ Uniform(0, T)
+            t = self.scheduler.sample_independent_timesteps(B, T_fut, device)  # (B, T)
+            x_noisy, _ = self.scheduler.q_sample_per_frame(future, t, noise)
+        else:
+            # Standard DDPM: uniform timestep for all frames
+            t = torch.randint(0, self.config.n_steps, (B,), device=device)
+            x_noisy, _ = self.scheduler.q_sample(future, t, noise)
+
+        # Predict noise - denoiser handles both (B,) and (B, T) timesteps
         noise_pred = self.denoiser(x_noisy, t, history)
 
         # MSE loss on noise
         loss = F.mse_loss(noise_pred, noise)
 
-        return {
+        result = {
             'loss': loss,
             'noise_pred': noise_pred,
             'noise': noise,
         }
+
+        # Add SNR info for Diffusion Forcing analysis
+        if self.config.noise_schedule == 'independent':
+            result['snr'] = self.scheduler.get_per_frame_snr(t)
+
+        return result
 
     @torch.no_grad()
     def sample(
@@ -283,6 +314,7 @@ class ConditionalDDPM(nn.Module):
         n_samples: int = 1,
         sampler: str = 'ddpm',
         n_inference_steps: int = 20,
+        max_residual_timestep: int = 20,
     ) -> torch.Tensor:
         """
         Generate future surface samples.
@@ -290,8 +322,14 @@ class ConditionalDDPM(nn.Module):
         Args:
             history: (B, T_hist, H, W) past surfaces
             n_samples: Number of samples to generate per history
-            sampler: 'ddpm' (default, all steps) or 'ddim' (fast, skip steps)
-            n_inference_steps: For DDIM, number of denoising steps (default: 20)
+            sampler: Sampling method:
+                - 'ddpm': Standard DDPM (all steps)
+                - 'ddim': Fast DDIM (step-skipping, uniform timesteps)
+                - 'ddim_staggered': Causal DDIM for Diffusion Forcing
+                  (each frame denoises to its own t_min)
+            n_inference_steps: For DDIM/staggered, number of denoising steps (default: 20)
+            max_residual_timestep: For staggered, t_min for last frame (default: 20)
+                Controls uncertainty growth - higher = more noise in later frames
 
         Returns:
             samples: (B, n_samples, T_fut, H, W) generated futures
@@ -310,8 +348,18 @@ class ConditionalDDPM(nn.Module):
             # Encode history once
             condition = self.denoiser.history_encoder(history)
 
-            if sampler == 'ddim':
-                # Fast DDIM sampling with step-skipping
+            if sampler == 'ddim_staggered':
+                # Staggered DDIM: causal reverse diffusion for Diffusion Forcing
+                # Frame 0 → t=0 (clean), Frame T-1 → t=max_residual (noisy)
+                shape = (B, T_fut, H, W)
+                x_0 = self.scheduler.sample_ddim_staggered(
+                    self.denoiser, history, shape,
+                    n_inference_steps=n_inference_steps,
+                    max_residual_timestep=max_residual_timestep,
+                )
+                samples.append(x_0)
+            elif sampler == 'ddim':
+                # Fast DDIM sampling with step-skipping (uniform timesteps)
                 shape = (B, T_fut, H, W)
                 x_0 = self.scheduler.sample_ddim(
                     self.denoiser, history, shape,
@@ -334,6 +382,11 @@ class ConditionalDDPM(nn.Module):
 
         # Denormalize from [-1, 1] to [0.05, 1.0] (standard DDPM practice)
         samples = denormalize_iv(samples)
+
+        # For staggered sampling, clamp to valid IV range [0, 1]
+        # (Staggered leaves residual noise that can produce values outside range)
+        if sampler == 'ddim_staggered':
+            samples = samples.clamp(0.0, 1.0)
 
         return samples
 
@@ -410,6 +463,58 @@ def test_simple_denoiser():
     # Check sample diversity
     sample_std = samples.std(dim=1).mean()
     print(f"  Sample diversity (std across samples): {sample_std:.6f}")
+
+    # === Per-frame (Diffusion Forcing) tests ===
+    print("\nTesting Per-Frame Mode (Diffusion Forcing)...")
+
+    # Test per-frame forward pass
+    model.zero_grad()
+    t_per_frame = torch.randint(0, config.n_steps, (B, config.future_len))
+    noise_pred_pf = model(x_noisy, t_per_frame, history)
+    assert noise_pred_pf.shape == (B, config.future_len, 5, 5), f"Wrong per-frame shape: {noise_pred_pf.shape}"
+    print(f"  Per-frame forward: OK (shape {noise_pred_pf.shape})")
+
+    # Test gradient flow with per-frame
+    loss_pf = noise_pred_pf.mean()
+    loss_pf.backward()
+    has_grad_pf = all(p.grad is not None for p in model.parameters() if p.requires_grad)
+    assert has_grad_pf, "Some parameters have no gradient in per-frame mode"
+    print("  Per-frame gradient flow: OK")
+
+    # Verify outputs differ when using different per-frame timesteps
+    model.eval()
+    with torch.no_grad():
+        t_low = torch.zeros(B, config.future_len, dtype=torch.long)  # All low noise
+        t_high = torch.full((B, config.future_len), config.n_steps - 1, dtype=torch.long)  # All high noise
+        pred_low = model(x_noisy, t_low, history)
+        pred_high = model(x_noisy, t_high, history)
+        assert not torch.allclose(pred_low, pred_high, atol=1e-3), \
+            "Different timesteps should give different predictions"
+    print("  Per-frame timestep differentiation: OK")
+
+    # Test ConditionalDDPM with Diffusion Forcing (noise_schedule='independent')
+    print("\nTesting ConditionalDDPM with Diffusion Forcing...")
+    config_df = DenoiserConfig(
+        history_len=30,
+        future_len=30,
+        surface_h=5,
+        surface_w=5,
+        base_channels=16,
+        n_res_blocks=2,
+        n_steps=20,
+        noise_schedule='independent',  # Enable Diffusion Forcing
+    )
+    ddpm_df = ConditionalDDPM(config_df)
+
+    # Training forward with Diffusion Forcing
+    future = torch.randn(B, config_df.future_len, 5, 5)
+    result_df = ddpm_df(history, future)
+    assert 'loss' in result_df, "Missing loss in Diffusion Forcing output"
+    assert 'snr' in result_df, "Missing SNR in Diffusion Forcing output"
+    assert result_df['snr'].shape == (B, config_df.future_len), \
+        f"Wrong SNR shape: {result_df['snr'].shape}, expected ({B}, {config_df.future_len})"
+    print(f"  Diffusion Forcing forward: OK (loss={result_df['loss'].item():.6f})")
+    print(f"  SNR shape: {result_df['snr'].shape} (min={result_df['snr'].min():.4f}, max={result_df['snr'].max():.4f})")
 
     print("\nSimpleDenoiser3D tests passed!\n")
 

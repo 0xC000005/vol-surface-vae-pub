@@ -249,6 +249,9 @@ def main():
     parser.add_argument("--device", type=str, default=None, help="Device (cuda/cpu)")
     parser.add_argument("--eval_every", type=int, default=10, help="Evaluate CI coverage every N epochs")
     parser.add_argument("--n_eval_samples", type=int, default=50, help="Samples per history for CI eval")
+    parser.add_argument("--noise_schedule", type=str, default=None,
+                        choices=["uniform", "independent"],
+                        help="Noise schedule: 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)")
     args = parser.parse_args()
 
     # Get config
@@ -263,6 +266,8 @@ def main():
         config.lr = args.lr
     if args.device:
         config.device = args.device
+    if args.noise_schedule:
+        config.noise_schedule = args.noise_schedule
 
     # Auto-detect device
     if config.device == "cuda" and not torch.cuda.is_available():
@@ -275,6 +280,8 @@ def main():
     print(f"Device: {config.device}")
     print(f"History: {config.history_len} days -> Future: {config.future_len} days")
     print(f"Diffusion steps: {config.n_steps}")
+    print(f"Noise schedule: {config.noise_schedule}" +
+          (" (Diffusion Forcing)" if config.noise_schedule == "independent" else " (standard DDPM)"))
     print(f"Epochs: {config.epochs}, Batch size: {config.batch_size}, LR: {config.lr}")
     print("=" * 60)
 
@@ -335,6 +342,7 @@ def main():
         groups=config.groups,
         dropout=config.dropout,
         n_steps=config.n_steps,
+        noise_schedule=config.noise_schedule,
     )
 
     model = ConditionalDDPM(

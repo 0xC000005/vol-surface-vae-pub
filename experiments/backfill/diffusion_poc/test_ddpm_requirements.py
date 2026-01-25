@@ -1017,10 +1017,12 @@ def main():
     parser.add_argument("--max_batches", type=int, default=20, help="Max batches to evaluate")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory for plots")
-    parser.add_argument("--sampler", type=str, choices=["ddpm", "ddim"], default="ddpm",
-                        help="Sampling method: ddpm (slow, all steps) or ddim (fast, skip steps)")
+    parser.add_argument("--sampler", type=str, choices=["ddpm", "ddim", "ddim_staggered"], default="ddpm",
+                        help="Sampling method: ddpm (slow), ddim (fast), or ddim_staggered (causal for Diffusion Forcing)")
     parser.add_argument("--ddim_steps", type=int, default=20,
-                        help="Number of denoising steps for DDIM (default: 20)")
+                        help="Number of denoising steps for DDIM/staggered (default: 20)")
+    parser.add_argument("--max_residual", type=int, default=20,
+                        help="For ddim_staggered: t_min for last frame (default: 20). Higher = more uncertainty growth")
     args = parser.parse_args()
 
     config = get_default_config()
@@ -1060,7 +1062,14 @@ def main():
     print(f"Device: {device}")
     print(f"Samples per history: {args.n_samples}")
     print(f"Max batches: {args.max_batches}")
-    print(f"Sampler: {args.sampler}" + (f" ({args.ddim_steps} steps)" if args.sampler == 'ddim' else " (all steps)"))
+    sampler_info = f"Sampler: {args.sampler}"
+    if args.sampler in ['ddim', 'ddim_staggered']:
+        sampler_info += f" ({args.ddim_steps} steps)"
+        if args.sampler == 'ddim_staggered':
+            sampler_info += f", max_residual={args.max_residual}"
+    else:
+        sampler_info += " (all steps)"
+    print(sampler_info)
     print(f"Output: {output_dir}")
     print("=" * 60)
 

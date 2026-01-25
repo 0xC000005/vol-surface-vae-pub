@@ -282,6 +282,96 @@ class DDPMScheduler:
         alpha_bar_t = self.alpha_bar[t]
         return alpha_bar_t / (1.0 - alpha_bar_t)
 
+    # =========================================================================
+    # Diffusion Forcing: Per-frame independent noise levels
+    # =========================================================================
+
+    def sample_independent_timesteps(
+        self,
+        batch_size: int,
+        n_frames: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        Sample independent timesteps for each frame (Diffusion Forcing).
+
+        Each frame gets its own noise level, sampled uniformly from [0, n_steps).
+        This teaches the model to denoise frames at different noise levels
+        simultaneously, enabling natural uncertainty growth across horizons.
+
+        Args:
+            batch_size: Number of samples in batch
+            n_frames: Number of frames (temporal dimension)
+            device: Device to place tensor on
+
+        Returns:
+            t: Independent timesteps (B, T) where each t[b, i] ~ Uniform(0, n_steps)
+        """
+        return torch.randint(0, self.n_steps, (batch_size, n_frames), device=device)
+
+    def q_sample_per_frame(
+        self,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        noise: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward diffusion with per-frame timesteps (Diffusion Forcing).
+
+        Each frame can have a different noise level, allowing the model to learn
+        to denoise "anchor" frames (low noise) while predicting "uncertain" frames
+        (high noise) in the same forward pass.
+
+        Args:
+            x_0: Clean samples (B, T, H, W) - 4D tensor with temporal dimension
+            t: Per-frame timesteps (B, T) - each frame has its own timestep
+            noise: Optional pre-sampled noise (B, T, H, W)
+
+        Returns:
+            x_t: Noisy samples with per-frame noise levels (B, T, H, W)
+            noise: The noise that was added (B, T, H, W)
+        """
+        if noise is None:
+            noise = torch.randn_like(x_0)
+
+        B, T, H, W = x_0.shape
+        assert t.shape == (B, T), f"Expected t shape (B, T)=({B}, {T}), got {t.shape}"
+
+        # Gather coefficients for each (batch, frame) pair
+        # sqrt_alpha_bar has shape (n_steps,)
+        # t has shape (B, T)
+        # We need output shape (B, T, 1, 1) for broadcasting with (B, T, H, W)
+
+        # Flatten t to index into 1D arrays, then reshape
+        t_flat = t.flatten()  # (B * T,)
+        sqrt_alpha_bar_flat = self.sqrt_alpha_bar[t_flat]  # (B * T,)
+        sqrt_one_minus_alpha_bar_flat = self.sqrt_one_minus_alpha_bar[t_flat]  # (B * T,)
+
+        # Reshape to (B, T, 1, 1) for broadcasting
+        sqrt_alpha_bar_t = sqrt_alpha_bar_flat.view(B, T, 1, 1)
+        sqrt_one_minus_alpha_bar_t = sqrt_one_minus_alpha_bar_flat.view(B, T, 1, 1)
+
+        # x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * noise
+        x_t = sqrt_alpha_bar_t * x_0 + sqrt_one_minus_alpha_bar_t * noise
+
+        return x_t, noise
+
+    def get_per_frame_snr(self, t: torch.Tensor) -> torch.Tensor:
+        """
+        Get SNR for per-frame timesteps.
+
+        Args:
+            t: Per-frame timesteps (B, T)
+
+        Returns:
+            snr: Per-frame SNR values (B, T)
+        """
+        B, T = t.shape
+        t_flat = t.flatten()
+        alpha_bar_flat = self.alpha_bar[t_flat]
+        snr_flat = alpha_bar_flat / (1.0 - alpha_bar_flat)
+        return snr_flat.view(B, T)
+
     def ddim_sample(
         self,
         model: nn.Module,
@@ -394,6 +484,188 @@ class DDPMScheduler:
             return x_t, intermediates
         return x_t
 
+    # =========================================================================
+    # Staggered DDIM Sampling (Causal Reverse Diffusion)
+    # =========================================================================
+
+    def _gather_per_frame(
+        self,
+        values: torch.Tensor,
+        t: torch.Tensor,
+        x_shape: Tuple[int, ...],
+    ) -> torch.Tensor:
+        """
+        Gather values at per-frame timesteps and reshape for broadcasting.
+
+        Unlike _gather() which handles (B,) timesteps, this handles (B, T)
+        per-frame timesteps for staggered sampling.
+
+        Args:
+            values: 1D tensor of values indexed by timestep (n_steps,)
+            t: Per-frame timestep indices (B, T)
+            x_shape: Target tensor shape (B, T, H, W) for broadcasting
+
+        Returns:
+            values_t: Values at timesteps, reshaped to (B, T, 1, 1)
+        """
+        B, T_frames = t.shape
+        t_flat = t.flatten()  # (B * T,)
+        values_flat = values[t_flat]  # (B * T,)
+        # Reshape to (B, T, 1, 1) for broadcasting with (B, T, H, W)
+        return values_flat.view(B, T_frames, 1, 1)
+
+    def ddim_sample_per_frame(
+        self,
+        model: nn.Module,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        t_prev: torch.Tensor,
+        condition: torch.Tensor,
+        t_min: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Single DDIM step with per-frame timesteps (staggered sampling).
+
+        Unlike ddim_sample() which uses uniform timesteps, this handles
+        per-frame timesteps for causal reverse diffusion. Frames that have
+        reached their minimum timestep (t_min) are frozen and not updated.
+
+        Args:
+            model: Denoiser network that predicts noise (must support per-frame t)
+            x_t: Current noisy samples (B, T, H, W)
+            t: Current per-frame timesteps (B, T)
+            t_prev: Target per-frame timesteps (B, T)
+            condition: History for conditioning (B, T_hist, H, W)
+            t_min: Per-frame minimum timesteps (T,) - frames freeze at their t_min
+
+        Returns:
+            x_prev: Updated samples (B, T, H, W), with frozen frames unchanged
+        """
+        B, T_frames, H, W = x_t.shape
+
+        # Predict noise with per-frame timesteps
+        noise_pred = model(x_t, t, condition)
+
+        # Predict x_0 per-frame
+        sqrt_recip_alpha_bar = self._gather_per_frame(self.sqrt_recip_alpha_bar, t, x_t.shape)
+        sqrt_recip_alpha_bar_m1 = self._gather_per_frame(self.sqrt_recip_alpha_bar_minus_one, t, x_t.shape)
+        x_0_pred = sqrt_recip_alpha_bar * x_t - sqrt_recip_alpha_bar_m1 * noise_pred
+
+        # Clip x_0 prediction
+        if self.clip_sample:
+            x_0_pred = torch.clamp(x_0_pred, -self.clip_sample_range, self.clip_sample_range)
+
+        # Get alpha_bar for t_prev (handle t_prev < 0 as final step)
+        t_prev_clamped = t_prev.clamp(min=0)
+        alpha_bar_prev = self._gather_per_frame(self.alpha_bar, t_prev_clamped, x_t.shape)
+
+        # Where t_prev < 0, set alpha_bar_prev = 1.0 (fully clean)
+        final_step_mask = (t_prev < 0).unsqueeze(-1).unsqueeze(-1)  # (B, T, 1, 1)
+        alpha_bar_prev = torch.where(final_step_mask, torch.ones_like(alpha_bar_prev), alpha_bar_prev)
+
+        # DDIM update formula
+        x_updated = (
+            torch.sqrt(alpha_bar_prev) * x_0_pred +
+            torch.sqrt(1.0 - alpha_bar_prev) * noise_pred
+        )
+
+        # Freeze frames that have reached their t_min
+        # t_min is (T,), expand to (B, T, 1, 1)
+        t_min_expanded = t_min.view(1, T_frames, 1, 1).expand(B, -1, 1, 1)
+        # should_update: True if current t > t_min (frame hasn't reached minimum)
+        should_update = (t.unsqueeze(-1).unsqueeze(-1) > t_min_expanded)  # (B, T, 1, 1)
+
+        x_prev = torch.where(should_update, x_updated, x_t)
+
+        return x_prev
+
+    @torch.no_grad()
+    def sample_ddim_staggered(
+        self,
+        model: nn.Module,
+        condition: torch.Tensor,
+        shape: Tuple[int, ...],
+        n_inference_steps: int = 20,
+        max_residual_timestep: int = 20,
+        return_intermediates: bool = False,
+    ) -> torch.Tensor:
+        """
+        DDIM sampling with staggered per-frame timesteps (causal reverse diffusion).
+
+        Unlike standard DDIM where all frames share the same timestep, staggered
+        sampling gives each frame its own denoising schedule:
+        - Frame 0: Fully denoised (t → 0), producing clean output
+        - Frame T-1: Partially denoised (t → max_residual_timestep), retaining noise
+
+        This matches Diffusion Forcing training where each frame had independent
+        noise levels, fixing the train/inference mismatch.
+
+        Args:
+            model: Denoiser network (must support per-frame timesteps)
+            condition: History conditioning (B, T_hist, H, W)
+            shape: Output shape (B, T_fut, H, W)
+            n_inference_steps: Number of DDIM steps
+            max_residual_timestep: t_min for last frame (controls uncertainty growth)
+            return_intermediates: Whether to return intermediate states
+
+        Returns:
+            x_0: Generated samples (B, T_fut, H, W)
+                 - Frame 0 is clean (denoised to t=0)
+                 - Frame T-1 has residual noise (stopped at t=max_residual_timestep)
+        """
+        device = condition.device
+        B = condition.shape[0]
+        T_fut = shape[1]
+
+        # Step 1: Compute per-frame minimum timesteps
+        # t_min[i] = max_residual * (i / (T-1))
+        # Frame 0 → t_min=0, Frame T-1 → t_min=max_residual
+        frame_idx = torch.arange(T_fut, dtype=torch.float32, device=device)
+        t_min = (max_residual_timestep * frame_idx / (T_fut - 1)).long()  # (T,)
+
+        # Step 2: Create global timestep schedule (same as standard DDIM)
+        step_ratio = self.n_steps / n_inference_steps
+        global_timesteps = [int((self.n_steps - 1) - i * step_ratio) for i in range(n_inference_steps)]
+        global_timesteps = [max(0, t) for t in global_timesteps]
+
+        # Step 3: Start from pure noise
+        x_t = torch.randn(B, *shape[1:], device=device)
+
+        intermediates = [] if return_intermediates else None
+
+        # Step 4: Staggered DDIM loop
+        for step_idx, global_t in enumerate(global_timesteps):
+            # Per-frame current timestep: max(global_t, t_min[i])
+            # Frames that have reached t_min stay at t_min
+            t_current = torch.full((B, T_fut), global_t, device=device, dtype=torch.long)
+            t_current = torch.maximum(t_current, t_min.unsqueeze(0).expand(B, -1))
+
+            # Per-frame target timestep
+            if step_idx + 1 < len(global_timesteps):
+                global_t_next = global_timesteps[step_idx + 1]
+                t_next = torch.full((B, T_fut), global_t_next, device=device, dtype=torch.long)
+                # Clamp to t_min (frames can't go below their minimum)
+                t_next = torch.maximum(t_next, t_min.unsqueeze(0).expand(B, -1))
+            else:
+                # Final step: frames go to t=-1 (clean) or stay at t_min
+                # Frame i with t_min[i]=0 goes to t=-1 (fully clean)
+                # Frame i with t_min[i]>0 stays at t_min[i] (retains noise)
+                t_next = torch.where(
+                    t_min.unsqueeze(0).expand(B, -1) == 0,
+                    torch.full((B, T_fut), -1, device=device, dtype=torch.long),
+                    t_min.unsqueeze(0).expand(B, -1)
+                )
+
+            # DDIM step with per-frame timesteps
+            x_t = self.ddim_sample_per_frame(model, x_t, t_current, t_next, condition, t_min)
+
+            if return_intermediates:
+                intermediates.append(x_t.clone())
+
+        if return_intermediates:
+            return x_t, intermediates
+        return x_t
+
 
 def test_ddpm_scheduler():
     """Unit tests for DDPM scheduler."""
@@ -431,6 +703,42 @@ def test_ddpm_scheduler():
     assert scheduler.alpha_bar[0] > 0.9, f"alpha_bar_0 should be close to 1, got {scheduler.alpha_bar[0]}"
     assert scheduler.alpha_bar[-1] < 0.1, f"alpha_bar_T should be close to 0, got {scheduler.alpha_bar[-1]}"
     print(f"  alpha_bar bounds: OK (alpha_bar_0={scheduler.alpha_bar[0]:.4f}, alpha_bar_T={scheduler.alpha_bar[-1]:.4f})")
+
+    # =========================================================================
+    # Test Diffusion Forcing methods (per-frame noise)
+    # =========================================================================
+    print("\nTesting Diffusion Forcing methods...")
+
+    # Test sample_independent_timesteps
+    t_per_frame = scheduler.sample_independent_timesteps(B, T, device)
+    assert t_per_frame.shape == (B, T), f"Expected shape ({B}, {T}), got {t_per_frame.shape}"
+    assert t_per_frame.min() >= 0 and t_per_frame.max() < 100, "Timesteps out of range"
+    print(f"  sample_independent_timesteps: OK (shape {t_per_frame.shape})")
+
+    # Test q_sample_per_frame
+    x_t_pf, noise_pf = scheduler.q_sample_per_frame(x_0, t_per_frame)
+    assert x_t_pf.shape == x_0.shape, f"q_sample_per_frame shape mismatch: {x_t_pf.shape} vs {x_0.shape}"
+    print(f"  q_sample_per_frame: OK (shape {x_t_pf.shape})")
+
+    # Verify different frames have different noise levels
+    # Frame with t=0 should be almost clean, frame with t=99 should be very noisy
+    t_test = torch.zeros(1, T, dtype=torch.long)
+    t_test[0, 0] = 0   # First frame: clean
+    t_test[0, -1] = 99  # Last frame: noisy
+    x_0_test = torch.ones(1, T, H, W)
+    x_t_test, _ = scheduler.q_sample_per_frame(x_0_test, t_test)
+
+    # Clean frame should be close to original
+    clean_diff = (x_t_test[0, 0] - x_0_test[0, 0]).abs().mean()
+    # Noisy frame should be far from original
+    noisy_diff = (x_t_test[0, -1] - x_0_test[0, -1]).abs().mean()
+    assert noisy_diff > clean_diff, f"Noisy frame should differ more: clean={clean_diff:.4f}, noisy={noisy_diff:.4f}"
+    print(f"  Per-frame noise levels: OK (clean_diff={clean_diff:.4f}, noisy_diff={noisy_diff:.4f})")
+
+    # Test get_per_frame_snr
+    snr_pf = scheduler.get_per_frame_snr(t_per_frame)
+    assert snr_pf.shape == (B, T), f"Expected SNR shape ({B}, {T}), got {snr_pf.shape}"
+    print(f"  get_per_frame_snr: OK (shape {snr_pf.shape})")
 
     print("DDPM Scheduler tests passed!\n")
 

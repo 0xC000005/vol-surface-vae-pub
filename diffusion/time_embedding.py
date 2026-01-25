@@ -39,13 +39,17 @@ class SinusoidalTimeEmbedding(nn.Module):
         Compute sinusoidal embedding for timesteps.
 
         Args:
-            t: Timesteps (B,) - integers or floats
+            t: Timesteps of shape (B,) or (B, T) for per-frame (Diffusion Forcing)
 
         Returns:
-            emb: Embeddings (B, dim)
+            emb: Embeddings (B, dim) or (B, T, dim) matching input shape
         """
         device = t.device
+        input_shape = t.shape
         half_dim = self.dim // 2
+
+        # Flatten to 1D for computation
+        t_flat = t.flatten().float()  # (B,) or (B*T,)
 
         # Compute frequencies: exp(-log(max_period) * i / (half_dim - 1))
         # This gives frequencies ranging from 1 to 1/max_period
@@ -56,12 +60,15 @@ class SinusoidalTimeEmbedding(nn.Module):
         )
 
         # Compute arguments: t * freq
-        # t: (B,) -> (B, 1)
+        # t_flat: (N,) -> (N, 1)
         # freqs: (half_dim,) -> (1, half_dim)
-        args = t.float().unsqueeze(1) * freqs.unsqueeze(0)
+        args = t_flat.unsqueeze(1) * freqs.unsqueeze(0)
 
         # Concatenate sin and cos embeddings
-        emb = torch.cat([torch.sin(args), torch.cos(args)], dim=1)
+        emb = torch.cat([torch.sin(args), torch.cos(args)], dim=1)  # (N, dim)
+
+        # Reshape back to match input: (B, dim) or (B, T, dim)
+        emb = emb.view(*input_shape, self.dim)
 
         return emb
 
@@ -106,16 +113,24 @@ class TimeEmbedding(nn.Module):
         Compute time embedding with MLP projection.
 
         Args:
-            t: Timesteps (B,) - integers in [0, n_steps)
+            t: Timesteps (B,) or (B, T) for per-frame (Diffusion Forcing)
 
         Returns:
-            emb: Embeddings (B, embed_dim)
+            emb: Embeddings (B, embed_dim) or (B, T, embed_dim) matching input
         """
-        # Sinusoidal encoding
-        emb = self.sinusoidal(t)
+        input_shape = t.shape
 
-        # MLP projection
-        emb = self.mlp(emb)
+        # Sinusoidal encoding - handles (B,) or (B, T)
+        emb = self.sinusoidal(t)  # (B, dim) or (B, T, dim)
+
+        # Flatten for MLP if per-frame
+        if t.dim() == 2:
+            B, T = input_shape
+            emb = emb.view(B * T, -1)  # (B*T, dim)
+            emb = self.mlp(emb)
+            emb = emb.view(B, T, -1)  # (B, T, embed_dim)
+        else:
+            emb = self.mlp(emb)
 
         return emb
 
@@ -162,8 +177,8 @@ class AdaptiveGroupNorm(nn.Module):
         Apply adaptive normalization.
 
         Args:
-            x: Input tensor (B, C, ...) - any number of spatial dims
-            t_emb: Time embedding (B, embed_dim)
+            x: Input tensor (B, C, T, H, W) for 3D or (B, C, ...) for other dims
+            t_emb: Time embedding (B, embed_dim) or (B, T, embed_dim) for per-frame
 
         Returns:
             Normalized and scaled/shifted tensor (B, C, ...)
@@ -171,14 +186,29 @@ class AdaptiveGroupNorm(nn.Module):
         # Normalize
         x = self.norm(x)
 
-        # Get scale and shift from time embedding
-        params = self.proj(t_emb)  # (B, 2*C)
-        scale, shift = params.chunk(2, dim=1)  # (B, C), (B, C)
+        # Handle per-frame embeddings (Diffusion Forcing)
+        if t_emb.dim() == 3:
+            # Per-frame: t_emb is (B, T, embed_dim)
+            # x is (B, C, T, H, W)
+            B, T, _ = t_emb.shape
 
-        # Reshape for broadcasting: (B, C) -> (B, C, 1, 1, ...) for spatial dims
-        n_spatial = x.dim() - 2
-        scale = scale.view(scale.shape[0], scale.shape[1], *([1] * n_spatial))
-        shift = shift.view(shift.shape[0], shift.shape[1], *([1] * n_spatial))
+            # Project each frame's embedding: (B, T, embed_dim) -> (B, T, 2*C)
+            params = self.proj(t_emb.view(B * T, -1)).view(B, T, -1)  # (B, T, 2*C)
+            scale, shift = params.chunk(2, dim=2)  # (B, T, C), (B, T, C)
+
+            # Reshape for broadcasting: (B, T, C) -> (B, C, T, 1, 1)
+            scale = scale.permute(0, 2, 1).unsqueeze(-1).unsqueeze(-1)  # (B, C, T, 1, 1)
+            shift = shift.permute(0, 2, 1).unsqueeze(-1).unsqueeze(-1)  # (B, C, T, 1, 1)
+        else:
+            # Standard: t_emb is (B, embed_dim)
+            # Get scale and shift from time embedding
+            params = self.proj(t_emb)  # (B, 2*C)
+            scale, shift = params.chunk(2, dim=1)  # (B, C), (B, C)
+
+            # Reshape for broadcasting: (B, C) -> (B, C, 1, 1, ...) for spatial dims
+            n_spatial = x.dim() - 2
+            scale = scale.view(scale.shape[0], scale.shape[1], *([1] * n_spatial))
+            shift = shift.view(shift.shape[0], shift.shape[1], *([1] * n_spatial))
 
         # Apply scale and shift
         return x * (1 + scale) + shift
@@ -226,7 +256,51 @@ def test_time_embedding():
     assert out.shape == x.shape, f"AdaptiveGroupNorm changed shape: {out.shape} vs {x.shape}"
     print(f"  AdaptiveGroupNorm: OK (shape {out.shape})")
 
-    print("Time Embedding tests passed!\n")
+    # === Per-frame (Diffusion Forcing) tests ===
+    print("\nTesting Per-Frame Mode (Diffusion Forcing)...")
+
+    # Test sinusoidal with per-frame timesteps
+    T_frames = 30
+    t_per_frame = torch.randint(0, 100, (B, T_frames))
+    emb_per_frame = sin_emb(t_per_frame)
+    assert emb_per_frame.shape == (B, T_frames, embed_dim), f"Wrong per-frame shape: {emb_per_frame.shape}"
+    print(f"  Sinusoidal per-frame: OK (shape {emb_per_frame.shape})")
+
+    # Verify per-frame consistency: embedding for same timestep should match
+    t_single = torch.tensor([42])
+    t_batch = torch.tensor([[42, 42, 42]])  # Same timestep repeated
+    emb_single = sin_emb(t_single)  # (1, dim)
+    emb_batch = sin_emb(t_batch)  # (1, 3, dim)
+    assert torch.allclose(emb_single[0], emb_batch[0, 0], atol=1e-6), "Per-frame should match single"
+    assert torch.allclose(emb_single[0], emb_batch[0, 1], atol=1e-6), "Per-frame should match single"
+    print("  Per-frame consistency: OK")
+
+    # Test TimeEmbedding with per-frame
+    t_per_frame = torch.randint(0, 100, (B, T_frames))
+    emb_per_frame = time_emb(t_per_frame)
+    assert emb_per_frame.shape == (B, T_frames, embed_dim), f"Wrong per-frame shape: {emb_per_frame.shape}"
+    print(f"  TimeEmbedding per-frame: OK (shape {emb_per_frame.shape})")
+
+    # Test AdaptiveGroupNorm with per-frame embeddings
+    x = torch.randn(B, C, T_frames, H, W)  # Note: T_frames must match
+    t_emb_per_frame = time_emb(torch.randint(0, 100, (B, T_frames)))
+    out = agn(x, t_emb_per_frame)
+    assert out.shape == x.shape, f"AdaptiveGroupNorm per-frame changed shape: {out.shape} vs {x.shape}"
+    print(f"  AdaptiveGroupNorm per-frame: OK (shape {out.shape})")
+
+    # Verify per-frame modulation is different across frames
+    # Create input with different timesteps per frame
+    t_varied = torch.tensor([[0, 50, 99]])  # Very different timesteps
+    t_emb_varied = time_emb(t_varied)  # (1, 3, embed_dim)
+    x_small = torch.ones(1, C, 3, H, W)  # Uniform input
+    agn_small = AdaptiveGroupNorm(C, num_groups=8, embed_dim=embed_dim)
+    out_small = agn_small(x_small, t_emb_varied)
+    # Different frames should have different outputs due to different timestep modulation
+    assert not torch.allclose(out_small[0, :, 0], out_small[0, :, 1], atol=1e-3), \
+        "Different timesteps should produce different modulation"
+    print("  Per-frame differentiation: OK")
+
+    print("\nTime Embedding tests passed!\n")
 
 
 if __name__ == "__main__":
