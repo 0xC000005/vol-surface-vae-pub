@@ -252,6 +252,8 @@ def main():
     parser.add_argument("--noise_schedule", type=str, default=None,
                         choices=["uniform", "independent"],
                         help="Noise schedule: 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)")
+    parser.add_argument("--cond_drop_prob", type=float, default=None,
+                        help="Probability of dropping condition for CFG training (0.1 recommended)")
     args = parser.parse_args()
 
     # Get config
@@ -268,6 +270,8 @@ def main():
         config.device = args.device
     if args.noise_schedule:
         config.noise_schedule = args.noise_schedule
+    if args.cond_drop_prob is not None:
+        config.cond_drop_prob = args.cond_drop_prob
 
     # Auto-detect device
     if config.device == "cuda" and not torch.cuda.is_available():
@@ -282,6 +286,10 @@ def main():
     print(f"Diffusion steps: {config.n_steps}")
     print(f"Noise schedule: {config.noise_schedule}" +
           (" (Diffusion Forcing)" if config.noise_schedule == "independent" else " (standard DDPM)"))
+    cfg_info = f"CFG cond_drop_prob: {config.cond_drop_prob}"
+    if config.cond_drop_prob > 0:
+        cfg_info += " (CFG enabled)"
+    print(cfg_info)
     print(f"Epochs: {config.epochs}, Batch size: {config.batch_size}, LR: {config.lr}")
     print("=" * 60)
 
@@ -343,6 +351,7 @@ def main():
         dropout=config.dropout,
         n_steps=config.n_steps,
         noise_schedule=config.noise_schedule,
+        cond_drop_prob=config.cond_drop_prob,
     )
 
     model = ConditionalDDPM(

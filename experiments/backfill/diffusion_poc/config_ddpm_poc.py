@@ -41,6 +41,9 @@ class DDPMPOCConfig:
     schedule: str = 'cosine'
     noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
 
+    # === Classifier-Free Guidance (CFG) ===
+    cond_drop_prob: float = 0.0  # Probability of dropping condition during training (0.1 recommended for CFG)
+
     # === Training ===
     batch_size: int = 64
     epochs: int = 50  # Quick validation

@@ -433,6 +433,7 @@ class DDPMScheduler:
         shape: Tuple[int, ...],
         n_inference_steps: int = 20,
         return_intermediates: bool = False,
+        guidance_scale: float = 1.0,
     ) -> torch.Tensor:
         """
         DDIM sampling with step-skipping for faster inference.
@@ -442,10 +443,11 @@ class DDPMScheduler:
 
         Args:
             model: Denoiser network
-            condition: Conditioning context (B, ...)
+            condition: Conditioning context (B, ...) - typically history tensor
             shape: Shape of samples to generate (B, T, H, W)
             n_inference_steps: Number of denoising steps (can be << n_steps)
             return_intermediates: If True, return all intermediate x_t
+            guidance_scale: CFG guidance scale (1.0 = no guidance, >1.0 = stronger conditioning)
 
         Returns:
             x_0: Generated clean samples (B, ...)
@@ -475,7 +477,18 @@ class DDPMScheduler:
                 t_prev_val = -1  # Signal final step
             t_prev = torch.full((B,), t_prev_val, device=device, dtype=torch.long)
 
-            x_t = self.ddim_sample(model, x_t, t, t_prev, condition)
+            # CFG: Classifier-Free Guidance
+            if guidance_scale != 1.0:
+                # Dual prediction for CFG
+                noise_pred_cond = model(x_t, t, condition, force_uncond=False)
+                noise_pred_uncond = model(x_t, t, condition, force_uncond=True)
+                # CFG formula: ε = ε_uncond + guidance_scale * (ε_cond - ε_uncond)
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
+                # Custom DDIM step with pre-computed noise_pred
+                x_t = self._ddim_step_with_noise(x_t, t, t_prev, noise_pred)
+            else:
+                # Standard DDIM step
+                x_t = self.ddim_sample(model, x_t, t, t_prev, condition)
 
             if return_intermediates:
                 intermediates.append(x_t.clone())
@@ -483,6 +496,49 @@ class DDPMScheduler:
         if return_intermediates:
             return x_t, intermediates
         return x_t
+
+    def _ddim_step_with_noise(
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        t_prev: torch.Tensor,
+        noise_pred: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Single DDIM step using pre-computed noise prediction (for CFG).
+
+        Args:
+            x_t: Current noisy samples (B, ...)
+            t: Current timesteps (B,)
+            t_prev: Target timesteps (B,), can be -1 for final step
+            noise_pred: Pre-computed noise prediction (B, ...)
+
+        Returns:
+            x_{t_prev}: Less noisy samples (B, ...)
+        """
+        # Predict x_0
+        x_0_pred = self.predict_x0_from_noise(x_t, t, noise_pred)
+
+        # Get alpha_bar values
+        alpha_bar_t = self._gather(self.alpha_bar, t, x_t.shape)
+
+        # Handle t_prev = -1 case (final step to x_0)
+        t_prev_clamped = t_prev.clamp(min=0)
+        alpha_bar_t_prev = self._gather(self.alpha_bar, t_prev_clamped, x_t.shape)
+        # Set alpha_bar_prev = 1.0 where t_prev < 0
+        alpha_bar_t_prev = torch.where(
+            t_prev.view(-1, *([1] * (x_t.dim() - 1))) >= 0,
+            alpha_bar_t_prev,
+            torch.ones_like(alpha_bar_t_prev)
+        )
+
+        # DDIM update (deterministic)
+        x_prev = (
+            torch.sqrt(alpha_bar_t_prev) * x_0_pred +
+            torch.sqrt(1.0 - alpha_bar_t_prev) * noise_pred
+        )
+
+        return x_prev
 
     # =========================================================================
     # Staggered DDIM Sampling (Causal Reverse Diffusion)

@@ -2471,3 +2471,305 @@ p(future | history) = Σ_r p(future | history, regime=r) × p(regime | history)
 ## References
 
 See VIDEO_VAE_RESEARCH.md for full reference list.
+
+---
+
+## 2026-01-25: CFG Experiment Results
+
+### Summary
+
+Implemented Classifier-Free Guidance (CFG) to test whether it could improve constraint adherence. **Result: CFG is not effective for this task** - it improves some time series properties but degrades uncertainty quantification and arbitrage constraints.
+
+### Implementation
+
+CFG adds unconditional sampling capability during training and combines conditional/unconditional predictions at inference:
+
+```python
+# Training: 10% condition dropout
+if random() < 0.1:
+    condition = null_condition  # Learnable embedding
+    
+# Inference: CFG formula
+noise_pred = noise_uncond + guidance_scale * (noise_cond - noise_uncond)
+```
+
+Changes made:
+- Added `cond_drop_prob` to config (default 0.1 during CFG training)
+- Added learnable `null_condition` parameter to SimpleDenoiser3D
+- Modified `forward()` for condition dropout during training
+- Added `guidance_scale` parameter to DDIM sampling
+- Added `--guidance_scale` CLI argument to validation script
+
+### Results Across Guidance Scales
+
+| Metric | scale=1.0 | scale=2.0 | scale=3.0 | scale=4.0 |
+|--------|-----------|-----------|-----------|-----------|
+| Explosion rate | 0.0% | 0.0% | 0.0% | 0.0% |
+| Calendar arbitrage | **8.2%** | 9.0% | 10.0% | 11.7% |
+| Butterfly arbitrage | 29.3% | 29.4% | 31.4% | 33.8% |
+| 90% CI Coverage | **85.6%** | 82.0% | 72.2% | 60.4% |
+| Calibration Error | **0.018** | 0.030 | 0.108 | 0.205 |
+| ACF correlation | 0.890 | 0.900 | 0.908 | **0.931** |
+| ACF MAE | 0.203 | 0.065 | **0.024** | 0.057 |
+| Kurtosis ratio | 0.241 | 0.287 | 0.361 | **0.372** |
+
+### Key Findings
+
+1. **CFG does NOT help with arbitrage constraints** - Both calendar and butterfly arbitrage get WORSE with higher guidance:
+   - Calendar: 8.2% → 11.7% (worse)
+   - Butterfly: 29.3% → 33.8% (worse)
+
+2. **CI coverage decreases with higher guidance** - From 85.6% (scale=1.0) to 60.4% (scale=4.0). The model becomes over-confident, narrowing prediction intervals.
+
+3. **Calibration error increases dramatically** - From 0.018 → 0.205 (10x worse).
+
+4. **Time series properties improve with higher guidance**:
+   - ACF correlation: 0.890 → 0.931 (better)
+   - ACF MAE: 0.203 → 0.024 at scale 3.0 (3x better)
+   - Kurtosis ratio: 0.241 → 0.372 (closer to target 0.5)
+
+5. **Marginal recovery degrades** - Generated std differs from GT by 16.5% at scale=1.0 vs 39.1% at scale=4.0.
+
+### Interpretation
+
+CFG was designed for image generation where "guidance" pushes samples toward more typical/recognizable outputs. For IV surface forecasting:
+
+- **Arbitrage constraints are structural** - they require specific relationships between surface points (convexity, monotonicity). CFG only encourages samples to be "more like conditioning," which doesn't enforce these mathematical constraints.
+
+- **Uncertainty quantification is harmed** - Higher guidance narrows the sample distribution, reducing diversity. This is desirable for image sharpness but catastrophic for probabilistic forecasting where we need properly calibrated confidence intervals.
+
+- **Time series improvements are a side effect** - Higher guidance makes samples more similar to each other, which can artifically improve autocorrelation matching. But this comes at the cost of underestimating true uncertainty.
+
+### Recommendation
+
+**Stay with guidance_scale=1.0** (equivalent to no CFG). The baseline model without CFG:
+- Has best CI coverage (85.6%)
+- Has best calibration (0.018 error)
+- Has best calendar arbitrage (8.2%)
+- Has acceptable butterfly arbitrage (29.3%)
+
+For improving arbitrage constraints, CFG is not the right approach. Consider instead:
+1. **Post-hoc projection** onto arbitrage-free surface (deterministic fix)
+2. **Constraint-aware loss** during training (soft guidance)
+3. **Diffusion Forcing** with constraint verification at each step
+
+### Files Changed
+
+- `diffusion/simple_denoiser.py` - null_condition, cond dropout
+- `diffusion/ddpm_scheduler.py` - guidance_scale in DDIM
+- `experiments/backfill/diffusion_poc/config_ddpm_poc.py` - cond_drop_prob
+- `experiments/backfill/diffusion_poc/train_ddpm_poc.py` - --cond_drop_prob CLI
+- `experiments/backfill/diffusion_poc/test_ddpm_requirements.py` - --guidance_scale CLI
+
+### Results Location
+
+- Model: `models/backfill/ddpm_poc/checkpoint_epoch_50.pt` (trained with 10% cond dropout)
+- Results: `results/ddpm_poc/cfg_scale_{1.0,2.0,3.0,4.0}/summary.json`
+- Visualizations: `results/ddpm_poc/cfg_scale_*/calibration_curve.png`, etc.
+
+### Literature Verification
+
+Verified against CFG literature to confirm our results are expected:
+
+**Ho & Salimans (2022) "Classifier-Free Diffusion Guidance":**
+> "The intended effect of guidance is to decrease the diversity of samples while increasing the quality of each individual sample."
+
+> "As guidance strength is increased... most of the mass becomes concentrated in smaller regions."
+
+This explains exactly why:
+- CI coverage drops with higher guidance (85.6% → 60.4%)
+- Calibration error increases (model becomes overconfident)
+- ACF improves (samples track mean dynamics more closely)
+
+**Key insight:** CFG was designed for image/audio generation where "sharpness" is desirable. For probabilistic forecasting, **diversity IS the goal** - we need calibrated uncertainty intervals, not concentrated predictions.
+
+**TimeGrad (Rasul et al., 2021)**, the foundational paper for diffusion-based time series forecasting, does not use CFG. Most time series diffusion papers focus on conditioning mechanisms rather than guidance scaling.
+
+**Sources consulted:**
+- [Classifier-Free Diffusion Guidance (Ho & Salimans, 2022)](https://arxiv.org/abs/2207.12598)
+- [Understanding CFG in High Dimensions (2025)](https://arxiv.org/html/2502.07849v1)
+- [TimeGrad (Rasul et al., 2021)](https://arxiv.org/abs/2101.12072)
+- [Diffusion Models for Time Series Forecasting Survey](https://arxiv.org/html/2507.14507)
+
+### Code Verification
+
+Implementation compared against reference implementations:
+
+| Component | Our Code | Reference | Status |
+|-----------|----------|-----------|--------|
+| Null Embedding | `nn.Parameter(torch.zeros(1, dim))` | HF diffusers, lucidrains | CORRECT |
+| Condition Dropout | 10% random replacement | Standard practice | CORRECT |
+| CFG Formula | `uncond + scale * (cond - uncond)` | HF diffusers exact match | CORRECT |
+| Dual Forward Pass | Same `x_t` for both | Required for CFG | CORRECT |
+| DDIM Integration | Applied per timestep | HF diffusers pattern | CORRECT |
+
+**References checked:**
+- HuggingFace diffusers (Stable Diffusion pipeline)
+- TeaPearce/Conditional_Diffusion_MNIST
+- lucidrains/classifier-free-guidance-pytorch
+
+**Verdict: No bugs found.** Implementation matches reference implementations.
+
+### Final Verdict
+
+**The CFG experiment is valid and complete.**
+
+- Results are **consistent with literature** - CFG reduces diversity by design
+- Code is **correctly implemented** - matches reference implementations
+- CFG is **fundamentally unsuitable** for probabilistic forecasting, not broken
+
+**Conclusion:** Do not use CFG for IV surface forecasting. Use guidance_scale=1.0 (no guidance). For improving arbitrage constraints, pursue alternative approaches:
+1. Post-hoc projection onto arbitrage-free surface
+2. Constraint-aware loss during training
+3. Diffusion Forcing with per-step constraint verification
+
+---
+
+## 2026-01-25: SDG Research - Does It Reduce Diversity?
+
+### Context
+
+After CFG proved unsuitable for probabilistic forecasting (reduces diversity/CI coverage), investigated whether SDG (Synchronized Decoupled Guidance) - which was listed as "requires CFG first" - would have the same problem.
+
+### Answer: YES - SDG Likely Reduces Diversity Like CFG
+
+**1. SDG is built on guidance/negative prompting**
+- All guidance techniques reduce diversity by design
+- SDG's purpose is to **suppress** certain outputs (physics-violating motions)
+- Any technique that suppresses outputs reduces the effective sample space
+
+**2. SDG stacks on top of CFG**
+- The paper's implementation applies CFG to **both branches** (Equation 13)
+- This compounds diversity reduction, not alleviates it
+
+**3. No diversity evaluation in the paper**
+- The SDG paper (arXiv:2509.24702) provides NO metrics on diversity trade-offs
+- They only measure physical plausibility scores (PhyGenBench, VideoPhy)
+- This is a red flag for our use case
+
+**4. SDG's goal is orthogonal to ours**
+- SDG makes outputs **more typical** (physically plausible)
+- We need outputs that cover the **full distribution including rare events**
+
+### SDG Mechanism
+
+1. **Synchronized Directional Normalization (SDN)**: Normalizes suppression to activate from first denoising iteration (fixes "lagged suppression" problem)
+2. **Trajectory-Decoupled Denoising (TDD)**: Two parallel latent trajectories evolve independently (fixes "cumulative trajectory bias")
+
+Both components are designed to **more effectively suppress** unwanted outputs - the opposite of what probabilistic forecasting needs.
+
+### Comparison of Guidance Approaches
+
+| Technique | Purpose | Effect on Diversity | Suitable for Forecasting? |
+|-----------|---------|---------------------|---------------------------|
+| CFG | Sharper outputs | Reduces (by design) | NO |
+| SDG | Suppress implausible | Likely reduces (compounds CFG) | NO |
+| TSDiff Self-Guidance | Target specific quantiles | Unknown | Maybe |
+
+### Alternative Approaches Identified
+
+Research identified potentially diversity-preserving techniques:
+
+1. **Autoguidance** (Karras et al., 2024, arXiv:2406.02507) - Uses degraded model version instead of unconditional, claims "wider gamut" and "better coverage of training data"
+
+2. **Power-Law CFG** (arXiv:2502.07849) - Non-linear CFG with `ϕ_t(s) = ω·s^(-α)` that dampens variance shrinkage while maintaining quality
+
+3. **Limited Interval Guidance** - Apply guidance only during early timesteps (class-selection phase), disable during detail generation
+
+4. **Sparse Guidance** - Token-level sparsity that "preserves high-variance of conditional prediction"
+
+### Conclusion
+
+**Remove SDG from the research roadmap.** It would likely make CI coverage worse, not better.
+
+**Fundamental insight:** All guidance-based approaches (CFG, SDG, negative prompting) share the same limitation - they trade diversity for "quality/typicality" by design. This is fundamentally incompatible with probabilistic forecasting where we need calibrated uncertainty intervals.
+
+### Recommended Path Forward
+
+Abandon guidance approaches entirely and focus on:
+1. **Post-hoc projection** onto arbitrage-free surface (deterministic fix)
+2. **SNR-weighted constraint loss** during training (soft guidance toward valid surfaces)
+3. **Hierarchical regime sampling** (explicitly model tail events)
+
+### Sources
+
+- [arXiv:2509.24702 - SDG Paper](https://arxiv.org/abs/2509.24702)
+- [arXiv:2207.12598 - Classifier-Free Guidance (Ho & Salimans)](https://arxiv.org/abs/2207.12598)
+- [arXiv:2406.02507 - Autoguidance](https://arxiv.org/abs/2406.02507)
+- [arXiv:2502.07849 - Non-Linear CFG](https://arxiv.org/abs/2502.07849)
+
+---
+
+## 2026-01-25: Master Comparison Table (All Options with Reasoning)
+
+### Context
+
+After completing CFG and SDG research, compiled all 12 options with current status and reasoning for each decision.
+
+### Master Comparison Table
+
+| # | Approach | Retrain? | Var Len? | Status | Reasoning |
+|---|----------|----------|----------|--------|-----------|
+| **A** | Post-hoc Progressive Noise | ❌ | ❌ | ✅ **Done** | Baseline established (95.5% CI at h=30) |
+| **B** | TSDiff Self-Guidance | ❌ | ❌ | ⏸️ **Skip** | Post-hoc fix, not fundamental |
+| **C** | BCI Conformal Wrapping | ❌ | ❌ | ⏸️ **Skip** | Post-hoc fix, not fundamental |
+| **D** | SNR Physics Loss | ✅ | ❌ | ⏸️ **Skip** | Want model to learn structure from data; if data has violations, so should output |
+| **E** | CFG | ✅ | ❌ | ❌ **Failed** | Tested scales 1-4. Reduces diversity by design (CI: 85.6%→60.4%). Literature confirms unsuitable for probabilistic forecasting |
+| **F** | PDM Projection | ❌ | ❌ | ⏸️ **Skip** | Post-hoc fix, not fundamental |
+| **G** | Structured Causal Noise | ✅ | ✅ | 🔵 **Available** | Untested hypothesis. Middle ground between uniform and independent noise |
+| **H** | ERDM Progressive Schedule | ✅ | ✅ | 🔵 **Available** | Proven in weather/climate. Formalizes post-hoc approach into training |
+| **I** | Horizon-Conditioned σ(t,h) | ✅ | ✅ | 🔵 **Available** | Literature gap. Novel research contribution potential |
+| **J** | Hierarchical Regime Sampling | ✅ | ✅ | 🔵 **Available** | ONLY option fixing kurtosis (0.45→0.8-1.5). Addresses ALL goals |
+| **K** | DDPO/RL Fine-tuning | ✅ | ❌ | ❌ **Ruled Out** | Previously decided against. RL unreliable |
+| **L** | SDG | ✅ | ❌ | ❌ **Deprecated** | Research confirmed: stacks on CFG, reduces diversity. Same fundamental problem |
+
+### Summary by Status
+
+| Status | Options | Count |
+|--------|---------|-------|
+| ✅ Done | A | 1 |
+| ❌ Failed/Deprecated | E, L | 2 |
+| ❌ Ruled Out | K | 1 |
+| ⏸️ Skip (post-hoc/not fundamental) | B, C, F | 3 |
+| ⏸️ Skip (philosophy: learn from data) | D | 1 |
+| 🔵 **Available (Variable-Length)** | **G, H, I, J** | **4** |
+
+### Decision Rationale
+
+**Why skip post-hoc fixes (B, C, F)?**
+- Only meaningful once baseline is good enough or if stuck
+- Want fundamental solutions, not bandaids
+
+**Why skip SNR Physics Loss (D)?**
+- Philosophy: model should learn spatial structure from data itself
+- If training data has arbitrage violations, generated surfaces should reflect that reality
+- Artificial constraints may distort the learned distribution
+
+**Why CFG (E) failed?**
+- Implemented and tested with guidance scales 1.0, 2.0, 3.0, 4.0
+- CI coverage dropped from 85.6% → 82% → 72% → 60% with higher guidance
+- Calibration error increased 10x (0.018 → 0.205)
+- Literature confirms: "The intended effect of guidance is to decrease diversity" (Ho & Salimans 2022)
+- Fundamentally incompatible with probabilistic forecasting
+
+**Why SDG (L) deprecated?**
+- Research showed SDG stacks on top of CFG (applies CFG to both branches)
+- Same diversity-reduction problem, likely worse
+- All guidance approaches trade diversity for "typicality" by design
+
+**Why RL fine-tuning (K) ruled out?**
+- RL is unreliable and high effort
+- Previously decided against this direction
+
+### The 4 Remaining Options (Variable-Length Capable)
+
+| # | Approach | Effort | Fixes Kurtosis? | Key Differentiator |
+|---|----------|--------|-----------------|-------------------|
+| **G** | Structured Causal Noise | Low-Med | ❓ Unknown | Quick hypothesis test |
+| **H** | ERDM Progressive | Medium | ❓ Unknown | Literature-backed (weather/climate) |
+| **I** | Horizon-Conditioned σ(t,h) | Medium | ❓ Unknown | Novel research contribution |
+| **J** | Hierarchical Regime | High | ✅ **Yes** | Only complete solution for ALL goals |
+
+### Key Insight
+
+All fixed-length options have been exhausted or ruled out. The path forward is variable-length approaches (G, H, I, J), with J (Hierarchical Regime Sampling) being the only option that addresses ALL identified problems including kurtosis.

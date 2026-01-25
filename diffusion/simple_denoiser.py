@@ -57,6 +57,9 @@ class DenoiserConfig:
     n_steps: int = 100
     noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
 
+    # Classifier-Free Guidance (CFG)
+    cond_drop_prob: float = 0.0  # Probability of dropping condition during training
+
 
 class HistoryEncoder(nn.Module):
     """
@@ -139,6 +142,9 @@ class SimpleDenoiser3D(nn.Module):
         # History encoder
         self.history_encoder = HistoryEncoder(config)
 
+        # CFG: learnable null embedding for unconditional generation
+        self.null_condition = nn.Parameter(torch.zeros(1, config.condition_dim))
+
         # Time embedding
         self.time_embed = TimeEmbedding(
             n_steps=config.n_steps,
@@ -178,6 +184,7 @@ class SimpleDenoiser3D(nn.Module):
         x_noisy: torch.Tensor,
         t: torch.Tensor,
         history: torch.Tensor,
+        force_uncond: bool = False,
     ) -> torch.Tensor:
         """
         Predict noise in noisy future surfaces.
@@ -186,6 +193,7 @@ class SimpleDenoiser3D(nn.Module):
             x_noisy: (B, T_fut, H, W) noisy future surfaces
             t: (B,) uniform timesteps OR (B, T_fut) per-frame timesteps (Diffusion Forcing)
             history: (B, T_hist, H, W) past surfaces for conditioning
+            force_uncond: If True, use null condition (for CFG unconditional prediction)
 
         Returns:
             noise_pred: (B, T_fut, H, W) predicted noise
@@ -194,8 +202,24 @@ class SimpleDenoiser3D(nn.Module):
         T_fut = x_noisy.shape[1]
         per_frame = (t.dim() == 2)
 
-        # Encode history
-        condition = self.history_encoder(history)  # (B, condition_dim)
+        # CFG: handle conditioning
+        if force_uncond:
+            # Unconditional prediction: use null embedding
+            condition = self.null_condition.expand(B, -1)
+        elif self.training and self.config.cond_drop_prob > 0:
+            # Training with CFG: randomly drop conditioning
+            real_condition = self.history_encoder(history)  # (B, condition_dim)
+            null_condition = self.null_condition.expand(B, -1)
+
+            # Create drop mask: which samples use null condition
+            drop_mask = torch.rand(B, device=x_noisy.device) < self.config.cond_drop_prob
+            drop_mask = drop_mask.unsqueeze(-1)  # (B, 1) for broadcasting
+
+            # Apply mask: drop_mask=True -> null, drop_mask=False -> real
+            condition = torch.where(drop_mask, null_condition, real_condition)
+        else:
+            # Standard: encode history
+            condition = self.history_encoder(history)  # (B, condition_dim)
 
         # Time embedding - handles both (B,) and (B, T) shapes
         t_emb = self.time_embed(t)  # (B, time_embed_dim) or (B, T, time_embed_dim)
@@ -315,6 +339,7 @@ class ConditionalDDPM(nn.Module):
         sampler: str = 'ddpm',
         n_inference_steps: int = 20,
         max_residual_timestep: int = 20,
+        guidance_scale: float = 1.0,
     ) -> torch.Tensor:
         """
         Generate future surface samples.
@@ -330,6 +355,7 @@ class ConditionalDDPM(nn.Module):
             n_inference_steps: For DDIM/staggered, number of denoising steps (default: 20)
             max_residual_timestep: For staggered, t_min for last frame (default: 20)
                 Controls uncertainty growth - higher = more noise in later frames
+            guidance_scale: CFG guidance scale (1.0 = no guidance, >1.0 = stronger conditioning)
 
         Returns:
             samples: (B, n_samples, T_fut, H, W) generated futures
@@ -363,7 +389,8 @@ class ConditionalDDPM(nn.Module):
                 shape = (B, T_fut, H, W)
                 x_0 = self.scheduler.sample_ddim(
                     self.denoiser, history, shape,
-                    n_inference_steps=n_inference_steps
+                    n_inference_steps=n_inference_steps,
+                    guidance_scale=guidance_scale,
                 )
                 samples.append(x_0)
             else:

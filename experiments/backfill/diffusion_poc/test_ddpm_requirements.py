@@ -214,6 +214,7 @@ def run_surface_validity_tests(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """Run all surface validity tests."""
     print("\n--- Test 1: Surface Validity ---")
@@ -234,7 +235,8 @@ def run_surface_validity_tests(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)
+            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Store (flatten batch dim into samples)
             B = samples.shape[0]
@@ -293,6 +295,7 @@ def compute_ci_coverage_detailed(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """
     Compute detailed CI coverage metrics.
@@ -322,7 +325,8 @@ def compute_ci_coverage_detailed(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)  # (B, n_samples, T_fut, 5, 5)
+            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)  # (B, n_samples, T_fut, 5, 5)
 
             samples_np = samples.cpu().numpy()
             future_gt_np = future_gt.cpu().numpy()
@@ -402,6 +406,7 @@ def test_marginal_recovery(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Tuple[Dict, np.ndarray, np.ndarray]:
     """
     Test if pooled conditional samples match unconditional distribution.
@@ -433,7 +438,8 @@ def test_marginal_recovery(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples_per_condition, sampler=sampler, n_inference_steps=n_inference_steps)
+            samples = model.sample(history, n_samples=n_samples_per_condition, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Pool all samples
             all_generated.append(samples.cpu().numpy().flatten())
@@ -510,6 +516,7 @@ def test_acf_preservation(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """
     Test if autocorrelation structure is preserved.
@@ -535,7 +542,8 @@ def test_acf_preservation(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)
+            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Extract ATM point (center of grid)
             gt_atm = future_gt[:, :, 2, 2].numpy()  # (B, T_fut)
@@ -581,6 +589,7 @@ def test_vol_clustering(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """
     Test if ARCH effects (volatility clustering) are preserved.
@@ -606,7 +615,8 @@ def test_vol_clustering(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)
+            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Extract ATM point
             gt_atm = future_gt[:, :, 2, 2].numpy().flatten()
@@ -661,6 +671,7 @@ def test_kurtosis_matching(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """
     Test if kurtosis of one-step changes is preserved.
@@ -686,7 +697,8 @@ def test_kurtosis_matching(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)
+            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Compute one-step changes
             gt_diff = np.diff(future_gt.numpy(), axis=1)  # (B, T-1, 5, 5)
@@ -735,15 +747,16 @@ def run_time_series_tests(
     device: str = 'cpu',
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ) -> Dict:
     """Run all time series property tests."""
     print("\n" + "=" * 40)
     print("TIME SERIES PROPERTY TESTS")
     print("=" * 40)
 
-    acf_results = test_acf_preservation(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps)
-    vol_results = test_vol_clustering(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps)
-    kurt_results = test_kurtosis_matching(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps)
+    acf_results = test_acf_preservation(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
+    vol_results = test_vol_clustering(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
+    kurt_results = test_kurtosis_matching(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
     return {
         'acf': acf_results,
@@ -770,12 +783,14 @@ def visualize_generated_paths(
     output_path: Optional[str] = None,
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
+    guidance_scale: float = 1.0,
 ):
     """Visualize multiple generated trajectories vs ground truth."""
     model.eval()
 
     with torch.no_grad():
-        samples = model.sample(history.unsqueeze(0).to(device), n_samples=n_samples, sampler=sampler, n_inference_steps=n_inference_steps)
+        samples = model.sample(history.unsqueeze(0).to(device), n_samples=n_samples, sampler=sampler,
+                               n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
         samples = samples[0].cpu().numpy()  # (n_samples, T_fut, 5, 5)
 
     future_gt = future_gt.numpy()  # (T_fut, 5, 5)
@@ -1023,6 +1038,8 @@ def main():
                         help="Number of denoising steps for DDIM/staggered (default: 20)")
     parser.add_argument("--max_residual", type=int, default=20,
                         help="For ddim_staggered: t_min for last frame (default: 20). Higher = more uncertainty growth")
+    parser.add_argument("--guidance_scale", type=float, default=1.0,
+                        help="CFG guidance scale (1.0 = no guidance, >1.0 = stronger conditioning)")
     args = parser.parse_args()
 
     config = get_default_config()
@@ -1069,6 +1086,8 @@ def main():
             sampler_info += f", max_residual={args.max_residual}"
     else:
         sampler_info += " (all steps)"
+    if args.guidance_scale != 1.0:
+        sampler_info += f", guidance_scale={args.guidance_scale}"
     print(sampler_info)
     print(f"Output: {output_dir}")
     print("=" * 60)
@@ -1117,6 +1136,7 @@ def main():
         device=device,
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
+        guidance_scale=args.guidance_scale,
     )
 
     # Test 2: CI Coverage
@@ -1127,6 +1147,7 @@ def main():
         device=device,
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
+        guidance_scale=args.guidance_scale,
     )
 
     # Test 3: Marginal Recovery
@@ -1137,6 +1158,7 @@ def main():
         device=device,
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
+        guidance_scale=args.guidance_scale,
     )
 
     # Test 4: Time Series Properties
@@ -1147,6 +1169,7 @@ def main():
         device=device,
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
+        guidance_scale=args.guidance_scale,
     )
 
     # Print summary
@@ -1177,6 +1200,7 @@ def main():
         output_path=f"{output_dir}/path_visualization.png",
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
+        guidance_scale=args.guidance_scale,
     )
 
     # Save results to JSON
