@@ -55,7 +55,15 @@ class DenoiserConfig:
 
     # Diffusion
     n_steps: int = 100
-    noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
+    noise_schedule: str = 'uniform'  # 'uniform', 'independent', 'structured_causal', 'erdm_progressive'
+
+    # Structured Causal Noise (Option G) parameters
+    structured_spread_scale: float = 50.0  # Total spread across frames (should be < n_steps)
+
+    # ERDM Progressive (Option H) parameters
+    erdm_sigma_min: float = 0.002
+    erdm_sigma_max: float = 80.0  # Should be < 100 for n_steps=100
+    erdm_rho: float = -10.0
 
     # Classifier-Free Guidance (CFG)
     cond_drop_prob: float = 0.0  # Probability of dropping condition during training
@@ -308,6 +316,27 @@ class ConditionalDDPM(nn.Module):
             # Each frame gets its own noise level τ_i ~ Uniform(0, T)
             t = self.scheduler.sample_independent_timesteps(B, T_fut, device)  # (B, T)
             x_noisy, _ = self.scheduler.q_sample_per_frame(future, t, noise)
+
+        elif self.config.noise_schedule == 'structured_causal':
+            # Structured Causal Noise (Option G): shared base + progressive spread
+            # Adjacent frames differ by ~spread_scale/n_frames, preserving constraints
+            t = self.scheduler.sample_structured_causal_timesteps(
+                B, T_fut, device,
+                spread_scale=self.config.structured_spread_scale,
+            )
+            x_noisy, _ = self.scheduler.q_sample_per_frame(future, t, noise)
+
+        elif self.config.noise_schedule == 'erdm_progressive':
+            # ERDM Progressive Schedule (Option H): position-dependent noise
+            # Frame 0 gets less noise, Frame T-1 gets more noise
+            t = self.scheduler.sample_erdm_timesteps(
+                B, T_fut, device,
+                sigma_min=self.config.erdm_sigma_min,
+                sigma_max=self.config.erdm_sigma_max,
+                rho=self.config.erdm_rho,
+            )
+            x_noisy, _ = self.scheduler.q_sample_per_frame(future, t, noise)
+
         else:
             # Standard DDPM: uniform timestep for all frames
             t = torch.randint(0, self.config.n_steps, (B,), device=device)
@@ -325,8 +354,8 @@ class ConditionalDDPM(nn.Module):
             'noise': noise,
         }
 
-        # Add SNR info for Diffusion Forcing analysis
-        if self.config.noise_schedule == 'independent':
+        # Add SNR info for per-frame schedules analysis
+        if self.config.noise_schedule in ['independent', 'structured_causal', 'erdm_progressive']:
             result['snr'] = self.scheduler.get_per_frame_snr(t)
 
         return result
@@ -348,10 +377,11 @@ class ConditionalDDPM(nn.Module):
             history: (B, T_hist, H, W) past surfaces
             n_samples: Number of samples to generate per history
             sampler: Sampling method:
-                - 'ddpm': Standard DDPM (all steps)
+                - 'ddpm': Standard DDPM (all steps, uniform timesteps)
                 - 'ddim': Fast DDIM (step-skipping, uniform timesteps)
-                - 'ddim_staggered': Causal DDIM for Diffusion Forcing
-                  (each frame denoises to its own t_min)
+                - 'ddpm_staggered': Gold standard for per-frame training (exact DDPM
+                  with staggered timesteps - each frame denoises to its own t_min)
+                - 'ddim_staggered': Fast approximation for per-frame training
             n_inference_steps: For DDIM/staggered, number of denoising steps (default: 20)
             max_residual_timestep: For staggered, t_min for last frame (default: 20)
                 Controls uncertainty growth - higher = more noise in later frames
@@ -369,13 +399,36 @@ class ConditionalDDPM(nn.Module):
         if self.scheduler.device != device:
             self.scheduler = self._move_scheduler_to_device(device)
 
+        # Auto-select appropriate sampler for per-frame training schedules
+        # Models trained with per-frame timesteps need staggered sampling to match
+        per_frame_schedules = ['independent', 'structured_causal', 'erdm_progressive']
+        if self.config.noise_schedule in per_frame_schedules and sampler in ['ddim', 'ddpm']:
+            import warnings
+            # Prefer ddpm_staggered (exact) over ddim_staggered (approximation)
+            new_sampler = 'ddpm_staggered'
+            warnings.warn(
+                f"Model trained with '{self.config.noise_schedule}' uses per-frame timesteps. "
+                f"Switching sampler from '{sampler}' to '{new_sampler}' for correct inference."
+            )
+            sampler = new_sampler
+
         samples = []
         for _ in range(n_samples):
             # Encode history once
             condition = self.denoiser.history_encoder(history)
 
-            if sampler == 'ddim_staggered':
-                # Staggered DDIM: causal reverse diffusion for Diffusion Forcing
+            if sampler == 'ddpm_staggered':
+                # Staggered DDPM: exact reverse diffusion for per-frame training
+                # Frame 0 → t=0 (clean), Frame T-1 → t=max_residual (noisy)
+                # This is the gold standard - mathematically exact unlike DDIM
+                shape = (B, T_fut, H, W)
+                x_0 = self.scheduler.sample_ddpm_staggered(
+                    self.denoiser, history, shape,
+                    max_residual_timestep=max_residual_timestep,
+                )
+                samples.append(x_0)
+            elif sampler == 'ddim_staggered':
+                # Staggered DDIM: fast approximation for per-frame training
                 # Frame 0 → t=0 (clean), Frame T-1 → t=max_residual (noisy)
                 shape = (B, T_fut, H, W)
                 x_0 = self.scheduler.sample_ddim_staggered(
@@ -412,7 +465,7 @@ class ConditionalDDPM(nn.Module):
 
         # For staggered sampling, clamp to valid IV range [0, 1]
         # (Staggered leaves residual noise that can produce values outside range)
-        if sampler == 'ddim_staggered':
+        if sampler in ['ddim_staggered', 'ddpm_staggered']:
             samples = samples.clamp(0.0, 1.0)
 
         return samples

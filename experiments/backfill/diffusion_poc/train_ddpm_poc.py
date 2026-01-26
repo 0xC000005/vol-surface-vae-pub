@@ -250,8 +250,14 @@ def main():
     parser.add_argument("--eval_every", type=int, default=10, help="Evaluate CI coverage every N epochs")
     parser.add_argument("--n_eval_samples", type=int, default=50, help="Samples per history for CI eval")
     parser.add_argument("--noise_schedule", type=str, default=None,
-                        choices=["uniform", "independent"],
-                        help="Noise schedule: 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)")
+                        choices=["uniform", "independent", "structured_causal", "erdm_progressive"],
+                        help="Noise schedule: 'uniform', 'independent', 'structured_causal', 'erdm_progressive'")
+    parser.add_argument("--structured_spread", type=float, default=None,
+                        help="Spread scale for structured_causal schedule (default: 200)")
+    parser.add_argument("--erdm_rho", type=float, default=None,
+                        help="Rho parameter for ERDM schedule (default: -10)")
+    parser.add_argument("--erdm_sigma_max", type=float, default=None,
+                        help="Max sigma for ERDM schedule (default: 200)")
     parser.add_argument("--cond_drop_prob", type=float, default=None,
                         help="Probability of dropping condition for CFG training (0.1 recommended)")
     args = parser.parse_args()
@@ -270,6 +276,12 @@ def main():
         config.device = args.device
     if args.noise_schedule:
         config.noise_schedule = args.noise_schedule
+    if args.structured_spread is not None:
+        config.structured_spread_scale = args.structured_spread
+    if args.erdm_rho is not None:
+        config.erdm_rho = args.erdm_rho
+    if args.erdm_sigma_max is not None:
+        config.erdm_sigma_max = args.erdm_sigma_max
     if args.cond_drop_prob is not None:
         config.cond_drop_prob = args.cond_drop_prob
 
@@ -351,6 +363,13 @@ def main():
         dropout=config.dropout,
         n_steps=config.n_steps,
         noise_schedule=config.noise_schedule,
+        # Structured Causal Noise (Option G) params
+        structured_spread_scale=config.structured_spread_scale,
+        # ERDM Progressive (Option H) params
+        erdm_sigma_min=config.erdm_sigma_min,
+        erdm_sigma_max=config.erdm_sigma_max,
+        erdm_rho=config.erdm_rho,
+        # CFG params
         cond_drop_prob=config.cond_drop_prob,
     )
 

@@ -39,7 +39,15 @@ class DDPMPOCConfig:
     # === Diffusion Process ===
     n_steps: int = 100  # Fast for POC (vs 1000 in production)
     schedule: str = 'cosine'
-    noise_schedule: str = 'uniform'  # 'uniform' (standard DDPM) or 'independent' (Diffusion Forcing)
+    noise_schedule: str = 'uniform'  # 'uniform', 'independent', 'structured_causal', 'erdm_progressive'
+
+    # === Structured Causal Noise (Option G) ===
+    structured_spread_scale: float = 50.0  # Total spread across frames (should be < n_steps)
+
+    # === ERDM Progressive (Option H) ===
+    erdm_sigma_min: float = 0.002
+    erdm_sigma_max: float = 80.0  # Should be < 100 for n_steps=100
+    erdm_rho: float = -10.0
 
     # === Classifier-Free Guidance (CFG) ===
     cond_drop_prob: float = 0.0  # Probability of dropping condition during training (0.1 recommended for CFG)

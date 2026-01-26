@@ -309,6 +309,127 @@ class DDPMScheduler:
         """
         return torch.randint(0, self.n_steps, (batch_size, n_frames), device=device)
 
+    def sample_structured_causal_timesteps(
+        self,
+        batch_size: int,
+        n_frames: int,
+        device: torch.device,
+        spread_scale: float = 50.0,
+    ) -> torch.Tensor:
+        """
+        Sample structured causal timesteps (Option G).
+
+        Each batch item shares a base timestep with progressive spread across frames.
+        Adjacent frames differ by only ~spread_scale/n_frames noise steps, preserving
+        temporal constraints while teaching uncertainty growth.
+
+        Args:
+            batch_size: Number of samples in batch
+            n_frames: Number of frames (temporal dimension)
+            device: Device to place tensor on
+            spread_scale: Total spread across all frames (default: 50)
+
+        Returns:
+            t: Structured timesteps (B, T) where t[b, i] = base_t[b] + spread * (i / (n_frames - 1))
+        """
+        # Warn if spread_scale is too large for n_steps
+        if spread_scale >= self.n_steps:
+            import warnings
+            warnings.warn(
+                f"spread_scale ({spread_scale}) >= n_steps ({self.n_steps}). "
+                f"This will cause base_t to always be 0. Consider spread_scale < n_steps * 0.5"
+            )
+
+        # Sample base timestep for each batch item
+        # Use range that allows full spread: [0, n_steps - spread_scale - 1]
+        max_base = max(1, self.n_steps - int(spread_scale) - 1)
+        base_t = torch.randint(0, max_base, (batch_size, 1), device=device).float()
+
+        # Create frame indices
+        frame_idx = torch.arange(n_frames, device=device).float()
+
+        # Compute spread per frame: spread_scale * (i / (n_frames - 1))
+        spread = spread_scale * frame_idx / (n_frames - 1)  # (T,)
+
+        # Add spread to base: t[b, i] = base_t[b] + spread[i]
+        t = base_t + spread.unsqueeze(0)  # (B, T)
+
+        # Clamp to valid range and convert to long
+        t = t.clamp(0, self.n_steps - 1).long()
+
+        return t
+
+    def sample_erdm_timesteps(
+        self,
+        batch_size: int,
+        n_frames: int,
+        device: torch.device,
+        sigma_min: float = 0.002,
+        sigma_max: float = 80.0,
+        rho: float = -10.0,
+    ) -> torch.Tensor:
+        """
+        Sample ERDM progressive timesteps (Option H).
+
+        Implements the snapshot-dependent noise schedule from ERDM (arXiv:2506.20024).
+        Each frame gets a noise level based on its position in the forecast window.
+        Frame 0 (nearest) gets lower noise, frame T-1 (furthest) gets higher noise.
+
+        ERDM formula:
+            sigma_bar(w) = (sigma_max^(1/rho) + t_w * (sigma_min^(1/rho) - sigma_max^(1/rho)))^rho
+            where t_w = w / (W - 1) is frame position in [0, 1]
+
+        Args:
+            batch_size: Number of samples in batch
+            n_frames: Number of frames (window size W)
+            device: Device to place tensor on
+            sigma_min: Minimum noise level for near frames (default: 0.002)
+            sigma_max: Maximum noise level for far frames (default: 80)
+            rho: Schedule curvature (default: -10, negative unlike EDM's +7)
+
+        Returns:
+            t: ERDM timesteps (B, T) with position-dependent noise levels
+        """
+        # Warn if sigma_max is too large for typical n_steps
+        if sigma_max > 100:
+            import warnings
+            warnings.warn(
+                f"sigma_max ({sigma_max}) is large for n_steps={self.n_steps}. "
+                f"This may cause extreme timestep mappings. Consider sigma_max < 100 for n_steps=100"
+            )
+
+        # Compute position-dependent sigma for each frame
+        # frame_positions: 0 = near (low noise), 1 = far (high noise)
+        frame_positions = torch.arange(n_frames, device=device).float() / (n_frames - 1)
+
+        # ERDM formula (adapted): sigma increases with frame position
+        # Original ERDM: sigma_bar = (sigma_max^(1/rho) + t * (sigma_min^(1/rho) - sigma_max^(1/rho)))^rho
+        # where t=0 gives sigma_max (noisy) and t=1 gives sigma_min (clean)
+        # We invert by using (1 - frame_positions) so frame 0 is clean and frame T-1 is noisy
+        sigma_max_pow = sigma_max ** (1.0 / rho)
+        sigma_min_pow = sigma_min ** (1.0 / rho)
+        inverted_positions = 1.0 - frame_positions  # frame 0 -> 1 (clean), frame T-1 -> 0 (noisy)
+
+        sigma_bar = (sigma_max_pow + inverted_positions * (sigma_min_pow - sigma_max_pow)) ** rho  # (T,)
+
+        # Convert sigma to alpha_bar: alpha_bar = 1 / (1 + sigma^2)
+        alpha_bar_target = 1.0 / (1.0 + sigma_bar ** 2)  # (T,)
+
+        # Find closest timestep t for each frame's alpha_bar
+        # self.alpha_bar is (n_steps,), alpha_bar_target is (T,)
+        alpha_bar_diff = torch.abs(self.alpha_bar.unsqueeze(1) - alpha_bar_target.unsqueeze(0))  # (n_steps, T)
+        t_frame = alpha_bar_diff.argmin(dim=0)  # (T,) - closest timestep per frame
+
+        # Expand to batch and add small random offset for stochasticity
+        t_frame_expanded = t_frame.unsqueeze(0).expand(batch_size, -1)  # (B, T)
+
+        # Add small random offset (-10 to +10) for training diversity
+        # Use shared offset per batch item to preserve progressive structure
+        offset = torch.randint(-10, 11, (batch_size, 1), device=device)
+        t = (t_frame_expanded + offset).clamp(0, self.n_steps - 1)
+
+        return t
+
     def q_sample_per_frame(
         self,
         x_0: torch.Tensor,
@@ -371,6 +492,138 @@ class DDPMScheduler:
         alpha_bar_flat = self.alpha_bar[t_flat]
         snr_flat = alpha_bar_flat / (1.0 - alpha_bar_flat)
         return snr_flat.view(B, T)
+
+    def p_sample_per_frame(
+        self,
+        model: nn.Module,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        condition: torch.Tensor,
+        t_min: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Single DDPM denoising step with per-frame timesteps (B, T).
+
+        Uses the exact DDPM posterior: p(x_{t-1} | x_t, x_0) = N(μ, σ²)
+        Unlike DDIM (which is an approximation), this is mathematically exact.
+
+        Args:
+            model: Denoiser network that predicts noise
+            x_t: Current noisy samples (B, T, H, W)
+            t: Current per-frame timesteps (B, T)
+            condition: History for conditioning (B, T_hist, H, W)
+            t_min: Optional per-frame minimum timesteps (T,) - frames at t_min freeze
+
+        Returns:
+            x_{t-1}: Slightly less noisy samples (B, T, H, W)
+        """
+        B, T_frames, H, W = x_t.shape
+
+        # 1. Predict noise with per-frame timesteps
+        noise_pred = model(x_t, t, condition)
+
+        # 2. Predict x_0 per-frame
+        sqrt_recip_alpha_bar = self._gather_per_frame(self.sqrt_recip_alpha_bar, t, x_t.shape)
+        sqrt_recip_alpha_bar_m1 = self._gather_per_frame(self.sqrt_recip_alpha_bar_minus_one, t, x_t.shape)
+        x_0_pred = sqrt_recip_alpha_bar * x_t - sqrt_recip_alpha_bar_m1 * noise_pred
+
+        if self.clip_sample:
+            x_0_pred = torch.clamp(x_0_pred, -self.clip_sample_range, self.clip_sample_range)
+
+        # 3. Compute DDPM posterior mean coefficients
+        alpha_t = self._gather_per_frame(self.alphas, t, x_t.shape)
+        alpha_bar_t = self._gather_per_frame(self.alpha_bar, t, x_t.shape)
+        alpha_bar_prev_t = self._gather_per_frame(self.alpha_bar_prev, t, x_t.shape)
+        beta_t = self._gather_per_frame(self.betas, t, x_t.shape)
+
+        # Posterior mean: μ = coef_x0 * x_0_pred + coef_xt * x_t
+        coef_x0 = torch.sqrt(alpha_bar_prev_t) * beta_t / (1.0 - alpha_bar_t)
+        coef_xt = torch.sqrt(alpha_t) * (1.0 - alpha_bar_prev_t) / (1.0 - alpha_bar_t)
+        mean = coef_x0 * x_0_pred + coef_xt * x_t
+
+        # 4. Sample with posterior variance
+        noise = torch.randn_like(x_t)
+        posterior_variance_t = self._gather_per_frame(self.posterior_variance, t, x_t.shape)
+
+        # Mask: at t=0, we don't add noise
+        nonzero_mask = (t != 0).float().unsqueeze(-1).unsqueeze(-1)  # (B, T, 1, 1)
+
+        x_prev = mean + nonzero_mask * torch.sqrt(posterior_variance_t) * noise
+
+        # 5. Freeze frames that have reached their t_min (if provided)
+        if t_min is not None:
+            t_min_expanded = t_min.view(1, T_frames, 1, 1).expand(B, -1, 1, 1)
+            should_update = (t.unsqueeze(-1).unsqueeze(-1) > t_min_expanded)  # (B, T, 1, 1)
+            x_prev = torch.where(should_update, x_prev, x_t)
+
+        return x_prev
+
+    @torch.no_grad()
+    def sample_ddpm_staggered(
+        self,
+        model: nn.Module,
+        condition: torch.Tensor,
+        shape: Tuple[int, ...],
+        max_residual_timestep: int = 20,
+        return_intermediates: bool = False,
+    ) -> torch.Tensor:
+        """
+        Full DDPM reverse diffusion with staggered per-frame timesteps.
+
+        Unlike standard DDPM where all frames share the same timestep, staggered
+        sampling gives each frame its own denoising schedule:
+        - Frame 0: Fully denoised (t → 0), producing clean output
+        - Frame T-1: Partially denoised (t → max_residual_timestep), retaining noise
+
+        This is the mathematically exact version of staggered sampling (vs DDIM
+        which is an approximation). Use this as the gold standard for models
+        trained with per-frame noise schedules (structured_causal, erdm_progressive).
+
+        Args:
+            model: Denoiser network (must support per-frame timesteps)
+            condition: History conditioning (B, T_hist, H, W)
+            shape: Output shape (B, T_fut, H, W)
+            max_residual_timestep: t_min for last frame (controls uncertainty growth)
+            return_intermediates: Whether to return intermediate states
+
+        Returns:
+            x_0: Generated samples (B, T_fut, H, W)
+                 - Frame 0 is clean (denoised to t=0)
+                 - Frame T-1 has residual noise (stopped at t=max_residual_timestep)
+        """
+        device = condition.device
+        B = condition.shape[0]
+        T_fut = shape[1]
+
+        # Step 1: Compute per-frame minimum timesteps
+        # t_min[i] = max_residual * (i / (T-1))
+        # Frame 0 → t_min=0, Frame T-1 → t_min=max_residual
+        # Clamp max_residual to n_steps-1 to prevent out-of-bounds
+        effective_max_residual = min(max_residual_timestep, self.n_steps - 1)
+        frame_idx = torch.arange(T_fut, dtype=torch.float32, device=device)
+        t_min = (effective_max_residual * frame_idx / (T_fut - 1)).long()  # (T,)
+
+        # Step 2: Initialize from pure noise
+        x_t = torch.randn(B, *shape[1:], device=device)
+
+        intermediates = [] if return_intermediates else None
+
+        # Step 3: Full DDPM reverse diffusion (all n_steps)
+        for t_global in reversed(range(self.n_steps)):
+            # Per-frame current timestep: max(global_t, t_min[i])
+            # Frames that have reached t_min stay at t_min
+            t_current = torch.full((B, T_fut), t_global, device=device, dtype=torch.long)
+            t_current = torch.maximum(t_current, t_min.unsqueeze(0).expand(B, -1))
+
+            # DDPM step with per-frame timesteps
+            x_t = self.p_sample_per_frame(model, x_t, t_current, condition, t_min)
+
+            if return_intermediates:
+                intermediates.append(x_t.clone())
+
+        if return_intermediates:
+            return x_t, intermediates
+        return x_t
 
     def ddim_sample(
         self,
@@ -676,8 +929,10 @@ class DDPMScheduler:
         # Step 1: Compute per-frame minimum timesteps
         # t_min[i] = max_residual * (i / (T-1))
         # Frame 0 → t_min=0, Frame T-1 → t_min=max_residual
+        # Clamp max_residual to n_steps-1 to prevent out-of-bounds
+        effective_max_residual = min(max_residual_timestep, self.n_steps - 1)
         frame_idx = torch.arange(T_fut, dtype=torch.float32, device=device)
-        t_min = (max_residual_timestep * frame_idx / (T_fut - 1)).long()  # (T,)
+        t_min = (effective_max_residual * frame_idx / (T_fut - 1)).long()  # (T,)
 
         # Step 2: Create global timestep schedule (same as standard DDIM)
         step_ratio = self.n_steps / n_inference_steps
@@ -796,7 +1051,99 @@ def test_ddpm_scheduler():
     assert snr_pf.shape == (B, T), f"Expected SNR shape ({B}, {T}), got {snr_pf.shape}"
     print(f"  get_per_frame_snr: OK (shape {snr_pf.shape})")
 
-    print("DDPM Scheduler tests passed!\n")
+    # =========================================================================
+    # Test Structured Causal Noise (Option G)
+    # =========================================================================
+    print("\nTesting Structured Causal Noise (Option G)...")
+
+    t_structured = scheduler.sample_structured_causal_timesteps(B, T, device, spread_scale=50.0)
+    assert t_structured.shape == (B, T), f"Expected shape ({B}, {T}), got {t_structured.shape}"
+    assert t_structured.min() >= 0 and t_structured.max() < 100, "Timesteps out of range"
+    print(f"  sample_structured_causal_timesteps: OK (shape {t_structured.shape})")
+
+    # Verify monotonic structure: later frames should have >= timesteps (shared base + spread)
+    for b in range(B):
+        diffs = t_structured[b, 1:] - t_structured[b, :-1]
+        assert (diffs >= 0).all(), "Structured causal: later frames should have >= timesteps"
+    print("  Monotonic structure: OK")
+    print(f"    Sample: t[0,0]={t_structured[0,0].item()}, t[0,-1]={t_structured[0,-1].item()}, spread={t_structured[0,-1].item() - t_structured[0,0].item()}")
+
+    # Test q_sample_per_frame with structured timesteps
+    x_t_struct, _ = scheduler.q_sample_per_frame(x_0, t_structured)
+    assert x_t_struct.shape == x_0.shape, f"Shape mismatch: {x_t_struct.shape} vs {x_0.shape}"
+    print("  q_sample_per_frame with structured: OK")
+
+    # =========================================================================
+    # Test ERDM Progressive Schedule (Option H)
+    # =========================================================================
+    print("\nTesting ERDM Progressive Schedule (Option H)...")
+
+    t_erdm = scheduler.sample_erdm_timesteps(B, T, device, sigma_min=0.002, sigma_max=80.0, rho=-10.0)
+    assert t_erdm.shape == (B, T), f"Expected shape ({B}, {T}), got {t_erdm.shape}"
+    assert t_erdm.min() >= 0 and t_erdm.max() < 100, "Timesteps out of range"
+    print(f"  sample_erdm_timesteps: OK (shape {t_erdm.shape})")
+
+    # Verify progressive structure: expect mean to increase with frame index
+    mean_t_per_frame = t_erdm.float().mean(dim=0)  # Average across batch
+    assert mean_t_per_frame[-1] > mean_t_per_frame[0], \
+        f"ERDM: later frames should have higher avg timestep (got frame0={mean_t_per_frame[0]:.1f} vs frame{T-1}={mean_t_per_frame[-1]:.1f})"
+    print(f"  Progressive structure: OK (mean t: frame0={mean_t_per_frame[0]:.1f}, frame{T-1}={mean_t_per_frame[-1]:.1f})")
+
+    # Test q_sample_per_frame with ERDM timesteps
+    x_t_erdm, _ = scheduler.q_sample_per_frame(x_0, t_erdm)
+    assert x_t_erdm.shape == x_0.shape, f"Shape mismatch: {x_t_erdm.shape} vs {x_0.shape}"
+    print("  q_sample_per_frame with ERDM: OK")
+
+    # =========================================================================
+    # Test DDPM Staggered Sampling (Gold Standard)
+    # =========================================================================
+    print("\nTesting DDPM Staggered Sampling...")
+
+    # Create a simple mock model for testing
+    class MockDenoiser(nn.Module):
+        def forward(self, x_t, t, condition):
+            """Mock denoiser that predicts zero noise (returns input unchanged)."""
+            return torch.zeros_like(x_t)
+
+    mock_model = MockDenoiser()
+
+    # Test p_sample_per_frame
+    t_per_frame = scheduler.sample_structured_causal_timesteps(B, T, device, spread_scale=50.0)
+    x_t_test = torch.randn(B, T, H, W)
+    condition_test = torch.randn(B, T, H, W)  # Mock history
+
+    x_prev = scheduler.p_sample_per_frame(mock_model, x_t_test, t_per_frame, condition_test)
+    assert x_prev.shape == x_t_test.shape, f"p_sample_per_frame shape mismatch: {x_prev.shape} vs {x_t_test.shape}"
+    print(f"  p_sample_per_frame: OK (shape {x_prev.shape})")
+
+    # Test with t_min freezing
+    t_min = torch.arange(T, dtype=torch.long, device=device) * 2  # Frame i freezes at t=2*i
+    x_prev_frozen = scheduler.p_sample_per_frame(mock_model, x_t_test, t_per_frame, condition_test, t_min=t_min)
+    assert x_prev_frozen.shape == x_t_test.shape, "p_sample_per_frame with t_min shape mismatch"
+    print("  p_sample_per_frame with t_min: OK")
+
+    # Test sample_ddpm_staggered (use very few steps for test)
+    scheduler_fast = DDPMScheduler(n_steps=5, schedule='cosine', device=device)
+    shape_test = (2, T, H, W)  # B=2
+    condition_small = torch.randn(2, T, H, W)
+
+    x_0_staggered = scheduler_fast.sample_ddpm_staggered(
+        mock_model, condition_small, shape_test,
+        max_residual_timestep=2,
+    )
+    assert x_0_staggered.shape == (2, T, H, W), f"sample_ddpm_staggered shape mismatch: {x_0_staggered.shape}"
+    print(f"  sample_ddpm_staggered: OK (shape {x_0_staggered.shape})")
+
+    # Test with return_intermediates
+    x_0_stag, intermediates = scheduler_fast.sample_ddpm_staggered(
+        mock_model, condition_small, shape_test,
+        max_residual_timestep=2,
+        return_intermediates=True,
+    )
+    assert len(intermediates) == 5, f"Expected 5 intermediates for n_steps=5, got {len(intermediates)}"
+    print(f"  sample_ddpm_staggered with intermediates: OK ({len(intermediates)} steps)")
+
+    print("\nDDPM Scheduler tests passed!\n")
 
 
 if __name__ == "__main__":

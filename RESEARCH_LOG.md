@@ -2716,8 +2716,8 @@ After completing CFG and SDG research, compiled all 12 options with current stat
 | **D** | SNR Physics Loss | ✅ | ❌ | ⏸️ **Skip** | Want model to learn structure from data; if data has violations, so should output |
 | **E** | CFG | ✅ | ❌ | ❌ **Failed** | Tested scales 1-4. Reduces diversity by design (CI: 85.6%→60.4%). Literature confirms unsuitable for probabilistic forecasting |
 | **F** | PDM Projection | ❌ | ❌ | ⏸️ **Skip** | Post-hoc fix, not fundamental |
-| **G** | Structured Causal Noise | ✅ | ✅ | 🔵 **Available** | Untested hypothesis. Middle ground between uniform and independent noise |
-| **H** | ERDM Progressive Schedule | ✅ | ✅ | 🔵 **Available** | Proven in weather/climate. Formalizes post-hoc approach into training |
+| **G** | Structured Causal Noise | ✅ | ✅ | ❌ **Failed** | Train-inference mismatch. Frame 0 only sees t∈[0,49], can't denoise from t=99. 95% explosion rate. |
+| **H** | ERDM Progressive Schedule | ✅ | ✅ | ❌ **Skip** | Requires EDM framework (Heun ODE, continuous time, preconditioning). We have DDPM. |
 | **I** | Horizon-Conditioned σ(t,h) | ✅ | ✅ | 🔵 **Available** | Literature gap. Novel research contribution potential |
 | **J** | Hierarchical Regime Sampling | ✅ | ✅ | 🔵 **Available** | ONLY option fixing kurtosis (0.45→0.8-1.5). Addresses ALL goals |
 | **K** | DDPO/RL Fine-tuning | ✅ | ❌ | ❌ **Ruled Out** | Previously decided against. RL unreliable |
@@ -2728,11 +2728,12 @@ After completing CFG and SDG research, compiled all 12 options with current stat
 | Status | Options | Count |
 |--------|---------|-------|
 | ✅ Done | A | 1 |
-| ❌ Failed/Deprecated | E, L | 2 |
+| ❌ Failed/Deprecated | E, G, L | 3 |
 | ❌ Ruled Out | K | 1 |
 | ⏸️ Skip (post-hoc/not fundamental) | B, C, F | 3 |
 | ⏸️ Skip (philosophy: learn from data) | D | 1 |
-| 🔵 **Available (Variable-Length)** | **G, H, I, J** | **4** |
+| ⏸️ Skip (wrong framework) | H | 1 |
+| 🔵 **Available (Variable-Length)** | **I, J** | **2** |
 
 ### Decision Rationale
 
@@ -2761,15 +2762,141 @@ After completing CFG and SDG research, compiled all 12 options with current stat
 - RL is unreliable and high effort
 - Previously decided against this direction
 
-### The 4 Remaining Options (Variable-Length Capable)
+### The 2 Remaining Options (Variable-Length Capable)
 
 | # | Approach | Effort | Fixes Kurtosis? | Key Differentiator |
 |---|----------|--------|-----------------|-------------------|
-| **G** | Structured Causal Noise | Low-Med | ❓ Unknown | Quick hypothesis test |
-| **H** | ERDM Progressive | Medium | ❓ Unknown | Literature-backed (weather/climate) |
+| **G** | ~~Structured Causal Noise~~ | ~~Low-Med~~ | ~~❓ Unknown~~ | ❌ FAILED: Train-inference mismatch |
+| **H** | ~~ERDM Progressive~~ | ~~Medium~~ | ~~❓ Unknown~~ | ❌ SKIP: Requires EDM, not DDPM |
 | **I** | Horizon-Conditioned σ(t,h) | Medium | ❓ Unknown | Novel research contribution |
 | **J** | Hierarchical Regime | High | ✅ **Yes** | Only complete solution for ALL goals |
 
 ### Key Insight
 
-All fixed-length options have been exhausted or ruled out. The path forward is variable-length approaches (G, H, I, J), with J (Hierarchical Regime Sampling) being the only option that addresses ALL identified problems including kurtosis.
+All fixed-length options have been exhausted or ruled out. After testing G and H (see 2026-01-26 entry below), only **I and J** remain viable for variable-length generation. J (Hierarchical Regime Sampling) is the only option that addresses ALL identified problems including kurtosis.
+
+---
+
+## 2026-01-26: Options G & H Experimental Results - Both Failed
+
+### Context
+
+Implemented and tested Options G (Structured Causal Noise) and H (ERDM Progressive Schedule) for variable-length generation with uncertainty growth. Both approaches failed due to fundamental design issues.
+
+### Implementation
+
+**Option G (Structured Causal Noise):**
+```python
+# Training: shared base_t with progressive spread
+base_t ~ Uniform(0, n_steps - spread_scale - 1)  # e.g., [0, 49]
+t[frame_i] = base_t + spread_scale * (i / (n_frames - 1))
+# Result: Frame 0 sees t ∈ [0, 49], Frame 29 sees t ∈ [50, 99]
+```
+
+**Option H (ERDM Progressive):**
+```python
+# Training: position-dependent noise from ERDM paper formula
+σ̄_w(t) = (σ_max^(1/ρ) + t_{w,t}(σ_min^(1/ρ) - σ_max^(1/ρ)))^ρ
+# Mapped to discrete timesteps per frame
+```
+
+**Inference (Staggered DDPM Sampling):**
+```python
+# All frames start from pure noise (t=99)
+# Frame 0 denoises to t=0 (clean)
+# Frame 29 denoises to t=20 (retains uncertainty)
+```
+
+### Results
+
+**Option G with wrong sampler (uniform DDIM):**
+- CI Coverage: 25.7% (vs 81.7% baseline) - FAIL
+
+**Option G with correct sampler (ddpm_staggered):**
+- Explosion rate: **95%** - Catastrophic failure
+- Calendar arbitrage: 23.3%
+- Butterfly arbitrage: 48.9%
+
+**Option H:** Not fully evaluated - discovered framework mismatch first
+
+### Root Cause Analysis
+
+#### Problem 1: Train-Inference Mismatch (Option G)
+
+The fundamental issue is that training restricts which timesteps each frame sees:
+
+| Frame | Training t range | Inference requirement |
+|-------|------------------|----------------------|
+| Frame 0 | t ∈ [0, 49] only | Denoise from t=99 |
+| Frame 29 | t ∈ [50, 99] only | Denoise from t=99 |
+
+**Frame 0 never learned to denoise from high noise (t > 49).** At inference, when asked to denoise from t=99, the model outputs garbage (95% explosion rate).
+
+This is NOT a sampler bug - it's a fundamental design flaw. The staggered inference requires all frames to handle t=99→0, but structured_causal training only teaches each frame a narrow t range.
+
+#### Problem 2: Wrong Diffusion Framework (Option H)
+
+Detailed comparison of ERDM paper vs our implementation:
+
+| Aspect | ERDM Paper | Our Implementation |
+|--------|-----------|-------------------|
+| **Framework** | EDM (Elucidated Diffusion) | DDPM |
+| **Time** | Continuous t ∈ [0, 1] | Discrete t ∈ {0, ..., 99} |
+| **Sampler** | Heun ODE solver (2nd order) | DDPM ancestral sampling |
+| **Parameterization** | σ (noise level) directly | t (timestep index) |
+| **Preconditioning** | c_skip, c_out, c_in scaling | None |
+| **Inference** | Rolling window (output frame 1, shift, add noise at W) | Batch generation |
+
+**ERDM is built on EDM, not DDPM.** We only borrowed the noise schedule formula but used the completely wrong underlying framework. Proper ERDM implementation would require rewriting the entire diffusion infrastructure.
+
+#### Problem 3: ERDM Design Intent Mismatch
+
+Further analysis of the ERDM formula revealed it's designed for **rolling forecasts**, not batch generation:
+
+```
+At global t=0: Frame 0 is already almost clean (σ ≈ σ_min)
+At global t=1: Frame 0 is fully clean, Frame W still noisy
+```
+
+ERDM assumes Frame 0 **starts nearly clean** (inherited from previous rolling window), not from pure noise. This is fundamentally different from our use case of generating full trajectories from scratch.
+
+### Bug Fixes Made (Insufficient)
+
+1. **ERDM per-frame offset bug** - Fixed `(batch_size, n_frames)` → `(batch_size, 1)` to preserve progressive structure
+2. **Missing clamping for ddpm_staggered** - Added clamping for staggered sampler outputs
+3. **Implemented `p_sample_per_frame()` and `sample_ddpm_staggered()`** - Correct DDPM staggered sampling
+
+These fixes were technically correct but don't address the fundamental design flaws.
+
+### Comparison with Diffusion Forcing (Independent Noise)
+
+Diffusion Forcing (`independent` schedule) was previously tried and also failed, but for a different reason:
+
+| Approach | Training | Failure Mode |
+|----------|----------|--------------|
+| **Diffusion Forcing** | Each frame sees ALL t values independently | Decouples frames → destroys arbitrage structure |
+| **Structured Causal (G)** | Each frame sees RESTRICTED t values | Train-inference mismatch → can't denoise from high t |
+| **ERDM (H)** | Position-dependent noise | Wrong framework (needs EDM, not DDPM) |
+
+### Updated Master Table
+
+| # | Approach | Status | Reasoning |
+|---|----------|--------|-----------|
+| **G** | Structured Causal Noise | ❌ **FAILED** | Train-inference mismatch. Frame 0 never sees t > 49 during training, can't denoise from t=99 at inference. 95% explosion rate. |
+| **H** | ERDM Progressive | ❌ **SKIP** | Requires EDM framework (continuous time, Heun ODE solver, preconditioning). We have DDPM. Would need complete rewrite. |
+| **I** | Horizon-Conditioned σ(t,h) | 🔵 **Available** | Still untested. Novel research direction. |
+| **J** | Hierarchical Regime | 🔵 **Available** | Still the only complete solution for ALL goals including kurtosis. |
+
+### Key Lessons
+
+1. **Framework matters:** ERDM paper results don't transfer to DDPM - they use fundamentally different diffusion frameworks (EDM vs DDPM).
+
+2. **Train-inference distribution must match:** If training restricts which (frame, timestep) combinations the model sees, inference cannot request unseen combinations.
+
+3. **Position-dependent noise schedules are incompatible with "generate from scratch":** Both structured_causal and ERDM assume some frames start cleaner than others. They're designed for rolling/autoregressive generation, not batch trajectory generation.
+
+4. **Always verify reference paper's framework:** We should have checked ERDM uses EDM before implementing. The noise schedule formula alone is not sufficient.
+
+### Remaining Options
+
+Only **I (Horizon-Conditioned σ(t,h))** and **J (Hierarchical Regime Sampling)** remain viable for variable-length generation. Option J is the only one that also addresses the kurtosis problem.

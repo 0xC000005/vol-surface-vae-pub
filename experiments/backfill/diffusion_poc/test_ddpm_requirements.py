@@ -1032,8 +1032,8 @@ def main():
     parser.add_argument("--max_batches", type=int, default=20, help="Max batches to evaluate")
     parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory for plots")
-    parser.add_argument("--sampler", type=str, choices=["ddpm", "ddim", "ddim_staggered"], default="ddpm",
-                        help="Sampling method: ddpm (slow), ddim (fast), or ddim_staggered (causal for Diffusion Forcing)")
+    parser.add_argument("--sampler", type=str, choices=["ddpm", "ddim", "ddim_staggered", "ddpm_staggered"], default="ddpm",
+                        help="Sampling method: ddpm (slow), ddim (fast), ddim_staggered (causal DDIM), ddpm_staggered (exact causal DDPM)")
     parser.add_argument("--ddim_steps", type=int, default=20,
                         help="Number of denoising steps for DDIM/staggered (default: 20)")
     parser.add_argument("--max_residual", type=int, default=20,
