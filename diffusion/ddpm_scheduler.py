@@ -208,6 +208,52 @@ class DDPMScheduler:
 
         return x_prev
 
+    def p_sample_with_pred(
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        noise_pred: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Single denoising step with pre-computed noise prediction.
+
+        This is useful when the caller needs to compute the noise prediction
+        with additional conditioning (e.g., regime_id) that the scheduler
+        doesn't know about.
+
+        Args:
+            x_t: Current noisy samples (B, ...)
+            t: Current timesteps (B,)
+            noise_pred: Pre-computed noise prediction (B, ...)
+
+        Returns:
+            x_{t-1}: Slightly less noisy samples (B, ...)
+        """
+        # Predict x_0
+        x_0_pred = self.predict_x0_from_noise(x_t, t, noise_pred)
+
+        # Compute mean of p(x_{t-1} | x_t, x_0)
+        alpha_t = self._gather(self.alphas, t, x_t.shape)
+        alpha_bar_t = self._gather(self.alpha_bar, t, x_t.shape)
+        alpha_bar_prev_t = self._gather(self.alpha_bar_prev, t, x_t.shape)
+        beta_t = self._gather(self.betas, t, x_t.shape)
+
+        coef_x0 = torch.sqrt(alpha_bar_prev_t) * beta_t / (1.0 - alpha_bar_t)
+        coef_xt = torch.sqrt(alpha_t) * (1.0 - alpha_bar_prev_t) / (1.0 - alpha_bar_t)
+
+        mean = coef_x0 * x_0_pred + coef_xt * x_t
+
+        # Sample (except at t=0, where we return the mean)
+        noise = torch.randn_like(x_t)
+        posterior_variance_t = self._gather(self.posterior_variance, t, x_t.shape)
+
+        # Mask: at t=0, we don't add noise
+        nonzero_mask = (t != 0).float().view(-1, *([1] * (x_t.dim() - 1)))
+
+        x_prev = mean + nonzero_mask * torch.sqrt(posterior_variance_t) * noise
+
+        return x_prev
+
     @torch.no_grad()
     def sample(
         self,

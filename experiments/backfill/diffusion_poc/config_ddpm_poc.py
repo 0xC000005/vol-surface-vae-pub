@@ -71,6 +71,13 @@ class DDPMPOCConfig:
     eval_horizons: List[int] = field(default_factory=lambda: [1, 7, 14, 30])
     ci_levels: List[float] = field(default_factory=lambda: [0.5, 0.8, 0.9, 0.95])
 
+    # === Hierarchical Regime Sampling (Option J) ===
+    n_regimes: int = 5
+    regime_embed_dim: int = 32
+    regime_loss_weight: float = 1.0
+    regime_labels_path: str = "data/regime_labels.npz"
+    use_regime_conditioning: bool = False  # Enable with --use_regime flag
+
     # === Output ===
     output_dir: str = "models/backfill/ddpm_poc"
     checkpoint_every: int = 10

@@ -67,6 +67,8 @@ class VolSurfaceDataset(Dataset):
         future_len: int,
         start_idx: int = 0,
         end_idx: Optional[int] = None,
+        regime_labels: Optional[np.ndarray] = None,
+        data_start_idx: int = 0,
     ):
         """
         Args:
@@ -75,6 +77,8 @@ class VolSurfaceDataset(Dataset):
             future_len: Number of frames to predict
             start_idx: Start index in surfaces array
             end_idx: End index (exclusive) in surfaces array
+            regime_labels: (N - history_len - future_len + 1,) regime labels for all trajectories
+            data_start_idx: Offset for indexing into regime_labels (equals start_idx)
         """
         self.history_len = history_len
         self.future_len = future_len
@@ -83,6 +87,10 @@ class VolSurfaceDataset(Dataset):
         # Get subset of data
         end_idx = end_idx or len(surfaces)
         self.surfaces = surfaces[start_idx:end_idx]
+
+        # Regime labels (full array indexed by global position)
+        self.regime_labels = regime_labels
+        self.data_start_idx = data_start_idx
 
         # Create valid sequence starts
         self.valid_starts = list(range(len(self.surfaces) - self.total_len + 1))
@@ -104,7 +112,15 @@ class VolSurfaceDataset(Dataset):
         history = normalize_iv(history)
         future = normalize_iv(future)
 
-        return {"history": history, "future": future}
+        result = {"history": history, "future": future}
+
+        # Add regime label if available
+        # global_start = position in full dataset = data_start_idx + start
+        if self.regime_labels is not None:
+            global_start = self.data_start_idx + start
+            result["regime"] = torch.tensor(self.regime_labels[global_start], dtype=torch.long)
+
+        return result
 
 
 def compute_ci_coverage(
@@ -187,15 +203,24 @@ def train_epoch(
     """Train for one epoch."""
     model.train()
     total_loss = 0
+    total_regime_loss = 0
+    total_regime_acc = 0
     n_batches = 0
+    has_regime = False
 
     pbar = tqdm(dataloader, desc="Training", leave=False)
     for batch in pbar:
         history = batch["history"].to(device)
         future = batch["future"].to(device)
 
+        # Get regime ids if available
+        regime_ids = batch.get("regime")
+        if regime_ids is not None:
+            regime_ids = regime_ids.to(device)
+            has_regime = True
+
         # Forward pass
-        result = model(history, future)
+        result = model(history, future, regime_ids=regime_ids)
         loss = result["loss"]
 
         # Backward pass
@@ -210,12 +235,24 @@ def train_epoch(
 
         total_loss += loss.item()
         n_batches += 1
-        pbar.set_postfix({"loss": loss.item()})
+
+        # Update progress bar
+        postfix = {"loss": loss.item()}
+        if "regime_loss" in result:
+            total_regime_loss += result["regime_loss"]
+            total_regime_acc += result["regime_acc"]
+            postfix["r_loss"] = result["regime_loss"]
+            postfix["r_acc"] = f"{result['regime_acc']:.2%}"
+        pbar.set_postfix(postfix)
 
     if scheduler is not None:
         scheduler.step()
 
-    return {"loss": total_loss / n_batches}
+    metrics = {"loss": total_loss / n_batches}
+    if has_regime:
+        metrics["regime_loss"] = total_regime_loss / n_batches
+        metrics["regime_acc"] = total_regime_acc / n_batches
+    return metrics
 
 
 def validate(
@@ -226,18 +263,31 @@ def validate(
     """Compute validation loss."""
     model.eval()
     total_loss = 0
+    total_regime_acc = 0
     n_batches = 0
+    has_regime = False
 
     with torch.no_grad():
         for batch in dataloader:
             history = batch["history"].to(device)
             future = batch["future"].to(device)
 
-            result = model(history, future)
+            # Get regime ids if available
+            regime_ids = batch.get("regime")
+            if regime_ids is not None:
+                regime_ids = regime_ids.to(device)
+                has_regime = True
+
+            result = model(history, future, regime_ids=regime_ids)
             total_loss += result["loss"].item()
+            if "regime_acc" in result:
+                total_regime_acc += result["regime_acc"]
             n_batches += 1
 
-    return {"val_loss": total_loss / n_batches}
+    metrics = {"val_loss": total_loss / n_batches}
+    if has_regime:
+        metrics["val_regime_acc"] = total_regime_acc / n_batches
+    return metrics
 
 
 def main():
@@ -260,6 +310,10 @@ def main():
                         help="Max sigma for ERDM schedule (default: 200)")
     parser.add_argument("--cond_drop_prob", type=float, default=None,
                         help="Probability of dropping condition for CFG training (0.1 recommended)")
+    parser.add_argument("--use_regime", action="store_true",
+                        help="Enable regime conditioning (Option J)")
+    parser.add_argument("--regime_labels", type=str, default=None,
+                        help="Path to regime labels file (default: data/regime_labels.npz)")
     args = parser.parse_args()
 
     # Get config
@@ -284,6 +338,10 @@ def main():
         config.erdm_sigma_max = args.erdm_sigma_max
     if args.cond_drop_prob is not None:
         config.cond_drop_prob = args.cond_drop_prob
+    if args.use_regime:
+        config.use_regime_conditioning = True
+    if args.regime_labels:
+        config.regime_labels_path = args.regime_labels
 
     # Auto-detect device
     if config.device == "cuda" and not torch.cuda.is_available():
@@ -302,6 +360,10 @@ def main():
     if config.cond_drop_prob > 0:
         cfg_info += " (CFG enabled)"
     print(cfg_info)
+    regime_info = f"Regime conditioning: {config.use_regime_conditioning}"
+    if config.use_regime_conditioning:
+        regime_info += f" (n_regimes={config.n_regimes}, labels={config.regime_labels_path})"
+    print(regime_info)
     print(f"Epochs: {config.epochs}, Batch size: {config.batch_size}, LR: {config.lr}")
     print("=" * 60)
 
@@ -311,6 +373,18 @@ def main():
     surfaces = data["surface"]
     print(f"Loaded {len(surfaces)} surfaces with shape {surfaces.shape}")
 
+    # Load regime labels if regime conditioning enabled
+    regime_labels = None
+    if config.use_regime_conditioning:
+        print(f"Loading regime labels from {config.regime_labels_path}...")
+        regime_data = np.load(config.regime_labels_path)
+        regime_labels = regime_data['labels']
+        print(f"Loaded {len(regime_labels)} regime labels, {config.n_regimes} regimes")
+        # Verify label count matches expected
+        expected_labels = len(surfaces) - config.history_len - config.future_len + 1
+        assert len(regime_labels) == expected_labels, \
+            f"Label count mismatch: {len(regime_labels)} vs expected {expected_labels}"
+
     # Create datasets
     train_dataset = VolSurfaceDataset(
         surfaces,
@@ -318,6 +392,8 @@ def main():
         config.future_len,
         start_idx=0,
         end_idx=config.train_end,
+        regime_labels=regime_labels,
+        data_start_idx=0,
     )
     val_dataset = VolSurfaceDataset(
         surfaces,
@@ -325,12 +401,16 @@ def main():
         config.future_len,
         start_idx=config.val_start,
         end_idx=config.val_end,
+        regime_labels=regime_labels,
+        data_start_idx=config.val_start,
     )
     test_dataset = VolSurfaceDataset(
         surfaces,
         config.history_len,
         config.future_len,
         start_idx=config.test_start,
+        regime_labels=regime_labels,
+        data_start_idx=config.test_start,
     )
 
     # Create dataloaders
@@ -371,6 +451,11 @@ def main():
         erdm_rho=config.erdm_rho,
         # CFG params
         cond_drop_prob=config.cond_drop_prob,
+        # Regime conditioning (Option J)
+        n_regimes=config.n_regimes,
+        regime_embed_dim=config.regime_embed_dim,
+        regime_loss_weight=config.regime_loss_weight,
+        use_regime_conditioning=config.use_regime_conditioning,
     )
 
     model = ConditionalDDPM(
@@ -415,12 +500,15 @@ def main():
         val_metrics = validate(model, val_loader, config.device)
 
         # Log
-        print(
+        log_msg = (
             f"Epoch {epoch:3d}/{config.epochs} | "
             f"Train Loss: {train_metrics['loss']:.6f} | "
             f"Val Loss: {val_metrics['val_loss']:.6f} | "
             f"LR: {optimizer.param_groups[0]['lr']:.2e}"
         )
+        if "regime_acc" in train_metrics:
+            log_msg += f" | Regime Acc: {train_metrics['regime_acc']:.1%}"
+        print(log_msg)
 
         # Evaluate CI coverage periodically
         if epoch % args.eval_every == 0 or epoch == config.epochs:

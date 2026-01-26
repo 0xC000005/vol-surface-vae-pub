@@ -11,7 +11,7 @@ No temporal attention yet - just proves diffusion can work on vol surfaces.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -67,6 +67,12 @@ class DenoiserConfig:
 
     # Classifier-Free Guidance (CFG)
     cond_drop_prob: float = 0.0  # Probability of dropping condition during training
+
+    # Hierarchical Regime Sampling (Option J)
+    n_regimes: int = 5
+    regime_embed_dim: int = 32
+    regime_loss_weight: float = 1.0
+    use_regime_conditioning: bool = False  # If True, add regime embedding to condition
 
 
 class HistoryEncoder(nn.Module):
@@ -126,6 +132,36 @@ class HistoryEncoder(nn.Module):
         return condition
 
 
+class RegimeClassifier(nn.Module):
+    """Predicts market regime from history context.
+
+    Used in hierarchical sampling (Option J) to:
+    1. Classify the likely future regime from history encoding
+    2. Enable regime-conditioned diffusion generation
+    """
+
+    def __init__(self, config: DenoiserConfig):
+        super().__init__()
+        self.config = config
+        self.classifier = nn.Sequential(
+            nn.Linear(config.condition_dim, 128),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(128, config.n_regimes),
+        )
+
+    def forward(self, condition: torch.Tensor) -> torch.Tensor:
+        """Predict regime logits from history encoding.
+
+        Args:
+            condition: (B, condition_dim) history encoding
+
+        Returns:
+            logits: (B, n_regimes) unnormalized regime probabilities
+        """
+        return self.classifier(condition)
+
+
 class SimpleDenoiser3D(nn.Module):
     """
     Minimal 3D denoiser for volatility surface diffusion POC.
@@ -159,9 +195,17 @@ class SimpleDenoiser3D(nn.Module):
             embed_dim=config.time_embed_dim,
         )
 
-        # Project condition + time to channels
+        # Regime embedding (only if regime conditioning enabled)
+        if config.use_regime_conditioning:
+            self.regime_embed = nn.Embedding(config.n_regimes, config.regime_embed_dim)
+            cond_input_dim = config.condition_dim + config.regime_embed_dim + config.time_embed_dim
+        else:
+            self.regime_embed = None
+            cond_input_dim = config.condition_dim + config.time_embed_dim
+
+        # Project condition (+ optional regime) + time to channels
         self.cond_proj = nn.Sequential(
-            nn.Linear(config.condition_dim + config.time_embed_dim, C * 2),
+            nn.Linear(cond_input_dim, C * 2),
             nn.SiLU(),
             nn.Linear(C * 2, C),
         )
@@ -192,6 +236,7 @@ class SimpleDenoiser3D(nn.Module):
         x_noisy: torch.Tensor,
         t: torch.Tensor,
         history: torch.Tensor,
+        regime_id: Optional[torch.Tensor] = None,
         force_uncond: bool = False,
     ) -> torch.Tensor:
         """
@@ -201,6 +246,7 @@ class SimpleDenoiser3D(nn.Module):
             x_noisy: (B, T_fut, H, W) noisy future surfaces
             t: (B,) uniform timesteps OR (B, T_fut) per-frame timesteps (Diffusion Forcing)
             history: (B, T_hist, H, W) past surfaces for conditioning
+            regime_id: (B,) regime indices for hierarchical sampling (Option J)
             force_uncond: If True, use null condition (for CFG unconditional prediction)
 
         Returns:
@@ -232,13 +278,26 @@ class SimpleDenoiser3D(nn.Module):
         # Time embedding - handles both (B,) and (B, T) shapes
         t_emb = self.time_embed(t)  # (B, time_embed_dim) or (B, T, time_embed_dim)
 
-        # Combine condition and time
+        # Get regime embedding if enabled
+        if self.regime_embed is not None and regime_id is not None:
+            regime_emb = self.regime_embed(regime_id)  # (B, regime_embed_dim)
+        elif self.regime_embed is not None:
+            # Regime conditioning enabled but no regime_id provided - use zeros
+            regime_emb = torch.zeros(B, self.config.regime_embed_dim, device=x_noisy.device)
+        else:
+            regime_emb = None
+
+        # Combine condition (+ optional regime) and time
         if per_frame:
             # Per-frame (Diffusion Forcing): broadcast condition to each frame
             # condition: (B, condition_dim) -> (B, T, condition_dim)
             condition_expanded = condition.unsqueeze(1).expand(-1, T_fut, -1)
             # t_emb: (B, T, time_embed_dim)
-            cond_combined = torch.cat([condition_expanded, t_emb], dim=2)  # (B, T, condition_dim + time_embed_dim)
+            if regime_emb is not None:
+                regime_expanded = regime_emb.unsqueeze(1).expand(-1, T_fut, -1)
+                cond_combined = torch.cat([condition_expanded, regime_expanded, t_emb], dim=2)
+            else:
+                cond_combined = torch.cat([condition_expanded, t_emb], dim=2)
 
             # Project per-frame: (B, T, ...) -> (B, T, C)
             cond_combined_flat = cond_combined.view(B * T_fut, -1)
@@ -246,7 +305,10 @@ class SimpleDenoiser3D(nn.Module):
             cond_emb = cond_emb_flat.view(B, T_fut, -1)  # (B, T, C)
         else:
             # Uniform timestep (standard DDPM)
-            cond_combined = torch.cat([condition, t_emb], dim=1)  # (B, condition_dim + time_embed_dim)
+            if regime_emb is not None:
+                cond_combined = torch.cat([condition, regime_emb, t_emb], dim=1)
+            else:
+                cond_combined = torch.cat([condition, t_emb], dim=1)
             cond_emb = self.cond_proj(cond_combined)  # (B, C)
 
         # Process noisy future
@@ -278,6 +340,12 @@ class ConditionalDDPM(nn.Module):
         self.config = config
         self.denoiser = SimpleDenoiser3D(config)
 
+        # Regime classifier for hierarchical sampling (Option J)
+        if config.use_regime_conditioning:
+            self.regime_classifier = RegimeClassifier(config)
+        else:
+            self.regime_classifier = None
+
         # Import scheduler here to avoid circular import
         from diffusion.ddpm_scheduler import DDPMScheduler
 
@@ -292,6 +360,7 @@ class ConditionalDDPM(nn.Module):
         self,
         history: torch.Tensor,
         future: torch.Tensor,
+        regime_ids: Optional[torch.Tensor] = None,
     ) -> dict:
         """
         Training forward pass.
@@ -299,9 +368,12 @@ class ConditionalDDPM(nn.Module):
         Args:
             history: (B, T_hist, H, W) past surfaces
             future: (B, T_fut, H, W) future surfaces (clean)
+            regime_ids: (B,) regime labels for hierarchical sampling (Option J)
 
         Returns:
-            dict with 'loss', 'noise_pred', 'noise', and optionally 'snr' for Diffusion Forcing
+            dict with 'loss', 'noise_pred', 'noise', and optionally:
+            - 'snr' for Diffusion Forcing
+            - 'regime_loss', 'regime_acc' for regime conditioning
         """
         B = history.shape[0]
         T_fut = future.shape[1]
@@ -343,7 +415,8 @@ class ConditionalDDPM(nn.Module):
             x_noisy, _ = self.scheduler.q_sample(future, t, noise)
 
         # Predict noise - denoiser handles both (B,) and (B, T) timesteps
-        noise_pred = self.denoiser(x_noisy, t, history)
+        # Pass regime_ids if provided (for regime-conditioned generation)
+        noise_pred = self.denoiser(x_noisy, t, history, regime_id=regime_ids)
 
         # MSE loss on noise
         loss = F.mse_loss(noise_pred, noise)
@@ -357,6 +430,20 @@ class ConditionalDDPM(nn.Module):
         # Add SNR info for per-frame schedules analysis
         if self.config.noise_schedule in ['independent', 'structured_causal', 'erdm_progressive']:
             result['snr'] = self.scheduler.get_per_frame_snr(t)
+
+        # Regime classification loss (if labels provided and classifier exists)
+        if regime_ids is not None and self.regime_classifier is not None:
+            # Encode history for classifier
+            # NOTE: no_grad() prevents regime loss from affecting history encoder
+            # The encoder is trained only by diffusion loss; classifier adapts to encoder features
+            with torch.no_grad():
+                history_cond = self.denoiser.history_encoder(history)
+            regime_logits = self.regime_classifier(history_cond)
+            regime_loss = F.cross_entropy(regime_logits, regime_ids)
+            loss = loss + self.config.regime_loss_weight * regime_loss
+            result['loss'] = loss
+            result['regime_loss'] = regime_loss.item()
+            result['regime_acc'] = (regime_logits.argmax(dim=1) == regime_ids).float().mean().item()
 
         return result
 
@@ -478,6 +565,139 @@ class ConditionalDDPM(nn.Module):
             schedule='cosine',
             device=device,
         )
+
+    @torch.no_grad()
+    def sample_hierarchical(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 50,
+        n_inference_steps: int = 20,
+        temperature: float = 1.0,
+    ) -> tuple:
+        """Hierarchical sampling: sample regime first, then trajectory (Option J).
+
+        This enables generating diverse trajectories that explicitly sample from
+        different market regimes (calm, crisis, spike, etc.) rather than averaging
+        them out.
+
+        Args:
+            history: (B, T_hist, H, W) past surfaces
+            n_samples: Number of samples to generate per history
+            n_inference_steps: Number of DDIM denoising steps
+            temperature: Temperature for regime sampling (higher = more diverse)
+
+        Returns:
+            samples: (B, n_samples, T_fut, H, W) generated futures
+            regimes: (B, n_samples) sampled regime for each trajectory
+        """
+        if not self.config.use_regime_conditioning:
+            raise ValueError("Hierarchical sampling requires use_regime_conditioning=True")
+
+        if self.regime_classifier is None:
+            raise ValueError("Regime classifier not initialized")
+
+        B = history.shape[0]
+        device = history.device
+        T_fut = self.config.future_len
+        H, W = self.config.surface_h, self.config.surface_w
+
+        # Update scheduler device if needed
+        if self.scheduler.device != device:
+            self.scheduler = self._move_scheduler_to_device(device)
+
+        # Encode history once
+        history_cond = self.denoiser.history_encoder(history)  # (B, condition_dim)
+
+        # Get regime probabilities from classifier
+        regime_logits = self.regime_classifier(history_cond)  # (B, n_regimes)
+        regime_probs = F.softmax(regime_logits / temperature, dim=-1)
+
+        # Sample regimes for each trajectory
+        # Expand probs: (B, K) -> (B*n_samples, K), sample, reshape to (B, n_samples)
+        probs_expanded = regime_probs.unsqueeze(1).expand(-1, n_samples, -1).reshape(-1, self.config.n_regimes)
+        regimes = torch.multinomial(probs_expanded, num_samples=1).reshape(B, n_samples)  # (B, n_samples)
+
+        # Generate trajectories conditioned on sampled regimes
+        samples = []
+        for s in range(n_samples):
+            regime_id = regimes[:, s]  # (B,)
+
+            # Standard DDPM sampling with regime conditioning
+            x_t = torch.randn(B, T_fut, H, W, device=device)
+
+            # Reverse diffusion with regime conditioning
+            for t_val in reversed(range(self.config.n_steps)):
+                t = torch.full((B,), t_val, device=device, dtype=torch.long)
+                # Get noise prediction with regime conditioning
+                noise_pred = self.denoiser(x_t, t, history, regime_id=regime_id)
+                x_t = self.scheduler.p_sample_with_pred(x_t, t, noise_pred)
+
+            samples.append(x_t)
+
+        # Stack samples: (B, n_samples, T_fut, H, W)
+        samples = torch.stack(samples, dim=1)
+
+        # Denormalize from [-1, 1] to [0, 1]
+        samples = denormalize_iv(samples)
+
+        return samples, regimes
+
+    @torch.no_grad()
+    def sample_variable_length(
+        self,
+        history: torch.Tensor,
+        n_chunks: int = 3,
+        n_samples: int = 50,
+        n_inference_steps: int = 20,
+        temperature: float = 1.0,
+    ) -> tuple:
+        """Generate variable-length trajectories via chunk-and-shift (Option J).
+
+        Generates multi-chunk trajectories by:
+        1. Generate first 30-day chunk with hierarchical regime sampling
+        2. Use end of chunk as history for next chunk
+        3. Repeat with regime resampling each chunk
+
+        This enables regime transitions within a single trajectory.
+
+        Args:
+            history: (B, T_hist, H, W) past surfaces
+            n_chunks: Number of 30-day chunks to generate
+            n_samples: Number of trajectory samples per history
+            n_inference_steps: DDIM steps per chunk
+            temperature: Temperature for regime sampling
+
+        Returns:
+            trajectories: (B, n_samples, n_chunks * T_fut, H, W)
+            regimes: (B, n_samples, n_chunks) regime per chunk
+        """
+        if not self.config.use_regime_conditioning:
+            raise ValueError("Variable-length generation requires use_regime_conditioning=True")
+
+        B = history.shape[0]
+        chunks = []
+        all_regimes = []
+        current_history = history
+
+        for chunk_idx in range(n_chunks):
+            # Sample this chunk with hierarchical regime
+            chunk_samples, chunk_regimes = self.sample_hierarchical(
+                current_history, n_samples, n_inference_steps, temperature
+            )
+            chunks.append(chunk_samples)
+            all_regimes.append(chunk_regimes)
+
+            # Use end of this chunk as history for next
+            # Take last history_len days of first sample as new history
+            # Note: chunk_samples is in [0, 1] after denormalize, need to re-normalize for next iteration
+            from experiments.backfill.diffusion_poc.train_ddpm_poc import normalize_iv
+            current_history = normalize_iv(chunk_samples[:, 0, -self.config.history_len:, :, :])
+
+        # Concatenate chunks along time dimension
+        trajectories = torch.cat(chunks, dim=2)  # (B, n_samples, n_chunks*T_fut, H, W)
+        regimes = torch.stack(all_regimes, dim=2)  # (B, n_samples, n_chunks)
+
+        return trajectories, regimes
 
 
 def test_simple_denoiser():
