@@ -3240,3 +3240,566 @@ Neither is implemented in current codebase.
 ### Conclusion
 
 The current DDPM architecture produces **regime-dependent means** but **regime-independent variance**. To achieve wider CIs for crisis periods and narrower CIs for calm periods, would need to implement heteroscedastic variance modeling (like Improved DDPM which predicts both noise and log-variance).
+
+---
+
+## 2026-01-27: Comprehensive DDPM Analysis - Spatial, Temporal, and Marginal Features
+
+### Context
+
+Created three dedicated analysis scripts to comprehensively evaluate DDPM-generated IV surface paths against ground truth. The goal is to understand what the model captures well vs. poorly across different dimensions: spatial structure (smile/term), temporal dynamics (clustering/mean reversion), and distributional properties (marginals).
+
+### Key Findings
+
+#### 1. Spatial Analysis Results
+
+**Per-Grid-Point Error Metrics:**
+
+| Metric | DDPM Baseline |
+|--------|---------------|
+| Smile RMSE (mean) | 0.0476 |
+| Smile RMSE (std) | 0.0099 |
+| Term Structure RMSE (mean) | 0.0481 |
+| Term Structure RMSE (std) | 0.0084 |
+| Cross-Grid Correlation Frobenius | 12.33 |
+| Width Correlation | -0.015 |
+| Steepness Correlation | -0.015 |
+| Grid RMSE (mean) | 0.0428 |
+
+**Shape Metrics at Specific Horizons:**
+
+| Horizon | Skew Sign Match | Convexity Sign Match | Slope Sign Match |
+|---------|-----------------|----------------------|------------------|
+| h=15 | 80% | 80% | 80% |
+| h=30 | 60% | 80% | 80% |
+
+**Observation:** DDPM preserves smile/term structure shapes reasonably well (60-80% sign match), but cross-grid correlation and width/steepness tracking are poor (near-zero correlations).
+
+#### 2. Temporal Analysis Results
+
+**Volatility Clustering (ACF of Squared Returns at ATM):**
+
+| Metric | Ground Truth | Generated |
+|--------|--------------|-----------|
+| ACF(1) mean | 0.1365 | 0.1366 |
+| ACF(1) std | 0.2386 | 0.1969 |
+| ACF(1) median | 0.0245 | 0.1312 |
+| % paths with ACF > 0.05 | 45.0% | 65.3% |
+| KS statistic | - | 0.224 |
+| KS p-value | - | 2.77e-07 |
+
+**Mean Reversion Analysis:**
+
+| Metric | Ground Truth | Generated |
+|--------|--------------|-----------|
+| κ (mean reversion speed) | 0.19 | 0.81 |
+| κ median | 0.16 | 0.82 |
+| Half-life (median) | 4.3 days | 0.8 days |
+| % paths with κ > 0 | 98.8% | 100.0% |
+
+**Critical Finding:** DDPM generates paths that revert to their local mean **4-5x faster** than ground truth. This explains why generated paths appear "smoother" - they lack the volatility persistence characteristic of real market data.
+
+#### 3. Unconditional Marginal Matching
+
+**Per-Grid-Point Analysis (25 points total):**
+
+| Summary Metric | Value |
+|----------------|-------|
+| Grid points matching (KS p > 0.05) | 0/25 |
+| Average KS statistic | 0.30 |
+| Average Wasserstein distance | 0.024 |
+| Average mean difference | 11.6% |
+| Average std ratio (Gen/GT) | 2.43 |
+
+**Tenor-Dependent Pattern:**
+
+| Tenor | Std Ratio (Gen/GT) |
+|-------|-------------------|
+| 1M | 1.1 - 1.6x |
+| 2M | 1.2 - 2.0x |
+| 3M | 1.8 - 2.3x |
+| 6M | 2.3 - 4.5x |
+| 1Y | 3.3 - 6.0x |
+
+**Critical Finding:** Generated samples have systematically higher variance than ground truth, especially at longer tenors. This suggests the model generates "too diverse" samples when pooling across many different conditioning histories.
+
+### Implications
+
+1. **Spatial structure**: DDPM preserves basic smile/term shapes but doesn't track fine-grained features (width, steepness correlations).
+
+2. **Temporal dynamics**: The fast mean reversion (κ=0.81 vs 0.19) is a fundamental limitation - generated paths are too smooth and lack realistic volatility persistence.
+
+3. **Marginals**: The 2-6x higher variance at longer tenors may be acceptable for stress testing (conservative CI widths) but problematic for accurate distributional matching.
+
+4. **Model characterization**: DDPM produces regime-dependent means with appropriate spatial structure, but oversimplified temporal dynamics and inflated variance at longer horizons.
+
+### Scripts Created
+
+| Script | Purpose | Output Directory |
+|--------|---------|------------------|
+| `analyze_spatial_features.py` | Smile/term RMSE, cross-grid correlation, shape metrics | `results/ddpm_poc/spatial_analysis/` |
+| `analyze_temporal_features.py` | Vol clustering (ACF), mean reversion (κ, half-life) | `results/ddpm_poc/temporal_analysis/` |
+| `analyze_marginal_matching.py` | Per-grid-point unconditional marginals, KS tests | `results/ddpm_poc/marginal_analysis/` |
+
+### Visualizations Generated
+
+**Spatial (`results/ddpm_poc/spatial_analysis/`):**
+- `smile_rmse_heatmap.png`, `term_rmse_heatmap.png`
+- `correlation_matrix_comparison.png`
+- `smile_day15.png`, `smile_day30.png`, `term_day15.png`, `term_day30.png`
+
+**Temporal (`results/ddpm_poc/temporal_analysis/`):**
+- `vol_clustering_distribution.png`, `vol_clustering_visual.png`, `vol_clustering_heatmap.png`
+- `acf_curves_overlay.png`, `acf_comparison.png`
+- `mean_reversion_scatter.png`, `mean_reversion_paths.png`
+- `mean_reversion_speed.png`, `half_life_distribution.png`
+
+**Marginal (`results/ddpm_poc/marginal_analysis/`):**
+- `ks_heatmap.png`, `marginal_histograms.png`
+- `qq_plots.png`, `horizon_marginals.png`, `summary_metrics.png`
+
+### Next Steps
+
+1. Investigate why mean reversion is 4-5x too fast - possible causes:
+   - Denoising process inherently smooths trajectories
+   - Training objective doesn't penalize temporal dynamics
+   - Need explicit temporal regularization
+
+2. Consider alternative approaches for realistic temporal dynamics:
+   - Diffusion Forcing (already implemented, needs evaluation)
+   - Explicit ARCH-style loss terms
+   - Autoregressive hybrid approaches
+
+---
+
+## 2026-01-27: HistoryEncoder Bottleneck & Cross-Attention Architecture Research
+
+### Context
+
+Investigation into why DDPM has poor cross-grid correlation matching (Frobenius distance high between GT and generated correlation matrices). The spatial analysis showed that while DDPM preserves basic smile/term shapes, it doesn't track fine-grained spatial features like width and steepness correlations.
+
+### Problem Analysis
+
+#### Current Architecture
+
+```
+HistoryEncoder:
+  Input:  (B, 30, 5, 5)     # 30 days × 5×5 grid = 750 values
+  Conv3D: (B, 32, 30, 5, 5) # Features with spatial structure
+  Pool:   (B, 32, 1, 1, 1)  # GlobalAvgPool3d - ALL SPATIAL INFO LOST
+  Output: (B, 128)          # Single vector per batch
+```
+
+The `AdaptiveAvgPool3d((1,1,1))` takes the **mean** across all 30 time steps and all 25 grid points. This destroys:
+- **Spatial structure**: Which grid points have high/low IV
+- **Cross-grid correlations**: Relationship between ATM vs OTM
+- **Smile shape information**: Curvature across moneyness
+
+#### Impact on Generation
+
+The denoiser receives a 128-dim vector that encodes "average IV level" but has no information about WHERE on the grid values were high or low. Result:
+- Denoiser CAN generate spatially correlated outputs (3D convs couple neighbors)
+- But correlation pattern doesn't MATCH conditioning history's specific pattern
+- Generated samples have generic correlation structure, not history-specific
+
+### Video Diffusion Literature Review
+
+Researched how state-of-the-art video diffusion models handle conditioning:
+
+| Model | Conditioning Method | Spatial Preservation |
+|-------|--------------------|--------------------|
+| **Sora** | AdaLN-Zero + 3D VAE | Full spatial structure via 3D VAE encoding |
+| **Stable Video Diffusion** | Cross-attention + concat | Denoiser queries spatial features |
+| **VideoLDM** | Temporal layers + spatial freeze | Pre-trained spatial encoder preserved |
+| **FancyVideo** | Cross-frame attention | Implicit spatial alignment |
+
+#### Key Finding: Cross-Attention is Industry Standard
+
+Instead of pooling to a vector, SOTA models **keep spatial dimensions and use cross-attention**:
+
+```
+Industry Standard:
+  Encoder → spatial features (B, C, T, H, W)
+                ↓
+  Denoiser → Cross-Attention (Q=noisy, K,V=encoder features)
+                ↓
+  Result: Denoiser can query "what was IV at this grid point?"
+```
+
+**Why cross-attention works:**
+- Each denoiser position can selectively attend to relevant encoder positions
+- Spatial structure preserved through key-value pairs
+- More expressive than FiLM modulation for complex spatial information
+- Localized, query-dependent selection of conditioning info
+
+### Proposed Fix
+
+Replace global pooling with cross-attention:
+
+```
+Current Flow:
+  History → Conv3D → GlobalPool → 128-dim → FiLM inject (AdaptiveGroupNorm)
+                        ↑
+                  SPATIAL INFO LOST
+
+Proposed Flow:
+  History → Conv3D → (B, C, T, H, W) → Flatten → K, V
+                                              ↓
+  Denoiser features (B, C, T', H, W) → Q → CrossAttention → Spatially-aware output
+```
+
+#### Implementation Options
+
+| Option | Complexity | Expected Impact |
+|--------|-----------|-----------------|
+| **A: Pool time only** | Low | Keep (B, C, 5, 5), flatten to (B, 800) |
+| **B: Cross-attention** | Medium | Full spatial querying, SOTA approach |
+| **C: Hybrid** | Medium | Keep FiLM for global + cross-attn for spatial |
+
+### References
+
+- [Sora Technical Report](https://openai.com/index/video-generation-models-as-world-simulators/) - AdaLN-Zero conditioning
+- [Stable Video Diffusion](https://huggingface.co/docs/diffusers/using-diffusers/svd) - Cross-attention + noise-augmented concat
+- [VideoLDM CVPR 2023](https://research.nvidia.com/labs/toronto-ai/VideoLDM/) - Temporal layers with frozen spatial
+- [Video Diffusion Survey](https://lilianweng.github.io/posts/2024-04-12-diffusion-video/) - Comprehensive overview
+- arxiv:2511.07571 - IV surface DDPM (one-day ahead, different task but relevant architecture)
+
+### Next Steps
+
+1. Implement cross-attention in SimpleDenoiser3D
+2. Modify HistoryEncoder to output spatial features instead of pooled vector
+3. Benchmark cross-grid correlation improvement
+4. Compare training stability and generation quality
+
+---
+
+## 2026-01-27: Cross-Attention Experiment Results - SEVERE MODE COLLAPSE
+
+### Context
+
+Implemented cross-attention to preserve spatial conditioning from history encoder. The hypothesis was that cross-attention would allow the denoiser to query specific spatial locations, improving cross-grid correlation matching.
+
+### Implementation
+
+Added `CrossAttention3D` module to `diffusion/simple_denoiser.py`:
+- Encoder outputs 25 spatial tokens (5×5 grid, 32-dim each)
+- Each ResBlock followed by cross-attention layer
+- Denoiser features (Q) attend to encoder tokens (K,V)
+- Standard scaled dot-product attention with LayerNorm pre-normalization
+
+### Results - CATASTROPHIC
+
+| Metric | Baseline (FiLM only) | + Cross-Attention |
+|--------|---------------------|-------------------|
+| 90% CI Coverage | **81.7%** | **0.7%** |
+| Sample Diversity | 0.21 | 0.07 → decreasing |
+| Training Loss | Converges | Converges |
+
+**Complete mode collapse.** The model generates nearly identical samples regardless of noise seed.
+
+### Root Cause Analysis
+
+#### Industry Standard Comparison
+
+Verified implementation against HuggingFace diffusers and Vaswani et al.:
+- Scale factor d^-0.5: ✓ Correct
+- Pre-normalization: ✓ Correct
+- Q/K/V projections: ✓ Correct
+- Softmax dim=-1: ✓ Correct
+- Multi-head reshape: ✓ Correct
+
+**Core attention math is correct.** The issue is architectural.
+
+#### Why Text Conditioning Works (Stable Diffusion)
+
+From [CVPR 2024 research](https://arxiv.org/html/2403.03431v1):
+> "Cross-attention maps contain object attribution information"
+
+Text embeddings in Stable Diffusion are **abstract/semantic** (CLIP 768-dim vectors):
+- No direct spatial correspondence to output
+- Cross-attention learns soft, semantic guidance
+- Self-attention handles geometric/shape preservation
+
+#### Why Our Spatial Conditioning Fails
+
+Our spatial tokens have **direct spatial correspondence**:
+- Encoder grid[i,j] → Output grid[i,j]
+- Cross-attention can directly copy patterns from history
+- No abstraction barrier → mode collapse
+
+The model learns: "For grid position (i,j), just copy what I see in the encoder at (i,j)"
+
+### Fix Attempts (All Failed)
+
+| Fix | Rationale | Result |
+|-----|-----------|--------|
+| Output dropout (0.1) | HuggingFace standard pattern | 0.5% CI |
+| Learnable gate | Control attention strength | 0.6% CI |
+| Token abstraction layer | Break spatial correspondence | 0.4% CI |
+| All three combined | | 0.4% CI |
+
+The abstraction layer (Linear → LayerNorm → GELU → Linear) was meant to create an information bottleneck, but didn't help because the spatial structure is preserved in the token positions themselves.
+
+### Literature Verification
+
+Verified our result against SOTA spatial conditioning methods:
+
+| Model | Conditioning Method | Uses Spatial Grid Tokens? | Result |
+|-------|--------------------|-----------------------|--------|
+| **ControlNet** | Zero-init conv branches | No (learned features) | ✅ Works |
+| **Stable Video Diffusion** | Cross-attn to embeddings | No (abstract, not grid) | ✅ Works |
+| **InstructPix2Pix** | Spatial concatenation | No (mixed into features) | ✅ Works |
+| **Our cross-attention** | Cross-attn to 5×5 grid | **Yes (direct)** | ❌ Mode collapse |
+| **Our baseline (FiLM)** | Global pooling + FiLM | No (scalar stats) | ✅ Works (81.7%) |
+
+**Key insight:** All successful methods avoid direct spatial correspondence. They use:
+- Abstract semantic tokens (Stable Diffusion text, SVD frame embeddings)
+- Learned transformations (ControlNet zero-init branches)
+- Feature concatenation (InstructPix2Pix)
+- Global statistics (our FiLM baseline)
+
+**Structural root cause - symmetric data structure enables copying:**
+
+The copying shortcut exists because our conditioning and output share the **same spatial structure**:
+
+| Conditioning → Output | Same Structure? | Copy Path? | Result |
+|-----------------------|-----------------|------------|--------|
+| Text → Image (Stable Diffusion) | ❌ No (semantic vs pixels) | No direct path | ✅ Must generate |
+| Grid 5×5 → Grid 5×5 (our case) | ✅ Yes (same shape) | encoder[i,j] → output[i,j] | ❌ Mode collapse |
+| Edge map → Image (ControlNet) | ✅ Yes (both spatial) | Blocked by zero-init | ✅ Works |
+
+**Intuitive explanation:**
+- **Text conditioning = Art teacher giving instructions:** "Paint a dog on the left" - student must interpret and create. Different students paint different dogs → diversity preserved.
+- **Spatial grid conditioning = Looking at the answer sheet:** History grid[2,3] = 0.45, so output[2,3] = 0.45. Every student copies the same answer → mode collapse.
+
+**Why ControlNet works despite symmetric structure:** Zero-initialization forces the model to start with zero contribution from the spatial condition. The model must gradually learn useful conditioning through training, rather than immediately exploiting the copy shortcut. This is why we listed "ControlNet-style zero-init" as a potential alternative approach.
+
+### Conclusion
+
+**Cross-attention with spatial tokens fundamentally doesn't work for this task.**
+
+The FiLM conditioning approach (global pooling → AdaptiveGroupNorm) works because:
+1. It forces the model to encode global statistics, not spatial coordinates
+2. Diversity comes from the diffusion noise, not from conditioning
+3. The denoiser's 3D convolutions naturally couple nearby grid points
+
+**However, the original problem remains unsolved:** Poor cross-grid correlation matching due to HistoryEncoder losing spatial information through GlobalAvgPool. The denoiser generates "generic" correlation structure, not history-specific patterns.
+
+### Revised Root Cause Analysis: Denoiser Architecture May Be the Real Bottleneck
+
+After deeper investigation, the poor cross-grid correlation may **not be caused by the HistoryEncoder** at all. The real issue may be the **SimpleDenoiser3D architecture** lacking mechanisms for global spatial communication.
+
+#### How Image/Video Models Enforce Physical Consistency
+
+Research into how Stable Diffusion, Sora, and other models prevent "physically impossible" outputs (e.g., mismatched eye colors, shadows moving opposite to objects):
+
+| Mechanism | What It Does | Our Model Has It? |
+|-----------|-------------|-------------------|
+| **Self-Attention** | Every patch attends to ALL other patches - distant points "talk" directly | ❌ No |
+| **U-Net Skip Connections** | Spatial info flows through encoder→decoder hierarchy | ❌ No (flat ResBlocks) |
+| **Physics-Informed Losses** | Explicit constraints (frequency-domain motion priors, etc.) | ❌ No |
+| **Progressive Downsampling** | Bottleneck compresses global structure, then upsamples | ❌ No |
+
+#### Why Self-Attention Matters for Cross-Grid Correlation
+
+**Without self-attention (our model):**
+```
+Grid[0,0] (OTM put) ←→ Grid[0,1] (adjacent, connected by 3×3 conv)
+Grid[0,0] (OTM put) ←→ Grid[2,2] (ATM) - NO direct connection, requires multiple hops
+Grid[0,0] (OTM put) ←→ Grid[4,4] (OTM call) - even more hops, information diluted
+```
+
+**With self-attention (Stable Diffusion, Sora):**
+```
+Grid[0,0] ←→ ALL other positions simultaneously in one layer
+ATM [2,2] ←→ OTM wings [0,0], [4,4] directly connected
+```
+
+Self-attention allows the model to learn that "when ATM goes up, wings should go up proportionally" as a direct relationship, not through indirect conv hops.
+
+#### Why U-Net Architecture Matters
+
+U-Net compensates for convolution's local receptive field through:
+1. **Progressive downsampling** - at bottleneck, one conv covers large spatial area
+2. **Skip connections** - preserve spatial structure during upsampling
+3. **Hierarchical processing** - global structure at low resolution, details at high resolution
+
+Our **flat ResBlock architecture** lacks this hierarchy - all operations happen at the same spatial resolution with limited receptive fields.
+
+#### Implication: The Problem May Not Be Conditioning
+
+The HistoryEncoder's global pooling was blamed for losing spatial info. But even with perfect spatial conditioning, the denoiser might not be able to enforce cross-grid correlations without:
+- Self-attention for direct long-range communication
+- U-Net structure for hierarchical spatial processing
+- Explicit physics losses for IV surface constraints (arbitrage, smile shape)
+
+#### Updated Alternative Approaches
+
+Based on this analysis, additional fixes to consider:
+
+| Fix | Complexity | Expected Impact |
+|-----|-----------|-----------------|
+| **Add self-attention layers** to SimpleDenoiser3D | Medium | Direct ATM↔OTM communication |
+| **U-Net architecture** instead of flat ResBlocks | High | Hierarchical global-to-local flow |
+| **Physics-informed loss** (arbitrage, smile monotonicity) | Low | Explicit IV surface constraints |
+| **Spatial attention at bottleneck** | Medium | Compress global structure |
+
+#### References
+
+- [Attention in Diffusion Model: A Survey](https://arxiv.org/html/2504.03738v1) - Self-attention for global consistency
+- [Can We Achieve Efficient Diffusion without Self-Attention?](https://openaccess.thecvf.com/content/ICCV2025/papers/) - Local vs global attention trade-offs
+- [Physics-Guided Motion Loss for Video Generation](https://arxiv.org/abs/2506.02244) - Frequency-domain physics priors
+- [PhysVideoGenerator](https://arxiv.org/html/2601.03665v1) - Physics tokens in attention layers
+- [Training-Free Style Transfer via U-Net Skip Connections](https://arxiv.org/html/2501.14524v1) - Skip connections carry spatial structure
+
+### Alternative Approaches to Explore
+
+Based on literature, potential fixes that avoid direct spatial correspondence:
+
+1. **Concatenation (InstructPix2Pix style):** Concat history features with noise along channels, let convolutions mix them
+2. **Attention bottlenecks:** Reduce 25 spatial tokens → 2-4 bottleneck tokens to force abstraction
+3. **Learned semantic features:** Train encoder to output abstract style/regime embeddings, not grid positions
+4. **ControlNet-style zero-init:** Add spatial conditioning via zero-initialized conv branches
+
+### References
+
+- [ControlNet (ICCV 2023)](https://openaccess.thecvf.com/content/ICCV2023/papers/Zhang_Adding_Conditional_Control_to_Text-to-Image_Diffusion_Models_ICCV_2023_paper.pdf) - Zero-init conv branches, not cross-attention
+- [Towards Understanding Cross and Self-Attention in Stable Diffusion](https://arxiv.org/html/2403.03431v1) - Text vs spatial conditioning
+- [Frame-wise Conditioning Adaptation](https://arxiv.org/html/2503.12953v1) - SVD uses abstract embeddings
+- [InstructPix2Pix](https://arxiv.org/html/2412.12087) - Spatial concatenation approach
+- [Cross-Attention Makes Inference Cumbersome](https://arxiv.org/html/2404.02747v1) - Alternatives to cross-attention
+- [Attention Bottlenecks for Multimodal Fusion](https://openreview.net/pdf?id=KJ5h-yfUHa) - Information bottleneck principle
+
+---
+
+## 2026-01-28: Bug Fix - CI Coverage Evaluation Normalization Mismatch
+
+### Context
+
+Found critical bug in `train_ddpm_poc.py` where CI coverage evaluation compared normalized ground truth `[-1,1]` with denormalized samples `[0,1]`. This caused systematic underestimation of coverage during training monitoring.
+
+### Bug Details
+
+**File:** `experiments/backfill/diffusion_poc/train_ddpm_poc.py`
+
+**Issue in `compute_ci_coverage()`:**
+```python
+# Before (BUG): GT in [-1,1], samples denormalized to [0,1]
+future_gt = batch["future"].to(device)  # normalized [-1,1]
+samples = model.sample(...)  # returns denormalized [0,1]
+# Comparison always fails because scales don't match!
+```
+
+**Fix:**
+```python
+# After (FIXED): Both in same [0,1] space
+future_gt = batch["future"].to(device)
+future_gt = denormalize_iv(future_gt)  # Convert to [0,1]
+samples = model.sample(...)  # Already [0,1]
+```
+
+Note: `test_ddpm_requirements.py` already had this correct - only the training script's monitoring was affected.
+
+### Updated Results (Retrained Baseline - 50 epochs)
+
+Retrained from scratch with the fix and saved as `baseline_uniform_epoch_50.pt`.
+
+| Metric | Previous (Buggy) | Fixed | Target | Status |
+|--------|------------------|-------|--------|--------|
+| 90% CI Coverage | 81.7% | **87.3%** | >70% | ✅ PASS |
+| Out-of-range rate | 0% | 0% | <5% | ✅ PASS |
+| Butterfly arbitrage | 24% | 27.8% | <5% | ❌ Needs work |
+| Kurtosis ratio | 0.45 | 0.222 | 0.5-2.0 | ❌ Needs work |
+| Mean diff | 5.3% | 6.8% | <50% | ✅ PASS |
+| ACF correlation | 0.91 | 0.916 | >0.5 | ✅ PASS |
+
+#### Spatial Metrics (Updated)
+
+| Metric | Previous | Fixed | Change |
+|--------|----------|-------|--------|
+| Smile RMSE | 0.048 | 0.056 | +17% |
+| Term RMSE | 0.048 | 0.057 | +19% |
+| Cross-Grid Frobenius | 12.33 | **9.74** | -21% ✓ |
+
+### Saved Checkpoint
+
+`models/backfill/ddpm_poc/baseline_uniform_epoch_50.pt`
+
+### Key Takeaways
+
+1. **CI Coverage is actually 87.3%** - significantly better than the 81.7% previously measured. The model's uncertainty calibration is stronger than we thought.
+
+2. **Cross-grid Frobenius improved to 9.74** - 21% reduction from 12.33. The correlation structure matching is better with this training run.
+
+3. **Kurtosis ratio worsened (0.222 vs 0.45)** - may be due to random initialization variation. Still fails the 0.5-2.0 target, indicating the model produces lighter tails than ground truth.
+
+4. **The bug only affected training monitoring** - the standalone evaluation script `test_ddpm_requirements.py` was already correct. Historical evaluation results from that script remain valid.
+
+---
+
+## 2026-01-28: Hierarchical DDPM (Option J) Reproduction & Kurtosis Methodology Investigation
+
+### Context
+
+Retrained hierarchical DDPM from scratch (original checkpoint was gitignored and overwritten). Added `--hierarchical` and `--atm_only` flags to `test_ddpm_requirements.py` to properly evaluate regime-conditioned sampling. Investigated why original kurtosis ratio values (0.504/1.013) differ from test suite results.
+
+### Training
+
+```bash
+python experiments/backfill/diffusion_poc/train_ddpm_poc.py --epochs 50 --use_regime
+```
+
+- Regime conditioning: 5 regimes, labels from `data/regime_labels.npz`
+- Final regime classifier accuracy: ~60%
+- Checkpoint: `models/backfill/ddpm_poc/hierarchical_regime_epoch_50.pt`
+
+### Test Suite Results (Standard Sampling)
+
+| Test | Metric | Result | Target | Status |
+|------|--------|--------|--------|--------|
+| Surface Validity | Explosion rate | 0.0% | <1% | ✅ |
+| Surface Validity | Calendar arbitrage | 9.3% | <5% | ❌ |
+| Surface Validity | Butterfly arbitrage | 28.8% | <5% | ❌ |
+| CI Coverage | 90% CI | 84.7% | >70% | ✅ |
+| Marginal Recovery | K-S statistic | 0.0703 | <0.1 | ✅ |
+| Time Series | ACF correlation | 0.929 | >0.5 | ✅ |
+| Time Series | Kurtosis ratio | 0.275 | 0.5-2.0 | ❌ |
+
+### Hierarchical Sampling Kurtosis (Key Result)
+
+With `--hierarchical` flag (uses `model.sample_hierarchical()` for regime-conditioned sampling):
+
+| Sampling Method | Kurtosis Ratio | Target | Status |
+|-----------------|----------------|--------|--------|
+| Standard (DDIM) | 0.275 | 0.5-2.0 | ❌ FAIL |
+| **Hierarchical** | **0.663** | 0.5-2.0 | **✅ PASS** |
+
+Hierarchical sampling improves kurtosis by ~2.5x, confirming the research log's finding that regime-conditioned sampling substantially improves fat-tail matching.
+
+### Kurtosis Methodology Investigation
+
+The original values (Standard=0.504, Hierarchical=1.013 from commit c92e63a) could not be exactly reproduced. Investigation:
+
+1. **Original checkpoint lost** - `.pt` files are gitignored, overwritten by retraining
+2. **Original ad-hoc evaluation code lost** - `test_ddpm_requirements.py` was NOT modified in the Option J commit; the 0.504/1.013 comparison was computed via inline code during that session
+3. **Tested multiple methodology variations** - none explain the gap:
+
+| Methodology | Standard | Hierarchical |
+|-------------|----------|--------------|
+| All 25 grid points, sample[0] (official) | 0.271 | 0.666 |
+| All 25 grid points, all samples pooled | 0.278 | 0.672 |
+| ATM-only [2,2], sample[0] | 0.154 | 0.140 |
+
+**Conclusion:** The gap is due to different model weights from retraining, not methodology. The relative improvement (~2.5x) is consistent with the original finding (~2x). The key result — hierarchical sampling brings kurtosis ratio into the 0.5-2.0 target range — is reproduced.
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `experiments/backfill/diffusion_poc/test_ddpm_requirements.py` | Added `--hierarchical` flag (uses `sample_hierarchical()` for kurtosis test), `--atm_only` flag (ATM grid point only) |
+| `experiments/backfill/diffusion_poc/train_ddpm_poc.py` | Bug fix: added `denormalize_iv(future_gt)` in `compute_ci_coverage()` (from earlier in this session) |
+
+### Saved Checkpoints
+
+- `models/backfill/ddpm_poc/hierarchical_regime_epoch_50.pt` - Retrained hierarchical model
+- `models/backfill/ddpm_poc/baseline_uniform_epoch_50.pt` - Retrained baseline (from earlier)

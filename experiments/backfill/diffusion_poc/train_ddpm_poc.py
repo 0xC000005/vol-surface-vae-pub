@@ -31,7 +31,7 @@ from tqdm import tqdm
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from diffusion.simple_denoiser import SimpleDenoiser3D, ConditionalDDPM, DenoiserConfig
+from diffusion.simple_denoiser import SimpleDenoiser3D, ConditionalDDPM, DenoiserConfig, denormalize_iv
 from diffusion.ddpm_scheduler import DDPMScheduler
 from experiments.backfill.diffusion_poc.config_ddpm_poc import (
     DDPMPOCConfig,
@@ -159,6 +159,10 @@ def compute_ci_coverage(
 
             history = batch["history"].to(device)  # (B, T_hist, 5, 5)
             future_gt = batch["future"].to(device)  # (B, T_fut, 5, 5)
+
+            # Denormalize ground truth from [-1, 1] to [0.0, 1.0]
+            # (model.sample() returns denormalized values)
+            future_gt = denormalize_iv(future_gt)
 
             # Generate samples
             samples = model.sample(

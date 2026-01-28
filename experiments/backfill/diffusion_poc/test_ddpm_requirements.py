@@ -672,13 +672,21 @@ def test_kurtosis_matching(
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
     guidance_scale: float = 1.0,
+    use_hierarchical: bool = False,
+    atm_only: bool = False,
 ) -> Dict:
     """
     Test if kurtosis of one-step changes is preserved.
 
     Fat tails in financial data should be captured.
     """
-    print("\n--- Test 4c: Kurtosis Matching ---")
+    mode_parts = []
+    if use_hierarchical:
+        mode_parts.append("hierarchical")
+    if atm_only:
+        mode_parts.append("ATM-only")
+    mode_str = f" ({', '.join(mode_parts)})" if mode_parts else ""
+    print(f"\n--- Test 4c: Kurtosis Matching{mode_str} ---")
 
     model.eval()
 
@@ -697,15 +705,23 @@ def test_kurtosis_matching(
             future_gt = denormalize_iv(future_gt)
 
             # Generate samples (model.sample() returns denormalized values)
-            samples = model.sample(history, n_samples=n_samples, sampler=sampler,
-                                   n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
+            if use_hierarchical:
+                samples, _regimes = model.sample_hierarchical(
+                    history, n_samples=n_samples, n_inference_steps=n_inference_steps)
+            else:
+                samples = model.sample(history, n_samples=n_samples, sampler=sampler,
+                                       n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
 
             # Compute one-step changes
             gt_diff = np.diff(future_gt.numpy(), axis=1)  # (B, T-1, 5, 5)
             gen_diff = np.diff(samples[:, 0].cpu().numpy(), axis=1)  # (B, T-1, 5, 5)
 
-            gt_changes.append(gt_diff.flatten())
-            gen_changes.append(gen_diff.flatten())
+            if atm_only:
+                gt_changes.append(gt_diff[:, :, 2, 2].flatten())
+                gen_changes.append(gen_diff[:, :, 2, 2].flatten())
+            else:
+                gt_changes.append(gt_diff.flatten())
+                gen_changes.append(gen_diff.flatten())
 
     gt_changes = np.concatenate(gt_changes)
     gen_changes = np.concatenate(gen_changes)
@@ -748,6 +764,8 @@ def run_time_series_tests(
     sampler: str = 'ddpm',
     n_inference_steps: int = 20,
     guidance_scale: float = 1.0,
+    use_hierarchical: bool = False,
+    atm_only: bool = False,
 ) -> Dict:
     """Run all time series property tests."""
     print("\n" + "=" * 40)
@@ -756,7 +774,7 @@ def run_time_series_tests(
 
     acf_results = test_acf_preservation(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
     vol_results = test_vol_clustering(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
-    kurt_results = test_kurtosis_matching(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale)
+    kurt_results = test_kurtosis_matching(model, test_loader, n_samples, max_batches, device=device, sampler=sampler, n_inference_steps=n_inference_steps, guidance_scale=guidance_scale, use_hierarchical=use_hierarchical, atm_only=atm_only)
 
     return {
         'acf': acf_results,
@@ -1040,6 +1058,10 @@ def main():
                         help="For ddim_staggered: t_min for last frame (default: 20). Higher = more uncertainty growth")
     parser.add_argument("--guidance_scale", type=float, default=1.0,
                         help="CFG guidance scale (1.0 = no guidance, >1.0 = stronger conditioning)")
+    parser.add_argument("--hierarchical", action="store_true",
+                        help="Use hierarchical regime sampling for kurtosis test (requires regime-conditioned model)")
+    parser.add_argument("--atm_only", action="store_true",
+                        help="Compute kurtosis on ATM grid point [2,2] only instead of all 25 points")
     args = parser.parse_args()
 
     config = get_default_config()
@@ -1089,6 +1111,10 @@ def main():
     if args.guidance_scale != 1.0:
         sampler_info += f", guidance_scale={args.guidance_scale}"
     print(sampler_info)
+    if args.hierarchical:
+        print("Hierarchical regime sampling: ENABLED (for kurtosis test)")
+    if args.atm_only:
+        print("ATM-only kurtosis: ENABLED (grid point [2,2] only)")
     print(f"Output: {output_dir}")
     print("=" * 60)
 
@@ -1170,6 +1196,8 @@ def main():
         sampler=args.sampler,
         n_inference_steps=args.ddim_steps,
         guidance_scale=args.guidance_scale,
+        use_hierarchical=args.hierarchical,
+        atm_only=args.atm_only,
     )
 
     # Print summary
