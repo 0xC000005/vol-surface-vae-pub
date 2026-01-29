@@ -3803,3 +3803,341 @@ The original values (Standard=0.504, Hierarchical=1.013 from commit c92e63a) cou
 
 - `models/backfill/ddpm_poc/hierarchical_regime_epoch_50.pt` - Retrained hierarchical model
 - `models/backfill/ddpm_poc/baseline_uniform_epoch_50.pt` - Retrained baseline (from earlier)
+
+---
+
+## 2026-01-28: Weak Conditionality Analysis & Video Diffusion Conditioning Research
+
+### Context
+
+Observation: the DDPM generates outputs where different history inputs only shift the mean slightly — the variance, distribution shape, and correlation structure remain essentially unchanged. This is the **weak conditionality** problem. The model is effectively an unconditional surface generator with a thin conditional mask.
+
+### Confirmed Behavior
+
+The model produces **regime-dependent means but regime-independent variance**:
+
+- **Line 3212** (earlier entry): "Means are clearly different (conditioning works!), but spreads are similar."
+- **Lines 3217-3224** (earlier entry): "The model is generating regime-dependent MEANS but NOT generating regime-dependent VARIANCE. All regimes have nearly identical spread."
+- **Cross-grid Frobenius = 9.74**: The model generates a generic correlation structure regardless of history-specific patterns.
+- **Line 3276** (earlier entry): "Cross-grid correlation and width/steepness tracking are poor (near-zero correlations)."
+
+### Architectural Root Causes (5 Bottlenecks)
+
+**Bottleneck 1: Global Average Pooling (most severe)**
+
+```
+History (B, 32, 30, 5, 5)  →  AdaptiveAvgPool3d((1,1,1))  →  (B, 32)
+         24,000 values                                        32 scalars
+```
+
+750× compression in one step. ALL temporal ordering, spatial location, and variance info discarded. Location: `simple_denoiser.py:107`.
+
+**Bottleneck 2: Small Condition Projection**
+
+```
+condition(128) + time_embed(64) = 192 → Linear → 64 → Linear → 32
+```
+
+The 128-dim condition is mixed with 64-dim time embedding, then squeezed to 32 dims. All 4 ResBlocks receive the same 32-dim FiLM signal — no block-specific conditioning. Location: `simple_denoiser.py:208-213`.
+
+**Bottleneck 3: FiLM is scale+shift only**
+
+Each AdaptiveGroupNorm applies `output = x × (1 + scale) + shift` with 32 params controlling 24,000 values. This can shift the mean but cannot restructure spatial correlations or reshape distributions.
+
+**Bottleneck 4: No training incentive**
+
+Loss = `MSE(noise_pred, noise)` with `cond_drop_prob = 0.0`. No contrastive or conditional likelihood term, no CFG training. The model can minimize loss by learning a universal denoiser that ignores history entirely.
+
+**Bottleneck 5: No cross-spatial attention**
+
+Only local 3×3 convolutions. No mechanism for the denoiser to attend to history features. Cross-attention was tried and failed (mode collapse — copying shortcut, documented in earlier entry at lines 3476-3673).
+
+### Video Diffusion Literature Review
+
+Investigated how SOTA video diffusion models solve weak conditionality — three research areas.
+
+#### 1. ControlNet & Zero-Initialization (Prevents Copying Shortcut)
+
+**Core mechanism:** 1×1 conv with weights AND biases initialized to exactly zero ("zero-convolution"). At initialization, the control branch outputs zero → frozen base model is undisturbed. Gradients are non-zero despite zero weights (flows through frozen residual path). Model forced to learn meaningful transformations incrementally.
+
+**Architecture:**
+```
+[Frozen Base Block] ──────────────────→ Output (unchanged initially)
+         ↓
+[Trainable Copy Block] → [ZeroConv(w=0,b=0)] → added to output (starts at 0, grows)
+```
+
+**Training details:**
+- Base model completely frozen during control branch training
+- Loss: Standard MSE noise prediction (no modification needed)
+- LR: 1e-5 (frozen base) or 2e-6 (if unfreezing some layers)
+- **"Sudden convergence"** at 3k-7k steps: flat loss → abrupt phase transition → rapid improvement
+- Ablation: Random init contaminates frozen base immediately → degraded quality. Zero init → clean learning.
+
+**Parameter efficiency:**
+- Original ControlNet: 361M trainable / 865M frozen (42% of base)
+- **ControlNet-XS**: 14M trainable / 865M frozen (1.6%) — better FID with 6.5× fewer params via bidirectional feedback
+
+**Why this solves our cross-attention failure:**
+1. At init, only frozen base contributes → control encoder has no incentive to copy input
+2. Residual constraint: control can only add/subtract from frozen output, cannot replace it
+3. Our cross-attention failed because attention is unrestricted (can attend 100% to input) with no residual constraint and no zero-init
+
+**Video extensions:** VideoControlNet (adds optical flow + temporal attention), ControlNet-XS (bidirectional feedback), EasyControl (lightweight adapters, 90% fewer params).
+
+**References:**
+- Zhang et al. "Adding Conditional Control to Text-to-Image Diffusion Models" (ICCV 2023). arXiv:2302.05543
+- ControlNet-XS: "Designing an Efficient and Effective Architecture" (2023). arXiv:2312.06573
+
+#### 2. Temporal Attention & Cross-Frame Attention
+
+Two distinct mechanisms used in SOTA video models:
+
+| | Temporal Self-Attention | Cross-Frame Cross-Attention |
+|---|---|---|
+| Query | Current noisy frame | Current noisy frame |
+| Key/Value | All frames in sequence | Conditioning/context frames only |
+| Purpose | Learn motion dynamics | Enforce consistency with input |
+| Direction | Bidirectional (or causal) | Causal (past → future) |
+
+Most models use **factorized attention**: separate spatial (2D) and temporal (1D) attention blocks. AnimateDiff inserts temporal attention with sinusoidal position encoding + zero-init output projections into existing image models.
+
+**MCVD (Masked Conditional Video Diffusion, NeurIPS 2022)** — most relevant to our problem:
+- Architecture: 2D U-Net per frame (NOT 3D). Block-wise autoregressive generation.
+- Conditioning: Past frames concatenated as input channels.
+- Key innovation: Random masking (`prob_mask_cond=0.50`, `prob_mask_future=0.50`) during training. Single model learns 4 tasks: prediction, reconstruction, unconditional generation, interpolation. Multi-task training forces model to genuinely use conditioning.
+- Inference: Concatenate history → reverse diffuse from noise → output becomes conditioning for next block.
+- Trains in 1-12 days on ≤4 GPUs. No architectural changes needed — just training procedure.
+- Reference: Voleti et al. "MCVD: Masked Conditional Video Diffusion" (NeurIPS 2022). arXiv:2205.09853
+
+**Resampling Forcing / Self-Resampling (2024):**
+- Problem: AR models train on perfect GT history but sample with imperfect self-generated frames → exposure bias → error accumulation.
+- Solution: During training, corrupt history frames to random noise levels, denoise with the online model, use resampled (imperfect) frames as conditioning. Detach gradients to prevent shortcut learning.
+- No special architecture needed. Per-frame diffusion loss with causal masking.
+- Reference: arXiv:2512.15702
+
+**Dynamic History Routing:** Parameter-free top-k selection of most relevant history frames per query. Enables model to retrieve regime-specific context from history.
+
+#### 3. CFG for Video Models
+
+**Critical finding: Video models use guidance scales 1.0-3.0, NOT 7.5-15 like image models.**
+
+Our previous CFG attempt (Option E, lines 2479-2627) concluded CFG "reduces diversity by design." Revisiting with video diffusion literature suggests the failure was likely implementation-related:
+
+1. **Guidance scale too high** — video/temporal models are sensitive; scales >3 cause temporal artifacts and off-manifold generation
+2. **Weak unconditional prior** — with only 10-20% dropout, the unconditional model may not train well enough. The formula `ε_guided = ε_uncond + γ(ε_cond − ε_uncond)` is corrupted by poor `ε_uncond`
+3. **Possibly per-frame dropout instead of whole-sequence dropout** — conditioning should be dropped as a complete 30-frame block, not per-frame
+4. **Variable-length context incompatibility** — History-Guided Video Diffusion explicitly states "CFG-style history dropout performs poorly with variable-length contexts"
+
+**Correct CFG training procedure for video:**
+- Drop entire 30-frame history sequence with probability 10-15%
+- Replace with learned null token
+- At inference, use guidance scale 1.0-2.0
+- Verify unconditional generation works independently
+
+**History-Guided Video Diffusion (ICML 2025):**
+- Proposes Diffusion Forcing Transformer (DFoT): assign independent noise levels per frame during training. Clean frames = conditioning, noisy frames = targets. Noise acts as natural mask.
+- History Guidance variants: HG-v (vanilla CFG with flexible history), HG-t (temporal — compose scores from different windows), HG-f (frequency — low-pass filter on history)
+- Results: Standard CFG ~11 frame rollout → History Guidance 60-276+ frame rollout
+- Requires retraining with Diffusion Forcing objective. Cannot retrofit onto standard DDPM.
+- Reference: arXiv:2502.06764
+
+**CFG++ (Manifold-Constrained Guidance, 2024):**
+- Problem: Standard CFG with ω > 1.0 extrapolates beyond data manifold → mode collapse, quality degradation, DDIM invertibility failure
+- Fix: Use unconditional prediction for the renoising step, apply conditional guidance only to denoising estimates. Uses λ ∈ [0, 1] instead of ω ∈ [5, 30].
+- **TRAINING-FREE** — drop-in replacement for sampling loop
+- Reference: arXiv:2406.08070
+
+### Actionable Research Directions (Ranked by Effort-to-Impact)
+
+| Priority | Technique | Effort | Architecture Change? | Expected Impact |
+|----------|-----------|--------|---------------------|-----------------|
+| 1 | **CFG++ (manifold-constrained)** | Trivial (sampling-only) | No | Fix off-manifold CFG failure |
+| 2 | **Revisit CFG** (correct scale 1-3, whole-sequence dropout 15%) | Low (retrain) | No | Force conditioning usage |
+| 3 | **MCVD-style frame masking** | Low (training change) | No | Force conditioning usage |
+| 4 | **ControlNet zero-init cross-attention** | Medium (new branch) | Yes (freeze base + control branch) | Prevent copying shortcut |
+| 5 | **Resampling Forcing** | Medium (training change) | No | Fix exposure bias / error accumulation |
+| 6 | **Temporal attention (factorized)** | Medium (new layers) | Yes (add temporal attention) | Learn motion dynamics |
+| 7 | **History Guidance / DFoT** | High (full retrain) | Yes (Diffusion Forcing) | Strongest long-horizon results |
+
+### Key Insight
+
+The current model is architecturally incapable of strong conditioning due to the global average pooling bottleneck (750× compression) and FiLM-only injection (scale+shift cannot restructure correlations). Fixing CFG alone may improve conditioning usage but cannot fix the information bottleneck. A combination of (1) CFG++/correct CFG for training incentive + (2) ControlNet-style zero-init for spatial conditioning capacity is likely needed for meaningful improvement.
+
+### HunyuanVideo Diffusion Architecture Deep Dive
+
+#### Architecture Origin Confirmed
+
+Our DDPM uses `CausalConv3d` and `ResnetBlockCausal3D` ported from HunyuanVideo's Causal 3D VAE (commit a29f3d2, source attribution in `vae/causal_3d_blocks.py:4-5`). Only the VAE building blocks were ported — NOT HunyuanVideo's diffusion model.
+
+HunyuanVideo's diffusion model is a 13B-parameter DiT (Diffusion Transformer) with 60 transformer blocks — a completely different architecture class from our 4-ResBlock denoiser.
+
+#### HunyuanVideo Diffusion Model
+
+- **Type:** DiT (Diffusion Transformer), NOT U-Net. 13B params.
+- **Structure:** 20 dual-stream blocks (text+video processed separately) → 40 single-stream blocks (unified sequence)
+- **Training:** Flow Matching (velocity prediction, not noise prediction). Logit-normal timestep sampling.
+- **Attention:** Full 3D unified attention across all tokens (temporal + spatial + text)
+- **3D RoPE:** Rotary Position Embedding with separate frequency matrices for T, H, W. `rope_axes_dim=(16, 56, 56)`. Low frequencies → temporal (smooth frame transitions), high frequencies → spatial (fine-grained detail).
+- **QK-Norm:** LayerNorm on Q, K before attention computation. Enables 1.5× higher learning rates.
+- **Modulation:** AdaLN-Zero (zero-initialized ModulateDiT). Conditioning starts silent, learns gradually. Same principle as ControlNet.
+
+#### HunyuanVideo Conditioning Pipeline
+
+Additive modulation vector construction:
+```
+vec = TimestepEmbed(t)                  # (B, 3072) — diffusion timestep
+    + MLPEmbed(text_states_2)           # (B, 3072) — text summary (768→3072)
+    + TimestepEmbed(guidance_scale)     # (B, 3072) — guidance (optional)
+```
+
+Four conditioning pathways:
+1. **Additive modulation (vec)** — time + text + guidance added, modulates all blocks via AdaLN-Zero
+2. **Cross-attention** — text features injected via concatenated Q,K,V in dual-stream blocks (text tokens attend to video tokens)
+3. **Token concatenation** — in single-stream blocks, text + video tokens concatenated into one unified sequence
+4. **Embedded guidance** — guidance scale baked into model during training (default=6.0), no separate unconditional pass needed
+
+Image-to-video conditioning (HunyuanVideo-I2V): conditioning image encoded via VAE → concatenated along channel dimension with noise latent, or token-replace (first-frame tokens replaced with conditioning tokens using binary mask).
+
+#### Comparison: Our Model vs HunyuanVideo
+
+| Aspect | Our SimpleDenoiser3D | HunyuanVideo |
+|--------|---------------------|--------------|
+| **Params** | ~100K | 13B (130,000× larger) |
+| **Architecture** | 4 ResBlocks + FiLM | 60 DiT blocks + AdaLN-Zero |
+| **Conditioning pathways** | 1 (FiLM) | 4+ (additive vec, cross-attn, token concat, embedded guidance) |
+| **Positional encoding** | None | 3D RoPE (T, H, W partitioned) |
+| **Attention** | None | Full 3D unified |
+| **Training** | MSE noise prediction | Flow matching (velocity) |
+| **Guidance** | cond_drop=0.0 (disabled) | Embedded (scale=6.0) + optional CFG |
+| **Initialization** | Random | Zero-init modulation |
+
+**Key insight:** The fundamental difference is not scale — it's that HunyuanVideo has multiple dedicated conditioning pathways, while our model has ONE weak pathway (global avg pool → FiLM). Even at 100K params, adding 1-2 conditioning pathways would be meaningful.
+
+#### Borrowable Innovations (Ranked for 100K Model)
+
+**High impact, low effort:**
+1. **3D RoPE** — Split attention head channels by (T, H, W). Near-zero param cost. Requires adding attention first.
+2. **QK-Norm** — LayerNorm(Q) and LayerNorm(K) before softmax. 2 extra LayerNorms per attention head.
+3. **Embedded guidance masking** — 40-50% history dropout during training. Forces genuine conditioning usage.
+4. **Latent concatenation** — Concatenate history latent along channel dimension with noise instead of FiLM-only.
+
+**Medium effort:**
+5. **1-2 cross-attention layers** — ~15K params. Dedicated conditioning pathway.
+6. **AdaLN-Zero** — Zero-initialize FiLM projections. Free improvement per DiT ablation (48% lower FID).
+7. **Flow Matching** — Switch from noise to velocity prediction. Potentially better sample quality.
+
+Reference: HunyuanVideo paper (arXiv:2412.03603).
+
+### Conditioning Strategy Comparison for Small Models
+
+#### Mechanism Comparison
+
+| Method | Formulation | Param Cost | Spatial? | Notes |
+|--------|-------------|-----------|----------|-------|
+| **FiLM** | `γ·x + β` | ~100/block | No (global) | Our current approach. Standard, proven. |
+| **AdaLN** | `γ·LN(x) + β` | ~100/block | Per-token | Same as FiLM but with LayerNorm. Used in transformers. |
+| **AdaLN-Zero** | Same + zero-init | ~100/block | Per-token | **48% lower FID than AdaLN** (DiT ablation). Free improvement. |
+| **Cross-Attention** | `softmax(QK^T/√d)·V` | ~33K+ | Yes | Spatially-adaptive. Too expensive at 100K total budget unless very small. |
+| **Concatenation** | `cat([x, cond], dim=C)` | ~10K+ | Yes | Channel expansion eats param budget. |
+| **ControlNet-XS** | Residual control branch | ~1K-14M | Yes | 1.6% of base params, outperforms ControlNet. |
+
+#### DiT Paper Ablation (Peebles & Xie, ICCV 2023)
+
+| Conditioning Method | FID (ImageNet 256) | Param Cost |
+|--------------------|-------------------|------------|
+| In-context | ~4.5-5.0 | O(D) |
+| Cross-Attention | ~3.5-4.0 | O(D²) |
+| AdaLN | 3.04 | O(D) |
+| **AdaLN-Zero** | **2.27** | O(D) |
+
+AdaLN-Zero wins at all scales with same parameter count as FiLM. The only change is zero-initializing the projection weights and biases.
+
+#### Critical Finding: The Bottleneck Is NOT FiLM — It's What Goes INTO FiLM
+
+Research confirms FiLM/AdaLN is the correct mechanism for small models. The problem is upstream:
+1. **Global average pooling** destroys spatial/temporal structure (750 values → 32 scalars)
+2. **No zero-initialization** — conditioning starts with random effect, model may learn to ignore it
+3. **Single conditioning pathway** — only one injection mechanism
+4. **No guidance training** — `cond_drop_prob=0.0`, no incentive to use conditioning
+
+A paper on "Hidden Semantic Bottleneck in Conditional Embeddings of Diffusion Transformers" (NeurIPS 2024) found class-conditioned embeddings exhibit >99% angular similarity — conditioning info compressed into limited directions. This matches our observation of mean-only shifts.
+
+#### Recommended Fixes (Ranked)
+
+1. **AdaLN-Zero (0 extra params):** Zero-initialize FiLM projection weights and biases. Single highest-impact change from DiT paper.
+2. **Better history encoding (~400 params):** Replace `AdaptiveAvgPool3d((1,1,1))` with temporal-only pooling `AvgPool3d((30,1,1))`. Preserves 25 spatial grid points × 32 channels = 800 values instead of 32.
+3. **Guidance training (0 params):** Set `cond_drop_prob=0.15`. Drop entire 30-frame history 15% of time. At inference, guidance scale 1.5-2.0.
+4. **Per-block conditioning (small increase):** Each ResBlock gets its own `cond_proj` MLP instead of sharing one.
+5. **Spatial FiLM (~6K params):** Generate per-grid-point (scale, shift) instead of global: `condition → Linear → (B, 25 × 2 × C)`.
+
+References: DiT (arXiv:2212.09748), ControlNet-XS (arXiv:2312.06573), SODA (arXiv:2311.17901).
+
+### DiT vs U-Net vs Pure ConvNet: Role of Transformers in Video Generation
+
+#### Architecture Evolution Timeline
+
+| Era | Architecture | Representative Models |
+|-----|-------------|----------------------|
+| 2022 | Pure 2D Conv U-Net | MCVD (no attention at all) |
+| 2023 | 3D U-Net + attention | SVD, AnimateDiff, ModelScope, Lumiere |
+| 2024+ | DiT (pure transformer) | HunyuanVideo, Sora, CogVideoX, Open-Sora, Latte |
+
+#### Why DiT Won at Scale
+
+1. **Scalability:** DiT follows predictable scaling laws. U-Net saturates around 2B params. DiT keeps improving past 10B+.
+2. **Global receptive field from layer 1:** Every token attends to every other. No deep stacking needed for global context.
+3. **Variable resolution/duration:** Patch tokenization naturally handles different video sizes.
+4. **Compute efficiency:** DiT-XL/2: 119 GFlops vs ADM-U: 742 GFlops (6.2× more efficient at same quality).
+
+#### MCVD: Proof That Pure ConvNets Work Without Transformers
+
+MCVD (NeurIPS 2022) is a pure 2D convolutional U-Net with ZERO attention layers. It achieves SOTA on video prediction through masking strategy alone. Limitations: shorter sequences, lower resolution, no explicit global context. Demonstrates transformers are NOT strictly necessary.
+
+#### Is DiT Necessary for Strong Conditioning?
+
+**No — attention mechanisms are necessary, but DiT architecture specifically is not.**
+
+- Stable Diffusion (U-Net + cross-attention) achieves excellent text conditioning
+- AnimateDiff (U-Net + temporal transformer adapter) achieves strong video conditioning
+- Both are NOT DiT architectures
+
+The key is having some form of attention mechanism, not being a transformer.
+
+#### What Our Pure ConvNet Is Missing
+
+1. **No global receptive field:** 3×3 conv → RF grows 1 pixel/layer. After 4 ResBlocks: RF ≈ 9×9. Covers 5×5 spatial grid but only ~9 of 30 temporal frames. Frame 1 cannot directly influence frame 30.
+2. **No spatially-adaptive conditioning:** FiLM applies same scale/shift to ALL spatial locations. Pixel (0,0) gets identical conditioning as pixel (4,4). Cannot route different history info to different output locations.
+3. **No dynamic computation:** Convolutions are deterministic (same weights regardless of input). Attention is content-dependent (different inputs → different attention patterns → different effective computation paths).
+
+#### Cost of Adding Attention to Our Model
+
+For 30×5×5 = 750 tokens (tiny compared to image models with 4096+ tokens):
+
+| Component | Params | Flops/pass | Training Overhead |
+|-----------|--------|-----------|-------------------|
+| Current 4 ResBlocks | ~100K | ~200M | baseline |
+| +1 Cross-attention (4 heads, d=32) | +33K | +100M | +20-30% |
+| +1 Temporal self-attention | +65K | +100M | +20-30% |
+| Both | +98K | +200M | +40-60% |
+
+750 tokens makes attention cheap at our scale.
+
+#### AnimateDiff: Proof That Minimal Attention Suffices
+
+AnimateDiff adds temporal self-attention layers to a frozen 2D Conv U-Net. Key findings:
+- Zero-initialized output projection (identity mapping at start)
+- Residual connection (minimal perturbation to base model)
+- "Convolutional motion modules do NOT capture motion. Temporal Transformer approach is superior."
+- Few well-placed attention layers >> many weak layers
+
+#### Conclusion
+
+**The transformer architecture itself is NOT indispensable.** What IS indispensable is:
+1. Some form of attention — for global receptive field and spatially-adaptive conditioning
+2. Multiple conditioning pathways — not just FiLM
+3. Training incentive — guidance masking or frame masking
+
+Our model should remain a ConvNet with 1-2 attention layers added. No need to switch to DiT. The minimum viable improvement: a single cross-attention layer at mid-depth (~33K params, +20% training time).
+
+References: DiT (arXiv:2212.09748), AnimateDiff (arXiv:2307.04725), MCVD (arXiv:2205.09853), Latte (arXiv:2401.03048).

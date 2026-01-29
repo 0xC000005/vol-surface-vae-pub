@@ -34,7 +34,7 @@ class DDPMPOCConfig:
     condition_dim: int = 128
     time_embed_dim: int = 64
     groups: int = 8
-    dropout: float = 0.0
+    dropout: float = 0.0  # Keep 0.0 for baseline; cross-attention mode collapse is fundamental, not dropout-related
 
     # === Diffusion Process ===
     n_steps: int = 100  # Fast for POC (vs 1000 in production)

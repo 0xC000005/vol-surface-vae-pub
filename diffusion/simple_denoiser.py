@@ -80,6 +80,7 @@ class HistoryEncoder(nn.Module):
     Encodes history of volatility surfaces into a conditioning vector.
 
     Uses CausalConv3d to process temporal information, then pools to a vector.
+    The conditioning vector is used for FiLM modulation in the denoiser.
     """
 
     def __init__(self, config: DenoiserConfig):
@@ -114,7 +115,7 @@ class HistoryEncoder(nn.Module):
             history: (B, T_hist, H, W) past volatility surfaces
 
         Returns:
-            condition: (B, condition_dim) conditioning vector
+            condition: (B, condition_dim) conditioning vector for FiLM
         """
         # Add channel dim: (B, T_hist, H, W) -> (B, 1, T_hist, H, W)
         x = history.unsqueeze(1)
@@ -123,11 +124,12 @@ class HistoryEncoder(nn.Module):
         x = self.conv_in(x)
         for block in self.blocks:
             x = block(x)
+        # x: (B, C, T_hist, H, W) e.g., (B, 32, 30, 5, 5)
 
-        # Pool and project
-        x = self.pool(x)  # (B, C, 1, 1, 1)
-        x = x.view(x.shape[0], -1)  # (B, C)
-        condition = self.proj(x)  # (B, condition_dim)
+        # Global condition for FiLM
+        x_pooled = self.pool(x)  # (B, C, 1, 1, 1)
+        x_flat = x_pooled.view(x_pooled.shape[0], -1)  # (B, C)
+        condition = self.proj(x_flat)  # (B, condition_dim)
 
         return condition
 
@@ -262,7 +264,7 @@ class SimpleDenoiser3D(nn.Module):
             condition = self.null_condition.expand(B, -1)
         elif self.training and self.config.cond_drop_prob > 0:
             # Training with CFG: randomly drop conditioning
-            real_condition = self.history_encoder(history)  # (B, condition_dim)
+            real_condition = self.history_encoder(history)
             null_condition = self.null_condition.expand(B, -1)
 
             # Create drop mask: which samples use null condition
@@ -273,7 +275,7 @@ class SimpleDenoiser3D(nn.Module):
             condition = torch.where(drop_mask, null_condition, real_condition)
         else:
             # Standard: encode history
-            condition = self.history_encoder(history)  # (B, condition_dim)
+            condition = self.history_encoder(history)
 
         # Time embedding - handles both (B,) and (B, T) shapes
         t_emb = self.time_embed(t)  # (B, time_embed_dim) or (B, T, time_embed_dim)
@@ -315,7 +317,7 @@ class SimpleDenoiser3D(nn.Module):
         x = x_noisy.unsqueeze(1)  # (B, 1, T_fut, H, W)
         x = self.conv_in(x)  # (B, C, T_fut, H, W)
 
-        # ResNet blocks with adaptive norm
+        # ResNet blocks with adaptive norm (FiLM conditioning)
         # AdaptiveGroupNorm handles both (B, C) and (B, T, C) embeddings
         for block, norm in zip(self.blocks, self.norms):
             x = block(x)
@@ -501,9 +503,6 @@ class ConditionalDDPM(nn.Module):
 
         samples = []
         for _ in range(n_samples):
-            # Encode history once
-            condition = self.denoiser.history_encoder(history)
-
             if sampler == 'ddpm_staggered':
                 # Staggered DDPM: exact reverse diffusion for per-frame training
                 # Frame 0 → t=0 (clean), Frame T-1 → t=max_residual (noisy)
@@ -605,7 +604,7 @@ class ConditionalDDPM(nn.Module):
         if self.scheduler.device != device:
             self.scheduler = self._move_scheduler_to_device(device)
 
-        # Encode history once
+        # Encode history for regime classification
         history_cond = self.denoiser.history_encoder(history)  # (B, condition_dim)
 
         # Get regime probabilities from classifier
@@ -731,7 +730,12 @@ def test_simple_denoiser():
     # Test gradient flow
     loss = noise_pred.mean()
     loss.backward()
-    has_grad = all(p.grad is not None for p in model.parameters() if p.requires_grad)
+    # Note: null_condition doesn't get gradients unless force_uncond=True or cond_drop_prob>0
+    params_with_grad = [
+        (name, p) for name, p in model.named_parameters()
+        if p.requires_grad and 'null_condition' not in name
+    ]
+    has_grad = all(p.grad is not None for name, p in params_with_grad)
     assert has_grad, "Some parameters have no gradient"
     print("  Gradient flow: OK")
 
@@ -777,7 +781,12 @@ def test_simple_denoiser():
     # Test gradient flow with per-frame
     loss_pf = noise_pred_pf.mean()
     loss_pf.backward()
-    has_grad_pf = all(p.grad is not None for p in model.parameters() if p.requires_grad)
+    # Note: null_condition doesn't get gradients unless force_uncond=True or cond_drop_prob>0
+    params_with_grad_pf = [
+        (name, p) for name, p in model.named_parameters()
+        if p.requires_grad and 'null_condition' not in name
+    ]
+    has_grad_pf = all(p.grad is not None for name, p in params_with_grad_pf)
     assert has_grad_pf, "Some parameters have no gradient in per-frame mode"
     print("  Per-frame gradient flow: OK")
 
