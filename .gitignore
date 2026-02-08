@@ -152,6 +152,7 @@ cython_debug/
 #.idea/
 data/
 MNIST/
+diffusion/mcvd/
 test/
 model/
 models/

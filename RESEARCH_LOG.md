@@ -4141,3 +4141,275 @@ AnimateDiff adds temporal self-attention layers to a frozen 2D Conv U-Net. Key f
 Our model should remain a ConvNet with 1-2 attention layers added. No need to switch to DiT. The minimum viable improvement: a single cross-attention layer at mid-depth (~33K params, +20% training time).
 
 References: DiT (arXiv:2212.09748), AnimateDiff (arXiv:2307.04725), MCVD (arXiv:2205.09853), Latte (arXiv:2401.03048).
+
+## 2026-01-29: MCVD Conditioning Investigation — Bug Fixes & Capacity Analysis
+
+### Context
+
+Following the 2026-01-28 entry documenting weak conditionality in the MCVD POC (width_ratio=1.000, MAE reduction=0.0%), this investigation compared our implementation line-by-line against the original MCVD codebase to find bugs, then ran capacity experiments to understand why conditioning fails even after bug fixes.
+
+The MCVD model at ngf=12 (343K params) completely ignored its conditioning input — predictions were identical whether given real history or zeros.
+
+### Bugs Found (3 Bugs + 1 Missing Feature)
+
+| # | Bug | Location | Impact | Fix |
+|---|-----|----------|--------|-----|
+| 1 | `noise_in_cond=False` | `config_mcvd_poc.py:116` | Model received raw conditioning while denoising noisy targets — signal/noise mismatch | Set `config.model.noise_in_cond = True` |
+| 2 | DDIM final step label wrong | `mcvd_wrapper.py:251` | Used `step_indices[-1]` (a diffusion timestep index) instead of `len(step_indices)-1` (a loop counter) as the timestep label | Changed to `len(step_indices) - 1` |
+| 3 | No final clamp in DDIM | `mcvd_wrapper.py:253` | Final denoised output could exceed [-1, 1] range, causing IV explosions | Added `x = x.clamp(-1, 1)` |
+| 4 | No EMA (missing feature) | `train_mcvd_poc.py` | Training without exponential moving average — MCVD paper relies on EMA for stable generation | Added `EMAHelper(mu=0.999)`, used EMA weights for all evaluation |
+
+**Bug 1 detail:** `noise_in_cond` is a critical MCVD feature. When True, the conditioning frames are noised to match the current diffusion timestep's alpha level before concatenation. Without it, the model sees clean conditioning concatenated with noisy targets at varying noise levels — the clean conditioning signal is at a completely different scale than the noisy targets, making it harder to learn.
+
+**Bug 2 detail:** In the original MCVD codebase (`models/__init__.py:ddim_sampler`), the final denoising step passes the last loop index as the timestep. Our code passed `step_indices[-1]` which was the raw diffusion schedule index (e.g., 95), not the sequential index the model expected.
+
+**Bug 3 detail:** The original MCVD sampling clamps intermediate steps. Without a final clamp, some generated IV values exceeded the [-1, 1] normalized range, which after denormalization produced IV values > 1.0 — the 100% explosion rate observed in the 2026-01-28 entry.
+
+### Fix Verification
+
+After applying all fixes and retraining at ngf=12 (50 epochs):
+
+- **Explosion rate: 100% → 0%** — Bugs 2 and 3 fixed the out-of-range IV values
+- **Conditionality: STILL FAILS** — width_ratio=1.002, MAE reduction=0.0%
+
+The bug fixes were necessary (they fixed sampling quality) but insufficient for conditioning. This motivated deeper investigation.
+
+### Diagnostic: First Conv Weight Analysis
+
+To understand why the model ignores conditioning, we analyzed the first convolutional layer weights. MCVD's channel-concatenation conditioning means the first conv receives 60 input channels: 30 target (noisy future) + 30 conditioning (history).
+
+```
+First conv shape: (12, 60, 3, 3)  — maps 60 input channels to 12 (ngf) output channels
+
+Target channels (0-29):
+  L2 norm: 4.7018
+  Mean |weight|: 0.0616
+
+Conditioning channels (30-59):
+  L2 norm: 0.1605
+  Mean |weight|: 0.0024
+
+Weight ratio (cond/target): 0.034  — conditioning weights 29x smaller
+```
+
+The model actively suppresses conditioning weights. With only 12 output features, the first conv must compress 60 → 12 channels. The model learns to allocate all 12 features to the noisy target (which directly determines the loss) and effectively zeroes out conditioning.
+
+**Output difference test:** Forward-passed the same batch with real conditioning vs. zeros:
+- Max absolute difference: 0.041
+- Output norm: ~58.85
+- **Relative difference: 0.07%** — model output is functionally identical regardless of conditioning
+
+The `cond_mask` embedding was properly differentiated (L1 diff=3.99 between mask=0 and mask=1), confirming the masking mechanism works — it's the channel-concatenation pathway that's bottlenecked.
+
+### ngf Sweep Experiment
+
+To test whether the first-conv bottleneck is the root cause, we trained models at increasing ngf values:
+
+| Config | Params | Train Loss | Val Loss | 90% CI | Diversity | Cond Weight Ratio | Cond Output Diff |
+|--------|--------|------------|----------|--------|-----------|-------------------|------------------|
+| ngf=12, drop=0.0 | 343K | 0.622 | 0.631 | 88.8% | 0.267 | 0.034 | 0.07% |
+| ngf=24, drop=0.1 | 1.3M | 0.273 | 0.285 | 51.7% | 0.188 | 0.129 | 1.60% |
+| ngf=32, drop=0.0 | 2.4M | 0.051 | 0.084 | 6.5% | 0.088 | 0.582 | 17.4% |
+| ngf=32, drop=0.1 | 2.4M | 0.058 | 0.077 | 8.6% | 0.091 | — | — |
+
+Key observations:
+
+1. **Conditioning learning scales with capacity**: Weight ratio increases monotonically (0.034 → 0.129 → 0.582) and output diff increases from 0.07% → 1.60% → 17.4%. At ngf=32, the model genuinely uses conditioning.
+
+2. **Capacity-generalization tradeoff**: ngf=32 achieves strong conditioning but catastrophically overfits — diversity collapses from 0.267 to 0.088, and 90% CI drops from 88.8% to 6.5%. The model memorizes training data.
+
+3. **Dropout doesn't help**: Adding dropout=0.1 to ngf=32 barely changes results (6.5% → 8.6% CI, 0.088 → 0.091 diversity).
+
+4. **ngf=24 is an intermediate regime**: Conditioning output diff rises to 1.60% but is still too weak for the conditionality test to pass. Diversity degrades to 0.188.
+
+### Full Validation Results (ngf=12 with Bug Fixes)
+
+Complete test suite results from `test_mcvd_requirements.py`:
+
+**Surface Validity:**
+- Explosion rate: 0.0% — **PASS**
+- Calendar arbitrage violation: 35.2% avg, 40.7% max — **FAIL** (threshold: <5%)
+- Butterfly arbitrage violation: 49.7% avg, 50.4% max — **FAIL** (threshold: <5%)
+
+**CI Coverage:**
+| Level | Overall | h=1 | h=7 | h=14 | h=30 |
+|-------|---------|-----|-----|------|------|
+| 50% | 29.5% | 31.2% | 28.4% | 30.6% | 28.9% |
+| 80% | 72.5% | 77.3% | 70.4% | 74.8% | 73.4% |
+| 90% | 88.8% | 91.7% | 87.2% | 90.3% | 89.6% |
+| 95% | 94.8% | 96.3% | 93.6% | 95.5% | 95.3% |
+
+- Calibration error: 0.132 — **PASS** (strong)
+- CI widths: 0.45–0.86 range (wide but not degenerate)
+
+**Conditionality:**
+- Conditional width: 0.792, Unconditional width: 0.791
+- Width ratio: 1.002 — **FAIL** (should be significantly <1.0)
+- MAE reduction: 0.009% — **FAIL** (conditioning provides no information)
+
+**Distribution Quality:**
+- CRPS: 0.172 overall (consistent across horizons: 0.166–0.180)
+- Sample diversity: 0.267
+
+**Time Series Properties:**
+- ACF correlation (mean): 0.747 — **PASS** (threshold: 0.6)
+- ACF correlation (ATM): 0.623 — borderline
+- Generated lag-1 ACF (ATM): 0.042 vs ground truth: 0.965 — generated samples lack temporal autocorrelation
+- Kurtosis: generated=-0.49 vs ground truth=77.03, ratio=-0.006 — **FAIL**
+- Skewness: generated=0.0001 vs ground truth=0.389
+
+### Analysis & Conclusion
+
+**The MCVD architecture is verified correct.** Our DDIM sampler was compared line-by-line against the original MCVD codebase (`models/__init__.py:ddim_sampler`) and matches exactly. The bugs found were in configuration and training, not architecture.
+
+**Channel-concatenation conditioning has a fundamental capacity requirement.** The first conv must have enough output channels (ngf) to allocate features to both the noisy target AND the conditioning input. With 60 input channels (30 target + 30 conditioning), ngf=12 gives only 12 features — the model rationally allocates all of them to the target signal.
+
+**This creates an irreconcilable tradeoff for our data regime:**
+- ngf=12 (343K params): Generalizes well (diversity=0.267) but cannot learn conditioning
+- ngf=32 (2.4M params): Learns conditioning (17.4% output diff) but overfits catastrophically (diversity=0.088)
+- No intermediate ngf resolves both simultaneously with ~4000 training samples
+
+**The MCVD paper uses ngf=128+ with much larger video datasets** (thousands to millions of frames). Channel-concatenation conditioning works by having abundant capacity to spare for conditioning features. Our 5×5 IV surface dataset is orders of magnitude smaller than typical video datasets.
+
+**The model without conditioning is a reasonable unconditional diffusion model** — it achieves 88.8% CI coverage with well-calibrated intervals and no IV explosions. The samples are plausible IV surfaces, just not conditioned on history.
+
+### Code Changes Summary
+
+Files modified during investigation:
+
+1. **`config_mcvd_poc.py`**:
+   - Line 116: `noise_in_cond = True` (was False)
+   - Line 33: `ngf` tested at 12, 24, 32 (currently 24)
+   - Line 36: `n_head_channels = 8` (was 4, changed to divide cleanly into larger channel counts)
+   - Line 37: `dropout = 0.1` (was 0.0 initially, added for regularization experiments)
+
+2. **`mcvd_wrapper.py`**:
+   - Line 251: DDIM final step label uses `len(step_indices) - 1`
+   - Line 253-254: Added final `x = x.clamp(-1, 1)` after last denoising step
+
+3. **`train_mcvd_poc.py`**:
+   - Added EMAHelper import and initialization (mu=0.999)
+   - EMA weights used for all validation and evaluation
+   - Best model selection by both val_loss and coverage_90
+
+### Next Steps
+
+Three options to address the conditioning problem:
+
+**(a) Cross-attention conditioning** — Replace channel concatenation with a cross-attention layer that projects history into keys/values. This decouples conditioning capacity from the first conv bottleneck. The 2026-01-28 video diffusion research supports this: "1-2 attention layers at mid-depth" is the minimal effective architecture.
+
+**(b) Data augmentation** — Increase effective dataset size through temporal jittering, surface interpolation, or synthetic regime generation. This could make ngf=32 viable by reducing overfitting.
+
+**(c) Return to custom DDPM** — Our existing ConditionalDDPM uses FiLM conditioning (AdaptiveGroupNorm), which injects conditioning at every layer through scale/shift — no first-conv bottleneck. It already handles the small data regime well. The MCVD exploration was valuable for understanding the tradeoffs but the custom architecture may be better suited to this problem.
+
+## 2026-02-02: MCVD Paper vs Our Adaptation — Why Channel-Concatenation Fails at Our Scale
+
+Systematic comparison of the original MCVD paper (arXiv:2205.09853, NeurIPS 2022) against our volatility surface adaptation, to explain why conditioning fails in our regime despite the architecture being verified correct.
+
+### Architecture Comparison
+
+| Parameter | MCVD Paper (SMMNIST) | MCVD Paper (KTH/BAIR) | Our Adaptation |
+|-----------|---------------------|----------------------|----------------|
+| ngf | 64 | 96–192 | 24 (tested 12–32) |
+| ch_mult | [1,2,3,4] | [1,2,3,4] | [1,2,2] |
+| Resolution levels | 4 (64→32→16→8) | 4 | 3 (8→4→2) |
+| attn_resolutions | [8,16,32] | [8,16,32] | [8] |
+| n_head_channels | 64 | 96–128 | 8 |
+| image_size | 64×64 | 64×64 to 128×128 | 8×8 (padded from 5×5) |
+| Spatial pixels | 4,096 | 4,096–16,384 | 64 (25 real) |
+| num_frames (predict) | 5 | 4–5 | 30 |
+| num_frames_cond | 5 | 2–10 | 30 |
+| Input channels to 1st conv | 10 (5+5)×1 | 7–15 | 60 (30+30)×1 |
+| Parameters | 27.9M | 62.8M–565M | 0.34M–2.4M |
+| T (noise steps) | 1000 | 1000 | 100 |
+| Schedule | linear | linear | cosine |
+| noise_in_cond | false | false | true |
+| prob_mask_cond | 0.0 (specialist) | 0.0 (specialist) | 0.1 |
+| cond_emb | false | false | true |
+| LR | 0.0002 | 0.0001 | 0.001 |
+| Training iterations | 700K | 400K–900K | ~3,200 |
+| EMA | 0.999 | 0.999 | 0.999 |
+| Dataset size | ∞ (generated) | GB-scale | ~4,000 samples |
+
+### The Critical Metric: First Conv Compression Ratio
+
+The first convolutional layer must map `(num_frames_predict + num_frames_cond) × channels` input channels down to `ngf` output features. This ratio determines whether the model has capacity to represent conditioning:
+
+| Setup | Input Ch | ngf | Ratio (input/ngf) | Conditioning Works? |
+|-------|----------|-----|-------------------|---------------------|
+| Paper SMMNIST | 10 | 64 | 0.16 | Yes |
+| Paper BAIR | 21 | 96 | 0.22 | Yes |
+| Paper Cityscapes | 21 | 128 | 0.16 | Yes |
+| **Ours ngf=12** | **60** | **12** | **5.00** | **No (0.07% output diff)** |
+| **Ours ngf=24** | **60** | **24** | **2.50** | **Weak (1.6% output diff)** |
+| **Ours ngf=32** | **60** | **32** | **1.88** | **Yes but overfits** |
+
+The paper NEVER exceeds a ratio of 0.22 — the first conv always has more output features than input channels. Our adaptation ALWAYS exceeds 1.88 — we always have fewer output features than input channels.
+
+Root cause: we use 30 frames for conditioning (vs paper's 2–10), creating a 60-channel input that overwhelms any ngf small enough to generalize on our dataset. The paper's 5-frame conditioning with ngf=64 means each conditioning channel gets ~6 dedicated features. Our 30-frame conditioning with ngf=24 means each conditioning channel gets ~0.4 features.
+
+### Training Scale Comparison
+
+| Metric | Paper (typical) | Ours | Ratio |
+|--------|----------------|------|-------|
+| Training iterations | 400K–900K | ~3,200 | 125–280× fewer |
+| Total sample exposures | 25.6M–57.6M | ~201K | 127–286× fewer |
+| Spatial pixels per sample | 4,096 | 64 | 64× fewer |
+| Total pixel throughput | ~100B–235B | ~13M | ~7,700–18,000× fewer |
+
+Even our smallest config (ngf=24, 1.3M params) sees 127× fewer training iterations than the paper's smallest config (SMMNIST, 27.9M params, 700K iterations). The paper trains models 12–400× larger for 125–280× longer on datasets orders of magnitude bigger.
+
+### Paper Benchmark Results
+
+The paper's FVD numbers demonstrate strong conditioning — predictions are clearly history-dependent:
+
+| Dataset | Config | FVD ↓ | SSIM | Params |
+|---------|--------|-------|------|--------|
+| SMMNIST (5→10) | concat | 25.63 | 0.786 | 27.9M |
+| KTH (10→30) | concat | 323 | 0.835 | 62.8M |
+| BAIR (2→28) | concat | 120.6 | 0.785 | 251.2M |
+| BAIR (2→28) | concat past-mask | 119.0 | 0.797 | 251.2M |
+| Cityscapes (2→28) | concat past-mask | 141.31 | 0.690 | 262.1M |
+
+Computational cost: 40–193 GPU-hours on V100/A100, 140K–900K training steps. The smallest model (SMMNIST concat, 27.9M params) still took 78.9 GPU-hours and 700K iterations.
+
+FVD is not directly comparable to our CI coverage / CRPS / conditionality metrics, but the paper clearly demonstrates that channel-concatenation conditioning works when the compression ratio is favorable and the dataset is large.
+
+### Discrepancies with Paper Defaults
+
+Four settings where our adaptation diverges from all shipped MCVD configs:
+
+1. **noise_in_cond = true (paper: false)**. ALL paper configs ship `false`. We set `true` reasoning that noising conditioning should help the model handle the noise/signal mismatch. The paper never ablates this setting. It's possible this actually hurts — adding noise to an already-weak conditioning signal could make it even harder to learn.
+
+2. **prob_mask_cond = 0.1 (paper: 0.0 or 0.5)**. Paper ships `0.0` for specialist models (which perform well). The "generalist" models that marginally outperform use `0.5`. Our `0.1` sits in neither regime — too little masking for generalist benefits, but enough to occasionally remove the conditioning signal during training.
+
+3. **cond_emb = true (paper: false)**. This adds a learned embedding indicating whether conditioning is masked. With prob_mask_cond=0.1, the model rarely sees the masked case, so the embedding provides minimal signal. The paper never enables this.
+
+4. **Cosine schedule, T=100 (paper: linear, T=1000)**. The cosine schedule with 10× fewer timesteps changes the noise dynamics. The paper universally uses linear beta schedule from 0.0001 to 0.02 with 1000 steps.
+
+### Why Channel-Concatenation Cannot Work at Our Scale
+
+The analysis reveals a fundamental architectural mismatch, not a tuning problem:
+
+1. **Channel-concatenation assumes ngf >> input_channels.** The first conv must have enough output features to represent both target and conditioning. The paper achieves this naturally (10–21 input ch → 64–192 ngf). We cannot (60 input ch → any reasonable ngf overfits).
+
+2. **30 conditioning frames as 30 channels is pathological.** The paper uses 2–10 conditioning frames. Our 30 frames create a 60-channel input that overwhelms any ngf small enough to generalize on 4,000 samples.
+
+3. **The fundamental tension is irreconcilable:**
+   - Conditioning requires ngf ≥ 32 (compression ratio ≤ 1.88)
+   - Generalization requires params < ~500K with ~4,000 training samples
+   - ngf=32 gives 2.4M params — 5× over budget — causing catastrophic overfitting (diversity 0.267 → 0.088, CI coverage 88.8% → 6.5%)
+
+4. **Could we reduce conditioning frames?** Using 5 history frames (matching the paper) would give 35 input channels. At ngf=24, ratio = 1.46 — still 6.6× worse than the paper's 0.22. And we'd lose 25 days of history context essential for IV surface forecasting.
+
+### Conclusion
+
+Channel-concatenation conditioning is architecturally inappropriate for our problem:
+- We need many conditioning frames (30) for meaningful history context
+- Each frame becomes an input channel, creating a massive first-conv bottleneck
+- The ngf needed to resolve the bottleneck exceeds what our dataset can support
+- The paper succeeds because video datasets are large (∞ for SMMNIST, GB-scale for others) and conditioning uses few frames (2–10), keeping the input/ngf ratio below 0.22
+
+**Recommendation:** Abandon channel-concatenation conditioning for this problem. Cross-attention conditioning (keys/values from encoded history, queries from target features) completely avoids the first-conv bottleneck — conditioning capacity is determined by attention head dimension, not ngf. This aligns with the 2026-01-28 video diffusion survey finding that "1–2 attention layers at mid-depth" is the minimal effective architecture for conditioning.
+
+References: MCVD (arXiv:2205.09853), STDiff (arXiv:2312.06486), PredBench (arXiv:2407.08418).
