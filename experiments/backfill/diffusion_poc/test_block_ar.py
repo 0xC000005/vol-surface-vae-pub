@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 import torch
 from diffusion.block_ar.gru_encoder import GRUEncoder, EncoderConfig
-from diffusion.block_ar.bigru_denoiser import BiGRUDenoiser, DenoiserConfig
+from diffusion.block_ar.bigru_denoiser import BiGRUDenoiser, DenoiserConfig, SpatialStream
 from diffusion.block_ar.masking import MCVDTask, sample_mcvd_masks, get_task_types
 from diffusion.block_ar.noise_schedules import sample_task_adaptive_noise, sample_batch_task_adaptive_noise
 
@@ -110,8 +110,64 @@ def test_param_count():
     print(f"  INFO: Encoder params: {enc_params:,}")
     print(f"  INFO: Denoiser params: {dec_params:,}")
     print(f"  INFO: Total params: {total:,}")
-    # Note: research log targeted 30-50K but BiGRU(128) is larger
-    # If overfitting, reduce gru_hidden_dim to 64
+    # Dual-path architecture: ~303K total (BiGRU ~282K + SpatialStream ~20K)
+    assert 290_000 < total < 320_000, f"Total params {total:,} outside expected range [290K, 320K]"
+    print(f"  PASS: param count {total:,} in expected range [290K, 320K]")
+
+
+def test_spatial_stream_shape():
+    """SpatialStream produces (B, T, mid_ch * H * W) output."""
+    cfg = DenoiserConfig()
+    cond_dim = cfg.noise_embed_dim + cfg.bottleneck_dim
+    stream = SpatialStream(
+        h=cfg.surface_h, w=cfg.surface_w,
+        mid_channels=cfg.spatial_mid_channels, cond_dim=cond_dim,
+    )
+    B, T = 4, 10
+    frames = torch.randn(B, T, 25)
+    noise_emb = torch.randn(B, T, cfg.noise_embed_dim)
+    condition = torch.randn(B, cfg.bottleneck_dim)
+    out = stream(frames, noise_emb, condition)
+    expected_dim = cfg.spatial_mid_channels * cfg.surface_h * cfg.surface_w
+    assert out.shape == (B, T, expected_dim), (
+        f"Expected ({B}, {T}, {expected_dim}), got {out.shape}"
+    )
+    print(f"  PASS: spatial stream shape ({B}, {T}, {expected_dim})")
+
+
+def test_spatial_stream_noise_sensitivity():
+    """AdaGN makes spatial stream output depend on noise level after training.
+
+    At init, AdaGN projections are zero (near-identity), so we perturb them
+    to simulate a trained model. Different noise embeddings should then
+    produce different spatial outputs via the AdaGN scale/shift path.
+    """
+    cfg = DenoiserConfig()
+    cond_dim = cfg.noise_embed_dim + cfg.bottleneck_dim
+    stream = SpatialStream(
+        h=cfg.surface_h, w=cfg.surface_w,
+        mid_channels=cfg.spatial_mid_channels, cond_dim=cond_dim,
+    )
+    # Perturb AdaGN projections away from zero-init to simulate trained model
+    with torch.no_grad():
+        stream.ada_proj1.weight.normal_(std=0.1)
+        stream.ada_proj2.weight.normal_(std=0.1)
+    stream.eval()
+
+    B, T = 2, 10
+    frames = torch.randn(B, T, 25)
+    condition = torch.randn(B, cfg.bottleneck_dim)
+
+    # Two different noise embeddings (simulating low vs high noise levels)
+    noise_emb_low = torch.zeros(B, T, cfg.noise_embed_dim)
+    noise_emb_high = torch.ones(B, T, cfg.noise_embed_dim) * 5.0
+
+    out_low = stream(frames, noise_emb_low, condition)
+    out_high = stream(frames, noise_emb_high, condition)
+
+    diff = (out_low - out_high).abs().mean().item()
+    assert diff > 1e-6, f"Spatial stream output unchanged by noise level (diff={diff:.2e})"
+    print(f"  PASS: spatial stream is noise-level-sensitive (mean diff={diff:.4f})")
 
 
 # Phase 2 tests
@@ -302,6 +358,7 @@ if __name__ == '__main__':
         test_encoder_masking, test_encoder_per_item_masking,
         test_encoder_cond_augmentation, test_denoiser_shape,
         test_gradient_flow, test_param_count,
+        test_spatial_stream_shape, test_spatial_stream_noise_sensitivity,
         # Phase 2
         test_task_distribution, test_forward_mean_increasing,
         test_backward_mean_decreasing, test_interpolation_tent,

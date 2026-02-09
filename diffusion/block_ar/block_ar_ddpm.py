@@ -95,6 +95,12 @@ class BlockARConfig:
     # Sampling
     max_residual_timestep: int = 20
 
+    # Global horizon-dependent residual noise for growing uncertainty.
+    # Frame at global horizon h stops denoising at t_min = max_global_residual * h / (future_len - 1).
+    # 0 = denoise all frames to t=0 (no residual, backward compat).
+    # 10 = recommended starting point (~0.09 IV std residual at h=29).
+    max_global_residual: int = 0
+
 
 class _DenoiserAdapter(nn.Module):
     """Wraps BiGRUDenoiser to match DDPMScheduler's model(x_t, t, condition) interface."""
@@ -146,6 +152,8 @@ class ConditionalBlockARDDPM(nn.Module):
         self.denoiser = BiGRUDenoiser(
             DenoiserConfig(
                 frame_dim=config.surface_h * config.surface_w,
+                surface_h=config.surface_h,
+                surface_w=config.surface_w,
                 bottleneck_dim=config.bottleneck_dim,
                 pos_embed_dim=config.pos_embed_dim,
                 noise_embed_dim=config.noise_embed_dim,
@@ -264,7 +272,10 @@ class ConditionalBlockARDDPM(nn.Module):
 
         return {"loss": total_loss / n_blocks}
 
-    def _pyramid_timesteps(self, T: int, n_steps: int, device: torch.device) -> list:
+    def _pyramid_timesteps(
+        self, T: int, n_steps: int, device: torch.device,
+        t_min: Optional[torch.Tensor] = None,
+    ) -> list:
         """Build the DF pyramid scheduling matrix.
 
         Returns a list of (B, T)-broadcastable per-frame timestep tensors,
@@ -275,18 +286,23 @@ class ConditionalBlockARDDPM(nn.Module):
           - Each iteration: frame i's timestep decreases by 1 once the
             "denoising wave" reaches it (wave front arrives at frame i
             after i iterations)
-          - Final iteration: all frames at t = 0  (clean)
+          - Final iteration: frame i at t = t_min[i]
 
         Args:
             T: number of frames
             n_steps: number of diffusion timesteps
             device: torch device
+            t_min: (T,) per-frame minimum timestep. Frames stop denoising
+                   at their t_min instead of 0. None = all zeros.
 
         Returns:
             List of (T,) long tensors, one per iteration where at least
             one frame's timestep changes.
         """
-        # Build schedule: iteration k, frame i has t = clamp(n_steps-1-k+i, 0, n_steps-1)
+        if t_min is None:
+            t_min = torch.zeros(T, dtype=torch.long, device=device)
+
+        # Build schedule: iteration k, frame i has t = clamp(n_steps-1-k+i, t_min[i], n_steps-1)
         # Total raw iterations: n_steps + T - 1, but many are duplicates
         # when frames are clamped. We deduplicate to avoid wasted compute.
         n_iters = n_steps + T - 1
@@ -294,7 +310,7 @@ class ConditionalBlockARDDPM(nn.Module):
         schedule = []
         prev = None
         for k in range(n_iters):
-            t_frame = (n_steps - 1 - k + frame_idx).clamp(0, n_steps - 1)  # (T,)
+            t_frame = torch.max((n_steps - 1 - k + frame_idx), t_min).clamp(max=n_steps - 1)  # (T,)
             if prev is None or not torch.equal(t_frame, prev):
                 schedule.append(t_frame)
                 prev = t_frame
@@ -306,6 +322,7 @@ class ConditionalBlockARDDPM(nn.Module):
         condition: torch.Tensor,
         positions: torch.Tensor,
         shape: tuple,
+        t_min: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Sample one block using the DF pyramid schedule.
 
@@ -318,6 +335,9 @@ class ConditionalBlockARDDPM(nn.Module):
             condition: (B, bottleneck_dim) encoder output
             positions: (B, T) absolute frame positions
             shape: (B, T, H, W)
+            t_min: (T,) per-frame minimum timestep. Frames stop denoising
+                   at their t_min, retaining residual noise at that level.
+                   None = all zeros (fully denoise, backward compat).
 
         Returns:
             block: (B, T, H, W) in [-1, 1]
@@ -326,8 +346,14 @@ class ConditionalBlockARDDPM(nn.Module):
         device = condition.device
         n_steps = self.config.n_steps
 
-        # Build pyramid schedule
-        schedule = self._pyramid_timesteps(T, n_steps, device)
+        if t_min is None:
+            t_min = torch.zeros(T, dtype=torch.long, device=device)
+
+        # (T,) -> (B, T) for broadcasting
+        t_min_expanded = t_min.unsqueeze(0).expand(B, -1)
+
+        # Build pyramid schedule (frames clamp at their t_min instead of 0)
+        schedule = self._pyramid_timesteps(T, n_steps, device, t_min=t_min)
 
         # Start from pure noise
         x_t = torch.randn(shape, device=device)
@@ -337,8 +363,9 @@ class ConditionalBlockARDDPM(nn.Module):
             t_current = schedule[iter_idx].unsqueeze(0).expand(B, -1)    # (B, T)
             t_next = schedule[iter_idx + 1].unsqueeze(0).expand(B, -1)   # (B, T)
 
-            # Skip if no frame needs updating (all already at 0)
-            if (t_current == 0).all():
+            # Skip if no frame needs updating (all at their t_min)
+            active = (t_current > t_min_expanded)  # (B, T)
+            if not active.any():
                 break
 
             # Flatten spatial dims for denoiser: (B, T, H, W) -> (B, T, H*W)
@@ -351,9 +378,6 @@ class ConditionalBlockARDDPM(nn.Module):
             noise_pred = noise_pred_flat.reshape(B, T, H, W)
 
             # DDPM posterior step: for each frame, go from t_current to t_next
-            # Only update frames where t_current > 0
-            active = (t_current > 0)  # (B, T)
-
             # Predict x_0 from noise prediction
             t_flat = t_current.flatten()
             sqrt_recip = self.scheduler.sqrt_recip_alpha_bar[t_flat].view(B, T, 1, 1)
@@ -371,17 +395,44 @@ class ConditionalBlockARDDPM(nn.Module):
             coef_xt = torch.sqrt(alpha_t) * (1.0 - alpha_bar_prev_t) / (1.0 - alpha_bar_t)
             mean = coef_x0 * x_0_pred + coef_xt * x_t
 
-            # Add noise (except at t=0)
+            # Add noise (except when t_current is at absolute 0 where posterior_var=0)
             posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
             z = torch.randn_like(x_t)
             nonzero = (t_current > 0).float().unsqueeze(-1).unsqueeze(-1)
             x_new = mean + nonzero * torch.sqrt(posterior_var) * z
 
-            # Only update active frames
+            # Only update active frames (those above their t_min)
             active_mask = active.float().unsqueeze(-1).unsqueeze(-1)  # (B, T, 1, 1)
             x_t = active_mask * x_new + (1 - active_mask) * x_t
 
         return x_t
+
+    def _compute_block_t_min(
+        self, block_idx: int, block_size: int, future_len: int,
+        max_global_residual: int, device: torch.device,
+    ) -> Optional[torch.Tensor]:
+        """Compute per-frame t_min for a block based on global horizon.
+
+        t_min(h) = max_global_residual * h / (future_len - 1)
+
+        where h is the global forecast horizon (0 to future_len-1).
+
+        Args:
+            block_idx: which block (0-indexed)
+            block_size: frames per block
+            future_len: total future frames
+            max_global_residual: max residual timestep at h=future_len-1
+            device: torch device
+
+        Returns:
+            (block_size,) long tensor, or None if max_global_residual == 0
+        """
+        if max_global_residual == 0:
+            return None
+        frame_indices = torch.arange(block_size, device=device)
+        global_horizons = block_idx * block_size + frame_indices  # 0..future_len-1
+        t_min = (max_global_residual * global_horizons.float() / (future_len - 1)).long()
+        return t_min
 
     @torch.no_grad()
     def sample(
@@ -389,6 +440,7 @@ class ConditionalBlockARDDPM(nn.Module):
         history: torch.Tensor,
         n_samples: int = 1,
         max_residual: int = 20,
+        max_global_residual: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Block-AR generation using DF pyramid sampling.
@@ -397,10 +449,17 @@ class ConditionalBlockARDDPM(nn.Module):
         frames clean up faster, enabling the BiGRU to propagate clean
         information to noisy later frames (DF "soft causality").
 
+        With max_global_residual > 0, frames retain horizon-dependent
+        residual noise: frame at global horizon h stops denoising at
+        t_min = max_global_residual * h / (future_len - 1). This creates
+        naturally growing uncertainty with forecast horizon.
+
         Args:
             history: (B, history_len, 5, 5) in [-1, 1]
             n_samples: number of independent samples per history
             max_residual: unused (kept for API compatibility)
+            max_global_residual: override config.max_global_residual.
+                None = use config value.
 
         Returns:
             (B, n_samples, future_len, 5, 5) denormalized to [0, 1]
@@ -409,6 +468,7 @@ class ConditionalBlockARDDPM(nn.Module):
         device = history.device
         bs = self.config.block_size
         n_blocks = self.config.future_len // bs
+        mgr = max_global_residual if max_global_residual is not None else self.config.max_global_residual
 
         self._ensure_scheduler_device(device)
 
@@ -430,10 +490,15 @@ class ConditionalBlockARDDPM(nn.Module):
                     + block_idx * bs
                 )
 
+                # Compute per-frame t_min for this block
+                t_min = self._compute_block_t_min(
+                    block_idx, bs, self.config.future_len, mgr, device
+                )
+
                 # Generate block with DF pyramid sampling
                 shape = (B, bs, self.config.surface_h, self.config.surface_w)
                 block = self._sample_block_pyramid(
-                    condition, positions, shape
+                    condition, positions, shape, t_min=t_min
                 )  # (B, bs, 5, 5) in [-1, 1]
 
                 blocks.append(block)
@@ -462,6 +527,7 @@ class ConditionalBlockARDDPM(nn.Module):
         history: torch.Tensor,
         n_samples: int = 1,
         max_residual: int = 20,
+        max_global_residual: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Block-AR generation with all samples batched in parallel.
@@ -474,6 +540,8 @@ class ConditionalBlockARDDPM(nn.Module):
             history: (B, history_len, 5, 5) in [-1, 1]
             n_samples: number of independent samples per history
             max_residual: unused (kept for API compatibility)
+            max_global_residual: override config.max_global_residual.
+                None = use config value.
 
         Returns:
             (B, n_samples, future_len, 5, 5) denormalized to [0, 1]
@@ -484,6 +552,7 @@ class ConditionalBlockARDDPM(nn.Module):
         n_blocks = self.config.future_len // bs
         S = n_samples
         B_eff = B * S
+        mgr = max_global_residual if max_global_residual is not None else self.config.max_global_residual
 
         self._ensure_scheduler_device(device)
 
@@ -506,10 +575,15 @@ class ConditionalBlockARDDPM(nn.Module):
                 + block_idx * bs
             )
 
+            # Compute per-frame t_min for this block
+            t_min = self._compute_block_t_min(
+                block_idx, bs, self.config.future_len, mgr, device
+            )
+
             # Generate block for all samples in parallel
             shape = (B_eff, bs, self.config.surface_h, self.config.surface_w)
             block = self._sample_block_pyramid(
-                condition, positions, shape
+                condition, positions, shape, t_min=t_min
             )  # (B*S, bs, 5, 5)
 
             blocks.append(block)
