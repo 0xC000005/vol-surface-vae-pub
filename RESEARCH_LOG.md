@@ -4413,3 +4413,315 @@ Channel-concatenation conditioning is architecturally inappropriate for our prob
 **Recommendation:** Abandon channel-concatenation conditioning for this problem. Cross-attention conditioning (keys/values from encoded history, queries from target features) completely avoids the first-conv bottleneck — conditioning capacity is determined by attention head dimension, not ngf. This aligns with the 2026-01-28 video diffusion survey finding that "1–2 attention layers at mid-depth" is the minimal effective architecture for conditioning.
 
 References: MCVD (arXiv:2205.09853), STDiff (arXiv:2312.06486), PredBench (arXiv:2407.08418).
+
+---
+
+## 2026-02-08: Next-Generation Architecture Design — Block-AR Diffusion with MCVD + Diffusion Forcing
+
+### Context
+
+Following the 2026-02-02 finding that channel-concatenation conditioning fails at our scale, conducted an extensive architecture design session exploring how to build a proper conditioning mechanism for IV surface diffusion. The design process started from first principles, evaluated multiple video/time-series diffusion papers, and converged on a principled minimal architecture combining three proven techniques.
+
+This entry documents the complete design rationale, component choices, rejection reasons, and the final architecture. It serves as the blueprint for implementation.
+
+### Design Philosophy: Bitter Lesson
+
+Explicit commitment to domain-agnostic training — no financial domain knowledge in the training objective.
+
+**Allowed (architectural inductive bias only):**
+- GRU/BiGRU (temporal sequential processing)
+- Information bottleneck (compression regularization)
+- Diffusion framework (stochastic future modeling)
+- MCVD masking (multi-task learning)
+- Sinusoidal embeddings (smooth position/noise encoding)
+- Residual prediction
+
+**Explicitly rejected as training objectives:**
+- ACF loss (volatility clustering)
+- No-arbitrage constraint penalties (butterfly, calendar)
+- SVI parameterization
+- GARCH-like components
+- Hand-designed regime indicators
+- Term structure rolldown features
+
+**Rationale:** Domain knowledge goes into *evaluation metrics*, not training. The model should discover vol clustering, smile dynamics, and mean reversion from the denoising objective alone — just as video models learn physics without physics losses. With 4000 samples and ~25 values per surface, the model must stay small (~30-50K params).
+
+### Why NOT These Architectures
+
+Before arriving at the final design, several standard architectures were evaluated and rejected for our 5x5 IV surface data:
+
+| Architecture | Why Rejected |
+|-------------|-------------|
+| **U-Net** | 5x5 grid too small — one downsample (5→2) destroys spatial structure. No spatial hierarchy to exploit. |
+| **2D/3D Convolutions** | Vol surfaces are NOT translation-equivariant. The relationship ATM↔25Δ is fundamentally different from 25Δ↔10Δ. Convolutions assume "same filter everywhere" — wrong inductive bias. |
+| **Self-Attention** | Over 25 tokens, self-attention is a trivially cheap dense layer with learned weights. An MLP already does this. Overkill. |
+| **Transformer denoiser** | Only ~10 frames per block. Transformer overhead not justified at this scale. |
+| **Mamba/S4 encoder** | GRU sufficient for 60-120 frame history. Mamba shines at 500+ tokens — documented as future upgrade path. |
+| **Learned embeddings** | Don't generalize to unseen positions. Sinusoidal chosen for arbitrary-length rollout capability. |
+| **Separate history/block encoders** | History and generated blocks are both "sequences of vol surfaces." Artificial separation adds complexity with no benefit. |
+| **Channel-concatenation conditioning** | Proven to fail at our scale (2026-02-02 entry). First-conv bottleneck irreconcilable with 30-frame conditioning. |
+
+**Key insight:** For 5x5 surfaces, the factorized spatial-temporal debate is irrelevant. Just flatten to 25-dim and process temporally. Focus innovation on the *training procedure*, not the architecture.
+
+### The Conditioning-Diversity Tradeoff
+
+Before designing the architecture, identified the fundamental three-way tension that killed the VAE approach and constrains any generative model:
+
+1. **Realism** — samples look like valid IV surfaces
+2. **Conditionality** — smooth transition from history, predictions track conditioning
+3. **Diversity** — multiple samples from same conditioning cover plausible futures
+
+**Stronger conditioning kills diversity.** This is fundamental, not a bug. With 4000 samples, the model can memorize conditioning→output mappings, collapsing to single-mode predictions (exactly what the two-stage VAE did).
+
+Three approaches evaluated to manage this tension:
+
+| Approach | Source | Mechanism | Decision |
+|----------|--------|-----------|----------|
+| **RVD residual decomposition** | Yang et al. 2022 | Decompose x = μ + σy; ConvRNN for conditional mean, diffusion for residual | Considered; useful concept but adds complexity |
+| **CADS inference-time annealing** | Sadat et al., ICLR 2024, Disney Research | Corrupt conditioning with noise during early reverse steps, anneal to clean | Adopted as inference technique |
+| **CDM conditioning augmentation** | Ho et al. 2021, JMLR 2022 | Add Gaussian noise to conditioning DURING TRAINING | Adopted as training technique |
+
+**CADS key insight for our problem:** With 4000 samples (Regime 2 in CADS taxonomy), the model learns near-deterministic conditioning→output mappings. CDM conditioning augmentation directly addresses this by making the same conditioning pattern look different each time during training ("label smoothing for conditioning").
+
+**Why not simple CFG?** CFG with guidance scale w>1 *reduces* variance — amplifies the conditional-unconditional gap, making the distribution peaked around the mode. This is exactly wrong for CI coverage where we need WIDE prediction intervals. MCVD-style multi-task masking was chosen instead.
+
+### The Uniform Uncertainty Problem
+
+**Critical observation from existing DDPM POC:** When generating all 30 frames at once with standard DDPM, variance is SIMILAR across all horizons. Day 1 prediction has essentially the same uncertainty as Day 30. This violates financial reality where near-term should be more constrained.
+
+**Root cause:** All 30 frames start at noise level K and get denoised together to level 0. No structural mechanism exists for Var(x_1) ≠ Var(x_30). The diffusion process treats all frames symmetrically.
+
+This motivated adopting Diffusion Forcing as a core training technique.
+
+### Three Training Techniques (Orthogonal, Compatible)
+
+The final design combines three proven techniques that operate on different axes:
+
+**1. MCVD Multi-Task Masking (Voleti et al., NeurIPS 2022)**
+
+Independently mask past and future conditioning with p=0.5 each, creating four task types from the same data:
+
+| Task | Past Cond | Future Cond | Use Case |
+|------|-----------|-------------|----------|
+| Forward prediction | Visible | Masked | Standard forecasting |
+| Backward prediction | Masked | Visible | Backcasting |
+| Interpolation | Visible | Visible | Gap-filling |
+| Unconditional | Masked | Masked | Pure generation |
+
+**Why:** 4× effective data utilization from 4000 samples. Acts as strong regularizer — model cannot rely on any single conditioning source. Enables prediction, generation, AND interpolation from one model without separate training.
+
+**2. Diffusion Forcing (Chen et al., NeurIPS 2024)**
+
+Independent noise level per frame during training. Progressive denoising at inference.
+
+**Training:** k_i ~ Uniform(0, K) independently for each frame. Model sees all combinations of noise levels — some frames nearly clean while others are pure noise.
+
+**Inference:** Progressive schedule where earlier frames are denoised first:
+```
+Step 0: [noise_K, noise_K, ..., noise_K]     # all frames start noisy
+Step 1: [noise_{K-1}, noise_K, ..., noise_K]  # frame 1 denoised first
+...
+Step K: [clean, noise_1, ..., noise_{K-29}]   # frame 1 clean, later frames still noisy
+```
+
+**Why:** Mechanically produces growing uncertainty with horizon distance. Solves the "uniform variance" problem. Mathematical justification: for progressive sampling, Var(x_t) = E[Var(x_t|x_{1:t-1})] + Var(E[x_t|x_{1:t-1}]). The second term is non-negative, so variance can only grow or plateau — never shrink.
+
+**Task-adaptive noise schedule (novel synthesis):**
+
+| Task | Noise Pattern Across Frames | Rationale |
+|------|----------------------------|-----------|
+| Forward | k_low → k_high | Uncertainty grows away from known past |
+| Backward | k_high → k_low | Uncertainty grows away from known future |
+| Interpolation | k_low → k_high → k_low (tent) | Peak uncertainty in middle between anchors |
+| Unconditional | Uniform | No anchor, equal uncertainty everywhere |
+
+**Important caveat:** The task-adaptive noise schedule combining MCVD masking with Diffusion Forcing per-frame noise is a novel synthesis. MCVD uses uniform noise; Diffusion Forcing uses per-frame noise but only for forward generation. The tent schedule for interpolation is an extrapolation — principled but unvalidated.
+
+**3. Conditioning Augmentation (Ho et al., CDM, JMLR 2022)**
+
+Add Gaussian noise to the bottleneck representation during training: c' = c + σ·ε.
+
+**Why:** Prevents memorization of exact conditioning→output mappings on 4000 samples. Applied task-agnostically to ALL visible conditioning. "Label smoothing for conditioning."
+
+**How the three techniques interact:**
+- MCVD controls *what conditioning is visible* (which anchors are available)
+- Diffusion Forcing controls *how noisy each target frame is* (uncertainty structure)
+- Conditioning augmentation prevents *overfitting the conditioning path* (memorization)
+
+They operate on different axes — fully orthogonal and compatible.
+
+### Final Architecture: Two Components
+
+Deliberately minimal — "Bitter Lesson" aligned.
+
+**Component A: Unified GRU Encoder**
+
+```
+Purpose:  Encode ANY conditioning sequence into bottleneck representation
+Input:    Any sequence of 5x5 surfaces (history, future anchor, prev generated blocks)
+          Flatten 5x5 → 25-dim per frame
+
+Architecture:
+  GRU(input_dim=25, hidden_dim=64) — processes frames sequentially
+  Linear(64 → 16) — information bottleneck
+
+Regularization:
+  - Conditioning augmentation: c' = c + σ·ε (σ ~ 0.2, tunable)
+  - Dropout on bottleneck
+  - MCVD masking: replace with learned null_embedding with task-dependent probability
+
+Key design: ONE encoder for everything. History and generated blocks are both
+"sequences of vol surfaces" — no artificial separation. For AR chaining,
+previously generated blocks are appended to history before encoding, so
+conditioning grows naturally (60 → 70 → 80 frames).
+```
+
+**Component B: BiGRU Denoiser**
+
+```
+Purpose:  Predict noise for a block of ~10 target frames jointly
+Input per frame: concat(
+    noisy_frame,          # 25-dim (flattened 5x5)
+    bottleneck,           # 16-dim (from encoder)
+    sinusoidal(pos),      # ~16-dim (frame position index)
+    sinusoidal(k),        # ~16-dim (per-frame noise level)
+) ≈ 73-dim
+
+Architecture:
+  BiGRU(input_dim≈73, hidden_dim=128) — bidirectional, processes block jointly
+  Output: predicted noise (B, block_size, 25)
+
+Why BiGRU:
+  - Bidirectional so frames within a block see each other
+  - Only ~10 frames per block — Transformer overkill
+  - Easy to test causal GRU vs BiGRU (one flag change: bidirectional=True/False)
+
+Why sinusoidal embeddings (not learned):
+  - Smooth interpolation: k=50 and k=51 get similar vectors
+  - Generalizes to unseen positions (critical for arbitrary-length rollout)
+  - Works with continuous values
+```
+
+**Total model size: ~30-50K parameters.**
+
+Training objective: standard DDPM MSE loss: `loss = MSE(pred_noise, actual_noise)`, summed over all frames in the block with their respective noise levels.
+
+### Soft Causality Mechanism
+
+The BiGRU denoiser is architecturally symmetric (bidirectional), but **information flows asymmetrically due to Diffusion Forcing noise levels:**
+
+- Frame 1 at k=10 (90% signal) → Frame 10 at k=100 (10% signal): Frame 10 sees useful clean signal from Frame 1 via the GRU hidden state
+- Frame 10 at k=100 → Frame 1 at k=10: Frame 1 sees mostly noise from Frame 10, learns to ignore it
+
+**Result:** Emergent directional information flow without architectural enforcement. The model learns "trust low-k neighbors, ignore high-k neighbors" from training signal alone. No causal masking needed — the noise levels create it naturally.
+
+### Block-Autoregressive Generation (Option B)
+
+The sequence is divided into blocks of ~10 frames, generated sequentially:
+
+```
+Block 1: Condition on history[1:30]              → Generate frames[1:10]
+Block 2: Condition on history + generated[1:10]   → Generate frames[11:20]
+Block 3: Condition on history + generated[1:20]   → Generate frames[21:30]
+```
+
+Each generated block is appended to the conditioning before encoding the next block.
+
+**Why Option B (block-AR) over Option A (all-at-once):**
+
+| Aspect | Option A (All-at-once) | Option B (Block-AR) |
+|--------|----------------------|---------------------|
+| Training | Generate all 30 frames jointly | Generate ~10-frame blocks sequentially |
+| AR chaining | Train-test mismatch: trained on real history, production uses generated (imperfect) history | No mismatch: trains on own outputs |
+| Extension | Fixed 30 frames only | Natural extension to arbitrary length |
+| Complexity | Simpler training loop | Slightly more complex but production-aligned |
+
+**Option B trains the model to condition on its own (potentially imperfect) outputs — exactly what production AR chaining requires.** Production rollout is "just more of the same."
+
+### What the Model Learns (Expected)
+
+| Domain | Mechanism | Source |
+|--------|-----------|--------|
+| **Spatial** (smile shape, term structure) | Fixed 25-dim vector, same order always. MLP discovers grid structure from data. | Input ordering + learned weights |
+| **Temporal** (ACF, vol clustering, mean reversion) | GRU encoder processes 60-120 days sequentially. AR block generation conditions on previous blocks. BiGRU denoiser: frames within block see each other. | Sequential processing + block chaining |
+| **Spatial-temporal** (smile steepens when vol spikes) | Encoder sees full 25-dim surfaces over time. Bottleneck captures compressed joint history. Cross-terms learned implicitly through joint processing. | End-to-end training |
+
+### Tuning Knobs (Priority Order)
+
+| Priority | Parameter | Start Value | Range | Rationale |
+|----------|-----------|-------------|-------|-----------|
+| 1 | Conditioning augmentation σ | 0.2 | 0.1-0.5 | Controls memorization vs conditionality |
+| 2 | Bottleneck dimension | 16 | 8-32 | Too small → blurry; too large → memorized |
+| 3 | MCVD mask probability | 0.5 | 0.1-0.5 | Lower = stronger conditioning; higher = better regularization |
+| 4 | Block size | 10 | 5-15 | Shorter = more AR steps; longer = more joint context |
+| 5 | BiGRU vs causal GRU | BiGRU | Binary | Test whether bidirectional helps within-block coherence |
+
+### Validation Approach
+
+Generate 100 samples from same conditioning and check:
+1. **Conditionality:** Do samples track the conditioning? (not blurry averages)
+2. **Diversity:** Do samples vary? (not memorized single mode)
+3. **Growing uncertainty:** Does variance grow with frame index? (Diffusion Forcing working)
+4. **CI coverage:** 90% CI at horizons h=1, 7, 14, 30 (target: ~90%)
+5. **CRPS:** Proper scoring rule across all horizons
+
+### Scalability Path
+
+| Rollout Length | Encoder Choice | Notes |
+|---------------|---------------|-------|
+| 60-120 frames | GRU (current) | Simple, sufficient |
+| 200-500 frames | Mamba (drop-in swap) | Better long-range, O(n) |
+| 500+ frames | Mamba + sliding window | Memory management |
+
+Architecture stays identical — just swap encoder module when needed.
+
+### Feasibility Assessment
+
+**Strong evidence FOR each component:**
+
+| Component | Source | Evidence |
+|-----------|--------|----------|
+| Diffusion Forcing | Chen et al., NeurIPS 2024 | Proven for video generation with growing uncertainty |
+| MCVD multi-task masking | Voleti et al., NeurIPS 2022 | Masking improves even prediction-only performance as regularization |
+| Conditioning augmentation | Ho et al., CDM, JMLR 2022 | Proven to prevent memorization in cascaded diffusion |
+| GRU encoder | Standard | Proven for sequence encoding at this scale |
+| BiGRU denoiser | Standard | Proven for joint sequence processing |
+| Block-AR generation | MCVD | Validated for arbitrary-length video generation |
+
+**Honest concerns:**
+
+| Concern | Risk | Mitigation |
+|---------|------|------------|
+| Task-adaptive noise schedule is novel/unvalidated | Medium | Combined MCVD+DF+tent-schedule is an extrapolation. Fall back to uniform noise if it fails. |
+| Butterfly arbitrage (24% in DDPM POC) | Unknown | No explicit mechanism. May need post-hoc constraint enforcement later. |
+| Kurtosis ratio (0.45 in DDPM POC) | Unknown | Relies on diffusion stochasticity + regime diversity from masking. |
+| Calibrated uncertainty not proven for Diffusion Forcing | Medium | DF paper optimizes visual quality, not calibration. Must verify empirically. |
+| 4000 samples | High | Even with all regularization, this is small. Overfitting remains primary risk. |
+
+### Key Papers Referenced
+
+| Paper | Contribution to Design |
+|-------|----------------------|
+| MCVD (Voleti et al., NeurIPS 2022) | Multi-task masking framework, block-AR generation |
+| Diffusion Forcing (Chen et al., NeurIPS 2024) | Per-frame noise levels, progressive denoising, soft causality |
+| CDM (Ho et al., JMLR 2022) | Conditioning augmentation during training |
+| CADS (Sadat et al., ICLR 2024) | Conditioning-diversity tradeoff diagnosis, inference-time annealing |
+| RVD (Yang et al., 2022) | Residual decomposition concept, ConvRNN conditioning |
+| ERDM (2025) | Rolling diffusion for weather, progressive noise validation |
+| FDM (Flexible Diffusion Modeling) | Condition on arbitrary frame subsets, relative position encoding |
+| CSDI (Tashiro et al., 2021) | MCVD masking applied to multivariate time series |
+| TimeGrad (Rasul et al., 2021) | Autoregressive RNN + small diffusion model |
+
+### Summary
+
+The architecture is a principled, minimal two-component design (GRU encoder + BiGRU denoiser, ~30-50K params) combining three orthogonal, well-researched techniques (MCVD multi-tasking, Diffusion Forcing, conditioning augmentation). Individual components are all proven in published work. The combination — particularly the task-adaptive noise schedule — is a novel synthesis that needs empirical validation. The biggest risks are the 4000-sample constraint and whether calibrated uncertainty actually emerges from Diffusion Forcing without explicit calibration training.
+
+### Next Steps
+
+1. Implement the two-component architecture (GRU encoder + BiGRU denoiser)
+2. Implement MCVD multi-task training loop with 4 task types
+3. Implement Diffusion Forcing per-frame noise during training
+4. Add conditioning augmentation to encoder bottleneck
+5. Train and evaluate: conditionality, diversity, CI coverage, CRPS
+6. Tune bottleneck dimension and augmentation σ based on conditionality-diversity balance
+7. Compare against existing DDPM POC (81.7% CI baseline)
