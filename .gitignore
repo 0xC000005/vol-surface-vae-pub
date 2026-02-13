@@ -222,3 +222,6 @@ experiments/econometric_baseline/
 # - models_backfill/ (line 167) - covers any econometric models
 ConversationLogWithCluadeWeb.txt
 ConversationWithClaudeWebRegardingMCVD.txt
+
+# Research notes (local only)
+research/
