@@ -48,6 +48,10 @@ class BlockARPOCConfig:
     # === Sampling ===
     max_residual_timestep: int = 20
 
+    # === Loss ===
+    loss_type: str = "mse"  # "mse" or "huber"
+    huber_delta: float = 0.1  # Huber threshold (smaller = more L1-like)
+
     # === Training ===
     batch_size: int = 64
     epochs: int = 50

@@ -154,6 +154,11 @@ def main():
     parser.add_argument("--n_eval_samples", type=int, default=None)
     parser.add_argument("--noise_rho", type=float, default=None, help="PYoCo noise correlation (0.0=independent, 0.5=default)")
     parser.add_argument("--output_dir", type=str, default=None, help="Override output directory")
+    parser.add_argument("--block_size", type=int, default=None, help="Block size for AR generation (default: 10)")
+    parser.add_argument("--jitter_std", type=float, default=None, help="DF noise jitter std (default: 0.15)")
+    parser.add_argument("--checkpoint_every", type=int, default=None, help="Save checkpoint every N epochs")
+    parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber"], help="Loss function (default: mse)")
+    parser.add_argument("--huber_delta", type=float, default=None, help="Huber loss delta (default: 0.1)")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -172,6 +177,16 @@ def main():
         config.noise_rho = args.noise_rho
     if args.output_dir:
         config.output_dir = args.output_dir
+    if args.block_size is not None:
+        config.block_size = args.block_size
+    if args.jitter_std is not None:
+        config.jitter_std = args.jitter_std
+    if args.checkpoint_every is not None:
+        config.checkpoint_every = args.checkpoint_every
+    if args.loss_type is not None:
+        config.loss_type = args.loss_type
+    if args.huber_delta is not None:
+        config.huber_delta = args.huber_delta
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -242,6 +257,8 @@ def main():
         jitter_std=config.jitter_std,
         noise_rho=config.noise_rho,
         max_residual_timestep=config.max_residual_timestep,
+        loss_type=getattr(config, 'loss_type', 'mse'),
+        huber_delta=getattr(config, 'huber_delta', 0.1),
     )
 
     model = ConditionalBlockARDDPM(model_config)

@@ -4913,3 +4913,474 @@ Created `visualize_forecasts.py` with:
 3. **Calibration at mgr=5** (error 0.176) could be improved by tuning the noise schedule or adding a calibration-aware early stopping criterion
 4. **Consider post-processing arb projection** — a final projection step that enforces calendar/butterfly monotonicity without domain losses in training
 5. **Publication preparation** — the dual-path AdaGN architecture + global t_min + Bitter Lesson adherence is a coherent story for a methods paper
+
+---
+
+## 2026-02-18: Kurtosis Root Cause Attribution & Regime Calibration Diagnostic
+
+### Phase 2: Kurtosis Experiments — Training Procedure Changes
+
+**Goal:** Determine whether training procedure changes can fix the low kurtosis ratio (0.075 vs target 0.5-2.0).
+
+**Root cause identified:** The BiGRU denoiser is the fundamental bottleneck. Two compounding factors:
+
+1. **BiGRU itself** — bs=30 one-shot (no AR) gets kurtosis 0.13 vs DDPM POC's 0.45 → **3.5x loss from BiGRU architecture**
+2. **AR chaining** — bs=10 (3 blocks) drops further to 0.08 → **1.6x additional loss from AR**
+
+#### Experiment Results
+
+| Experiment | block_size | Loss | Jitter | Kurtosis (ep10) | Best 90% CI | Notes |
+|------------|-----------|------|--------|-----------------|-------------|-------|
+| Baseline (dual-path) | 10 | MSE | 0.15 | 0.083 | 95.2% | Current best model |
+| No AR | 30 | MSE | 0.15 | 0.132 (+59%) | 79.9% | Best kurtosis, lost growing uncertainty |
+| Huber loss | 10 | Huber δ=0.1 | 0.15 | 0.065 (-22%) | 89.1% | **Worse** — opposite of hypothesis |
+| High jitter | 10 | MSE | 0.4 | 0.111 (+34%) | 74.9% | Marginal gain, big CI loss |
+| Huber + no AR | 30 | Huber δ=0.1 | 0.15 | 0.035 (-58%) | 89.7% | Worst kurtosis |
+
+**Models saved:**
+- `models/backfill/block_ar_bs30/` — block_size=30, MSE
+- `models/backfill/block_ar_huber/` — Huber loss, bs=10
+- `models/backfill/block_ar_jitter04/` — jitter=0.4, bs=10
+- `models/backfill/block_ar_bs30_huber/` — Huber + bs=30
+
+#### Kurtosis vs Epoch (dual-path, bs=10)
+
+| Epoch | Kurtosis Ratio |
+|-------|---------------|
+| 10 | 0.083 |
+| 20 | 0.116 |
+| 30 | 0.158 |
+| 40 | 0.149 |
+| 50 | 0.171 |
+
+Per-cell analysis: 0/25 cells pass (0.5-2.0 target). Ensemble vs single-sample nearly identical.
+
+#### Key Findings
+
+1. **Huber loss HURTS kurtosis** — opposite of hypothesis. MSE's quadratic penalty forces model to learn extreme noise patterns. Huber's linear tail for large errors makes the model ignore them. Lesson: for fat-tailed generation, MSE > Huber.
+
+2. **Removing AR helps kurtosis** (+59%) but loses growing uncertainty. AR error accumulation is weak — if it were strong, `max_global_residual` (mgh) wouldn't have been needed.
+
+3. **Higher jitter marginal** — 34% kurtosis improvement but 20% CI loss. Not worth the trade-off.
+
+4. **Training procedure ceiling is ~0.13-0.17.** No training procedure change gets kurtosis past this. BiGRU architecture is the fundamental bottleneck.
+
+#### bs=30 Full Validation (best epoch 15)
+
+| Metric | bs=30 | bs=10 (dual-path) | Notes |
+|--------|-------|-------------------|-------|
+| Explosion | 0% | 0% | — |
+| Calendar arb | 11.8% | 15.4% | Better without AR |
+| Butterfly arb | 36.9% | 38.5% | Slightly better |
+| 90% CI | 80.6% | 95.2% | Worse — no AR means no pyramid staggering |
+| ACF | 0.852 | 0.919 | Slightly worse |
+| Kurtosis | 0.128 | 0.075 | Better but still far from target |
+| Growing uncertainty | FAIL | PASS | Cannot grow without AR or mgh |
+
+#### Conclusion
+
+Training procedure changes are exhausted for kurtosis improvement. The path forward requires either:
+- **Architecture change** — replace BiGRU with something that preserves fat tails (Phase 3)
+- **Hierarchical regime sampling** — explicitly model regime mixture to create fat tails (Phase 5)
+- **NSDiff-style conditional variance** — input-dependent noise schedule (see below)
+
+### Regime-Conditional Calibration Diagnostic
+
+**Question:** Does the model produce different conditional distributions for different regimes (volatile vs calm history)?
+
+**Script:** `experiments/backfill/block_ar/diagnose_regime_calibration.py`
+
+**Method:** Median split on history IV volatility → classify each validation window as "volatile" or "calm". Compute CI coverage and width separately per regime.
+
+#### Results (dual-path model, epoch 10, 50 samples, validation set)
+
+| Metric | Volatile | Calm | Ratio (V/C) | Verdict |
+|--------|----------|------|-------------|---------|
+| n_samples | 221 | 220 | — | — |
+| Overall coverage | 94.8% | 96.0% | — | — |
+| Overall CI width | 0.1904 | 0.1876 | **1.015x** | **FLAT** |
+| h=1 CI width | 0.1884 | 0.1868 | 1.009x | FLAT |
+| h=7 CI width | 0.1886 | 0.1862 | 1.013x | FLAT |
+| h=14 CI width | 0.1900 | 0.1881 | 1.011x | FLAT |
+| h=30 CI width | 0.1942 | 0.1915 | 1.014x | FLAT |
+
+Calibration error: volatile 0.135, calm 0.146.
+
+**The model is NOT regime-adaptive.** Width ratio 1.015x — virtually identical CIs regardless of history regime.
+
+#### Critical Nuance: Ground Truth Is Also Flat
+
+| Metric | Volatile | Calm | Ratio |
+|--------|----------|------|-------|
+| GT future std | 0.0572 | 0.0589 | **0.971x** |
+
+The ground truth itself shows almost no regime difference. Volatile history does NOT predict more volatile futures in this IV surface dataset. The vol/calm ratio is 0.971x — nearly 1.0.
+
+**Implication:** The model isn't necessarily "wrong" for being flat — the data doesn't reward regime-adaptive uncertainty. However, the model also isn't learning to distinguish regimes at all. It learned P_marginal + mean shift, not a truly conditional distribution. The 81% MAE reduction comes from predicting surface level/shape (mean shift), not from modulating uncertainty.
+
+### NSDiff: Non-stationary Diffusion (Potential Solution)
+
+**Paper:** [arXiv:2505.04278](https://arxiv.org/abs/2505.04278) — "Non-stationary Diffusion For Probabilistic Time Series Forecasting"
+
+**Core idea:** Standard DDPM uses a fixed noise schedule — every sample gets the same forward process regardless of conditioning. This forces the reverse process to produce the same variance regardless of input. NSDiff makes the noise schedule itself input-dependent:
+
+1. Pre-train a **conditional mean AND variance estimator** from history
+2. Use estimated variance to create an **uncertainty-aware noise schedule** per sample
+3. Diffusion endpoint distribution adapts: volatile inputs → wider noise → wider CIs
+
+**Key claim:** 78-88% improvement over TMDM (fixed-variance baseline) on non-stationary datasets.
+
+**Relevance to our model:** Our cosine noise schedule treats every sample identically. NSDiff's approach would allow the model to produce wider uncertainty for inputs that warrant it. However, our regime diagnostic showed GT vol/calm ratio is 0.971x — so the benefit may be limited for this specific dataset. NSDiff would more directly help if the underlying data had strong regime-dependent variance.
+
+**Status:** Not implemented. Worth investigating if regime-adaptive forecasting becomes a requirement.
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `experiments/backfill/block_ar/diagnose_regime_calibration.py` | Regime-conditional calibration diagnostic |
+| `experiments/backfill/block_ar/diagnose_kurtosis.py` | Kurtosis vs epoch, per-cell, ensemble diagnostics |
+
+### Updated Understanding
+
+The model's remaining failures have clear attribution:
+
+| Issue | Root Cause | Solvable Without Architecture Change? |
+|-------|-----------|--------------------------------------|
+| Low kurtosis (0.075) | BiGRU smooths fat tails | NO — training procedure caps at ~0.13 |
+| No regime-adaptive width | Fixed noise schedule + data is flat | PARTIALLY — NSDiff, but GT ratio is 0.97x |
+| Calendar arb (15.4%) | Stochastic sampling noise above GT floor (10.2%) | MAYBE — post-processing projection |
+| Butterfly arb (38.5%) | GT data floor (23%) + sampling noise | NO without domain losses |
+
+### Next Steps
+
+1. **Decide on kurtosis priority** — is 0.075 acceptable given the use case? If not, architecture change (temporal conv) or hierarchical regime sampling needed
+2. **bs=30 + mgh** — test one-shot generation with explicit growing uncertainty from `max_global_residual`, avoiding AR overhead
+3. **Investigate NSDiff** if regime-adaptive forecasting becomes a priority
+4. **Post-processing arb projection** — enforce monotonicity constraints without domain losses in training
+
+---
+
+## 2026-02-18: Conditionality in Diffusion — Video Generation vs Time Series Forecasting
+
+### The Transfer Gap
+
+Diffusion models were developed for image/video generation and are increasingly borrowed for time series forecasting. However, "conditionality" means fundamentally different things in each domain:
+
+| Aspect | Video Generation | Time Series Forecasting |
+|--------|-----------------|------------------------|
+| **Conditionality means** | Semantic coherence — output follows from prompt/history | Calibrated conditional distributions — correct uncertainty given history |
+| **Evaluation** | FID/FVD (distributional realism), human judgment | CRPS, calibration curves, sharpness, PIT histograms |
+| **Diversity expectation** | NOT expected to vary with condition — you want consistent outputs | SHOULD vary with condition — volatile history → wider intervals |
+| **Key question** | "Does the output look right?" | "Is my 90% CI actually covering 90% of outcomes?" |
+
+In video generation, you never need to answer "is my predictive distribution well-calibrated?" — in time series forecasting, that IS the task.
+
+### What "Conditional" Means for Our Model
+
+Our model shows strong conditionality by video-gen standards:
+- **Width ratio 0.610** — conditional predictions are sharper than unconditional (model uses history)
+- **MAE reduction 81%** — conditioning eliminates 81% of prediction error
+
+But this measures whether the model **uses** the conditioning, not whether it produces **different distributions** for different inputs. The regime calibration diagnostic (see above) showed width ratio 1.015x across volatile/calm regimes — the model produces the **same uncertainty** regardless of regime.
+
+**Interpretation:** The 81% MAE reduction comes entirely from **mean shift** — the model predicts different surface levels/shapes given different histories. But the **spread** (uncertainty) is regime-invariant. This is P_marginal + mean shift, not a truly conditional distribution.
+
+### Marginal vs Conditional Calibration
+
+Aggregate CI coverage (95.2%) can hide regime-specific miscalibration:
+
+```
+Well-calibrated:     95% coverage in volatile AND 95% in calm (different widths, same coverage)
+Marginal-only:       100% coverage in calm, 85% in volatile → averages to ~95% (WRONG)
+Our model:           94.8% volatile, 96.0% calm → marginal average ~95.4% (lucky — both close)
+```
+
+Our model happens to be marginally calibrated (small 1.3% coverage gap). But this is because the **data itself** doesn't differentiate much (GT vol/calm std ratio = 0.971x), not because the model learned conditional calibration.
+
+### Why Most TS Diffusion Papers Miss This
+
+Papers like TimeGrad, CSDI, TSDiff report:
+- Aggregate CRPS
+- Aggregate calibration curves
+- Overall CI coverage
+
+Almost none stratify by regime or conditioning context. A model that learns P_marginal + mean shift passes all these benchmarks — the regime-conditional failure is invisible in aggregate metrics.
+
+### The Fundamental Issue for Diffusion Models
+
+Standard DDPM has a **fixed noise schedule** — the forward process adds the same Gaussian noise to every input regardless of conditioning. This means:
+- The reverse process (generation) produces approximately the same variance for all inputs
+- The conditioning modulates the **mean** of the denoising trajectory, not the **spread**
+- Regime-adaptive uncertainty requires either:
+  1. **Input-dependent noise schedules** (NSDiff approach)
+  2. **Learned heteroscedastic output** (predict both mean and variance)
+  3. **Hierarchical regime sampling** (mixture of regime-specific distributions)
+
+This is not a bug in our implementation — it's a structural limitation of standard conditional diffusion when applied to probabilistic forecasting.
+
+### Relevance to Our Design Decisions
+
+| Metric | What It Measures | Our Model | Verdict |
+|--------|-----------------|-----------|---------|
+| Width ratio (cond/uncond) | Does model USE conditioning? | 0.610 | YES — strong |
+| MAE reduction | Does conditioning improve accuracy? | 81% | YES — strong |
+| Regime width ratio (vol/calm) | Does model ADAPT uncertainty to regime? | 1.015x | NO — flat |
+| Calibration error | Is overall coverage correct? | 0.143 | OK |
+| Per-regime coverage gap | Is coverage correct in EACH regime? | 1.3% | OK (lucky — data is flat) |
+
+**Bottom line:** Our model is a good conditional mean predictor with approximately correct marginal uncertainty. It is NOT a conditional distribution predictor in the forecasting sense. Whether this matters depends on the use case — for backfill/CI estimation with this dataset, the marginal calibration may be sufficient since the data itself shows minimal regime dependence (GT ratio 0.971x).
+
+---
+
+## 2026-02-18: Architecture Decision — Block-AR + 3D Conv Denoiser
+
+### Use Case
+
+Conditional risk scenario generator requiring:
+- Forward fill to arbitrary length conditioned on arbitrary-length history
+- Backward fill (condition on future, generate past)
+- Middle fill (condition on past + future anchors, fill variable-length gap)
+- Good surface quality (kurtosis, arb preservation, term structure)
+
+### Options Evaluated
+
+**Option A: DDPM POC one-pass + rolling inference + MCVD masking**
+- Use existing 3D conv model (proven quality: kurtosis 0.45, calendar arb 6.5%)
+- Add MCVD masking for multi-task
+- Add mgh for growing uncertainty
+- Rolling/chunked inference for arbitrary length: generate 30 days, slide, repeat
+
+**Option B: Block-AR framework + 3D conv denoiser (replacing BiGRU)**
+- Keep GRU encoder (variable-length), MCVD masking (multi-task), pyramid sampling (block boundaries)
+- Replace BiGRU denoiser with SimpleDenoiser3D from DDPM POC
+- Predicted to recover DDPM POC quality (kurtosis ~0.4, arbs ~similar) while keeping Block-AR capabilities
+
+### Evidence: Architecture vs Paradigm Attribution
+
+The agent team audit (3 agents in parallel) verified that Block-AR's poor quality metrics are caused by the **BiGRU denoiser architecture**, not the block-AR generation paradigm:
+
+**Kurtosis attribution:**
+| Model | Denoiser | Generation | Kurtosis |
+|-------|----------|-----------|----------|
+| DDPM POC | 3D Conv | One-pass 30 | 0.45 |
+| Block-AR bs=30 | BiGRU | One-pass 30 | 0.13 |
+| Block-AR bs=10 | BiGRU | 3-block AR | 0.08 |
+
+- 3D Conv → BiGRU (both one-pass): 3.5x kurtosis loss → **architecture** (70% of total loss)
+- One-pass → 3-block (both BiGRU): 1.6x kurtosis loss → **AR chaining** (30% of total loss)
+
+**Arb attribution:**
+| Model | Calendar | Butterfly |
+|-------|----------|-----------|
+| DDPM POC (3D conv, one-pass) | 6.5% | 23.6% |
+| Block-AR bs=30 (BiGRU, one-pass) | 11.8% | 36.9% |
+| Block-AR bs=10 (BiGRU, 3-block) | 15.4% | 38.5% |
+
+Architecture gap >> AR gap. Same conclusion.
+
+### Why Not Option A (DDPM POC + Rolling)
+
+Option A was seriously evaluated. Its advantages: proven quality, works today, simpler system. However, it has genuine operational limitations for the stated use case:
+
+**1. Rolling context loses temporal ordering.**
+DDPM POC's `HistoryEncoder` uses `AdaptiveAvgPool3d((1,1,1))` — reduces all history to a single 128-dim vector with no temporal ordering. "Recent crisis" and "crisis 6 months ago" produce identical conditioning. Fixable by swapping in a GRU encoder, but this converges toward Block-AR anyway.
+
+**2. Rolling backward fill is messy.**
+Forward rolling works: generate 30, slide, repeat. Backward fill requires generating 30 frames before a future anchor, then sliding backward. Each chunk only sees 30 days of "future" context — the original anchor recedes. Block-AR's GRU encoder maintains the full future anchor at every block via MCVD BACKWARD masking.
+
+**3. Middle fill at variable gap lengths.**
+If the gap is exactly 30 frames, DDPM POC handles it perfectly in one pass. If 90 frames, need 3 chunks that must each be coherent with both anchors AND each other. Rolling doesn't coordinate multi-chunk middle fill well. Block-AR generates blocks sequentially, each seeing all prior blocks plus the future anchor through MCVD interpolation masking.
+
+**4. Fixed context window for long generation.**
+Generating 1-year scenarios (365 days): by chunk 12, rolling DDPM POC has zero memory of the original conditioning history. Only the most recent 30 generated days serve as context. Block-AR's GRU encoder accumulates all prior context.
+
+### Why Option B (Block-AR + 3D Conv)
+
+| Capability | Option A (DDPM POC + Rolling) | Option B (Block-AR + 3D Conv) |
+|-----------|-------------------------------|-------------------------------|
+| Available today | YES | NO (needs building) |
+| Forward fill (30 days) | Excellent | Excellent (predicted) |
+| Forward fill (1 year) | Weak context (30-day window) | Full context (GRU accumulates) |
+| Backward fill | Awkward (anchor recedes) | Native (MCVD BACKWARD) |
+| Middle fill (variable gap) | Only 30-frame gaps | Native (MCVD INTERPOLATION) |
+| Quality (kurtosis, arbs) | Proven 0.45 / 6.5% | Predicted ~0.4 / ~similar |
+| Implementation risk | Low | Medium |
+
+For a production scenario generator with multi-task arbitrary-length requirements, the rolling approach's limitations are operational, not theoretical.
+
+### Decision
+
+**Block-AR framework + 3D conv denoiser.** This is the final architecture.
+
+Components:
+```
+History (B, T_any, 5, 5)  ← arbitrary length
+    ↓
+GRU Encoder (from Block-AR)  ← attention pooling, handles any length
+    ↓
+condition (B, bottleneck_dim)
+    ↓
+For each block (block_size frames):
+    SimpleDenoiser3D (from DDPM POC)
+    - CausalConv3d + 4× ResBlock + AdaptiveGroupNorm
+    - FiLM conditioning from GRU bottleneck
+    - Pyramid sampling for denoising
+    ↓
+    Append block to context, re-encode, next block
+```
+
+**What stays from Block-AR:** GRU encoder, MCVD 4-task masking, noise schedules, pyramid sampling, block chaining, mgh.
+**What gets swapped from DDPM POC:** SimpleDenoiser3D (3D conv + AdaptiveGroupNorm ResBlocks), adapted for block_size frames.
+
+### Validation Gate
+
+Build the 3D conv block denoiser and run one validation experiment:
+- If kurtosis recovers to ~0.3+: **commit** to this path
+- If kurtosis stays below 0.2: **fall back** to DDPM POC + rolling with limitations accepted
+
+### Risks
+
+| Risk | Mitigation |
+|------|------------|
+| 3D conv may not work on small blocks (10 frames) | Increase block_size to 30; 3D conv temporal receptive field with 4 ResBlocks covers ~12 frames |
+| Kurtosis doesn't recover with 3D conv in Block-AR context | Fallback to DDPM POC + rolling |
+| GRU encoder bottleneck limits conditioning quality | Same bottleneck worked for current Block-AR; 3D conv denoiser should use it equally well |
+| Training instability from architecture swap | Start from DDPM POC denoiser weights, freeze initially |
+
+### Deprioritized
+
+- Current BiGRU Block-AR line: archive as experimental baseline
+- Further BiGRU kurtosis experiments: ceiling proven at ~0.13-0.17
+- NSDiff-style conditional variance: revisit only if regime-adaptive CIs become a hard requirement (GT data shows 0.97x regime ratio — low priority)
+
+### Diffusion Forcing Assessment
+
+DF variable-noise training enables pyramid sampling (asymmetric noise levels across frames during inference). This is NOT just regularization — without it, the model can't handle the denoising wave where earlier frames are cleaner than later frames.
+
+However, recent work (Self Forcing, arXiv 2506.08009, 2025) found DF inferior to teacher forcing for generation quality. If pyramid sampling proves unnecessary with the 3D conv denoiser (e.g., if standard DDPM per-block with overlap conditioning works), DF training can be dropped.
+
+**Current stance:** Keep DF training for now (enables pyramid sampling), but test whether simpler per-block DDPM works equally well with the 3D conv denoiser.
+
+### NSDiff Compatibility with Block-AR
+
+**Paper:** [NSDiff (ICML 2025)](https://arxiv.org/abs/2505.04278) — Non-stationary Diffusion for Probabilistic Time Series Forecasting
+**Code:** [github.com/wwy155/NsDiff](https://github.com/wwy155/NsDiff)
+
+**NSDiff is one-shot generation.** Verified from both paper description and code (`p_sample_loop` iterates diffusion over the full target tensor, i.e., the whole forecast window). It is NOT autoregressive.
+
+**Core mechanism:** LSNM (Location-Scale Noise Model) replaces fixed DDPM noise with input-dependent noise:
+```
+Standard DDPM:  q(x_t | x_0) = N(√ᾱ_t · x_0,  β̄_t · I)          ← fixed variance
+NSDiff:         q(x_t | x_0) = N(√ᾱ_t · x_0,  σ̄_t(X) · I)       ← input-dependent variance
+```
+Where `σ̄_t(X)` interpolates between data variance at t=0 and learned conditional variance `g(X)` at t=T. Pre-trained components: `f(X)` = conditional mean (Non-stationary Transformer), `g(X)` = conditional variance (3-layer MLP).
+
+**Compatibility verdict: No fundamental blocker, but not plug-and-play.**
+
+Potential issues when adding NSDiff to Block-AR:
+1. **Context drift:** If variance model `g(X)` is recomputed from generated blocks, calibration can drift over long rollouts
+2. **Seam inconsistency:** Per-block variance schedules can create block boundary artifacts unless smoothed globally
+3. **Schedule interaction with mgh:** NSDiff's uncertainty-aware schedule and mgh/t_min serve the same purpose (modulate variance per horizon) through different mechanisms — mgh controls *how much to denoise*, NSDiff controls *how much noise to add*. If NSDiff is implemented, mgh should be REPLACED, not layered on top. They would fight each other.
+4. **Low upside given current data:** Regime diagnostic shows GT volatile/calm variance ratio is 0.97x — near flat. Regime-adaptive variance may not help much for this dataset.
+
+**Adaptation needed for Block-AR:**
+```
+Original NSDiff:     g(history) → single variance for full horizon
+Block-AR adaptation: g(GRU_bottleneck, block_position) → per-block variance
+```
+A small MLP head on the GRU encoder conditioned on block position would produce per-block variance estimates. Earlier blocks get tighter noise, later blocks get wider noise.
+
+**Priority: Second-stage calibration module, not the first thing to solve.** Get the 3D conv denoiser working first.
+
+### The Decisive Argument: "You're Doing AR Anyway"
+
+The final reasoning chain that locks in the architecture decision:
+
+1. **Use case requires arbitrary-length generation** (forward fill, backward fill, middle fill for conditional risk scenario generator)
+2. **Any model with a finite native horizon must chain outputs** to generate beyond that horizon — this is unavoidable
+3. **Chaining outputs IS autoregressive generation** — whether you call it "chunk-and-shift" or "block-AR", you're conditioning on your own generated output
+4. **Therefore, train for AR** — Block-AR framework matches train-time to inference-time. One-shot chunk-and-shift creates a train-inference mismatch (model trained for single-window, used recursively)
+5. **"One-shot chunk-and-shift is just Block-AR with worse tooling"** — you're doing block generation either way, just without pyramid sampling, GRU context accumulation, or MCVD masking
+
+Boundary/seam risk is inherent to arbitrary-length chunked generation. No architecture eliminates it. The choice is about managing it:
+- Block-AR: designed around chained generation, has explicit boundary controls (pyramid sampling, overlap conditioning, mgh)
+- One-shot rolled forward: highest train-inference mismatch, no boundary management infrastructure
+
+**This settles the debate permanently.** Block-AR + 3D conv denoiser is the coherent end-state.
+
+### Learned Uncertainty Head: Block-AR's Unique Advantage Over One-Shot
+
+**Insight (2026-02-18):** Block-AR enables a form of learned, granular, input-dependent uncertainty that one-shot models fundamentally cannot express. This is a stronger argument for Block-AR than just "it generates arbitrary length."
+
+#### The Gap in Existing Approaches
+
+| Approach | Per-condition? | Per-horizon? | Learned? |
+|----------|---------------|-------------|----------|
+| mgh (current) | NO — same ramp for all inputs | YES — linear `t_min = mgr * h / (T-1)` | NO |
+| NSDiff | YES — `g(X)` from history | NO — one scalar for full horizon | YES |
+| **Learned uncertainty head** | YES | YES | YES |
+
+NSDiff estimates one variance per condition — flat across horizons. mgh imposes a fixed linear ramp — same for all conditions. Neither combines both axes.
+
+#### Why Block-AR Uniquely Enables This
+
+Each block is a separate diffusion process. The GRU encoder re-encodes after each block, seeing growing context. The uncertainty head re-evaluates at each block boundary:
+
+```
+Block 0: GRU(real_history)                → σ₀ (low — near future, reliable conditioning)
+Block 1: GRU(real_history + gen_block0)   → σ₁ (medium — further out, generated context)
+Block 2: GRU(real_history + gen_block01)  → σ₂ (high — far future, more generated context)
+```
+
+Growing uncertainty emerges from three natural signals:
+1. **Block position** — later blocks are further from conditioning anchor
+2. **Context quality** — later blocks condition on more generated (less reliable) data
+3. **Input-dependent** — volatile history → wider σ at all blocks
+
+One-shot models have no natural checkpoint to re-evaluate uncertainty mid-generation.
+
+#### Proposed Design: Monotonic Uncertainty Head
+
+```python
+# At each block boundary:
+c = encoder(history + generated_context)            # (B, bottleneck_dim)
+u_h = uncertainty_mlp(c, block_position_embed)      # (B, block_size) raw logits
+
+# Enforce monotonic growth by construction:
+v_h = cumsum(softplus(u_h))                         # monotonically increasing
+t_min_h = round(v_h * max_t / v_h.max())            # normalize to [0, max_t]
+```
+
+`cumsum(softplus(...))` guarantees monotonic growth while the model learns the shape (concave, convex, linear, stepped). This replaces the hand-coded linear mgh ramp.
+
+#### Training Objective
+
+Calibration loss + sharpness term:
+- **Calibration:** coverage error at multiple CI levels (50%, 80%, 90%, 95%) — ensures correct coverage
+- **Sharpness:** penalize CI width — prevents trivially wide intervals
+- **Monotonic regularizer:** optional, but `cumsum(softplus)` already enforces this structurally
+
+Alternative: CRPS (Continuous Ranked Probability Score) as a single proper scoring rule that captures both calibration and sharpness.
+
+**Training signal concern:** Calibration loss requires multi-sample generation per step (expensive). Options:
+- Multi-sample per training step (n_samples forward passes per batch)
+- Proxy loss on denoising posterior variance (cheaper, approximate)
+- CRPS computed from sample quantiles
+
+#### Caveat
+
+If dataset regime variance is truly flat (GT vol/calm ratio = 0.971x), the learned head won't create regime-adaptive spread. But it CAN learn:
+- Non-linear horizon-dependent uncertainty shapes that linear mgh can't express
+- Block-position-dependent uncertainty that adapts to conditioning quality
+- Sharper intervals when conditioning is informative, wider when it's not
+
+#### Priority
+
+This is a third-stage improvement. The roadmap:
+1. **Stage 1:** 3D conv denoiser in Block-AR (validation gate — kurtosis ~0.3+)
+2. **Stage 2:** Verify quality recovery (kurtosis, arbs, CI)
+3. **Stage 3:** Learned uncertainty head (replaces mgh)
+4. **Stage 4:** NSDiff-style input-dependent variance (if regime data warrants it)
+
+Keep mgh as fallback baseline throughout — it proves the concept works mechanically.

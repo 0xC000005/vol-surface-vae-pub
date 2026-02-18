@@ -92,6 +92,10 @@ class BlockARConfig:
     # PYoCo correlated noise (0.0 = independent, 1.0 = fully shared)
     noise_rho: float = 0.5
 
+    # Loss function: "mse" or "huber" (Huber/SmoothL1 preserves tails better)
+    loss_type: str = "mse"
+    huber_delta: float = 0.1  # Huber threshold — smaller = more L1-like for large errors
+
     # Sampling
     max_residual_timestep: int = 20
 
@@ -265,9 +269,14 @@ class ConditionalBlockARDDPM(nn.Module):
                 noisy_flat, condition, positions, k
             )  # (B, bs, 25)
 
-            # MSE loss
+            # Loss
             noise_flat = noise.reshape(B, bs, -1)  # (B, bs, 25)
-            block_loss = F.mse_loss(noise_pred, noise_flat)
+            if self.config.loss_type == "huber":
+                block_loss = F.smooth_l1_loss(
+                    noise_pred, noise_flat, beta=self.config.huber_delta
+                )
+            else:
+                block_loss = F.mse_loss(noise_pred, noise_flat)
             total_loss = total_loss + block_loss
 
         return {"loss": total_loss / n_blocks}
