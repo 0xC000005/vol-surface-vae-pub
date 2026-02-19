@@ -179,6 +179,7 @@ def main():
     parser.add_argument("--use_regime", action="store_true", help="Enable hierarchical regime conditioning")
     parser.add_argument("--uniform_noise", action="store_true", help="Uniform-t training (one t per block instead of per-frame task-adaptive)")
     parser.add_argument("--sampling_mode", type=str, default=None, choices=["pyramid", "uniform"], help="Inference sampling mode")
+    parser.add_argument("--forward_only", action="store_true", help="Disable MCVD: always FORWARD task (past visible, future masked)")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -217,6 +218,10 @@ def main():
         config.use_uniform_noise = True
     if args.sampling_mode is not None:
         config.sampling_mode = args.sampling_mode
+    if args.forward_only:
+        config.forward_only = True
+    if args.block_size is not None:
+        config.block_size = args.block_size
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -228,7 +233,8 @@ def main():
     print(f"Device: {config.device}")
     print(f"History: {config.history_len} -> Future: {config.future_len} (block_size={config.block_size})")
     print(f"Diffusion steps: {config.n_steps}, Schedule: {config.schedule}")
-    print(f"MCVD p_mask: {config.p_mask}, Jitter std: {config.jitter_std}")
+    mcvd_str = "DISABLED (forward-only)" if config.forward_only else f"p_mask={config.p_mask}"
+    print(f"MCVD: {mcvd_str}, Jitter std: {config.jitter_std}")
     print(f"Noise mode: {'uniform-t' if config.use_uniform_noise else 'task-adaptive (DF)'}")
     print(f"Sampling mode: {config.sampling_mode}")
     print(f"PYoCo noise_rho: {config.noise_rho}")

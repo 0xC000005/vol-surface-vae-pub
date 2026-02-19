@@ -48,6 +48,7 @@ class BlockARPOCConfig:
     # === MCVD ===
     p_mask: float = 0.2
     jitter_std: float = 0.15
+    forward_only: bool = False  # disable MCVD: always FORWARD task
 
     # === Noise Schedule ===
     use_uniform_noise: bool = False  # one scalar t per block instead of per-frame task-adaptive

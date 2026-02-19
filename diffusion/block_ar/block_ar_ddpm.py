@@ -95,6 +95,7 @@ class BlockARConfig:
     # MCVD
     p_mask: float = 0.2
     jitter_std: float = 0.15
+    forward_only: bool = False  # disable MCVD: always FORWARD task (past visible, future masked)
 
     # Uniform-t noise (one scalar t per block instead of per-frame task-adaptive)
     use_uniform_noise: bool = False
@@ -300,13 +301,17 @@ class ConditionalBlockARDDPM(nn.Module):
                 future_ctx = None
 
             # Sample MCVD masks
-            mask_past, mask_future = sample_mcvd_masks(
-                B, self.config.p_mask, device=device
-            )
-
-            # Last block: force mask_future=True (no future context available)
-            if future_ctx is None:
+            if self.config.forward_only:
+                # FORWARD task only: past visible, future always masked
+                mask_past = torch.zeros(B, dtype=torch.bool, device=device)
                 mask_future = torch.ones(B, dtype=torch.bool, device=device)
+            else:
+                mask_past, mask_future = sample_mcvd_masks(
+                    B, self.config.p_mask, device=device
+                )
+                # Last block: force mask_future=True (no future context available)
+                if future_ctx is None:
+                    mask_future = torch.ones(B, dtype=torch.bool, device=device)
 
             # Encode past and future separately
             past_cond = self.encoder(past_ctx, mask=mask_past)  # (B, bottleneck_dim)
