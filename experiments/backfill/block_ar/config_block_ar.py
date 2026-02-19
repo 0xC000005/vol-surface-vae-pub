@@ -29,10 +29,17 @@ class BlockARPOCConfig:
     encoder_dropout: float = 0.1
 
     # === Denoiser ===
+    denoiser_type: str = "bigru"  # "bigru" or "conv3d"
     bigru_hidden_dim: int = 128
     pos_embed_dim: int = 16
     noise_embed_dim: int = 16
     denoiser_dropout: float = 0.1
+
+    # Conv3D denoiser params (only used when denoiser_type="conv3d")
+    conv3d_base_channels: int = 32
+    conv3d_n_res_blocks: int = 4
+    conv3d_groups: int = 8
+    conv3d_noise_embed_dim: int = 64
 
     # === Diffusion Process ===
     n_steps: int = 100
@@ -42,11 +49,22 @@ class BlockARPOCConfig:
     p_mask: float = 0.2
     jitter_std: float = 0.15
 
+    # === Noise Schedule ===
+    use_uniform_noise: bool = False  # one scalar t per block instead of per-frame task-adaptive
+    sampling_mode: str = "pyramid"   # "pyramid" (DF staggered) or "uniform" (standard DDPM)
+
     # === PYoCo correlated noise ===
     noise_rho: float = 0.5
 
     # === Sampling ===
     max_residual_timestep: int = 20
+    max_global_residual: int = 0  # growing uncertainty: 0=off, 10=recommended
+
+    # === Regime Conditioning (hierarchical sampling) ===
+    n_regimes: int = 5
+    regime_embed_dim: int = 32
+    regime_loss_weight: float = 1.0
+    use_regime_conditioning: bool = False
 
     # === Loss ===
     loss_type: str = "mse"  # "mse" or "huber"

@@ -947,6 +947,10 @@ def main():
         help="Global horizon-dependent residual noise. "
              "Frame h stops at t_min=mgr*h/(T-1). 0=off, 10=recommended.",
     )
+    parser.add_argument(
+        "--sampling_mode", type=str, default=None, choices=["pyramid", "uniform"],
+        help="Override checkpoint's sampling mode for inference (pyramid or uniform)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -988,6 +992,8 @@ def main():
     print(f"Samples/hist:  {args.n_samples}")
     print(f"Max batches:   {args.max_batches}")
     print(f"Max residual:  {args.max_residual}")
+    if args.sampling_mode:
+        print(f"Sampling mode: {args.sampling_mode} (override)")
     print(f"Output:        {output_dir}")
     print("=" * 60)
 
@@ -999,6 +1005,11 @@ def main():
     # Support both BlockARConfig instance and dict
     if isinstance(model_config, dict):
         model_config = BlockARConfig(**model_config)
+
+    # Override sampling mode if requested (allows testing same weights with different inference)
+    if args.sampling_mode is not None:
+        model_config.sampling_mode = args.sampling_mode
+        print(f"  Sampling mode override: {args.sampling_mode}")
 
     model = ConditionalBlockARDDPM(model_config)
 

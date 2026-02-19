@@ -248,6 +248,7 @@ def test_batch_task_adaptive():
 # Phase 3 tests — ConditionalBlockARDDPM wrapper
 
 from diffusion.block_ar.block_ar_ddpm import ConditionalBlockARDDPM, BlockARConfig
+from diffusion.block_ar.conv3d_denoiser import Conv3DBlockDenoiser, Conv3DDenoiserConfig
 
 
 def test_forward_produces_scalar_loss():
@@ -345,6 +346,291 @@ def test_sample_diversity():
     print(f"  PASS: sample diversity {diversity:.4f} (> 0.01)")
 
 
+# Phase 4 tests — Conv3D denoiser
+
+def test_conv3d_denoiser_shape():
+    """Conv3DBlockDenoiser matches BiGRU interface: (B, T, 25) -> (B, T, 25)."""
+    cfg = Conv3DDenoiserConfig()
+    dec = Conv3DBlockDenoiser(cfg)
+    noisy = torch.randn(4, 10, 25)
+    cond = torch.randn(4, cfg.bottleneck_dim)
+    pos = torch.arange(10).unsqueeze(0).expand(4, -1)
+    k = torch.randint(0, 100, (4, 10))
+    out = dec(noisy, cond, pos, k)
+    assert out.shape == (4, 10, 25), f"Expected (4, 10, 25), got {out.shape}"
+    print("  PASS: conv3d denoiser shape (4, 10, 25)")
+
+
+def test_conv3d_gradient_flow():
+    """All Conv3D denoiser params get gradients."""
+    cfg = Conv3DDenoiserConfig()
+    dec = Conv3DBlockDenoiser(cfg)
+    noisy = torch.randn(4, 10, 25)
+    cond = torch.randn(4, cfg.bottleneck_dim)
+    pos = torch.arange(10).unsqueeze(0).expand(4, -1)
+    k = torch.randint(0, 100, (4, 10))
+    out = dec(noisy, cond, pos, k)
+    loss = out.mean()
+    loss.backward()
+    no_grad = [name for name, p in dec.named_parameters() if p.grad is None]
+    assert len(no_grad) == 0, f"Parameters without gradient: {no_grad}"
+    print("  PASS: conv3d gradient flow through all parameters")
+
+
+def test_conv3d_noise_differentiation():
+    """Different noise levels should produce different predictions.
+
+    At init, conv_out is zero-initialized (near-identity residual), so we
+    perturb it to simulate a trained model, same pattern as
+    test_spatial_stream_noise_sensitivity.
+    """
+    cfg = Conv3DDenoiserConfig()
+    dec = Conv3DBlockDenoiser(cfg)
+    # Perturb conv_out away from zero-init to simulate trained model
+    with torch.no_grad():
+        dec.conv_out.weight.normal_(std=0.1)
+    dec.eval()
+    noisy = torch.randn(2, 10, 25)
+    cond = torch.randn(2, cfg.bottleneck_dim)
+    pos = torch.arange(10).unsqueeze(0).expand(2, -1)
+    k_low = torch.ones(2, 10, dtype=torch.long) * 5
+    k_high = torch.ones(2, 10, dtype=torch.long) * 90
+    out_low = dec(noisy, cond, pos, k_low)
+    out_high = dec(noisy, cond, pos, k_high)
+    diff = (out_low - out_high).abs().mean().item()
+    assert diff > 1e-4, f"Outputs unchanged by noise level (diff={diff:.2e})"
+    print(f"  PASS: conv3d noise differentiation (mean diff={diff:.4f})")
+
+
+def test_conv3d_forward_loss():
+    """ConditionalBlockARDDPM with denoiser_type='conv3d' produces scalar loss."""
+    config = BlockARConfig(n_steps=20, denoiser_type="conv3d")
+    model = ConditionalBlockARDDPM(config)
+    model.train()
+    history = torch.randn(2, 30, 5, 5)
+    future = torch.randn(2, 30, 5, 5)
+    result = model(history, future)
+    assert "loss" in result, "Forward should return dict with 'loss'"
+    assert result["loss"].shape == (), f"Loss should be scalar, got {result['loss'].shape}"
+    assert result["loss"].item() > 0, "Loss should be positive"
+    result["loss"].backward()
+    no_grad = [name for name, p in model.named_parameters() if p.grad is None]
+    assert len(no_grad) == 0, f"Parameters without gradient: {no_grad}"
+    print(f"  PASS: conv3d forward loss ({result['loss'].item():.4f}), all params have grads")
+
+
+def test_conv3d_sample_shape():
+    """Sampling with Conv3D denoiser produces correct output shape."""
+    config = BlockARConfig(n_steps=10, denoiser_type="conv3d", gru_hidden_dim=32)
+    model = ConditionalBlockARDDPM(config)
+    model.eval()
+    history = torch.randn(2, 30, 5, 5)
+    samples = model.sample(history, n_samples=2, max_residual=5)
+    expected = (2, 2, 30, 5, 5)
+    assert samples.shape == expected, f"Expected {expected}, got {samples.shape}"
+    assert samples.min() >= 0.0 and samples.max() <= 1.0, "Samples should be in [0, 1]"
+    print(f"  PASS: conv3d sample shape {samples.shape}, range [{samples.min():.3f}, {samples.max():.3f}]")
+
+
+def test_conv3d_param_count():
+    """Conv3D denoiser should be ~250K-300K params (comparable to BiGRU)."""
+    cfg = Conv3DDenoiserConfig()
+    dec = Conv3DBlockDenoiser(cfg)
+    n_params = sum(p.numel() for p in dec.parameters())
+    print(f"  INFO: Conv3D denoiser params: {n_params:,}")
+    assert 200_000 < n_params < 350_000, f"Param count {n_params:,} outside expected range [200K, 350K]"
+    print(f"  PASS: conv3d param count {n_params:,} in expected range [200K, 350K]")
+
+
+# ============================================================
+# Phase 5: Regime Conditioning Tests
+# ============================================================
+
+def _make_regime_config(**overrides):
+    """Create a small BlockARConfig with regime conditioning enabled."""
+    defaults = dict(
+        history_len=10, future_len=10, block_size=5,
+        surface_h=5, surface_w=5,
+        gru_hidden_dim=32, bottleneck_dim=32,
+        bigru_hidden_dim=64, pos_embed_dim=8, noise_embed_dim=8,
+        n_steps=20, noise_rho=0.0,
+        use_regime_conditioning=True, n_regimes=5, regime_embed_dim=16,
+        regime_loss_weight=1.0,
+    )
+    defaults.update(overrides)
+    return BlockARConfig(**defaults)
+
+
+def test_regime_forward_loss():
+    """forward() with regime_ids produces loss + regime_loss + regime_acc."""
+    config = _make_regime_config()
+    model = ConditionalBlockARDDPM(config)
+    history = torch.randn(4, 10, 5, 5)
+    future = torch.randn(4, 10, 5, 5)
+    regime_ids = torch.randint(0, 5, (4,))
+
+    result = model(history, future, regime_ids=regime_ids)
+    assert "loss" in result, "Missing 'loss'"
+    assert "regime_loss" in result, "Missing 'regime_loss'"
+    assert "regime_acc" in result, "Missing 'regime_acc'"
+    assert result["loss"].ndim == 0, f"Loss not scalar: {result['loss'].shape}"
+    result["loss"].backward()
+    print("  PASS: regime forward produces loss + regime_loss + regime_acc")
+
+
+def test_regime_augment_condition():
+    """_augment_condition returns (B, bottleneck_dim) unchanged shape."""
+    config = _make_regime_config()
+    model = ConditionalBlockARDDPM(config)
+    condition = torch.randn(4, config.bottleneck_dim)
+    regime_ids = torch.randint(0, 5, (4,))
+
+    augmented = model._augment_condition(condition, regime_ids)
+    assert augmented.shape == (4, config.bottleneck_dim), \
+        f"Expected (4, {config.bottleneck_dim}), got {augmented.shape}"
+
+    # Without regime_ids, should return condition unchanged
+    same = model._augment_condition(condition, None)
+    assert torch.equal(same, condition), "None regime_ids should return condition unchanged"
+    print("  PASS: _augment_condition shape (B, bottleneck_dim), None passthrough")
+
+
+def test_regime_sample_shape():
+    """sample() with regime conditioning produces correct output shape."""
+    config = _make_regime_config()
+    model = ConditionalBlockARDDPM(config)
+    model.eval()
+    history = torch.randn(2, 10, 5, 5)
+
+    samples = model.sample(history, n_samples=3)
+    expected = (2, 3, 10, 5, 5)
+    assert samples.shape == expected, f"Expected {expected}, got {samples.shape}"
+    assert samples.min() >= 0.0, f"Samples below 0: {samples.min()}"
+    assert samples.max() <= 1.0, f"Samples above 1: {samples.max()}"
+    print(f"  PASS: regime sample shape {expected}, values in [0, 1]")
+
+
+def test_regime_disabled_backward_compat():
+    """use_regime_conditioning=False works identically to before."""
+    config = BlockARConfig(
+        history_len=10, future_len=10, block_size=5,
+        surface_h=5, surface_w=5,
+        gru_hidden_dim=32, bottleneck_dim=32,
+        bigru_hidden_dim=64, pos_embed_dim=8, noise_embed_dim=8,
+        n_steps=20, noise_rho=0.0,
+        use_regime_conditioning=False,
+    )
+    model = ConditionalBlockARDDPM(config)
+    assert model.regime_classifier is None, "regime_classifier should be None when disabled"
+    assert model.regime_embed is None, "regime_embed should be None when disabled"
+    assert model.regime_proj is None, "regime_proj should be None when disabled"
+
+    # forward() without regime_ids should work
+    history = torch.randn(4, 10, 5, 5)
+    future = torch.randn(4, 10, 5, 5)
+    result = model(history, future)
+    assert "regime_loss" not in result, "regime_loss should not appear when disabled"
+    result["loss"].backward()
+    print("  PASS: regime disabled backward compat — no regime modules, no regime_loss")
+
+
+def _make_uniform_config(**overrides):
+    """Create a small BlockARConfig with uniform noise enabled."""
+    defaults = dict(
+        history_len=10, future_len=10, block_size=5,
+        surface_h=5, surface_w=5,
+        gru_hidden_dim=32, bottleneck_dim=32,
+        bigru_hidden_dim=64, pos_embed_dim=8, noise_embed_dim=8,
+        n_steps=20, noise_rho=0.0,
+        use_uniform_noise=True, sampling_mode="uniform",
+    )
+    defaults.update(overrides)
+    return BlockARConfig(**defaults)
+
+
+def test_uniform_noise_forward():
+    """forward() with use_uniform_noise=True produces valid loss."""
+    config = _make_uniform_config()
+    model = ConditionalBlockARDDPM(config)
+    history = torch.randn(4, 10, 5, 5)
+    future = torch.randn(4, 10, 5, 5)
+
+    result = model(history, future)
+    assert "loss" in result, "Missing 'loss'"
+    assert result["loss"].ndim == 0, f"Loss not scalar: {result['loss'].shape}"
+    assert not torch.isnan(result["loss"]), "Loss is NaN"
+    result["loss"].backward()
+    print("  PASS: uniform noise forward produces valid scalar loss")
+
+
+def test_uniform_sampling_shape():
+    """sample() with sampling_mode='uniform' produces correct output shape."""
+    config = _make_uniform_config()
+    model = ConditionalBlockARDDPM(config)
+    model.eval()
+    history = torch.randn(2, 10, 5, 5)
+
+    samples = model.sample(history, n_samples=3)
+    expected = (2, 3, 10, 5, 5)
+    assert samples.shape == expected, f"Expected {expected}, got {samples.shape}"
+    assert samples.min() >= 0.0, f"Samples below 0: {samples.min()}"
+    assert samples.max() <= 1.0, f"Samples above 1: {samples.max()}"
+
+    # Also test sample_batched
+    samples_b = model.sample_batched(history, n_samples=3)
+    assert samples_b.shape == expected, f"Batched: Expected {expected}, got {samples_b.shape}"
+    print(f"  PASS: uniform sampling shape {expected}, values in [0, 1]")
+
+
+def test_uniform_vs_pyramid_different():
+    """Verify uniform and pyramid sampling produce different outputs."""
+    torch.manual_seed(42)
+    config_u = _make_uniform_config(sampling_mode="uniform")
+    config_p = _make_uniform_config(sampling_mode="pyramid")
+
+    model_u = ConditionalBlockARDDPM(config_u)
+    model_p = ConditionalBlockARDDPM(config_p)
+    # Share weights
+    model_p.load_state_dict(model_u.state_dict())
+    model_u.eval()
+    model_p.eval()
+
+    history = torch.randn(2, 10, 5, 5)
+    torch.manual_seed(123)
+    s_u = model_u.sample(history, n_samples=2)
+    torch.manual_seed(123)
+    s_p = model_p.sample(history, n_samples=2)
+
+    # Different schedules should produce different outputs
+    assert not torch.allclose(s_u, s_p, atol=1e-3), "Uniform and pyramid should differ"
+    print("  PASS: uniform vs pyramid produce different outputs")
+
+
+def test_uniform_backward_compat_defaults():
+    """Default config uses task-adaptive noise and pyramid sampling."""
+    config = BlockARConfig(
+        history_len=10, future_len=10, block_size=5,
+        surface_h=5, surface_w=5,
+        gru_hidden_dim=32, bottleneck_dim=32,
+        bigru_hidden_dim=64, pos_embed_dim=8, noise_embed_dim=8,
+        n_steps=20, noise_rho=0.0,
+    )
+    assert config.use_uniform_noise is False, "Default should be task-adaptive"
+    assert config.sampling_mode == "pyramid", "Default should be pyramid"
+
+    model = ConditionalBlockARDDPM(config)
+    model.eval()
+    history = torch.randn(2, 10, 5, 5)
+    future = torch.randn(2, 10, 5, 5)
+
+    # forward and sample should work with defaults
+    result = model(history, future)
+    result["loss"].backward()
+    samples = model.sample(history, n_samples=2)
+    assert samples.shape == (2, 2, 10, 5, 5)
+    print("  PASS: backward compat — defaults use task-adaptive + pyramid")
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("Block-AR Diffusion Unit Tests")
@@ -369,6 +655,16 @@ if __name__ == '__main__':
         test_synthetic_training_loss_decreases,
         test_sample_shape, test_sample_in_valid_range,
         test_sample_diversity,
+        # Phase 4 — Conv3D
+        test_conv3d_denoiser_shape, test_conv3d_gradient_flow,
+        test_conv3d_noise_differentiation, test_conv3d_forward_loss,
+        test_conv3d_sample_shape, test_conv3d_param_count,
+        # Phase 5 — Regime Conditioning
+        test_regime_forward_loss, test_regime_augment_condition,
+        test_regime_sample_shape, test_regime_disabled_backward_compat,
+        # Phase 6 — Uniform Noise
+        test_uniform_noise_forward, test_uniform_sampling_shape,
+        test_uniform_vs_pyramid_different, test_uniform_backward_compat_defaults,
     ]
 
     for test_fn in tests:
