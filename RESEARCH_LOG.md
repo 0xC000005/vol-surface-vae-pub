@@ -5944,3 +5944,97 @@ Uniform-t Block-AR is now competitive with DDPM POC on kurtosis (0.428 vs 0.45) 
 - Dict serialization: `train_block_ar.py:377,393,407,447` (`_dc.asdict(model_config)`)
 - Corrected model: `models/backfill/block_ar_conv3d_uniform_v2/` (epoch 15, 309,762 params)
 - Corrected results: `results/block_ar/factorial_v2_uniform_{pyramid,uniform}/`
+
+---
+
+## 2026-02-19: MCVD Ablation — Forward-Only + bs30
+
+### Goal
+
+Isolate the contribution of MCVD multi-task training vs AR block chaining to the kurtosis deficit.
+Two ablations, both using Conv3D + uniform-t + uniform inference + p_mask=0.5 + rho=0.0 + MSE:
+
+1. **Forward-only** (`--forward_only`): Disables MCVD (forces FORWARD task: past visible, future masked). Still AR with bs=10.
+2. **bs30** (`--block_size 30`): One-shot (future_len=30, 1 block, no AR chaining). Still MCVD-trained.
+
+### Results (all from summary.json, verified)
+
+Sources:
+- `results/block_ar/factorial_adaptive_pyramid/summary.json` (Cell A)
+- `results/block_ar/factorial_v2_uniform_uniform/summary.json` (Cell D)
+- `results/block_ar/ablation_fwdonly_uniform/summary.json`
+- `results/block_ar/ablation_bs30_uniform/summary.json`
+
+| Metric | Cell A (MCVD, adapt, bs10) | Cell D (MCVD, unif, bs10) | Fwd-only (no MCVD, unif, bs10) | bs30 (MCVD, unif, bs30) |
+|--------|:---:|:---:|:---:|:---:|
+| Kurtosis | 0.183 | 0.428 | **0.565** | 0.284 |
+| 90% CI | 85.4% | **90.6%** | 78.2% | 97.8% (overcovering) |
+| Calibration | 0.035 | **0.033** | 0.083 | 0.217 |
+| Calendar | 8.6% | 6.6% | **6.4%** | 9.3% |
+| MAE reduction | 73.0% | 77.1% | **82.8%** | 55.8% |
+| ACF | 0.984 | **0.994** | 0.958 | 0.870 |
+| Boundary | 1.64 | 2.03 | **1.49** | N/A (1 block) |
+| Growing unc (block_ar) | False | True | True | False |
+| Growing unc (conditionality) | False | **False** | True | False |
+| Width ratio | 0.57 | 0.73 | 0.70 | 0.84 |
+
+Note: Cell D growing uncertainty is MARGINAL — passes block_ar test (monotonic) but fails conditionality test (non-monotonic). The variance growth is near-zero; monotonicity depends on which sample batch is measured.
+
+### Findings
+
+**1. Forward-only achieves best kurtosis of any Block-AR variant.**
+- Kurtosis 0.565 — passes 0.5 target, closest to DDPM POC (0.663)
+- MCVD multi-task training (backward/interpolation/unconditional tasks) is the primary kurtosis suppressor
+- Disabling MCVD: 0.428 → 0.565 on top of uniform-t (Cell D → fwd-only)
+
+**2. Forward-only trades kurtosis for CI/calibration.**
+- 90% CI drops from 90.6% (Cell D) to 78.2%
+- Calibration error rises from 0.033 to 0.083
+- This is a genuine tradeoff, not a strict improvement
+
+**3. Cannot attribute remaining kurtosis gap to AR chaining from these ablations.**
+- bs30 still has MCVD enabled (forward_only=False), so forward-only vs bs30 confounds two variables
+- To isolate AR chaining: would need forward_only + bs30 vs forward_only + bs10
+- The claim "remaining gap is AR overhead" is NOT supported
+
+**4. bs30 (MCVD + one-shot) is the weakest variant.**
+- Severe overcovering: 97.8% CI, calibration error 0.217
+- Worst kurtosis (0.284), worst MAE reduction (55.8%), worst ACF (0.870)
+- Growing uncertainty FAIL
+- MCVD multi-task training with one-shot generation is a poor combination
+
+**5. Cell D remains the best balanced model.**
+- Best calibration (0.033), best ACF (0.994), strong CI (90.6%), passes kurtosis gate (0.428)
+- Only weakness: boundary ratio 2.03 (marginal fail at 2.0 gate)
+- Whether Cell D or forward-only is "better" depends on whether kurtosis or CI calibration is weighted more
+
+**6. bs30 boundary ratio 1.000 is N/A, not an achievement.**
+- With block_size=30 and future_len=30, there is exactly 1 block — no boundaries exist
+- The metric defaults to 1.0 when there are no boundary indices
+
+### Kurtosis Decomposition (updated)
+
+| Intervention | Kurtosis | Δ from Cell A |
+|-------------|----------|---------------|
+| DDPM POC (no MCVD, no AR, no Block-AR) | 0.663 | — |
+| Cell A: MCVD + adaptive-t + pyramid + bs10 | 0.183 | baseline |
+| Cell D: MCVD + uniform-t + uniform + bs10 | 0.428 | +0.245 (uniform-t + uniform infer) |
+| Fwd-only: no MCVD + uniform-t + uniform + bs10 | 0.565 | +0.382 (+ disable MCVD) |
+| Remaining gap to DDPM POC | — | 0.098 (unexplained: AR? architecture? data split?) |
+
+Uniform-t recovers 51% of the gap (A→D). Disabling MCVD recovers another 29% (D→fwd-only).
+Total recovered: 80%. Remaining 20% is unattributed (AR chaining, Conv3D vs DDPM POC architecture, etc).
+
+### Next Steps
+
+- **Isolate AR**: Run forward_only + bs30 vs forward_only + bs10 to cleanly test AR chaining
+- **Address CI/calibration tradeoff**: Forward-only has best kurtosis but worst CI — learned uncertainty head (Stage 3) could recover CI without sacrificing kurtosis
+- **Boundary smoothness**: Cell D's 2.03 boundary ratio is the only gate failure on the best balanced model
+
+### Files
+
+- Forward-only model: `models/backfill/block_ar_conv3d_uniform_fwdonly/best_coverage_model.pt`
+- bs30 model: `models/backfill/block_ar_conv3d_uniform_bs30/best_coverage_model.pt`
+- Forward-only results: `results/block_ar/ablation_fwdonly_uniform/`
+- bs30 results: `results/block_ar/ablation_bs30_uniform/`
+- forward_only flag: `diffusion/block_ar/block_ar_ddpm.py:98,304`
