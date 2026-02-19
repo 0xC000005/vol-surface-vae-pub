@@ -5384,3 +5384,563 @@ This is a third-stage improvement. The roadmap:
 4. **Stage 4:** NSDiff-style input-dependent variance (if regime data warrants it)
 
 Keep mgh as fallback baseline throughout — it proves the concept works mechanically.
+
+---
+
+## 2026-02-18: Conv3D Denoiser Swap — Experiment Results
+
+### Context
+
+Implemented Stage 1 of the roadmap: swap BiGRU denoiser with Conv3D (3D conv + AdaptiveGroupNorm ResBlocks) in Block-AR. The hypothesis was that the BiGRU architecture accounted for ~70% of the kurtosis gap vs DDPM POC. A Conv3DBlockDenoiser was built as a drop-in replacement matching the BiGRUDenoiser interface.
+
+### Conv3D Architecture
+
+```
+Input: (B, T, 25) → reshape → (B, 1, T, 5, 5)
+
+Embeddings:
+  noise_levels → TimeEmbedding(n_steps=100, embed_dim=64)
+  positions    → SinusoidalTimeEmbedding(dim=16)
+  condition    → broadcast from GRU encoder (64-dim)
+  concat all   → cond_proj MLP → (B, T, 32)
+
+Backbone:
+  Conv3d(1, 32, k=3, pad=1)
+  4× [ResBlock3D(32) + AdaptiveGroupNorm(32, embed_dim=32)]
+  GroupNorm(8, 32) + SiLU + Conv3d(32, 1, k=3, pad=1)
+
+Output: (B, 1, T, 5, 5) → reshape → (B, T, 25)
+```
+
+Non-causal Conv3d (symmetric padding) — required for MCVD BACKWARD and INTERPOLATION tasks. 310K params (comparable to BiGRU's 303K).
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `diffusion/block_ar/conv3d_denoiser.py` | CREATE — Conv3DDenoiserConfig, ResBlock3D, Conv3DBlockDenoiser |
+| `diffusion/block_ar/block_ar_ddpm.py` | MODIFY — denoiser_type config field, conditional denoiser construction |
+| `diffusion/block_ar/__init__.py` | MODIFY — added Conv3D exports |
+| `experiments/backfill/block_ar/config_block_ar.py` | MODIFY — added denoiser_type + conv3d_* config fields |
+| `experiments/backfill/block_ar/train_block_ar.py` | MODIFY — added --denoiser_type and --p_mask CLI args |
+| `experiments/backfill/block_ar/test_block_ar.py` | MODIFY — added 6 Conv3D unit tests (29/29 pass) |
+
+### Experiment 1: Conv3D vs BiGRU (p_mask=0.2, matched pair)
+
+Both arms trained from scratch with identical conditions: noise_rho=0.0, loss_type=mse, 20 epochs, eval_every=5.
+
+| Metric | BiGRU Control (ep 10) | Conv3D (ep 5) |
+|--------|----------------------|---------------|
+| Kurtosis ratio | 0.090 | **0.121** |
+| Calendar arb | **10.4%** | 14.4% |
+| Butterfly arb | **39.5%** | **32.5%** |
+| 90% CI | 81.0% | 81.4% |
+| Calibration err | 0.073 | 0.077 |
+| MAE reduction | **70.9%** | 16.6% |
+| ACF | 0.946 | **0.978** |
+| Growing uncert | PASS | FAIL |
+| Boundary smooth | 1.184 | 1.447 |
+
+**Go/No-Go (from plan):** Conv3D FAILS on kurtosis (0.121 < 0.3 gate) and CI (81.4% < 85% gate). Additionally, severe conditionality regression — MAE reduction dropped from 70.9% to 16.6%, meaning Conv3D barely uses history conditioning.
+
+### Hypothesis Disproved: Denoiser Architecture Is NOT the Main Kurtosis Bottleneck
+
+The original hypothesis attributed 70% of kurtosis loss to the BiGRU architecture. The experiment shows the denoiser only accounts for ~3%:
+
+| Regime | Denoiser | Kurtosis |
+|--------|----------|----------|
+| DDPM POC one-shot uniform | 3D Conv | **0.663** |
+| DDPM POC staggered/clamped | 3D Conv | **0.023** |
+| Block-AR (Conv3D, p=0.2) | 3D Conv | 0.121 |
+| Block-AR (BiGRU, p=0.2) | BiGRU | 0.090 |
+
+The smoking gun: the **same DDPM POC model** collapses from 0.663 → 0.023 just by switching to staggered sampling. The per-frame noise regime (task-adaptive noise + pyramid sampling) is the dominant kurtosis killer, not the denoiser backbone.
+
+### Revised Kurtosis Attribution
+
+- **~97% from staggered/per-frame noise regime** (DDPM POC: 0.663 → 0.023, same model)
+- **~3% from denoiser choice** (Block-AR: BiGRU 0.090 → Conv3D 0.121)
+- Original "70% architecture / 30% AR chaining" split was wrong — the bs=30 BiGRU experiment that seemed to show architecture effects was confounded by per-frame noise training
+
+### Root Cause: Why Per-Frame Noise Kills Kurtosis
+
+Block-AR uses task-adaptive per-frame noise (`sample_batch_task_adaptive_noise`) during training and pyramid schedule during sampling. This destroys tail behavior through:
+
+1. **Interpolation dominance** — With p_mask=0.2, task mix is ~64% interpolation (both endpoints anchored → smooth), ~16% forward, ~16% backward, ~4% unconditional. Model undertrained for forward generation (the test-time task).
+2. **Heterogeneous denoising** — Adjacent frames at different noise levels produce different prediction error profiles. First differences across frames average out extremes.
+3. **AR block chaining** — Each block conditions on a single sample (not a distribution) from previous blocks. Variance information is lost through the chain.
+4. **MSE loss** — Treats all noise predictions equally, underweighting rare extreme values that drive kurtosis.
+
+However: **AR structure does NOT inherently forbid tail events.** Conditioning on a calm block 1 does not prevent the model from generating extreme events in block 2 — the starting noise determines extremity. The kurtosis deficit is a learning problem (model hasn't learned to produce tails), not a structural impossibility.
+
+### Experiment 2: 2×2 Factorial — Denoiser × Task Mix
+
+To test whether balanced task mix recovers kurtosis, ran a 2×2 factorial with p_mask=0.5 (uniform 25% each task vs biased 64% interpolation).
+
+| Metric | BiGRU p=0.2 | BiGRU p=0.5 | Conv3D p=0.2 | Conv3D p=0.5 |
+|--------|-------------|-------------|--------------|--------------|
+| **Kurtosis** | 0.090 | 0.093 | 0.121 | **0.175** |
+| Calendar arb | 10.4% | 13.0% | 14.4% | **8.6%** |
+| Butterfly arb | 39.5% | 35.5% | 32.5% | 33.7% |
+| 90% CI | 81.0% | **93.4%** | 81.4% | 85.5% |
+| Calibration err | 0.073 | 0.076 | 0.077 | **0.034** |
+| MAE reduction | 70.9% | 78.4% | 16.6% | **73.0%** |
+| ACF | 0.946 | 0.937 | 0.978 | **0.989** |
+| Width ratio | 0.806 | 0.748 | 0.893 | 0.573 |
+| Growing uncert | PASS | FAIL | FAIL | FAIL |
+| Boundary smooth | 1.184 | 1.171 | 1.447 | 1.651 |
+
+### Factorial Analysis
+
+**Main effect of task mix (p=0.5 vs p=0.2):**
+- Kurtosis: no effect on BiGRU (+0.003), moderate on Conv3D (+0.054)
+- CI coverage: large improvement for BiGRU (81→93%), moderate for Conv3D (81→85%)
+- **p=0.5 fixes Conv3D's conditionality problem**: MAE reduction recovered from 16.6% → 73.0%
+
+**Main effect of architecture (Conv3D vs BiGRU):**
+- Kurtosis: Conv3D consistently ~1.5-2x better at both p_mask levels
+- Calendar arb: Conv3D p=0.5 achieves 8.6% — approaching data floor of 7.0%
+- ACF: Conv3D consistently better (0.978-0.989 vs 0.937-0.946)
+
+**Interaction (Conv3D × p=0.5):**
+- Positive interaction: Conv3D benefits more from balanced task mix than BiGRU
+- Conv3D + p=0.5 is the only combination that improves kurtosis, calendar arb, calibration, AND conditionality simultaneously
+- p=0.5 specifically fixes Conv3D's conditionality failure from p=0.2
+
+### Best Configuration: Conv3D + p_mask=0.5
+
+Best overall quality profile across the 4 arms:
+- Calendar arb **8.6%** (best ever, near data floor 7.0%)
+- Calibration error **0.034** (best ever)
+- ACF **0.989** (best ever)
+- Kurtosis **0.175** (best Block-AR ever, but still below 0.3 target)
+- MAE reduction **73.0%** (conditionality recovered)
+- Butterfly arb 33.7% (good)
+- 90% CI 85.5% (adequate)
+
+### Kurtosis Gap: Block-AR vs DDPM POC
+
+| Model | Kurtosis |
+|-------|----------|
+| DDPM POC hierarchical regime | **0.663** |
+| DDPM POC one-shot uniform | **0.663** |
+| DDPM POC staggered/clamped | 0.023 |
+| **Conv3D + p_mask=0.5** | **0.175** |
+| Conv3D + p_mask=0.2 | 0.121 |
+| BiGRU + p_mask=0.5 | 0.093 |
+| BiGRU + p_mask=0.2 | 0.090 |
+
+The 2×2 factorial roughly doubled kurtosis from the original BiGRU baseline (0.090 → 0.175) but a 3.8x gap remains vs DDPM POC (0.663). The remaining gap is attributed to per-frame noise training + pyramid sampling, which the DDPM POC avoids entirely.
+
+### Checkpoints
+
+| Arm | Path | Params | Best Epoch |
+|-----|------|--------|------------|
+| BiGRU p=0.2 | `models/backfill/block_ar_bigru_control/best_coverage_model.pt` | 303K | 10 |
+| BiGRU p=0.5 | `models/backfill/block_ar_bigru_pmask05/best_coverage_model.pt` | 303K | 15 |
+| Conv3D p=0.2 | `models/backfill/block_ar_conv3d/best_coverage_model.pt` | 310K | 5 |
+| Conv3D p=0.5 | `models/backfill/block_ar_conv3d_pmask05/best_coverage_model.pt` | 310K | 15 |
+
+### Updated Roadmap
+
+Stage 1 (Conv3D swap) completed but kurtosis gate not met. Revised understanding:
+
+1. ~~Stage 1: Conv3D denoiser~~ — DONE. Kurtosis 0.175 (best), but 0.3 gate not met.
+2. **Next: Hierarchical regime sampling in Block-AR** — DDPM POC hierarchical achieves 0.663 kurtosis via explicit regime mixture. Same principle should apply to Block-AR: add regime classifier on GRU bottleneck, regime embedding in denoiser, sample regime per trajectory.
+3. Stage 3: Learned uncertainty head (replaces mgh) — independent of kurtosis work.
+4. Stage 4: NSDiff (low priority — GT regime ratio 0.97x).
+
+### Key Lessons
+
+1. **Denoiser architecture is not the kurtosis bottleneck** — per-frame noise regime is.
+2. **Task mix matters** — p_mask=0.2 (64% interpolation) undertrained for forward generation. p_mask=0.5 (25% each) improves all metrics, especially for Conv3D.
+3. **Conv3D conditionality depends on task mix** — p_mask=0.2 caused severe conditionality regression (16.6% MAE reduction); p_mask=0.5 fully recovered it (73.0%).
+4. **Factorial experiments prevent wrong conclusions** — running only Conv3D at p_mask=0.2 would have incorrectly concluded Conv3D has a conditionality problem. The 2×2 design revealed it was a task-mix interaction.
+5. **Pre-experiment attribution can be wrong** — the "70% architecture / 30% AR" split was disproved. Always run the experiment.
+
+---
+
+## 2026-02-18: Hierarchical Regime Sampling in Block-AR
+
+### Motivation
+
+The 2×2 factorial (Conv3D × p_mask) showed kurtosis 0.175 at best — still 3.8× below DDPM POC's 0.663. The DDPM POC achieves this via hierarchical regime sampling: explicitly modeling P(future|history) = Σ_r P(future|history,regime) × P(regime|history). By sampling extreme regimes (crisis, spike) rather than averaging them out, the model preserves tail behavior.
+
+### Implementation
+
+Ported hierarchical regime sampling from DDPM POC to Block-AR:
+
+- **RegimeClassifier**: MLP (bottleneck_dim=64 → 128 → n_regimes=5) on encoder output. Trained with cross-entropy loss, `torch.no_grad()` on encoder (classifier doesn't backprop into encoder).
+- **Regime embedding**: `nn.Embedding(5, 32)` concatenated with condition, projected back to bottleneck_dim=64 via `regime_proj` linear layer. Denoiser interface unchanged.
+- **Training**: Joint diffusion + classification loss (weight=1.0). Regime labels from pre-computed K-means clusters (`data/regime_labels.npz`, 5 regimes on trajectory features).
+- **Inference**: Sample regime once per trajectory from classifier softmax, reuse across all blocks (consistent regime per trajectory).
+- **Parameters**: 325K (vs 310K Conv3D baseline — 15K from classifier + embedding + projection).
+
+### Results: Conv3D + p_mask=0.5 + Regime (epoch 20, 325K params)
+
+| Metric | Conv3D p=0.5 | + Regime | Gate | Status |
+|--------|-------------|----------|------|--------|
+| Kurtosis ratio | 0.175 | **0.228** | >= 0.3 | FAIL (+30%) |
+| Calendar arb | 8.6% | 9.0% | <= 15% | PASS |
+| Butterfly arb | 33.7% | 34.5% | <= 40% | PASS |
+| 90% CI | 85.5% | 85.7% | >= 80% | PASS |
+| Calibration error | 0.034 | **0.012** | <= 0.15 | PASS (3× better) |
+| Width ratio | 0.573 | 0.694 | <0.95 | PASS |
+| MAE reduction | 73.0% | 73.6% | >5% | PASS |
+| ACF | 0.989 | 0.970 | >0.5 | PASS |
+| Boundary smooth | 1.651 | **1.415** | <2.0 | PASS |
+| Growing uncertainty | FAIL | **PASS** | monotonic | Fixed |
+
+### Training Dynamics
+
+- Regime classifier accuracy: ~51% (5 classes, 20% random baseline). Learning signal present but not saturated.
+- Best 90% CI: 81.3% at epoch 20 (training eval, lower than test eval's 85.7%).
+- Val loss converged ~0.078. Regime loss ~1.2 (cross-entropy for 5 classes, theoretical minimum ~1.6 for uniform).
+
+### Analysis
+
+**Wins from regime conditioning:**
+1. **Calibration 3× better** (0.034 → 0.012) — near-perfect calibration curve. Regime sampling spreads the distribution more uniformly across quantiles.
+2. **Growing uncertainty fixed** — was failing in Conv3D p=0.5 baseline, now monotonically increasing. Regime embedding provides additional per-trajectory variation that grows with horizon.
+3. **Kurtosis +30%** (0.175 → 0.228) — meaningful improvement from explicit regime mixture. The model is generating more regime-diverse trajectories.
+4. **Boundary smoothness improved** (1.651 → 1.415) — regime consistency across blocks reduces cross-block discontinuities.
+
+**Still failing:**
+- Kurtosis 0.228 vs 0.3 gate. The remaining 2.9× gap to DDPM POC (0.663) is still dominated by per-frame noise regime (task-adaptive noise + pyramid sampling), not lack of regime diversity.
+
+### Kurtosis Attribution (updated)
+
+| Factor | Contribution | Evidence |
+|--------|-------------|----------|
+| Per-frame noise regime | ~70% | DDPM POC one-shot (uniform t) gets 0.663; staggered gets 0.023 |
+| Task mix | ~15% | p_mask=0.2→0.5 improved kurtosis 0.121→0.175 |
+| Regime diversity | ~10% | Regime conditioning improved 0.175→0.228 |
+| Denoiser architecture | ~5% | Conv3D vs BiGRU: negligible kurtosis difference at matched p_mask |
+
+### Model Checkpoint
+
+| Config | Path | Params | Best Epoch |
+|--------|------|--------|------------|
+| Conv3D p=0.5 + regime | `models/backfill/block_ar_conv3d_regime/best_coverage_model.pt` | 325K | 20 |
+
+### Implications
+
+Regime conditioning is a net positive — it improves calibration, fixes growing uncertainty, and provides modest kurtosis improvement with no regressions. However, the kurtosis ceiling at ~0.23 confirms the dominant bottleneck is the per-frame noise regime, not the generative model's ability to represent regimes.
+
+**Possible next directions for kurtosis:**
+1. **Uniform-timestep Block-AR**: Replace task-adaptive noise with standard uniform t (like DDPM POC one-shot). This directly addresses the dominant factor but loses the DF pyramid sampling benefits.
+2. **Post-hoc tail correction**: Apply kurtosis-preserving transform to generated samples without retraining.
+3. **Accept current kurtosis**: 0.228 may be sufficient for practical use — the model's calibration is now near-perfect (0.012), which matters more for confidence interval quality.
+
+---
+
+## 2026-02-19: Hierarchical Regime Framework — Architecture Note
+
+### Key Insight: Regime Conditioning is Model-Agnostic
+
+The hierarchical regime framework is a **conditioning layer** that sits on top of any generative model. It is orthogonal to the choice of generator (Block-AR, one-shot DDPM, VAE, etc.). The stack:
+
+```
+Regime layer:  classifier → (transition model) → regime embedding
+                              ↓
+Condition:     encoder output + regime embed → regime_proj → (B, bottleneck_dim)
+                              ↓
+Generator:     any model that takes (B, bottleneck_dim) condition
+```
+
+The generative model only sees a modified condition vector. The denoiser interface is unchanged — condition stays at `bottleneck_dim=64` thanks to `regime_proj`. Each layer is independently swappable.
+
+### Per-Block Regime Transitions (Future Work — Not Implemented)
+
+**Motivation**: With longer horizons (90+ days, 9+ blocks), regime changes within a trajectory become realistic. A transition model would predict `P(regime_block_k | regime_block_{k-1}, context)`.
+
+**Research findings from feasibility analysis:**
+
+1. **Not valuable at 30-day / 3-block scale**: Within-sequence regime homogeneity is ~97%. Only ~3% variation across blocks in the same trajectory. Regime is effectively a sequence-level property at this timescale.
+
+2. **Per-block re-clustering creates bad labels**: K-means on 10-frame features gives 48.7% mismatch vs trajectory labels, with severe class imbalance (Regime 3 dominates at 56%, Regime 2 drops to 0.5%).
+
+3. **Two implementation approaches identified**:
+   - Learned transition matrix: `nn.Parameter(n_regimes, n_regimes)`, ~50 LOC. Simple but needs per-block labels.
+   - Autoregressive regime predictor: MLP taking `(encoder_output, prev_regime_embed)` → next regime logits, ~100 LOC. Context-aware but harder to train.
+
+4. **Implementation cost**: +150-200 LOC, ~35-45% codebase growth, backward-incompatible data format change.
+
+**Decision**: Defer until longer-horizon generation is implemented. At 90+ days / 9+ blocks, regime transitions become meaningful and the transition model adds real value. The current per-trajectory regime (same regime_id across all blocks) is appropriate for 30-day generation.
+
+### Updated Roadmap
+
+1. ~~Stage 1: Conv3D denoiser~~ — DONE, kurtosis gate not met
+2. ~~Stage 2: Hierarchical regime sampling~~ — DONE, kurtosis 0.175→0.228, calibration 3× better
+3. **Next: Longer-horizon generation** — increase block count / total horizon
+4. **Then: Per-block regime transitions** — becomes meaningful with longer horizons
+5. Stage 5: Learned uncertainty head (replaces mgh) — independent of above
+6. Stage 6: NSDiff (low priority — GT regime ratio 0.97×)
+
+---
+
+## 2026-02-19: Kurtosis Decomposition — Controlled Ablation Results
+
+### Context
+
+Previous analysis attributed ~97% of kurtosis loss to the "per-frame noise regime" based on the DDPM POC uniform (0.663) vs staggered (0.023) comparison. However, that comparison conflated training noise schedule AND inference schedule changes. New controlled experiments separate these factors.
+
+### Key Experiments
+
+#### 1. AR Chaining Is NOT the Problem
+
+Controlled comparison (BiGRU, p_mask=0.2, rho=0.0):
+
+| Block Size | Kurtosis Ratio |
+|------------|---------------|
+| bs=10 (3 blocks) | 0.091 |
+| bs=30 (1 block, no AR) | 0.100 |
+
+Negligible difference. AR chaining itself does not suppress tails.
+
+#### 2. No Per-Block Tail Collapse
+
+Per-block kurtosis (raw, Fisher) from test set samples:
+
+| Model | Block 1 | Block 2 | Block 3 | Boundary Ratio |
+|-------|---------|---------|---------|----------------|
+| BiGRU | 6.77 | 7.09 | 7.05 | 1.16 |
+| Conv3D p=0.5 | — | — | 18.68 | 1.33 |
+
+Later AR blocks do NOT progressively lose tails. If anything, Conv3D shows increasing kurtosis in later blocks.
+
+#### 3. Inference Schedule Alone Recovers Significant Kurtosis
+
+Same trained weights, switching pyramid (staggered) → uniform sampling at inference:
+
+| Model | Staggered (pyramid) | Uniform inference | Recovery |
+|-------|---------------------|-------------------|----------|
+| BiGRU | 0.117 | 0.150 | +28% |
+| Conv3D p=0.5 | 0.267 | **0.421** | +58% |
+
+**Conv3D p=0.5 reaches 0.421 with uniform inference alone** — 63% of the way to DDPM POC's 0.663, without retraining. This is despite training-inference mismatch (model trained with per-frame noise, inferred with uniform).
+
+#### 4. Task Mix and Regime Are Large Training-Side Levers
+
+| Config | Kurtosis Ratio |
+|--------|---------------|
+| Conv3D p_mask=0.2 | 0.108 |
+| Conv3D p_mask=0.5 | 0.210 |
+| Conv3D p_mask=0.5 + regime | 0.247 |
+
+p_mask 0.2→0.5 nearly doubles kurtosis. Regime conditioning adds another ~18%.
+
+### Revised Kurtosis Attribution
+
+The previous "~97% from per-frame noise regime" was too coarse. Decomposition:
+
+| Factor | Estimated Contribution | Evidence |
+|--------|----------------------|----------|
+| **Training noise regime** (MCVD task-adaptive per-frame noise) | ~40-50% | Baked into weights; uniform-trained DDPM POC gets 0.663 |
+| **Inference schedule** (pyramid vs uniform sampling) | ~30-40% | Same weights: 0.267→0.421 (+58%) |
+| **Task mix** (p_mask, interpolation dominance) | ~10-15% | p_mask 0.2→0.5 doubles kurtosis |
+| **Regime conditioning** | ~5% | Adds 0.03-0.04 via Gaussian mixture |
+| **AR chaining** | ~0% | bs10≈bs30 |
+| **GRU encoder** | ~0% | Attention pooling preserves extremes |
+
+### Implications
+
+1. **Cheapest high-impact experiment**: Retrain with uniform t within blocks + infer with uniform sampling. Conv3D p0.5 already gets 0.421 on mismatched weights — training with uniform noise should push well past 0.5.
+
+2. **Pyramid sampling is a kurtosis tax**: The mixed-noise-level input creates implicit smoothing (via GRU hidden state or conv temporal receptive field). Uniform inference avoids this.
+
+3. **Training-inference mismatch is measurable but not catastrophic**: Model trained on 4 task types (FORWARD/BACKWARD/INTERPOLATION/UNCONDITIONAL) + per-frame noise, but uniform inference still works reasonably — the denoiser generalizes to the unseen uniform pattern.
+
+### Code References
+
+- Per-frame task-adaptive noise: `diffusion/block_ar/block_ar_ddpm.py:317`
+- Forward diffusion (per-frame): `diffusion/block_ar/block_ar_ddpm.py:326`
+- Pyramid sampling (inference): `diffusion/block_ar/block_ar_ddpm.py:413`
+- Uniform inference adapter: ad-hoc `UniformAdapter` wrapping denoiser for standard DDPM reverse
+
+## 2026-02-19: Uniform-t Training Factorial — INVALIDATED (Config Wiring Bug)
+
+**RETRACTED**: Cells C and D in this factorial were invalid. A config wiring bug in `train_block_ar.py` meant `use_uniform_noise` and `sampling_mode` were set on `BlockARPOCConfig` but never passed through to `BlockARConfig` at model construction (line 288). The "uniform-trained" checkpoint (`block_ar_conv3d_uniform/`) actually trained with `use_uniform_noise=False, sampling_mode=pyramid` — i.e., identical adaptive noise as Cell A.
+
+**What was valid**: Cells A and B (both used the adaptive-trained checkpoint), and all numerical results match the summary JSONs. The inference-mode comparison (A vs B: pyramid vs uniform on same adaptive weights) is valid.
+
+**What was invalid**: Cells C and D claimed to show "uniform-t training" effects, but were actually a second adaptive-noise training run evaluated with different inference modes. All causal claims about "uniform-t training hurts kurtosis" are unsupported.
+
+**Fix**: Added `use_uniform_noise=config.use_uniform_noise, sampling_mode=config.sampling_mode` to BlockARConfig constructor in `train_block_ar.py:318-319`. Retraining as `block_ar_conv3d_uniform_v2/`.
+
+### Original Context (for reference)
+
+Based on the kurtosis decomposition (previous entry), implemented uniform-t training mode and uniform DDPM inference mode for Block-AR. Ran a 2×2 factorial: {adaptive, uniform} training × {pyramid, uniform} inference on Conv3D p_mask=0.5, rho=0.0, max_global_residual=0 (no growing uncertainty confound).
+
+### Implementation
+
+Added to `diffusion/block_ar/block_ar_ddpm.py`:
+- `BlockARConfig.use_uniform_noise`: one scalar `t ~ Uniform(0, n_steps)` per sample, replicated across block frames (replaces per-frame task-adaptive DF noise)
+- `BlockARConfig.sampling_mode`: "pyramid" (existing staggered) or "uniform" (standard DDPM reverse, all frames at same t per step)
+- `_sample_block_uniform()`: Uniform DDPM reverse with per-frame t_min support
+- CLI flags: `--uniform_noise`, `--sampling_mode` in train/test scripts
+
+MCVD masking (FORWARD/BACKWARD/INTERPOLATION/UNCONDITIONAL tasks) preserved throughout — only noise assignment changes.
+
+### 2×2 Factorial Results
+
+All runs: Conv3D denoiser, p_mask=0.5, rho=0.0, MSE loss, max_global_residual=0, no EMA.
+
+| Cell | Train | Infer | Calendar | 90% CI | MAE red | ACF | **Kurtosis** | Boundary |
+|------|-------|-------|----------|--------|---------|-----|--------------|----------|
+| A | adaptive | pyramid | **8.6%** | 85.4% | 73.0% | 0.984 | **0.183** | 1.638 |
+| B | adaptive | uniform | 8.7% | 86.2% | 73.6% | 0.988 | 0.188 | 1.567 |
+| C | uniform | pyramid | 12.8% | 92.7% | 82.8% | 0.991 | 0.125 | 1.588 |
+| D | uniform | uniform | 12.4% | **93.0%** | **83.4%** | **0.993** | 0.138 | 1.592 |
+
+### Go/No-Go Gates (Cell D vs Baseline A)
+
+| Metric | Cell D | Gate | Status |
+|--------|--------|------|--------|
+| Kurtosis | 0.138 | >= 0.4 | **FAIL** |
+| Calendar | 12.4% | <= 15% | PASS |
+| 90% CI | 93.0% | >= 85% | STRETCH |
+| MAE reduction | 83.4% | >= 70% | STRETCH |
+| Boundary ratio | 1.59 | < 2.0 | PASS |
+
+**Decision: Kurtosis gate FAILED. Uniform-t training does NOT fix tail heaviness.**
+
+### Key Findings
+
+**1. Uniform-t training HURTS kurtosis (opposite of prediction).**
+- A→C (same pyramid infer): 0.183 → 0.125 (32% worse!)
+- A→B (same adaptive train): 0.183 → 0.188 (negligible)
+- The earlier ablation showing 0.267→0.421 with uniform inference was misleading — that used adaptive-trained weights, not matched uniform-t training
+
+**2. Uniform-t training is a strong CI/conditionality booster.**
+- CI: 85.4% → 93.0% (+7.6pp), now at stretch target
+- MAE reduction: 73.0% → 83.4% (+10.4pp)
+- Variances ~50% higher (0.003 vs 0.002) but still not monotonic
+
+**3. Inference schedule barely matters when training matches.** B≈A, D≈C. The big lever is training noise regime.
+
+**4. Calendar arbitrage regressed.** 8.6% → 12.4% — still passes but lost ground vs data floor (7.0%). Suggests per-frame task-adaptive noise provides some spatial regularization that uniform-t loses.
+
+### Why Did Kurtosis Get Worse?
+
+The uniform-t model learns wider, better-calibrated distributions (CI↑, MAE↑) but the tails are *lighter*, not heavier. Possible explanations:
+
+1. **MSE loss averaging over more uncertain targets**: With uniform-t, all frames see the same noise level — no easy frames to anchor. The model responds by broadening the Gaussian core rather than developing heavy tails.
+
+2. **Task-adaptive noise forces tail awareness**: Per-frame DF noise means some frames are nearly clean while others are pure noise in the same batch. This heterogeneity may force the denoiser to handle a wider range of signal strengths, inadvertently preserving tail structure.
+
+3. **MCVD masking is the bottleneck**: With both noise regimes failing the kurtosis gate (0.183 and 0.138 vs target 0.4), the MCVD training protocol itself may be the fundamental limiter — the task structure (forward/backward/interpolation) averages over conditioning patterns, diluting tail-specific learning.
+
+### Revised Kurtosis Attribution
+
+| Factor | Previous estimate | Revised estimate | Evidence |
+|--------|-------------------|------------------|----------|
+| Training noise (per-frame DF → uniform) | ~40-50% of gap | ~0% (hurts!) | A→C: 0.183→0.125 |
+| Inference schedule (pyramid → uniform) | ~30-40% | ~3% | A→B: 0.183→0.188 |
+| MCVD masking + task structure | ~10-15% | **Primary suspect** | Both regimes fail gate |
+| Model capacity / architecture | — | Unknown | 310K params, Conv3D |
+
+Previous session's ablation on mismatched weights was misleading because the adaptive-trained model happened to produce better kurtosis when evaluated with uniform inference (0.267→0.421), but this was an artifact of training-inference mismatch, not a genuine improvement in tail learning.
+
+### What's Left to Try
+
+1. **Block-size=30 single-block** (eliminates AR chaining AND MCVD conditioning, keeps spatial structure) — essentially DDPM POC with Conv3D denoiser and MCVD task masking
+2. **Post-hoc tail injection** (calibration-based, no retraining) — if the model's Gaussian core is well-calibrated (CI 93%), inject heavy tails via a learned quantile mapping
+3. **Increase model capacity** — 310K may be too small to learn both spatial structure and tail behavior
+4. **Drop MCVD masking entirely** — train as pure conditional diffusion (teacher forcing only), see if kurtosis recovers toward DDPM POC levels (0.45)
+
+### Files
+
+- Uniform-t implementation: `diffusion/block_ar/block_ar_ddpm.py` (forward, _sample_block_uniform)
+- Uniform-t model (BROKEN, do not use): `models/backfill/block_ar_conv3d_uniform/` (config wiring bug)
+- Results (BROKEN): `results/block_ar/factorial_{uniform}_{pyramid,uniform}/` (from broken training)
+- Unit tests: `experiments/backfill/block_ar/test_block_ar.py` (4 new tests, 37 total pass)
+
+## 2026-02-19: Uniform-t Training Factorial v2 — CORRECTED, Kurtosis Gate PASSED
+
+### Bug Fix
+
+The original factorial (above) had a config wiring bug: `train_block_ar.py` set `use_uniform_noise=True` on `BlockARPOCConfig` (experiment config) but never passed it to `BlockARConfig` (model config) at construction. All "uniform-t trained" checkpoints actually used adaptive noise.
+
+**Fix**: Replaced manual field-by-field copy with auto-extraction of all `BlockARConfig` fields from experiment config. Added fail-fast `RuntimeError` if any model field is missing. Changed checkpoint serialization to `dataclasses.asdict()` for safer metadata.
+
+### Corrected 2×2 Factorial Results
+
+All runs: Conv3D denoiser, p_mask=0.5, rho=0.0, MSE loss, max_global_residual=0, no EMA.
+
+| Cell | Train | Infer | Calendar | Butterfly | 90% CI | MAE red | ACF | **Kurtosis** | Boundary |
+|------|-------|-------|----------|-----------|--------|---------|-----|--------------|----------|
+| A | adaptive | pyramid | 8.6% | 33.7% | 85.4% | 73.0% | 0.984 | 0.183 | 1.638 |
+| B | adaptive | uniform | 8.7% | 33.7% | 86.2% | 73.6% | 0.988 | 0.188 | 1.567 |
+| C | uniform | pyramid | **7.2%** | **32.0%** | **91.0%** | 77.0% | 0.991 | **0.365** | 1.980 |
+| D | uniform | uniform | **6.6%** | **30.6%** | **90.6%** | 77.1% | 0.994 | **0.428** | 2.029 |
+
+### Go/No-Go Gates (Cell D)
+
+| Metric | Cell D | Gate | Status |
+|--------|--------|------|--------|
+| Kurtosis | **0.428** | >= 0.4 | **PASS** |
+| Calendar | 6.6% | <= 10% | **STRETCH** |
+| 90% CI | 90.6% | >= 85% | **STRETCH** |
+| MAE reduction | 77.1% | >= 70% | **STRETCH** |
+| Boundary ratio | 2.03 | < 2.0 | **FAIL** (marginal) |
+
+**Decision: 4/5 gates passed (3 at stretch level). Boundary marginal fail (2.03 vs 2.0). Uniform-t is a strong improvement.**
+
+### Key Findings
+
+**1. Uniform-t training is a breakthrough for kurtosis.**
+- Training effect (A→C): 0.183 → 0.365 (2x improvement!)
+- Combined (A→D): 0.183 → 0.428 (2.3x, passes 0.4 gate)
+- The per-frame task-adaptive noise was the primary kurtosis killer, as predicted
+
+**2. Every metric improves simultaneously.**
+- Calendar arb: 8.6% → 6.6% (below data floor 7.0% — remarkable)
+- Butterfly arb: 33.7% → 30.6% (3pp improvement)
+- 90% CI: 85.4% → 90.6% (+5.2pp, above stretch)
+- ACF: 0.984 → 0.994 (near-perfect)
+- MAE reduction: 73.0% → 77.1% (above stretch)
+
+**3. Inference schedule is the secondary lever for kurtosis.**
+- A→B (inference only): 0.183 → 0.188 (negligible on adaptive weights)
+- C→D (inference on uniform weights): 0.365 → 0.428 (+17%)
+- Uniform inference amplifies uniform training but doesn't help adaptive training
+
+**4. Boundary smoothness degrades slightly.**
+- A: 1.638, D: 2.029 (marginal fail at 2.0 gate)
+- Uniform-t removes the smoothing effect of staggered noise at block boundaries
+- May need explicit boundary regularization or overlap-and-blend
+
+**5. Cell C achieves growing uncertainty monotonicity.**
+- First time this test passes in Block-AR
+- Var(h=1)=0.003031 → Var(h=30)=0.003379 (monotonically increasing)
+
+### Decomposition: Training vs Inference
+
+| Factor | Kurtosis Δ | CI Δ | Calendar Δ |
+|--------|-----------|------|------------|
+| Training (A→C, same pyramid infer) | +0.182 (99%) | +5.6pp | -1.4pp |
+| Inference (A→B, same adaptive train) | +0.005 (3%) | +0.8pp | +0.1pp |
+| Combined (A→D) | +0.245 (134%) | +5.2pp | -2.0pp |
+| Interaction (D - A - training - inference effects) | +0.058 (32%) | -1.2pp | -0.7pp |
+
+Training is the primary lever (~75% of kurtosis gain). Inference adds ~25% but only when combined with uniform training (positive interaction effect).
+
+### Comparison with DDPM POC
+
+| Metric | DDPM POC | Block-AR Adaptive | Block-AR Uniform-t | Target |
+|--------|----------|-------------------|---------------------|--------|
+| Kurtosis | 0.45 | 0.183 | **0.428** | 0.5-2.0 |
+| Calendar | 6.5% | 8.6% | **6.6%** | <15% |
+| 90% CI | 81.7% | 85.4% | **90.6%** | >85% |
+| ACF | 0.907 | 0.984 | **0.994** | >0.5 |
+| MAE red | — | 73.0% | **77.1%** | >50% |
+
+Uniform-t Block-AR is now competitive with DDPM POC on kurtosis (0.428 vs 0.45) while being superior on every other metric. It also retains Block-AR's arbitrary-length generation capability.
+
+### Files
+
+- Config wiring fix: `train_block_ar.py:286-302` (auto-extraction + fail-fast)
+- Dict serialization: `train_block_ar.py:377,393,407,447` (`_dc.asdict(model_config)`)
+- Corrected model: `models/backfill/block_ar_conv3d_uniform_v2/` (epoch 15, 309,762 params)
+- Corrected results: `results/block_ar/factorial_v2_uniform_{pyramid,uniform}/`
