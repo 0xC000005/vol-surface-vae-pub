@@ -20,9 +20,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from diffusion.block_ar.gru_encoder import GRUEncoder, EncoderConfig
+from diffusion.block_ar.gru_encoder import GRUEncoder, CausalConv3dEncoder, EncoderConfig
 from diffusion.block_ar.bigru_denoiser import BiGRUDenoiser, DenoiserConfig
-from diffusion.block_ar.masking import sample_mcvd_masks
+from diffusion.block_ar.masking import MCVDTask, get_task_types, sample_mcvd_masks
 from diffusion.block_ar.noise_schedules import sample_batch_task_adaptive_noise
 from diffusion.ddpm_scheduler import DDPMScheduler
 
@@ -35,6 +35,11 @@ IV_MAX = 1.0
 def denormalize_iv(iv_norm: torch.Tensor) -> torch.Tensor:
     """Denormalize IV from [-1, 1] to [0, 1]."""
     return (iv_norm + 1.0) / 2.0 * (IV_MAX - IV_MIN) + IV_MIN
+
+
+def normalize_iv(iv: torch.Tensor) -> torch.Tensor:
+    """Normalize IV from [0, 1] to [-1, 1]."""
+    return (iv - IV_MIN) / (IV_MAX - IV_MIN) * 2.0 - 1.0
 
 
 def sample_pyoco_noise(shape: tuple, rho: float, device: torch.device) -> torch.Tensor:
@@ -93,9 +98,19 @@ class BlockARConfig:
     schedule: str = "cosine"
 
     # MCVD
-    p_mask: float = 0.2
+    p_mask: float = 0.2  # legacy Bernoulli (used if mcvd_task_probs all zero)
     jitter_std: float = 0.15
     forward_only: bool = False  # disable MCVD: always FORWARD task (past visible, future masked)
+    # Explicit MCVD task probabilities — overrides p_mask when any are nonzero.
+    # Order: (forward, backward, interpolation, unconditional), must sum to 1.0.
+    mcvd_p_forward: float = 0.0
+    mcvd_p_backward: float = 0.0
+    mcvd_p_interpolation: float = 0.0
+    mcvd_p_unconditional: float = 0.0
+    # Down-weight interpolation task gradient (1.0 = no change, 0.3 = 30% gradient).
+    # Decouples task exposure from gradient pressure: model still sees interpolation
+    # tasks but they contribute less to learning, preserving tail/kurtosis behavior.
+    interp_loss_weight: float = 1.0
 
     # Uniform-t noise (one scalar t per block instead of per-frame task-adaptive)
     use_uniform_noise: bool = False
@@ -124,6 +139,65 @@ class BlockARConfig:
     # 0 = denoise all frames to t=0 (no residual, backward compat).
     # 10 = recommended starting point (~0.09 IV std residual at h=29).
     max_global_residual: int = 0
+
+    # Clamp final output to [0, 1] after denormalization.
+    # True = legacy behavior (clips extreme IV values).
+    # False = no clamp (preserves full output distribution for fair metric comparison).
+    clamp_output: bool = True
+
+    # Encoder type: "gru" (default, flat spatial) or "conv3d" (spatial-aware CausalConv3d)
+    encoder_type: str = "gru"
+
+    # Learned uncertainty head: per-horizon scaling of sample spread.
+    # Trained separately (generator frozen) with CRPS loss.
+    use_uncertainty_head: bool = False
+    uncertainty_hidden_dim: int = 64
+
+
+class UncertaintyHead(nn.Module):
+    """Per-horizon learned scaling for diffusion sample spread.
+
+    Takes encoder condition → monotonically increasing scale factors.
+    Applied as: scaled = mean + scale * (sample - mean).
+
+    Architecture: base(condition) + cumsum(softplus(increments(condition)))
+    - base: learned scalar log-scale (can be < 0 or > 0, so scale can be < 1 or > 1)
+    - increments: monotonically increasing growth from base
+
+    This allows both widening and narrowing at h=0, with guaranteed monotonic
+    growth over the horizon.
+    """
+
+    def __init__(self, cond_dim: int, future_len: int, hidden_dim: int = 64):
+        super().__init__()
+        self.future_len = future_len
+        self.mlp = nn.Sequential(
+            nn.Linear(cond_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, future_len + 1),  # +1 for base
+        )
+        # Initialize so base ≈ 0 (scale ≈ 1.0) and increments ≈ 0 (no growth)
+        nn.init.zeros_(self.mlp[-1].weight)
+        bias = torch.full((future_len + 1,), -5.0)
+        bias[0] = 0.0  # base starts at 0 → exp(0) = 1.0
+        self.mlp[-1].bias = nn.Parameter(bias)
+
+    def forward(self, condition: torch.Tensor) -> torch.Tensor:
+        """Predict per-horizon scaling factors.
+
+        Args:
+            condition: (B, cond_dim) encoder output
+
+        Returns:
+            scale: (B, future_len) positive, monotonically increasing
+        """
+        raw = self.mlp(condition)  # (B, future_len + 1)
+        base = raw[:, :1]  # (B, 1) — log-scale at h=0
+        increments = F.softplus(raw[:, 1:])  # (B, future_len), all positive
+        cumul = torch.cumsum(increments, dim=1)  # monotonically increasing
+        cumul = cumul - cumul[:, :1]  # starts at 0
+        log_scale = base + cumul  # base + monotonic growth
+        return torch.exp(log_scale)  # (B, future_len) positive, monotonic
 
 
 class _DenoiserAdapter(nn.Module):
@@ -167,15 +241,17 @@ class ConditionalBlockARDDPM(nn.Module):
         super().__init__()
         self.config = config
 
-        self.encoder = GRUEncoder(
-            EncoderConfig(
-                input_dim=config.surface_h * config.surface_w,
-                gru_hidden_dim=config.gru_hidden_dim,
-                bottleneck_dim=config.bottleneck_dim,
-                cond_aug_sigma=config.cond_aug_sigma,
-                dropout=config.encoder_dropout,
-            )
+        enc_cfg = EncoderConfig(
+            input_dim=config.surface_h * config.surface_w,
+            gru_hidden_dim=config.gru_hidden_dim,
+            bottleneck_dim=config.bottleneck_dim,
+            cond_aug_sigma=config.cond_aug_sigma,
+            dropout=config.encoder_dropout,
         )
+        if getattr(config, 'encoder_type', 'gru') == "conv3d":
+            self.encoder = CausalConv3dEncoder(enc_cfg)
+        else:
+            self.encoder = GRUEncoder(enc_cfg)
 
         if getattr(config, 'denoiser_type', 'bigru') == "conv3d":
             from diffusion.block_ar.conv3d_denoiser import Conv3DBlockDenoiser, Conv3DDenoiserConfig
@@ -231,6 +307,16 @@ class ConditionalBlockARDDPM(nn.Module):
             self.regime_embed = None
             self.regime_proj = None
 
+        # Learned uncertainty head (trained separately, generator frozen)
+        if config.use_uncertainty_head:
+            self.uncertainty_head = UncertaintyHead(
+                cond_dim=config.bottleneck_dim,
+                future_len=config.future_len,
+                hidden_dim=config.uncertainty_hidden_dim,
+            )
+        else:
+            self.uncertainty_head = None
+
     def _augment_condition(
         self, condition: torch.Tensor, regime_ids: Optional[torch.Tensor]
     ) -> torch.Tensor:
@@ -243,6 +329,14 @@ class ConditionalBlockARDDPM(nn.Module):
             r_emb = self.regime_embed(regime_ids)  # (B, regime_embed_dim)
             return self.regime_proj(torch.cat([condition, r_emb], dim=-1))
         return condition
+
+    def _mcvd_task_probs(self):
+        """Return explicit task probs tuple, or None for legacy p_mask mode."""
+        c = self.config
+        s = c.mcvd_p_forward + c.mcvd_p_backward + c.mcvd_p_interpolation + c.mcvd_p_unconditional
+        if s == 0.0:
+            return None  # legacy: use p_mask Bernoulli
+        return (c.mcvd_p_forward, c.mcvd_p_backward, c.mcvd_p_interpolation, c.mcvd_p_unconditional)
 
     def _ensure_scheduler_device(self, device: torch.device) -> None:
         """Recreate scheduler on the correct device if needed."""
@@ -307,7 +401,8 @@ class ConditionalBlockARDDPM(nn.Module):
                 mask_future = torch.ones(B, dtype=torch.bool, device=device)
             else:
                 mask_past, mask_future = sample_mcvd_masks(
-                    B, self.config.p_mask, device=device
+                    B, self.config.p_mask, device=device,
+                    task_probs=self._mcvd_task_probs(),
                 )
                 # Last block: force mask_future=True (no future context available)
                 if future_ctx is None:
@@ -360,12 +455,29 @@ class ConditionalBlockARDDPM(nn.Module):
 
             # Loss
             noise_flat = noise.reshape(B, bs, -1)  # (B, bs, 25)
-            if self.config.loss_type == "huber":
-                block_loss = F.smooth_l1_loss(
-                    noise_pred, noise_flat, beta=self.config.huber_delta
-                )
+            alpha = self.config.interp_loss_weight
+            if alpha < 1.0 and not self.config.forward_only:
+                # Per-sample loss with interpolation down-weighting
+                if self.config.loss_type == "huber":
+                    per_sample = F.smooth_l1_loss(
+                        noise_pred, noise_flat, beta=self.config.huber_delta,
+                        reduction='none',
+                    ).mean(dim=(1, 2))  # (B,)
+                else:
+                    per_sample = F.mse_loss(
+                        noise_pred, noise_flat, reduction='none'
+                    ).mean(dim=(1, 2))  # (B,)
+                tasks = get_task_types(mask_past, mask_future)
+                weights = torch.ones(B, device=device)
+                weights[tasks == MCVDTask.INTERPOLATION] = alpha
+                block_loss = (per_sample * weights).mean()
             else:
-                block_loss = F.mse_loss(noise_pred, noise_flat)
+                if self.config.loss_type == "huber":
+                    block_loss = F.smooth_l1_loss(
+                        noise_pred, noise_flat, beta=self.config.huber_delta
+                    )
+                else:
+                    block_loss = F.mse_loss(noise_pred, noise_flat)
             total_loss = total_loss + block_loss
 
         result = {"loss": total_loss / n_blocks}
@@ -694,6 +806,11 @@ class ConditionalBlockARDDPM(nn.Module):
                     current_cond_surfaces, mask=None
                 )  # (B, bottleneck_dim)
 
+                # Forward-only training adds null_embedding as future_cond;
+                # match at inference to avoid train/infer mismatch.
+                if self.config.forward_only:
+                    condition = condition + self.encoder.null_embedding.expand(B, -1)
+
                 # Augment with regime embedding
                 condition = self._augment_condition(condition, regime_ids)
 
@@ -734,9 +851,22 @@ class ConditionalBlockARDDPM(nn.Module):
         # Stack samples: (B, n_samples, future_len, 5, 5)
         samples = torch.stack(all_samples, dim=1)
 
-        # Denormalize to [0, 1] and clamp
+        # Apply learned uncertainty scaling (in normalized space, before denorm)
+        if self.uncertainty_head is not None:
+            # Get condition from initial history (same for all samples)
+            uh_cond = self.encoder(history, mask=None)
+            if self.config.forward_only:
+                uh_cond = uh_cond + self.encoder.null_embedding.expand(B, -1)
+            uh_cond = self._augment_condition(uh_cond, None)
+            scale = self.uncertainty_head(uh_cond)  # (B, future_len)
+            scale = scale[:, None, :, None, None]  # (B, 1, future_len, 1, 1)
+            mean = samples.mean(dim=1, keepdim=True)
+            samples = mean + scale * (samples - mean)
+
+        # Denormalize to [0, 1]
         samples = denormalize_iv(samples)
-        samples = samples.clamp(0.0, 1.0)
+        if self.config.clamp_output:
+            samples = samples.clamp(0.0, 1.0)
 
         return samples
 
@@ -798,6 +928,11 @@ class ConditionalBlockARDDPM(nn.Module):
                 current_cond_surfaces, mask=None
             )
 
+            # Forward-only training adds null_embedding as future_cond;
+            # match at inference to avoid train/infer mismatch.
+            if self.config.forward_only:
+                condition = condition + self.encoder.null_embedding.expand(B_eff, -1)
+
             # Augment with regime embedding
             condition = self._augment_condition(condition, regime_ids)
 
@@ -840,8 +975,20 @@ class ConditionalBlockARDDPM(nn.Module):
             self.config.surface_h, self.config.surface_w,
         )
 
-        # Denormalize to [0, 1] and clamp
+        # Apply learned uncertainty scaling (in normalized space, before denorm)
+        if self.uncertainty_head is not None:
+            uh_cond = self.encoder(history, mask=None)
+            if self.config.forward_only:
+                uh_cond = uh_cond + self.encoder.null_embedding.expand(B, -1)
+            uh_cond = self._augment_condition(uh_cond, None)
+            scale = self.uncertainty_head(uh_cond)  # (B, future_len)
+            scale = scale[:, None, :, None, None]  # (B, 1, future_len, 1, 1)
+            mean = samples.mean(dim=1, keepdim=True)
+            samples = mean + scale * (samples - mean)
+
+        # Denormalize to [0, 1]
         samples = denormalize_iv(samples)
-        samples = samples.clamp(0.0, 1.0)
+        if self.config.clamp_output:
+            samples = samples.clamp(0.0, 1.0)
 
         return samples
