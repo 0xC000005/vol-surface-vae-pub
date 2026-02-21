@@ -94,6 +94,20 @@ def convert_to_serializable(obj):
 # Sample Generation
 # =============================================================================
 
+def _apply_post_hoc_scale(samples: torch.Tensor, scale: float) -> torch.Tensor:
+    """Apply post-hoc multiplicative scaling to ensemble spread.
+
+    samples: (B, n_samples, T, 5, 5) in [0, 1]
+    scale: multiplicative factor (1.0 = no change, 1.3 = 30% wider)
+
+    Returns scaled samples clamped to [0, 1].
+    """
+    if scale == 1.0:
+        return samples
+    mean = samples.mean(dim=1, keepdim=True)
+    return (mean + scale * (samples - mean)).clamp(0.0, 1.0)
+
+
 def generate_all_samples(
     model: ConditionalBlockARDDPM,
     test_loader: DataLoader,
@@ -102,6 +116,7 @@ def generate_all_samples(
     max_residual: int,
     device: str,
     max_global_residual: Optional[int] = None,
+    post_hoc_scale: float = 1.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Generate conditioned samples and ground truth for all batches.
 
@@ -128,6 +143,9 @@ def generate_all_samples(
                 history, n_samples=n_samples, max_residual=max_residual,
                 max_global_residual=max_global_residual,
             )
+
+            if post_hoc_scale != 1.0:
+                samples = _apply_post_hoc_scale(samples, post_hoc_scale)
 
             all_samples.append(samples.cpu().numpy())
             all_gt.append(future_gt.cpu().numpy())
@@ -387,6 +405,7 @@ def run_conditionality_tests(
     max_residual: int = 20,
     device: str = "cpu",
     max_global_residual: Optional[int] = None,
+    post_hoc_scale: float = 1.0,
 ) -> Dict:
     """Test that conditioning on history actually matters.
 
@@ -429,6 +448,8 @@ def run_conditionality_tests(
                 history, n_samples=n_samples, max_residual=max_residual,
                 max_global_residual=max_global_residual,
             )  # (B, n_samples, T, 5, 5)
+            if post_hoc_scale != 1.0:
+                cond_samples = _apply_post_hoc_scale(cond_samples, post_hoc_scale)
 
             # --- Unconditional baseline: zero history (near-null conditioning) ---
             zero_history = torch.zeros_like(history)
@@ -588,12 +609,20 @@ def run_time_series_tests(
 
     gt_skew_val = float(skew(gt_changes))
     gen_skew_val = float(skew(gen_changes))
+    skew_ratio = gen_skew_val / gt_skew_val if gt_skew_val != 0 else float("inf")
+    skew_pass = skew_ratio >= 0.25  # recover at least 25% of GT skewness
 
     print(f"  GT kurtosis:  {gt_kurt:.3f}")
     print(f"  Gen kurtosis: {gen_kurt:.3f}")
     print(
         f"  Kurtosis ratio: {kurt_ratio:.3f} "
         f"(target 0.5-2.0) {'PASS' if kurt_pass else 'FAIL'}"
+    )
+    print(f"  GT skewness:  {gt_skew_val:.3f}")
+    print(f"  Gen skewness: {gen_skew_val:.3f}")
+    print(
+        f"  Skewness ratio: {skew_ratio:.3f} "
+        f"(target >=0.25) {'PASS' if skew_pass else 'FAIL'}"
     )
 
     overall_pass = acf_pass and kurt_pass
@@ -612,6 +641,8 @@ def run_time_series_tests(
             'kurtosis_ratio': kurt_ratio,
             'gt_skewness': gt_skew_val,
             'gen_skewness': gen_skew_val,
+            'skewness_ratio': skew_ratio,
+            'skewness_pass': skew_pass,
             'pass': kurt_pass,
         },
         'overall_pass': overall_pass,
@@ -951,6 +982,14 @@ def main():
         "--sampling_mode", type=str, default=None, choices=["pyramid", "uniform"],
         help="Override checkpoint's sampling mode for inference (pyramid or uniform)",
     )
+    parser.add_argument(
+        "--no_clamp_output", action="store_true",
+        help="Disable output clamping to [0,1] (overrides checkpoint config)",
+    )
+    parser.add_argument(
+        "--post_hoc_scale", type=float, default=1.0,
+        help="Post-hoc multiplicative scaling of ensemble spread (1.0=off, 1.3=30%% wider)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -994,6 +1033,8 @@ def main():
     print(f"Max residual:  {args.max_residual}")
     if args.sampling_mode:
         print(f"Sampling mode: {args.sampling_mode} (override)")
+    if args.post_hoc_scale != 1.0:
+        print(f"Post-hoc scale: {args.post_hoc_scale}")
     print(f"Output:        {output_dir}")
     print("=" * 60)
 
@@ -1010,6 +1051,11 @@ def main():
     if args.sampling_mode is not None:
         model_config.sampling_mode = args.sampling_mode
         print(f"  Sampling mode override: {args.sampling_mode}")
+
+    # Override clamp_output if requested
+    if args.no_clamp_output:
+        model_config.clamp_output = False
+        print("  Output clamping: DISABLED (override)")
 
     model = ConditionalBlockARDDPM(model_config)
 
@@ -1065,6 +1111,7 @@ def main():
         max_residual=args.max_residual,
         device=device,
         max_global_residual=args.max_global_residual,
+        post_hoc_scale=args.post_hoc_scale,
     )
     print(f"  Conditioned samples: {cond_samples.shape}")
     print(f"  Ground truth: {ground_truth.shape}")
@@ -1094,6 +1141,7 @@ def main():
         max_residual=args.max_residual,
         device=device,
         max_global_residual=args.max_global_residual,
+        post_hoc_scale=args.post_hoc_scale,
     )
 
     # Test Suite 4: Time Series Properties
@@ -1127,6 +1175,31 @@ def main():
     plot_growing_uncertainty(
         cond_samples, f"{output_dir}/uncertainty_growth.png"
     )
+
+    # =========================================================================
+    # Eval provenance — record everything needed to reproduce this evaluation
+    # =========================================================================
+    import hashlib, dataclasses
+    config_dict = dataclasses.asdict(model_config)
+    config_hash = hashlib.sha256(
+        json.dumps(config_dict, sort_keys=True, default=str).encode()
+    ).hexdigest()[:12]
+
+    results['eval_config'] = {
+        'checkpoint_path': str(model_path),
+        'checkpoint_epoch': checkpoint.get('epoch', None),
+        'n_samples': args.n_samples,
+        'max_batches': args.max_batches,
+        'max_residual': args.max_residual,
+        'max_global_residual': args.max_global_residual,
+        'sampling_mode': model_config.sampling_mode,
+        'clamp_output': model_config.clamp_output,
+        'use_ema': ("ema_params" in checkpoint and not args.no_ema),
+        'forward_only': model_config.forward_only,
+        'post_hoc_scale': args.post_hoc_scale,
+        'model_config_hash': config_hash,
+        'model_config': config_dict,
+    }
 
     # =========================================================================
     # Save results JSON

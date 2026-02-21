@@ -736,6 +736,8 @@ def test_kurtosis_matching(
     # Also compute skewness
     gt_skew = skew(gt_changes)
     gen_skew = skew(gen_changes)
+    skew_ratio = float(gen_skew / gt_skew) if gt_skew != 0 else float("inf")
+    skew_pass = skew_ratio >= 0.25  # recover at least 25% of GT skewness
 
     results = {
         'gt_kurtosis': float(gt_kurt),
@@ -743,11 +745,16 @@ def test_kurtosis_matching(
         'kurtosis_ratio': float(kurt_ratio),
         'gt_skewness': float(gt_skew),
         'gen_skewness': float(gen_skew),
+        'skewness_ratio': skew_ratio,
+        'skewness_pass': skew_pass,
     }
 
     print(f"  GT kurtosis: {gt_kurt:.3f}")
     print(f"  Gen kurtosis: {gen_kurt:.3f}")
     print(f"  Kurtosis ratio: {kurt_ratio:.3f} (target: 0.5-2.0)")
+    print(f"  GT skewness: {gt_skew:.3f}")
+    print(f"  Gen skewness: {gen_skew:.3f}")
+    print(f"  Skewness ratio: {skew_ratio:.3f} (target: >=0.25) {'PASS' if skew_pass else 'FAIL'}")
 
     # Pass if ratio is within reasonable bounds
     results['pass'] = 0.5 <= kurt_ratio <= 2.0
@@ -1249,6 +1256,28 @@ def main():
         elif isinstance(obj, bool):
             return bool(obj)
         return obj
+
+    # Eval provenance
+    import hashlib
+    config_str = json.dumps(
+        {k: str(v) for k, v in vars(denoiser_config).items()} if hasattr(denoiser_config, '__dict__')
+        else str(denoiser_config),
+        sort_keys=True,
+    )
+    config_hash = hashlib.sha256(config_str.encode()).hexdigest()[:12]
+
+    results['eval_config'] = {
+        'checkpoint_path': str(model_path),
+        'checkpoint_epoch': checkpoint.get('epoch', None),
+        'sampler': args.sampler,
+        'ddim_steps': args.ddim_steps if args.sampler in ['ddim', 'ddim_staggered'] else None,
+        'n_samples': args.n_samples,
+        'max_batches': args.max_batches,
+        'guidance_scale': args.guidance_scale,
+        'hierarchical': args.hierarchical,
+        'atm_only': args.atm_only,
+        'model_config_hash': config_hash,
+    }
 
     results_serializable = convert_to_serializable(results)
 
