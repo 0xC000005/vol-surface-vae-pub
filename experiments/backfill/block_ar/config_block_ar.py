@@ -28,6 +28,9 @@ class BlockARPOCConfig:
     cond_aug_sigma: float = 0.0
     encoder_dropout: float = 0.1
 
+    # === Encoder ===
+    encoder_type: str = "gru"  # "gru" (flat spatial) or "conv3d" (spatial-aware CausalConv3d)
+
     # === Denoiser ===
     denoiser_type: str = "bigru"  # "bigru" or "conv3d"
     bigru_hidden_dim: int = 128
@@ -46,9 +49,15 @@ class BlockARPOCConfig:
     schedule: str = "cosine"
 
     # === MCVD ===
-    p_mask: float = 0.2
+    p_mask: float = 0.2  # legacy Bernoulli (used if mcvd task probs all zero)
     jitter_std: float = 0.15
     forward_only: bool = False  # disable MCVD: always FORWARD task
+    # Explicit MCVD task probabilities — overrides p_mask when any nonzero
+    mcvd_p_forward: float = 0.0
+    mcvd_p_backward: float = 0.0
+    mcvd_p_interpolation: float = 0.0
+    mcvd_p_unconditional: float = 0.0
+    interp_loss_weight: float = 1.0  # down-weight interpolation loss (1.0=full, 0.3=30%)
 
     # === Noise Schedule ===
     use_uniform_noise: bool = False  # one scalar t per block instead of per-frame task-adaptive
@@ -60,12 +69,17 @@ class BlockARPOCConfig:
     # === Sampling ===
     max_residual_timestep: int = 20
     max_global_residual: int = 0  # growing uncertainty: 0=off, 10=recommended
+    clamp_output: bool = True  # clamp samples to [0,1] after denorm
 
     # === Regime Conditioning (hierarchical sampling) ===
     n_regimes: int = 5
     regime_embed_dim: int = 32
     regime_loss_weight: float = 1.0
     use_regime_conditioning: bool = False
+
+    # === Learned Uncertainty Head (trained separately, Phase 3) ===
+    use_uncertainty_head: bool = False
+    uncertainty_hidden_dim: int = 64
 
     # === Loss ===
     loss_type: str = "mse"  # "mse" or "huber"

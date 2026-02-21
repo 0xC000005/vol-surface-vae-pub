@@ -175,11 +175,18 @@ def main():
     parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber"], help="Loss function (default: mse)")
     parser.add_argument("--huber_delta", type=float, default=None, help="Huber loss delta (default: 0.1)")
     parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d"], help="Denoiser architecture")
+    parser.add_argument("--encoder_type", type=str, default=None, choices=["gru", "conv3d"], help="Encoder architecture (gru=flat spatial, conv3d=spatial-aware)")
+    parser.add_argument("--bottleneck_dim", type=int, default=None, help="Encoder bottleneck dimension (default: 64)")
     parser.add_argument("--p_mask", type=float, default=None, help="MCVD mask probability (default: 0.2, uniform tasks: 0.5)")
     parser.add_argument("--use_regime", action="store_true", help="Enable hierarchical regime conditioning")
     parser.add_argument("--uniform_noise", action="store_true", help="Uniform-t training (one t per block instead of per-frame task-adaptive)")
     parser.add_argument("--sampling_mode", type=str, default=None, choices=["pyramid", "uniform"], help="Inference sampling mode")
     parser.add_argument("--forward_only", action="store_true", help="Disable MCVD: always FORWARD task (past visible, future masked)")
+    parser.add_argument("--mcvd_task_probs", type=float, nargs=4, default=None,
+                        metavar=("FWD", "BWD", "INTERP", "UNCOND"),
+                        help="Explicit MCVD task probs (forward backward interpolation unconditional), must sum to 1.0. Overrides --p_mask.")
+    parser.add_argument("--interp_loss_weight", type=float, default=None,
+                        help="Down-weight interpolation loss (1.0=full, 0.3=30%%). Decouples task exposure from gradient pressure.")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -210,6 +217,10 @@ def main():
         config.huber_delta = args.huber_delta
     if args.denoiser_type is not None:
         config.denoiser_type = args.denoiser_type
+    if args.encoder_type is not None:
+        config.encoder_type = args.encoder_type
+    if args.bottleneck_dim is not None:
+        config.bottleneck_dim = args.bottleneck_dim
     if args.p_mask is not None:
         config.p_mask = args.p_mask
     if args.use_regime:
@@ -220,6 +231,16 @@ def main():
         config.sampling_mode = args.sampling_mode
     if args.forward_only:
         config.forward_only = True
+    if args.mcvd_task_probs is not None:
+        fwd, bwd, interp, uncond = args.mcvd_task_probs
+        assert abs(fwd + bwd + interp + uncond - 1.0) < 1e-6, \
+            f"--mcvd_task_probs must sum to 1.0, got {fwd + bwd + interp + uncond:.4f}"
+        config.mcvd_p_forward = fwd
+        config.mcvd_p_backward = bwd
+        config.mcvd_p_interpolation = interp
+        config.mcvd_p_unconditional = uncond
+    if args.interp_loss_weight is not None:
+        config.interp_loss_weight = args.interp_loss_weight
     if args.block_size is not None:
         config.block_size = args.block_size
 
@@ -233,12 +254,26 @@ def main():
     print(f"Device: {config.device}")
     print(f"History: {config.history_len} -> Future: {config.future_len} (block_size={config.block_size})")
     print(f"Diffusion steps: {config.n_steps}, Schedule: {config.schedule}")
-    mcvd_str = "DISABLED (forward-only)" if config.forward_only else f"p_mask={config.p_mask}"
-    print(f"MCVD: {mcvd_str}, Jitter std: {config.jitter_std}")
+    if config.forward_only:
+        mcvd_str = "DISABLED (forward-only)"
+    elif config.mcvd_p_forward + config.mcvd_p_backward + config.mcvd_p_interpolation + config.mcvd_p_unconditional > 0:
+        mcvd_str = (f"explicit (fwd={config.mcvd_p_forward:.0%} bwd={config.mcvd_p_backward:.0%} "
+                     f"interp={config.mcvd_p_interpolation:.0%} uncond={config.mcvd_p_unconditional:.0%})")
+    else:
+        p = config.p_mask
+        mcvd_str = (f"p_mask={p} (fwd={p*(1-p):.0%} bwd={p*(1-p):.0%} "
+                     f"interp={(1-p)**2:.0%} uncond={p**2:.0%})")
+    print(f"MCVD: {mcvd_str}")
+    if config.interp_loss_weight < 1.0:
+        print(f"Interpolation loss weight: {config.interp_loss_weight}")
     print(f"Noise mode: {'uniform-t' if config.use_uniform_noise else 'task-adaptive (DF)'}")
     print(f"Sampling mode: {config.sampling_mode}")
     print(f"PYoCo noise_rho: {config.noise_rho}")
-    print(f"Encoder: GRU h={config.gru_hidden_dim} -> bottleneck={config.bottleneck_dim} (attn pooling)")
+    encoder_type = getattr(config, 'encoder_type', 'gru')
+    if encoder_type == "conv3d":
+        print(f"Encoder: CausalConv3D -> bottleneck={config.bottleneck_dim}")
+    else:
+        print(f"Encoder: GRU h={config.gru_hidden_dim} -> bottleneck={config.bottleneck_dim} (attn pooling)")
     denoiser_type = getattr(config, 'denoiser_type', 'bigru')
     if denoiser_type == "conv3d":
         print(f"Denoiser: Conv3D ch={config.conv3d_base_channels} x{config.conv3d_n_res_blocks} ResBlocks")
