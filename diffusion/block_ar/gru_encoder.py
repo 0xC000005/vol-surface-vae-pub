@@ -1,9 +1,13 @@
 """
-GRU Encoder for Block-AR Diffusion.
+Encoders for Block-AR Diffusion.
 
 Encodes variable-length IV surface sequences into a fixed-size bottleneck
 conditioning vector. Supports per-item masking for MCVD task types and
 conditioning augmentation to mitigate exposure bias in autoregressive generation.
+
+Two encoder variants:
+  - GRUEncoder: Flattens spatial dims, processes with GRU. Default.
+  - CausalConv3dEncoder: Processes history as 3D volume preserving spatial structure.
 """
 
 from dataclasses import dataclass
@@ -11,6 +15,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+
+from vae.causal_3d_blocks import CausalConv3d, ResnetBlockCausal3D
 
 
 @dataclass
@@ -78,6 +84,73 @@ class GRUEncoder(nn.Module):
             output = output + self.cond_aug_sigma * torch.randn_like(output)
 
         # Apply mask: replace masked items with null_embedding
+        if mask is not None:
+            output = torch.where(
+                mask.unsqueeze(-1),
+                self.null_embedding.expand(B, -1),
+                output,
+            )
+
+        return output
+
+
+class CausalConv3dEncoder(nn.Module):
+    """Spatial-aware encoder using CausalConv3d blocks.
+
+    Processes history as a (B, 1, T, 5, 5) 3D volume, preserving spatial
+    relationships between moneyness/tenor grid points. Drop-in replacement
+    for GRUEncoder with same interface (surfaces, mask) → (B, bottleneck_dim).
+
+    Architecture matches the DDPM POC's HistoryEncoder:
+      (B, T, 5, 5) → unsqueeze → CausalConv3d → 2× ResnetBlockCausal3D
+      → global avg pool → Linear → (B, bottleneck_dim)
+    """
+
+    def __init__(self, config: EncoderConfig):
+        super().__init__()
+        self.config = config
+        base_ch = 32  # matches DDPM POC
+
+        self.conv_in = CausalConv3d(1, base_ch, kernel_size=3)
+        self.blocks = nn.ModuleList([
+            ResnetBlockCausal3D(base_ch, base_ch, groups=8, dropout=config.dropout)
+            for _ in range(2)
+        ])
+        self.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.proj = nn.Linear(base_ch, config.bottleneck_dim)
+        self.dropout = nn.Dropout(config.dropout)
+        self.null_embedding = nn.Parameter(torch.zeros(1, config.bottleneck_dim))
+        self.cond_aug_sigma = config.cond_aug_sigma
+
+    def forward(
+        self, surfaces: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Encode history surfaces preserving spatial structure.
+
+        Args:
+            surfaces: (B, T, 5, 5) IV surfaces in [-1, 1]
+            mask: (B,) bool tensor or None. True = replace with null_embedding.
+
+        Returns:
+            (B, bottleneck_dim) conditioning vector
+        """
+        B = surfaces.shape[0]
+
+        # (B, T, 5, 5) → (B, 1, T, 5, 5) — add channel dim
+        x = surfaces.unsqueeze(1)
+
+        x = self.conv_in(x)
+        for block in self.blocks:
+            x = block(x)
+
+        # Global avg pool → (B, C, 1, 1, 1) → (B, C)
+        x = self.pool(x).view(B, -1)
+        output = self.proj(x)
+        output = self.dropout(output)
+
+        if self.training:
+            output = output + self.cond_aug_sigma * torch.randn_like(output)
+
         if mask is not None:
             output = torch.where(
                 mask.unsqueeze(-1),
