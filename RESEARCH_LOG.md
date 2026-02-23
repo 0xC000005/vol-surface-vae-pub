@@ -8095,3 +8095,521 @@ bottleneck to represent distributional shape.
 - Training log: `/tmp/highcap_train_v1.log`
 - Config: Conv3D denoiser, GRU encoder, bn=128, ch=32, 6 res blocks, bs=10
   forward_only=True, uniform_noise=True, sampling_mode=uniform, 437K params
+
+---
+
+## 2026-02-23: Conv3D Encoder + bn=128 Ablation — CONFIRMED GRU SUPERIOR
+
+**Motivation:** The Phase 4 Step 8 experiment (2026-02-20) tested Conv3D encoder vs GRU encoder
+but only at bn=64. The Conv3D encoder failed on conditionality (MAE 82.8%→65.9%), skewness
+(negative), and growing uncertainty. However, the failure analysis noted the Conv3D encoder was
+tested at a capacity disadvantage — DDPM POC's HistoryEncoder uses 128-dim bottleneck, but
+Step 8 only used 64-dim.
+
+After the high-capacity GRU model (bn=128, 6 res blocks) achieved ALL PASS, this experiment
+closes the gap: does Conv3D encoder also pass when given equal bn=128 capacity?
+
+**Setup:** Identical to the ALL-PASS model except encoder_type=conv3d:
+- Conv3D encoder (CausalConv3d → 2× ResBlock → AdaptiveAvgPool3d → Linear→128)
+- Conv3D denoiser, ch=32, 6 res blocks
+- bn=128, bs=10, forward_only=True, uniform_noise=True
+- 527K params (vs 437K for GRU — Conv3D encoder is ~90K larger)
+- 20 epochs, same LR/schedule
+
+**Results** (from summary.json):
+
+| Metric | Target | GRU enc bestval (e29) | Conv3D enc bestcov (e20) | Conv3D enc bestval (e16) |
+|--------|--------|:---:|:---:|:---:|
+| Kurtosis | ≥ 0.50 | **0.540** | **0.546** | **0.529** |
+| Skewness | ≥ 0.25 | **0.286** | 0.010 FAIL | 0.132 FAIL |
+| 90% CI | ≥ 80% | **81.7%** | 79.1% FAIL | 78.6% FAIL |
+| CalibErr | ≤ 0.05 | **0.033** | 0.067 FAIL | 0.082 FAIL |
+| Calendar | ≤ 10% | **7.5%** | **7.1%** | **6.7%** |
+| ACF MAE | ≤ 0.10 | **0.016** | **0.021** | **0.020** |
+| MAE reduction | > 5% | **84.3%** | **76.6%** | **78.6%** |
+| Boundary | < 2.0 | **1.362** | **1.508** | **1.509** |
+| Width ratio | < 1.0 | PASS | FAIL (1.048) | PASS (0.986) |
+| Growing unc | mono | PASS | PASS | PASS |
+
+**Analysis:**
+
+1. **Skewness collapse is architectural, not capacity-limited.** bn=128 doesn't rescue
+   Conv3D encoder skewness (0.010-0.132 vs GRU's 0.286). The Step 8 bn=64 result
+   (-0.047 to -0.104) was not a bottleneck issue. Zero/negative skewness is intrinsic
+   to how CausalConv3d + global avg pool compresses temporal information.
+
+2. **CI and calibration still regress.** 78-79% vs 81.7% CI, calibration error 2-2.5x
+   worse. More encoder params (527K vs 437K) doesn't help — the GRU's sequential
+   processing of history produces a more useful conditioning signal.
+
+3. **Kurtosis is encoder-agnostic.** Both encoders produce kurtosis ~0.53-0.55. Kurtosis
+   is driven by the denoiser architecture and diffusion process, not the encoder.
+
+4. **MAE reduction drops 6-8%.** Conv3D encoder conditions less effectively (76-79% vs
+   84%). This confirms GRU is better at compressing 30×25 history into a discriminative
+   conditioning vector, likely because:
+   - GRU processes frames sequentially, learning WHICH timesteps matter
+   - Conv3D + global avg pool treats all timesteps equally
+   - At 5×5 spatial resolution, explicit spatial convolution adds no value
+
+**Verdict: FAIL.** Conv3D encoder does not benefit from bn=128. The original Step 8
+conclusion holds with higher confidence. GRU encoder is confirmed optimal for this
+architecture and data scale.
+
+### Source Files
+
+- Model: `models/backfill/block_ar_conv3d_enc_bn128_fwdonly/`
+- Results: `results/block_ar/conv3d_enc_bn128_bestcov/summary.json` (epoch 20)
+- Results: `results/block_ar/conv3d_enc_bn128_bestval/summary.json` (epoch 16)
+- Config: Conv3D encoder + Conv3D denoiser, bn=128, ch=32, 6 res blocks, bs=10, 527K params
+
+---
+
+## 2026-02-23: GRU Hidden Dim Scaling — gru_hidden=128 vs 64
+
+**Motivation:** The ALL-PASS model uses gru_hidden_dim=64 with bottleneck_dim=128. This means
+the GRU runs internally at 64 dims, then the attention-pooled output gets projected UP to 128
+via a linear layer. Two questions:
+1. Is the 64-dim recurrence a bottleneck for conditioning quality?
+2. For scaling to longer generation (360 days = 12 AR blocks), does wider GRU help?
+
+The bottleneck_dim=128 acts as the denoiser's conditioning width (injected via FiLM).
+The gru_hidden_dim=64 is the per-timestep information bandwidth during sequential processing.
+These are independent dimensions of capacity — this experiment isolates the GRU recurrence width.
+
+**Setup:** Identical to the ALL-PASS model except gru_hidden_dim=128 (doubled):
+- GRU encoder: input=25 → hidden=128 → attn_pool → Linear(128→128) → bottleneck
+- Conv3D denoiser, ch=32, 6 res blocks, bn=128
+- bs=10, forward_only=True, uniform_noise=True, 20 epochs
+- 487K params (vs 437K baseline — ~50K more from larger GRU)
+
+**Results** (from summary.json, config verified: gru_hidden_dim=128):
+
+| Metric | Target | Baseline gru=64 (e29) | gru=128 bestval (e18) | gru=128 bestcov (e15) |
+|--------|--------|:---:|:---:|:---:|
+| Kurtosis | ≥ 0.50 | **0.540** | **0.518** | **0.501** |
+| Skewness | ≥ 0.25 | **0.286** | 0.014 FAIL | 0.139 FAIL |
+| 90% CI | ≥ 80% | **81.7%** | **83.9%** | 77.9% FAIL |
+| CalibErr | ≤ 0.05 | **0.033** | **0.044** | 0.059 FAIL |
+| Calendar | ≤ 10% | **7.5%** | **7.0%** | **7.5%** |
+| ACF MAE | ≤ 0.10 | **0.016** | **0.014** | **0.014** |
+| MAE reduction | > 5% | **84.3%** | **83.4%** | **81.2%** |
+| Width ratio | < 0.95 | **0.938** | **0.937** | 0.956 FAIL |
+| Boundary | < 2.0 | **1.362** | **1.473** | **1.521** |
+| Growing unc | mono | PASS | PASS | PASS (block_ar), FAIL (cond) |
+
+**Analysis:**
+
+1. **Skewness collapses catastrophically (0.286 → 0.014).** This is the dominant effect.
+   Doubling the GRU hidden dim destroys skewness completely. The mechanism: wider GRU has
+   more capacity to learn a symmetric representation, and MSE training pushes it toward
+   the conditional mean. The gru=64 model was capacity-constrained in a way that
+   PRESERVED asymmetric information (skewness). This is the same "MSE symmetrization"
+   mechanism identified in the skewness diagnosis — more capacity = faster symmetrization.
+
+2. **CI improves slightly (81.7% → 83.9% bestval).** The wider GRU produces better
+   calibrated intervals, suggesting the conditioning signal IS more informative for
+   the denoiser's central tendency prediction. But skewness loss is unacceptable.
+
+3. **Other metrics comparable or slightly worse.** Kurtosis drops slightly (0.540→0.518),
+   MAE reduction similar (84.3%→83.4%), boundary slightly worse (1.362→1.473).
+
+4. **Bestcov checkpoint (e15) fails multiple tests.** Unlike the baseline where bestcov
+   was competitive, here the coverage-selected checkpoint is strictly worse — it fails
+   CI (77.9%), calibration (0.059), width ratio (0.956), and conditionality growing unc.
+
+**Key Insight: GRU hidden dim 64 is OPTIMAL, not a bottleneck.** The capacity constraint
+acts as an implicit regularizer that preserves distributional asymmetry. Wider GRU enables
+more thorough MSE-driven symmetrization, killing skewness. This is a Goldilocks finding:
+too small (gru=32?) would lose conditioning quality; too large (gru=128) loses skewness.
+
+**Implication for scaling to longer generation:** Simply widening the GRU is NOT the path
+to handling 360-frame contexts. The wider recurrence hurts skewness. Alternative approaches
+for longer contexts: (a) sliding context window, (b) hierarchical encoding (recent blocks
+at full resolution, older blocks compressed), (c) cross-attention (avoids single-vector
+bottleneck entirely).
+
+### Source Files
+
+- Model: `models/backfill/block_ar_gru128_bn128_fwdonly/`
+- Results: `results/block_ar/gru128_bn128_bestval/summary.json` (epoch 18)
+- Results: `results/block_ar/gru128_bn128_bestcov/summary.json` (epoch 15)
+- Config: GRU encoder (hidden=128), Conv3D denoiser, bn=128, ch=32, 6 res blocks, bs=10, 487K params
+
+---
+
+## 2026-02-23: GRU=128 + bn=256 Capacity Ceiling — RESCUES H7 CI COLLAPSE
+
+**Motivation:** The earlier H7 experiment (bn=256 with gru=64) collapsed to 42-54% CI coverage.
+Hypothesis: the gru=64 encoder couldn't produce a sufficiently rich 256-dim vector (projecting
+64→256 is a lossy upsample). Does gru=128 (projecting 128→256) rescue the collapse?
+
+Also: E1 showed gru=128+bn=128 kills skewness. Does adding bn=256 on top change that picture?
+
+**Setup:** gru_hidden_dim=128, bottleneck_dim=256, everything else identical to baseline:
+- Conv3D denoiser, ch=32, 6 res blocks, bs=10
+- forward_only=True, uniform_noise=True, 20 epochs
+- 520K params (vs 437K baseline, vs ~462K for H7 gru=64+bn=256)
+
+**Results** (from summary.json, config verified: gru_hidden_dim=128, bottleneck_dim=256):
+
+| Metric | Target | Baseline gru=64/bn=128 (e29) | gru=128/bn=256 bestval (e19) | gru=128/bn=256 bestcov (e?) |
+|--------|--------|:---:|:---:|:---:|
+| Kurtosis | ≥ 0.50 | **0.540** | **0.503** | **0.520** |
+| Skewness | ≥ 0.25 | **0.286** | 0.094 FAIL | -0.037 FAIL |
+| 90% CI | ≥ 80% | **81.7%** | **86.1%** | **84.3%** |
+| CalibErr | ≤ 0.05 | **0.033** | **0.018** | **0.031** |
+| Calendar | ≤ 10% | **7.5%** | **7.7%** | **7.7%** |
+| ACF MAE | ≤ 0.10 | **0.016** | **0.015** | **0.017** |
+| MAE reduction | > 5% | **84.3%** | **85.8%** | **85.7%** |
+| Width ratio | < 0.95 | **0.938** | 1.057 FAIL | 1.007 FAIL |
+| Boundary | < 2.0 | **1.362** | **1.397** | varies |
+| Growing unc | mono | PASS | PASS | PASS |
+
+**Analysis:**
+
+1. **CI collapse is RESCUED.** gru=128 + bn=256 achieves 86.1% CI (bestval), dramatically
+   better than H7's 42-54%. The H7 failure was indeed caused by gru=64 being unable to
+   populate a 256-dim bottleneck — the linear projection 64→256 produced a low-rank,
+   information-sparse condition vector. With gru=128, the 128→256 projection has enough
+   source information to fill the larger space.
+
+2. **Best calibration seen: 0.018.** This is the best calibration error across all models
+   tested. The wider bottleneck gives the denoiser's FiLM layers more dimensions to work
+   with, enabling finer-grained scale/shift adjustments.
+
+3. **Best MAE reduction: 85.8%.** Also the highest conditioning effectiveness. More
+   conditioning dimensions → denoiser can better distinguish different market states.
+
+4. **Skewness still collapses (0.094/-0.037).** Confirms the E1 finding: gru=128 kills
+   skewness regardless of bottleneck width. This is the MSE symmetrization effect — wider
+   GRU has more capacity to learn the conditional mean, which is symmetric.
+
+5. **Width ratio FAILS (1.057).** The wider bottleneck produces slightly over-dispersed
+   samples — conditional intervals are wider than unconditional. This is the opposite
+   failure mode from baseline (which passes at 0.938). The extra capacity allows the
+   model to spread samples too widely.
+
+6. **Interesting tradeoff: CI↑ + CalibErr↓ vs Skewness↓ + Width↑.** The gru=128/bn=256
+   model is BETTER at central-tendency metrics (CI, calibration, MAE) but WORSE at
+   distributional-shape metrics (skewness, width ratio). More capacity helps mean
+   prediction but hurts tail fidelity.
+
+**Key Finding: The H7 "bn=256 collapses" conclusion was WRONG — it was a gru bottleneck
+issue.** bn=256 works fine with adequate GRU width. But wider GRU still kills skewness,
+making it a net negative for overall test pass rate.
+
+**Implication:** The gru=64 + bn=128 baseline remains optimal because it's the only
+configuration that passes ALL tests. The capacity-constrained GRU preserves skewness
+as an implicit regularizer.
+
+### Source Files
+
+- Model: `models/backfill/block_ar_gru128_bn256_fwdonly/`
+- Results: `results/block_ar/gru128_bn256_bestval/summary.json` (epoch 19)
+- Results: `results/block_ar/gru128_bn256_bestcov/summary.json`
+- Config: GRU encoder (hidden=128), Conv3D denoiser, bn=256, ch=32, 6 res blocks, bs=10, 520K params
+
+---
+
+## 2026-02-23: Ground Truth Skewness Analysis — Train/Test Distributional Shift
+
+**Motivation:** Multiple models fail the skewness test (target ≥ 0.25 ratio). Before
+investing more effort, we need to verify: (a) does skewness genuinely exist in the GT data,
+(b) is it statistically significant, (c) is the metric computed fairly?
+
+### How Skewness is Computed
+
+From `test_block_ar_requirements.py` lines 596-613:
+```python
+gt_diff = np.diff(ground_truth, axis=1)  # (N, 29, 5, 5)
+gt_changes = gt_diff.flatten()            # 886,675 values
+gt_skew = scipy.stats.skew(gt_changes)    # = 0.389
+```
+
+Computed over all 1223 test-set 30-day windows, with 29 daily diffs per window across
+all 25 surface cells. Overlapping windows create 27.7x inflation (886K values from 32K
+unique diffs), but this doesn't bias the point estimate.
+
+### Skewness Across Data Splits
+
+| Split | Consecutive diffs | Windowed (test metric) |
+|-------|:-:|:-:|
+| Full dataset (5822) | 0.164 | 0.150 |
+| Train (0:4040) | **0.059** | **0.037** |
+| Val (4040:4540) | 0.301 | 0.531 |
+| Test (4540:5822) | **0.487** | **0.389** |
+
+**Critical finding: The training set has near-zero skewness (0.037-0.059).** The model
+trains on data with essentially no skewness, then gets evaluated on data with 0.389 skewness.
+This is a **distributional shift**, not a model deficiency.
+
+### Statistical Significance
+
+Bootstrap 95% CI (resampling windows, n=2000): **[0.252, 0.523]**. The test-set skewness
+is significantly positive (z=5.6, p<<0.001). However, the train-set skewness is NOT
+significantly different from zero.
+
+### Per-Cell Spatial Structure
+
+Skewness is highly non-uniform across the 5×5 moneyness-tenor grid:
+- Interior cells (OTM/ATM/ITM at 2-6M tenors): skewness 2-5
+- Edge cells (DeepOTM 1M, 12M row): near-zero skewness
+- Two cells have negative skewness
+- The aggregate 0.389 is a diluted mixture — individual cells are much more skewed
+
+Physically: positive skewness = upward IV jumps more extreme than downward = leverage
+effect (market drops → sharp IV spikes, but IV declines are gradual).
+
+### Temporal Uniformity
+
+Skewness is uniform across horizons within the 30-day window (range 0.347-0.413).
+It's a property of daily IV changes, not of compounding.
+
+### Implication for Model Evaluation
+
+The skewness test is measuring **generalization to a distributional shift**, not
+faithfulness to the training data. A model trained on symmetric data (skew≈0) being
+evaluated against asymmetric data (skew≈0.39) will naturally fail unless it has:
+1. Architectural bias toward positive skewness (CausalConv3d has this, Conv3d doesn't)
+2. Enough capacity constraint to avoid MSE symmetrization
+
+The ALL-PASS baseline (gru=64, bn=128) achieves skewness 0.286 not because it learned
+skewness from training data, but because the capacity-constrained GRU + Conv3D denoiser
+combination produces slightly asymmetric diffusion samples. This is fragile — any capacity
+increase (gru=128) destroys it.
+
+### Verification: Model Skewness Is Conditioning-Dependent
+
+Ran the ALL-PASS model (gru=64, bn=128) on both train and test set windows (5 batches,
+10 samples each):
+
+| Conditioning data | gen_skewness | gt_skewness |
+|:-:|:-:|:-:|
+| Train set history | **-0.050** | -0.216 |
+| Test set history | **+0.238** | +0.095 |
+
+**The model does NOT have intrinsic positive skewness.** Its output skewness tracks the
+conditioning data — negative on train, positive on test. The "skewness=0.286" in the
+full eval (50 samples, 20 batches on test set) is a data-dependent measurement, not a
+stable model property.
+
+This means:
+1. The skewness "PASS" for gru=64 is **fragile and split-dependent**
+2. Models that "FAIL" skewness (gru=128, Conv3D encoder) may simply be generating
+   skewness that's closer to zero, which is faithful to the training distribution
+3. The skewness metric as currently defined conflates model capability with test-set
+   distributional properties
+
+**Recommendation:** The skewness metric should NOT be treated as a hard pass/fail gate.
+It's measuring generalization to a distributional shift, not faithfulness to learned
+dynamics. For production use, if real-time skewness matters, condition on recent
+market data (which will carry the appropriate skewness) — the model will adapt.
+
+---
+
+## 2026-02-23: IV-EWMA Cointegration Test Added to Block-AR Eval
+
+**Motivation:** Implied volatility and realized volatility should be cointegrated —
+they move together long-term (both track the same underlying risk) but can diverge
+short-term. This is a fundamental economic relationship. The existing bootstrap baseline
+codebase (`experiments/bootstrap_baseline/insequence_cointegration_utils.py`) implements
+Engle-Granger cointegration testing. This was adapted for Block-AR evaluation.
+
+### Implementation
+
+Added Test Suite 6 to `test_block_ar_requirements.py`. For each test window:
+1. Compute EWMA realized volatility from returns (λ=0.94, annualized)
+2. Take median of generated samples as the IV trajectory
+3. Run Engle-Granger: regress IV on EWMA, ADF-test residuals (lags=3, α=0.10)
+4. Compare generated pass rate to GT pass rate
+
+Pass criterion: gen_pass_rate / gt_pass_rate ≥ 0.50 (informational, doesn't affect
+overall pass/fail). The 0.50 threshold is conservative because 30-day sequences have
+low ADF power (~30% expected for truly cointegrated series).
+
+### Results (ALL-PASS Model: gru=64, bn=128)
+
+| Metric | Generated | Ground Truth |
+|--------|:-:|:-:|
+| Cointegration pass rate | **72.4%** | 54.1% |
+| Gen/GT ratio | **1.339** | — |
+| Mean R² | 0.293 | 0.285 |
+
+The model's generated IV surfaces have STRONGER IV-EWMA cointegration than
+ground truth (72.4% vs 54.1%). This is because the generative model produces
+smoother trajectories than real data, making the regression relationship more
+stable and easier for ADF to detect stationarity of residuals.
+
+Per-grid pass rates (gen) range from 62-80%, with highest rates at the grid edges
+(deep OTM/ITM, long tenors) where IV is smoother. Interior cells (ATM, short tenors)
+have lower rates (~64-68%) — still well above GT rates (~41-49% for those cells).
+
+### Source
+
+- Code: `test_block_ar_requirements.py` (Test Suite 6, `run_cointegration_tests()`)
+- Based on: `experiments/bootstrap_baseline/insequence_cointegration_utils.py`
+- Results: `results/block_ar/highcap_fwdonly_v1_bestval_coint/summary.json`
+
+**Cross-configuration comparison** (3 cells × 640 windows, 20 samples):
+
+| Model | Gen pass rate | GT pass rate | Ratio |
+|-------|:-:|:-:|:-:|
+| Baseline gru=64/bn=128 | 84.4% | 59.9% | 1.408 |
+| E1 gru=128/bn=128 | 85.9% | 59.9% | 1.433 |
+| E3 gru=128/bn=256 | 84.7% | 59.9% | 1.413 |
+
+**The cointegration metric does not discriminate between encoder configurations.**
+All four configs produce nearly identical IV-EWMA pass rates (~84-86%). This is
+expected: cointegration measures trajectory smoothness and mean-reversion properties,
+which are driven by the denoiser (identical across configs), not the encoder capacity.
+
+However, **R² DOES discriminate**: gru=32 gives gen R²=0.145 vs gru=64's 0.293.
+The smaller encoder produces less IV-EWMA coupling, but the trajectories are still
+smooth enough that ADF detects stationarity in the regression residuals.
+
+---
+
+## 2026-02-23: GRU Hidden Dim Capacity Curve — gru=32/64/128
+
+**Motivation:** E1 showed gru=128 kills skewness. Hypothesis: gru=64 is a "Goldilocks"
+capacity that preserves skewness via implicit regularization. Test: does gru=32 preserve
+even more skewness, or does it just degrade conditioning?
+
+**Setup:** gru_hidden_dim=32, bottleneck_dim=128, everything else identical to baseline.
+421K params (vs 437K baseline — 16K less from smaller GRU).
+
+### Full Capacity Curve (all bestval checkpoints, bn=128)
+
+| Metric | Target | gru=32 (e17) | **gru=64 (e29)** | gru=128 (e18) |
+|--------|--------|:---:|:---:|:---:|
+| **Skewness** | ≥ 0.25 | -0.082 FAIL | **0.286 PASS** | 0.014 FAIL |
+| **90% CI** | ≥ 80% | 78.6% FAIL | **81.7% PASS** | **83.9% PASS** |
+| **CalibErr** | ≤ 0.05 | 0.079 FAIL | **0.033 PASS** | **0.044 PASS** |
+| Kurtosis | ≥ 0.50 | **0.509** | **0.540** | **0.518** |
+| Calendar | ≤ 10% | **6.6%** | **7.5%** | **7.0%** |
+| ACF MAE | ≤ 0.10 | **0.063** | **0.016** | **0.014** |
+| MAE reduction | > 5% | **80.9%** | **84.3%** | **83.4%** |
+| Width ratio | < 0.95 | **0.770** | **0.938** | **0.937** |
+| Boundary | < 2.0 | **1.508** | **1.362** | **1.473** |
+| Coint R² | — | 0.145 | 0.293 | 0.293 |
+| **Tests passed** | | 5/9 | **9/9** | 7/9 |
+
+### Analysis
+
+1. **The Goldilocks hypothesis is WRONG for skewness.** gru=32 does NOT produce more
+   positive skewness — it produces NEGATIVE skewness (-0.082). The skewness at gru=64
+   is not caused by capacity constraint preserving asymmetry. It's a sweet spot where:
+   - The encoder is rich enough to provide directional conditioning
+   - But not so rich that MSE can fully symmetrize the output
+
+2. **The curve is NOT monotonic for skewness.** gru=32: -0.08, gru=64: +0.29, gru=128: +0.01.
+   This looks like a peak at gru=64, not a capacity-constraint effect. More likely
+   explanation: gru=64's specific learned representation happens to produce asymmetric
+   conditioning vectors that interact with the Conv3D denoiser's bidirectional structure
+   to create directional bias. At gru=32, the conditioning is too weak to create this
+   bias; at gru=128, the conditioning is strong enough that MSE overwhelms it.
+
+3. **Conditioning quality degrades monotonically with smaller GRU.**
+   - CI: 83.9% → 81.7% → 78.6% (gru=128 → 64 → 32)
+   - CalibErr: 0.044 → 0.033 → 0.079 (non-monotonic: gru=64 is best)
+   - MAE: 83.4% → 84.3% → 80.9% (gru=64 is best)
+   - ACF MAE: 0.014 → 0.016 → 0.063 (gru=32 is 4x worse)
+   - Coint R²: 0.293 → 0.293 → 0.145 (gru=32 loses half the IV-EWMA coupling)
+
+4. **gru=32 is clearly insufficient.** The 32-dim recurrence can't compress 30×25 history
+   effectively — MAE reduction drops 3.4%, ACF degrades 4x, calibration error doubles.
+   The 32→128 bottleneck projection is a lossy upsample.
+
+5. **gru=64 is confirmed optimal.** It's the only configuration that passes ALL 9 metrics.
+   Both smaller (32) and larger (128) GRU sizes fail. This is not a simple capacity
+   scaling story — it's a specific capacity-architecture interaction.
+
+### Implication for Scaling
+
+For longer generation (360 days), the constraint is NOT the GRU hidden dim — widening
+it hurts more than it helps. Instead:
+- Keep gru=64 and use sliding context windows (last N frames)
+- Or switch to cross-attention conditioning (avoids single-vector bottleneck)
+- Or add a hierarchical encoder (recent blocks at full res, older blocks compressed)
+
+### Source Files
+
+- Model: `models/backfill/block_ar_gru32_bn128_fwdonly/`
+- Results: `results/block_ar/gru32_bn128_bestval/summary.json` (epoch 17)
+- Results: `results/block_ar/gru32_bn128_bestcov/summary.json` (epoch 10)
+- Config: GRU encoder (hidden=32), Conv3D denoiser, bn=128, ch=32, 6 res blocks, bs=10, 421K params
+
+---
+
+## 2026-02-23: Encoder Capacity Ablation Study — Synthesis
+
+This session ran 6 experiments varying GRU encoder capacity and bottleneck dimensions.
+Combined with prior results (H4 bn=64→128, H7 bn=256 failure), this gives a complete
+picture of how encoder capacity affects Block-AR diffusion model quality.
+
+### Complete Encoder Configuration Matrix
+
+| Config | GRU hidden | bn | Params | Kurtosis | Skewness | 90% CI | CalibErr | MAE% | ACF MAE |
+|--------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| Prior best (bn=64) | 64 | 64 | ~380K | 0.570 | 0.007 | 78.2% | 0.084 | ~70% | 0.017 |
+| **gru=32/bn=128** | 32 | 128 | 421K | 0.509 | -0.082 | 78.6% | 0.079 | 80.9% | 0.063 |
+| **gru=64/bn=128 (ALL PASS)** | 64 | 128 | 437K | **0.540** | **0.286** | **81.7%** | **0.033** | **84.3%** | **0.016** |
+| **gru=128/bn=128** | 128 | 128 | 487K | 0.518 | 0.014 | 83.9% | 0.044 | 83.4% | 0.014 |
+| H7: gru=64/bn=256 | 64 | 256 | ~462K | — | — | 42-54% | — | — | — |
+| **gru=128/bn=256** | 128 | 256 | 520K | 0.503 | 0.094 | **86.1%** | **0.018** | **85.8%** | 0.015 |
+| Conv3D enc/bn=128 | — | 128 | 527K | 0.546 | 0.010 | 79.1% | 0.067 | 76.6% | 0.021 |
+
+### Key Findings
+
+**1. gru=64/bn=128 is the unique ALL-PASS configuration.**
+No other combination passes all 9 test metrics. This is not a simple "more capacity
+= better" story. The optimal point sits at a specific capacity-architecture interaction.
+
+**2. The "Bitter Lesson" has a limit at this data scale.**
+bn=64→128 was a clear win (the original Bitter Lesson finding). But further scaling
+(bn=256, gru=128) trades quality in some dimensions for degradation in others:
+- gru=128: +2% CI, -96% skewness
+- bn=256 (with gru=128): +4% CI, -67% skewness, width ratio FAIL
+The ~4K training samples cannot support arbitrarily large conditioning capacity.
+
+**3. Skewness is fragile and non-monotonic.**
+The skewness curve (gru=32: -0.08, gru=64: +0.29, gru=128: +0.01) peaks sharply at
+gru=64. This is NOT explained by "capacity constraint preserving asymmetry." Instead,
+it's a specific interaction between the GRU's learned representation and the Conv3D
+denoiser's bidirectional structure. The gru=64 representation happens to produce
+conditioning vectors with a directional bias that the denoiser amplifies into positive
+skewness during iterative reverse diffusion. Furthermore, the skewness is
+conditioning-dependent (negative on train data, positive on test data), meaning it's
+partially reflecting distributional properties of the test set, not a stable model
+property.
+
+**4. The GRU bottleneck and output bottleneck serve different roles.**
+- `gru_hidden_dim`: per-timestep information bandwidth. Controls how much the encoder
+  can distinguish between different histories. Affects CI, calibration, ACF, MAE.
+- `bottleneck_dim`: denoiser conditioning width. Controls the richness of the FiLM
+  signal. Too small (64): loses calibration. Too large (256 with small GRU): projection
+  is low-rank, CI collapses. Matched to GRU width: works.
+
+**5. Cointegration (IV-EWMA) is denoiser-driven, not encoder-driven.**
+All encoder configs produce ~84-86% cointegration pass rate vs GT ~54%. The IV-EWMA
+relationship is preserved by the denoiser's temporal structure, not the conditioning.
+However, gen R² discriminates: gru=32 gives R²=0.15 vs gru=64's 0.29.
+
+**6. Kurtosis is encoder-agnostic.**
+All configs produce kurtosis ratio 0.49-0.54 regardless of encoder width. Kurtosis
+is determined by the diffusion process and denoiser architecture.
+
+### Implications for Scaling to Longer Generation
+
+For generating 360 days (12 blocks of 30):
+- **Do NOT widen the GRU** — it kills skewness and doesn't help conditioning at scale
+- **Do NOT widen the bottleneck beyond 128** — overfitting at this data scale
+- **Keep gru=64/bn=128** and address long-range conditioning separately:
+  - Sliding context window (only feed last N frames to encoder)
+  - Hierarchical encoder (recent blocks at full res, older blocks compressed)
+  - Cross-attention (avoids single-vector bottleneck entirely, but needs more data)
+
+The current encoder already handles variable-length input (GRU + attention pooling),
+so it will work for 12-block generation, but conditioning quality at blocks 10-12
+(processing 120+ frames through a 64-dim recurrence) is untested.
