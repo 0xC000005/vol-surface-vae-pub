@@ -81,7 +81,7 @@ class BlockARConfig:
     encoder_dropout: float = 0.1
 
     # Denoiser
-    denoiser_type: str = "bigru"  # "bigru" or "conv3d"
+    denoiser_type: str = "bigru"  # "bigru", "conv3d", or "causal_conv3d"
     bigru_hidden_dim: int = 128
     pos_embed_dim: int = 16
     noise_embed_dim: int = 16
@@ -253,22 +253,27 @@ class ConditionalBlockARDDPM(nn.Module):
         else:
             self.encoder = GRUEncoder(enc_cfg)
 
-        if getattr(config, 'denoiser_type', 'bigru') == "conv3d":
-            from diffusion.block_ar.conv3d_denoiser import Conv3DBlockDenoiser, Conv3DDenoiserConfig
-            self.denoiser = Conv3DBlockDenoiser(
-                Conv3DDenoiserConfig(
-                    frame_dim=config.surface_h * config.surface_w,
-                    surface_h=config.surface_h,
-                    surface_w=config.surface_w,
-                    bottleneck_dim=config.bottleneck_dim,
-                    pos_embed_dim=config.pos_embed_dim,
-                    noise_embed_dim=config.conv3d_noise_embed_dim,
-                    n_steps=config.n_steps,
-                    base_channels=config.conv3d_base_channels,
-                    n_res_blocks=config.conv3d_n_res_blocks,
-                    groups=config.conv3d_groups,
-                )
+        denoiser_type = getattr(config, 'denoiser_type', 'bigru')
+        if denoiser_type in ("conv3d", "causal_conv3d"):
+            from diffusion.block_ar.conv3d_denoiser import (
+                Conv3DBlockDenoiser, CausalConv3DBlockDenoiser, Conv3DDenoiserConfig,
             )
+            conv3d_config = Conv3DDenoiserConfig(
+                frame_dim=config.surface_h * config.surface_w,
+                surface_h=config.surface_h,
+                surface_w=config.surface_w,
+                bottleneck_dim=config.bottleneck_dim,
+                pos_embed_dim=config.pos_embed_dim,
+                noise_embed_dim=config.conv3d_noise_embed_dim,
+                n_steps=config.n_steps,
+                base_channels=config.conv3d_base_channels,
+                n_res_blocks=config.conv3d_n_res_blocks,
+                groups=config.conv3d_groups,
+            )
+            if denoiser_type == "causal_conv3d":
+                self.denoiser = CausalConv3DBlockDenoiser(conv3d_config)
+            else:
+                self.denoiser = Conv3DBlockDenoiser(conv3d_config)
         else:
             self.denoiser = BiGRUDenoiser(
                 DenoiserConfig(

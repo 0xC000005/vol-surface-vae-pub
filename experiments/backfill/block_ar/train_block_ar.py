@@ -174,7 +174,7 @@ def main():
     parser.add_argument("--checkpoint_every", type=int, default=None, help="Save checkpoint every N epochs")
     parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber"], help="Loss function (default: mse)")
     parser.add_argument("--huber_delta", type=float, default=None, help="Huber loss delta (default: 0.1)")
-    parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d"], help="Denoiser architecture")
+    parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d", "causal_conv3d"], help="Denoiser architecture")
     parser.add_argument("--encoder_type", type=str, default=None, choices=["gru", "conv3d"], help="Encoder architecture (gru=flat spatial, conv3d=spatial-aware)")
     parser.add_argument("--bottleneck_dim", type=int, default=None, help="Encoder bottleneck dimension (default: 64)")
     parser.add_argument("--p_mask", type=float, default=None, help="MCVD mask probability (default: 0.2, uniform tasks: 0.5)")
@@ -187,6 +187,9 @@ def main():
                         help="Explicit MCVD task probs (forward backward interpolation unconditional), must sum to 1.0. Overrides --p_mask.")
     parser.add_argument("--interp_loss_weight", type=float, default=None,
                         help="Down-weight interpolation loss (1.0=full, 0.3=30%%). Decouples task exposure from gradient pressure.")
+    parser.add_argument("--conv3d_base_channels", type=int, default=None, help="Conv3D denoiser base channels (default: 32)")
+    parser.add_argument("--conv3d_n_res_blocks", type=int, default=None, help="Conv3D denoiser residual blocks (default: 4)")
+    parser.add_argument("--gru_hidden_dim", type=int, default=None, help="GRU encoder hidden dim (default: 64)")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -243,6 +246,12 @@ def main():
         config.interp_loss_weight = args.interp_loss_weight
     if args.block_size is not None:
         config.block_size = args.block_size
+    if args.conv3d_base_channels is not None:
+        config.conv3d_base_channels = args.conv3d_base_channels
+    if args.conv3d_n_res_blocks is not None:
+        config.conv3d_n_res_blocks = args.conv3d_n_res_blocks
+    if args.gru_hidden_dim is not None:
+        config.gru_hidden_dim = args.gru_hidden_dim
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -275,7 +284,9 @@ def main():
     else:
         print(f"Encoder: GRU h={config.gru_hidden_dim} -> bottleneck={config.bottleneck_dim} (attn pooling)")
     denoiser_type = getattr(config, 'denoiser_type', 'bigru')
-    if denoiser_type == "conv3d":
+    if denoiser_type == "causal_conv3d":
+        print(f"Denoiser: CausalConv3D ch={config.conv3d_base_channels} x{config.conv3d_n_res_blocks} ResBlocks")
+    elif denoiser_type == "conv3d":
         print(f"Denoiser: Conv3D ch={config.conv3d_base_channels} x{config.conv3d_n_res_blocks} ResBlocks")
     else:
         print(f"Denoiser: BiGRU h={config.bigru_hidden_dim}")
