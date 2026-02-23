@@ -2,12 +2,13 @@
 """
 Comprehensive validation tests for Block-AR DDPM.
 
-Tests five requirement categories adapted for the Block-AR model:
+Tests six requirement categories adapted for the Block-AR model:
 1. Surface Validity: No explosions, proper term structure, smile convexity
 2. CI Coverage: Variation large enough to include ground truth at multiple horizons
 3. Conditionality: Conditional samples are tighter/better than unconditional baseline
 4. Time Series Properties: ACF, kurtosis preserved
 5. Block-AR Specific: Block boundary smoothness, growing uncertainty monotonicity
+6. Cointegration: IV-EWMA realized vol relationship preserved (Engle-Granger)
 
 Usage:
     # Quick test (default model, small run)
@@ -749,6 +750,169 @@ def run_block_ar_tests(
 
 
 # =============================================================================
+# Test Suite 6: Cointegration (IV ~ EWMA Realized Vol)
+# =============================================================================
+
+def run_cointegration_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+    returns: np.ndarray,
+    test_start: int,
+    history_len: int = 30,
+    future_len: int = 30,
+    ewma_lambda: float = 0.94,
+    adf_lags: int = 3,
+    adf_alpha: float = 0.10,
+) -> Dict:
+    """Test IV-EWMA cointegration preservation in generated samples.
+
+    Tests whether generated IV surfaces maintain the Engle-Granger
+    cointegration relationship with EWMA realized volatility. This is a
+    fundamental economic relationship: IV should track realized vol.
+
+    For each test window, we:
+    1. Compute EWMA vol from returns over the future period
+    2. Test cointegration between generated median IV and EWMA vol
+    3. Compare gen pass rate to GT pass rate
+
+    Args:
+        cond_samples: (N, n_samples, T, 5, 5) denormalized [0, 1]
+        ground_truth: (N, T, 5, 5) denormalized [0, 1]
+        returns: (total_days,) daily returns array
+        test_start: starting index in the full surfaces array
+        history_len: number of history frames
+        future_len: number of future frames
+        ewma_lambda: EWMA decay parameter (0.94 = RiskMetrics standard)
+        adf_lags: ADF test lags (3 for short sequences)
+        adf_alpha: significance level for ADF test
+    """
+    from statsmodels.tsa.stattools import adfuller
+    from statsmodels.regression.linear_model import OLS
+    from statsmodels.tools.tools import add_constant
+
+    print("\n" + "=" * 60)
+    print("TEST SUITE 6: IV-EWMA COINTEGRATION")
+    print("=" * 60)
+
+    N, S, T, H, W = cond_samples.shape
+
+    # Use median of samples as the generated IV trajectory
+    gen_median = np.median(cond_samples, axis=1)  # (N, T, 5, 5)
+
+    def compute_ewma_vol(ret_window, lambda_=ewma_lambda):
+        """Compute EWMA vol for a window of returns."""
+        n = len(ret_window)
+        variance = np.zeros(n)
+        variance[0] = ret_window[0] ** 2
+        for t in range(1, n):
+            variance[t] = lambda_ * variance[t - 1] + (1 - lambda_) * ret_window[t] ** 2
+        return np.sqrt(variance * 252)  # annualized
+
+    def test_cointegration(iv_series, ewma_series):
+        """Engle-Granger cointegration test: IV ~ EWMA."""
+        if len(iv_series) < 10 or np.std(iv_series) < 1e-8 or np.std(ewma_series) < 1e-8:
+            return {'cointegrated': False, 'adf_pvalue': 1.0, 'rsquared': 0.0, 'alpha1': 0.0}
+        try:
+            X = add_constant(ewma_series)
+            model = OLS(iv_series, X).fit()
+            residuals = model.resid
+            adf_result = adfuller(residuals, maxlag=adf_lags, regression='c')
+            return {
+                'cointegrated': adf_result[1] < adf_alpha,
+                'adf_pvalue': float(adf_result[1]),
+                'rsquared': float(model.rsquared),
+                'alpha1': float(model.params[1]),
+            }
+        except Exception:
+            return {'cointegrated': False, 'adf_pvalue': 1.0, 'rsquared': 0.0, 'alpha1': 0.0}
+
+    # Test cointegration for each window and grid point
+    gen_pass_counts = np.zeros((H, W))
+    gt_pass_counts = np.zeros((H, W))
+    gen_rsq_sums = np.zeros((H, W))
+    gt_rsq_sums = np.zeros((H, W))
+    n_valid = 0
+
+    for win_idx in range(N):
+        # Global index of the future period start
+        future_start_global = test_start + win_idx + history_len
+
+        # Check we have returns for this window
+        if future_start_global + future_len > len(returns):
+            continue
+
+        # EWMA vol for this window's future period
+        ret_window = returns[future_start_global:future_start_global + future_len]
+        ewma_vol = compute_ewma_vol(ret_window)
+
+        n_valid += 1
+
+        for i in range(H):
+            for j in range(W):
+                # Generated IV (median across samples)
+                gen_iv = gen_median[win_idx, :, i, j]
+                gt_iv = ground_truth[win_idx, :, i, j]
+
+                # Test generated
+                gen_result = test_cointegration(gen_iv, ewma_vol)
+                if gen_result['cointegrated']:
+                    gen_pass_counts[i, j] += 1
+                gen_rsq_sums[i, j] += gen_result['rsquared']
+
+                # Test ground truth
+                gt_result = test_cointegration(gt_iv, ewma_vol)
+                if gt_result['cointegrated']:
+                    gt_pass_counts[i, j] += 1
+                gt_rsq_sums[i, j] += gt_result['rsquared']
+
+    if n_valid == 0:
+        print("  WARNING: No valid windows for cointegration test")
+        return {'pass': False, 'n_valid': 0}
+
+    gen_pass_rates = gen_pass_counts / n_valid
+    gt_pass_rates = gt_pass_counts / n_valid
+    gen_mean_rsq = gen_rsq_sums / n_valid
+    gt_mean_rsq = gt_rsq_sums / n_valid
+
+    gen_overall_pass_rate = float(gen_pass_rates.mean())
+    gt_overall_pass_rate = float(gt_pass_rates.mean())
+    gen_overall_rsq = float(gen_mean_rsq.mean())
+    gt_overall_rsq = float(gt_mean_rsq.mean())
+
+    # Pass criterion: gen pass rate >= 50% of GT pass rate
+    # (30-day sequences have low ADF power, so absolute rates are low)
+    ratio = gen_overall_pass_rate / gt_overall_pass_rate if gt_overall_pass_rate > 0 else 0.0
+    coint_pass = ratio >= 0.5
+
+    print(f"\n  Windows tested: {n_valid}")
+    print(f"  GT cointegration pass rate:  {gt_overall_pass_rate:.1%}")
+    print(f"  Gen cointegration pass rate: {gen_overall_pass_rate:.1%}")
+    print(f"  Gen/GT ratio: {ratio:.3f} (target >=0.50) {'PASS' if coint_pass else 'FAIL'}")
+    print(f"  GT mean R²:  {gt_overall_rsq:.4f}")
+    print(f"  Gen mean R²: {gen_overall_rsq:.4f}")
+
+    # Per-grid summary
+    print(f"\n  Per-grid gen pass rates (%):")
+    for i in range(H):
+        row = " ".join(f"{gen_pass_rates[i, j]*100:5.1f}" for j in range(W))
+        print(f"    [{row}]")
+
+    return {
+        'gen_pass_rate': gen_overall_pass_rate,
+        'gt_pass_rate': gt_overall_pass_rate,
+        'gen_gt_ratio': float(ratio),
+        'gen_mean_rsq': gen_overall_rsq,
+        'gt_mean_rsq': gt_overall_rsq,
+        'gen_pass_rates_grid': gen_pass_rates.tolist(),
+        'gt_pass_rates_grid': gt_pass_rates.tolist(),
+        'n_valid_windows': n_valid,
+        'adf_alpha': adf_alpha,
+        'adf_lags': adf_lags,
+        'pass': coint_pass,
+    }
+
+
+# =============================================================================
 # Visualization
 # =============================================================================
 
@@ -919,6 +1083,16 @@ def print_summary(results: Dict) -> bool:
           f"{'PASS' if ba['growing_uncertainty']['pass'] else 'FAIL'}")
     print(f"  Overall:             {'PASS' if ba['overall_pass'] else 'FAIL'}")
 
+    # Test Suite 6: Cointegration (if available)
+    if 'cointegration' in results:
+        co = results['cointegration']
+        print("\nTest Suite 6: IV-EWMA Cointegration")
+        print(f"  Gen pass rate:       {co['gen_pass_rate']:.1%}")
+        print(f"  GT pass rate:        {co['gt_pass_rate']:.1%}")
+        print(f"  Gen/GT ratio:        {co['gen_gt_ratio']:.3f} "
+              f"{'PASS' if co['pass'] else 'FAIL'}")
+        print(f"  Gen mean R²:         {co['gen_mean_rsq']:.4f}")
+
     # Overall
     print("\n" + "=" * 60)
     all_pass = all([
@@ -928,6 +1102,9 @@ def print_summary(results: Dict) -> bool:
         ts['overall_pass'],
         ba['overall_pass'],
     ])
+    # Cointegration is informational — doesn't affect overall pass/fail yet
+    if 'cointegration' in results and not results['cointegration']['pass']:
+        print("  NOTE: Cointegration test FAILED (informational)")
     if all_pass:
         print("OVERALL: ALL TESTS PASSED")
     else:
@@ -1084,6 +1261,7 @@ def main():
     print("\nLoading test data...")
     data = np.load(config.data_path)
     surfaces = data["surface"]
+    returns = data["ret"] if "ret" in data else None
 
     test_dataset = VolSurfaceDataset(
         surfaces,
@@ -1152,6 +1330,18 @@ def main():
         cond_samples,
         block_size=model_config.block_size,
     )
+
+    # Test Suite 6: Cointegration (IV ~ EWMA Realized Vol)
+    if returns is not None:
+        results['cointegration'] = run_cointegration_tests(
+            cond_samples, ground_truth,
+            returns=returns,
+            test_start=config.test_start,
+            history_len=config.history_len,
+            future_len=config.future_len,
+        )
+    else:
+        print("\n  Skipping cointegration test (no returns data)")
 
     # =========================================================================
     # Summary
