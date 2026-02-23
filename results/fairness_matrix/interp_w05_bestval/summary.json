@@ -1,0 +1,245 @@
+{
+  "surface": {
+    "explosion": {
+      "explosion_high_rate": 0.0,
+      "explosion_low_rate": 0.0,
+      "explosion_total_rate": 0.0,
+      "max_iv_observed": 1.0,
+      "min_iv_observed": 0.0,
+      "pass": true
+    },
+    "calendar": {
+      "calendar_avg_violation_rate": 0.06133641319160534,
+      "calendar_max_violation_rate": 0.1043892068683565,
+      "pass": true
+    },
+    "butterfly": {
+      "butterfly_avg_violation_rate": 0.3299066412283092,
+      "butterfly_max_violation_rate": 0.3420332515671845,
+      "pass": true
+    },
+    "overall_pass": true
+  },
+  "coverage": {
+    "overall": {
+      "0.5": 0.5200534205505587,
+      "0.8": 0.7971730716816571,
+      "0.9": 0.8792357590624148,
+      "0.95": 0.9170673207958572
+    },
+    "per_horizon": {
+      "1": {
+        "0.5": 0.5795257563368765,
+        "0.8": 0.8446116107931316,
+        "0.9": 0.9139820114472609,
+        "0.95": 0.9428618152085037
+      },
+      "7": {
+        "0.5": 0.5372363041700736,
+        "0.8": 0.8122322158626328,
+        "0.9": 0.8919705641864268,
+        "0.95": 0.9272281275551921
+      },
+      "14": {
+        "0.5": 0.5162060506950122,
+        "0.8": 0.7980049059689288,
+        "0.9": 0.8808176614881439,
+        "0.95": 0.9173834832379395
+      },
+      "30": {
+        "0.5": 0.4887653311529027,
+        "0.8": 0.7674897792313982,
+        "0.9": 0.85556827473426,
+        "0.95": 0.8973998364677024
+      }
+    },
+    "calibration": {
+      "nominal": [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9
+      ],
+      "empirical": [
+        0.10465194875988007,
+        0.20973235213954755,
+        0.31489452166802945,
+        0.4187342600163532,
+        0.5200534205505587,
+        0.6175699100572363,
+        0.7101782502044154,
+        0.7971730716816571,
+        0.8792357590624148
+      ]
+    },
+    "calibration_error": 0.01326731473910543,
+    "horizon_pass": {
+      "1": true,
+      "7": true,
+      "14": true,
+      "30": true
+    },
+    "pass": true
+  },
+  "conditionality": {
+    "width_ratio": 0.8171986085541424,
+    "avg_cond_width": 0.1427716165781021,
+    "avg_uncond_width": 0.17470858991146088,
+    "width_pass": true,
+    "mae_reduction_pct": 76.45760571070164,
+    "avg_cond_mae": 0.04016447812318802,
+    "avg_uncond_mae": 0.1706048995256424,
+    "mae_pass": true,
+    "per_horizon_var": {
+      "1": 0.0027516049332916735,
+      "10": 0.002743885324647029,
+      "20": 0.00280759505306681,
+      "30": 0.0029152173083275557
+    },
+    "growing_uncertainty_monotonic": false,
+    "pass": false
+  },
+  "time_series": {
+    "acf": {
+      "acf_correlation": 0.9914024326144687,
+      "acf_mae": 0.21199034793036325,
+      "gt_acf": [
+        1.0,
+        0.9646339416503906,
+        0.9484248161315918,
+        0.9249553084373474,
+        0.9028908610343933,
+        0.8869783878326416,
+        0.8688967227935791,
+        0.8574032783508301,
+        0.8415437340736389,
+        0.8349344730377197,
+        0.8238304257392883,
+        0.817385196685791,
+        0.8131870627403259,
+        0.8083866238594055,
+        0.8075235486030579,
+        0.8070535659790039,
+        0.8071862459182739,
+        0.8110111355781555,
+        0.8145449757575989,
+        0.8202632069587708,
+        0.8304905295372009
+      ],
+      "gen_acf": [
+        1.0,
+        0.9039629101753235,
+        0.8615518808364868,
+        0.8189855813980103,
+        0.7782378196716309,
+        0.7378987073898315,
+        0.6990394592285156,
+        0.6601412296295166,
+        0.62240070104599,
+        0.5851908326148987,
+        0.5481210947036743,
+        0.5446239113807678,
+        0.54264235496521,
+        0.5396273732185364,
+        0.5365259647369385,
+        0.5332044959068298,
+        0.5305932760238647,
+        0.5285744071006775,
+        0.5253902077674866,
+        0.5228163003921509,
+        0.5201982259750366
+      ],
+      "pass": true
+    },
+    "kurtosis": {
+      "gt_kurtosis": 77.02772521972656,
+      "gen_kurtosis": 38.12506866455078,
+      "kurtosis_ratio": 0.49495254540876754,
+      "gt_skewness": 0.3893464207649231,
+      "gen_skewness": 0.11479146033525467,
+      "skewness_ratio": 0.2948311688848494,
+      "skewness_pass": true,
+      "pass": false
+    },
+    "overall_pass": false
+  },
+  "block_ar": {
+    "boundary_smoothness": {
+      "avg_boundary_jump": 0.04935158044099808,
+      "avg_intra_jump": 0.022828184068202972,
+      "boundary_ratio": 2.16187061982469,
+      "pass": false
+    },
+    "growing_uncertainty": {
+      "key_horizon_vars": {
+        "1": 0.002890637144446373,
+        "10": 0.0028791436925530434,
+        "20": 0.0029368121176958084,
+        "30": 0.0030603923369199038
+      },
+      "monotonic": false,
+      "pass": false
+    },
+    "overall_pass": false
+  },
+  "eval_config": {
+    "checkpoint_path": "models/backfill/block_ar_interp_w05/best_model.pt",
+    "checkpoint_epoch": 18,
+    "n_samples": 50,
+    "max_batches": 20,
+    "max_residual": 20,
+    "max_global_residual": 0,
+    "sampling_mode": "uniform",
+    "clamp_output": true,
+    "use_ema": false,
+    "forward_only": false,
+    "model_config_hash": "401249929c86",
+    "model_config": {
+      "history_len": 30,
+      "future_len": 30,
+      "surface_h": 5,
+      "surface_w": 5,
+      "block_size": 10,
+      "gru_hidden_dim": 64,
+      "bottleneck_dim": 64,
+      "cond_aug_sigma": 0.0,
+      "encoder_dropout": 0.1,
+      "denoiser_type": "conv3d",
+      "bigru_hidden_dim": 128,
+      "pos_embed_dim": 16,
+      "noise_embed_dim": 16,
+      "denoiser_dropout": 0.1,
+      "conv3d_base_channels": 32,
+      "conv3d_n_res_blocks": 4,
+      "conv3d_groups": 8,
+      "conv3d_noise_embed_dim": 64,
+      "n_steps": 100,
+      "schedule": "cosine",
+      "p_mask": 0.5,
+      "jitter_std": 0.15,
+      "forward_only": false,
+      "mcvd_p_forward": 0.0,
+      "mcvd_p_backward": 0.0,
+      "mcvd_p_interpolation": 0.0,
+      "mcvd_p_unconditional": 0.0,
+      "interp_loss_weight": 0.5,
+      "use_uniform_noise": true,
+      "sampling_mode": "uniform",
+      "noise_rho": 0.0,
+      "loss_type": "mse",
+      "huber_delta": 0.1,
+      "n_regimes": 5,
+      "regime_embed_dim": 32,
+      "regime_loss_weight": 1.0,
+      "use_regime_conditioning": false,
+      "max_residual_timestep": 20,
+      "max_global_residual": 0,
+      "clamp_output": true
+    }
+  }
+}

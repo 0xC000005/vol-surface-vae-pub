@@ -164,6 +164,8 @@ models_1d_backfilling/
 
 # Generated results and analysis outputs (renamed from tables/)
 results/
+# BUT track summary.json files (irreplaceable experiment metadata, ~572KB total)
+!results/**/summary.json
 tables/  # Keep for backwards compatibility
 
 # Archived test outputs and experiments
