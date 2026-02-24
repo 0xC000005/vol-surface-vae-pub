@@ -81,6 +81,19 @@ class BlockARPOCConfig:
     use_uncertainty_head: bool = False
     uncertainty_hidden_dim: int = 64
 
+    # === Heteroscedastic Forward Noise ===
+    heteroscedastic_noise: bool = False
+    global_mean_iv: float = 0.2154  # precomputed from training data (denormalized [0,1])
+    heteroscedastic_power: float = 0.5  # 0.5=var∝IV, 1.0=std∝IV (multiplicative)
+
+    # === Learned Variance (Diffusion2-style) ===
+    learned_variance: bool = False
+    variance_beta_nll: float = 0.5  # beta-NLL weight (0.5 recommended by Seitzer et al.)
+
+    # === Ratio-Space Target ===
+    ratio_target: bool = False  # diffusion on transformed ratios for conditional uncertainty
+    ratio_target_mode: str = "log"  # "log" = log(f/b) with exp(), "logit" = logit(f)-logit(b) with sigmoid()
+
     # === Loss ===
     loss_type: str = "mse"  # "mse" or "huber"
     huber_delta: float = 0.1  # Huber threshold (smaller = more L1-like)

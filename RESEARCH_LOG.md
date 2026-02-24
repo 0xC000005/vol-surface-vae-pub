@@ -8613,3 +8613,456 @@ For generating 360 days (12 blocks of 30):
 The current encoder already handles variable-length input (GRU + attention pooling),
 so it will work for 12-block generation, but conditioning quality at blocks 10-12
 (processing 120+ frames through a 64-dim recurrence) is untested.
+
+---
+
+## 2026-02-23: Conditional Uncertainty — Root Cause Analysis
+
+### Problem Statement
+
+The Block-AR model produces near-constant CI width regardless of conditioning regime.
+Previous diagnosis (2026-02-18) found width ratio volatile/calm = 1.015x (flat).
+Previous uncertainty head training (Phase 3) failed: CRPS collapsed to scale=1.0,
+interval score overfitted to a constant multiplier (scale=1.3).
+
+**Goal**: Make the model produce input-dependent uncertainty — wider CIs for high-volatility
+conditions, narrower for calm conditions — learned from data, not hand-designed.
+
+### Finding 1: GT Cross-Path Variance Signal Is STRONG (1.63x)
+
+The 2026-02-18 analysis measured the WRONG thing (within-path day-over-day std, which is flat).
+The correct measurement is **cross-path variance**: group all GT futures by conditioning features,
+measure how spread out the actual outcomes are within each group.
+
+| Grouping | Q5/Q1 cross-path std ratio at h=1 | at h=30 |
+|----------|----------------------------------|---------|
+| By realized vol | **1.40x** | **1.27x** |
+| By IV level | **1.63x** | **1.33x** |
+
+IV level is the strongest predictor. High-IV conditions produce 63% wider outcome spread.
+
+Additional pattern: high-IV paths show **no uncertainty growth** (h30/h1 = 0.995x — already
+uncertain from h=1), while low-IV paths grow 1.22x over the horizon.
+
+### Finding 2: Model Has Weak But Real Conditional Signal (1.08x)
+
+Measured model's cross-sample std (50 samples) on test set, split by IV level:
+
+| Metric | GT Target | Model | Gap |
+|--------|-----------|-------|-----|
+| High/Low ratio h=1 | 1.63x | 1.08x | Captures 12% |
+| High/Low ratio h=30 | 1.33x | 1.04x | Captures 12% |
+| Spearman(IV, gen_std) | — | **0.57** | Rank order correct |
+
+The model "knows" which conditions are more uncertain (rank correlation 0.57) but
+can't express the magnitude. The bottleneck is the isotropic noise in DDPM, not
+the conditioning information.
+
+### Finding 3: Condition Vector Contains IV Level but NOT Variance Info
+
+Linear probes on frozen encoder's 128-dim condition vector:
+
+| Probe target | Test R² | Notes |
+|-------------|---------|-------|
+| IV level | **0.80** | Encoder preserves level information |
+| Future diff std (per-sample) | **-0.28** | Completely unpredictable |
+| Future diff std (from raw history 750d) | **-2.91** | Also unpredictable |
+
+Future variability is inherently unpredictable from conditioning. Individual-path
+variability is dominated by noise. Cross-path variance (groupwise) is predictable
+because it reflects level-dependent heteroskedasticity.
+
+### Finding 4: Heteroskedasticity Is PURELY MULTIPLICATIVE
+
+**Critical experiment**: normalize future surfaces by dividing by last conditioning surface
+(percentage change space). The Q5/Q1 ratio **inverts**:
+
+| Space | Q5/Q1 ratio at h=1 | at h=30 |
+|-------|--------------------|---------|
+| Raw (absolute) | **1.63x** | **1.33x** |
+| Normalized (÷ IV level) | **0.71x** | **0.59x** |
+
+After removing the level effect, high-IV conditions are actually LESS variable in
+relative terms. The entire heteroskedasticity is explained by: noise ∝ IV_level.
+
+**Implication**: The current model's isotropic noise assumption is the root cause.
+The DDPM forward process adds N(0, σ²_schedule) noise regardless of IV level.
+Since the data's natural noise scales with level, the model underestimates uncertainty
+for high-IV (which needs more noise) and overestimates for low-IV.
+
+### Why Previous Uncertainty Head Failed (Updated Diagnosis)
+
+1. **CRPS loss**: rewards sharpness → pushed scale to 1.0 (generator already marginally calibrated)
+2. **Interval score**: found constant multiplier optimal because it can't learn per-condition
+   adjustment from a condition vector that doesn't contain variance info
+3. **Fundamental**: a post-hoc scaling head CAN'T fix isotropic noise — it can only uniformly
+   scale the sample spread, not change the forward/reverse process
+
+### Planned Approach: Heteroscedastic Forward Noise
+
+NSDiff-style modification where the forward diffusion noise scales with condition level:
+
+- Training: `noise = randn() * σ_cond` where `σ_cond = √(IV_level / mean_IV_level)`
+- The denoiser learns to predict level-dependent noise magnitude
+- Reverse: start from N(0, σ²_cond) instead of N(0, 1)
+- After denoising, high-IV conditions naturally produce wider sample spread
+
+This is bitter-lesson-aligned: no hand-designed mapping, model learns from the data.
+The only change is making the forward process match the data's natural heteroskedasticity.
+
+---
+
+## 2026-02-23: Heteroscedastic Forward Noise — Experimental Results
+
+### Ground Truth Targets (Test Set)
+
+Measured on the test split (indices 4540:5822, 1223 windows, 640 samples):
+
+| Horizon | Q5/Q1 ratio | Spearman |
+|---------|-------------|----------|
+| h=1 | **1.43x** | 1.00 |
+| h=30 | **1.04x** | — |
+
+Note: test set Q5/Q1 (1.43x) is narrower than full dataset (1.63x) due to less extreme
+IV range in the test period. All evaluations below compare to 1.43x target.
+
+### Implementation
+
+Modified `diffusion/block_ar/block_ar_ddpm.py`:
+- Added `heteroscedastic_noise`, `global_mean_iv=0.2154`, `heteroscedastic_power` to config
+- `_compute_noise_scale()`: extracts IV level from last context frame, computes `σ = (IV/mean_IV)^power`
+- Forward process: `noise_forward = noise_unscaled * σ`
+- Reverse process: initial noise × σ, posterior noise × σ, x_0 recovery uses σ × ε_pred
+
+Two loss target approaches tested:
+- **Predict σε** (V1-V3): model predicts scaled noise, loss = ||ε_θ - σε||²
+- **Predict ε** (V4): model predicts unscaled noise, loss = ||ε_θ - ε||², σ applied at inference
+
+### Results Summary
+
+| Model | Params | Power | Loss Target | Q5/Q1 (h=1) | Spearman | 90% CI | Calendar |
+|-------|--------|-------|-------------|--------------|----------|--------|----------|
+| Baseline (no hetero) | 437K | — | ε | 1.08x | 0.37 | 81.7% | 7.5% |
+| **V1** (hetero, small) | 310K | 0.5 | σε | 1.14x | 0.80 | 76.7% | — |
+| **V2** (hetero, small) | 310K | 1.0 | σε | **1.44x** | **0.94** | 74.7% | 7.7% |
+| **V3** (hetero, high-cap) | 437K | 1.0 | σε | 1.21x | 0.66 | 76.5% | 7.0% |
+| Inference-only (power=0.7) | 437K | 0.7 | — | 1.41x | 0.81 | 81.8% | **100%** |
+| **V4** (predict-ε, high-cap) | 437K | 1.0 | ε | 1.13x | 0.45 | 74.6% | — |
+| GT target | — | — | — | 1.43x | 1.00 | 90% | — |
+
+### Key Findings
+
+**1. Power parameter**: power=0.5 (variance ∝ IV) gives weak effect (Q5/Q1=1.14x).
+Power=1.0 (std ∝ IV) gives full recovery (Q5/Q1=1.44x matching GT 1.43x).
+
+**2. Capacity compensation**: The central finding. High-capacity models (437K params)
+compensate for heteroscedastic noise — they learn to predict the noise scaling and
+undo it. V2 (310K) achieves 1.44x, V3 (437K) only 1.21x with the same training setup.
+
+**3. Predict-ε formulation does NOT prevent compensation**: V4 (predict unscaled ε, apply
+σ at inference) gives Q5/Q1=1.13x — even worse than V3 (1.21x). The high-cap model
+detects the noise scaling from x_t (which encodes σ) and adjusts its predictions.
+The condition vector also contains IV level (R²=0.80), giving the model full knowledge of σ.
+
+**4. Inference-only modification breaks quality**: Applying heteroscedastic noise only at
+inference time (no training change) gives good Q5/Q1 (1.41x) but catastrophic calendar
+arbitrage (100%) and negative MAE. This is post-hoc calibration, not a learned solution.
+
+**5. CI-heteroscedasticity tradeoff**: All heteroscedastic models have lower 90% CI than
+the baseline (74-77% vs 81.7%). The heteroscedastic noise introduces harder predictions
+that the model can't fully recover from, reducing overall quality.
+
+### Diagnosis: Why High-Cap Models Compensate
+
+The forward process x_t = √ᾱ·x_0 + √(1-ᾱ)·σ·ε bakes σ into x_t. A sufficiently
+capable model:
+1. Detects the noise magnitude in x_t (SNR varies with σ)
+2. Infers σ from the condition vector (IV level, R²=0.80)
+3. Adjusts its ε prediction to absorb the σ scaling
+
+With predict-σε loss: model learns ε_θ ≈ σε → dividing by σ gives flat uncertainty
+With predict-ε loss: model learns ε_θ ≈ ε/σ → multiplying by σ gives flat uncertainty
+
+The MSE loss drives the model to be equally accurate for all conditions. The
+heteroscedastic noise is an observable signal, and any model with sufficient capacity
+to infer it will compensate.
+
+### Additional Experiments (same session)
+
+**V5: Reduced capacity + more res blocks (bn64, 6 res blocks, power=1.0)**
+- Hypothesis: 6 res blocks with bn64 gives enough quality without compensation capacity.
+- Config: bn64, conv3d 6 res blocks, hetero power=1.0, forward_only, uniform.
+- Results: Best 90% CI = 72.4% (epoch 10), declined to 66.7% (epoch 20).
+- Test CI: 71.4%. Worse than V2 (74.7%).
+- NOT evaluated for Q5/Q1 — strictly dominated by V2 in CI quality.
+
+**V2-40ep: Extended training (310K params, 40 epochs)**
+- Hypothesis: V2's 74.7% CI at epoch 10 might improve with more training.
+- Result: CI **collapsed** to 43.4% at epoch 20, partially recovered to 63.2% at epoch 40.
+- Coverage trajectory: 74.7% → 43.4% → 50.4% → 63.2% (epochs 10→20→30→40).
+- Conclusion: Extended training destabilizes heteroscedastic models. Epoch 10 is the sweet spot.
+
+**Learned Variance v1 (Diffusion2-style NLL + beta-NLL)**
+- Architecture: VarianceHead(condition → log_σ²) predicting per-sample variance.
+- Loss: heteroscedastic NLL with beta-NLL stabilization (β=0.5).
+- Config: bn128, 6 res blocks, 445K params (denoiser + variance head).
+- Result: **Complete collapse** — 90% CI dropped to 1-5% from epoch 1.
+- Diagnosis: NLL loss incentivized σ² → MSE ≈ 0.05 (prediction error), which is << 1.
+  This shrinks posterior noise rather than expanding it for uncertainty.
+  The optimal NLL variance equals the prediction error, not the desired CI width.
+- Beta-NLL at 0.5 was insufficient to prevent collapse.
+
+### Summary: Heteroscedastic Forward Noise Is Capacity-Limited
+
+All approaches tried:
+1. **Heteroscedastic forward noise** (V1-V4): Capacity compensation prevents scaling.
+2. **Predict-ε vs predict-σε**: Both compensated equally.
+3. **Reduced capacity** (V5): Preserves heteroscedasticity but loses CI quality.
+4. **Extended training**: Collapses after epoch 10.
+5. **Learned variance head**: NLL incentives misaligned — variance collapses to error level.
+
+The fundamental problem: heteroscedastic noise is an observable signal in the forward
+process (encoded in x_t's SNR and the condition vector). Any model with sufficient
+capacity to produce good predictions will also compensate for the noise.
+
+---
+
+## 2026-02-23: Ratio-Space Diffusion — Representation-Based Conditional Uncertainty
+
+### Motivation
+
+All previous approaches (heteroscedastic noise, learned variance, capacity reduction) tried
+to INJECT conditional uncertainty into the diffusion process. These fail because the model
+can observe and compensate for any injected signal.
+
+**New approach**: Change the TARGET SPACE so conditional uncertainty emerges naturally from
+the representation. Instead of predicting absolute IV surfaces, the model predicts
+`log(future / baseline)` where baseline = last observed frame. After denormalization
+(`future = exp(log_ratio) * baseline`), the same relative uncertainty produces wider
+absolute CIs for high-IV inputs and narrower for low-IV.
+
+This is bitter-lesson aligned: no special noise, no special loss, no special heads. The
+model learns standard diffusion on log-ratios, and conditional uncertainty is a mathematical
+consequence of the multiplicative denormalization.
+
+### Data Statistics (test set, log-ratios relative to history[-1])
+
+| Horizon | Mean | Std | 1st/99th percentile |
+|---------|------|-----|---------------------|
+| h=1 | 0.000 | 0.254 | [-0.96, 1.10] |
+| h=7 | 0.001 | 0.311 | ~ |
+| h=14 | 0.001 | 0.342 | ~ |
+| h=30 | 0.003 | 0.375 | ~ |
+
+Log-ratios are naturally centered near 0 with 99% of values in [-1, 1] — ideal for
+standard DDPM with cosine schedule.
+
+### Predicted Effect
+
+Q5 mean baseline IV: 0.289, Q1 mean baseline IV: 0.169. Ratio: 1.71x.
+If model has flat uncertainty in ratio space, absolute Q5/Q1 ≈ 1.71x (overshoots GT 1.43x).
+The model should learn to slightly narrow ratio-space uncertainty for high-IV, bringing
+Q5/Q1 toward the GT 1.43x.
+
+### Implementation
+
+Changes in `diffusion/block_ar/block_ar_ddpm.py`:
+- Added `ratio_target: bool` to BlockARConfig
+- `forward()`: converts target block to `log(target_abs / baseline)` clipped to [-1, 1]
+- `sample()` / `sample_batched()`: converts denoised log-ratio back to absolute via
+  `exp(log_ratio) * baseline`, then normalizes to [-1, 1] for AR chaining
+- Encoder still sees absolute history — condition vector has full IV level information
+- Baseline = last frame of growing past context (per-block, adapts during AR chaining)
+
+### Results: Ratio V1 (bn128, 6 res blocks, 437K params)
+
+Training: 20 epochs, forward_only, uniform-t, uniform sampling, noise_rho=0.0.
+Model: `models/backfill/block_ar_ratio_v1/best_coverage_model.pt`
+
+**Training trajectory:**
+| Epoch | Val Loss | 90% CI |
+|-------|----------|--------|
+| 10 | 0.081 | 78.1% |
+| 20 | 0.070 | **81.6%** |
+
+**Q5/Q1 results (full test set, 1223 windows, 50 samples):**
+
+NOTE: Initial 200-window subsample gave Q5/Q1=1.425x at h=1 (overestimate due to variance).
+Full test set measurement below is definitive.
+
+| Horizon | GT Q5/Q1 | Baseline | Ratio V1 | Recovery |
+|---------|----------|----------|----------|----------|
+| h=1 | 1.430x | 1.006x | **1.252x** | 58% |
+| h=7 | 1.213x | 1.003x | **1.203x** | 95% |
+| h=14 | 1.047x | 1.037x | 1.169x | overshoots |
+| h=30 | 0.623x | 1.071x | 1.129x | wrong dir |
+
+Spearman flips from -0.145 (baseline) to **+0.414** (Ratio V1) at h=1.
+
+GT reversal at h=30: high-IV futures CONVERGE (mean reversion), so Q5/Q1 < 1.0.
+Ratio-space can't capture this — multiplicative denormalization always produces higher
+spread for higher baseline. This is a structural limitation.
+
+**Full test suite results (ALL PASS on BOTH checkpoints):**
+
+| Metric | Target | best_cov | best_val | Prev Best |
+|--------|--------|----------|----------|-----------|
+| 90% CI | ≥80% | **85.6%** | **85.5%** | 81.7% |
+| CalibErr | ≤0.05 | **0.013** | **0.013** | 0.033 |
+| Kurtosis | 0.5-2.0 | **1.099** | **1.047** | 0.540 |
+| Skewness | ≥0.25 | **0.869** | **0.377** | 0.286 |
+| Calendar | <15% | 10.1% | 10.0% | 7.5% |
+| ACF MAE | <0.10 | **0.046** | 0.053 | 0.016 |
+| MAE red | >5% | **85.9%** | **85.8%** | 84.3% |
+| Boundary | <2.0 | **1.024** | **1.017** | 1.362 |
+| Growing unc | mono | PASS | PASS | PASS |
+| Cointegration | ≥0.50 | 0.934 | 0.947 | — |
+
+Skewness is checkpoint-sensitive (0.869 vs 0.377 — same epoch, different selection criterion).
+Calendar arb regresses (7.5%→10.1%) but stays within threshold.
+
+**Comparison with previous approaches:**
+
+| Approach | Q5/Q1 (h=1) | Spearman | 90% CI | Capacity |
+|----------|-------------|----------|--------|----------|
+| Baseline (no hetero) | 1.01x | -0.15 | 81.7% | 437K |
+| Hetero V2 (best Q5/Q1) | ~1.44x | ~0.94 | 74.7% | 310K |
+| Hetero V3 (high-cap) | ~1.21x | ~0.66 | 76.5% | 437K |
+| **Ratio V1** | **1.25x** | **0.41** | **85.6%** | 437K |
+
+Ratio V1 achieves best CI (85.6%) while maintaining significant conditional uncertainty.
+Hetero V2 has higher Q5/Q1 (1.44x) but at the cost of CI (74.7% — fails 80% target).
+
+### Analysis: Why Ratio-Space Works Where Heteroscedastic Noise Failed
+
+The ratio-space approach solves the capacity compensation problem because:
+
+1. **Not an observable signal**: Heteroscedastic noise bakes σ into x_t, which the model
+   can detect and compensate. Ratio-space changes the TARGET representation — the model
+   never sees or needs to invert a noise scaling. It just learns standard diffusion.
+
+2. **Mathematical guarantee**: If the model predicts log-ratios with ANY spread σ_ratio,
+   the absolute spread after denormalization is σ_ratio × baseline. This is a property of
+   the representation, not something the model needs to learn or can undo.
+
+3. **Natural adaptation**: The model learned to narrow ratio-space spread slightly for
+   high-IV (Q5/Q1=1.25x vs predicted 1.71x if flat), matching the GT signal that
+   high-IV conditions have sublinear uncertainty scaling.
+
+4. **No quality loss**: 85.6% test CI EXCEEDS the baseline 81.7% — operating in
+   ratio space improves prediction quality because log-ratios are well-behaved
+   (centered near 0, 99% within [-1, 1]).
+
+5. **Structural limitation**: Ratio-space produces monotonically higher uncertainty for
+   higher IV by construction. GT reverses at long horizons (mean reversion). To capture
+   this, the model would need to learn horizon-dependent ratio-space contraction, which
+   the current architecture doesn't do explicitly.
+
+This is the **bitter lesson in action**: changing the data representation (simple, principled)
+solved what special noise schedules, learned variance heads, and capacity tricks could not.
+
+## 2026-02-24: Logit-Diff Ratio Space — Bounded Alternative to Log-Ratio
+
+### Problem: Log-Ratio Overflow
+
+The log-ratio model (Ratio V1) uses `exp(log_ratio) × baseline` to convert predictions back
+to IV space. When baseline is high (short-term deep-ITM, mean=0.36, max=0.99) and predictions
+are positive, `exp(1.0) × 0.4 = 1.09 > 1.0`. Hard clamping at 1.0 causes:
+- **24.5% of sample paths** hit the upper clamp (IV ≥ 0.999)
+- Concentrated at grid position (0,0) — 5,208 of 7,862 high-IV occurrences
+- Visible "flat ceiling" in Short-term ITM path visualization
+- GT 99.9th percentile IV is only 0.67 — model produces unrealistic extremes
+
+### Solution: Logit-Difference Space
+
+Replace log-ratio with logit-difference:
+- **Training target**: `logit(future) - logit(baseline)` where `logit(x) = log(x/(1-x))`
+- **Sampling inversion**: `sigmoid(predicted_diff + logit(baseline))` — bounded in (0, 1) by construction
+- No clamping needed, ever. `sigmoid()` is mathematically bounded.
+
+Uncertainty scaling: output variance ∝ `(b(1-b))²` where b = baseline IV.
+- Increases with IV for b < 0.5 (matches GT short-horizon pattern)
+- Decreases for b > 0.5 (potentially matches GT mean-reversion at long horizons)
+
+Data statistics: logit-diffs centered near 0, std=0.45, 96.6% within [-1, 1].
+Clip to [-1, 1] for diffusion normalization (same as log-ratio).
+
+### Training: Ratio Logit V1
+
+Same config as Ratio V1 (bn128, 6 res blocks, 437K params, forward_only, uniform_noise)
+but with `--ratio_target_mode logit`.
+
+Model: `models/backfill/block_ar_ratio_logit_v1/best_coverage_model.pt` (epoch 10)
+
+Training trajectory:
+| Epoch | Train Loss | Val Loss |
+|-------|-----------|----------|
+| 5 | 0.0843 | 0.0942 |
+| 10 | 0.0741 | 0.0875 |
+| 15 | 0.0721 | 0.0796 |
+| 20 | 0.0701 | 0.0791 |
+
+Best coverage at epoch 10 (79.4% val → 83.9% test).
+
+### Results Comparison
+
+| Metric | Log (V1) | Logit (new) | Target |
+|--------|----------|-------------|--------|
+| 90% CI | **85.6%** | 83.9% | ≥80% |
+| Calibration | **0.013** | 0.028 | ≤0.05 |
+| Kurtosis | **1.099** | 0.503 | 0.5-2.0 |
+| Skewness | **0.869** | -0.630 | ≥0.25 |
+| Calendar Arb | 10.1% | **8.7%** | <15% |
+| ACF MAE | **0.046** | 0.048 | <0.10 |
+| MAE Reduction | 85.9% | **86.3%** | >5% |
+| Boundary | **1.024** | 1.080 | <2.0 |
+
+| Metric | Log (V1) | Logit | GT |
+|--------|----------|-------|-----|
+| Q5/Q1 h=1 | 1.252x | **1.353x** | 1.430x |
+| Q5/Q1 h=7 | 1.203x | **1.353x** | 1.213x |
+| Q5/Q1 h=14 | 1.169x | **1.336x** | 1.047x |
+| Q5/Q1 h=30 | 1.129x | **1.304x** | 0.623x |
+| Spearman h=1 | +0.414 | **+0.655** | — |
+| Max IV | 1.000 | **0.894** | — |
+| Paths ≥0.999 | 24.5% | **0.0%** | — |
+
+### Analysis
+
+**Logit-diff wins on:**
+- **Zero overflow**: Max IV = 0.894, no paths hit ceiling. Bounded by construction.
+- **Stronger Q5/Q1**: 1.353x vs 1.252x at h=1 (82% GT recovery vs 58%)
+- **Higher Spearman**: +0.655 vs +0.414 — much stronger monotonic relationship
+- **Calendar arbitrage**: 8.7% vs 10.1% — less distortion from clamping artifacts
+
+**Log-ratio wins on:**
+- **CI coverage**: 85.6% vs 83.9% — logit is slightly underdispersed
+- **Calibration**: 0.013 vs 0.028
+- **Kurtosis**: 1.099 vs 0.503 (logit just barely passes threshold)
+- **Skewness**: 0.869 vs -0.630 (logit has NEGATIVE skewness — FAIL)
+
+**Key issue: negative skewness.** The logit-diff model produces negatively skewed samples
+(skewness ratio = -0.630). This is likely because sigmoid() compresses the upper tail
+more than the lower tail for high-IV baselines, creating systematic downward asymmetry.
+This is the opposite of the GT positive skewness (0.389).
+
+### Conclusion
+
+Logit-diff is a strict improvement for:
+1. Eliminating overflow/clamping artifacts (the original motivation)
+2. Conditional uncertainty (Q5/Q1 and Spearman both better)
+3. Calendar arbitrage (less clamping distortion)
+
+But it introduces a new regression:
+- Negative skewness (-0.630) — a fundamental property of sigmoid compression
+- CI/calibration slightly worse (but still passes)
+- Kurtosis barely passes (0.503 vs threshold 0.50)
+
+**Verdict: Log-ratio (Ratio V1) remains the best overall model.** The overflow issue
+affects 24.5% of paths but doesn't prevent ALL TESTS PASSING. Logit-diff fixes overflow
+but introduces worse skewness and narrower kurtosis. The skewness failure is a dealbreaker
+since it means the model's distributional shape is systematically wrong.
+
+A potential hybrid: use log-ratio for most of the grid but apply soft clamping only at
+high-IV cells. Or accept log-ratio's clamping as a minor cosmetic issue that doesn't
+affect test metrics.

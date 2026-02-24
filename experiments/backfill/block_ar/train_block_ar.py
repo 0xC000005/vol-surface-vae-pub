@@ -190,6 +190,18 @@ def main():
     parser.add_argument("--conv3d_base_channels", type=int, default=None, help="Conv3D denoiser base channels (default: 32)")
     parser.add_argument("--conv3d_n_res_blocks", type=int, default=None, help="Conv3D denoiser residual blocks (default: 4)")
     parser.add_argument("--gru_hidden_dim", type=int, default=None, help="GRU encoder hidden dim (default: 64)")
+    parser.add_argument("--heteroscedastic_noise", action="store_true",
+                        help="Scale diffusion noise by condition IV level (wider CIs for high-IV)")
+    parser.add_argument("--heteroscedastic_power", type=float, default=None,
+                        help="Exponent for heteroscedastic noise (0.5=var∝IV, 1.0=std∝IV)")
+    parser.add_argument("--learned_variance", action="store_true",
+                        help="Diffusion2-style variance head with beta-NLL (condition-dependent uncertainty)")
+    parser.add_argument("--variance_beta_nll", type=float, default=None,
+                        help="beta-NLL weight for learned variance (0.5 recommended)")
+    parser.add_argument("--ratio_target", action="store_true",
+                        help="Ratio-space diffusion: model predicts transformed ratios instead of absolute IV")
+    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit"],
+                        help="Ratio mode: 'log' = log(f/b) with exp(), 'logit' = logit(f)-logit(b) with sigmoid()")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -252,6 +264,17 @@ def main():
         config.conv3d_n_res_blocks = args.conv3d_n_res_blocks
     if args.gru_hidden_dim is not None:
         config.gru_hidden_dim = args.gru_hidden_dim
+    if args.heteroscedastic_noise:
+        config.heteroscedastic_noise = True
+    if args.heteroscedastic_power is not None:
+        config.heteroscedastic_power = args.heteroscedastic_power
+    if args.learned_variance:
+        config.learned_variance = True
+    if args.variance_beta_nll is not None:
+        config.variance_beta_nll = args.variance_beta_nll
+    if args.ratio_target:
+        config.ratio_target = True
+        config.ratio_target_mode = args.ratio_target_mode
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -294,6 +317,12 @@ def main():
     print(f"EMA decay: {config.ema_decay}")
     if config.use_regime_conditioning:
         print(f"Regime conditioning: n_regimes={config.n_regimes}, embed_dim={config.regime_embed_dim}, loss_weight={config.regime_loss_weight}")
+    if config.heteroscedastic_noise:
+        print(f"Heteroscedastic noise: ON (global_mean_iv={config.global_mean_iv:.4f}, power={config.heteroscedastic_power})")
+    if config.learned_variance:
+        print(f"Learned variance: ON (beta_nll={config.variance_beta_nll})")
+    if config.ratio_target:
+        print(f"Ratio target: ON (mode={config.ratio_target_mode}, conditional uncertainty via representation)")
     print("=" * 60)
 
     # Load data
