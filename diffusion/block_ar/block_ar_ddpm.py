@@ -42,6 +42,25 @@ def normalize_iv(iv: torch.Tensor) -> torch.Tensor:
     return (iv - IV_MIN) / (IV_MAX - IV_MIN) * 2.0 - 1.0
 
 
+_INV_SQRT_PI = 1.0 / math.sqrt(math.pi)  # ≈ 0.5642
+
+
+def crps_gaussian(mu: torch.Tensor, sigma: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Element-wise CRPS for Gaussian predictive distribution N(mu, sigma^2).
+
+    CRPS(mu, sigma, y) = sigma * [z*(2*Phi(z) - 1) + 2*phi(z) - 1/sqrt(pi)]
+    where z = (y - mu) / sigma, Phi = normal CDF, phi = normal PDF.
+
+    Returns element-wise CRPS (same shape as inputs). Lower is better.
+    Gradient w.r.t. sigma creates direct condition→uncertainty learning signal.
+    """
+    sigma = sigma.clamp(min=1e-6)  # numerical stability
+    z = (y - mu) / sigma
+    phi_z = torch.exp(-0.5 * z * z) / math.sqrt(2 * math.pi)  # standard normal PDF
+    Phi_z = 0.5 * (1 + torch.erf(z / math.sqrt(2)))  # standard normal CDF
+    return sigma * (z * (2 * Phi_z - 1) + 2 * phi_z - _INV_SQRT_PI)
+
+
 def sample_pyoco_noise(shape: tuple, rho: float, device: torch.device) -> torch.Tensor:
     """Sample PYoCo temporally-correlated noise (Ge et al., ICCV 2023).
 
@@ -175,7 +194,44 @@ class BlockARConfig:
     ratio_target: bool = False
     # "log" = log(future/baseline) with exp() inversion (original, can overflow)
     # "logit" = logit(future) - logit(baseline) with sigmoid() inversion (bounded)
+    # "vol_scaled" = log(future/baseline) / vol_scale with exp(sample*vol_scale)*baseline inversion
+    #   vol_scale = std(daily_mean_IV_changes) / global_mean_vol — condition-dependent scaling
+    #   that creates wider CIs for turbulent conditions (high vol_of_vol).
+    # "vol_scaled_percell" = per-cell vol normalization: log(future/baseline) / vol_scale[r,c]
+    #   vol_scale[r,c] = std(cell[r,c] daily changes) / global_mean_cell_vol[r,c]
+    #   Captures spatial heterogeneity: ATM cells respond 2-5x more to vol_of_vol than deep cells
+    # "nsdiff" = NSDiff-inspired learned endpoint: log(future/baseline) / sigma_c where
+    #   sigma_c = exp(log_std_head(condition)) is LEARNED from data with Gaussian NLL loss.
+    #   Replaces hand-coded vol_scale with end-to-end learned scaling.
+    #   Bitter Lesson: let the model learn the optimal standardization from data.
     ratio_target_mode: str = "log"
+    global_mean_vol: float = 0.0187  # mean of vol_scale across training data (precomputed)
+    vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
+    nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff mode only)
+
+    # Learned sigma (Nichol & Dhariwal 2021): denoiser predicts per-element
+    # variance alongside noise. Variance = exp(v * log(beta_tilde_t) +
+    # (1-v) * log(beta_t)), bounded between posterior variance and forward
+    # variance. Trained with L_simple + lambda_vlb * L_vlb (KL divergence).
+    learn_sigma: bool = False
+    lambda_vlb: float = 0.001  # VLB loss weight (small so L_simple dominates)
+
+    # Classifier-Free Guidance (CFG): randomly drop conditioning during training
+    # to learn both conditional and unconditional noise prediction. At inference,
+    # guidance amplifies the effect of conditioning. For turbulent conditions where
+    # conditioning is less informative, ε_cond ≈ ε_uncond → guidance has little effect
+    # → naturally wider sample spread. For predictable conditions, guidance focuses
+    # the output → narrower spread.
+    cond_drop_prob: float = 0.0  # prob of dropping condition (0.0 = no CFG)
+    guidance_scale: float = 1.0  # inference guidance scale (1.0 = no guidance)
+
+    # CRPS variance head: separate module predicting per-sample σ from (condition, t).
+    # Trained with CRPS on x₀ predictions alongside standard MSE noise prediction.
+    # σ(condition, t) scales posterior noise at inference for condition-dependent CIs.
+    # Unlike learn_sigma (Nichol-Dhariwal), this is a SEPARATE head with its own
+    # parameters — decoupled from the denoiser to prevent σ collapse.
+    crps_variance_head: bool = False
+    lambda_crps: float = 0.1  # weight of CRPS auxiliary loss
 
 
 class UncertaintyHead(nn.Module):
@@ -259,6 +315,63 @@ class VarianceHead(nn.Module):
         return self.net(condition)  # (B, 1)
 
 
+class CRPSVarianceHead(nn.Module):
+    """Condition-dependent variance trained with CRPS on x_0 prediction.
+
+    Takes (condition, t) → per-element log_sigma for posterior noise scaling.
+    Unlike VarianceHead, this includes timestep so the model can learn that
+    variance is only meaningful at moderate noise levels.
+
+    Trained with CRPS_Gaussian(x_0_pred.detach(), sigma, x_0) — the
+    gradient from CRPS creates an explicit condition→uncertainty signal:
+    for turbulent conditions where x_0_pred is worse, CRPS rewards larger sigma.
+    """
+
+    def __init__(self, cond_dim: int, n_steps: int, hidden_dim: int = 64):
+        super().__init__()
+        self.t_embed = nn.Sequential(
+            nn.Linear(1, hidden_dim),
+            nn.SiLU(),
+        )
+        self.net = nn.Sequential(
+            nn.Linear(cond_dim + hidden_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, 1),
+        )
+        self.n_steps = n_steps
+        # Initialize to log_sigma ≈ 0 → sigma ≈ 1 (neutral scaling)
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
+
+    def forward(self, condition: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Predict per-sample log-sigma.
+
+        Args:
+            condition: (B, cond_dim)
+            t: (B,) or (B, T) integer timesteps
+
+        Returns:
+            log_sigma: (B, 1) if t is (B,), else (B, T, 1)
+        """
+        # Normalize t to [0, 1]
+        if t.dim() == 1:
+            t_norm = t.float().unsqueeze(-1) / self.n_steps  # (B, 1)
+        else:
+            # (B, T) → flatten, process, unflatten
+            B, T = t.shape
+            t_norm = t.float().reshape(-1, 1) / self.n_steps  # (B*T, 1)
+            condition = condition.unsqueeze(1).expand(-1, T, -1).reshape(B * T, -1)
+
+        t_emb = self.t_embed(t_norm)  # (B, H) or (B*T, H)
+        h = torch.cat([condition, t_emb], dim=-1)
+        log_sigma = self.net(h)  # (B, 1) or (B*T, 1)
+
+        if t.dim() > 1:
+            log_sigma = log_sigma.reshape(B, T, 1)
+
+        return log_sigma
+
+
 class _DenoiserAdapter(nn.Module):
     """Wraps denoiser to match DDPMScheduler's model(x_t, t, condition) interface."""
 
@@ -328,6 +441,7 @@ class ConditionalBlockARDDPM(nn.Module):
                 base_channels=config.conv3d_base_channels,
                 n_res_blocks=config.conv3d_n_res_blocks,
                 groups=config.conv3d_groups,
+                learn_sigma=getattr(config, 'learn_sigma', False),
             )
             if denoiser_type == "causal_conv3d":
                 self.denoiser = CausalConv3DBlockDenoiser(conv3d_config)
@@ -352,6 +466,29 @@ class ConditionalBlockARDDPM(nn.Module):
             schedule=config.schedule,
             device="cpu",
         )
+
+        # Per-cell global mean vol for vol_scaled_percell mode (precomputed from training data)
+        if getattr(config, 'ratio_target_mode', 'log') == 'vol_scaled_percell':
+            _gmcv = torch.tensor([
+                [0.156073, 0.043923, 0.014329, 0.024547, 0.090272],
+                [0.080897, 0.018450, 0.009556, 0.008812, 0.059856],
+                [0.032432, 0.012188, 0.007496, 0.006284, 0.038562],
+                [0.018790, 0.007964, 0.005952, 0.005125, 0.007265],
+                [0.022400, 0.007741, 0.005296, 0.004725, 0.008441],
+            ], dtype=torch.float32)
+            self.register_buffer('global_mean_cell_vol', _gmcv)
+
+        # NSDiff learned sigma head: condition → log_sigma (scalar per sample)
+        # Trained with Gaussian NLL loss: 0.5 * log(sigma^2) + 0.5 * z^2
+        # where z = log_ratio / sigma. Model learns optimal standardization.
+        if getattr(config, 'ratio_target_mode', 'log') == 'nsdiff':
+            self.log_std_head = nn.Sequential(
+                nn.Linear(config.bottleneck_dim, 64),
+                nn.SiLU(),
+                nn.Linear(64, 1),
+            )
+        else:
+            self.log_std_head = None
 
         # Regime conditioning (hierarchical sampling)
         if config.use_regime_conditioning:
@@ -390,6 +527,22 @@ class ConditionalBlockARDDPM(nn.Module):
         else:
             self.variance_head = None
 
+        # CFG: learnable null embedding for unconditional generation
+        if config.cond_drop_prob > 0:
+            self.null_condition = nn.Parameter(torch.zeros(1, config.bottleneck_dim))
+        else:
+            self.null_condition = None
+
+        # CRPS variance head: separate from denoiser, trained with CRPS on x₀
+        if getattr(config, 'crps_variance_head', False):
+            self.crps_var_head = CRPSVarianceHead(
+                cond_dim=config.bottleneck_dim,
+                n_steps=config.n_steps,
+                hidden_dim=64,
+            )
+        else:
+            self.crps_var_head = None
+
     def _augment_condition(
         self, condition: torch.Tensor, regime_ids: Optional[torch.Tensor]
     ) -> torch.Tensor:
@@ -419,6 +572,107 @@ class ConditionalBlockARDDPM(nn.Module):
                 schedule=self.config.schedule,
                 device=device,
             )
+
+    def _compute_learned_variance(
+        self, v_pred: torch.Tensor, t: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute learned variance from model output v (Nichol & Dhariwal 2021).
+
+        Variance = exp(v * log(beta_tilde_t) + (1-v) * log(beta_t))
+        where v is clamped to [0, 1] for interpolation between posterior
+        variance (beta_tilde, the lower bound) and forward variance (beta, the upper bound).
+
+        Args:
+            v_pred: (B, T, H, W) raw model output (unconstrained)
+            t: (B, T) per-frame diffusion timesteps
+
+        Returns:
+            log_variance: (B, T, H, W) log of learned variance
+        """
+        B, T, H, W = v_pred.shape
+        t_flat = t.flatten()  # (B*T,)
+
+        # Get schedule variances
+        log_beta = torch.log(self.scheduler.betas.clamp(min=1e-20))
+        log_beta_tilde = self.scheduler.posterior_log_variance
+
+        log_beta_t = log_beta[t_flat].view(B, T, 1, 1)  # upper bound
+        log_beta_tilde_t = log_beta_tilde[t_flat].view(B, T, 1, 1)  # lower bound
+
+        # Clamp v to [0, 1] for interpolation
+        v = torch.sigmoid(v_pred)  # smooth clamping to [0, 1]
+
+        # Log-interpolation: v=0 → beta_tilde (narrow), v=1 → beta (wide)
+        log_variance = v * log_beta_t + (1 - v) * log_beta_tilde_t
+
+        return log_variance
+
+    def _compute_vlb_loss(
+        self,
+        x_0: torch.Tensor,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        noise_pred: torch.Tensor,
+        v_pred: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute VLB (variational lower bound) loss for learned variance.
+
+        KL(q(x_{t-1}|x_t, x_0) || p_theta(x_{t-1}|x_t))
+
+        Both are Gaussians, so KL has closed form:
+        KL = 0.5 * [log(sigma2/sigma1) + (sigma1^2 + (mu1-mu2)^2) / sigma2^2 - 1]
+
+        The mean prediction (noise_pred) is DETACHED — the VLB loss only
+        trains the variance head, not the noise prediction.
+
+        Args:
+            x_0: (B, T, H, W) clean target
+            x_t: (B, T, H, W) noisy input
+            t: (B, T) per-frame timesteps
+            noise_pred: (B, T, H, W) DETACHED noise prediction
+            v_pred: (B, T, H, W) variance fraction (has gradient)
+
+        Returns:
+            vlb_loss: scalar
+        """
+        B, T, H, W = x_0.shape
+        t_flat = t.flatten()
+
+        # True posterior (q) parameters
+        # Mean: mu_q = (sqrt(alpha_bar_prev) * beta / (1-alpha_bar)) * x_0
+        #            + (sqrt(alpha) * (1-alpha_bar_prev) / (1-alpha_bar)) * x_t
+        alpha_bar_t = self.scheduler.alpha_bar[t_flat].view(B, T, 1, 1)
+        alpha_bar_prev_t = self.scheduler.alpha_bar_prev[t_flat].view(B, T, 1, 1)
+        alpha_t = self.scheduler.alphas[t_flat].view(B, T, 1, 1)
+        beta_t = self.scheduler.betas[t_flat].view(B, T, 1, 1)
+
+        # True posterior mean
+        coef_x0 = torch.sqrt(alpha_bar_prev_t) * beta_t / (1.0 - alpha_bar_t)
+        coef_xt = torch.sqrt(alpha_t) * (1.0 - alpha_bar_prev_t) / (1.0 - alpha_bar_t)
+        mu_q = coef_x0 * x_0 + coef_xt * x_t
+
+        # True posterior log-variance
+        log_var_q = self.scheduler.posterior_log_variance[t_flat].view(B, T, 1, 1)
+
+        # Model posterior mean (from detached noise_pred)
+        sqrt_recip = self.scheduler.sqrt_recip_alpha_bar[t_flat].view(B, T, 1, 1)
+        sqrt_recip_m1 = self.scheduler.sqrt_recip_alpha_bar_minus_one[t_flat].view(B, T, 1, 1)
+        mu_theta = sqrt_recip * x_t - sqrt_recip_m1 * noise_pred
+
+        # Model posterior log-variance (from v_pred)
+        log_var_theta = self._compute_learned_variance(v_pred, t)
+
+        # KL divergence between two Gaussians
+        # KL = 0.5 * [log(var_theta/var_q) + var_q/var_theta + (mu_q - mu_theta)^2/var_theta - 1]
+        kl = 0.5 * (
+            log_var_theta - log_var_q
+            + torch.exp(log_var_q - log_var_theta)
+            + (mu_q - mu_theta).pow(2) * torch.exp(-log_var_theta)
+            - 1.0
+        )
+
+        # Average over all dimensions
+        return kl.mean()
 
     def _compute_noise_scale(self, context: torch.Tensor) -> torch.Tensor:
         """Compute per-sample noise scale from conditioning context IV level.
@@ -520,6 +774,15 @@ class ConditionalBlockARDDPM(nn.Module):
             # Regime conditioning: augment with regime embedding
             condition = self._augment_condition(condition, regime_ids)
 
+            # CFG: randomly replace condition with null embedding during training
+            if self.training and self.null_condition is not None and self.config.cond_drop_prob > 0:
+                drop_mask = (torch.rand(B, device=device) < self.config.cond_drop_prob)
+                condition = torch.where(
+                    drop_mask.unsqueeze(-1),
+                    self.null_condition.expand(B, -1),
+                    condition,
+                )
+
             # Convert target to ratio space if ratio_target is enabled.
             # baseline = last frame of past context (in denormalized [0,1] space).
             if self.config.ratio_target:
@@ -533,6 +796,48 @@ class ConditionalBlockARDDPM(nn.Module):
                     baseline_c = baseline.clamp(min=eps_iv, max=1.0 - eps_iv)
                     target_block = (torch.logit(target_abs) - torch.logit(baseline_c))
                     target_block = target_block.clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "vol_scaled":
+                    # log(future/baseline) / vol_scale: doubly-normalized for
+                    # condition-dependent uncertainty on BOTH baseline_iv AND vol_of_vol.
+                    # vol_scale = std(daily changes) / global_mean, clipped to [0.5, 2.0].
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
+                    vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = vol_scale.pow(self.config.vol_scale_power)  # dampening
+                    vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                    log_ratio = torch.log(target_abs / baseline)
+                    target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "vol_scaled_percell":
+                    # Per-cell vol normalization: each cell scaled by its own vol_of_vol
+                    # vol_scale[r,c] = std(cell[r,c] daily changes) / global_mean_cell_vol[r,c]
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                    cell_vol = daily_chg.std(dim=1)  # (B, 5, 5)
+                    vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(0.5, 2.0)  # (B, 5, 5)
+                    vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5) broadcast over time
+                    log_ratio = torch.log(target_abs / baseline)
+                    target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "nsdiff":
+                    # NSDiff-inspired learned standardization:
+                    # sigma_c = exp(log_std_head(condition)) is learned from data
+                    # target = log(future/baseline) / sigma_c (standardized residual)
+                    # sigma_c trained with Gaussian NLL: 0.5*log(sigma^2) + 0.5*z^2
+                    log_ratio = torch.log(target_abs / baseline)  # (B, bs, 5, 5)
+                    log_sigma = self.log_std_head(condition)  # (B, 1)
+                    log_sigma_clamped = log_sigma.clamp(-2, 2)
+                    sigma_c = torch.exp(log_sigma_clamped)  # (B, 1)
+                    sigma_4d = sigma_c.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+
+                    # NLL auxiliary loss for sigma training
+                    z_nll = log_ratio / sigma_4d  # (B, bs, 5, 5)
+                    nsdiff_nll = (log_sigma_clamped.unsqueeze(-1).unsqueeze(-1)
+                                  + 0.5 * z_nll ** 2).mean()
+
+                    # Standardize target (detach sigma so diffusion loss only trains denoiser)
+                    sigma_det = sigma_4d.detach()
+                    target_block = (log_ratio / sigma_det).clamp(-3.0, 3.0)
                 else:
                     # log(future / baseline): original log-ratio mode
                     target_block = torch.log(target_abs / baseline)
@@ -573,9 +878,16 @@ class ConditionalBlockARDDPM(nn.Module):
                 torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
                 + block_idx * bs
             )  # (B, bs)
-            noise_pred = self.denoiser(
-                noisy_flat, condition, positions, k
-            )  # (B, bs, 25)
+
+            v_pred = None
+            if getattr(self.config, 'learn_sigma', False):
+                noise_pred, v_pred = self.denoiser(
+                    noisy_flat, condition, positions, k
+                )  # (B, bs, 25) each
+            else:
+                noise_pred = self.denoiser(
+                    noisy_flat, condition, positions, k
+                )  # (B, bs, 25)
 
             # Loss target: unscaled ε when using heteroscedastic forward noise,
             # standard noise otherwise.
@@ -584,7 +896,27 @@ class ConditionalBlockARDDPM(nn.Module):
             else:
                 noise_flat = noise_forward.reshape(B, bs, -1)  # (B, bs, 25)
 
-            if self.variance_head is not None:
+            if v_pred is not None and self.config.loss_type == "crps":
+                # CRPS loss: train noise prediction with proper scoring rule.
+                # v_pred is raw log-sigma (unbounded), NOT Nichol-Dhariwal interpolation.
+                # CRPS provides direct gradient from conditioning → predicted uncertainty.
+                sigma_pred = torch.exp(v_pred.clamp(-10, 5))  # (B, bs, 25)
+                crps_vals = crps_gaussian(noise_pred, sigma_pred, noise_flat)
+                block_loss = crps_vals.mean()
+            elif v_pred is not None:
+                # Nichol & Dhariwal learned variance:
+                # L_simple (noise MSE) + lambda_vlb * L_vlb (KL for variance)
+                block_loss = F.mse_loss(noise_pred, noise_flat)
+
+                # VLB loss: KL(q(x_{t-1}|x_t,x_0) || p_theta(x_{t-1}|x_t))
+                # Mean prediction is DETACHED — variance doesn't affect noise learning.
+                vlb = self._compute_vlb_loss(
+                    target_block, noisy_block, k,
+                    noise_pred.detach().reshape(B, bs, self.config.surface_h, self.config.surface_w),
+                    v_pred.reshape(B, bs, self.config.surface_h, self.config.surface_w),
+                )
+                block_loss = block_loss + self.config.lambda_vlb * vlb
+            elif self.variance_head is not None:
                 # Heteroscedastic NLL with beta-NLL stabilization.
                 # Variance head predicts per-sample log_σ² from condition only.
                 log_var = self.variance_head(condition)  # (B, 1)
@@ -627,6 +959,30 @@ class ConditionalBlockARDDPM(nn.Module):
                         )
                     else:
                         block_loss = F.mse_loss(noise_pred, noise_flat)
+            # NSDiff sigma NLL: auxiliary loss for learned standardization
+            if self.log_std_head is not None and self.config.ratio_target:
+                # nsdiff_nll was computed above when building target_block
+                block_loss = block_loss + self.config.nsdiff_sigma_lambda * nsdiff_nll
+
+            # CRPS variance head: auxiliary loss for condition-dependent σ
+            if self.crps_var_head is not None:
+                H, W = self.config.surface_h, self.config.surface_w
+                with torch.no_grad():
+                    # Recover x₀ prediction from noise prediction
+                    t_flat_crps = k.flatten()
+                    sqrt_recip = self.scheduler.sqrt_recip_alpha_bar[t_flat_crps].view(B, bs, 1, 1)
+                    sqrt_recip_m1 = self.scheduler.sqrt_recip_alpha_bar_minus_one[t_flat_crps].view(B, bs, 1, 1)
+                    noise_pred_4d = noise_pred.reshape(B, bs, H, W)
+                    x_0_pred = (sqrt_recip * noisy_block - sqrt_recip_m1 * noise_pred_4d).clamp(-1, 1)
+
+                # Predict σ from condition (detached) and timestep
+                log_sigma = self.crps_var_head(condition.detach(), k)  # (B, bs, 1)
+                sigma = torch.exp(log_sigma.clamp(-10, 5))
+                sigma_4d = sigma.unsqueeze(-1).expand(B, bs, H, W)  # (B, bs, H, W)
+
+                crps_loss = crps_gaussian(x_0_pred, sigma_4d, target_block).mean()
+                block_loss = block_loss + getattr(self.config, 'lambda_crps', 0.1) * crps_loss
+
             total_loss = total_loss + block_loss
 
         result = {"loss": total_loss / n_blocks}
@@ -756,11 +1112,20 @@ class ConditionalBlockARDDPM(nn.Module):
             # Flatten spatial dims for denoiser: (B, T, H, W) -> (B, T, H*W)
             x_flat = x_t.reshape(B, T, H * W)
 
-            # Predict noise (denoiser sees per-frame noise levels)
-            noise_pred_flat = self.denoiser(
-                x_flat, condition, positions, t_current
-            )  # (B, T, H*W)
-            noise_pred = noise_pred_flat.reshape(B, T, H, W)
+            # Predict noise (and optionally variance fraction)
+            learned_log_var = None
+            if getattr(self.config, 'learn_sigma', False):
+                noise_pred_flat, v_pred_flat = self.denoiser(
+                    x_flat, condition, positions, t_current
+                )
+                noise_pred = noise_pred_flat.reshape(B, T, H, W)
+                v_pred = v_pred_flat.reshape(B, T, H, W)
+                learned_log_var = self._compute_learned_variance(v_pred, t_current)
+            else:
+                noise_pred_flat = self.denoiser(
+                    x_flat, condition, positions, t_current
+                )
+                noise_pred = noise_pred_flat.reshape(B, T, H, W)
 
             # DDPM posterior step: for each frame, go from t_current to t_next
             # Predict x_0 from noise prediction
@@ -773,7 +1138,10 @@ class ConditionalBlockARDDPM(nn.Module):
             else:
                 # Standard or learned-variance: model predicts ε, forward used ε
                 x_0_pred = sqrt_recip * x_t - sqrt_recip_m1 * noise_pred
-            x_0_pred = x_0_pred.clamp(-1.0, 1.0)
+            # NSDiff standardized residuals can be in [-3, 3]; standard targets in [-1, 1]
+            x0_clamp = 3.0 if (self.config.ratio_target and
+                               self.config.ratio_target_mode == "nsdiff") else 1.0
+            x_0_pred = x_0_pred.clamp(-x0_clamp, x0_clamp)
 
             # Compute posterior mean: mu = coef_x0 * x_0_pred + coef_xt * x_t
             alpha_t = self.scheduler.alphas[t_flat].view(B, T, 1, 1)
@@ -786,13 +1154,15 @@ class ConditionalBlockARDDPM(nn.Module):
             mean = coef_x0 * x_0_pred + coef_xt * x_t
 
             # Add noise (except when t_current is at absolute 0 where posterior_var=0)
-            # Posterior variance scales by σ² for heteroscedastic/learned-variance diffusion
-            posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
             z = torch.randn_like(x_t)
             nonzero = (t_current > 0).float().unsqueeze(-1).unsqueeze(-1)
-            if noise_scale is not None:
+            if learned_log_var is not None:
+                x_new = mean + nonzero * torch.exp(0.5 * learned_log_var) * z
+            elif noise_scale is not None:
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
                 x_new = mean + nonzero * noise_scale * torch.sqrt(posterior_var) * z
             else:
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
                 x_new = mean + nonzero * torch.sqrt(posterior_var) * z
 
             # Only update active frames (those above their t_min)
@@ -810,12 +1180,17 @@ class ConditionalBlockARDDPM(nn.Module):
         t_min: Optional[torch.Tensor] = None,
         noise_scale: Optional[torch.Tensor] = None,
         scale_x0_recovery: bool = True,
+        uncond_condition: Optional[torch.Tensor] = None,
+        guidance_scale: float = 1.0,
     ) -> torch.Tensor:
         """Sample one block using uniform DDPM reverse (all frames at same t).
 
         Standard DDPM reverse diffusion where all frames share the same
         global timestep at each step. Supports per-frame t_min for growing
         uncertainty (frames stop denoising at their t_min).
+
+        When guidance_scale > 1.0 and uncond_condition is provided, uses
+        classifier-free guidance: ε = ε_uncond + w * (ε_cond - ε_uncond).
 
         Args:
             condition: (B, bottleneck_dim) encoder output
@@ -827,6 +1202,8 @@ class ConditionalBlockARDDPM(nn.Module):
             scale_x0_recovery: if True, multiply noise_pred by noise_scale
                    in x_0 recovery (for heteroscedastic forward noise).
                    If False, x_0 recovery is standard (for learned variance).
+            uncond_condition: (B, bottleneck_dim) null condition for CFG.
+            guidance_scale: CFG guidance weight. 1.0 = no guidance.
 
         Returns:
             block: (B, T, H, W) in [-1, 1]
@@ -860,11 +1237,36 @@ class ConditionalBlockARDDPM(nn.Module):
             # Flatten spatial dims for denoiser: (B, T, H, W) -> (B, T, H*W)
             x_flat = x_t.reshape(B, T, H * W)
 
-            # Predict noise
-            noise_pred_flat = self.denoiser(
-                x_flat, condition, positions, t_current
-            )  # (B, T, H*W)
-            noise_pred = noise_pred_flat.reshape(B, T, H, W)
+            # Predict noise (and optionally variance fraction)
+            learned_log_var = None
+            crps_log_sigma = None
+            if getattr(self.config, 'learn_sigma', False):
+                noise_pred_flat, v_pred_flat = self.denoiser(
+                    x_flat, condition, positions, t_current
+                )
+                noise_pred = noise_pred_flat.reshape(B, T, H, W)
+                v_pred = v_pred_flat.reshape(B, T, H, W)
+                if self.config.loss_type == "crps":
+                    # CRPS mode: v_pred is raw log_sigma, use as posterior noise scale
+                    crps_log_sigma = v_pred.clamp(-10, 5)
+                else:
+                    # Nichol-Dhariwal mode: v_pred is interpolation fraction
+                    learned_log_var = self._compute_learned_variance(v_pred, t_current)
+            else:
+                noise_pred_flat = self.denoiser(
+                    x_flat, condition, positions, t_current
+                )
+                noise_pred = noise_pred_flat.reshape(B, T, H, W)
+
+            # CFG: classifier-free guidance
+            if uncond_condition is not None and guidance_scale != 1.0:
+                noise_uncond_flat = self.denoiser(
+                    x_flat, uncond_condition, positions, t_current
+                )
+                if isinstance(noise_uncond_flat, tuple):
+                    noise_uncond_flat = noise_uncond_flat[0]
+                noise_uncond = noise_uncond_flat.reshape(B, T, H, W)
+                noise_pred = noise_uncond + guidance_scale * (noise_pred - noise_uncond)
 
             # DDPM posterior step (same math as _sample_block_pyramid)
             t_flat = t_current.flatten()
@@ -876,7 +1278,9 @@ class ConditionalBlockARDDPM(nn.Module):
             else:
                 # Standard or learned-variance: model predicts ε, forward used ε
                 x_0_pred = sqrt_recip * x_t - sqrt_recip_m1 * noise_pred
-            x_0_pred = x_0_pred.clamp(-1.0, 1.0)
+            x0_clamp = 3.0 if (self.config.ratio_target and
+                               self.config.ratio_target_mode == "nsdiff") else 1.0
+            x_0_pred = x_0_pred.clamp(-x0_clamp, x0_clamp)
 
             alpha_t = self.scheduler.alphas[t_flat].view(B, T, 1, 1)
             alpha_bar_t = self.scheduler.alpha_bar[t_flat].view(B, T, 1, 1)
@@ -887,13 +1291,29 @@ class ConditionalBlockARDDPM(nn.Module):
             coef_xt = torch.sqrt(alpha_t) * (1.0 - alpha_bar_prev_t) / (1.0 - alpha_bar_t)
             mean = coef_x0 * x_0_pred + coef_xt * x_t
 
-            # Posterior variance scales by σ² for heteroscedastic diffusion
-            posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
+            # Posterior variance: use learned variance if available
             z = torch.randn_like(x_t)
             nonzero = (t_current > 0).float().unsqueeze(-1).unsqueeze(-1)
-            if noise_scale is not None:
+            if self.crps_var_head is not None:
+                # CRPS variance head: condition-dependent posterior noise scaling
+                log_sigma = self.crps_var_head(condition, t_current)  # (B, T, 1)
+                crps_sigma_head = torch.exp(log_sigma.clamp(-10, 5)).unsqueeze(-1)  # (B, T, 1, 1)
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
+                x_new = mean + nonzero * crps_sigma_head * torch.sqrt(posterior_var) * z
+            elif crps_log_sigma is not None:
+                # CRPS-learned per-element sigma: condition-dependent posterior noise
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
+                # Scale the fixed posterior std by the learned sigma ratio
+                crps_sigma = torch.exp(crps_log_sigma)  # (B, T, H, W)
+                x_new = mean + nonzero * crps_sigma * torch.sqrt(posterior_var) * z
+            elif learned_log_var is not None:
+                # Learned variance from Nichol & Dhariwal
+                x_new = mean + nonzero * torch.exp(0.5 * learned_log_var) * z
+            elif noise_scale is not None:
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
                 x_new = mean + nonzero * noise_scale * torch.sqrt(posterior_var) * z
             else:
+                posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
                 x_new = mean + nonzero * torch.sqrt(posterior_var) * z
 
             # Only update active frames (those above their t_min)
@@ -1023,12 +1443,19 @@ class ConditionalBlockARDDPM(nn.Module):
                     ns = sigma[:, :, None, None]  # (B, 1, 1, 1)
                     sx0 = False  # forward process was standard, no x_0 recovery scaling
 
+                # CFG: compute unconditional condition for guided sampling
+                uncond_cond = None
+                cfg_scale = self.config.guidance_scale
+                if self.null_condition is not None and cfg_scale != 1.0:
+                    uncond_cond = self.null_condition.expand(B, -1)
+
                 # Generate block
                 shape = (B, bs, self.config.surface_h, self.config.surface_w)
                 if self.config.sampling_mode == "uniform":
                     block = self._sample_block_uniform(
                         condition, positions, shape, t_min=t_min,
                         noise_scale=ns, scale_x0_recovery=sx0,
+                        uncond_condition=uncond_cond, guidance_scale=cfg_scale,
                     )
                 else:
                     block = self._sample_block_pyramid(
@@ -1048,6 +1475,34 @@ class ConditionalBlockARDDPM(nn.Module):
                         # sigmoid(logit_diff + logit(baseline)) — bounded in (0, 1)
                         baseline_c = baseline.clamp(min=eps_iv, max=1.0 - eps_iv)
                         block_abs = torch.sigmoid(block + torch.logit(baseline_c))
+                    elif self.config.ratio_target_mode == "vol_scaled":
+                        # exp(sample * vol_scale) * baseline
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                        daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                        vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                        vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                        ratio = torch.exp(block * vol_scale)
+                        block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "vol_scaled_percell":
+                        # Per-cell: exp(sample * vol_scale[r,c]) * baseline
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                        cell_vol = daily_chg.std(dim=1)  # (B, 5, 5)
+                        vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(0.5, 2.0)
+                        vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5)
+                        ratio = torch.exp(block * vol_scale)
+                        block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "nsdiff":
+                        # NSDiff: destandardize with learned sigma, then exp
+                        log_sigma = self.log_std_head(condition)  # (B, 1)
+                        sigma_c = torch.exp(log_sigma.clamp(-2, 2))
+                        sigma_4d = sigma_c.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                        log_ratio = block * sigma_4d  # unstandardize
+                        ratio = torch.exp(log_ratio)
+                        block_abs = (ratio * baseline).clamp(0.001, 1.0)
                     else:
                         # exp(log_ratio) * baseline — original mode
                         ratio = torch.exp(block)

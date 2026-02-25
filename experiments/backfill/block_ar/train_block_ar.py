@@ -172,7 +172,7 @@ def main():
     parser.add_argument("--block_size", type=int, default=None, help="Block size for AR generation (default: 10)")
     parser.add_argument("--jitter_std", type=float, default=None, help="DF noise jitter std (default: 0.15)")
     parser.add_argument("--checkpoint_every", type=int, default=None, help="Save checkpoint every N epochs")
-    parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber"], help="Loss function (default: mse)")
+    parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber", "crps"], help="Loss function (default: mse, crps requires --learn_sigma)")
     parser.add_argument("--huber_delta", type=float, default=None, help="Huber loss delta (default: 0.1)")
     parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d", "causal_conv3d"], help="Denoiser architecture")
     parser.add_argument("--encoder_type", type=str, default=None, choices=["gru", "conv3d"], help="Encoder architecture (gru=flat spatial, conv3d=spatial-aware)")
@@ -200,8 +200,24 @@ def main():
                         help="beta-NLL weight for learned variance (0.5 recommended)")
     parser.add_argument("--ratio_target", action="store_true",
                         help="Ratio-space diffusion: model predicts transformed ratios instead of absolute IV")
-    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit"],
-                        help="Ratio mode: 'log' = log(f/b) with exp(), 'logit' = logit(f)-logit(b) with sigmoid()")
+    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff"],
+                        help="Ratio mode: 'log', 'logit', 'vol_scaled', 'vol_scaled_percell', or 'nsdiff' (learned sigma)")
+    parser.add_argument("--nsdiff_sigma_lambda", type=float, default=0.1,
+                        help="NLL loss weight for NSDiff learned sigma (0.1 default)")
+    parser.add_argument("--vol_scale_power", type=float, default=1.0,
+                        help="Exponent on vol_scale: 0.5=sqrt dampening, 1.0=full (default)")
+    parser.add_argument("--learn_sigma", action="store_true",
+                        help="Nichol-Dhariwal learned variance: denoiser predicts per-element variance")
+    parser.add_argument("--lambda_vlb", type=float, default=0.001,
+                        help="VLB loss weight for learned variance (0.001 recommended)")
+    parser.add_argument("--cond_drop_prob", type=float, default=0.0,
+                        help="CFG conditioning dropout probability during training (0.0 = no CFG)")
+    parser.add_argument("--guidance_scale", type=float, default=1.0,
+                        help="CFG guidance scale at inference (1.0 = no guidance)")
+    parser.add_argument("--crps_variance_head", action="store_true",
+                        help="Enable CRPS variance head for condition-dependent posterior noise")
+    parser.add_argument("--lambda_crps", type=float, default=0.1,
+                        help="Weight for CRPS auxiliary loss (default: 0.1)")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -275,6 +291,17 @@ def main():
     if args.ratio_target:
         config.ratio_target = True
         config.ratio_target_mode = args.ratio_target_mode
+        config.vol_scale_power = args.vol_scale_power
+        config.nsdiff_sigma_lambda = args.nsdiff_sigma_lambda
+    if args.learn_sigma:
+        config.learn_sigma = True
+        config.lambda_vlb = args.lambda_vlb
+    if args.cond_drop_prob > 0:
+        config.cond_drop_prob = args.cond_drop_prob
+        config.guidance_scale = args.guidance_scale
+    if args.crps_variance_head:
+        config.crps_variance_head = True
+        config.lambda_crps = args.lambda_crps
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -323,6 +350,12 @@ def main():
         print(f"Learned variance: ON (beta_nll={config.variance_beta_nll})")
     if config.ratio_target:
         print(f"Ratio target: ON (mode={config.ratio_target_mode}, conditional uncertainty via representation)")
+    if getattr(config, 'learn_sigma', False):
+        print(f"Learned sigma: ON (Nichol-Dhariwal, lambda_vlb={config.lambda_vlb})")
+    if config.cond_drop_prob > 0:
+        print(f"CFG: ON (cond_drop_prob={config.cond_drop_prob}, guidance_scale={config.guidance_scale})")
+    if getattr(config, 'crps_variance_head', False):
+        print(f"CRPS variance head: ON (lambda_crps={config.lambda_crps})")
     print("=" * 60)
 
     # Load data

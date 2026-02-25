@@ -1167,6 +1167,10 @@ def main():
         "--post_hoc_scale", type=float, default=1.0,
         help="Post-hoc multiplicative scaling of ensemble spread (1.0=off, 1.3=30%% wider)",
     )
+    parser.add_argument(
+        "--guidance_scale", type=float, default=None,
+        help="Override CFG guidance scale at inference (None=use checkpoint config)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -1233,6 +1237,11 @@ def main():
     if args.no_clamp_output:
         model_config.clamp_output = False
         print("  Output clamping: DISABLED (override)")
+
+    # Override guidance scale if requested
+    if args.guidance_scale is not None:
+        model_config.guidance_scale = args.guidance_scale
+        print(f"  Guidance scale override: {args.guidance_scale}")
 
     model = ConditionalBlockARDDPM(model_config)
 

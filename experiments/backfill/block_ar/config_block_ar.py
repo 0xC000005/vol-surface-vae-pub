@@ -92,7 +92,22 @@ class BlockARPOCConfig:
 
     # === Ratio-Space Target ===
     ratio_target: bool = False  # diffusion on transformed ratios for conditional uncertainty
-    ratio_target_mode: str = "log"  # "log" = log(f/b) with exp(), "logit" = logit(f)-logit(b) with sigmoid()
+    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "vol_scaled_percell", or "nsdiff"
+    global_mean_vol: float = 0.0187  # mean vol_scale across training data
+    vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
+    nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff mode)
+
+    # Learned sigma (Nichol & Dhariwal 2021): denoiser predicts variance
+    learn_sigma: bool = False
+    lambda_vlb: float = 0.001  # VLB loss weight
+
+    # Classifier-Free Guidance (CFG)
+    cond_drop_prob: float = 0.0  # prob of dropping condition (0.0 = no CFG)
+    guidance_scale: float = 1.0  # inference guidance scale (1.0 = no guidance)
+
+    # CRPS variance head
+    crps_variance_head: bool = False
+    lambda_crps: float = 0.1  # CRPS auxiliary loss weight
 
     # === Loss ===
     loss_type: str = "mse"  # "mse" or "huber"

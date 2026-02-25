@@ -36,6 +36,7 @@ class Conv3DDenoiserConfig:
     base_channels: int = 32
     n_res_blocks: int = 4
     groups: int = 8
+    learn_sigma: bool = False  # output 2 channels (noise + variance fraction)
 
 
 class ResBlock3D(nn.Module):
@@ -100,7 +101,9 @@ class Conv3DBlockDenoiser(nn.Module):
 
         self.final_norm = nn.GroupNorm(config.groups, C)
         self.final_act = nn.SiLU()
-        self.conv_out = nn.Conv3d(C, 1, kernel_size=3, padding=1)
+        out_channels = 2 if config.learn_sigma else 1
+        self.conv_out = nn.Conv3d(C, out_channels, kernel_size=3, padding=1)
+        self.learn_sigma = config.learn_sigma
 
         # Initialize conv_out near-zero
         nn.init.zeros_(self.conv_out.weight)
@@ -114,7 +117,7 @@ class Conv3DBlockDenoiser(nn.Module):
         noise_levels: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Predict noise for each frame.
+        Predict noise for each frame, optionally with variance fraction.
 
         Args:
             noisy_frames: (B, T_block, 25) flattened noisy IV surfaces
@@ -124,6 +127,8 @@ class Conv3DBlockDenoiser(nn.Module):
 
         Returns:
             noise_pred: (B, T_block, 25) predicted noise
+            If learn_sigma: returns (noise_pred, v_pred) where v_pred is
+                (B, T_block, 25) variance fraction for log-interpolation
         """
         B, T, D = noisy_frames.shape
         H, W = self.config.surface_h, self.config.surface_w
@@ -148,12 +153,16 @@ class Conv3DBlockDenoiser(nn.Module):
             x = ada_norm(x, cond)      # AdaGN with per-frame conditioning
 
         x = self.final_act(self.final_norm(x))
-        x = self.conv_out(x)  # (B, 1, T, H, W)
+        x = self.conv_out(x)  # (B, out_ch, T, H, W)
 
-        # Reshape back: (B, 1, T, H, W) -> (B, T, 25)
-        noise_pred = x.squeeze(1).reshape(B, T, D)
-
-        return noise_pred
+        if self.learn_sigma:
+            # Split into noise prediction and variance fraction
+            noise_pred = x[:, 0].reshape(B, T, D)  # (B, T, 25)
+            v_pred = x[:, 1].reshape(B, T, D)  # (B, T, 25)
+            return noise_pred, v_pred
+        else:
+            noise_pred = x.squeeze(1).reshape(B, T, D)
+            return noise_pred
 
 
 class CausalConv3DBlockDenoiser(nn.Module):
