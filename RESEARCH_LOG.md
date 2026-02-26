@@ -10239,3 +10239,200 @@ unnecessary (denoiser already captures 85% of the signal) and harmful (destroys 
 No additional per-cell sigma mechanism is needed. The vol_scaled baseline's existing
 performance (kurtosis 1.006, Q5/Q1 1.456, all tests pass) already achieves the
 uncertainty objectives. The denoiser IS the Bitter Lesson solution for spatial uncertainty.
+
+---
+
+## Model Validation & Known Issues (2026-02-26)
+
+### Management Report V1 & V2
+
+Comprehensive visualization-driven validation of the best model
+(`block_ar_vol_scaled_30ep/best_model.pt`, epoch 26, 437K params).
+
+V1 produced 6 figures; review identified averaging artifacts that masked per-cell issues.
+V2 produced 8 corrected figures with per-cell, per-regime breakdowns.
+
+Scripts: `visualize_management_report.py` (V1), `visualize_management_report_v2.py` (V2)
+Diagnostic: `diagnose_calm_bias.py`
+Figures: `results/block_ar/management_report_v2/fig[1-8]*.png`
+
+---
+
+### Issue Registry: Full Model Validation (2026-02-26)
+
+Complete list of known issues from risk-management-perspective validation.
+400 test windows, 50 samples each, stratified by vol_of_vol quintile.
+
+#### CRITICAL — Blocks production use
+
+**Issue #1: Calm-regime systematic bias (baseline anchor)**
+
+The model's median prediction systematically undershoots ground truth in calm markets.
+
+| Cell | Calm Bias (×1e-3) | Calm Coverage (h=1) | Turbulent Coverage (h=1) |
+|------|-------------------|---------------------|--------------------------|
+| 1M K=0.70 | -21.0 | 78.7% | 91.2% |
+| 1M K=1.00 | -3.6 | 60.0% | 86.3% |
+| 6M K=1.00 | -1.8 | 80.0% | 90.0% |
+| 2Y K=1.00 | -0.7 | 97.5% | 95.0% |
+| Mean (all cells) | -3.7 | 82.1% | 90.6% |
+
+Root cause: The vol-scaled approach generates `sample = exp(z × vol_scale) × baseline`,
+where baseline = `history[-1]` (last observed surface). In calm markets, IV tends to
+drift upward from low levels (mean-reversion), so baseline systematically underestimates
+next-day IV. Correlation between baseline bias and model median bias: **0.977**.
+
+The model perfectly inherits the baseline's directional error. This is not a denoiser
+failure — the denoiser correctly centers its predictions around the baseline — but the
+baseline itself is biased in calm regimes.
+
+Impact: 90% CI nominal → ~75-82% empirical coverage in calm. At h=30, worst-cell
+calm coverage drops to **51%**. Any risk limit calibrated on aggregate coverage (88%)
+would be misleading for calm-regime positions.
+
+**Issue #2: Right-tail miss rate (10-15% for short-maturity cells)**
+
+| Cell | Right Tail Miss (target: 5%) |
+|------|------------------------------|
+| 1M K=0.70 | 9.3% |
+| 1M K=0.85 | 5.5% |
+| 1M K=1.00 | 10.8% |
+| 1M K=1.15 | 14.2% |
+| 1M K=1.30 | 9.0% |
+| 6M K=1.00 | 5.5% |
+| 2Y K=1.00 | 1.5% |
+
+This is the bias (Issue #1) manifesting as directional tail failure. Upward IV moves are
+underestimated because the baseline anchors scenarios too low. VaR/ES computed from
+these scenarios would understate the risk of IV spikes during calm periods.
+
+The 1M K=1.15 cell is worst at 14.2% — nearly 3× the target. Short-maturity cells are
+most affected because they have the largest absolute moves and the baseline bias is
+proportionally largest.
+
+#### SERIOUS — Degrades quality, needs fixing before production
+
+**Issue #3: Per-cell coverage heterogeneity**
+
+Aggregate 90% CI coverage is 88%, but individual cells range from **55% to 98%**.
+
+Per-cell coverage heatmap (ALL windows, h=1):
+```
+K=      0.70   0.85   1.00   1.15   1.30
+1M    [ 82%    86%    77%    84%    79% ]
+3M    [ 84%    86%    82%    87%    83% ]
+6M    [ 85%    91%    86%    88%    90% ]
+1Y    [ 92%    95%    91%    90%    95% ]
+2Y    [ 96%    96%    95%    95%    93% ]
+```
+
+Pattern: short maturity + mid moneyness = worst coverage. Long maturity = best.
+At h=30, the spread worsens: calm-regime cells drop to 51-68%.
+
+The aggregate metric is dominated by well-covered long-maturity cells (which have
+lower absolute IV and hence smaller moves). Short-maturity cells, which matter most
+for short-dated option risk, are systematically under-covered.
+
+**Issue #4: Calm calibration curve below diagonal at all horizons**
+
+Not a single-cell issue — the ENTIRE calm regime (Q1 of vol_of_vol) is overconfident:
+
+| Nominal CI | Calm Empirical | Turbulent Empirical |
+|------------|----------------|---------------------|
+| 50% | ~40% | ~52% |
+| 70% | ~58% | ~72% |
+| 90% | ~78% | ~91% |
+
+CI widths are approximately 20-30% too narrow in calm conditions. A post-hoc recalibration
+(widening CIs by ~1.3× in calm) could partially address this, but the directional bias
+(Issue #1) would remain.
+
+**Issue #5: Per-cell marginal kurtosis mismatch (within-path)**
+
+Generated daily IV changes have lower excess kurtosis than GT for most cells:
+
+| Cell | GT Kurtosis | Gen Kurtosis | Ratio |
+|------|-------------|--------------|-------|
+| 1M K=0.70 | ~600 | ~50 | 0.08 |
+| 1M K=1.00 | ~150 | ~30 | 0.20 |
+| 6M K=1.00 | ~67 | ~14 | 0.21 |
+| 2Y K=1.00 | ~15 | ~6 | 0.40 |
+
+Note: This measures intra-path daily change kurtosis (how jumpy individual trajectories
+are), NOT the cross-sample ensemble kurtosis (which is 1.006 — near-perfect). The ensemble
+distribution correctly captures fat tails; individual paths are smoother than reality.
+
+This is inherent to diffusion models — the reverse process produces correlated noise
+predictions, not iid jumps. For a scenario generator where the user draws from the
+ensemble (not a single path), this is acceptable. But for path-dependent option pricing
+(e.g., barrier options), smoother paths would underestimate knock-in/knock-out probabilities.
+
+#### MODERATE — Acceptable with documentation
+
+**Issue #6: Butterfly arbitrage 17-31%**
+
+Smile convexity (d²σ/dK² > 0) violated in ~25% of generated scenarios, concentrated at
+the K=1.15→1.30 transition. Worst in turbulent regime (31%). The 1M row contributes
+disproportionately. This was already a known weakness (test suite target: <15%, model
+achieves 9.4% in the aggregate test but higher in spot checks on specific windows).
+
+**Issue #7: Calendar arbitrage 7%**
+
+Total variance monotonicity violations at ~7% (GT itself has ~5%). The gap to GT is
+small (~2 percentage points). Not regime-specific. Acceptable.
+
+**Issue #8: K=1.30 OTM call instability**
+
+The K=1.30 column (far OTM calls) has the widest uncertainty and worst marginal match.
+Absolute IV levels are lowest here (0.10-0.27), so relative noise is highest. Some
+generated scenarios produce unrealistic K=1.30 values. The smile right wing is inherently
+the hardest surface region to model.
+
+#### MINOR — Known limitations
+
+**Issue #9: Left tail slightly elevated for 1M OTM Put**
+
+1M K=0.70 left-tail miss rate is 10.3% (target 5%). Other cells are near 5%.
+Less severe than the right-tail issue (#2) because the direction of bias in calm
+regimes pushes scenarios LOW, making left-tail coverage slightly worse too.
+
+**Issue #10: Intra-path smoothness**
+
+Individual scenario paths lack the day-to-day jumpiness of real IV time series.
+ACF of |daily changes| is correctly matched (intra-window ACF MAE: 0.01-0.03 per cell),
+but the magnitude of large daily moves is dampened. This is the same issue as #5.
+
+Note: The V1 management report showed a large ACF gap (GT=0.565 vs Gen=0.403 at lag=1).
+This was a **plotting artifact** from pooling daily changes across window boundaries.
+Concatenating 400 windows creates artificial persistence because the last value of
+window_k is correlated with the first value of window_{k+1} (adjacent in the test set).
+Generated scenarios don't have this cross-window correlation. The correct intra-window
+ACF (computed within each 30-day window, then averaged) shows GT=0.118 vs Gen=0.112 —
+effectively identical.
+
+**Issue #11: Cross-cell correlation slightly over-estimated**
+
+Correlation-of-correlations between GT and generated cross-cell structure: **0.987**.
+Generated correlations tend to be marginally higher than GT (~2-3% uplift). The model
+produces slightly more spatial co-movement than reality. Minor for most applications.
+
+---
+
+### Priority Assessment
+
+Issue #1 (calm bias) is the ROOT CAUSE of #2 (right-tail miss), #3 (coverage
+heterogeneity), and #4 (calm calibration). Fixing the baseline anchor would likely
+improve all four simultaneously.
+
+Potential fixes (not yet implemented):
+1. **Drift correction**: Estimate mean drift from history (e.g., EMA of recent changes)
+   and shift baseline by the expected 1-day move. Simple, interpretable.
+2. **Multi-step baseline**: Use baseline = mean(last K days) instead of last day,
+   reducing single-day noise.
+3. **Learned baseline correction**: Train a small MLP to predict bias from condition
+   vector and add it to the baseline. Higher capacity but risks overfitting.
+4. **Post-hoc recalibration**: Widen calm-regime CIs by a constant factor (~1.3×).
+   Addresses width but not directional bias.
+
+Issues #5-#11 are secondary. Most are acceptable with documentation for a scenario
+generator (as opposed to a single-path simulator or a pricing engine).
