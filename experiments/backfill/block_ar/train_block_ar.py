@@ -200,10 +200,12 @@ def main():
                         help="beta-NLL weight for learned variance (0.5 recommended)")
     parser.add_argument("--ratio_target", action="store_true",
                         help="Ratio-space diffusion: model predicts transformed ratios instead of absolute IV")
-    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff"],
-                        help="Ratio mode: 'log', 'logit', 'vol_scaled', 'vol_scaled_percell', or 'nsdiff' (learned sigma)")
+    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell"],
+                        help="Ratio mode: 'log', 'logit', 'vol_scaled', 'vol_scaled_percell', 'nsdiff', 'e2e_nll', or 'vol_scaled_learned' (hybrid)")
     parser.add_argument("--nsdiff_sigma_lambda", type=float, default=0.1,
-                        help="NLL loss weight for NSDiff learned sigma (0.1 default)")
+                        help="NLL loss weight for NSDiff/e2e learned sigma (0.1 default)")
+    parser.add_argument("--e2e_sigma_reg", type=float, default=0.01,
+                        help="L2 regularization on log_sigma for e2e_nll mode")
     parser.add_argument("--vol_scale_power", type=float, default=1.0,
                         help="Exponent on vol_scale: 0.5=sqrt dampening, 1.0=full (default)")
     parser.add_argument("--learn_sigma", action="store_true",
@@ -293,6 +295,7 @@ def main():
         config.ratio_target_mode = args.ratio_target_mode
         config.vol_scale_power = args.vol_scale_power
         config.nsdiff_sigma_lambda = args.nsdiff_sigma_lambda
+        config.e2e_sigma_reg = args.e2e_sigma_reg
     if args.learn_sigma:
         config.learn_sigma = True
         config.lambda_vlb = args.lambda_vlb

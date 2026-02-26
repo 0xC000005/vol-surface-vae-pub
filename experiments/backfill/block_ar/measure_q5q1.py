@@ -24,7 +24,7 @@ import sys
 import numpy as np
 import torch
 
-from diffusion.block_ar.block_ar_ddpm import ConditionalBlockARDDPM, BlockARConfig, denormalize_iv
+from diffusion.block_ar.block_ar_ddpm import ConditionalBlockARDDPM, BlockARConfig, denormalize_iv, normalize_iv
 
 
 def load_model(model_path, device):
@@ -103,14 +103,15 @@ def measure_q5q1(model, config, surfaces, n_samples=50, max_windows=400, device=
 
     for i in range(0, n_windows, batch_size):
         batch_end = min(i + batch_size, n_windows)
-        hist_batch = torch.tensor(history_arr[i:batch_end], dtype=torch.float32, device=device)
+        hist_raw = torch.tensor(history_arr[i:batch_end], dtype=torch.float32, device=device)
+        hist_batch = normalize_iv(hist_raw)  # [0,1] → [-1,1] for model input
 
         with torch.no_grad():
             samples = model.sample(hist_batch, n_samples=n_samples)
             # samples: (B, n_samples, future_len, 5, 5)
 
-        # Denormalize
-        samples_iv = denormalize_iv(samples)  # (B, n_samples, 30, 5, 5)
+        # model.sample() already returns denormalized [0,1] values
+        samples_iv = samples  # (B, n_samples, 30, 5, 5) already in [0,1]
 
         # Cross-sample std per window per horizon (mean over spatial dims)
         sample_std = samples_iv.mean(dim=(-1, -2)).std(dim=1)  # (B, 30)

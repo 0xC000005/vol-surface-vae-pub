@@ -92,10 +92,11 @@ class BlockARPOCConfig:
 
     # === Ratio-Space Target ===
     ratio_target: bool = False  # diffusion on transformed ratios for conditional uncertainty
-    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "vol_scaled_percell", or "nsdiff"
+    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", or "learned_percell"
     global_mean_vol: float = 0.0187  # mean vol_scale across training data
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
-    nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff mode)
+    nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff/e2e_nll mode)
+    e2e_sigma_reg: float = 0.01  # L2 regularization on log_sigma for e2e_nll mode
 
     # Learned sigma (Nichol & Dhariwal 2021): denoiser predicts variance
     learn_sigma: bool = False

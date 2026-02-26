@@ -204,10 +204,18 @@ class BlockARConfig:
     #   sigma_c = exp(log_std_head(condition)) is LEARNED from data with Gaussian NLL loss.
     #   Replaces hand-coded vol_scale with end-to-end learned scaling.
     #   Bitter Lesson: let the model learn the optimal standardization from data.
+    # "e2e_nll" = End-to-end learned sigma with NLL + non-detached diffusion gradient.
+    #   Unlike nsdiff, sigma is NOT detached — gradient flows from diffusion loss through sigma.
+    #   NLL provides baseline signal, diffusion gradient adds condition-dependent pressure.
+    # "vol_scaled_learned" = Hybrid: vol_scale * exp(learned_correction).
+    #   Starts from hand-coded vol_scale (which already achieves Q5/Q1=1.21) and learns
+    #   a small multiplicative correction. Correction initialized near 0 (identity).
+    #   Combines proven vol_scale signal with end-to-end fine-tuning.
     ratio_target_mode: str = "log"
     global_mean_vol: float = 0.0187  # mean of vol_scale across training data (precomputed)
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
-    nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff mode only)
+    nsdiff_sigma_lambda: float = 0.1  # NLL/reg loss weight for learned sigma
+    e2e_sigma_reg: float = 0.01  # L2 regularization weight for (sigma - 1.0)^2
 
     # Learned sigma (Nichol & Dhariwal 2021): denoiser predicts per-element
     # variance alongside noise. Variance = exp(v * log(beta_tilde_t) +
@@ -481,7 +489,7 @@ class ConditionalBlockARDDPM(nn.Module):
         # NSDiff learned sigma head: condition → log_sigma (scalar per sample)
         # Trained with Gaussian NLL loss: 0.5 * log(sigma^2) + 0.5 * z^2
         # where z = log_ratio / sigma. Model learns optimal standardization.
-        if getattr(config, 'ratio_target_mode', 'log') == 'nsdiff':
+        if getattr(config, 'ratio_target_mode', 'log') in ('nsdiff', 'e2e_nll'):
             self.log_std_head = nn.Sequential(
                 nn.Linear(config.bottleneck_dim, 64),
                 nn.SiLU(),
@@ -489,6 +497,48 @@ class ConditionalBlockARDDPM(nn.Module):
             )
         else:
             self.log_std_head = None
+
+        # Learned per-cell sigma: condition → (5,5) per-cell correction
+        # Bitter Lesson approach: NN learns per-cell uncertainty from condition vector.
+        # sigma[r,c] = vol_scale_percell[r,c] * exp(correction[r,c])
+        # where vol_scale_percell is the hand-coded per-cell ratio (proven to work),
+        # and correction is learned. Initialized at 0 (identity correction).
+        if getattr(config, 'ratio_target_mode', 'log') == 'learned_percell':
+            self.percell_sigma_head = nn.Sequential(
+                nn.Linear(config.bottleneck_dim, 64),
+                nn.SiLU(),
+                nn.Linear(64, 64),
+                nn.SiLU(),
+                nn.Linear(64, config.surface_h * config.surface_w),
+            )
+            # Initialize near zero (no correction) — let NN learn deviations
+            nn.init.zeros_(self.percell_sigma_head[-1].weight)
+            nn.init.zeros_(self.percell_sigma_head[-1].bias)
+            # Pre-computed per-cell global mean vol for base scaling
+            _gmcv = torch.tensor([
+                [0.156073, 0.043923, 0.014329, 0.024547, 0.090272],
+                [0.080897, 0.018450, 0.009556, 0.008812, 0.059856],
+                [0.032432, 0.012188, 0.007496, 0.006284, 0.038562],
+                [0.018790, 0.007964, 0.005952, 0.005125, 0.007265],
+                [0.022400, 0.007741, 0.005296, 0.004725, 0.008441],
+            ], dtype=torch.float32)
+            self.register_buffer('percell_global_mean_vol', _gmcv)
+        else:
+            self.percell_sigma_head = None
+
+        # Hybrid vol_scaled_learned: condition → small correction on top of vol_scale
+        # sigma = vol_scale * exp(correction), initialized near correction=0
+        if getattr(config, 'ratio_target_mode', 'log') == 'vol_scaled_learned':
+            self.log_correction_head = nn.Sequential(
+                nn.Linear(config.bottleneck_dim, 64),
+                nn.SiLU(),
+                nn.Linear(64, 1),
+            )
+            # Initialize output layer near zero so correction starts at ~identity
+            nn.init.zeros_(self.log_correction_head[-1].weight)
+            nn.init.zeros_(self.log_correction_head[-1].bias)
+        else:
+            self.log_correction_head = None
 
         # Regime conditioning (hierarchical sampling)
         if config.use_regime_conditioning:
@@ -809,6 +859,32 @@ class ConditionalBlockARDDPM(nn.Module):
                     vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
                     log_ratio = torch.log(target_abs / baseline)
                     target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "vol_scaled_learned":
+                    # Hybrid: vol_scale * exp(learned_correction)
+                    # vol_scale is the proven hand-coded scaling; correction is learned
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
+                    vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = vol_scale.pow(self.config.vol_scale_power)
+
+                    # Learned correction: small multiplicative factor
+                    log_corr = self.log_correction_head(condition)  # (B, 1)
+                    log_corr_clamped = log_corr.clamp(-0.5, 0.5)  # limit correction to [0.6, 1.65]x
+                    sigma = vol_scale * torch.exp(log_corr_clamped)  # (B, 1)
+                    sigma_4d = sigma.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+
+                    log_ratio = torch.log(target_abs / baseline)
+                    # NLL auxiliary loss for sigma training
+                    z_nll = log_ratio / sigma_4d
+                    nsdiff_nll = (torch.log(sigma_4d) + 0.5 * z_nll ** 2).mean()
+                    # L2 regularization on correction to keep near identity
+                    nsdiff_nll = nsdiff_nll + self.config.e2e_sigma_reg * (log_corr ** 2).mean()
+
+                    # Detach sigma for diffusion target (correction trained only by NLL)
+                    sigma_det = sigma_4d.detach()
+                    target_block = (log_ratio / sigma_det).clamp(-1.0, 1.0)
                 elif self.config.ratio_target_mode == "vol_scaled_percell":
                     # Per-cell vol normalization: each cell scaled by its own vol_of_vol
                     # vol_scale[r,c] = std(cell[r,c] daily changes) / global_mean_cell_vol[r,c]
@@ -819,6 +895,39 @@ class ConditionalBlockARDDPM(nn.Module):
                     vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5) broadcast over time
                     log_ratio = torch.log(target_abs / baseline)
                     target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "learned_percell":
+                    # Magnitude × Shape decomposition:
+                    # sigma[r,c] = vol_scale (scalar, proven) * pattern[r,c] (NN-learned)
+                    # pattern is normalized to mean=1.0 → preserves total uncertainty budget
+                    # Magnitude from scalar vol_of_vol (preserves kurtosis)
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
+                    vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = vol_scale.pow(self.config.vol_scale_power)
+
+                    # Shape: NN-learned per-cell relative pattern
+                    log_pattern = self.percell_sigma_head(condition)  # (B, 25)
+                    log_pattern = log_pattern.reshape(-1, 5, 5)  # (B, 5, 5)
+                    pattern = torch.exp(log_pattern)  # (B, 5, 5) all positive
+                    # Normalize to mean=1.0 per sample → preserves total budget
+                    pattern = pattern / pattern.mean(dim=(-1, -2), keepdim=True)
+
+                    # Combined sigma: scalar magnitude × spatial pattern
+                    sigma_4d = vol_scale.unsqueeze(-1).unsqueeze(-1) * pattern.unsqueeze(1)
+                    # (B, 1, 5, 5)
+
+                    log_ratio = torch.log(target_abs / baseline)  # (B, bs, 5, 5)
+
+                    # Per-cell NLL for training the pattern head
+                    z_nll = log_ratio / sigma_4d
+                    log_sigma_4d = torch.log(sigma_4d)
+                    nsdiff_nll = (log_sigma_4d + 0.5 * z_nll ** 2).mean()
+
+                    # Standardize target (DETACH sigma: head trained by NLL only)
+                    sigma_det = sigma_4d.detach()
+                    target_block = (log_ratio / sigma_det).clamp(-3.0, 3.0)
                 elif self.config.ratio_target_mode == "nsdiff":
                     # NSDiff-inspired learned standardization:
                     # sigma_c = exp(log_std_head(condition)) is learned from data
@@ -838,6 +947,25 @@ class ConditionalBlockARDDPM(nn.Module):
                     # Standardize target (detach sigma so diffusion loss only trains denoiser)
                     sigma_det = sigma_4d.detach()
                     target_block = (log_ratio / sigma_det).clamp(-3.0, 3.0)
+                elif self.config.ratio_target_mode == "e2e_nll":
+                    # End-to-end learned sigma: like nsdiff but sigma is NOT detached.
+                    # Diffusion loss gradient flows through sigma → condition-dependent scaling.
+                    # NLL provides baseline signal, L2 reg prevents collapse.
+                    log_ratio = torch.log(target_abs / baseline)  # (B, bs, 5, 5)
+                    log_sigma = self.log_std_head(condition)  # (B, 1)
+                    log_sigma_clamped = log_sigma.clamp(-2, 2)
+                    sigma_c = torch.exp(log_sigma_clamped)  # (B, 1)
+                    sigma_4d = sigma_c.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+
+                    # NLL auxiliary loss
+                    z_nll = log_ratio / sigma_4d  # (B, bs, 5, 5)
+                    nsdiff_nll = (log_sigma_clamped.unsqueeze(-1).unsqueeze(-1)
+                                  + 0.5 * z_nll ** 2).mean()
+                    # L2 regularization: keep sigma near 1.0
+                    nsdiff_nll = nsdiff_nll + self.config.e2e_sigma_reg * (log_sigma ** 2).mean()
+
+                    # NON-DETACHED: gradient flows from diffusion loss through sigma
+                    target_block = (log_ratio / sigma_4d).clamp(-3.0, 3.0)
                 else:
                     # log(future / baseline): original log-ratio mode
                     target_block = torch.log(target_abs / baseline)
@@ -959,8 +1087,8 @@ class ConditionalBlockARDDPM(nn.Module):
                         )
                     else:
                         block_loss = F.mse_loss(noise_pred, noise_flat)
-            # NSDiff sigma NLL: auxiliary loss for learned standardization
-            if self.log_std_head is not None and self.config.ratio_target:
+            # NSDiff/learned sigma NLL: auxiliary loss for learned standardization
+            if (self.log_std_head is not None or self.log_correction_head is not None or self.percell_sigma_head is not None) and self.config.ratio_target:
                 # nsdiff_nll was computed above when building target_block
                 block_loss = block_loss + self.config.nsdiff_sigma_lambda * nsdiff_nll
 
@@ -1140,7 +1268,7 @@ class ConditionalBlockARDDPM(nn.Module):
                 x_0_pred = sqrt_recip * x_t - sqrt_recip_m1 * noise_pred
             # NSDiff standardized residuals can be in [-3, 3]; standard targets in [-1, 1]
             x0_clamp = 3.0 if (self.config.ratio_target and
-                               self.config.ratio_target_mode == "nsdiff") else 1.0
+                               self.config.ratio_target_mode in ("nsdiff", "e2e_nll")) else 1.0
             x_0_pred = x_0_pred.clamp(-x0_clamp, x0_clamp)
 
             # Compute posterior mean: mu = coef_x0 * x_0_pred + coef_xt * x_t
@@ -1279,7 +1407,7 @@ class ConditionalBlockARDDPM(nn.Module):
                 # Standard or learned-variance: model predicts ε, forward used ε
                 x_0_pred = sqrt_recip * x_t - sqrt_recip_m1 * noise_pred
             x0_clamp = 3.0 if (self.config.ratio_target and
-                               self.config.ratio_target_mode == "nsdiff") else 1.0
+                               self.config.ratio_target_mode in ("nsdiff", "e2e_nll")) else 1.0
             x_0_pred = x_0_pred.clamp(-x0_clamp, x0_clamp)
 
             alpha_t = self.scheduler.alphas[t_flat].view(B, T, 1, 1)
@@ -1495,8 +1623,39 @@ class ConditionalBlockARDDPM(nn.Module):
                         vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5)
                         ratio = torch.exp(block * vol_scale)
                         block_abs = (ratio * baseline).clamp(0.001, 1.0)
-                    elif self.config.ratio_target_mode == "nsdiff":
-                        # NSDiff: destandardize with learned sigma, then exp
+                    elif self.config.ratio_target_mode == "learned_percell":
+                        # Magnitude × Shape: scalar vol_scale * NN pattern
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        mean_iv = past_abs.mean(dim=(-1, -2))
+                        daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                        vol = daily_chg.std(dim=1, keepdim=True)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                        log_pattern = self.percell_sigma_head(condition)
+                        log_pattern = log_pattern.reshape(-1, 5, 5)
+                        pattern = torch.exp(log_pattern)
+                        pattern = pattern / pattern.mean(dim=(-1, -2), keepdim=True)
+                        sigma_4d = vol_scale.unsqueeze(-1).unsqueeze(-1) * pattern.unsqueeze(1)
+                        log_ratio = block * sigma_4d
+                        ratio = torch.exp(log_ratio)
+                        block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "vol_scaled_learned":
+                        # Hybrid: vol_scale * exp(correction), then exp(sample * sigma) * baseline
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                        daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                        vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                        log_corr = self.log_correction_head(condition)  # (B, 1)
+                        log_corr_clamped = log_corr.clamp(-0.5, 0.5)
+                        sigma = vol_scale * torch.exp(log_corr_clamped)  # (B, 1)
+                        sigma_4d = sigma.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                        log_ratio = block * sigma_4d  # unstandardize
+                        ratio = torch.exp(log_ratio)
+                        block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode in ("nsdiff", "e2e_nll"):
+                        # NSDiff/e2e: destandardize with learned sigma, then exp
                         log_sigma = self.log_std_head(condition)  # (B, 1)
                         sigma_c = torch.exp(log_sigma.clamp(-2, 2))
                         sigma_4d = sigma_c.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
