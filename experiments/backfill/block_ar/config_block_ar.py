@@ -95,6 +95,9 @@ class BlockARPOCConfig:
     ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", or "learned_percell"
     global_mean_vol: float = 0.0187  # mean vol_scale across training data
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
+    vol_scale_min: float = 0.5  # min clamp for vol_scale (higher = wider calm CIs)
+    vol_scale_max: float = 2.0  # max clamp for vol_scale
+    baseline_window: int = 1  # number of history days to average for baseline (1 = last day only)
     nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff/e2e_nll mode)
     e2e_sigma_reg: float = 0.01  # L2 regularization on log_sigma for e2e_nll mode
 
@@ -105,6 +108,13 @@ class BlockARPOCConfig:
     # Classifier-Free Guidance (CFG)
     cond_drop_prob: float = 0.0  # prob of dropping condition (0.0 = no CFG)
     guidance_scale: float = 1.0  # inference guidance scale (1.0 = no guidance)
+
+    # Mean prediction head (bias correction via learned capacity)
+    use_mean_head: bool = False
+    mean_head_lambda: float = 1.0  # weight for mean prediction loss
+
+    # Auxiliary regime features (vol_of_vol + IV level as explicit conditioning)
+    aux_regime_features: bool = False
 
     # CRPS variance head
     crps_variance_head: bool = False

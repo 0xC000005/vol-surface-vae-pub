@@ -214,6 +214,15 @@ class BlockARConfig:
     ratio_target_mode: str = "log"
     global_mean_vol: float = 0.0187  # mean of vol_scale across training data (precomputed)
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
+    vol_scale_min: float = 0.5  # min clamp for vol_scale (higher = wider calm CIs)
+    vol_scale_max: float = 2.0  # max clamp for vol_scale
+    baseline_window: int = 1  # number of history days to average for baseline (1 = last day only)
+    # Learned mean head: MLP predicts per-cell conditional mean μ(condition).
+    # Diffusion operates on z_residual = z - μ (zero-mean). At inference: z = μ + denoised.
+    # Bitter Lesson: adds capacity for the model to learn regime-specific mean shifts
+    # that the iterative diffusion process struggles to capture (e.g., calm-regime bias).
+    use_mean_head: bool = False
+    mean_head_lambda: float = 1.0  # weight for mean prediction loss
     nsdiff_sigma_lambda: float = 0.1  # NLL/reg loss weight for learned sigma
     e2e_sigma_reg: float = 0.01  # L2 regularization weight for (sigma - 1.0)^2
 
@@ -232,6 +241,13 @@ class BlockARConfig:
     # the output → narrower spread.
     cond_drop_prob: float = 0.0  # prob of dropping condition (0.0 = no CFG)
     guidance_scale: float = 1.0  # inference guidance scale (1.0 = no guidance)
+
+    # Auxiliary regime features: feed explicit regime statistics (vol_of_vol, IV level)
+    # as additional conditioning input. Computed from history, projected, and ADDED to
+    # the encoder condition vector. Gives the denoiser direct access to regime info
+    # that the GRU encoder may not extract into the bottleneck.
+    # Bitter Lesson: give the model more data/features, let it learn.
+    aux_regime_features: bool = False
 
     # CRPS variance head: separate module predicting per-sample σ from (condition, t).
     # Trained with CRPS on x₀ predictions alongside standard MSE noise prediction.
@@ -540,6 +556,35 @@ class ConditionalBlockARDDPM(nn.Module):
         else:
             self.log_correction_head = None
 
+        # Learned mean head: predicts per-cell conditional mean of z (ratio target).
+        # Bitter Lesson approach: add capacity for regime-specific mean shifts.
+        # Diffusion model handles zero-mean residual; mean head captures the drift.
+        if getattr(config, 'use_mean_head', False) and config.ratio_target:
+            self.mean_head = nn.Sequential(
+                nn.Linear(config.bottleneck_dim, 64),
+                nn.SiLU(),
+                nn.Linear(64, config.surface_h * config.surface_w),
+            )
+            # Initialize near zero — model starts by predicting "no drift"
+            nn.init.zeros_(self.mean_head[-1].weight)
+            nn.init.zeros_(self.mean_head[-1].bias)
+        else:
+            self.mean_head = None
+
+        # Auxiliary regime features: project vol_of_vol + IV level to cond space
+        if getattr(config, 'aux_regime_features', False):
+            # 2 scalar inputs (vol_of_vol, mean_iv_level) → bottleneck_dim
+            self.regime_feature_proj = nn.Sequential(
+                nn.Linear(2, 64),
+                nn.SiLU(),
+                nn.Linear(64, config.bottleneck_dim),
+            )
+            # Initialize output near zero so regime features start as no-op
+            nn.init.zeros_(self.regime_feature_proj[-1].weight)
+            nn.init.zeros_(self.regime_feature_proj[-1].bias)
+        else:
+            self.regime_feature_proj = None
+
         # Regime conditioning (hierarchical sampling)
         if config.use_regime_conditioning:
             self.regime_classifier = nn.Sequential(
@@ -604,6 +649,41 @@ class ConditionalBlockARDDPM(nn.Module):
         if self.regime_proj is not None and regime_ids is not None:
             r_emb = self.regime_embed(regime_ids)  # (B, regime_embed_dim)
             return self.regime_proj(torch.cat([condition, r_emb], dim=-1))
+        return condition
+
+    def _compute_regime_features(self, history: torch.Tensor) -> torch.Tensor:
+        """Compute auxiliary regime features from history for conditioning.
+
+        Features:
+          - vol_of_vol: std of daily mean-IV changes (regime indicator)
+          - mean_iv_level: mean IV level of last 5 days (level indicator)
+
+        Args:
+            history: (B, T, 5, 5) normalized history surfaces in [-1, 1]
+
+        Returns:
+            (B, 2) regime feature vector
+        """
+        B = history.shape[0]
+        # Mean IV per timestep: (B, T)
+        mean_iv = history.mean(dim=(-2, -1))
+        # Daily changes: (B, T-1)
+        daily_diff = mean_iv[:, 1:] - mean_iv[:, :-1]
+        # Vol of vol: std of daily changes: (B,)
+        vol_of_vol = daily_diff.std(dim=1)
+        # Mean IV level of last 5 days: (B,)
+        mean_level = mean_iv[:, -5:].mean(dim=1)
+        # Stack: (B, 2)
+        return torch.stack([vol_of_vol, mean_level], dim=1)
+
+    def _add_regime_features(
+        self, condition: torch.Tensor, history: torch.Tensor
+    ) -> torch.Tensor:
+        """Add projected regime features to condition vector if enabled."""
+        if self.regime_feature_proj is not None:
+            feats = self._compute_regime_features(history)
+            regime_emb = self.regime_feature_proj(feats)  # (B, bottleneck_dim)
+            return condition + regime_emb
         return condition
 
     def _mcvd_task_probs(self):
@@ -824,6 +904,9 @@ class ConditionalBlockARDDPM(nn.Module):
             # Regime conditioning: augment with regime embedding
             condition = self._augment_condition(condition, regime_ids)
 
+            # Auxiliary regime features (vol_of_vol, IV level)
+            condition = self._add_regime_features(condition, history)
+
             # CFG: randomly replace condition with null embedding during training
             if self.training and self.null_condition is not None and self.config.cond_drop_prob > 0:
                 drop_mask = (torch.rand(B, device=device) < self.config.cond_drop_prob)
@@ -834,10 +917,11 @@ class ConditionalBlockARDDPM(nn.Module):
                 )
 
             # Convert target to ratio space if ratio_target is enabled.
-            # baseline = last frame of past context (in denormalized [0,1] space).
+            # baseline = mean of last K frames of past context (in denormalized [0,1] space).
             if self.config.ratio_target:
                 eps_iv = 1e-4
-                baseline = denormalize_iv(past_ctx[:, -1])  # (B, 5, 5) in [0, 1]
+                K = min(self.config.baseline_window, past_ctx.shape[1])
+                baseline = denormalize_iv(past_ctx[:, -K:]).mean(dim=1)  # (B, 5, 5) in [0, 1]
                 baseline = baseline.clamp(min=0.01).unsqueeze(1)  # (B, 1, 5, 5)
                 target_abs = denormalize_iv(target_block)  # (B, bs, 5, 5) in [0, 1]
                 target_abs = target_abs.clamp(min=eps_iv, max=1.0 - eps_iv)
@@ -854,7 +938,7 @@ class ConditionalBlockARDDPM(nn.Module):
                     mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
                     daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
                     vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
-                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 1)
                     vol_scale = vol_scale.pow(self.config.vol_scale_power)  # dampening
                     vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
                     log_ratio = torch.log(target_abs / baseline)
@@ -866,7 +950,7 @@ class ConditionalBlockARDDPM(nn.Module):
                     mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
                     daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
                     vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
-                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 1)
                     vol_scale = vol_scale.pow(self.config.vol_scale_power)
 
                     # Learned correction: small multiplicative factor
@@ -891,7 +975,7 @@ class ConditionalBlockARDDPM(nn.Module):
                     past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
                     daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
                     cell_vol = daily_chg.std(dim=1)  # (B, 5, 5)
-                    vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(0.5, 2.0)  # (B, 5, 5)
+                    vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 5, 5)
                     vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5) broadcast over time
                     log_ratio = torch.log(target_abs / baseline)
                     target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
@@ -904,7 +988,7 @@ class ConditionalBlockARDDPM(nn.Module):
                     mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
                     daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
                     vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
-                    vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 1)
                     vol_scale = vol_scale.pow(self.config.vol_scale_power)
 
                     # Shape: NN-learned per-cell relative pattern
@@ -970,6 +1054,20 @@ class ConditionalBlockARDDPM(nn.Module):
                     # log(future / baseline): original log-ratio mode
                     target_block = torch.log(target_abs / baseline)
                     target_block = target_block.clamp(-1.0, 1.0)
+
+            # Mean head: subtract predicted mean before diffusion, train mean head separately.
+            # This gives the model a direct path to predict regime-specific mean shifts
+            # without going through 100 steps of iterative denoising.
+            mean_loss = None
+            if self.mean_head is not None and self.config.ratio_target:
+                mu = self.mean_head(condition)  # (B, 25)
+                mu = mu.reshape(B, self.config.surface_h, self.config.surface_w)  # (B, 5, 5)
+                mu = mu.unsqueeze(1)  # (B, 1, 5, 5) broadcast over time
+                # Mean head loss: predict the average z across time dimension
+                target_mean = target_block.mean(dim=1, keepdim=True)  # (B, 1, 5, 5)
+                mean_loss = F.mse_loss(mu, target_mean.detach())
+                # Subtract mean (detached) from target — diffusion learns zero-mean residual
+                target_block = target_block - mu.detach()
 
             # Sample noise levels
             if self.config.use_uniform_noise:
@@ -1110,6 +1208,10 @@ class ConditionalBlockARDDPM(nn.Module):
 
                 crps_loss = crps_gaussian(x_0_pred, sigma_4d, target_block).mean()
                 block_loss = block_loss + getattr(self.config, 'lambda_crps', 0.1) * crps_loss
+
+            # Mean head loss: auxiliary MSE for learned mean prediction
+            if mean_loss is not None:
+                block_loss = block_loss + self.config.mean_head_lambda * mean_loss
 
             total_loss = total_loss + block_loss
 
@@ -1548,6 +1650,9 @@ class ConditionalBlockARDDPM(nn.Module):
                 # Augment with regime embedding
                 condition = self._augment_condition(condition, regime_ids)
 
+                # Auxiliary regime features (vol_of_vol, IV level)
+                condition = self._add_regime_features(condition, history)
+
                 # Create positions for this block
                 positions = (
                     torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
@@ -1592,12 +1697,21 @@ class ConditionalBlockARDDPM(nn.Module):
                     )
                 # block: (B, bs, 5, 5) in [-1, 1]
 
+                # Add learned mean back to residual (mean head bias correction)
+                if self.mean_head is not None and self.config.ratio_target:
+                    with torch.no_grad():
+                        mu = self.mean_head(condition)  # (B, 25)
+                        mu = mu.reshape(B, self.config.surface_h, self.config.surface_w)
+                        mu = mu.unsqueeze(1)  # (B, 1, 5, 5)
+                        block = block + mu
+
                 # Convert from ratio space to absolute normalized space
                 if self.config.ratio_target:
                     eps_iv = 1e-4
+                    K = min(self.config.baseline_window, current_cond_surfaces.shape[1])
                     baseline = denormalize_iv(
-                        current_cond_surfaces[:, -1]
-                    )  # (B, 5, 5) in [0, 1]
+                        current_cond_surfaces[:, -K:]
+                    ).mean(dim=1)  # (B, 5, 5) in [0, 1]
                     baseline = baseline.clamp(min=0.01).unsqueeze(1)  # (B, 1, 5, 5)
                     if self.config.ratio_target_mode == "logit":
                         # sigmoid(logit_diff + logit(baseline)) — bounded in (0, 1)
@@ -1609,7 +1723,7 @@ class ConditionalBlockARDDPM(nn.Module):
                         mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
                         daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
                         vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
-                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
                         vol_scale = vol_scale.pow(self.config.vol_scale_power)
                         vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
                         ratio = torch.exp(block * vol_scale)
@@ -1619,7 +1733,7 @@ class ConditionalBlockARDDPM(nn.Module):
                         past_abs = denormalize_iv(current_cond_surfaces)
                         daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
                         cell_vol = daily_chg.std(dim=1)  # (B, 5, 5)
-                        vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(0.5, 2.0)
+                        vol_scale = (cell_vol / self.global_mean_cell_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
                         vol_scale = vol_scale.unsqueeze(1)  # (B, 1, 5, 5)
                         ratio = torch.exp(block * vol_scale)
                         block_abs = (ratio * baseline).clamp(0.001, 1.0)
@@ -1629,7 +1743,7 @@ class ConditionalBlockARDDPM(nn.Module):
                         mean_iv = past_abs.mean(dim=(-1, -2))
                         daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
                         vol = daily_chg.std(dim=1, keepdim=True)
-                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
                         vol_scale = vol_scale.pow(self.config.vol_scale_power)
                         log_pattern = self.percell_sigma_head(condition)
                         log_pattern = log_pattern.reshape(-1, 5, 5)
@@ -1645,7 +1759,7 @@ class ConditionalBlockARDDPM(nn.Module):
                         mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
                         daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
                         vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
-                        vol_scale = (vol / self.config.global_mean_vol).clamp(0.5, 2.0)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
                         vol_scale = vol_scale.pow(self.config.vol_scale_power)
                         log_corr = self.log_correction_head(condition)  # (B, 1)
                         log_corr_clamped = log_corr.clamp(-0.5, 0.5)
@@ -1741,7 +1855,8 @@ class ConditionalBlockARDDPM(nn.Module):
         # Expand history: (B, T, H, W) → (B*S, T, H, W)
         # repeat_interleave gives [h0,h0,...,h0, h1,h1,...,h1, ...]
         # so .view(B, S, ...) later correctly groups samples per history
-        current_cond_surfaces = history.repeat_interleave(S, dim=0)
+        history_expanded = history.repeat_interleave(S, dim=0)
+        current_cond_surfaces = history_expanded.clone()
 
         # Sample regimes for all B*S items (once, reuse across blocks)
         regime_ids = None
@@ -1767,6 +1882,9 @@ class ConditionalBlockARDDPM(nn.Module):
             # Augment with regime embedding
             condition = self._augment_condition(condition, regime_ids)
 
+            # Auxiliary regime features (use original history, expanded)
+            condition = self._add_regime_features(condition, history_expanded)
+
             # Positions: (B*S, bs)
             positions = (
                 torch.arange(bs, device=device).unsqueeze(0).expand(B_eff, -1)
@@ -1790,12 +1908,19 @@ class ConditionalBlockARDDPM(nn.Module):
                 ns = sigma[:, :, None, None]  # (B_eff, 1, 1, 1)
                 sx0 = False  # forward process was standard, no x_0 recovery scaling
 
+            # CFG: compute unconditional condition for guided sampling
+            uncond_cond = None
+            cfg_scale = self.config.guidance_scale
+            if self.null_condition is not None and cfg_scale != 1.0:
+                uncond_cond = self.null_condition.expand(B_eff, -1)
+
             # Generate block for all samples in parallel
             shape = (B_eff, bs, self.config.surface_h, self.config.surface_w)
             if self.config.sampling_mode == "uniform":
                 block = self._sample_block_uniform(
                     condition, positions, shape, t_min=t_min,
                     noise_scale=ns, scale_x0_recovery=sx0,
+                    uncond_condition=uncond_cond, guidance_scale=cfg_scale,
                 )
             else:
                 block = self._sample_block_pyramid(
@@ -1807,9 +1932,10 @@ class ConditionalBlockARDDPM(nn.Module):
             # Convert from ratio space to absolute normalized space
             if self.config.ratio_target:
                 eps_iv = 1e-4
+                K = min(self.config.baseline_window, current_cond_surfaces.shape[1])
                 baseline = denormalize_iv(
-                    current_cond_surfaces[:, -1]
-                )  # (B_eff, 5, 5) in [0, 1]
+                    current_cond_surfaces[:, -K:]
+                ).mean(dim=1)  # (B_eff, 5, 5) in [0, 1]
                 baseline = baseline.clamp(min=0.01).unsqueeze(1)  # (B_eff, 1, 5, 5)
                 if self.config.ratio_target_mode == "logit":
                     # sigmoid(logit_diff + logit(baseline)) — bounded in (0, 1)

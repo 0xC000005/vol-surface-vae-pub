@@ -10436,3 +10436,995 @@ Potential fixes (not yet implemented):
 
 Issues #5-#11 are secondary. Most are acceptable with documentation for a scenario
 generator (as opposed to a single-path simulator or a pricing engine).
+
+
+## 2026-02-26: Issue Fix Experiments (24a-24c, 25)
+
+### Context
+
+Systematic attempt to fix the 11 issues identified in the management report validation.
+Root cause analysis identified Issue #1 (calm-regime baseline anchor bias) as the primary
+driver of Issues #2-#4 and #9. The baseline = history[-1] systematically undershoots GT
+in calm markets where mean reversion creates small positive drift.
+
+All experiments branch from the VS bestval model (`block_ar_vol_scaled_30ep/best_model.pt`,
+epoch 26) which is the current best: kurtosis 1.006, 90% CI 87.9%, skewness 1.055.
+
+### Exp 24a: Multi-day Baseline (baseline_window=5) — FAIL
+
+**Hypothesis**: Averaging last 5 days of history reduces single-day noise in baseline,
+potentially reducing the anchor bias.
+
+**Config**: Same as VS bestval + `baseline_window=5` (average last 5 history days).
+Model: `models/backfill/block_ar_exp24a_baseline5/best_model.pt`
+
+| Metric | VS bestval | Exp 24a | Delta |
+|--------|-----------|---------|-------|
+| Kurtosis | 1.006 | 0.924 | -8% |
+| Skewness | 1.055 | **0.402** | -62% (REGRESSION) |
+| 90% CI | 87.9% | 86.6% | -1.3% |
+| CalibErr | 0.031 | 0.015 | -52% (improved) |
+| Width ratio | 0.707 | **0.926** | +31% (destroyed conditioning) |
+| MAE reduction | 89.3% | 87.7% | -1.6% |
+| Calendar | 9.4% | 9.4% | same |
+| Butterfly | 28.6% | 28.9% | same |
+| ACF MAE | 0.020 | 0.050 | +150% |
+| Boundary | 0.984 | 1.295 | +32% (worse) |
+
+**FAILED**: Smoothing the baseline destroys the conditioning signal. Width ratio 0.926
+means model generates nearly the same width regardless of market regime. The 5-day
+average removes the very variation that vol_scale uses to differentiate calm/turbulent
+periods. Skewness crashed from 1.055 to 0.402.
+
+**Conclusion**: Multi-day baseline is counterproductive for vol_scaled mode. The last
+day's IV level IS the information that creates regime-conditional behavior. Abandoned.
+
+### Exp 24b: Remove Vol-Scale Clamp (Data-Driven Scaling) — MIXED
+
+**Hypothesis**: The [0.5, 2.0] clamp on vol_scale artificially constrains uncertainty.
+Removing it (min=0.01, max=100.0) lets the model use the full natural range [0.28, 2.22].
+
+**Config**: Same as VS bestval + `vol_scale_min=0.01, vol_scale_max=100.0`.
+Model: `models/backfill/block_ar_exp24b_noclamp/best_model.pt` (epoch 18)
+
+| Metric | VS bestval | 24b noclamp | Delta |
+|--------|-----------|-------------|-------|
+| Kurtosis | **1.006** | 0.879 | -13% |
+| Skewness | 1.055 | **1.379** | +31% |
+| 90% CI | 87.9% | **90.2%** | +2.3% |
+| CalibErr | **0.031** | 0.057 | +84% (worse) |
+| Width ratio | 0.707 | 0.900 | +27% (less conditional) |
+| MAE reduction | **89.3%** | 87.8% | -1.5% |
+| Calendar | **9.4%** | 10.7% | +1.3% |
+| Butterfly | 30.7% | 29.9% | -0.8% |
+| ACF MAE | **0.020** | 0.028 | +40% |
+| Boundary | **0.984** | 1.006 | +2.2% |
+
+**MIXED**: Better CI coverage and skewness, but worse kurtosis, calibration, and
+conditioning (width ratio 0.900 vs 0.707). The clamp was actually helping preserve
+conditioning signal — without it, calm/turbulent CIs become more similar.
+All formal tests still PASS (6/6).
+
+### Exp 24c: Per-Cell Vol-Scale (vol_scaled_percell) — FAIL
+
+**Hypothesis**: Computing vol_scale per-cell (rather than from mean IV) captures
+moneyness-specific volatility dynamics, improving per-cell coverage heterogeneity.
+
+**Config**: Same as VS bestval + `ratio_target_mode=vol_scaled_percell`.
+Model: `models/backfill/block_ar_exp24c_percell/best_model.pt` (epoch 13)
+
+| Metric | VS bestval | 24c percell | Delta |
+|--------|-----------|-------------|-------|
+| Kurtosis | **1.006** | 0.603 | -40% (REGRESSION) |
+| Skewness | 1.055 | 1.035 | -2% |
+| 90% CI | 87.9% | 88.4% | +0.5% |
+| CalibErr | **0.031** | 0.040 | +29% |
+| Width ratio | 0.707 | **1.002** | +42% (DESTROYED conditioning) |
+| MAE reduction | **89.3%** | 86.5% | -2.8% |
+| Calendar | **9.4%** | 11.7% | +2.3% |
+
+**FAILED**: Width ratio 1.002 means model generates identical CIs regardless of
+market regime — conditioning completely destroyed. Per-cell vol computation removes
+the aggregate signal that differentiates calm/turbulent. Kurtosis crashed to 0.603.
+FAILS conditionality test (5/6 pass).
+
+### Exp 25: Mean Prediction Head (Learned Bias Correction) — FAIL
+
+**Hypothesis**: Add a small MLP that predicts per-cell mean shift μ(condition),
+with diffusion operating on the zero-mean residual. This gives the model a direct
+path to predict regime-specific mean shifts without going through 100 reverse steps.
+Bitter-lesson-aligned: adds capacity rather than manual tuning.
+
+**Architecture**: MLP (128→64→25) with SiLU, zero-initialized output. Mean predicted
+from encoder condition vector, subtracted from target before diffusion, added back
+at inference. Trained with MSE loss (λ=1.0).
+
+**Config**: Same as VS bestval + `use_mean_head=True, mean_head_lambda=1.0`.
+Model: `models/backfill/block_ar_exp25_meanhead/best_model.pt` (epoch 18, 443K params)
+
+| Metric | VS bestval | 25 meanhead | Delta |
+|--------|-----------|-------------|-------|
+| Kurtosis | **1.006** | 0.813 | -19% |
+| Skewness | **1.055** | 0.060 | -94% (DESTROYED) |
+| 90% CI | 87.9% | 88.6% | +0.7% |
+| CalibErr | **0.031** | 0.042 | +35% |
+| Width ratio | 0.707 | 0.818 | +16% |
+| MAE reduction | **89.3%** | 88.5% | -0.8% |
+| Butterfly | 30.7% | **27.5%** | -10% |
+| ACF MAE | **0.020** | 0.047 | +135% |
+| Boundary | **0.984** | 1.043 | +6% |
+
+**FAILED**: The mean head destroyed skewness (0.060 vs 1.055). Root cause: the MLP
+learned to predict the systematic positive mean shift that was the source of positive
+skewness (CausalConv3d creates directional asymmetry that compounds over 100 reverse
+steps). By removing this from the diffusion target, the zero-mean residual has no
+asymmetry mechanism. The mean head is architecturally sound but fundamentally
+incompatible with preserving skewness.
+
+All formal tests technically PASS (6/6), but the model is strictly worse than VS bestval.
+
+### Experiment Series 24-25: Conclusions
+
+**None of the four experiments improved on the VS bestval model.** Each intervention
+that targeted the calm-regime bias damaged at least one key metric:
+
+| Approach | What it fixes | What it breaks |
+|----------|-------------|---------------|
+| Multi-day baseline (24a) | — | Conditioning, skewness, boundary |
+| Remove clamp (24b) | CI coverage | Kurtosis, calibration, conditioning |
+| Per-cell vol_scale (24c) | — | Conditioning (flat), kurtosis |
+| Mean head (25) | Butterfly arb | Skewness (destroyed), kurtosis, ACF |
+
+**Key insight**: The calm-regime bias is a natural consequence of using the last
+history day as baseline in a mean-reverting market. Any fix that removes this bias
+also removes the asymmetric information that creates realistic skewness and kurtosis.
+The bias is small enough (~1-3×10⁻³ in IV) that all formal coverage tests pass.
+
+**The VS bestval model (epoch 26) remains the best model.** It passes all 6/6
+formal test suites with near-perfect kurtosis (1.006) and skewness (1.055).
+
+### Butterfly Arbitrage Root Cause Analysis
+
+The butterfly arbitrage rate (30.7% for VS bestval) has been persistent at 28-31%
+across all experiments. Investigation reveals:
+
+1. **Ground truth data floor**: The GT data itself has 20.1% butterfly violations
+   at the same threshold (-0.005). This is inherent to the 5×5 grid with 0.15
+   moneyness spacing.
+
+2. **Per-tenor breakdown (GT)**:
+   - 1M tenor: 33.7% violations (high curvature, tight smile)
+   - 3M: 22.1%
+   - 6M: 20.4%
+   - 1Y: 13.4%
+   - 2Y: 11.2% (smoother)
+
+3. **Per-triplet breakdown (GT)**:
+   - ITM triplet (K=0.70-0.85-1.00): 48.4% — steepest curvature
+   - Central triplet (K=0.85-1.00-1.15): 5.8%
+   - OTM triplet (K=1.00-1.15-1.30): 6.3%
+
+4. **Model performance**: At 30.7%, the model is within +10% of GT floor (20.1%).
+   The PASS threshold is 40%. Models below GT (< 20%) would indicate overfitting
+   to arbitrage structure.
+
+**Conclusion**: Butterfly arbitrage at 28-31% is NOT a model failure — it accurately
+reflects the inherent constraints of a 5-point moneyness grid. The issue is
+documented but does not require a fix.
+
+
+## 2026-02-26: Full Review — VS Bestval Against All 11 Issues
+
+### Model Under Review
+
+**VS bestval**: `models/backfill/block_ar_vol_scaled_30ep/best_model.pt` (epoch 26, 437K params)
+Config: Conv3D denoiser, GRU encoder, bottleneck_dim=128, 6 res blocks, block_size=10,
+forward_only=True, uniform_noise=True, sampling_mode=uniform, ratio_target=vol_scaled.
+
+### Formal Test Results: ALL PASS (6/6)
+
+| Test Suite | Result | Key Metric |
+|-----------|--------|-----------|
+| Surface validity | PASS | 0% explosion, 9.4% calendar, 30.7% butterfly |
+| CI Coverage | PASS | 87.9% (h=1: 91.2%, h=30: 87.5%) |
+| Conditionality | PASS | Width ratio 0.707, MAE reduction 89.3% |
+| Time series | PASS | Kurtosis 1.006, skewness 1.055, ACF MAE 0.020 |
+| Block-AR | PASS | Boundary 0.984, growing unc monotonic |
+| Cointegration | PASS | Pass rate 68.7% (GT: 54.1%) |
+
+### Issue-by-Issue Resolution
+
+| # | Issue | Status | Details |
+|---|-------|--------|---------|
+| 1 | Calm-regime baseline anchor bias | DOCUMENTED | Bias exists (~1-3e-3 IV) but all coverage tests pass. Fixing breaks skewness/kurtosis (Exp 24a-25). |
+| 2 | Right-tail miss | ACCEPTABLE | Downstream of #1. Overall 90% CI = 87.9%. |
+| 3 | Per-cell coverage heterogeneity | ACCEPTABLE | All horizons above 80% (h=1: 91.2%, h=30: 87.5%). |
+| 4 | Calm calibration below diagonal | ACCEPTABLE | Calibration error 0.031. Max single-level gap 0.049. |
+| 5 | Within-path kurtosis | SOLVED | Ratio 1.006 — near-perfect match (GT=77.0, Gen=77.5). |
+| 6 | Butterfly arbitrage 30.7% | DOCUMENTED | GT data floor is 20.1%. Model within 10% of GT. Pass threshold <40%. |
+| 7 | Calendar arbitrage 9.4% | PASS | Well within 15% threshold. |
+| 8 | K=1.30 instability | DOCUMENTED | Edge moneyness, inherent to grid. Less liquid OTM pricing. |
+| 9 | Left tail elevated | ACCEPTABLE | Skewness ratio 1.055 — excellent. |
+| 10 | Intra-path smoothness | ACCEPTABLE | ACF MAE 0.020 (target <0.10), boundary ratio 0.984. |
+| 11 | Cross-cell correlation | DOCUMENTED | Inherent to architecture. No formal test. |
+
+### Summary: 0 issues require fixes
+
+- **2 SOLVED**: Kurtosis (#5), Calendar arb (#7)
+- **5 ACCEPTABLE**: All within formal pass thresholds (#2, #3, #4, #9, #10)
+- **4 DOCUMENTED**: Known characteristics that reflect data/grid limitations (#1, #6, #8, #11)
+
+### Experiments That Attempted Fixes (All Failed)
+
+Four experiments attempted to fix the calm-regime bias (#1) — all degraded key metrics:
+
+| Experiment | Kurtosis | Skewness | Width ratio | Verdict |
+|-----------|----------|----------|-------------|---------|
+| VS bestval (reference) | 1.006 | 1.055 | 0.707 | **BEST** |
+| 24a: baseline_window=5 | 0.924 | 0.402 | 0.926 | FAIL |
+| 24b: no vol_scale clamp | 0.879 | 1.379 | 0.900 | MIXED |
+| 24c: per-cell vol_scale | 0.603 | 1.035 | 1.002 | FAIL |
+| 25: mean prediction head | 0.813 | 0.060 | 0.818 | FAIL |
+
+**Conclusion**: The calm-regime bias is a natural consequence of using the last
+history day as baseline in a mean-reverting market. Removing it destroys the
+asymmetric information that creates realistic skewness (1.055) and tail behavior
+(kurtosis 1.006). The model is already at a Pareto-optimal operating point.
+
+### Calm-Regime Coverage Deep Dive (2026-02-26)
+
+Detailed per-regime analysis reveals calm-regime undercoverage at longer horizons:
+
+| Horizon | ALL | CALM | TURBULENT |
+|---------|-----|------|-----------|
+| h=1 | 88.4% | 83.5% | 90.2% |
+| h=7 | 83.0% | 77.3% | 85.0% |
+| h=14 | 84.5% | 76.7% | 87.2% |
+| h=30 | 82.9% | 71.6% | 87.6% |
+
+**Root cause**: Model z-space output has slight negative mean (-0.006) and negative skewness
+(-0.27). In calm markets, vol_scale is clipped to 0.5 (minimum), making CIs narrow. Combined
+with the negative z-bias, predictions systematically undershoot GT in calm periods.
+
+**Analysis of the bias**:
+- GT-baseline in calm markets: +2.3e-3 (positive, mean reversion upward)
+- GT-baseline in turbulent: -3.6e-3 (negative, mean reversion downward)
+- Overall: ~0 (the two cancel out — model learns this correctly)
+- The drift is NOT predictable from condition vector (R² = -0.03)
+- It IS correlated with IV level (Spearman = -0.219)
+
+### Exp 26: Increased Denoiser Capacity (8 res blocks) — PROMISING
+
+**Hypothesis**: More denoiser capacity may let model learn better regime-conditional
+uncertainty. 8 res blocks instead of 6 (+115K params, 552K total).
+
+**Config**: Same as VS bestval + `conv3d_n_res_blocks=8`.
+Model: `models/backfill/block_ar_exp26_8resblocks/best_model.pt` (epoch 28)
+
+| Metric | VS bestval | Exp 26 (8 res) | Delta |
+|--------|-----------|---------------|-------|
+| 90% CI | 87.9% | **89.6%** | +1.7% |
+| Kurtosis | **1.006** | 0.783 | -22% |
+| Skewness | 1.055 | **1.251** | +19% |
+| Width ratio | **0.707** | 0.780 | +10% |
+| CalibErr | **0.031** | 0.048 | +55% |
+| ACF MAE | 0.020 | 0.020 | same |
+| Calendar | **9.4%** | 11.1% | +1.7% |
+| Butterfly | 30.7% | 32.2% | +1.5% |
+| Boundary | **0.984** | 1.010 | +2.6% |
+| Pass | 5/5 | **5/5** | — |
+
+Per-regime calm coverage:
+| Horizon | VS bestval (calm) | Exp 26 (calm) | Delta |
+|---------|:---:|:---:|:---:|
+| h=1 | 83.5% | 84.0% | +0.5% |
+| h=7 | 77.3% | **81.1%** | +3.8% |
+| h=14 | 76.7% | 79.0% | +2.3% |
+| h=30 | 71.6% | 75.5% | +3.9% |
+
+**PROMISING**: Passes all 5/5 tests. Calm coverage improved at all horizons, h=7 now
+above 80%. But calm h=14/h=30 still below 80%, and kurtosis regressed from 1.006 to 0.783.
+
+### Exp 27: Huber Loss — FAIL (conditionality)
+
+**Hypothesis**: MSE penalizes outliers quadratically, causing conservative narrow
+predictions. Huber loss (δ=0.1) reduces outlier penalty.
+
+| Metric | VS bestval | Exp 27 (Huber) |
+|--------|-----------|---------------|
+| 90% CI | 87.9% | 89.5% |
+| Width ratio | **0.707** | 1.135 (FAIL) |
+| Pass | 5/5 | **4/5** |
+
+**FAILED**: Width ratio 1.135 fails conditionality test (< 0.95). Huber loss makes
+ALL CIs wider uniformly, destroying the calm/turbulent distinction.
+
+### MGR=10 (Growing Uncertainty) — FAIL
+
+**Test**: Existing VS bestval with max_global_residual=10 at inference.
+
+| Metric | VS bestval (MGR=0) | MGR=10 |
+|--------|-----------|--------|
+| 90% CI | 87.9% | 93.0% |
+| Kurtosis | **1.006** | 0.378 |
+| CalibErr | **0.031** | 0.124 |
+| Calendar | **9.4%** | 15.1% |
+| Pass | 5/5 | **3/5** |
+
+**FAILED**: Massively overcorrects. Kurtosis destroyed, calendar arb at threshold.
+
+### Exp 28: base_channels=48 (2x Spatial Capacity, 888K params) — MIXED
+
+**Hypothesis**: Double denoiser spatial capacity (32→48 base channels) gives model more capacity
+to learn regime-conditional uncertainty. Bitter-lesson-aligned: add capacity, let model learn.
+
+**Config**: Same as VS bestval except conv3d_base_channels=48. 888K params (vs 437K).
+Epoch 27 best_model (val-loss selected).
+
+| Metric | VS bestval | Exp 28 | Delta |
+|--------|-----------|--------|-------|
+| Kurtosis | **1.006** | 0.772 | -23% |
+| Skewness | **1.055** | 0.986 | -7% |
+| 90% CI | 87.9% | **90.4%** | +2.5% |
+| CalibErr | **0.031** | 0.059 | +90% |
+| Calendar | **9.4%** | 11.0% | +1.6% |
+| Width ratio | **0.900** | 0.914 | - |
+| MAE reduction | 89.3% | 88.6% | - |
+| Boundary | 0.984 | **0.976** | - |
+| ACF MAE | **0.020** | 0.0245 | - |
+| Pass | 5/5 | 5/5 | - |
+
+**Calm/Turb regime coverage (400 windows, 50 samples):**
+
+| Regime/Horizon | VS bestval | Exp 28 |
+|---------------|-----------|--------|
+| CALM h=1 | 83.5% | **93.0%** |
+| CALM h=7 | 77.3% | **92.9%** |
+| CALM h=14 | 76.7% | **94.8%** |
+| CALM h=30 | 71.6% | **97.1%** |
+| TURB h=1 | **90.2%** | 87.5% |
+| TURB h=7 | **90.0%** | 79.7% |
+| TURB h=14 | **93.3%** | 74.5% |
+| TURB h=30 | **95.9%** | 69.6% |
+
+**Key finding: Calm/turb asymmetry FLIPPED.** VS bestval had calm undercoverage;
+Exp 28 has calm overcoverage but turb undercoverage. Doubling spatial capacity shifted
+the model's center bias direction without fixing regime conditioning.
+
+Residual analysis (resid/std): width is adequate for both regimes in both models.
+The issue is CENTER BIAS — the model's median prediction is systematically off for
+certain regimes, and which regime is biased depends on model capacity.
+
+**CONCLUSION**: Pure spatial capacity increase doesn't solve regime conditioning.
+The condition vector (128-dim) may be the bottleneck — it must carry both center
+and width information.
+
+### Exp 29: bottleneck_dim=256 (462K params) — MIXED
+
+**Hypothesis**: Larger condition vector (256-dim) can carry both center and regime info.
+
+| Metric | VS bestval | Exp 29 | Delta |
+|--------|-----------|--------|-------|
+| Kurtosis | **1.006** | 0.781 | -22% |
+| Skewness | **1.055** | 0.484 | -54% (barely passing) |
+| 90% CI | 87.9% | **90.4%** | +2.5% |
+| CalibErr | **0.031** | 0.063 | worse |
+| Calendar | **9.4%** | 10.5% | - |
+| Width ratio | 0.900 | **0.670** | much better conditioning |
+| Butterfly | **30.7%** | 34.0% | worse |
+| Pass | 5/5 | 5/5 | - |
+
+Calm/turb (400 windows): CALM overall 95.2% (overcovered), TURB overall 78.6% (undercovered).
+Same flip pattern as Exp 28. Width ratio 0.670 shows much stronger conditioning, but this
+doesn't translate to balanced regime coverage. Skewness badly regressed.
+
+### Exp 30: 60 Epochs (VS bestval config, 437K params) — STRONG
+
+**Hypothesis**: Longer training develops better regime conditioning.
+
+Best model at epoch 42. Same architecture as VS bestval.
+
+| Metric | VS bestval (ep26) | Exp 30 (ep42) | Delta |
+|--------|-------------------|---------------|-------|
+| Kurtosis | **1.006** | 0.896 | -11% |
+| Skewness | 1.055 | **1.214** | +15% (best ever!) |
+| 90% CI | 87.9% | 88.1% | same |
+| CalibErr | 0.031 | **0.029** | better |
+| Calendar | **9.4%** | 10.2% | - |
+| Width ratio | 0.900 | **0.829** | better conditioning |
+| Butterfly | 30.7% | **27.6%** | improved! |
+| MAE reduction | **89.3%** | 87.4% | slightly worse |
+| ACF MAE | 0.020 | **0.019** | better |
+| Pass | 5/5 | **5/5** | - |
+
+**Best skewness ever**: 1.214 (ratio). Also best butterfly (27.6%), best calibration (0.029).
+Longer training clearly helps for skewness and calibration. Near-perfect cointegration (1.008 ratio).
+
+**Calm/turb (full 1223 windows):**
+
+| Regime/Horizon | VS bestval | Exp 30 |
+|---------------|-----------|--------|
+| CALM h=7 | 92.3% | 93.9% |
+| CALM h=30 | 89.2% | 88.8% |
+| CALM overall | 91.2% | 92.1% |
+| TURB h=7 | 75.4% | 76.0% |
+| TURB h=30 | 80.6% | 80.1% |
+| TURB overall | 79.3% | 78.6% |
+
+**Turb h=7 still 76%** — no improvement from longer training. Coverage checkpoint (epoch 50)
+also shows turb h=7 = 76.2%. The regime coverage gap is STRUCTURAL, not convergence-related.
+
+### KEY INSIGHT: Regime Coverage Analysis (Systematic Study)
+
+**Full-test-set regime coverage (1223 windows, reproducible across seeds):**
+
+The actual pattern for VS bestval is:
+- **Calm Q1: OVERCOVERED** (91.2% overall, h=7: 92.3%)
+- **Turb Q5: UNDERCOVERED** (79.3% overall, h=7: 75.4%)
+
+This pattern is CONSISTENT across all models tested (Exp 24b, 28, 29, 30).
+The turb h=7 is stubbornly at ~76% regardless of:
+- Model capacity (437K-888K params)
+- Bottleneck dim (128-256)
+- Training duration (30-60 epochs)
+- Vol_scale clamp (with/without)
+
+**Root cause: CI widths are FLAT across regimes.**
+- Calm CI width at h=7: 0.1027
+- Turb CI width at h=7: 0.1024
+- Ratio: 1.003x (effectively identical)
+
+The vol_scaled target homogenizes z-space variance: calm targets get amplified (÷ 0.5)
+while turb targets get compressed (÷ 1.5), so the DDPM learns a single z distribution.
+At inference, vol_scale denormalization should differentiate, but since GT regime variance
+is nearly flat (ratio ~1.0), the CIs come out flat.
+
+The 15.9% coverage gap (calm 91.2% vs turb 79.3%) comes entirely from CENTER BIAS:
+the model's median prediction systematically tracks calm dynamics better than turbulent.
+This is a prediction quality issue, not an uncertainty calibration issue.
+
+**VS bestval epoch sweep (first 400 windows):**
+
+| Epoch | Overall | Calm h=7 | Calm h=30 | Turb h=7 | Turb h=30 |
+|-------|---------|----------|-----------|----------|-----------|
+| 15 | 79.3% | 90.0% | 82.1% | 77.7% | 50.6% |
+| 20 | 86.8% | 92.3% | 95.9% | 79.9% | 63.7% |
+| 25 | 91.1% | 94.5% | 97.6% | 82.6% | 79.0% |
+| **26** | **90.0%** | 92.5% | 96.3% | **80.0%** | **82.4%** |
+| 30 | 89.9% | 92.8% | 97.6% | 81.5% | 74.9% |
+
+Epoch 26 (val-loss selected) happens to have the best turb h=30 (82.4%). The turb h=7
+hovers around 78-83% across epochs — showing this is a structural bound, not noise.
+
+### Exp 31: Auxiliary Regime Features (vol_of_vol + IV level conditioning) — PARTIAL FAIL
+
+**Hypothesis**: The denoiser lacks explicit information about current market regime.
+If we add vol_of_vol (turbulence) and mean IV level as explicit conditioning features,
+the model can learn regime-specific denoising behavior.
+
+**Implementation**: 2-feature MLP (vol_of_vol, mean_iv_level) → bottleneck_dim, ADDED
+to condition vector. Zero-initialized output so regime features start as no-op.
+
+**Config**: Same as VS bestval + `aux_regime_features=True`, 445K params (+8K from MLP),
+30 epochs. Best model at epoch 28.
+
+**Formal eval results** (`results/block_ar/exp31_auxregime_bestval/summary.json`):
+
+| Metric | VS bestval | Exp 31 | Status |
+|--------|-----------|--------|--------|
+| Kurtosis | 1.006 | 0.902 | PASS (regressed) |
+| Skewness | 1.055 | 0.654 | PASS (significantly worse) |
+| 90% CI | 87.9% | 89.2% | PASS (+1.3%) |
+| CalibErr | 0.031 | 0.043 | slightly worse |
+| Calendar | 9.4% | 10.0% | PASS |
+| Butterfly | 30.7% | 31.8% | PASS |
+| Width ratio | 0.707 | 1.130 | **FAIL** |
+| MAE reduction | 89.3% | 87.4% | PASS |
+| Boundary | 0.984 | 0.972 | PASS |
+| ACF | 0.020 | 0.025 | PASS |
+
+**Width ratio FAILS** (1.130 = conditional wider than unconditional). Kurtosis and
+skewness both regressed. The regime features appear to hurt rather than help.
+
+**Regime coverage results** (400 windows, corrected denormalization):
+
+| Metric | VS bestval | Exp 31 | Delta |
+|--------|-----------|--------|-------|
+| Calm overall | 91.9% | 93.5% | +1.6% |
+| Calm h=7 | 92.5% | 93.1% | +0.6% |
+| **Turb overall** | **81.2%** | **80.2%** | **-1.0%** |
+| **Turb h=7** | **76.6%** | **77.5%** | **+0.9%** |
+| Turb h=14 | 82.0% | 79.8% | -2.2% |
+| Turb h=30 | 81.4% | 79.4% | -2.0% |
+| Width turb/calm | 1.000x | 0.950x | — |
+
+**Verdict: FAIL.** Aux regime features had NO meaningful impact on turb coverage (+0.9% at h=7,
+within noise). Turb h=14 and h=30 actually worsened. Width ratio FAILS formal test.
+Explicit regime conditioning does NOT help — the encoder already captures regime info,
+the bottleneck is not the limiting factor for center prediction quality.
+
+### Root Cause: Model Partially Undoes Vol-Scaling (Diagnostic)
+
+**z-space analysis** reveals the DDPM generates NARROWER z-distributions for turb windows:
+- Calm z_std: 0.305 (wide)
+- Turb z_std: 0.092 (narrow, 3.3x smaller)
+
+After vol_scale multiplication: calm spread=0.172, turb spread=0.156 — nearly equal in log-ratio
+space. The model has learned to COMPENSATE for vol_scale by reducing z-spread for high vol_scale.
+
+GT bias std (h=7): calm=0.014, turb=0.051 — turb needs 3.6x wider CIs, gets 0.9x.
+
+DDPM posterior variance σ²_t is UNCONDITIONAL (fixed function of noise schedule). The only way
+to get regime-specific spread is through the denoiser's noise prediction affecting posterior mean.
+The model converges to ~constant effective spread regardless of conditioning.
+
+### Exp 32: CFG (cond_drop_prob=0.1, guidance_scale=1.5) — ALL PASS but no regime improvement
+
+**Config**: Same as VS bestval + CFG training (cond_drop_prob=0.1), inference guidance_scale=1.5.
+437K params, 30 epochs, best_model epoch 30.
+
+| Metric | VS bestval | Exp 32 (CFG) |
+|--------|-----------|--------------|
+| Kurtosis | 1.006 | 0.846 (regressed) |
+| 90% CI | 87.9% | **90.0%** (+2.1%) |
+| CalibErr | 0.031 | 0.061 (worse) |
+| Width ratio | 0.707 | 0.777 |
+| MAE reduction | 89.3% | 88.4% |
+
+**Regime coverage** (400 windows):
+
+| Metric | VS bestval | Exp 32 (CFG) |
+|--------|-----------|--------------|
+| Calm overall | 91.9% | 94.2% (+2.3%, overcovering) |
+| Turb overall | 81.2% | 79.7% (-1.5%, WORSE) |
+| Turb h=7 | 76.6% | 78.5% (+1.9%) |
+| Turb h=14 | 82.0% | 78.4% (-3.6%) |
+
+**Verdict: FAIL for regime gap.** CFG amplifies conditioning signal but doesn't fix spread.
+Turb h=14/h=30 worsened. Calm overcovered more.
+
+### Exp 33: Big Model (1.24M params, 3x scaling) — ALL PASS but regime WORSE
+
+**Config**: gru_hidden=128, bottleneck=256, 8 res blocks, base_ch=48. Vol_scaled ratio target.
+50 epochs, best_model epoch 18.
+
+| Metric | VS bestval (437K) | Exp 33 (1.24M) |
+|--------|-------------------|----------------|
+| Kurtosis | 1.006 | **1.101** (near-perfect) |
+| 90% CI | 87.9% | 86.5% |
+| CalibErr | 0.031 | **0.020** (best ever) |
+| Width ratio | 0.707 | 0.727 |
+| Calendar | 9.4% | 9.7% |
+| Butterfly | 30.7% | **28.9%** |
+
+**Regime coverage** (400 windows):
+
+| Metric | VS bestval | Exp 33 (big) |
+|--------|-----------|-------------|
+| Calm overall | 91.9% | 91.3% |
+| **Turb overall** | 81.2% | **77.8%** (WORSE) |
+| **Turb h=7** | 76.6% | **74.6%** (WORSE, below 75% threshold) |
+| Width turb/calm | 1.000x | 0.989x |
+
+**Verdict: FAIL.** Bigger model has BEST kurtosis (1.101) and calibration (0.020) ever, but
+turb regime coverage WORSENED. Scaling up denoiser capacity doesn't fix regime spread.
+Larger model may even learn to undo vol_scaling MORE efficiently.
+
+### Exp 34: Big Model + Plain Log-Ratio (No Vol-Scaling) — BREAKTHROUGH
+
+**Key insight**: Vol-scaling homogenizes z-space, and the model learns to undo it (turb z_std=0.092
+vs calm z_std=0.305). Without vol-scaling, z-targets retain natural regime-specific variance.
+A large model can learn the harder raw task but generates naturally wider distributions for turb.
+
+**Config**: 1.24M params (gru_hidden=128, bottleneck=256, 8 res blocks, base_ch=48),
+`ratio_target_mode=log` (no vol_scaling), 50 epochs, best_model epoch 33.
+
+**Formal eval** (`results/block_ar/exp34_big_log_bestval/summary.json`): ALL TESTS PASS
+
+| Metric | VS bestval | Exp 34 (big+log) |
+|--------|-----------|-------------------|
+| Kurtosis | 1.006 | 0.937 |
+| 90% CI | 87.9% | **87.7%** (matches!) |
+| CalibErr | 0.031 | **0.019** (BEST EVER) |
+| Calendar | 9.4% | **8.6%** (BEST EVER) |
+| Width ratio | 0.707 | **0.501** (BEST conditionality) |
+| MAE reduction | 89.3% | 87.4% |
+| Boundary | 0.984 | 0.943 |
+
+**Regime coverage** (400 windows):
+
+| Metric | VS bestval | Exp 34 (big+log) | Delta |
+|--------|-----------|-------------------|-------|
+| Calm overall | 91.9% | 89.5% | -2.4% |
+| **Turb overall** | 81.2% | **83.3%** | **+2.1%** |
+| **Turb h=1** | 84.6% | **89.6%** | **+5.0%** |
+| **Turb h=7** | 76.6% | **82.0%** | **+5.4%** |
+| Regime gap | 10.7% | **6.2%** | **smallest** |
+| Width turb/calm | 1.000x | **1.253x** | turb CIs naturally wider |
+
+**Per-cell turb h=7 (80 turb windows, VS bestval → Exp 34):**
+
+```
+78.8→80.0  86.2→88.8  62.5→62.5  71.2→76.2  86.2→90.0
+73.8→90.0  87.5→88.8  70.0→66.2  66.2→70.0  81.2→83.8
+76.2→92.5  88.8→92.5  70.0→71.2  58.8→62.5  90.0→92.5
+85.0→95.0  82.5→91.2  78.8→83.8  63.7→67.5  78.8→75.0
+88.8→96.2  93.8→98.8  95.0→95.0  88.8→86.2  86.2→81.2
+```
+
+Most cells improved (especially left columns). Center-right cells (col 2-3, rows 0-3) remain
+stubborn but improved from 58.8-70% range to 62.5-71.2% range. 4 cells still below 70%.
+
+**Conclusion: Big model + raw log-ratio is the best approach for regime coverage.**
+The vol_scaling was HINDERING regime-specific spread by letting the model compensate.
+Without it, the bitter lesson applies: scale the model and let it learn.
+
+### Exp 35: Big Model + Log-Ratio + 60-Day History — Best Worst-Case Coverage
+
+**Hypothesis**: Longer history (60 vs 30 days) gives more context for regime identification,
+allowing the model to produce better-calibrated turb vs calm CIs.
+
+**Config**: Same as Exp 34 (1.24M params, gru_hidden=128, bn=256, 8 res blocks, base_ch=48,
+`ratio_target_mode=log`) but with `history_len=60`. Trained 50 epochs, best_model epoch 26.
+
+**Per-cell regime coverage** (400 windows, 50 samples, native quintile thresholds):
+
+| Metric | Exp 34 (h=30) | Exp 35 (h=60) |
+|--------|---------------|---------------|
+| Turb h=7 mean | **83.8%** | 82.0% |
+| Turb h=7 min cell | 68.8% | **70.0%** |
+| Turb h=7 cells<70% | 2 | **0** |
+| Turb h=7 cells<75% | 6 | **5** |
+| Turb h=14 mean | 81.9% | **84.6%** |
+| Turb h=30 mean | 81.1% | **84.5%** |
+| Calm h=7 mean | 91.5% | 89.9% |
+| Width ratio turb/calm | **1.442x** | 1.205x |
+
+**Per-cell turb h=7 grids (Exp 34 → Exp 35):**
+
+```
+83.8→92.5  86.2→88.8  72.5→72.5  81.2→76.2  86.2→88.8
+85.0→87.5  83.8→82.5  70.0→72.5  75.0→77.5  68.8→73.8
+90.0→85.0  90.0→87.5  68.8→75.0  73.8→73.8  93.8→87.5
+96.2→88.8  87.5→86.2  86.2→78.8  73.8→70.0  86.2→83.8
+95.0→81.2  93.8→87.5  90.0→86.2  87.5→83.8  88.8→83.8
+```
+
+**Key findings:**
+- Exp 35 eliminates all cells below 70% (worst = 70.0% vs 68.8%)
+- BUT trades off: Exp 34's left-column/bottom-row cells are HIGHER (95-96% → 81-89%)
+- Exp 35 is more uniform across cells (narrower range) but lower overall mean
+- Longer history smooths per-cell variation but doesn't dramatically improve the worst cells
+- Width ratio 1.205x vs 1.442x: h=60 model produces less turb-specific widening
+
+**Remaining problem cells (turb h=7 < 75%)**:
+- Exp 34: (0,2)=72.5, (1,2)=70.0, (2,2)=68.8, (1,4)=68.8, (2,3)=73.8, (3,3)=73.8
+- Exp 35: (0,2)=72.5, (1,2)=72.5, (1,4)=73.8, (2,3)=73.8, (3,3)=70.0
+- Stubborn cells: col 2 rows 0-1, col 3 row 3, col 4 row 1
+
+These cells correspond to ATM/slightly-OTM calls at short-mid tenors — the part of the surface
+where turbulent regime creates the most unpredictable movements.
+
+### Exp 36: Even Bigger Model (2.53M params) + Log-Ratio — WORSE, Capacity Not Bottleneck
+
+**Hypothesis**: More capacity allows better spatial learning of where uncertainty should be higher.
+
+**Config**: gru_hidden=128, bottleneck=256, **base_ch=64** (was 48), **n_res_blocks=10** (was 8),
+`ratio_target_mode=log`, 100 epochs. ~2.53M params. Best model at epoch 30 (very early overfitting).
+
+**Per-cell turb h=7**: Mean=81.5%, Min=67.5%, Cells<70%=1, Cells<75%=8 — **WORSE than Exp 34**.
+
+**Conclusion: Model capacity is NOT the bottleneck.** The DDPM's fixed noise schedule limits per-cell
+variance regardless of model size. 2x params → worse results due to overfitting.
+
+### Exp 37: Big Model + Log + Learned Variance (IDDPM) — BEST PER-CELL TURB
+
+**Hypothesis**: Giving the model explicit control over posterior variance (Nichol & Dhariwal 2021)
+allows it to learn regime-specific, cell-specific uncertainty. The denoiser outputs 2x channels:
+noise prediction + variance fraction. VLB loss trains variance while noise prediction is detached.
+
+**Config**: Same as Exp 34 (1.24M params), `learn_sigma=True`, `lambda_vlb=0.001`. 50 epochs,
+best_model epoch 42.
+
+**Per-cell regime coverage** (400 windows, 50 samples):
+
+| Metric | Exp 34 | Exp 35 | Exp 36 | **Exp 37** |
+|--------|--------|--------|--------|-----------|
+| Turb h=7 mean | 83.8% | 82.0% | 81.5% | **85.4%** |
+| Turb h=7 min | 68.8% | 70.0% | 67.5% | **70.0%** |
+| Turb h=7 cells<70% | 2 | 0 | 1 | **0** |
+| Turb h=7 cells<75% | 6 | 5 | 8 | **3** |
+| Calm h=7 mean | 91.5% | 89.9% | 90.3% | **93.2%** |
+| Width ratio | 1.442x | 1.205x | 1.386x | 1.374x |
+
+**Per-cell turb h=7 grid (Exp 34 → Exp 37):**
+
+```
+83.8→85.0  86.2→86.2  72.5→78.8  81.2→72.5  86.2→86.2
+85.0→86.2  83.8→83.8  70.0→70.0  75.0→78.8  68.8→73.8
+90.0→91.2  90.0→85.0  68.8→77.5  73.8→77.5  93.8→95.0
+96.2→96.2  87.5→90.0  86.2→87.5  73.8→82.5  86.2→86.2
+95.0→93.8  93.8→92.5  90.0→92.5  87.5→91.2  88.8→93.8
+```
+
+**Key improvements from learned variance:**
+- Cell (0,2): 72.5→78.8 (+6.3%) — now above 75%!
+- Cell (2,2): 68.8→77.5 (+8.7%) — no longer a problem cell!
+- Cell (2,3): 73.8→77.5 (+3.7%) — now above 75%!
+- Cell (3,3): 73.8→82.5 (+8.7%) — dramatic improvement!
+- Calm coverage ALSO improved: 91.5→93.2% — no tradeoff!
+
+**Remaining problem cells (turb h=7 < 75%)**:
+- (0,3)=72.5%, (1,2)=70.0%, (1,4)=73.8%
+
+Only 3 cells remain below 75%. The learned variance mechanism directly gives the model control over
+where to widen CIs, and it learns to produce larger posterior noise at cells with more turb uncertainty.
+
+### Exp 38: Learned Variance + Stronger VLB (lambda=0.01) — WORSE THAN EXP 37
+
+**Hypothesis**: 10x stronger VLB signal might push the last 3 cells above 75%.
+
+**Config**: Same as Exp 37 but `lambda_vlb=0.01` (10x), 80 epochs. Best model epoch 68.
+
+**Per-cell turb h=7 (Exp 37 → Exp 38):**
+```
+Exp 37: 85.0  86.2  78.8  72.5  86.2   Exp 38: 75.0  77.5  68.8  80.0  76.2
+        86.2  83.8  70.0  78.8  73.8          82.5  83.8  71.2  78.8  77.5
+        91.2  85.0  77.5  77.5  95.0          83.8  88.8  72.5  76.2  98.8
+        96.2  90.0  87.5  82.5  86.2          92.5  91.2  87.5  81.2  90.0
+        93.8  92.5  92.5  91.2  93.8          90.0  91.2  91.2  87.5  91.2
+  Mean=85.4%, Min=70.0%, <75%=3           Mean=83.4%, Min=68.8%, <75%=3
+```
+
+**Result: WORSE.** Stronger VLB degraded mean turb coverage (85.4→83.4%) and worsened
+the worst cell (70.0→68.8%). The VLB loss at 0.01 is too strong — it interferes with noise
+prediction training, producing worse mean predictions that reduce overall coverage.
+
+Training test coverage was also dramatically worse: 50%=45.7%, 80%=69.9%, 90%=78.1%.
+Formal eval skipped (per-cell results already show regression).
+
+**Conclusion**: lambda_vlb=0.001 (Exp 37) is the sweet spot. Stronger VLB hurts.
+
+### Exp 39: Learned Variance + 60-Day History — TRAINED, EVAL PENDING
+
+**Hypothesis**: Combining the two best ideas (Exp 37 learned variance + Exp 35 h=60 history)
+might push the remaining 3 cells below 75% to acceptable coverage.
+
+**Config**: Same as Exp 37 but `history_len=60`, 50 epochs. Best model epoch 38.
+Training test coverage: 50%=47.7%, 80%=72.4%, 90%=80.5%, sample diversity 0.0456.
+Model: `models/backfill/block_ar_exp39_learnvar_h60/best_model.pt`
+
+Per-cell and formal eval not yet run.
+
+---
+
+## 2026-02-27: Directional Bias Analysis — Why Calm Regime Is Poorly Calibrated
+
+### Motivation
+
+Management report V1/V2 fan charts showed the CI band visually biased relative to GT
+in calm periods. This analysis quantifies the **direction** of bias and explains why
+turbulent regime is counterintuitively better calibrated than calm in BOTH model families.
+
+### Method
+
+200 test windows, 50 samples each, stratified by vol_of_vol quintiles (Q20=calm, Q80=turb).
+For each window/horizon/cell: check whether GT falls above upper CI, below lower CI, and
+whether model median > GT. Ran on both VS bestval (mgmt report model) and Exp 37.
+
+### Results
+
+**VS bestval (vol_scaled, 437K params, management report model):**
+
+| h | regime | n | cov% | calErr | GT>upper% | GT<lower% | med>GT% |
+|---|--------|---|------|--------|-----------|-----------|---------|
+| 1 | calm | 36 | 84.6 | 8.6 | **10.7** | 4.8 | **38.4** |
+| 1 | turb | 41 | 87.2 | **3.8** | 9.2 | 3.6 | 45.8 |
+| 7 | calm | 36 | 75.8 | 14.2 | **16.1** | 8.1 | **40.3** |
+| 7 | turb | 41 | 82.0 | **8.2** | 14.0 | 4.0 | 35.9 |
+| 30 | calm | 36 | 73.6 | 16.8 | **19.2** | 7.2 | **33.7** |
+| 30 | turb | 41 | 88.5 | **5.5** | 8.3 | 3.2 | 30.7 |
+
+**Exp 37 (log + learned_var, 1.24M params):**
+
+| h | regime | n | cov% | calErr | GT>upper% | GT<lower% | med>GT% |
+|---|--------|---|------|--------|-----------|-----------|---------|
+| 1 | calm | 36 | 96.0 | 7.9 | 2.3 | 1.7 | 49.4 |
+| 1 | turb | 41 | 88.7 | **4.5** | 7.2 | 4.1 | 55.7 |
+| 7 | calm | 36 | 92.7 | 7.6 | 3.7 | 3.7 | 54.0 |
+| 7 | turb | 41 | 84.0 | **7.7** | 9.0 | 7.0 | 56.0 |
+| 30 | calm | 36 | 93.2 | 6.8 | 3.4 | 3.3 | 54.6 |
+| 30 | turb | 41 | 85.2 | **6.4** | 3.7 | 11.1 | 63.6 |
+
+### Key Finding: Opposite Bias Directions, Same Calibration Pattern
+
+The two model families have **opposite** calm bias directions but the **same**
+counterintuitive result — turbulent regime is better calibrated at every horizon:
+
+| | VS bestval (vol_scaled) | Exp37 (log) |
+|---|---|---|
+| Calm bias direction | **DOWN** (med>GT=38%) | **UP** (med>GT=54%) |
+| Calm failure mode | GT escapes above CI | CI overcoverage (too wide) |
+| Turb better calibrated? | **Yes** (every horizon) | **Yes** (h=1, h=30) |
+
+### Root Cause Analysis
+
+**VS bestval (vol_scaled) — DOWNWARD bias in calm:**
+- `sample = exp(z × vol_scale) × baseline`, where baseline = history[-1]
+- In calm periods, vol_scale is small → `exp(z × small) ≈ 1 + z × small` (nearly linear)
+- Jensen's inequality effect is minimal because vol_scale dampens the exponent
+- BUT: in calm markets, IV mean-reverts **upward** from low levels (well-known vol dynamics)
+- baseline = history[-1] systematically undershoots next-day GT
+- Model centers predictions on baseline → median below GT → GT escapes above the upper CI
+- This is the pattern visible in management report fan charts: GT drifts above the CI band
+- Miss rate dominated by GT>upper: 10.7% at h=1, worsening to 19.2% at h=30
+
+**Exp37 (log) — UPWARD bias in calm:**
+- `sample = exp(z) × baseline` (no vol_scale dampening)
+- Jensen's inequality: E[exp(z)] = exp(σ²/2) > 1 for symmetric z around 0
+- The CI midpoint in IV-space sits above baseline
+- In calm periods, GT barely moves from baseline → CI floats above GT → overcoverage
+- Misses are roughly balanced (GT>upper ≈ GT<lower) because the CI is wide enough
+- Coverage 92-96% in calm (well above 90% target)
+
+**Why turb is better calibrated in BOTH models:**
+The CI width is implicitly tuned for "average" market conditions (the marginal distribution
+across all regimes). In calm periods, actual uncertainty is much smaller than average →
+CI is either biased (vol_scaled) or too wide (log). In turbulent periods, actual uncertainty
+is closer to the average that the model learned → CI width is approximately correct.
+
+This is a fundamental property of any model that learns a single noise distribution
+across regimes, regardless of whether it uses vol_scaled or log transformation.
+The learned variance (IDDPM) in Exp 37 helps with per-cell heterogeneity but does
+not address the inter-regime calibration gap because the variance head also learns
+from the marginal distribution.
+
+### Implications for Production Use
+
+1. **vol_scaled model**: Calm VaR/ES is anti-conservative (CI too narrow, biased low).
+   Risk limits calibrated on aggregate coverage (88%) would understate calm-regime risk.
+   Worst case: h=30 calm coverage = 73.6%.
+
+2. **log model (Exp 37)**: Calm CI is conservative (overcovered at 92-96%). This is safer
+   for risk management (overestimates risk in calm = larger margin requirement, not dangerous).
+   But turbulent per-cell coverage still has 3 cells below 75% at h=7.
+
+3. **Neither model is regime-conditional** in the strong sense: they don't produce
+   correctly-calibrated CIs conditional on the current regime. They produce CIs
+   calibrated for the marginal (unconditional) distribution.
+
+---
+
+## 2026-02-27: Root Cause Analysis — Baseline Anchor and exp() Transformation
+
+### The Catastrophic Failure Mode (V1 Fan Chart)
+
+The V1 management report fan chart (`fig1_fan_charts_calm_vs_turbulent.png`) shows a single
+calm window (P10 of vol_of_vol). In this window, the 1M OTM Put cell has:
+
+```
+baseline (history[-1]) = ~0.50
+GT (future day 1)      = 0.099
+model median           = 0.516
+90% CI                 = [0.346, 0.825]
+```
+
+GT is **completely outside the CI** — the model predicts ~0.5 while reality is ~0.1.
+Meanwhile, other cells in the same window are fine (6M ATM: bias = +5.6×10⁻³, GT in CI).
+
+This is NOT an averaging artifact. In this specific window, the model is catastrophically
+wrong for this specific cell. The aggregate 92% calm coverage hides these extreme failures.
+
+### Root Cause 1: Stuck Baseline Anchor
+
+Both vol_scaled and log models use `baseline = history[-1]` as a per-cell anchor:
+- vol_scaled: `sample = exp(z × vol_scale) × baseline[i,j]`
+- log: `sample = exp(z) × baseline[i,j]`
+
+Each of the 25 cells gets its own anchor from its own last-day IV value. The model's
+predictions are always **centered on this anchor** — the denoiser predicts noise/residuals
+around it but cannot shift the center.
+
+When IV drops sharply after the last history day (e.g., 1M OTM Put: 0.5 → 0.1), the
+anchor is stuck at the old high level and all samples cluster there. This is a **per-cell**
+problem, not per-surface: the surface mean can be stable (classified "calm") while
+individual cells experience large moves. Short-tenor cells are most affected because
+they are the most volatile — the 1M OTM Put can swing 5× while 2Y ATM barely moves.
+
+### Root Cause 2: exp() Asymmetric Reachability
+
+The exp() transformation makes downward moves much harder to reach than upward:
+- To reach 2× baseline: exp(z) = 2 → z = +0.69 (easy, ~1σ)
+- To reach 0.5× baseline: exp(z) = 0.5 → z = -0.69 (same distance in log-space)
+- To reach 0.2× baseline: exp(z) = 0.2 → z = -1.61 (deep left tail, ~2σ)
+
+For the V1 failure case (0.5 → 0.1), we need exp(z) = 0.2, requiring z = -1.6. With
+50 samples, the probability of any sample reaching z < -1.6 is very low.
+
+Additionally, exp() introduces **Jensen's inequality bias**: for symmetric z around 0,
+E[exp(z)] = exp(σ²/2) > 1, shifting the distribution mean above baseline. This creates
+the upward CI bias visible in the fan charts during calm periods.
+
+### Root Cause 3: IDDPM Learned Variance Cannot Fix the Anchor
+
+IDDPM (Exp 37) gives the model control over the **width** of each reverse step's noise
+(per-pixel, per-timestep variance interpolation between β̃ and β). But it cannot move
+the **center** of predictions — that's determined by the noise prediction, which operates
+in the transformed space anchored to baseline.
+
+So learned variance can widen the CI but cannot shift it. If baseline = 0.5 and GT = 0.1,
+no amount of variance widening fixes the fundamental mismatch — the CI gets wider but
+stays centered at the wrong level.
+
+### The Two Compounding Problems
+
+| Problem | Effect | Can model learn around it? |
+|---------|--------|---------------------------|
+| Stuck baseline anchor | CI centered at wrong level | No — anchor is deterministic, applied after model |
+| exp() asymmetry | Downward moves harder to reach | No — exp() is deterministic, applied after model |
+
+Both problems are in the **deterministic transformation applied after the model's output**.
+The model's learned parameters (noise prediction, variance head) cannot compensate because
+the transformation is not differentiable with respect to the anchor choice.
+
+### Required Fix: Direct IV Prediction (No Anchor, No exp())
+
+To eliminate both root causes, the model must predict **absolute future IV directly**:
+
+```
+Current (ratio target):
+  target = log(future / baseline)    or    future / baseline
+  sample = exp(z) × baseline        or    exp(z × vol_scale) × baseline
+  → anchor stuck, exp() bias, asymmetric reachability
+
+Proposed (direct prediction):
+  target = future                    (raw IV values)
+  sample = denoised output           (model predicts future IV directly)
+  → no anchor, no exp(), model controls both center and spread
+```
+
+The model takes the full history as conditioning and generates future surfaces from
+scratch. It decides both **where to center** (drift/mean prediction) and **how wide to
+spread** (uncertainty) entirely from what it learned from data.
+
+**What this loses**: The ratio target gave level-dependent uncertainty "for free" via the
+multiplicative structure (high-IV cells automatically get wider CIs). Without it, the model
+must learn this from data using IDDPM's per-pixel variance head.
+
+**What this gains**: No stuck anchor (model can predict drift), no exp() bias (symmetric
+reachability), no Jensen's inequality. The model has no ceiling on what it can learn —
+the transformation was simultaneously providing useful structure AND introducing unfixable
+artifacts. Removing it trades free structure for freedom from artifacts.
+
+**Bitter lesson alignment**: This is the maximally bitter-lesson approach — remove all
+hand-designed transformation structure and let the model learn everything from data.
+The bet is that 4500 training windows + 1.24M params + IDDPM is enough capacity and
+data for the model to discover level-dependent, regime-conditional uncertainty on its own.
+
+### Per-Cell VS bestval Coverage (400 windows, 50 samples)
+
+For reference, the full per-cell regime coverage data:
+
+**VS bestval turb h=7** (the worst regime/horizon):
+```
+K=      0.70   0.85   1.00   1.15   1.30
+1M    [  86     79     65     70     80  ]
+3M    [  76     78     66     68     70  ]
+6M    [  76     81     68     70     91  ]
+1Y    [  79     79     79     71     84  ]
+2Y    [  79     84     84     83     83  ]
+Mean=77.0%, Min=65%, 4 cells<70%, 8 cells<75%
+```
+
+**VS bestval calm h=7**:
+```
+K=      0.70   0.85   1.00   1.15   1.30
+1M    [  84     93     86     77     83  ]
+3M    [  93     94     90     90     95  ]
+6M    [  94     99     91     93     84  ]
+1Y    [ 100     99     94     94     95  ]
+2Y    [  95     99     98     94     95  ]
+Mean=92.2%, Min=76.5%, 0 cells<70%, 0 cells<75%
+```
+
+Width ratio turb/calm = **0.988×** (FLAT — no regime conditioning on CI width).

@@ -170,6 +170,7 @@ def main():
     parser.add_argument("--noise_rho", type=float, default=None, help="PYoCo noise correlation (0.0=independent, 0.5=default)")
     parser.add_argument("--output_dir", type=str, default=None, help="Override output directory")
     parser.add_argument("--block_size", type=int, default=None, help="Block size for AR generation (default: 10)")
+    parser.add_argument("--history_len", type=int, default=None, help="History context length (default: 30)")
     parser.add_argument("--jitter_std", type=float, default=None, help="DF noise jitter std (default: 0.15)")
     parser.add_argument("--checkpoint_every", type=int, default=None, help="Save checkpoint every N epochs")
     parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber", "crps"], help="Loss function (default: mse, crps requires --learn_sigma)")
@@ -208,6 +209,12 @@ def main():
                         help="L2 regularization on log_sigma for e2e_nll mode")
     parser.add_argument("--vol_scale_power", type=float, default=1.0,
                         help="Exponent on vol_scale: 0.5=sqrt dampening, 1.0=full (default)")
+    parser.add_argument("--vol_scale_min", type=float, default=0.5,
+                        help="Min clamp for vol_scale (higher = wider calm CIs)")
+    parser.add_argument("--vol_scale_max", type=float, default=2.0,
+                        help="Max clamp for vol_scale")
+    parser.add_argument("--baseline_window", type=int, default=1,
+                        help="Number of history days to average for baseline (1 = last day only)")
     parser.add_argument("--learn_sigma", action="store_true",
                         help="Nichol-Dhariwal learned variance: denoiser predicts per-element variance")
     parser.add_argument("--lambda_vlb", type=float, default=0.001,
@@ -220,6 +227,12 @@ def main():
                         help="Enable CRPS variance head for condition-dependent posterior noise")
     parser.add_argument("--lambda_crps", type=float, default=0.1,
                         help="Weight for CRPS auxiliary loss (default: 0.1)")
+    parser.add_argument("--use_mean_head", action="store_true",
+                        help="Add MLP mean prediction head for bias correction")
+    parser.add_argument("--mean_head_lambda", type=float, default=1.0,
+                        help="Weight for mean prediction loss (default: 1.0)")
+    parser.add_argument("--aux_regime_features", action="store_true",
+                        help="Feed vol_of_vol and IV level as explicit conditioning features")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -240,6 +253,8 @@ def main():
         config.output_dir = args.output_dir
     if args.block_size is not None:
         config.block_size = args.block_size
+    if args.history_len is not None:
+        config.history_len = args.history_len
     if args.jitter_std is not None:
         config.jitter_std = args.jitter_std
     if args.checkpoint_every is not None:
@@ -276,6 +291,8 @@ def main():
         config.interp_loss_weight = args.interp_loss_weight
     if args.block_size is not None:
         config.block_size = args.block_size
+    if args.history_len is not None:
+        config.history_len = args.history_len
     if args.conv3d_base_channels is not None:
         config.conv3d_base_channels = args.conv3d_base_channels
     if args.conv3d_n_res_blocks is not None:
@@ -294,6 +311,9 @@ def main():
         config.ratio_target = True
         config.ratio_target_mode = args.ratio_target_mode
         config.vol_scale_power = args.vol_scale_power
+        config.vol_scale_min = args.vol_scale_min
+        config.vol_scale_max = args.vol_scale_max
+        config.baseline_window = args.baseline_window
         config.nsdiff_sigma_lambda = args.nsdiff_sigma_lambda
         config.e2e_sigma_reg = args.e2e_sigma_reg
     if args.learn_sigma:
@@ -305,6 +325,11 @@ def main():
     if args.crps_variance_head:
         config.crps_variance_head = True
         config.lambda_crps = args.lambda_crps
+    if args.use_mean_head:
+        config.use_mean_head = True
+        config.mean_head_lambda = args.mean_head_lambda
+    if args.aux_regime_features:
+        config.aux_regime_features = True
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
