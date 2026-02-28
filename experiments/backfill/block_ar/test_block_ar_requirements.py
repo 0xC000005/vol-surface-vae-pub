@@ -118,15 +118,17 @@ def generate_all_samples(
     device: str,
     max_global_residual: Optional[int] = None,
     post_hoc_scale: float = 1.0,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate conditioned samples and ground truth for all batches.
 
     Returns:
         cond_samples: (N, n_samples, T, 5, 5) denormalized [0, 1]
         ground_truth: (N, T, 5, 5) denormalized [0, 1]
+        history: (N, H, 5, 5) denormalized [0, 1]
     """
     all_samples = []
     all_gt = []
+    all_history = []
 
     model.eval()
     with torch.no_grad():
@@ -150,10 +152,12 @@ def generate_all_samples(
 
             all_samples.append(samples.cpu().numpy())
             all_gt.append(future_gt.cpu().numpy())
+            all_history.append(denormalize_iv(history).cpu().numpy())
 
     cond_samples = np.concatenate(all_samples, axis=0)
     ground_truth = np.concatenate(all_gt, axis=0)
-    return cond_samples, ground_truth
+    history_arr = np.concatenate(all_history, axis=0)
+    return cond_samples, ground_truth, history_arr
 
 
 # =============================================================================
@@ -189,21 +193,30 @@ def test_calendar_arbitrage(samples: np.ndarray) -> Dict:
 
     Row index = tenor (0=short, 4=long). Total variance = IV^2 * tau.
 
-    Target: < 15% (GT data floor is ~7% full / ~10% val set)
+    Target: avg < 15%, worst strike < 25%
     """
     tenors = np.array([1, 2, 4, 8, 12])
     violations = []
+    per_strike_violations = {k: [] for k in range(5)}
     for t_idx in range(samples.shape[1]):
         surf = samples[:, t_idx]  # (N, 5, 5)
         total_var = surf ** 2 * tenors[:, None]  # (N, 5, 5)
         for i in range(4):
             violation = (total_var[:, i, :] > total_var[:, i + 1, :] * 1.001)
             violations.append(violation.mean())
+            for k in range(5):
+                per_strike_violations[k].append(float(violation[:, k].mean()))
     avg_violation_rate = float(np.mean(violations))
+    per_strike_rates = [float(np.mean(per_strike_violations[k])) for k in range(5)]
+    worst_strike_rate = max(per_strike_rates)
+    worst_strike_pass = worst_strike_rate < 0.25
     return {
         'calendar_avg_violation_rate': avg_violation_rate,
         'calendar_max_violation_rate': float(np.max(violations)),
-        'pass': avg_violation_rate < 0.15,
+        'per_strike_rates': per_strike_rates,
+        'worst_strike_rate': worst_strike_rate,
+        'worst_strike_pass': worst_strike_pass,
+        'pass': avg_violation_rate < 0.15 and worst_strike_pass,
     }
 
 
@@ -213,19 +226,28 @@ def test_butterfly_arbitrage(samples: np.ndarray) -> Dict:
     Column index = moneyness (0=ITM, 2=ATM, 4=OTM).
     Second derivative d^2 sigma / dK^2 should be non-negative.
 
-    Target: < 40% (GT data floor is ~20% full / ~23% val set)
+    Target: avg < 40%, worst tenor < 50%
     """
     violations = []
+    per_tenor_violations = {r: [] for r in range(5)}
     for t_idx in range(samples.shape[1]):
         surf = samples[:, t_idx]  # (N, 5, 5)
         d2_dk2 = surf[:, :, :-2] - 2 * surf[:, :, 1:-1] + surf[:, :, 2:]
-        violation = (d2_dk2 < -0.005).mean()
-        violations.append(float(violation))
+        violation = (d2_dk2 < -0.005)  # (N, 5, 3)
+        violations.append(float(violation.mean()))
+        for r in range(5):
+            per_tenor_violations[r].append(float(violation[:, r].mean()))
     avg_violation_rate = float(np.mean(violations))
+    per_tenor_rates = [float(np.mean(per_tenor_violations[r])) for r in range(5)]
+    worst_tenor_rate = max(per_tenor_rates)
+    worst_tenor_pass = worst_tenor_rate < 0.50
     return {
         'butterfly_avg_violation_rate': avg_violation_rate,
         'butterfly_max_violation_rate': float(np.max(violations)),
-        'pass': avg_violation_rate < 0.40,
+        'per_tenor_rates': per_tenor_rates,
+        'worst_tenor_rate': worst_tenor_rate,
+        'worst_tenor_pass': worst_tenor_pass,
+        'pass': avg_violation_rate < 0.40 and worst_tenor_pass,
     }
 
 
@@ -266,6 +288,12 @@ def run_surface_validity_tests(
         f"  Butterfly arbitrage: {butterfly_results['butterfly_avg_violation_rate']:.1%} "
         f"(target <40%) {'PASS' if butterfly_results['pass'] else 'FAIL'}"
     )
+
+    # Per-cell breakdown
+    print(f"  Calendar worst strike: {calendar_results['worst_strike_rate']:.1%} "
+          f"(target <25%) {'PASS' if calendar_results['worst_strike_pass'] else 'FAIL'}")
+    print(f"  Butterfly worst tenor: {butterfly_results['worst_tenor_rate']:.1%} "
+          f"(target <50%) {'PASS' if butterfly_results['worst_tenor_pass'] else 'FAIL'}")
 
     overall_pass = all([
         explosion_results['pass'],
@@ -327,6 +355,7 @@ def run_ci_coverage_tests(
 
     # Per-horizon coverage
     horizon_coverage = {h: {} for h in horizons}
+    per_cell_coverage = {}  # h -> (5, 5) array
     for h in horizons:
         if h <= T_fut:
             h_idx = h - 1
@@ -338,6 +367,8 @@ def run_ci_coverage_tests(
                 upper = np.quantile(samples_h, 1 - alpha, axis=1)
                 covered = (gt_h >= lower) & (gt_h <= upper)
                 horizon_coverage[h][level] = float(covered.mean())
+                if level == 0.9:
+                    per_cell_coverage[h] = covered.mean(axis=0)  # (5, 5)
 
     # Calibration curve
     calibration_levels = np.linspace(0.1, 0.9, 9)
@@ -376,21 +407,43 @@ def run_ci_coverage_tests(
                 f"{'PASS' if passed else 'FAIL'}"
             )
 
+    # Per-cell worst coverage (90% CI)
+    worst_cell_per_horizon = {}
+    worst_cell_pass_all = True
+    print(f"\n  Per-Cell Worst Coverage (90% CI):")
+    for h in horizons:
+        if h in per_cell_coverage:
+            worst = float(per_cell_coverage[h].min())
+            worst_cell_per_horizon[h] = worst
+            passed = worst > 0.60
+            if not passed:
+                worst_cell_pass_all = False
+            worst_idx = np.unravel_index(per_cell_coverage[h].argmin(), (5, 5))
+            print(
+                f"    h={h:2d}: worst cell ({worst_idx[0]},{worst_idx[1]}) = {worst:.1%} "
+                f"(target >60%) {'PASS' if passed else 'FAIL'}"
+            )
+
     print(f"  Calibration Error: {calibration_error:.3f}")
 
-    # Pass if all per-horizon targets met
+    # Pass if all per-horizon targets met AND worst cell passes
     all_horizons_pass = all(horizon_pass.values()) if horizon_pass else False
 
     return {
         'overall': overall_coverage,
         'per_horizon': horizon_coverage,
+        'per_cell_coverage': {
+            h: per_cell_coverage[h].tolist() for h in per_cell_coverage
+        },
+        'worst_cell_per_horizon': worst_cell_per_horizon,
+        'worst_cell_pass': worst_cell_pass_all,
         'calibration': {
             'nominal': calibration_nominal,
             'empirical': calibration_empirical,
         },
         'calibration_error': calibration_error,
         'horizon_pass': horizon_pass,
-        'pass': all_horizons_pass,
+        'pass': all_horizons_pass and worst_cell_pass_all,
     }
 
 
@@ -430,6 +483,21 @@ def run_conditionality_tests(
     uncond_maes = []
     per_horizon_var = {h: [] for h in [1, 10, 20, 30]}
 
+    # Per-cell accumulators: (5, 5) sums across batches
+    cond_width_sum = np.zeros((5, 5))
+    uncond_width_sum = np.zeros((5, 5))
+    cond_mae_sum = np.zeros((5, 5))
+    uncond_mae_sum = np.zeros((5, 5))
+    n_cell_samples = 0
+    n_uncond_batches = 0
+
+    # Per-horizon accumulators
+    cond_horizons = [1, 7, 14, 30]
+    per_h_cond_width = {h: [] for h in cond_horizons}
+    per_h_uncond_width = {h: [] for h in cond_horizons}
+    per_h_cond_mae = {h: [] for h in cond_horizons}
+    per_h_uncond_mae = {h: [] for h in cond_horizons}
+
     with torch.no_grad():
         for batch_idx, batch in enumerate(
             tqdm(test_loader, desc="Conditionality tests", total=max_batches)
@@ -453,30 +521,66 @@ def run_conditionality_tests(
                 cond_samples = _apply_post_hoc_scale(cond_samples, post_hoc_scale)
 
             # --- Unconditional baseline: zero history (near-null conditioning) ---
-            zero_history = torch.zeros_like(history)
-            uncond_samples = model.sample_batched(
-                zero_history, n_samples=n_samples, max_residual=max_residual,
-                max_global_residual=max_global_residual,
-            )  # (B, n_samples, T, 5, 5)
+            # Only run unconditional for first 5 batches (enough for stable estimate,
+            # saves ~60% of Suite 3 runtime since uncond is half the cost per batch)
+            MAX_UNCOND_BATCHES = 5
+            if batch_idx < MAX_UNCOND_BATCHES:
+                zero_history = torch.zeros_like(history)
+                uncond_samples = model.sample_batched(
+                    zero_history, n_samples=n_samples, max_residual=max_residual,
+                    max_global_residual=max_global_residual,
+                )  # (B, n_samples, T, 5, 5)
+            else:
+                uncond_samples = None
 
             cond_np = cond_samples.cpu().numpy()
-            uncond_np = uncond_samples.cpu().numpy()
             gt_np = future_gt.cpu().numpy()
 
-            # 90% CI width
+            # 90% CI width (conditional)
             cond_lower = np.quantile(cond_np, 0.05, axis=1)
             cond_upper = np.quantile(cond_np, 0.95, axis=1)
             cond_widths.append((cond_upper - cond_lower).mean())
 
-            uncond_lower = np.quantile(uncond_np, 0.05, axis=1)
-            uncond_upper = np.quantile(uncond_np, 0.95, axis=1)
-            uncond_widths.append((uncond_upper - uncond_lower).mean())
-
-            # MAE: median sample vs GT
+            # MAE: median sample vs GT (conditional)
             cond_median = np.median(cond_np, axis=1)
-            uncond_median = np.median(uncond_np, axis=1)
             cond_maes.append(np.abs(cond_median - gt_np).mean())
-            uncond_maes.append(np.abs(uncond_median - gt_np).mean())
+
+            # Per-cell conditional accumulators
+            cond_cell_width = (cond_upper - cond_lower).mean(axis=(0, 1))  # (5, 5)
+            cond_cell_mae = np.abs(cond_median - gt_np).mean(axis=(0, 1))  # (5, 5)
+            cond_width_sum += cond_cell_width
+            cond_mae_sum += cond_cell_mae
+            n_cell_samples += 1
+
+            # Per-horizon conditional width and MAE
+            T_batch = cond_np.shape[2]
+            for h in cond_horizons:
+                if h - 1 < T_batch:
+                    t = h - 1
+                    per_h_cond_width[h].append(float((cond_upper[:, t] - cond_lower[:, t]).mean()))
+                    per_h_cond_mae[h].append(float(np.abs(cond_median[:, t] - gt_np[:, t]).mean()))
+
+            # Unconditional metrics (only for first MAX_UNCOND_BATCHES batches)
+            if uncond_samples is not None:
+                uncond_np = uncond_samples.cpu().numpy()
+                uncond_lower = np.quantile(uncond_np, 0.05, axis=1)
+                uncond_upper = np.quantile(uncond_np, 0.95, axis=1)
+                uncond_widths.append((uncond_upper - uncond_lower).mean())
+
+                uncond_median = np.median(uncond_np, axis=1)
+                uncond_maes.append(np.abs(uncond_median - gt_np).mean())
+
+                uncond_cell_width = (uncond_upper - uncond_lower).mean(axis=(0, 1))
+                uncond_cell_mae = np.abs(uncond_median - gt_np).mean(axis=(0, 1))
+                uncond_width_sum += uncond_cell_width
+                uncond_mae_sum += uncond_cell_mae
+                n_uncond_batches += 1
+
+                for h in cond_horizons:
+                    if h - 1 < T_batch:
+                        t = h - 1
+                        per_h_uncond_width[h].append(float((uncond_upper[:, t] - uncond_lower[:, t]).mean()))
+                        per_h_uncond_mae[h].append(float(np.abs(uncond_median[:, t] - gt_np[:, t]).mean()))
 
             # Per-horizon variance (conditional only)
             for h in per_horizon_var:
@@ -536,8 +640,73 @@ def run_conditionality_tests(
     for h in horizon_keys:
         print(f"    Var(h={h:2d}): {avg_horizon_var[h]:.6f}")
 
+    # --- Per-horizon conditionality ---
+    print("\n  --- Test 3d: Per-Horizon Conditionality ---")
+    per_horizon_cond = {}
+    for h in cond_horizons:
+        if per_h_cond_width[h]:
+            h_cond_w = float(np.mean(per_h_cond_width[h]))
+            h_uncond_w = float(np.mean(per_h_uncond_width[h]))
+            h_wr = h_cond_w / h_uncond_w if h_uncond_w > 0 else 1.0
+            h_cond_m = float(np.mean(per_h_cond_mae[h]))
+            h_uncond_m = float(np.mean(per_h_uncond_mae[h]))
+            h_mae_red = (h_uncond_m - h_cond_m) / h_uncond_m * 100 if h_uncond_m > 0 else 0.0
+            per_horizon_cond[h] = {
+                'width_ratio': h_wr,
+                'mae_reduction_pct': h_mae_red,
+                'cond_width': h_cond_w,
+                'uncond_width': h_uncond_w,
+            }
+            print(
+                f"    h={h:2d}: width_ratio={h_wr:.3f}, "
+                f"MAE_reduction={h_mae_red:.1f}%"
+            )
+
+    # --- Per-cell conditionality ---
+    print("\n  --- Test 3e: Per-Cell Conditionality ---")
+    if n_cell_samples > 0 and n_uncond_batches > 0:
+        avg_cond_cell_width = cond_width_sum / n_cell_samples  # (5, 5)
+        avg_uncond_cell_width = uncond_width_sum / n_uncond_batches  # (5, 5)
+        avg_cond_cell_mae = cond_mae_sum / n_cell_samples  # (5, 5)
+        avg_uncond_cell_mae = uncond_mae_sum / n_uncond_batches  # (5, 5)
+
+        # Per-cell width ratio: cond / uncond (< 1.0 means conditioning narrows CI)
+        cell_width_ratio = avg_cond_cell_width / np.maximum(avg_uncond_cell_width, 1e-8)
+        worst_cell_width_ratio = float(cell_width_ratio.max())
+        worst_cell_wr_pass = worst_cell_width_ratio < 3.0
+
+        # Per-cell MAE reduction: (uncond - cond) / uncond * 100
+        cell_mae_reduction = np.where(
+            avg_uncond_cell_mae > 1e-8,
+            (avg_uncond_cell_mae - avg_cond_cell_mae) / avg_uncond_cell_mae * 100,
+            0.0,
+        )
+        worst_cell_mae_reduction = float(cell_mae_reduction.min())
+        worst_cell_mae_pass = worst_cell_mae_reduction > -10.0
+
+        print(f"  Per-cell width ratio (cond/uncond):")
+        for r in range(5):
+            row_str = "    " + " ".join(f"{cell_width_ratio[r,c]:.3f}" for c in range(5))
+            print(row_str)
+        print(f"    Worst cell: {worst_cell_width_ratio:.3f} "
+              f"(target <3.0) {'PASS' if worst_cell_wr_pass else 'FAIL'}")
+
+        print(f"  Per-cell MAE reduction (%):")
+        for r in range(5):
+            row_str = "    " + " ".join(f"{cell_mae_reduction[r,c]:6.1f}" for c in range(5))
+            print(row_str)
+        print(f"    Worst cell: {worst_cell_mae_reduction:.1f}% "
+              f"(target >-10%) {'PASS' if worst_cell_mae_pass else 'FAIL'}")
+    else:
+        worst_cell_width_ratio = 1.0
+        worst_cell_wr_pass = True
+        worst_cell_mae_reduction = 0.0
+        worst_cell_mae_pass = True
+        cell_width_ratio = np.ones((5, 5))
+        cell_mae_reduction = np.zeros((5, 5))
+
     # NOTE: growing uncertainty disabled from gate — draft feature, not confirmed from data
-    overall_pass = width_pass and mae_pass
+    overall_pass = width_pass and mae_pass and worst_cell_wr_pass and worst_cell_mae_pass
 
     return {
         'width_ratio': float(width_ratio),
@@ -549,7 +718,14 @@ def run_conditionality_tests(
         'avg_uncond_mae': avg_uncond_mae,
         'mae_pass': mae_pass,
         'per_horizon_var': avg_horizon_var,
+        'per_horizon_conditionality': {str(h): v for h, v in per_horizon_cond.items()},
         'growing_uncertainty_monotonic': monotonic,
+        'per_cell_width_ratio': cell_width_ratio.tolist(),
+        'worst_cell_width_ratio': float(worst_cell_width_ratio),
+        'worst_cell_wr_pass': worst_cell_wr_pass,
+        'per_cell_mae_reduction': cell_mae_reduction.tolist(),
+        'worst_cell_mae_reduction': float(worst_cell_mae_reduction),
+        'worst_cell_mae_pass': worst_cell_mae_pass,
         'pass': overall_pass,
     }
 
@@ -627,6 +803,50 @@ def run_time_series_tests(
         f"(target >=0.25) {'PASS' if skew_pass else 'FAIL'}"
     )
 
+    # Per-cell kurtosis
+    print("\n  --- Test 4c: Per-Cell Kurtosis ---")
+    per_cell_kurt_ratio = np.zeros((5, 5))
+    for r in range(5):
+        for c in range(5):
+            gt_k = kurtosis(gt_diff[:, :, r, c].flatten(), fisher=True)
+            gen_k = kurtosis(gen_diff[:, :, r, c].flatten(), fisher=True)
+            per_cell_kurt_ratio[r, c] = gen_k / gt_k if gt_k != 0 else float("inf")
+    worst_kurt = float(per_cell_kurt_ratio.min())
+    best_kurt = float(per_cell_kurt_ratio.max())
+    worst_idx = np.unravel_index(per_cell_kurt_ratio.argmin(), (5, 5))
+    best_idx = np.unravel_index(per_cell_kurt_ratio.argmax(), (5, 5))
+    print(
+        f"  Worst cell ({worst_idx[0]},{worst_idx[1]}): {worst_kurt:.3f}, "
+        f"Best cell ({best_idx[0]},{best_idx[1]}): {best_kurt:.3f}"
+    )
+    print(
+        f"  Per-cell kurtosis range: [{worst_kurt:.3f}, {best_kurt:.3f}] (informational)"
+    )
+
+    # Per-cell skewness
+    print("\n  --- Test 4d: Per-Cell Skewness ---")
+    per_cell_skew_ratio = np.zeros((5, 5))
+    for r in range(5):
+        for c in range(5):
+            gt_s = skew(gt_diff[:, :, r, c].flatten())
+            gen_s = skew(gen_diff[:, :, r, c].flatten())
+            per_cell_skew_ratio[r, c] = gen_s / gt_s if gt_s != 0 else float("inf")
+    worst_skew = float(per_cell_skew_ratio.min())
+    best_skew = float(per_cell_skew_ratio.max())
+    worst_skew_idx = np.unravel_index(per_cell_skew_ratio.argmin(), (5, 5))
+    best_skew_idx = np.unravel_index(per_cell_skew_ratio.argmax(), (5, 5))
+    print(
+        f"  Worst cell ({worst_skew_idx[0]},{worst_skew_idx[1]}): {worst_skew:.3f}, "
+        f"Best cell ({best_skew_idx[0]},{best_skew_idx[1]}): {best_skew:.3f}"
+    )
+    print(f"  Per-cell skewness grid:")
+    for r in range(5):
+        row_str = "    " + " ".join(f"{per_cell_skew_ratio[r,c]:6.3f}" for c in range(5))
+        print(row_str)
+    print(
+        f"  Per-cell skewness range: [{worst_skew:.3f}, {best_skew:.3f}] (informational)"
+    )
+
     overall_pass = acf_pass and kurt_pass
 
     return {
@@ -645,6 +865,12 @@ def run_time_series_tests(
             'gen_skewness': gen_skew_val,
             'skewness_ratio': skew_ratio,
             'skewness_pass': skew_pass,
+            'per_cell_ratio': per_cell_kurt_ratio.tolist(),
+            'worst_cell_ratio': worst_kurt,
+            'best_cell_ratio': best_kurt,
+            'per_cell_skew_ratio': per_cell_skew_ratio.tolist(),
+            'worst_cell_skew_ratio': worst_skew,
+            'best_cell_skew_ratio': best_skew,
             'pass': kurt_pass,
         },
         'overall_pass': overall_pass,
@@ -886,10 +1112,24 @@ def run_cointegration_tests(
     ratio = gen_overall_pass_rate / gt_overall_pass_rate if gt_overall_pass_rate > 0 else 0.0
     coint_pass = ratio >= 0.5
 
+    # Per-cell worst: gen/GT ratio per cell, worst cell >= 0.3
+    per_cell_ratio = np.where(
+        gt_pass_rates > 0,
+        gen_pass_rates / gt_pass_rates,
+        np.where(gen_pass_rates > 0, np.inf, 1.0),
+    )
+    worst_cell_ratio = float(per_cell_ratio.min())
+    worst_cell_idx = np.unravel_index(per_cell_ratio.argmin(), (H, W))
+    worst_cell_pass = worst_cell_ratio >= 0.3
+    coint_pass = coint_pass and worst_cell_pass
+
     print(f"\n  Windows tested: {n_valid}")
     print(f"  GT cointegration pass rate:  {gt_overall_pass_rate:.1%}")
     print(f"  Gen cointegration pass rate: {gen_overall_pass_rate:.1%}")
-    print(f"  Gen/GT ratio: {ratio:.3f} (target >=0.50) {'PASS' if coint_pass else 'FAIL'}")
+    print(f"  Gen/GT ratio: {ratio:.3f} (target >=0.50) {'PASS' if ratio >= 0.5 else 'FAIL'}")
+    print(f"  Worst cell ({worst_cell_idx[0]},{worst_cell_idx[1]}): "
+          f"gen/GT={worst_cell_ratio:.3f} (target >=0.30) "
+          f"{'PASS' if worst_cell_pass else 'FAIL'}")
     print(f"  GT mean R²:  {gt_overall_rsq:.4f}")
     print(f"  Gen mean R²: {gen_overall_rsq:.4f}")
 
@@ -907,10 +1147,286 @@ def run_cointegration_tests(
         'gt_mean_rsq': gt_overall_rsq,
         'gen_pass_rates_grid': gen_pass_rates.tolist(),
         'gt_pass_rates_grid': gt_pass_rates.tolist(),
+        'per_cell_ratio_grid': per_cell_ratio.tolist(),
+        'worst_cell_ratio': worst_cell_ratio,
+        'worst_cell_idx': list(worst_cell_idx),
+        'worst_cell_pass': worst_cell_pass,
         'n_valid_windows': n_valid,
         'adf_alpha': adf_alpha,
         'adf_lags': adf_lags,
         'pass': coint_pass,
+    }
+
+
+# =============================================================================
+# Test Suite 7: Three-Layer Regime Coverage
+# =============================================================================
+
+def run_regime_coverage_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+    history: np.ndarray,
+    horizons: List[int] = None,
+) -> Dict:
+    """Three-layer regime coverage tests.
+
+    Computes a single boolean tensor covered[w, h, r, c] and derives:
+      Layer 1: Per-regime (calm Q20 / turb Q80) per-horizon coverage
+      Layer 2: Per-cell coverage within each regime (worst cell gate)
+      Layer 3: Catastrophic window-cell detection
+
+    Args:
+        cond_samples: (N, n_samples, T, 5, 5)
+        ground_truth: (N, T, 5, 5)
+        history: (N, H, 5, 5)
+        horizons: horizons to test (default [1, 7, 14, 30])
+    """
+    if horizons is None:
+        horizons = [1, 7, 14, 30]
+
+    print("\n" + "=" * 60)
+    print("TEST SUITE 7: REGIME COVERAGE (THREE-LAYER)")
+    print("=" * 60)
+
+    N, S, T, H, W = cond_samples.shape
+
+    # --- Base boolean tensor: covered[w, h, r, c] at 90% CI ---
+    lower = np.quantile(cond_samples, 0.05, axis=1)  # (N, T, 5, 5)
+    upper = np.quantile(cond_samples, 0.95, axis=1)  # (N, T, 5, 5)
+    covered = (ground_truth >= lower) & (ground_truth <= upper)  # (N, T, 5, 5)
+    ci_width = upper - lower  # (N, T, 5, 5)
+    median_pred = np.median(cond_samples, axis=1)  # (N, T, 5, 5)
+
+    # --- Regime classification from history vol_of_vol ---
+    mean_iv = history.mean(axis=(2, 3))  # (N, hist_len)
+    daily_changes = np.diff(mean_iv, axis=1)  # (N, hist_len-1)
+    vol_of_vol = daily_changes.std(axis=1)  # (N,)
+
+    q20 = np.quantile(vol_of_vol, 0.20)
+    q80 = np.quantile(vol_of_vol, 0.80)
+    calm_mask = vol_of_vol <= q20
+    turb_mask = vol_of_vol >= q80
+    n_calm = int(calm_mask.sum())
+    n_turb = int(turb_mask.sum())
+
+    print(f"  Windows: {N} total, {n_calm} calm (Q20), {n_turb} turb (Q80)")
+    print(f"  Vol-of-vol thresholds: Q20={q20:.5f}, Q80={q80:.5f}")
+
+    # =================================================================
+    # Layer 1: Per-regime per-horizon coverage + directional bias
+    # =================================================================
+    print("\n  --- Layer 1: Per-Regime Per-Horizon Coverage ---")
+
+    layer1_results = {}
+    layer1_pass = True
+    LAYER1_GATE = 0.65
+
+    for regime_name, regime_mask in [("calm", calm_mask), ("turb", turb_mask)]:
+        layer1_results[regime_name] = {}
+        n_regime = int(regime_mask.sum())
+        if n_regime == 0:
+            print(f"  WARNING: no {regime_name} windows")
+            continue
+        for h in horizons:
+            h_idx = h - 1
+            if h_idx >= T:
+                continue
+            regime_covered = covered[regime_mask, h_idx]
+            cov = float(regime_covered.mean())
+
+            # Directional bias: how does coverage fail?
+            regime_gt = ground_truth[regime_mask, h_idx]
+            regime_upper = upper[regime_mask, h_idx]
+            regime_lower = lower[regime_mask, h_idx]
+            regime_median = median_pred[regime_mask, h_idx]
+            gt_above_pct = float((regime_gt > regime_upper).mean())
+            gt_below_pct = float((regime_gt < regime_lower).mean())
+            median_above_gt_pct = float((regime_median > regime_gt).mean())
+
+            layer1_results[regime_name][h] = {
+                'coverage': cov,
+                'gt_above_pct': gt_above_pct,
+                'gt_below_pct': gt_below_pct,
+                'median_above_gt_pct': median_above_gt_pct,
+            }
+            passed = cov > LAYER1_GATE
+            if not passed:
+                layer1_pass = False
+            bias_dir = "UP" if median_above_gt_pct > 0.55 else (
+                "DOWN" if median_above_gt_pct < 0.45 else "~0"
+            )
+            print(
+                f"    {regime_name:5s} h={h:2d}: {cov:.1%} "
+                f"(target >{LAYER1_GATE:.0%}) {'PASS' if passed else 'FAIL'}  "
+                f"bias={bias_dir} (gt>upper={gt_above_pct:.1%}, "
+                f"gt<lower={gt_below_pct:.1%})"
+            )
+
+    # --- Whole-path directional bias ---
+    # For each window: what fraction of the 30 time steps have median below GT?
+    # A window with >80% same-sign is "persistently biased" across the trajectory.
+    PATH_BIAS_THRESHOLD = 0.80
+    print(f"\n  --- Path-Level Directional Bias (>{PATH_BIAS_THRESHOLD:.0%} same-sign) ---")
+
+    path_bias_results = {}
+    # median_pred: (N, T, 5, 5), ground_truth: (N, T, 5, 5)
+    # Average across cells to get per-window per-timestep scalar
+    median_mean = median_pred.mean(axis=(2, 3))  # (N, T)
+    gt_mean = ground_truth.mean(axis=(2, 3))  # (N, T)
+    median_below_gt = (median_mean < gt_mean)  # (N, T) boolean
+
+    for regime_name, regime_mask in [("calm", calm_mask), ("turb", turb_mask)]:
+        n_regime = int(regime_mask.sum())
+        if n_regime == 0:
+            continue
+        regime_below = median_below_gt[regime_mask]  # (n_regime, T)
+        frac_below = regime_below.mean(axis=1)  # (n_regime,) fraction of steps with median < GT
+
+        # Persistently biased: median below GT for >80% of steps, or above for >80%
+        persistent_low = (frac_below > PATH_BIAS_THRESHOLD).mean()  # CI sits below GT
+        persistent_high = ((1 - frac_below) > PATH_BIAS_THRESHOLD).mean()  # CI sits above GT
+        mean_frac_below = float(frac_below.mean())
+
+        path_bias_results[regime_name] = {
+            'persistent_low_pct': float(persistent_low),
+            'persistent_high_pct': float(persistent_high),
+            'mean_frac_median_below_gt': mean_frac_below,
+        }
+
+        print(
+            f"    {regime_name:5s}: {persistent_low:.1%} windows persistently LOW "
+            f"(median<GT >{PATH_BIAS_THRESHOLD:.0%}% of steps), "
+            f"{persistent_high:.1%} persistently HIGH, "
+            f"avg frac_below={mean_frac_below:.1%}"
+        )
+
+    # CI width vs vol_of_vol correlation (informational)
+    # Measures: does the model produce wider CIs when vol_of_vol is higher?
+    # Spearman rank correlation avoids binning artifacts (Q20/Q80 averages wash out signal)
+    from scipy.stats import spearmanr
+    width_regime_results = {}
+    print(f"\n  CI Width ~ Vol-of-Vol Correlation:")
+    for h in horizons:
+        h_idx = h - 1
+        if h_idx >= T:
+            continue
+        # Per-window mean CI width at this horizon
+        per_window_width = ci_width[:, h_idx].mean(axis=(1, 2))  # (N,)
+        rho, pval = spearmanr(vol_of_vol, per_window_width)
+
+        # Also report P10 vs P90 width ratio (matches fan chart comparison)
+        p10_mask = vol_of_vol <= np.percentile(vol_of_vol, 10)
+        p90_mask = vol_of_vol >= np.percentile(vol_of_vol, 90)
+        p10_w = float(per_window_width[p10_mask].mean()) if p10_mask.any() else 0
+        p90_w = float(per_window_width[p90_mask].mean()) if p90_mask.any() else 0
+        p90_p10_ratio = p90_w / p10_w if p10_w > 0 else 1.0
+
+        width_regime_results[h] = {
+            'spearman_rho': float(rho),
+            'spearman_pval': float(pval),
+            'p90_p10_width_ratio': p90_p10_ratio,
+            'p10_mean_width': p10_w,
+            'p90_mean_width': p90_w,
+        }
+        print(
+            f"    h={h:2d}: Spearman={rho:.3f} (p={pval:.1e}), "
+            f"P90/P10 width={p90_p10_ratio:.3f}x "
+            f"(P10={p10_w:.4f}, P90={p90_w:.4f})"
+        )
+
+    # =================================================================
+    # Layer 2: Per-regime per-cell coverage (worst cell gate)
+    # =================================================================
+    print("\n  --- Layer 2: Per-Regime Per-Cell Worst Coverage ---")
+
+    layer2_results = {}
+    layer2_pass = True
+    LAYER2_GATE = 0.55
+
+    for regime_name, regime_mask in [("calm", calm_mask), ("turb", turb_mask)]:
+        layer2_results[regime_name] = {}
+        n_regime = int(regime_mask.sum())
+        if n_regime == 0:
+            continue
+        for h in horizons:
+            h_idx = h - 1
+            if h_idx >= T:
+                continue
+            # Per-cell coverage: (5, 5)
+            cell_cov = covered[regime_mask, h_idx].mean(axis=0)  # (5, 5)
+            worst = float(cell_cov.min())
+            worst_idx = np.unravel_index(cell_cov.argmin(), (5, 5))
+            layer2_results[regime_name][h] = {
+                'grid': cell_cov.tolist(),
+                'worst': worst,
+                'worst_cell': list(worst_idx),
+            }
+            passed = worst > LAYER2_GATE
+            if not passed:
+                layer2_pass = False
+            print(
+                f"    {regime_name:5s} h={h:2d}: worst ({worst_idx[0]},{worst_idx[1]}) "
+                f"= {worst:.1%} (target >{LAYER2_GATE:.0%}) "
+                f"{'PASS' if passed else 'FAIL'}"
+            )
+
+    # =================================================================
+    # Layer 3: Catastrophic window-cell detection
+    # =================================================================
+    print("\n  --- Layer 3: Catastrophic Window-Cell Detection ---")
+
+    # For each (window, cell): mean coverage across all horizons
+    window_cell_cov = covered.mean(axis=1)  # (N, 5, 5) — fraction of horizons covered
+    catastrophic = window_cell_cov < 0.30  # (N, 5, 5)
+    catastrophic_rate = float(catastrophic.mean())
+    n_catastrophic = int(catastrophic.sum())
+    total_pairs = N * H * W
+
+    LAYER3_GATE = 0.05
+    layer3_pass = catastrophic_rate < LAYER3_GATE
+
+    print(
+        f"  Catastrophic (window,cell) pairs: {n_catastrophic}/{total_pairs} "
+        f"({catastrophic_rate:.1%})"
+    )
+    print(
+        f"  Gate: < {LAYER3_GATE:.0%} catastrophic "
+        f"{'PASS' if layer3_pass else 'FAIL'}"
+    )
+
+    # Show worst windows if any catastrophic
+    if n_catastrophic > 0:
+        # Find windows with most catastrophic cells
+        cats_per_window = catastrophic.sum(axis=(1, 2))  # (N,)
+        worst_windows = np.argsort(cats_per_window)[-3:][::-1]
+        print(f"  Worst windows:")
+        for w in worst_windows:
+            if cats_per_window[w] > 0:
+                bad_cells = list(zip(*np.where(catastrophic[w])))
+                print(
+                    f"    Window {w}: {cats_per_window[w]} catastrophic cells, "
+                    f"vol_of_vol={vol_of_vol[w]:.5f}, "
+                    f"cells={bad_cells[:5]}{'...' if len(bad_cells) > 5 else ''}"
+                )
+
+    overall_pass = layer1_pass and layer2_pass and layer3_pass
+    print(f"\n  Overall: {'PASS' if overall_pass else 'FAIL'}")
+
+    return {
+        'layer1_regime_horizon': layer1_results,
+        'layer1_pass': layer1_pass,
+        'path_bias': path_bias_results,
+        'width_vs_vov': width_regime_results,
+        'layer2_regime_cell': layer2_results,
+        'layer2_pass': layer2_pass,
+        'layer3_catastrophic_rate': catastrophic_rate,
+        'layer3_n_catastrophic': n_catastrophic,
+        'layer3_pass': layer3_pass,
+        'n_calm': n_calm,
+        'n_turb': n_turb,
+        'vol_of_vol_q20': float(q20),
+        'vol_of_vol_q80': float(q80),
+        'overall_pass': overall_pass,
     }
 
 
@@ -1038,23 +1554,27 @@ def print_summary(results: Dict) -> bool:
     # Test Suite 1: Surface Validity
     s = results['surface']
     print("\nTest Suite 1: Surface Validity")
-    print(f"  Explosion rate:      {s['explosion']['explosion_total_rate']:.1%} "
+    print(f"  Explosion rate:        {s['explosion']['explosion_total_rate']:.1%} "
           f"{'PASS' if s['explosion']['pass'] else 'FAIL'}")
-    print(f"  Calendar arbitrage:  {s['calendar']['calendar_avg_violation_rate']:.1%} "
+    print(f"  Calendar arbitrage:    {s['calendar']['calendar_avg_violation_rate']:.1%} "
+          f"(worst strike: {s['calendar']['worst_strike_rate']:.1%}) "
           f"{'PASS' if s['calendar']['pass'] else 'FAIL'}")
-    print(f"  Butterfly arbitrage: {s['butterfly']['butterfly_avg_violation_rate']:.1%} "
+    print(f"  Butterfly arbitrage:   {s['butterfly']['butterfly_avg_violation_rate']:.1%} "
+          f"(worst tenor: {s['butterfly']['worst_tenor_rate']:.1%}) "
           f"{'PASS' if s['butterfly']['pass'] else 'FAIL'}")
-    print(f"  Overall:             {'PASS' if s['overall_pass'] else 'FAIL'}")
+    print(f"  Overall:               {'PASS' if s['overall_pass'] else 'FAIL'}")
 
     # Test Suite 2: CI Coverage
     c = results['coverage']
     print("\nTest Suite 2: CI Coverage")
-    print(f"  Overall 90% CI:      {c['overall'][0.9]:.1%}")
+    print(f"  Overall 90% CI:        {c['overall'][0.9]:.1%}")
     for h, passed in c.get('horizon_pass', {}).items():
         cov = c['per_horizon'].get(h, {}).get(0.9, 0.0)
-        print(f"    h={h:2d}: {cov:.1%} {'PASS' if passed else 'FAIL'}")
-    print(f"  Calibration error:   {c['calibration_error']:.3f}")
-    print(f"  Overall:             {'PASS' if c['pass'] else 'FAIL'}")
+        worst = c.get('worst_cell_per_horizon', {}).get(h, 0.0)
+        print(f"    h={h:2d}: {cov:.1%} (worst cell: {worst:.1%}) {'PASS' if passed else 'FAIL'}")
+    print(f"  Worst cell pass:       {'PASS' if c.get('worst_cell_pass', True) else 'FAIL'}")
+    print(f"  Calibration error:     {c['calibration_error']:.3f}")
+    print(f"  Overall:               {'PASS' if c['pass'] else 'FAIL'}")
 
     # Test Suite 3: Conditionality
     d = results['conditionality']
@@ -1065,6 +1585,10 @@ def print_summary(results: Dict) -> bool:
           f"{'PASS' if d['mae_pass'] else 'FAIL'}")
     print(f"  Growing uncertainty: "
           f"{'PASS' if d['growing_uncertainty_monotonic'] else 'FAIL'}")
+    print(f"  Worst cell width:    {d.get('worst_cell_width_ratio', 0):.3f} "
+          f"{'PASS' if d.get('worst_cell_wr_pass', True) else 'FAIL'}")
+    print(f"  Worst cell MAE red:  {d.get('worst_cell_mae_reduction', 0):.1f}% "
+          f"{'PASS' if d.get('worst_cell_mae_pass', True) else 'FAIL'}")
     print(f"  Overall:             {'PASS' if d['pass'] else 'FAIL'}")
 
     # Test Suite 4: Time Series
@@ -1073,6 +1597,8 @@ def print_summary(results: Dict) -> bool:
     print(f"  ACF correlation:     {ts['acf']['acf_correlation']:.3f} "
           f"{'PASS' if ts['acf']['pass'] else 'FAIL'}")
     print(f"  Kurtosis ratio:      {ts['kurtosis']['kurtosis_ratio']:.3f} "
+          f"(per-cell: [{ts['kurtosis'].get('worst_cell_ratio', 0):.3f}, "
+          f"{ts['kurtosis'].get('best_cell_ratio', 0):.3f}]) "
           f"{'PASS' if ts['kurtosis']['pass'] else 'FAIL'}")
     print(f"  Overall:             {'PASS' if ts['overall_pass'] else 'FAIL'}")
 
@@ -1092,8 +1618,19 @@ def print_summary(results: Dict) -> bool:
         print(f"  Gen pass rate:       {co['gen_pass_rate']:.1%}")
         print(f"  GT pass rate:        {co['gt_pass_rate']:.1%}")
         print(f"  Gen/GT ratio:        {co['gen_gt_ratio']:.3f} "
+              f"(worst cell: {co.get('worst_cell_ratio', 0):.3f}) "
               f"{'PASS' if co['pass'] else 'FAIL'}")
         print(f"  Gen mean R²:         {co['gen_mean_rsq']:.4f}")
+
+    # Test Suite 7: Regime Coverage
+    if 'regime_coverage' in results:
+        rc = results['regime_coverage']
+        print("\nTest Suite 7: Regime Coverage (Three-Layer)")
+        print(f"  Layer 1 (regime×horizon): {'PASS' if rc['layer1_pass'] else 'FAIL'}")
+        print(f"  Layer 2 (regime×cell):    {'PASS' if rc['layer2_pass'] else 'FAIL'}")
+        print(f"  Layer 3 (catastrophic):   {rc['layer3_catastrophic_rate']:.1%} "
+              f"{'PASS' if rc['layer3_pass'] else 'FAIL'}")
+        print(f"  Overall:                  {'PASS' if rc['overall_pass'] else 'FAIL'}")
 
     # Overall
     print("\n" + "=" * 60)
@@ -1104,6 +1641,8 @@ def print_summary(results: Dict) -> bool:
         ts['overall_pass'],
         ba['overall_pass'],
     ])
+    if 'regime_coverage' in results:
+        all_pass = all_pass and results['regime_coverage']['overall_pass']
     # Cointegration is informational — doesn't affect overall pass/fail yet
     if 'cointegration' in results and not results['cointegration']['pass']:
         print("  NOTE: Cointegration test FAILED (informational)")
@@ -1290,10 +1829,10 @@ def main():
     print(f"  Test set: {len(test_dataset)} windows")
 
     # =========================================================================
-    # Generate samples (shared across test suites 1, 2, 4, 5)
+    # Generate samples (shared across test suites 1, 2, 4, 5, 7)
     # =========================================================================
     print("\nGenerating samples for validation tests...")
-    cond_samples, ground_truth = generate_all_samples(
+    cond_samples, ground_truth, history_arr = generate_all_samples(
         model, test_loader,
         n_samples=args.n_samples,
         max_batches=args.max_batches,
@@ -1304,6 +1843,7 @@ def main():
     )
     print(f"  Conditioned samples: {cond_samples.shape}")
     print(f"  Ground truth: {ground_truth.shape}")
+    print(f"  History: {history_arr.shape}")
 
     # =========================================================================
     # Run all test suites
@@ -1353,6 +1893,11 @@ def main():
         )
     else:
         print("\n  Skipping cointegration test (no returns data)")
+
+    # Test Suite 7: Three-Layer Regime Coverage
+    results['regime_coverage'] = run_regime_coverage_tests(
+        cond_samples, ground_truth, history_arr,
+    )
 
     # =========================================================================
     # Summary
