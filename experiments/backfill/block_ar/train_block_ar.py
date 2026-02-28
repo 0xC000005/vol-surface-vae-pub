@@ -175,7 +175,7 @@ def main():
     parser.add_argument("--checkpoint_every", type=int, default=None, help="Save checkpoint every N epochs")
     parser.add_argument("--loss_type", type=str, default=None, choices=["mse", "huber", "crps"], help="Loss function (default: mse, crps requires --learn_sigma)")
     parser.add_argument("--huber_delta", type=float, default=None, help="Huber loss delta (default: 0.1)")
-    parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d", "causal_conv3d"], help="Denoiser architecture")
+    parser.add_argument("--denoiser_type", type=str, default=None, choices=["bigru", "conv3d", "causal_conv3d", "dit"], help="Denoiser architecture")
     parser.add_argument("--encoder_type", type=str, default=None, choices=["gru", "conv3d"], help="Encoder architecture (gru=flat spatial, conv3d=spatial-aware)")
     parser.add_argument("--bottleneck_dim", type=int, default=None, help="Encoder bottleneck dimension (default: 64)")
     parser.add_argument("--p_mask", type=float, default=None, help="MCVD mask probability (default: 0.2, uniform tasks: 0.5)")
@@ -201,8 +201,8 @@ def main():
                         help="beta-NLL weight for learned variance (0.5 recommended)")
     parser.add_argument("--ratio_target", action="store_true",
                         help="Ratio-space diffusion: model predicts transformed ratios instead of absolute IV")
-    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell"],
-                        help="Ratio mode: 'log', 'logit', 'vol_scaled', 'vol_scaled_percell', 'nsdiff', 'e2e_nll', or 'vol_scaled_learned' (hybrid)")
+    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "additive_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", "percell_revin"],
+                        help="Ratio mode: 'log', 'logit', 'vol_scaled', 'percell_revin' (per-cell RevIN), etc.")
     parser.add_argument("--nsdiff_sigma_lambda", type=float, default=0.1,
                         help="NLL loss weight for NSDiff/e2e learned sigma (0.1 default)")
     parser.add_argument("--e2e_sigma_reg", type=float, default=0.01,
@@ -213,10 +213,48 @@ def main():
                         help="Min clamp for vol_scale (higher = wider calm CIs)")
     parser.add_argument("--vol_scale_max", type=float, default=2.0,
                         help="Max clamp for vol_scale")
+    parser.add_argument("--global_mean_vol", type=float, default=None,
+                        help="Override global_mean_vol (default: auto-compute from training data)")
     parser.add_argument("--baseline_window", type=int, default=1,
                         help="Number of history days to average for baseline (1 = last day only)")
     parser.add_argument("--learn_sigma", action="store_true",
                         help="Nichol-Dhariwal learned variance: denoiser predicts per-element variance")
+    parser.add_argument("--spatial_pos_encoding", action="store_true",
+                        help="CoordConv: add row/col coordinate channels to denoiser input")
+    parser.add_argument("--use_spade", action="store_true",
+                        help="SPADE: per-position learned scale/shift in denoiser AdaGN")
+    parser.add_argument("--finetune_spade", type=str, default=None,
+                        help="Two-stage SPADE: load base model from this path, add SPADE, freeze base, train only spatial params")
+    parser.add_argument("--use_percell_head", action="store_true",
+                        help="Per-cell residual head: condition-dependent noise correction per cell")
+    parser.add_argument("--finetune_percell_head", type=str, default=None,
+                        help="Two-stage per-cell head: load base model, freeze base, train only percell head")
+    parser.add_argument("--percell_regime_input", action="store_true",
+                        help="Add vol_of_vol scalar input to percell_head for regime-conditional corrections")
+    parser.add_argument("--baseline_channel", action="store_true",
+                        help="Add baseline surface as extra denoiser input channel (per-cell spatial context)")
+    parser.add_argument("--use_spatial_attention", action="store_true",
+                        help="Spatial self-attention: multi-head attention over 5x5 grid in denoiser")
+    parser.add_argument("--spatial_attn_heads", type=int, default=4,
+                        help="Number of attention heads for spatial self-attention (default: 4)")
+    parser.add_argument("--dit_d_model", type=int, default=64,
+                        help="DiT hidden dimension (default: 64)")
+    parser.add_argument("--dit_n_layers", type=int, default=6,
+                        help="DiT number of transformer layers (default: 6)")
+    parser.add_argument("--dit_n_heads", type=int, default=4,
+                        help="DiT number of attention heads (default: 4)")
+    parser.add_argument("--dit_mlp_ratio", type=float, default=2.0,
+                        help="DiT FFN expansion ratio (default: 2.0)")
+    parser.add_argument("--learn_cell_scale", action="store_true",
+                        help="Learn per-cell vol_scale correction factor (Bitter Lesson: replace hyperparameter with learned capacity)")
+    parser.add_argument("--cell_scale_clamp", type=float, default=0.2,
+                        help="Max abs value for learned per-cell log correction (0.2 → [0.82x, 1.22x])")
+    parser.add_argument("--cell_scale_values", type=str, default=None,
+                        help="Fixed per-cell vol_scale correction grid as JSON list of 25 floats (from calibration head)")
+    parser.add_argument("--cell_norm_power", type=float, default=0.0,
+                        help="Per-cell structural normalization power (0.0=off, >0=per-cell correction)")
+    parser.add_argument("--cell_loss_weight_power", type=float, default=0.0,
+                        help="Per-cell loss weight power (0.0=off, >0=weight inversely to per-cell vol)")
     parser.add_argument("--lambda_vlb", type=float, default=0.001,
                         help="VLB loss weight for learned variance (0.001 recommended)")
     parser.add_argument("--cond_drop_prob", type=float, default=0.0,
@@ -233,6 +271,18 @@ def main():
                         help="Weight for mean prediction loss (default: 1.0)")
     parser.add_argument("--aux_regime_features", action="store_true",
                         help="Feed vol_of_vol and IV level as explicit conditioning features")
+    parser.add_argument("--turb_loss_weight", type=float, default=0.0,
+                        help="Regime-weighted loss: turb/calm weight ratio (0=off, 2.0=turb gets 2x weight)")
+    parser.add_argument("--cell_heteroscedastic", action="store_true",
+                        help="Per-cell heteroscedastic forward noise from training data statistics")
+    parser.add_argument("--cell_noise_power", type=float, default=0.5,
+                        help="Power for cell noise scale: (cell_std/median)^power (default: 0.5)")
+    parser.add_argument("--cell_noise_clamp_min", type=float, default=0.5,
+                        help="Min clamp for cell noise scale (default: 0.5)")
+    parser.add_argument("--cell_noise_clamp_max", type=float, default=2.0,
+                        help="Max clamp for cell noise scale (default: 2.0)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducibility")
     args = parser.parse_args()
 
     config = get_fast_test_config() if args.fast else get_default_config()
@@ -316,9 +366,41 @@ def main():
         config.baseline_window = args.baseline_window
         config.nsdiff_sigma_lambda = args.nsdiff_sigma_lambda
         config.e2e_sigma_reg = args.e2e_sigma_reg
+    if args.global_mean_vol is not None:
+        config.global_mean_vol = args.global_mean_vol
     if args.learn_sigma:
         config.learn_sigma = True
         config.lambda_vlb = args.lambda_vlb
+    if args.spatial_pos_encoding:
+        config.spatial_pos_encoding = True
+    if args.use_spade or args.finetune_spade:
+        config.use_spade = True
+    if args.use_percell_head or args.finetune_percell_head:
+        config.use_percell_head = True
+    if args.percell_regime_input:
+        config.percell_regime_input = True
+    if args.baseline_channel:
+        config.baseline_channel = True
+    if args.use_spatial_attention:
+        config.use_spatial_attention = True
+        config.spatial_attn_heads = args.spatial_attn_heads
+    # DiT denoiser config
+    if args.denoiser_type == "dit":
+        config.dit_d_model = args.dit_d_model
+        config.dit_n_layers = args.dit_n_layers
+        config.dit_n_heads = args.dit_n_heads
+        config.dit_mlp_ratio = args.dit_mlp_ratio
+    if args.learn_cell_scale:
+        config.learn_cell_scale = True
+        config.cell_scale_clamp = args.cell_scale_clamp
+    if args.cell_scale_values is not None:
+        import json as _json
+        config.cell_scale_values = _json.loads(args.cell_scale_values)
+        print(f"Fixed per-cell vol_scale corrections from calibration head: {len(config.cell_scale_values)} values")
+    if args.cell_norm_power > 0:
+        config.cell_norm_power = args.cell_norm_power
+    if args.cell_loss_weight_power > 0:
+        config.cell_loss_weight_power = args.cell_loss_weight_power
     if args.cond_drop_prob > 0:
         config.cond_drop_prob = args.cond_drop_prob
         config.guidance_scale = args.guidance_scale
@@ -330,6 +412,19 @@ def main():
         config.mean_head_lambda = args.mean_head_lambda
     if args.aux_regime_features:
         config.aux_regime_features = True
+    if args.cell_heteroscedastic:
+        config.cell_heteroscedastic = True
+        config.cell_noise_power = args.cell_noise_power
+        config.cell_noise_clamp_min = args.cell_noise_clamp_min
+        config.cell_noise_clamp_max = args.cell_noise_clamp_max
+    if args.turb_loss_weight > 0:
+        config.turb_loss_weight = args.turb_loss_weight
+
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
 
     if config.device == "cuda" and not torch.cuda.is_available():
         print("CUDA not available, using CPU")
@@ -380,10 +475,33 @@ def main():
         print(f"Ratio target: ON (mode={config.ratio_target_mode}, conditional uncertainty via representation)")
     if getattr(config, 'learn_sigma', False):
         print(f"Learned sigma: ON (Nichol-Dhariwal, lambda_vlb={config.lambda_vlb})")
+    if getattr(config, 'spatial_pos_encoding', False):
+        print("Spatial position encoding: ON (CoordConv row/col)")
+    if getattr(config, 'baseline_channel', False):
+        print("Baseline channel: ON (baseline surface as extra denoiser input)")
+    if getattr(config, 'use_spade', False):
+        if args.finetune_spade:
+            print(f"SPADE: FINETUNE mode (base={args.finetune_spade}, train spatial params only)")
+        else:
+            print("SPADE: ON (per-position learned scale/shift in AdaGN)")
+    if getattr(config, 'learn_cell_scale', False):
+        print(f"Learned per-cell scale: ON (clamp={config.cell_scale_clamp})")
+    if getattr(config, 'cell_scale_values', None) is not None:
+        import numpy as _np
+        _csv = _np.array(config.cell_scale_values).reshape(5, 5)
+        print(f"Fixed per-cell scale: ON (range=[{_csv.min():.3f}, {_csv.max():.3f}])")
+        print(f"  {_csv.round(3)}")
+    if getattr(config, 'cell_norm_power', 0.0) > 0:
+        print(f"Per-cell structural norm: ON (power={config.cell_norm_power})")
+    if getattr(config, 'cell_loss_weight_power', 0.0) > 0:
+        print(f"Per-cell loss weighting: ON (power={config.cell_loss_weight_power})")
     if config.cond_drop_prob > 0:
         print(f"CFG: ON (cond_drop_prob={config.cond_drop_prob}, guidance_scale={config.guidance_scale})")
     if getattr(config, 'crps_variance_head', False):
         print(f"CRPS variance head: ON (lambda_crps={config.lambda_crps})")
+    if getattr(config, 'cell_heteroscedastic', False):
+        print(f"Cell heteroscedastic: ON (power={config.cell_noise_power}, "
+              f"clamp=[{config.cell_noise_clamp_min}, {config.cell_noise_clamp_max}])")
     print("=" * 60)
 
     # Load data
@@ -452,9 +570,43 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {n_params:,}")
 
-    # Optimizer + scheduler
+    # Two-stage fine-tuning: load base model, freeze base, train only new params
+    _finetune_path = args.finetune_spade or args.finetune_percell_head
+    if _finetune_path:
+        _mode = "SPADE" if args.finetune_spade else "percell_head"
+        print(f"\nTwo-stage {_mode}: loading base model from {_finetune_path}")
+        base_ckpt = torch.load(_finetune_path, weights_only=False, map_location=config.device)
+        base_state = base_ckpt.get("model_state_dict", base_ckpt.get("state_dict", {}))
+        missing, unexpected = model.load_state_dict(base_state, strict=False)
+        print(f"  Loaded {len(base_state) - len(unexpected)} params, "
+              f"missing (new): {len(missing)}, unexpected: {len(unexpected)}")
+        # Determine which params to keep trainable
+        trainable_names = set()
+        if args.finetune_spade:
+            trainable_names = {"gamma_spatial", "beta_spatial"}
+        elif args.finetune_percell_head:
+            trainable_names = {"percell_head"}
+        new_params = []
+        frozen_count = 0
+        for name, param in model.named_parameters():
+            if any(tn in name for tn in trainable_names):
+                param.requires_grad = True
+                new_params.append(param)
+            else:
+                param.requires_grad = False
+                frozen_count += 1
+        n_trainable = sum(p.numel() for p in new_params)
+        print(f"  Frozen: {frozen_count} params, Trainable: {len(new_params)} tensors ({n_trainable:,} params)")
+
+    # Compute per-cell noise scale from training data (before training)
+    if getattr(model_config, 'cell_heteroscedastic', False):
+        print("\nComputing per-cell noise scale from training data...")
+        model.compute_cell_noise_scale(train_loader, device=config.device)
+
+    # Optimizer + scheduler: only optimize trainable params
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.lr, weight_decay=config.weight_decay,
+        trainable_params, lr=config.lr, weight_decay=config.weight_decay,
     )
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=config.epochs, eta_min=config.lr / 10,

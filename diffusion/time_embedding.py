@@ -214,6 +214,86 @@ class AdaptiveGroupNorm(nn.Module):
         return x * (1 + scale) + shift
 
 
+class SpatialAdaptiveGroupNorm(nn.Module):
+    """
+    AdaptiveGroupNorm + learned per-position scale/shift (SPADE-style).
+
+    After GroupNorm + FiLM (condition-dependent uniform scale/shift), applies
+    learned spatial modulation: y * (1 + gamma_s[c,h,w]) + beta_s[c,h,w].
+
+    This gives each spatial position independent learned capacity to modulate
+    the normalized features. The multiplicative interaction with FiLM means
+    the spatial correction scales with the condition (e.g. larger in turbulent
+    regimes when FiLM scale is large).
+
+    Extra parameters per layer: 2 * C * H * W (e.g. 2*32*5*5 = 1600).
+    """
+
+    def __init__(
+        self,
+        num_channels: int,
+        num_groups: int,
+        embed_dim: int,
+        surface_h: int = 5,
+        surface_w: int = 5,
+        eps: float = 1e-6,
+    ):
+        super().__init__()
+
+        # Adjust groups to be compatible with channel count
+        num_groups = min(num_groups, num_channels)
+        while num_channels % num_groups != 0:
+            num_groups -= 1
+        num_groups = max(1, num_groups)
+
+        self.norm = nn.GroupNorm(num_groups, num_channels, eps=eps, affine=False)
+
+        # FiLM: project condition embedding to per-channel scale and shift
+        self.proj = nn.Linear(embed_dim, num_channels * 2)
+
+        # SPADE: per-position learned scale and shift (zero-init → identity at start)
+        self.gamma_spatial = nn.Parameter(
+            torch.zeros(1, num_channels, 1, surface_h, surface_w)
+        )
+        self.beta_spatial = nn.Parameter(
+            torch.zeros(1, num_channels, 1, surface_h, surface_w)
+        )
+
+    def forward(self, x: torch.Tensor, t_emb: torch.Tensor) -> torch.Tensor:
+        """
+        Apply adaptive normalization with spatial modulation.
+
+        Args:
+            x: Input tensor (B, C, T, H, W)
+            t_emb: Time/condition embedding (B, embed_dim) or (B, T, embed_dim)
+
+        Returns:
+            Normalized, FiLM-modulated, spatially-modulated tensor
+        """
+        # Normalize
+        x = self.norm(x)
+
+        # FiLM: condition-dependent scale/shift (same as AdaptiveGroupNorm)
+        if t_emb.dim() == 3:
+            B, T, _ = t_emb.shape
+            params = self.proj(t_emb.view(B * T, -1)).view(B, T, -1)
+            scale, shift = params.chunk(2, dim=2)
+            scale = scale.permute(0, 2, 1).unsqueeze(-1).unsqueeze(-1)
+            shift = shift.permute(0, 2, 1).unsqueeze(-1).unsqueeze(-1)
+        else:
+            params = self.proj(t_emb)
+            scale, shift = params.chunk(2, dim=1)
+            n_spatial = x.dim() - 2
+            scale = scale.view(scale.shape[0], scale.shape[1], *([1] * n_spatial))
+            shift = shift.view(shift.shape[0], shift.shape[1], *([1] * n_spatial))
+
+        # Apply FiLM then spatial SPADE:
+        # y = [GroupNorm(x) * (1+scale_t) + shift_t] * (1+gamma_s) + beta_s
+        # Cross-term: scale_t * gamma_s provides regime × position interaction
+        y = x * (1 + scale) + shift
+        return y * (1 + self.gamma_spatial) + self.beta_spatial
+
+
 def test_time_embedding():
     """Unit tests for time embedding modules."""
     print("Testing Time Embedding...")

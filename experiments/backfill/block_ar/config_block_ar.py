@@ -44,6 +44,13 @@ class BlockARPOCConfig:
     conv3d_groups: int = 8
     conv3d_noise_embed_dim: int = 64
 
+    # DiT denoiser params (only used when denoiser_type="dit")
+    dit_d_model: int = 64
+    dit_n_layers: int = 6
+    dit_n_heads: int = 4
+    dit_mlp_ratio: float = 2.0
+    dit_noise_embed_dim: int = 64
+
     # === Diffusion Process ===
     n_steps: int = 100
     schedule: str = "cosine"
@@ -92,7 +99,7 @@ class BlockARPOCConfig:
 
     # === Ratio-Space Target ===
     ratio_target: bool = False  # diffusion on transformed ratios for conditional uncertainty
-    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", or "learned_percell"
+    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "additive_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", or "percell_revin"
     global_mean_vol: float = 0.0187  # mean vol_scale across training data
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
     vol_scale_min: float = 0.5  # min clamp for vol_scale (higher = wider calm CIs)
@@ -104,6 +111,26 @@ class BlockARPOCConfig:
     # Learned sigma (Nichol & Dhariwal 2021): denoiser predicts variance
     learn_sigma: bool = False
     lambda_vlb: float = 0.001  # VLB loss weight
+
+    # CoordConv: add row/col coordinate channels to denoiser input
+    spatial_pos_encoding: bool = False
+
+    # Baseline surface as extra denoiser input channel (per-cell spatial context)
+    baseline_channel: bool = False
+
+    # Learned per-cell vol_scale correction: static (5,5) parameter trained by diffusion loss
+    # Replaces vol_scale_min hyperparameter with learned capacity (Bitter Lesson)
+    learn_cell_scale: bool = False
+    cell_scale_clamp: float = 0.2  # max abs value for log correction: 0.2 → [0.82x, 1.22x]
+
+    # Fixed per-cell vol_scale correction from calibration head analysis
+    cell_scale_values: list = None
+
+    # Per-cell structural normalization
+    cell_norm_power: float = 0.0  # 0.0=off, >0 = per-cell vol normalization
+
+    # Per-cell loss weighting
+    cell_loss_weight_power: float = 0.0  # 0.0=off, >0 = weight inversely to per-cell vol
 
     # Classifier-Free Guidance (CFG)
     cond_drop_prob: float = 0.0  # prob of dropping condition (0.0 = no CFG)
@@ -120,9 +147,32 @@ class BlockARPOCConfig:
     crps_variance_head: bool = False
     lambda_crps: float = 0.1  # CRPS auxiliary loss weight
 
+    # Per-cell heteroscedastic forward noise: static (5,5) noise scale from
+    # training data. Each cell gets noise proportional to its normalized target std.
+    cell_heteroscedastic: bool = False
+    cell_noise_power: float = 0.5  # power for scale: (cell_std / median)^power
+    cell_noise_clamp_min: float = 0.5
+    cell_noise_clamp_max: float = 2.0
+
+    # SPADE: per-position learned scale/shift in denoiser AdaGN layers
+    use_spade: bool = False
+
+    # Spatial self-attention: multi-head attention over 5x5 grid in denoiser
+    use_spatial_attention: bool = False
+    spatial_attn_heads: int = 4
+
+    # Per-cell residual head: condition-dependent noise prediction correction
+    use_percell_head: bool = False
+    percell_head_hidden: int = 64
+    percell_regime_input: bool = False  # add vol_of_vol scalar to percell_head input
+
     # === Loss ===
     loss_type: str = "mse"  # "mse" or "huber"
     huber_delta: float = 0.1  # Huber threshold (smaller = more L1-like)
+
+    # Regime-weighted loss: scale per-sample loss by vol_of_vol quantile
+    # turb windows (high vol_of_vol) get higher weight → model allocates more capacity to turb
+    turb_loss_weight: float = 0.0  # 0.0=off, >0 = turb_weight/calm_weight ratio (e.g. 2.0)
 
     # === Training ===
     batch_size: int = 64

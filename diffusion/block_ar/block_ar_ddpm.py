@@ -100,7 +100,7 @@ class BlockARConfig:
     encoder_dropout: float = 0.1
 
     # Denoiser
-    denoiser_type: str = "bigru"  # "bigru", "conv3d", or "causal_conv3d"
+    denoiser_type: str = "bigru"  # "bigru", "conv3d", "causal_conv3d", or "dit"
     bigru_hidden_dim: int = 128
     pos_embed_dim: int = 16
     noise_embed_dim: int = 16
@@ -111,6 +111,13 @@ class BlockARConfig:
     conv3d_n_res_blocks: int = 4
     conv3d_groups: int = 8
     conv3d_noise_embed_dim: int = 64
+
+    # DiT denoiser params (only used when denoiser_type="dit")
+    dit_d_model: int = 64
+    dit_n_layers: int = 6
+    dit_n_heads: int = 4
+    dit_mlp_ratio: float = 2.0
+    dit_noise_embed_dim: int = 64
 
     # Diffusion
     n_steps: int = 100
@@ -143,6 +150,9 @@ class BlockARConfig:
     # Loss function: "mse" or "huber" (Huber/SmoothL1 preserves tails better)
     loss_type: str = "mse"
     huber_delta: float = 0.1  # Huber threshold — smaller = more L1-like for large errors
+
+    # Regime-weighted loss: turb windows get higher training weight
+    turb_loss_weight: float = 0.0  # 0.0=off, >0 = turb_weight (calm=1.0)
 
     # Regime conditioning (hierarchical sampling)
     n_regimes: int = 5
@@ -179,6 +189,29 @@ class BlockARConfig:
     heteroscedastic_noise: bool = False
     global_mean_iv: float = 0.2154  # precomputed from training data (denormalized [0,1])
     heteroscedastic_power: float = 0.5  # exponent for noise scaling
+
+    # Per-cell heteroscedastic forward noise: static (5,5) scale from training data.
+    # Each cell gets a different noise magnitude proportional to its normalized target std.
+    # cell_noise_scale[r,c] = (cell_std / median_cell_std)^power, clamped.
+    # This makes the forward process match the actual per-cell variance structure.
+    # Denoiser predicts UNSCALED noise; cell_noise_scale applied to forward and reverse noise.
+    cell_heteroscedastic: bool = False
+    cell_noise_power: float = 0.5
+    cell_noise_clamp_min: float = 0.5
+    cell_noise_clamp_max: float = 2.0
+
+    # SPADE: per-position learned scale/shift in denoiser AdaGN layers
+    use_spade: bool = False
+
+    # Spatial self-attention: multi-head attention over 5x5 grid in denoiser
+    use_spatial_attention: bool = False
+    spatial_attn_heads: int = 4
+
+    # Per-cell residual head: condition-dependent noise prediction correction
+    # per cell. Learns to fix mean bias for specific cells in specific regimes.
+    use_percell_head: bool = False
+    percell_head_hidden: int = 64
+    percell_regime_input: bool = False  # add vol_of_vol scalar to percell_head input
 
     # Learned variance head (Diffusion2-style): model predicts per-sample log-variance
     # alongside noise. Trained with heteroscedastic NLL + beta-NLL stabilization.
@@ -232,6 +265,33 @@ class BlockARConfig:
     # variance. Trained with L_simple + lambda_vlb * L_vlb (KL divergence).
     learn_sigma: bool = False
     lambda_vlb: float = 0.001  # VLB loss weight (small so L_simple dominates)
+    spatial_pos_encoding: bool = False  # CoordConv: add row/col coords to denoiser input
+    baseline_channel: bool = False  # add baseline surface as extra denoiser input channel
+
+    # Learned per-cell vol_scale correction: static (5,5) parameter trained by diffusion loss.
+    # Multiplicative correction on scalar vol_scale: effective = vol_scale * exp(log_cell_scale).
+    # Clamped to [-cell_scale_clamp, +cell_scale_clamp] → bounded correction factor.
+    # Bitter Lesson: let the model learn per-cell scaling instead of hyperparameter tuning.
+    learn_cell_scale: bool = False
+    cell_scale_clamp: float = 0.2  # max abs value: 0.2 → [0.82x, 1.22x] correction range
+
+    # Fixed per-cell vol_scale correction: from calibration head analysis.
+    # Multiplicative (5,5) tensor applied to scalar vol_scale. Registered as buffer (frozen).
+    # Derived from output-space pinball loss on validation samples.
+    # None = disabled, list of 25 floats = (5,5) correction grid.
+    cell_scale_values: list = None
+
+    # Per-cell structural normalization: cell_norm[r,c] = (gmcv[r,c]/gmcv.mean())^power
+    # Applied multiplicatively with scalar vol_scale: effective_scale = vol_scale * cell_norm
+    # Accounts for structural per-cell volatility differences (28× range) that the model
+    # only recovers ~85% of. 0.0 = off (current behavior), >0 = per-cell correction.
+    cell_norm_power: float = 0.0
+
+    # Per-cell loss weighting: w[r,c] = (gmcv.mean()/gmcv[r,c])^power
+    # Inversely proportional to per-cell volatility. High-vol cells get lower weight →
+    # less accurate noise predictions → more diversity → wider CIs (fix undercoverage).
+    # Low-vol cells get higher weight → more accurate → narrower CIs (fix overcoverage).
+    cell_loss_weight_power: float = 0.0
 
     # Classifier-Free Guidance (CFG): randomly drop conditioning during training
     # to learn both conditional and unconditional noise prediction. At inference,
@@ -450,7 +510,26 @@ class ConditionalBlockARDDPM(nn.Module):
             self.encoder = GRUEncoder(enc_cfg)
 
         denoiser_type = getattr(config, 'denoiser_type', 'bigru')
-        if denoiser_type in ("conv3d", "causal_conv3d"):
+        if denoiser_type == "dit":
+            from diffusion.block_ar.dit_denoiser import (
+                DiTBlockDenoiser, DiTDenoiserConfig,
+            )
+            dit_config = DiTDenoiserConfig(
+                frame_dim=config.surface_h * config.surface_w,
+                surface_h=config.surface_h,
+                surface_w=config.surface_w,
+                bottleneck_dim=config.bottleneck_dim,
+                pos_embed_dim=config.pos_embed_dim,
+                noise_embed_dim=getattr(config, 'dit_noise_embed_dim', 64),
+                n_steps=config.n_steps,
+                d_model=getattr(config, 'dit_d_model', 64),
+                n_layers=getattr(config, 'dit_n_layers', 6),
+                n_heads=getattr(config, 'dit_n_heads', 4),
+                mlp_ratio=getattr(config, 'dit_mlp_ratio', 2.0),
+                learn_sigma=getattr(config, 'learn_sigma', False),
+            )
+            self.denoiser = DiTBlockDenoiser(dit_config)
+        elif denoiser_type in ("conv3d", "causal_conv3d"):
             from diffusion.block_ar.conv3d_denoiser import (
                 Conv3DBlockDenoiser, CausalConv3DBlockDenoiser, Conv3DDenoiserConfig,
             )
@@ -466,6 +545,14 @@ class ConditionalBlockARDDPM(nn.Module):
                 n_res_blocks=config.conv3d_n_res_blocks,
                 groups=config.conv3d_groups,
                 learn_sigma=getattr(config, 'learn_sigma', False),
+                spatial_pos_encoding=getattr(config, 'spatial_pos_encoding', False),
+                use_spade=config.use_spade,
+                use_percell_head=config.use_percell_head,
+                percell_head_hidden=config.percell_head_hidden,
+                percell_regime_input=getattr(config, 'percell_regime_input', False),
+                baseline_channel=getattr(config, 'baseline_channel', False),
+                use_spatial_attention=getattr(config, 'use_spatial_attention', False),
+                spatial_attn_heads=getattr(config, 'spatial_attn_heads', 4),
             )
             if denoiser_type == "causal_conv3d":
                 self.denoiser = CausalConv3DBlockDenoiser(conv3d_config)
@@ -491,8 +578,14 @@ class ConditionalBlockARDDPM(nn.Module):
             device="cpu",
         )
 
-        # Per-cell global mean vol for vol_scaled_percell mode (precomputed from training data)
-        if getattr(config, 'ratio_target_mode', 'log') == 'vol_scaled_percell':
+        # Per-cell global mean vol (precomputed from training data)
+        # Used by vol_scaled_percell mode AND cell_norm_power > 0
+        _need_gmcv = (
+            getattr(config, 'ratio_target_mode', 'log') == 'vol_scaled_percell'
+            or getattr(config, 'cell_norm_power', 0.0) != 0
+            or getattr(config, 'cell_loss_weight_power', 0.0) > 0
+        )
+        if _need_gmcv:
             _gmcv = torch.tensor([
                 [0.156073, 0.043923, 0.014329, 0.024547, 0.090272],
                 [0.080897, 0.018450, 0.009556, 0.008812, 0.059856],
@@ -500,7 +593,19 @@ class ConditionalBlockARDDPM(nn.Module):
                 [0.018790, 0.007964, 0.005952, 0.005125, 0.007265],
                 [0.022400, 0.007741, 0.005296, 0.004725, 0.008441],
             ], dtype=torch.float32)
-            self.register_buffer('global_mean_cell_vol', _gmcv)
+            _is_percell_mode = getattr(config, 'ratio_target_mode', 'log') == 'vol_scaled_percell'
+            self.register_buffer('global_mean_cell_vol', _gmcv, persistent=_is_percell_mode)
+            # Precompute static per-cell normalization factor (non-persistent: recomputed from config)
+            # Positive power: high-vol cells get wider CIs. Negative power: low-vol cells get wider CIs.
+            if getattr(config, 'cell_norm_power', 0.0) != 0:
+                cell_norm = (_gmcv / _gmcv.mean()).pow(config.cell_norm_power)
+                self.register_buffer('cell_norm_factor', cell_norm, persistent=False)  # (5, 5)
+            # Per-cell loss weights: inversely proportional to per-cell volatility
+            if getattr(config, 'cell_loss_weight_power', 0.0) > 0:
+                cell_weights = (_gmcv.mean() / _gmcv).pow(config.cell_loss_weight_power)
+                # Normalize so mean weight = 1.0 (doesn't change effective learning rate)
+                cell_weights = cell_weights / cell_weights.mean()
+                self.register_buffer('cell_loss_weights', cell_weights, persistent=False)  # (5, 5)
 
         # NSDiff learned sigma head: condition → log_sigma (scalar per sample)
         # Trained with Gaussian NLL loss: 0.5 * log(sigma^2) + 0.5 * z^2
@@ -541,6 +646,49 @@ class ConditionalBlockARDDPM(nn.Module):
             self.register_buffer('percell_global_mean_vol', _gmcv)
         else:
             self.percell_sigma_head = None
+
+        # Per-cell RevIN (Reversible Instance Normalization):
+        # Foundation model consensus approach (Chronos, Moirai, TimesFM).
+        # Each cell (r,c) normalized independently by its own std from history.
+        # Learned per-cell floor replaces vol_scale_min hyperparameter.
+        # log_revin_floor: (5,5) learnable parameter, initialized from global_mean_cell_vol.
+        self.log_revin_floor = None
+        if getattr(config, 'ratio_target_mode', 'log') == 'percell_revin':
+            # Initialize floor from global_mean_cell_vol * baseline scale
+            # These are typical per-cell daily change stds from training data
+            _gmcv = torch.tensor([
+                [0.156073, 0.043923, 0.014329, 0.024547, 0.090272],
+                [0.080897, 0.018450, 0.009556, 0.008812, 0.059856],
+                [0.032432, 0.012188, 0.007496, 0.006284, 0.038562],
+                [0.018790, 0.007964, 0.005952, 0.005125, 0.007265],
+                [0.022400, 0.007741, 0.005296, 0.004725, 0.008441],
+            ], dtype=torch.float32)
+            # Floor = 0.3 * global_mean_cell_vol (conservative initial floor)
+            # Model learns optimal per-cell floor from training signal
+            init_floor = 0.3 * _gmcv
+            self.log_revin_floor = nn.Parameter(torch.log(init_floor))  # (5, 5)
+
+        # Learned per-cell vol_scale correction: static (5,5) parameter, not a NN head.
+        # Trained directly by MSE diffusion loss gradient. Bounded by cell_scale_clamp.
+        # When cell needs wider CIs: gradient pushes correction UP → larger vol_scale for that cell.
+        # Bitter Lesson: replaces vol_scale_min hyperparameter with learned capacity.
+        self.log_cell_scale = None
+        if getattr(config, 'learn_cell_scale', False):
+            # Initialize at 0.0 (identity: no correction)
+            self.log_cell_scale = nn.Parameter(torch.zeros(config.surface_h, config.surface_w))
+
+        # Fixed per-cell vol_scale correction: registered as BUFFER (not trained by MSE).
+        # Derived from calibration head analysis (output-space pinball loss on val set).
+        # Applied identically to learn_cell_scale but frozen — denoiser adapts to it.
+        # The per-cell pattern is structural (same for calm/turb), not regime-dependent.
+        _cell_scale_values = getattr(config, 'cell_scale_values', None)
+        if _cell_scale_values is not None:
+            _csv = torch.tensor(_cell_scale_values, dtype=torch.float32)
+            if _csv.shape == (config.surface_h * config.surface_w,):
+                _csv = _csv.reshape(config.surface_h, config.surface_w)
+            self.register_buffer('fixed_cell_scale', _csv)  # (5, 5) non-trainable
+        else:
+            self.fixed_cell_scale = None
 
         # Hybrid vol_scaled_learned: condition → small correction on top of vol_scale
         # sigma = vol_scale * exp(correction), initialized near correction=0
@@ -637,6 +785,15 @@ class ConditionalBlockARDDPM(nn.Module):
             )
         else:
             self.crps_var_head = None
+
+        # Per-cell heteroscedastic forward noise: static (5,5) noise scale
+        # from training data. Initialized to ones; overwritten by
+        # set_cell_noise_scale() before training starts.
+        if getattr(config, 'cell_heteroscedastic', False):
+            self.register_buffer(
+                'cell_noise_scale',
+                torch.ones(config.surface_h, config.surface_w),
+            )
 
     def _augment_condition(
         self, condition: torch.Tensor, regime_ids: Optional[torch.Tensor]
@@ -827,6 +984,71 @@ class ConditionalBlockARDDPM(nn.Module):
         noise_scale = ratio.pow(self.config.heteroscedastic_power)
         return noise_scale[:, None, None, None]  # (B, 1, 1, 1)
 
+    def compute_cell_noise_scale(self, train_loader, device='cpu'):
+        """Compute per-cell noise scale from training data statistics.
+
+        Iterates training data, computes vol_scaled normalized targets,
+        measures per-cell std, and stores (cell_std / median)^power as
+        the cell_noise_scale buffer.
+
+        Must be called before training when cell_heteroscedastic=True.
+        """
+        assert hasattr(self, 'cell_noise_scale'), \
+            "cell_heteroscedastic must be True to compute cell_noise_scale"
+
+        eps_iv = 1e-4
+        H, W = self.config.surface_h, self.config.surface_w
+        all_targets = []
+
+        with torch.no_grad():
+            for batch in train_loader:
+                history = batch['history'].to(device)
+                future = batch['future'].to(device)
+
+                # Compute vol_scaled targets (same as forward())
+                K = min(self.config.baseline_window, history.shape[1])
+                baseline = denormalize_iv(history[:, -K:]).mean(dim=1)
+                baseline = baseline.clamp(min=0.01).unsqueeze(1)
+
+                past_abs = denormalize_iv(history)
+                mean_iv = past_abs.mean(dim=(-1, -2))
+                daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                vol = daily_chg.std(dim=1, keepdim=True)
+                vol_scale = (vol / self.config.global_mean_vol).clamp(
+                    self.config.vol_scale_min, self.config.vol_scale_max
+                )
+                vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)
+
+                # Denormalize future for all blocks
+                bs = self.config.block_size
+                n_blocks = self.config.future_len // bs
+                for bi in range(n_blocks):
+                    block = future[:, bi*bs:(bi+1)*bs]
+                    target_abs = denormalize_iv(block).clamp(min=eps_iv, max=1-eps_iv)
+                    log_ratio = torch.log(target_abs / baseline)
+                    target_norm = log_ratio / vol_scale
+                    all_targets.append(target_norm.cpu().numpy())
+
+        import numpy as np
+        all_targets = np.concatenate(all_targets, axis=0)  # (N*n_blocks, bs, H, W)
+        cell_std = all_targets.std(axis=(0, 1))  # (H, W)
+        median_std = np.median(cell_std)
+        power = self.config.cell_noise_power
+        cell_scale = (cell_std / median_std) ** power
+        cell_scale = np.clip(
+            cell_scale, self.config.cell_noise_clamp_min, self.config.cell_noise_clamp_max
+        )
+
+        self.cell_noise_scale.copy_(torch.tensor(cell_scale, dtype=torch.float32))
+
+        print(f"Cell noise scale (power={power}, "
+              f"clamp=[{self.config.cell_noise_clamp_min}, {self.config.cell_noise_clamp_max}]):")
+        for r in range(H):
+            print(f"  {' '.join(f'{cell_scale[r,c]:.3f}' for c in range(W))}")
+        print(f"  Range: [{cell_scale.min():.3f}, {cell_scale.max():.3f}], "
+              f"Median: {np.median(cell_scale):.3f}")
+
     def forward(
         self,
         history: torch.Tensor,
@@ -941,8 +1163,36 @@ class ConditionalBlockARDDPM(nn.Module):
                     vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 1)
                     vol_scale = vol_scale.pow(self.config.vol_scale_power)  # dampening
                     vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                    # Per-cell structural normalization (if enabled)
+                    if getattr(self, 'cell_norm_factor', None) is not None:
+                        vol_scale = vol_scale * self.cell_norm_factor  # (B, 1, 1, 1) * (5, 5) → (B, 1, 5, 5)
+                    # Learned per-cell correction (if enabled)
+                    if self.log_cell_scale is not None:
+                        clamp = getattr(self.config, 'cell_scale_clamp', 0.2)
+                        correction = torch.exp(self.log_cell_scale.clamp(-clamp, clamp))  # (5, 5)
+                        vol_scale = vol_scale * correction  # broadcast: (B, 1, 1, 1) or (B, 1, 5, 5) * (5, 5)
+                    # Fixed per-cell correction from calibration head (frozen buffer)
+                    if self.fixed_cell_scale is not None:
+                        vol_scale = vol_scale * self.fixed_cell_scale  # (B, 1, 1, 1) * (5, 5)
                     log_ratio = torch.log(target_abs / baseline)
                     target_block = (log_ratio / vol_scale).clamp(-1.0, 1.0)
+                elif self.config.ratio_target_mode == "additive_scaled":
+                    # Additive formulation: (future - baseline) / (vol_scale * baseline)
+                    # Symmetric denormalization: baseline + z * vol_scale * baseline
+                    # Eliminates exp() asymmetry (11.8x at vs=1.5 → 1.0x).
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T_past-1)
+                    vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)  # (B, 1)
+                    vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                    vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                    if getattr(self, 'cell_norm_factor', None) is not None:
+                        vol_scale = vol_scale * self.cell_norm_factor
+                    # Additive target: (future - baseline) / (vol_scale * baseline)
+                    diff = target_abs - baseline  # (B, T_block, 5, 5)
+                    scale = vol_scale * baseline  # (B, 1, 5, 5) * (B, 1, 5, 5) → broadcast
+                    target_block = (diff / scale.clamp(min=1e-6)).clamp(-3.0, 3.0)
                 elif self.config.ratio_target_mode == "vol_scaled_learned":
                     # Hybrid: vol_scale * exp(learned_correction)
                     # vol_scale is the proven hand-coded scaling; correction is learned
@@ -1050,6 +1300,22 @@ class ConditionalBlockARDDPM(nn.Module):
 
                     # NON-DETACHED: gradient flows from diffusion loss through sigma
                     target_block = (log_ratio / sigma_4d).clamp(-3.0, 3.0)
+                elif self.config.ratio_target_mode == "percell_revin":
+                    # Per-Cell RevIN: foundation model consensus approach.
+                    # Each cell normalized by its own std from history window.
+                    # target = (future - baseline) / cell_std
+                    # cell_std has learned per-cell floor (replaces vol_scale_min).
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    # Per-cell std of daily changes in history
+                    daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                    cell_std_data = daily_chg.std(dim=1)  # (B, 5, 5)
+                    # Apply learned per-cell floor
+                    floor = torch.exp(self.log_revin_floor)  # (5, 5)
+                    cell_std = torch.maximum(cell_std_data, floor.unsqueeze(0))  # (B, 5, 5)
+                    cell_std = cell_std.unsqueeze(1)  # (B, 1, 5, 5)
+                    # Additive normalization: (future - baseline) / cell_std
+                    diff = target_abs - baseline  # (B, T_block, 5, 5)
+                    target_block = (diff / cell_std).clamp(-3.0, 3.0)
                 else:
                     # log(future / baseline): original log-ratio mode
                     target_block = torch.log(target_abs / baseline)
@@ -1094,6 +1360,12 @@ class ConditionalBlockARDDPM(nn.Module):
             else:
                 noise_forward = noise_unscaled
 
+            # Per-cell heteroscedastic noise: static (5,5) scale from training data.
+            # Model predicts SCALED noise (what was actually added).
+            if getattr(self, 'cell_noise_scale', None) is not None and self.config.cell_heteroscedastic:
+                _cns = self.cell_noise_scale.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+                noise_forward = noise_forward * _cns
+
             noisy_block, _ = self.scheduler.q_sample_per_frame(
                 target_block, k, noise_forward
             )  # (B, bs, 5, 5)
@@ -1105,19 +1377,40 @@ class ConditionalBlockARDDPM(nn.Module):
                 + block_idx * bs
             )  # (B, bs)
 
+            # Compute regime scalar for percell_head (vol_of_vol)
+            regime_scalar = None
+            if getattr(self.config, 'percell_regime_input', False) and self.config.use_percell_head:
+                past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                _mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                _daily_chg = _mean_iv[:, 1:] - _mean_iv[:, :-1]
+                regime_scalar = _daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+
+            # Baseline surface for denoiser input channel (per-cell spatial context)
+            baseline_surf = None
+            if getattr(self.config, 'baseline_channel', False):
+                K_bl = min(self.config.baseline_window, past_ctx.shape[1])
+                baseline_surf = denormalize_iv(past_ctx[:, -K_bl:]).mean(dim=1)  # (B, 5, 5)
+                baseline_surf = baseline_surf.clamp(min=0.01)  # (B, 5, 5)
+
             v_pred = None
             if getattr(self.config, 'learn_sigma', False):
                 noise_pred, v_pred = self.denoiser(
-                    noisy_flat, condition, positions, k
+                    noisy_flat, condition, positions, k,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surf,
                 )  # (B, bs, 25) each
             else:
                 noise_pred = self.denoiser(
-                    noisy_flat, condition, positions, k
+                    noisy_flat, condition, positions, k,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surf,
                 )  # (B, bs, 25)
 
-            # Loss target: unscaled ε when using heteroscedastic forward noise,
-            # standard noise otherwise.
-            if self.config.heteroscedastic_noise:
+            # Loss target: unscaled ε when using per-sample heteroscedastic noise
+            # (model predicts ε, σ applied at x_0 recovery).
+            # For cell_heteroscedastic: model predicts SCALED noise (noise_forward)
+            # because cell_noise_scale is static — denoiser CAN learn it.
+            if self.config.heteroscedastic_noise and not self.config.cell_heteroscedastic:
                 noise_flat = noise_unscaled.reshape(B, bs, -1)  # (B, bs, 25)
             else:
                 noise_flat = noise_forward.reshape(B, bs, -1)  # (B, bs, 25)
@@ -1183,8 +1476,33 @@ class ConditionalBlockARDDPM(nn.Module):
                         block_loss = F.smooth_l1_loss(
                             noise_pred, noise_flat, beta=self.config.huber_delta
                         )
+                    elif getattr(self, 'cell_loss_weights', None) is not None:
+                        # Per-cell weighted MSE: modulate loss per spatial position
+                        H, W = self.config.surface_h, self.config.surface_w
+                        sq_err = (noise_pred - noise_flat).pow(2)  # (B, bs, 25)
+                        sq_err = sq_err.reshape(B, bs, H, W)
+                        block_loss = (sq_err * self.cell_loss_weights).mean()
                     else:
                         block_loss = F.mse_loss(noise_pred, noise_flat)
+
+            # Regime-weighted loss: turb windows get higher weight
+            if getattr(self.config, 'turb_loss_weight', 0.0) > 0:
+                per_sample = F.mse_loss(
+                    noise_pred, noise_flat, reduction='none'
+                ).mean(dim=(1, 2))  # (B,)
+                _past_abs_w = denormalize_iv(past_ctx)
+                _miv = _past_abs_w.mean(dim=(-1, -2))  # (B, T)
+                _dchg = _miv[:, 1:] - _miv[:, :-1]
+                _vov = _dchg.std(dim=1)  # (B,)
+                _med = _vov.median()
+                _w = torch.where(
+                    _vov > _med,
+                    torch.tensor(self.config.turb_loss_weight, device=device),
+                    torch.tensor(1.0, device=device),
+                )
+                _w = _w / _w.mean()  # normalize to mean=1 (preserve loss scale)
+                block_loss = (per_sample * _w).mean()
+
             # NSDiff/learned sigma NLL: auxiliary loss for learned standardization
             if (self.log_std_head is not None or self.log_correction_head is not None or self.percell_sigma_head is not None) and self.config.ratio_target:
                 # nsdiff_nll was computed above when building target_block
@@ -1286,6 +1604,8 @@ class ConditionalBlockARDDPM(nn.Module):
         t_min: Optional[torch.Tensor] = None,
         noise_scale: Optional[torch.Tensor] = None,
         scale_x0_recovery: bool = True,
+        regime_scalar: Optional[torch.Tensor] = None,
+        baseline_surface: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Sample one block using the DF pyramid schedule.
 
@@ -1346,14 +1666,18 @@ class ConditionalBlockARDDPM(nn.Module):
             learned_log_var = None
             if getattr(self.config, 'learn_sigma', False):
                 noise_pred_flat, v_pred_flat = self.denoiser(
-                    x_flat, condition, positions, t_current
+                    x_flat, condition, positions, t_current,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surface,
                 )
                 noise_pred = noise_pred_flat.reshape(B, T, H, W)
                 v_pred = v_pred_flat.reshape(B, T, H, W)
                 learned_log_var = self._compute_learned_variance(v_pred, t_current)
             else:
                 noise_pred_flat = self.denoiser(
-                    x_flat, condition, positions, t_current
+                    x_flat, condition, positions, t_current,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surface,
                 )
                 noise_pred = noise_pred_flat.reshape(B, T, H, W)
 
@@ -1412,6 +1736,8 @@ class ConditionalBlockARDDPM(nn.Module):
         scale_x0_recovery: bool = True,
         uncond_condition: Optional[torch.Tensor] = None,
         guidance_scale: float = 1.0,
+        regime_scalar: Optional[torch.Tensor] = None,
+        baseline_surface: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Sample one block using uniform DDPM reverse (all frames at same t).
 
@@ -1421,6 +1747,11 @@ class ConditionalBlockARDDPM(nn.Module):
 
         When guidance_scale > 1.0 and uncond_condition is provided, uses
         classifier-free guidance: ε = ε_uncond + w * (ε_cond - ε_uncond).
+
+        Per-cell noise scaling: if self._cell_noise_scale is set (H, W tensor),
+        applies per-cell scaling to both initial and posterior noise injection.
+        This modulates CI width per spatial location without affecting x_0
+        recovery (preserves denoiser's mean prediction).
 
         Args:
             condition: (B, bottleneck_dim) encoder output
@@ -1448,10 +1779,24 @@ class ConditionalBlockARDDPM(nn.Module):
         # (T,) -> (B, T) for broadcasting
         t_min_expanded = t_min.unsqueeze(0).expand(B, -1)
 
+        # Per-cell noise scale: (1, 1, H, W) for broadcasting.
+        # Priority: registered buffer (cell_heteroscedastic training) > external attr (Exp 46 hack)
+        _cns = None
+        if getattr(self.config, 'cell_heteroscedastic', False) and hasattr(self, 'cell_noise_scale'):
+            _cns = self.cell_noise_scale.to(device)
+            if _cns.dim() == 2:
+                _cns = _cns.unsqueeze(0).unsqueeze(0)
+        elif getattr(self, '_cell_noise_scale', None) is not None:
+            _cns = self._cell_noise_scale.to(device)
+            if _cns.dim() == 2:
+                _cns = _cns.unsqueeze(0).unsqueeze(0)
+
         # Start from pure noise (scaled for heteroscedastic diffusion)
         x_t = torch.randn(shape, device=device)
         if noise_scale is not None:
             x_t = x_t * noise_scale
+        if _cns is not None:
+            x_t = x_t * _cns
 
         # Standard DDPM reverse: t = n_steps-1, n_steps-2, ..., 0
         for t_global in reversed(range(n_steps)):
@@ -1472,7 +1817,9 @@ class ConditionalBlockARDDPM(nn.Module):
             crps_log_sigma = None
             if getattr(self.config, 'learn_sigma', False):
                 noise_pred_flat, v_pred_flat = self.denoiser(
-                    x_flat, condition, positions, t_current
+                    x_flat, condition, positions, t_current,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surface,
                 )
                 noise_pred = noise_pred_flat.reshape(B, T, H, W)
                 v_pred = v_pred_flat.reshape(B, T, H, W)
@@ -1484,14 +1831,18 @@ class ConditionalBlockARDDPM(nn.Module):
                     learned_log_var = self._compute_learned_variance(v_pred, t_current)
             else:
                 noise_pred_flat = self.denoiser(
-                    x_flat, condition, positions, t_current
+                    x_flat, condition, positions, t_current,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surface,
                 )
                 noise_pred = noise_pred_flat.reshape(B, T, H, W)
 
             # CFG: classifier-free guidance
             if uncond_condition is not None and guidance_scale != 1.0:
                 noise_uncond_flat = self.denoiser(
-                    x_flat, uncond_condition, positions, t_current
+                    x_flat, uncond_condition, positions, t_current,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surface,
                 )
                 if isinstance(noise_uncond_flat, tuple):
                     noise_uncond_flat = noise_uncond_flat[0]
@@ -1541,10 +1892,12 @@ class ConditionalBlockARDDPM(nn.Module):
                 x_new = mean + nonzero * torch.exp(0.5 * learned_log_var) * z
             elif noise_scale is not None:
                 posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
-                x_new = mean + nonzero * noise_scale * torch.sqrt(posterior_var) * z
+                _ns_combined = noise_scale * _cns if _cns is not None else noise_scale
+                x_new = mean + nonzero * _ns_combined * torch.sqrt(posterior_var) * z
             else:
                 posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
-                x_new = mean + nonzero * torch.sqrt(posterior_var) * z
+                _post_scale = _cns if _cns is not None else 1.0
+                x_new = mean + nonzero * _post_scale * torch.sqrt(posterior_var) * z
 
             # Only update active frames (those above their t_min)
             active_mask = active.float().unsqueeze(-1).unsqueeze(-1)  # (B, T, 1, 1)
@@ -1682,6 +2035,21 @@ class ConditionalBlockARDDPM(nn.Module):
                 if self.null_condition is not None and cfg_scale != 1.0:
                     uncond_cond = self.null_condition.expand(B, -1)
 
+                # Regime scalar for percell_head (vol_of_vol from history)
+                regime_scalar = None
+                if getattr(self.config, 'percell_regime_input', False) and self.config.use_percell_head:
+                    past_abs = denormalize_iv(current_cond_surfaces)
+                    _mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T)
+                    _daily_chg = _mean_iv[:, 1:] - _mean_iv[:, :-1]
+                    regime_scalar = _daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+
+                # Baseline surface for denoiser input channel
+                baseline_surf = None
+                if getattr(self.config, 'baseline_channel', False):
+                    K_bl = min(self.config.baseline_window, current_cond_surfaces.shape[1])
+                    baseline_surf = denormalize_iv(current_cond_surfaces[:, -K_bl:]).mean(dim=1)  # (B, 5, 5)
+                    baseline_surf = baseline_surf.clamp(min=0.01)
+
                 # Generate block
                 shape = (B, bs, self.config.surface_h, self.config.surface_w)
                 if self.config.sampling_mode == "uniform":
@@ -1689,11 +2057,15 @@ class ConditionalBlockARDDPM(nn.Module):
                         condition, positions, shape, t_min=t_min,
                         noise_scale=ns, scale_x0_recovery=sx0,
                         uncond_condition=uncond_cond, guidance_scale=cfg_scale,
+                        regime_scalar=regime_scalar,
+                        baseline_surface=baseline_surf,
                     )
                 else:
                     block = self._sample_block_pyramid(
                         condition, positions, shape, t_min=t_min,
                         noise_scale=ns, scale_x0_recovery=sx0,
+                        regime_scalar=regime_scalar,
+                        baseline_surface=baseline_surf,
                     )
                 # block: (B, bs, 5, 5) in [-1, 1]
 
@@ -1726,8 +2098,32 @@ class ConditionalBlockARDDPM(nn.Module):
                         vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
                         vol_scale = vol_scale.pow(self.config.vol_scale_power)
                         vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                        # Per-cell structural normalization (if enabled)
+                        if getattr(self, 'cell_norm_factor', None) is not None:
+                            vol_scale = vol_scale * self.cell_norm_factor  # (B, 1, 1, 1) * (5, 5) → (B, 1, 5, 5)
+                        # Learned per-cell correction (if enabled)
+                        if self.log_cell_scale is not None:
+                            clamp = getattr(self.config, 'cell_scale_clamp', 0.2)
+                            correction = torch.exp(self.log_cell_scale.clamp(-clamp, clamp))
+                            vol_scale = vol_scale * correction
+                        # Fixed per-cell correction from calibration head (frozen buffer)
+                        if self.fixed_cell_scale is not None:
+                            vol_scale = vol_scale * self.fixed_cell_scale
                         ratio = torch.exp(block * vol_scale)
                         block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "additive_scaled":
+                        # Additive: baseline + z * vol_scale * baseline
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                        daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                        vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(self.config.vol_scale_min, self.config.vol_scale_max)
+                        vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                        vol_scale = vol_scale.unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1, 1)
+                        if getattr(self, 'cell_norm_factor', None) is not None:
+                            vol_scale = vol_scale * self.cell_norm_factor
+                        predicted_diff = block * vol_scale * baseline  # (B, T_block, 5, 5)
+                        block_abs = (baseline + predicted_diff).clamp(0.001, 1.0)
                     elif self.config.ratio_target_mode == "vol_scaled_percell":
                         # Per-cell: exp(sample * vol_scale[r,c]) * baseline
                         past_abs = denormalize_iv(current_cond_surfaces)
@@ -1776,6 +2172,15 @@ class ConditionalBlockARDDPM(nn.Module):
                         log_ratio = block * sigma_4d  # unstandardize
                         ratio = torch.exp(log_ratio)
                         block_abs = (ratio * baseline).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "percell_revin":
+                        # Per-Cell RevIN: prediction = sample * cell_std + baseline
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                        cell_std_data = daily_chg.std(dim=1)  # (B, 5, 5)
+                        floor = torch.exp(self.log_revin_floor)  # (5, 5)
+                        cell_std = torch.maximum(cell_std_data, floor.unsqueeze(0))  # (B, 5, 5)
+                        cell_std = cell_std.unsqueeze(1)  # (B, 1, 5, 5)
+                        block_abs = (block * cell_std + baseline).clamp(0.001, 1.0)
                     else:
                         # exp(log_ratio) * baseline — original mode
                         ratio = torch.exp(block)
@@ -1914,6 +2319,21 @@ class ConditionalBlockARDDPM(nn.Module):
             if self.null_condition is not None and cfg_scale != 1.0:
                 uncond_cond = self.null_condition.expand(B_eff, -1)
 
+            # Regime scalar for percell_head (vol_of_vol from history)
+            regime_scalar = None
+            if getattr(self.config, 'percell_regime_input', False) and self.config.use_percell_head:
+                past_abs = denormalize_iv(current_cond_surfaces)
+                _mean_iv = past_abs.mean(dim=(-1, -2))  # (B_eff, T)
+                _daily_chg = _mean_iv[:, 1:] - _mean_iv[:, :-1]
+                regime_scalar = _daily_chg.std(dim=1, keepdim=True)  # (B_eff, 1)
+
+            # Baseline surface for denoiser input channel
+            baseline_surf = None
+            if getattr(self.config, 'baseline_channel', False):
+                K_bl = min(self.config.baseline_window, current_cond_surfaces.shape[1])
+                baseline_surf = denormalize_iv(current_cond_surfaces[:, -K_bl:]).mean(dim=1)  # (B_eff, 5, 5)
+                baseline_surf = baseline_surf.clamp(min=0.01)
+
             # Generate block for all samples in parallel
             shape = (B_eff, bs, self.config.surface_h, self.config.surface_w)
             if self.config.sampling_mode == "uniform":
@@ -1921,11 +2341,15 @@ class ConditionalBlockARDDPM(nn.Module):
                     condition, positions, shape, t_min=t_min,
                     noise_scale=ns, scale_x0_recovery=sx0,
                     uncond_condition=uncond_cond, guidance_scale=cfg_scale,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surf,
                 )
             else:
                 block = self._sample_block_pyramid(
                     condition, positions, shape, t_min=t_min,
                     noise_scale=ns, scale_x0_recovery=sx0,
+                    regime_scalar=regime_scalar,
+                    baseline_surface=baseline_surf,
                 )
             # block: (B*S, bs, 5, 5)
 
