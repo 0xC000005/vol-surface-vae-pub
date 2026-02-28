@@ -49,6 +49,10 @@ from diffusion.block_ar.block_ar_ddpm import (
     denormalize_iv,
 )
 from experiments.backfill.block_ar.config_block_ar import get_default_config
+from experiments.backfill.block_ar.train_calibration_head import (
+    CalibrationHead,
+    apply_correction,
+)
 from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 
 
@@ -118,6 +122,7 @@ def generate_all_samples(
     device: str,
     max_global_residual: Optional[int] = None,
     post_hoc_scale: float = 1.0,
+    return_calibration_inputs: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate conditioned samples and ground truth for all batches.
 
@@ -125,10 +130,14 @@ def generate_all_samples(
         cond_samples: (N, n_samples, T, 5, 5) denormalized [0, 1]
         ground_truth: (N, T, 5, 5) denormalized [0, 1]
         history: (N, H, 5, 5) denormalized [0, 1]
+        calibration_inputs: dict (only if return_calibration_inputs=True)
     """
     all_samples = []
     all_gt = []
     all_history = []
+    all_conditions = []
+    all_vol_of_vol = []
+    all_baselines = []
 
     model.eval()
     with torch.no_grad():
@@ -152,11 +161,40 @@ def generate_all_samples(
 
             all_samples.append(samples.cpu().numpy())
             all_gt.append(future_gt.cpu().numpy())
-            all_history.append(denormalize_iv(history).cpu().numpy())
+            history_denorm = denormalize_iv(history)
+            all_history.append(history_denorm.cpu().numpy())
+
+            if return_calibration_inputs:
+                # Condition vector from encoder
+                condition = model.encoder(history, mask=None)
+                model_config = model.config
+                if getattr(model_config, 'forward_only', False):
+                    condition = condition + model.encoder.null_embedding.expand(history.shape[0], -1)
+                all_conditions.append(condition.cpu())
+
+                # Vol-of-vol from denormalized history
+                mean_iv = history_denorm.mean(dim=(-1, -2))  # (B, T)
+                daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                vol = daily_chg.std(dim=1, keepdim=True)  # (B, 1)
+                all_vol_of_vol.append(vol.cpu())
+
+                # Baselines
+                K = min(getattr(model_config, 'baseline_window', 1), history_denorm.shape[1])
+                baseline = history_denorm[:, -K:].mean(dim=1).clamp(min=0.01)
+                all_baselines.append(baseline.cpu())
 
     cond_samples = np.concatenate(all_samples, axis=0)
     ground_truth = np.concatenate(all_gt, axis=0)
     history_arr = np.concatenate(all_history, axis=0)
+
+    if return_calibration_inputs:
+        calibration_inputs = {
+            "conditions": torch.cat(all_conditions),
+            "vol_of_vol": torch.cat(all_vol_of_vol),
+            "baselines": torch.cat(all_baselines),
+        }
+        return cond_samples, ground_truth, history_arr, calibration_inputs
+
     return cond_samples, ground_truth, history_arr
 
 
@@ -278,9 +316,22 @@ def run_surface_validity_tests(
     )
 
     calendar_results = test_calendar_arbitrage(all_samples)
+    # GT-relative calendar gate: model can exceed GT by up to 10pp
+    gt_calendar = test_calendar_arbitrage(ground_truth)
+    gt_worst = gt_calendar['worst_strike_rate']
+    gt_avg = gt_calendar['calendar_avg_violation_rate']
+    cal_worst_gate = gt_worst + 0.10
+    cal_avg_gate = 0.15  # absolute gate (GT avg is ~7%, plenty of margin)
+    cal_worst_pass = calendar_results['worst_strike_rate'] < cal_worst_gate
+    cal_avg_pass = calendar_results['calendar_avg_violation_rate'] < cal_avg_gate
+    calendar_results['worst_strike_pass'] = cal_worst_pass
+    calendar_results['pass'] = cal_avg_pass and cal_worst_pass
+    calendar_results['gt_worst_strike_rate'] = gt_worst
+    calendar_results['gt_avg_violation_rate'] = gt_avg
+    calendar_results['worst_strike_gate'] = cal_worst_gate
     print(
         f"  Calendar arbitrage: {calendar_results['calendar_avg_violation_rate']:.1%} "
-        f"(target <15%) {'PASS' if calendar_results['pass'] else 'FAIL'}"
+        f"(target <15%) {'PASS' if cal_avg_pass else 'FAIL'}"
     )
 
     butterfly_results = test_butterfly_arbitrage(all_samples)
@@ -291,7 +342,8 @@ def run_surface_validity_tests(
 
     # Per-cell breakdown
     print(f"  Calendar worst strike: {calendar_results['worst_strike_rate']:.1%} "
-          f"(target <25%) {'PASS' if calendar_results['worst_strike_pass'] else 'FAIL'}")
+          f"(GT: {gt_worst:.1%}, gate <GT+10pp={cal_worst_gate:.1%}) "
+          f"{'PASS' if cal_worst_pass else 'FAIL'}")
     print(f"  Butterfly worst tenor: {butterfly_results['worst_tenor_rate']:.1%} "
           f"(target <50%) {'PASS' if butterfly_results['worst_tenor_pass'] else 'FAIL'}")
 
@@ -407,21 +459,31 @@ def run_ci_coverage_tests(
                 f"{'PASS' if passed else 'FAIL'}"
             )
 
-    # Per-cell worst coverage (90% CI)
+    # Per-cell worst coverage (90% CI) — gate: [70%, 95%]
     worst_cell_per_horizon = {}
+    best_cell_per_horizon = {}
     worst_cell_pass_all = True
-    print(f"\n  Per-Cell Worst Coverage (90% CI):")
+    CELL_COV_LOW = 0.70
+    CELL_COV_HIGH = 0.95
+    print(f"\n  Per-Cell Coverage (90% CI) — gate: [{CELL_COV_LOW:.0%}, {CELL_COV_HIGH:.0%}]:")
     for h in horizons:
         if h in per_cell_coverage:
             worst = float(per_cell_coverage[h].min())
+            best = float(per_cell_coverage[h].max())
             worst_cell_per_horizon[h] = worst
-            passed = worst > 0.60
+            best_cell_per_horizon[h] = best
+            low_pass = worst >= CELL_COV_LOW
+            high_pass = best <= CELL_COV_HIGH
+            passed = low_pass and high_pass
             if not passed:
                 worst_cell_pass_all = False
             worst_idx = np.unravel_index(per_cell_coverage[h].argmin(), (5, 5))
+            best_idx = np.unravel_index(per_cell_coverage[h].argmax(), (5, 5))
             print(
-                f"    h={h:2d}: worst cell ({worst_idx[0]},{worst_idx[1]}) = {worst:.1%} "
-                f"(target >60%) {'PASS' if passed else 'FAIL'}"
+                f"    h={h:2d}: worst ({worst_idx[0]},{worst_idx[1]}) = {worst:.1%} "
+                f"{'PASS' if low_pass else 'FAIL'} | "
+                f"best ({best_idx[0]},{best_idx[1]}) = {best:.1%} "
+                f"{'PASS' if high_pass else 'FAIL'}"
             )
 
     print(f"  Calibration Error: {calibration_error:.3f}")
@@ -436,6 +498,7 @@ def run_ci_coverage_tests(
             h: per_cell_coverage[h].tolist() for h in per_cell_coverage
         },
         'worst_cell_per_horizon': worst_cell_per_horizon,
+        'best_cell_per_horizon': best_cell_per_horizon,
         'worst_cell_pass': worst_cell_pass_all,
         'calibration': {
             'nominal': calibration_nominal,
@@ -673,7 +736,7 @@ def run_conditionality_tests(
         # Per-cell width ratio: cond / uncond (< 1.0 means conditioning narrows CI)
         cell_width_ratio = avg_cond_cell_width / np.maximum(avg_uncond_cell_width, 1e-8)
         worst_cell_width_ratio = float(cell_width_ratio.max())
-        worst_cell_wr_pass = worst_cell_width_ratio < 3.0
+        worst_cell_wr_pass = worst_cell_width_ratio < 1.20
 
         # Per-cell MAE reduction: (uncond - cond) / uncond * 100
         cell_mae_reduction = np.where(
@@ -689,7 +752,7 @@ def run_conditionality_tests(
             row_str = "    " + " ".join(f"{cell_width_ratio[r,c]:.3f}" for c in range(5))
             print(row_str)
         print(f"    Worst cell: {worst_cell_width_ratio:.3f} "
-              f"(target <3.0) {'PASS' if worst_cell_wr_pass else 'FAIL'}")
+              f"(target <1.20) {'PASS' if worst_cell_wr_pass else 'FAIL'}")
 
         print(f"  Per-cell MAE reduction (%):")
         for r in range(5):
@@ -1300,6 +1363,26 @@ def run_regime_coverage_tests(
             f"avg frac_below={mean_frac_below:.1%}"
         )
 
+    # --- CI width turb/calm ratio (informational) ---
+    print(f"\n  --- CI Width Turb/Calm Ratio (informational) ---")
+    width_turb_calm = {}
+    for h in horizons:
+        h_idx = h - 1
+        if h_idx >= T:
+            continue
+        calm_width = float(ci_width[calm_mask, h_idx].mean()) if n_calm > 0 else 0.0
+        turb_width = float(ci_width[turb_mask, h_idx].mean()) if n_turb > 0 else 0.0
+        ratio_tc = turb_width / calm_width if calm_width > 0 else 1.0
+        width_turb_calm[h] = {
+            'calm_width': calm_width,
+            'turb_width': turb_width,
+            'width_turb_calm_ratio': ratio_tc,
+        }
+        print(
+            f"    h={h:2d}: turb/calm={ratio_tc:.3f}x "
+            f"(calm={calm_width:.4f}, turb={turb_width:.4f})"
+        )
+
     # CI width vs vol_of_vol correlation (informational)
     # Measures: does the model produce wider CIs when vol_of_vol is higher?
     # Spearman rank correlation avoids binning artifacts (Q20/Q80 averages wash out signal)
@@ -1335,13 +1418,14 @@ def run_regime_coverage_tests(
         )
 
     # =================================================================
-    # Layer 2: Per-regime per-cell coverage (worst cell gate)
+    # Layer 2: Per-regime per-cell coverage gate [70%, 95%]
     # =================================================================
-    print("\n  --- Layer 2: Per-Regime Per-Cell Worst Coverage ---")
+    print("\n  --- Layer 2: Per-Regime Per-Cell Coverage [70%, 95%] ---")
 
     layer2_results = {}
     layer2_pass = True
-    LAYER2_GATE = 0.55
+    LAYER2_LOW = 0.70
+    LAYER2_HIGH = 0.95
 
     for regime_name, regime_mask in [("calm", calm_mask), ("turb", turb_mask)]:
         layer2_results[regime_name] = {}
@@ -1355,19 +1439,26 @@ def run_regime_coverage_tests(
             # Per-cell coverage: (5, 5)
             cell_cov = covered[regime_mask, h_idx].mean(axis=0)  # (5, 5)
             worst = float(cell_cov.min())
+            best = float(cell_cov.max())
             worst_idx = np.unravel_index(cell_cov.argmin(), (5, 5))
+            best_idx = np.unravel_index(cell_cov.argmax(), (5, 5))
             layer2_results[regime_name][h] = {
                 'grid': cell_cov.tolist(),
                 'worst': worst,
                 'worst_cell': list(worst_idx),
+                'best': best,
+                'best_cell': list(best_idx),
             }
-            passed = worst > LAYER2_GATE
+            low_pass = worst >= LAYER2_LOW
+            high_pass = best <= LAYER2_HIGH
+            passed = low_pass and high_pass
             if not passed:
                 layer2_pass = False
             print(
                 f"    {regime_name:5s} h={h:2d}: worst ({worst_idx[0]},{worst_idx[1]}) "
-                f"= {worst:.1%} (target >{LAYER2_GATE:.0%}) "
-                f"{'PASS' if passed else 'FAIL'}"
+                f"= {worst:.1%} {'PASS' if low_pass else 'FAIL'} | "
+                f"best ({best_idx[0]},{best_idx[1]}) = {best:.1%} "
+                f"{'PASS' if high_pass else 'FAIL'}"
             )
 
     # =================================================================
@@ -1416,6 +1507,7 @@ def run_regime_coverage_tests(
         'layer1_regime_horizon': layer1_results,
         'layer1_pass': layer1_pass,
         'path_bias': path_bias_results,
+        'width_turb_calm': {str(h): v for h, v in width_turb_calm.items()},
         'width_vs_vov': width_regime_results,
         'layer2_regime_cell': layer2_results,
         'layer2_pass': layer2_pass,
@@ -1556,8 +1648,9 @@ def print_summary(results: Dict) -> bool:
     print("\nTest Suite 1: Surface Validity")
     print(f"  Explosion rate:        {s['explosion']['explosion_total_rate']:.1%} "
           f"{'PASS' if s['explosion']['pass'] else 'FAIL'}")
+    gt_ws = s['calendar'].get('gt_worst_strike_rate', 0)
     print(f"  Calendar arbitrage:    {s['calendar']['calendar_avg_violation_rate']:.1%} "
-          f"(worst strike: {s['calendar']['worst_strike_rate']:.1%}) "
+          f"(worst strike: {s['calendar']['worst_strike_rate']:.1%}, GT: {gt_ws:.1%}) "
           f"{'PASS' if s['calendar']['pass'] else 'FAIL'}")
     print(f"  Butterfly arbitrage:   {s['butterfly']['butterfly_avg_violation_rate']:.1%} "
           f"(worst tenor: {s['butterfly']['worst_tenor_rate']:.1%}) "
@@ -1571,8 +1664,9 @@ def print_summary(results: Dict) -> bool:
     for h, passed in c.get('horizon_pass', {}).items():
         cov = c['per_horizon'].get(h, {}).get(0.9, 0.0)
         worst = c.get('worst_cell_per_horizon', {}).get(h, 0.0)
-        print(f"    h={h:2d}: {cov:.1%} (worst cell: {worst:.1%}) {'PASS' if passed else 'FAIL'}")
-    print(f"  Worst cell pass:       {'PASS' if c.get('worst_cell_pass', True) else 'FAIL'}")
+        best = c.get('best_cell_per_horizon', {}).get(h, 0.0)
+        print(f"    h={h:2d}: {cov:.1%} (worst cell: {worst:.1%}, best cell: {best:.1%}) {'PASS' if passed else 'FAIL'}")
+    print(f"  Per-cell gate [70%, 95%]: {'PASS' if c.get('worst_cell_pass', True) else 'FAIL'}")
     print(f"  Calibration error:     {c['calibration_error']:.3f}")
     print(f"  Overall:               {'PASS' if c['pass'] else 'FAIL'}")
 
@@ -1630,6 +1724,13 @@ def print_summary(results: Dict) -> bool:
         print(f"  Layer 2 (regime×cell):    {'PASS' if rc['layer2_pass'] else 'FAIL'}")
         print(f"  Layer 3 (catastrophic):   {rc['layer3_catastrophic_rate']:.1%} "
               f"{'PASS' if rc['layer3_pass'] else 'FAIL'}")
+        # Width turb/calm ratio (informational)
+        if 'width_turb_calm' in rc:
+            wtc = rc['width_turb_calm']
+            ratios = [v['width_turb_calm_ratio'] for v in wtc.values() if 'width_turb_calm_ratio' in v]
+            if ratios:
+                print(f"  Width turb/calm:          "
+                      f"{min(ratios):.3f}x - {max(ratios):.3f}x (informational)")
         print(f"  Overall:                  {'PASS' if rc['overall_pass'] else 'FAIL'}")
 
     # Overall
@@ -1712,6 +1813,26 @@ def main():
         "--guidance_scale", type=float, default=None,
         help="Override CFG guidance scale at inference (None=use checkpoint config)",
     )
+    parser.add_argument(
+        "--vol_scale_min", type=float, default=None,
+        help="Override vol_scale_min at inference (None=use checkpoint config)",
+    )
+    parser.add_argument(
+        "--vol_scale_max", type=float, default=None,
+        help="Override vol_scale_max at inference (None=use checkpoint config)",
+    )
+    parser.add_argument(
+        "--vol_scale_power", type=float, default=None,
+        help="Override vol_scale_power at inference (None=use checkpoint config)",
+    )
+    parser.add_argument(
+        "--cell_norm_power", type=float, default=None,
+        help="Override cell_norm_power at inference (None=use checkpoint config)",
+    )
+    parser.add_argument(
+        "--calibration_head", type=str, default=None,
+        help="Path to trained calibration head checkpoint for per-cell CI correction",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -1757,6 +1878,8 @@ def main():
         print(f"Sampling mode: {args.sampling_mode} (override)")
     if args.post_hoc_scale != 1.0:
         print(f"Post-hoc scale: {args.post_hoc_scale}")
+    if args.calibration_head:
+        print(f"Calibration:   {args.calibration_head}")
     print(f"Output:        {output_dir}")
     print("=" * 60)
 
@@ -1783,6 +1906,20 @@ def main():
     if args.guidance_scale is not None:
         model_config.guidance_scale = args.guidance_scale
         print(f"  Guidance scale override: {args.guidance_scale}")
+
+    # Override vol_scale parameters if requested
+    if args.vol_scale_min is not None:
+        model_config.vol_scale_min = args.vol_scale_min
+        print(f"  Vol scale min override: {args.vol_scale_min}")
+    if args.vol_scale_max is not None:
+        model_config.vol_scale_max = args.vol_scale_max
+        print(f"  Vol scale max override: {args.vol_scale_max}")
+    if args.vol_scale_power is not None:
+        model_config.vol_scale_power = args.vol_scale_power
+        print(f"  Vol scale power override: {args.vol_scale_power}")
+    if args.cell_norm_power is not None:
+        model_config.cell_norm_power = args.cell_norm_power
+        print(f"  Cell norm power override: {args.cell_norm_power}")
 
     model = ConditionalBlockARDDPM(model_config)
 
@@ -1832,7 +1969,8 @@ def main():
     # Generate samples (shared across test suites 1, 2, 4, 5, 7)
     # =========================================================================
     print("\nGenerating samples for validation tests...")
-    cond_samples, ground_truth, history_arr = generate_all_samples(
+    use_calibration = args.calibration_head is not None
+    gen_result = generate_all_samples(
         model, test_loader,
         n_samples=args.n_samples,
         max_batches=args.max_batches,
@@ -1840,10 +1978,48 @@ def main():
         device=device,
         max_global_residual=args.max_global_residual,
         post_hoc_scale=args.post_hoc_scale,
+        return_calibration_inputs=use_calibration,
     )
+    if use_calibration:
+        cond_samples, ground_truth, history_arr, cal_inputs = gen_result
+    else:
+        cond_samples, ground_truth, history_arr = gen_result
+
     print(f"  Conditioned samples: {cond_samples.shape}")
     print(f"  Ground truth: {ground_truth.shape}")
     print(f"  History: {history_arr.shape}")
+
+    # Apply calibration head corrections if provided
+    if use_calibration:
+        print(f"\n  Applying calibration head from {args.calibration_head}...")
+        cal_ckpt = torch.load(args.calibration_head, weights_only=False, map_location="cpu")
+        cal_head = CalibrationHead(
+            cond_dim=cal_ckpt.get("cond_dim", cal_inputs["conditions"].shape[-1]),
+            hidden_dim=cal_ckpt.get("hidden_dim", 128),
+        )
+        cal_head.load_state_dict(cal_ckpt["state_dict"])
+        cal_head.eval()
+
+        # Apply corrections in batches to avoid GPU OOM
+        samples_t = torch.from_numpy(cond_samples)  # (N, S, T, 5, 5)
+        conditions_t = cal_inputs["conditions"]
+        vov_t = cal_inputs["vol_of_vol"]
+        baselines_t = cal_inputs["baselines"]
+
+        corrected_all = []
+        cal_batch = 32
+        N_total = samples_t.shape[0]
+        with torch.no_grad():
+            for i in range(0, N_total, cal_batch):
+                j = min(i + cal_batch, N_total)
+                correction = cal_head(conditions_t[i:j], vov_t[i:j])  # (B, 5, 5)
+                corrected = apply_correction(samples_t[i:j], baselines_t[i:j], correction)
+                corrected_all.append(corrected)
+        cond_samples = torch.cat(corrected_all).numpy()
+        with torch.no_grad():
+            mean_corr = cal_head(conditions_t, vov_t).mean(dim=0)
+        print(f"  Mean correction grid:\n{mean_corr.numpy().round(3)}")
+        print(f"  Corrected samples range: [{cond_samples.min():.4f}, {cond_samples.max():.4f}]")
 
     # =========================================================================
     # Run all test suites
