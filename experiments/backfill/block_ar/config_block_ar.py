@@ -55,6 +55,10 @@ class BlockARPOCConfig:
     n_steps: int = 100
     schedule: str = "cosine"
 
+    # === Flow Matching ===
+    use_flow_matching: bool = False  # replace DDPM with learned ODE transport
+    fm_n_inference_steps: int = 100  # Euler steps at inference
+
     # === MCVD ===
     p_mask: float = 0.2  # legacy Bernoulli (used if mcvd task probs all zero)
     jitter_std: float = 0.15
@@ -105,6 +109,7 @@ class BlockARPOCConfig:
     vol_scale_min: float = 0.5  # min clamp for vol_scale (higher = wider calm CIs)
     vol_scale_max: float = 2.0  # max clamp for vol_scale
     baseline_window: int = 1  # number of history days to average for baseline (1 = last day only)
+    use_median_baseline: bool = False  # use median(full history) instead of mean(last K)
     nsdiff_sigma_lambda: float = 0.1  # NLL loss weight for learned sigma (nsdiff/e2e_nll mode)
     e2e_sigma_reg: float = 0.01  # L2 regularization on log_sigma for e2e_nll mode
 
@@ -139,6 +144,13 @@ class BlockARPOCConfig:
     # Mean prediction head (bias correction via learned capacity)
     use_mean_head: bool = False
     mean_head_lambda: float = 1.0  # weight for mean prediction loss
+
+    # Learned drift head: predicts baseline shift in IV-space
+    # IV = (baseline + drift) × exp(z × vol_scale) instead of baseline × exp(...)
+    use_drift_head: bool = False
+    drift_hidden_dim: int = 64
+    drift_loss_weight: float = 1.0  # weight for drift supervision MSE loss
+    drift_max: float = 0.05  # max drift in IV space (±5% of [0,1] range)
 
     # Auxiliary regime features (vol_of_vol + IV level as explicit conditioning)
     aux_regime_features: bool = False

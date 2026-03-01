@@ -43,6 +43,12 @@ class CalibrationHead(nn.Module):
 
     correction > 1 = wider CIs (for undercovered cells)
     correction < 1 = narrower CIs (for overcovered cells)
+
+    Architecture: structural base + regime-dependent delta.
+    - base_net: condition -> structural correction (same for all regimes)
+    - regime_net: condition + regime_features -> delta correction
+    - final = base + regime_weight * delta
+    This ensures the regime signal is NOT buried in 129 dims.
     """
 
     def __init__(self, cond_dim: int = 128, hidden_dim: int = 128, surface_h: int = 5, surface_w: int = 5):
@@ -51,28 +57,53 @@ class CalibrationHead(nn.Module):
         self.surface_w = surface_w
         out_dim = surface_h * surface_w
 
-        self.net = nn.Sequential(
-            nn.Linear(cond_dim + 1, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
+        # Structural base: condition -> base correction
+        self.base_net = nn.Sequential(
+            nn.Linear(cond_dim, hidden_dim),
             nn.SiLU(),
             nn.Linear(hidden_dim, out_dim),
         )
-        # Initialize near identity (correction ≈ 1.0)
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
+        nn.init.zeros_(self.base_net[-1].weight)
+        nn.init.zeros_(self.base_net[-1].bias)
 
-    def forward(self, condition: torch.Tensor, vol_of_vol: torch.Tensor) -> torch.Tensor:
+        # Regime-dependent delta: regime_features -> per-cell adjustment
+        # Input: [vol_of_vol_normalized, regime_prob, mean_iv_level]
+        self.regime_net = nn.Sequential(
+            nn.Linear(3, hidden_dim // 2),
+            nn.SiLU(),
+            nn.Linear(hidden_dim // 2, out_dim),
+        )
+        nn.init.zeros_(self.regime_net[-1].weight)
+        nn.init.zeros_(self.regime_net[-1].bias)
+
+        # Learned regime weight (starts at 1.0)
+        self.regime_weight = nn.Parameter(torch.tensor(1.0))
+
+    def forward(self, condition: torch.Tensor, vol_of_vol: torch.Tensor,
+                vov_mean: float = 0.0, vov_std: float = 1.0,
+                mean_iv: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
             condition: (B, cond_dim) encoder output
             vol_of_vol: (B, 1) vol-of-vol scalar
+            vov_mean, vov_std: normalization stats for vol_of_vol
+            mean_iv: (B, 1) mean IV level (optional, defaults to 0)
 
         Returns:
             correction: (B, 5, 5) per-cell correction factors > 0
         """
-        x = torch.cat([condition, vol_of_vol], dim=-1)  # (B, cond_dim+1)
-        raw = self.net(x)  # (B, 25)
+        # Structural base
+        base = self.base_net(condition)  # (B, 25)
+
+        # Regime features with normalized vol_of_vol
+        vov_norm = (vol_of_vol - vov_mean) / max(vov_std, 1e-6)  # z-scored
+        regime_prob = torch.sigmoid(vov_norm * 2.0)  # ~0 for calm, ~1 for turb
+        if mean_iv is None:
+            mean_iv = torch.zeros_like(vol_of_vol)
+        regime_feats = torch.cat([vov_norm, regime_prob, mean_iv], dim=-1)  # (B, 3)
+        delta = self.regime_net(regime_feats)  # (B, 25)
+
+        raw = base + self.regime_weight * delta  # (B, 25)
         # Softplus centered near 1.0: softplus(0.367) ≈ 1.0
         correction = torch.nn.functional.softplus(raw + 0.367)
         return correction.reshape(-1, self.surface_h, self.surface_w)
@@ -293,6 +324,7 @@ def train_calibration_head(
     lr: float = 3e-4,
     epochs: int = 300,
     device: str = "cuda",
+    structural_only: bool = False,
 ):
     """Train CalibrationHead on precomputed samples with pinball loss."""
     samples = precomputed["samples"]        # (N, S, T, 5, 5)
@@ -314,7 +346,14 @@ def train_calibration_head(
 
     # Create calibration head
     head = CalibrationHead(cond_dim=cond_dim, hidden_dim=hidden_dim).to(device)
-    optimizer = optim.Adam(head.parameters(), lr=lr, weight_decay=1e-5)
+    if structural_only:
+        # Freeze regime pathway — head learns only structural per-cell corrections
+        head.regime_weight.data.fill_(0.0)
+        head.regime_weight.requires_grad = False
+        for p in head.regime_net.parameters():
+            p.requires_grad = False
+        print("Structural-only mode: regime pathway frozen")
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, head.parameters()), lr=lr, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
 
     # Move data to GPU
@@ -330,6 +369,12 @@ def train_calibration_head(
     # Precompute regime split threshold for stratified loss
     median_vov = vov_gpu.squeeze(-1).median()
     print(f"Median vol_of_vol: {median_vov:.5f}")
+
+    # Precompute vol_of_vol normalization stats and mean IV
+    vov_mean = float(vov_gpu.mean())
+    vov_std = float(vov_gpu.std())
+    mean_iv_gpu = baselines.mean(dim=(-1, -2), keepdim=True).squeeze(-1).to(device)  # (N, 1)
+    print(f"Vol_of_vol stats: mean={vov_mean:.5f}, std={vov_std:.5f}")
 
     best_combined = float("inf")
     best_state = None
@@ -348,8 +393,9 @@ def train_calibration_head(
             v_batch = vov_gpu[idx]        # (B, 1)
             bl_batch = bl_gpu[idx]        # (B, 5, 5)
 
-            # Get correction
-            correction = head(c_batch, v_batch)  # (B, 5, 5)
+            # Get correction (with regime features)
+            mi_batch = mean_iv_gpu[idx]  # (B, 1)
+            correction = head(c_batch, v_batch, vov_mean=vov_mean, vov_std=vov_std, mean_iv=mi_batch)  # (B, 5, 5)
 
             # Apply correction
             corrected = apply_correction(s_batch, bl_batch, correction)
@@ -393,7 +439,7 @@ def train_calibration_head(
             # Evaluate
             head.eval()
             with torch.no_grad():
-                all_correction = head(cond_gpu, vov_gpu)  # (N, 5, 5)
+                all_correction = head(cond_gpu, vov_gpu, vov_mean=vov_mean, vov_std=vov_std, mean_iv=mean_iv_gpu)  # (N, 5, 5)
                 all_corrected = apply_correction(samples_gpu, bl_gpu, all_correction)
                 results = evaluate_coverage(all_corrected.cpu(), gt, vol_of_vol=vov)
 
@@ -403,6 +449,7 @@ def train_calibration_head(
 
             # Best = minimize total combined, tiebreak on max(calm, turb)
             if isinstance(combined, (int, float)) and combined < best_combined:
+                best_combined = combined
                 best_state = {k: v.cpu().clone() for k, v in head.state_dict().items()}
                 best_epoch = epoch + 1
 
@@ -420,7 +467,7 @@ def train_calibration_head(
     # Final evaluation
     print("\n=== After calibration ===")
     with torch.no_grad():
-        all_correction = head(cond_gpu, vov_gpu)
+        all_correction = head(cond_gpu, vov_gpu, vov_mean=vov_mean, vov_std=vov_std, mean_iv=mean_iv_gpu)
         all_corrected = apply_correction(samples_gpu, bl_gpu, all_correction)
         after_results = evaluate_coverage(all_corrected.cpu(), gt, vol_of_vol=vov)
 
@@ -449,7 +496,7 @@ def train_calibration_head(
         mean_turb = all_correction[turb_mask].mean(dim=0).cpu()
         print(f"\nPer-cell mean correction (turb):\n{mean_turb.numpy().round(3)}")
 
-    return head, before_results, after_results
+    return head, before_results, after_results, vov_mean, vov_std
 
 
 def main():
@@ -469,6 +516,8 @@ def main():
                         help="Start index for data window (4040=val, 4540=test)")
     parser.add_argument("--data_end", type=int, default=4540,
                         help="End index for data window (4540=val_end, 5822=test_end)")
+    parser.add_argument("--structural_only", action="store_true",
+                        help="Disable regime pathway (structural corrections only)")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -499,21 +548,24 @@ def main():
             print(f"Cached samples to {cache_path}")
 
     # Train
-    head, before, after = train_calibration_head(
+    head, before, after, vov_mean, vov_std = train_calibration_head(
         precomputed,
         cond_dim=precomputed["conditions"].shape[1],
         hidden_dim=args.hidden_dim,
         lr=args.lr,
         epochs=args.epochs,
         device=args.device,
+        structural_only=args.structural_only,
     )
 
-    # Save
+    # Save (include normalization stats for inference)
     save_path = output_dir / "calibration_head.pt"
     torch.save({
         "state_dict": head.state_dict(),
         "cond_dim": precomputed["conditions"].shape[1],
         "hidden_dim": args.hidden_dim,
+        "vov_mean": vov_mean,
+        "vov_std": vov_std,
         "before_results": before,
         "after_results": after,
     }, save_path)

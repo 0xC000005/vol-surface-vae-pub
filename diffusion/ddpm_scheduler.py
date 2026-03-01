@@ -1192,5 +1192,97 @@ def test_ddpm_scheduler():
     print("\nDDPM Scheduler tests passed!\n")
 
 
+class FlowMatchingScheduler:
+    """
+    Conditional Flow Matching (CFM) scheduler.
+
+    Implements the optimal transport (OT) conditional flow matching from
+    Lipman et al. (2023) "Flow Matching for Generative Modeling".
+
+    Forward path: x_t = (1 - t) * x_0 + t * eps  (linear interpolation)
+    Velocity target: v = eps - x_0
+    Inference: Euler ODE solve from t=1 (noise) to t=0 (clean)
+
+    No noise schedule assumption — the velocity field is learned end-to-end.
+    """
+
+    def __init__(
+        self,
+        n_steps: int = 100,
+        sigma_min: float = 1e-4,
+        device: str = 'cpu',
+    ):
+        """
+        Args:
+            n_steps: Number of Euler steps for inference (more = higher quality)
+            sigma_min: Minimum noise level to avoid singularity at t=0
+            device: Device to place tensors on
+        """
+        self.n_steps = n_steps
+        self.sigma_min = sigma_min
+        self.device = device
+
+    def to(self, device):
+        """Move scheduler to device."""
+        self.device = device
+        return self
+
+    def interpolate(
+        self,
+        x_0: torch.Tensor,
+        noise: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Forward interpolation: x_t = (1 - t) * x_0 + t * noise.
+
+        Args:
+            x_0: Clean samples (B, T, H, W)
+            noise: Gaussian noise (B, T, H, W)
+            t: Continuous timesteps (B, T) in [0, 1]
+
+        Returns:
+            x_t: Interpolated samples (B, T, H, W)
+        """
+        t_expanded = t.unsqueeze(-1).unsqueeze(-1)  # (B, T, 1, 1)
+        return (1 - t_expanded) * x_0 + t_expanded * noise
+
+    def get_velocity(
+        self,
+        x_0: torch.Tensor,
+        noise: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute velocity target: v = noise - x_0.
+
+        Args:
+            x_0: Clean samples (B, T, H, W)
+            noise: Gaussian noise (B, T, H, W)
+
+        Returns:
+            v: Velocity target (B, T, H, W)
+        """
+        return noise - x_0
+
+    def euler_step(
+        self,
+        x_t: torch.Tensor,
+        v_pred: torch.Tensor,
+        dt: float,
+    ) -> torch.Tensor:
+        """
+        Single Euler ODE step: x_{t-dt} = x_t - dt * v_pred.
+
+        Args:
+            x_t: Current state (B, T, H, W)
+            v_pred: Predicted velocity (B, T, H, W)
+            dt: Step size (positive, going from t=1 toward t=0)
+
+        Returns:
+            x_{t-dt}: Next state (B, T, H, W)
+        """
+        return x_t - dt * v_pred
+
+
 if __name__ == "__main__":
     test_ddpm_scheduler()

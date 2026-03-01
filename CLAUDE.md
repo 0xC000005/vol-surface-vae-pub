@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Standing Directives (ALWAYS ACTIVE)
+
+1. **HEDA Cycle**: Follow the Hypothesize → Experiment → Document → Analyze loop.
+   After each experiment, IMMEDIATELY document results in RESEARCH_LOG.md before moving on.
+2. **Don't stop** until ALL 8 test suites PASS on the raw model (no conformal), or you have
+   exhausted all reasonable hypotheses. Check the **todo list** for current hypotheses and
+   **MEMORY.md** for accumulated findings. After context compaction, recover state from these.
+3. **Bitter Lesson**: Prefer approaches that scale with compute. No hand-tuned post-hoc fixes.
+   No assumptions about the data — everything must be LEARNED from data. No precomputed
+   per-cell/per-tenor constants, no data-derived lookup tables, no domain-specific heuristics.
+   The method must generalize to any conditional scenario generation problem (IV, rates, FX, etc.).
+
 ## Project Overview
 
 **Branch: `diffusion-poc-v1`** - DDPM-based approach for multi-horizon IV surface forecasting.

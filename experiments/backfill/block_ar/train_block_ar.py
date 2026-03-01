@@ -65,6 +65,8 @@ def train_epoch(
             total_regime_loss += result["regime_loss"]
             total_regime_acc += result["regime_acc"]
             postfix["r_acc"] = f"{result['regime_acc']:.0%}"
+        if "drift_loss" in result:
+            postfix["drift"] = f"{result['drift_loss']:.4f}"
         pbar.set_postfix(postfix)
 
     if scheduler is not None:
@@ -269,6 +271,18 @@ def main():
                         help="Add MLP mean prediction head for bias correction")
     parser.add_argument("--mean_head_lambda", type=float, default=1.0,
                         help="Weight for mean prediction loss (default: 1.0)")
+    parser.add_argument("--use_median_baseline", action="store_true",
+                        help="Use median(full history) as baseline instead of history[-1]")
+    parser.add_argument("--use_drift_head", action="store_true",
+                        help="Add learned baseline drift in IV-space (drift OUTSIDE exp)")
+    parser.add_argument("--pretrain_drift_epochs", type=int, default=0,
+                        help="Pre-train drift head for N epochs then freeze (NsDiff pattern, 0=off)")
+    parser.add_argument("--drift_hidden_dim", type=int, default=64,
+                        help="Hidden dim for drift head MLP (default: 64)")
+    parser.add_argument("--drift_loss_weight", type=float, default=1.0,
+                        help="Weight for drift supervision MSE loss (default: 1.0)")
+    parser.add_argument("--drift_max", type=float, default=0.05,
+                        help="Max drift in IV space, ±fraction of [0,1] range (default: 0.05)")
     parser.add_argument("--aux_regime_features", action="store_true",
                         help="Feed vol_of_vol and IV level as explicit conditioning features")
     parser.add_argument("--turb_loss_weight", type=float, default=0.0,
@@ -281,6 +295,10 @@ def main():
                         help="Min clamp for cell noise scale (default: 0.5)")
     parser.add_argument("--cell_noise_clamp_max", type=float, default=2.0,
                         help="Max clamp for cell noise scale (default: 2.0)")
+    parser.add_argument("--use_flow_matching", action="store_true",
+                        help="Replace DDPM with Flow Matching (learned ODE transport)")
+    parser.add_argument("--fm_n_inference_steps", type=int, default=100,
+                        help="Number of Euler steps for FM inference (default: 100)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed for reproducibility")
     args = parser.parse_args()
@@ -410,6 +428,13 @@ def main():
     if args.use_mean_head:
         config.use_mean_head = True
         config.mean_head_lambda = args.mean_head_lambda
+    if args.use_median_baseline:
+        config.use_median_baseline = True
+    if args.use_drift_head:
+        config.use_drift_head = True
+        config.drift_hidden_dim = args.drift_hidden_dim
+        config.drift_loss_weight = args.drift_loss_weight
+        config.drift_max = args.drift_max
     if args.aux_regime_features:
         config.aux_regime_features = True
     if args.cell_heteroscedastic:
@@ -419,6 +444,9 @@ def main():
         config.cell_noise_clamp_max = args.cell_noise_clamp_max
     if args.turb_loss_weight > 0:
         config.turb_loss_weight = args.turb_loss_weight
+    if args.use_flow_matching:
+        config.use_flow_matching = True
+        config.fm_n_inference_steps = args.fm_n_inference_steps
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -614,6 +642,44 @@ def main():
 
     # EMA
     ema_params = {name: param.data.clone() for name, param in model.named_parameters()}
+
+    # Pre-train drift head (NsDiff/CW-Gen pattern): train drift+encoder only,
+    # then freeze drift head so denoiser sees fixed residual distribution.
+    if args.pretrain_drift_epochs > 0 and getattr(model_config, 'use_drift_head', False):
+        print(f"\n{'=' * 60}")
+        print(f"Pre-training drift head for {args.pretrain_drift_epochs} epochs (NsDiff pattern)")
+        print(f"{'=' * 60}")
+        # Only train drift_head and encoder during pre-training
+        _pretrain_params = []
+        for name, param in model.named_parameters():
+            if 'drift_head' in name or 'encoder' in name:
+                param.requires_grad = True
+                _pretrain_params.append(param)
+            else:
+                param.requires_grad = False
+        _pt_opt = torch.optim.AdamW(_pretrain_params, lr=config.lr, weight_decay=config.weight_decay)
+        for pt_epoch in range(1, args.pretrain_drift_epochs + 1):
+            pt_metrics = train_epoch(model, train_loader, _pt_opt, None, config.device, config.grad_clip)
+            drift_loss_str = f", drift={pt_metrics.get('drift_loss', 0):.6f}" if 'drift_loss' in pt_metrics else ""
+            print(f"  Pretrain {pt_epoch}/{args.pretrain_drift_epochs} | Loss: {pt_metrics['loss']:.6f}{drift_loss_str}")
+        # Freeze drift head, unfreeze everything else
+        for name, param in model.named_parameters():
+            if 'drift_head' in name:
+                param.requires_grad = False
+            else:
+                param.requires_grad = True
+        n_frozen_drift = sum(p.numel() for n, p in model.named_parameters() if 'drift_head' in n)
+        print(f"Drift head frozen ({n_frozen_drift:,} params). Starting main training.\n")
+        # Re-create optimizer with unfrozen params only
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(
+            trainable_params, lr=config.lr, weight_decay=config.weight_decay,
+        )
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=config.epochs, eta_min=config.lr / 10,
+        )
+        # Re-create EMA with current state (includes pre-trained drift)
+        ema_params = {name: param.data.clone() for name, param in model.named_parameters()}
 
     # Training loop
     print("\nStarting training...")

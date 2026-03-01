@@ -39,7 +39,7 @@ for r in range(5):
     for c in range(5):
         CELL_NAMES[(r, c)] = f"{MATURITY_LABELS[r]} / K={MONEYNESS_LABELS[c]}"
 
-OUTPUT_DIR = "results/block_ar/management_report"
+OUTPUT_DIR = "results/block_ar/management_report_v3_conformal"
 MODEL_PATH = "models/backfill/block_ar_vol_scaled_30ep/best_model.pt"
 N_SAMPLES = 50
 MAX_WINDOWS = 400
@@ -118,10 +118,28 @@ def generate_all_data(model, config, device):
 
     all_samples = np.concatenate(all_samples, axis=0)
 
+    # Apply online conformal calibration
+    from experiments.backfill.block_ar.conformal_calibration import (
+        online_conformal_calibration,
+    )
+    baselines = history_arr[:, -1, :, :]  # (W, 5, 5) last history surface
+    print("Applying online conformal calibration (W=100)...")
+    corrected, conf_diag = online_conformal_calibration(
+        all_samples, future_arr, baselines,
+        vol_of_vol[:, None],
+        window_size=100,
+        regime_split=True,
+        per_horizon=True,
+        eval_horizons=[0, 6, 13, 29],
+    )
+    mean_corr = np.mean(conf_diag["per_window_correction_mean"]) if conf_diag["per_window_correction_mean"] else 1.0
+    print(f"  Mean conformal correction: {mean_corr:.3f}")
+
     return {
         "history": history_arr,      # (W, 30, 5, 5)
         "future": future_arr,        # (W, 30, 5, 5)
-        "samples": all_samples,      # (W, S, 30, 5, 5)
+        "samples": corrected,        # (W, S, 30, 5, 5) — conformally calibrated
+        "samples_raw": all_samples,  # (W, S, 30, 5, 5) — raw
         "vol_of_vol": vol_of_vol,    # (W,)
         "n_windows": n_windows,
     }
