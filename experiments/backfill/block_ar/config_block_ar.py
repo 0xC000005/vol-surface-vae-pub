@@ -103,7 +103,7 @@ class BlockARPOCConfig:
 
     # === Ratio-Space Target ===
     ratio_target: bool = False  # diffusion on transformed ratios for conditional uncertainty
-    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "additive_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", or "percell_revin"
+    ratio_target_mode: str = "log"  # "log", "logit", "vol_scaled", "additive_scaled", "additive_whitened", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", or "percell_revin"
     global_mean_vol: float = 0.0187  # mean vol_scale across training data
     vol_scale_power: float = 1.0  # exponent on vol_scale: 0.5=sqrt dampening, 1.0=full
     vol_scale_min: float = 0.5  # min clamp for vol_scale (higher = wider calm CIs)
@@ -127,6 +127,11 @@ class BlockARPOCConfig:
     # Replaces vol_scale_min hyperparameter with learned capacity (Bitter Lesson)
     learn_cell_scale: bool = False
     cell_scale_clamp: float = 0.2  # max abs value for log correction: 0.2 → [0.82x, 1.22x]
+
+    # Low-rank per-cell vol_scale correction: rank-1 outer product U×V
+    # Smooth by construction (no neighbor discontinuities), 10 params total
+    low_rank_cell_scale: bool = False
+    low_rank_cell_scale_clamp: float = 0.5  # per-component clamp: [-0.5, 0.5]
 
     # Fixed per-cell vol_scale correction from calibration head analysis
     cell_scale_values: list = None

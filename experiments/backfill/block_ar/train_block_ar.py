@@ -203,7 +203,7 @@ def main():
                         help="beta-NLL weight for learned variance (0.5 recommended)")
     parser.add_argument("--ratio_target", action="store_true",
                         help="Ratio-space diffusion: model predicts transformed ratios instead of absolute IV")
-    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "additive_scaled", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", "percell_revin"],
+    parser.add_argument("--ratio_target_mode", type=str, default="log", choices=["log", "logit", "vol_scaled", "additive_scaled", "additive_whitened", "vol_scaled_percell", "nsdiff", "e2e_nll", "vol_scaled_learned", "learned_percell", "percell_revin"],
                         help="Ratio mode: 'log', 'logit', 'vol_scaled', 'percell_revin' (per-cell RevIN), etc.")
     parser.add_argument("--nsdiff_sigma_lambda", type=float, default=0.1,
                         help="NLL loss weight for NSDiff/e2e learned sigma (0.1 default)")
@@ -251,6 +251,10 @@ def main():
                         help="Learn per-cell vol_scale correction factor (Bitter Lesson: replace hyperparameter with learned capacity)")
     parser.add_argument("--cell_scale_clamp", type=float, default=0.2,
                         help="Max abs value for learned per-cell log correction (0.2 → [0.82x, 1.22x])")
+    parser.add_argument("--low_rank_cell_scale", action="store_true",
+                        help="Low-rank (rank-1) per-cell vol_scale correction: 10 params, smooth by construction")
+    parser.add_argument("--low_rank_cell_scale_clamp", type=float, default=0.5,
+                        help="Per-component clamp for low-rank correction (0.5 → max cell ratio 2.72x)")
     parser.add_argument("--cell_scale_values", type=str, default=None,
                         help="Fixed per-cell vol_scale correction grid as JSON list of 25 floats (from calibration head)")
     parser.add_argument("--cell_norm_power", type=float, default=0.0,
@@ -411,6 +415,9 @@ def main():
     if args.learn_cell_scale:
         config.learn_cell_scale = True
         config.cell_scale_clamp = args.cell_scale_clamp
+    if args.low_rank_cell_scale:
+        config.low_rank_cell_scale = True
+        config.low_rank_cell_scale_clamp = args.low_rank_cell_scale_clamp
     if args.cell_scale_values is not None:
         import json as _json
         config.cell_scale_values = _json.loads(args.cell_scale_values)

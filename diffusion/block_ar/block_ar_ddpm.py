@@ -289,6 +289,11 @@ class BlockARConfig:
     learn_cell_scale: bool = False
     cell_scale_clamp: float = 0.2  # max abs value: 0.2 → [0.82x, 1.22x] correction range
 
+    # Low-rank per-cell vol_scale correction: rank-1 outer product U×V
+    # Smooth by construction (no neighbor discontinuities), 10 params total
+    low_rank_cell_scale: bool = False
+    low_rank_cell_scale_clamp: float = 0.5  # per-component clamp: [-0.5, 0.5]
+
     # Fixed per-cell vol_scale correction: from calibration head analysis.
     # Multiplicative (5,5) tensor applied to scalar vol_scale. Registered as buffer (frozen).
     # Derived from output-space pinball loss on validation samples.
@@ -698,6 +703,15 @@ class ConditionalBlockARDDPM(nn.Module):
         if getattr(config, 'learn_cell_scale', False):
             # Initialize at 0.0 (identity: no correction)
             self.log_cell_scale = nn.Parameter(torch.zeros(config.surface_h, config.surface_w))
+
+        # Low-rank per-cell vol_scale correction: rank-1 outer product
+        # correction(r,c) = exp(log_u[r] + log_v[c]) — smooth by construction
+        # 10 params total (5 row + 5 col), max neighbor ratio bounded by clamp
+        self.log_u_cell = None
+        self.log_v_cell = None
+        if getattr(config, 'low_rank_cell_scale', False):
+            self.log_u_cell = nn.Parameter(torch.zeros(config.surface_h))  # (5,)
+            self.log_v_cell = nn.Parameter(torch.zeros(config.surface_w))  # (5,)
 
         # Fixed per-cell vol_scale correction: registered as BUFFER (not trained by MSE).
         # Derived from calibration head analysis (output-space pinball loss on val set).
@@ -1228,6 +1242,13 @@ class ConditionalBlockARDDPM(nn.Module):
                         clamp = getattr(self.config, 'cell_scale_clamp', 0.2)
                         correction = torch.exp(self.log_cell_scale.clamp(-clamp, clamp))  # (5, 5)
                         vol_scale = vol_scale * correction  # broadcast: (B, 1, 1, 1) or (B, 1, 5, 5) * (5, 5)
+                    # Low-rank per-cell correction (if enabled)
+                    if self.log_u_cell is not None:
+                        lr_clamp = getattr(self.config, 'low_rank_cell_scale_clamp', 0.5)
+                        log_u = self.log_u_cell.clamp(-lr_clamp, lr_clamp)  # (5,)
+                        log_v = self.log_v_cell.clamp(-lr_clamp, lr_clamp)  # (5,)
+                        lr_correction = torch.exp(log_u.unsqueeze(1) + log_v.unsqueeze(0))  # (5, 5)
+                        vol_scale = vol_scale * lr_correction
                     # Fixed per-cell correction from calibration head (frozen buffer)
                     if self.fixed_cell_scale is not None:
                         vol_scale = vol_scale * self.fixed_cell_scale  # (B, 1, 1, 1) * (5, 5)
@@ -1261,6 +1282,33 @@ class ConditionalBlockARDDPM(nn.Module):
                     diff = target_abs - baseline  # (B, T_block, 5, 5)
                     scale = vol_scale * baseline  # (B, 1, 5, 5) * (B, 1, 5, 5) → broadcast
                     target_block = (diff / scale.clamp(min=1e-6)).clamp(-3.0, 3.0)
+                elif self.config.ratio_target_mode == "additive_whitened":
+                    # True additive whitening with data-derived per-cell σ:
+                    # σ[r,c] = max(cell_std[r,c], vol_scale × σ_base)
+                    # - cell_std: per-cell daily-change std from history (per-cell uncertainty)
+                    # - σ_floor: regime-dependent minimum (per-regime uncertainty)
+                    # - Per-horizon: implicit (deviation grows with h, denoiser learns)
+                    # Denorm: IV = baseline + z × σ  (additive, symmetric, no exp bias)
+                    past_abs = denormalize_iv(past_ctx)  # (B, T_past, 5, 5)
+                    # Per-cell daily-change std from history
+                    daily_chg_cell = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                    cell_std = daily_chg_cell.std(dim=1)  # (B, 5, 5)
+                    # Regime-dependent floor from vol_of_vol
+                    mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                    mean_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, T-1)
+                    vol = mean_chg.std(dim=1, keepdim=True)  # (B, 1)
+                    vol_scale = (vol / self.config.global_mean_vol).clamp(
+                        self.config.vol_scale_min, self.config.vol_scale_max)
+                    vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                    sigma_base = self.config.global_mean_vol * (self.config.block_size ** 0.5)
+                    sigma_floor = (vol_scale * sigma_base).unsqueeze(-1)  # (B, 1, 1)
+                    # Per-cell σ: max of data-derived cell std and regime floor
+                    sigma = torch.maximum(
+                        cell_std,  # (B, 5, 5)
+                        sigma_floor.expand_as(cell_std)  # (B, 5, 5)
+                    ).unsqueeze(1)  # (B, 1, 5, 5)
+                    diff = target_abs - baseline  # (B, T_block, 5, 5)
+                    target_block = (diff / sigma.clamp(min=1e-6)).clamp(-3.0, 3.0)
                 elif self.config.ratio_target_mode == "vol_scaled_learned":
                     # Hybrid: vol_scale * exp(learned_correction)
                     # vol_scale is the proven hand-coded scaling; correction is learned
@@ -2302,6 +2350,13 @@ class ConditionalBlockARDDPM(nn.Module):
                             clamp = getattr(self.config, 'cell_scale_clamp', 0.2)
                             correction = torch.exp(self.log_cell_scale.clamp(-clamp, clamp))
                             vol_scale = vol_scale * correction
+                        # Low-rank per-cell correction (if enabled)
+                        if self.log_u_cell is not None:
+                            lr_clamp = getattr(self.config, 'low_rank_cell_scale_clamp', 0.5)
+                            log_u = self.log_u_cell.clamp(-lr_clamp, lr_clamp)
+                            log_v = self.log_v_cell.clamp(-lr_clamp, lr_clamp)
+                            lr_correction = torch.exp(log_u.unsqueeze(1) + log_v.unsqueeze(0))
+                            vol_scale = vol_scale * lr_correction
                         # Fixed per-cell correction from calibration head (frozen buffer)
                         if self.fixed_cell_scale is not None:
                             vol_scale = vol_scale * self.fixed_cell_scale
@@ -2329,6 +2384,25 @@ class ConditionalBlockARDDPM(nn.Module):
                             vol_scale = vol_scale * self.cell_norm_factor
                         predicted_diff = block * vol_scale * baseline  # (B, T_block, 5, 5)
                         block_abs = (baseline + predicted_diff).clamp(0.001, 1.0)
+                    elif self.config.ratio_target_mode == "additive_whitened":
+                        # Additive whitening: IV = baseline + z × σ
+                        # σ = max(cell_std, vol_scale × σ_base)
+                        past_abs = denormalize_iv(current_cond_surfaces)
+                        daily_chg_cell = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+                        cell_std = daily_chg_cell.std(dim=1)  # (B, 5, 5)
+                        mean_iv = past_abs.mean(dim=(-1, -2))  # (B, T_past)
+                        mean_chg = mean_iv[:, 1:] - mean_iv[:, :-1]
+                        vol = mean_chg.std(dim=1, keepdim=True)  # (B, 1)
+                        vol_scale = (vol / self.config.global_mean_vol).clamp(
+                            self.config.vol_scale_min, self.config.vol_scale_max)
+                        vol_scale = vol_scale.pow(self.config.vol_scale_power)
+                        sigma_base = self.config.global_mean_vol * (self.config.block_size ** 0.5)
+                        sigma_floor = (vol_scale * sigma_base).unsqueeze(-1)  # (B, 1, 1)
+                        sigma = torch.maximum(
+                            cell_std,
+                            sigma_floor.expand_as(cell_std)
+                        ).unsqueeze(1)  # (B, 1, 5, 5)
+                        block_abs = (baseline + block * sigma).clamp(0.001, 1.0)
                     elif self.config.ratio_target_mode == "vol_scaled_percell":
                         # Per-cell: exp(sample * vol_scale[r,c]) * baseline
                         past_abs = denormalize_iv(current_cond_surfaces)

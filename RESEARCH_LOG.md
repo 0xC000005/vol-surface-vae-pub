@@ -14657,33 +14657,2359 @@ Results: `results/block_ar/frozen_drift_v1_eval/summary.json`
 | **62** | **median baseline** | **76.1%** | **0.574** | **0.108** | **9.5%** | **FAIL** |
 | **63** | **frozen drift (NsDiff)** | **82.8%** | **0.788** | **0.085** | **5.6%** | **FAIL** |
 
-### The Fundamental Insight
+### The Fundamental Insight: Injected vs Learned Conditional Uncertainty
 
-**All 7 baseline/drift correction experiments fail for the same reason:** the z distribution
-under `baseline = history[-1]` implicitly encodes regime information. Turbulent periods produce
-larger |z| values (bigger deviations from last observation). The denoiser learns to map
-these larger z values to wider uncertainty bands. This is the mechanism that produces the
-0.834 Spearman correlation between CI width and vol_of_vol.
+The vol_scaled ratio target achieves conditional uncertainty through a **data transformation**,
+not through learned model behavior:
 
-Any modification that "corrects" the baseline — whether by smoothing (median), averaging
-(window), predicting drift (MLP), or operating in z-space (mean head) — removes this implicit
-regime signal. The denoiser then produces flat uncertainty across regimes (Spearman ~0.05-0.11).
+```
+Training:   z = log(future / history[-1]) / vol_scale    ← transform injects structure
+Inference:  IV = history[-1] × exp(z × vol_scale)        ← transform re-injects it
+```
 
-**The "stuck anchor bias" IS the regime conditioning mechanism.** They are the same thing.
-When IV regime-shifts from 0.54 to 0.10, the large z = log(0.10/0.54) tells the denoiser
-"this is a major move" → wider uncertainty bands. A "corrected" baseline that tracks the
-current level would produce z ≈ 0 → flat uncertainty. The bias and the conditioning are
-**fundamentally entangled** — you cannot fix one without destroying the other.
+The transform provides three forms of conditional uncertainty automatically:
 
-### Recommendation
+1. **Regime-dependent width**: `× vol_scale` in denormalization scales CI width by recent
+   turbulence. The denoiser doesn't need to learn this — vol_scale does it mechanically.
+2. **Horizon-dependent width**: `history[-1]` anchor means z accumulates over time (return
+   process), so uncertainty grows with horizon. Again, structural, not learned.
+3. **Level-dependent width**: `× history[-1]` scales everything by current IV level.
+   Higher IV → wider CIs. Structural.
 
-**Stop pursuing baseline/drift modifications.** The VS bestval model with online conformal
-calibration (Exp 73) already passes ALL test suite gates. The remaining "stuck anchor bias"
-is a cosmetic issue in extreme regime transitions that does not impact formal test compliance.
+The denoiser only needs to learn approximately homogeneous noise in z-space. The transform
+does the rest. This is why conditional uncertainty appears immediately (Spearman 0.834)
+without any auxiliary losses or learned sigma heads.
 
-Future work should focus on:
-1. Architecture improvements (different denoiser families, attention mechanisms)
-2. Training improvements (longer training, larger batch, curriculum)
-3. Multi-factor extension (the "Vision" — joint IV + rates + returns)
+**This is both the strength and the fatal flaw:**
 
-None of these involve modifying the vol_scaled baseline anchor.
+- **Strength**: Conditional uncertainty works immediately. No learned sigma head needed.
+  All 9 learned-uncertainty experiments (Exp 16-19, 21a-21e, 22a) failed to produce
+  condition-dependent sigma. The transform bypasses this entirely.
+
+- **Flaw**: The transform is rigid. It anchors at `history[-1]` and scales by `vol_scale`
+  with a fixed functional form `exp(z × vol_scale)`. When the anchor is wrong (regime
+  transition: baseline=0.54, GT drops to 0.10), the model **cannot compensate** because
+  it only controls z, which gets passed through the fixed transform. The model has no
+  mechanism to say "the anchor is stale, shift everything down."
+
+**Why every baseline correction destroys conditioning:**
+
+All 7 experiments (Exp 24a/b/c, 25, 60d, 62, 63) attempted to fix the anchor bias while
+preserving the transform. But the conditional uncertainty IS the transform. Correcting
+the anchor modifies the z distribution, which changes what the denoiser learns, and the
+carefully balanced interplay between z, vol_scale, and history[-1] breaks down.
+
+The anchor bias and the conditional uncertainty are not two separate properties that
+happen to coexist — they are the **same mechanism**. The large z = log(0.10/0.54)
+simultaneously causes the upward bias (predictions orbit 0.54) AND the wide uncertainty
+bands (large |z| → denoiser recognizes turbulent regime). Fix one, destroy the other.
+
+**Why conformal calibration is not a solution:**
+
+Conformal calibration (Exp 73) achieves formal test compliance by widening intervals
+post-hoc, but it does NOT fix the underlying problem:
+1. The upward bias remains — path medians still orbit the stale anchor
+2. Widening already-high predictions pushes IV toward the [0,1] ceiling, producing
+   unrealistic surfaces
+3. Coverage "passes" because intervals are wide enough to accidentally contain ground
+   truth, not because the model learned the correct distribution
+
+**The prior direct IV-level model (no ratio target) has the opposite problem:**
+
+The `highcap_fwdonly_v1` model predicts IV levels directly. It CAN learn correct levels
+and follow regime transitions. But it produces flat uncertainty (width ratio ~1.0x,
+kurtosis 0.695) because learning regime-dependent, horizon-dependent, cell-dependent
+variance from data alone is hard — the model defaults to approximately constant noise.
+
+### Conclusion: Two Architectures, Complementary Failures
+
+| Property | Vol_scaled (transform) | Direct IV (learned) |
+|----------|----------------------|-------------------|
+| Level accuracy | BAD (stuck anchor) | GOOD (learns levels) |
+| Conditional uncertainty | GOOD (injected by transform) | BAD (flat, not learned) |
+| Regime-dependent CI width | GOOD (Spearman 0.834) | BAD (~constant) |
+| Horizon-dependent CI growth | GOOD (structural) | BAD (minimal growth) |
+| Kurtosis | GOOD (1.006) | BAD (0.695) |
+| Fixability | NOT fixable (bias = conditioning) | POTENTIALLY fixable |
+
+The vol_scaled model has hit its architectural ceiling. The bias cannot be fixed without
+destroying the conditional uncertainty that is its primary achievement.
+
+### Next Direction: Help the Direct IV Model Learn Conditional Uncertainty
+
+The direct IV model's flat uncertainty is potentially fixable. The model CAN control
+the output — it just doesn't learn to differentiate uncertainty across regimes, horizons,
+and cells. This is a learning problem, not a structural impossibility.
+
+Possible approaches to inject inductive bias for conditional uncertainty:
+1. **Explicit regime features** — feed vol_of_vol, mean IV level directly to the denoiser
+   so it has regime information without needing to discover it from data
+2. **Horizon-aware architecture** — positional encoding that distinguishes h=1 from h=30,
+   encouraging the model to produce wider noise at longer horizons
+3. **Auxiliary uncertainty losses** — CRPS, calibration loss, or regime-conditional
+   coverage penalties that explicitly reward uncertainty differentiation
+4. **Heteroscedastic forward noise** — scale forward process noise by regime/horizon
+   so the denoiser must learn to undo regime-dependent noise levels
+5. **Two-model approach** — deterministic forecaster for center + separate generative
+   model for residual uncertainty with explicit regime conditioning
+
+The key insight from the vol_scaled experiments: conditional uncertainty CAN be achieved
+(the transform proves the signal exists in the data). The question is whether the model
+can learn it from data with the right architectural support, instead of having it injected
+by a rigid transform that entangles bias and conditioning.
+
+---
+
+## 2026-03-01: Ground Truth Data Analysis — Conditional Uncertainty Exists in the Data
+
+### Motivation
+
+After 73 experiments, every learned-uncertainty approach failed. Before investing in more
+model engineering, we must answer a fundamental question: **does conditional uncertainty
+actually exist in the raw data, or have we been chasing a phantom?**
+
+If the data shows no regime/horizon/spatial-dependent variance, then no model can learn it
+and all our attempts were doomed from the start. If the signal IS real, then the failures
+are on the model/training side and there is reason to continue.
+
+### Method
+
+Direct statistical analysis of the raw test set (1,223 windows, each with 30-day history
+and 30-day future). No model involved — purely ground truth data.
+
+Two types of uncertainty measured:
+
+- **Cross-window spread**: For windows with similar conditioning (e.g., similar vol_of_vol),
+  how much do their futures differ? This is what CI coverage depends on — the range of
+  possible outcomes given a conditioning regime.
+- **Within-trajectory spread**: For a single future path, what is the realized daily
+  volatility? This is what per-sample sigma heads try to predict.
+
+### Results
+
+#### 1. Regime-Dependent Uncertainty: CONFIRMED (2.0x ratio)
+
+Cross-window spread of `future[h=1] - baseline` by vol_of_vol quintile:
+
+| Quintile | Cross-window std | Windows |
+|----------|-----------------|---------|
+| Q1 (calmest) | 0.02152 | 245 |
+| Q2 | 0.02551 | 244 |
+| Q3 | 0.02972 | 245 |
+| Q4 | 0.02729 | 244 |
+| Q5 (most turb) | 0.04335 | 245 |
+
+**Q5/Q1 ratio: 2.01x** — turbulent conditioning produces 2x wider range of possible futures.
+
+Statistical significance:
+- Levene's test (variance equality): F=146.9, **p < 1e-33** at h=1
+- KS 2-sample test (distribution equality): KS=0.085, **p < 1e-19** at h=1
+- Both tests reject the null at every horizon (h=1, 7, 14, 30)
+
+Training set shows consistent signal: turb/calm ratio = **1.76x** (vs 2.01x in test).
+
+#### 2. Horizon-Dependent Uncertainty: CONFIRMED (1.63x growth)
+
+Cross-window spread of `future[h] - baseline` (all windows):
+
+| Horizon | Cross-window std | Growth vs h=1 |
+|---------|-----------------|---------------|
+| h=1 | 0.04907 | 1.00x |
+| h=2 | 0.05220 | 1.06x |
+| h=4 | 0.05728 | 1.17x |
+| h=7 | 0.06189 | 1.26x |
+| h=14 | 0.06999 | 1.43x |
+| h=30 | 0.08018 | **1.63x** |
+
+Monotonic increase at every horizon. Further from last known observation = wider spread.
+
+#### 3. Spatially Heterogeneous Uncertainty: CONFIRMED (12.1x ratio)
+
+Cross-window std per cell at h=30:
+
+```
+[0.2090, 0.0846, 0.0843, 0.1222, 0.1665]
+[0.0783, 0.0541, 0.0595, 0.0549, 0.1467]
+[0.0410, 0.0385, 0.0425, 0.0398, 0.1037]
+[0.0253, 0.0241, 0.0277, 0.0293, 0.0221]
+[0.0216, 0.0173, 0.0185, 0.0289, 0.0204]
+```
+
+**Max/min ratio: 12.1x** — the most volatile cell (0,0) has 12x the cross-window spread
+of the least volatile cell (4,1). Deep OTM short-dated options have far more uncertainty
+than ATM long-dated options.
+
+#### 4. Regime × Spatial Interaction: CONFIRMED (up to 13.5x per-cell)
+
+Cross-window spread ratio (turb/calm) per cell at h=1:
+
+```
+[1.44, 1.87, 2.74, 1.55, 1.18]
+[2.00, 2.50, 2.83, 4.41, 2.84]
+[2.57, 2.69, 2.96, 4.16, 1.77]
+[2.76, 2.82, 2.71, 3.33, 2.48]
+[2.44, 2.45, 3.26, 13.54, 4.37]
+```
+
+Some cells show massive regime sensitivity (cell 4,3: **13.5x**) while others are nearly
+regime-independent (cell 0,4: **1.18x**). The regime effect is spatially non-uniform.
+
+#### 5. The Two-Signal Problem: Why Per-Sample Sigma Heads Fail
+
+| Uncertainty type | Turb/calm ratio | Spearman(vov, σ) | Learnable per-sample? |
+|-----------------|----------------|------------------|----------------------|
+| Cross-window spread | **2.01x** | — | No (population-level) |
+| Within-trajectory vol | **1.39x** | 0.345 | Weak signal, noisy |
+
+Per-cell Spearman(vov, within-trajectory σ):
+
+```
+[0.22, 0.27, 0.27, 0.08, -0.01]
+[0.37, 0.26, 0.27, 0.36, 0.20]
+[0.31, 0.26, 0.29, 0.34, 0.22]
+[0.25, 0.23, 0.27, 0.31, 0.26]
+[0.10, 0.10, 0.16, 0.12, 0.15]
+```
+
+The within-trajectory signal EXISTS (1.39x ratio, avg Spearman 0.22) but is much weaker
+than the cross-window signal (2.01x). Per-sample sigma heads try to learn the weaker 1.39x
+signal while competing with the denoiser for encoder gradient — the denoiser's 10x stronger
+MSE loss dominates, and the sigma head collapses to constant.
+
+**The Exp 21 conclusion that "per-sample sigma Q5/Q1 = 1.0" was misleading.** The actual
+ratio is 1.39x with Spearman = 0.345. But the signal IS weak enough that a small MLP on
+top of a shared encoder cannot reliably learn it against the denoiser's gradient pressure.
+
+### Conclusion
+
+**All three axes of conditional uncertainty are real and statistically significant:**
+
+1. **Regime**: 2.0x cross-window spread ratio, p < 1e-33
+2. **Horizon**: 1.63x growth from h=1 to h=30, monotonic
+3. **Spatial**: 12.1x per-cell variance ratio, with regime×spatial interaction up to 13.5x
+
+**The failures are on the model/training side, not the data side.** The conditional
+uncertainty signal is strong (2.0x, p < 1e-33) and consistent across train and test sets.
+A model that correctly learns p(future | history) SHOULD produce regime-dependent ensemble
+spread. The question is why our models don't, and what architectural or training changes
+would enable them to capture this signal.
+
+A diffusion model learns p(future | history) by seeing one future per history per epoch.
+Over many epochs (50 × 4000 windows = 200K samples), it sees many different futures for
+similar histories. If turb histories consistently produce more spread-out futures (which
+they do — 2.0x ratio), the denoiser should learn less precise noise predictions for turb
+inputs. GenCast (DeepMind, Nature 2024) proves this mechanism works at scale with zero
+special engineering — just a large enough model with enough data.
+
+Our model may fail because:
+1. **Normalization** — [-1,1] linear scaling may equalize variance structure
+2. **Capacity** — 437K params may not simultaneously capture conditional mean AND variance
+3. **Training dynamics** — MSE converges to conditional mean before learning conditional spread
+4. **Data volume** — 797 turb training windows may be insufficient statistical power
+
+These are testable hypotheses. The data supports continued pursuit of learned conditional
+uncertainty — the signal is real, strong, and waiting to be captured.
+
+---
+
+## 2026-03-01: Literature Review — Learned Conditional Uncertainty in Diffusion Models
+
+### Context
+
+Comprehensive survey of 50+ papers across five research directions: (1) heteroscedastic
+diffusion models, (2) time series diffusion uncertainty, (3) Bitter Lesson / data-driven
+approaches, (4) weather/climate diffusion (closest analogy), (5) broad paper search. Goal:
+find methods that achieve regime-dependent, horizon-dependent, and spatially-varying
+uncertainty in diffusion models — learned from data, not hand-crafted.
+
+### The Fundamental Problem Restated
+
+Our vol_scaled ratio target **injects** conditional uncertainty via a rigid data transform
+`IV = history[-1] × exp(z × vol_scale)`. This gives Spearman(width, vov) = 0.834 but
+entangles bias with uncertainty (7 experiments prove they cannot be separated). Our direct
+IV model produces correct levels but flat uncertainty. We need the model to **learn** the
+conditional uncertainty structure from data.
+
+Our 9+ learned-sigma experiments (Exp 16-19, 21a-21e, 22a) all failed because:
+1. Per-sample future sigma has only 1.39x turb/calm ratio (weak signal)
+2. The denoiser's MSE loss dominates encoder gradients (10x stronger)
+3. Cross-window spread (2.0x, the CI-relevant quantity) is a population-level property
+   invisible to per-sample losses
+
+### Part 1: Weather/Climate Diffusion — The Closest Analogy
+
+Weather forecasting is structurally identical to our problem: spatially varying uncertainty
+(geographic grid vs moneyness×tenor grid), horizon-dependent uncertainty (day 1 vs day 15),
+regime-dependent uncertainty (storms vs calm), calibrated probabilistic ensembles.
+
+#### GenCast (DeepMind, Nature 2024, arxiv 2312.15796)
+
+The gold standard. Outperforms ECMWF ensemble on 97.2% of targets.
+
+**Architecture:** Graph neural network on icosahedral mesh. 16 sparse transformer blocks,
+512-dim features. Conditions on 2 previous atmospheric states (second-order Markov).
+
+**How it achieves calibrated, spatially-varying uncertainty:** With **zero special mechanisms**.
+Standard denoising score matching loss (weighted MSE on noise). No CRPS loss. No
+heteroscedastic output heads. No learned noise schedules.
+
+The denoiser implicitly learns where uncertainty is higher: in regions where the atmosphere
+is chaotic (midlatitude storm tracks), the denoiser's noise predictions are less precise,
+and different noise seeds produce genuinely different outputs. In predictable regions
+(tropics for temperature), predictions cluster tightly.
+
+**Residual formulation:** `X^t = X^{t-1} + S × Z^t`, where S is a diagonal matrix of
+per-variable standard deviations from training data. This is structurally identical to our
+vol_scaled ratio target — normalize residuals to unit variance, then denormalize.
+
+**Horizon-dependent uncertainty:** Automatic via autoregressive rollout. Single-step model
+rolled out for 15 days; each step samples from the learned conditional, so errors compound
+and ensemble members diverge at longer horizons.
+
+**Scale:** ~1B parameters, decades of global weather data. This is 2000x our model capacity
+(437K params) and ~10x our data volume.
+
+**Bitter Lesson score: 10/10.** Pure compute + data + architecture. Zero hand-crafting.
+
+#### AIFS-CRPS (ECMWF, arxiv 2412.15832 — now operational)
+
+229M parameter transformer GNN. Uses **CRPS training loss** instead of MSE.
+
+**Noise injection mechanism:** Independent Gaussian noise per ensemble member per step,
+processed through 2-layer MLP, injected via conditional layer normalization (identical to
+our AdaptiveGroupNorm/FiLM mechanism).
+
+**Almost-fair CRPS:** `afCRPS = α × fCRPS + (1-α) × CRPS` with α=0.95. Avoids degeneracy
+when ensemble members collapse to observations. Training uses 2-4 ensemble members.
+
+**Key result:** CRPS training preserves small-scale spatial structures that MSE-trained
+models blur away. Now operational at ECMWF ("AIFS ENS").
+
+**Relevance:** Proves CRPS as a training objective works at production scale for calibrated
+ensemble generation. We have `crps_gaussian` already implemented in our codebase.
+
+#### SEEDS (Google, Science Advances 2024, arxiv 2306.14066)
+
+Score-based diffusion (ViT with axial attention) that emulates weather ensembles.
+Works with standardized climatological anomalies (per-location mean/std from ERA5).
+Produces calibrated uncertainty without explicit heteroscedastic modeling.
+
+#### CorrDiff (NVIDIA, arxiv 2309.15214)
+
+**Two-stage mean-residual decomposition:**
+```
+Output = UNet_regression(input) + Diffusion_model(residual | input)
+         (deterministic mean)     (stochastic correction)
+```
+
+Structurally identical to our ratio target (baseline + diffusion residual). The residual
+after removing the mean has reduced variance, making diffusion training more efficient.
+Spatially varying uncertainty emerges because regions with large residual variance get more
+stochastic diversity.
+
+#### Key Lessons from Weather
+
+1. **Spatially varying uncertainty is LEARNED, not engineered** — every successful model
+   achieves it through implicit representation learning, not explicit per-cell sigma heads
+2. **Residual/ratio formulation is universal** — GenCast, CorrDiff, SEEDS all normalize
+   residuals before diffusion, identical in spirit to our vol_scaled approach
+3. **Horizon uncertainty via autoregressive rollout** — no special mechanism needed
+4. **MSE on noise is sufficient** (GenCast) but CRPS can improve calibration (AIFS-CRPS)
+5. **Scale matters** — GenCast uses ~1B params; our 437K may be insufficient
+
+### Part 2: Heteroscedastic Diffusion Models
+
+#### IDDPM: Learned Reverse Variance (Nichol & Dhariwal 2021, arxiv 2102.09672)
+
+Parameterizes reverse variance as learned interpolation between β_t and β̃_t:
+`Σ_θ = exp(v × log β_t + (1-v) × log β̃_t)`. Loss: `L_hybrid = L_simple + 0.001 × L_VLB`
+with stop-gradient on μ_θ in the VLB term.
+
+**We tried this (Exp 16-19).** The learned v collapses to near-constant. NLL alone does not
+produce condition-dependent sigma.
+
+#### MuLAN: Multivariate Learned Adaptive Noise (NeurIPS 2024 Spotlight, arxiv 2312.13236)
+
+**Core idea:** Per-dimension forward process noise. Each feature/pixel gets noise at a
+different rate, learned end-to-end.
+
+```
+q(x_t | x_0) = N(α_t ⊙ x_0, diag(σ_t²))   ← α_t, σ_t are VECTORS, not scalars
+```
+
+Schedule parameterized as monotonic degree-5 polynomial in t with coefficients from a
+neural network conditioned on context c extracted from x_0.
+
+**Key theoretical result:** The continuous-time ELBO is invariant to scalar noise schedules
+(Kingma et al. 2021) but **NOT invariant to multivariate schedules**. The diffusion loss
+becomes a line integral over a non-conservative force field — different per-dimension
+schedules yield genuinely different training objectives. This means the noise schedule
+MATTERS when it varies per dimension.
+
+**Both multivariate AND input-conditioning are necessary.** Ablation: multivariate + time-only
+drops to VDM baseline. Scalar + input-conditioning has no advantage.
+
+**Relevance:** For our 5×5 grid, each cell would get its own learned noise rate. The
+polynomial + auxiliary variable framework needs adaptation but is conceptually aligned.
+Our per-cell sigma experiments (Exp 23 series) attempted something similar but used
+heuristic per-cell scaling, not a learned schedule with proper ELBO training.
+
+**Bitter Lesson score: 9/10.** Fully learned from data.
+
+#### Analytic-DPM (ICLR 2022 Outstanding Paper, arxiv 2201.06503)
+
+**Training-free** input-dependent reverse variance. The optimal covariance is analytically
+derived from the score function's Hessian:
+
+```
+Σ_opt(x_t, t) = f(∇²_{x_t} log q(x_t), α_t, σ_t)
+```
+
+Estimated via Monte Carlo from the trained denoiser. No additional training needed.
+The variance IS input-dependent by construction.
+
+**Relevance:** Could be applied to our existing trained model to extract spatially-varying
+uncertainty without retraining. 20-80x sampling speedup reported.
+
+#### OCM: Optimal Covariance Matching (arxiv 2406.10808)
+
+Trains a separate network to predict the diagonal of the score Hessian (the theoretically
+optimal covariance). Unlike IDDPM's heuristic interpolation, OCM directly regresses the
+optimal variance. With 5 DDPM steps: FID 38.88 vs IDDPM's 58.28.
+
+**Relevance:** Addresses the IDDPM variance collapse problem with a theoretically grounded
+alternative. Worth investigating for our denoiser.
+
+#### CVDM: Conditional Variational Diffusion (ICLR 2024, arxiv 2312.02246)
+
+Factorized noise schedule: `β(t, x) = τ(t) × λ(x)`. The temporal component τ(t) is shared,
+but the spatial/conditional component λ(x) varies per input. Learned schedule reveals
+interpretable structure — high-frequency regions get steeper noise curves.
+
+**Relevance:** Clean formulation for per-cell noise adaptation. Each IV grid cell could get
+its own λ based on the conditioning history.
+
+#### Blurring Diffusion (ICLR 2023, arxiv 2209.05557)
+
+Non-isotropic forward process in frequency space via DCT. Higher frequencies decay faster
+than lower frequencies. For vol surfaces: overall IV level (low frequency) preserved longer,
+smile curvature (high frequency) noised earlier. Provides scale-dependent uncertainty.
+
+#### Edge-Preserving Noise (ICLR 2025 Workshop, arxiv 2410.01540)
+
+Spatially varying noise based on local gradient: noise reduced at structural boundaries
+(where IV changes rapidly) and increased in smooth regions. Up to 30% FID improvement.
+
+### Part 3: Time Series Diffusion
+
+#### NsDiff: Location-Scale Noise Model (ICML 2025 Spotlight, arxiv 2505.04278)
+
+```
+Y = f_φ(X) + √(g_ψ(X)) × ε
+```
+
+Pre-trained mean f and variance g feed into a modified forward process:
+```
+q(Y_t|Y_0,X) = N(√ᾱ·Y_0 + (1-√ᾱ)·f(X), (β̄-β̃)·g(X) + β̃·σ_Y₀)
+```
+
+Terminal distribution: N(f(X), g(X)) instead of N(0, I). Turbulent regimes → larger g(X) →
+more forward noise → wider reverse samples.
+
+**We tried a version of this (Exp 19, Exp 22a).** Our implementation used a learned sigma
+head trained with NLL, which collapsed to constant. NsDiff uses pre-trained, frozen g(X) —
+the two-stage separation is critical. However, even with frozen estimation, the per-sample
+variance target (within-trajectory vol) has only 1.39x turb/calm ratio. NsDiff's g_ψ is
+trained on sliding-window variance estimates, which may capture the cross-window signal
+better than our per-sample approach.
+
+#### CW-Gen: Conditional Whitening (ICLR 2026, arxiv 2509.20928)
+
+**The principled generalization of our vol_scaled ratio target.**
+
+```
+Step 1: Pre-train JMCE: history → (μ̂, Σ̂) per-cell, per-horizon
+Step 2: Whiten targets: z = Σ̂^{-0.5} × (future - μ̂)  → approximately N(0,I)
+Step 3: Train standard diffusion on whitened z
+Step 4: Un-whiten: IV = Σ̂^{0.5} × z_sample + μ̂
+```
+
+**JMCE** (Joint Mean-Covariance Estimator) outputs per-timestep conditional mean and
+Cholesky factors for covariance. Trained with combined MSE + Frobenius norm + eigenvalue
+regularization.
+
+**Why this is different from our failed drift experiments:** JMCE is pre-trained and frozen.
+The diffusion model trains on a fixed whitened distribution. No entanglement.
+
+**Theoretical guarantee (Theorem 1):** Replacing N(0,I) terminal with N(μ̂, Σ̂) reduces KL
+divergence whenever estimation error < unconditional mean norm.
+
+**Relevance:** Our vol_scaled transform is a hand-crafted scalar whitening. CW-Gen replaces
+this with a learned full covariance — per-cell, per-horizon, per-regime scaling all estimated
+from data. This separates bias (μ̂) from uncertainty (Σ̂) cleanly.
+
+**Critical caveat:** If JMCE's per-window covariance estimate hits the same problem as our
+sigma heads (within-trajectory signal too weak at 1.39x), it may also produce near-constant
+Σ̂. CW-Gen's sliding-window estimation and full covariance structure may help, but this is
+not guaranteed.
+
+#### CARD: Classification and Regression Diffusion (NeurIPS 2022, arxiv 2206.07275)
+
+Modified forward process drifts toward conditional mean f(x):
+```
+q(y_t|y_0,x) = N(√ᾱ·y_0 + (1-√ᾱ)·f(x), (1-ᾱ)·I)
+```
+
+Only shifts the mean, NOT the variance. Analogous to our ratio target baseline shift.
+Does not solve conditional spread.
+
+#### StochDiff (KDD 2025, arxiv 2406.02827)
+
+Per-timestep latent prior with LSTM-conditioned mean and variance:
+```
+z_t ~ N(μ̂(h_{t-1}), δ̂(h_{t-1}))
+```
+
+Dual training objective: KL divergence between prior and posterior + denoising loss.
+Naturally gives horizon and regime-dependent uncertainty through evolving LSTM hidden state.
+
+#### Diffusion Forcing (NeurIPS 2024, arxiv 2407.01392)
+
+Independent per-token noise levels during training. Provably optimizes VLB on all
+subsequence likelihoods. Near-future tokens get less noise, far-future get more.
+
+**We tested this and it failed** — with our architecture the independent noise levels act
+only as regularization. The noise gets averaged during denoising and doesn't translate to
+independent per-frame uncertainty in the output.
+
+#### DYffusion: Dynamics-Informed Diffusion (NeurIPS 2023, arxiv 2306.01984)
+
+Replaces noise-based forward/reverse with temporal interpolation/forecasting. Diffusion
+step s maps to physical time step h. Horizon-dependent uncertainty built in — longer
+temporal horizons = more diffusion steps = more uncertainty. Used for 100-year climate
+simulations with stable variability.
+
+#### FALDA: Fourier Decomposition (arxiv 2505.11306)
+
+Separates non-stationary trends, stationary patterns, and noise via Fourier decomposition.
+Diffusion model conditions ONLY on historical noise term — NOT the full history. Critical
+ablation: conditioning on the same full input as the deterministic predictor produces the
+WORST results. The information must be **split**: drift head and denoiser see different
+features.
+
+**Relevance:** This validates that the NsDiff/CW-Gen pattern of separating mean estimation
+from diffusion is correct, and goes further — the denoiser should see DIFFERENT conditioning
+than the mean estimator to avoid learning redundant representations.
+
+### Part 4: Training Losses for Calibration
+
+#### CRPS as Training Objective (AIFS-CRPS, FuXi-ENS, NeuralGCM)
+
+```
+CRPS(μ, σ, y) = σ × [z(2Φ(z) - 1) + 2φ(z) - 1/√π],  z = (y - μ)/σ
+```
+
+**CRPS is the ONLY loss that operates at the population level.** It evaluates the quality
+of the ensemble (K samples), not individual predictions. It directly penalizes
+under-dispersed ensembles for turbulent conditions.
+
+**ECMWF's "almost-fair CRPS":** `afCRPS = α × fCRPS + (1-α) × CRPS` with α=0.95.
+Uses 2-4 ensemble members during training. Now operational at ECMWF.
+
+**FuXi-ENS:** `L = L_CRPS + λ × L_KL` with λ=1e-4. Outperforms ECMWF on 98.1% of targets.
+Uses Swin Transformer VAE with per-step perturbations.
+
+**NeuralGCM:** CRPS training with only 2 ensemble members per forecast (sufficient for
+unbiased CRPS estimation). Injects Gaussian random fields with learned spatial and temporal
+correlation.
+
+**Relevance:** CRPS is the strongest candidate for our problem because it provides a
+gradient signal for conditional spread that per-sample losses cannot. The cost is K×
+compute per training step (K=2-4 is sufficient per NeuralGCM/AIFS-CRPS).
+
+We have `crps_gaussian` already implemented in our codebase (`block_ar_ddpm.py`, line 48).
+
+#### beta-NLL (ICLR 2022, arxiv 2203.09168)
+
+Standard NLL pathology: network increases variance to reduce loss instead of improving
+predictions. beta-NLL fixes with stop-gradient:
+```
+L = σ^{2β}.detach() × [0.5 × (log σ² + (y-μ)²/σ²)]
+```
+
+**We already tried this (Exp 21b).** Result: Q5/Q1 ≈ 1.0, CoV = 0.074. Failed not because
+of NLL pathology but because the per-sample target (within-trajectory vol) has insufficient
+regime signal (1.39x ratio, Spearman 0.27 per cell). beta-NLL solves the wrong problem
+for our case — the issue is the target, not the loss dynamics.
+
+#### Energy Score / Variogram Score
+
+Energy Score is the multivariate CRPS generalization:
+`ES(F, y) = E[||X - y||] - 0.5 × E[||X - X'||]`
+
+Variogram Score targets pairwise dependencies:
+`VS_p(F, y) = Σ_{i,j} w_{ij} (|y_i - y_j|^p - E[|X_i - X_j|^p])²`
+
+For our 750-dim output (30×5×5), Variogram Score may better capture spatial covariance
+structure than Energy Score (which has poor discriminative ability in high dimensions).
+
+### Part 5: Architectural Approaches
+
+#### Huge Ensembles (arxiv 2408.03100)
+
+**Simplest approach:** Train 29 independent deterministic models with different seeds. Apply
+bred vector perturbations to initial conditions. Creates 7,424-member ensemble.
+
+Multiple checkpoints capture model uncertainty (different local optima). Bred vectors
+capture initial condition uncertainty (flow-dependent perturbation growth).
+
+**Relevance:** Our observation that different checkpoints give different kurtosis (val-loss
+epoch 26: 1.006 vs coverage epoch 25: 0.796) is related. Multi-checkpoint ensembling is
+a viable low-engineering approach.
+
+#### GBM-Diffusion (arxiv 2507.19003)
+
+Forward process in log-price space: `dX_t = √β_t × dW_t`. Back-transform via exp() creates
+multiplicative (state-dependent) noise. Captures heavy tails, volatility clustering, and
+leverage effect.
+
+**This independently validates our vol_scaled approach.** Diffusion in log-space followed
+by exp() denormalization IS the correct structure for heteroscedastic financial data. The
+anchor bias is the price we pay for this structural advantage.
+
+#### VolaDiff: IV Surface DDPM (arxiv 2511.07571)
+
+One-day-ahead IV surface forecasting. VP-SDE on **log-transformed, per-grid-point
+standardized** IVs. FiLM conditioning on VIX, EWMA returns. SNR-weighted arbitrage penalty.
+
+**Key:** Per-grid-point standardization `z = (log σ - μ_cell) / σ_cell` is minimally
+engineered — just log + standardize. The model learns everything else from data.
+
+**Relevance:** Simpler normalization than our vol_scaled ratio target. If this achieves
+regime-dependent ensemble spread, it suggests our normalization may be over-engineered.
+
+#### Controlling Ensemble Variance (arxiv 2501.14822)
+
+Ensemble variance is directly controlled by the **number of diffusion steps** (Theorem 3.2).
+More DDIM steps = more variance. Provides closed-form expression for element-wise variance
+evolution through the reverse process.
+
+**Relevance:** Theoretical basis for our observation that DDIM step count affects ensemble
+spread. Could calibrate spread post-hoc by adjusting N without retraining.
+
+### Part 6: Synthesis — What Actually Works and Why
+
+#### Three Strategies for Conditional Uncertainty
+
+| Strategy | Mechanism | Examples | Our experience |
+|----------|-----------|----------|----------------|
+| **Transform-inject** | Baked into data normalization | Vol_scaled, GBM-Diffusion, GenCast S matrix | Works, but entangles bias |
+| **Learn-separate** | Estimated outside diffusion, frozen | CW-Gen, NsDiff, CARD, CorrDiff | Partially tried (drift head); sigma estimation failed |
+| **Learn-implicit** | Model learns from raw data alone | GenCast at scale, CRPS training | Not tried at sufficient scale |
+
+Our failed experiments all tried to modify **transform-inject** (fix the anchor) or add
+**per-sample learned components** (sigma heads) within the transform framework. The
+literature says either go fully **learn-implicit** (scale up, GenCast-style) or use
+**learn-separate** with population-level covariance estimation (CW-Gen/NsDiff with
+sliding-window targets, not per-sample targets).
+
+#### Why Per-Sample Sigma Always Fails (Our Core Insight)
+
+| Paper approach | Target for σ estimation | Signal strength | Our test result |
+|---------------|------------------------|----------------|-----------------|
+| IDDPM (v interpolation) | NLL on per-sample noise | Weak (VLB gradient) | Exp 16-19: collapsed |
+| NsDiff (learned g(X)) | Sliding-window variance | Medium (1.39x) | Exp 19: collapsed |
+| beta-NLL | Stop-gradient per-sample | Weak (1.39x, noisy) | Exp 21b: Q5/Q1 = 1.0 |
+| OCM (score Hessian) | Analytic from score | Strong (by construction) | Not tried |
+| **CRPS (ensemble)** | **Population-level calibration** | **Strong (2.0x)** | **Not tried** |
+
+The pattern: any approach that estimates σ from a single sample hits the 1.39x ceiling.
+The 2.0x cross-window signal is only accessible to population-level methods (CRPS, ensemble
+evaluation) or analytic methods (OCM, Analytic-DPM).
+
+#### Ranked Recommendations
+
+**Tier 1: Highest Priority**
+
+1. **CRPS training loss** — The only loss function that provides a gradient signal for
+   population-level conditional spread. Generate K=2-4 ensemble members per training step,
+   compute afCRPS, backpropagate. Already implemented in codebase. Used operationally by
+   ECMWF (AIFS-CRPS). Cost: K× compute per step.
+
+2. **CW-Gen conditional whitening** — Pre-train JMCE for (μ̂, Σ̂), whiten targets, run
+   standard diffusion, un-whiten. Separates bias from uncertainty. Must use sliding-window
+   or cross-sample covariance estimation (not per-sample prediction). Most principled
+   generalization of our current approach.
+
+3. **Scale up + simplify normalization** (GenCast-style) — Remove vol_scaled transform,
+   use log + per-cell standardization (VolaDiff-style), increase model capacity. Test
+   whether a bigger model with simpler normalization learns conditional uncertainty
+   implicitly. Requires significant compute increase.
+
+**Tier 2: Strong Candidates**
+
+4. **Analytic-DPM / OCM** — Extract input-dependent variance from existing trained model's
+   score Hessian. Training-free (Analytic-DPM) or small auxiliary network (OCM). Variance
+   is input-dependent by construction.
+
+5. **MuLAN per-cell noise schedule** — Per-dimension learned forward process. ELBO is NOT
+   invariant to multivariate schedules (key theoretical result). Both per-dimension AND
+   input-conditioning required. High implementation complexity.
+
+6. **CVDM factorized schedule** — `β(t,x) = τ(t) × λ(x)`. Simpler than MuLAN, each cell
+   gets its own noise rate via learned λ.
+
+**Tier 3: Supplementary**
+
+7. **Multi-checkpoint ensembling** — Train N models with different seeds, combine. Simple,
+   no architecture changes. Captures model uncertainty.
+
+8. **DDIM step calibration** — Adjust sampling steps per-regime using the theoretical
+   relationship between N and ensemble variance. Post-hoc, no retraining.
+
+#### What We Should NOT Try Again
+
+| Approach | Why it fails | Experiments |
+|----------|-------------|-------------|
+| Per-sample sigma head (any loss) | Target has Q5/Q1=1.39x, too weak | Exp 16-19, 21a-e, 22a |
+| Baseline/anchor correction | Removes regime signal from z | Exp 24a-c, 25, 60d, 62, 63 |
+| Conformal widening | Masks bias, hits IV ceiling | Exp 73 |
+| Diffusion Forcing (our arch) | Noise averages out, acts as regularization | Tested |
+
+### Key Papers Referenced
+
+| Paper | Venue | arxiv | Key contribution |
+|-------|-------|-------|-----------------|
+| GenCast | Nature 2024 | 2312.15796 | Calibrated weather ensemble, zero engineering |
+| AIFS-CRPS | ECMWF 2024 | 2412.15832 | CRPS training, now operational |
+| SEEDS | Science Adv 2024 | 2306.14066 | Diffusion ensemble emulation |
+| CorrDiff | NVIDIA 2024 | 2309.15214 | Mean-residual decomposition |
+| MuLAN | NeurIPS 2024 | 2312.13236 | Per-dimension learned noise, ELBO non-invariance |
+| NsDiff | ICML 2025 | 2505.04278 | Location-scale noise model |
+| CW-Gen | ICLR 2026 | 2509.20928 | Conditional whitening with JMCE |
+| FALDA | May 2025 | 2505.11306 | Information splitting between drift and denoiser |
+| CARD | NeurIPS 2022 | 2206.07275 | Regression diffusion with mean shift |
+| Analytic-DPM | ICLR 2022 | 2201.06503 | Training-free optimal reverse variance |
+| OCM | 2024 | 2406.10808 | Optimal diagonal covariance matching |
+| CVDM | ICLR 2024 | 2312.02246 | Factorized per-input noise schedule |
+| IDDPM | ICML 2021 | 2102.09672 | Learned v interpolation |
+| VDM | NeurIPS 2021 | 2107.00630 | Scalar schedule invariance theorem |
+| Diffusion Forcing | NeurIPS 2024 | 2407.01392 | Independent per-token noise |
+| DYffusion | NeurIPS 2023 | 2306.01984 | Dynamics-informed diffusion |
+| beta-NLL | ICLR 2022 | 2203.09168 | Stop-gradient fix for NLL pathology |
+| GBM-Diffusion | 2025 | 2507.19003 | Log-space diffusion for financial data |
+| VolaDiff | 2025 | 2511.07571 | IV surface DDPM with per-cell standardization |
+| Blurring Diffusion | ICLR 2023 | 2209.05557 | Frequency-dependent forward process |
+| Edge-Preserving Noise | ICLR 2025 | 2410.01540 | Gradient-based spatially varying noise |
+| StochDiff | KDD 2025 | 2406.02827 | Per-step LSTM-conditioned latent prior |
+| FuXi-ENS | Science Adv 2024 | 2405.05925 | CRPS + KL for weather ensemble |
+| NeuralGCM | Nature 2024 | — | CRPS with 2 members, learned noise correlation |
+| Huge Ensembles | 2024 | 2408.03100 | Multi-checkpoint + bred vectors |
+| Ensemble Variance | 2025 | 2501.14822 | DDIM steps control variance (theorem) |
+| CSDI | NeurIPS 2021 | 2107.03502 | Conditional score diffusion for imputation |
+
+---
+
+## 2026-03-01: Comprehensive Diagnostic — Why Diffusion Models Fail to Learn Conditional Uncertainty
+
+### Motivation
+
+After 63+ experiments attempting to make the diffusion model learn conditional uncertainty
+(regime-dependent, spatially-varying, horizon-dependent CI widths), we step back to ask the
+fundamental question: WHY does every approach fail? We previously stated the cause as
+"per-sample sigma Q5/Q1 ≈ 1.0" and "gradient competition with denoiser." But we conflated
+multiple failure mechanisms. This diagnostic decomposes the problem precisely.
+
+### Theoretical Analysis: Why Standard Diffusion Cannot Learn Conditional Uncertainty
+
+Before running diagnostics, we can identify three distinct mechanisms that prevent a
+standard diffusion model from learning regime-dependent output spread.
+
+#### Mechanism 1: MSE on noise prediction optimizes conditional mean, not spread
+
+In standard diffusion, the denoiser learns to predict E[ε | x_t, condition] — the
+conditional mean of the noise given the noisy input and conditioning. At every noise
+level t, the MSE loss pushes the denoiser toward this conditional expectation. The
+DIVERSITY of output samples at inference comes from the random noise seed ε injected
+at each reverse step. The noise schedule determines how much diversity each step
+contributes, and it is **condition-independent** — the same cosine/linear schedule
+for all inputs.
+
+The denoiser has NO gradient signal about output spread. Consider training:
+- Window A (turbulent): model sees one future trajectory, learns to predict that noise
+- Window B (calm): model sees one future trajectory, learns to predict that noise
+- MSE treats both identically. Neither loss says "your calm samples should be tighter"
+  or "your turbulent samples should be wider." MSE is spread-blind.
+
+Over many epochs, does the denoiser implicitly learn different spreads? In theory, if
+the denoiser is less accurate for turbulent conditions (larger irreducible error), the
+reverse diffusion should produce wider samples. But our diagnostic (H2) shows this
+implicit mechanism produces only 6.5% spread variation (Q5/Q1 = 1.065) vs the GT
+target of 200% (Q5/Q1 ≈ 2.0). The noise schedule contribution to output spread
+completely drowns out any implicit regime signal in the denoiser's residuals.
+
+#### Mechanism 2: NLL on per-step variance measures the wrong thing
+
+IDDPM (Nichol & Dhariwal 2021) learns a variance interpolation parameter v_t at each
+timestep, interpolating between β_t and β̃_t. This optimizes the REVERSE STEP SIZE —
+how much noise to remove per step — NOT the final output distribution width.
+
+The connection between per-step reverse variance and output-distribution spread is
+INDIRECT and ATTENUATED through T=100 reverse steps. The learned v_t affects the
+reverse path trajectory, but the cumulative effect on output spread is tiny compared
+to the noise schedule's fixed contribution. This is why Exp 2, 4, 5 (IDDPM learned
+variance) produced flat log_var — the per-step VLB provides almost no gradient signal
+about output-level spread.
+
+Similarly, per-step scoring rules (Exp 15 CRPS head, interval score) evaluate accuracy
+at each individual reverse step. At each step, the denoiser's x₀ prediction IS accurate
+(low per-step error). CRPS rewards smaller σ when predictions are good → per-step CRPS
+always pushes σ → 0 → noise suppression → near-deterministic output (Exp 15: 5.1% CI
+coverage). The aggregate diversity across 100 steps is INVISIBLE to any per-step loss.
+
+#### Mechanism 3: Per-sample losses cannot learn population-level uncertainty
+
+The conditional uncertainty we want to capture — "turbulent windows should have 2x wider
+CIs than calm windows" — is a POPULATION-LEVEL property. It describes how the spread
+of outcomes varies across conditions. But per-sample losses (MSE, NLL, Huber) see only
+ONE realized future per condition per epoch.
+
+For an NLL sigma head, the optimal σ(x) = std(y - ŷ | similar x). With ~4000 unique
+training windows, each condition is essentially unique — there are no exact duplicates.
+The model must GENERALIZE about conditional variance from individual samples. Each
+training step provides one noisy gradient for σ: the squared residual (y_i - ŷ_i)².
+The signal-to-noise ratio of this gradient is terrible.
+
+The within-trajectory signal (1.39x turb/calm ratio, Spearman 0.345) EXISTS but is weak.
+With ~800 turb and ~800 calm windows in training, the average squared residual SHOULD
+converge to the conditional variance over enough epochs. But three factors prevent this:
+1. The encoder is shared with the denoiser — denoiser MSE gradient (10x stronger)
+   shapes the encoder representation, not the sigma head's weaker gradient
+2. Even separate encoders (Exp 21d: raw MLP, Exp 21e: mini GRU) fail — they achieve
+   Q5/Q1 ≈ 1.0, proving the issue isn't gradient competition but the weak signal
+3. The within-trajectory ratio (1.39x) is the OBSERVABLE per-sample signal; the
+   CROSS-WINDOW ratio (2.0x) is the DESIRED CI signal. The per-sample loss can
+   learn at most 1.39x even with perfect optimization, falling short of the 2.0x target
+
+#### Why CRPS on full output is fundamentally different
+
+CRPS loss: L = E|Y - y| - 0.5 × E|Y - Y'|
+
+The E|Y - Y'| term (ensemble spread) is computed from TWO independent samples from the
+model for the SAME condition. This is a POPULATION-LEVEL measurement extracted from just
+K=2 samples per training step:
+
+- If model produces wide spread for calm → |Y - Y'| large → loss increases → model narrows
+- If model produces narrow spread for turb → |Y - y| large (poor accuracy for both
+  samples) → loss increases → model widens
+
+Each forward pass provides a CLEAN gradient about spread correctness. No accumulation
+over thousands of passes needed. No sigma head needed. The denoiser itself learns to
+produce condition-dependent diversity through the reverse process.
+
+The critical distinction from per-step CRPS (Exp 15): output-space CRPS evaluates the
+FINAL generated trajectories after all reverse steps, where the model's spread IS wrong.
+Per-step CRPS evaluates intermediate x₀ predictions where the denoiser IS accurate.
+These are fundamentally different optimization objectives.
+
+#### Why turbulent windows are easier to predict (the inversion)
+
+The above mechanisms explain why the model doesn't learn spread. But the diagnostic
+revealed something worse: the model has LOWER loss on turbulent windows (Q5/Q1 = 0.83).
+This means NLL gradient actually pushes sigma in the WRONG direction.
+
+Why turb = easier? Two mechanisms:
+1. **More informative histories**: Turbulent histories have higher within-window variance
+   (IV swings between days). This gives the encoder MORE signal to extract → better
+   condition vector → more accurate noise prediction → lower MSE.
+2. **Mean reversion**: Turbulent regimes (post-crisis, post-spike) exhibit strong mean
+   reversion. The conditional mean E[future | turbulent_history] is MORE predictable
+   (it mean-reverts toward long-term average), even though the day-to-day PATH is more
+   volatile. Predictability of the mean ≠ uncertainty of the path.
+
+In a PERFECTLY trained model with infinite capacity and data, residuals = aleatoric
+uncertainty (irreducible noise). Aleatoric uncertainty IS higher for turb (2.0x in GT).
+At that point, turb would have HIGHER residuals and NLL would work. But our model
+(437K params, 4000 windows) is far from Bayes-optimal — approximation and estimation
+error dominate aleatoric uncertainty. The model hasn't seen enough data to converge
+to the point where turb = harder. This is the GenCast argument: with billions of
+parameters and decades of data, standard diffusion learns calibrated conditional
+uncertainty with ZERO special mechanisms. We are ~1000x below that threshold.
+
+### Tests Conducted
+
+Five hypotheses tested on both models:
+- **Direct-IV model** (`block_ar_highcap_fwdonly_v1/best_model.pt`): No ratio target,
+  no vol_scale — pure learned diffusion in [-1,1] normalized IV space
+- **Vol-scaled model** (`block_ar_vol_scaled_30ep/best_model.pt`): Vol-scaled ratio target
+  with injected conditional uncertainty
+
+Each test used 200-400 test windows, 30 samples per window.
+
+### H1: Per-Sample Training Loss by Regime
+
+**Question**: Does the model incur higher training loss for turbulent windows?
+
+| Model | Q1 (calm) loss | Q5 (turb) loss | Q5/Q1 | Spearman(vov, loss) |
+|-------|---------------|---------------|-------|---------------------|
+| Direct-IV | 0.0366 | 0.0306 | **0.834** | -0.099 |
+| Vol-scaled | 0.0826 | 0.0453 | **0.549** | -0.173 |
+
+**CRITICAL FINDING: Training loss is INVERSELY correlated with turbulence.**
+
+The model has **LOWER** loss on turbulent windows than on calm windows. Q5/Q1 < 1.0 for
+both models. This is the opposite of what would be needed for NLL to learn conditional
+uncertainty.
+
+**Mechanism**: In turbulent regimes, IV surfaces change MORE between days. But the model
+trains on [-1,1] normalized surfaces where turbulent windows tend to have LOWER absolute
+IV values (post-crash, post-spike). The normalization equalizes the signal, and turbulent
+windows happen to be easier to predict in normalized space because they have lower absolute
+variance (the variance IS the mean level in vol surfaces).
+
+**Implication**: An NLL sigma head sees that turbulent windows have SMALLER residuals. The
+optimal sigma is SMALLER for turbulent windows. This is the exact opposite of what we want.
+No per-sample NLL loss can learn the correct conditional sigma when the gradient pushes in
+the wrong direction.
+
+### H3: Optimal NLL Sigma — Is It Regime-Dependent?
+
+**Question**: If we could perfectly learn sigma from NLL, what would it look like?
+
+Optimal NLL sigma = RMS(noise_pred - noise_true) per vov quintile:
+
+| Timestep | Q1 (calm) RMS | Q5 (turb) RMS | Q5/Q1 | Spearman |
+|----------|--------------|--------------|-------|----------|
+| **Direct-IV t=10** | 0.329 | 0.280 | **0.850** | -0.179 |
+| **Direct-IV t=50** | 0.105 | 0.084 | **0.797** | -0.220 |
+| **Direct-IV t=90** | 0.032 | 0.030 | **0.935** | -0.133 |
+| **Vol-scaled t=10** | 0.807 | 0.479 | **0.594** | -0.611 |
+| **Vol-scaled t=50** | 0.431 | 0.185 | **0.430** | -0.656 |
+| **Vol-scaled t=90** | 0.089 | 0.045 | **0.499** | -0.593 |
+
+**CRITICAL FINDING: Optimal sigma is ANTI-correlated with turbulence.**
+
+At every timestep, the denoiser makes SMALLER errors on turbulent windows. The optimal
+NLL sigma for turbulent windows is 0.43-0.85x of calm windows.
+
+For the vol-scaled model, this is even more extreme (Q5/Q1=0.43 at t=50) because the
+vol_scale normalization divides turbulent targets by a larger vol_scale, making them
+EASIER to denoise (smaller absolute values in z-space).
+
+**This is why every NLL-based sigma head collapsed to constant or anti-correlated:**
+- Exp 19 (NsDiff): sigma learned ≈ 0.064, nearly constant
+- Exp 21b (beta-NLL): Q5/Q1 ≈ 1.0
+- Exp 22a (e2e_nll): best had rho(vov, sigma) = 0.111 but caused 97.9% overcoverage
+- Exp 22e (vol_scaled_learned): correction collapsed to constant 0.6065
+
+The NLL gradient ACTIVELY PUSHES sigma in the wrong direction. Turbulent windows are
+EASIER to predict → NLL says "reduce sigma." We want wider CI for turbulent → need
+LARGER sigma. These objectives are fundamentally opposed.
+
+### H2: Sample Spread by Regime (End-to-End)
+
+**Question**: Does the model actually produce wider sample spread for turbulent windows?
+
+| Model | Q1 spread | Q5 spread | Q5/Q1 | Spearman |
+|-------|-----------|-----------|-------|----------|
+| Direct-IV | 0.0320 | 0.0341 | **1.065** | 0.407 |
+| Vol-scaled | 0.0223 | 0.0541 | **2.432** | 0.810 |
+
+**FINDING: Direct-IV model produces NEARLY FLAT spread (6.5% variation).**
+
+The MSE-trained denoiser in normalized [-1,1] space produces almost identical sample
+diversity regardless of regime. The 6.5% variation is tiny compared to the GT 2.0x ratio.
+Spearman is 0.407 — statistically significant but practically useless.
+
+The vol-scaled model achieves 2.43x PURELY from the transform, not from learned behavior.
+
+Per-horizon Q5/Q1 for Direct-IV:
+
+| Horizon | Q5/Q1 | Spearman |
+|---------|-------|----------|
+| h=1 | 1.074 | 0.248 |
+| h=7 | 1.100 | 0.306 |
+| h=14 | 1.051 | 0.237 |
+| h=30 | 0.996 | 0.014 |
+
+At h=30, the model produces IDENTICAL spread for calm and turbulent — the regime signal
+is completely absent at the longest horizon.
+
+### Output-Space Residuals and Recovery
+
+| Metric | Direct-IV | Vol-scaled | GT |
+|--------|-----------|------------|-----|
+| Spread h=1 Q5/Q1 | 1.136 | **2.472** | 1.462 |
+| Per-cell Q5/Q1 mean | 1.089 | **2.407** | 1.462 |
+| Recovery vs GT | **74.5%** | **164.7%** | 100% |
+| Spearman(vov, spread) | 0.505 | **0.791** | — |
+| MAE h=1 Q5/Q1 | 1.126 | 1.121 | — |
+
+Direct-IV recovers only 74.5% of the GT conditional spread. Vol-scaled OVERSHOOTS at 164.7%
+(over-conditioning, as previously documented).
+
+### H4: Oracle Sigma (Ground Truth Data)
+
+GT cross-window std (future - baseline) by quintile:
+
+| Horizon | Q1 std | Q5 std | Q5/Q1 |
+|---------|--------|--------|-------|
+| h=1 | 0.0267 | 0.0295 | 1.107 |
+| h=7 | 0.0316 | 0.0359 | 1.136 |
+| h=14 | 0.0347 | 0.0400 | 1.151 |
+| h=30 | 0.0407 | 0.0483 | 1.187 |
+
+**Note**: This measures std of (future_IV - last_history_IV) across windows, which is
+different from the cross-window spread of ABSOLUTE future IV (which shows 2.0x ratio).
+The CHANGE has weaker regime-dependence (1.1-1.2x) because baseline-relative changes
+partially cancel the level effect.
+
+### Root Cause Synthesis: The Three-Layer Failure
+
+**Layer 1: Normalization equalizes variance**
+
+The [-1,1] normalization maps all IV surfaces to the same scale. Turbulent windows
+(typically lower absolute IV post-crisis) become EASIER to predict in normalized space.
+The denoiser converges to a slightly BETTER noise predictor for turbulent windows.
+
+Evidence: H1 loss ratio Q5/Q1 = 0.83 (direct-IV), 0.55 (vol-scaled).
+
+**Layer 2: NLL gradient pushes the WRONG direction**
+
+Because turbulent = easier = lower residual, the NLL optimal sigma is SMALLER for
+turbulent windows. Any NLL-trained sigma head receives gradient signal that says
+"reduce sigma for turbulent" — the exact opposite of what's needed.
+
+Evidence: H3 optimal sigma Q5/Q1 = 0.80-0.85 (direct-IV), 0.43-0.59 (vol-scaled).
+
+**Layer 3: No explicit spread incentive in MSE**
+
+MSE on noise prediction is spread-blind. It optimizes the conditional mean at each
+noise level. The DIVERSITY of output samples comes from the noise schedule, which
+is condition-independent. The denoiser has no gradient signal about spread.
+
+The 6.5% implicit spread variation (direct-IV H2) comes from the denoiser being
+marginally less precise for turbulent windows, but this is dwarfed by the noise
+schedule's contribution to output spread.
+
+### Why All 63 Experiments Failed: A Unified Explanation
+
+| Approach Category | N experiments | Why it fails |
+|-------------------|--------------|--------------|
+| NLL sigma heads (19, 21a-e, 22a-e) | 11 | NLL gradient pushes sigma DOWN for turb (Layer 2) |
+| Learned variance (2, 4, 5) | 3 | Same as above — per-step VLB is NLL-like |
+| CRPS head (15) | 1 | Operated in z-space, not output space |
+| Diffusion Forcing | 1 | Noise averages out during denoising |
+| Per-cell sigma (23a-e) | 5 | Per-cell amplification destroys kurtosis |
+| Baseline/drift (24a-c, 25, 58-63) | 11 | Bias entangled with conditioning |
+| Vol-scale corrections (22e, 23d) | 2 | Learned correction → constant (NLL Layer 2) |
+| Data transforms (ratio, logit, etc.) | 8+ | Either inject uncertainty (vol_scaled) or don't |
+| Regime weighting (52, 53) | 2 | Loss reweighting doesn't change residual statistics |
+| CFG (14) | 1 | Guidance modulates strength, not spread |
+| Architectural (SPADE, attention, etc.) | 5+ | More capacity for MSE still converges to conditional mean |
+
+**The common thread**: Every approach that learns from per-sample losses (MSE, NLL, Huber)
+faces the same fundamental barrier — the denoiser's residuals are INVERSELY correlated with
+turbulence. The gradient signal for spread correction pushes in the wrong direction.
+
+### The Three-Layer Failure Model
+
+These three layers explain ALL 63+ failed experiments. Every attempt to learn conditional
+uncertainty was blocked by at least one layer, usually two.
+
+**Layer 1: Normalization equalizes variance (turb becomes easier)**
+
+The [-1,1] normalization `x = 2 × IV - 1` maps all surfaces to the same scale. In this
+space, turbulent windows (typically lower absolute IV post-crisis) have LOWER absolute
+target values. The denoiser converges to better noise predictions for turb windows.
+
+Evidence: H1 training loss Q5/Q1 = 0.83 (direct-IV), 0.55 (vol-scaled). Turb windows
+have 17-45% LOWER loss than calm windows. The per-sample prediction difficulty is
+INVERSELY correlated with turbulence.
+
+**Layer 2: NLL gradient pushes sigma the WRONG direction**
+
+Because turb = easier = lower residual, the optimal NLL sigma for turbulent windows is
+SMALLER than for calm windows. Any NLL-trained sigma head receives gradient that says
+"reduce sigma for turbulent" — the exact opposite of what we need for wider CIs.
+
+Evidence: H3 optimal sigma Q5/Q1 = 0.80 (direct-IV), 0.43 (vol-scaled) at t=50.
+Spearman(vov, optimal_sigma) = -0.22 (direct-IV), -0.66 (vol-scaled). The gradient
+is strongly ANTI-correlated with turbulence at every timestep.
+
+This is why every NLL-based experiment failed:
+- Exp 19 (NsDiff): sigma learned ≈ 0.064, nearly constant (CoV = 0.098)
+- Exp 21b (beta-NLL): Q5/Q1 ≈ 1.0 despite frozen encoder
+- Exp 22a (e2e_nll): best had ρ = 0.111 but 97.9% overcoverage
+- Exp 22e (vol_scaled_learned): correction → constant 0.6065
+
+The NLL gradient actively pushes in the wrong direction. Not collapsed-to-constant —
+actively ANTI-correlated.
+
+**Layer 3: MSE on noise prediction is spread-blind**
+
+MSE optimizes the conditional mean E[ε | x_t, condition] at each noise level. The
+DIVERSITY of output samples comes from the noise schedule, which is condition-independent.
+The denoiser has no gradient signal about whether its output spread is correct.
+
+Evidence: H2 direct-IV spread Q5/Q1 = 1.065 (6.5% variation vs GT 2.0x target). The
+MSE-trained model produces nearly identical sample diversity regardless of regime.
+
+### Re-Assessment of All Literature Methods Against Three Layers
+
+Given the three-layer failure model, most methods recommended by the literature survey are
+doomed to fail on our problem. Each is assessed against which layers it faces.
+
+#### Methods That Hit Layer 1 + Layer 2: DEAD ON ARRIVAL
+
+These operate in normalized space AND use NLL-based losses. Both layers are fatal.
+
+| Method | Paper | Layer 1 | Layer 2 | Why it fails |
+|--------|-------|---------|---------|-------------|
+| **MuLAN** | NeurIPS 2024 | YES — per-dim schedule in norm space | YES — ELBO is NLL-based | Learns inverted schedules (more noise for calm) |
+| **Analytic-DPM** | ICML 2022 | YES — estimates σ from score | YES — score residuals inverted | σ estimate anti-correlated with turb |
+| **IDDPM learned var** | arxiv 2102 | YES | YES — VLB is NLL | Already tried (Exp 2, 4, 5): flat log_var |
+| **CVDM** | AAAI 2024 | YES | YES — NLL on v(t,x) | Learned v would be anti-correlated |
+| **OCM** | NeurIPS 2024 | YES | YES — Hessian of score | Score curvature inverted in norm space |
+| **StochDiff** | KDD 2025 | YES | YES — KL/NLL on latent | LSTM prior faces same inversion |
+
+#### Methods That Hit Layer 1: DEAD (even without NLL)
+
+Even with a non-NLL loss, operating in normalized space means the SPREAD is measured in
+a space where turbulent windows have similar or lower variance. CRPS or energy score
+computed in normalized space would push toward NARROWER spread for turb.
+
+| Method | Paper | Layer 1 | Why it fails |
+|--------|-------|---------|-------------|
+| **CRPS in normalized space** | — | YES | Spread term |Y-Y'| in norm space is not regime-dependent |
+| **Blurring Diffusion** | ICLR 2023 | YES | Frequency-based forward process in norm space |
+| **Edge-Preserving Noise** | ICLR 2025 | YES | Gradient-based noise in norm space |
+
+#### Methods That Bypass Layers But Have Other Issues: RISKY
+
+| Method | Paper | Layer 1 | Layer 2 | Layer 3 | Risk |
+|--------|-------|---------|---------|---------|------|
+| **CW-Gen** | ICLR 2026 | Bypass (whitens in data space) | RISKY — Σ learned with NLL | Bypass | If Σ estimator uses NLL in normalized input, faces Layer 2 |
+| **NsDiff (frozen g_ψ)** | ICML 2025 | Bypass if g_ψ in data space | Bypass (g_ψ pre-trained on sliding-window var) | N/A | Sliding-window var is condition-independent (1.39x), too weak |
+| **DYffusion** | NeurIPS 2024 | Bypass (temporal interpolation) | Bypass (no NLL) | YES — MSE on interpolation | Temporal interpolation may not capture regime spread |
+
+#### Methods That Bypass All Three Layers: ALIVE
+
+| Method | Paper | Why it bypasses | Practical concern |
+|--------|-------|----------------|-------------------|
+| **CRPS in raw IV space** | AIFS-CRPS (ECMWF) | Output-space spread term; no NLL; un-normalized | Backprop through full reverse diffusion (expensive) |
+| **Energy Score in raw IV space** | FuXi-ENS | Same as CRPS, multivariate | Same computational cost |
+| **GenCast (scale up)** | Nature 2024 | Aleatoric > model error at scale | Requires 100-1000x data and model capacity |
+| **Additive whitening** | CW-Gen variant | Precomputed σ preserves variance; no NLL; decoupled | Needs good μ estimator; additive may not match multiplicative IV dynamics |
+| **Post-hoc conformal** | Already implemented | Operates in output space | Band-aid: doesn't fix center bias |
+
+### Why Additive Whitening Is the Correct Solution
+
+#### The bias-spread entanglement is a MATHEMATICAL property of exp()
+
+In the current vol-scaled formulation:
+
+```
+IV = baseline × exp(z × vol_scale)
+```
+
+The output spread (CI width) depends on BOTH baseline AND vol_scale:
+
+```
+Spread ≈ baseline × vol_scale × std(z)    (first-order Taylor)
+```
+
+Changing baseline to fix bias ALSO changes spread. This is why all 7 baseline/drift
+experiments (24a-c, 25, 58-63) failed — they couldn't change the center without
+destroying the conditioning.
+
+In the additive formulation:
+
+```
+IV = μ + z × σ
+```
+
+The output spread depends ONLY on σ:
+
+```
+Spread = σ × std(z)
+```
+
+Changing μ shifts the center WITHOUT affecting spread. Center and spread are
+**mathematically independent** in the additive form.
+
+| Property | Multiplicative exp() | Additive |
+|----------|---------------------|----------|
+| Formula | IV = baseline × exp(z × σ) | IV = μ + z × σ |
+| Spread depends on | baseline × σ | σ only |
+| Change center (μ/baseline) | Changes spread | Does NOT change spread |
+| Jensen's inequality bias | YES: E[exp(z)] > 1 | NO |
+| Center-spread coupling | **Entangled** | **Decoupled** |
+| Anchor stuck in calm regime | YES (baseline = last day) | Fixable (μ = better predictor) |
+| Log-normal dynamics | Natural for IV | Approximation |
+
+#### The σ mechanism already works — we just need a better center
+
+Vol-scaled already achieves Q5/Q1 = 2.43x (GT target: 1.46x) through σ = vol_of_vol.
+The SPREAD is correctly conditioned. The problem is ONLY the center (bias).
+
+In the additive form:
+- σ = vol_of_vol / global_mean_vol (exactly what we have — proven to work)
+- μ = better baseline (EMA of history, simple MLP, or even mean of last K days)
+
+The diffusion model trains on z = (future - μ) / σ (roughly standardized). The additive
+denormalization IV = μ + z × σ provides conditional uncertainty through σ WITHOUT
+entangling it with μ.
+
+#### Why drift corrections would succeed in the additive form
+
+In the multiplicative form, Exp 25 (mean_head) failed because μ was INSIDE exp():
+`IV = baseline × exp((z + μ) × σ)` — μ extracted asymmetric information → skewness destroyed.
+
+Exp 58-63 (drift heads) failed because changing baseline changed spread:
+`IV = (baseline + Δ) × exp(z × σ)` — spread ∝ (baseline + Δ), so drift altered conditioning.
+
+In the additive form, a drift correction is just:
+`IV = (μ + Δ) + z × σ` — spread = σ × std(z), completely independent of Δ.
+
+The drift head operates in the correct mathematical framework where it CAN'T damage
+conditioning.
+
+#### Layer bypass analysis
+
+- **Layer 1**: σ = vol_of_vol is precomputed from raw IV data, preserving the natural
+  variance structure. The diffusion operates on z which is whitened, but the output
+  variance comes from σ, not from the diffusion model.
+- **Layer 2**: Not applicable — σ is not learned from NLL. It's a deterministic
+  function of history.
+- **Layer 3**: Not applicable — spread comes from the σ × z product in denormalization,
+  not from the MSE-trained denoiser. The denoiser generates z with the correct SHAPE
+  (kurtosis, skewness), and σ provides the correct SCALE.
+
+### What About CRPS?
+
+CRPS in raw IV space is the only method that could make the denoiser ITSELF learn
+conditional spread (Bitter Lesson aligned). But it has practical constraints:
+
+1. **Backprop through reverse diffusion**: Generate K=2 full trajectories (100 steps each)
+   per training sample, store all intermediate states for gradient computation. Memory:
+   ~K × T × model_activations. For our model (437K params, bs=64, T=100, K=2):
+   ~200 forward passes per training step (vs 1 currently). Training cost: ~200x.
+
+2. **Vanishing gradients**: The gradient must flow through 100 reverse steps. The
+   posterior mean coefficients multiply at each step, potentially causing gradient
+   explosion or vanishing. AIFS-CRPS (ECMWF) uses gradient clipping and careful
+   scheduling to manage this.
+
+3. **AIFS-CRPS uses K=2-4 members**: Operational weather forecasting at ECMWF proves
+   this works at scale. But they have >10 years of daily global data (millions of
+   training samples) vs our 4000 windows. The per-condition statistics are much
+   more reliable.
+
+4. **Fine-tuning approach**: Pre-train with MSE (cheap), then fine-tune with CRPS
+   (expensive but short). This reduces the cost to a few epochs of CRPS training.
+   The MSE pre-training provides a good initialization, and CRPS fine-tuning adjusts
+   the spread.
+
+CRPS is the correct long-term solution for a fully learned system. But for our immediate
+problem (4000 windows, 437K params), additive whitening achieves the same practical goal
+(decoupled center + conditioned spread) at zero additional training cost.
+
+### Filtering All Candidates Through the Three Layers
+
+Every candidate from the literature survey AND from our own experiments is assessed below.
+Methods must bypass ALL three layers to be viable.
+
+#### Category 1: DEAD — Hit Layer 1 + Layer 2 (normalized space + NLL)
+
+These operate in normalized space AND use NLL-based losses. Both layers are fatal.
+
+| Method | Paper | Why it's dead |
+|--------|-------|--------------|
+| MuLAN (per-dim schedule) | NeurIPS 2024 | Per-dim ELBO is NLL-based → learns inverted schedules |
+| Analytic-DPM (score Hessian) | ICML 2022 | Score residuals inverted in norm space → anti-correlated σ |
+| IDDPM learned variance | arxiv 2102 | VLB is NLL → already tried Exp 2, 4, 5: flat log_var |
+| CVDM (variance-varying) | AAAI 2024 | NLL on v(t,x) → anti-correlated variance |
+| OCM (optimal covariance) | NeurIPS 2024 | Hessian estimate in norm space → inverted |
+| StochDiff (per-step LSTM) | KDD 2025 | KL/NLL on latent prior → same inversion |
+| NsDiff (learned g_ψ) | ICML 2025 | Already tried Exp 19: σ collapsed. g_ψ trained on sliding-window var which has only 1.39x signal → too weak, and NLL pushes the learned correction anti-correlated |
+| beta-NLL | ICLR 2022 | Already tried Exp 21b: Q5/Q1 ≈ 1.0. Fixes NLL pathology but the target itself is anti-correlated |
+| Learned variance hybrid (vol_scaled_learned) | — | Already tried Exp 22e: correction → constant 0.6065. NLL finds the optimal constant and stops |
+
+#### Category 2: DEAD — Hit Layer 1 only (normalized space, non-NLL)
+
+Operating in normalized space means spread measurements don't reflect the true regime
+structure. Even non-NLL losses in norm space get inverted signals.
+
+| Method | Paper | Why it's dead |
+|--------|-------|--------------|
+| CRPS in normalized space | — | Spread term \|Y-Y'\| in norm space doesn't vary by regime → pushes toward flat spread |
+| Blurring Diffusion | ICLR 2023 | Frequency-based forward process in norm space → no regime signal |
+| Edge-Preserving Noise | ICLR 2025 | Gradient-based spatial noise in norm space → inverted signal |
+| Energy Score in normalized space | — | Same as CRPS in norm space |
+
+#### Category 3: DEAD — Hit Layer 3 only (MSE spread-blind)
+
+Even in the correct space, MSE provides no spread incentive.
+
+| Method | Paper | Why it's dead |
+|--------|-------|--------------|
+| Bigger model, same MSE loss | GenCast-lite | At our scale (437K params, 4000 windows), MSE converges to conditional mean long before it learns conditional spread. H2 shows 6.5% spread variation vs GT 200%. |
+| SPADE / spatial attention | — | Already tried (Exp 44, 45): more capacity for MSE still → conditional mean |
+| Percell head / regime-weighted loss | — | Already tried (Exp 50-53): loss reweighting doesn't change residual statistics |
+| CFG (guidance) | — | Already tried (Exp 14): guidance modulates prediction strength, not sample spread |
+| Diffusion Forcing | — | Already tried: noise averages out during denoising, acts only as regularization |
+
+#### Category 4: DEAD — Already tried per-step scoring rules
+
+**Exp 15 (CRPS variance head)**: Trained a per-step σ head with CRPS on x₀ predictions.
+Result: σ collapsed (σ ≈ 0.13 at t=1), CI coverage 5.1%. Root cause: per-step x₀
+predictions are accurate → CRPS rewards smaller σ at each step → noise suppression →
+near-deterministic output.
+
+**Interval score head** (Phase 3, earlier session): Overfitted to constant multiplier
+(scale=1.3). Same mechanism — per-step scores reward noise suppression when per-step
+predictions are good.
+
+**Key distinction**: Per-step scoring rules ≠ output-space scoring rules. Per-step CRPS
+evaluates accuracy at each individual reverse step (where the denoiser IS accurate →
+pushes σ down). Output-space CRPS evaluates the AGGREGATE diversity across all 100 steps
+(where the model's spread IS wrong → pushes spread in the right direction). These are
+fundamentally different optimization objectives.
+
+#### Category 5: REJECTED on principle
+
+| Method | Why rejected |
+|--------|-------------|
+| **Quantile regression** | Produces marginal quantiles, not joint scenarios. A scenario generator needs coherent multivariate trajectories (30×5×5), not independent per-cell quantile estimates. |
+| **Post-hoc learned recalibration** | Not Bitter Lesson aligned. A calibration network trained on held-out data is a band-aid that doesn't teach the generative model anything. Not sustainable — breaks when data distribution shifts. Same philosophical objection as conformal. |
+| **Ensemble of independently trained models** | Each MSE-trained model converges to same conditional mean → ensemble disagreement reflects initialization randomness, not aleatoric uncertainty. Not data-dependent. |
+
+#### Category 6: RISKY — Bypass layers conditionally
+
+| Method | Paper | Condition for viability | Risk |
+|--------|-------|----------------------|------|
+| CW-Gen (conditional whitening) | ICLR 2026 | Σ estimator must NOT use NLL. If Σ is estimated with CRPS or ensemble methods → viable. If with NLL → Layer 2 kills it. | The Σ estimation IS the hard part — this just moves the problem to a different model |
+| DYffusion (temporal interpolation) | NeurIPS 2024 | Bypasses Layers 1-2 but MSE on interpolation (Layer 3) may limit spread learning | Untested on our data |
+
+#### Category 7: ALIVE — Bypass all three layers
+
+Only **two** genuinely distinct approaches survive:
+
+**1. Additive whitening (transform-based)**
+
+```
+Training:  z = (future_IV - μ) / σ
+Inference: IV = μ + z × σ
+```
+
+- Layer 1: σ = vol_of_vol preserves variance structure (proven: Q5/Q1 = 2.43x)
+- Layer 2: σ is precomputed, not learned from NLL — no gradient inversion
+- Layer 3: Spread comes from σ × std(z) in denormalization, not from MSE
+- Bias: μ is decoupled from spread — can be improved without affecting conditioning
+- Cost: Config change + new ratio_target_mode. No new training infrastructure.
+- Difference from vol_scaled: additive (IV = μ + zσ) vs multiplicative (IV = baseline × exp(zσ)). The additive form has no Jensen's inequality bias, no exp() ceiling hitting, and mathematically decoupled center from spread.
+
+**2. CRPS on full reverse-diffusion output in raw IV space (loss-based)**
+
+```
+L = E|Y - y| - 0.5 × E|Y - Y'|    (Y, Y' = two full generated trajectories in IV space)
+```
+
+- Layer 1: Output-space CRPS in raw IV where turb variance > calm variance
+- Layer 2: No NLL — CRPS is a proper scoring rule with direct spread incentive
+- Layer 3: The |Y - Y'| term IS the spread incentive
+- Distinction from Exp 15: Exp 15 was per-STEP CRPS on x₀ predictions (which are accurate → noise suppression). Output-space CRPS is on FINAL samples (which have wrong spread → corrective gradient). Fundamentally different objectives.
+- Cost: Backprop through full reverse diffusion (100 steps × 2 samples). ~200x training cost per step. Mitigated by: DDIM (20 steps), fine-tuning (not from scratch), gradient checkpointing.
+- Risk: Vanishing gradients through 100 reverse steps. AIFS-CRPS (ECMWF) proves this works operationally but with much more data.
+
+**GenCast scale-up** (brute force) is theoretically valid but impractical at our scale
+(would need ~100x data and model capacity for aleatoric uncertainty to dominate model error).
+
+### Final Verdict
+
+Two actionable approaches. Everything else is either dead (empirically proven or
+theoretically doomed by the three layers), rejected on principle, or a variant of
+one of these two.
+
+| # | Approach | Mechanism | Effort | Risk |
+|---|----------|-----------|--------|------|
+| 1 | **Additive whitening** | Precomputed σ, decoupled μ | Low | μ estimation quality; additive approximation for multiplicative IV dynamics |
+| 2 | **CRPS on output** | Proper scoring rule, full trajectories | High | Backprop through reverse diffusion; gradient stability; 200x training cost |
+
+Additive whitening is the clear first attempt: it uses the PROVEN σ mechanism (vol_of_vol,
+Q5/Q1 = 2.43x), fixes the bias problem (decoupled μ), requires no new training
+infrastructure, and can be tested in one training run. If the additive approximation
+proves too coarse for IV dynamics (which are genuinely multiplicative), CRPS fine-tuning
+becomes the fallback.
+
+### Script
+
+`experiments/backfill/block_ar/diagnose_conditional_uncertainty.py`
+Results: `results/block_ar/conditional_uncertainty_diagnostic/`
+
+---
+
+## 2026-03-01: Experiment 40 — Additive Whitened v1 (Data-Derived Per-Cell σ)
+
+### Hypothesis
+
+Replace multiplicative denormalization `IV = baseline × exp(z × vol_scale)` with additive whitening
+`IV = baseline + z × σ` where `σ[r,c] = max(cell_std[r,c], vol_scale × σ_base)`. This should:
+1. Eliminate Jensen's inequality upward bias (no exp())
+2. Provide symmetric CIs (no exp asymmetry)
+3. Give data-derived per-cell uncertainty (cell_std from history daily changes)
+4. Maintain regime conditioning (σ_floor from vol_scale × σ_base)
+
+### Config
+
+```
+denoiser_type=conv3d, encoder_type=gru, conv3d_base_channels=32, conv3d_n_res_blocks=6
+bottleneck_dim=128, gru_hidden_dim=64, forward_only=True, use_uniform_noise=True
+sampling_mode=uniform, ratio_target=True, ratio_target_mode=additive_whitened
+epochs=30, batch_size=64, lr=1e-3
+σ_base = global_mean_vol × √block_size = 0.0187 × √10 ≈ 0.059
+σ[r,c] = max(cell_std[r,c], vol_scale × σ_base), vol_scale ∈ [0.5, 2.0]
+```
+
+### Results
+
+| Metric | VS bestval | Additive Whitened v1 | Target | Status |
+|--------|-----------|---------------------|--------|--------|
+| Kurtosis ratio | 1.006 | **0.226** | ≥ 0.50 | **FAIL** |
+| Skewness ratio | 1.055 | **0.224** | ≥ 0.25 | **FAIL** |
+| 90% CI Coverage | 87.9% | **96.5%** | ≥ 80% | PASS (over-covered) |
+| Calibration Error | 0.031 | **0.169** | ≤ 0.10 | FAIL |
+| Calendar arb | 9.4% | **13.2%** | ≤ 15% | PASS |
+| Per-cell CI [70%,95%] | — | best=100.0% | ≤ 95% | **FAIL** (over-covered) |
+| KS daily changes | 9/25 | **5/25** | ≥ 15 | FAIL |
+| KS IV levels | — | **0/25** | ≥ 15 | FAIL |
+| Median bias (fraction) | — | **18/25** in [30%,70%] | ≥ 20 | FAIL |
+| Median bias (magnitude) | — | **18/25** < 3 IV pts | ≥ 22 | FAIL |
+| Cell ceiling worst | — | **6.73%** (0,0) | < 5% | FAIL |
+| ACF MAE | 0.020 | **0.372** | ≤ 0.10 | — (info) |
+| Width turb/calm | — | **1.074-1.126x** | — | weak conditioning |
+| Spearman(width,vov) | 0.834 | **0.042-0.107** | — | near-zero conditioning |
+
+### Suite-by-Suite:
+- **Suite 1 (Surface Validity):** PASS — calendar 13.2%, butterfly 34.6%
+- **Suite 2 (CI Coverage):** FAIL — 96.5% global (too wide), per-cell best=100% (> 95% gate)
+- **Suite 3 (Conditionality):** PASS — width ratio 0.419, MAE reduction 85.7%
+- **Suite 4 (Time Series):** FAIL — kurtosis 0.226, skewness 0.224
+- **Suite 5 (Block-AR):** PASS — boundary smoothness 0.818
+- **Suite 6 (Cointegration):** PASS — gen/GT ratio 1.180
+- **Suite 7 (Regime Coverage):** FAIL — Layer 2 best cells hit 100% (> 95% gate)
+- **Suite 8 (Distributional Fidelity):** FAIL — 0/25 IV level KS, massive downward bias
+
+### Root Cause Analysis
+
+**1. Kurtosis destroyed (0.226) — CONFIRMED: per-cell σ at denormalization is fatal.**
+
+This is the EXACT same mechanism documented in Experiments 23a-23e (percell_revin=0.097,
+learned_percell=0.105-0.458). The per-cell σ creates a mixture of differently-scaled
+distributions: volatile cells (large σ) produce wide daily changes, stable cells
+(small σ) produce narrow daily changes. When aggregated, this mixture has lower kurtosis
+than Gaussian (sub-Gaussian tails) because the distribution is actually a weighted sum
+of narrow and wide Gaussians.
+
+Per-cell σ ratio: ~3-5x in theory (data-derived), but in practice even 3x is enough
+to destroy kurtosis. VS bestval (1.006) uses multiplicative per-cell via baseline level
+(~10x variation) but this works because exp() creates heavy tails that COMPENSATE for
+the mixture effect. Additive σ has no such compensation.
+
+**2. Massive over-coverage (96.5%) — CIs too wide.**
+
+σ = max(cell_std, σ_floor) gives generous uncertainty. The denoiser already learns
+~85% of per-cell variation implicitly. Adding explicit per-cell σ on top creates
+double-counting: the denoiser provides per-cell correction AND the σ provides
+per-cell scaling → CIs are wider than they need to be.
+
+Stable cells like (0,1) hit 100% coverage because cell_std is small but still
+non-trivial, and σ_floor already provides baseline width.
+
+**3. Systematic downward bias (-8.03 IV pts worst cell).**
+
+baseline = history[-1]. In mean-reverting IV markets, baseline is biased depending on
+regime: in calm periods, IV mean-reverts upward from low baseline → systematic undershoot.
+The additive formula `baseline + z × σ` centers the distribution at baseline, but the TRUE
+center is `baseline + drift`. Without drift correction, the model is systematically low.
+
+Vol_scaled avoids this partly through exp(): `baseline × exp(z)` where mean(exp(z)) > 1
+(Jensen's inequality) provides implicit upward drift that partially compensates
+mean-reversion. Additive whitening has no such compensation.
+
+**4. Near-zero regime conditioning (Spearman 0.042-0.107).**
+
+The σ_floor = vol_scale × σ_base should provide regime conditioning, but the dominant
+component is cell_std (which varies ~5x) while σ_floor varies only ~2x (vol_scale ∈ [0.5, 2.0]).
+The floor is rarely the binding constraint, so vol_scale has minimal impact on final σ.
+
+### Conclusion
+
+**FAIL — Additive whitening with per-cell σ confirms the fundamental impossibility result:**
+Per-cell σ at denormalization destroys kurtosis regardless of implementation approach
+(this is the 6th experiment confirming this: percell_revin, learned_percell v1-v4,
+and now additive_whitened).
+
+The only way to get both per-cell calibration AND preserved kurtosis is:
+1. **Post-hoc calibration** (online conformal, which already works — Exp 73)
+2. **Output-space CRPS** (proper scoring rule that trains the full generative model end-to-end)
+
+Additive whitening also introduces new problems (systematic downward bias, near-zero
+regime conditioning) that don't exist in vol_scaled.
+
+**VS bestval + conformal calibration remains the best approach.**
+
+### Files Modified
+
+- `experiments/backfill/block_ar/config_block_ar.py` (line 106: added "additive_whitened")
+- `diffusion/block_ar/block_ar_ddpm.py` (training branch ~line 1264, sampling branch ~line 2359)
+- `experiments/backfill/block_ar/train_block_ar.py` (line 206: added "additive_whitened" to choices)
+
+### Model
+
+`models/backfill/block_ar_additive_whitened_v1/best_model.pt` (epoch 23, 437K params)
+Results: `results/block_ar/additive_whitened_v1/summary.json`
+
+---
+
+## 2026-03-02: Per-Cell Calibration Diagnostic Study (Experiments D1-D4)
+
+### Motivation
+
+VS bestval passes all formal test suite gates when measured globally, but has structural
+per-cell calibration limitations: 16 undercovered + 39 overcovered cells (L2 failures).
+12 prior experiments (Exp 41-67) tried model-level per-cell fixes — ALL failed.
+
+Before proposing any new method, we run diagnostic experiments to **understand the model's
+per-cell behaviour**.
+
+### Experiment D1: Seed Variance Study
+
+**Purpose**: How much of VS bestval's quality is seed-dependent?
+
+Trained 2 runs with seeds 42 and 123, identical config to VS bestval (Conv3D denoiser,
+GRU encoder, bottleneck_dim=128, 6 res blocks, forward_only, uniform_noise, vol_scaled).
+
+**Commands**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+    --epochs 30 --batch_size 64 --lr 1e-3 --denoiser_type conv3d --encoder_type gru \
+    --conv3d_base_channels 32 --conv3d_n_res_blocks 6 --bottleneck_dim 128 --gru_hidden_dim 64 \
+    --forward_only --uniform_noise --sampling_mode uniform \
+    --ratio_target --ratio_target_mode vol_scaled \
+    --seed 42 --output_dir models/backfill/block_ar_seed42
+
+# Same with --seed 123 --output_dir models/backfill/block_ar_seed123
+```
+
+**Results**:
+
+| Metric | Target | VS bestval | Seed 42 | Seed 123 |
+|--------|--------|-----------|---------|----------|
+| Best epoch | — | 26 | 27 | 23 |
+| **Kurtosis** | ≥0.50 | **1.006** | 0.701 | 0.792 |
+| **Skewness** | ≥0.25 | **1.055** | 0.318 | 0.617 |
+| 90% CI | ≥80% | 87.9% | 88.1% | 84.1% |
+| Calib err | ≤0.10 | 0.031 | 0.035 | 0.018 |
+| Width ratio | <0.95 | 0.707 | 0.745 | **0.954 (FAIL)** |
+| MAE reduction | >5% | 89.3% | 90.7% | 90.7% |
+| Boundary | <2.0 | 0.984 | 0.722 | 0.718 |
+| Calendar | ≤15% | 9.4% | 9.6% | 10.1% |
+| ACF MAE | ≤0.10 | 0.020 | 0.016 | 0.044 |
+| L2 under | — | 16 | 20 | 30 |
+| L2 over | — | 39 | 40 | 26 |
+| L2 total | — | 55 | 60 | 56 |
+| Worst cov | — | 62.0% | 59.6% | 44.5% |
+| Catastrophic | <5% | 2.6% | 3.7% | 4.9% |
+| KS daily | — | ? | 16/25 | 16/25 |
+| KS levels | — | ? | 1/25 | 1/25 |
+
+**Key Findings**:
+
+1. **Kurtosis is highly seed-dependent**: VS bestval 1.006 is anomalous. Both seeded runs get
+   0.70-0.79 (30% range). VS bestval hit a lucky checkpoint — this is NOT a stable property.
+
+2. **Skewness is even more variable**: 1.055 vs 0.318 vs 0.617 (0.74 range). VS bestval's
+   near-perfect skewness is also a checkpoint anomaly.
+
+3. **CI coverage is stable**: 84-88% across all seeds. This IS a structural property.
+
+4. **L2 failures are structurally stable**: ~55-60 total across all seeds. The per-cell
+   calibration problem is NOT seed-dependent — it's structural.
+
+5. **Width ratio varies significantly**: 0.707 vs 0.745 vs 0.954. Seed 123 FAILS this gate.
+   Conditioning strength varies considerably across seeds.
+
+6. **Worst cell coverage varies wildly**: 62.0% vs 59.6% vs 44.5% (17.5pp range). The SPECIFIC
+   worst cells shift but the existence of failures is stable.
+
+**Conclusion**: VS bestval is an anomalously good checkpoint (kurtosis, skewness). The L2 failure
+pattern is structural (~55-60 failures regardless of seed). Checkpoint selection matters more
+than architecture for kurtosis/skewness, but cannot fix per-cell coverage.
+
+### Experiment D2: Per-Cell Denoiser Noise Prediction Analysis
+
+**Purpose**: What does the denoiser actually predict per cell? Does it vary by regime?
+
+Analyzed 500 test windows at timesteps [25, 50, 75], recording per-cell |ε_θ| and |ε_θ - ε|.
+
+**Script**: `experiments/backfill/block_ar/diagnose_percell_noise.py`
+**Results**: `results/block_ar/percell_noise_diagnostic/percell_noise_analysis.json`
+
+**Noise Prediction Magnitude Ratio (|ε_θ(r,c)| / mean)**:
+```
+  1.045  0.872  0.981  1.089  0.790
+  0.880  0.989  1.111  1.185  0.805
+  0.912  1.007  1.109  1.120  0.752
+  0.960  1.058  1.165  1.087  0.841
+  1.033  1.143  1.144  1.076  0.846
+```
+Range: [0.752, 1.185], CV=0.127. Denoiser IS spatially aware — interior cells get larger
+noise predictions, corner cells get smaller.
+
+**Prediction Error Ratio (|ε_θ - ε| / mean)**:
+```
+  1.070  0.497  0.978  1.367  0.625
+  0.493  0.815  1.209  1.478  0.599
+  0.499  0.823  1.160  1.332  0.861
+  0.737  1.030  1.288  1.279  1.126
+  0.990  1.214  1.239  1.198  1.092
+```
+Range: [0.493, 1.478]. Interior cells (col 2-3) are HARDER to predict. Short-maturity
+corners (row 0-1, col 0/4) are EASIER.
+
+**Turb/Calm Noise Prediction Ratio**: Mean=0.977 (barely varies by regime).
+The denoiser predicts nearly IDENTICAL noise magnitude in calm vs turb. It is NOT
+regime-aware in noise space.
+
+**Turb/Calm Prediction Error Ratio**: Mean=1.026. Errors are similar across regimes.
+
+**Correlations**:
+- Spearman(error, GT vol) = -0.615 (p=0.001): Cells with higher GT volatility have
+  LOWER prediction error. The denoiser is BETTER at volatile cells.
+- Spearman(pred magnitude, GT vol) = -0.495 (p=0.012): Denoiser predicts LESS noise
+  for more volatile cells.
+
+**Key Insight**: The denoiser is spatially aware (12.7% CV in noise predictions) but
+barely regime-aware (turb/calm ratio 0.977). The spatial pattern does NOT match GT volatility
+(negative correlation) — the denoiser predicts MORE noise for LOW-volatility interior cells,
+not the high-volatility corners. This is because in ratio space, all cells have similar
+z-score distributions; the per-cell variation in noise prediction is about the denoiser's
+internal representational structure, not about matching GT cell volatility.
+
+### Experiment D4: Per-Cell Z-Score Distribution Analysis
+
+**Purpose**: Measure per-cell sample spread and coverage after denormalization.
+
+Generated 50 samples for 500 test windows, computing per-cell spread and coverage.
+
+**Script**: `experiments/backfill/block_ar/diagnose_percell_zscore.py`
+**Results**: `results/block_ar/percell_zscore_diagnostic_v2/percell_zscore_analysis.json`
+
+**BUG FIX**: Original D4 script had double-denormalization bug — `model.sample()` already
+returns denormalized [0,1] values, but script applied `denormalize_iv()` again. Fixed by
+using `samples_abs = samples` instead of `denormalize_iv(samples)`.
+
+**Per-Cell 90% CI Coverage at h=30**:
+```
+  68.2   84.6   73.6   61.4   86.4
+  84.4   87.8   73.6   83.0   87.2
+  82.2   86.4   78.2   70.6   81.6
+  87.0   90.4   81.8   76.2   87.8
+  94.4   93.0   90.0   88.8   88.8
+```
+Mean=82.7%, range=[61.4%, 94.4%]. Worst cells: (0,3)=61.4%, (0,0)=68.2%.
+
+**Model/GT Spread Ratio at h=30** (1.0=perfect):
+```
+  0.597  0.641  0.996  1.815  0.697
+  0.950  0.638  1.021  1.844  0.794
+  0.837  0.911  1.320  1.593  3.098
+  1.581  1.574  1.861  1.700  2.774
+  3.117  1.746  1.673  1.542  2.735
+```
+
+**Critical Finding**: The model OVER-spreads long-tenor cells (rows 3-4, ratios 1.5-3.1x)
+and UNDER-spreads short-tenor corners (row 0, ratios 0.6-0.7x). Cell (2,4) is wildly
+over-spread at 3.1x (this is the cell with anomalous GT behavior). The pattern is stable
+across horizons.
+
+**Per-Regime Spread**: Turb/Calm spread ratio mean=2.18x at h=30 (varies 1.25-2.84x per cell).
+The model successfully conditions on regime for spread. The last column (col 4) has
+consistently lower turb/calm ratio (1.25-1.61x vs 2.0-2.8x for other cells).
+
+**Per-Regime Coverage**:
+- Calm: 16 under (<70%) + 3 over (>95%) = 19 failures (across all horizons)
+- Turb: 3 under (<70%) + 8 over (>95%) = 11 failures
+- **Calm undercoverage is 5x worse than turb undercoverage**. The opposite pattern from
+  the formal test suite (which found 16 turb under, 39 calm over).
+
+**Median Bias at h=30** (IV points × 100):
+```
+  -8.07   -3.83   -2.57   -2.51   -4.21
+  -2.75   -2.20   -1.83   -1.69   -3.45
+  -1.63   -1.26   -1.20   -1.24   -2.71
+  -0.56   -0.41   -0.57   -0.68   -0.43
+  -0.12   -0.01   -0.09   -0.41   -0.56
+```
+
+Model systematically predicts BELOW GT (negative bias), especially for short-maturity
+cells (row 0: -8.07 IV pts × 100 worst). This is the known "calm bias" from baseline
+anchoring in mean-reverting markets.
+
+### Experiment D3: Multi-Checkpoint Coverage Trajectory
+
+**Purpose**: Track how per-cell coverage evolves during training across seed 42 checkpoints.
+
+Evaluated epochs 10, 20, 27 (best_model by val loss), 30, and best_coverage_model.
+
+| Checkpoint | Kurtosis | Skewness | CI90 | Calib | Width | L2_under | L2_over | L2_total | Worst | Catast |
+|-----------|----------|----------|------|-------|-------|----------|---------|----------|-------|--------|
+| Epoch 10 | 0.844 | 0.490 | 74.9% | 0.125 | 0.707 | 69 | 7 | 76 | 44.1% | 9.4% |
+| Epoch 20 | 0.723 | -0.008 | 85.5% | 0.017 | 0.902 | 23 | 29 | 52 | 54.3% | 4.4% |
+| **Best (27)** | 0.701 | 0.318 | 88.1% | 0.035 | 0.745 | 20 | 40 | 60 | 59.6% | 3.7% |
+| Epoch 30 | 0.629 | 0.123 | 88.2% | 0.043 | 0.773 | 18 | 45 | 63 | 57.6% | 4.0% |
+| BestCov | 0.717 | 0.335 | 85.4% | 0.016 | 0.898 | 23 | 28 | **51** | 53.5% | 4.3% |
+
+**Key Findings**:
+
+1. **Coverage increases monotonically**: 74.9% → 85.5% → 88.1% → 88.2%. No oscillation.
+
+2. **Kurtosis DECREASES monotonically**: 0.844 → 0.723 → 0.701 → 0.629. There is a
+   fundamental tradeoff — more training = better coverage but worse kurtosis.
+
+3. **L2 pattern shifts during training**: Early (ep 10): 69 under, 7 over (underfitting).
+   Late (ep 30): 18 under, 45 over (overfitting coverage). The model goes from undercovering
+   everything to overcovering long-tenor cells.
+
+4. **BestCov checkpoint has FEWEST L2 failures**: 51 total (vs 60 for best_model at ep 27).
+   This is because best_coverage is selected on coverage, which correlates with fewer L2 failures.
+   But it has worse skewness=0.335 vs best_model=0.318 ... actually comparable. Width ratio
+   is worse at 0.898 though.
+
+5. **No checkpoint simultaneously minimizes both under and over**: The crossover point
+   is around epoch 20-25 where under≈over (23 vs 29 at ep 20). By ep 27, under=20, over=40.
+
+6. **Epoch 20 has minimum L2 total**: 52 (23+29). Best balance of under/over, but lower
+   CI at 85.5% and skewness=-0.008 (effectively zero). NOT suitable as best model.
+
+7. **BestCov vs Best_model**: BestCov has 51 L2 (vs 60) but 85.4% CI (vs 88.1%) and
+   worse width ratio 0.898 (vs 0.745). The tradeoff isn't worth it for overall quality.
+
+### D4 Summary — Root Cause Mapping
+
+The per-cell coverage failures can be decomposed:
+
+1. **Short-maturity corners (row 0) undercovered**: Model spread is 0.6x GT spread.
+   The denoiser doesn't produce enough variation for these volatile cells.
+
+2. **Long-tenor cells (rows 3-4) overcovered**: Model spread is 1.5-3.1x GT spread.
+   After vol_scale denormalization, these cells get too wide CIs.
+
+3. **Calm regime worse than turb**: Calm has 5x more undercoverage failures. The baseline
+   anchoring bias (-8 IV pts for short-maturity) reduces effective CI width in calm markets.
+
+4. **Cell (2,4) anomalous**: 3.1x model/GT ratio — this is a structural outlier.
+
+The fundamental issue: **vol_scale is scalar** — it amplifies ALL 25 cells equally during
+denormalization. Short-maturity cells (which have GT spread 28x larger than long-maturity)
+need proportionally more spread, but the scalar vol_scale can't provide this.
+
+The denoiser compensates partially (12.7% CV in noise predictions) but not enough
+(GT spread ratio is 28:1, model recovers only ~23:1, about 85% of variation).
+
+### Cross-Experiment Analysis (D1-D4 Combined)
+
+**What we now know about the model:**
+
+1. **Kurtosis and skewness are checkpoint lottery** (D1, D3): VS bestval's 1.006 kurtosis
+   is an outlier — typical range is 0.63-0.84 across seeds and epochs. Skewness ranges
+   from -0.008 to 0.617. These properties are stochastic, not systematically achievable.
+
+2. **L2 failures are structural** (D1, D3): ~51-63 failures across all seeds and checkpoints.
+   The under/over balance shifts during training (69/7 → 18/45) but total stays ~55.
+
+3. **Denoiser IS spatially aware but NOT regime-aware** (D2): 12.7% CV in noise predictions
+   per cell, but turb/calm ratio only 0.977 (barely different). The denoiser doesn't
+   condition its noise prediction on regime.
+
+4. **Model/GT spread ratio is the root cause** (D4): Short-maturity corners get 0.6x GT
+   spread (undercovered), long-tenor cells get 1.5-3.1x (overcovered). The scalar vol_scale
+   cannot differentially amplify cells.
+
+5. **Coverage-kurtosis tradeoff is fundamental** (D3): More training improves coverage
+   but degrades kurtosis monotonically. No checkpoint balances both perfectly.
+
+6. **BestCov checkpoint selection helps L2** (D3): 51 vs 60 L2 failures, but at the cost
+   of lower overall CI (85.4% vs 88.1%) and conditioning (0.898 vs 0.745 width ratio).
+
+**Implications for next steps:**
+
+- **Per-cell σ at denormalization**: Proven impossible (6 experiments). Destroys kurtosis.
+- **Denoiser-level improvements**: The denoiser already does spatial differentiation but
+  not enough. Could be enhanced with spatial identity (CoordConv, baseline channel) or
+  output-space training (CRPS).
+- **Checkpoint ensemble**: Multiple checkpoints have different per-cell patterns. Averaging
+  could smooth out the under/over imbalance.
+- **Longer training**: Kurtosis degrades with more training, so longer training helps
+  coverage but hurts kurtosis. Diminishing returns.
+- **Multi-seed ensemble**: Different seeds produce different per-cell patterns. Ensemble
+  across seeds could average out the noise.
+
+### Research Team Synthesis: Approaches to Per-Cell Calibration with Spatial Smoothness
+
+Three parallel research agents investigated approaches to achieve per-cell calibration while
+preserving Conv3D spatial smoothness. Their findings converge on a unified diagnosis.
+
+**Why All 12 Prior Architecture Experiments (Exp 41-67) Failed — Root Cause Taxonomy:**
+
+| Category | Experiments | Root Cause |
+|----------|------------|------------|
+| Position-aware (CoordConv, baseline channel) | 41, 58 | Improved mean accuracy → narrowed CIs (MSE incentivizes accuracy, opposite of wider CIs needed) |
+| Spatial modulation (SPADE) | 48, 49 | Magnitude collapse + MSE drives tighter CIs |
+| Per-cell heads (condition, regime) | 50, 51 | Global shift, not regime-specific. MSE has no regime penalty |
+| Capacity increase (attention, bigger) | 64, 33 | Same scalar vol_scale bottleneck persists |
+
+**Why Loss/Output Approaches Also Fail:**
+
+| Approach | Failure Mode |
+|----------|-------------|
+| Per-cell weighted MSE | Shifts failure between cells, doesn't add new information |
+| CRPS auxiliary | Assumes Gaussian, learns average over regimes |
+| Checkpoint ensemble | Per-cell patterns correlate ~0.98 across checkpoints (structural) |
+| Post-denoiser static rescaling | Single scale can't satisfy calm AND turb (opposite corrections needed) |
+
+**The Fundamental Constraint (all 3 researchers converge):**
+Per-cell coverage bias is REGIME-CONDITIONAL. At the same cell, calm and turb need OPPOSITE
+corrections. No static correction (scalar, per-cell, or spatial field) can satisfy both.
+
+**Viable Direction: Low-Rank Regime-Conditional Vol Scale Correction**
+
+Replace scalar vol_scale with smooth spatially-varying field:
+```
+vol_scale(r,c) = scalar × exp(U_r × V_c)
+```
+where U ∈ R^5, V ∈ R^5 (10 params), conditioned on vol_of_vol:
+- **Smooth by construction**: Rank-1 outer product has no neighbor discontinuities
+- **10 params vs 25**: Much less freedom than learn_cell_scale → bounded neighbor ratio
+- **Conv3D compatible**: Max neighbor ratio bounded by U/V ranges (<<35x of independent params)
+- **Learnable end-to-end**: Diffusion loss trains U,V jointly (Bitter Lesson compliant)
+- **Regime-adaptive**: Condition U,V on vol_of_vol → calm/turb get different spatial patterns
+
+The existing `learn_cell_scale` failed because its 25 independent parameters have NO structure
+constraint — each cell is independent, creating 35x potential variation between neighbors that
+breaks Conv3D spatial kernels.
+
+**Key insight**: The problem with per-cell σ is not the concept but the parameterization.
+Independent per-cell params → no smoothness → broken Conv3D → bad everything.
+Low-rank factorization → smoothness by construction → Conv3D works → potentially viable.
+
+---
+
+## 2026-03-02: Fundamental Analysis — Why Isotropic Diffusion Cannot Solve Per-Cell Calibration
+
+### The Isotropic Noise Bottleneck
+
+The forward diffusion process adds identical standard Gaussian noise to all 25 cells:
+```
+q(x_t | x_{t-1}) = N(√α · x_{t-1}, (1-α) · I)
+```
+
+This means the denoiser's **only lever** for per-cell spread is prediction accuracy:
+- Better noise prediction at cell A → tighter residual → narrower CI
+- Worse noise prediction at cell B → larger residual → wider CI
+
+**But accuracy is anti-correlated with need.** D2 diagnostic showed:
+- Spearman(prediction error, GT vol) = -0.615
+- The denoiser is BETTER at predicting noise for high-volatility cells (their large movements
+  are easier to predict from history context)
+- So volatile cells get NARROWER CIs — exactly backwards from what coverage needs
+
+This is baked into the math. No architecture change, loss change, or capacity increase can fix
+it because the forward process constrains the denoiser to treat all cells identically in noise
+space. The denoiser can only differentiate via a side effect (accuracy differences), and that
+side effect works in the wrong direction.
+
+### Why This Isn't a Problem in Image/Video Generation
+
+In image generation, isotropic noise is a **correct assumption**, not an approximation:
+- All pixels are normalized to similar scale (0-255 → [-1,1])
+- Per-pixel "uncertainty" is roughly uniform — no pixel needs 28x more CI width than another
+- Evaluation metrics are aggregate (FID, IS) — nobody measures per-pixel CI coverage
+
+Our problem is unique to **conditional forecasting of heteroscedastic spatial fields**: we need
+both realistic samples (kurtosis, ACF — like image gen) AND calibrated per-location uncertainty
+(per-cell CI coverage — unlike image gen). Isotropic noise handles the first but structurally
+prevents the second when GT uncertainty varies 28:1 across locations.
+
+### Why NsDiff Worked in Their Domain But Not Ours
+
+NsDiff (ICML 2025, arxiv 2505.04278) modifies the forward process terminal distribution from
+N(0, I) to N(f(X), g(X)) where f = learned mean drift, g = learned variance. Key differences:
+
+| Aspect | NsDiff's domain | Our domain |
+|--------|----------------|------------|
+| Spatial structure | None (univariate/simple multivariate TS) | 5×5 grid with spatial correlations |
+| Variance target | Scalar per sample | 25 per-cell values, regime-conditional |
+| Spatial smoothness | Not needed | Required (Conv3D denoiser) |
+| g(X) training | Cross-sample sliding-window stats (2.0x signal) | We used per-sample targets (1.39x signal, too weak) |
+| Pre-training | Separate, frozen g | We tried joint (collapsed) and frozen (too weak) |
+
+**NsDiff doesn't face our core tension:** per-cell heteroscedastic variance vs spatial smoothness.
+Their dimensions are independent time steps, not spatially correlated grid cells. A per-dimension
+g(X) doesn't create jagged inputs for their architecture.
+
+Our Exp 19/22a (joint training) failed because sigma collapsed to constant. Exp 63 (frozen
+NsDiff-style) worked better but per-sample variance signal was too weak (1.39x turb/calm).
+Even with correct implementation, per-cell g(X) would create spatially jagged noise →
+same Conv3D failure as Exp 46-47.
+
+### Diffusion Forcing Doesn't Help Either
+
+Diffusion Forcing varies noise across TIME steps, not across CELLS. Each cell still gets the
+same noise at a given time step. Partial denoising is an inference trick, not a learned
+uncertainty mechanism. Already tested and failed (CI dropped, butterfly rose, kurtosis 0.023).
+
+### The Fundamental Tension
+
+**Kurtosis comes FROM cells moving together** (shared spatial dynamics — the whole grid shifts
+coherently in turbulent regimes). **Per-cell calibration requires them to move DIFFERENTLY**
+(independent scaling). These are in direct conflict.
+
+The denoiser produces good temporal properties (fat tails, vol clustering, ACF) BECAUSE it
+treats the 5×5 grid as a coherent spatial unit via Conv3D. Per-cell calibration requires
+breaking this coherence. Breaking it destroys the temporal properties.
+
+This is NOT a spatial vs temporal tradeoff — it's that **temporal properties EMERGE from spatial
+structure**. The Conv3D spatial kernels learn that neighboring cells co-move, that surfaces are
+smooth, that regime shifts propagate spatially. This shared structure produces fat tails and
+vol clustering. Destroy the spatial structure → temporal properties die with it.
+
+### Path Forward Analysis
+
+**Current vol_scaled approach is a simplified CW-Gen (Conditional Whitening):**
+```
+μ̂ = history[-1]  (baseline)
+Σ̂ = vol_scale² × I  (SCALAR covariance — same for all 25 cells)
+z = log(future / baseline) / vol_scale
+future = baseline × exp(z × vol_scale)
+```
+
+The limitation: Σ̂ = scalar × I cannot differentiate cells. The natural upgrade is richer Σ̂.
+
+#### Tier 1: Low-Rank Vol Scale Correction (DIAGNOSTIC EXPERIMENT)
+
+Replace scalar vol_scale with smooth spatially-varying field:
+```
+vol_scale(r,c) = scalar × exp(U_r × V_c)
+```
+where U ∈ R^5, V ∈ R^5 (10 params), conditioned on vol_of_vol.
+
+**Purpose**: Test whether smooth per-cell scaling preserves kurtosis.
+- If YES → kurtosis destruction in Exp 23a-e was caused by spatial jaggedness (35x neighbor
+  variation breaking Conv3D), not by the mixture of scales. Validates the smooth scaling path.
+- If NO → even smooth scaling kills kurtosis, meaning the mixture effect itself is destructive.
+  Invalidates any output-stage per-cell correction including CW-Gen un-whitening.
+
+This is the cheapest experiment (~2 hours) that determines which branch of the decision tree
+we're on.
+
+#### Tier 2: CW-Gen — Conditional Whitening (PRINCIPLED SOLUTION)
+
+Full generalization of vol_scaled with pre-trained Joint Mean-Covariance Estimator (JMCE):
+1. Pre-train JMCE: history → (μ̂, Σ̂) using sliding-window cross-sample statistics
+2. Constrain Σ̂ to be smooth: low-rank Σ̂ = UU^T + σ²I where U ∈ R^{25×k}
+3. Whiten targets: z = Σ̂^{-0.5} × (log(future/baseline))
+4. Train diffusion on z with standard isotropic noise (NOW CORRECT because z ≈ N(0,I))
+5. At inference: un-whiten: future = baseline × exp(Σ̂^{0.5} × z_sample)
+
+**Why this solves the tension:**
+- Denoiser sees spatially uniform z → isotropic noise is correct → no accuracy inversion
+- Per-cell CI width comes from Σ̂^{0.5}, not from denoiser → decouples calibration from generation
+- Σ̂ depends on history → regime-conditional automatically
+- Low-rank Σ̂ is smooth → un-whitened surface remains spatially legal
+- Entire surface still generated as one spatial unit
+
+**Key difference from failed Exp 23a-e:** Those applied per-cell scaling to NON-standard z-scores
+(z had learned temporal structure + spatial structure). Conv3D saw jagged inputs → bad denoising.
+CW-Gen whitens BEFORE training → z IS standard → Conv3D sees clean data → good denoising.
+The per-cell variation moves to the un-whitening step where it can't corrupt the denoiser.
+
+**Risk:** Everything depends on JMCE quality. If Σ̂ is bad, whitened data isn't standard →
+diffusion operates on non-standard input → same problems return.
+
+**Reference:** CW-Gen (ICLR 2026, arxiv 2509.20928)
+
+#### Tier 3: CRPS on Final Ensemble Samples (BACKUP)
+
+Keep current architecture entirely. Add proper scoring rule loss on final denormalized IV:
+- Generate K=2-4 full trajectories per training batch
+- Compute CRPS on ensemble → provides population-level gradient for conditional spread
+- Captures 2.0x turb/calm signal that per-sample losses miss
+- ECMWF uses this operationally (AIFS-CRPS, arxiv 2412.15832)
+
+**Pro:** No architecture/forward process change. Just a loss.
+**Con:** K× more expensive. Gradient is noisy. Still limited by scalar vol_scale for per-cell.
+
+### Decision Tree
+
+```
+Low-rank vol_scale experiment
+├── Kurtosis SURVIVES (>0.5) → Smooth per-cell scaling is viable
+│   ├── Per-cell coverage improves → Low-rank approach works, generalize to CW-Gen
+│   └── Per-cell coverage unchanged → Need richer covariance (CW-Gen with JMCE)
+└── Kurtosis DIES (<0.5) → Mixture effect is destructive regardless of smoothness
+    ├── CRPS on final samples (Tier 3) — don't touch output scaling
+    └── Accept structural limitation + online conformal for production
+```
+
+### Exp 74: Low-Rank Vol_Scale Correction (Rank-1 Outer Product) — 2026-03-02
+
+**Hypothesis:** A rank-1 outer product `correction(r,c) = exp(log_u[r] + log_v[c])` provides
+a smooth per-cell vol_scale correction (10 params, max neighbor ratio 1.65x) that captures the
+dominant row/column trend in GT per-cell uncertainty without destroying kurtosis. This is the
+gate experiment for the CW-Gen path.
+
+**Design:** Replace scalar vol_scale with per-cell: `vol_scale_final = vol_scale_scalar × correction`.
+`log_u ∈ R^5`, `log_v ∈ R^5`, initialized at 0 (identity), clamped to [-0.5, 0.5].
+Max per-cell correction = exp(1.0) = 2.72x. Smooth by construction (rank-1 outer product).
+
+**Training command:**
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+    --epochs 30 --batch_size 64 --lr 1e-3 \
+    --denoiser_type conv3d --encoder_type gru \
+    --conv3d_base_channels 32 --conv3d_n_res_blocks 6 \
+    --bottleneck_dim 128 --gru_hidden_dim 64 \
+    --forward_only --uniform_noise --sampling_mode uniform \
+    --ratio_target --ratio_target_mode vol_scaled \
+    --low_rank_cell_scale \
+    --seed 42 \
+    --output_dir models/backfill/block_ar_low_rank_v1
+```
+
+**Training result:** Best epoch 27, val loss 0.052 (vs baseline ~0.087 — 40% lower because
+uniform 2.75x vol_scale amplification compresses z-score targets, making them trivially easy).
+
+**Learned parameters — ALL SATURATED UNIFORMLY:**
+```
+log_u (row):    [0.507, 0.507, 0.507, 0.506, 0.506]  (all at +0.5 clamp)
+log_v (col):    [0.506, 0.506, 0.506, 0.506, 0.506]  (all at +0.5 clamp)
+
+Correction grid (should be differentiated, is uniform):
+  2.752  2.751  2.751  2.751  2.750
+  2.750  2.749  2.749  2.749  2.749
+  2.749  2.748  2.748  2.748  2.747
+  2.748  2.747  2.747  2.747  2.747
+  2.748  2.747  2.747  2.747  2.746
+
+Range: [2.746, 2.752]  — effectively uniform 2.75x
+Max neighbor ratio: 1.003x (row), 1.001x (col) — NO differentiation
+Spearman with ideal correction: 0.203 (p=0.33, not significant)
+```
+
+**Root cause of saturation:** MSE loss gradient uniformly pushes ALL corrections UP.
+Larger correction → smaller z-score targets → denoiser more accurate → lower MSE. The
+per-cell structure signal (which cells need more vs less correction) is swamped by the
+global "make targets easier" gradient. Same failure mode as Exp 61 (independent cell_scale).
+
+**Full test suite results:**
+
+| Metric | VS bestval | Seed 42 (base) | Low-rank v1 | Status |
+|--------|-----------|----------------|-------------|--------|
+| Kurtosis | 1.006 | 0.701 | **1.330** | PASS (≥0.50) |
+| Skewness | 1.055 | 0.318 | **-0.465** | FAIL (≥0.25) |
+| 90% CI | 87.9% | 88.1% | **66.1%** | FAIL (≥80%) |
+| 95% CI | 92.0% | — | **72.0%** | FAIL |
+| Calib error | 0.031 | — | **0.151** | 5x worse |
+| Calendar arb | 9.4% | — | **8.5%** | PASS |
+| Butterfly arb | 30.7% | — | **29.7%** | PASS |
+| Width ratio | 0.707 | 0.745 | **0.916** | PASS but near limit |
+| ACF corr | — | — | **0.935** | PASS |
+| L2 total | 55 | 60 | **many** | massive regression |
+| Catastrophic | — | — | **15.5%** | FAIL (10x gate) |
+| Suite pass | 6/8 | 6/8 | **4/8** | REGRESSION |
+
+**Per-horizon 90% CI:**
+```
+h= 1: 78.4% (baseline ~90%) — 12pp worse
+h= 7: 61.4% (baseline ~85%) — 24pp worse
+h=14: 66.0% (baseline ~88%) — 22pp worse
+h=30: 66.6% (baseline ~88%) — 21pp worse
+```
+
+**Why kurtosis PASSES (1.330) despite catastrophic CI failure:**
+The uniform 2.75x vol_scale amplification means sampling applies `future = baseline × exp(z × vol_scale × 2.75)`.
+This dramatically amplifies the denoiser's noise predictions, creating wider tails in a statistical sense
+(extreme samples get more extreme). But the CIs are too NARROW because the denoiser was trained on
+compressed z-scores (max targets ~0.36 instead of ~1.0), so it learned to produce very small noise
+predictions. The net effect: model produces tight but heavy-tailed samples — high kurtosis but low coverage.
+
+**Kurtosis PASS is an artifact, not a real signal.** The denoiser learned a DIFFERENT manifold
+(compressed z-scores with uniform scaling) rather than correctly learning per-cell uncertainty.
+
+**Decision tree outcome:**
+The experiment nominally satisfies kurtosis ≥ 0.50, but the result is NOT diagnostic:
+- The correction is UNIFORM (no per-cell differentiation) → this doesn't test whether
+  smooth per-cell scaling preserves kurtosis, because no per-cell scaling occurred.
+- The 22pp CI regression makes the model unusable.
+- The uniform saturation is the SAME failure as Exp 61 — MSE cannot learn per-cell scaling.
+
+**Verdict: FAIL.** Low-rank per-cell correction via MSE training is not viable. The MSE loss
+has a dominant gradient mode (increase all corrections uniformly) that overwhelms the per-cell
+structure signal. This is fundamentally a gradient alignment problem: MSE optimizes for noise
+prediction accuracy, not for coverage calibration.
+
+**Implications for CW-Gen path:**
+CW-Gen would have the SAME problem IF trained with MSE on whitened targets. The whitening
+matrix (learned Cholesky decomposition) would face identical gradient pressure to increase
+all scale factors uniformly. CW-Gen would require a CRPS or proper scoring rule loss to avoid
+this failure mode.
+
+**Updated decision tree:**
+```
+MSE loss on vol-scaled targets
+├── Scalar vol_scale (current) → 6/8 suites, structural per-cell gap
+├── Per-cell vol_scale (Exp 61) → saturates uniformly, kills CI
+├── Low-rank vol_scale (Exp 74) → same saturation, same failure
+└── Conclusion: MSE gradient cannot learn per-cell scaling
+    ├── CRPS on final ensemble samples (proper scoring rule)
+    │   → gradient directly rewards coverage calibration
+    └── Accept scalar + online conformal for production
+```
+
+---
+
+## 2026-03-02: Diagnostic — Why MSE Cannot Learn Per-Cell Scaling & Anchor Bias Analysis
+
+### Why MSE Fails for Per-Cell Correction Parameters
+
+The correction parameter `correction(r,c)` appears in the training target:
+```
+z = log(future / baseline) / (vol_scale × correction)
+```
+
+The MSE gradient `∂L/∂correction` has two components:
+
+1. **Global mode (dominant):** Increasing correction for ANY cell makes z smaller. Smaller z-scores
+   → denoiser predicts noise more accurately → lower MSE. This gradient is **positive for all cells,
+   always**. Magnitude: proportional to z-score (~0.5-1.0).
+
+2. **Structure mode (weak):** Different cells need different corrections. This signal exists but is
+   proportional to the per-cell coverage deviation (~0.02-0.05). The global mode is **10-50x
+   stronger**, so it overwhelms the structure signal.
+
+This is why both Exp 61 (25 independent params) and Exp 74 (10 rank-1 params) saturated uniformly
+at the clamp boundary. The low-rank constraint was hypothesized to prevent uniform saturation via
+opposing row/column gradients, but the opposing pressures don't exist — **every cell benefits from
+larger correction** from MSE's perspective.
+
+**Critical distinction:** MSE works fine for the denoiser's own weights because those weights don't
+appear in the target computation. The denoiser can ONLY improve by predicting noise better — no
+shortcut exists. But correction parameters appear in the denominator of z, creating a shortcut
+(shrink targets) that MSE rewards but that destroys coverage.
+
+**Decoupling solution:** Don't let correction parameters affect what the denoiser sees during
+training. Train the denoiser with MSE on scalar vol_scale (works well). Then learn per-cell
+correction at denormalization with CRPS loss on final IV samples, denoiser frozen. The correction
+gradient flows only through CRPS, where the ONLY way to reduce loss is correct per-cell spread.
+
+### Quantitative Analysis: KS IV Level Marginal Failure
+
+**No model passes the KS IV level test** (gate: ≥15/25 cells with D < 0.15):
+
+| Model | KS Levels Pass | Architecture | Target Space |
+|-------|---------------|--------------|-------------|
+| Highcap (no ratio) | **11/25** | bn128, 6res, fwd-only | Direct IV |
+| VS bestval | 9/25 | bn128, 6res, fwd-only | vol_scaled |
+| Seed 42 epoch 30 | 3/25 | bn128, 6res, fwd-only | vol_scaled |
+| Seed 42 bestval | 1/25 | bn128, 6res, fwd-only | vol_scaled |
+| Seed 123 | 1/25 | bn128, 6res, fwd-only | vol_scaled |
+| Additive whitened | 0/25 | bn128, 6res, fwd-only | additive |
+| Drift v1 | 0/25 | bn128, 6res, fwd-only | vol_scaled + drift |
+| Low-rank v1 | 0/25 | bn128, 6res, fwd-only | vol_scaled + low-rank |
+
+**For a well-calibrated conditional model, the unconditional marginal must match GT** (law of
+total variance). The failure means the model's conditional distribution is wrong — either wrong
+conditional mean, wrong conditional variance, or both.
+
+### Decomposition: Anchor Bias vs Per-Cell Spread Error
+
+Simulation with Gaussian conditionals (correct conditional std, varying the conditional mean):
+
+| Scenario | KS Pass | Source of Error |
+|----------|---------|-----------------|
+| Correct mean + correct spread | **24/25** | Ceiling (finite samples) |
+| Anchor mean + correct spread | **20/25** | Anchor bias costs ~4 cells |
+| Anchor mean + wrong spread (actual) | **9/25** | Spread error costs ~11 more cells |
+
+**Per-cell spread error is the dominant problem** (11 cells lost), not anchor bias (4 cells lost).
+
+### Anchor Bias Analysis
+
+The baseline anchor `baseline = history[-1]` has a mean-reversion problem:
+
+```
+Regression slope (baseline → future h=30), i.e. "how good is baseline as E[Y|X]":
+  0.31  0.28  0.40  0.11  0.19    ← row 0: 70% reversion, baseline is terrible
+  0.43  0.55  0.52  0.57  0.25
+  0.71  0.68  0.65  0.63  0.25
+  0.81  0.79  0.74  0.72  0.67
+  0.79  0.82  0.78  0.59  0.77    ← row 4: 20% reversion, baseline is OK
+```
+
+For cell (0,0): slope=0.31 means over 30 days, IV mean-reverts 69% toward the unconditional mean.
+Baseline is a terrible predictor. For cell (4,1): slope=0.82, only 18% reversion — baseline is fine.
+
+**Anchor bias is NOT systematic** — the fraction of windows where GT > baseline is near 50% for
+every cell (range [0.46, 0.58]). The drift is random with mean ≈ 0 but magnitude ~0.47σ per window.
+It doesn't shift the unconditional mean but it changes the distribution SHAPE (concentrates samples
+too much around a noisy center).
+
+Anchor penalty correlates with mean-reversion strength: **Spearman(penalty, 1-slope) = 0.751**.
+
+### The z-Space vs Direct IV Tradeoff
+
+Why the model operates in z-space (vol_scaled ratio target):
+
+```
+z = log(future / baseline) / vol_scale
+future = baseline × exp(z × vol_scale)
+```
+
+**The only reason for z-space is horizon-dependent uncertainty growth.** The exp() × vol_scale
+structure encodes "uncertainty grows with time" in the math:
+- Direct IV: variance growth h30/h1 = **1.19x** (nearly flat)
+- Vol_scaled: variance growth h30/h1 = **4.12x** (matches GT dynamics)
+
+Without this structure, the DDPM reverse process produces constant-width output regardless of
+position in the 30-day sequence. The denoiser has no mechanism to learn "predict more noise at
+frame 30 than frame 1" from MSE on ε-prediction.
+
+**But z-space creates two unsolvable problems:**
+1. Stuck anchor (baseline = history[-1] can't drift) → costs ~4 KS cells
+2. Per-cell spread forced to be uniform (scalar vol_scale) → costs ~11 KS cells
+
+| Property | Direct IV | Vol_scaled (z-space) |
+|----------|-----------|---------------------|
+| Uncertainty growth h30/h1 | 1.19x (must learn) | **4.12x** (free) |
+| Anchor bias | None | 0.47σ per window |
+| Per-cell spread control | Implicit only | Implicit + vol_scale |
+| KS levels pass (actual) | **11/25** | 9/25 |
+| KS levels ceiling (correct spread) | **24/25** | **20/25** |
+| Kurtosis | 0.695 | **1.236** |
+| 90% CI h=30 | 83.3% | **87.5%** |
+
+**The flat-uncertainty problem in direct IV was only tested with the current architecture.**
+Nobody tried giving the denoiser an explicit frame-index/horizon input that could let it learn
+horizon-dependent noise magnitude. The problem might be solvable architecturally (frame position
+encoding, horizon-aware AdaGN) rather than through the target space transformation.
+
+### Path Forward: Three Options
+
+**Option A: Fix per-cell spread within z-space (CRPS, decoupled)**
+- Keep MSE-trained denoiser (good temporal/spatial properties)
+- Learn per-cell correction at denormalization with CRPS, denoiser frozen
+- Ceiling: 20/25 KS (anchor bias limits remaining 4 cells)
+- No architecture change needed
+
+**Option B: Direct IV with horizon-aware denoiser**
+- Predict future IV directly (no anchor, no exp())
+- Add frame-index conditioning to denoiser so it can learn horizon-dependent spread
+- Ceiling: 24/25 KS (no anchor bias)
+- Requires architecture change + solving flat-uncertainty from scratch
+- Risk: kurtosis may drop (0.695 without vol_scaled) — needs investigation
+
+**Option C: Hybrid — learn drift + per-cell correction**
+- Drift head shifts anchor (but Exp 25 and drift v1 both failed due to entanglement)
+- Per-cell correction via CRPS (decoupled)
+- Theoretical ceiling: 24/25 but drift entanglement is unsolved
+
+**Decision depends on**: whether the remaining 4 anchor-bias cells matter enough to justify
+the risk of Option B (losing kurtosis and uncertainty growth), or whether 20/25 with Option A
+is sufficient.
+
+### Literature Survey: Horizon-Dependent Uncertainty in Diffusion Models (2026-03-02)
+
+Comprehensive survey of methods for giving diffusion denoisers frame/horizon position awareness
+to enable learned uncertainty growth. Three research agents surveyed: (1) general diffusion
+horizon methods, (2) frame-position conditioning architectures, (3) weather ensemble models.
+
+#### Key Methods Found
+
+**Tier 1: Minimal Architecture Change (directly applicable to our Conv3D denoiser)**
+
+| Method | Venue | Mechanism | Architecture Change |
+|--------|-------|-----------|-------------------|
+| **CSDI** (Tashiro+ 2021) | NeurIPS 2021 | Dual 128-dim sinusoidal embeddings: (diffusion_t, frame_h) | Add 1 embedding layer, concat before AdaGN |
+| **FVDM** (Liu+ 2024) | arXiv 2410.03160 | Per-frame vectorized timestep via adaLN-Zero | Per-frame timestep embedding, inject via AdaGN |
+
+**Tier 2: Proven Growing Uncertainty (moderate change)**
+
+| Method | Venue | Mechanism | Change Required |
+|--------|-------|-----------|----------------|
+| **Rolling Diffusion** (Ruhe+ 2024) | ICML 2024 | Per-frame local time t_k = (k+t)/W | Change noise schedule (no arch change) |
+| **ERDM** (2025) | NeurIPS 2025 | Progressive noise within window | Requires EDM framework (incompatible with our DDPM) |
+| **Continuous Ensemble** (2025) | ICLR 2025 | Lead-time Fourier conditioning | Add Fourier features to denoiser input |
+| **Diffusion Forcing** (Chen+ 2024) | NeurIPS 2024 | Independent per-token noise levels, pyramid sampling | Per-frame noise during training |
+
+**Tier 3: Fundamental Rearchitecture**
+
+| Method | Venue | Mechanism | Notes |
+|--------|-------|-----------|-------|
+| **AIFS-CRPS** (ECMWF) | Operational 2024 | Single forward pass + CRPS loss + noise injection | Abandons diffusion entirely |
+| **GenCast** (DeepMind) | Nature 2024 | Fully autoregressive single-step rollout | 30x more expensive, proven at 1B scale |
+| **DYffusion** (Cachay+ 2023) | NeurIPS 2023 | Couple diffusion steps with temporal steps | Fundamental rework |
+| **TEDi** (Zhang+ 2024) | SIGGRAPH 2024 | Monotonically increasing noise buffer | Designed for rolling generation |
+
+#### Analysis for Our Problem
+
+**Our specific challenge:** Direct IV prediction (no log transform, no anchor) gives 90.1% CI
+at h=1 but degrades to 83.3% at h=30 because the denoiser has no mechanism to vary uncertainty
+by horizon. The DDPM reverse process produces constant-width output across all 30 frames.
+
+**The simplest Bitter Lesson-aligned approach: CSDI-style dual embedding.**
+
+Why:
+1. **Learned, not designed:** Denoiser learns the uncertainty growth shape from data rather than
+   having it imposed by a noise schedule (Rolling Diffusion) or mathematical structure (vol_scaled).
+2. **Minimal change:** Add one sinusoidal embedding for frame index h ∈ {0,...,29}. Inject
+   alongside existing diffusion timestep t into AdaptiveGroupNorm. ~20 lines of code.
+3. **No training loop change:** Same MSE ε-prediction, same forward process. Only the denoiser
+   sees an additional input.
+4. **Compatible with direct IV:** No anchor bias, no per-cell uniformity constraint. The denoiser
+   can learn per-cell AND per-horizon spread from data.
+5. **Generalizes:** Frame position is a general concept — works for IV, rates, FX, any factor.
+
+**Why not the other approaches:**
+- Rolling Diffusion / ERDM: Bake in linear uncertainty growth. Our data has non-linear growth
+  (vol surfaces mean-revert, so h=1 uncertainty grows fast, h=30 saturates).
+- GenCast AR: 30x more expensive (30 full reverse diffusions vs 1).
+- AIFS-CRPS: Abandons diffusion — would need to rewrite entire pipeline.
+- DYffusion: Elegant but couples diffusion/temporal axes, fundamental rework.
+
+**The experiment:** Train direct IV model + horizon embedding (CSDI-style) and measure:
+1. Does uncertainty grow with horizon? (h30/h1 variance ratio target: ≥ 2x)
+2. Does kurtosis survive? (target: ≥ 0.50)
+3. Does per-cell spread improve? (KS levels target: ≥ 15/25)
+
+**Fallback if dual embedding alone is insufficient:** Add Rolling Diffusion per-frame noise
+as an inductive bias (change training loop to assign t_k per frame), combining learned
+conditioning with structural growth. This is FVDM's approach: 80% shared t, 20% per-frame t.
+
+#### References
+- CSDI: arxiv 2107.03502 (Tashiro+ 2021, NeurIPS)
+- Rolling Diffusion: arxiv 2402.09470 (Ruhe+ 2024, ICML)
+- FVDM: arxiv 2410.03160 (Liu+ 2024)
+- Diffusion Forcing: arxiv 2407.01392 (Chen+ 2024, NeurIPS)
+- TEDi: arxiv 2307.15042 (Zhang+ 2024, SIGGRAPH)
+- ERDM: arxiv 2506.20024 (NeurIPS 2025)
+- AIFS-CRPS: arxiv 2412.15832 (ECMWF, operational)
+- GenCast: arxiv 2312.15796 (DeepMind, Nature 2024)
+- DYffusion: arxiv 2306.01984 (Cachay+ 2023, NeurIPS)
+- Continuous Ensemble Forecasting: arxiv 2410.05431 (ICLR 2025)
+- NsDiff: arxiv 2505.04278 (ICML 2025)
+- ANT: arxiv 2410.14488 (NeurIPS 2024)
+- Latte: arxiv 2401.03048 (TMLR 2025)
+- VDM: arxiv 2204.03458 (Ho+ 2022, NeurIPS)
