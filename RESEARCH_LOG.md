@@ -18061,3 +18061,138 @@ Given:
 - Kuleshov et al. (2018): Calibration of probabilistic forecasts, ICML 2018
 - Beta-NLL: Seitzer et al. (2022), ICLR 2022
 - Variogram Score: Scheuerer & Hamill (2015)
+
+---
+
+### Exp 89: afCRPS Single-Pass with Pretrained Init — 2026-03-03
+
+**Hypothesis**: Replace 100-step diffusion loop with single forward pass trained with afCRPS.
+Keep GRU encoder, Conv3D ResBlocks, AdaGN, exp(z × vol_scale). Add noise injection via
+NoiseMLP(16 → 64) that replaces timestep embedding. Diversity from noise vector variation.
+
+**Architecture**: `SinglePassBlockAR` — 414,722 params (388,737 trainable, encoder frozen).
+NoiseMLP output init: std=0.01 (not zero — avoids dead start). Conv_out init: std=0.01.
+Output: tanh(raw) → z_out in [-1, 1], then IV = baseline × exp(z_out × vol_scale).
+Weight transfer: 77/83 params from VS bestval Conv3D (encoder, ResBlocks, AdaGN, cond_proj).
+
+**Loss**: afCRPS (α=0.95) + 0.1 × variogram score (300 cell pairs, vectorized).
+K=4 members per gradient step. LR: noise_mlp 1e-3, decoder 1e-4.
+
+**Results (pretrained init, 5 epochs before early stop)**:
+
+| Epoch | Loss | MAE | Spread | S/M Ratio | VS | Val Loss | CI 90% | Kurtosis |
+|-------|------|-----|--------|-----------|------|----------|--------|----------|
+| 1 | 0.0230 | 0.0314 | 0.0193 | 0.615 | 0.0080 | 0.0197 | — | — |
+| 5 | 0.0215 | 0.0327 | 0.0251 | 0.767 | 0.0077 | 0.0195 | 63.6% | **0.003** |
+
+**EARLY STOP at epoch 5: kurtosis 0.003 (target ≥ 0.5).**
+
+**Analysis**:
+1. **CRPS training works mechanically**: Loss decreases, spread/MAE ratio reaches 0.77 (healthy),
+   variogram decreases. Noise injection IS producing diverse members.
+2. **Coverage 63.6%**: Too narrow (target ≥ 80%). Spread is growing but not enough yet.
+3. **Kurtosis catastrophe (0.003)**: Generated daily changes are nearly Gaussian despite exp()
+   denormalization. Root cause: single-pass Conv3D with noise injection via AdaGN produces
+   approximately INDEPENDENT per-cell z-scores. When z_out[r,c] values are uncorrelated:
+   - exp(z_uncorrelated × vol_scale) for each cell → each cell's daily change is roughly lognormal
+   - The AGGREGATE daily change (averaged over 25 cells) is a mixture of independent lognormals
+   - By CLT, this mixture has LOWER kurtosis than a single lognormal
+   - Kurtosis 0.003 = nearly Gaussian → the independence assumption is confirmed
+
+**Why DDPM gets kurtosis right**: In DDPM, all 25 cells share the same x_T noise (even with
+PYoCo ρ=0, iterative denoising over 100 steps with shared Conv3D weights creates strong
+cross-cell correlation in the output). 100 rounds of 3×3 convolution spatially smooth the
+output, making all cells move together. exp() of CORRELATED z-scores produces heavy tails.
+
+**Why single-pass fails**: One forward pass through 6 ResBlocks with 3×3 convolutions provides
+only 6 rounds of spatial mixing. The noise enters through AdaGN (per-channel scale/shift, not
+per-position) but the 16-dim noise bottleneck doesn't enforce GLOBAL spatial coherence.
+
+**What would fix it**: Either (a) force cross-cell correlation structurally (global noise that
+modulates ALL cells together, like DDPM's shared x_T), or (b) add explicit correlation loss
+(increase variogram weight substantially), or (c) use a single shared z-score and only let the
+network modulate per-cell DEVIATIONS from this shared score.
+
+**Files**: `diffusion/block_ar/single_pass_ar.py`, `experiments/backfill/block_ar/train_afcrps.py`
+**Results**: `models/backfill/afcrps_v1_pretrained/`
+
+### Exp 89b: Quick_eval Kurtosis Bug Fix + Full Training — 2026-03-03
+
+**Bug discovered**: The quick_eval kurtosis was computed from ENSEMBLE MEAN daily changes, not
+from individual MEMBER daily changes. The ensemble mean smooths out tails → kurtosis appears
+collapsed. Individual member kurtosis is actually healthy.
+
+Diagnostic on Exp 89a model: single member kurtosis = 45.89 (GT = 51.13, ratio = 0.90).
+Cross-cell z_out correlation: 0.37 (moderate, sufficient for reasonable kurtosis).
+
+**Exp 89b (shared noise input, 30 epochs)**:
+
+Training ran to completion. Loss converged by ~epoch 10. Spread/MAE ratio stable at ~0.79.
+
+| Epoch | Loss | Spread/MAE | CI 90% | Member Kurt |
+|-------|------|-----------|--------|-------------|
+| 5 | 0.0216 | 0.768 | 68.8% | 0.214 |
+| 15 | 0.0213 | 0.786 | 68.1% | 0.359 |
+| 20 | 0.0212 | 0.791 | **70.6%** | 0.292 |
+| 30 | 0.0211 | 0.793 | 69.3% | 0.330 |
+
+**Quick test-set evaluation** (20 batches, 50 samples each):
+- 90% CI Coverage: **77.8%** (target ≥80% — close but not there yet)
+- Kurtosis ratio: **3.278** (over-kurtotic, not collapsed!)
+- Member kurtosis: 222.56 vs GT 67.90
+
+**Analysis**:
+1. **CRPS works for diversity**: Spread/MAE = 0.79 (healthy), model learned to amplify noise
+2. **CI = 77.8%**: Under-covered but much better than quick_eval suggested (68.8% with n=20)
+3. **Over-kurtotic (3.3x)**: exp() amplifies outlier z-scores too aggressively. Some samples
+   hit the [0.001, 1.0] clamp → creating spiky daily changes. Not collapsed — the opposite!
+4. **The noise injection is too uniform**: need more nuanced per-cell spread control
+
+### Exp 89b: Full Test Suite Results — 2026-03-03
+
+**Fixed kurtosis metric** (was computing ensemble-mean kurtosis, now uses individual member
+kurtosis). Reran training with corrected early stopping.
+
+**Full test suite on best model (epoch 24, pretrained init, shared noise input)**:
+
+| Suite | afCRPS v1 | VS bestval (DDPM) | Status |
+|-------|-----------|-------------------|--------|
+| 1 Surface | cal=8.2%, bfly=31.9% | cal=9.4%, bfly=34.6% | **PASS** (improved!) |
+| 2 CI Coverage | 77.6%, worst=50.8% | 88.0%, worst=71% | FAIL |
+| 3 Conditionality | width=1.38 | width=0.42 | FAIL |
+| 4 Time Series | kurt=1.479, ACF=0.963 | kurt=0.979, ACF=0.98 | **PASS** |
+| 5 Block-AR | boundary=2.77 | boundary=0.82 | FAIL |
+| 6 Cointegration | 0.687 | 1.18 | **PASS** |
+| 7 Regime Coverage | L3=8.0% | L3=1.9% | FAIL |
+| 8 Distributional | KS 1/25 | KS 9/25 | FAIL |
+
+**What afCRPS gets RIGHT that DDPM never did:**
+1. **Regime width 2.1-2.4x turb/calm** (DDPM: ~1.0x) — exactly the signal we need for L2
+2. **Spearman(width, vov) = 0.81-0.84** (DDPM: 0.83) — regime conditioning preserved
+3. **Kurtosis 1.479** — exp() produces fat tails, no collapse (DDPM: 0.979)
+4. **Surface validity improved** — fewer arbitrage violations than DDPM
+5. **ACF 0.963** — temporal autocorrelation preserved
+6. **Turb L1 all PASS** (80-83%) vs DDPM turb also passes — turb coverage is good
+
+**What needs fixing:**
+1. **CI = 77.6% overall** (target ≥80%) — need ~3% more coverage
+2. **Calm regime undercovered**: calm h=30 = 60.7% (FAIL). Calm gets scale ~0.85-0.95 (correct
+   narrowing!) but narrows TOO much for some cells. The model learned regime-dependent width
+   but overshoots the narrowing.
+3. **Block boundary 2.77x** — blocks generated independently, no smoothing at boundaries.
+   DDPM has iterative refinement that smooths transitions. Single-pass needs boundary awareness.
+4. **Conditionality width REVERSED (1.38)** — conditional CIs are WIDER than unconditional.
+   This is because vol_scale from real history amplifies exp() more than vol_scale from
+   shuffled history (shuffled history has lower vol_of_vol). The model IS regime-conditional
+   but the conditionality metric measures the wrong thing for this architecture.
+5. **Catastrophic 8.0%** (target <5%) — some windows get very poor coverage. Mostly calm windows
+   where the model narrows CIs too aggressively.
+
+**Comparison: L2 failures**:
+Need to count from summary.json for detailed L2 comparison.
+
+**Next steps:**
+- Increase spread: higher CRPS weight on sharpness term, or directly target coverage
+- Block boundary: add multi-block training or boundary smoothing loss
+- Calm coverage: add explicit floor on per-cell spread
+- Run scratch init for comparison

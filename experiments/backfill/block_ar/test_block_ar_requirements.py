@@ -2386,80 +2386,91 @@ def main():
     # Load model
     print("\nLoading model...")
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    model_config = checkpoint["config"]
+    raw_config = checkpoint["config"]
+
+    # Detect SinglePassBlockAR by checking for 'noise_dim' in config
+    is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config
 
     # Support both BlockARConfig instance and dict
-    if isinstance(model_config, dict):
-        model_config = BlockARConfig(**model_config)
-
-    # Override sampling mode if requested (allows testing same weights with different inference)
-    if args.sampling_mode is not None:
-        model_config.sampling_mode = args.sampling_mode
-        print(f"  Sampling mode override: {args.sampling_mode}")
-
-    # Override clamp_output if requested
-    if args.no_clamp_output:
-        model_config.clamp_output = False
-        print("  Output clamping: DISABLED (override)")
-
-    # Override guidance scale if requested
-    if args.guidance_scale is not None:
-        model_config.guidance_scale = args.guidance_scale
-        print(f"  Guidance scale override: {args.guidance_scale}")
-
-    # Override noise temperature if requested
-    if args.noise_temperature is not None:
-        model_config.noise_temperature = args.noise_temperature
-        print(f"  Noise temperature override: {args.noise_temperature}")
-
-    # Override vol_scale parameters if requested
-    if args.vol_scale_min is not None:
-        model_config.vol_scale_min = args.vol_scale_min
-        print(f"  Vol scale min override: {args.vol_scale_min}")
-    if args.vol_scale_max is not None:
-        model_config.vol_scale_max = args.vol_scale_max
-        print(f"  Vol scale max override: {args.vol_scale_max}")
-    if args.vol_scale_power is not None:
-        model_config.vol_scale_power = args.vol_scale_power
-        print(f"  Vol scale power override: {args.vol_scale_power}")
-    if args.cell_norm_power is not None:
-        model_config.cell_norm_power = args.cell_norm_power
-        print(f"  Cell norm power override: {args.cell_norm_power}")
-    if args.cell_scale_values is not None:
-        csv = json.loads(args.cell_scale_values)
-        assert len(csv) == 25, f"cell_scale_values must have 25 entries, got {len(csv)}"
-        model_config.cell_scale_values = csv
-        print(f"  Cell scale values: [{min(csv):.3f}, {max(csv):.3f}] range")
-
-    if args.crps_sigma_clamp is not None:
-        model_config.crps_sigma_clamp = args.crps_sigma_clamp
-        print(f"  CRPS sigma clamp: {args.crps_sigma_clamp} → σ in [{1-args.crps_sigma_clamp:.2f}, {1+args.crps_sigma_clamp:.2f}]")
-
-    if args.crps_boost_only:
-        model_config.crps_boost_only = True
-        print("  CRPS boost-only mode: σ = max(1.0, σ_norm) — never narrow cells")
-
-    model = ConditionalBlockARDDPM(model_config)
-
-    # Load EMA params if available (and not disabled), otherwise regular state dict
-    # strict=False allows loading when config adds new buffers (e.g. fixed_cell_scale)
-    if "ema_params" in checkpoint and not args.no_ema:
-        print("  Loading EMA parameters...")
-        state_dict = model.state_dict()
-        for name in state_dict:
-            if name in checkpoint["ema_params"]:
-                state_dict[name] = checkpoint["ema_params"][name]
-        model.load_state_dict(state_dict)
+    if is_single_pass:
+        model_config = None  # will be handled by SinglePassConfig below
+    elif isinstance(raw_config, dict):
+        model_config = BlockARConfig(**raw_config)
     else:
-        print("  Loading regular model weights...")
-        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        model_config = raw_config
+
+    # DDPM-specific config overrides (skip for SinglePassBlockAR)
+    if not is_single_pass:
+        if args.sampling_mode is not None:
+            model_config.sampling_mode = args.sampling_mode
+            print(f"  Sampling mode override: {args.sampling_mode}")
+        if args.no_clamp_output:
+            model_config.clamp_output = False
+            print("  Output clamping: DISABLED (override)")
+        if args.guidance_scale is not None:
+            model_config.guidance_scale = args.guidance_scale
+            print(f"  Guidance scale override: {args.guidance_scale}")
+        if args.noise_temperature is not None:
+            model_config.noise_temperature = args.noise_temperature
+            print(f"  Noise temperature override: {args.noise_temperature}")
+        if args.vol_scale_min is not None:
+            model_config.vol_scale_min = args.vol_scale_min
+            print(f"  Vol scale min override: {args.vol_scale_min}")
+        if args.vol_scale_max is not None:
+            model_config.vol_scale_max = args.vol_scale_max
+            print(f"  Vol scale max override: {args.vol_scale_max}")
+        if args.vol_scale_power is not None:
+            model_config.vol_scale_power = args.vol_scale_power
+            print(f"  Vol scale power override: {args.vol_scale_power}")
+        if args.cell_norm_power is not None:
+            model_config.cell_norm_power = args.cell_norm_power
+            print(f"  Cell norm power override: {args.cell_norm_power}")
+        if args.cell_scale_values is not None:
+            csv = json.loads(args.cell_scale_values)
+            assert len(csv) == 25, f"cell_scale_values must have 25 entries, got {len(csv)}"
+            model_config.cell_scale_values = csv
+            print(f"  Cell scale values: [{min(csv):.3f}, {max(csv):.3f}] range")
+        if args.crps_sigma_clamp is not None:
+            model_config.crps_sigma_clamp = args.crps_sigma_clamp
+            print(f"  CRPS sigma clamp: {args.crps_sigma_clamp}")
+        if args.crps_boost_only:
+            model_config.crps_boost_only = True
+            print("  CRPS boost-only mode")
+
+    if is_single_pass:
+        from diffusion.block_ar.single_pass_ar import SinglePassBlockAR, SinglePassConfig
+        sp_cfg = {k: v for k, v in checkpoint["config"].items()
+                  if k in SinglePassConfig.__dataclass_fields__}
+        sp_config = SinglePassConfig(**sp_cfg)
+        model = SinglePassBlockAR(sp_config)
+        print(f"  Model type: SinglePassBlockAR (afCRPS)")
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model = ConditionalBlockARDDPM(model_config)
+        # Load EMA params if available (and not disabled), otherwise regular state dict
+        # strict=False allows loading when config adds new buffers (e.g. fixed_cell_scale)
+        if "ema_params" in checkpoint and not args.no_ema:
+            print("  Loading EMA parameters...")
+            state_dict = model.state_dict()
+            for name in state_dict:
+                if name in checkpoint["ema_params"]:
+                    state_dict[name] = checkpoint["ema_params"][name]
+            model.load_state_dict(state_dict)
+        else:
+            print("  Loading regular model weights...")
+            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
     model = model.to(device)
     model.eval()
 
     print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
-    print(f"  Block size: {model_config.block_size}, "
-          f"Future len: {model_config.future_len}")
+    if is_single_pass:
+        print(f"  Block size: {sp_config.block_size}, Future len: {sp_config.future_len}")
+        # Use a minimal BlockARConfig for test infrastructure (data paths, split indices)
+        model_config = BlockARConfig()
+    else:
+        print(f"  Block size: {model_config.block_size}, "
+              f"Future len: {model_config.future_len}")
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {n_params:,}")
 
