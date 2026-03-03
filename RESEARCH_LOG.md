@@ -18330,13 +18330,103 @@ L2=62 (all floor, zero ceiling), turb/calm width 2.4x, Spearman 0.84.
 **Post-hoc 1.1x scaling on 89b gives CI=81.2%** — the structure is correct, only overall
 scale is 10% too small. But this violates Bitter Lesson (hand-tuned post-hoc constant).
 
-**Open question**: How to make the model learn the additional 10% spread from data, not
-from a hand-tuned scalar. The CRPS loss on 10-frame blocks cannot provide this signal
-because narrow spread IS optimal at h=10 for calm windows. Options:
-- Multi-block with correct normalization (tried, degraded block 1)
-- Separate noise pathway (AIFS-CRPS style: noise modulates LN independently of condition)
-- Train on longer blocks (block_size=30 instead of 10, single block covers full horizon)
-- Curriculum: start with 1-block, gradually extend to 3-block
+### Exp 89g: 200 Epochs (Convergence Test) — 2026-03-03
+
+**Hypothesis**: Spread/MAE still climbing at epoch 30; more training lets the weak spread
+gradient accumulate. Same architecture, same hyperparameters, 200 epochs.
+
+**Result**: Model **overfit**. Val loss rose after ~epoch 70 (0.1031 → 0.1286 at ep 200).
+Quick eval CI degraded from 71.6% (ep 25) to 62.4% (ep 200). Spread/MAE plateaued at ~0.81
+then declined. **H1 (insufficient training) disproved** — the model reached its CRPS
+equilibrium by epoch 30-40 and more training only overfit.
+
+### Exp 89h: K=16 Members (Cleaner Spread Gradient) — 2026-03-03
+
+**Hypothesis**: K=4 gives too noisy a spread gradient (6 pairs). K=16 gives 120 pairs →
+cleaner gradient → faster convergence to CRPS optimum. Batch=8 (halved for memory).
+
+**Result**: Faster convergence (S/M=0.79 by epoch 5 vs epoch 15 for K=4) but **same
+equilibrium** (S/M=0.813 at ep 30 vs 0.793 for K=4). Test CI = 76.5% (vs 77.6% for K=4).
+Training took 20 min (8x slower due to 4x members × 2x smaller batch). **H2 disproved** —
+cleaner gradient converges faster but to the same point.
+
+### CRPS Scaling Analysis: Why the Model Stops at |z|≈0.11 — 2026-03-03
+
+Both hypotheses for why CRPS hasn't converged to its optimum (more training, cleaner gradient)
+are disproved. The CRPS loss landscape has a genuine flat region:
+
+**Per-regime CRPS sensitivity to uniform spread scaling** (val set, K=50):
+
+| Scale | Calm CRPS | Turb CRPS | Total CRPS |
+|-------|-----------|-----------|------------|
+| 0.8x | 0.02553 | 0.02465 | 0.02543 |
+| 1.0x | 0.02529 | 0.02411 | 0.02516 |
+| 1.2x | 0.02507 | 0.02367 | 0.02492 |
+| 1.5x | 0.02476 | 0.02316 | 0.02459 |
+| 2.0x | 0.02433 | 0.02262 | 0.02414 |
+
+**Both calm AND turb CRPS improve monotonically with more spread** — the model is
+underdispersed for BOTH regimes. But the improvement is only 4% over a 2x spread change.
+The CRPS gradient in the spread direction is ~20x weaker than in the MAE direction. The
+model converges on near-optimal MAE and the spread gradient is too flat to push further.
+
+**Training data regime split**: 50/50 calm/turb (by median). Not skewed.
+
+**Calm spread/MAE = 0.114 vs Turb = 0.340** — the model produces 3x less relative spread
+for calm, entirely from vol_scale. Calm CRPS has room to improve (not at its minimum) but
+the gradient signal is weak.
+
+### Noise Architecture Diagnostic: Signal Survives the Decoder — 2026-03-03
+
+**Critical question**: Is the 16-dim noise signal dying in the 6-ResBlock chain, or is CRPS
+simply not pushing it higher?
+
+**Measurement** (89b model, K=50 per window, val set):
+
+| Window | VoV | Vol_Scale | Mean |z_out| | Noise Std | Ratio | IV Rel Std |
+|--------|------|-----------|-------------|-----------|-------|------------|
+| 0 | 0.0145 | 0.773 | 0.053 | 0.023 | 0.44 | 1.64% |
+| 1 | 0.0131 | 0.700 | 0.054 | 0.024 | 0.45 | 1.53% |
+| 2 | 0.0128 | 0.684 | 0.053 | 0.024 | 0.45 | 1.44% |
+
+**Noise-induced z_out std = 0.023** — the noise signal IS surviving with ~44% of mean
+signal magnitude. The architecture CAN produce spread. Per-cell noise_std range: [0.012, 0.051]
+— cells already differentiated (4x range).
+
+**But IV relative std = 1.5%** — after exp(z × vol_scale) with vol_scale ~0.7, the
+noise-induced IV variation is only 1.5% of mean IV. For 90% CI coverage, the model needs
+roughly 3-4% relative std (2x current level).
+
+**Diagnosis**: This is **loss modification territory**, not architecture territory.
+The decoder routes noise to the output (44% signal ratio), but CRPS doesn't push the
+amplitude high enough because the gradient is flat (4% CRPS improvement over 2x spread).
+
+### Exp 89 Series Summary Table — 2026-03-03
+
+| Variant | Change | Test CI | Kurt | L2 | S/M |
+|---------|--------|---------|------|-----|-----|
+| 89b | 1-block pretrained (BASELINE) | **77.6%** | **1.479** | **62** | 0.793 |
+| 89 scratch | Scratch init | 77.0% | 2.649 | — | 0.807 |
+| 89c | 3-block mean-reduction | 72.4% | 1.960 | 95 | 0.817 |
+| 89d | 3-block sum + cond_noise_mlp | 72.3% | 3.715 | 102 | 0.830 |
+| 89e | LayerNorm equalization | ~77% | — | — | 0.789 |
+| 89f | Scale-normalized CRPS | 75.6% | 2.264 | 67 | 0.806 |
+| 89g | 200 epochs | overfit | — | — | 0.814 |
+| 89h | K=16 members | 76.5% | — | — | 0.813 |
+
+**89b remains the best.** The CRPS loss landscape has a flat region at the current spread
+level. The architecture can produce more spread (noise std = 0.023, 44% of mean signal),
+but CRPS doesn't push it there because the gradient is 20x weaker in the spread direction
+than in the MAE direction.
+
+**Open question**: How to overcome the flat CRPS gradient. The model is underdispersed for
+both regimes, the architecture supports more spread, but the loss doesn't demand it strongly
+enough. Potential directions:
+1. Direct spread bonus: add explicit `log(spread)` term to loss (not proper scoring rule,
+   but directly incentivizes diversity)
+2. AIFS-CRPS α→1.0: increase fair CRPS weight to maximum (risk: degeneracy)
+3. Separate noise pathway: noise modulates LayerNorm independently (AIFS-CRPS architecture)
+4. Increase noise_dim or noise MLP capacity: more noise throughput
 
 ### Exp 89f: Scale-Normalized Per-Window CRPS — 2026-03-03
 
