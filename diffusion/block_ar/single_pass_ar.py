@@ -327,14 +327,22 @@ class SinglePassBlockAR(nn.Module):
         future: torch.Tensor,
         n_members: int = 4,
         lambda_vs: float = 0.0,
+        n_train_blocks: int = 1,
     ) -> dict:
-        """Training forward: generate K members, compute afCRPS + variogram.
+        """Training forward: generate K members over n_train_blocks, compute afCRPS.
+
+        With n_train_blocks=3, generates the full 30-frame trajectory via
+        autoregressive chaining with detached conditioning. Each block gets
+        direct CRPS gradient, but gradients don't flow across block boundaries.
+        The model sees the full horizon and learns that calm windows need
+        growing uncertainty even at h=30.
 
         Args:
             history: (B, history_len, 5, 5) in [-1, 1]
             future: (B, future_len, 5, 5) in [-1, 1]
             n_members: K ensemble members per sample
             lambda_vs: Variogram score weight (0 = disabled)
+            n_train_blocks: Number of blocks to generate (1=block1 only, 3=full 30 frames)
 
         Returns:
             dict with "loss" (with grad), plus detached diagnostics
@@ -343,31 +351,51 @@ class SinglePassBlockAR(nn.Module):
         device = history.device
         bs = self.config.block_size
 
-        # Encode condition (frozen encoder expected)
-        condition = self.encoder(history, mask=None)
-        # forward_only: add null embedding (matches DDPM inference path)
-        if hasattr(self.encoder, 'null_embedding'):
-            condition = condition + self.encoder.null_embedding.expand(B, -1)
+        # GT in IV space (all blocks we're training on)
+        n_frames = min(n_train_blocks * bs, self.config.future_len)
+        gt_iv = denormalize_iv(future[:, :n_frames])  # (B, n_frames, 5, 5)
 
-        # Baseline and vol_scale
-        with torch.no_grad():
-            baseline, vol_scale = self._compute_vol_scale(history)
+        # Generate K member trajectories
+        all_member_trajectories = []
 
-        # GT block 1 in IV space
-        gt_iv = denormalize_iv(future[:, :bs])  # (B, bs, 5, 5)
-
-        # Positions for block 1
-        positions = torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
-
-        # Generate K members
-        iv_members = []
         for _ in range(n_members):
-            z = torch.randn(B, self.config.noise_dim, device=device)
-            iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
-            iv_members.append(iv_block)
-        iv_samples = torch.stack(iv_members, dim=1)  # (B, K, bs, 5, 5)
+            current_cond = history  # (B, T_hist, 5, 5) — grows with generated blocks
+            member_blocks = []
 
-        # afCRPS loss
+            for block_idx in range(n_train_blocks):
+                # Encode condition from growing context (detached for blocks > 0)
+                with torch.no_grad():
+                    condition = self.encoder(current_cond, mask=None)
+                    if hasattr(self.encoder, 'null_embedding'):
+                        condition = condition + self.encoder.null_embedding.expand(B, -1)
+                    baseline, vol_scale = self._compute_vol_scale(current_cond)
+                # Detach condition so gradients only flow through this block's decoder
+                condition = condition.detach()
+
+                # Positions for this block
+                positions = (
+                    torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
+                    + block_idx * bs
+                )
+
+                # Fresh noise per block per member
+                z = torch.randn(B, self.config.noise_dim, device=device)
+
+                # Generate block (has gradient through decoder)
+                iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
+                member_blocks.append(iv_block)
+
+                # Grow context with DETACHED generated block (no cross-block gradient)
+                block_norm = normalize_iv(iv_block.detach())
+                current_cond = torch.cat([current_cond, block_norm], dim=1)
+
+            # Concatenate blocks into full trajectory
+            trajectory = torch.cat(member_blocks, dim=1)  # (B, n_frames, 5, 5)
+            all_member_trajectories.append(trajectory)
+
+        iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, n_frames, 5, 5)
+
+        # afCRPS loss over full trajectory
         crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95)
 
         # Total loss (CRPS + variogram)

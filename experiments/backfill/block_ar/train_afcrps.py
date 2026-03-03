@@ -45,7 +45,7 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # Training
 # ──────────────────────────────────────────────────────────────────────
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout)
     model.encoder.eval()
@@ -60,7 +60,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         history = batch["history"].to(device)
         future = batch["future"].to(device)
 
-        result = model(history, future, n_members=n_members, lambda_vs=lambda_vs)
+        result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
+                       n_train_blocks=n_train_blocks)
         loss = result["loss"]
 
         optimizer.zero_grad()
@@ -200,6 +201,8 @@ def main():
                         help="Variogram score weight")
     parser.add_argument("--shared_noise_input", action="store_true",
                         help="Inject first noise element as shared spatial input (cross-cell correlation)")
+    parser.add_argument("--n_train_blocks", type=int, default=1,
+                        help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -310,7 +313,7 @@ def main():
 
     print(f"\n{'='*70}")
     print(f"Training afCRPS single-pass model")
-    print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}")
+    print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}, n_train_blocks={args.n_train_blocks}")
     print(f"  lambda_vs={args.lambda_vs}, from_scratch={args.from_scratch}")
     print(f"  epochs={args.epochs}, batch_size={args.batch_size}")
     print(f"{'='*70}\n")
@@ -322,7 +325,7 @@ def main():
         train_metrics = train_epoch(
             model, train_loader, optimizer, device,
             n_members=args.n_members, lambda_vs=args.lambda_vs,
-            grad_clip=args.grad_clip,
+            grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
         )
         lr_scheduler.step()
 
@@ -381,6 +384,7 @@ def main():
                 "lr_noise": args.lr_noise,
                 "lr_decoder": args.lr_decoder,
                 "noise_dim": args.noise_dim,
+                "n_train_blocks": args.n_train_blocks,
             },
         }
 

@@ -18191,8 +18191,53 @@ kurtosis). Reran training with corrected early stopping.
 **Comparison: L2 failures**:
 Need to count from summary.json for detailed L2 comparison.
 
-**Next steps:**
-- Increase spread: higher CRPS weight on sharpness term, or directly target coverage
-- Block boundary: add multi-block training or boundary smoothing loss
-- Calm coverage: add explicit floor on per-cell spread
-- Run scratch init for comparison
+### Exp 89 Scratch vs Pretrained Init Comparison — 2026-03-03
+
+**Scratch is slightly worse on most metrics.** Pretrained init wins on kurtosis (1.48 vs 2.65),
+ACF (0.963 vs 0.928), boundary (2.77 vs 3.46), cointegration. Scratch wins on butterfly arb
+(28.7% vs 31.9%) and conditionality width (0.968 vs 1.380). Pretrained init is the better base.
+
+### Exp 89c: Multi-Block Training (3 blocks, full 30-frame CRPS) — 2026-03-03
+
+**Hypothesis**: Training on all 3 blocks (30 frames) instead of block 1 only (10 frames) will
+teach the model that calm windows need growing uncertainty at h=30. The model sees the full
+horizon and learns appropriate spread at every horizon.
+
+**Config**: Same as Exp 89b but with `--n_train_blocks 3`. Each block generated with detached
+AR chaining. CRPS computed over full 30 frames. Training time: ~15s/epoch (3x more than 1-block).
+
+| Metric | 1-block (89b) | 3-block (89c) | Delta |
+|--------|-------------|---------------|-------|
+| 90% CI | **77.6%** | 72.4% | -5.2% |
+| Kurtosis | 1.479 | **1.960** | +0.481 |
+| L2 total | **62** | 95 | +33 |
+| L2 floor/ceil | 62/0 | 95/0 | worse |
+| Catastrophic | **8.0%** | 10.6% | +2.6% |
+| Calendar arb | 8.2% | **7.1%** | -1.1% |
+| ACF | 0.963 | **0.957** | -0.006 |
+| Boundary | **2.77** | 2.72 | -0.05 |
+| Cointegration | 0.687 | **0.761** | +0.074 |
+| Spread/MAE | 0.793 | **0.817** | +0.024 |
+| Spearman(w,vov) | 0.81-0.84 | 0.81-0.88 | better |
+
+**3-block CI is WORSE.** CRPS averaged over 30 frames × 25 cells = 750 targets dilutes
+per-frame signal. Calm h=30 cells, which have only ~20% of total CRPS weight (because calm
+has lower MAE), get insufficient gradient to push spread up. Meanwhile kurtosis improved
+(1.960) and calendar arb improved (7.1%) — the model learns better temporal structure.
+
+**Boundary barely improved** (2.72 vs 2.77). CRPS at boundary frames (h=10/11) doesn't
+strongly penalize discontinuity because the penalty is |Y-GT| which is similar whether
+the prediction is smooth or jumpy — it's just wrong in a different way.
+
+**Post-hoc scaling analysis** (1-block model):
+- 1.1x scale → 81.2% CI (PASSES 80% gate)
+- The model's learned structure (regime width 2.4x, zero ceiling, kurtosis 1.48) is correct
+- Only the overall scale needs 10% increase
+
+**Next steps**: The 1-block model has better CI and is the stronger base. The path forward
+is increasing the scale during training, not multi-block. Options:
+1. Lower α from 0.95 → 0.85 (more weight on diversity-rewarding fair CRPS)
+2. Larger noise_dim (32 instead of 16) for more expressive diversity
+3. Add a per-cell minimum spread term to the loss
+4. Remove tanh and use softer clamping (allows larger z_out)
+5. Longer training (50-100 epochs) — model was still improving at epoch 30
