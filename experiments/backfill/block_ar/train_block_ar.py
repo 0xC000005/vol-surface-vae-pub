@@ -231,6 +231,8 @@ def main():
                         help="Per-cell residual head: condition-dependent noise correction per cell")
     parser.add_argument("--finetune_percell_head", type=str, default=None,
                         help="Two-stage per-cell head: load base model, freeze base, train only percell head")
+    parser.add_argument("--finetune_crps_head", type=str, default=None,
+                        help="Two-stage CRPS head: load base model, freeze base, train only crps_var_head")
     parser.add_argument("--percell_regime_input", action="store_true",
                         help="Add vol_of_vol scalar input to percell_head for regime-conditional corrections")
     parser.add_argument("--baseline_channel", action="store_true",
@@ -271,6 +273,10 @@ def main():
                         help="Enable CRPS variance head for condition-dependent posterior noise")
     parser.add_argument("--lambda_crps", type=float, default=0.1,
                         help="Weight for CRPS auxiliary loss (default: 0.1)")
+    parser.add_argument("--crps_n_cells", type=int, default=1,
+                        help="CRPS head output dim: 1=scalar, 25=per-cell for 5x5 grid")
+    parser.add_argument("--crps_pos_embed_dim", type=int, default=0,
+                        help="Frame position embedding dim for horizon-dependent CRPS σ (0=off)")
     parser.add_argument("--use_mean_head", action="store_true",
                         help="Add MLP mean prediction head for bias correction")
     parser.add_argument("--mean_head_lambda", type=float, default=1.0,
@@ -429,9 +435,11 @@ def main():
     if args.cond_drop_prob > 0:
         config.cond_drop_prob = args.cond_drop_prob
         config.guidance_scale = args.guidance_scale
-    if args.crps_variance_head:
+    if args.crps_variance_head or args.finetune_crps_head:
         config.crps_variance_head = True
         config.lambda_crps = args.lambda_crps
+        config.crps_n_cells = args.crps_n_cells
+        config.crps_pos_embed_dim = args.crps_pos_embed_dim
     if args.use_mean_head:
         config.use_mean_head = True
         config.mean_head_lambda = args.mean_head_lambda
@@ -533,7 +541,9 @@ def main():
     if config.cond_drop_prob > 0:
         print(f"CFG: ON (cond_drop_prob={config.cond_drop_prob}, guidance_scale={config.guidance_scale})")
     if getattr(config, 'crps_variance_head', False):
-        print(f"CRPS variance head: ON (lambda_crps={config.lambda_crps})")
+        n_cells = getattr(config, 'crps_n_cells', 1)
+        pos_dim = getattr(config, 'crps_pos_embed_dim', 0)
+        print(f"CRPS variance head: ON (lambda_crps={config.lambda_crps}, n_cells={n_cells}, pos_embed={pos_dim})")
     if getattr(config, 'cell_heteroscedastic', False):
         print(f"Cell heteroscedastic: ON (power={config.cell_noise_power}, "
               f"clamp=[{config.cell_noise_clamp_min}, {config.cell_noise_clamp_max}])")
@@ -606,9 +616,9 @@ def main():
     print(f"Model parameters: {n_params:,}")
 
     # Two-stage fine-tuning: load base model, freeze base, train only new params
-    _finetune_path = args.finetune_spade or args.finetune_percell_head
+    _finetune_path = args.finetune_spade or args.finetune_percell_head or args.finetune_crps_head
     if _finetune_path:
-        _mode = "SPADE" if args.finetune_spade else "percell_head"
+        _mode = "SPADE" if args.finetune_spade else ("percell_head" if args.finetune_percell_head else "crps_head")
         print(f"\nTwo-stage {_mode}: loading base model from {_finetune_path}")
         base_ckpt = torch.load(_finetune_path, weights_only=False, map_location=config.device)
         base_state = base_ckpt.get("model_state_dict", base_ckpt.get("state_dict", {}))
@@ -621,6 +631,8 @@ def main():
             trainable_names = {"gamma_spatial", "beta_spatial"}
         elif args.finetune_percell_head:
             trainable_names = {"percell_head"}
+        elif args.finetune_crps_head:
+            trainable_names = {"crps_var_head"}
         new_params = []
         frozen_count = 0
         for name, param in model.named_parameters():

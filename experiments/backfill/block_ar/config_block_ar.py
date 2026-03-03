@@ -80,6 +80,7 @@ class BlockARPOCConfig:
     # === Sampling ===
     max_residual_timestep: int = 20
     max_global_residual: int = 0  # growing uncertainty: 0=off, 10=recommended
+    noise_temperature: float = 1.0  # posterior noise temperature: >1.0 widens CIs
     clamp_output: bool = True  # clamp samples to [0,1] after denorm
 
     # === Regime Conditioning (hierarchical sampling) ===
@@ -163,6 +164,10 @@ class BlockARPOCConfig:
     # CRPS variance head
     crps_variance_head: bool = False
     lambda_crps: float = 0.1  # CRPS auxiliary loss weight
+    crps_n_cells: int = 1  # 1=scalar σ (original), 25=per-cell σ for 5×5 grid
+    crps_sigma_clamp: float = 0.0  # max deviation from 1.0 in normalized σ (0=unlimited)
+    crps_pos_embed_dim: int = 0  # frame position embedding dim for horizon-dependent σ (0=off)
+    crps_boost_only: bool = False  # boost-only mode: σ = max(1.0, σ_norm) — widen, never narrow
 
     # Per-cell heteroscedastic forward noise: static (5,5) noise scale from
     # training data. Each cell gets noise proportional to its normalized target std.

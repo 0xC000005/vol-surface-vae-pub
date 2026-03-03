@@ -17013,3 +17013,1051 @@ conditioning with structural growth. This is FVDM's approach: 80% shared t, 20% 
 - ANT: arxiv 2410.14488 (NeurIPS 2024)
 - Latte: arxiv 2401.03048 (TMLR 2025)
 - VDM: arxiv 2204.03458 (Ho+ 2022, NeurIPS)
+
+---
+
+## CRPS Variance Head Experiments (2026-03-02)
+
+**Goal**: Decouple spread calibration from noise prediction using CRPS loss on a separate
+variance head. CRPS (Continuous Ranked Probability Score) is a strictly proper scoring rule
+that explicitly trains for calibrated spread, avoiding the MSE gradient shortcut that caused
+Exp 61/74 to fail.
+
+### Experiment 75: Scalar CRPS Head in Vol_Scaled (Zero Code Changes)
+
+**Config**: Conv3D, bottleneck=128, 6 res blocks, forward_only, uniform_noise, uniform sampling,
+ratio_target=vol_scaled, crps_variance_head=True, lambda_crps=0.1, seed=42, 30 epochs, bs=10.
+
+**Command**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+  --denoiser_type conv3d --bottleneck_dim 128 --conv3d_n_res_blocks 6 \
+  --forward_only --uniform_noise --sampling_mode uniform \
+  --ratio_target --ratio_target_mode vol_scaled \
+  --crps_variance_head --lambda_crps 0.1 \
+  --epochs 30 --batch_size 10 --seed 42 \
+  --output_dir models/backfill/block_ar_crps_scalar
+```
+
+**Model**: 449,923 params (vs 437K baseline — +12K for CRPS head).
+
+**Learned σ analysis (t=10, test data)**:
+- σ mean: 0.0470, std: 0.0083, range: [0.0224, 0.0830]
+- σ is VERY small: posterior noise scaled to ~5% of standard
+- Timestep dependence: σ(t=1)=0.031, σ(t=50)=0.105, σ(t=99)=1.013 → correctly learned
+- **Regime conditioning: ABSENT** — turb/calm ratio = 0.973x, Spearman(σ, vov) = -0.111
+- Head learned timestep sensitivity but NOT condition-dependent spread
+
+**Conclusion**: Infrastructure verified — CRPS head trains, σ varies meaningfully with t.
+But in vol_scaled z-space, the optimal CRPS σ is tiny (~0.05) because the denoiser's x₀_pred
+is already very accurate in z-score space. The head doesn't learn regime-dependent σ because
+the z-score normalization already handles most of the spread variation.
+
+**Full test suite results** (20 batches × 50 samples):
+
+| Metric | VS bestval | Seed 42 | Exp 75 | Delta |
+|--------|-----------|---------|--------|-------|
+| Kurtosis | 1.006 | 0.701 | 1.470 | +0.769 |
+| 90% CI | 87.9% | 88.1% | 5.2% | -82.9% |
+| Skewness | 1.055 | 0.318 | — | — |
+| Boundary | 0.984 | — | 2.985 | +2.001 |
+
+**Suite results**: 2/8 pass (Surface Validity, Time Series).
+
+**Key finding**: σ~0.05 per-step → near-deterministic → excellent kurtosis (1.47!) but terrible
+CI (5.2%). The CRPS head learned to optimize x₀_pred accuracy (shrink posterior noise) rather
+than calibrate spread. This is because single-step x₀_pred errors are tiny in z-space, and
+CRPS rewards small σ for accurate predictions.
+
+**Critical insight**: Per-step σ application in diffusion loop ≠ spread calibration. CRPS on
+single-step x₀_pred optimizes for reconstruction accuracy at each step, not for final sample
+diversity. The σ must be applied POST-HOC on final samples, not per-step.
+
+### Experiment 76: Per-Cell CRPS Head in Direct IV (Post-hoc σ Application)
+
+**Config**: Same as Exp 75 but: crps_n_cells=25, NO --ratio_target (direct IV space).
+Post-hoc σ: normalize per-cell σ to mean=1, apply as spread redistribution on final samples.
+
+**Command**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+  --denoiser_type conv3d --bottleneck_dim 128 --conv3d_n_res_blocks 6 \
+  --forward_only --uniform_noise --sampling_mode uniform \
+  --crps_variance_head --lambda_crps 0.1 --crps_n_cells 25 \
+  --epochs 30 --batch_size 10 --seed 42 \
+  --output_dir models/backfill/block_ar_crps_directiv
+```
+
+**Model**: 465,435 params (+28K for per-cell CRPS head).
+
+**Learned σ analysis (t=0, test data)**:
+- Per-cell σ grid (normalized to mean=1):
+  ```
+  [2.57  1.32  0.87  2.47  2.16]
+  [1.58  0.68  0.61  0.71  1.41]
+  [0.84  0.51  0.48  0.50  3.47]
+  [0.59  0.42  0.40  0.41  0.67]
+  [0.56  0.38  0.36  0.39  0.66]
+  ```
+- **Spearman(σ per-cell, GT per-cell spread): 0.835** — CORRECT DIRECTION ✅
+- σ ratio max/min: 9.66x (GT ratio: 28x)
+- Regime conditioning: turb/calm = 1.072x (weak but positive)
+- No horizon variation at t=0 (expected: no position embedding yet)
+
+**Results** (5 batches × 50 samples, quick test):
+
+| Metric | VS bestval | Exp 76 (post-hoc) | Delta |
+|--------|-----------|-------------------|-------|
+| Kurtosis | 1.006 | 0.515 | -0.491 |
+| 90% CI | 87.9% | 66.4% | -21.5% |
+| Skewness | 1.055 | 1.137 | +0.082 |
+
+**Per-cell coverage**: worst (3,3)=17.8%, best (0,4)=98.4% — σ redistributes correctly but
+overall CI too low in direct IV space (no vol_scaled amplifier).
+
+**Conclusion**: CRPS head learns correct per-cell pattern (Spearman=0.835!) in direct IV.
+Post-hoc normalized σ successfully redistributes spread. But direct IV has insufficient total
+spread (66% CI vs 88% in vol_scaled). Need to combine vol_scaled backbone (total spread)
+with per-cell CRPS redistribution.
+
+**Next**: Exp 76b — vol_scaled backbone + per-cell CRPS head + post-hoc normalized σ.
+This combines the best of both: vol_scaled for total spread, CRPS for per-cell distribution.
+
+---
+
+### Experiment 76b: Vol_Scaled + Per-Cell CRPS Head + Post-Hoc σ
+
+**Goal**: Combine vol_scaled backbone (total spread) with per-cell CRPS redistribution.
+
+**Config**: Conv3D denoiser, bottleneck=128, 6 res blocks, forward_only, uniform_noise,
+ratio_target=vol_scaled, crps_variance_head=True, crps_n_cells=25, lambda_crps=0.1.
+
+**Command**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+  --denoiser_type conv3d --bottleneck_dim 128 --conv3d_n_res_blocks 6 \
+  --forward_only --uniform_noise --sampling_mode uniform \
+  --ratio_target --ratio_target_mode vol_scaled \
+  --crps_variance_head --lambda_crps 0.1 --crps_n_cells 25 \
+  --epochs 30 --batch_size 10 --seed 42 \
+  --output_dir models/backfill/block_ar_crps_volscaled_percell
+```
+
+**Results** (20 batches × 50 samples):
+
+| Metric | VS bestval | Exp 76b | Delta |
+|--------|-----------|---------|-------|
+| 90% CI | 87.9% | **75.6%** | -12.3% |
+| Per-horizon CI: h=1 | — | 84.4% | — |
+| Per-horizon CI: h=30 | — | 73.7% | — |
+| Width ratio | 0.707 | 0.775 | +0.068 |
+| MAE reduction | 89.3% | 89.5% | +0.2% |
+| Calendar | 9.4% | 9.8% | +0.4% |
+
+**Suite results**: Surface PASS, Coverage FAIL, Time Series PASS, Conditionality PASS,
+Regime Coverage FAIL.
+
+**Conclusion**: Vol_scaled backbone + CRPS redistribution gets CI to 75.6% but below the 80%
+gate. The normalized σ (mean=1) redistributes spread per-cell but the redistribution hurts
+some cells that were previously borderline → net CI drops from VS bestval 87.9%.
+
+---
+
+### Experiment 76c: Direct IV + Uniform Post-Hoc Scale=1.5
+
+**Goal**: Test if uniformly amplifying direct IV spread fixes CI.
+
+**Config**: Same direct IV model (Exp 76) with --post_hoc_scale 1.5 at inference.
+
+**Results** (20 batches × 50 samples):
+
+| Metric | VS bestval | Exp 76c scale=1.5 | Delta |
+|--------|-----------|-------------------|-------|
+| 90% CI | 87.9% | **77.5%** | -10.4% |
+| Per-horizon CI: h=1 | — | 86.6% | — |
+| Per-horizon CI: h=30 | — | 75.1% | — |
+| Kurtosis | 1.006 | **0.345** | -0.661 |
+| Skewness | 1.055 | **0.088** | -0.967 |
+
+**Suite results**: Surface PASS, Coverage FAIL, Time Series FAIL, Conditionality PASS,
+Regime Coverage FAIL.
+
+**Conclusion**: Uniform scaling destroys kurtosis (0.345, FAIL) and skewness (0.088, FAIL).
+Post-hoc scaling is not a viable fix — it changes the tail distribution properties.
+
+---
+
+### Diagnostic D5: Direct IV Spread Analysis
+
+**Root cause of insufficient CI in direct IV**: **NO HORIZON GROWTH**.
+
+**Findings** (3 test windows, 50 samples each, CRPS post-hoc disabled):
+- Overall 90% CI: 86.5% (3 windows — comparable to vol_scaled when CRPS post-hoc disabled!)
+- Model/GT ratio at h=1: **mean 1.27x** — model OVERSPREADS at h=1
+- **Horizon growth h30/h1: 1.05x** (need ~5.5x for Brownian random walk)
+
+Per-cell model/GT spread ratio at h=1:
+```
+[[1.14 0.77 1.22 1.71 0.72]
+ [0.34 0.93 1.46 1.06 0.52]
+ [0.56 1.06 1.62 2.03 1.49]
+ [0.85 1.61 2.04 2.39 1.78]
+ [0.52 1.47 2.36 1.27 0.88]]
+Mean: 1.27x
+```
+
+**Why no horizon growth**: In direct IV mode, targets are absolute IV levels (normalized to [-1,1]).
+Since IV surfaces are highly autocorrelated, the absolute targets at h=1 and h=30 are similar
+(both close to the last history surface). The diffusion noise that creates sample diversity is the
+same at all horizons → flat spread across horizons.
+
+In contrast, vol_scaled mode targets DEVIATIONS (log-ratios) from baseline, which naturally grow
+with horizon. The exp() transform further amplifies differences.
+
+**Key insight**: Direct IV model has sufficient spread at h=1 but collapses at later horizons.
+The fix must introduce horizon-dependent uncertainty growth:
+1. `max_global_residual`: retain residual noise at later frames (inference-time, no retraining)
+2. CRPS head with position embedding (Exp 77): learn horizon-dependent σ
+3. Uncertainty head: learned per-horizon scaling
+
+**Also**: CRPS post-hoc normalized σ HURTS total coverage (from ~86.5% raw to 66.4% with CRPS).
+The normalization to mean=1 redistributes spread away from borderline cells. Need to use CRPS σ
+as absolute (not normalized) or combine with horizon growth first.
+
+---
+
+### Experiment 76d: Direct IV Raw Baseline (CRPS Disabled, 20 Batches)
+
+**Goal**: Measure direct IV model performance WITHOUT CRPS post-hoc to isolate the base model.
+
+**Config**: Same Exp 76 model with --crps_sigma_clamp 0.001 (effectively disabling CRPS redistribution).
+
+**Results** (20 batches × 50 samples):
+
+| Metric | VS bestval (vol_scaled) | Exp 76d (direct IV raw) | Delta |
+|--------|------------------------|------------------------|-------|
+| 90% CI | 87.9% | **78.0%** | -9.9% |
+| h=1 CI | — | 86.8% | — |
+| h=7 CI | — | 80.8% | — |
+| h=14 CI | — | 76.8% | — |
+| h=30 CI | — | 76.0% | — |
+| Kurtosis | 1.006 | **0.475** | -0.531 |
+| Skewness | 1.055 | **0.054** | -1.001 |
+| Width ratio | 0.707 | 0.339 | -0.368 |
+| ACF MAE | 0.020 | 0.038 | +0.018 |
+| MAE reduction | 89.3% | 83.6% | -5.7% |
+
+**Suite results**: Surface PASS, Coverage FAIL, Time Series FAIL (kurt+skew), Conditionality PASS,
+Regime Coverage FAIL.
+
+**Root cause analysis — Why direct IV is structurally inferior**:
+
+The vol_scaled exp() transform provides THREE benefits that direct IV fundamentally cannot replicate:
+1. **Fat tails** (kurtosis): exp() is convex → Jensen's inequality → positive excess kurtosis.
+   Direct IV uses LINEAR denormalization → no extra kurtosis. 0.475 vs 1.006.
+2. **Positive skew**: exp() maps symmetric z-score noise to positively skewed IV-space samples.
+   Direct IV: symmetric noise → symmetric samples. 0.054 vs 1.055.
+3. **Condition-dependent spread**: vol_scale amplifies differently per window and per cell.
+   Direct IV: all samples get same diffusion noise magnitude. Width ratio 0.339 vs 0.707.
+
+**Conclusion**: Direct IV cannot be fixed with post-hoc corrections. The kurtosis and skewness
+failures are structural — they come from the ABSENCE of the nonlinear exp() transform, not from
+insufficient spread or CRPS miscalibration. Direct IV provides correct per-cell CRPS structure
+(Spearman=0.835) but fundamentally wrong distributional shape.
+
+**Decision**: Abandon direct IV as primary path. Return to vol_scaled + per-cell CRPS with position
+embedding (Exp 77). The vol_scaled framework provides the correct distributional shape; CRPS head
+provides per-cell correction; position embedding provides horizon growth.
+
+---
+
+### Experiment 77: Vol_Scaled + CRPS Per-Cell + Position Embedding (16D)
+
+**Goal**: Add frame position embedding to CRPS head so it learns horizon-dependent σ.
+
+**Code changes**: CRPSVarianceHead gains `pos_embed_dim` parameter. Position embedding (16D) added
+to input. Forward accepts `positions` kwarg. Config: `crps_pos_embed_dim: int = 0`.
+
+**Training**: Vol_scaled backbone + CRPS (n_cells=25, pos_embed=16), 30 epochs, seed=42.
+Model: 467,515 params (+2K for position embedding).
+
+**Learned σ analysis**:
+- **Horizon growth: σ(h=30)/σ(h=1) = 1.808x** — head LEARNED that later horizons need more σ ✅
+- Per-cell pattern preserved: volatile cells get σ=0.075, calm cells get σ=0.010 at h=1
+- Per-cell pattern changes with horizon (h=30 has different cell emphasis)
+
+**Normalization Bug**: Per-frame normalization (mean=1 per frame) DESTROYS horizon growth. Fixed to
+global normalization (mean=1 across all frames and cells) which preserves horizon growth.
+
+**Results** (20 batches × 50 samples, comprehensive sweep):
+
+| Variant | 90% CI | h=1 | h=30 | Kurt | Skew | Status |
+|---------|--------|------|------|------|------|--------|
+| CRPS disabled | **85.9%** | 90.5% | 87.5% | 0.716 | 0.533 | Baseline |
+| Per-frame norm | 75.8% | 83.8% | 75.7% | 0.671 | 0.316 | FAIL |
+| Global norm | 75.2% | 74.6% | 83.1% | 0.678 | 0.728 | Horizon growth ✅ |
+| Clamp=0.10 | 85.0% | 89.8% | 87.2% | 0.734 | 0.802 | Best with CRPS |
+| Clamp=0.15 | 84.6% | 89.0% | 87.2% | 0.727 | 0.528 | |
+| Clamp=0.20 | 83.6% | 88.1% | 86.3% | 0.736 | 0.569 | |
+| VS bestval | 87.9% | — | — | 1.006 | 1.055 | Reference |
+
+**Key findings**:
+1. **Backbone is fine**: CRPS-disabled model gets 85.9% (vs 87.9% VS bestval) — joint training
+   with CRPS barely affects the backbone.
+2. **CRPS redistribution ALWAYS hurts CI**: Even clamp=0.10 drops CI from 85.9% to 85.0%.
+3. **Horizon growth works**: Global normalization makes h=30 (83.1%) > h=1 (74.6%). But this
+   also shifts too much spread from near to far horizons.
+4. **Anti-correlation**: CRPS σ is POSITIVELY correlated with x₀_pred error (larger for volatile
+   cells in z-space). But CI coverage needs the OPPOSITE pattern: calm cells are undercovered
+   and need MORE spread. The CRPS head gives calm cells LESS spread → coverage drops.
+
+**Root cause analysis**: In vol_scaled z-space, x₀_pred error ∝ cell volatility (volatile cells
+have larger z-score targets → larger errors). CRPS correctly learns σ ∝ error. But CI needs
+σ ∝ GT spread / model spread ratio. In z-space, the denoiser already partially compensates
+(Spearman=-0.615 from D2), so the ratio goes in the OPPOSITE direction from the raw error.
+
+This is the plan's "Exp 76 Outcome B" scenario. Prescribed fix: compute CRPS on denormalized IV
+where volatile cells have larger absolute errors AND need larger CI width → alignment.
+
+**Conclusion**: CRPS redistribution in z-space hurts CI. Next: investigate boost-only application.
+
+---
+
+### Experiment 77d: Boost-Only CRPS σ Application (No Cell Narrowing)
+
+**Hypothesis**: CRPS σ redistribution hurts CI because zero-sum normalization narrows borderline
+cells. If we only WIDEN (σ = max(1.0, σ_norm)), undercovered cells get boosted without narrowing
+others.
+
+**Critical diagnostic finding**: Spearman(σ_h7, coverage_deficit) = +0.659 (p=0.0003). The CRPS
+σ direction is CORRECT — cells with higher coverage deficit get larger σ. The previous session's
+"anti-correlation" conclusion was wrong; the issue was zero-sum normalization, not direction.
+
+**Normalized σ structure** (avg over 10 test windows):
+
+At h=1 (early horizon):
+```
+1.29  0.80  0.87  2.05  1.61
+0.98  0.45  0.52  1.39  1.01
+0.44  0.32  0.37  0.55  1.08
+0.34  0.26  0.29  0.37  1.03
+0.35  0.26  0.25  0.31  0.79
+```
+
+At h=30 (late horizon — position embedding provides 1.8x growth):
+```
+1.35  1.09  1.70  5.28  2.39
+1.47  0.74  0.99  3.61  1.24
+0.71  0.53  0.68  1.12  2.45
+0.55  0.43  0.50  0.69  2.52
+0.45  0.42  0.42  0.54  1.49
+```
+
+**Config**: Same exp77 model (crps_vs_posembed), inference-only change: `crps_boost_only=True`.
+
+**Results** (20 batches × 50 samples):
+
+| Variant | 90% CI | Kurt | L2 fails | worst L2 | floor expl | Suite 8 |
+|---------|--------|------|----------|----------|------------|---------|
+| No CRPS | 85.9% | 0.716 | 31 | 0.490 | 0.00% | PASS |
+| Redistribute clamp=0.10 | 85.0% | 0.734 | 37 | 0.457 | 0.02% | PASS |
+| **Boost uncapped** | **88.9%** | 0.649 | **20** | 0.486 | **2.27%** | **FAIL** |
+| **Boost cap=1.5** | **88.4%** | 0.682 | **23** | **0.514** | 0.72% | FAIL (pcell) |
+| Boost cap=1.3 | (testing) | | | | | |
+
+**Key findings**:
+1. **Boost-only WORKS**: L2 failures drop 31→20 (uncapped) or 31→23 (cap=1.5). +3% CI.
+2. **Correct direction confirmed**: Zero-sum redistribution hurts (37 L2), boost-only helps (20).
+3. **Floor explosion tradeoff**: Uncapped boost pushes 2.27% samples to floor. Cap=1.5 reduces
+   to 0.72% (agg passes, but worst cell=1.90% still fails percell gate).
+4. **Worst cell barely moves**: 0.490→0.514 (+0.024). Needs 0.700 — 36% more. CRPS σ for this
+   cell is only 1.01 (barely above 1.0), so boost can't help it. The CRPS head learned small σ
+   because the denoiser's z-space prediction error for this cell IS small — the issue is that
+   vol_scale is too small for turb regime, not that the denoiser is inaccurate.
+
+**Root cause**: The worst L2 cells need **regime-conditioned vol_scale** (wider during turb),
+not per-cell σ correction. CRPS σ ∝ x₀_pred error, but the worst cells have small x₀_pred error
+in z-space (denoiser is accurate). Their coverage deficit comes from vol_scale being a static
+average that doesn't adapt to turb regime.
+
+**VS bestval comparison**: VS bestval has turb h=7 worst=0.620 (better than exp77's 0.490).
+VS bestval also fails L2 under current LAYER2_LOW=0.70 threshold. Exp 78 (CRPS head on VS
+bestval backbone) could combine better backbone + boost-only σ.
+
+---
+
+### Experiment 78: Two-Phase CRPS Head on VS Bestval Backbone (2026-03-02)
+
+**Goal**: Train CRPS variance head (frozen backbone) on VS bestval model — combine best backbone
+with learned per-cell σ. Tests whether decoupled training on a strong backbone outperforms
+joint training from scratch (Exp 77).
+
+**Config**:
+- Base model: `block_ar_vol_scaled_30ep/best_model.pt` (VS bestval, epoch 26)
+- CRPS head: 25 cells, pos_embed_dim=16, λ_crps=0.1
+- Frozen backbone: only `crps_var_head` parameters trained (28K params)
+- 20 epochs, lr=1e-3, batch_size=10
+
+**Command**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+  --denoiser_type conv3d --bottleneck_dim 128 --conv3d_n_res_blocks 6 \
+  --forward_only --uniform_noise --sampling_mode uniform \
+  --ratio_target --ratio_target_mode vol_scaled \
+  --finetune_crps_head models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+  --crps_n_cells 25 --crps_pos_embed_dim 16 --lambda_crps 0.1 \
+  --epochs 20 --batch_size 10 --seed 42 \
+  --output_dir models/backfill/block_ar_crps_on_vs_bestval
+```
+
+**Training output**: Best epoch 18, test coverage 66.7% (low because training-time eval uses
+raw per-step σ, not post-hoc boost-only application).
+
+**Learned σ analysis** (averaged over 10 test windows, t=50):
+- Raw σ range: [0.044, 1.288], mean=0.205, std=0.194
+- Horizon growth: h=1→0.158, h=7→0.176, h=14→0.198, h=30→0.258 (correct direction)
+- Per-cell normalized σ grid (mean=1):
+```
+[[2.42  0.96  0.98  3.27  1.87]
+ [1.50  0.48  0.60  1.55  1.15]
+ [0.58  0.39  0.47  0.63  3.51]
+ [0.39  0.32  0.37  0.43  0.88]
+ [0.55  0.28  0.31  0.33  0.79]]
+```
+- Strong spatial structure: corners/edges get large σ (up to 3.5x), center gets small σ (0.3x)
+- Much more extreme than Exp 77 (from-scratch backbone had milder σ variation)
+
+**Evaluation results** (boost-only, cap=1.3, 20 batches × 50 samples):
+
+| Metric | VS bestval | Exp 78 cap=1.3 | Delta |
+|--------|-----------|----------------|-------|
+| 90% CI | 88.0% | **89.5%** | +1.5% |
+| Kurtosis | 0.979 | **0.974** | -0.005 |
+| Width ratio | 0.707 | **0.739** | +0.032 |
+| L2 failures | 16 | **11** | -5 |
+| Worst L2 | 0.620 | 0.612 | -0.008 |
+| Cell ceiling | 0% | 6.74% | **FAIL** |
+
+**L2 failure locations** (Exp 78 cap=1.3): All in turb regime
+- turb h=7: 6 fails — cells [0,2]=0.633, [1,2]=0.629, [1,3]=0.641, [2,2]=0.653, [2,3]=0.612, [3,3]=0.645
+- turb h=14: 4 fails — cells [1,2]=0.694, [1,3]=0.620, [2,3]=0.629, [3,3]=0.698
+- turb h=30: 1 fail — cell [3,3]=0.694
+
+**Suite results**: 5/8 pass (fail: Suite 2 per-cell, Suite 7 L2, Suite 8 ceiling)
+
+**Comparison with uniform scaling** (from Exp 77d):
+- VS bestval + uniform 1.15x: CI=90.9%, Kurt=0.913, L2=5
+- VS bestval + uniform 1.25x: CI=92.5%, Kurt=0.895, L2=1
+- **Uniform scaling beats CRPS boost for L2** but hurts kurtosis more
+
+**Conclusion**: The CRPS head successfully learns per-cell and per-horizon σ structure, but
+the learned σ doesn't target the cells that actually fail L2. CRPS learns σ ∝ x₀_pred error
+in z-space, but the L2-failing cells (center-right, moneyness 3-4) have SMALL z-space prediction
+errors — they fail because vol_scale is a static average that doesn't increase enough during
+turbulent regimes. A simple uniform 1.25x scale outperforms learned per-cell CRPS for L2
+because ALL cells need more spread during turb, and the deficit is relatively uniform across cells.
+
+**Key learning**: CRPS on z-space targets is fundamentally misaligned with CI coverage needs.
+To learn the RIGHT per-cell σ for CI coverage, CRPS would need to operate in denormalized IV
+space (or the loss would need to directly target coverage). But this is exactly the per-cell
+denorm approach that was proven to destroy kurtosis (Exp 23 series).
+
+**Full Exp 78 boost sweep**:
+
+| Config | CI | Kurt | L2 | worst L2 | cell ceil | floor |
+|--------|------|------|-----|----------|-----------|-------|
+| VS bestval raw | 88.0% | 0.979 | 16 | 0.620 | 0% | 0% |
+| Exp78 cap=1.3 | 89.5% | 0.974 | 11 | 0.612 | 6.7% FAIL | 3.8% |
+| Exp78 cap=1.5 | 90.0% | 0.918 | 13 | 0.620 | 7.9% FAIL | 7.5% |
+| Exp78 uncapped | 90.5% | 0.943 | 10 | 0.633 | 11.0% FAIL | 24.0% |
+| VS + scale 1.15x | 90.9% | 0.913 | 5 | 0.661 | 0% | 0% |
+| VS + scale 1.25x | 92.5% | 0.895 | 1 | 0.661 | 0% | 0% |
+
+Cell [0,0] (short-maturity, low-moneyness) is the ceiling explosion problem — CRPS gives it
+σ_norm=2.42 (the biggest boost), which pushes samples to ceiling. This is a structural issue:
+the cells with highest GT volatility ALSO have highest IV levels near the [0,1] boundary.
+
+**The CRPS experiment series (75-78) is CONCLUDED.** Final findings:
+1. Boost-only CRPS provides modest L2 improvement (16→11) at cost of cell ceiling explosion
+2. Uniform scaling outperforms learned CRPS for L2 (1 failure at scale=1.25x) with no explosion
+3. CRPS σ ∝ x₀_pred error, not CI coverage need — fundamental misalignment
+4. The remaining L2 failures need regime-adaptive spread, not per-cell σ correction
+
+---
+
+### Experiment 79: Auxiliary Regime Features (2026-03-03)
+
+**Goal**: Give denoiser explicit access to regime info (vol_of_vol + mean_iv) via condition
+augmentation. Test whether explicit regime signal → regime-adaptive noise prediction.
+
+**Exp 79a**: aux_regime_features + turb_loss_weight=2.0
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_block_ar.py \
+  --denoiser_type conv3d --bottleneck_dim 128 --conv3d_n_res_blocks 6 \
+  --forward_only --uniform_noise --sampling_mode uniform \
+  --ratio_target --ratio_target_mode vol_scaled \
+  --aux_regime_features --turb_loss_weight 2.0 \
+  --epochs 30 --batch_size 10 --seed 42 \
+  --output_dir models/backfill/block_ar_regime_cond
+```
+
+**Exp 79b**: aux_regime_features only (no turb_loss_weight)
+Same command without `--turb_loss_weight 2.0`, output_dir `block_ar_regime_cond_v2`.
+
+**Results**:
+
+| Config | CI | Kurt | Width | L2 | worst L2 |
+|--------|------|------|-------|-----|----------|
+| VS bestval | 88.0% | 0.979 | 0.707 | 16 | 0.620 |
+| Exp 79a (+turb_loss) | 85.7% | 0.671 | 0.440 | 40 | 0.482 |
+| Exp 79b (aux only) | 86.3% | **0.589** | 0.479 | 33 | 0.490 |
+
+**Both MUCH WORSE than baseline.** Key regressions:
+- Kurtosis: 0.979 → 0.589-0.671 (below 0.50 gate!)
+- Width ratio: 0.707 → 0.440-0.479 (severe conditionality loss)
+- L2: 16 → 33-40 (more than doubled)
+
+**Root cause analysis**:
+1. **turb_loss_weight HURTS**: 2x loss weight on turb → denoiser predicts noise MORE accurately
+   during turb → NARROWER CIs during turb (width turb/calm = 0.82x). Exactly backwards.
+2. **aux_regime_features HURTS conditionality**: The regime projection shifts the condition
+   vector in a way that reduces sample diversity. The denoiser learns to predict regime-specific
+   MEANS, not regime-specific SPREADS. This reduces kurtosis and width ratio.
+3. **Zero-init doesn't help enough**: Even though regime_feature_proj is zero-initialized, the
+   gradients push it to a non-trivial projection that hurts the delicate condition vector balance.
+
+**Key insight**: Giving the denoiser MORE information (regime features) makes it MORE accurate
+→ NARROWER CIs. This is the fundamental tension: better prediction accuracy = worse coverage.
+We want the denoiser to be STRATEGICALLY LESS ACCURATE during turb for specific cells.
+
+---
+
+### Experiment 80: Vol_Scale Power at Inference (2026-03-03)
+
+**Goal**: Test vol_scale_power > 1.0 at inference on VS bestval. Higher power amplifies
+turb/calm vol_scale ratio nonlinearly via exp() transform.
+
+| Config | CI | Kurt | Width | L2 | worst L2 |
+|--------|------|------|-------|-----|----------|
+| VS bestval (power=1.0) | 88.0% | 0.979 | 0.707 | 16 | 0.620 |
+| power=1.2 | 87.9% | 1.003 | 0.709 | 20 | 0.616 |
+| power=1.3 | 88.0% | 0.988 | 0.709 | 18 | 0.616 |
+
+**Neutral result.** Kurtosis preserved (0.988-1.003), CI unchanged, but L2 went UP (16→18-20).
+
+**Why power doesn't help**: Vol_scale_power changes the denormalization `baseline × exp(z × vs^p)`.
+For turb windows, this amplifies the NONLINEAR exp() effect dramatically. But the L2-failing
+cells have SMALL z-scores (denoiser is accurate for them), so amplifying vol_scale can't
+compensate. The fundamental issue is z-score magnitude, not vol_scale magnitude.
+
+Also, power > 1 amplifies both calm and turb (both have vs > 1), creating new failures in calm.
+
+**Comparison with uniform scaling** (which WORKS):
+- Uniform 1.25x: scales sample-level deviation from ensemble mean → directly widens CI
+- Power > 1: changes denormalization curve → indirectly affects CI through exp() nonlinearity
+- The ensemble-mean approach is more direct and effective for CI width
+
+---
+
+### Experiment 82: max_global_residual Sweep (2026-03-03)
+
+**Goal**: Test early stopping of diffusion reverse process for later frames. `max_global_residual`
+(mgr) sets `t_min(h) = mgr * h / (future_len - 1)`, leaving residual noise proportional to horizon.
+
+**Config**: VS bestval + mgr=5 (also attempted mgr=10,15,20 in parallel but hit CUDA OOM on 8GB GPU).
+
+**mgr=5 results** (Exp 82a):
+
+| Metric | VS bestval | mgr=5 | Delta |
+|--------|-----------|-------|-------|
+| 90% CI | 87.9% | 90.7% | +2.8% |
+| Kurtosis | 1.007 | 0.695 | -0.312 |
+| Skewness | 1.369 | — | — |
+| CalibErr | — | 0.071 | — |
+| L2 floor | 4 | 4 | 0 |
+| L2 ceiling | 4 | 5 | +1 |
+| L2 total | 8 | 9 | +1 |
+
+**mgr=20 partial** (OOM during Suite 3 conditionality tests):
+- Per-cell FLOOR passes (worst 73.6% > 70%) but CEILING fails (best 98.7% > 95%)
+- Calibration error 0.191 (terrible — over-covers globally)
+
+**Conclusion**: mgr HURTS. Kurtosis crashed from 1.007→0.695 (adding residual noise to later
+frames homogenizes the time series structure). Ceiling failures persist. The additional noise
+is NOT regime-adaptive — it compounds equally in calm and turb regimes.
+
+---
+
+### Experiment 83: Classifier-Free Guidance (CFG) Training (2026-03-03)
+
+**Goal**: Train with `cond_drop_prob=0.1` (randomly replace condition with zeros 10% of the time),
+then use anti-guidance (`guidance_scale=0.7`) at inference to increase sample diversity beyond
+the conditional distribution.
+
+**Training**: VS bestval config + cond_drop_prob=0.1, 30 epochs. Model saved to
+`models/backfill/block_ar_cfg_v1/best_model.pt` (epoch 23).
+
+**Evaluation** (guidance_scale=0.7):
+
+| Metric | VS bestval | CFG gs=0.7 | Delta |
+|--------|-----------|-----------|-------|
+| 90% CI | 87.9% | 87.9% | 0% |
+| Kurtosis | 1.007 | 0.640 | -0.367 |
+| Skewness | 1.369 | 0.218 | -1.151 |
+| L2 floor | 4 | 3 | -1 |
+| L2 ceiling | 4 | 4 | 0 |
+| Width turb/calm | — | 0.95-0.98x | FLAT |
+
+**Critical finding**: Width turb/calm ratio is FLAT (~0.97x). CFG anti-guidance does NOT produce
+regime-adaptive diversity. This makes sense: the unconditional model P(y) has no regime
+information, so blending P(y|x) toward P(y) just adds generic noise, destroying kurtosis
+and skewness without differentially widening turb CIs.
+
+**Skewness FAILED** (0.218 < 0.25 gate). CFG is strictly worse than baseline.
+
+---
+
+### Experiment 84: Posterior Noise Temperature (2026-03-03)
+
+**Goal**: Scale posterior noise z by sqrt(temperature) at each reverse diffusion step. Unlike
+post_hoc_scale (which operates in IV-space after sampling), temperature operates in z-space
+inside the diffusion loop.
+
+**Implementation**: Added `noise_temperature` config field to both `BlockARConfig` and
+`BlockARPOCConfig`. Modified `_sample_block_uniform` to scale posterior noise:
+`z = z * (temperature ** 0.5)` at each of the 100 diffusion steps.
+
+**Evaluation** (temp=1.5):
+
+| Metric | VS bestval | temp=1.5 | Delta |
+|--------|-----------|----------|-------|
+| Kurtosis | 1.007 | 0.514 | -0.493 |
+| Cell explosion | 4.35% | 8.37% | +4.02% |
+| KS daily | 19/25 | 11/25 | -8 |
+| Width turb/calm | — | 0.987-0.996x | FLAT |
+
+**Worst of all approaches.** Temperature compounds over 100 diffusion steps (each step scales
+noise by 1.22x → cumulative effect much larger than intended). Cell explosion at 8.37% (FAIL).
+Width turb/calm is FLAT — temperature is NOT regime-adaptive despite initial hypothesis that
+vol_scale would amplify it differently. The z-space noise is uniform across cells and regimes.
+
+---
+
+### Fresh VS Bestval Baseline (2026-03-03)
+
+**Goal**: Establish clean baseline with run-to-run variance measurement.
+
+| Metric | This run | Previous runs |
+|--------|----------|---------------|
+| 90% CI | 87.9% | 87.9-88.1% |
+| Kurtosis | 1.007 | 0.70-1.006 |
+| Cell explosion | 4.35% | — |
+| L2 floor | 4 | 3-5 |
+| L2 ceiling | 4 | 3-5 |
+| L2 total | 8 | 8-16 |
+
+**Key finding**: Ceiling failures exist even at RAW (no scaling). Calm h=1/7/14 have cells at
+96-100% coverage. Cell explosion worst cell at 4.35% — almost no headroom for widening.
+Run-to-run L2 variance is significant (8-16 range) due to sampling noise with 50 samples.
+
+---
+
+### Post-Hoc Scale Sweep Update (2026-03-03)
+
+| Scale | CI | Kurt | L2 fl | L2 cl | Explosion | Verdict |
+|-------|------|------|-------|-------|-----------|---------|
+| 1.00 (raw) | 87.9% | 1.007 | 4 | 4 | 4.35% | Baseline |
+| 1.10 | 90.0% | 0.932 | 3 | 4 | 5.25% | Explosion FAIL |
+| 1.20 | 91.8% | 0.893 | 2 | 5 | 6.09% | Explosion FAIL |
+
+**Cell explosion is the binding constraint.** Even 1.10x scaling pushes worst cell to 5.25%
+(gate is <5%). Post-hoc scale helps floor but can't fix ceiling AND hits explosion limit.
+
+---
+
+### Summary: Inference-Time Approach Sweep (2026-03-03)
+
+| Approach | Regime-adaptive? | L2 impact | Kurtosis | Explosion | Verdict |
+|----------|-----------------|-----------|----------|-----------|---------|
+| post_hoc_scale 1.10 | No | -1 floor, 0 ceil | 0.932 | 5.25% FAIL | Binds on explosion |
+| mgr=5 | No | 0 floor, +1 ceil | 0.695 | — | Destroys kurtosis |
+| CFG gs=0.7 | No | -1 floor, 0 ceil | 0.640 | — | Destroys skew+kurt |
+| temp=1.5 | No | — | 0.514 | 8.37% FAIL | Worst overall |
+| power=1.2 | Partial | +4 total | 1.003 | — | Makes L2 worse |
+| vol_scale clamp | **YES** | **TBD** | **TBD** | **TBD** | **TESTING** |
+
+**Conclusion**: ALL non-regime-adaptive approaches fail. They either:
+1. Hit cell explosion limit (scale, temp)
+2. Destroy kurtosis/skewness (mgr, CFG, temp)
+3. Don't help L2 (power)
+
+**Only remaining hope**: vol_scale clamp range adjustment, which is inherently regime-adaptive
+because it affects turb (at max clamp) and calm (at min clamp) DIFFERENTLY.
+
+---
+
+### Experiment 85: Vol_Scale Clamp Range [0.3, 2.5] (2026-03-03)
+
+**Goal**: Adjust vol_scale clamping at inference: lower min (0.5→0.3) to narrow calm CIs,
+higher max (2.0→2.5) to widen turb CIs. Regime-adaptive by construction.
+
+| Metric | VS bestval | Exp 85 [0.3,2.5] | Delta |
+|--------|-----------|-------------------|-------|
+| Kurtosis | 1.007 | 1.005 | -0.002 |
+| KS daily | 19/25 | 18/25 | -1 |
+| Cell explosion | 4.35% | 4.36% | +0.01% |
+| L2 floor | 18 | 16 | -2 |
+| L2 ceiling | 38 | 38 | 0 |
+| L2 total | 56 | 54 | -2 |
+
+**Near-zero effect.** Kurtosis preserved (1.005), but L2 barely moved (54 vs 56).
+
+**Root cause analysis** — vol_scale distributions in test data:
+- Calm windows: vol_scale ∈ [0.33, 0.63], mean=0.525. Only 34% below 0.5 (old clamp).
+  Min calm vol_scale = 0.330. Lowering clamp to 0.3 affects ZERO windows.
+- Turb windows: vol_scale ∈ [1.0, 3.2], mean=1.414. Only 12% above 2.0 (old clamp).
+  Raising to 2.5 only helps ~12% of turb windows.
+- Most windows are NOT hitting the clamps → clamp adjustment is nearly a no-op.
+
+**Conclusion**: Vol_scale clamp tuning is ineffective because the clamps rarely bind.
+The fundamental problem is that the scalar vol_scale amplifies ALL 25 cells equally.
+Calm ceiling failures need per-cell narrowing, turb floor failures need per-cell widening.
+No scalar regime-only approach can fix this.
+
+---
+
+### Exp 88: Learned Per-Cell Regime-Adaptive Scale (Differentiable Coverage Loss)
+
+**Hypothesis**: A 27-param `PerCellRegimeScale` module trained with Interval Score (IS) loss
+can learn per-cell alpha corrections that hand-tuned scalar alpha cannot, reducing L2 failures
+below the scalar alpha=0.70 baseline (9 L2).
+
+**Architecture**: `scale[r,c] = 1 + bias + (alpha_global + delta[r,c]) * (vov_ratio - 1.0)`,
+clamped to [0.5, 2.0]. 27 params: 1 global alpha, 25 per-cell delta (±0.3 clamp), 1 bias.
+Applied post-hoc: `mean + scale * (samples - mean)`.
+
+**Training**: Cached 50 samples per window from frozen VS bestval model (3981 train windows,
+441 val). Regime-stratified IS loss (calm/turb split by vov_ratio median). Adam lr=0.01,
+500 iters, mini-batch 256. L2 reg on delta (λ=0.01).
+
+**Exp 88a (with bias)**:
+- Learned: alpha_global=0.285, bias=0.182, delta range [-0.30, 0.18]
+- IS loss asymmetry (20x undercoverage penalty) → optimizer finds "widen everything" solution
+- Bias=0.182 adds 18% uniform CI widening on top of regime scaling
+- ALL floor violations eliminated, but 47 ceiling violations created
+
+**Exp 88b (no bias)**:
+- Learned: alpha_global=0.290, bias=0.0 (fixed), delta range [-0.18, 0.16]
+- Better balance: calm scale~0.92 (narrows), turb scale~1.09 (widens)
+- Both floor AND ceiling violations remain
+
+| Variant | 90% CI | Kurtosis | Calib Err | L2 floor | L2 ceil | L2 total |
+|---------|--------|----------|-----------|----------|---------|----------|
+| Baseline (no scale) | 88.0% | 0.979 | — | 16 | 39 | 55 |
+| Scalar α=0.50 | 86.2% | 0.991 | — | 6 | 8 | 14 |
+| Scalar α=0.70 | 85.0% | 1.034 | — | 6 | 3 | 9 |
+| Exp 88a (bias) | 91.4% | 0.932 | 0.065 | 0 | 47 | 47 |
+| Exp 88b (no bias) | 87.3% | 1.000 | 0.020 | 8 | 20 | 28 |
+
+**Why learned approach fails to beat hand-tuned scalar alpha**:
+
+1. **IS loss asymmetry**: For 90% CI (α=0.1), IS penalizes undercoverage 20x more than
+   overcoverage. Optimizer strongly prefers widening all CIs, creating ceiling violations.
+   With bias, this creates 47 ceiling violations. Without bias, the constraint prevents
+   the worst widening but can't reach the 6 floor-failing cells.
+
+2. **Train/test distribution mismatch**: Per-cell delta learned on train split (3981 windows)
+   doesn't match test split patterns. The delta grid learns train-specific cell structure
+   that doesn't generalize.
+
+3. **Scalar alpha already near-optimal**: At α=0.70, the scalar approach trades floor for
+   ceiling evenly (6 floor, 3 ceiling = 9 total). The learned head can't improve on this
+   because it's optimizing IS (asymmetric) not balanced floor+ceiling count.
+
+**Positive findings**: Exp 88b achieves excellent kurtosis (1.000), calibration error (0.020),
+and KS daily changes (20/25 vs 16/25 baseline). The post-hoc scaling preserves distribution
+properties perfectly.
+
+**Conclusion**: IS loss is structurally wrong for the L2 gate — IS optimizes for calibration
+(asymmetric coverage), while L2 gate requires balanced [70%, 95%] coverage. A symmetric loss
+(e.g., pinball on both tails) might help, but the deeper issue is that 27 params learned on
+the train split can't capture the test-specific per-cell regime patterns. Same distribution
+shift problem that killed the CalibrationHead (Exp 73 analysis).
+
+**Files**: `train_percell_scale.py` (training), models in `percell_scale_head/`
+**Results**: `exp88_percell_scale/`, `exp88b_nobias/`
+
+---
+
+## 2026-03-03: Literature Synthesis — Beyond DDPM for Calibrated Uncertainty
+
+### Context
+
+88 experiments over ~2 weeks have failed to pass Suite 2 (per-cell CI gate [70%, 95%]) and
+Suite 7 (L2 regime×cell coverage) on the raw Block-AR DDPM model. The Three-Layer Failure
+Model (documented above) explains why: (1) normalization inverts variance structure, (2) NLL
+gradients push sigma the wrong direction, (3) MSE on noise prediction is spread-blind. Only
+online conformal calibration (Exp 73) passes all gates, but the standing directive requires
+the model to learn correct uncertainty end-to-end.
+
+A comprehensive literature review was conducted covering: AIFS-CRPS (ECMWF operational
+weather system), OCM (ICLR 2025), Conformal PID (NeurIPS 2024), Patched Scoring Rules
+(JMLR 2024), Free Hunch (ICLR 2025), GenCast (Nature 2024), FGN (DeepMind), and the
+Jin & Agarwal (2025) IV surface diffusion paper.
+
+Sources: `conversation_with_claude_web_latest/` — 3 files covering CRPS single-pass models,
+decoupling sample quality from calibration, and full technical discussion.
+
+### Key Finding: Why Diffusion Is Structurally Wrong for This Problem
+
+**Diffusion models produce calibrated uncertainty as an uncontrolled side effect.**
+
+In DDPM, sample diversity comes from accumulated denoiser imperfection across 100 reverse
+steps. The MSE training objective optimizes prediction accuracy at each step — it has zero
+gradient signal for output spread. Per-cell uncertainty is entirely governed by how much
+the denoiser fails to predict noise at each position. This is why accuracy is ANTI-correlated
+with calibration need (Spearman=-0.615): the denoiser is BETTER at volatile cells → they
+get NARROWER CIs → exactly backwards.
+
+In contrast, CRPS-trained single-pass models produce calibrated uncertainty as a **directly
+optimized output**. Noise enters through conditional layer normalization at every layer. The
+network controls exactly how much noise reaches each output variable. The CRPS loss directly
+penalizes miscalibration: "you amplified too little at cell (0,0) at horizon 14 — fix it."
+
+This is why ECMWF operationalized AIFS-CRPS over AIFS-Diffusion in July 2025: the single-pass
+CRPS approach is both more accurate AND 20-39x cheaper at inference.
+
+### Cross-Reference: Web Recommendations vs Three-Layer Failure Model
+
+The literature review proposed several approaches. Filtering through our empirically-validated
+Three-Layer Failure Model:
+
+| Approach | Layer 1 (Norm) | Layer 2 (NLL) | Layer 3 (MSE) | Verdict |
+|----------|---------------|---------------|---------------|---------|
+| OCM on frozen DDPM | **HIT** | **HIT** | N/A | DEAD |
+| Free Hunch | **HIT** | N/A | N/A | DEAD |
+| Analytic-DPM | **HIT** | **HIT** | N/A | DEAD |
+| Conformal PID | Bypass | Bypass | Bypass | ALIVE (post-hoc) |
+| CRPS fine-tune of DDPM (output space) | Bypass | Bypass | Bypass | **ALIVE** |
+| afCRPS single-pass network | Bypass | Bypass | Bypass | **ALIVE** |
+
+**Critical finding**: OCM was recommended by the decoupling artifact but is DEAD per our
+failure model — the score Hessian is computed in normalized [-1,1] space where turbulent
+residuals are inverted. Our Exp 2/4/5 (IDDPM learned variance, which uses VLB — a Hessian
+proxy) empirically confirmed this: learned variance collapsed to constants.
+
+**Only two genuinely viable approaches survive the filter**, both operating in output IV space
+with proper scoring rules (not NLL/MSE):
+
+### Viable Approach 1: afCRPS Single-Pass Network
+
+**Replace DDPM entirely** with a stochastic network trained end-to-end with almost-fair CRPS.
+
+**Architecture** (following AIFS-CRPS / FGN template):
+- Reuse existing GRU encoder for condition extraction
+- Replace 100-step diffusion loop with single-pass Conv3D decoder
+- Add noise injection: shared Gaussian noise vector (dim 8-32) processed by 2-layer MLP,
+  injected via conditional layer normalization (FiLM-style) at every ResBlock
+- Output directly in IV space (not normalized): `IV = decoder(condition, noise)`
+- ~437K params (same as current model)
+
+**Loss** (composite, following ECMWF + Patched Scoring Rules):
+```
+L = λ₁ × Σᵢ CRPS(Fᵢ, yᵢ)           # per-cell marginal calibration (25 terms)
+  + λ₂ × VS(S, y)                     # variogram score: spatial structure (300 pairs)
+  + λ₃ × Σᵢ wᵢ(yᵢ) × CRPS(Fᵢ, yᵢ)  # threshold-weighted CRPS for tails
+```
+
+Where:
+- `fCRPS = E|Y - y| - 0.5 × E|Y - Y'|` (fair CRPS, debiased for finite ensemble)
+- `afCRPS = 0.95 × fCRPS + 0.05 × CRPS` (almost-fair, avoids degeneracy)
+- Variogram score: `VS = Σ_pairs (|yᵢ - yⱼ|^p - E|Sᵢ - Sⱼ|^p)²` with p=0.5
+- Threshold weights: higher at 5th/95th percentiles for tail fidelity
+
+**Training protocol**:
+- K=4 ensemble members per gradient step (ECMWF: sufficient for convergence)
+- Generate 20-50 members at inference by varying noise vector
+- Progressive rollout: single-step → multi-step autoregressive
+- Batch size 10, 30 epochs = ~12K gradient steps × 4 = 48K forward passes
+
+**Why this bypasses all three failure layers**:
+- Layer 1: Output in raw IV space, not normalized — turb windows HAVE higher variance
+- Layer 2: CRPS is a proper scoring rule with DIRECT spread incentive (|Y-Y'| term),
+  no NLL gradient inversion
+- Layer 3: Spread is explicitly optimized — CRPS penalizes both over- and under-dispersion
+
+**Evidence**:
+- ECMWF: AIFS-CRPS outperforms AIFS-Diffusion (operational since July 2025)
+- DeepMind FGN: 32-dim noise → 87M outputs, captures 99.9% of spatial correlations
+  from marginal CRPS alone (shared noise bottleneck forces coherence)
+- NVIDIA FCN3: adopted CRPS over diffusion
+
+**Risks**:
+1. **Kurtosis**: Current DDPM gets fat tails "for free" from exp(z×vol_scale) coherence.
+   Single-pass additive model produces Gaussian tails unless architecture specifically learns
+   fat-tailed output. AIFS-CRPS achieves realistic tails for weather (also heavy-tailed),
+   but this needs empirical validation for IV surfaces.
+2. **Spatial coherence**: 12 conv layers (single pass) vs ~1200 effective rounds (100 steps
+   × 12 layers). Risk of less spatial refinement. Mitigated: 5×5 grid is tiny — weather
+   models achieve coherence on 500K+ grid points with single-pass.
+3. **Data sufficiency**: 4000 training windows is small. No CRPS system validated at this
+   scale. Mitigation: pre-train on synthetic SSVI surfaces, strong inductive bias from
+   small grid and smooth IV structure.
+4. **No-arbitrage**: IV surfaces need arbitrage constraints. Weather models get "physics
+   for free" from dynamics. May need explicit arbitrage penalty terms.
+
+### Viable Approach 2: CRPS Fine-Tuning of Existing DDPM
+
+**Keep frozen DDPM**, fine-tune with CRPS loss on output-space samples.
+
+**Mechanism**:
+- Generate K=2 full trajectories per sample via differentiable DDIM (20 steps)
+- Compute CRPS in denormalized IV space: `CRPS = E|IV_gen - IV_gt| - 0.5×E|IV₁ - IV₂|`
+- Backpropagate through full reverse process with gradient checkpointing
+- Fine-tune only last N layers of denoiser (freeze encoder, early ResBlocks)
+
+**Cost estimate**:
+- Per batch: K × 20 = 40 denoiser forward passes (vs 1 for MSE training)
+- With gradient checkpointing: checkpoint every 5th DDIM step
+- Batch size: reduce from 64 to 4-8 (GPU memory constraint)
+- Gradient accumulation for effective batch size of 32
+- Fine-tune for 5-10 epochs only (from MSE-pretrained model)
+
+**Advantages over afCRPS single-pass**:
+- Preserves DDPM's proven kurtosis and spatial coherence
+- Lower risk: fine-tune, don't rebuild
+- Keeps exp(z×vol_scale) denormalization (heavy tails)
+
+**Disadvantages**:
+- Still constrained by isotropic forward process
+- Vanishing gradients through 20 DDIM steps (mitigated by gradient clipping)
+- 40x training cost per step (mitigated by short fine-tuning)
+- Diversity still comes from denoiser imperfection (though CRPS should improve it)
+
+**Key distinction from failed Exp 15 (per-step CRPS)**:
+- Exp 15: CRPS on intermediate x₀ predictions (where denoiser IS accurate → noise suppression)
+- This: CRPS on FINAL output samples (where spread IS wrong → corrective gradient)
+- Per-step and output-space CRPS are fundamentally different optimization objectives
+
+### Comparison of Viable Approaches
+
+| Factor | afCRPS Single-Pass | CRPS Fine-Tune DDPM |
+|--------|-------------------|---------------------|
+| Bitter Lesson alignment | Maximum | High |
+| Implementation effort | Major (new architecture) | Moderate (new training loop) |
+| Kurtosis risk | HIGH (no exp() coherence) | LOW (preserves DDPM quality) |
+| Spatial coherence risk | Medium (fewer layers) | LOW (DDPM intact) |
+| Data sufficiency | Unknown (4K novel) | Better (fine-tune from good init) |
+| Inference speed | 20-50x faster | Same as DDPM |
+| Per-cell calibration | Direct (noise routing) | Indirect (through denoiser) |
+| Generalization | Any factor | DDPM-specific |
+
+### Weather AI Convergence: The Paradigm Shift
+
+All major operational weather AI systems have converged on the same pattern:
+
+1. **Isotropic noise injection** (N(0,I), not heteroscedastic schedules)
+2. **Architecture + loss** learn heteroscedastic structure
+3. **Proper scoring rules** (CRPS) directly optimize calibration
+4. **Single-pass** inference (not iterative denoising)
+
+This validates our Three-Layer Failure Model: no weather system uses heteroscedastic noise
+schedules (our Exp 46-47 confirmed this fails), learned reverse variance (our Exp 2/4/5
+confirmed this collapses), or MSE-trained spread (our Exp 50-53 confirmed this is blind).
+
+The weather community arrived at the same conclusion we did through 88 experiments:
+**you cannot bolt calibration onto an MSE-trained denoiser**. You must either train with
+a proper scoring rule (afCRPS) or apply post-hoc calibration (conformal).
+
+### Industry Evidence
+
+| System | Organization | Architecture | Loss | Operational |
+|--------|-------------|-------------|------|-------------|
+| AIFS-CRPS | ECMWF | Transformer + condLN | afCRPS (α=0.95) | July 2025 |
+| GenCast | DeepMind | Graph Transformer | Diffusion (MSE) | Research |
+| FGN | DeepMind | Functional network | CRPS | Research |
+| FCN3 | NVIDIA | Spherical Fourier | Spectral CRPS | Research |
+| FuXi-ENS | Fudan/Shanghai | VAE + CRPS | Composite | Research |
+| AIFS-Diffusion | ECMWF | Transformer + diffusion | MSE | Deprecated |
+
+**ECMWF's choice**: Ran AIFS-Diffusion and AIFS-CRPS in parallel. Operationalized CRPS
+because it was "more accurate" and "less computationally expensive." AIFS-Diffusion
+deprecated.
+
+### Conformal Calibration: Principled Post-Hoc (For Production)
+
+While the standing directive prioritizes learned approaches, the literature review also
+identified a principled 4-layer conformal pipeline that formalizes our Exp 73 approach:
+
+**Layer 1: Per-Cell Kuleshov Recalibration** (Kuleshov et al., ICML 2018)
+- 750 independent isotonic regressions (25 cells × 30 horizons)
+- Maps predicted quantile levels to actual coverage frequencies
+- Fixes systematic per-cell over/under-dispersion
+
+**Layer 2: Spatial Coherence via Ensemble Copula Coupling** (ECC)
+- Recalibrate marginals independently, then reorder using rank correlation from original samples
+- Preserves spatial structure while inheriting corrected marginals
+
+**Layer 3: Regime-Adaptive Conformal PID** (Angelopoulos et al., NeurIPS 2024)
+- PID controller for significance level: P (recent errors), I (steady-state bias), D (regime transitions)
+- 750 independent controllers, O(1) per update
+- Automatically widens during high-vol, narrows during calm
+- Formalizes our Exp 73 binary search approach with theoretical backing
+
+**Layer 4: Formal Guarantees via K-RCPS** (Teneggi et al., ICML 2023)
+- Finite-sample, distribution-free coverage guarantees for diffusion model outputs
+- For K=25 (one per cell), gives per-cell guarantees directly
+
+This pipeline is the production deployment path regardless of which model generates the
+base samples (DDPM, afCRPS, or any future model).
+
+### Related Work: IV Surface Forecasting with Diffusion
+
+**Jin & Agarwal (November 2025)** — "Forecasting Implied Volatility Surface with Generative
+Diffusion Models": Conditional DDPM with VP-SDE for one-day-ahead IV surface forecasting.
+Reports 90% CI breach rates near theoretical 10% target. SNR-weighted arbitrage penalty.
+Architecture: U-Net conditioned on EWMAs of historical surfaces, returns, VIX. Close to our
+architecture. Caveat: calibration is marginal/aggregate — per-cell and per-regime coverage
+not explicitly reported. Code: Austinjinc/rep_volgan on GitHub.
+
+**Conffusion (Horwitz & Hoshen, 2022)** — Per-pixel confidence intervals for diffusion models.
+Fine-tunes pretrained diffusion model with quantile regression (pinball loss) to predict
+upper/lower interval bounds in single forward pass, then applies RCPS calibration.
+
+### Decision: Recommended Path Forward
+
+Given:
+- 88 failed experiments with DDPM-internal approaches
+- Three-Layer Failure Model proving MSE/NLL fundamentally cannot learn calibrated spread
+- Weather AI convergence on CRPS single-pass over diffusion
+- Standing directive requiring Bitter Lesson compliance
+
+**Primary recommendation: afCRPS single-pass network.**
+- Most Bitter Lesson aligned (everything learned from data, no diffusion assumptions)
+- Directly addresses root cause (diversity as learned output, not denoiser side effect)
+- 20-50x faster inference (practical for production)
+- Risk: kurtosis loss (mitigate: validate empirically, add variogram score for structure)
+
+**Fallback: CRPS fine-tuning of existing DDPM.**
+- If afCRPS kurtosis collapses, truncated backprop through last 5 DDIM steps
+- Preserves DDPM quality while adding calibration signal
+- Less risky but less fundamentally sound
+
+**Production path (regardless of model): 4-layer conformal pipeline.**
+- Formalizes Exp 73 with theoretical backing and guarantees
+- Applicable to any base model output
+
+### Key References
+
+- AIFS-CRPS: Lang et al. (2025), ECMWF Newsletter #181
+- OCM: Zheng et al. (2025), ICLR 2025 Oral
+- Free Hunch: Zhang et al. (2025), ICLR 2025 Oral
+- Conformal PID: Angelopoulos, Candès & Tibshirani (2024), NeurIPS 2024
+- K-RCPS: Teneggi et al. (2023), ICML 2023
+- Patched Scoring Rules: Pacchiardi et al. (2024), JMLR 2024
+- FGN: Price et al. (2025), DeepMind
+- Jin & Agarwal (2025): IV Surface Diffusion, arxiv
+- Conffusion: Horwitz & Hoshen (2022): Per-pixel CI for diffusion
+- Kuleshov et al. (2018): Calibration of probabilistic forecasts, ICML 2018
+- Beta-NLL: Seitzer et al. (2022), ICLR 2022
+- Variogram Score: Scheuerer & Hamill (2015)

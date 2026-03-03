@@ -113,6 +113,64 @@ def _apply_post_hoc_scale(samples: torch.Tensor, scale: float) -> torch.Tensor:
     return (mean + scale * (samples - mean)).clamp(0.0, 1.0)
 
 
+def _apply_regime_adaptive_scale(
+    samples: torch.Tensor,
+    history: torch.Tensor,
+    alpha: float,
+    global_mean_vol: float = 0.0187,
+) -> torch.Tensor:
+    """Regime-adaptive post-hoc scaling: scale ∝ vol_of_vol.
+
+    scale_i = 1.0 + alpha * (vol_of_vol_i / median_vol - 1.0)
+
+    For calm windows (low vol_of_vol): scale < 1.0 → narrows CIs.
+    For turb windows (high vol_of_vol): scale > 1.0 → widens CIs.
+
+    samples: (B, n_samples, T, 5, 5) in [0, 1]
+    history: (B, H, 5, 5) in [0, 1] (denormalized)
+    alpha: sensitivity parameter (higher = more regime-adaptive)
+    """
+    B = samples.shape[0]
+    # Compute per-window vol_of_vol from history
+    mean_iv = history.mean(dim=(-1, -2))  # (B, H)
+    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, H-1)
+    vol = daily_chg.std(dim=1)  # (B,)
+    # Per-window scale: linear in vol_of_vol / global_mean_vol
+    ratio = vol / global_mean_vol  # (B,)
+    per_window_scale = 1.0 + alpha * (ratio - 1.0)  # (B,)
+    per_window_scale = per_window_scale.clamp(min=0.5, max=2.0)  # safety
+    # Reshape for broadcasting: (B, 1, 1, 1, 1)
+    scale = per_window_scale.reshape(B, 1, 1, 1, 1)
+    mean = samples.mean(dim=1, keepdim=True)
+    return (mean + scale * (samples - mean)).clamp(0.0, 1.0)
+
+
+def _apply_learned_percell_scale(
+    samples: torch.Tensor,
+    history: torch.Tensor,
+    scale_head,
+    global_mean_vol: float = 0.0187,
+) -> torch.Tensor:
+    """Apply learned per-cell regime-adaptive scale to samples.
+
+    samples: (B, n_samples, T, 5, 5) in [0, 1]
+    history: (B, H, 5, 5) in [0, 1] (denormalized)
+    scale_head: PerCellRegimeScale module
+    """
+    B = samples.shape[0]
+    mean_iv = history.mean(dim=(-1, -2))  # (B, H)
+    daily_chg = mean_iv[:, 1:] - mean_iv[:, :-1]  # (B, H-1)
+    vol = daily_chg.std(dim=1)  # (B,)
+    vov_ratio = (vol / global_mean_vol).unsqueeze(-1)  # (B, 1)
+
+    with torch.no_grad():
+        scale = scale_head(vov_ratio)  # (B, 5, 5)
+
+    mean = samples.mean(dim=1, keepdim=True)
+    scale_bc = scale.unsqueeze(1).unsqueeze(1)  # (B, 1, 1, 5, 5)
+    return (mean + scale_bc * (samples - mean)).clamp(0.0, 1.0)
+
+
 def generate_all_samples(
     model: ConditionalBlockARDDPM,
     test_loader: DataLoader,
@@ -122,6 +180,9 @@ def generate_all_samples(
     device: str,
     max_global_residual: Optional[int] = None,
     post_hoc_scale: float = 1.0,
+    regime_adaptive_alpha: float = 0.0,
+    percell_scale_head=None,
+    percell_scale_gmv: float = 0.0187,
     return_calibration_inputs: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate conditioned samples and ground truth for all batches.
@@ -159,9 +220,18 @@ def generate_all_samples(
             if post_hoc_scale != 1.0:
                 samples = _apply_post_hoc_scale(samples, post_hoc_scale)
 
+            history_denorm = denormalize_iv(history)
+            if regime_adaptive_alpha != 0.0:
+                samples = _apply_regime_adaptive_scale(
+                    samples, history_denorm, regime_adaptive_alpha,
+                )
+            if percell_scale_head is not None:
+                samples = _apply_learned_percell_scale(
+                    samples, history_denorm, percell_scale_head, percell_scale_gmv,
+                )
+
             all_samples.append(samples.cpu().numpy())
             all_gt.append(future_gt.cpu().numpy())
-            history_denorm = denormalize_iv(history)
             all_history.append(history_denorm.cpu().numpy())
 
             if return_calibration_inputs:
@@ -523,6 +593,9 @@ def run_conditionality_tests(
     device: str = "cpu",
     max_global_residual: Optional[int] = None,
     post_hoc_scale: float = 1.0,
+    regime_adaptive_alpha: float = 0.0,
+    percell_scale_head=None,
+    percell_scale_gmv: float = 0.0187,
 ) -> Dict:
     """Test that conditioning on history actually matters.
 
@@ -594,6 +667,16 @@ def run_conditionality_tests(
             )  # (B, n_samples, T, 5, 5)
             if post_hoc_scale != 1.0:
                 cond_samples = _apply_post_hoc_scale(cond_samples, post_hoc_scale)
+            if regime_adaptive_alpha != 0.0:
+                history_denorm = denormalize_iv(history)
+                cond_samples = _apply_regime_adaptive_scale(
+                    cond_samples, history_denorm, regime_adaptive_alpha,
+                )
+            if percell_scale_head is not None:
+                history_denorm = denormalize_iv(history)
+                cond_samples = _apply_learned_percell_scale(
+                    cond_samples, history_denorm, percell_scale_head, percell_scale_gmv,
+                )
 
             # --- Unconditional baseline: zero history (near-null conditioning) ---
             # Only run unconditional for first 5 batches (enough for stable estimate,
@@ -2187,8 +2270,21 @@ def main():
         help="Post-hoc multiplicative scaling of ensemble spread (1.0=off, 1.3=30%% wider)",
     )
     parser.add_argument(
+        "--regime_adaptive_alpha", type=float, default=0.0,
+        help="Regime-adaptive post-hoc scaling: scale = 1 + alpha*(vov/mean_vol - 1). "
+             "Positive alpha widens turb CIs and narrows calm CIs (0.0=off).",
+    )
+    parser.add_argument(
+        "--percell_scale_head", type=str, default=None,
+        help="Path to learned PerCellRegimeScale checkpoint (from train_percell_scale.py)",
+    )
+    parser.add_argument(
         "--guidance_scale", type=float, default=None,
         help="Override CFG guidance scale at inference (None=use checkpoint config)",
+    )
+    parser.add_argument(
+        "--noise_temperature", type=float, default=None,
+        help="Posterior noise temperature: >1.0 widens CIs in z-space (regime-adaptive via vol_scale)",
     )
     parser.add_argument(
         "--vol_scale_min", type=float, default=None,
@@ -2222,6 +2318,14 @@ def main():
         "--cell_scale_values", type=str, default=None,
         help="JSON list of 25 per-cell scale values (row-major 5x5). "
              "Applied as fixed_cell_scale in vol_scaled denormalization.",
+    )
+    parser.add_argument(
+        "--crps_sigma_clamp", type=float, default=None,
+        help="Override CRPS sigma clamp at inference (e.g. 0.3 → σ in [0.7, 1.3])",
+    )
+    parser.add_argument(
+        "--crps_boost_only", action="store_true",
+        help="Boost-only CRPS: σ = max(1.0, σ_norm) — only widen, never narrow cells",
     )
     args = parser.parse_args()
 
@@ -2268,6 +2372,10 @@ def main():
         print(f"Sampling mode: {args.sampling_mode} (override)")
     if args.post_hoc_scale != 1.0:
         print(f"Post-hoc scale: {args.post_hoc_scale}")
+    if args.regime_adaptive_alpha != 0.0:
+        print(f"Regime-adaptive alpha: {args.regime_adaptive_alpha}")
+    if args.percell_scale_head:
+        print(f"PerCell scale head: {args.percell_scale_head}")
     if args.calibration_head:
         print(f"Calibration:   {args.calibration_head}")
     if args.conformal:
@@ -2299,6 +2407,11 @@ def main():
         model_config.guidance_scale = args.guidance_scale
         print(f"  Guidance scale override: {args.guidance_scale}")
 
+    # Override noise temperature if requested
+    if args.noise_temperature is not None:
+        model_config.noise_temperature = args.noise_temperature
+        print(f"  Noise temperature override: {args.noise_temperature}")
+
     # Override vol_scale parameters if requested
     if args.vol_scale_min is not None:
         model_config.vol_scale_min = args.vol_scale_min
@@ -2317,6 +2430,14 @@ def main():
         assert len(csv) == 25, f"cell_scale_values must have 25 entries, got {len(csv)}"
         model_config.cell_scale_values = csv
         print(f"  Cell scale values: [{min(csv):.3f}, {max(csv):.3f}] range")
+
+    if args.crps_sigma_clamp is not None:
+        model_config.crps_sigma_clamp = args.crps_sigma_clamp
+        print(f"  CRPS sigma clamp: {args.crps_sigma_clamp} → σ in [{1-args.crps_sigma_clamp:.2f}, {1+args.crps_sigma_clamp:.2f}]")
+
+    if args.crps_boost_only:
+        model_config.crps_boost_only = True
+        print("  CRPS boost-only mode: σ = max(1.0, σ_norm) — never narrow cells")
 
     model = ConditionalBlockARDDPM(model_config)
 
@@ -2364,6 +2485,27 @@ def main():
     print(f"  Test set: {len(test_dataset)} windows")
 
     # =========================================================================
+    # Load per-cell scale head if provided
+    # =========================================================================
+    percell_scale_head = None
+    if args.percell_scale_head:
+        import sys
+        sys.path.insert(0, ".")
+        from experiments.backfill.block_ar.train_percell_scale import PerCellRegimeScale
+        print(f"\nLoading per-cell scale head from {args.percell_scale_head}...")
+        scale_ckpt = torch.load(args.percell_scale_head, weights_only=False, map_location=device)
+        percell_scale_head = PerCellRegimeScale(
+            init_alpha=scale_ckpt.get("init_alpha", 0.5),
+            delta_clamp=scale_ckpt.get("delta_clamp", 0.3),
+            use_bias=scale_ckpt.get("use_bias", True),
+        )
+        percell_scale_head.load_state_dict(scale_ckpt["state_dict"])
+        percell_scale_head.eval().to(device)
+        print(f"  alpha_global={percell_scale_head.alpha_global.item():.4f}, "
+              f"bias={percell_scale_head.bias.item():.4f}, "
+              f"delta range=[{percell_scale_head.delta.min().item():.4f}, {percell_scale_head.delta.max().item():.4f}]")
+
+    # =========================================================================
     # Generate samples (shared across test suites 1, 2, 4, 5, 7)
     # =========================================================================
     print("\nGenerating samples for validation tests...")
@@ -2377,6 +2519,8 @@ def main():
         device=device,
         max_global_residual=args.max_global_residual,
         post_hoc_scale=args.post_hoc_scale,
+        regime_adaptive_alpha=args.regime_adaptive_alpha,
+        percell_scale_head=percell_scale_head,
         return_calibration_inputs=need_cal_inputs,
     )
     if need_cal_inputs:
@@ -2492,6 +2636,8 @@ def main():
         device=device,
         max_global_residual=args.max_global_residual,
         post_hoc_scale=args.post_hoc_scale,
+        regime_adaptive_alpha=args.regime_adaptive_alpha,
+        percell_scale_head=percell_scale_head,
     )
 
     # Test Suite 4: Time Series Properties
@@ -2569,6 +2715,8 @@ def main():
         'use_ema': ("ema_params" in checkpoint and not args.no_ema),
         'forward_only': model_config.forward_only,
         'post_hoc_scale': args.post_hoc_scale,
+        'regime_adaptive_alpha': args.regime_adaptive_alpha,
+        'percell_scale_head': args.percell_scale_head,
         'model_config_hash': config_hash,
         'model_config': config_dict,
     }

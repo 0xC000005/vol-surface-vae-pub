@@ -175,6 +175,11 @@ class BlockARConfig:
     # 10 = recommended starting point (~0.09 IV std residual at h=29).
     max_global_residual: int = 0
 
+    # Posterior noise temperature: scale posterior variance during reverse diffusion.
+    # >1.0 = wider ensemble spread (amplified by vol_scale → regime-adaptive).
+    # Applied in z-space before denormalization, so multiplicative in ratio-space.
+    noise_temperature: float = 1.0
+
     # Clamp final output to [0, 1] after denormalization.
     # True = legacy behavior (clips extreme IV values).
     # False = no clamp (preserves full output distribution for fair metric comparison).
@@ -335,6 +340,10 @@ class BlockARConfig:
     # parameters — decoupled from the denoiser to prevent σ collapse.
     crps_variance_head: bool = False
     lambda_crps: float = 0.1  # weight of CRPS auxiliary loss
+    crps_n_cells: int = 1  # 1=scalar σ (original), 25=per-cell σ for 5×5 grid
+    crps_sigma_clamp: float = 0.0  # max deviation from 1.0 in normalized σ (0=unlimited)
+    crps_pos_embed_dim: int = 0  # frame position embedding dim for horizon-dependent σ (0=off)
+    crps_boost_only: bool = False  # boost-only mode: σ = max(1.0, σ_norm) — widen, never narrow
 
 
 class UncertaintyHead(nn.Module):
@@ -430,31 +439,48 @@ class CRPSVarianceHead(nn.Module):
     for turbulent conditions where x_0_pred is worse, CRPS rewards larger sigma.
     """
 
-    def __init__(self, cond_dim: int, n_steps: int, hidden_dim: int = 64):
+    def __init__(self, cond_dim: int, n_steps: int, hidden_dim: int = 64,
+                 n_cells: int = 1, pos_embed_dim: int = 0):
         super().__init__()
+        self.n_cells = n_cells
+        self.pos_embed_dim = pos_embed_dim
         self.t_embed = nn.Sequential(
             nn.Linear(1, hidden_dim),
             nn.SiLU(),
         )
+        # Optional frame position embedding (for horizon-dependent sigma)
+        if pos_embed_dim > 0:
+            self.pos_embed = nn.Sequential(
+                nn.Linear(1, pos_embed_dim),
+                nn.SiLU(),
+            )
+        else:
+            self.pos_embed = None
+        # Wider hidden layer when outputting per-cell sigma
+        input_dim = cond_dim + hidden_dim + pos_embed_dim
+        out_hidden = hidden_dim * 2 if n_cells > 1 else hidden_dim
         self.net = nn.Sequential(
-            nn.Linear(cond_dim + hidden_dim, hidden_dim),
+            nn.Linear(input_dim, out_hidden),
             nn.SiLU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(out_hidden, n_cells),
         )
         self.n_steps = n_steps
         # Initialize to log_sigma ≈ 0 → sigma ≈ 1 (neutral scaling)
         nn.init.zeros_(self.net[-1].weight)
         nn.init.zeros_(self.net[-1].bias)
 
-    def forward(self, condition: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(self, condition: torch.Tensor, t: torch.Tensor,
+                positions: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Predict per-sample log-sigma.
 
         Args:
             condition: (B, cond_dim)
             t: (B,) or (B, T) integer timesteps
+            positions: (B, T) frame positions (0-indexed) for horizon-dependent σ.
+                       Only used if pos_embed_dim > 0. Ignored otherwise.
 
         Returns:
-            log_sigma: (B, 1) if t is (B,), else (B, T, 1)
+            log_sigma: (B, n_cells) if t is (B,), else (B, T, n_cells)
         """
         # Normalize t to [0, 1]
         if t.dim() == 1:
@@ -466,11 +492,23 @@ class CRPSVarianceHead(nn.Module):
             condition = condition.unsqueeze(1).expand(-1, T, -1).reshape(B * T, -1)
 
         t_emb = self.t_embed(t_norm)  # (B, H) or (B*T, H)
-        h = torch.cat([condition, t_emb], dim=-1)
-        log_sigma = self.net(h)  # (B, 1) or (B*T, 1)
+
+        if self.pos_embed is not None and positions is not None:
+            # positions: (B, T) → normalize to [0, 1] and flatten
+            if positions.dim() == 1:
+                pos_norm = positions.float().unsqueeze(-1) / 30.0  # (B, 1)
+            else:
+                B_pos, T_pos = positions.shape
+                pos_norm = positions.float().reshape(-1, 1) / 30.0  # (B*T, 1)
+            pos_emb = self.pos_embed(pos_norm)  # (B*T, pos_dim)
+            h = torch.cat([condition, t_emb, pos_emb], dim=-1)
+        else:
+            h = torch.cat([condition, t_emb], dim=-1)
+
+        log_sigma = self.net(h)  # (B, n_cells) or (B*T, n_cells)
 
         if t.dim() > 1:
-            log_sigma = log_sigma.reshape(B, T, 1)
+            log_sigma = log_sigma.reshape(B, T, self.n_cells)
 
         return log_sigma
 
@@ -830,10 +868,14 @@ class ConditionalBlockARDDPM(nn.Module):
 
         # CRPS variance head: separate from denoiser, trained with CRPS on x₀
         if getattr(config, 'crps_variance_head', False):
+            n_cells = getattr(config, 'crps_n_cells', 1)
+            pos_embed_dim = getattr(config, 'crps_pos_embed_dim', 0)
             self.crps_var_head = CRPSVarianceHead(
                 cond_dim=config.bottleneck_dim,
                 n_steps=config.n_steps,
                 hidden_dim=64,
+                n_cells=n_cells,
+                pos_embed_dim=pos_embed_dim,
             )
         else:
             self.crps_var_head = None
@@ -1673,10 +1715,15 @@ class ConditionalBlockARDDPM(nn.Module):
                         noise_pred_4d = noise_pred.reshape(B, bs, H, W)
                         x_0_pred = (sqrt_recip * noisy_block - sqrt_recip_m1 * noise_pred_4d).clamp(-1, 1)
 
-                    # Predict σ from condition (detached) and timestep
-                    log_sigma = self.crps_var_head(condition.detach(), k)  # (B, bs, 1)
+                    # Predict σ from condition (detached), timestep, and frame position
+                    # Global frame positions for horizon-dependent σ
+                    frame_positions = torch.arange(start, end, device=device).unsqueeze(0).expand(B, -1)  # (B, bs)
+                    log_sigma = self.crps_var_head(condition.detach(), k, positions=frame_positions)  # (B, bs, n_cells)
                     sigma = torch.exp(log_sigma.clamp(-10, 5))
-                    sigma_4d = sigma.unsqueeze(-1).expand(B, bs, H, W)  # (B, bs, H, W)
+                    if self.crps_var_head.n_cells == 1:
+                        sigma_4d = sigma.unsqueeze(-1).expand(B, bs, H, W)  # (B, bs, H, W)
+                    else:
+                        sigma_4d = sigma.view(B, bs, H, W)  # (B, bs, H, W) per-cell
 
                     crps_loss = crps_gaussian(x_0_pred, sigma_4d, target_block).mean()
                     block_loss = block_loss + getattr(self.config, 'lambda_crps', 0.1) * crps_loss
@@ -2036,13 +2083,15 @@ class ConditionalBlockARDDPM(nn.Module):
 
             # Posterior variance: use learned variance if available
             z = torch.randn_like(x_t)
+            # Noise temperature: scale posterior noise for wider/narrower CIs
+            _noise_temp = getattr(self.config, 'noise_temperature', 1.0)
+            if _noise_temp != 1.0:
+                z = z * (_noise_temp ** 0.5)
             nonzero = (t_current > 0).float().unsqueeze(-1).unsqueeze(-1)
             if self.crps_var_head is not None:
-                # CRPS variance head: condition-dependent posterior noise scaling
-                log_sigma = self.crps_var_head(condition, t_current)  # (B, T, 1)
-                crps_sigma_head = torch.exp(log_sigma.clamp(-10, 5)).unsqueeze(-1)  # (B, T, 1, 1)
+                # CRPS variance head: standard DDPM posterior noise (σ applied post-hoc)
                 posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
-                x_new = mean + nonzero * crps_sigma_head * torch.sqrt(posterior_var) * z
+                x_new = mean + nonzero * torch.sqrt(posterior_var) * z
             elif crps_log_sigma is not None:
                 # CRPS-learned per-element sigma: condition-dependent posterior noise
                 posterior_var = self.scheduler.posterior_variance[t_flat].view(B, T, 1, 1)
@@ -2492,6 +2541,37 @@ class ConditionalBlockARDDPM(nn.Module):
             mean = samples.mean(dim=1, keepdim=True)
             samples = mean + scale * (samples - mean)
 
+        # CRPS variance head: per-cell, per-horizon spread redistribution.
+        # σ from head captures both per-cell structure AND horizon growth (via pos embed).
+        # Normalize over all cells+frames together to preserve relative magnitudes.
+        if self.crps_var_head is not None and self.crps_var_head.n_cells > 1:
+            crps_cond = self.encoder(history, mask=None)
+            if self.config.forward_only:
+                crps_cond = crps_cond + self.encoder.null_embedding.expand(B, -1)
+            crps_cond = self._augment_condition(crps_cond, None)
+            # Use t=0 (clean, most informative for spread calibration)
+            t_zero = torch.zeros(B, self.config.future_len, dtype=torch.long, device=history.device)
+            positions = torch.arange(self.config.future_len, device=history.device).unsqueeze(0).expand(B, -1)
+            log_sigma = self.crps_var_head(crps_cond, t_zero, positions=positions)  # (B, future_len, n_cells)
+            sigma_raw = torch.exp(log_sigma.clamp(-10, 5))
+            H, W = self.config.surface_h, self.config.surface_w
+            sigma_raw = sigma_raw.view(B, self.config.future_len, H, W)
+            # Normalize over ALL cells AND frames → mean=1 globally.
+            # Preserves both per-cell structure AND horizon growth.
+            sigma = sigma_raw / sigma_raw.mean(dim=(-3, -2, -1), keepdim=True).clamp(min=1e-6)
+            # Boost-only mode: only WIDEN cells, never narrow.
+            # Fixes zero-sum problem where borderline cells get pushed below threshold.
+            if getattr(self.config, 'crps_boost_only', False):
+                sigma = sigma.clamp(min=1.0)
+            # Optional clamp to limit correction range
+            clamp_val = getattr(self.config, 'crps_sigma_clamp', 0.0)
+            if clamp_val > 0:
+                sigma = sigma.clamp(1.0 - clamp_val, 1.0 + clamp_val)
+            sigma = sigma[:, None, :, :, :]  # (B, 1, future_len, H, W) for broadcast
+            # Scale deviations from ensemble mean per-cell, per-horizon
+            mean = samples.mean(dim=1, keepdim=True)
+            samples = mean + sigma * (samples - mean)
+
         # Denormalize to [0, 1]
         samples = denormalize_iv(samples)
         if self.config.clamp_output:
@@ -2670,6 +2750,30 @@ class ConditionalBlockARDDPM(nn.Module):
             scale = scale[:, None, :, None, None]  # (B, 1, future_len, 1, 1)
             mean = samples.mean(dim=1, keepdim=True)
             samples = mean + scale * (samples - mean)
+
+        # CRPS variance head: per-cell, per-horizon spread redistribution
+        if self.crps_var_head is not None and self.crps_var_head.n_cells > 1:
+            crps_cond = self.encoder(history, mask=None)
+            if self.config.forward_only:
+                crps_cond = crps_cond + self.encoder.null_embedding.expand(B, -1)
+            crps_cond = self._augment_condition(crps_cond, None)
+            t_zero = torch.zeros(B, self.config.future_len, dtype=torch.long, device=history.device)
+            positions = torch.arange(self.config.future_len, device=history.device).unsqueeze(0).expand(B, -1)
+            log_sigma = self.crps_var_head(crps_cond, t_zero, positions=positions)
+            sigma = torch.exp(log_sigma.clamp(-10, 5))
+            H, W = self.config.surface_h, self.config.surface_w
+            sigma = sigma.view(B, self.config.future_len, H, W)
+            # Normalize over ALL cells AND frames → mean=1 globally
+            sigma = sigma / sigma.mean(dim=(-3, -2, -1), keepdim=True).clamp(min=1e-6)
+            # Boost-only mode: only WIDEN cells, never narrow
+            if getattr(self.config, 'crps_boost_only', False):
+                sigma = sigma.clamp(min=1.0)
+            clamp_val = getattr(self.config, 'crps_sigma_clamp', 0.0)
+            if clamp_val > 0:
+                sigma = sigma.clamp(1.0 - clamp_val, 1.0 + clamp_val)
+            sigma = sigma[:, None, :, :, :]
+            mean = samples.mean(dim=1, keepdim=True)
+            samples = mean + sigma * (samples - mean)
 
         # Denormalize to [0, 1]
         samples = denormalize_iv(samples)
