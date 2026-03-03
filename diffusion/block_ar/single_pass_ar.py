@@ -72,6 +72,7 @@ class SinglePassConfig:
     noise_dim: int = 16          # input noise vector dimension
     noise_embed_dim: int = 64    # must match conv3d_noise_embed_dim for weight transfer
     shared_noise_input: bool = False  # inject first element of z as shared spatial input
+    cond_noise_mlp: bool = False  # feed condition into noise MLP for regime-dependent diversity
 
     # Vol-scaled denormalization
     global_mean_vol: float = 0.0187
@@ -93,29 +94,47 @@ class NoiseMLP(nn.Module):
 
     Replaces TimeEmbedding in the denoiser. Output has same shape and
     dimension as the timestep embedding, so downstream AdaGN is unchanged.
+
+    When cond_dim > 0, takes concat(z, condition_proj) as input so the
+    noise embedding is regime-dependent. A small projection of condition
+    (128→16 dim) prevents the condition from drowning out the noise signal.
     """
 
-    def __init__(self, noise_dim: int, embed_dim: int):
+    def __init__(self, noise_dim: int, embed_dim: int, cond_dim: int = 0):
         super().__init__()
+        self.cond_dim = cond_dim
+
+        # Optional condition projection: keep noise and condition at equal scale
+        if cond_dim > 0:
+            self.cond_proj = nn.Linear(cond_dim, noise_dim)  # 128 → 16
+            input_dim = noise_dim + noise_dim  # cat(z_16, cond_proj_16) = 32
+        else:
+            self.cond_proj = None
+            input_dim = noise_dim
+
         self.mlp = nn.Sequential(
-            nn.Linear(noise_dim, embed_dim * 2),
+            nn.Linear(input_dim, embed_dim * 2),
             nn.SiLU(),
             nn.Linear(embed_dim * 2, embed_dim),
         )
         # Small random init on output layer (NOT zero) to avoid dead start.
-        # With zero init, all K members produce identical output, spread=0,
-        # and CRPS gradient has no signal to break the symmetry.
         nn.init.normal_(self.mlp[-1].weight, std=0.01)
         nn.init.zeros_(self.mlp[-1].bias)
 
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
+    def forward(self, z: torch.Tensor, condition: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
             z: (B, noise_dim)
+            condition: (B, cond_dim) — only used if cond_dim > 0
         Returns:
             emb: (B, embed_dim)
         """
-        return self.mlp(z)
+        if self.cond_proj is not None and condition is not None:
+            cond_small = self.cond_proj(condition)  # (B, noise_dim)
+            x = torch.cat([z, cond_small], dim=-1)  # (B, 2*noise_dim)
+        else:
+            x = z
+        return self.mlp(x)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -139,6 +158,13 @@ class SinglePassDecoder(nn.Module):
 
         # Position embedding (same as DDPM — frame indices 0-9)
         self.pos_embed = SinusoidalTimeEmbedding(dim=config.pos_embed_dim)
+
+        # LayerNorm each component before concatenation — prevents scale mismatch
+        # where noise (mean|x|=0.72) swamps condition (mean|x|=0.05) in cond_proj.
+        # After LN, each component has zero mean / unit variance per element.
+        self.noise_ln = nn.LayerNorm(config.noise_embed_dim)
+        self.cond_ln = nn.LayerNorm(config.bottleneck_dim)
+        self.pos_ln = nn.LayerNorm(config.pos_embed_dim)
 
         # Conditioning projection: cat(noise_emb, pos_emb, condition) -> C
         cond_input_dim = config.noise_embed_dim + config.pos_embed_dim + config.bottleneck_dim
@@ -198,8 +224,13 @@ class SinglePassDecoder(nn.Module):
         # Expand condition to per-frame
         cond_expanded = condition.unsqueeze(1).expand(-1, T, -1)  # (B, T, bottleneck_dim)
 
-        # Combined conditioning: same as Conv3DBlockDenoiser line 259
-        cond_cat = torch.cat([noise_emb_expanded, pos_emb, cond_expanded], dim=-1)
+        # LayerNorm each component to equalize scales before cond_proj
+        noise_normed = self.noise_ln(noise_emb_expanded)
+        pos_normed = self.pos_ln(pos_emb)
+        cond_normed = self.cond_ln(cond_expanded)
+
+        # Combined conditioning
+        cond_cat = torch.cat([noise_normed, pos_normed, cond_normed], dim=-1)
         cond = self.cond_proj(cond_cat.reshape(B * T, -1)).reshape(B, T, -1)  # (B, T, C)
 
         # Input: shared noise for cross-cell correlation, or zeros
@@ -255,7 +286,8 @@ class SinglePassBlockAR(nn.Module):
         self.encoder = GRUEncoder(enc_config)
 
         # Noise MLP (replaces TimeEmbedding)
-        self.noise_mlp = NoiseMLP(config.noise_dim, config.noise_embed_dim)
+        cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
+        self.noise_mlp = NoiseMLP(config.noise_dim, config.noise_embed_dim, cond_dim=cond_dim)
 
         # Decoder (modified Conv3D)
         self.decoder = SinglePassDecoder(config)
@@ -306,8 +338,8 @@ class SinglePassBlockAR(nn.Module):
         """
         H, W = self.config.surface_h, self.config.surface_w
 
-        # Noise embedding
-        noise_emb = self.noise_mlp(noise_z)  # (B, noise_embed_dim)
+        # Noise embedding (regime-dependent if cond_noise_mlp enabled)
+        noise_emb = self.noise_mlp(noise_z, condition=condition)  # (B, noise_embed_dim)
 
         # Shared noise: first element of z vector → spatial input for cross-cell correlation
         shared_noise = noise_z[:, 0] if self.config.shared_noise_input else None
@@ -396,7 +428,9 @@ class SinglePassBlockAR(nn.Module):
         iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, n_frames, 5, 5)
 
         # afCRPS loss over full trajectory
-        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95)
+        # Use frame_sum for multi-block to prevent gradient dilution
+        reduction = "frame_sum" if n_train_blocks > 1 else "mean"
+        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction=reduction)
 
         # Total loss (CRPS + variogram)
         loss = crps
@@ -490,6 +524,7 @@ def afcrps_loss(
     samples: torch.Tensor,
     gt: torch.Tensor,
     alpha: float = 0.95,
+    reduction: str = "mean",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Almost-Fair CRPS loss (ECMWF AIFS-CRPS, α=0.95).
 
@@ -497,22 +532,32 @@ def afcrps_loss(
         samples: (B, K, T, H, W) ensemble members in IV space
         gt: (B, T, H, W) ground truth in IV space
         alpha: interpolation between fair CRPS and standard CRPS
+        reduction: "mean" averages over all dims (dilutes with more frames),
+                   "frame_sum" sums over T/H/W and means over B (each frame
+                   gets same gradient regardless of n_frames). Use "frame_sum"
+                   for multi-block training to avoid gradient dilution.
 
     Returns:
         (loss, mae_term, spread_term) — all scalars
     """
     K = samples.shape[1]
 
-    # Reliability: mean absolute error across members
-    mae = (samples - gt.unsqueeze(1)).abs().mean()
+    if reduction == "frame_sum":
+        # Sum over T, H, W; mean over B and K — prevents gradient dilution
+        # with more frames. Each frame contributes same gradient as in 1-block.
+        mae_per_batch = (samples - gt.unsqueeze(1)).abs().mean(dim=1).sum(dim=(-3, -2, -1))  # (B,)
+        mae = mae_per_batch.mean()  # mean over batch
 
-    # Sharpness: vectorized pairwise spread
-    idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
-    spread = (samples[:, idx_i] - samples[:, idx_j]).abs().mean()
+        idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
+        spread_per_batch = (samples[:, idx_i] - samples[:, idx_j]).abs().mean(dim=1).sum(dim=(-3, -2, -1))
+        spread = spread_per_batch.mean()
+    else:
+        # Standard: mean over everything
+        mae = (samples - gt.unsqueeze(1)).abs().mean()
+        idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
+        spread = (samples[:, idx_i] - samples[:, idx_j]).abs().mean()
 
-    # fair CRPS = MAE - 0.5 * spread
     fcrps = mae - 0.5 * spread
-    # almost-fair: interpolate to avoid degeneracy
     loss = alpha * fcrps + (1 - alpha) * mae
 
     return loss, mae, spread

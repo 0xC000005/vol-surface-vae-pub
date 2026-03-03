@@ -18234,10 +18234,106 @@ the prediction is smooth or jumpy — it's just wrong in a different way.
 - The model's learned structure (regime width 2.4x, zero ceiling, kurtosis 1.48) is correct
 - Only the overall scale needs 10% increase
 
-**Next steps**: The 1-block model has better CI and is the stronger base. The path forward
-is increasing the scale during training, not multi-block. Options:
-1. Lower α from 0.95 → 0.85 (more weight on diversity-rewarding fair CRPS)
-2. Larger noise_dim (32 instead of 16) for more expressive diversity
-3. Add a per-cell minimum spread term to the loss
-4. Remove tanh and use softer clamping (allows larger z_out)
-5. Longer training (50-100 epochs) — model was still improving at epoch 30
+### Exp 89d: Multi-Block + Cond Noise MLP + Frame-Sum Normalization — 2026-03-03
+
+**Two changes combined**: (1) `cond_noise_mlp`: feed `cat(z_16, linear(condition, 16))` into
+noise MLP so noise embedding is regime-dependent. (2) `frame_sum` reduction: sum over T/H/W
+instead of mean, so each frame gets same gradient magnitude regardless of n_train_blocks.
+
+| Metric | 89b (1-block) | 89c (3-block mean) | 89d (3-block sum+cond) |
+|--------|-------------|-------------------|----------------------|
+| 90% CI | **77.6%** | 72.4% | 72.3% |
+| Kurtosis | **1.479** | 1.960 | 3.715 (FAIL) |
+| L2 total | **62** | 95 | 102 |
+| Catastrophic | **8.0%** | 10.6% | 10.2% |
+
+**Frame-sum didn't help**: CI identical to mean-reduction (72.3% vs 72.4%), L2 worse (102 vs 95).
+Kurtosis overshot (3.715). Cond_noise_mlp had no effect on turb/calm |z| ratio (0.983).
+
+### Deep Diagnostic: Why the Decoder Is Regime-Blind — 2026-03-03
+
+**Critical finding**: The decoder produces turb/calm |z_out| ratio = 0.994 — essentially
+identical output regardless of regime. ALL regime-dependent width (2.4x turb/calm) comes from
+vol_scale in the exp() denormalization, a hand-designed structural feature.
+
+**z_out distribution** (1-block pretrained model, val set):
+- Mean |z|: 0.109, Std: 0.198, Range: [-0.996, 0.851]
+- Only 4.2% exceed |z| > 0.5 (tanh linear regime)
+- **Tanh is NOT the bottleneck** — the model CHOOSES small z_out
+- Calm mean|z| = 0.108, Turb mean|z| = 0.107, Turb/Calm ratio = 0.994
+
+**Input scale mismatch to cond_proj** (cause of regime blindness):
+- noise_emb L2 norm: 5.80 (per-element mean|x| = 0.716)
+- condition L2 norm: 0.89 (per-element mean|x| = 0.052)
+- **Condition is 14x smaller** than noise per element
+- Zeroing noise changes cond_proj output by 90% — noise dominates, condition contributes ~10%
+- The frozen encoder outputs tiny values relative to randomly-initialized noise MLP
+
+**Why MAE reduction is still 89.6%**: Ensemble mean cancels noise across K=4 members, leaving
+the 10% condition signal intact. Accuracy through averaging, not condition-dependent generation.
+
+**Horizon growth IS learned**: Within block 1, CI width grows 1.64x from h=1 to h=10 via
+position embedding. This is genuine learned behavior. Across blocks, growth continues via
+vol_scale increasing with longer context.
+
+### Exp 89e: LayerNorm Equalization — 2026-03-03
+
+**Fix**: Add `LayerNorm` to each of noise_emb, pos_emb, condition before concatenation into
+cond_proj. After LN, per-element magnitudes equalized: noise=0.84, pos=0.92, cond=0.80
+(vs previous 0.72, 0.55, 0.05). Condition now has proportional influence.
+
+**Result**: Turb/calm |z| ratio moved from 0.994 → **1.022**. Still flat.
+
+| Metric | 89b (no LN) | 89e (with LN) |
+|--------|-----------|--------------|
+| Best val_loss | 0.0190 | **0.0186** |
+| Quick CI | 70.6% | 70.1% |
+| Spread/MAE ep30 | 0.793 | 0.789 |
+| Turb/Calm |z| | 0.994 | 1.022 |
+
+**Conclusion**: Input scale equalization didn't produce regime-dependent z_out. The problem
+is NOT that cond_proj can't see the condition — it's that the model has **no incentive** to
+differentiate z_out by regime. vol_scale already handles regime differentiation through exp(),
+and CRPS on 10-frame calm blocks genuinely rewards small z_out for calm windows (they have
+small movements in 10 frames).
+
+### Exp 89 Series: Consolidated Analysis — 2026-03-03
+
+**What the afCRPS single-pass model learned:**
+1. **Horizon-dependent spread** via position embedding (1.64x within block, genuine learning)
+2. **Spatial coherence** through Conv3D (calendar arb 7-8%, butterfly 29-32%)
+3. **Fat tails** through exp(z × vol_scale) (kurtosis 1.48)
+4. **Noise-responsive diversity** (spread/MAE = 0.79)
+
+**What it did NOT learn:**
+1. **Regime-dependent z_out** — turb/calm |z| ratio ≈ 1.0 across all variants
+2. **Per-cell z_out differentiation** — all cells get similar |z|, per-cell width comes from
+   baseline × vol_scale in exp()
+
+**The structural limitation**: vol_scale provides regime and per-cell differentiation "for free"
+through exp(z × vol_scale × baseline). The CRPS gradient has no pressure to learn these through
+the decoder because they're already handled by the denormalization. The remaining gap (calm h=30
+undercoverage) exists because vol_scale is structurally low for calm windows (~0.8-1.0), and
+the decoder can't compensate because CRPS on 10-frame calm blocks rewards narrow spread.
+
+**Best model remains 89b** (1-block pretrained, shared noise, no LN): CI=77.6%, Kurt=1.479,
+L2=62 (all floor, zero ceiling), turb/calm width 2.4x, Spearman 0.84.
+
+| Variant | CI | Kurt | L2 | Key Change |
+|---------|------|------|-----|------------|
+| 89a: 1-block pretrained | 77.6% | 1.479 | 62 | Baseline afCRPS |
+| 89 scratch: 1-block scratch | 77.0% | 2.649 | — | Random init worse |
+| 89c: 3-block mean | 72.4% | 1.960 | 95 | Gradient dilution |
+| 89d: 3-block sum+cond | 72.3% | 3.715 | 102 | Cond noise + frame_sum, no help |
+| 89e: 1-block + LayerNorm | ~77% | — | — | LN equalization, no regime effect |
+
+**Post-hoc 1.1x scaling on 89b gives CI=81.2%** — the structure is correct, only overall
+scale is 10% too small. But this violates Bitter Lesson (hand-tuned post-hoc constant).
+
+**Open question**: How to make the model learn the additional 10% spread from data, not
+from a hand-tuned scalar. The CRPS loss on 10-frame blocks cannot provide this signal
+because narrow spread IS optimal at h=10 for calm windows. Options:
+- Multi-block with correct normalization (tried, degraded block 1)
+- Separate noise pathway (AIFS-CRPS style: noise modulates LN independently of condition)
+- Train on longer blocks (block_size=30 instead of 10, single block covers full horizon)
+- Curriculum: start with 1-block, gradually extend to 3-block

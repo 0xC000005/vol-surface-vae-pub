@@ -203,6 +203,8 @@ def main():
                         help="Inject first noise element as shared spatial input (cross-cell correlation)")
     parser.add_argument("--n_train_blocks", type=int, default=1,
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
+    parser.add_argument("--cond_noise_mlp", action="store_true",
+                        help="Feed condition into noise MLP for regime-dependent diversity")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -237,6 +239,7 @@ def main():
         noise_dim=args.noise_dim,
         noise_embed_dim=base_cfg.get("conv3d_noise_embed_dim", 64),
         shared_noise_input=args.shared_noise_input,
+        cond_noise_mlp=args.cond_noise_mlp,
         global_mean_vol=base_cfg.get("global_mean_vol", 0.0187),
         vol_scale_min=base_cfg.get("vol_scale_min", 0.5),
         vol_scale_max=base_cfg.get("vol_scale_max", 2.0),
