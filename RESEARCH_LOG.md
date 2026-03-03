@@ -18337,3 +18337,34 @@ because narrow spread IS optimal at h=10 for calm windows. Options:
 - Separate noise pathway (AIFS-CRPS style: noise modulates LN independently of condition)
 - Train on longer blocks (block_size=30 instead of 10, single block covers full horizon)
 - Curriculum: start with 1-block, gradually extend to 3-block
+
+### Exp 89f: Scale-Normalized Per-Window CRPS — 2026-03-03
+
+**Hypothesis**: Normalize each window's CRPS by its mean IV level so calm windows (small
+absolute movements) get equal gradient weight as turb windows (large movements).
+
+**Implementation**: `loss = mean((mae_per_window / window_scale) - 0.5α × (spread_per_window / window_scale))`
+where `window_scale = gt.mean(dim=(1,2,3))`.
+
+**Note**: Naive per-window-mean reduction (without scale normalization) is mathematically
+identical to global mean — discovered this and corrected mid-experiment.
+
+| Metric | 89b (global mean) | 89f (scale-normalized) |
+|--------|------------------|----------------------|
+| 90% CI | **77.6%** | 75.6% |
+| Kurtosis | **1.479** | 2.264 (FAIL >2.0) |
+| L2 total | **62** | 67 |
+| Catastrophic | **8.0%** | 8.7% |
+| Turb/Calm |z| | 0.994 | **1.043** |
+
+**Scale normalization slightly improved turb/calm |z| ratio** (0.994 → 1.043) — the gradient
+equalization IS having a small effect. But overall CI degraded because upweighting low-IV
+(calm) windows destabilized training — calm predictions are harder and the model overfit to
+reducing relative CRPS on hard-to-predict calm windows at the expense of overall coverage.
+
+**89b remains the best model.** The turb/calm |z| ratio remains stubbornly near 1.0 across
+all variants (89b: 0.994, 89d: 0.983, 89e: 1.022, 89f: 1.043). The decoder consistently
+converges on regime-blind z_out because:
+1. vol_scale handles regime differentiation structurally
+2. The remaining calm undercoverage requires only ~10% more spread
+3. CRPS gradient toward this 10% is weak relative to the dominant MAE term

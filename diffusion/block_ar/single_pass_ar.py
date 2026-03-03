@@ -428,9 +428,8 @@ class SinglePassBlockAR(nn.Module):
         iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, n_frames, 5, 5)
 
         # afCRPS loss over full trajectory
-        # Use frame_sum for multi-block to prevent gradient dilution
-        reduction = "frame_sum" if n_train_blocks > 1 else "mean"
-        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction=reduction)
+        # per_window: each window contributes equally regardless of IV magnitude
+        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction="per_window")
 
         # Total loss (CRPS + variogram)
         loss = crps
@@ -542,19 +541,28 @@ def afcrps_loss(
     """
     K = samples.shape[1]
 
-    if reduction == "frame_sum":
+    idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
+
+    if reduction == "per_window":
+        # Scale-normalized per-window CRPS: divide each window's CRPS by its mean IV.
+        # A calm window (mean IV=0.15) and turb window (mean IV=0.30) contribute equal
+        # RELATIVE CRPS. Without this, turb dominates the gradient because its absolute
+        # IV movements are 3-5x larger.
+        mae_per_window = (samples - gt.unsqueeze(1)).abs().mean(dim=(1, 2, 3, 4))  # (B,)
+        spread_per_window = (samples[:, idx_i] - samples[:, idx_j]).abs().mean(dim=(1, 2, 3, 4))  # (B,)
+        window_scale = gt.mean(dim=(1, 2, 3)).clamp(min=0.01)  # (B,) mean IV per window
+        mae = (mae_per_window / window_scale).mean()
+        spread = (spread_per_window / window_scale).mean()
+    elif reduction == "frame_sum":
         # Sum over T, H, W; mean over B and K — prevents gradient dilution
         # with more frames. Each frame contributes same gradient as in 1-block.
         mae_per_batch = (samples - gt.unsqueeze(1)).abs().mean(dim=1).sum(dim=(-3, -2, -1))  # (B,)
-        mae = mae_per_batch.mean()  # mean over batch
-
-        idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
+        mae = mae_per_batch.mean()
         spread_per_batch = (samples[:, idx_i] - samples[:, idx_j]).abs().mean(dim=1).sum(dim=(-3, -2, -1))
         spread = spread_per_batch.mean()
     else:
-        # Standard: mean over everything
+        # Standard: mean over everything (turb-dominated)
         mae = (samples - gt.unsqueeze(1)).abs().mean()
-        idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
         spread = (samples[:, idx_i] - samples[:, idx_j]).abs().mean()
 
     fcrps = mae - 0.5 * spread
