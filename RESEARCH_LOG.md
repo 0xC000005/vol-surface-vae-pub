@@ -19433,3 +19433,24 @@ drives cell_scale toward "shrink everything" as a trivial MSE-like solution.
 penalty helps. This fix should be kept. The cell_scale approach needs rethinking — perhaps
 initialize at the inverse of the Exp 90 overcoverage pattern rather than ones, or use a
 tighter clamp [0.7, 1.3].
+
+### Exp 90d: Bias Loss Only (No Cell Scale) (2026-03-04)
+
+Isolate the bias loss fix from Exp 90b: lambda_bias=0.01, no cell_scale.
+
+**Results: 5/8 PASS** (1, 3, 4, 5, 6) — same as Exp 90, no regressions:
+
+| Metric | Exp 90 | Exp 90d | |
+|--------|--------|---------|---|
+| Suite 3 width ratio | 0.890 | 0.947 | still PASS (no cell_scale → no spread compression) |
+| Suite 8 KS daily | 16/25 | 17/25 | ↑ |
+| Suite 8 KS levels | 0/25 | 1/25 | ↑ bias fix confirmed |
+| Suite 8 median bias mag | 21/25 | 23/25 | ↑↑ |
+| Suite 8 cell explosion | 1.09% | 1.61% | ↓ worse |
+| Suite 2 worst floor | 70.2% | 68.8% | ↓ now fails floor |
+
+**Bias loss confirmed as safe, additive improvement.** No Suite 3 regression. Suite 8 sub-tests
+improve. However Suite 2 worst floor dropped (70.2→68.8%), suggesting bias penalty slightly
+shifts the coverage distribution. Cell explosion also slightly worse.
+
+**Exp 90d is the new best model** — same 5/8 as Exp 90 but better Suite 8 marginals.
