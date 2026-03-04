@@ -19454,3 +19454,61 @@ improve. However Suite 2 worst floor dropped (70.2→68.8%), suggesting bias pen
 shifts the coverage distribution. Cell explosion also slightly worse.
 
 **Exp 90d is the new best model** — same 5/8 as Exp 90 but better Suite 8 marginals.
+
+#### Exp 90d Detailed Per-Cell Analysis
+
+**Suite 2 coverage grid (90% CI, gate [70%, 95%])** — 1 floor + 17 ceiling = 18 L2:
+
+```
+h= 1:  84.7  83.5  78.6  77.4  68.8▼   (1 floor: (0,4))
+h= 7:  row 4 all ▲ (95.4-97.4%), row 3: (3,1)=95.9▲
+h=14:  row 4 all ▲ (95.2-96.9%), row 3: (3,1)=96.1▲
+h=30:  row 4: (4,0-4,2) ▲, (0,0)=95.0▲, row 3: (3,1)=96.0▲
+```
+
+All 17 ceiling violations in rows 3-4 (long-tenor) at h≥7. Single floor violation (0,4) h=1.
+
+**Suite 8 KS test — bias loss effect confirmed across all cells:**
+
+KS daily changes delta (90d − 90, negative = improved):
+```
+  +0.00  +0.01  -0.02  -0.02  -0.00
+  +0.01  -0.01  -0.02  -0.03  -0.02
+  +0.01  -0.02  -0.02  -0.03  +0.01
+  -0.02  -0.02  -0.02  -0.02  +0.00
+  -0.03  -0.01  -0.00  -0.01  -0.01
+  mean delta: -0.011   Pass: 16→17/25   median D: 0.138→0.118
+```
+
+KS IV levels delta (90d − 90, negative = improved):
+```
+  -0.05  -0.04  -0.03  -0.04  -0.06
+  -0.06  -0.01  -0.03  -0.02  -0.01
+  -0.03  -0.02  -0.04  -0.01  -0.04
+  +0.02  -0.01  -0.04  -0.05  -0.03
+  -0.06  -0.02  -0.03  -0.04  -0.02
+  mean delta: -0.031   Pass: 0→1/25   median D: 0.412→0.370
+```
+
+24/25 cells improved on KS levels — nearly uniform. Only (3,0) slightly worse (+0.015).
+The bias correction uniformly reduces distributional error. Cell (1,4) flipped to passing
+(0.152→0.143). Closest to gate: (0,3)=0.190, (0,4)=0.233.
+
+KS levels median D=0.370 is still far from 0.15 gate. The remaining gap is NOT from bias
+(which is now corrected) but from the fundamental difficulty of matching IV *level*
+distributions over 30-step AR paths. The accumulated variance of the AR process creates
+level distributions that are wider than GT, even with correct daily change distributions.
+
+**Suite 8 marginal sub-tests:**
+
+| Sub-test | Result | Failing cells |
+|----------|--------|---------------|
+| KS daily (17/25 PASS) | Row 0-2 edges fail | (0,1)(0,2)(0,4)(1,1)(1,2)(2,2)(2,4)(3,2) |
+| KS levels (1/25 FAIL) | Only (1,4) passes | All others D>0.15, rows 3-4 worst (0.37-0.54) |
+| Median bias frac (23/25) | 2 LOW bias cells | (2,4)=29.5%, (3,0)=24.2% |
+| Median bias mag (23/25 PASS) | 2 cells >3 IV pts | (0,0)=12%, likely (0,3) |
+| Cell explosion (1.61% FAIL) | Only (0,0) | 1.61% ceiling rate |
+| MAE (24/25 PASS) | Only (0,0) | MAE=12% |
+
+Cell (0,0) is the universal worst: highest MAE (12%), only explosion cell, highest bias.
+Short-maturity deep-ITM — the most volatile cell with the least data support.
