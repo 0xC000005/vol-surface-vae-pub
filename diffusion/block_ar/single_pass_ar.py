@@ -92,6 +92,7 @@ class SinglePassConfig:
     ar_frame: bool = False
     ar_frame_rho: float = 0.8        # temporal noise correlation
     ar_frame_hidden: int = 128       # MLP hidden dim
+    ar_frame_cell_spread: bool = False  # learned per-cell spread scaling
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -345,6 +346,11 @@ class SinglePassBlockAR(nn.Module):
                 pos_dim=config.pos_embed_dim,
                 hidden_dim=config.ar_frame_hidden,
             )
+            # Per-cell spread: condition → 25 positive scalars ≈ 1.0
+            if config.ar_frame_cell_spread:
+                self.cell_spread_linear = nn.Linear(config.bottleneck_dim, frame_dim)
+                nn.init.zeros_(self.cell_spread_linear.weight)
+                nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -558,8 +564,12 @@ class SinglePassBlockAR(nn.Module):
                     delta = self.frame_decoder(prev_flat, condition.detach(), z_t, pos_t)
                     delta = delta.reshape(B, H, W)
 
-                    # Residual: iv_t = prev + vol_scale * delta
+                    # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
                     vs = vol_scale.view(B, 1, 1)
+                    if hasattr(self, 'cell_spread_linear'):
+                        cs = F.softplus(self.cell_spread_linear(condition.detach()))
+                        cs = cs.view(B, H, W)
+                        delta = cs * delta
                     iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
                     frames.append(iv_t)
 
@@ -698,6 +708,10 @@ class SinglePassBlockAR(nn.Module):
                     delta = self.frame_decoder(prev_flat, condition, z_t, pos_t)
                     delta = delta.reshape(B, H, W)
                     vs = vol_scale.view(B, 1, 1)
+                    if hasattr(self, 'cell_spread_linear'):
+                        cs = F.softplus(self.cell_spread_linear(condition))
+                        cs = cs.view(B, H, W)
+                        delta = cs * delta
                     iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
                     frames.append(iv_t)
                     prev_frame = iv_t

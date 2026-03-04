@@ -241,6 +241,8 @@ def main():
                         help="Use per-frame AR decoder instead of Conv3D")
     parser.add_argument("--progressive_rollout", action="store_true",
                         help="Progressive training: 5→15→30 frames across epochs")
+    parser.add_argument("--ar_cell_spread", action="store_true",
+                        help="Learned per-cell spread scaling for AR frame decoder")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -287,6 +289,7 @@ def main():
         learned_vol_scale=args.learned_vol_scale,
         twcrps_beta=args.twcrps_beta,
         ar_frame=args.ar_frame,
+        ar_frame_cell_spread=args.ar_cell_spread,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -337,6 +340,11 @@ def main():
         param_groups = [
             {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
         ]
+        if hasattr(model, 'cell_spread_linear'):
+            spread_params = list(model.cell_spread_linear.parameters())
+            param_groups.append(
+                {"params": spread_params, "lr": args.lr_decoder, "weight_decay": 0.1},
+            )
         optimizer = torch.optim.AdamW(param_groups)
     else:
         noise_params = list(model.noise_mlp.parameters())
@@ -479,6 +487,13 @@ def main():
             w = model.frame_decoder.mlp[-1].weight.detach()
             print(f"  frame_decoder: w_norm={w.norm():.3f}" +
                   (f"  n_frames={n_frames}" if args.progressive_rollout else ""))
+
+        # Log cell_spread_linear stats if applicable (AR frame mode)
+        if hasattr(model, 'cell_spread_linear'):
+            w = model.cell_spread_linear.weight.detach()
+            b = model.cell_spread_linear.bias.detach()
+            base_out = F.softplus(b)
+            print(f"  cell_spread: out=[{base_out.min():.3f}, {base_out.max():.3f}] w_norm={w.norm():.3f}")
 
         # Log cell_spread MLP stats if applicable
         if hasattr(model, 'cell_spread_mlp'):

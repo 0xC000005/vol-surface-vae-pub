@@ -19300,5 +19300,34 @@ generalizes to any conditional scenario generation problem.
 **Implication for per-cell spread**: Since kurtosis doesn't come from exp(), adding learned
 per-cell spread scaling should NOT create the mixture-of-scales kurtosis inflation that
 killed Exp 89p/89y. Linear scaling of a bounded tanh delta doesn't change tail shape the
-way scaling inside exp() does. This opens the door to per-cell calibration without kurtosis
-penalty — the exact combination that was impossible in the block-based architecture.
+way scaling inside exp() does. **However, see Exp 90c below — this prediction was wrong.**
+
+### Exp 90c: AR Frame + Condition-Dependent Cell Spread — FAILED (2026-03-04)
+
+Added `nn.Linear(128, 25)` → softplus for per-cell spread scaling:
+`iv_t = (prev_frame + vol_scale * cell_spread * delta).clamp(0.001, 1.0)`.
+Weight decay 0.1 on cell_spread params. Cell_spread converged to [0.544, 0.895] range.
+
+**Results**: 3/8 suites pass (vs 5/8 for Exp 90). Severe regressions:
+
+| Metric | Exp 90 | Exp 90c | |
+|--------|--------|---------|---|
+| Kurtosis | 1.22 PASS | 2.33 FAIL | mixture-of-scales still occurs |
+| KS daily | 16/25 PASS | 7/25 FAIL | marginals destroyed |
+| Conditionality worst width | 1.845 | 404.4 | one cell exploded |
+| Median bias magnitude | 21/25 | 22/25 ✓ | small win |
+| Cell explosion | 1.09% | 0.67% ✓ | small win |
+
+**Why the kurtosis prediction was wrong**: Even without exp(), condition-dependent cell_spread
+creates a mixture of scales across time windows. When the condition varies (calm vs turb),
+cell_spread varies, producing different delta magnitudes for different windows. Summing 30
+steps of condition-varying-scale deltas still creates a mixture distribution with inflated
+kurtosis (per-cell range [0.011, 4.732]). The mechanism isn't exp()-specific — it's
+fundamental to ANY condition-dependent scaling of stochastic increments.
+
+**Updated failure taxonomy**: ALL per-cell spread approaches have failed in both architectures:
+- Block-based + exp(): 89p (fixed), 89y (MLP) — kurtosis inflation via exp(scale*z)
+- AR frame + additive: 90c (MLP) — kurtosis inflation via scale*tanh(MLP)
+- Root cause: condition-dependent scaling + time-varying conditions = mixture-of-scales
+
+**Exp 90 (no cell_spread) remains best at 5/8 suites passing.**
