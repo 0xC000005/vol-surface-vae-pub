@@ -19254,3 +19254,51 @@ This is informational only but indicates potential saturation of the residual ac
 residual structure naturally produces better temporal dynamics (ACF, KS daily) and eliminates
 boundary artifacts. 5/8 suites pass vs 4/8 for 89n. Suite 6 regressed slightly (0.739→0.642).
 Main remaining issue: per-cell coverage calibration (Suite 2/7) and IV level marginals (Suite 8).
+
+#### Key Finding: Heavy Tails Without exp() — The Additive Residual Kurtosis Mechanism
+
+**This is the most significant architectural finding since Exp 89.**
+
+Exp 89q-89x all attempted to remove exp() from the denormalization pipeline to enable per-cell
+spread learning (exp() creates mixture-of-scales kurtosis inflation). Every attempt failed because
+kurtosis collapsed to ~0.3-0.5 — the single-pass Conv3D decoder generates all 30 frames in one
+forward pass, so without exp() there is no mechanism to produce heavier-than-Gaussian tails.
+
+Exp 90 proves that **sequential autoregressive accumulation is an independent kurtosis source**:
+
+```
+Mechanism: iv_t = prev_frame + vol_scale * tanh(MLP(prev, cond, noise, pos))
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                           bounded [-1,1] per frame, but 30 steps accumulate
+```
+
+Three effects combine to produce kurtosis 1.22 from purely additive residuals:
+
+1. **Stochastic vol_scale**: Varies across windows (computed from history volatility). Higher
+   vol_scale → larger deltas → fatter tails across the population of windows. This is a
+   stochastic volatility mechanism — the "volatility of the delta size" varies.
+
+2. **AR noise correlation (rho=0.8)**: `z_t = 0.8*z_{t-1} + 0.6*eps_t`. Correlated noise
+   creates persistent directional moves. Runs of same-sign deltas produce larger total
+   displacement than independent steps → heavier tails in the 30-day change distribution.
+
+3. **Condition-dependent deltas**: The MLP adapts delta magnitude to market conditions via
+   the GRU condition input. Turbulent conditions → systematically larger deltas → another
+   stochastic volatility channel.
+
+**Why this matters for generalizability**: exp() was always a domain hack — it works for
+IV surfaces (strictly positive) but not for rates, FX, or other scenarios. The additive
+residual formulation `iv_t = prev + scale * delta` is domain-agnostic. Proving that
+kurtosis emerges from the AR structure (not the nonlinearity) means this architecture
+generalizes to any conditional scenario generation problem.
+
+**Comparison with 89q (last no-exp attempt)**:
+- 89q: Conv3D generates all 30 frames simultaneously, no exp() → kurtosis ~0.4
+- 90:  MLP generates 30 frames sequentially, no exp() → kurtosis 1.22
+- Difference: sequential accumulation is the entire kurtosis source
+
+**Implication for per-cell spread**: Since kurtosis doesn't come from exp(), adding learned
+per-cell spread scaling should NOT create the mixture-of-scales kurtosis inflation that
+killed Exp 89p/89y. Linear scaling of a bounded tanh delta doesn't change tail shape the
+way scaling inside exp() does. This opens the door to per-cell calibration without kurtosis
+penalty — the exact combination that was impossible in the block-based architecture.
