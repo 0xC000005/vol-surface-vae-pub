@@ -194,6 +194,11 @@ class SinglePassDecoder(nn.Module):
         nn.init.normal_(self.conv_out.weight, std=0.01)
         nn.init.zeros_(self.conv_out.bias)
 
+        # Per-cell output scale: independent scalar per (H, W) cell.
+        # Conv3D shared filters can't differentiate per-cell spread;
+        # cell_scale receives per-cell gradient from CRPS/IS loss.
+        self.cell_scale = nn.Parameter(torch.ones(config.surface_h, config.surface_w))
+
     def forward(
         self,
         condition: torch.Tensor,        # (B, bottleneck_dim)
@@ -254,8 +259,8 @@ class SinglePassDecoder(nn.Module):
         # Squeeze channel dim and reshape
         x = x.squeeze(1)  # (B, T, H, W)
 
-        # tanh clamping: bounds z_out to [-1, 1]
-        x = torch.tanh(x)
+        # tanh clamping: bounds z_out to [-cell_scale, +cell_scale]
+        x = torch.tanh(x) * self.cell_scale  # (B, T, H, W) × (H, W) broadcast
 
         return x.reshape(B, T, H * W)
 
@@ -359,6 +364,8 @@ class SinglePassBlockAR(nn.Module):
         future: torch.Tensor,
         n_members: int = 4,
         lambda_vs: float = 0.0,
+        lambda_is: float = 0.0,
+        lambda_cs_reg: float = 0.0,
         n_train_blocks: int = 1,
     ) -> dict:
         """Training forward: generate K members over n_train_blocks, compute afCRPS.
@@ -387,12 +394,19 @@ class SinglePassBlockAR(nn.Module):
         n_frames = min(n_train_blocks * bs, self.config.future_len)
         gt_iv = denormalize_iv(future[:, :n_frames])  # (B, n_frames, 5, 5)
 
+        # Vol_scale from ORIGINAL history only — not diluted by smooth generated frames.
+        # Baseline still updates per block (last frame of grown context) for correct anchor.
+        with torch.no_grad():
+            _, vol_scale = self._compute_vol_scale(history)
+
         # Generate K member trajectories
         all_member_trajectories = []
 
         for _ in range(n_members):
             current_cond = history  # (B, T_hist, 5, 5) — grows with generated blocks
             member_blocks = []
+            # Same noise for all blocks within this member — prevents boundary discontinuity
+            z = torch.randn(B, self.config.noise_dim, device=device)
 
             for block_idx in range(n_train_blocks):
                 # Encode condition from growing context (detached for blocks > 0)
@@ -400,7 +414,7 @@ class SinglePassBlockAR(nn.Module):
                     condition = self.encoder(current_cond, mask=None)
                     if hasattr(self.encoder, 'null_embedding'):
                         condition = condition + self.encoder.null_embedding.expand(B, -1)
-                    baseline, vol_scale = self._compute_vol_scale(current_cond)
+                    baseline = self._compute_vol_scale(current_cond)[0]  # baseline only
                 # Detach condition so gradients only flow through this block's decoder
                 condition = condition.detach()
 
@@ -409,9 +423,6 @@ class SinglePassBlockAR(nn.Module):
                     torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
                     + block_idx * bs
                 )
-
-                # Fresh noise per block per member
-                z = torch.randn(B, self.config.noise_dim, device=device)
 
                 # Generate block (has gradient through decoder)
                 iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
@@ -428,15 +439,25 @@ class SinglePassBlockAR(nn.Module):
         iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, n_frames, 5, 5)
 
         # afCRPS loss over full trajectory
-        # per_window: each window contributes equally regardless of IV magnitude
-        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction="per_window")
+        # frame_sum: sum over T/H/W, mean over B — each frame gets same gradient
+        # magnitude as single-block. Multi-block adds h=30 gradient, doesn't dilute h=1.
+        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction="frame_sum")
 
-        # Total loss (CRPS + variogram)
+        # Total loss (CRPS + variogram + interval score)
         loss = crps
         vs_val = torch.tensor(0.0, device=device)
+        is_val = torch.tensor(0.0, device=device)
         if lambda_vs > 0:
             vs_val = variogram_score(iv_samples, gt_iv)
             loss = loss + lambda_vs * vs_val
+        if lambda_is > 0:
+            is_val = interval_score(iv_samples, gt_iv, alpha=0.9)
+            loss = loss + lambda_is * is_val
+
+        if lambda_cs_reg > 0:
+            cs = self.decoder.cell_scale
+            cs_reg = ((cs - cs.mean()) ** 2).mean()
+            loss = loss + lambda_cs_reg * cs_reg
 
         return {
             "loss": loss,
@@ -444,6 +465,7 @@ class SinglePassBlockAR(nn.Module):
             "mae": mae.detach(),
             "spread": spread.detach(),
             "variogram": vs_val.detach(),
+            "interval_score": is_val.detach(),
             "spread_mae_ratio": (spread / mae.clamp(min=1e-8)).detach(),
         }
 
@@ -468,10 +490,15 @@ class SinglePassBlockAR(nn.Module):
         bs = self.config.block_size
         n_blocks = self.config.future_len // bs
 
+        # Vol_scale from ORIGINAL history only — consistent with training
+        _, vol_scale = self._compute_vol_scale(history)
+
         all_samples = []
         for _ in range(n_samples):
             current_cond = history
             blocks = []
+            # Same noise for all blocks within this member — prevents boundary discontinuity
+            z = torch.randn(B, self.config.noise_dim, device=device)
 
             for block_idx in range(n_blocks):
                 # Encode growing context
@@ -479,17 +506,14 @@ class SinglePassBlockAR(nn.Module):
                 if hasattr(self.encoder, 'null_embedding'):
                     condition = condition + self.encoder.null_embedding.expand(B, -1)
 
-                # Baseline and vol_scale from current context
-                baseline, vol_scale = self._compute_vol_scale(current_cond)
+                # Baseline from current context (tracks generated trajectory)
+                baseline = self._compute_vol_scale(current_cond)[0]
 
                 # Positions for this block
                 positions = (
                     torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
                     + block_idx * bs
                 )
-
-                # Fresh noise for this block
-                z = torch.randn(B, self.config.noise_dim, device=device)
 
                 # Generate block in IV space
                 iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
@@ -571,6 +595,38 @@ def afcrps_loss(
     return loss, mae, spread
 
 
+def interval_score(
+    samples: torch.Tensor,
+    gt: torch.Tensor,
+    alpha: float = 0.9,
+) -> torch.Tensor:
+    """Interval score for CI calibration.
+
+    Penalizes wide intervals AND missed coverage. Has steep gradient for
+    undercoverage — when GT falls outside the CI, penalty is proportional
+    to distance scaled by 2/alpha. Much stronger spread signal than CRPS.
+
+    Args:
+        samples: (B, K, T, H, W) ensemble members in IV space
+        gt: (B, T, H, W) ground truth in IV space
+        alpha: CI level (0.9 = 90% CI)
+
+    Returns:
+        Scalar interval score loss
+    """
+    q_lo = 0.5 * (1 - alpha)  # 0.05 for 90% CI
+    q_hi = 1 - q_lo            # 0.95
+    lower = torch.quantile(samples, q_lo, dim=1)  # (B, T, H, W)
+    upper = torch.quantile(samples, q_hi, dim=1)
+    # Only penalize misses (GT outside CI), no width penalty.
+    # Standard IS has `width + miss_low + miss_high` which rewards narrowing.
+    # We want pure "widen where undercovered" signal.
+    miss_low = (2.0 / alpha) * torch.relu(lower - gt)
+    miss_high = (2.0 / alpha) * torch.relu(gt - upper)
+    # Sum over T/H/W, mean over B — consistent with frame_sum CRPS
+    return (miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+
+
 def variogram_score(
     samples: torch.Tensor,
     gt: torch.Tensor,
@@ -607,7 +663,8 @@ def variogram_score(
 
     # Upper triangle only (300 pairs)
     mask = torch.triu(torch.ones(D, D, device=samples.device), diagonal=1).bool()
-    return loss[:, :, mask].mean()
+    # Sum over T and pairs, mean over B — consistent with frame_sum CRPS
+    return loss[:, :, mask].sum(dim=(-2, -1)).mean()
 
 
 # ──────────────────────────────────────────────────────────────────────

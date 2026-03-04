@@ -18458,3 +18458,322 @@ converges on regime-blind z_out because:
 1. vol_scale handles regime differentiation structurally
 2. The remaining calm undercoverage requires only ~10% more spread
 3. CRPS gradient toward this 10% is weak relative to the dominant MAE term
+
+---
+
+### Exp 89l: Multi-Block + Miss-Only IS (lambda_is=0.5) — 2026-03-04
+
+**Hypothesis**: Combine multi-block training (3 blocks, frame-sum reduction) with miss-only
+interval score (lambda_is=0.5) to address both horizon mismatch (calm h=30 undercoverage)
+and per-cell calibration pressure simultaneously. Frame-sum reduction prevents gradient
+dilution — each frame gets same gradient magnitude as single-block training.
+
+**Config**: Same as 89b + `--n_train_blocks 3 --lambda_is 0.5`, CRPS reduction changed from
+`per_window` to `frame_sum`. IS and variogram also use frame-sum (sum over T/H/W, mean over B).
+
+| Metric | 89b (baseline) | 89l bestval | 89l bestcov |
+|--------|---------------|-------------|-------------|
+| 90% CI | 77.6% | 84.9% | **88.7%** |
+| Kurtosis | 1.479 | 2.492 (FAIL) | **1.232** |
+| Boundary | — | 5.05 | 4.40 |
+| Calibration | — | 0.029 | 0.073 |
+| L2 total | 62 | 24 (15F+9C) | 39 (7F+32C) |
+| KS daily | — | 2/25 | 10/25 |
+
+**Key result**: CI jumped 77.6% → 88.7% (+11pp). Kurtosis 1.232 PASSES. Frame-sum + IS
+combination works — multi-block didn't degrade block 1 quality (unlike 89c/89d which used
+mean reduction). Floor failures collapsed 62 → 7.
+
+**Problem**: 32 ceiling violations on bestcov — IS pushed too much spread into long-tenor
+cells (rows 3-4) that were already well-covered. The miss-only IS fires everywhere with
+undercoverage, including cells that only need marginal improvement.
+
+### Exp 89m: Vol_Scale Dilution Fix — 2026-03-04
+
+**Hypothesis**: Vol_scale computed from growing context (original history + generated blocks)
+is diluted because generated frames have smoother daily changes than real data. Diagnostic
+confirmed: vol_scale drops 0.771 → 0.682 → 0.626 across blocks (−12%/block, −19% total).
+Fix: compute vol_scale once from original history, keep baseline updating per block.
+
+**Result**: No effect on boundary (5.12, worse than 89l's 4.40). Vol_scale dilution was NOT
+the cause of boundary discontinuity. L2 unchanged (9F+30C=39). Hypothesis rejected.
+
+**Conclusion**: Boundary discontinuity is architectural — caused by independent noise draws
+per block, not by vol_scale computation.
+
+### Exp 89n: Shared Noise Across Blocks — 2026-03-04
+
+**Hypothesis**: Boundary discontinuity (5.0x ratio) caused by independent noise vector z
+per block. Each block's decoder output depends heavily on z (diversity source), so two
+independent z draws produce IV trajectories that don't smoothly connect at block boundaries.
+Fix: draw z once per member, reuse for all 3 blocks. Position encoding still differentiates
+blocks via absolute indices [0-9], [10-19], [20-29].
+
+**Config**: Same as 89l (multi-block, frame-sum, lambda_is=0.5) + shared z across blocks.
+Also includes vol_scale fix from 89m (computed from original history only).
+
+| Metric | 89l bestcov | 89n bestcov | 89n bestval |
+|--------|-------------|-------------|-------------|
+| 90% CI | 88.7% | **88.4%** | 86.8% |
+| Kurtosis | 1.232 | **1.088** | 2.871 (FAIL) |
+| Boundary | 4.40 | **3.17** | **3.03** |
+| Calibration | 0.073 | **0.029** | 0.022 |
+| L2 total | 39 (7F+32C) | **21 (8F+13C)** | 12 (7F+5C) |
+
+**Boundary dropped 4.4 → 3.2** (−28%). Confirms independent z was a major contributor.
+Remaining 3.2x ratio likely from baseline/condition changes between blocks (different encoder
+output, different baseline anchor per block).
+
+**Ceiling violations collapsed 32 → 13.** Shared z reduces within-member cross-block variance,
+preventing the IS from overshooting on long-tenor cells.
+
+**CI held at 88.4%** — reusing z didn't reduce between-member diversity (diversity comes from
+different z draws across members, not across blocks within a member).
+
+**Kurtosis improved**: 1.232 → 1.088 (near-perfect). Calibration improved 0.073 → 0.029.
+
+**Floor failure analysis (8 failures)**:
+- Row 0 (short maturity): 4 failures in column 0 (h=1,7,14) + column 4 (h=1) + (1,0) at h=1
+- Cell (0,3): 3 failures (h=7,14,30) — the persistent structural outlier
+- NOT just cell (0,3) — row 0 broadly undercovered in calm regime
+
+**Ceiling failure analysis (13 failures)**:
+- turb h=14: 5 (rows 3-4, cols 0-2)
+- turb h=30: 4 (rows 3-4, cols 0-2)
+- Remaining: calm h=14 (1), calm h=30 (2), turb h=7 (1)
+- All in long-tenor cells — IS still overshooting for cells already well-covered
+
+**Suite pass/fail (89n bestcov)**: 4/8 PASS
+- PASS: Suite 1 (surface), Suite 3 (conditionality), Suite 4 (time series), Suite 6 (cointegration)
+- FAIL: Suite 2 (per-cell gate), Suite 5 (boundary 3.17), Suite 7 (L2), Suite 8 (distributional)
+- Suites 2+7 share the same L2 root cause (21 failures)
+
+### Exp 89 Series: Updated Summary Table — 2026-03-04
+
+| Variant | Key Change | CI | Kurt | Bnd | L2 | Suites |
+|---------|-----------|-----|------|-----|-----|--------|
+| 89b | 1-block baseline | 77.6% | 1.479 | — | 62 | — |
+| 89l | +multi-block +IS 0.5 | 88.7% | 1.232 | 4.40 | 39 | — |
+| 89m | +vol_scale fix | 87.6% | 1.861 | 5.12 | 39 | — |
+| **89n** | **+shared z** | **88.4%** | **1.088** | **3.17** | **21** | **4/8** |
+
+**89n is the new best afCRPS model.** The three-fix combination (frame-sum + IS + shared z)
+brought L2 from 62 → 21, CI from 77.6% → 88.4%, and kurtosis to near-perfect 1.088.
+
+**Remaining problems**:
+1. **Boundary 3.17** (target <2.0): baseline/condition discontinuity at block transitions.
+   May require overlapping blocks, Hanning window blending, or full-sequence generation.
+2. **8 floor failures**: Row 0 (short maturity) calm regime. Scalar vol_scale can't serve
+   cells with high relative variation and low baseline IV. Structural limitation.
+3. **13 ceiling failures**: Long-tenor turb h=14/30. IS overshoots for already-covered cells.
+   Could be addressed by reducing lambda_is or making IS only fire on cells below threshold.
+4. **Suite 8 (distributional)**: KS tests and median bias — shape fidelity issues likely
+   from the single-pass architecture's inability to capture full distributional complexity.
+
+### Exp 89p / 89p-reg: Per-Cell Output Scale — 2026-03-04
+
+**Hypothesis**: Conv3D shared spatial filters can't produce per-cell spread differentiation.
+Adding `cell_scale = nn.Parameter(torch.ones(5, 5))` multiplying z_out after tanh gives each
+cell an independent scalar that receives gradient only from that cell's loss. The Conv3D
+handles spatial structure; cell_scale handles per-cell calibration.
+
+**Implementation** (`diffusion/block_ar/single_pass_ar.py`):
+- Added `self.cell_scale = nn.Parameter(torch.ones(H, W))` to `SinglePassDecoder.__init__`
+- Applied after tanh: `x = torch.tanh(x) * self.cell_scale`  (broadcasts over B, T)
+- Optional L2 reg: `loss += lambda_cs_reg * ((cs - cs.mean()) ** 2).mean()`
+- Separate optimizer param group: cell_scale at lr=1e-3 (noise_mlp rate), decoder at 1e-4
+
+**Training observations**:
+- cell_scale diverged rapidly: min=0.228, max=2.027, std=0.463 (9:1 ratio by epoch 30)
+- Converged around epoch 25 (values stabilized)
+- λ_cs_reg=0.01 had negligible effect on cell_scale trajectory (nearly identical to no-reg)
+- Best coverage captured early (epoch 5 for reg, epoch 14 for no-reg) before divergence
+
+**Results**:
+
+| Model | CI | Kurt | Bnd | Calib | Bfly | L2 (F+C) | Suites |
+|-------|-----|------|-----|-------|------|----------|--------|
+| **89n (baseline)** | **88.4%** | **1.088** | **3.17** | **0.029** | — | **8+13=21** | **4/8** |
+| 89p (no reg) | 89.3% | 6.455 | 3.33 | 0.060 | 27.9% | 5+13=18 | 2/8 |
+| 89p-reg (λ=0.01) | 88.9% | 1.192 | 3.31 | 0.113 | 28.7% | 6+12=18 | 3/8 |
+
+**Analysis**:
+1. **Floor improved** (8→5-6): cell_scale learned >1.0 for row 0, successfully widening spread
+2. **Ceiling unchanged** (13→12-13): long-tenor turb cells unaffected by per-cell scaling
+3. **Kurtosis catastrophic without reg** (1.088→6.455): 9:1 cell_scale ratio distorts
+   per-cell distribution shape. The exp(z_out × vol_scale) nonlinearity amplifies asymmetry
+4. **Reg variant preserved kurtosis** (1.192) but doubled calibration error (0.029→0.113)
+5. **λ=0.01 too weak**: CRPS/IS gradient overwhelmed the reg, cell_scale followed same trajectory
+6. **Net verdict**: Modest floor reduction (3 cells) at significant kurtosis cost.
+   89n remains strictly better. Cell_scale is not the right mechanism.
+
+**Why cell_scale fails**: The 9:1 ratio means cell (0,3) gets z_out range [-2, +2] while
+cell (4,1) gets [-0.23, +0.23]. At the extremes, exp(2 × vol_scale) produces ~7x baseline
+while exp(0.23 × vol_scale) produces ~1.26x baseline — this fundamentally changes the
+distribution shape (heavier tails for large cell_scale), breaking kurtosis.
+
+### L2 Gap Analysis: How Close is 89n to Passing? — 2026-03-04
+
+**Gate**: Per-cell coverage in [70%, 95%] for each regime × horizon.
+
+**FLOOR failures (8) — bimodal**:
+
+| Cell | Regime | Horizons | Coverage | Gap to 70% |
+|------|--------|----------|----------|------------|
+| (0,3) | calm | h=7,14,30 | 53-56% | **14-17%** (deep) |
+| (0,0) | calm | h=7 | 56.7% | **13.3%** (deep) |
+| (0,0) | calm | h=1,14 | 69.0% | 1.0% (close) |
+| (1,0) | calm | h=1 | 68.2% | 1.8% (close) |
+| (0,4) | calm | h=1 | 69.4% | 0.6% (close) |
+
+4 deep failures: cell (0,3) + (0,0) h=7 need +13-17%, essentially unreachable.
+4 shallow failures: within 2% of gate, easily flippable.
+
+**CEILING failures (13) — mostly shallow**:
+
+| Cell | Regime | Horizon | Coverage | Over by |
+|------|--------|---------|----------|---------|
+| (4,0) | turb | h=30 | 99.2% | 4.2% (deep) |
+| (4,1) | turb | h=30 | 97.6% | 2.6% |
+| (4,2) | turb | h=30 | 97.1% | 2.1% |
+| (3,0) | calm | h=30 | 96.7% | 1.7% |
+| (3,0) | turb | h=14 | 96.7% | 1.7% |
+| (4,1) | turb | h=14 | 96.3% | 1.3% |
+| ... | ... | ... | 95.1-96.3% | 0.1-1.3% |
+
+9 of 13 ceiling failures are within 1.3% of the gate. 1 deep failure (99.2%).
+
+**Bottom line**: Even flipping ALL shallow failures leaves the 4 deep floor failures in
+cell (0,3) and cell (0,0) h=7. These cells are structurally 13-17% below the 70% gate —
+no incremental improvement can reach them without fundamentally changing how the model
+generates spread for short-maturity calm-regime cells.
+
+### Marginal Diagnostic Study — 2026-03-04
+
+**Motivation**: Suite 8 KS tests (daily changes 5/25, IV levels 0/25) failed, but the
+unconditional pooling across regimes may be masking per-regime calibration quality.
+Implemented four ECMWF-standard diagnostics to understand the mismatch structure.
+
+**Script**: `experiments/backfill/block_ar/diagnose_marginal.py`
+**Model**: 89n bestcov (epoch 13)
+**Data**: 320 test windows (160 calm, 160 turb), 50 ensemble members, 30 horizons
+
+#### 1. Rank Histogram
+
+For each (window, horizon, cell): where does GT fall among the ranked ensemble members?
+Uniform = calibrated. U-shape = underdispersed. Dome = overdispersed.
+
+Edge excess ratio per cell (>1 = underdispersed, <1 = overdispersed):
+```
+  6.15  0.96  2.31  7.96  1.90     ← row 0: severely underdispersed
+  1.43  0.65  2.15  2.93  2.10
+  0.85  0.47  1.18  2.13  4.68
+  0.50  0.48  0.75  1.22  0.82
+  0.41  0.15  0.21  0.90  1.35     ← row 4: overdispersed
+```
+
+Cell (0,3) is 8x underdispersed — worst in grid, exactly the L2 floor problem cell.
+Rows 3-4 cols 0-2 are 0.15-0.50x — severely overdispersed, matching ceiling failures.
+Strong spatial gradient: top-left underdispersed, bottom-left overdispersed.
+
+#### 2. Spread-Skill Ratio
+
+SSR = mean_ensemble_spread / RMSE_of_ensemble_mean. SSR=1.0 = calibrated.
+SSR < 1.0 = underdispersed (needs more spread). SSR > 1.0 = overdispersed.
+
+```
+  0.52  1.08  0.85  0.40  0.92     ← (0,3)=0.40: needs 2.5x more spread
+  1.03  1.29  0.90  0.71  0.82
+  1.28  1.26  1.01  0.86  0.60
+  1.53  1.48  1.14  0.93  1.28     ← rows 3-4: 30-80% too much spread
+  1.65  1.82  1.51  1.16  1.17
+```
+
+**Key numbers**:
+- Cell (0,3): SSR=0.40 → needs 2.5x more spread at all horizons (h=1: 0.27, h=30: 0.44)
+- Cell (4,1): SSR=1.82 → 82% too much spread
+- Overall mean SSR=1.087 (slight overall overdispersion, consistent with 88.4% CI > target 90%)
+- Spatial ratio: 4.6x from worst underdispersed to worst overdispersed
+
+Per-horizon SSR at cell (0,3): h=1: 0.269, h=7: 0.344, h=14: 0.427, h=30: 0.435.
+Underdispersion is worst at short horizons but persists across all.
+
+#### 3. Conditional KS by Regime
+
+KS test on daily IV changes, split into calm vs turb:
+
+| Regime | Windows | Cells passing (D<0.15) |
+|--------|---------|----------------------|
+| Unconditional | 320 | 7/25 |
+| **Calm** | 160 | **1/25** |
+| **Turb** | 160 | **13/25** |
+
+**Turb regime is nearly calibrated distributionally** (13/25, close to 15/25 gate).
+Calm is catastrophically miscalibrated (1/25). The unconditional failure at 7/25 is
+a mixture artifact — turb's decent calibration is dragged down by calm's failure.
+
+This confirms that the model's conditional distribution quality is regime-dependent.
+In turbulent markets (higher vol-of-vol, larger daily changes), the model's daily change
+distribution matches GT reasonably well. In calm markets, the model generates daily changes
+that are too narrow (underdispersed) — it anchors too heavily to the baseline.
+
+**Implication**: If the Suite 8 KS test were run per-regime, turb would be close to passing.
+The calm-regime daily change distribution is the binding constraint.
+
+#### 4. PIT Histogram
+
+For each observation, fraction of ensemble members below GT. Should be U(0,1) if calibrated.
+
+PIT mean per cell (0.5 = unbiased):
+```
+  0.65  0.62  0.51  0.58  0.60     ← row 0: GT consistently above ensemble median
+  0.61  0.56  0.52  0.49  0.59
+  0.62  0.62  0.53  0.51  0.63
+  0.60  0.60  0.53  0.50  0.55
+  0.59  0.57  0.53  0.53  0.49
+```
+
+Almost every cell has PIT mean > 0.5, confirming **systematic low bias**: the model
+underestimates IV levels. This is the baseline anchoring effect quantified continuously.
+Worst: cell (0,0) at 0.652 — GT falls above the ensemble median 65% of the time.
+
+PIT edge fraction (expect 10% for calibrated model):
+```
+  29.4%   7.5%  14.8%  36.4%  11.7%     ← (0,3)=36.4%: GT in tails 3.6x expected
+  11.6%   5.7%  13.9%  16.5%  12.7%
+   7.2%   5.3%   9.6%  14.1%  22.5%
+   4.8%   4.4%   6.7%  10.2%   6.7%
+   3.1%   1.6%   2.9%   7.4%   8.4%     ← row 4: 1.6-3.1%, GT almost never in tails
+```
+
+Cell (0,3): 36.4% of observations fall outside the 5th-95th percentile range (expect 10%).
+Cell (4,1): 1.6% — GT almost never reaches the ensemble tails (extreme overdispersion).
+
+#### Diagnostic Synthesis
+
+The four diagnostics paint a consistent picture:
+
+1. **The calibration problem is spatial, not temporal**. Every diagnostic shows a clear
+   top-left → bottom-left gradient. Short-maturity cells (row 0) are underdispersed;
+   long-maturity cells (rows 3-4) are overdispersed. The scalar vol_scale applies the
+   same spread multiplier to all 25 cells, but the optimal multiplier varies 4.6x across cells.
+
+2. **The calibration problem is regime-dependent**. Turb is nearly calibrated (KS 13/25).
+   Calm is catastrophically underdispersed (KS 1/25). The model's spread mechanism
+   (noise_mlp → z_out → exp(z_out × vol_scale)) works when vol_scale is large (turb)
+   but doesn't generate enough variation when vol_scale is small (calm).
+
+3. **Systematic low bias across all cells**. PIT mean 0.49-0.65 (target 0.50). The model's
+   baseline anchoring to history[-1] creates a persistent downward bias because IV surfaces
+   are slightly mean-reverting — the last observed value tends to be below the future mean.
+
+4. **Cell (0,3) is the structural outlier**. It appears as the worst cell in every diagnostic:
+   rank histogram edge ratio 8.0x, SSR 0.40, PIT edge fraction 36.4%. This cell
+   (short maturity, mid-moneyness) has the highest relative variation in calm markets
+   but receives the same scalar spread as cells that need 2.5x less.
+
+**What would fix this**: The model needs a mechanism that produces different spread per cell
+AND per regime, without distorting the distribution shape (kurtosis). Cell_scale (Exp 89p)
+attempted per-cell differentiation but broke kurtosis. The ideal solution would operate in
+the loss function (e.g., per-cell CRPS weighting) or in the vol_scale computation
+(per-cell vol_scale from the encoder) rather than as a post-decoder multiplicative parameter.

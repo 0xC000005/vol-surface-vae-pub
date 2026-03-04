@@ -45,7 +45,7 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # Training
 # ──────────────────────────────────────────────────────────────────────
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout)
     model.encoder.eval()
@@ -54,6 +54,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_mae = 0.0
     total_spread = 0.0
     total_vs = 0.0
+    total_is = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -61,6 +62,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         future = batch["future"].to(device)
 
         result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
+                       lambda_is=lambda_is, lambda_cs_reg=lambda_cs_reg,
                        n_train_blocks=n_train_blocks)
         loss = result["loss"]
 
@@ -75,6 +77,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_mae += result["mae"].item()
         total_spread += result["spread"].item()
         total_vs += result["variogram"].item()
+        total_is += result["interval_score"].item()
         n_batches += 1
 
     return {
@@ -82,6 +85,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "mae": total_mae / max(n_batches, 1),
         "spread": total_spread / max(n_batches, 1),
         "variogram": total_vs / max(n_batches, 1),
+        "interval_score": total_is / max(n_batches, 1),
         "spread_mae_ratio": total_spread / max(total_mae, 1e-8),
     }
 
@@ -201,6 +205,10 @@ def main():
                         help="Variogram score weight")
     parser.add_argument("--shared_noise_input", action="store_true",
                         help="Inject first noise element as shared spatial input (cross-cell correlation)")
+    parser.add_argument("--lambda_is", type=float, default=0.0,
+                        help="Interval score weight (CI calibration pressure)")
+    parser.add_argument("--lambda_cs_reg", type=float, default=0.0,
+                        help="L2 penalty pulling cell_scale toward its spatial mean")
     parser.add_argument("--n_train_blocks", type=int, default=1,
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
     parser.add_argument("--cond_noise_mlp", action="store_true",
@@ -284,10 +292,13 @@ def main():
         optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=1e-4)
     else:
         noise_params = list(model.noise_mlp.parameters())
-        decoder_params = [p for n, p in model.decoder.named_parameters() if p.requires_grad]
+        cell_scale_params = [model.decoder.cell_scale]
+        decoder_params = [p for n, p in model.decoder.named_parameters()
+                          if p.requires_grad and n != "cell_scale"]
         optimizer = torch.optim.AdamW([
             {"params": noise_params, "lr": args.lr_noise},
-            {"params": decoder_params, "lr": args.lr_decoder},
+            {"params": cell_scale_params, "lr": args.lr_noise},   # new param, needs to move
+            {"params": decoder_params, "lr": args.lr_decoder},    # pretrained, slow
         ], weight_decay=1e-4)
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -329,6 +340,7 @@ def main():
             model, train_loader, optimizer, device,
             n_members=args.n_members, lambda_vs=args.lambda_vs,
             grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
+            lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
         )
         lr_scheduler.step()
 
@@ -371,6 +383,13 @@ def main():
             f"{eval_str}  "
             f"({elapsed:.1f}s)"
         )
+
+        # Log cell_scale stats
+        cs = model.decoder.cell_scale.detach()
+        cs_str = f"  cell_scale: min={cs.min():.3f} max={cs.max():.3f} std={cs.std():.3f}"
+        if cs.max() > 3.0:
+            cs_str += " ⚠️ MAX>3.0"
+        print(cs_str)
 
         # Save checkpoint dict for potential saving
         save_dict = {
