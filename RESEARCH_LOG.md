@@ -19331,3 +19331,77 @@ fundamental to ANY condition-dependent scaling of stochastic increments.
 - Root cause: condition-dependent scaling + time-varying conditions = mixture-of-scales
 
 **Exp 90 (no cell_spread) remains best at 5/8 suites passing.**
+
+### Exp 90 Failure Decomposition (2026-03-04)
+
+Detailed diagnostic of the 3 remaining failures in Exp 90 (best_model, epoch 23).
+
+#### Suite 2: 17 L2 failures — ALL ceiling, ALL long-tenor
+
+Full per-cell coverage grid shows zero floor violations. The worst floor cell (0,4) h=1 at
+70.2% passes the 70% gate. All 17 failures are **ceiling violations** (>95%) concentrated in
+rows 3-4 (long-tenor) at h≥7:
+
+```
+Failures sorted by distance to 95% gate:
+  (4,3) h= 7: 95.2% (gap=0.2%)    (4,3) h=14: 95.3% (gap=0.3%)
+  (3,1) h= 7: 95.5% (gap=0.5%)    (4,0) h=30: 95.6% (gap=0.6%)
+  (3,0) h= 7: 95.9% (gap=0.9%)    (4,4) h=14: 96.0% (gap=1.0%)
+  ...up to (4,1) h=14: 97.6% (gap=2.6%)
+```
+
+**Root cause**: `vol_scale` is scalar — it applies the same spread multiplier to all 25 cells.
+Long-tenor cells have inherently lower volatility (smaller daily changes) but receive the same
+vol_scale as short-tenor. Result: systematic overcoverage in rows 3-4. No checkpoint avoids
+this — epoch 30 and final models have 30+ L2 failures (worse). Epoch 23 (best_model) is
+already optimal at 17 L2.
+
+#### Suite 8 KS IV Levels: Bias grows with horizon — delta mean compounds
+
+Mean bias |mean(gen) - mean(GT)| across 25 cells:
+```
+h= 1: 0.12 IV pts    (negligible)
+h=10: 0.72 IV pts    (6× growth)
+h=20: 0.97 IV pts
+h=30: 1.17 IV pts    (10× growth from h=1)
+```
+
+This is NOT an initial condition issue (history[-1] anchoring). The FrameDecoder MLP has a
+slight systematic nonzero mean in its delta predictions. Over 30 autoregressive steps, this
+per-frame bias compounds. Worst offenders at h=30:
+- (2,4): -4.39 IV pts (systematic underprediction)
+- (0,3): -3.78 IV pts
+- (0,0): -1.64 IV pts
+- (1,4): +2.06 IV pts (systematic overprediction)
+
+All worst-bias cells are edges/corners of the 5×5 grid — the MLP has fewest neighbors to
+learn from. Interior cells (rows 2-3, cols 1-3) have <1 IV pt bias even at h=30.
+
+**Implication**: The KS IV level test (0/25 pass) is driven by this compounding bias, not
+by spread miscalibration. Fixing would require either: (a) explicit zero-mean constraint
+on delta predictions, or (b) bias correction term that grows with frame index.
+
+#### Suite 8 Median Bias: Above-GT fraction actually PASSES
+
+The above-GT fraction (directional bias) test passes all 25 cells within [30%, 70%]:
+```
+  53.0  50.8  61.3  42.7  57.1
+  46.3  58.6  61.6  55.4  61.5
+  53.6  56.8  60.0  58.0  38.3
+  56.2  57.0  58.0  56.5  54.3
+  45.9  54.3  54.2  52.9  56.8
+```
+
+The failing sub-test is "median bias magnitude" (21/25 cells need |bias| < 3 IV pts).
+The 4 failing cells at h=30: (0,0)=18.5, (0,3)=8.5, (2,4)=8.2, (1,4)=4.0 IV pts.
+These are the same edge cells with high MAE generally — not a calibration issue but a
+model capacity issue at grid boundaries.
+
+#### Summary: Remaining Failure Root Causes
+
+| Failure | Root Cause | Fix Direction |
+|---------|-----------|---------------|
+| Suite 2 (17 ceiling) | Scalar vol_scale overcoves long-tenor | Per-tenor (not per-cell) spread |
+| Suite 7 (Layer 2) | Calm floor + turb ceiling in regime×cell | Same as Suite 2 |
+| Suite 8 KS levels | Delta bias compounds over 30 steps | Zero-mean delta constraint |
+| Suite 8 median bias | Edge cell high MAE | More capacity or grid-aware architecture |
