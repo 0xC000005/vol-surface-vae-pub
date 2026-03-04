@@ -58,6 +58,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_is = 0.0
     total_kurt = 0.0
     total_raw_kurt = 0.0
+    total_bias = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -85,6 +86,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_is += result["interval_score"].item()
         total_kurt += result["kurt_loss"].item()
         total_raw_kurt += result["raw_kurt"].item()
+        total_bias += result.get("bias_loss", torch.tensor(0.0)).item()
         n_batches += 1
 
     return {
@@ -96,6 +98,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "kurt_loss": total_kurt / max(n_batches, 1),
         "raw_kurt": total_raw_kurt / max(n_batches, 1),
         "spread_mae_ratio": total_spread / max(total_mae, 1e-8),
+        "bias_loss": total_bias / max(n_batches, 1),
     }
 
 
@@ -243,6 +246,10 @@ def main():
                         help="Progressive training: 5→15→30 frames across epochs")
     parser.add_argument("--ar_cell_spread", action="store_true",
                         help="Learned per-cell spread scaling for AR frame decoder")
+    parser.add_argument("--ar_static_cell_scale", action="store_true",
+                        help="Static per-cell scale (nn.Parameter, no condition dependence)")
+    parser.add_argument("--ar_bias_lambda", type=float, default=0.0,
+                        help="Delta zero-mean bias loss weight")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -290,6 +297,8 @@ def main():
         twcrps_beta=args.twcrps_beta,
         ar_frame=args.ar_frame,
         ar_frame_cell_spread=args.ar_cell_spread,
+        ar_frame_static_cell_scale=args.ar_static_cell_scale,
+        ar_frame_bias_lambda=args.ar_bias_lambda,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -344,6 +353,10 @@ def main():
             spread_params = list(model.cell_spread_linear.parameters())
             param_groups.append(
                 {"params": spread_params, "lr": args.lr_decoder, "weight_decay": 0.1},
+            )
+        if hasattr(model, 'cell_scale'):
+            param_groups.append(
+                {"params": [model.cell_scale], "lr": 1e-3, "weight_decay": 0.0},
             )
         optimizer = torch.optim.AdamW(param_groups)
     else:
@@ -487,6 +500,15 @@ def main():
             w = model.frame_decoder.mlp[-1].weight.detach()
             print(f"  frame_decoder: w_norm={w.norm():.3f}" +
                   (f"  n_frames={n_frames}" if args.progressive_rollout else ""))
+
+        # Log cell_scale stats if applicable (static per-cell scale)
+        if hasattr(model, 'cell_scale'):
+            cs = model.cell_scale.detach().clamp(0.3, 3.0)
+            print(f"  cell_scale: [{cs.min():.3f}, {cs.max():.3f}] mean={cs.mean():.3f}")
+
+        # Log bias loss if applicable
+        if 'bias_loss' in train_metrics and train_metrics['bias_loss'] > 0:
+            print(f"  bias_loss: {train_metrics['bias_loss']:.6f}")
 
         # Log cell_spread_linear stats if applicable (AR frame mode)
         if hasattr(model, 'cell_spread_linear'):

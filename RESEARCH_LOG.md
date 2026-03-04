@@ -19405,3 +19405,31 @@ model capacity issue at grid boundaries.
 | Suite 7 (Layer 2) | Calm floor + turb ceiling in regime×cell | Same as Suite 2 |
 | Suite 8 KS levels | Delta bias compounds over 30 steps | Zero-mean delta constraint |
 | Suite 8 median bias | Edge cell high MAE | More capacity or grid-aware architecture |
+
+### Exp 90b: Static Cell Scale + Delta Bias Loss (2026-03-04)
+
+Two orthogonal fixes on top of Exp 90:
+- **Fix A**: Delta zero-mean loss (lambda=0.01) — penalizes `delta.mean(dim=-1).pow(2).mean()`
+- **Fix B**: Static `nn.Parameter(ones(25))` per-cell scale, clamped [0.3, 3.0], lr=1e-3, wd=0
+
+**Training**: Cell_scale converged to [0.300, 1.069] mean=0.466. Bias loss decreased 0.0002→0.0001.
+
+**Results: 4/8 PASS** (worse than Exp 90's 5/8):
+
+| Metric | Exp 90 | Exp 90b | |
+|--------|--------|---------|---|
+| Suite 3 width ratio | 0.890 PASS | 0.972 FAIL | cell_scale compressed spread |
+| Suite 8 KS levels | 0/25 | 1/25 | bias fix helping (slight) |
+| Suite 8 median bias | 21/25 | 23/25 ✓ | bias fix working |
+| Suite 8 cell explosion | 1.09% | 1.65% | cell_scale made worse |
+
+**Diagnosis**: Static cell_scale is too aggressive. Mean=0.466 means average per-cell spread
+is halved, which compressed the gap between conditional and unconditional widths (Suite 3
+width ratio 0.890→0.972, exceeding 0.95 gate). Cell_scale hit lower clamp 0.300 on multiple
+cells. The CRPS loss optimizes for point-level accuracy, not spread differentiation — it
+drives cell_scale toward "shrink everything" as a trivial MSE-like solution.
+
+**Bias loss is working**: KS levels 0→1 and median bias 21→23 confirm the delta zero-mean
+penalty helps. This fix should be kept. The cell_scale approach needs rethinking — perhaps
+initialize at the inverse of the Exp 90 overcoverage pattern rather than ones, or use a
+tighter clamp [0.7, 1.3].

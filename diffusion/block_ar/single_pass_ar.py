@@ -92,7 +92,9 @@ class SinglePassConfig:
     ar_frame: bool = False
     ar_frame_rho: float = 0.8        # temporal noise correlation
     ar_frame_hidden: int = 128       # MLP hidden dim
-    ar_frame_cell_spread: bool = False  # learned per-cell spread scaling
+    ar_frame_cell_spread: bool = False  # learned per-cell spread scaling (condition-dependent)
+    ar_frame_static_cell_scale: bool = False  # static per-cell scale (nn.Parameter)
+    ar_frame_bias_lambda: float = 0.0  # delta zero-mean loss weight
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -351,6 +353,9 @@ class SinglePassBlockAR(nn.Module):
                 self.cell_spread_linear = nn.Linear(config.bottleneck_dim, frame_dim)
                 nn.init.zeros_(self.cell_spread_linear.weight)
                 nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
+            # Static per-cell scale: nn.Parameter(ones(25)), clamped [0.3, 3.0]
+            if config.ar_frame_static_cell_scale:
+                self.cell_scale = nn.Parameter(torch.ones(frame_dim))
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -531,6 +536,7 @@ class SinglePassBlockAR(nn.Module):
 
         # Generate K member trajectories
         all_member_trajectories = []
+        all_deltas = []  # for bias loss (AR frame mode)
 
         if self.config.ar_frame:
             # ── AR frame mode: per-frame generation with GRU step updates ──
@@ -564,12 +570,18 @@ class SinglePassBlockAR(nn.Module):
                     delta = self.frame_decoder(prev_flat, condition.detach(), z_t, pos_t)
                     delta = delta.reshape(B, H, W)
 
+                    # Static per-cell scale (clamped [0.3, 3.0])
+                    if hasattr(self, 'cell_scale'):
+                        cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
+                        delta = cs * delta
+
                     # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
                     vs = vol_scale.view(B, 1, 1)
                     if hasattr(self, 'cell_spread_linear'):
                         cs = F.softplus(self.cell_spread_linear(condition.detach()))
                         cs = cs.view(B, H, W)
                         delta = cs * delta
+                    all_deltas.append(delta)
                     iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
                     frames.append(iv_t)
 
@@ -651,6 +663,15 @@ class SinglePassBlockAR(nn.Module):
             raw_kurt_mean = raw_kurt.mean().detach()
             loss = loss + lambda_kurt * kurt_val
 
+        # Delta zero-mean bias loss (AR frame mode only)
+        bias_loss = torch.tensor(0.0, device=device)
+        if self.config.ar_frame_bias_lambda > 0 and len(all_deltas) > 0:
+            # all_deltas: list of (B, H, W) tensors
+            deltas = torch.stack(all_deltas, dim=0)  # (K*T, B, H, W)
+            deltas_flat = deltas.reshape(deltas.shape[0] * deltas.shape[1], -1)  # (K*T*B, 25)
+            bias_loss = deltas_flat.mean(dim=-1).pow(2).mean()
+            loss = loss + self.config.ar_frame_bias_lambda * bias_loss
+
         return {
             "loss": loss,
             "crps": crps.detach(),
@@ -661,6 +682,7 @@ class SinglePassBlockAR(nn.Module):
             "kurt_loss": kurt_val.detach(),
             "raw_kurt": raw_kurt_mean,
             "spread_mae_ratio": (spread / mae.clamp(min=1e-8)).detach(),
+            "bias_loss": bias_loss.detach(),
         }
 
     @torch.no_grad()
@@ -707,6 +729,9 @@ class SinglePassBlockAR(nn.Module):
                     prev_flat = prev_frame.reshape(B, H * W)
                     delta = self.frame_decoder(prev_flat, condition, z_t, pos_t)
                     delta = delta.reshape(B, H, W)
+                    if hasattr(self, 'cell_scale'):
+                        cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
+                        delta = cs * delta
                     vs = vol_scale.view(B, 1, 1)
                     if hasattr(self, 'cell_spread_linear'):
                         cs = F.softplus(self.cell_spread_linear(condition))
