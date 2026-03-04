@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from diffusion.block_ar.single_pass_ar import (
@@ -45,7 +46,7 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # Training
 # ──────────────────────────────────────────────────────────────────────
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout)
     model.encoder.eval()
@@ -55,6 +56,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_spread = 0.0
     total_vs = 0.0
     total_is = 0.0
+    total_kurt = 0.0
+    total_raw_kurt = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -63,7 +66,9 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
 
         result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
                        lambda_is=lambda_is, lambda_cs_reg=lambda_cs_reg,
-                       n_train_blocks=n_train_blocks)
+                       lambda_kurt=lambda_kurt,
+                       n_train_blocks=n_train_blocks,
+                       n_frames=n_frames)
         loss = result["loss"]
 
         optimizer.zero_grad()
@@ -78,6 +83,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_spread += result["spread"].item()
         total_vs += result["variogram"].item()
         total_is += result["interval_score"].item()
+        total_kurt += result["kurt_loss"].item()
+        total_raw_kurt += result["raw_kurt"].item()
         n_batches += 1
 
     return {
@@ -86,6 +93,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "spread": total_spread / max(n_batches, 1),
         "variogram": total_vs / max(n_batches, 1),
         "interval_score": total_is / max(n_batches, 1),
+        "kurt_loss": total_kurt / max(n_batches, 1),
+        "raw_kurt": total_raw_kurt / max(n_batches, 1),
         "spread_mae_ratio": total_spread / max(total_mae, 1e-8),
     }
 
@@ -209,10 +218,29 @@ def main():
                         help="Interval score weight (CI calibration pressure)")
     parser.add_argument("--lambda_cs_reg", type=float, default=0.0,
                         help="L2 penalty pulling cell_scale toward its spatial mean")
+    parser.add_argument("--lambda_kurt", type=float, default=0.0,
+                        help="Kurtosis matching loss weight")
     parser.add_argument("--n_train_blocks", type=int, default=1,
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
+    parser.add_argument("--direct_iv", action="store_true",
+                        help="Direct IV prediction (no exp/baseline transform)")
+    parser.add_argument("--no_tanh", action="store_true",
+                        help="Remove tanh bounding from decoder output")
+    parser.add_argument("--learned_vol_scale", action="store_true",
+                        help="Per-cell vol_scale from condition MLP (replaces scalar vol_scale)")
     parser.add_argument("--cond_noise_mlp", action="store_true",
                         help="Feed condition into noise MLP for regime-dependent diversity")
+    parser.add_argument("--noise_dist", type=str, default="gaussian",
+                        choices=["gaussian", "student_t"],
+                        help="Noise distribution for ensemble diversity")
+    parser.add_argument("--student_t_df", type=float, default=4.0,
+                        help="Degrees of freedom for Student-t noise")
+    parser.add_argument("--twcrps_beta", type=float, default=0.0,
+                        help="twCRPS beta (0=standard, 2.0=3x weight at ±1 IQR)")
+    parser.add_argument("--ar_frame", action="store_true",
+                        help="Use per-frame AR decoder instead of Conv3D")
+    parser.add_argument("--progressive_rollout", action="store_true",
+                        help="Progressive training: 5→15→30 frames across epochs")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -248,10 +276,17 @@ def main():
         noise_embed_dim=base_cfg.get("conv3d_noise_embed_dim", 64),
         shared_noise_input=args.shared_noise_input,
         cond_noise_mlp=args.cond_noise_mlp,
+        noise_dist=args.noise_dist,
+        student_t_df=args.student_t_df,
         global_mean_vol=base_cfg.get("global_mean_vol", 0.0187),
         vol_scale_min=base_cfg.get("vol_scale_min", 0.5),
         vol_scale_max=base_cfg.get("vol_scale_max", 2.0),
         vol_scale_power=base_cfg.get("vol_scale_power", 1.0),
+        direct_iv=args.direct_iv,
+        no_tanh=args.no_tanh,
+        learned_vol_scale=args.learned_vol_scale,
+        twcrps_beta=args.twcrps_beta,
+        ar_frame=args.ar_frame,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -277,6 +312,12 @@ def main():
         print(f"Pretrained init: {stats}")
     model = model.to(device)
 
+    # Re-init conv_out for direct IV mode (pretrained weights learned z-scores for exp())
+    if args.direct_iv and hasattr(model, 'decoder'):
+        nn.init.normal_(model.decoder.conv_out.weight, std=0.01)
+        nn.init.zeros_(model.decoder.conv_out.bias)
+        print("  Re-initialized conv_out for direct IV mode")
+
     # Freeze encoder
     for name, param in model.named_parameters():
         if name.startswith("encoder."):
@@ -290,16 +331,27 @@ def main():
     if args.from_scratch:
         trainable = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=1e-4)
+    elif args.ar_frame:
+        # AR frame mode: only frame_decoder params (no NoiseMLP, no Conv3D decoder)
+        decoder_params = list(model.frame_decoder.parameters())
+        param_groups = [
+            {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
+        ]
+        optimizer = torch.optim.AdamW(param_groups)
     else:
         noise_params = list(model.noise_mlp.parameters())
-        cell_scale_params = [model.decoder.cell_scale]
+        spread_params = []
+        if hasattr(model, 'cell_spread_mlp'):
+            spread_params = list(model.cell_spread_mlp.parameters())
         decoder_params = [p for n, p in model.decoder.named_parameters()
-                          if p.requires_grad and n != "cell_scale"]
-        optimizer = torch.optim.AdamW([
-            {"params": noise_params, "lr": args.lr_noise},
-            {"params": cell_scale_params, "lr": args.lr_noise},   # new param, needs to move
-            {"params": decoder_params, "lr": args.lr_decoder},    # pretrained, slow
-        ], weight_decay=1e-4)
+                          if p.requires_grad]
+        param_groups = [
+            {"params": noise_params, "lr": args.lr_noise, "weight_decay": 1e-4},
+            {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
+        ]
+        if spread_params:
+            param_groups.append({"params": spread_params, "lr": args.lr_noise, "weight_decay": 0.1})
+        optimizer = torch.optim.AdamW(param_groups)
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6,
@@ -320,6 +372,30 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     print(f"Data: {len(train_dataset)} train, {len(val_dataset)} val")
 
+    # Precompute per-cell median/IQR for twCRPS
+    if args.twcrps_beta > 0:
+        train_surfaces = surfaces[0:4040]  # raw IV [0, 1]
+        cell_median = torch.from_numpy(np.median(train_surfaces, axis=0)).float()
+        q75 = torch.from_numpy(np.percentile(train_surfaces, 75, axis=0)).float()
+        q25 = torch.from_numpy(np.percentile(train_surfaces, 25, axis=0)).float()
+        cell_iqr = (q75 - q25).clamp(min=0.01)  # prevent division by tiny IQR
+        model.cell_median.copy_(cell_median.to(device))
+        model.cell_iqr.copy_(cell_iqr.to(device))
+        print(f"  twCRPS beta={args.twcrps_beta}")
+        print(f"  cell_median: [{cell_median.min():.3f}, {cell_median.max():.3f}]")
+        print(f"  cell_iqr: [{cell_iqr.min():.3f}, {cell_iqr.max():.3f}]")
+
+    # Precompute target kurtosis for kurtosis matching loss
+    if args.lambda_kurt > 0:
+        train_surfaces = surfaces[0:4040]
+        daily_changes = np.diff(train_surfaces, axis=0)  # (N-1, 5, 5)
+        m2 = (daily_changes ** 2).mean(axis=0)
+        m4 = (daily_changes ** 4).mean(axis=0)
+        target_kurt = torch.from_numpy(m4 / (m2 ** 2 + 1e-8)).float()
+        model.target_kurt.copy_(target_kurt.to(device))
+        print(f"  Kurtosis matching: lambda={args.lambda_kurt}")
+        print(f"  Target kurtosis per cell: [{target_kurt.min():.1f}, {target_kurt.max():.1f}]")
+
     # Training
     best_val_loss = float("inf")
     best_coverage = 0.0
@@ -329,11 +405,19 @@ def main():
     print(f"Training afCRPS single-pass model")
     print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}, n_train_blocks={args.n_train_blocks}")
     print(f"  lambda_vs={args.lambda_vs}, from_scratch={args.from_scratch}")
+    if args.ar_frame:
+        print(f"  AR FRAME MODE: rho={config.ar_frame_rho}, hidden={config.ar_frame_hidden}, progressive={args.progressive_rollout}")
     print(f"  epochs={args.epochs}, batch_size={args.batch_size}")
     print(f"{'='*70}\n")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
+
+        # Progressive rollout: gradually increase generated frames
+        if args.progressive_rollout:
+            n_frames = 5 if epoch <= 10 else 15 if epoch <= 20 else 30
+        else:
+            n_frames = 30 if args.ar_frame else 0  # 0 = use block-based n_frames
 
         # Train
         train_metrics = train_epoch(
@@ -341,6 +425,8 @@ def main():
             n_members=args.n_members, lambda_vs=args.lambda_vs,
             grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
             lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
+            lambda_kurt=args.lambda_kurt,
+            n_frames=n_frames,
         )
         lr_scheduler.step()
 
@@ -384,12 +470,25 @@ def main():
             f"({elapsed:.1f}s)"
         )
 
-        # Log cell_scale stats
-        cs = model.decoder.cell_scale.detach()
-        cs_str = f"  cell_scale: min={cs.min():.3f} max={cs.max():.3f} std={cs.std():.3f}"
-        if cs.max() > 3.0:
-            cs_str += " ⚠️ MAX>3.0"
-        print(cs_str)
+        # Log kurtosis matching if applicable
+        if args.lambda_kurt > 0:
+            print(f"  kurt_loss={train_metrics['kurt_loss']:.4f}  raw_kurt={train_metrics['raw_kurt']:.2f}")
+
+        # Log frame_decoder stats if applicable
+        if hasattr(model, 'frame_decoder'):
+            w = model.frame_decoder.mlp[-1].weight.detach()
+            print(f"  frame_decoder: w_norm={w.norm():.3f}" +
+                  (f"  n_frames={n_frames}" if args.progressive_rollout else ""))
+
+        # Log cell_spread MLP stats if applicable
+        if hasattr(model, 'cell_spread_mlp'):
+            # Find the last Linear layer in the Sequential
+            linear_layers = [m for m in model.cell_spread_mlp if isinstance(m, nn.Linear)]
+            if linear_layers:
+                w = linear_layers[-1].weight.detach()
+                b = linear_layers[-1].bias.detach()
+                base_out = F.softplus(b)
+                print(f"  cell_spread: bias_out=[{base_out.min():.3f}, {base_out.max():.3f}] w_norm={w.norm():.3f}")
 
         # Save checkpoint dict for potential saving
         save_dict = {

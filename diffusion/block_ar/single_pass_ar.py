@@ -73,12 +73,25 @@ class SinglePassConfig:
     noise_embed_dim: int = 64    # must match conv3d_noise_embed_dim for weight transfer
     shared_noise_input: bool = False  # inject first element of z as shared spatial input
     cond_noise_mlp: bool = False  # feed condition into noise MLP for regime-dependent diversity
+    noise_dist: str = "gaussian"  # "gaussian" or "student_t"
+    student_t_df: float = 4.0     # degrees of freedom for Student-t noise
 
     # Vol-scaled denormalization
     global_mean_vol: float = 0.0187
     vol_scale_min: float = 0.5
     vol_scale_max: float = 2.0
     vol_scale_power: float = 1.0
+
+    # Direct IV mode: decoder outputs normalized IV directly (no exp/baseline)
+    direct_iv: bool = False
+    no_tanh: bool = False  # remove tanh bounding (let loss learn output range)
+    learned_vol_scale: bool = False  # per-cell vol_scale from condition MLP
+    twcrps_beta: float = 0.0  # threshold-weighted CRPS beta (0 = standard CRPS)
+
+    # AR frame decoder: per-frame autoregressive generation (replaces Conv3D blocks)
+    ar_frame: bool = False
+    ar_frame_rho: float = 0.8        # temporal noise correlation
+    ar_frame_hidden: int = 128       # MLP hidden dim
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -138,6 +151,43 @@ class NoiseMLP(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Frame Decoder (per-frame MLP for AR generation)
+# ──────────────────────────────────────────────────────────────────────
+
+class FrameDecoder(nn.Module):
+    """Per-frame MLP: predicts delta from prev_frame + condition + noise + position."""
+
+    def __init__(self, frame_dim: int, cond_dim: int, noise_dim: int,
+                 pos_dim: int, hidden_dim: int):
+        super().__init__()
+        self.pos_embed = SinusoidalTimeEmbedding(dim=pos_dim)
+        input_dim = frame_dim + cond_dim + noise_dim + pos_dim
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, frame_dim),
+        )
+        # Zero-init last layer → delta=0 at init → prev_frame unchanged
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+
+    def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
+                noise_t: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+        """
+        prev_frame: (B, frame_dim) flattened 5×5 IV [0,1]
+        condition:  (B, cond_dim) GRU-encoded context
+        noise_t:    (B, noise_dim) AR noise for this frame
+        position:   (B,) int absolute index [0-29]
+        Returns:    (B, frame_dim) delta, tanh-bounded [-1,1]
+        """
+        pos_emb = self.pos_embed(position)  # (B, pos_dim)
+        x = torch.cat([prev_frame, condition, noise_t, pos_emb], dim=-1)
+        return torch.tanh(self.mlp(x))
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Single-Pass Decoder (modified Conv3D backbone)
 # ──────────────────────────────────────────────────────────────────────
 
@@ -193,11 +243,6 @@ class SinglePassDecoder(nn.Module):
         # Strict zero-init would kill ALL gradient flow through conv_out (dead start).
         nn.init.normal_(self.conv_out.weight, std=0.01)
         nn.init.zeros_(self.conv_out.bias)
-
-        # Per-cell output scale: independent scalar per (H, W) cell.
-        # Conv3D shared filters can't differentiate per-cell spread;
-        # cell_scale receives per-cell gradient from CRPS/IS loss.
-        self.cell_scale = nn.Parameter(torch.ones(config.surface_h, config.surface_w))
 
     def forward(
         self,
@@ -259,8 +304,8 @@ class SinglePassDecoder(nn.Module):
         # Squeeze channel dim and reshape
         x = x.squeeze(1)  # (B, T, H, W)
 
-        # tanh clamping: bounds z_out to [-cell_scale, +cell_scale]
-        x = torch.tanh(x) * self.cell_scale  # (B, T, H, W) × (H, W) broadcast
+        if not self.config.no_tanh:
+            x = torch.tanh(x)
 
         return x.reshape(B, T, H * W)
 
@@ -290,12 +335,52 @@ class SinglePassBlockAR(nn.Module):
         )
         self.encoder = GRUEncoder(enc_config)
 
-        # Noise MLP (replaces TimeEmbedding)
-        cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
-        self.noise_mlp = NoiseMLP(config.noise_dim, config.noise_embed_dim, cond_dim=cond_dim)
+        if config.ar_frame:
+            # AR frame decoder: per-frame MLP (no Conv3D, no NoiseMLP)
+            frame_dim = config.surface_h * config.surface_w
+            self.frame_decoder = FrameDecoder(
+                frame_dim=frame_dim,
+                cond_dim=config.bottleneck_dim,
+                noise_dim=config.noise_dim,
+                pos_dim=config.pos_embed_dim,
+                hidden_dim=config.ar_frame_hidden,
+            )
+        else:
+            # Noise MLP (replaces TimeEmbedding)
+            cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
+            self.noise_mlp = NoiseMLP(config.noise_dim, config.noise_embed_dim, cond_dim=cond_dim)
 
-        # Decoder (modified Conv3D)
-        self.decoder = SinglePassDecoder(config)
+            # Decoder (modified Conv3D)
+            self.decoder = SinglePassDecoder(config)
+
+        # Per-cell spread scaling (post-exp, kurtosis-invariant)
+        # Linear: condition (128) → 25, Softplus → positive spread ≈ 1.0
+        if config.learned_vol_scale:
+            cond_dim = config.bottleneck_dim
+            self.cell_spread_mlp = nn.Sequential(
+                nn.Linear(cond_dim, config.surface_h * config.surface_w),
+                nn.Softplus(),
+            )
+            # Init so output starts at 1.0: softplus(0.541) ≈ 1.0
+            nn.init.zeros_(self.cell_spread_mlp[0].weight)
+            nn.init.constant_(self.cell_spread_mlp[0].bias, 0.541)
+
+        # twCRPS per-cell statistics (populated from training data before training)
+        self.register_buffer('cell_median', torch.zeros(config.surface_h, config.surface_w))
+        self.register_buffer('cell_iqr', torch.ones(config.surface_h, config.surface_w))
+
+        # Kurtosis matching target (populated from training data before training)
+        self.register_buffer('target_kurt', torch.full((config.surface_h, config.surface_w), 3.0))
+
+    def _sample_noise(self, B: int, device: torch.device) -> torch.Tensor:
+        """Sample noise vector z ~ N(0,I) or StudentT(df)."""
+        if self.config.noise_dist == "student_t":
+            dist = torch.distributions.StudentT(df=self.config.student_t_df)
+            z = dist.rsample((B, self.config.noise_dim)).to(device).clamp(-5, 5)
+            z = z / 1.414  # scale so pretrained noise_mlp sees similar magnitude
+        else:
+            z = torch.randn(B, self.config.noise_dim, device=device)
+        return z
 
     def _compute_vol_scale(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute baseline and vol_scale from history.
@@ -321,22 +406,40 @@ class SinglePassBlockAR(nn.Module):
 
         return baseline, vol_scale
 
+    # ── GRU step-update helpers (for AR frame mode) ──
+
+    def _init_gru_state(self, history: torch.Tensor):
+        """Run GRU on history, return all hidden outputs + last hidden state."""
+        B = history.shape[0]
+        x = history.reshape(B, history.shape[1], -1)  # (B, T, 25)
+        with torch.no_grad():
+            all_outputs, h_last = self.encoder.gru(x)  # (B, T, H_gru), (1, B, H_gru)
+        return all_outputs, h_last
+
+    def _gru_step(self, frame_iv: torch.Tensor, all_outputs: torch.Tensor,
+                  h_last: torch.Tensor):
+        """Feed one generated frame into GRU, recompute attention-pooled condition."""
+        B = frame_iv.shape[0]
+        x = normalize_iv(frame_iv).reshape(B, 1, -1)  # (B, 1, 25)
+        with torch.no_grad():
+            new_output, h_last = self.encoder.gru(x, h_last)  # (B, 1, H_gru)
+            all_outputs = torch.cat([all_outputs, new_output], dim=1)
+            # Attention pooling (same as GRUEncoder.forward)
+            attn_logits = self.encoder.attn_proj(all_outputs).squeeze(-1)  # (B, T')
+            attn_weights = torch.softmax(attn_logits, dim=1)
+            h = (attn_weights.unsqueeze(-1) * all_outputs).sum(dim=1)  # (B, H_gru)
+            condition = self.encoder.bottleneck(h)  # (B, bottleneck_dim)
+        return condition, all_outputs, h_last
+
     def generate_block(
         self,
         condition: torch.Tensor,     # (B, bottleneck_dim)
         noise_z: torch.Tensor,       # (B, noise_dim)
         positions: torch.Tensor,     # (B, T)
-        baseline: torch.Tensor,      # (B, 1, 5, 5)
-        vol_scale: torch.Tensor,     # (B, 1, 1, 1)
+        baseline: torch.Tensor = None,   # (B, 1, 5, 5) — not used in direct_iv mode
+        vol_scale: torch.Tensor = None,  # (B, 1, 1, 1) — not used in direct_iv mode
     ) -> torch.Tensor:
         """Generate one block of IV surfaces.
-
-        Args:
-            condition: Encoded history
-            noise_z: Noise vector for this ensemble member
-            positions: Frame indices for this block
-            baseline: Baseline IV from history
-            vol_scale: Regime-dependent scale factor
 
         Returns:
             iv_block: (B, T, 5, 5) in [0, 1] IV space
@@ -353,8 +456,21 @@ class SinglePassBlockAR(nn.Module):
         z_out = self.decoder(condition, noise_emb, positions, shared_noise_scalar=shared_noise)  # (B, T, 25)
         z_out = z_out.reshape(-1, positions.shape[1], H, W)  # (B, T, 5, 5)
 
-        # Vol-scaled denormalization: IV = baseline × exp(z_out × vol_scale)
-        iv_block = (torch.exp(z_out * vol_scale) * baseline).clamp(0.001, 1.0)
+        if self.config.direct_iv:
+            # Direct IV: decoder output is normalized IV, denormalize to [0, 1]
+            iv_block = denormalize_iv(z_out).clamp(0.001, 1.0)
+        elif self.config.learned_vol_scale:
+            # 1. Base samples with SCALAR vol_scale (preserves uniform kurtosis)
+            base_iv = torch.exp(z_out * vol_scale) * baseline
+            # 2. Condition-dependent per-cell spread (kurtosis-invariant)
+            B = condition.shape[0]
+            cell_spread = self.cell_spread_mlp(condition)  # (B, 25)
+            cell_spread = cell_spread.clamp(0.85, 1.15)
+            cell_spread = cell_spread.view(B, 1, H, W)  # (B, 1, 5, 5) broadcasts over T
+            iv_block = (baseline + (base_iv - baseline) * cell_spread).clamp(0.001, 1.0)
+        else:
+            # Vol-scaled: IV = baseline × exp(z_out × vol_scale)
+            iv_block = (torch.exp(z_out * vol_scale) * baseline).clamp(0.001, 1.0)
 
         return iv_block
 
@@ -366,82 +482,140 @@ class SinglePassBlockAR(nn.Module):
         lambda_vs: float = 0.0,
         lambda_is: float = 0.0,
         lambda_cs_reg: float = 0.0,
+        lambda_kurt: float = 0.0,
         n_train_blocks: int = 1,
+        n_frames: int = 0,
     ) -> dict:
-        """Training forward: generate K members over n_train_blocks, compute afCRPS.
+        """Training forward: generate K members, compute afCRPS.
 
-        With n_train_blocks=3, generates the full 30-frame trajectory via
-        autoregressive chaining with detached conditioning. Each block gets
-        direct CRPS gradient, but gradients don't flow across block boundaries.
-        The model sees the full horizon and learns that calm windows need
-        growing uncertainty even at h=30.
+        In ar_frame mode: per-frame autoregressive generation with GRU step updates.
+        Otherwise: block-based generation with detached conditioning.
 
         Args:
             history: (B, history_len, 5, 5) in [-1, 1]
             future: (B, future_len, 5, 5) in [-1, 1]
             n_members: K ensemble members per sample
             lambda_vs: Variogram score weight (0 = disabled)
-            n_train_blocks: Number of blocks to generate (1=block1 only, 3=full 30 frames)
+            n_train_blocks: Number of blocks to generate (block mode only)
+            n_frames: Number of frames to generate (ar_frame mode; 0 = use blocks)
 
         Returns:
             dict with "loss" (with grad), plus detached diagnostics
         """
         B = history.shape[0]
         device = history.device
+        H, W = self.config.surface_h, self.config.surface_w
         bs = self.config.block_size
 
-        # GT in IV space (all blocks we're training on)
-        n_frames = min(n_train_blocks * bs, self.config.future_len)
+        # Determine number of frames
+        if self.config.ar_frame:
+            if n_frames <= 0:
+                n_frames = self.config.future_len
+        else:
+            n_frames = min(n_train_blocks * bs, self.config.future_len)
+
+        # GT in IV space
         gt_iv = denormalize_iv(future[:, :n_frames])  # (B, n_frames, 5, 5)
 
-        # Vol_scale from ORIGINAL history only — not diluted by smooth generated frames.
-        # Baseline still updates per block (last frame of grown context) for correct anchor.
-        with torch.no_grad():
-            _, vol_scale = self._compute_vol_scale(history)
+        # Vol_scale from ORIGINAL history
+        vol_scale = None
+        if not self.config.direct_iv:
+            with torch.no_grad():
+                _, vol_scale = self._compute_vol_scale(history)
 
         # Generate K member trajectories
         all_member_trajectories = []
 
-        for _ in range(n_members):
-            current_cond = history  # (B, T_hist, 5, 5) — grows with generated blocks
-            member_blocks = []
-            # Same noise for all blocks within this member — prevents boundary discontinuity
-            z = torch.randn(B, self.config.noise_dim, device=device)
+        if self.config.ar_frame:
+            # ── AR frame mode: per-frame generation with GRU step updates ──
+            rho = self.config.ar_frame_rho
 
-            for block_idx in range(n_train_blocks):
-                # Encode condition from growing context (detached for blocks > 0)
+            for _ in range(n_members):
+                z = self._sample_noise(B, device)
+                z_t = z
+
+                # Init GRU state from history
+                gru_outputs, h_last = self._init_gru_state(history)
+
+                # Initial condition from full history
                 with torch.no_grad():
-                    condition = self.encoder(current_cond, mask=None)
-                    if hasattr(self.encoder, 'null_embedding'):
-                        condition = condition + self.encoder.null_embedding.expand(B, -1)
-                    baseline = self._compute_vol_scale(current_cond)[0]  # baseline only
-                # Detach condition so gradients only flow through this block's decoder
-                condition = condition.detach()
+                    condition = self.encoder(history, mask=None)
 
-                # Positions for this block
-                positions = (
-                    torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
-                    + block_idx * bs
-                )
+                # prev_frame = last history frame in IV space
+                prev_frame = denormalize_iv(history[:, -1])  # (B, 5, 5)
 
-                # Generate block (has gradient through decoder)
-                iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
-                member_blocks.append(iv_block)
+                frames = []
+                for t in range(n_frames):
+                    # AR noise update (skip first frame)
+                    if t > 0:
+                        eps_t = torch.randn_like(z_t)
+                        z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
-                # Grow context with DETACHED generated block (no cross-block gradient)
-                block_norm = normalize_iv(iv_block.detach())
-                current_cond = torch.cat([current_cond, block_norm], dim=1)
+                    pos_t = torch.full((B,), t, device=device, dtype=torch.long)
+                    prev_flat = prev_frame.reshape(B, H * W)
 
-            # Concatenate blocks into full trajectory
-            trajectory = torch.cat(member_blocks, dim=1)  # (B, n_frames, 5, 5)
-            all_member_trajectories.append(trajectory)
+                    # Generate delta (condition detached, prev_frame has gradient)
+                    delta = self.frame_decoder(prev_flat, condition.detach(), z_t, pos_t)
+                    delta = delta.reshape(B, H, W)
+
+                    # Residual: iv_t = prev + vol_scale * delta
+                    vs = vol_scale.view(B, 1, 1)
+                    iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
+                    frames.append(iv_t)
+
+                    # Update prev_frame — NOT detached (BPTT through frame chain)
+                    prev_frame = iv_t
+
+                    # Update GRU condition (no grad, frozen encoder)
+                    condition, gru_outputs, h_last = self._gru_step(
+                        iv_t.detach(), gru_outputs, h_last
+                    )
+
+                trajectory = torch.stack(frames, dim=1)  # (B, n_frames, 5, 5)
+                all_member_trajectories.append(trajectory)
+
+        else:
+            # ── Block mode: existing multi-block generation ──
+            for _ in range(n_members):
+                current_cond = history
+                member_blocks = []
+                z = self._sample_noise(B, device)
+
+                for block_idx in range(n_train_blocks):
+                    with torch.no_grad():
+                        condition = self.encoder(current_cond, mask=None)
+                        if hasattr(self.encoder, 'null_embedding'):
+                            condition = condition + self.encoder.null_embedding.expand(B, -1)
+                        baseline = None
+                        if not self.config.direct_iv:
+                            baseline = self._compute_vol_scale(current_cond)[0]
+                    condition = condition.detach()
+
+                    positions = (
+                        torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
+                        + block_idx * bs
+                    )
+
+                    iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
+                    member_blocks.append(iv_block)
+
+                    block_norm = normalize_iv(iv_block.detach())
+                    current_cond = torch.cat([current_cond, block_norm], dim=1)
+
+                trajectory = torch.cat(member_blocks, dim=1)
+                all_member_trajectories.append(trajectory)
 
         iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, n_frames, 5, 5)
 
         # afCRPS loss over full trajectory
         # frame_sum: sum over T/H/W, mean over B — each frame gets same gradient
         # magnitude as single-block. Multi-block adds h=30 gradient, doesn't dilute h=1.
-        crps, mae, spread = afcrps_loss(iv_samples, gt_iv, alpha=0.95, reduction="frame_sum")
+        crps, mae, spread = afcrps_loss(
+            iv_samples, gt_iv, alpha=0.95, reduction="frame_sum",
+            cell_median=self.cell_median if self.config.twcrps_beta > 0 else None,
+            cell_iqr=self.cell_iqr if self.config.twcrps_beta > 0 else None,
+            twcrps_beta=self.config.twcrps_beta,
+        )
 
         # Total loss (CRPS + variogram + interval score)
         loss = crps
@@ -454,10 +628,18 @@ class SinglePassBlockAR(nn.Module):
             is_val = interval_score(iv_samples, gt_iv, alpha=0.9)
             loss = loss + lambda_is * is_val
 
-        if lambda_cs_reg > 0:
-            cs = self.decoder.cell_scale
-            cs_reg = ((cs - cs.mean()) ** 2).mean()
-            loss = loss + lambda_cs_reg * cs_reg
+        kurt_val = torch.tensor(0.0, device=device)
+        raw_kurt_mean = torch.tensor(0.0, device=device)
+        if lambda_kurt > 0:
+            with torch.no_grad():
+                ensemble_mean = iv_samples.mean(dim=1)  # (B, T, H, W)
+            residuals = gt_iv - ensemble_mean.detach()
+            m2 = residuals.pow(2).mean(dim=(0, 1))  # (H, W)
+            m4 = residuals.pow(4).mean(dim=(0, 1))  # (H, W)
+            raw_kurt = m4 / m2.pow(2).clamp(min=1e-8)  # (H, W)
+            kurt_val = (raw_kurt - self.target_kurt).pow(2).mean()
+            raw_kurt_mean = raw_kurt.mean().detach()
+            loss = loss + lambda_kurt * kurt_val
 
         return {
             "loss": loss,
@@ -466,6 +648,8 @@ class SinglePassBlockAR(nn.Module):
             "spread": spread.detach(),
             "variogram": vs_val.detach(),
             "interval_score": is_val.detach(),
+            "kurt_loss": kurt_val.detach(),
+            "raw_kurt": raw_kurt_mean,
             "spread_mae_ratio": (spread / mae.clamp(min=1e-8)).detach(),
         }
 
@@ -487,52 +671,88 @@ class SinglePassBlockAR(nn.Module):
         """
         B = history.shape[0]
         device = history.device
-        bs = self.config.block_size
-        n_blocks = self.config.future_len // bs
+        H, W = self.config.surface_h, self.config.surface_w
 
-        # Vol_scale from ORIGINAL history only — consistent with training
-        _, vol_scale = self._compute_vol_scale(history)
+        if self.config.ar_frame:
+            # ── AR frame mode: per-frame generation ──
+            _, vol_scale = self._compute_vol_scale(history)
+            rho = self.config.ar_frame_rho
+            n_frames = self.config.future_len
 
-        all_samples = []
-        for _ in range(n_samples):
-            current_cond = history
-            blocks = []
-            # Same noise for all blocks within this member — prevents boundary discontinuity
-            z = torch.randn(B, self.config.noise_dim, device=device)
+            all_samples = []
+            for _ in range(n_samples):
+                z = self._sample_noise(B, device)
+                z_t = z
+                gru_outputs, h_last = self._init_gru_state(history)
+                condition = self.encoder(history, mask=None)
+                prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
 
-            for block_idx in range(n_blocks):
-                # Encode growing context
-                condition = self.encoder(current_cond, mask=None)
-                if hasattr(self.encoder, 'null_embedding'):
-                    condition = condition + self.encoder.null_embedding.expand(B, -1)
+                frames = []
+                for t in range(n_frames):
+                    if t > 0:
+                        eps_t = torch.randn_like(z_t)
+                        z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
-                # Baseline from current context (tracks generated trajectory)
-                baseline = self._compute_vol_scale(current_cond)[0]
+                    pos_t = torch.full((B,), t, device=device, dtype=torch.long)
+                    prev_flat = prev_frame.reshape(B, H * W)
+                    delta = self.frame_decoder(prev_flat, condition, z_t, pos_t)
+                    delta = delta.reshape(B, H, W)
+                    vs = vol_scale.view(B, 1, 1)
+                    iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
+                    frames.append(iv_t)
+                    prev_frame = iv_t
+                    condition, gru_outputs, h_last = self._gru_step(
+                        iv_t, gru_outputs, h_last
+                    )
 
-                # Positions for this block
-                positions = (
-                    torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
-                    + block_idx * bs
-                )
+                trajectory = torch.stack(frames, dim=1)  # (B, future_len, 5, 5)
+                all_samples.append(trajectory)
 
-                # Generate block in IV space
-                iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
+            # Stack and return in [0, 1] (already IV space, no denormalize needed)
+            samples = torch.stack(all_samples, dim=1)  # (B, n_samples, future_len, 5, 5)
+            return samples.clamp(0.0, 1.0)
 
-                # Convert back to normalized space for context growing
-                block_norm = normalize_iv(iv_block)
-                blocks.append(block_norm)
+        else:
+            # ── Block mode: existing multi-block generation ──
+            bs = self.config.block_size
+            n_blocks = self.config.future_len // bs
 
-                # Grow context
-                current_cond = torch.cat([current_cond, block_norm], dim=1)
+            vol_scale = None
+            if not self.config.direct_iv:
+                _, vol_scale = self._compute_vol_scale(history)
 
-            trajectory = torch.cat(blocks, dim=1)  # (B, future_len, 5, 5)
-            all_samples.append(trajectory)
+            all_samples = []
+            for _ in range(n_samples):
+                current_cond = history
+                blocks = []
+                z = self._sample_noise(B, device)
 
-        samples = torch.stack(all_samples, dim=1)  # (B, n_samples, future_len, 5, 5)
-        # Denormalize to [0, 1]
-        samples = denormalize_iv(samples)
-        samples = samples.clamp(0.0, 1.0)
-        return samples
+                for block_idx in range(n_blocks):
+                    condition = self.encoder(current_cond, mask=None)
+                    if hasattr(self.encoder, 'null_embedding'):
+                        condition = condition + self.encoder.null_embedding.expand(B, -1)
+
+                    baseline = None
+                    if not self.config.direct_iv:
+                        baseline = self._compute_vol_scale(current_cond)[0]
+
+                    positions = (
+                        torch.arange(bs, device=device).unsqueeze(0).expand(B, -1)
+                        + block_idx * bs
+                    )
+
+                    iv_block = self.generate_block(condition, z, positions, baseline, vol_scale)
+                    block_norm = normalize_iv(iv_block)
+                    blocks.append(block_norm)
+                    current_cond = torch.cat([current_cond, block_norm], dim=1)
+
+                trajectory = torch.cat(blocks, dim=1)
+                all_samples.append(trajectory)
+
+            samples = torch.stack(all_samples, dim=1)
+            samples = denormalize_iv(samples)
+            samples = samples.clamp(0.0, 1.0)
+            return samples
 
     def sample_batched(self, *args, **kwargs):
         """Alias for sample() — compatibility with test suite."""
@@ -548,8 +768,14 @@ def afcrps_loss(
     gt: torch.Tensor,
     alpha: float = 0.95,
     reduction: str = "mean",
+    cell_median: torch.Tensor = None,
+    cell_iqr: torch.Tensor = None,
+    twcrps_beta: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Almost-Fair CRPS loss (ECMWF AIFS-CRPS, α=0.95).
+
+    When twcrps_beta > 0, applies threshold-weighted CRPS (Taillardat et al. 2022):
+    w(x) = 1 + beta * ((x - median) / IQR)^2. Upweights tail regions quadratically.
 
     Args:
         samples: (B, K, T, H, W) ensemble members in IV space
@@ -559,6 +785,9 @@ def afcrps_loss(
                    "frame_sum" sums over T/H/W and means over B (each frame
                    gets same gradient regardless of n_frames). Use "frame_sum"
                    for multi-block training to avoid gradient dilution.
+        cell_median: (H, W) per-cell median from training data (for twCRPS)
+        cell_iqr: (H, W) per-cell IQR from training data (for twCRPS)
+        twcrps_beta: tail weight strength (0 = standard CRPS)
 
     Returns:
         (loss, mae_term, spread_term) — all scalars
@@ -580,9 +809,21 @@ def afcrps_loss(
     elif reduction == "frame_sum":
         # Sum over T, H, W; mean over B and K — prevents gradient dilution
         # with more frames. Each frame contributes same gradient as in 1-block.
-        mae_per_batch = (samples - gt.unsqueeze(1)).abs().mean(dim=1).sum(dim=(-3, -2, -1))  # (B,)
+        mae_abs = (samples - gt.unsqueeze(1)).abs()  # (B, K, T, H, W)
+        spread_abs = (samples[:, idx_i] - samples[:, idx_j]).abs()  # (B, n_pairs, T, H, W)
+
+        if twcrps_beta > 0 and cell_median is not None:
+            # twCRPS: weight only the MAE term by GT tail distance.
+            # w(y) = 1 + beta * ((y - median) / IQR)^2
+            # Penalizes errors in the tails more without rewarding spread in the tails.
+            # Spread term stays unweighted — no feedback loop.
+            deviation = (gt - cell_median) / cell_iqr  # (B, T, H, W)
+            w_gt = 1.0 + twcrps_beta * deviation.pow(2)  # (B, T, H, W)
+            mae_abs = mae_abs * w_gt.unsqueeze(1)  # broadcast over K
+
+        mae_per_batch = mae_abs.mean(dim=1).sum(dim=(-3, -2, -1))  # (B,)
         mae = mae_per_batch.mean()
-        spread_per_batch = (samples[:, idx_i] - samples[:, idx_j]).abs().mean(dim=1).sum(dim=(-3, -2, -1))
+        spread_per_batch = spread_abs.mean(dim=1).sum(dim=(-3, -2, -1))
         spread = spread_per_batch.mean()
     else:
         # Standard: mean over everything (turb-dominated)

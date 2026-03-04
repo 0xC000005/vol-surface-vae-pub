@@ -18777,3 +18777,480 @@ AND per regime, without distorting the distribution shape (kurtosis). Cell_scale
 attempted per-cell differentiation but broke kurtosis. The ideal solution would operate in
 the loss function (e.g., per-cell CRPS weighting) or in the vol_scale computation
 (per-cell vol_scale from the encoder) rather than as a post-decoder multiplicative parameter.
+
+### Exp 89q: Direct IV Prediction (No exp/baseline) — 2026-03-04
+
+**Hypothesis**: Remove `baseline × exp(z_out × vol_scale)` entirely. Decoder outputs normalized
+IV directly. afCRPS + miss-only IS provide per-cell spread gradient that the vol_scaled path
+can't serve due to scalar vol_scale. Previous direct IV (DDPM highcap) used MSE loss — CRPS
+should teach what MSE couldn't.
+
+**Changes**: Added `direct_iv` flag to SinglePassConfig. When True, `generate_block()` uses
+`denormalize_iv(z_out)` instead of `exp(z_out × vol_scale) × baseline`. Removed cell_scale
+(89p artifact). Re-init conv_out for clean start.
+
+**Training**: 30 epochs, early stopped at epoch 25 (member kurtosis < 0.1). Best coverage
+94.8% at epoch 21.
+
+**Results (best_coverage, epoch 21)**:
+
+| Suite | Metric | 89n (vol_scaled) | 89q (direct IV) | Direction |
+|-------|--------|-----------------|-----------------|-----------|
+| 1 | Butterfly arb | 27.9% | 22.5% | BETTER |
+| 2 | CI overall | 88.4% | 88.5% | ~same |
+| 2 | Per-cell gate | FAIL (21 L2) | FAIL | ~same |
+| 3 | Conditionality | PASS | FAIL (-45.5% MAE red) | WORSE |
+| 4 | Kurtosis | 1.088 | **0.356** | MUCH WORSE |
+| 5 | Boundary | 3.17 | 3.117 | ~same |
+| 6 | Cointegration | 40% / 0.739 ratio | **66.2% / 1.224 ratio** | MUCH BETTER |
+| 7 | L2 regime×cell | FAIL | FAIL | ? |
+| 8 | KS daily changes | 5/25 | **13/25** | MUCH BETTER |
+| 8 | KS IV levels | 0/25 | 1/25 | ~same |
+| — | Width turb/calm | 1.76x-2.14x | **1.10x-1.11x** | REGIME LOST |
+
+**Suites PASS**: 1, 6 (2 of 8). DOWN from 89n's 4/8.
+
+**Analysis**:
+- **Kurtosis collapsed (1.088 → 0.356)**: Confirmed primary risk. Without exp(), tanh output
+  produces approximately Gaussian distributions. Kurtosis monotonically decreased during training
+  (0.315 → 0.098) — the model finds Gaussian spread easier than heavy-tailed spread for CRPS
+  optimization. The CRPS loss doesn't reward kurtosis; it rewards calibrated spread, achievable
+  with Gaussian.
+- **Regime sensitivity lost (2.0x → 1.1x)**: Without vol_scale's automatic regime scaling, the
+  model barely differentiates calm/turb spread. The GRU condition carries regime info but the
+  decoder doesn't translate it into spread differentiation.
+- **KS daily changes improved (5 → 13)**: Direct IV naturally produces better daily change
+  distributions since it predicts actual IV levels rather than perturbations around a baseline.
+- **Cointegration dramatically improved (40% → 66%)**: Direct IV predictions are more
+  mean-reverting in levels, matching the cointegrating properties of real IV surfaces.
+- **Conditionality regressed**: Worst cell MAE reduction -45.5% — some cell is actively worse
+  when conditioned. Without baseline anchoring, the model may struggle with cells where the
+  history is informative.
+
+**Conclusion**: Direct IV trades kurtosis/regime sensitivity for distributional fidelity and
+cointegration. The trade is not favorable — kurtosis fails hard. The fundamental issue:
+tanh + smooth network + Gaussian noise → Gaussian output. Need either (a) more noise
+capacity/members for CRPS to learn tails, or (b) remove tanh to allow unbounded output.
+
+### Exp 89r: Direct IV + noise_dim=64, K=8 — 2026-03-04
+
+**Hypothesis**: More noise capacity (64 vs 16) and more CRPS members (8 vs 4) might give the
+model enough expressiveness/signal to learn heavy tails without exp().
+
+**Result**: Kurtosis 0.22-0.34 (WORSE than 89q's 0.36). CI 96.0% (overcoverage). No early
+stop (never hit 0.1 threshold). noise_dim=64 and K=8 did not help kurtosis at all.
+
+**Conclusion**: The kurtosis problem is NOT noise capacity or CRPS resolution — it's
+**architectural**. Tanh bounds the output to [-1, 1], and for small outputs (std=0.01 init),
+tanh ≈ identity (linear). A linear function of Gaussian noise produces Gaussian output.
+The CRPS loss optimizes for calibrated spread, which Gaussian distributions achieve efficiently.
+Heavy tails require nonlinear output transformations — exactly what exp() provided.
+
+**Next**: Remove tanh entirely (89s). The decoder outputs unbounded values; the clamp in
+generate_block provides safety bounds; the loss keeps values in range.
+
+### Exp 89s: Direct IV + No Tanh — 2026-03-04
+
+**Hypothesis**: Tanh bounds output to [-1, 1], linearizing near zero and producing Gaussian
+output. Removing tanh allows unbounded output → potential for heavy tails.
+
+**Result**: Kurtosis 0.097-0.441 — identical trajectory to 89q (with tanh). Early stopped
+epoch 24. Removing tanh had zero effect on kurtosis.
+
+**Root cause confirmed**: The kurtosis problem is NOT tanh bounding. It's that **smooth neural
+networks mapping Gaussian noise produce approximately Gaussian output**, regardless of bounding.
+The CRPS loss finds Gaussian distributions optimal for calibrated spread. Heavy tails require a
+strongly nonlinear transform (like exp()) that distorts the Gaussian input.
+
+**Implication**: Direct IV is a dead end for kurtosis. The exp() transform is not a hand-designed
+hack — it's a necessary structural element for producing heavy-tailed distributions from Gaussian
+noise. The question is how to make it per-cell adaptive.
+
+**Next direction**: Return to vol_scaled (exp()) but replace the scalar vol_scale with a
+**learned per-cell vol_scale** from a small MLP on the condition vector. This gives:
+- Free kurtosis from exp() ✓
+- Per-cell spread differentiation (learned, not static) ✓
+- Regime dependence (condition carries regime info) ✓
+- No hand-designed heuristics (everything learned from CRPS) ✓
+
+### Exp 89t: Learned Per-Cell Vol_Scale Inside exp() (MLP from condition) — 2026-03-04
+
+**Hypothesis**: MLP(condition → 25 values) replaces scalar vol_scale inside exp(). The encoder
+condition carries regime info; the MLP learns per-cell, per-window vol_scale.
+
+**Result**: Kurtosis **5.9–7.8** (EXPLODED). Same failure as 89p (cell_scale).
+Vol_scale_head range [0.13, 4.35] — 33x ratio. CI 93.5%.
+
+**Root cause**: Per-cell scaling INSIDE exp() couples spread and kurtosis. Cells with large
+vol_scale get extreme kurtosis from exp()'s convexity, pulling the aggregate above 2.0.
+This is structurally identical to 89p regardless of whether the per-cell values come from
+a static nn.Parameter or a learned MLP.
+
+### Exp 89u: Post-Exp Per-Cell Spread Scaling (nn.Parameter) — 2026-03-04
+
+**Key insight**: Kurtosis is scale-invariant. If X has kurtosis κ, then c·X has kurtosis κ
+for any constant c. Therefore: scaling deviations from baseline AFTER exp() preserves kurtosis
+exactly, while allowing per-cell spread differentiation.
+
+**Implementation**:
+```python
+# In generate_block():
+base_iv = baseline * exp(z_out * vol_scale)           # scalar vol_scale → uniform kurtosis
+cell_spread = softplus(self.cell_spread)               # nn.Parameter(ones(5,5)), always positive
+iv_block = baseline + (base_iv - baseline) * cell_spread  # scale deviations, preserve kurtosis
+```
+
+**Training**: `cell_spread` as nn.Parameter(ones(5,5)) with softplus, own param group at lr=1e-3.
+Same setup as 89n otherwise. 30 epochs, best coverage at epoch 10 (89.6%).
+
+**Cell_spread trajectory**: Init 1.31 (softplus(1.0)), converged to [0.507, 2.017] range,
+std=0.429. Stable convergence — no explosion.
+
+**Results (best_coverage, epoch 10)**:
+
+| Suite | Metric | 89n (scalar) | 89u (post-exp cell_spread) | Direction |
+|-------|--------|-------------|---------------------------|-----------|
+| 1 | Butterfly arb | 27.9% | 29.4% | ~same |
+| 2 | CI overall | 88.4% | 88.6% | ~same |
+| 2 | Per-cell gate | FAIL (21 L2) | FAIL | ? |
+| 2 | Calibration | 0.029 | 0.065 | worse |
+| 3 | Conditionality | PASS | PASS | = |
+| 4 | **Kurtosis** | 1.088 | **1.607** | **PASS (decoupling works)** |
+| 5 | Boundary | 3.17 | **2.868** | improved |
+| 6 | Cointegration | 0.739 | **0.787** | improved |
+| 7 | L2 regime×cell | FAIL | FAIL | ? |
+| 8 | KS daily changes | 5/25 | 3/25 | worse |
+| 8 | KS IV levels | 0/25 | 0/25 | = |
+| 8 | Median bias mag | PASS | FAIL (21/25) | worse |
+
+**Suites PASS**: 1, 3, 4, 6 (4/8 — same count as 89n, different composition: gained Suite 4,
+lost nothing new but Suite 8 KS worsened 5→3).
+
+**Key finding**: **Post-exp deviation scaling preserves kurtosis.** 89n kurtosis 1.088, 89u
+kurtosis 1.607 — both in [0.5, 2.0]. The cell_spread learned a 4x ratio [0.507, 2.017]
+without breaking kurtosis. This confirms the decoupling hypothesis.
+
+**What improved**:
+- **Kurtosis preserved** (1.607, PASS) — the core hypothesis is validated
+- **Boundary improved** (3.17 → 2.868) — not yet passing (<2.0) but meaningful progress
+- **Cointegration improved** (0.739 → 0.787) — better regime coverage
+
+**What didn't improve or regressed**:
+- **KS daily changes worsened** (5 → 3) — fixed cell_spread doesn't adapt to regimes
+- **Median bias magnitude** FAIL (21/25, was 22/25 PASS in 89n) — slight regression
+- **Calibration error** increased (0.029 → 0.065) — fixed spread can't optimize per-regime
+- **L2 per-cell still failing** — fixed scalars can't serve both calm and turb regimes
+
+**Limitation**: cell_spread is **static** — same 25 values for calm and turb windows. The SSR
+diagnostic showed calm needs very different per-cell spread than turb (calm 1/25, turb 13/25).
+Fixed scalars find a compromise that helps neither regime optimally. The next step is
+condition-dependent cell_spread (MLP) — now safe to add since post-exp scaling preserves
+kurtosis regardless of the range the MLP learns.
+
+### Exp 89v: Direct IV + Threshold-Weighted CRPS (twCRPS) — 2026-03-04
+
+**Hypothesis**: Standard CRPS weights all quantiles equally, so Gaussian output is optimal for
+smooth networks. twCRPS upweights tail regions: w(y) = 1 + β·((y - median)/IQR)², giving 3x
+weight at ±1 IQR (β=2.0). Should incentivize heavier tails without exp().
+
+**Architecture**: 89q direct IV (no exp(), no baseline). Only change: twCRPS weighting on MAE
+term of afCRPS loss. Per-cell median/IQR precomputed from training data [0,1] IV space.
+
+**Implementation note**: First attempt weighted BOTH MAE and spread terms (spread by midpoint
+weights). This created a catastrophic feedback loop — wider samples → midpoints in tails → bigger
+weights → more spread reward → degenerate solution (CI=2.7%, spread/MAE=24x). Fix: weight only
+the MAE term by w(GT). No feedback loop since GT weights are fixed.
+
+**Training**: 30 epochs planned, early stopped at epoch 12 (member kurtosis 0.083 < 0.1).
+
+**Results** (best_coverage epoch 8, CI=81.7%):
+
+| Metric | 89q (standard CRPS) | 89v (twCRPS β=2.0) |
+|--------|--------------------|--------------------|
+| CI | 88.5% | 81.7% |
+| Kurtosis | 0.356 | 0.083 |
+| Early stop | Epoch 25 | Epoch 12 |
+
+**Conclusion**: twCRPS makes kurtosis WORSE, not better. Upweighting tail MAE incentivizes
+better mean prediction in tails — which is Gaussian-optimal. The model responds by becoming
+MORE Gaussian (lower kurtosis) to minimize tail prediction error. twCRPS changes the loss
+landscape but cannot change the output distribution family of smooth networks + Gaussian noise.
+
+**Confirmed**: Direct IV approaches (89q/r/s/v) cannot produce heavy tails regardless of loss
+function, noise capacity, or bounding. The exp() transform IS what creates kurtosis (convex
+transform of Gaussian → lognormal). Post-exp scaling (89u) remains the only viable path for
+kurtosis + per-cell spread.
+
+### Exp 89w: Direct IV + Student-t Noise (df=4) — 2026-03-04
+
+**Hypothesis**: Gaussian noise → Gaussian output through smooth networks. Student-t(df=4) has
+excess kurtosis ~6 and heavier tails. If the heavy-tailed input propagates through the network,
+output kurtosis should increase above 0.5.
+
+**Implementation**: Replace `torch.randn` with `StudentT(df=4).rsample().clamp(-5,5)` in both
+forward() and sample(). Scale by 1/√2 to match pretrained noise_mlp input magnitude (Student-t
+df=4 has variance 2.0 vs Gaussian 1.0). Everything else identical to 89q.
+
+**Training**: 30 epochs completed (no early stop). Best coverage 95.6% at epoch 11.
+
+**Results**:
+
+| Metric | 89q (Gaussian) | 89w (Student-t df=4) |
+|--------|---------------|---------------------|
+| CI best | 88.5% (ep 21) | **95.6%** (ep 11) |
+| Kurtosis | 0.356 | **0.109–0.131** (WORSE) |
+| Kurtosis trajectory | 0.315→0.098 | 0.329→0.109 |
+| Early stop | Epoch 25 | No |
+
+**Conclusion**: Student-t noise makes kurtosis WORSE (0.109 vs 0.356). The smooth network
+acts as a "Gaussianizer" — it maps any input distribution to approximately Gaussian output.
+The superposition of smooth transformations (SiLU, conv, tanh) invokes a functional CLT:
+regardless of input noise shape, the output converges to Gaussian.
+
+**Direct IV path exhaustively dead for kurtosis**:
+
+| Exp | Variation | Kurtosis |
+|-----|-----------|----------|
+| 89q | Standard CRPS, Gaussian noise | 0.356 |
+| 89r | noise_dim=64, K=8 | 0.22–0.34 |
+| 89s | No tanh | 0.097–0.441 |
+| 89v | twCRPS (tail weighting) | 0.083 |
+| 89w | Student-t noise (df=4) | 0.109–0.131 |
+| 89x | Kurtosis matching loss | 0.098 |
+
+All fail the [0.5, 2.0] kurtosis target. The exp() transform is structurally necessary — it
+creates kurtosis through Jensen's inequality (convex transform of Gaussian). No loss function,
+noise distribution, or activation change can substitute for this mathematical property.
+
+### Exp 89x: Direct IV + Kurtosis Matching Loss — 2026-03-04
+
+**Hypothesis**: Add explicit kurtosis matching loss on prediction residuals
+(gt - ensemble_mean). Match the 4th moment per cell to precomputed target from training data.
+lambda_kurt=0.1. If residuals become heavier-tailed, kurtosis should improve.
+
+**Target kurtosis**: [1.7, 188.3] per cell (huge range — some cells have extreme daily change
+kurtosis). Training set raw kurtosis computed from `np.diff(surfaces, axis=0)`.
+
+**Training**: 30 epochs, early stopped at epoch 25 (member kurtosis 0.098 < 0.1).
+Best coverage 94.8% (epoch 21).
+
+**Results**:
+
+| Metric | 89q (no kurt loss) | 89x (kurt matching) |
+|--------|-------------------|---------------------|
+| CI best | 88.5% | **94.8%** |
+| Member kurtosis | 0.356 → 0.098 | 0.315 → **0.098** |
+| Raw residual kurt | N/A | 4.45 → **6.12** (increasing!) |
+| kurt_loss | N/A | 1798 → 1681 (slowly decreasing) |
+
+**Key disconnect**: The kurtosis loss successfully made prediction *residuals* heavier-tailed
+(raw_kurt 4.45→6.12). But the test suite kurtosis (member daily changes) still collapsed
+(0.315→0.098). Why?
+
+The kurtosis loss operates on `residuals = GT - ensemble_mean.detach()`. Detaching the ensemble
+mean means the loss only affects how the model predicts the conditional mean — occasionally
+making larger errors in high-kurtosis regimes. But it does NOT change the *ensemble
+distribution*. The ensemble members are still drawn from an approximately Gaussian distribution
+(smooth network + Gaussian noise). Heavier-tailed residuals ≠ heavier-tailed ensemble.
+
+**Definitive conclusion for direct IV**: Six experiments (89q/r/s/v/w/x) exhaustively confirm
+that **no modification to loss, noise, or activation can produce non-Gaussian ensemble output
+from a smooth network with Gaussian noise.** The ensemble distribution family is determined
+by architecture (smooth + Gaussian = Gaussian), not by the loss function. The exp() transform
+is the only mechanism that creates kurtosis (Jensen's inequality on a convex function).
+
+### Diagnostic: Mixture-of-Regimes Kurtosis Hypothesis — 2026-03-04
+
+**Question**: Does pooled kurtosis come from mixing calm/turb regimes with different spread
+(which hierarchical sampling could reproduce), or from within-regime non-Gaussianity
+(which requires exp())?
+
+**Method**: Standalone script (`diagnose_mixture_kurtosis.py`) using 89q model on test data.
+Regime split: top/bottom 20% vol-of-vol. Four tests:
+
+**Test 1 — GT daily change kurtosis by regime**:
+- Calm excess kurtosis: **52.37** (per-cell range 7.3–379.4)
+- Turb excess kurtosis: **106.62** (per-cell range 5.9–824.2)
+- Heavy tails are inherent WITHIN each regime, not from mixing regimes.
+
+**Test 2 — Model ensemble shape per regime**:
+- Calm normalized deviation kurtosis: **0.76** (near-Gaussian 0.0)
+- Turb normalized deviation kurtosis: **0.85** (near-Gaussian 0.0)
+- Model ensemble is approximately Gaussian within each regime, confirming the smooth
+  network + Gaussian noise = Gaussian output finding.
+
+**Test 3 — Width ratio (turb/calm std)**:
+- Model: **1.10x** (turb barely wider than calm)
+- GT: **0.73x** (inverted — calm daily changes have HIGHER std than turb)
+- This inversion is counterintuitive but consistent with mean-reversion dynamics: calm
+  periods may have larger proportional daily changes relative to lower baseline IV.
+
+**Test 4 — Synthetic mixture kurtosis**:
+- Scaling turb spread 1-5x produces marginal kurtosis changes (3.1→3.5).
+- Even perfect regime-dependent spread would not produce the target kurtosis (>3.0 excess).
+
+**Conclusion**: Hypothesis **REJECTED**. Heavy tails are inherent in per-regime daily changes
+(excess kurtosis 52–107), not an artifact of regime mixing. Regime-dependent spread alone
+cannot produce the required kurtosis. The exp() transform remains the only viable mechanism.
+
+**Implication**: The path forward must use exp() (post-exp architecture). The condition-dependent
+cell_spread approach (89u demonstrated kurtosis=1.607 with fixed per-cell scale) is the
+natural next step. An MLP conditioned on history can learn regime-adaptive per-cell spread.
+
+### Exp 89y: Condition-Dependent MLP Cell Spread — 2026-03-04
+
+**Architecture**: Replace `nn.Parameter(torch.ones(5,5))` (89u) with MLP:
+`condition (128) → Linear(128,64) → SiLU → Linear(64,25) → Softplus → cell_spread (B, 25)`.
+Init: zero weights + bias=0.541 so Softplus output starts at 1.0. 9,881 new params (vs 25 in 89u).
+Own param group at lr=1e-3. Everything else identical to 89n: multi-block, frame-sum, shared z,
+lambda_is=0.5, lambda_vs=0.1, pretrained init, 30 epochs, K=4.
+
+**Training**: 30 epochs. Best coverage 93.1% (epoch 20). cell_spread_mlp bias range stabilized
+at [0.90, 1.11] with weight norm 4.7 — MLP learns modest per-cell differentiation.
+
+**Results vs 89n**:
+
+| Metric | 89n (no cell_spread) | 89y (MLP cell_spread) |
+|--------|---------------------|----------------------|
+| CI 90% | 88.4% | **89.9%** |
+| Kurtosis ratio | **1.088** | 3.133 |
+| Boundary | 3.17 | 3.18 |
+| Calm worst cell | 53% | 60% |
+| KS daily changes | 5/25 | 1/25 |
+| Cointegration ratio | 0.739 | **0.813** |
+| Per-cell kurtosis | [0.017, 12.8] | [0.126, 5.005] |
+| Median bias (cells <3pt) | 22/25 | 21/25 |
+
+**Kurtosis regression**: 1.088 → 3.133. The condition-dependent spread creates a
+**mixture-of-scales** effect. Different windows get different cell_spread values based on their
+condition vector. When daily changes are pooled across all windows, mixing different scales
+inflates kurtosis — the exact mechanism identified in the mixture kurtosis diagnostic for GT data.
+
+89u had FIXED cell_spread (same for all windows) → kurtosis 1.607 (preserved).
+89p had LEARNABLE cell_spread (nn.Parameter, same for all windows) → kurtosis 6.455 (exploded
+because different cells got very different scales, creating spatial mixture).
+89y has CONDITION-DEPENDENT cell_spread → kurtosis 3.133 (moderate, from temporal mixture).
+
+The kurtosis inflation comes from two sources:
+1. **Spatial**: different cells get different spreads (0.90–1.11 from bias alone)
+2. **Temporal**: different windows get different spreads (MLP varies output by condition)
+
+Both create mixture-of-Gaussians with different scales, inflating tails relative to pure Gaussian.
+
+**Other metrics**: CI improved 88.4→89.9%. Cointegration improved 0.739→0.813. Calm worst cell
+improved 53→60% (MLP learned to widen calm cells slightly). But KS daily changes degraded
+5/25→1/25 (the kurtosis inflation makes daily changes less Gaussian).
+
+**Conclusion**: MLP cell_spread works for CI and cointegration but inflates kurtosis above
+the [0.5, 2.0] target. Need to either: (1) regularize the MLP to stay closer to 1.0,
+(2) clamp cell_spread range, or (3) add kurtosis penalty to training loss.
+
+### Exp 89y-clamp: MLP Cell Spread with Clamped Range [0.85, 1.15] — 2026-03-04
+
+**Change**: One line — `cell_spread = cell_spread.clamp(0.85, 1.15)` after Softplus, before reshape.
+
+**Training**: 30 epochs. Best coverage 89.3% (epoch 5), best val_loss (epoch 25).
+MLP weight norm grew 1.7→3.5 over training (hitting the clamps harder over time).
+
+**Two checkpoint comparison**:
+
+| Checkpoint | CI 90% | Kurtosis | Conditionality | Cointegration | Calib |
+|------------|--------|----------|----------------|---------------|-------|
+| 89n (no MLP) | 88.4% | **1.088** | PASS (0.872) | 0.739 | 0.060 |
+| ep5 (bestcov) | 88.4% | **1.081** | FAIL (0.955) | **0.900** | 0.052 |
+| ep25 (bestval) | 88.2% | 3.787 | PASS (0.742) | 0.801 | **0.034** |
+
+**Key finding**: The clamp delays but does not prevent kurtosis inflation. At epoch 5, MLP hasn't
+differentiated much (weight norm 2.3) so kurtosis is fine but conditionality fails (width ratio
+0.955 > 0.95 gate). By epoch 25 (weight norm 3.5), the MLP outputs hit the clamps for many
+inputs, creating a bimodal spread distribution at 0.85 and 1.15 that inflates kurtosis via the
+same mixture-of-scales mechanism.
+
+**Root cause**: ANY condition-dependent cell_spread creates kurtosis inflation by mixing different
+scale distributions across windows. The strength of the effect is proportional to the variance
+of cell_spread across conditions. Even a ±15% range is enough to push kurtosis above 2.0 once
+the MLP learns to use the full range.
+
+**Fundamental tension**: More cell_spread differentiation → better CI/cointegration, worse kurtosis.
+Less differentiation → preserves kurtosis, doesn't improve over 89n. There is no sweet spot
+where the MLP provides meaningful CI improvement while staying in [0.5, 2.0] kurtosis.
+
+### Exp 89y-linear: Single Linear Layer + Weight Decay 0.1 — 2026-03-04
+
+**Change**: Replace 2-layer MLP (128→64→25, 9.8k params) with single Linear (128→25, 3.2k params).
+Weight decay 0.1 on cell_spread params (100x default). Clamp [0.85, 1.15] retained.
+
+**Diagnosis confirmed**: Training kurtosis ~1.3 vs test kurtosis 2.6. Val-vs-test diagnostic showed
+MLP outputs have higher std on test data (e.g. cell (0,3): val std=0.26, test std=0.48).
+78% of test outputs hit the low clamp (0.85). The MLP overfits condition→spread mapping.
+
+**Results (epoch 9 = best val_loss)**:
+
+| Model | CI | Kurtosis | Calib | Bias frac | Coint |
+|-------|-----|----------|-------|-----------|-------|
+| 89n (no cell_spread) | **88.4%** | **1.088** | 0.060 | **22/25** | 0.739 |
+| 89y (MLP, no clamp) | **89.9%** | 3.133 | 0.078 | 24/25 | **0.813** |
+| 89y-clamp (ep25) | 88.2% | 3.787 | 0.034 | 24/25 | 0.801 |
+| 89y-linear (ep9) | 86.1% | 2.606 | **0.007** | 17/25 | 0.756 |
+
+Weight decay + linear reduced kurtosis (3.8→2.6) but still above 2.0. CI dropped to 86.1%.
+Calibration error improved to 0.007 (excellent). Median bias degraded (22→17/25).
+
+**Conclusion for 89y series**: Condition-dependent cell_spread is a dead end.
+Any amount of condition-dependent per-cell scaling creates mixture-of-scales kurtosis inflation.
+The effect is proportional to the variance of cell_spread across conditions.
+Weight decay reduces variance → reduces kurtosis inflation → but also reduces CI improvement.
+At the regularization level needed for kurtosis <2.0, the model converges to 89n (no benefit).
+
+**Updated failure taxonomy for post-exp cell_spread**:
+- 89p: Fixed nn.Parameter → kurtosis 6.5 (spatial mixture from cell differentiation)
+- 89u: Fixed manual per-cell → kurtosis 1.6 (preserved, but can't adapt to regime)
+- 89y: MLP condition-dependent → kurtosis 3.1 (temporal mixture from condition variation)
+- 89y-clamp: MLP + clamp [0.85,1.15] → kurtosis 3.8 (clamp creates bimodal → worse)
+- 89y-linear: Linear + wd=0.1 + clamp → kurtosis 2.6 (wd helps but not enough)
+
+### Exp 90: True Per-Frame AR with Residual + Progressive Rollout (2026-03-04)
+
+**Architecture change**: Replace Conv3D block-based decoder with true per-frame autoregressive
+generation. Each frame generated as residual from previous: `iv_t = (prev_frame + vol_scale * delta).clamp(0.001, 1.0)`.
+
+**Key design**: FrameDecoder MLP (185→128→128→25, ~44K params) with tanh output, zero-init last
+layer. 30 sequential frames, no blocks. GRU encoder gets per-frame hidden state updates (frozen).
+AR noise: `z_t = rho*z_{t-1} + sqrt(1-rho²)*eps_t` with rho=0.8. BPTT through frame chain
+(prev_frame not detached). Progressive rollout: 5 frames (ep1-10) → 15 (ep11-20) → 30 (ep21-30).
+
+**Training**: 30 epochs, lr=1e-3, progressive rollout. Best val_loss at epoch 23.
+
+**Results (best_model, epoch 23)**:
+
+| Suite | Test | Result | vs 89n |
+|-------|------|--------|--------|
+| 1 | Surface Validity | **PASS** | same |
+| 2 | CI Coverage | FAIL (CI=90.5%) | ↑ 88.4→90.5% |
+| 3 | Conditionality | **PASS** | same |
+| 4 | Time Series | **PASS** (Kurt=1.22, ACF=0.922) | ↑ ACF 0.867→0.922 |
+| 5 | Block-AR | **PASS** (boundary=0.945) | ↑↑ 3.17→0.945 **NEW PASS** |
+| 6 | Cointegration | PASS (0.642) | ↓ 0.739→0.642 |
+| 7 | Regime Coverage | FAIL | same |
+| 8 | Distributional | FAIL (KS daily 16/25) | ↑↑ 5→16/25 |
+
+**Suites passing: 5/8** (1,3,4,5) vs 89n's 4/8 (1,3,4,6). New pass: Suite 5 (no blocks = no boundaries).
+
+**Major improvements**:
+- Suite 5 boundary: 3.17→0.945 (trivially passes since no block structure)
+- Suite 8 KS daily changes: 5/25→16/25 (massive marginal improvement from true AR)
+- ACF: 0.867→0.922 (better temporal structure from sequential generation)
+- CI: 88.4→90.5%
+
+**Remaining failures**:
+- Suite 2: Per-cell gate [70%,95%] — worst cell h=1: 70.2% (barely fails)
+- Suite 7: Regime×cell layer — L2 count TBD
+- Suite 8: KS IV levels 0/25 (persistent), median bias 21/25 (needs 22), cell explosion 1.09%
+
+**Growing uncertainty FAIL**: Variance peaks at h=20 then drops at h=30 (0.003874→0.003749).
+This is informational only but indicates potential saturation of the residual accumulation.
+
+**Conclusion**: True per-frame AR is a clear improvement over block-based Conv3D. The sequential
+residual structure naturally produces better temporal dynamics (ACF, KS daily) and eliminates
+boundary artifacts. 5/8 suites pass vs 4/8 for 89n. Suite 6 regressed slightly (0.739→0.642).
+Main remaining issue: per-cell coverage calibration (Suite 2/7) and IV level marginals (Suite 8).
