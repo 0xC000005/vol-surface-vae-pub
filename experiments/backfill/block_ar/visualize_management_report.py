@@ -3,14 +3,13 @@
 Management Report: Block-AR Volatility Surface Scenario Generator Quality.
 
 Generates publication-quality visualizations demonstrating:
-1. Conditional variance fan charts (calm vs turbulent, per cell)
-2. Cross-cell regime sensitivity comparison
+1. Conditional variance fan charts with history context (calm vs turbulent, per cell)
+2. Cross-cell regime sensitivity with history context
 3. Temporal properties (kurtosis, ACF)
 4. Surface structure validity (term structure, smile)
 5. Surface heatmap snapshots (GT vs generated vs uncertainty)
 6. Calibration curve
-
-All plots use the best vol-scaled model (epoch 26, 437K params).
+7. Marginal daily change distributions per cell (GT vs generated)
 """
 
 import dataclasses
@@ -49,8 +48,19 @@ for r in range(5):
     for c in range(5):
         CELL_NAMES[(r, c)] = f"{MATURITY_LABELS[r]} / K={MONEYNESS_LABELS[c]}"
 
-OUTPUT_DIR = "results/block_ar/management_report_89y_linear"
-MODEL_PATH = "models/backfill/afcrps_89y_linear/best_model.pt"
+import argparse
+
+_parser = argparse.ArgumentParser(add_help=False)
+_parser.add_argument("--model_path", default="models/backfill/afcrps_90d/best_model.pt")
+_parser.add_argument("--output_dir", default="results/block_ar/management_report_90d")
+_parser.add_argument("--quantile_map", default=None, help="Path to quantile_map.npz")
+_parser.add_argument("--qmap_alpha", type=float, default=1.0, help="Quantile map alpha")
+_args, _ = _parser.parse_known_args()
+
+OUTPUT_DIR = _args.output_dir
+MODEL_PATH = _args.model_path
+QUANTILE_MAP = _args.quantile_map
+QMAP_ALPHA = _args.qmap_alpha
 N_SAMPLES = 50
 MAX_WINDOWS = 400
 
@@ -151,15 +161,13 @@ def generate_all_data(model, config, device):
 # FIGURE 1: Per-Cell Fan Charts — Calm vs Turbulent
 # ══════════════════════════════════════════════════════════════════════
 def plot_fan_charts(data):
-    """Fan charts for selected cells, calm vs turbulent side by side."""
+    """Fan charts with history context for selected cells, calm vs turbulent."""
     vov = data["vol_of_vol"]
     sorted_idx = np.argsort(vov)
 
-    # Pick a calm and turbulent window (P10 and P90 for robustness)
     calm_idx = sorted_idx[int(0.10 * len(sorted_idx))]
     turb_idx = sorted_idx[int(0.90 * len(sorted_idx))]
 
-    # Representative cells: short-term OTM put, ATM mid, long-term ATM, short-term OTM call
     cells = [(0, 0), (2, 2), (4, 2), (0, 4)]
     cell_labels = [
         "1M OTM Put (K=0.70)\nHigh uncertainty",
@@ -170,21 +178,23 @@ def plot_fan_charts(data):
 
     fig, axes = plt.subplots(4, 2, figsize=(14, 16), sharex=True)
     fig.suptitle("Scenario Fan Charts: Calm vs Turbulent Market Regimes\n"
-                 "Same model, same cells — uncertainty widens in turbulent conditions",
+                 "Black = 30-day history, colored = forecast fan, green dashed = GT future",
                  fontsize=15, fontweight="bold", y=0.99)
 
-    horizons = np.arange(1, 31)
+    hist_days = np.arange(-29, 1)
+    fwd_days = np.arange(1, 31)
 
     # First pass: compute y-ranges per row (shared across calm/turbulent)
     row_ylims = []
     for row, ((r, c), label) in enumerate(zip(cells, cell_labels)):
         ymin, ymax = np.inf, -np.inf
         for win_idx in [calm_idx, turb_idx]:
+            hist_cell = data["history"][win_idx, :, r, c]
             samples_cell = data["samples"][win_idx, :, :, r, c]
             gt_cell = data["future"][win_idx, :, r, c]
-            ymin = min(ymin, samples_cell.min(), gt_cell.min())
-            ymax = max(ymax, samples_cell.max(), gt_cell.max())
-        margin = (ymax - ymin) * 0.05
+            ymin = min(ymin, hist_cell.min(), samples_cell.min(), gt_cell.min())
+            ymax = max(ymax, hist_cell.max(), samples_cell.max(), gt_cell.max())
+        margin = (ymax - ymin) * 0.08
         row_ylims.append((ymin - margin, ymax + margin))
 
     for row, ((r, c), label) in enumerate(zip(cells, cell_labels)):
@@ -193,26 +203,37 @@ def plot_fan_charts(data):
             (turb_idx, "Turbulent", TURB_COLOR),
         ]):
             ax = axes[row, col]
+            hist_cell = data["history"][win_idx, :, r, c]     # (30,)
             samples_cell = data["samples"][win_idx, :, :, r, c]  # (S, 30)
             gt_cell = data["future"][win_idx, :, r, c]            # (30,)
 
-            # Plot individual scenario paths (thin, transparent)
+            # History (black solid)
+            ax.plot(hist_days, hist_cell, color="black", linewidth=1.5,
+                    label="History", zorder=6)
+
+            # Forecast boundary
+            ax.axvline(0.5, color="gray", linestyle=":", alpha=0.6)
+
+            # Scenario paths
             for s in range(min(20, N_SAMPLES)):
-                ax.plot(horizons, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
+                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
 
             # Confidence bands
             for ci, pct_hi, band_alpha in [(5, 95, 0.12), (10, 90, 0.15), (25, 75, 0.20)]:
                 lo = np.percentile(samples_cell, ci, axis=0)
                 hi = np.percentile(samples_cell, pct_hi, axis=0)
-                ax.fill_between(horizons, lo, hi, color=color, alpha=band_alpha)
+                ax.fill_between(fwd_days, lo, hi, color=color, alpha=band_alpha)
 
             # Median and GT
             median = np.median(samples_cell, axis=0)
-            ax.plot(horizons, median, color=color, linewidth=1.5, label="Median scenario")
-            ax.plot(horizons, gt_cell, color=GT_COLOR, linewidth=2.0,
+            ax.plot(fwd_days, median, color=color, linewidth=1.5, label="Median scenario")
+            ax.plot(fwd_days, gt_cell, color=GT_COLOR, linewidth=2.0,
                     linestyle="--", label="Ground truth", zorder=5)
 
-            # Shared y-axis per row
+            # Connect history to forecast
+            ax.plot([0, 1], [hist_cell[-1], median[0]], color=color,
+                    linewidth=1, alpha=0.5)
+
             ax.set_ylim(row_ylims[row])
 
             # Annotate spread
@@ -230,10 +251,10 @@ def plot_fan_charts(data):
                 ax.set_ylabel(label, fontsize=10)
 
             if row == 3:
-                ax.set_xlabel("Forecast Horizon (days)")
+                ax.set_xlabel("Day (0 = forecast start)")
 
             if row == 0 and col == 1:
-                ax.legend(fontsize=9, loc="upper right")
+                ax.legend(fontsize=8, loc="upper right")
 
             ax.tick_params(labelsize=9)
 
@@ -248,14 +269,13 @@ def plot_fan_charts(data):
 # FIGURE 2: Cross-Cell Regime Sensitivity
 # ══════════════════════════════════════════════════════════════════════
 def plot_cross_cell_sensitivity(data):
-    """Show same window, different cells — uncertainty varies spatially.
+    """Show same window, different cells with history context.
     Top row: turbulent window. Bottom row: calm window. Same 4 cells."""
     vov = data["vol_of_vol"]
     sorted_idx = np.argsort(vov)
     calm_idx = sorted_idx[int(0.10 * len(sorted_idx))]
     turb_idx = sorted_idx[int(0.90 * len(sorted_idx))]
 
-    # 4 cells spanning the surface corners + center
     cells = [(0, 0), (0, 4), (2, 2), (4, 2)]
     col_labels = [
         "1M OTM Put\n(K=0.70)",
@@ -266,11 +286,13 @@ def plot_cross_cell_sensitivity(data):
 
     fig, axes = plt.subplots(2, 4, figsize=(18, 9), sharex=True)
     fig.suptitle(
-        "Same Cells, Different Regimes: Uncertainty Responds Differently Per Cell",
+        "Same Cells, Different Regimes: Uncertainty Responds Differently Per Cell\n"
+        "Black = history, colored = forecast fan",
         fontsize=15, fontweight="bold", y=1.01,
     )
 
-    horizons = np.arange(1, 31)
+    hist_days = np.arange(-29, 1)
+    fwd_days = np.arange(1, 31)
 
     for row_idx, (win_idx, regime, color) in enumerate([
         (turb_idx, "Turbulent", TURB_COLOR),
@@ -278,23 +300,32 @@ def plot_cross_cell_sensitivity(data):
     ]):
         for col_idx, ((r, c), col_label) in enumerate(zip(cells, col_labels)):
             ax = axes[row_idx, col_idx]
+            hist_cell = data["history"][win_idx, :, r, c]
             samples_cell = data["samples"][win_idx, :, :, r, c]
             gt_cell = data["future"][win_idx, :, r, c]
 
             spread = samples_cell.std(axis=0).mean()
 
+            # History
+            ax.plot(hist_days, hist_cell, color="black", linewidth=1.5, zorder=6)
+            ax.axvline(0.5, color="gray", linestyle=":", alpha=0.6)
+
+            # Scenarios
             for s in range(min(20, N_SAMPLES)):
-                ax.plot(horizons, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
+                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
 
             q05 = np.percentile(samples_cell, 5, axis=0)
             q95 = np.percentile(samples_cell, 95, axis=0)
-            ax.fill_between(horizons, q05, q95, color=color, alpha=0.15)
+            ax.fill_between(fwd_days, q05, q95, color=color, alpha=0.15)
 
             median = np.median(samples_cell, axis=0)
-            ax.plot(horizons, median, color=color, linewidth=1.5)
-            ax.plot(horizons, gt_cell, color=GT_COLOR, linewidth=2.0, linestyle="--", zorder=5)
+            ax.plot(fwd_days, median, color=color, linewidth=1.5)
+            ax.plot(fwd_days, gt_cell, color=GT_COLOR, linewidth=2.0, linestyle="--", zorder=5)
 
-            # Spread annotation
+            # Connect history to forecast
+            ax.plot([0, 1], [hist_cell[-1], median[0]], color=color,
+                    linewidth=1, alpha=0.5)
+
             ax.text(0.97, 0.95, f"spread={spread*100:.1f}%",
                     transform=ax.transAxes, fontsize=8, ha="right", va="top",
                     bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
@@ -305,10 +336,10 @@ def plot_cross_cell_sensitivity(data):
                 vov_val = vov[win_idx]
                 ax.set_ylabel(f"{regime}\n(vov={vov_val:.4f})", fontsize=10, fontweight="bold")
             if row_idx == 1:
-                ax.set_xlabel("Horizon (days)")
+                ax.set_xlabel("Day (0 = forecast start)")
             ax.tick_params(labelsize=9)
 
-    # Share y-axis per column so spread difference is visible
+    # Share y-axis per column (include history range)
     for col_idx in range(4):
         ymin = min(axes[0, col_idx].get_ylim()[0], axes[1, col_idx].get_ylim()[0])
         ymax = max(axes[0, col_idx].get_ylim()[1], axes[1, col_idx].get_ylim()[1])
@@ -651,6 +682,125 @@ def plot_calibration_curve(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# FIGURE 7: Marginal Daily Change Distributions Per Cell
+# ══════════════════════════════════════════════════════════════════════
+def plot_marginal_daily_changes(data):
+    """Per-cell daily IV change distributions: GT vs generated.
+
+    Two plots:
+      fig7a — 3x3 grid of 9 representative cells with detailed stats
+      fig7b — compact 5x5 grid of all 25 cells
+    """
+    future = data["future"]        # (W, 30, 5, 5)
+    samples = data["samples"]      # (W, S, 30, 5, 5)
+
+    gt_daily = np.diff(future, axis=1)                  # (W, 29, 5, 5)
+    gen_daily = np.diff(samples[:, :5], axis=2)          # (W, 5, 29, 5, 5)
+
+    # ── Fig 7a: 3x3 representative cells ──
+    cells_9 = [
+        (0, 0), (0, 2), (0, 4),
+        (2, 0), (2, 2), (2, 4),
+        (4, 0), (4, 2), (4, 4),
+    ]
+
+    fig, axes = plt.subplots(3, 3, figsize=(16, 14))
+    fig.suptitle("Daily IV Change Distribution: Ground Truth vs Generated\n"
+                 "Red = Generated, Green = Ground Truth — matching tails = good kurtosis",
+                 fontsize=14, fontweight="bold")
+
+    for idx, (r, c) in enumerate(cells_9):
+        ax = axes[idx // 3, idx % 3]
+        gt_vals = gt_daily[:, :, r, c].ravel()
+        gen_vals = gen_daily[:, :, :, r, c].ravel()
+
+        plo, phi = np.percentile(gt_vals, [0.5, 99.5])
+        bins = np.linspace(plo, phi, 80)
+
+        ax.hist(gt_vals, bins=bins, density=True, alpha=0.5, color=GT_COLOR, label="GT")
+        ax.hist(gen_vals, bins=bins, density=True, alpha=0.5, color=TURB_COLOR, label="Gen")
+
+        gt_k = sp_stats.kurtosis(gt_vals, fisher=True)
+        gen_k = sp_stats.kurtosis(gen_vals, fisher=True)
+        ratio = gen_k / gt_k if gt_k > 0 else float("nan")
+        ks_stat, ks_p = sp_stats.ks_2samp(gt_vals, gen_vals)
+        gt_std = gt_vals.std()
+        gen_std = gen_vals.std()
+
+        ax.text(0.03, 0.95,
+                f"GT kurt={gt_k:.1f}\n"
+                f"Gen kurt={gen_k:.1f}\n"
+                f"Ratio={ratio:.2f}\n"
+                f"GT std={gt_std:.4f}\n"
+                f"Gen std={gen_std:.4f}\n"
+                f"KS={ks_stat:.3f} p={ks_p:.3f}",
+                transform=ax.transAxes, fontsize=7, va="top",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.8))
+
+        cell_name = CELL_NAMES[(r, c)]
+        pass_mark = "PASS" if ks_p > 0.05 else "FAIL"
+        ax.set_title(f"({r},{c}) {cell_name}  [{pass_mark}]", fontsize=10,
+                     fontweight="bold" if pass_mark == "FAIL" else "normal",
+                     color="red" if pass_mark == "FAIL" else "black")
+
+        if idx >= 6:
+            ax.set_xlabel("Daily IV Change")
+        if idx % 3 == 0:
+            ax.set_ylabel("Density")
+        if idx == 0:
+            ax.legend(fontsize=8)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    path = f"{OUTPUT_DIR}/fig7a_marginal_daily_changes.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+    # ── Fig 7b: compact 5x5 all cells ──
+    fig, axes = plt.subplots(5, 5, figsize=(20, 16))
+    fig.suptitle("Daily IV Change Distribution — All 25 Cells\n"
+                 "Green=GT, Red=Generated",
+                 fontsize=14, fontweight="bold")
+
+    for r in range(5):
+        for c in range(5):
+            ax = axes[r, c]
+            gt_vals = gt_daily[:, :, r, c].ravel()
+            gen_vals = gen_daily[:, :, :, r, c].ravel()
+
+            plo, phi = np.percentile(gt_vals, [1, 99])
+            bins = np.linspace(plo, phi, 50)
+
+            ax.hist(gt_vals, bins=bins, density=True, alpha=0.5, color=GT_COLOR)
+            ax.hist(gen_vals, bins=bins, density=True, alpha=0.5, color=TURB_COLOR)
+
+            gt_k = sp_stats.kurtosis(gt_vals, fisher=True)
+            gen_k = sp_stats.kurtosis(gen_vals, fisher=True)
+            ratio = gen_k / gt_k if gt_k > 0 else float("nan")
+            ks_stat, ks_p = sp_stats.ks_2samp(gt_vals, gen_vals)
+
+            pass_mark = "P" if ks_p > 0.05 else "F"
+            ax.set_title(f"({r},{c}) r={ratio:.2f} [{pass_mark}]", fontsize=8,
+                         color="red" if pass_mark == "F" else "black")
+            ax.tick_params(labelsize=6)
+            if r < 4:
+                ax.set_xticklabels([])
+            if c > 0:
+                ax.set_yticklabels([])
+
+    for r in range(5):
+        axes[r, 0].set_ylabel(MATURITY_LABELS[r], fontsize=9)
+    for c in range(5):
+        axes[4, c].set_xlabel(f"K={MONEYNESS_LABELS[c]}", fontsize=9)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    path = f"{OUTPUT_DIR}/fig7b_marginal_daily_changes_all25.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
+# ══════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
 def main():
@@ -663,25 +813,35 @@ def main():
     print("Generating data...")
     data = generate_all_data(model, config, device)
 
+    if QUANTILE_MAP:
+        from experiments.backfill.block_ar.quantile_mapper import QuantileMapper
+        print(f"Applying quantile mapping (alpha={QMAP_ALPHA}) from {QUANTILE_MAP}...")
+        qmapper = QuantileMapper(QUANTILE_MAP, alpha=QMAP_ALPHA)
+        data["samples"] = qmapper.apply(data["samples"], data["history"])
+        data["samples_raw"] = data["samples"]
+
     print("\nGenerating visualizations...")
 
-    print("\n[1/6] Fan charts: calm vs turbulent...")
+    print("\n[1/7] Fan charts with history: calm vs turbulent...")
     plot_fan_charts(data)
 
-    print("[2/6] Cross-cell sensitivity...")
+    print("[2/7] Cross-cell sensitivity with history...")
     plot_cross_cell_sensitivity(data)
 
-    print("[3/6] Temporal properties...")
+    print("[3/7] Temporal properties...")
     plot_temporal_properties(data)
 
-    print("[4/6] Term structure & smile...")
+    print("[4/7] Term structure & smile...")
     plot_surface_structure(data)
 
-    print("[5/6] Surface heatmaps...")
+    print("[5/7] Surface heatmaps...")
     plot_surface_heatmaps(data)
 
-    print("[6/6] Calibration curve...")
+    print("[6/7] Calibration curve...")
     plot_calibration_curve(data)
+
+    print("[7/7] Marginal daily change distributions...")
+    plot_marginal_daily_changes(data)
 
     print(f"\nAll figures saved to {OUTPUT_DIR}/")
     print("Files:")

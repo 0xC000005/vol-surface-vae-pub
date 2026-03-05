@@ -95,6 +95,7 @@ class SinglePassConfig:
     ar_frame_cell_spread: bool = False  # learned per-cell spread scaling (condition-dependent)
     ar_frame_static_cell_scale: bool = False  # static per-cell scale (nn.Parameter)
     ar_frame_bias_lambda: float = 0.0  # delta zero-mean loss weight
+    ar_frame_percell_vol_scale: bool = False  # per-cell vol_scale from history std
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -417,6 +418,23 @@ class SinglePassBlockAR(nn.Module):
 
         return baseline, vol_scale
 
+    def _compute_percell_vol_scale(self, history: torch.Tensor) -> torch.Tensor:
+        """Compute per-cell vol_scale from history daily change std.
+
+        Args:
+            history: (B, T_hist, 5, 5) in [-1, 1]
+
+        Returns:
+            vol_scale_cell: (B, 5, 5) per-cell scaling factor
+        """
+        past_abs = denormalize_iv(history)  # (B, T, 5, 5)
+        daily_chg = past_abs[:, 1:] - past_abs[:, :-1]  # (B, T-1, 5, 5)
+        cell_std = daily_chg.std(dim=1)  # (B, 5, 5)
+        vol_scale_cell = (cell_std / self.config.global_mean_vol).clamp(
+            self.config.vol_scale_min, self.config.vol_scale_max
+        )
+        return vol_scale_cell.pow(self.config.vol_scale_power)
+
     # ── GRU step-update helpers (for AR frame mode) ──
 
     def _init_gru_state(self, history: torch.Tensor):
@@ -530,9 +548,12 @@ class SinglePassBlockAR(nn.Module):
 
         # Vol_scale from ORIGINAL history
         vol_scale = None
+        vol_scale_cell = None
         if not self.config.direct_iv:
             with torch.no_grad():
                 _, vol_scale = self._compute_vol_scale(history)
+                if self.config.ar_frame_percell_vol_scale:
+                    vol_scale_cell = self._compute_percell_vol_scale(history)
 
         # Generate K member trajectories
         all_member_trajectories = []
@@ -576,7 +597,10 @@ class SinglePassBlockAR(nn.Module):
                         delta = cs * delta
 
                     # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
-                    vs = vol_scale.view(B, 1, 1)
+                    if vol_scale_cell is not None:
+                        vs = vol_scale_cell  # (B, 5, 5)
+                    else:
+                        vs = vol_scale.view(B, 1, 1)
                     if hasattr(self, 'cell_spread_linear'):
                         cs = F.softplus(self.cell_spread_linear(condition.detach()))
                         cs = cs.view(B, H, W)
@@ -708,6 +732,9 @@ class SinglePassBlockAR(nn.Module):
         if self.config.ar_frame:
             # ── AR frame mode: per-frame generation ──
             _, vol_scale = self._compute_vol_scale(history)
+            vol_scale_cell = None
+            if self.config.ar_frame_percell_vol_scale:
+                vol_scale_cell = self._compute_percell_vol_scale(history)
             rho = self.config.ar_frame_rho
             n_frames = self.config.future_len
 
@@ -732,7 +759,10 @@ class SinglePassBlockAR(nn.Module):
                     if hasattr(self, 'cell_scale'):
                         cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
                         delta = cs * delta
-                    vs = vol_scale.view(B, 1, 1)
+                    if vol_scale_cell is not None:
+                        vs = vol_scale_cell  # (B, 5, 5)
+                    else:
+                        vs = vol_scale.view(B, 1, 1)
                     if hasattr(self, 'cell_spread_linear'):
                         cs = F.softplus(self.cell_spread_linear(condition))
                         cs = cs.view(B, H, W)

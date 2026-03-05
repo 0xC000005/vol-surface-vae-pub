@@ -46,10 +46,11 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # Training
 # ──────────────────────────────────────────────────────────────────────
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
-    # Keep encoder in eval mode (frozen, no dropout)
-    model.encoder.eval()
+    # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
+    if not unfreeze_encoder:
+        model.encoder.eval()
 
     total_loss = 0.0
     total_mae = 0.0
@@ -197,7 +198,7 @@ def quick_eval(model, loader, device, n_samples=50, max_batches=5):
 
 def main():
     parser = argparse.ArgumentParser(description="Train afCRPS single-pass Block-AR")
-    parser.add_argument("--base_model", type=str, required=True,
+    parser.add_argument("--base_model", type=str, default=None,
                         help="Path to pretrained DDPM checkpoint (for encoder + optional weights)")
     parser.add_argument("--no_ema", action="store_true",
                         help="Use model_state_dict instead of ema_params")
@@ -250,6 +251,16 @@ def main():
                         help="Static per-cell scale (nn.Parameter, no condition dependence)")
     parser.add_argument("--ar_bias_lambda", type=float, default=0.0,
                         help="Delta zero-mean bias loss weight")
+    parser.add_argument("--ar_frame_hidden", type=int, default=128,
+                        help="FrameDecoder MLP hidden dim")
+    parser.add_argument("--ar_percell_vol_scale", action="store_true",
+                        help="Per-cell vol_scale from history daily change std")
+    parser.add_argument("--unfreeze_encoder", action="store_true",
+                        help="Unfreeze GRU encoder")
+    parser.add_argument("--lr_encoder", type=float, default=1e-4,
+                        help="LR for encoder when unfrozen (default: 1e-4)")
+    parser.add_argument("--no_pretrained_encoder", action="store_true",
+                        help="Skip loading pretrained encoder weights (random init)")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
@@ -264,8 +275,12 @@ def main():
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     # Load base checkpoint to get encoder config
-    base_ckpt = torch.load(args.base_model, map_location="cpu", weights_only=False)
-    base_cfg = base_ckpt.get("config", {})
+    if args.base_model:
+        base_ckpt = torch.load(args.base_model, map_location="cpu", weights_only=False)
+        base_cfg = base_ckpt.get("config", {})
+    else:
+        base_ckpt = None
+        base_cfg = {}
 
     # Build SinglePassConfig
     config = SinglePassConfig(
@@ -298,7 +313,9 @@ def main():
         ar_frame=args.ar_frame,
         ar_frame_cell_spread=args.ar_cell_spread,
         ar_frame_static_cell_scale=args.ar_static_cell_scale,
+        ar_frame_hidden=args.ar_frame_hidden,
         ar_frame_bias_lambda=args.ar_bias_lambda,
+        ar_frame_percell_vol_scale=args.ar_percell_vol_scale,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -307,7 +324,9 @@ def main():
     model = SinglePassBlockAR(config).to(device)
 
     # Load pretrained weights
-    if args.from_scratch:
+    if args.no_pretrained_encoder:
+        print("Random encoder init (no pretrained weights loaded)")
+    elif args.from_scratch:
         # Only load encoder weights
         src_state = base_ckpt["model_state_dict"] if args.no_ema else base_ckpt.get("ema_params", base_ckpt["model_state_dict"])
         tgt_state = model.state_dict()
@@ -330,14 +349,16 @@ def main():
         nn.init.zeros_(model.decoder.conv_out.bias)
         print("  Re-initialized conv_out for direct IV mode")
 
-    # Freeze encoder
-    for name, param in model.named_parameters():
-        if name.startswith("encoder."):
-            param.requires_grad = False
+    # Freeze encoder (unless --unfreeze_encoder)
+    if not args.unfreeze_encoder:
+        for name, param in model.named_parameters():
+            if name.startswith("encoder."):
+                param.requires_grad = False
 
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
-    print(f"Model: {n_total:,} total, {n_trainable:,} trainable (encoder frozen)")
+    enc_status = "encoder trainable" if args.unfreeze_encoder else "encoder frozen"
+    print(f"Model: {n_total:,} total, {n_trainable:,} trainable ({enc_status})")
 
     # Optimizer with differential learning rates
     if args.from_scratch:
@@ -349,6 +370,11 @@ def main():
         param_groups = [
             {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
         ]
+        if args.unfreeze_encoder:
+            encoder_params = list(model.encoder.parameters())
+            param_groups.append(
+                {"params": encoder_params, "lr": args.lr_encoder, "weight_decay": 1e-4},
+            )
         if hasattr(model, 'cell_spread_linear'):
             spread_params = list(model.cell_spread_linear.parameters())
             param_groups.append(
@@ -427,7 +453,7 @@ def main():
     print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}, n_train_blocks={args.n_train_blocks}")
     print(f"  lambda_vs={args.lambda_vs}, from_scratch={args.from_scratch}")
     if args.ar_frame:
-        print(f"  AR FRAME MODE: rho={config.ar_frame_rho}, hidden={config.ar_frame_hidden}, progressive={args.progressive_rollout}")
+        print(f"  AR FRAME MODE: rho={config.ar_frame_rho}, hidden={config.ar_frame_hidden}, progressive={args.progressive_rollout}, encoder={'unfrozen' if args.unfreeze_encoder else 'frozen'}")
     print(f"  epochs={args.epochs}, batch_size={args.batch_size}")
     print(f"{'='*70}\n")
 
@@ -448,6 +474,7 @@ def main():
             lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
             lambda_kurt=args.lambda_kurt,
             n_frames=n_frames,
+            unfreeze_encoder=args.unfreeze_encoder,
         )
         lr_scheduler.step()
 

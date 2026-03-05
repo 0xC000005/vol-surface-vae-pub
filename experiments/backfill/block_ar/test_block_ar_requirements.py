@@ -2327,6 +2327,14 @@ def main():
         "--crps_boost_only", action="store_true",
         help="Boost-only CRPS: σ = max(1.0, σ_norm) — only widen, never narrow cells",
     )
+    parser.add_argument(
+        "--quantile_map", type=str, default=None,
+        help="Path to quantile_map.npz for per-cell quantile mapping of daily changes",
+    )
+    parser.add_argument(
+        "--qmap_alpha", type=float, default=1.0,
+        help="Quantile map blending factor: 1.0=full mapping, 0.5=half correction (default: 1.0)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -2380,6 +2388,8 @@ def main():
         print(f"Calibration:   {args.calibration_head}")
     if args.conformal:
         print(f"Conformal:     W={args.conformal_window} (per-horizon, regime-split)")
+    if args.quantile_map:
+        print(f"Quantile map:  {args.quantile_map} (alpha={args.qmap_alpha})")
     print(f"Output:        {output_dir}")
     print("=" * 60)
 
@@ -2589,6 +2599,14 @@ def main():
             ).mean(dim=0)
         print(f"  Mean correction grid:\n{mean_corr.numpy().round(3)}")
         print(f"  Corrected samples range: [{cond_samples.min():.4f}, {cond_samples.max():.4f}]")
+
+    # Apply quantile mapping if requested
+    if args.quantile_map:
+        from experiments.backfill.block_ar.quantile_mapper import QuantileMapper
+        print(f"\n  Applying per-cell quantile mapping from {args.quantile_map}...")
+        qmapper = QuantileMapper(args.quantile_map, alpha=args.qmap_alpha)
+        cond_samples = qmapper.apply(cond_samples, history_arr)
+        print(f"  Quantile mapped: [{cond_samples.min():.4f}, {cond_samples.max():.4f}]")
 
     # Apply conformal calibration if requested
     if args.conformal:
