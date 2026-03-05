@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -93,6 +94,17 @@ def convert_to_serializable(obj):
     elif isinstance(obj, bool):
         return bool(obj)
     return obj
+
+
+def hash_file(path: Optional[str]) -> Optional[str]:
+    """Return a short SHA256 for provenance tracking."""
+    if not path:
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:12]
 
 
 # =============================================================================
@@ -2726,14 +2738,22 @@ def main():
     # =========================================================================
     # Eval provenance — record everything needed to reproduce this evaluation
     # =========================================================================
-    import hashlib, dataclasses
+    import dataclasses
     config_dict = dataclasses.asdict(model_config)
     config_hash = hashlib.sha256(
         json.dumps(config_dict, sort_keys=True, default=str).encode()
     ).hexdigest()[:12]
 
+    quantile_map_path = (
+        str(Path(args.quantile_map).resolve()) if args.quantile_map else None
+    )
+    eval_args = dict(vars(args))
+    eval_args["model_path"] = str(model_path.resolve())
+    eval_args["quantile_map"] = quantile_map_path
+
     results['eval_config'] = {
-        'checkpoint_path': str(model_path),
+        'checkpoint_path': str(model_path.resolve()),
+        'checkpoint_hash': hash_file(str(model_path)),
         'checkpoint_epoch': checkpoint.get('epoch', None),
         'n_samples': args.n_samples,
         'max_batches': args.max_batches,
@@ -2746,8 +2766,12 @@ def main():
         'post_hoc_scale': args.post_hoc_scale,
         'regime_adaptive_alpha': args.regime_adaptive_alpha,
         'percell_scale_head': args.percell_scale_head,
+        'quantile_map': quantile_map_path,
+        'qmap_alpha': args.qmap_alpha,
+        'quantile_map_hash': hash_file(args.quantile_map),
         'model_config_hash': config_hash,
         'model_config': config_dict,
+        'eval_args': eval_args,
     }
 
     # =========================================================================

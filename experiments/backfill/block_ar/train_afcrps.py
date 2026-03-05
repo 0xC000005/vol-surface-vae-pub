@@ -23,6 +23,7 @@ Usage:
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -45,6 +46,17 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # ──────────────────────────────────────────────────────────────────────
 # Training
 # ──────────────────────────────────────────────────────────────────────
+
+def _hash_file(path: str | None) -> str | None:
+    """Return a short SHA256 for provenance tracking."""
+    if not path:
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:12]
+
 
 def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
@@ -269,6 +281,16 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    if args.from_scratch and args.no_pretrained_encoder:
+        parser.error(
+            "--from_scratch cannot be combined with --no_pretrained_encoder; "
+            "use --no_pretrained_encoder alone for full random init"
+        )
+    if not args.no_pretrained_encoder and not args.base_model:
+        parser.error(
+            "--base_model is required unless --no_pretrained_encoder is set"
+        )
+
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -281,6 +303,13 @@ def main():
     else:
         base_ckpt = None
         base_cfg = {}
+    if args.no_pretrained_encoder:
+        pretrained_init_mode = "random_all"
+    elif args.from_scratch:
+        pretrained_init_mode = "encoder_only"
+    else:
+        pretrained_init_mode = "full_pretrained"
+    base_model_hash = _hash_file(args.base_model)
 
     # Build SinglePassConfig
     config = SinglePassConfig(
@@ -562,14 +591,16 @@ def main():
             "config": dataclasses.asdict(config),
             "metrics": log_entry,
             "training_config": {
-                "base_model": args.base_model,
-                "from_scratch": args.from_scratch,
-                "n_members": args.n_members,
-                "lambda_vs": args.lambda_vs,
-                "lr_noise": args.lr_noise,
-                "lr_decoder": args.lr_decoder,
-                "noise_dim": args.noise_dim,
-                "n_train_blocks": args.n_train_blocks,
+                **vars(args),
+                "pretrained_init_mode": pretrained_init_mode,
+                "resolved_device": str(device),
+                "base_model_resolved": (
+                    str(Path(args.base_model).resolve()) if args.base_model else None
+                ),
+                "base_model_hash": base_model_hash,
+                "base_checkpoint_epoch": (
+                    base_ckpt.get("epoch") if base_ckpt is not None else None
+                ),
             },
         }
 
