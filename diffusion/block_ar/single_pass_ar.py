@@ -96,6 +96,18 @@ class SinglePassConfig:
     ar_frame_static_cell_scale: bool = False  # static per-cell scale (nn.Parameter)
     ar_frame_bias_lambda: float = 0.0  # delta zero-mean loss weight
     ar_frame_percell_vol_scale: bool = False  # per-cell vol_scale from history std
+    ar_dual_pos: bool = False
+    ar_local_pos_period: int = 30
+    ar_horizon_bucket_size: int = 30
+    ar_horizon_max_buckets: int = 9
+    ar_horizon_embed_dim: int = 8
+    ar_dynamic_vs: bool = False
+    ar_dynamic_vs_mode: str = "scalar"  # "scalar" or "tenor"
+    ar_dynamic_vs_scale: float = 0.15
+    ar_frame_log_space: bool = False  # multiplicative dynamics: iv = prev * exp(vs * delta)
+    ar_factor_noise: bool = False     # factor model noise: z_factors @ loadings.T → per-cell
+    ar_n_factors: int = 5             # number of latent noise factors
+    ar_frame_floor_clamp: float = 0.001  # lower clamp for IV values in AR frame generation
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -162,10 +174,15 @@ class FrameDecoder(nn.Module):
     """Per-frame MLP: predicts delta from prev_frame + condition + noise + position."""
 
     def __init__(self, frame_dim: int, cond_dim: int, noise_dim: int,
-                 pos_dim: int, hidden_dim: int):
+                 pos_dim: int, hidden_dim: int,
+                 horizon_embed_dim: int = 0, n_horizon_buckets: int = 0):
         super().__init__()
         self.pos_embed = SinusoidalTimeEmbedding(dim=pos_dim)
-        input_dim = frame_dim + cond_dim + noise_dim + pos_dim
+        self.horizon_embed = None
+        if horizon_embed_dim > 0 and n_horizon_buckets > 0:
+            self.horizon_embed = nn.Embedding(n_horizon_buckets, horizon_embed_dim)
+            nn.init.normal_(self.horizon_embed.weight, std=0.02)
+        input_dim = frame_dim + cond_dim + noise_dim + pos_dim + horizon_embed_dim
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.SiLU(),
@@ -178,16 +195,23 @@ class FrameDecoder(nn.Module):
         nn.init.zeros_(self.mlp[-1].bias)
 
     def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
-                noise_t: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+                noise_t: torch.Tensor, local_position: torch.Tensor,
+                horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
         """
         prev_frame: (B, frame_dim) flattened 5×5 IV [0,1]
         condition:  (B, cond_dim) GRU-encoded context
         noise_t:    (B, noise_dim) AR noise for this frame
-        position:   (B,) int absolute index [0-29]
+        local_position: (B,) local frame index, usually t or t % period
+        horizon_bucket: (B,) optional coarse absolute-horizon bucket
         Returns:    (B, frame_dim) delta, tanh-bounded [-1,1]
         """
-        pos_emb = self.pos_embed(position)  # (B, pos_dim)
-        x = torch.cat([prev_frame, condition, noise_t, pos_emb], dim=-1)
+        pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
+        pieces = [prev_frame, condition, noise_t, pos_emb]
+        if self.horizon_embed is not None:
+            if horizon_bucket is None:
+                horizon_bucket = torch.zeros_like(local_position)
+            pieces.append(self.horizon_embed(horizon_bucket))
+        x = torch.cat(pieces, dim=-1)
         return torch.tanh(self.mlp(x))
 
 
@@ -342,13 +366,26 @@ class SinglePassBlockAR(nn.Module):
         if config.ar_frame:
             # AR frame decoder: per-frame MLP (no Conv3D, no NoiseMLP)
             frame_dim = config.surface_h * config.surface_w
+            # Factor noise: noise input is per-cell (frame_dim) instead of shared (noise_dim)
+            fd_noise_dim = frame_dim if config.ar_factor_noise else config.noise_dim
             self.frame_decoder = FrameDecoder(
                 frame_dim=frame_dim,
                 cond_dim=config.bottleneck_dim,
-                noise_dim=config.noise_dim,
+                noise_dim=fd_noise_dim,
                 pos_dim=config.pos_embed_dim,
                 hidden_dim=config.ar_frame_hidden,
+                horizon_embed_dim=(
+                    config.ar_horizon_embed_dim if config.ar_dual_pos else 0
+                ),
+                n_horizon_buckets=(
+                    config.ar_horizon_max_buckets if config.ar_dual_pos else 0
+                ),
             )
+            # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
+            if config.ar_factor_noise:
+                self.factor_loadings = nn.Parameter(
+                    torch.randn(frame_dim, config.ar_n_factors) * 0.1
+                )
             # Per-cell spread: condition → 25 positive scalars ≈ 1.0
             if config.ar_frame_cell_spread:
                 self.cell_spread_linear = nn.Linear(config.bottleneck_dim, frame_dim)
@@ -357,6 +394,15 @@ class SinglePassBlockAR(nn.Module):
             # Static per-cell scale: nn.Parameter(ones(25)), clamped [0.3, 3.0]
             if config.ar_frame_static_cell_scale:
                 self.cell_scale = nn.Parameter(torch.ones(frame_dim))
+            if config.ar_dynamic_vs:
+                if config.ar_dynamic_vs_mode not in {"scalar", "tenor"}:
+                    raise ValueError(
+                        f"Unsupported ar_dynamic_vs_mode={config.ar_dynamic_vs_mode!r}"
+                    )
+                out_dim = 1 if config.ar_dynamic_vs_mode == "scalar" else config.surface_h
+                self.dynamic_vs_head = nn.Linear(config.bottleneck_dim, out_dim)
+                nn.init.zeros_(self.dynamic_vs_head.weight)
+                nn.init.zeros_(self.dynamic_vs_head.bias)
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -386,12 +432,14 @@ class SinglePassBlockAR(nn.Module):
 
     def _sample_noise(self, B: int, device: torch.device) -> torch.Tensor:
         """Sample noise vector z ~ N(0,I) or StudentT(df)."""
+        # Factor noise uses n_factors dim; shared noise uses noise_dim
+        ndim = self.config.ar_n_factors if self.config.ar_factor_noise else self.config.noise_dim
         if self.config.noise_dist == "student_t":
             dist = torch.distributions.StudentT(df=self.config.student_t_df)
-            z = dist.rsample((B, self.config.noise_dim)).to(device).clamp(-5, 5)
+            z = dist.rsample((B, ndim)).to(device).clamp(-5, 5)
             z = z / 1.414  # scale so pretrained noise_mlp sees similar magnitude
         else:
-            z = torch.randn(B, self.config.noise_dim, device=device)
+            z = torch.randn(B, ndim, device=device)
         return z
 
     def _compute_vol_scale(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -459,6 +507,143 @@ class SinglePassBlockAR(nn.Module):
             h = (attn_weights.unsqueeze(-1) * all_outputs).sum(dim=1)  # (B, H_gru)
             condition = self.encoder.bottleneck(h)  # (B, bottleneck_dim)
         return condition, all_outputs, h_last
+
+    def _get_ar_frame_positions(
+        self,
+        step_idx: int,
+        batch_size: int,
+        device: torch.device,
+        position_mode: str = "native",
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Resolve local position and optional horizon bucket for AR-frame decoding."""
+        if position_mode not in {"native", "raw", "cyclic"}:
+            raise ValueError(f"Unsupported position_mode={position_mode!r}")
+
+        if position_mode == "raw":
+            local_pos_val = step_idx
+            bucket_val = None
+        elif position_mode == "cyclic":
+            local_pos_val = step_idx % max(self.config.ar_local_pos_period, 1)
+            bucket_val = None
+        elif self.config.ar_dual_pos:
+            local_pos_val = step_idx % max(self.config.ar_local_pos_period, 1)
+            bucket_val = min(
+                step_idx // max(self.config.ar_horizon_bucket_size, 1),
+                self.config.ar_horizon_max_buckets - 1,
+            )
+        else:
+            local_pos_val = step_idx
+            bucket_val = None
+
+        local_pos = torch.full(
+            (batch_size,), local_pos_val, device=device, dtype=torch.long
+        )
+        horizon_bucket = None
+        if bucket_val is not None:
+            horizon_bucket = torch.full(
+                (batch_size,), bucket_val, device=device, dtype=torch.long
+            )
+        return local_pos, horizon_bucket
+
+    def _get_ar_frame_vol_scale(
+        self,
+        condition: torch.Tensor,
+        base_vol_scale: torch.Tensor | None,
+        percell_vol_scale: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Resolve per-frame vol scale, optionally modulated by a bounded dynamic head."""
+        B = condition.shape[0]
+        H, W = self.config.surface_h, self.config.surface_w
+
+        if percell_vol_scale is not None:
+            vs = percell_vol_scale
+        elif base_vol_scale is not None:
+            vs = base_vol_scale.view(B, 1, 1)
+        else:
+            vs = torch.ones(B, 1, 1, device=condition.device, dtype=condition.dtype)
+
+        if not self.config.ar_dynamic_vs:
+            return vs
+
+        raw = self.dynamic_vs_head(condition)
+        multiplier = torch.exp(self.config.ar_dynamic_vs_scale * torch.tanh(raw))
+        multiplier = multiplier.clamp(0.75, 1.33)
+        if self.config.ar_dynamic_vs_mode == "scalar":
+            multiplier = multiplier.view(B, 1, 1)
+        else:
+            multiplier = multiplier.view(B, H, 1).expand(B, H, W)
+        return vs * multiplier
+
+    def _get_noise_for_decoder(self, z_t: torch.Tensor) -> torch.Tensor:
+        """Convert raw noise z_t to FrameDecoder input (shared or factor model)."""
+        if self.config.ar_factor_noise:
+            # z_t: (B, n_factors) → cell_noise: (B, frame_dim) via learned loadings
+            return z_t @ self.factor_loadings.T
+        return z_t
+
+    @torch.no_grad()
+    def _sample_ar_frame_trajectory(
+        self,
+        history: torch.Tensor,
+        n_frames: int,
+        position_mode: str = "native",
+    ) -> torch.Tensor:
+        """Sample one AR-frame trajectory in IV space."""
+        B = history.shape[0]
+        device = history.device
+        H, W = self.config.surface_h, self.config.surface_w
+        rho = self.config.ar_frame_rho
+        log_space = self.config.ar_frame_log_space
+        floor = self.config.ar_frame_floor_clamp
+
+        _, vol_scale = self._compute_vol_scale(history)
+        vol_scale_cell = None
+        if self.config.ar_frame_percell_vol_scale:
+            vol_scale_cell = self._compute_percell_vol_scale(history)
+
+        z = self._sample_noise(B, device)
+        z_t = z
+        gru_outputs, h_last = self._init_gru_state(history)
+        condition = self.encoder(history, mask=None)
+        prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
+
+        frames = []
+        for step_idx in range(n_frames):
+            if step_idx > 0:
+                eps_t = torch.randn_like(z_t)
+                z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
+
+            local_pos, horizon_bucket = self._get_ar_frame_positions(
+                step_idx=step_idx,
+                batch_size=B,
+                device=device,
+                position_mode=position_mode,
+            )
+
+            prev_flat = prev_frame.reshape(B, H * W)
+            noise_input = self._get_noise_for_decoder(z_t)
+            delta = self.frame_decoder(
+                prev_flat, condition, noise_input, local_pos, horizon_bucket
+            ).reshape(B, H, W)
+            if hasattr(self, "cell_scale"):
+                cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
+                delta = cs * delta
+            if hasattr(self, "cell_spread_linear"):
+                cs = F.softplus(self.cell_spread_linear(condition)).view(B, H, W)
+                delta = cs * delta
+
+            vs = self._get_ar_frame_vol_scale(condition, vol_scale, vol_scale_cell)
+            if log_space:
+                iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
+            else:
+                iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
+            frames.append(iv_t)
+            prev_frame = iv_t
+            condition, gru_outputs, h_last = self._gru_step(
+                iv_t, gru_outputs, h_last
+            )
+
+        return torch.stack(frames, dim=1)
 
     def generate_block(
         self,
@@ -562,6 +747,7 @@ class SinglePassBlockAR(nn.Module):
         if self.config.ar_frame:
             # ── AR frame mode: per-frame generation with GRU step updates ──
             rho = self.config.ar_frame_rho
+            floor = self.config.ar_frame_floor_clamp
 
             for _ in range(n_members):
                 z = self._sample_noise(B, device)
@@ -584,11 +770,20 @@ class SinglePassBlockAR(nn.Module):
                         eps_t = torch.randn_like(z_t)
                         z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
-                    pos_t = torch.full((B,), t, device=device, dtype=torch.long)
+                    local_pos, horizon_bucket = self._get_ar_frame_positions(
+                        step_idx=t,
+                        batch_size=B,
+                        device=device,
+                        position_mode="native",
+                    )
                     prev_flat = prev_frame.reshape(B, H * W)
 
                     # Generate delta (condition detached, prev_frame has gradient)
-                    delta = self.frame_decoder(prev_flat, condition.detach(), z_t, pos_t)
+                    cond_t = condition.detach()
+                    noise_input = self._get_noise_for_decoder(z_t)
+                    delta = self.frame_decoder(
+                        prev_flat, cond_t, noise_input, local_pos, horizon_bucket
+                    )
                     delta = delta.reshape(B, H, W)
 
                     # Static per-cell scale (clamped [0.3, 3.0])
@@ -597,16 +792,16 @@ class SinglePassBlockAR(nn.Module):
                         delta = cs * delta
 
                     # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
-                    if vol_scale_cell is not None:
-                        vs = vol_scale_cell  # (B, 5, 5)
-                    else:
-                        vs = vol_scale.view(B, 1, 1)
                     if hasattr(self, 'cell_spread_linear'):
-                        cs = F.softplus(self.cell_spread_linear(condition.detach()))
+                        cs = F.softplus(self.cell_spread_linear(cond_t))
                         cs = cs.view(B, H, W)
                         delta = cs * delta
+                    vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
                     all_deltas.append(delta)
-                    iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
+                    if self.config.ar_frame_log_space:
+                        iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
+                    else:
+                        iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
                     frames.append(iv_t)
 
                     # Update prev_frame — NOT detached (BPTT through frame chain)
@@ -727,55 +922,19 @@ class SinglePassBlockAR(nn.Module):
         """
         B = history.shape[0]
         device = history.device
-        H, W = self.config.surface_h, self.config.surface_w
 
         if self.config.ar_frame:
             # ── AR frame mode: per-frame generation ──
-            _, vol_scale = self._compute_vol_scale(history)
-            vol_scale_cell = None
-            if self.config.ar_frame_percell_vol_scale:
-                vol_scale_cell = self._compute_percell_vol_scale(history)
-            rho = self.config.ar_frame_rho
-            n_frames = self.config.future_len
+            n_frames = int(kwargs.get("n_frames", self.config.future_len))
+            position_mode = kwargs.get("position_mode", "native")
 
             all_samples = []
             for _ in range(n_samples):
-                z = self._sample_noise(B, device)
-                z_t = z
-                gru_outputs, h_last = self._init_gru_state(history)
-                condition = self.encoder(history, mask=None)
-                prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
-
-                frames = []
-                for t in range(n_frames):
-                    if t > 0:
-                        eps_t = torch.randn_like(z_t)
-                        z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
-
-                    pos_t = torch.full((B,), t, device=device, dtype=torch.long)
-                    prev_flat = prev_frame.reshape(B, H * W)
-                    delta = self.frame_decoder(prev_flat, condition, z_t, pos_t)
-                    delta = delta.reshape(B, H, W)
-                    if hasattr(self, 'cell_scale'):
-                        cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
-                        delta = cs * delta
-                    if vol_scale_cell is not None:
-                        vs = vol_scale_cell  # (B, 5, 5)
-                    else:
-                        vs = vol_scale.view(B, 1, 1)
-                    if hasattr(self, 'cell_spread_linear'):
-                        cs = F.softplus(self.cell_spread_linear(condition))
-                        cs = cs.view(B, H, W)
-                        delta = cs * delta
-                    iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)
-                    frames.append(iv_t)
-                    prev_frame = iv_t
-                    condition, gru_outputs, h_last = self._gru_step(
-                        iv_t, gru_outputs, h_last
+                all_samples.append(
+                    self._sample_ar_frame_trajectory(
+                        history, n_frames=n_frames, position_mode=position_mode
                     )
-
-                trajectory = torch.stack(frames, dim=1)  # (B, future_len, 5, 5)
-                all_samples.append(trajectory)
+                )
 
             # Stack and return in [0, 1] (already IV space, no denormalize needed)
             samples = torch.stack(all_samples, dim=1)  # (B, n_samples, future_len, 5, 5)

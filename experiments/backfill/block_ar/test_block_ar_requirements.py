@@ -705,6 +705,9 @@ def run_conditionality_tests(
 
             cond_np = cond_samples.cpu().numpy()
             gt_np = future_gt.cpu().numpy()
+            eval_T = min(cond_np.shape[2], gt_np.shape[1])
+            cond_np = cond_np[:, :, :eval_T]
+            gt_np = gt_np[:, :eval_T]
 
             # 90% CI width (conditional)
             cond_lower = np.quantile(cond_np, 0.05, axis=1)
@@ -740,6 +743,7 @@ def run_conditionality_tests(
             # Unconditional metrics (only for first MAX_UNCOND_BATCHES batches)
             if uncond_samples is not None:
                 uncond_np = uncond_samples.cpu().numpy()
+                uncond_np = uncond_np[:, :, :eval_T]
                 uncond_lower = np.quantile(uncond_np, 0.05, axis=1)
                 uncond_upper = np.quantile(uncond_np, 0.95, axis=1)
                 uncond_widths.append((uncond_upper - uncond_lower).mean())
@@ -2347,6 +2351,14 @@ def main():
         "--qmap_alpha", type=float, default=1.0,
         help="Quantile map blending factor: 1.0=full mapping, 0.5=half correction (default: 1.0)",
     )
+    parser.add_argument(
+        "--num_workers", type=int, default=0,
+        help="DataLoader workers (use 0 in restricted environments)",
+    )
+    parser.add_argument(
+        "--floor_clamp", type=float, default=None,
+        help="Override ar_frame_floor_clamp at inference (e.g. 0.01 for Exp 91d)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -2358,7 +2370,7 @@ def main():
         device = "cpu"
 
     # Find model
-    model_path = args.model_path
+    model_path = Path(args.model_path) if args.model_path is not None else None
     if model_path is None:
         candidates = [
             f"{config.output_dir}/best_coverage_model.pt",
@@ -2367,10 +2379,10 @@ def main():
         ]
         for path in candidates:
             if Path(path).exists():
-                model_path = path
+                model_path = Path(path)
                 break
 
-    if model_path is None or not Path(model_path).exists():
+    if model_path is None or not model_path.exists():
         print(f"No trained model found at {model_path}. Run training first:")
         print("  python experiments/backfill/block_ar/train_block_ar.py")
         return
@@ -2407,7 +2419,7 @@ def main():
 
     # Load model
     print("\nLoading model...")
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
     raw_config = checkpoint["config"]
 
     # Detect SinglePassBlockAR by checking for 'noise_dim' in config
@@ -2485,6 +2497,10 @@ def main():
     model = model.to(device)
     model.eval()
 
+    if args.floor_clamp is not None and hasattr(model, 'config'):
+        model.config.ar_frame_floor_clamp = args.floor_clamp
+        print(f"  Floor clamp overridden: {args.floor_clamp}")
+
     print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
     if is_single_pass:
         print(f"  Block size: {sp_config.block_size}, Future len: {sp_config.future_len}")
@@ -2512,7 +2528,7 @@ def main():
         test_dataset,
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=2,
+        num_workers=args.num_workers,
     )
 
     print(f"  Test set: {len(test_dataset)} windows")
@@ -2651,6 +2667,29 @@ def main():
         print(f"  Conformal applied. Mean correction: "
               f"{np.mean(conf_diag['per_window_correction_mean']):.3f}")
 
+    # Long-horizon models may emit more future steps than this requirement suite
+    # has ground truth for. Score only the aligned prefix.
+    generated_horizon_raw = cond_samples.shape[2]
+    ground_truth_horizon = ground_truth.shape[1]
+    horizon_alignment_note = None
+    if generated_horizon_raw != ground_truth_horizon:
+        eval_horizon = min(generated_horizon_raw, ground_truth_horizon)
+        horizon_alignment_note = (
+            "Requirement suite is protocol-locked to the ground-truth horizon. "
+            f"Generated samples were cropped from T={generated_horizon_raw} to T={eval_horizon} "
+            "for comparability with prior 30-day results. Full long-horizon performance must be "
+            "evaluated separately with the dedicated long-horizon suite."
+        )
+        print(
+            f"\n  Horizon alignment: cropping generated samples from "
+            f"T={generated_horizon_raw} to T={eval_horizon} to match ground truth"
+        )
+        print(f"  Note: {horizon_alignment_note}")
+        cond_samples = cond_samples[:, :, :eval_horizon]
+        ground_truth = ground_truth[:, :eval_horizon]
+    else:
+        eval_horizon = generated_horizon_raw
+
     # =========================================================================
     # Run all test suites
     # =========================================================================
@@ -2667,7 +2706,7 @@ def main():
         test_dataset,
         batch_size=config.batch_size,
         shuffle=False,
-        num_workers=2,
+        num_workers=args.num_workers,
     )
     results['conditionality'] = run_conditionality_tests(
         model, cond_test_loader,
@@ -2772,6 +2811,11 @@ def main():
         'model_config_hash': config_hash,
         'model_config': config_dict,
         'eval_args': eval_args,
+        'generated_horizon_raw': generated_horizon_raw,
+        'ground_truth_horizon': ground_truth_horizon,
+        'evaluated_horizon': eval_horizon,
+        'horizon_alignment_applied': generated_horizon_raw != ground_truth_horizon,
+        'horizon_alignment_note': horizon_alignment_note,
     }
 
     # =========================================================================

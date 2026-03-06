@@ -20141,3 +20141,604 @@ The DDPM encoder's unique advantage: highest effective rank (17) + lowest test M
 predictive) + strong regime separation. The denoising objective creates dense representations
 that use all 128 dimensions, making it hard for the small FrameDecoder MLP to extract a
 precise mean → forced noise reliance → maintained sample diversity.
+
+## 2026-03-05: Long-Horizon Extrapolation Test (252 Days) — Cyclic Position Is Stable but Not Production-Ready
+
+### Setup
+
+Tested long-horizon rollout of the current best AR-frame pipeline:
+- Model: `models/backfill/afcrps_90d/best_model.pt`
+- Post-processing: quantile map `models/backfill/afcrps_90d/quantile_map.npz`, `alpha=0.3`
+- Evaluation set: 100 test windows starting at index 4540
+- Sampling: 50 trajectories per window, 252 generated days
+- Script: `experiments/backfill/block_ar/test_long_horizon.py`
+
+Compared two position strategies:
+1. **Raw**: `pos_t = t` (absolute position extrapolation beyond trained range 0-29)
+2. **Cyclic**: `pos_t = t % 30` (wrap position back into trained range)
+
+Artifacts:
+- `results/block_ar/long_horizon_test/results_raw.json`
+- `results/block_ar/long_horizon_test/results_cyclic.json`
+- `results/block_ar/long_horizon_test/cointegration_summary_cyclic_median.json`
+
+### Core Result: Raw Fails, Cyclic Stays Stable
+
+Source: `results_raw.json`, `results_cyclic.json`
+
+| Metric | Raw (`pos=t`) | Cyclic (`pos=t%30`) |
+|--------|---------------|---------------------|
+| 90% CI @ h=30 | 97.68% | 97.96% |
+| 90% CI @ h=60 | 82.84% | 97.52% |
+| 90% CI @ h=90 | 85.76% | 95.56% |
+| 90% CI @ h=180 | 40.80% | 86.24% |
+| 90% CI @ h=252 | 34.92% | 80.76% |
+| Width @ h=252 | 0.1636 | 0.2421 |
+| Stationarity ratio (late/early std) | 0.687 | 0.963 |
+| Explosion rate @ h=180 | 87.0% | 1.0% |
+| Explosion rate @ h=252 | 100.0% | 1.0% |
+
+**Interpretation**:
+- Raw position extrapolation catastrophically fails after ~90 days. The MLP sees sinusoidal
+  embeddings at positions it was never trained on and late-horizon paths collapse/explode.
+- Cyclic positions are a surprisingly effective zero-retraining hack. Spread stays roughly
+  stationary, explosion stays at 1%, and 252-day coverage remains 80.8%.
+
+### Spatial Structure: Qualitatively Preserved, Quantitatively Drifting
+
+Source: `results_cyclic.json`
+
+| Horizon | Term Slope | Smile Convexity | Explosion |
+|---------|------------|-----------------|-----------|
+| 30 | 0.0451 | 0.0606 | 0.0% |
+| 60 | 0.0365 | 0.0699 | 1.0% |
+| 90 | 0.0306 | 0.0772 | 0.0% |
+| 180 | 0.0264 | 0.0905 | 1.0% |
+| 252 | 0.0259 | 0.0977 | 1.0% |
+
+Term structure remains upward-sloping through 252 days, but the mean slope decays by ~42%
+from h=30 to h=252. Smile convexity increases by ~61%, so long-horizon surfaces become too
+wingy relative to the 30-day regime.
+
+### Additional Structural Check: Cointegration Weakens Badly
+
+The long-horizon script did not yet persist cointegration metrics, so I reproduced them from
+the same model/config and saved the summary to
+`results/block_ar/long_horizon_test/cointegration_summary_cyclic_median.json`.
+
+Method:
+- Cyclic position mode
+- Quantile map `alpha=0.3`
+- Representative generated path = **median across 50 samples** (same convention as Suite 6)
+- GT realized-vol proxy = EWMA volatility from actual `ret` series (`lambda=0.94`)
+- Compared ATM 6M IV vs EWMA RV over each 252-day window
+
+| Metric | GT | Generated (cyclic median) |
+|--------|----|---------------------------|
+| Cross-cell level corr | 0.460 | 0.434 |
+| Cross-cell daily-change corr | 0.467 | 0.190 |
+| ATM 6M IV vs EWMA corr (mean) | 0.842 | 0.293 |
+| ATM 6M IV vs EWMA OLS R² (mean) | 0.711 | 0.149 |
+
+**Interpretation**:
+- Level co-movement is still in the right ballpark.
+- Daily-change co-movement is too weak for the representative median path.
+- The IV-realized-vol relationship largely breaks down beyond the training horizon:
+  generated ATM 6M IV tracks EWMA RV much more weakly than ground truth.
+
+This makes the long-horizon structural story mixed: cyclic positions stop numerical failure,
+but they do **not** preserve the economic linkage that the 30-day test suite checks.
+
+### Decision
+
+**Cyclic position encoding is a good proof-of-concept, not production-ready.**
+
+What it proves:
+1. The AR-frame architecture can be rolled out to 252 days without immediate blow-up.
+2. Position extrapolation was the main cause of the raw long-horizon failure.
+
+What still fails:
+1. 252-day coverage is only 80.8% after starting at ~98% on h=30 — spread growth is wrong.
+2. ACF remains high (`lag1=0.521`), implying overly persistent daily changes.
+3. Cointegration / IV-RV coupling degrades sharply beyond the trained 30-day horizon.
+4. Smile convexity drifts upward with horizon.
+
+**Next implication**: if long-horizon generation matters, this needs a dedicated training
+regime (progressive rollout to 90-252 days) and the long-horizon diagnostics must be wired
+into the script itself rather than run as ad-hoc post-hoc checks.
+
+## 2026-03-06: Exp 90m — Progressive Rollout + Dual Position Encoding
+
+### What Changed from 90d
+
+90m is NOT just "90d trained for longer." Two architectural changes were introduced:
+
+1. **`ar_dual_pos=True`**: Adds a learned horizon bucket embedding (`nn.Embedding(9, 8)`)
+   to the FrameDecoder. Local position uses `t % 30` (cyclic), bucket uses `t // 30`
+   (clamped 0-8). Adds 1,096 parameters (69,530 → 70,626).
+2. **Progressive rollout `30→60→120→252`**: Epochs 1-8 train on 30 frames, 9-16 on 60,
+   17-24 on 120, 25-40 on 252.
+
+Other training changes: `disable_early_stop=True`, 40 epochs (vs 30 for 90d), `ar_bias_lambda=0.01`.
+
+### 30-Day Benchmark: 90d vs 90m
+
+Source: `results/block_ar/90d_qmap_a03/summary.json`, `results/block_ar/90m_qmap_a03_verify/summary.json`
+
+| Metric | 90d | 90m | Change |
+|--------|-----|-----|--------|
+| 90% CI overall | 93.8% | 88.8% | -5.0pp |
+| 50% CI | 65.1% | 55.7% | -9.3pp |
+| Calibration error | 0.104 | 0.038 | -0.066 (better) |
+| Width ratio (cond/uncond) | **0.94 PASS** | **1.18 FAIL** | +0.23 |
+| Cond width | 0.129 | 0.082 | -0.047 |
+| Uncond width | 0.137 | 0.070 | -0.067 |
+| Kurtosis ratio | 1.04 | 1.14 | +0.10 |
+| Skewness ratio | 0.17 | -0.28 | -0.45 |
+| KS daily pass | 22/25 | 17/25 | -5 |
+| Catastrophic rate | 1.2% | 3.5% | +2.3pp |
+| Calendar arb | 8.2% | 7.2% | -1.0pp (better) |
+| Butterfly arb | 25.0% | 22.2% | -2.8pp (better) |
+| Floor rate | 1.9% | 2.4% | +0.5pp |
+
+Suite results: 90d = 5/8 PASS (1,3,4,5,6), 90m = 4/8 PASS (1,4,5,6). Suite 3 regressed.
+
+### Root Cause: Conditionality Width Regression
+
+The **conditionality width regression** is the critical finding:
+
+- 90d: cond_width=0.129, uncond_width=0.137 → ratio=0.94 (conditional tighter, correct)
+- 90m: cond_width=0.082, uncond_width=0.070 → ratio=1.18 (conditional wider, wrong)
+
+Both widths dropped (model lost overall diversity), but unconditional dropped more.
+Two confounded causes:
+
+1. **Reduced training time on 30 frames**: 90m spent only 8 epochs on 30-frame generation
+   (vs 30 effective epochs for 90d). The model doesn't fully converge on short-horizon quality.
+2. **Extra capacity from `ar_dual_pos`**: 1,096 additional parameters (horizon bucket embedding +
+   extra MLP input) give the MLP more capacity to predict the conditional mean precisely at
+   each horizon bucket → reduced noise reliance → narrower ensembles. Same "more capacity
+   kills diversity" pattern from Exp 90g/90h.
+
+### Long-Horizon: 90m-native vs 90d-cyclic
+
+Source: `results/block_ar/long_horizon_90m/results_native.json`, `results/block_ar/long_horizon_test/results_cyclic.json`
+
+| Metric | 90d-cyclic | 90m-native |
+|--------|-----------|------------|
+| CI h=30 | 98.0% | 95.7% |
+| CI h=60 | 97.5% | 96.2% |
+| CI h=90 | 95.6% | 96.4% |
+| CI h=180 | 86.2% | **95.9%** |
+| CI h=252 | 80.8% | **94.1%** |
+| Stationarity ratio | 0.96 | 0.90 |
+| Term slope h=252 | 0.026 (decaying) | 0.054 (stable) |
+| Smile conv h=252 | 0.098 (growing) | 0.055 (stable) |
+| Explosion h=252 | 1% | **17%** |
+| ATM6M IV~EWMA corr | N/A | 0.111 (GT: 0.842) |
+| Daily cross-cell corr | N/A | 0.179 (GT: 0.467) |
+
+90m long-horizon CI coverage is dramatically better (94% vs 81% at h=252), and spatial
+structure (term slope, smile convexity) is much more stable across horizons.
+
+### Critical Finding: Floor-Hitting Pathology Invalidates Long-Horizon CI
+
+The 94% CI coverage at h=252 is **misleading**. Deep investigation reveals the model's
+paths are drifting to zero and getting stuck at the `clamp(0.001, 1.0)` floor:
+
+**Per-horizon floor rate (fraction of cells <=0.01):**
+
+| Horizon | 90m floor rate | GT floor rate |
+|---------|---------------|---------------|
+| h=1 | 1.5% | 0.000% |
+| h=30 | 9.2% | 0.000% |
+| h=60 | 11.6% | 0.000% |
+| h=120 | 13.9% | 0.000% |
+| h=180 | 16.2% | 0.000% |
+| h=252 | 16.0% | 0.000% |
+
+**GT never hits the floor — not a single cell in 5,822 surfaces goes below 0.01.**
+The GT global minimum is 0.0100 (data was likely floored at that level).
+
+**Per-cell floor rate at h=252 (90m):**
+```
+ 52.5% 11.9% 14.4% 36.2% 31.9%
+ 27.5%  8.8%  5.0%  5.0% 55.0%
+ 28.1%  1.2%  1.9%  3.1% 57.5%
+ 10.0%  0.6%  1.2%  1.9%  3.1%
+ 27.5%  6.2%  0.6%  0.0%  9.4%
+```
+
+Cell (0,0) hits floor 52.5% of the time. Short-maturity and deep OTM cells are worst.
+
+**Mechanism**: The AR frame equation `iv_t = (prev_frame + vs * delta).clamp(0.001, 1.0)`
+has no mean-reversion force. Once a path drifts low enough, the GRU encodes "low IV state"
+→ model predicts small deltas → path stays stuck near zero. The clamp prevents it from
+going negative but provides no bounce-back.
+
+**The high CI coverage is an artifact**: some paths collapse to zero while others stay normal,
+creating artificial spread. This is not genuine learned uncertainty — it's pathological
+divergence between sample members.
+
+For comparison, 90d-cyclic has only ~1% explosion at h=252 because it never trained on
+long horizons and its narrower spread kept paths closer to the conditional mean.
+
+### Decision
+
+**90m is a regression on the 30-day benchmark (4/8 vs 5/8) and its long-horizon CI
+coverage is inflated by a floor-hitting pathology.**
+
+The dual-position architecture and progressive rollout are sound ideas, but this execution:
+- Lost short-horizon quality (conditionality width 0.94 → 1.18)
+- Created unrealistic floor-drifting paths at long horizons
+- Spatial structure stability is genuinely better, but undermined by the floor pathology
+
+**Implications for 90n and beyond:**
+1. Progressive rollout needs more epochs on the initial 30-frame stage (warmup too short)
+2. The floor-hitting pathology requires either a learned lower bound or a mean-reversion
+   inductive bias (e.g., pull toward history mean when IV drops below a threshold)
+3. `ar_dual_pos` capacity increase should be tested in isolation (without progressive
+   rollout) to disentangle which change caused the conditionality regression
+4. Long-horizon CI metrics must be reported alongside floor rate — high CI with high
+   floor rate is not a valid result
+
+## 2026-03-06: Comprehensive Long-Horizon Drift & Spatial Degradation Diagnosis
+
+### Methodology
+
+Instrumented the AR frame generation loop to record per-step diagnostics:
+- Raw MLP deltas (before vol_scale)
+- GRU condition vectors (L2 norm, cosine similarity, PCA)
+- Per-cell floor/ceiling hits
+- Cross-cell correlation matrices at each horizon
+- Daily change volatility evolution
+
+Tested both models: **90m** (native dual-pos) and **90d** (cyclic position) at 252 frames,
+50 windows × 50 samples. Script: `experiments/backfill/block_ar/diagnose_long_horizon.py`
+
+### Finding 1: DRIFT TO FLOOR — Random Walk Without Mean-Reversion
+
+The AR frame equation `iv_t = prev_frame + vs * delta` is a random walk. Over 252 steps,
+85% of paths hit the floor (any cell below 0.005) for both models.
+
+```
+Model           Floor@h=30   Floor@h=252   Worst Cell
+90d (cyclic)    49.5%        86.6%         1M/K=1.15 (76.8%)
+90m (native)    28.1%        85.4%         1M/K=0.70 (76.3%)
+GT              0%           0%            —
+```
+
+90m delays floor-hitting (28% vs 50% at h=30) because its deltas are 2x smaller, but both
+converge to ~85% by h=252. The dual-pos architecture reduces per-step variance but cannot
+prevent unbounded random walk drift.
+
+**Absorbing barrier dynamics**: Once a path hits the floor, escape is possible but slow.
+
+```
+Model           Floor Hits   Escape Rate   Mean Escape   Mean Stuck
+90d (cyclic)    9,406        97.9%         11.3 days     13.7 days
+90m (native)    5,461        91.8%         24.1 days     87.5 days
+```
+
+90d has more floor hits but escapes faster (larger deltas = more momentum). 90m's smaller
+deltas make escape harder — 8.2% of floor hits are permanent (stuck 87.5 days avg).
+
+### Finding 2: MLP Delta Statistics — Conservative and Stable
+
+```
+Step    90d |delta|    90m |delta|    Tanh Saturation
+0       0.0171         0.0081         0.00% (both)
+29      0.0068         0.0041         0.00%
+251     0.0092         0.0041         0.00%
+```
+
+Key observations:
+- Deltas are tiny (0.4-1.7% of the tanh range) — tanh NEVER saturates
+- 90d deltas grow at late horizons (+35%) due to condition drift. 90m stays flat.
+- The MLP is not producing unreasonable outputs — drift is from accumulation, not explosion
+
+### Finding 3: GRU Condition Vector Drift — Out of Distribution by h=40
+
+```
+Step    90d Norm    90m Norm    90d CosSim    90m CosSim
+0       0.78        0.78        1.000         1.000
+40      1.22        1.14        0.557         0.602
+120     1.68        1.36        0.395         0.432
+240     1.81        1.38        0.357         0.386
+```
+
+The GRU condition norm increases 76-132% and cosine similarity drops to ~0.36-0.39.
+By h=40, the condition is already far from the training distribution (cos_sim < 0.6).
+
+PCA analysis shows the drift follows a single trajectory in embedding space (PC1 explains
+60% of variance). Late-step conditions cluster in a separate region from early-step ones.
+This creates a feedback loop: unrealistic generated frames → OOD condition → conservative
+deltas → paths stay stuck → condition drifts further.
+
+### Finding 4: SPATIAL CORRELATION — Fundamentally Broken (NOT a Long-Horizon Issue)
+
+**This is the smoking gun.** Cross-cell daily-change correlation is uniformly ~0.85 at ALL
+horizons, while GT is ~0.45 with structured variation.
+
+```
+Horizon    Gen (90m)    Gen (90d)    GT Daily
+30         0.857        0.853        0.427
+60         0.854        0.817        0.537
+90         0.857        0.793        0.479
+180        0.863        0.772        0.565
+252        0.865        0.768        0.437
+```
+
+**Root cause**: All 25 cells share the SAME noise vector z_t (16-dim, ρ=0.8 AR).
+The FrameDecoder MLP can modulate delta MAGNITUDE per cell (via prev_frame), but the
+SIGN and DIRECTION are dictated by shared noise → all cells move in unison.
+
+Within-tenor vs across-tenor correlation confirms: gen shows NO spatial differentiation
+(0.88 vs 0.85 within/across), while GT has moderate structure (0.42-0.57).
+
+**This exists from day 1, not just at long horizons.** At h=30, the generated correlation
+is already 2x GT (0.85 vs 0.43). Long horizons make it worse because cointegration breaks
+(43% vs 98%), but the core issue is architectural.
+
+### Finding 5: Daily Change Under-Dispersion (2-10x Too Low for OTM Cells)
+
+```
+Cell          Gen (90m)    Gen (90d)    GT         Ratio (90m)
+1M/K=0.70     0.0424       0.0796       0.2052     4.8x too low
+1M/ATM        0.0041       0.0076       0.0107     2.6x too low
+6M/ATM        0.0026       0.0046       0.0055     2.1x too low
+2Y/ATM        0.0019       0.0030       0.0025     1.3x too low
+6M/K=1.30     0.0100       0.0230       0.0945     9.5x too low
+```
+
+OTM and short-maturity cells need much larger daily changes. The MLP's `tanh(·)` output
+bounded to [-1, 1], multiplied by vol_scale (~1.0), produces daily changes ≤ vol_scale.
+For cells with GT daily std of 0.20 (1M/K=0.70), the model can't reach this magnitude.
+
+Generated volatility is STATIONARY across horizons (ratio late/early ≈ 0.97 for 90m),
+so the problem isn't decay — it's the starting magnitude.
+
+### Finding 6: 90d Cyclic Position Causes Spatial Structure Explosion
+
+```
+Horizon    90d Skew    90m Skew    GT Skew    90d Smile    90m Smile    GT Smile
+30         0.100       0.093       0.074      0.066        0.066        0.062
+252        0.206       0.077       0.027      0.100        0.063        0.075
+```
+
+90d with cyclic position shows put-call skew DOUBLING (0.10→0.21) and smile convexity
+growing (0.07→0.10) over 252 steps. The position signal cycles every 30 steps, causing
+the MLP to repeat its learned patterns with compounding effect.
+
+90m's horizon bucket prevents this — spatial structure stays stable. This is the genuine
+benefit of dual-pos: spatial stability, not accuracy.
+
+### Root Cause Summary
+
+```
+PROBLEM 1: DRIFT TO FLOOR (85% paths hit floor by h=252)
+├── Primary: No mean-reversion in iv_t = prev_frame + vs * delta
+├── Secondary: GRU condition drift (OOD by h=40, cos_sim→0.36)
+└── Tertiary: Semi-absorbing barrier (8% stuck permanently)
+
+PROBLEM 2: SPATIAL DEGRADATION (cross-cell corr 0.85 vs GT 0.45)
+├── Primary: Shared noise z_t → all cells move in unison
+├── Secondary: Daily change under-dispersion (2-10x for OTM cells)
+└── Tertiary: 90d cyclic → spatial structure explosion (skew doubles)
+```
+
+Both problems are **fundamental architectural limitations**, not training artifacts:
+- Problem 1 requires a **mean-reversion inductive bias** or **log-space formulation**
+- Problem 2 requires **structured noise** (factor model or per-cell noise with learned loadings)
+
+### Potential Architectural Fixes
+
+**For drift (Problem 1):**
+1. **Log-space formulation**: `log(iv_t) = log(prev_frame) + delta` — natural lower bound,
+   multiplicative dynamics match finance (geometric Brownian motion). Replaces additive
+   random walk with multiplicative. Still needs mean-reversion for long horizons.
+2. **Learned mean-reversion**: `iv_t = prev_frame + vs * delta + α(μ - prev_frame)` where
+   α and μ are learned from condition. Pulls paths back toward long-run mean. Compatible
+   with Bitter Lesson if α and μ are learned, not hand-designed.
+3. **Training with long-horizon loss**: Penalize floor-hitting or use survival analysis loss.
+   90m's progressive rollout partially addresses this but insufficient.
+
+**For spatial correlation (Problem 2):**
+1. **Factor model noise**: Replace shared z_t with k factors (k=3-5) with per-cell loadings:
+   `z_cell[i,j] = Σ_k β[i,j,k] * z_factor[k]`. Learnable β → spatial structure from data.
+   Adds 25×k parameters. Generalizable (no domain knowledge about 5×5 grid).
+2. **Per-cell noise + correlation structure**: 25 independent noise vectors with learned
+   correlation matrix. More parameters but more flexible.
+3. **Spatial noise conv**: Pass i.i.d. noise through a small Conv2D to create spatially
+   structured perturbation. Parameter-efficient.
+
+**For both:**
+- **Diffusion Forcing / per-frame noise**: Each frame gets independent noise, reducing
+  the shared-noise bottleneck. But this fundamentally changes the model architecture.
+
+### Scripts and Artifacts
+
+- Diagnostic script: `experiments/backfill/block_ar/diagnose_long_horizon.py`
+- 90m results: `results/block_ar/long_horizon_diagnosis/`
+- 90d results: `results/block_ar/long_horizon_diagnosis_90d/`
+- Plots: `d1a_drift_trajectories.png`, `d1b_floor_hitting.png`, `d2_delta_statistics.png`,
+  `d3_condition_drift.png`, `d4_spatial_correlation.png`, `d5_spatial_evolution.png`,
+  `d6_absorbing_barrier.png`, `d7_daily_change_volatility.png`
+
+---
+
+## 2026-03-06: Exp 91a — Log-Space AR Dynamics (FAILED)
+
+### Hypothesis
+
+Replace additive AR dynamics `iv_t = prev + vs*delta` with multiplicative `iv_t = prev * exp(vs*delta)`.
+Rationale: `exp()` is always positive → natural lower bound, multiplicative dynamics match GBM,
+should reduce floor-hitting at long horizons.
+
+### Config
+
+Same as 90d except `ar_frame_log_space=True`. Progressive rollout 5→15→30, 30 epochs.
+Model: `models/backfill/afcrps_91a/best_model.pt` (epoch 23, val_loss=15.7736, best coverage=92.3%).
+
+### 30-Day Results: 4/8 PASS — REGRESSION from 90d (5/8)
+
+| Suite | 90d | 91a | Key Metric |
+|-------|-----|-----|------------|
+| 1 Surface | PASS | PASS | explosion 0%, cal arb 7.6% |
+| 2 CI Coverage | FAIL | FAIL | 88.9% overall, worst cell 69.7% |
+| 3 Conditionality | PASS | PASS | width ratio 0.806, MAE 89.4% |
+| 4 Time Series | **PASS** | **FAIL** | **kurtosis 2.198 (>2.0 gate), skewness -1.678 (<0.25 gate)** |
+| 5 Block-AR | PASS | PASS | boundary ratio 0.919 |
+| 6 Cointegration | PASS | PASS | gen/GT ratio 0.640 |
+| 7 Regime | FAIL | FAIL | calm worst cell 56.3% |
+| 8 Distributional | FAIL | FAIL | KS daily 6/25, KS levels 0/25 |
+
+**Regression cause**: `exp(vs*delta)` creates fat tails: kurtosis 1.044→2.198, extreme skewness
+in corner cells (cell 0,4: -20.2, cell 4,0: +9.8). The exponential transform amplifies
+large deltas nonlinearly, producing heavier tails than the additive version.
+
+### Long-Horizon Results: CATASTROPHICALLY WORSE
+
+| Metric | 90d | 91a |
+|--------|-----|-----|
+| Floor rate h=30 | 50% | **90%** |
+| Floor rate h=252 | 85% | **99.96%** |
+| Escape rate | 91.8% | 99.1% |
+
+**Root cause**: `exp(negative)` compounds multiplicatively. When `vs*delta < 0`:
+- Additive: `prev - |vs*delta|` → linear shrinkage
+- Multiplicative: `prev * exp(-|vs*delta|)` → exponential shrinkage
+
+Once near floor (0.001), `0.001 * exp(positive)` requires very large positive delta to recover.
+The exponential creates a stronger absorbing state than additive, the opposite of intended.
+
+Spatial correlation slightly improved (gen daily corr ~0.65 vs 90d's ~0.85) but moot with
+near-total floor absorption.
+
+### Conclusion
+
+**Log-space is wrong for this architecture.** The MLP's tanh-bounded delta (range ≈ ±0.05)
+means `exp(±0.05) ≈ 1.05/0.95` — 5% multiplicative change per step. Over 252 steps with
+negative drift, `0.95^252 ≈ 2.4e-6` → guaranteed floor hitting. The additive version at least
+has constant step size regardless of level.
+
+**91b (log-space + factor noise) cancelled** per experimental protocol — 91a broke 30-day metrics.
+
+### Next Steps
+
+Factor noise remains a valid idea for spatial correlation, but should be tested with
+**additive dynamics** (90d baseline), not log-space. Proposed: Exp 91c — additive + factor noise.
+
+---
+
+## 2026-03-06: Exp 91c — Factor Noise (Additive Dynamics)
+
+### Hypothesis
+
+Replace shared 16-dim noise with 5-factor model: `z_factors @ loadings.T → (B, 25)` per-cell noise.
+Learned `factor_loadings (25, 5)` allow spatial correlation structure to emerge from data.
+
+### Config
+
+Same as 90d except `ar_factor_noise=True, ar_n_factors=5`. FrameDecoder noise input: 25 (per-cell)
+instead of 16 (shared). Progressive rollout 5→15→30, 30 epochs.
+
+### 30-Day Results: 5/8 PASS — Same as 90d
+
+| Suite | 90d | 91c | Key Metric |
+|-------|-----|-----|------------|
+| 1 Surface | PASS | PASS | cal arb 6.6% |
+| 2 CI Coverage | FAIL | FAIL | 89.0%, worst cell 68.0% |
+| 3 Conditionality | PASS | PASS | width ratio 0.896 |
+| 4 Time Series | PASS | PASS | kurtosis 1.039 |
+| 5 Block-AR | PASS | PASS | boundary ratio 0.954 |
+| 6 Cointegration | PASS | PASS | gen/GT ratio 0.639 |
+| 7 Regime | FAIL | FAIL | calm worst 58.4% |
+| 8 Distributional | FAIL | FAIL | **KS daily 15/25 (vs 5/25!)** |
+
+KS daily changes improved 5→15/25 from factor noise. But factor loadings were small
+(mean norm 0.19, range 0.056-0.323) with no clear tenor/strike grouping. GRU condition
+still dominates spatial correlation.
+
+With floor_clamp=0.01 override: KS daily 16/25. Still worse than 91d (17/25).
+
+---
+
+## 2026-03-06: Exp 91d — Higher Floor Clamp (0.001 → 0.01)
+
+### KEY FINDING: Floor Clamp = Root Cause of Floor-Hitting
+
+**Inference-only test**: Override `ar_frame_floor_clamp=0.01` on 90d model (no retraining).
+
+#### Long-horizon (252 days):
+
+| Metric | 90d (floor=0.001) | 91d (floor=0.01) |
+|--------|-------------------|-------------------|
+| Floor rate h=30 | 50% | **0.0%** |
+| Floor rate h=90 | 70% | **0.0%** |
+| Floor rate h=252 | 85% | **0.0%** |
+
+The 0.001 floor was an absorbing barrier. Model deltas are ~0.007 mean magnitude, so paths
+naturally stay above 0.01. With floor=0.001, paths can drift into a zone (0.001-0.01) where
+the model's deltas are too small relative to the level, creating compound downward drift.
+
+#### 30-day test suite (inference-only override):
+
+| Metric | 90d (floor=0.001) | 91d (floor=0.01) |
+|--------|-------------------|-------------------|
+| Suites PASS | 5/8 | 5/8 |
+| KS daily | 5/25 | **17/25** |
+| Median bias mag | 20/25 | **23/25** |
+| Kurtosis | 1.044 | 1.221 |
+| CI coverage | 93.8% | 91.1% |
+
+The higher floor eliminates distributional artifacts from floor-absorption, dramatically
+improving KS daily change scores without any model change.
+
+### Comprehensive Comparison (All 91-series)
+
+| Config | PASS | KS daily | Kurtosis | CI% | Median bias |
+|--------|------|----------|----------|-----|-------------|
+| 90d baseline | 5/8 | 5/25 | 1.044 | 93.8 | 20/25 |
+| 91a log-space | 4/8 | 6/25 | 2.198 | 88.9 | 21/25 |
+| 91c factor noise | 5/8 | 15/25 | 1.039 | 89.0 | 21/25 |
+| 91c + floor=0.01 | 5/8 | 16/25 | 1.043 | 88.9 | 21/25 |
+| **91d floor=0.01** | **5/8** | **17/25** | **1.221** | **91.1** | **23/25** |
+
+### 91d-retrain Results
+
+Retrained 90d with `ar_frame_floor_clamp=0.01`. Best val_loss=15.8731, coverage=94.5%.
+
+**30-day**: 5/8 PASS, KS daily=16/25, kurtosis=1.355, CI=89.6%.
+**Long-horizon**: Floor 0.0% at all horizons (confirmed). Spatial corr ~0.84 (unchanged).
+
+Slightly worse than inference-only override (KS 16 vs 17, bias 21 vs 23).
+The model learned slightly different dynamics but didn't improve fundamental quality.
+
+### Final 91-Series Conclusions
+
+1. **Floor_clamp=0.01 as inference override** is the best single improvement: KS daily 5→17/25,
+   floor rate 85%→0.0%, zero model changes. The 0.001 floor was an absorbing barrier artifact.
+2. **Log-space (91a) is wrong** for this architecture — compounds floor-hitting, breaks kurtosis.
+3. **Factor noise (91c) is weak** — 5-factor loadings stayed small (norm 0.19), overwhelmed by
+   shared GRU condition. The spatial correlation problem needs a different solution.
+4. **Retraining doesn't beat override** — the 90d model was already well-optimized, and the
+   floor change is best applied post-training.
+
+### Remaining Failures and Root Causes
+
+**Suite 2 (per-cell CI gate)**: Ceiling violations in long-tenor cells (4,0: 96-97% coverage).
+Model produces too much spread for cells that need less. Root cause: shared vol_scale.
+
+**Suite 7 (regime×cell)**: Calm regime undercoverage in short-maturity OTM cells (0,3: 64.9%).
+Model doesn't widen enough in calm periods for these specific cells. Structural limitation of
+shared noise — all cells get same spread scaling.
+
+**Suite 8 (KS IV levels, median bias)**: KS IV levels 0/25 is about unconditional level
+distribution mismatch, not daily change quality. Likely train-test distribution shift in
+IV level means. Median bias 4 cells > 3 IV pts (short-maturity OTM).
+
+All three failures trace to the same root: **shared noise → uniform per-cell behavior**.
+The model cannot differentiate spread/level across cells because all 25 cells share the same
+noise source (16-dim z_t). Factor noise (91c) tried to address this but loadings were too
+small to overcome the GRU condition's dominance.

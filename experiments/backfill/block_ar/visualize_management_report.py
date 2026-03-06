@@ -801,6 +801,89 @@ def plot_marginal_daily_changes(data):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# FIGURE 8: Kurtosis Heatmap — GT vs Generated Daily Change Magnitude
+# ══════════════════════════════════════════════════════════════════════
+def plot_kurtosis_heatmap(data):
+    """Time × cell heatmap of daily changes: GT vs one sample path.
+
+    X-axis = days (1-29), Y-axis = 25 cells (grouped by maturity).
+    Color = daily change value (signed). Dark = large move, light = small.
+    Shows temporal volatility clustering and cross-cell correlation patterns.
+    """
+    future = data["future"]        # (W, 30, 5, 5)
+    samples = data["samples"]      # (W, S, 30, 5, 5)
+    history = data["history"]      # (W, 30, 5, 5)
+    vov = data["vol_of_vol"]
+
+    # Pick a turbulent window for visual contrast
+    turb_idx = np.argsort(vov)[-len(vov) // 4:]
+    w_idx = turb_idx[len(turb_idx) // 2]
+
+    gt_path = future[w_idx]                # (30, 5, 5)
+    gen_path = samples[w_idx, 0]           # (30, 5, 5)
+    hist_last = history[w_idx, -1:]        # (1, 5, 5)
+
+    # Daily changes including first day (from history[-1])
+    gt_full = np.concatenate([hist_last, gt_path], axis=0)   # (31, 5, 5)
+    gen_full = np.concatenate([hist_last, gen_path], axis=0)  # (31, 5, 5)
+    gt_dc = np.diff(gt_full, axis=0)     # (30, 5, 5)
+    gen_dc = np.diff(gen_full, axis=0)   # (30, 5, 5)
+
+    # Reshape to (30, 25): flatten cells in row-major (maturity-first) order
+    gt_flat = gt_dc.reshape(30, 25).T     # (25, 30) — cells on y, days on x
+    gen_flat = gen_dc.reshape(30, 25).T   # (25, 30)
+
+    # Cell labels: maturity × moneyness
+    cell_labels = []
+    for r in range(5):
+        for c in range(5):
+            cell_labels.append(f"{MATURITY_LABELS[r]} K={MONEYNESS_LABELS[c]}")
+
+    # Shared color scale
+    vmax = max(np.abs(gt_flat).max(), np.abs(gen_flat).max())
+    # Cap at 95th percentile to avoid outlier domination
+    vmax = min(vmax, np.percentile(np.abs(np.concatenate([gt_flat, gen_flat])), 97))
+
+    fig, axes = plt.subplots(2, 1, figsize=(18, 14), sharex=True)
+    fig.suptitle("Daily Change Heatmap: Ground Truth vs Generated Sample (Single Turbulent Window)",
+                 fontsize=15, fontweight="bold")
+
+    # GT
+    ax = axes[0]
+    im = ax.imshow(gt_flat, cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto",
+                   interpolation="nearest")
+    ax.set_title("Ground Truth", fontsize=13, fontweight="bold", color=GT_COLOR)
+    ax.set_yticks(range(25))
+    ax.set_yticklabels(cell_labels, fontsize=7)
+    ax.set_ylabel("Cell (Maturity × Moneyness)")
+    # Horizontal lines between maturity groups
+    for i in range(1, 5):
+        ax.axhline(i * 5 - 0.5, color="black", linewidth=0.8, alpha=0.5)
+    plt.colorbar(im, ax=ax, label="Daily IV Change", shrink=0.7)
+
+    # Generated
+    ax = axes[1]
+    im = ax.imshow(gen_flat, cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto",
+                   interpolation="nearest")
+    ax.set_title("Generated (Sample 1)", fontsize=13, fontweight="bold", color=TURB_COLOR)
+    ax.set_yticks(range(25))
+    ax.set_yticklabels(cell_labels, fontsize=7)
+    ax.set_ylabel("Cell (Maturity × Moneyness)")
+    ax.set_xlabel("Day (h=1 to h=30)")
+    ax.set_xticks(range(0, 30, 5))
+    ax.set_xticklabels([str(d + 1) for d in range(0, 30, 5)])
+    for i in range(1, 5):
+        ax.axhline(i * 5 - 0.5, color="black", linewidth=0.8, alpha=0.5)
+    plt.colorbar(im, ax=ax, label="Daily IV Change", shrink=0.7)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    path = f"{OUTPUT_DIR}/fig8_kurtosis_heatmap.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
+# ══════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
 def main():
@@ -822,26 +905,29 @@ def main():
 
     print("\nGenerating visualizations...")
 
-    print("\n[1/7] Fan charts with history: calm vs turbulent...")
+    print("\n[1/8] Fan charts with history: calm vs turbulent...")
     plot_fan_charts(data)
 
-    print("[2/7] Cross-cell sensitivity with history...")
+    print("[2/8] Cross-cell sensitivity with history...")
     plot_cross_cell_sensitivity(data)
 
-    print("[3/7] Temporal properties...")
+    print("[3/8] Temporal properties...")
     plot_temporal_properties(data)
 
-    print("[4/7] Term structure & smile...")
+    print("[4/8] Term structure & smile...")
     plot_surface_structure(data)
 
-    print("[5/7] Surface heatmaps...")
+    print("[5/8] Surface heatmaps...")
     plot_surface_heatmaps(data)
 
-    print("[6/7] Calibration curve...")
+    print("[6/8] Calibration curve...")
     plot_calibration_curve(data)
 
-    print("[7/7] Marginal daily change distributions...")
+    print("[7/8] Marginal daily change distributions...")
     plot_marginal_daily_changes(data)
+
+    print("[8/8] Kurtosis heatmap...")
+    plot_kurtosis_heatmap(data)
 
     print(f"\nAll figures saved to {OUTPUT_DIR}/")
     print("Files:")

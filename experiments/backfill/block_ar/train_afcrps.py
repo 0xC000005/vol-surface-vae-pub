@@ -58,6 +58,68 @@ def _hash_file(path: str | None) -> str | None:
     return digest.hexdigest()[:12]
 
 
+def parse_progressive_schedule(spec: str | None) -> list[int]:
+    """Parse comma-separated rollout horizons."""
+    if spec is None:
+        return []
+    schedule = []
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        value = int(item)
+        if value <= 0:
+            raise ValueError("progressive schedule values must be positive")
+        schedule.append(value)
+    if not schedule:
+        raise ValueError("progressive schedule must contain at least one horizon")
+    return schedule
+
+
+def build_progressive_epoch_plan(schedule: list[int], total_epochs: int) -> list[dict]:
+    """Allocate early stages across 60% of epochs and hold the final horizon longest."""
+    if not schedule:
+        return []
+    if total_epochs < len(schedule):
+        raise ValueError(
+            f"epochs={total_epochs} is too small for schedule with {len(schedule)} stages"
+        )
+    if len(schedule) == 1:
+        return [{"start_epoch": 1, "end_epoch": total_epochs, "n_frames": schedule[0]}]
+
+    warmup_epochs = max(len(schedule) - 1, int(round(total_epochs * 0.6)))
+    warmup_epochs = min(total_epochs - 1, warmup_epochs)
+    final_stage_epochs = total_epochs - warmup_epochs
+
+    n_warmup_stages = len(schedule) - 1
+    base = warmup_epochs // n_warmup_stages
+    remainder = warmup_epochs % n_warmup_stages
+    stage_epochs = [base + (1 if idx < remainder else 0) for idx in range(n_warmup_stages)]
+    stage_epochs.append(final_stage_epochs)
+
+    plan = []
+    start_epoch = 1
+    for n_frames, n_stage_epochs in zip(schedule, stage_epochs):
+        end_epoch = start_epoch + n_stage_epochs - 1
+        plan.append(
+            {
+                "start_epoch": start_epoch,
+                "end_epoch": end_epoch,
+                "n_frames": n_frames,
+            }
+        )
+        start_epoch = end_epoch + 1
+    return plan
+
+
+def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
+    """Return the active rollout horizon for an epoch."""
+    for stage in epoch_plan:
+        if stage["start_epoch"] <= epoch <= stage["end_epoch"]:
+            return stage["n_frames"]
+    return epoch_plan[-1]["n_frames"]
+
+
 def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
@@ -256,7 +318,9 @@ def main():
     parser.add_argument("--ar_frame", action="store_true",
                         help="Use per-frame AR decoder instead of Conv3D")
     parser.add_argument("--progressive_rollout", action="store_true",
-                        help="Progressive training: 5→15→30 frames across epochs")
+                        help="Progressively increase AR rollout length across epochs")
+    parser.add_argument("--progressive_schedule", type=str, default=None,
+                        help="Comma-separated rollout horizons, e.g. 30,60,120,252")
     parser.add_argument("--ar_cell_spread", action="store_true",
                         help="Learned per-cell spread scaling for AR frame decoder")
     parser.add_argument("--ar_static_cell_scale", action="store_true",
@@ -267,6 +331,31 @@ def main():
                         help="FrameDecoder MLP hidden dim")
     parser.add_argument("--ar_percell_vol_scale", action="store_true",
                         help="Per-cell vol_scale from history daily change std")
+    parser.add_argument("--ar_dual_pos", action="store_true",
+                        help="Use local position plus coarse horizon bucket in AR frame decoder")
+    parser.add_argument("--ar_local_pos_period", type=int, default=30,
+                        help="Period for local AR-frame position index")
+    parser.add_argument("--ar_horizon_bucket_size", type=int, default=30,
+                        help="Frames per coarse horizon bucket when --ar_dual_pos is enabled")
+    parser.add_argument("--ar_horizon_max_buckets", type=int, default=9,
+                        help="Maximum coarse horizon buckets for dual-position AR frame decoder")
+    parser.add_argument("--ar_horizon_embed_dim", type=int, default=8,
+                        help="Embedding dim for coarse horizon bucket")
+    parser.add_argument("--ar_dynamic_vs", action="store_true",
+                        help="Enable bounded dynamic vol-scale modulation in AR frame mode")
+    parser.add_argument("--ar_dynamic_vs_mode", type=str, default="scalar",
+                        choices=["scalar", "tenor"],
+                        help="Dynamic vol-scale mode for AR frame decoder")
+    parser.add_argument("--ar_dynamic_vs_scale", type=float, default=0.15,
+                        help="Multiplier strength for dynamic vol-scale modulation")
+    parser.add_argument("--ar_log_space", action="store_true",
+                        help="Multiplicative dynamics: iv = prev * exp(vs * delta)")
+    parser.add_argument("--ar_factor_noise", action="store_true",
+                        help="Factor model noise: z_factors @ loadings.T for per-cell noise")
+    parser.add_argument("--ar_n_factors", type=int, default=5,
+                        help="Number of latent noise factors (requires --ar_factor_noise)")
+    parser.add_argument("--ar_floor_clamp", type=float, default=0.001,
+                        help="Lower IV clamp in AR frame generation (default: 0.001)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -274,6 +363,10 @@ def main():
     parser.add_argument("--no_pretrained_encoder", action="store_true",
                         help="Skip loading pretrained encoder weights (random init)")
     parser.add_argument("--grad_clip", type=float, default=1.0)
+    parser.add_argument("--disable_early_stop", action="store_true",
+                        help="Disable heuristic early-stop guards during training")
+    parser.add_argument("--resume_from", type=str, default=None,
+                        help="Resume training from a saved checkpoint")
     parser.add_argument("--eval_every", type=int, default=1)
     parser.add_argument("--n_eval_samples", type=int, default=50)
     parser.add_argument("--output_dir", type=str, default="models/backfill/afcrps_v1")
@@ -290,6 +383,34 @@ def main():
         parser.error(
             "--base_model is required unless --no_pretrained_encoder is set"
         )
+    if args.progressive_schedule and not args.progressive_rollout:
+        parser.error("--progressive_schedule requires --progressive_rollout")
+    if args.ar_dynamic_vs and not args.ar_frame:
+        parser.error("--ar_dynamic_vs requires --ar_frame")
+    if args.ar_dual_pos and not args.ar_frame:
+        parser.error("--ar_dual_pos requires --ar_frame")
+    if args.ar_horizon_bucket_size <= 0 or args.ar_horizon_max_buckets <= 0:
+        parser.error("horizon bucket settings must be positive")
+    if args.ar_local_pos_period <= 0:
+        parser.error("--ar_local_pos_period must be positive")
+    if args.resume_from and not Path(args.resume_from).exists():
+        parser.error(f"--resume_from not found: {args.resume_from}")
+
+    try:
+        progressive_schedule = (
+            parse_progressive_schedule(args.progressive_schedule)
+            if args.progressive_rollout and args.progressive_schedule
+            else ([5, 15, 30] if args.progressive_rollout else [])
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    try:
+        progressive_epoch_plan = (
+            build_progressive_epoch_plan(progressive_schedule, args.epochs)
+            if progressive_schedule else []
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -310,11 +431,16 @@ def main():
     else:
         pretrained_init_mode = "full_pretrained"
     base_model_hash = _hash_file(args.base_model)
+    resolved_future_len = (
+        max(progressive_schedule)
+        if args.ar_frame and progressive_schedule
+        else base_cfg.get("future_len", 30)
+    )
 
     # Build SinglePassConfig
     config = SinglePassConfig(
         history_len=base_cfg.get("history_len", 30),
-        future_len=base_cfg.get("future_len", 30),
+        future_len=resolved_future_len,
         surface_h=base_cfg.get("surface_h", 5),
         surface_w=base_cfg.get("surface_w", 5),
         block_size=base_cfg.get("block_size", 10),
@@ -345,6 +471,18 @@ def main():
         ar_frame_hidden=args.ar_frame_hidden,
         ar_frame_bias_lambda=args.ar_bias_lambda,
         ar_frame_percell_vol_scale=args.ar_percell_vol_scale,
+        ar_dual_pos=args.ar_dual_pos,
+        ar_local_pos_period=args.ar_local_pos_period,
+        ar_horizon_bucket_size=args.ar_horizon_bucket_size,
+        ar_horizon_max_buckets=args.ar_horizon_max_buckets,
+        ar_horizon_embed_dim=args.ar_horizon_embed_dim,
+        ar_dynamic_vs=args.ar_dynamic_vs,
+        ar_dynamic_vs_mode=args.ar_dynamic_vs_mode,
+        ar_dynamic_vs_scale=args.ar_dynamic_vs_scale,
+        ar_frame_log_space=args.ar_log_space,
+        ar_factor_noise=args.ar_factor_noise,
+        ar_n_factors=args.ar_n_factors,
+        ar_frame_floor_clamp=args.ar_floor_clamp,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -413,6 +551,14 @@ def main():
             param_groups.append(
                 {"params": [model.cell_scale], "lr": 1e-3, "weight_decay": 0.0},
             )
+        if hasattr(model, 'dynamic_vs_head'):
+            param_groups.append(
+                {"params": list(model.dynamic_vs_head.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
+            )
+        if hasattr(model, 'factor_loadings'):
+            param_groups.append(
+                {"params": [model.factor_loadings], "lr": 1e-3, "weight_decay": 0.0},
+            )
         optimizer = torch.optim.AdamW(param_groups)
     else:
         noise_params = list(model.noise_mlp.parameters())
@@ -432,6 +578,37 @@ def main():
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6,
     )
+
+    start_epoch = 1
+    best_val_loss = float("inf")
+    best_coverage = 0.0
+    history_log = []
+    if args.resume_from:
+        resume_ckpt = torch.load(args.resume_from, map_location="cpu", weights_only=False)
+        model.load_state_dict(resume_ckpt["model_state_dict"])
+        optimizer.load_state_dict(resume_ckpt["optimizer_state_dict"])
+        model = model.to(device)
+        start_epoch = int(resume_ckpt.get("epoch", 0)) + 1
+        scheduler_state = resume_ckpt.get("lr_scheduler_state_dict")
+        if scheduler_state is not None:
+            lr_scheduler.load_state_dict(scheduler_state)
+        else:
+            lr_scheduler = None
+            print("Resume checkpoint has no lr_scheduler_state_dict; continuing with fixed current LR")
+
+        best_model_path = Path(args.output_dir) / "best_model.pt"
+        if best_model_path.exists():
+            best_model_ckpt = torch.load(best_model_path, map_location="cpu", weights_only=False)
+            best_val_loss = best_model_ckpt.get("metrics", {}).get("val_loss", best_val_loss)
+        best_cov_path = Path(args.output_dir) / "best_coverage_model.pt"
+        if best_cov_path.exists():
+            best_cov_ckpt = torch.load(best_cov_path, map_location="cpu", weights_only=False)
+            best_coverage = best_cov_ckpt.get("metrics", {}).get("coverage_90", best_coverage)
+        history_path = Path(args.output_dir) / "training_history.json"
+        if history_path.exists():
+            with open(history_path) as f:
+                history_log = json.load(f)
+        print(f"Resumed from {args.resume_from} at epoch {start_epoch}")
 
     # Dataset
     data = np.load("data/vol_surface_with_ret.npz")
@@ -472,28 +649,29 @@ def main():
         print(f"  Kurtosis matching: lambda={args.lambda_kurt}")
         print(f"  Target kurtosis per cell: [{target_kurt.min():.1f}, {target_kurt.max():.1f}]")
 
-    # Training
-    best_val_loss = float("inf")
-    best_coverage = 0.0
-    history_log = []
-
     print(f"\n{'='*70}")
     print(f"Training afCRPS single-pass model")
     print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}, n_train_blocks={args.n_train_blocks}")
     print(f"  lambda_vs={args.lambda_vs}, from_scratch={args.from_scratch}")
     if args.ar_frame:
         print(f"  AR FRAME MODE: rho={config.ar_frame_rho}, hidden={config.ar_frame_hidden}, progressive={args.progressive_rollout}, encoder={'unfrozen' if args.unfreeze_encoder else 'frozen'}")
+        if progressive_epoch_plan:
+            schedule_desc = ", ".join(
+                f"ep{stage['start_epoch']}-{stage['end_epoch']}=>{stage['n_frames']}"
+                for stage in progressive_epoch_plan
+            )
+            print(f"  rollout schedule: {schedule_desc}")
     print(f"  epochs={args.epochs}, batch_size={args.batch_size}")
     print(f"{'='*70}\n")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
 
         # Progressive rollout: gradually increase generated frames
         if args.progressive_rollout:
-            n_frames = 5 if epoch <= 10 else 15 if epoch <= 20 else 30
+            n_frames = resolve_progressive_frames(epoch, progressive_epoch_plan)
         else:
-            n_frames = 30 if args.ar_frame else 0  # 0 = use block-based n_frames
+            n_frames = config.future_len if args.ar_frame else 0  # 0 = use block-based n_frames
 
         # Train
         train_metrics = train_epoch(
@@ -505,7 +683,8 @@ def main():
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
-        lr_scheduler.step()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
         # Validate
         val_metrics = validate(model, val_loader, device, n_members=args.n_members)
@@ -588,10 +767,16 @@ def main():
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "lr_scheduler_state_dict": (
+                lr_scheduler.state_dict() if lr_scheduler is not None else None
+            ),
             "config": dataclasses.asdict(config),
             "metrics": log_entry,
             "training_config": {
                 **vars(args),
+                "parsed_progressive_schedule": progressive_schedule,
+                "progressive_epoch_plan": progressive_epoch_plan,
+                "resolved_future_len": resolved_future_len,
                 "pretrained_init_mode": pretrained_init_mode,
                 "resolved_device": str(device),
                 "base_model_resolved": (
@@ -605,10 +790,12 @@ def main():
         }
 
         # Early stopping checks (only on member kurtosis, and only if very low)
-        if eval_metrics.get("kurtosis_ratio", 1.0) < 0.1 and epoch >= 10:
+        if (not args.disable_early_stop
+                and eval_metrics.get("kurtosis_ratio", 1.0) < 0.1
+                and epoch >= 10):
             print(f"EARLY STOP: member kurtosis {eval_metrics['kurtosis_ratio']:.3f} < 0.1 at epoch {epoch}")
             break
-        if epoch >= 5 and spread_ratio < 0.05:
+        if not args.disable_early_stop and epoch >= 5 and spread_ratio < 0.05:
             print(f"WARNING: spread/MAE ratio {spread_ratio:.4f} < 0.05 — noise injection may not be working")
 
         # Save best model
