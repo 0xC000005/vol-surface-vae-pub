@@ -21139,6 +21139,51 @@ The per-cell drift (~5-10 × 10⁻⁴/day in [0,1] scale) is tiny per step but c
 cumulative per-cell drift is ~0.003-0.015 — indistinguishable from noise in a batch of 16
 windows × 4 members.
 
+### Deeper Drift Analysis: Systematic Negative Drift from GRU Going OOD
+
+Follow-up analysis revealed the drift is **not random per-cell bias** but a **systematic
+downward drift** emerging when the GRU goes OOD beyond the training horizon.
+
+**Global mean delta** (all cells, paths, steps): **-3.30×10⁻⁴/step** in [0,1] scale.
+22/25 cells drift negative; only 3 drift positive. Floor clamp has no effect on this
+(floor=0.001 gives identical -3.29×10⁻⁴).
+
+**Ground truth has essentially zero drift**: GT global mean delta = -0.005×10⁻⁴ (100x
+smaller). The model's drift is entirely artificial.
+
+**The drift is horizon-dependent** — within the training window the model is nearly unbiased:
+
+| Horizon window | Model mean delta (×10⁻⁴) | Cells > 0 |
+|---------------|--------------------------|-----------|
+| h=1-5         | +2.18                    | —         |
+| h=6-15        | -0.34                    | —         |
+| h=16-30       | -2.47                    | —         |
+| h=31-60       | **-12.81**               | —         |
+| h=61-120      | +3.29                    | —         |
+| h=121-251     | -4.65                    | —         |
+| First 30 only | -0.98                    | 14/25     |
+| Full 252      | -3.30                    | 3/25      |
+
+At training scale (first 30 frames): mean delta is -0.98×10⁻⁴ with 14/25 cells positive
+— approximately unbiased. Beyond h=30 the GRU goes OOD (cosine similarity drops to 0.36
+by h=40) and the negative drift explodes, peaking at -12.81×10⁻⁴ in h=31-60.
+
+**This reframes the cointegration problem**: it's not 25 independent per-cell biases from
+MLP output neurons. It's a single phenomenon — the GRU condition drifts OOD, and the MLP
+responds to OOD conditions with systematically negative deltas. The per-cell variation in
+drift rate (some cells more negative than others) is secondary to the global downward trend.
+
+**GT per-cell drift grid** (×10⁻⁴, training data):
+```
+        K=0.70  K=0.85  K=1.00  K=1.10  K=1.30
+1M    [ +0.698  -0.090  -0.011  -0.071  -0.058 ]
+3M    [ +0.124  +0.017  -0.046  -0.107  +0.397 ]
+6M    [ -0.015  -0.030  -0.050  -0.078  -0.134 ]
+12M   [ -0.036  -0.001  -0.056  -0.089  -0.102 ]
+24M   [ -0.007  -0.099  -0.070  -0.087  -0.116 ]
+```
+GT magnitudes are 100x smaller than model (~0.1 vs ~5-10 ×10⁻⁴).
+
 ### Conclusion
 
 **Per-cell bias loss is fundamentally ineffective** because:
@@ -21146,11 +21191,11 @@ windows × 4 members.
 2. The original formula (Var + bias²) penalizes the wrong thing (condition-responsiveness)
 3. No lambda value can extract signal that doesn't exist in the training data
 
-Per-cell drift at 252 days is an emergent property of tiny systematic biases in the MLP
-output layer that only compound over hundreds of steps. It cannot be addressed by any loss
-operating at training scale (5-30 frames × batch of 16). The only fix would be either:
-(a) inference-time per-cell bias correction (violates Bitter Lesson / no precomputed constants), or
-(b) much longer training rollouts where the drift becomes measurable (prohibitive compute).
+The drift is not a per-cell output neuron problem but a **GRU-OOD phenomenon**: within 30
+frames the model is approximately unbiased (14/25 cells positive), but beyond the training
+horizon the GRU condition drifts OOD and the MLP systematically produces negative deltas.
+This cannot be fixed by any per-cell correction — it requires either keeping the GRU in
+distribution (shorter horizons, or horizon-aware training) or mean-reversion architecture.
 
 **Models**: `afcrps_94a/`, `afcrps_94a_v2/`, `afcrps_94a_v3/` (all in `models/backfill/`)
 **Results**: `results/block_ar/94a_30d/`, `94a_v3_30d/`, `90d_drift_baseline/`, `94a_v3_252d/`
