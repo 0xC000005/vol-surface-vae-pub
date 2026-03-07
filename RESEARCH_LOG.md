@@ -21049,3 +21049,89 @@ imperfect inputs, improving long-horizon stability.
 The noise made the FrameDecoder learn conservative predictions — it responds to uncertain
 conditions by producing small deltas. CI collapses because ensemble spread is too narrow.
 KS daily drops from 17 to 1/25 because daily changes are under-dispersed.
+
+## 2026-03-07: Exp 94a Series — Per-Cell Conditional Bias Loss (FAILED)
+
+### Hypothesis
+
+High cross-cell correlation (0.981) but broken cointegration at long horizons. Cells drift
+at different rates because the FrameDecoder MLP's 25 output neurons each have slightly
+different mean bias. The current bias loss penalizes cross-cell average being non-zero
+per sample but doesn't prevent individual cells from having systematic per-cell biases.
+
+**Proposed fix**: Reshape `all_deltas` by member, average out stochastic noise across K=4
+members to isolate the conditional mean per cell, then penalize per-cell drift.
+
+### Code Changes
+
+Added `ar_percell_bias` config flag and bias loss branch in `single_pass_ar.py`.
+Added `--ar_percell_bias` CLI arg and wiring in `train_afcrps.py`.
+Added per-cell drift analysis to `verify_floor_natural.py`.
+
+### Three Variants Tested
+
+**94a (original formula, missing lambda_is):**
+Formula: `member_mean.pow(2).mean()` = E[(E[δ|x])²] = Var(conditional_mean) + bias².
+Problem 1: Penalizes condition-responsiveness alongside bias (suppresses useful signal).
+Problem 2: Training command missing `--lambda_is 0.5` (interval score loss).
+Result: 3/8 PASS, CI=74%, kurtosis ~0.2. Major regression from missing IS loss.
+
+**94a_v2 (corrected formula, still missing lambda_is):**
+Formula: `member_mean.mean(dim=(0,1)).pow(2).mean()` = (E[E[δ|x]])² = bias² only.
+Result: bias_loss = 0.000000 throughout training. The unconditional per-cell bias averages
+to zero within a single batch — the signal doesn't exist at training scale.
+Still 3/8 PASS due to missing lambda_is.
+
+**94a_v3 (corrected formula + lambda_is=0.5, from_scratch):**
+Same corrected formula, with proper interval score loss restored.
+
+### 30-Day Results (94a_v3 vs 91d baseline)
+
+| Metric | 91d (baseline) | 94a_v3 (percell bias) |
+|--------|---------------|----------------------|
+| Suites | 5/8 | 5/8 |
+| CI coverage | 89.0% | 87.8% |
+| Kurtosis | 1.221 | ~0.55 |
+| KS daily | 17/25 | 16/25 |
+
+94a_v3 holds 5/8 at 30 days, confirming the per-cell bias loss is harmless (produces 0.000000)
+but also does nothing useful.
+
+### 252-Day Drift Results: ZERO Improvement
+
+| Metric | 90d baseline | 94a_v3 |
+|--------|-------------|--------|
+| Drift spread (max-min) | 45.10 IV pts | 44.98 IV pts |
+| Cell (0,0) daily drift | +5.53×10⁻⁴ | +5.86×10⁻⁴ |
+| Cell (0,1) daily drift | -9.59×10⁻⁴ | -9.57×10⁻⁴ |
+| Cell (4,0) daily drift | +8.30×10⁻⁴ | +8.22×10⁻⁴ |
+
+Per-cell drift pattern is identical cell-by-cell. The per-cell bias loss had absolutely no
+effect on long-horizon drift.
+
+### Root Cause: Training-Scale Signal Doesn't Exist
+
+Per-cell drift is a long-horizon accumulation effect. Within 5-30 frame training windows, the
+unconditional per-cell bias averages to zero within a single batch. The corrected bias loss
+formula (averaging across members AND conditions) produces values that round to 0.000000
+throughout training — there is nothing for the optimizer to work with.
+
+The per-cell drift (~5-10 × 10⁻⁴ per day) accumulates to 45 IV pts over 252 days, but within
+a 30-frame training window it's only ~0.015 IV pts per cell — well within the noise floor of
+a batch of 16 windows with 4 members each.
+
+### Conclusion
+
+**Per-cell bias loss is fundamentally ineffective** because:
+1. The corrected formula (bias² only) produces zero loss at training batch scale
+2. The original formula (Var + bias²) penalizes the wrong thing (condition-responsiveness)
+3. No lambda value can extract signal that doesn't exist in the training data
+
+Per-cell drift at 252 days is an emergent property of tiny systematic biases in the MLP
+output layer that only compound over hundreds of steps. It cannot be addressed by any loss
+operating at training scale (5-30 frames × batch of 16). The only fix would be either:
+(a) inference-time per-cell bias correction (violates Bitter Lesson / no precomputed constants), or
+(b) much longer training rollouts where the drift becomes measurable (prohibitive compute).
+
+**Models**: `afcrps_94a/`, `afcrps_94a_v2/`, `afcrps_94a_v3/` (all in `models/backfill/`)
+**Results**: `results/block_ar/94a_30d/`, `94a_v3_30d/`, `90d_drift_baseline/`, `94a_v3_252d/`

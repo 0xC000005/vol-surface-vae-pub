@@ -368,6 +368,8 @@ def main():
                         help="Per-cell condition offsets for spatial decorrelation (Exp 93d)")
     parser.add_argument("--ar_input_noise_std", type=float, default=0.0,
                         help="Noise std on GRU input during training (Exp 93f, default: 0.0)")
+    parser.add_argument("--ar_percell_bias", action="store_true",
+                        help="Per-cell conditional bias loss (Exp 94a)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -501,6 +503,7 @@ def main():
         ar_cell_embed_dim=args.ar_cell_embed_dim,
         ar_cell_cond_offset=args.ar_cell_cond_offset,
         ar_input_noise_std=args.ar_input_noise_std,
+        ar_percell_bias=args.ar_percell_bias,
         output_dir=args.output_dir,
         device=args.device,
     )

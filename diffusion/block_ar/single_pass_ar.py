@@ -115,6 +115,7 @@ class SinglePassConfig:
     ar_cell_cond_offset: bool = False    # per-cell condition offsets (Exp 93d)
     ar_freeze_gru_state: bool = False    # freeze GRU state during generation (Exp 93e)
     ar_input_noise_std: float = 0.0      # noise std on GRU input during training (Exp 93f)
+    ar_percell_bias: bool = False         # per-cell conditional bias loss (Exp 94a)
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -996,10 +997,19 @@ class SinglePassBlockAR(nn.Module):
         # Delta zero-mean bias loss (AR frame mode only)
         bias_loss = torch.tensor(0.0, device=device)
         if self.config.ar_frame_bias_lambda > 0 and len(all_deltas) > 0:
-            # all_deltas: list of (B, H, W) tensors
+            # all_deltas: list of (B, H, W) tensors, ordered [m0_t0..tT, m1_t0..tT, ...]
             deltas = torch.stack(all_deltas, dim=0)  # (K*T, B, H, W)
-            deltas_flat = deltas.reshape(deltas.shape[0] * deltas.shape[1], -1)  # (K*T*B, 25)
-            bias_loss = deltas_flat.mean(dim=-1).pow(2).mean()
+            if self.config.ar_percell_bias:
+                # Per-cell unconditional bias: average out members AND conditions
+                T_actual = len(all_deltas) // n_members
+                deltas_by_member = deltas.reshape(n_members, T_actual, B, H, W)
+                member_mean = deltas_by_member.mean(dim=0)  # (T, B, 5, 5)
+                percell_bias = member_mean.mean(dim=(0, 1))  # (H, W) — unconditional
+                bias_loss = percell_bias.pow(2).mean()
+            else:
+                # Original: penalize cross-cell average per sample
+                deltas_flat = deltas.reshape(deltas.shape[0] * deltas.shape[1], -1)  # (K*T*B, 25)
+                bias_loss = deltas_flat.mean(dim=-1).pow(2).mean()
             loss = loss + self.config.ar_frame_bias_lambda * bias_loss
 
         return {

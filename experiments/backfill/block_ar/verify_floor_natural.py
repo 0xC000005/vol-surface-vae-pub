@@ -141,7 +141,20 @@ def main():
             print(f"    negative deltas: {(low_deltas < 0).mean()*100:.1f}%")
             print(f"    delta < -0.005: {(low_deltas < -0.005).mean()*100:.1f}%")
 
-    # 5. Plot
+    # 5. Per-cell drift analysis
+    print(f"\n5. Per-cell cumulative drift over {args.n_frames} days:")
+    for label, trajs in [("floor=0.01", trajs_01), ("floor=0.001", trajs_001)]:
+        daily_deltas = np.diff(trajs, axis=1)  # (N, T-1, 5, 5)
+        mean_daily = daily_deltas.mean(axis=(0, 1))  # (5, 5)
+        cum_drift = mean_daily * args.n_frames
+        print(f"  {label} -- Mean daily delta per cell (x1e4):")
+        for r in range(5):
+            print("    " + " ".join(f"{mean_daily[r,c]*1e4:+6.2f}" for c in range(5)))
+        print(f"  Cumulative {args.n_frames}d drift range: "
+              f"[{cum_drift.min()*100:+.2f}, {cum_drift.max()*100:+.2f}] IV pts")
+        print(f"  Drift spread (max-min): {(cum_drift.max()-cum_drift.min())*100:.2f} IV pts")
+
+    # 6. Plot
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # 5a. Histogram of per-path minimum IV
