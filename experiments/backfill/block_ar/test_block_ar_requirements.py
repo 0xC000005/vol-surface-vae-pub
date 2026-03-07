@@ -2359,6 +2359,10 @@ def main():
         "--floor_clamp", type=float, default=None,
         help="Override ar_frame_floor_clamp at inference (e.g. 0.01 for Exp 91d)",
     )
+    parser.add_argument(
+        "--freeze_gru_state", action="store_true",
+        help="Freeze GRU state during generation (use initial condition for all frames)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -2500,6 +2504,9 @@ def main():
     if args.floor_clamp is not None and hasattr(model, 'config'):
         model.config.ar_frame_floor_clamp = args.floor_clamp
         print(f"  Floor clamp overridden: {args.floor_clamp}")
+    if args.freeze_gru_state and hasattr(model, 'config'):
+        model.config.ar_freeze_gru_state = True
+        print("  GRU state frozen: using initial condition for all frames")
 
     print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
     if is_single_pass:

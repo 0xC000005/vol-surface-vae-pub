@@ -107,7 +107,14 @@ class SinglePassConfig:
     ar_frame_log_space: bool = False  # multiplicative dynamics: iv = prev * exp(vs * delta)
     ar_factor_noise: bool = False     # factor model noise: z_factors @ loadings.T → per-cell
     ar_n_factors: int = 5             # number of latent noise factors
+    ar_factor_noise_norm: bool = False  # normalize cell_noise to unit variance per cell
+    ar_factor_init_scale: float = 0.1  # factor loadings init std
     ar_frame_floor_clamp: float = 0.001  # lower clamp for IV values in AR frame generation
+    ar_cell_embed: bool = False          # per-cell processing with learned cell embedding
+    ar_cell_embed_dim: int = 8           # cell embedding dimension
+    ar_cell_cond_offset: bool = False    # per-cell condition offsets (Exp 93d)
+    ar_freeze_gru_state: bool = False    # freeze GRU state during generation (Exp 93e)
+    ar_input_noise_std: float = 0.0      # noise std on GRU input during training (Exp 93f)
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -171,24 +178,54 @@ class NoiseMLP(nn.Module):
 # ──────────────────────────────────────────────────────────────────────
 
 class FrameDecoder(nn.Module):
-    """Per-frame MLP: predicts delta from prev_frame + condition + noise + position."""
+    """Per-frame MLP: predicts delta from prev_frame + condition + noise + position.
+
+    Two modes:
+      - Shared (default): prev_frame(25) → MLP → delta(25). All cells processed together.
+      - Per-cell (cell_embed=True): prev_cell(1) + cell_emb(8) → MLP → delta(1).
+        Each cell processed independently with a learned cell identity embedding.
+        Batched as (B*25, input_dim) for efficiency. Enables per-cell differentiation.
+    """
 
     def __init__(self, frame_dim: int, cond_dim: int, noise_dim: int,
                  pos_dim: int, hidden_dim: int,
-                 horizon_embed_dim: int = 0, n_horizon_buckets: int = 0):
+                 horizon_embed_dim: int = 0, n_horizon_buckets: int = 0,
+                 cell_embed: bool = False, cell_embed_dim: int = 8,
+                 cell_cond_offset: bool = False,
+                 n_cells: int = 25):
         super().__init__()
+        self.cell_embed_active = cell_embed
+        self.cell_cond_offset_active = cell_cond_offset
+        self.n_cells = n_cells
         self.pos_embed = SinusoidalTimeEmbedding(dim=pos_dim)
         self.horizon_embed = None
         if horizon_embed_dim > 0 and n_horizon_buckets > 0:
             self.horizon_embed = nn.Embedding(n_horizon_buckets, horizon_embed_dim)
             nn.init.normal_(self.horizon_embed.weight, std=0.02)
-        input_dim = frame_dim + cond_dim + noise_dim + pos_dim + horizon_embed_dim
+
+        if cell_cond_offset:
+            self.cond_offsets = nn.Parameter(torch.randn(n_cells, cond_dim) * 0.01)
+            self.cell_emb = None
+            input_dim = 1 + cond_dim + noise_dim + pos_dim + horizon_embed_dim
+            out_dim = 1
+        elif cell_embed:
+            self.cell_emb = nn.Embedding(n_cells, cell_embed_dim)
+            nn.init.normal_(self.cell_emb.weight, std=0.02)
+            self.cond_offsets = None
+            input_dim = 1 + cond_dim + noise_dim + pos_dim + cell_embed_dim + horizon_embed_dim
+            out_dim = 1
+        else:
+            self.cell_emb = None
+            self.cond_offsets = None
+            input_dim = frame_dim + cond_dim + noise_dim + pos_dim + horizon_embed_dim
+            out_dim = frame_dim
+
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.SiLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.SiLU(),
-            nn.Linear(hidden_dim, frame_dim),
+            nn.Linear(hidden_dim, out_dim),
         )
         # Zero-init last layer → delta=0 at init → prev_frame unchanged
         nn.init.zeros_(self.mlp[-1].weight)
@@ -205,6 +242,12 @@ class FrameDecoder(nn.Module):
         horizon_bucket: (B,) optional coarse absolute-horizon bucket
         Returns:    (B, frame_dim) delta, tanh-bounded [-1,1]
         """
+        if self.cell_cond_offset_active:
+            return self._forward_cond_offset(prev_frame, condition, noise_t,
+                                             local_position, horizon_bucket)
+        if self.cell_embed_active:
+            return self._forward_per_cell(prev_frame, condition, noise_t,
+                                          local_position, horizon_bucket)
         pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
         pieces = [prev_frame, condition, noise_t, pos_emb]
         if self.horizon_embed is not None:
@@ -213,6 +256,61 @@ class FrameDecoder(nn.Module):
             pieces.append(self.horizon_embed(horizon_bucket))
         x = torch.cat(pieces, dim=-1)
         return torch.tanh(self.mlp(x))
+
+    def _forward_per_cell(self, prev_frame: torch.Tensor, condition: torch.Tensor,
+                          noise_t: torch.Tensor, local_position: torch.Tensor,
+                          horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
+        """Per-cell forward: (B, 25) → expand to (B*25, input_dim) → MLP → (B, 25)."""
+        B = prev_frame.shape[0]
+        C = self.n_cells  # 25
+
+        pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
+        # Expand shared inputs: (B, dim) → (B*C, dim)
+        cond_exp = condition.unsqueeze(1).expand(B, C, -1).reshape(B * C, -1)
+        noise_exp = noise_t.unsqueeze(1).expand(B, C, -1).reshape(B * C, -1)
+        pos_exp = pos_emb.unsqueeze(1).expand(B, C, -1).reshape(B * C, -1)
+
+        # Per-cell inputs: raw IV value + learned cell identity
+        prev_cell = prev_frame.reshape(B, C, 1).reshape(B * C, 1)  # (B*C, 1)
+        cell_ids = torch.arange(C, device=prev_frame.device).unsqueeze(0).expand(B, C).reshape(B * C)
+        cell_emb = self.cell_emb(cell_ids)  # (B*C, cell_embed_dim)
+
+        pieces = [prev_cell, cond_exp, noise_exp, pos_exp, cell_emb]
+        if self.horizon_embed is not None:
+            if horizon_bucket is None:
+                horizon_bucket = torch.zeros_like(local_position)
+            hb_exp = horizon_bucket.unsqueeze(1).expand(B, C).reshape(B * C)
+            pieces.append(self.horizon_embed(hb_exp))
+
+        x = torch.cat(pieces, dim=-1)       # (B*C, input_dim)
+        delta = torch.tanh(self.mlp(x))      # (B*C, 1)
+        return delta.reshape(B, C)            # (B, 25)
+
+    def _forward_cond_offset(self, prev_frame: torch.Tensor, condition: torch.Tensor,
+                             noise_t: torch.Tensor, local_position: torch.Tensor,
+                             horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
+        """Per-cell forward with condition offsets: each cell sees condition + offset_i."""
+        B = prev_frame.shape[0]
+        C = self.n_cells  # 25
+
+        pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
+        # Per-cell condition: (B, 128) + (25, 128) → (B, 25, 128) → (B*25, 128)
+        cond_shifted = condition.unsqueeze(1) + self.cond_offsets.unsqueeze(0)
+        cond_exp = cond_shifted.reshape(B * C, -1)
+        noise_exp = noise_t.unsqueeze(1).expand(B, C, -1).reshape(B * C, -1)
+        pos_exp = pos_emb.unsqueeze(1).expand(B, C, -1).reshape(B * C, -1)
+        prev_cell = prev_frame.reshape(B * C, 1)
+
+        pieces = [prev_cell, cond_exp, noise_exp, pos_exp]
+        if self.horizon_embed is not None:
+            if horizon_bucket is None:
+                horizon_bucket = torch.zeros_like(local_position)
+            hb_exp = horizon_bucket.unsqueeze(1).expand(B, C).reshape(B * C)
+            pieces.append(self.horizon_embed(hb_exp))
+
+        x = torch.cat(pieces, dim=-1)       # (B*C, input_dim)
+        delta = torch.tanh(self.mlp(x))      # (B*C, 1)
+        return delta.reshape(B, C)            # (B, 25)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -380,11 +478,15 @@ class SinglePassBlockAR(nn.Module):
                 n_horizon_buckets=(
                     config.ar_horizon_max_buckets if config.ar_dual_pos else 0
                 ),
+                cell_embed=config.ar_cell_embed,
+                cell_embed_dim=config.ar_cell_embed_dim,
+                cell_cond_offset=config.ar_cell_cond_offset,
+                n_cells=frame_dim,
             )
             # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
             if config.ar_factor_noise:
                 self.factor_loadings = nn.Parameter(
-                    torch.randn(frame_dim, config.ar_n_factors) * 0.1
+                    torch.randn(frame_dim, config.ar_n_factors) * config.ar_factor_init_scale
                 )
             # Per-cell spread: condition → 25 positive scalars ≈ 1.0
             if config.ar_frame_cell_spread:
@@ -578,7 +680,12 @@ class SinglePassBlockAR(nn.Module):
         """Convert raw noise z_t to FrameDecoder input (shared or factor model)."""
         if self.config.ar_factor_noise:
             # z_t: (B, n_factors) → cell_noise: (B, frame_dim) via learned loadings
-            return z_t @ self.factor_loadings.T
+            cell_noise = z_t @ self.factor_loadings.T
+            if self.config.ar_factor_noise_norm:
+                # Normalize to unit variance per cell — loadings only control correlation,
+                # not scale. Prevents CRPS from shrinking loadings to reduce noise.
+                cell_noise = cell_noise / (cell_noise.std(dim=0, keepdim=True) + 1e-6)
+            return cell_noise
         return z_t
 
     @torch.no_grad()
@@ -639,9 +746,10 @@ class SinglePassBlockAR(nn.Module):
                 iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
             frames.append(iv_t)
             prev_frame = iv_t
-            condition, gru_outputs, h_last = self._gru_step(
-                iv_t, gru_outputs, h_last
-            )
+            if not self.config.ar_freeze_gru_state:
+                condition, gru_outputs, h_last = self._gru_step(
+                    iv_t, gru_outputs, h_last
+                )
 
         return torch.stack(frames, dim=1)
 
@@ -808,8 +916,11 @@ class SinglePassBlockAR(nn.Module):
                     prev_frame = iv_t
 
                     # Update GRU condition (no grad, frozen encoder)
+                    gru_input = iv_t.detach()
+                    if self.training and self.config.ar_input_noise_std > 0:
+                        gru_input = gru_input + self.config.ar_input_noise_std * torch.randn_like(gru_input)
                     condition, gru_outputs, h_last = self._gru_step(
-                        iv_t.detach(), gru_outputs, h_last
+                        gru_input, gru_outputs, h_last
                     )
 
                 trajectory = torch.stack(frames, dim=1)  # (B, n_frames, 5, 5)

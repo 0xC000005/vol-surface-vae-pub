@@ -20742,3 +20742,310 @@ All three failures trace to the same root: **shared noise → uniform per-cell b
 The model cannot differentiate spread/level across cells because all 25 cells share the same
 noise source (16-dim z_t). Factor noise (91c) tried to address this but loadings were too
 small to overcome the GRU condition's dominance.
+
+---
+
+## 2026-03-06: Factor Noise Diagnosis — Scale Was the Problem
+
+### Three Diagnostics on 91c vs 90d
+
+**Diag 1: Gradient magnitudes** — factor_loadings grad=8.3 vs frame_decoder[-1] grad=19.0.
+Only 2.3x ratio. CRPS provides adequate gradient signal to loadings. **Not the bottleneck.**
+
+**Diag 2: Noise-delta correlation** — 91c |corr(noise, delta)| = 0.52, 90d = 0.24.
+91c MLP uses noise 2.2x MORE than 90d. The factor model noise is being actively used
+by the MLP. **Not ignoring noise.**
+
+**Diag 3: Noise scale at MLP input** — 91c per-dim std = 0.19, 90d = 1.0. **5.2x smaller.**
+Factor loadings (init 0.1 × 5 factors via matmul) produce cell_noise with std~0.19,
+while 90d's shared z_t has std=1.0. The MLP sees noise that's 5x quieter.
+
+### Root Cause
+
+The factor matmul `z @ loadings.T` produces output with std ≈ `init_scale * sqrt(n_factors)`.
+With init_scale=0.1, n_factors=5: std ≈ 0.1 × 2.24 = 0.22. Observed: 0.19 (close).
+90d's shared noise has std=1.0. The 5x scale gap means the MLP's initial weights are
+calibrated for std=1.0 noise, and factor noise is in the noise floor.
+
+Even though the MLP learns to use what little signal exists (corr=0.52), the loadings
+can't grow fast enough because CRPS loss prefers reducing ensemble spread, which is
+achieved by keeping loadings small. A stable equilibrium at small loadings.
+
+### Fix: Exp 91e — Normalized Factor Noise
+
+Normalize cell_noise to unit variance per cell BEFORE feeding to MLP:
+```python
+cell_noise = z_factors @ factor_loadings.T  # (B, 25)
+cell_noise = cell_noise / (cell_noise.std(dim=0, keepdim=True) + 1e-6)  # unit var
+```
+
+This ensures:
+1. MLP always sees noise at std=1.0 regardless of loading magnitude
+2. Loadings ONLY control correlation structure, not scale
+3. CRPS can't shrink noise by shrinking loadings — normalization undoes it
+4. Init scale=0.5 (5x larger) for stronger initial correlation structure
+
+## 2026-03-06: Exp 91e — Normalized Factor Noise Results (REGRESSED 4/8)
+
+### Config
+Same as 91c but: `ar_factor_noise_norm=True`, `ar_factor_init_scale=0.5`, `ar_frame_floor_clamp=0.01`.
+Progressive rollout 5→15→30 frames.
+
+### Results: 4/8 PASS (Regression from 90d's 5/8)
+
+| Suite | Result | Key Metric |
+|-------|--------|------------|
+| 1 Surface | PASS | explosion=0%, calendar=7.6% |
+| 2 Coverage | FAIL | worst_cell_pass=False |
+| 3 Conditionality | **FAIL** | width_ratio=0.958 > 0.95 gate |
+| 4 Distributional | FAIL | |
+| 5 Block AR | PASS | |
+| 6 Time Series | PASS | |
+| 7 Regime | FAIL | |
+| 8 Cointegration | PASS | |
+
+Key regression: **Suite 3 conditionality FAILED** (width ratio 0.958 > 0.95 gate).
+Cell (2,4)=6M/K130 has width ratio 5.322 — unconditional ensemble is 5x narrower than
+conditional. Normalized factor noise overwhelms condition signal for some cells.
+
+The normalization did make loadings grow 5.5x (norm 0.19→1.04), confirming the scale
+diagnosis was correct. But forced unit-variance noise at every cell introduced too much
+stochasticity for cells where the condition signal is weak.
+
+## 2026-03-06: Cross-Cell Correlation Comparison — Factor Noise Is a Dead End
+
+### Experiment
+Generated 50 windows × 50 samples × 30 frames from test data for 90d, 91c, 91e.
+Computed 25×25 daily-change correlation matrix for each model and GT.
+
+### Results
+
+| Model | Mean Corr | Std Corr | Range | Frobenius to GT |
+|-------|-----------|----------|-------|-----------------|
+| GT | 0.448 | 0.317 | [-0.15, 0.99] | — |
+| 90d (shared noise) | **0.981** | 0.042 | [0.83, 1.00] | **15.08** |
+| 91c (factor noise) | **0.981** | 0.043 | [0.83, 1.00] | **15.08** |
+| 91e (norm factor) | NaN (degenerate) | — | — | — |
+
+**Within-tenor vs across-tenor:**
+- GT: within=0.477, across=0.442, ratio=1.08
+- 90d: within=0.983, across=0.981, ratio=1.00
+- 91c: within=0.983, across=0.981, ratio=1.00
+
+### Diagnosis: Why Factor Noise Cannot Break Correlation
+
+Factor noise changed the noise INPUT from shared 16-dim to per-cell 25-dim with 5 latent
+factors. But the **correlation comes from the architecture, not the noise**:
+
+1. **Shared GRU condition**: All 25 cells receive the same condition vector `c_t`. The MLP
+   maps `(c_t, noise)` → delta, and `c_t` dominates the output for all cells.
+2. **Shared MLP weights**: `FrameDecoder` uses the same weights for all cells. Even with
+   different per-cell noise, the shared weights + dominant condition signal produce
+   near-identical deltas.
+3. **Noise is minor**: From the noise-delta correlation analysis (91c: 0.52), noise
+   contributes ~27% of delta variance. The remaining ~73% comes from the condition,
+   which is shared across all cells.
+
+**The only way to break cross-cell correlation is per-cell conditioning or per-cell MLP
+weights** — not per-cell noise. This would require a fundamentally different FrameDecoder
+architecture (e.g., separate heads per cell, or cell-specific conditioning).
+
+### Implication for Standing Directive
+
+The factor noise approach (91c, 91e) is a dead end. Neither improved cross-cell correlation.
+91e actually regressed due to conditionality failure. The best configuration remains
+**90d + floor_clamp=0.01** (Exp 91d) at 5/8 PASS.
+
+Remaining failures (2, 7, 8) all trace to the same root: **per-cell distributional structure
+is unlearnable with shared-condition + shared-weights architecture**. Fixing this requires
+architectural change to the FrameDecoder, not the noise model.
+
+## 2026-03-06: Exp 92a/92b — Bias Loss Ablation + Per-Cell FrameDecoder (ALL FAILED)
+
+### Hypothesis
+1. Bias loss (`lambda=0.01`) fights mean-reversion by penalizing non-zero mean deltas
+2. Shared MLP prevents per-cell differentiation → per-cell FrameDecoder with cell embedding
+
+### Results
+
+| Config | Epochs | Peak Kurt | Final CI | Outcome |
+|--------|--------|-----------|----------|---------|
+| 90d baseline | 30 | ~1.0 | 93.8% | 5/8 PASS |
+| 92a (no bias, shared) | 10 (stop) | 0.088 | 76% | Collapsed |
+| 92a_v2 (0.001 bias, shared, 40ep) | 40 | 0.294 | 74% | Collapsed |
+| 92b (0.001 bias, per-cell) | 10 (stop) | 0.030 | 44% | Collapsed |
+| 92b_v2 (0.001 bias, per-cell, 40ep) | 40 | 0.169 | 72% | Collapsed |
+| 92b_v3 (0.01 bias, per-cell, 40ep) | 40 | 0.171 | 74% | Collapsed |
+
+### Finding 1: Bias Loss Is Essential for Diversity
+
+Bias loss (`lambda=0.01`) is NOT fighting mean-reversion — it's preventing the CRPS MAE term
+from collapsing ensemble diversity. Without it (92a, lambda=0.0), kurtosis drops to 0.088 and
+training early-stops. With soft bias (lambda=0.001), kurtosis reaches 0.25-0.29 max but never
+recovers to 90d's ~1.0. The bias loss acts as a diversity regularizer: by forcing per-sample
+deltas to have zero mean across cells, it prevents the MLP from learning a single deterministic
+mapping and forces noise to matter.
+
+### Finding 2: Per-Cell FrameDecoder Has Gradient Averaging Bottleneck
+
+The per-cell architecture (output_dim=1, shared across 25 cells via cell_emb) develops 7x
+slower than shared architecture (w_norm 0.12 vs 0.88). Root cause: the single output weight
+receives conflicting gradients from 25 different cells that partially cancel. Cell embeddings
+(init std=0.02) don't differentiate strongly enough initially to break the averaging.
+
+Even with original bias lambda and 40 epochs, per-cell kurtosis never exceeds 0.17.
+
+### Finding 3: Mean-Reversion Is Not a Bias Loss Problem
+
+The model fails to learn mean-reversion because `iv_t = prev + vs*delta` is structurally
+a random walk. The MLP receives prev_frame but the tanh activation + zero-init + CRPS loss
+pushes deltas toward symmetric noise, not state-dependent drift. The bias loss doesn't suppress
+mean-reversion — the architecture simply doesn't learn it from data.
+
+GT mean-reversion at low IV (+0.118) requires the MLP to learn "when this cell is at 0.02,
+produce positive deltas." This is a conditional distribution shift that the current architecture
+treats as noise, not signal.
+
+### Implication
+
+Both bias loss removal and per-cell FrameDecoder are dead ends for the current problem.
+The mean-reversion issue is structural (random walk dynamics) and the spatial correlation
+issue is architectural (shared condition dominates). Neither can be solved by FrameDecoder
+changes alone.
+
+## 2026-03-07: Exp 93a — Higher Variogram Weight (FAILED)
+
+### Hypothesis
+
+Cross-cell correlation is 0.981 (GT: 0.448). The variogram score is the ONLY loss component
+that penalizes spatial lockstep — CRPS is per-cell. At `lambda_vs=0.1`, the variogram may be
+too weak to compete. Increasing to 0.5 (5x) should push the model to produce spatial diversity.
+
+### Results
+
+| Config | Epochs | Kurt (final) | CI | VS loss | Outcome |
+|--------|--------|-------------|-----|---------|---------|
+| 90d (lambda_vs=0.1) | 30 | ~1.0 | 89% | — | 5/8 PASS |
+| 93a (lambda_vs=0.5) | 10 (stop) | 0.037 | 78.9% | 31.6 | Collapsed |
+| 93a_v2 (lambda_vs=0.3) | 10 (stop) | 0.067 | 77.9% | 31.5 | Collapsed |
+| 93a_v3 (lambda_vs=0.5, no early stop) | 30 | 0.061 | 74.8% | 63.8 | Collapsed |
+
+### Key Finding: Variogram Cannot Fix Spatial Correlation — Architecture Is the Bottleneck
+
+The variogram score value (~9.4 at 5 frames, ~64 at 30 frames) does NOT decrease with higher
+weight. It's the same magnitude at lambda_vs=0.1 and 0.5. The model architecturally CANNOT
+reduce the variogram score because:
+
+1. **Shared GRU condition** contributes ~73% of each cell's delta (proven in 91c diagnosis)
+2. **Shared MLP weights** process all 25 cells identically
+3. **Noise injection** is the only source of per-cell differentiation, but it's too weak
+
+Higher variogram weight causes collateral damage: kurtosis collapses to 0.05-0.06 (vs 1.0)
+because the model reduces ensemble member spread to minimize the unachievable variogram target.
+CI drops from 89% to 74.8%.
+
+### Definitive Conclusion: Spatial Correlation Is Architectural
+
+Three independent approaches have now failed to break spatial correlation:
+- **Factor noise (91c/91e)**: Zero effect — Frobenius error identical to baseline (15.08)
+- **Per-cell FrameDecoder (92b)**: Gradient averaging bottleneck — kurtosis peaked at 0.17
+- **Higher variogram weight (93a)**: Kurtosis collapsed — model can't reduce VS loss
+
+All roads lead to the same conclusion: the shared GRU hidden state dominates cell dynamics.
+To break spatial correlation requires either:
+1. Per-cell GRU states (25x parameters, 25x compute)
+2. A fundamentally different conditioning architecture
+3. Accept lockstep as an architectural limitation of this model class
+
+## 2026-03-07: Exp 93d — Per-Cell Condition Offsets (FAILED)
+
+### Hypothesis
+
+92b's cell_embed(8) was too small to break the shared condition dominance. 93d replaces it
+with cell_cond_offsets(25, 128) — learned per-cell shifts applied to the 128-dim condition
+vector BEFORE the MLP. Random init std=0.01, wd=0. This attacks the dominant input channel
+directly (73% of delta comes from condition).
+
+### Results
+
+| Metric | 90d (shared) | 92b (cell_embed) | 93d (cond_offset) |
+|--------|-------------|-------------------|-------------------|
+| w_norm (ep30) | 0.88 | 0.12 | 0.103 |
+| Kurtosis | ~1.0 | 0.17 | 0.072 |
+| CI (ep30) | 89% | 74% | 70.2% |
+| Input differentiation | N/A | cell_emb std=0.02 | offset norm 0.63-1.50 |
+
+### Key Finding: Bottleneck Is at the Output Layer, Not the Input
+
+The offsets grew successfully (0.56 → 4.75 total norm, per-cell 0.63-1.50 range) — each cell
+enters a genuinely different region of condition space. But MLP w_norm stalled at 0.103 (worse
+than 92b's 0.12). The gradient averaging bottleneck is in `Linear(hidden→1)`, not in input
+differentiation. The single output neuron receives conflicting gradient signals from 25 cells
+that partially cancel, regardless of how different the inputs are.
+
+### Definitive Conclusion: Per-Cell Output Architecture Cannot Work
+
+Four independent approaches to spatial decorrelation have now failed:
+1. **Factor noise (91c/91e)**: Zero effect on correlation
+2. **Higher variogram weight (93a)**: Kurtosis collapse, VS loss unchanged
+3. **Per-cell FrameDecoder + cell_embed (92b)**: Gradient bottleneck, w_norm 0.12
+4. **Per-cell FrameDecoder + condition offsets (93d)**: Same bottleneck, w_norm 0.103
+
+The spatial lockstep (corr=0.981 vs GT=0.448) is an irreducible limitation of this model class
+(shared GRU + shared/per-cell MLP). The only fix would be per-cell GRU states (25x parameters,
+25x compute) or a fundamentally different architecture class.
+
+## 2026-03-07: Exp 93e — Frozen GRU State (Inference-Only)
+
+### Hypothesis
+GRU hidden state drifts OOD during generation (cosine sim → 0.36 by h=40). Freezing the
+GRU state at the initial condition eliminates drift entirely. Inference-only change on 90d.
+
+### 30-Day Results (vs 91d baseline)
+
+| Metric | 91d (GRU updates) | 93e (frozen) |
+|--------|-------------------|--------------|
+| Suites | 5/8 | 5/8 |
+| CI coverage | 89.0% | 87.2% |
+| Kurtosis | 1.221 | 1.138 |
+| KS daily | 17/25 | 16/25 |
+| Conditionality width | 0.948 | 0.858 |
+| Cointegration gen/GT | — | 0.699 |
+
+Frozen state holds 5/8 at 30 days. Conditionality improves (0.858 vs 0.948) because condition
+doesn't drift. Slight regression in CI coverage (87.2 vs 89.0) and KS daily (16 vs 17).
+Variance does NOT grow monotonically (h=30 < h=20) because frozen condition can't adapt.
+
+### 252-Day Results: Floor-Hitting Persists
+
+| Metric | GRU updates (91d) | Frozen (93e) |
+|--------|-------------------|--------------|
+| Paths touching floor | ~100% | 99.3% |
+| Cell-frames at floor | 4.7% | 3.8% |
+| Mean-reversion at low IV | +0.00085 | +0.00087 |
+
+**Conclusion: GRU drift is NOT the root cause of floor-hitting.** The random walk dynamics
+(`iv_t = prev + vs*delta`) are the fundamental problem. Without learned mean-reversion, any
+random walk will hit an absorbing barrier over 252 steps. Frozen state produces slightly fewer
+stuck frames (3.8 vs 4.7%) but doesn't prevent the random walk from reaching the floor.
+
+## 2026-03-07: Exp 93f — AR Input Noise During Training (FAILED)
+
+### Hypothesis
+Adding Gaussian noise (std=0.01) to GRU input during training makes the GRU robust to
+imperfect inputs, improving long-horizon stability.
+
+### Results: 3/8 PASS — Major Regression
+
+| Metric | 91d (baseline) | 93f (GRU noise) |
+|--------|---------------|-----------------|
+| Suites | 5/8 | 3/8 |
+| CI coverage | 89.0% | 72.3% |
+| Kurtosis | 1.221 | 0.877 |
+| KS daily | 17/25 | 1/25 |
+| Conditionality width | 0.948 | 0.950 |
+| Catastrophic | ~3% | 10.5% |
+
+The noise made the FrameDecoder learn conservative predictions — it responds to uncertain
+conditions by producing small deltas. CI collapses because ensemble spread is too narrow.
+KS daily drops from 17 to 1/25 because daily changes are under-dispersed.

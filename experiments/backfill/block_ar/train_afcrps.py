@@ -354,8 +354,20 @@ def main():
                         help="Factor model noise: z_factors @ loadings.T for per-cell noise")
     parser.add_argument("--ar_n_factors", type=int, default=5,
                         help="Number of latent noise factors (requires --ar_factor_noise)")
+    parser.add_argument("--ar_factor_noise_norm", action="store_true",
+                        help="Normalize cell_noise to unit variance (loadings control corr only)")
+    parser.add_argument("--ar_factor_init_scale", type=float, default=0.1,
+                        help="Factor loadings initialization std (default: 0.1)")
     parser.add_argument("--ar_floor_clamp", type=float, default=0.001,
                         help="Lower IV clamp in AR frame generation (default: 0.001)")
+    parser.add_argument("--ar_cell_embed", action="store_true",
+                        help="Per-cell FrameDecoder with learned cell embedding")
+    parser.add_argument("--ar_cell_embed_dim", type=int, default=8,
+                        help="Cell embedding dimension (default: 8)")
+    parser.add_argument("--ar_cell_cond_offset", action="store_true",
+                        help="Per-cell condition offsets for spatial decorrelation (Exp 93d)")
+    parser.add_argument("--ar_input_noise_std", type=float, default=0.0,
+                        help="Noise std on GRU input during training (Exp 93f, default: 0.0)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -482,7 +494,13 @@ def main():
         ar_frame_log_space=args.ar_log_space,
         ar_factor_noise=args.ar_factor_noise,
         ar_n_factors=args.ar_n_factors,
+        ar_factor_noise_norm=args.ar_factor_noise_norm,
+        ar_factor_init_scale=args.ar_factor_init_scale,
         ar_frame_floor_clamp=args.ar_floor_clamp,
+        ar_cell_embed=args.ar_cell_embed,
+        ar_cell_embed_dim=args.ar_cell_embed_dim,
+        ar_cell_cond_offset=args.ar_cell_cond_offset,
+        ar_input_noise_std=args.ar_input_noise_std,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -533,10 +551,25 @@ def main():
         optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=1e-4)
     elif args.ar_frame:
         # AR frame mode: only frame_decoder params (no NoiseMLP, no Conv3D decoder)
-        decoder_params = list(model.frame_decoder.parameters())
-        param_groups = [
-            {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
-        ]
+        if args.ar_cell_cond_offset and hasattr(model.frame_decoder, 'cond_offsets') and model.frame_decoder.cond_offsets is not None:
+            offset_ids = {id(model.frame_decoder.cond_offsets)}
+            decoder_params = [p for p in model.frame_decoder.parameters() if id(p) not in offset_ids]
+            param_groups = [
+                {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
+                {"params": [model.frame_decoder.cond_offsets], "lr": 1e-3, "weight_decay": 0.0},
+            ]
+        elif args.ar_cell_embed and hasattr(model.frame_decoder, 'cell_emb') and model.frame_decoder.cell_emb is not None:
+            cell_emb_ids = {id(p) for p in model.frame_decoder.cell_emb.parameters()}
+            decoder_params = [p for p in model.frame_decoder.parameters() if id(p) not in cell_emb_ids]
+            param_groups = [
+                {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
+                {"params": list(model.frame_decoder.cell_emb.parameters()), "lr": 1e-3, "weight_decay": 0.0},
+            ]
+        else:
+            decoder_params = list(model.frame_decoder.parameters())
+            param_groups = [
+                {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
+            ]
         if args.unfreeze_encoder:
             encoder_params = list(model.encoder.parameters())
             param_groups.append(
@@ -733,8 +766,11 @@ def main():
         # Log frame_decoder stats if applicable
         if hasattr(model, 'frame_decoder'):
             w = model.frame_decoder.mlp[-1].weight.detach()
-            print(f"  frame_decoder: w_norm={w.norm():.3f}" +
-                  (f"  n_frames={n_frames}" if args.progressive_rollout else ""))
+            extra = f"  n_frames={n_frames}" if args.progressive_rollout else ""
+            if hasattr(model.frame_decoder, 'cond_offsets') and model.frame_decoder.cond_offsets is not None:
+                off = model.frame_decoder.cond_offsets.detach()
+                extra += f"  offset_norm={off.norm():.3f}  offset_per_cell=[{off.norm(dim=1).min():.3f},{off.norm(dim=1).max():.3f}]"
+            print(f"  frame_decoder: w_norm={w.norm():.3f}" + extra)
 
         # Log cell_scale stats if applicable (static per-cell scale)
         if hasattr(model, 'cell_scale'):
