@@ -21084,30 +21084,48 @@ Still 3/8 PASS due to missing lambda_is.
 
 **94a_v3 (corrected formula + lambda_is=0.5, from_scratch):**
 Same corrected formula, with proper interval score loss restored.
+**NOTE: confounded** — used `from_scratch=True` (90d used pretrained init) and
+`bias_lambda=0.05` (90d used 0.01). The kurtosis/CI regressions below are likely from
+missing pretrained init, not the bias loss change. However, since bias_loss=0.000000
+throughout training, the bias loss itself is proven inert regardless of confounds.
 
-### 30-Day Results (94a_v3 vs 91d baseline)
+### 30-Day Results (94a_v3 — confounded comparison)
 
-| Metric | 91d (baseline) | 94a_v3 (percell bias) |
-|--------|---------------|----------------------|
+| Metric | 91d (baseline) | 94a_v3 (percell bias + from_scratch + λ=0.05) |
+|--------|---------------|-----------------------------------------------|
 | Suites | 5/8 | 5/8 |
 | CI coverage | 89.0% | 87.8% |
 | Kurtosis | 1.221 | ~0.55 |
 | KS daily | 17/25 | 16/25 |
 
-94a_v3 holds 5/8 at 30 days, confirming the per-cell bias loss is harmless (produces 0.000000)
-but also does nothing useful.
+The kurtosis drop (1.221→0.55) is consistent with `from_scratch` effect seen in 91d-retrain.
+The bias loss produced 0.000000 throughout training so it cannot have caused any regression.
 
-### 252-Day Drift Results: ZERO Improvement
+### 252-Day Drift: Full 5×5 Grid (90d baseline, floor=0.01)
 
-| Metric | 90d baseline | 94a_v3 |
-|--------|-------------|--------|
-| Drift spread (max-min) | 45.10 IV pts | 44.98 IV pts |
-| Cell (0,0) daily drift | +5.53×10⁻⁴ | +5.86×10⁻⁴ |
-| Cell (0,1) daily drift | -9.59×10⁻⁴ | -9.57×10⁻⁴ |
-| Cell (4,0) daily drift | +8.30×10⁻⁴ | +8.22×10⁻⁴ |
+Mean daily delta per cell (×10⁴, in [0,1] normalized scale):
+```
+        K=0.70  K=0.85  K=1.00  K=1.10  K=1.30
+1M    [ +5.23   -9.64   -4.12   -1.65   -8.52 ]
+3M    [ -3.58   -1.48   -4.85   -1.93   -5.91 ]
+6M    [ -8.43   -7.73   -5.14   -3.29   -1.92 ]
+12M   [ -1.48   -5.60   -4.79   -4.00   +1.06 ]
+24M   [ +8.28   -5.05   -4.52   -4.06   -0.23 ]
+```
 
-Per-cell drift pattern is identical cell-by-cell. The per-cell bias loss had absolutely no
-effect on long-horizon drift.
+23/25 cells have negative drift (model systematically shrinks IV). Only cells (0,0) and (4,0)
+drift positive. Cumulative 252-day drift range: [-0.243, +0.209] in [0,1] scale.
+**Spread = 0.452** (i.e., 45.2% of the [0,1] normalized range).
+
+Since the data maps nearly the full IV range (0.01–1.00) to [0,1], this spread corresponds
+to ~0.45 in actual IV terms. A surface starting at 0.20 IV would see its worst cells diverge
+by ±0.2 over a year — genuinely catastrophic drift.
+
+### 252-Day Drift: 94a_v3 vs 90d — ZERO Improvement
+
+94a_v3 drift spread: 0.450 (vs 90d: 0.452). Cell-by-cell drift patterns identical within
+noise (e.g., cell (0,1): -9.64 vs -9.57 ×10⁻⁴/day). The per-cell bias loss had no effect
+because it produced zero loss throughout training.
 
 ### Root Cause: Training-Scale Signal Doesn't Exist
 
@@ -21116,9 +21134,10 @@ unconditional per-cell bias averages to zero within a single batch. The correcte
 formula (averaging across members AND conditions) produces values that round to 0.000000
 throughout training — there is nothing for the optimizer to work with.
 
-The per-cell drift (~5-10 × 10⁻⁴ per day) accumulates to 45 IV pts over 252 days, but within
-a 30-frame training window it's only ~0.015 IV pts per cell — well within the noise floor of
-a batch of 16 windows with 4 members each.
+The per-cell drift (~5-10 × 10⁻⁴/day in [0,1] scale) is tiny per step but compounds: over
+252 days cell (0,1) drifts by -0.243 and cell (4,0) by +0.209. Within a 30-frame window the
+cumulative per-cell drift is ~0.003-0.015 — indistinguishable from noise in a batch of 16
+windows × 4 members.
 
 ### Conclusion
 
