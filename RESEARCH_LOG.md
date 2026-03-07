@@ -21197,5 +21197,41 @@ horizon the GRU condition drifts OOD and the MLP systematically produces negativ
 This cannot be fixed by any per-cell correction — it requires either keeping the GRU in
 distribution (shorter horizons, or horizon-aware training) or mean-reversion architecture.
 
+### 30-Day Cointegration Verification: Model Is Sound at Training Horizon
+
+Explicit verification at h=30 (the intended deliverable horizon):
+
+| Metric | Model (h=30) | Model (h=252) | GT (same 30 windows) |
+|--------|-------------|---------------|---------------------|
+| Global mean delta (×10⁻⁴) | **-0.032** | -3.30 | varies by window |
+| Cells with positive drift | **17/25** | 3/25 | 23/25 |
+| Cumulative drift spread | **0.033** | 0.452 | 0.208 |
+| Max surface drift (any cell) | **0.017** | 0.243 | — |
+
+At 30 frames the model is nearly unbiased: global mean delta is -0.032×10⁻⁴ (100x smaller
+than 252-day), 17/25 cells drift positive, and the maximum surface drift at any cell is
+0.017 in [0,1] scale. Cross-cell daily change correlation is 0.857 (lower than 252-day's
+0.981 but still above GT's ~0.45).
+
+The GT shows much larger per-window drift (cell (0,0): +68.8×10⁻⁴) because real IV surfaces
+have genuine trends within any 30-day period. The model under-captures these trends but does
+not introduce systematic artificial drift.
+
+### Unified Long-Horizon Diagnosis
+
+The three previously-diagnosed long-horizon problems are actually one phenomenon:
+
+1. **Cointegration breaking** → GRU goes OOD → negative drift → cells drift at different rates
+2. **Floor hitting** → GRU goes OOD → negative drift pushes cells down → they hit 0.01
+3. **GRU condition drift** → the root cause of (1) and (2)
+
+Even with frozen GRU (93e), unbiased random walk still hits the floor given enough steps —
+but the systematic directional drift from OOD conditions accelerates this dramatically
+(85% floor-hitting at h=252 vs what would be much less without directional bias).
+
+**The 30-day deliverable is fundamentally sound.** Everything that breaks at 252 days is
+extrapolation beyond the training distribution — a universal problem in autoregressive
+models that the weather community addresses with longer training rollouts and more data.
+
 **Models**: `afcrps_94a/`, `afcrps_94a_v2/`, `afcrps_94a_v3/` (all in `models/backfill/`)
 **Results**: `results/block_ar/94a_30d/`, `94a_v3_30d/`, `90d_drift_baseline/`, `94a_v3_252d/`
