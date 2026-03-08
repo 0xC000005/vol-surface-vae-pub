@@ -105,6 +105,9 @@ class SinglePassConfig:
     ar_dynamic_vs_mode: str = "scalar"  # "scalar" or "tenor"
     ar_dynamic_vs_scale: float = 0.15
     ar_frame_log_space: bool = False  # multiplicative dynamics: iv = prev * exp(vs * delta)
+    ar_frame_logit_space: bool = False  # logit-space: sigmoid(logit(prev) + vs*delta)
+    ar_frame_logit_jac: bool = False    # logit + Jacobian: sigmoid(logit(prev) + vs*delta/(prev*(1-prev)))
+    ar_frame_reflect: bool = False      # reflecting boundaries: bounce off [floor, 1.0]
     ar_factor_noise: bool = False     # factor model noise: z_factors @ loadings.T → per-cell
     ar_n_factors: int = 5             # number of latent noise factors
     ar_factor_noise_norm: bool = False  # normalize cell_noise to unit variance per cell
@@ -743,6 +746,20 @@ class SinglePassBlockAR(nn.Module):
             vs = self._get_ar_frame_vol_scale(condition, vol_scale, vol_scale_cell)
             if log_space:
                 iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
+            elif self.config.ar_frame_logit_jac:
+                pf = prev_frame.clamp(1e-3, 1 - 1e-3)
+                logit_prev = torch.logit(pf)
+                jac = pf * (1 - pf)  # sigmoid'(logit(prev))
+                iv_t = torch.sigmoid(logit_prev + vs * delta / jac)
+            elif self.config.ar_frame_logit_space:
+                logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
+                iv_t = torch.sigmoid(logit_prev + vs * delta)
+            elif self.config.ar_frame_reflect:
+                raw = prev_frame + vs * delta
+                width = 1.0 - floor
+                shifted = raw - floor
+                shifted = shifted % (2 * width)
+                iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
             else:
                 iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
             frames.append(iv_t)
@@ -909,6 +926,20 @@ class SinglePassBlockAR(nn.Module):
                     all_deltas.append(delta)
                     if self.config.ar_frame_log_space:
                         iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
+                    elif self.config.ar_frame_logit_jac:
+                        pf = prev_frame.clamp(1e-3, 1 - 1e-3)
+                        logit_prev = torch.logit(pf)
+                        jac = pf * (1 - pf)
+                        iv_t = torch.sigmoid(logit_prev + vs * delta / jac)
+                    elif self.config.ar_frame_logit_space:
+                        logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
+                        iv_t = torch.sigmoid(logit_prev + vs * delta)
+                    elif self.config.ar_frame_reflect:
+                        raw = prev_frame + vs * delta
+                        width = 1.0 - floor
+                        shifted = raw - floor
+                        shifted = shifted % (2 * width)
+                        iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
                     else:
                         iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
                     frames.append(iv_t)

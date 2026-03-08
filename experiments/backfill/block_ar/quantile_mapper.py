@@ -81,12 +81,22 @@ class QuantileMapper:
                     )
         return mapped.reshape(orig_shape)
 
-    def apply(self, samples: np.ndarray, history: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _reflect_clip(x, lo, hi):
+        """Reflect values into [lo, hi] instead of hard clipping."""
+        width = hi - lo
+        shifted = x - lo
+        shifted = shifted % (2 * width)
+        return np.where(shifted > width, 2 * width - shifted, shifted) + lo
+
+    def apply(self, samples: np.ndarray, history: np.ndarray,
+              reflect: bool = False) -> np.ndarray:
         """Apply quantile mapping to sample trajectories.
 
         Args:
             samples: (N, S, T, 5, 5) generated IV surfaces in [0, 1]
             history: (N, H, 5, 5) history IV surfaces in [0, 1]
+            reflect: if True, use reflecting boundaries instead of hard clip
         Returns:
             mapped_samples: (N, S, T, 5, 5) with mapped daily changes
         """
@@ -99,4 +109,6 @@ class QuantileMapper:
         changes = np.diff(full_traj, axis=2)  # (N, S, T, 5, 5)
         mapped_changes = self.map_changes(changes)
         mapped_samples = anchor_exp + np.cumsum(mapped_changes, axis=2)
+        if reflect:
+            return self._reflect_clip(mapped_samples, 0.0, 1.0)
         return np.clip(mapped_samples, 0.0, 1.0)

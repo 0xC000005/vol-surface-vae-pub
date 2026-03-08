@@ -350,6 +350,12 @@ def main():
                         help="Multiplier strength for dynamic vol-scale modulation")
     parser.add_argument("--ar_log_space", action="store_true",
                         help="Multiplicative dynamics: iv = prev * exp(vs * delta)")
+    parser.add_argument("--ar_logit_space", action="store_true",
+                        help="Logit-space dynamics: iv = sigmoid(logit(prev) + vs * delta)")
+    parser.add_argument("--ar_logit_jac", action="store_true",
+                        help="Logit + Jacobian: iv = sigmoid(logit(prev) + vs*delta/(prev*(1-prev)))")
+    parser.add_argument("--ar_reflect", action="store_true",
+                        help="Reflecting boundaries: bounce off [floor, 1.0] instead of clamping")
     parser.add_argument("--ar_factor_noise", action="store_true",
                         help="Factor model noise: z_factors @ loadings.T for per-cell noise")
     parser.add_argument("--ar_n_factors", type=int, default=5,
@@ -494,6 +500,9 @@ def main():
         ar_dynamic_vs_mode=args.ar_dynamic_vs_mode,
         ar_dynamic_vs_scale=args.ar_dynamic_vs_scale,
         ar_frame_log_space=args.ar_log_space,
+        ar_frame_logit_space=getattr(args, 'ar_logit_space', False),
+        ar_frame_logit_jac=getattr(args, 'ar_logit_jac', False),
+        ar_frame_reflect=getattr(args, 'ar_reflect', False),
         ar_factor_noise=args.ar_factor_noise,
         ar_n_factors=args.ar_n_factors,
         ar_factor_noise_norm=args.ar_factor_noise_norm,
@@ -783,6 +792,17 @@ def main():
         # Log bias loss if applicable
         if 'bias_loss' in train_metrics and train_metrics['bias_loss'] > 0:
             print(f"  bias_loss: {train_metrics['bias_loss']:.6f}")
+
+        # Log mean |IV change| for logit-space monitoring (epochs 1,5,10,15,20,25,30,35,40)
+        if getattr(config, 'ar_frame_logit_space', False) and epoch in {1, 5, 10, 15, 20, 25, 30, 35, 40}:
+            with torch.no_grad():
+                sample_batch = next(iter(val_loader))
+                hist = sample_batch["history"].to(device)
+                prev = denormalize_iv(hist[:, -1])  # (B, 5, 5)
+                s = model.sample(hist, n_samples=4, n_frames=5)  # (B, 4, 5, 5, 5)
+                iv_changes = (s[:, :, 0, :, :] - prev.unsqueeze(1)).abs().mean(dim=(0, 1))  # (5, 5)
+                row_means = iv_changes.mean(dim=1)
+                print(f"  logit_monitor: mean|dIV| per row: [{', '.join(f'{row_means[r]:.5f}' for r in range(5))}]")
 
         # Log cell_spread_linear stats if applicable (AR frame mode)
         if hasattr(model, 'cell_spread_linear'):
