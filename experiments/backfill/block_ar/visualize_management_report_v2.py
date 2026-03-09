@@ -25,14 +25,18 @@ from diffusion.block_ar.block_ar_ddpm import (
     ConditionalBlockARDDPM,
     normalize_iv,
 )
+from diffusion.block_ar.single_pass_ar import (
+    SinglePassConfig,
+    SinglePassBlockAR,
+)
 
 MONEYNESS = np.array([0.70, 0.85, 1.00, 1.15, 1.30])
 MATURITIES_DAYS = np.array([30, 91, 182, 365, 730])
 MATURITY_LABELS = ["1M", "3M", "6M", "1Y", "2Y"]
 MONEYNESS_LABELS = ["0.70", "0.85", "1.00", "1.15", "1.30"]
 
-OUTPUT_DIR = "results/block_ar/management_report_v2"
-MODEL_PATH = "models/backfill/block_ar_vol_scaled_30ep/best_model.pt"
+OUTPUT_DIR = "results/block_ar/management_report_99j_v3"
+MODEL_PATH = "models/backfill/afcrps_99j_v3/best_model.pt"
 N_SAMPLES = 50
 MAX_WINDOWS = 400
 
@@ -58,8 +62,13 @@ def load_and_generate():
     c = cp["config"]
     if dataclasses.is_dataclass(c):
         c = dataclasses.asdict(c)
-    config = BlockARConfig(**c)
-    model = ConditionalBlockARDDPM(config)
+    # Detect model type by config keys
+    if "ar_frame" in c or "noise_dim" in c:
+        config = SinglePassConfig(**c)
+        model = SinglePassBlockAR(config)
+    else:
+        config = BlockARConfig(**c)
+        model = ConditionalBlockARDDPM(config)
     model.load_state_dict(cp["model_state_dict"])
     model.to(device).eval()
 

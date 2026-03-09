@@ -22050,3 +22050,1190 @@ relationships *within each generated scenario*? Tested 10 pairs at T=252:
 than reality. Calendar spreads and skew trades will appear less mean-reverting than they
 actually are. Relative value risk is understated. This is a downstream consequence of the
 irreducible shared-GRU architecture (proven in Exp 91-93).
+
+### Comprehensive Spatial Correlation Diagnosis (2026-03-08)
+
+Deep investigation of why cross-cell daily change correlation is 0.88 (GT: 0.38). Three
+independent analyses (architecture trace, variance decomposition, weight/Jacobian analysis)
+converged on the same root cause.
+
+#### The Smoking Gun: Noise-to-Output Effective Rank = 1
+
+The FrameDecoder MLP takes 185 input dims: `prev_frame(25) + condition(128) + noise(16) +
+pos_embed(16)`. Noise is the only source of sample diversity. Analysis of the noise pathway
+through the MLP layers:
+
+| Layer | Noise effective rank (participation ratio) |
+|-------|-------------------------------------------|
+| After hidden layer 1 | 4.87 (noise spreads into ~5 directions) |
+| After hidden layer 2 | **1.48** (crushed to ~1.5) |
+| Output (25 cells) | **1.06** (effectively rank 1) |
+
+Hidden layer 2 acts as an **information bottleneck** that crushes noise diversity. The
+noise-to-output weight rows have cosine similarity **0.987** across all 25 cells — every
+noise draw produces the same "move everything up/down" signal with different magnitudes.
+
+#### Corrected Variance Attribution
+
+The earlier claim "73% of delta comes from shared GRU condition" (Exp 91c/91e) was wrong.
+That experiment measured variance by zeroing vs including GRU condition — but the MLP's
+nonlinear interactions confounded the attribution. Proper decomposition (mean subtraction):
+
+| Source | % of delta variance | Cross-cell correlation |
+|--------|--------------------|-----------------------|
+| Condition (GRU) | **3.8%** | 0.696 |
+| Noise (through MLP) | **96.2%** | **0.886** |
+| Total delta | 100% | 0.881 |
+| Ground truth | — | 0.381 |
+
+The noise pathway drives nearly all variance, but produces **correlated** outputs. The MLP
+learned to use noise as a scalar gain knob (rank-1), not a per-cell differentiator.
+
+#### Why the MLP Learned Rank-1 Noise
+
+The CRPS loss optimizes for **spread calibration** (variance) but is **indifferent to
+correlation structure**. The minimum-complexity solution that satisfies CRPS is rank-1:
+one shared "inflate/deflate" factor that scales all cells together. This achieves 90% CI
+coverage with zero incentive to learn multi-factor noise responses.
+
+#### Input Signal Budget
+
+| Input Component | Dims | % of weight energy (L2) | Signal type |
+|----------------|------|------------------------|-------------|
+| condition | 128 | **54.2%** | SHARED |
+| prev_frame | 25 | 35.3% | Weakly cell-specific (implicit) |
+| pos_embed | 16 | 6.2% | SHARED (temporal, not spatial!) |
+| noise | 16 | **4.3%** | SHARED |
+
+**Critical**: Position embedding encodes **frame index** (timestep), NOT cell identity.
+There is zero spatial identity signal. Cell differentiation comes only implicitly from the
+ordering of the 25-dim prev_frame vector.
+
+#### GT vs Model Factor Structure
+
+| Metric | GT | Model (noise component) |
+|--------|-----|------------------------|
+| Cross-cell correlation | 0.38 | 0.88 |
+| Factors for 90% variance | **5** | **1** |
+| PC1 explains | 52% | **92%** |
+
+GT has rich 5-factor structure (level, term structure slope, skew, curvature, twist). The
+model collapsed this to 1 factor (uniform level shift). Cell (0,0) has ~100x more noise
+variance than interior cells — the model differentiates magnitude but not direction.
+
+#### Per-Cell Noise Variance Distribution
+
+Noise sensitivity is extremely non-uniform:
+- Cell (0,0): noise variance 0.01435 (dominates)
+- Interior cells (2,2)-(3,3): noise variance ~0.00001 (nearly noise-insensitive)
+
+The MLP effectively learned: noise controls cell (0,0) movements, and all other cells
+follow proportionally through the rank-1 output structure.
+
+#### Why Previous Fixes Failed — Now Precisely Understood
+
+1. **Factor noise (91c/91e)**: Replaced shared z(16) with per-cell correlated noise via
+   factor loadings. But the MLP's hidden layer 2 crushes any input diversity to rank 1.
+   The bottleneck is in the **learned weights**, not the input noise structure.
+
+2. **Cell embedding (92b)**: Added per-cell identity to MLP input. But output layer
+   `Linear(hidden→1)` per cell receives conflicting gradients from 25 cells trying to learn
+   different responses to the same shared hidden state. Weight norm stalls at 0.10-0.12.
+
+3. **Variogram loss (93a)**: Penalized wrong correlations directly. But rank-1 noise is a
+   **weight structure** issue — the loss fights the architecture. Result: kurtosis/CI collapse
+   as the model can't satisfy both CRPS spread and correlation targets.
+
+4. **Condition offsets (93d)**: Added learned (25, 128) offsets to condition. Same output
+   layer bottleneck — single Linear(hidden→1) can't differentiate 25 cells via small
+   perturbations to a 128-dim input it was trained to ignore.
+
+#### Jacobian Analysis
+
+| Jacobian metric | Value |
+|----------------|-------|
+| Condition fraction of ||J|| | 84.4% (range 79-91% across cells) |
+| Noise J cosine similarity across cells | **0.87** |
+| Condition J cosine similarity across cells | 0.56 |
+
+Noise Jacobians are MORE aligned across cells (0.87) than condition Jacobians (0.56). The
+network learned noise as a uniform perturbation direction — the opposite of what's needed
+for spatial diversity.
+
+#### Potential Fixes (Architectural)
+
+The noise pathway needs to maintain effective rank ≥ 5 through to the output:
+
+1. **Post-bottleneck per-cell noise injection**: `delta = MLP(inputs) + scale * z_cell`
+   where z_cell is independent per cell. Bypasses the hidden layer 2 bottleneck entirely.
+   Simplest to implement, but CRPS loss may still learn to suppress it.
+
+2. **Spatial decoder**: Replace the shared MLP with a decoder that processes the full 5×5
+   grid spatially (e.g., 2D convolution). Cell interactions become structural rather than
+   flowing through a shared hidden bottleneck.
+
+3. **Decorrelation loss on noise Jacobian**: Force `d(delta)/d(noise)` to be diverse across
+   cells. But Exp 93a showed CRPS + correlation penalties conflict when the architecture
+   can't support both.
+
+4. **Per-cell GRU + separate MLPs**: 25 independent state tracks with per-cell decoders.
+   Most direct fix but 25x parameter cost. Could use shared encoder + per-cell heads.
+
+**Bottom line**: The spatial correlation is a **decoder weight problem** (rank-1 noise
+pathway), not an encoder problem (GRU condition). The CRPS loss has no incentive to learn
+multi-factor noise, and the MLP architecture makes rank-1 the path of least resistance.
+
+### Architectural Fix Analysis: Per-Cell Independent MLPs (Proposed Exp 98a)
+
+#### Problem Recap
+
+All 10 previous fix attempts share one root cause: **shared hidden layers compress noise
+to rank 1 regardless of what enters them**.
+
+| Experiment | Approach | Why it failed |
+|-----------|----------|---------------|
+| 91c/91e | Factor noise (per-cell input) | Shared MLP hidden layers crush diversity |
+| 92b | Cell embedding (identity signal) | Gradient averaging at shared output layer |
+| 93a | Variogram loss (penalty) | Architecture can't comply → kills spread |
+| 93d | Condition offsets (per-cell condition) | Same output layer bottleneck as 92b |
+| 93e | Frozen GRU state | Doesn't address decoder bottleneck at all |
+| 93f | GRU input noise | MLP becomes conservative → CI collapses |
+| 94a | Per-cell bias loss | Signal doesn't exist at training scale |
+| 96a | Logit-space dynamics | Fixes floor but sigmoid compression kills KS |
+| 96b | Logit+Jacobian | Training collapse (amplification too aggressive) |
+| 96c | Reflect+60frame | Floor fixed but conditionality regresses |
+
+The shared hidden layers are the problem. Any approach that shares hidden layers suffers
+rank collapse. Factor noise (91c) proved this — per-cell noise enters the MLP but exits
+as rank-1. The noise must flow through per-cell weights from input to output.
+
+#### Four Fix Options Evaluated
+
+**Option 1: Post-Bottleneck Per-Cell Noise Injection**
+- `delta = MLP(inputs) + learned_scale * z_cell`
+- Bypasses hidden layer 2 bottleneck entirely
+- **Problem**: CRPS is already calibrated at per-cell level (CI ~87%). Adding independent
+  noise overcalibrates without any loss incentive to learn the right amount. CRPS would
+  suppress `scale → 0` because rank-1 already achieves spread calibration.
+- **Bitter Lesson**: ★★★☆☆ — structural noise, not fully learned
+- **Likelihood**: ★★☆☆☆
+
+**Option 2: Spatial Decoder (Conv2D over 5×5)**
+- Replace MLP with Conv2D layers processing the grid spatially
+- **Problem**: 5×5 is too small for convolutions. A 3×3 kernel covers 60% of the grid in
+  one layer, two layers cover everything. Cells would still be highly correlated through
+  overlapping receptive fields. Also, IV surfaces are NOT translationally equivariant —
+  moneyness×tenor has no spatial symmetry. Conv2D's weight sharing (translation equivariance)
+  imposes the wrong inductive bias for this problem.
+- **Bitter Lesson**: ★★★★★ in principle, but wrong inductive bias for non-spatial grids
+- **Likelihood**: ★★★☆☆
+
+**Option 3: Decorrelation Loss on Noise Jacobian**
+- Penalize cosine similarity between per-cell noise Jacobian rows
+- **Problem**: Already proven to fail in spirit (Exp 93a variogram). When the architecture
+  can't support decorrelation (rank-1 weights), the loss fights CRPS. Model reduces noise
+  entirely rather than diversifying it. Expensive to compute (requires per-sample Jacobian).
+- **Bitter Lesson**: ★★☆☆☆ — domain-specific loss penalty
+- **Likelihood**: ★☆☆☆☆
+
+**Option 4: Per-Cell Independent MLPs** ← RECOMMENDED
+- 25 separate small MLPs (nn.ModuleList), each producing 1 delta for its cell
+- Each cell receives: prev_cell(1) + condition(128) + noise(16) + pos_emb(16) = 161 dims
+- Hidden dim = 32 (vs 128 current), two hidden layers: 161 → 32 → 32 → 1
+- **Bitter Lesson**: ★★★★★ — factor structure learned from data, generalizes to any grid
+- **Likelihood**: ★★★★☆
+
+#### Why Per-Cell Independent MLPs Will Work (Unlike Exp 92b)
+
+**The critical difference**: Exp 92b used a SHARED MLP with cell_embed to differentiate
+cells. All 25 cells' gradients flow through the same weights, creating gradient averaging
+(w_norm stalls at 0.10 vs 0.88). True per-cell MLPs have INDEPENDENT weights — each cell's
+gradient flows only through its own MLP. No averaging, no cancellation, no stalling.
+
+**Implicit factor model**: The 16 shared noise dims act as latent factors (analogous to
+GT's level, slope, skew, curvature, twist). Each cell's MLP weights are the factor loadings
+(how much that cell responds to each factor). Cross-cell correlation = dot product of
+loading vectors, learned from data through CRPS.
+
+```
+z_shared: (B, 16)               ← shared noise = latent factors
+MLP_cell_i(z) → delta_cell_i    ← noise pathway weights = factor loadings
+corr(i,j) = cos(W_noise_i, W_noise_j)  ← correlation from weight similarity
+```
+
+With 16 noise dims, 25 independent MLPs, and CRPS per-cell calibration:
+- Noise-to-output rank: ~16 (from 1.06) — limited by noise dims, not architecture
+- Expected cross-cell correlation: ~0.25–0.35 (from 0.88, GT: 0.38)
+  - Condition contribution: ~0.04 (3.8% of variance, shared)
+  - Noise contribution: ~0.25 (random projections in 16D → expected cos ~1/√16)
+  - Different cells learn different dynamics → correlation is data-driven
+
+**Why shared noise is critical**: If noise were per-cell (independent 16 dims each),
+cross-cell correlation drops to ~0.04 (only from shared condition). GT correlation is 0.38.
+Shared noise + per-cell MLPs gives the right inductive bias: shared factors, learned loadings.
+
+#### Encoder Does NOT Need to Change
+
+The GRU encoder outputs a shared 128-dim condition vector representing market state. This is
+architecturally correct — the market state IS shared across cells. Per-cell differentiation
+is strictly a decoder problem:
+- **Encoder's job**: "What is the market state?" (shared across grid) → correct as-is
+- **Decoder's job**: "Given this state, what does THIS cell do?" → needs per-cell weights
+
+Each cell's MLP independently decides which aspects of the 128-dim condition matter for it.
+No changes to GRU, attention pooling, or bottleneck projection needed.
+
+#### Parameter Budget
+
+| Component | Current (shared MLP) | Proposed (per-cell MLPs) |
+|-----------|---------------------|--------------------------|
+| Layer 1 | 185 × 128 = 23,680 | 25 × (161 × 32) = 128,800 |
+| Layer 2 | 128 × 128 = 16,384 | 25 × (32 × 32) = 25,600 |
+| Output | 128 × 25 = 3,200 | 25 × (32 × 1) = 800 |
+| Biases | 281 | 25 × 65 = 1,625 |
+| **Total** | **43,545** | **156,825** |
+| **Ratio** | 1.0x | **3.6x** |
+
+156K params is still tiny (model total ~500K). Training compute is similar — forward pass
+over 25 small MLPs parallelizes on GPU. The 25-iteration Python loop adds negligible
+overhead for (B, 161) → (B, 1) operations.
+
+#### Risk Assessment
+
+**Low: CRPS still indifferent to correlation.** Per-cell MLPs ALLOW the right correlation
+but don't FORCE it. Mitigation: correlation emerges naturally from shared noise projections.
+With 16 dims and 25 cells, the geometry makes rank-1 very unlikely (would require all 25
+independent weight initializations to converge to same direction despite independent gradients).
+
+**Low: Per-cell training signal.** Each cell's MLP gets 1/25th of the training data's
+gradient signal. But each MLP is also 1/25th the size (32 hidden vs 128), so the
+signal-to-parameter ratio is similar. CRPS per-cell provides clean, unaveraged gradients.
+
+**Medium: Kurtosis impact.** If noise becomes more cell-specific, per-cell tails may
+change. Monitor kurtosis ratio. Should improve (currently too correlated → tails are
+shared → kurtosis reflects shared noise kurtosis, not per-cell dynamics).
+
+**Low: Numerical.** Same sigmoid/tanh activations. No new numerical concerns.
+
+#### Implementation Plan
+
+1. Config field: `ar_independent_cells: bool = False`
+2. FrameDecoder.__init__: `nn.ModuleList` of 25 small MLPs (161→32→32→1), zero-init last layer
+3. FrameDecoder.forward: new branch — loop over cells, each takes (prev_cell, cond, noise, pos)
+4. Training CLI: `--ar_independent_cells` flag in train_afcrps.py
+5. What NOT to change: encoder, GRU, vol_scale, bias loss, AR dynamics (additive/reflect)
+
+#### Training Command (Proposed)
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --ar_frame --ar_reflect --ar_independent_cells \
+    --epochs 40 --batch_size 8 --noise_dim 16 --n_members 4 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_is 0.5 \
+    --ar_bias_lambda 0.01 --ar_floor_clamp 0.01 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_98a --device cuda
+```
+
+#### Success Criteria
+
+- Cross-cell correlation: < 0.55 (from 0.88, GT: 0.38)
+- Noise-to-output rank: > 5 (from 1.06)
+- 30-day test suite: ≥ 5/8 PASS (no regression from 97a)
+- Suite 2 (per-cell coverage): improvement from 80% → 85%+ worst cell
+- Kurtosis ratio: > 0.5
+- CI coverage: > 85%
+
+### Exp 98a Results: Per-Cell Independent MLPs (2026-03-08)
+
+**RESULT: Architecture fix DISPROVEN. Cross-cell correlation is loss-driven, not architecture-driven.**
+
+#### Training (30 of 40 epochs completed, terminated for diagnosis)
+
+| Epoch | Cross-cell Corr | CI | Kurt | VS | w_norm range | cell_std range |
+|------:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 0.658 | 89.7% | 0.076 | 92.0 | [0.017, 0.135] | [0.002, 0.034] |
+| 5 | **0.911** | 93.7% | 0.651 | 75.4 | [0.021, 0.219] | [0.002, 0.103] |
+| 10 | 0.876 | 93.7% | 0.608 | 72.9 | [0.025, 0.243] | [0.002, 0.119] |
+| 20 | 0.894 | 90.9% | 0.600 | 69.3 | [0.027, 0.359] | [0.003, 0.123] |
+| 30 | ~0.90 | 93.8% | 0.582 | 66.7 | [0.029, 0.390] | — |
+
+**Key observation**: Correlation jumped from 0.658 → 0.911 in just 5 epochs, then stabilized
+~0.88-0.90. Training ACTIVELY drove correlation UP from random initialization.
+
+Training speed: ~320s/epoch (5.3 min), ~1.8x slower than shared MLP due to 25 sequential
+per-cell MLP calls per frame.
+
+#### Comprehensive Diagnosis
+
+##### 1. Weights Are Genuinely Different — Outputs Are Still Correlated
+
+| Metric | 98a (indep MLPs) | 97a (shared MLP) | GT |
+|--------|:---:|:---:|:---:|
+| Noise weight cosine sim | **0.006** | N/A (shared) | — |
+| Output cross-cell corr | 0.863 | 0.915 | 0.448 |
+| Noise Jacobian PR | 1.165 | 1.035 | 2.915 |
+| Jacobian cosine sim | 0.952 | 0.986 | — |
+| PC1 variance | 92.5% | 98.3% | 55.0% |
+
+The independent MLPs learned genuinely different noise weight vectors (cosine sim = 0.006,
+PCA needs 20 components for 90% of weight variance). Yet the output deltas remain highly
+correlated (0.863). The architecture works as designed — the **loss function** is the cause.
+
+##### 2. Root Cause: CRPS is Structurally Correlation-Agnostic
+
+CRPS decomposes as a sum of univariate per-cell terms:
+`CRPS_total = Σ_c [E|X_c - Y_c| - 0.5·E|X_c - X'_c|]`
+
+The spread term `E|X_c - X'_c|` measures marginal diversity for cell c with **zero gradient
+signal about cross-cell correlation**. Two configurations:
+- All cells projecting noise along same direction (corr = 1.0)
+- Each cell projecting along orthogonal directions (corr = 0.0)
+
+achieve **exactly the same CRPS** as long as each cell's marginal spread matches GT.
+
+##### 3. Why Correlation Increases During Training
+
+Three mechanisms drive convergence to rank-1 despite independent weights:
+
+**Mechanism 1 — Correlated GT gradients**: GT cells are correlated (0.38). When GT rises
+across all cells simultaneously, the MAE gradient pushes all cells to respond to the same
+noise realization → all cells converge toward the same noise projection direction (the
+direction most correlated with the common factor of GT movements).
+
+**Mechanism 2 — No counterforce**: CRPS has no penalty for this convergence. The optimizer
+follows the path of least resistance: rank-1 noise is the minimum-complexity solution that
+satisfies per-cell spread requirements. Even with independent weights, gradient descent
+finds this same solution.
+
+**Mechanism 3 — Tanh + output weight asymmetry**: Cell output layer norms span 14x range
+(0.029–0.390). Cells with tiny output weights produce near-zero deltas regardless of noise
+direction. The tanh saturates for high-output cells, compressing diverse noise directions
+into same-sign responses → rank-1 at output level.
+
+##### 4. Why Variogram Loss (λ_vs=0.1) Doesn't Help
+
+The variogram score measures pairwise spatial structure `(|GT_c1-GT_c2|^0.5 - E[|X_c1-X_c2|^0.5])²`.
+For correlated GT cells, this pushes generated inter-cell differences to be small → actually
+**reinforces** correlation for nearby cells. At weight 0.1, it's too weak to overcome the
+CRPS-driven convergence anyway. Higher weight (93a) caused kurtosis/CI collapse with the
+shared MLP — might work with independent MLPs, but the fundamental issue remains.
+
+##### 5. The 46x Cell_std Range
+
+cell_std ranges from 0.003 to 0.123 (46x ratio). This reflects GT heterogeneity: corner
+cells (deep OTM, long tenor) have much higher vol-of-vol than ATM cells. CRPS gradient
+is proportional to each cell's GT residual variance, so high-variance cells learn strong
+noise responses while low-variance cells stay near zero. Zero-init amplifies this asymmetry
+during early training.
+
+##### 6. 98a vs 97a — Marginal Improvement
+
+98a achieves slightly better correlation (0.863 vs 0.915) and Jacobian PR (1.165 vs 1.035).
+The independent architecture provides a real but small benefit — the effective noise-to-output
+rank is 2.55 (from weight diversity) vs 1.06 (shared MLP). But after the tanh bottleneck,
+the output rank collapses back toward ~1. This is a marginal win, not the structural fix needed.
+
+#### Fundamental Conclusion
+
+**The spatial correlation problem cannot be solved by architecture alone.** Any loss that
+decomposes as a sum of univariate per-cell terms is correlation-agnostic. When cells share
+noise, the path of least resistance under such a loss is rank-1 noise usage. This is not a
+bug — it is the mathematically optimal solution to a univariate objective with shared noise.
+
+This resolves a key question: the rank-1 noise in the shared MLP (Exp 92b diagnosis) is NOT
+an architectural constraint — it's the CRPS-optimal solution. Any architecture will converge
+to it. The previous diagnosis was partially wrong: we attributed the problem to "hidden layer
+2 crushing noise diversity" but the real cause is the loss function itself.
+
+#### Viable Fixes (Loss-Level)
+
+**1. Energy Score** (multivariate CRPS) — MOST PROMISING:
+Replace per-cell spread `|x_c - x'_c|.mean()` with L2 norm across cells `||x - x'||₂`:
+```
+ES = E[||X - Y||] - 0.5·E[||X - X'||]
+```
+Decorrelated samples have √25 larger L2 norm vs rank-1 → directly incentivizes multivariate
+diversity. Still a proper scoring rule → calibration maintained.
+
+**2. Decorrelation regularizer on noise Jacobian**:
+`penalty = Σ_{c1≠c2} cos_sim(J_c1, J_c2)²`
+Directly penalizes correlated noise usage. Compatible with CRPS calibration.
+
+**3. Per-cell independent noise** (25×16 = 400 noise dims):
+Eliminates shared-noise correlation mechanism. But cross-cell structure must come entirely
+from condition (only 3.8% of variance) — likely too weak.
+
+**4. Increased variogram weight with independent MLPs**:
+93a failed with shared MLP (architecture couldn't comply). Independent MLPs CAN decorrelate
+— maybe higher λ_vs works now. But variogram may still conflict with kurtosis.
+
+---
+
+### Literature Research: Multivariate Scoring Rules for Spatial Correlation (2026-03-08)
+
+Following the Exp 98a finding that CRPS is structurally correlation-agnostic, we conducted
+a comprehensive literature review of how the weather AI community and scoring rule theory
+address multivariate calibration in ensemble generators.
+
+#### 1. Energy Score (Gneiting & Raftery, 2007)
+
+The Energy Score is the multivariate generalization of CRPS:
+
+```
+ES(F, y) = E_F[||X - y||^β] - 0.5 · E_F[||X - X'||^β]
+```
+
+where `X, X'` are independent draws from forecast F, `y` is the observation in R^d,
+`||·||` is the L2 norm, and `β ∈ (0,2)` (standard: β=1). When d=1, ES reduces exactly
+to univariate CRPS. ES is **strictly proper** for all β ∈ (0,2).
+
+**Ensemble version** with K members `{x_1, ..., x_K}`:
+```
+ES = (1/K) Σ_j ||x_j - y||₂  −  (1/(2K²)) Σ_{j,k} ||x_j - x_k||₂
+```
+
+**Critical limitation**: Pinson & Tastu (2013) proved ES shows only **~5% relative change**
+for large correlation differences, vs **~25% for Variogram Score** and **~175% for
+Dawid-Sebastiani Score**. The L2 norm is dominated by marginal mean/variance signals;
+correlation information is a second-order effect within the norm that deteriorates with
+increasing dimension d.
+
+However, with CRPS already calibrating marginals separately, the ES spread term provides
+a targeted decorrelation signal: for fixed per-cell variances σ_c, the only way to increase
+`E[||X - X'||₂]` is to decorrelate. The ratio of decorrelated vs rank-1 spread for d=25:
+
+```
+E[χ_25] / (E[|N(0,1)|] · √25) ≈ 4.95 / 3.99 ≈ 1.24
+```
+
+So decorrelated samples have **24% larger spread** — a real signal when CRPS handles marginals.
+
+#### 2. What the Weather AI Community Does
+
+**No major weather system uses Energy Score as a training loss.** Every system relies on
+per-variable CRPS (or MSE) and depends on architecture for spatial correlation:
+
+| System | Training Loss | Correlation Mechanism |
+|--------|--------------|----------------------|
+| **AIFS-CRPS** (ECMWF, operational 2025) | Per-variable afCRPS (α=0.95) | Graph transformer architecture |
+| **GenCast** (DeepMind, 2023) | Weighted MSE (denoising score matching) | Diffusion + sparse transformer on sphere |
+| **NeuralGCM** (Google, 2024) | Per-variable CRPS + spectral MSE | Dynamical core + learned noise fields |
+| **FourCastNet 3** (NVIDIA, 2025) | **Spatial CRPS + spectral CRPS** | Spherical diffusion noise |
+
+**FourCastNet 3** is the most relevant. They explicitly state: *"The CRPS can be minimized
+in a point-wise manner by an unphysical ensemble in multi-variate spatial processes. A
+perfect forecast with shuffled ensemble members retains optimal CRPS but is physically
+meaningless."* Their solution: compute CRPS on spectral coefficients weighted by multiplicity,
+enforcing correct distribution at all wavelengths.
+
+**AIFS-CRPS** (ECMWF): Pure per-variable afCRPS with 2-4 training members. Spatial
+correlation comes entirely from graph transformer with sliding window attention. No
+multivariate loss. No discussion of correlation calibration. This works because their
+architecture (spherical graph NN with ~100K spatial nodes) has massive spatial inductive bias.
+
+**NeuralGCM**: Adds spectral MSE on spherical harmonic power spectrum at high wavenumbers,
+preventing high-frequency energy loss. Correlation comes from dynamical core + learned
+spatially-correlated noise fields. The spectral term is analogous to FourCastNet 3's approach.
+
+**Key insight**: The weather community solves spatial correlation through **architecture**
+(graph NNs with explicit spatial structure) not through multivariate losses. Our 5×5 grid
+with a shared MLP has zero spatial inductive bias, making the loss approach necessary.
+
+#### 3. Variogram Score vs Energy Score (Scheuerer & Hamill, 2015)
+
+Variogram Score:
+```
+VS_p(F, y) = Σ_{i,j} w_ij · (E_F[|X_i - X_j|^p] - |y_i - y_j|^p)²
+```
+
+| Property | Energy Score | Variogram Score |
+|----------|-------------|-----------------|
+| Strictly proper | **Yes** | No |
+| Correlation sensitivity | Low (~5%) | **High (~25%)** |
+| Mean sensitivity | High | None (blind to bias) |
+| Computational cost | O(K² · d) | O(K · d²) |
+
+VS is 5× more sensitive to correlation but NOT strictly proper and blind to mean bias.
+Our existing λ_vs=0.1 uses VS but it failed at higher weights (93a: kurtosis/CI collapse).
+
+**Why VS failed but ES should work** — fundamentally different signals:
+- **VS demands specific pairwise structure**: "your |X_i - X_j| should match GT |y_i - y_j|"
+  → rank-1 MLP CAN'T produce this → conflicting gradients → collapse
+- **ES spread demands general diversity**: "maximize ||X - X'||₂ across members"
+  → MLP CAN comply by using more noise dimensions → complementary to CRPS
+
+VS asks for a specific answer the architecture can't give. ES asks for more diversity,
+which the architecture achieves by activating more of the 16 noise dimensions.
+
+#### 4. Patched Energy Score (Pacchiardi et al., 2024 JMLR)
+
+Partition the d-dimensional output into overlapping spatial patches P of size s, compute
+ES independently on each patch:
+```
+Patched_ES = Σ_{P ∈ patches} w_P · ES(F_P, y_P)
+```
+
+**Key interpolation property**:
+- Patch size = 1: reduces to aggregated univariate CRPS (no cross-cell signal)
+- Patch size = d: reduces to full ES (weak correlation signal for large d)
+- Intermediate sizes: **better signal-to-noise ratio** for correlation detection
+
+For our 5×5 grid:
+- 2×2 patches (d=4): 16 overlapping patches, captures local spatial correlation
+- 3×3 patches (d=9): 9 overlapping patches, better correlation signal
+- Full surface (d=25): 1 patch, standard ES
+
+Patched ES preserves propriety (sum of proper scores is proper).
+
+#### 5. Other Approaches
+
+**Copula ES** (Ziel & Berk, 2019): Decompose ES into marginal + copula components via
+probability integral transforms. Copula ES provides "very strong distinction between
+correct and incorrect dependency structure." Adds complexity (requires online PIT estimation).
+
+**MVG-CRPS** (2024): Whiten variables via SVD, apply univariate CRPS to decorrelated
+components weighted by √eigenvalue. 22.7 min vs 782.4 min for energy score on electricity
+dataset. Assumes multivariate Gaussian structure.
+
+**Spectral CRPS** (FourCastNet 3): Compute CRPS on spatial frequency coefficients.
+For our 5×5 grid: 2D FFT gives 25 coefficients (13 unique). Enforces correct spatial
+power spectrum. May be too few frequency components for a 5×5 grid.
+
+**scoringrules library**: Python package (`pip install scoringrules`) provides PyTorch-
+backend implementations of energy_score, variogram_score, and other multivariate rules.
+
+#### 6. Synthesis: Why CRPS + ES Is the Right Fix
+
+The mechanism with combined CRPS + λ_es · ES:
+
+1. **CRPS calibrates per-cell marginal variance** (each cell gets the right σ_c) ✓
+2. **ES spread rewards ||X - X'||₂** across all 25 cells jointly
+3. **For fixed marginal variances, the ONLY way to increase multivariate L2 distance
+   is to DECORRELATE** — this is the key insight
+4. **Gradient flows through noise→MLP→output**: MLP learns to project different noise
+   dimensions to different cells, increasing effective rank from 1.06 toward 16
+
+The decorrelation signal (24% spread increase for d=25) is modest but consistent. Unlike
+VS which demands specific structure, ES spread is a soft pressure that works WITH CRPS
+rather than against it. The shared MLP has 16 noise dimensions available — it just needs
+incentive to use them, which ES provides.
+
+**Ranking of options for Exp 99a**:
+1. **CRPS + full ES** (d=25): simplest, 24% decorrelation signal, maintains propriety
+2. **CRPS + patched ES** (d=4-9): better SNR per patch, more complex
+3. **CRPS + spectral CRPS**: FourCastNet 3 approach, may lack resolution at 5×5
+4. **Pure ES** (replace CRPS): less marginal sensitivity, risky
+
+**Plan**: Start with CRPS + full ES (simplest). If signal too weak, escalate to patched ES.
+
+### Pre-Training Verification: ES Spread-Only Is the Key (2026-03-08)
+
+Before committing to full training, ran a synthetic optimization test to verify the ES
+gradient actually drives decorrelation. **Critical finding: full ES does NOT work, but
+ES spread-only works brilliantly.**
+
+#### Toy Test Setup
+- 25-dim output (matching 5×5 grid), K=4 members, optimize (25,16) projection matrix W
+- CRPS constrains per-cell marginal variance (fixed std=0.05)
+- Test which auxiliary loss drives decorrelation
+
+#### Results
+
+| Method | Final PR | Final Corr | Effective? |
+|--------|----------|------------|------------|
+| Full ES (accuracy + spread) | 1.01 | 1.000 | **NO** |
+| **ES spread only** | **9.78** | **0.257** | **YES** |
+| Patched ES 2×2 | 2.24 | 0.948 | NO |
+| Patched ES 3×3 | 1.70 | 0.964 | NO |
+| Decorrelation on W rows | 6.49 | 0.596 | Partial |
+
+#### Why Full ES Fails
+
+The ES accuracy term `E[||X - y||₂]` computes L2 distance from each member to GT.
+When all cells are correlated (rank-1), the accuracy gradient `(X_c - y_c)/||X - y||₂`
+is symmetric across cells — it pushes ALL cells in the SAME direction, reinforcing rank-1.
+The spread term tries to push apart, but the accuracy term dominates (~70% of total ES).
+
+#### Why ES Spread-Only Works
+
+With CRPS constraining per-cell marginals:
+1. Per-cell variance is already calibrated (via CRPS)
+2. The spread term `-0.5·E[||X - X'||₂]` rewards multivariate distance between members
+3. For fixed per-cell variance, the ONLY way to increase `||X - X'||₂` is decorrelation
+4. The gradient breaks symmetry and pushes W rows toward orthogonal directions
+5. Result: PR 2.5 → 9.8, corr 0.98 → 0.26 in just 100 steps
+
+#### Implementation Decision
+
+Use `energy_score(spread_only=True)` as auxiliary loss:
+```
+L = CRPS + λ_es · (-0.5 · E[||X - X'||₂]) + λ_vs · VS + λ_bias · bias
+```
+
+This is not a proper scoring rule (the spread term alone doesn't measure calibration),
+but CRPS handles calibration while the spread term handles multivariate structure.
+The combination is a valid training objective.
+
+#### Training Speed
+
+Per-cell independent MLPs (98a) caused 2-3× slowdown from Python loop over 25 MLPs.
+**Not needed.** Energy Score works with the shared MLP architecture — if the loss
+incentivizes multi-factor noise, the shared MLP will naturally use more dimensions.
+Baseline training speed (~180s/epoch) maintained.
+
+#### References
+
+- Gneiting & Raftery (2007): Strictly Proper Scoring Rules, Prediction, and Estimation. JASA.
+- Pinson & Tastu (2013): Discrimination Ability of the Energy Score. DTU Technical Report.
+- Scheuerer & Hamill (2015): Variogram-Based Proper Scoring Rules. MWR.
+- Pacchiardi et al. (2024): Probabilistic Forecasting with Generative Networks via Scoring
+  Rule Minimization. JMLR 25.
+- Ziel & Berk (2019): Multivariate Forecasting Evaluation via Transformed CRPS. arXiv.
+- AIFS-CRPS: Lang et al. (2024/2026). ECMWF operational ensemble. Nature npj AI.
+- GenCast: Price et al. (2023). Diffusion-based ensemble forecasting. arXiv.
+- NeuralGCM: Kochkov et al. (2024). Weather and Climate with ML. Nature.
+- FourCastNet 3: Bonev et al. (2025). Geometric Probabilistic Forecasting. arXiv.
+- MVG-CRPS (2024): Robust Multivariate Loss. arXiv 2410.09133.
+
+### Proposed Exp 99a: CRPS + Energy Score
+
+**Hypothesis**: Adding Energy Score as auxiliary loss provides multivariate diversity
+pressure that incentivizes the shared MLP to use more noise dimensions (PR > 5, from 1.06),
+reducing cross-cell correlation toward GT (~0.38, from 0.88).
+
+**Architecture**: Shared MLP (standard 97a architecture). No per-cell MLPs needed.
+
+**Loss**:
+```
+L = CRPS + λ_es · ES + λ_vs · VS + λ_bias · bias
+```
+
+Energy Score computed per-frame over 25 cells (L2 norm), summed over T, averaged over B:
+```python
+def energy_score(samples, gt):
+    # samples: (B, K, T, H, W), gt: (B, T, H, W)
+    s = samples.reshape(B, K, T, D)   # D = H*W = 25
+    g = gt.reshape(B, T, D)
+    # Accuracy: mean_K of per-frame L2 distance to GT
+    acc = (s - g.unsqueeze(1)).pow(2).sum(-1).clamp(min=1e-12).sqrt()  # (B,K,T)
+    # Spread: mean pairwise L2 distance between members
+    spr = (s[:,idx_i] - s[:,idx_j]).pow(2).sum(-1).clamp(min=1e-12).sqrt()  # (B,P,T)
+    return acc.mean(1).sum(-1).mean() - 0.5 * spr.mean(1).sum(-1).mean()
+```
+
+**Key design decisions**:
+- λ_es starting value: 1.0 (ES scale ~5× smaller than CRPS due to sqrt vs sum)
+- Keep λ_vs=0.1 (ES complements rather than replaces VS)
+- Shared MLP: baseline training speed (~180s/epoch)
+- K=4 members (6 pairwise L2 distances)
+
+**Success criteria**:
+- Cross-cell correlation < 0.55 (from 0.88, GT: 0.38)
+- Noise-to-output rank (Jacobian PR) > 5 (from 1.06)
+- No regression: CI > 85%, kurtosis > 0.5
+- 30-day test suite: ≥ 5/8 PASS
+
+**Monitoring**: Log ES value, cross-cell correlation, and noise Jacobian rank at key epochs.
+
+**Fallback if full ES too weak**:
+1. Increase λ_es to 5.0 or 10.0
+2. Switch to patched ES (2×2 overlapping patches, d=4, 16 patches)
+3. Add spectral CRPS (2D FFT of 5×5 grid)
+
+### Exp 99 Series Results (2026-03-09)
+
+Systematic exploration of Energy Score + noise skip connection for spatial decorrelation.
+
+#### Exp 99a: CRPS + ES Spread-Only (No Skip)
+
+ES spread-only as auxiliary loss with shared MLP (no skip connection).
+
+| Metric | 97a (baseline) | 99a |
+|--------|---------------|-----|
+| Corr | 0.911 | 0.873 |
+| PR | 1.32 | 1.30 |
+| Kurt | 0.919 | **1.178** |
+| CI | 93.6% | **96.3%** |
+
+**Result**: Marginal metrics improved dramatically (kurtosis 0.919→1.178!) but correlation
+barely moved (0.911→0.873). **ES gradient cannot propagate through shared hidden layers**
+— the rank-1 bottleneck absorbs the decorrelation signal. ES spread changed only 5% over
+40 epochs (-7.76 → -7.39).
+
+#### Exp 99b: Noise Skip + ES Spread (λ=1.0)
+
+Added `nn.Linear(noise_dim, n_cells)` skip connection bypassing shared hidden layers.
+
+| Metric | 97a | 99b |
+|--------|-----|-----|
+| Corr | 0.911 | **0.553** |
+| PR | 1.32 | **2.37** |
+| PC1 | 86.7% | **62.1%** |
+| Kurt | 0.919 | 0.310 |
+| CI | 93.6% | 96.1% |
+
+**Result**: Major decorrelation breakthrough (0.911→0.553)! Skip connection PR=6.78
+with cosine sim=0.571 (genuinely different noise directions). But **training unstable**:
+MAE doubled (44→82) over epochs 21-40, kurtosis collapsed. The ES spread term drives
+unbounded skip growth because it rewards BOTH decorrelation AND amplitude increase.
+Scale and decorrelation are conflated in the L2 spread.
+
+#### Exp 99c: Noise Skip + ES Spread (λ=0.3)
+
+Reduced ES weight to balance stability.
+
+| Metric | 97a | 99c |
+|--------|-----|-----|
+| Corr | 0.911 | 0.739 |
+| Kurt | 0.919 | 0.393 |
+| CI | 93.6% | 93.9% |
+
+**Result**: Training stable but ES too weak. Spread actually DECREASED (-8.63→-5.50),
+kurtosis low. No sweet spot exists for ES spread because it's not scale-invariant.
+
+#### Root Cause: ES Spread Is Not Scale-Invariant
+
+The ES spread term `-0.5·E[||X - X'||₂]` can be minimized by either:
+1. **Decorrelation** (rotate noise projections to be orthogonal) — desired
+2. **Amplitude increase** (grow skip weights) — undesired
+
+At any λ value, the model exploits (2) because amplitude is a first-order effect while
+decorrelation is second-order. This creates the impossible tradeoff:
+- λ=1.0: effective decorrelation but amplitude explosion → instability
+- λ=0.3: stable but too weak for meaningful decorrelation
+
+#### Solution: Scale-Invariant Spread Ratio (Exp 99d)
+
+Replace ES spread with the L2/L1 spread ratio:
+```
+ratio = E[||X - X'||₂] / E[Σ|X_c - X'_c|]
+```
+
+This cancels out amplitude (appears in both numerator and denominator):
+- Rank-1 noise: ratio ≈ 1/√25 = 0.200
+- Decorrelated noise: ratio ≈ E[χ₂₅]/(25·E[|Z|]) ≈ 0.248
+
+**Properties**:
+- Scale-invariant: skip growth cancels out, only correlation structure matters
+- Verified in toy test: correlation drops 0.99→0.25 with skip scale stable (0.17-0.22)
+  even at λ=100 (no explosion)
+- 24% signal between rank-1 and decorrelated, independent of amplitude
+
+#### Exp 99d: Noise Skip + Scale-Invariant Ratio (λ=10)
+
+Skip connection + L2/L1 spread ratio loss, λ_es=10, 40 epochs.
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --ar_frame --ar_reflect --ar_noise_skip --lambda_es 10.0 \
+    --epochs 40 --batch_size 8 --noise_dim 16 --n_members 4 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_is 0.5 \
+    --ar_bias_lambda 0.01 --ar_floor_clamp 0.01 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_99d --device cuda
+```
+
+**Correlation diagnostics**:
+
+| Metric | GT | 97a | 99a | 99b | 99c | 99d |
+|--------|-----|-----|-----|-----|-----|-----|
+| Corr | 0.386 | 0.911 | 0.873 | 0.553 | 0.739 | **0.668** |
+| PR | — | 1.32 | 1.30 | 2.37 | — | **1.66** |
+| PC1 | — | 86.7% | 87.3% | 62.1% | — | **75.8%** |
+| Kurt | — | 0.919 | 1.178 | 0.310 | 0.393 | **0.624** |
+| CI | — | 93.6% | 96.3% | 96.1% | 93.9% | **90.8%** |
+| Stable | — | YES | YES | NO | YES | **YES** |
+
+**Result**: Stable decorrelation (0.911→0.668) with no amplitude explosion. Scale-invariant
+ratio solved the stability problem of 99b while achieving meaningful decorrelation. Training
+completely stable for all 40 epochs. Kurtosis improving (0.624 at ep40, rising throughout).
+
+**30-day test suite results** (best_model.pt):
+
+| Suite | 99d | 97a | Notes |
+|-------|-----|-----|-------|
+| 1: Surface Validity | PASS | PASS | Explosion 0%, calendar 7.8%, butterfly 15.3% |
+| 2: CI Coverage | FAIL | FAIL | Overall 83.5% (97a: 93.6%). h=1 78.5% FAIL |
+| 3: Conditionality | PASS | PASS | Turb/calm 1.51, MAE red 88% |
+| 4: Time Series | PASS | PASS | ACF 0.950, kurtosis 0.880 |
+| 5: Block-AR | PASS | PASS | Boundary 1.004 |
+| 6: Cointegration | PASS | PASS | Gen/GT 0.633 |
+| 7: Regime Coverage | FAIL | FAIL | Catastrophic 5.0% (gate <5%). Layer 2 fails |
+| 8: Distributional | FAIL | FAIL | KS daily 24/25 (improved!), IV levels 0/25, bias 19/25 |
+| **Total** | **5/8** | **5/8** | |
+
+**Key observations**:
+- KS daily improved 24/25 (from ~19/25 with 97a) — decorrelation helps marginals
+- CI coverage regressed (83.5% vs 93.6%) — decorrelated noise changes interval shapes
+- Catastrophic 5.0% right at boundary (gate <5%) — tantalizingly close
+- Median bias 19/25 (needs 20) — one cell away
+- Suite 7 Layer 2 still structural (regime × cell coverage)
+
+**Assessment**: Decorrelation helps marginal quality (KS daily, kurtosis) but doesn't
+improve the pass count. The failing suites (2, 7, 8) are fundamentally about
+per-cell spread calibration and level bias — orthogonal to correlation structure.
+
+#### Exp 99e: Noise Skip + Scale-Invariant Ratio (λ=50) — FAILED
+
+Higher ratio pressure to push correlation closer to GT.
+
+**Result**: CI collapsed catastrophically (94.6% → 10.2% over 40 epochs). The ratio loss
+at λ=50 killed sample diversity: spread/mae ratio dropped from ~1.0 to 0.416. The model
+found a degenerate solution — make all samples nearly identical (killing spread) while
+maximizing the L2/L1 ratio of the tiny remaining differences (decorrelated).
+
+```
+Epoch  1: CI=94.6%, s/m=~1.0
+Epoch 10: CI=~80%
+Epoch 30: CI=42.1%, s/m=0.80
+Epoch 40: CI=10.2%, s/m=0.42, kurtosis=1.40
+```
+
+**Lesson**: Scale-invariant ratio is only safe at moderate λ (10 is OK, 50 is not). The
+ratio can be trivially minimized by shrinking all noise, not just by decorrelating.
+This confirms λ=10 as the sweet spot for 99d-style experiments.
+
+#### Exp 99f: Skip + Cell Spread + Ratio (λ=10) — FAILED (Suite 3 regression)
+
+**Hypothesis**: Adding condition-dependent per-cell spread (cell_spread_linear) alongside
+noise skip and ratio loss. The skip provides per-cell independent noise directions, the
+ratio loss ensures decorrelation, and cell_spread calibrates per-cell noise amplitudes
+based on market conditions. This directly targets Suites 2 and 7 (per-cell CI calibration).
+
+**Result**: 5/8 PASS (Suites 1,4,5,6 + partial). **Suite 3 regressed to FAIL**.
+
+Cell_spread converged to [0.284, 0.640] — 2.25x range. Some cells compressed to near-zero
+variance, breaking conditionality:
+- Worst cell width ratio: 28.237 (cell 2,4) — uncond width ≈ 0 for that cell
+- Worst cell MAE reduction: -13.4% (cell 0,4) — conditioning hurts this cell
+
+Per-cell coverage: 7/100 cells out of range (vs 15 for 97a). Improvement over 97a but
+Suite 3 regression makes it net negative.
+
+**Root cause**: cell_spread_linear takes only `condition` (GRU bottleneck) — no horizon
+information. It learns a single per-cell scaling appropriate for the average horizon,
+but too aggressive for h=1 where deltas are small. Over-compresses some cells at h=1
+while being appropriate at h=14-30.
+
+| Model | Overall CI | Cells out of [70,95%] | Suite 3 | Pass count |
+|-------|-----------|----------------------|---------|------------|
+| 97a   | 90.3%     | 15/100               | PASS    | 5/8        |
+| 99d   | 83.5%     | 10/100               | PASS    | 5/8        |
+| 99f   | 84.9%     | 7/100                | FAIL    | 5/8        |
+
+#### Exp 99g: Horizon-Aware Cell Spread + Skip + Ratio (λ=10) — Best-So-Far
+
+**Hypothesis**: Make cell_spread position-aware by feeding `[condition, pos_emb]` instead
+of just `condition`. The position embedding encodes the frame index within each AR block,
+allowing different per-cell scaling at h=1 vs h=30. This prevents the over-compression
+that killed 99f at short horizons.
+
+**Architecture change**: `cell_spread_linear: Linear(bottleneck_dim + pos_embed_dim, 25)`
+= Linear(144, 25). Position columns zero-initialized → starts at uniform scaling.
+
+**Result**: 5/8 PASS (Suites 1,3,4,5,6). **Suite 3 recovered** (worst cell MAE red: -3.8%
+vs gate >-10%). **Only 4/100 cells out of range** in Suite 2:
+
+```
+Out-of-range cells:
+  h=1 cell (0,4) = 68.3% (need 70%)  — 1.7pp short
+  h=1 cell (1,0) = 66.1% (need 70%)  — 3.9pp short
+  h=7 cell (0,0) = 95.5% (need <95%) — 0.5pp over
+  h=14 cell (0,0) = 96.5% (need <95%) — 1.5pp over
+  h=30: ALL 25 cells in range ← first model to achieve this
+```
+
+Cell_spread converged to [0.548, 0.717] — much tighter than 99f's [0.284, 0.640].
+The horizon awareness prevents extreme compression.
+
+| Metric        | GT    | 97a   | 99d   | 99f   | 99g   |
+|---------------|-------|-------|-------|-------|-------|
+| Overall CI    | -     | 90.3% | 83.5% | 84.9% | 85.7% |
+| Cells out/100 | 0     | 15    | 10    | 7     | **4** |
+| Suite 3       | -     | PASS  | PASS  | FAIL  | PASS  |
+| Kurtosis      | 77.0  | 0.919 | -     | 1.106 | 0.719 |
+| KS daily      | -     | 19/25 | -     | 5/25  | 6/25  |
+| Pass count    | 8     | 5     | 5     | 5     | 5     |
+
+#### Exp 99h: + Static Cell Scale — FAILED (Suite 3 regression)
+
+**Hypothesis**: Add learned per-cell base amplitude (`ar_static_cell_scale`) alongside
+dynamic cell_spread. Cell_scale provides a static per-cell scaling (learned via gradient
+descent with softplus, clamped [0.3, 3.0]), while cell_spread provides dynamic
+condition+horizon modulation.
+
+**Result**: 4/8 PASS (Suites 1,4,5,6). Suite 3 FAIL (worst cell MAE reduction -10.2%).
+
+Cell_scale converged to [0.300, 0.800] — most cells hit the 0.3 floor clamp. Combined
+with cell_spread, the product over-compressed some cells, breaking conditionality.
+6/100 cells out of range (worse than 99g's 4).
+
+**Lesson**: Static per-cell scaling is redundant with dynamic cell_spread. The optimizer
+pushes cell_scale down because CRPS rewards tighter intervals, and there's no
+counter-pressure. The floor clamp prevents total collapse but creates a distortion.
+
+#### Exp 99g_v2: Lower LR (5e-4, 60ep) — FAILED (Suite 3 regression)
+
+**Hypothesis**: 99g's remaining 4 cells might benefit from more precise fitting with
+lower learning rate and longer training (60 epochs at lr=5e-4 vs 40 epochs at lr=1e-3).
+
+**Result**: 4/8 PASS. 5/100 cells out of range (worse than 99g's 4). Suite 3 FAIL
+(worst cell MAE reduction -14.2%).
+
+Slower convergence didn't help — the model converged to a slightly different local
+minimum that was worse for conditionality. The 99g configuration (lr=1e-3, 40ep) is
+already in the sweet spot.
+
+#### Exp 99i: n_members=8 — FAILED (Suite 3 regression)
+
+**Hypothesis**: More CRPS ensemble members (8 vs 4) provide a better gradient estimate,
+potentially enabling finer-grained per-cell calibration.
+
+**Result**: 4/8 PASS (Suites 1,4,5,6). Suite 3 FAIL (worst cell MAE reduction -16.1%).
+
+Notable improvements despite overall regression:
+- h=1 overall coverage 83.1% (PASS, vs 99g's 78.5% FAIL) — first model to pass h=1 gate
+- KS daily 11/25 (best ever, vs 99g's 6/25)
+- s/m ratio ~1.096 (higher spread)
+
+But Suite 3 regression severe: the higher noise scale from 8 members overwhelms
+condition signal for some cells. Also Suite 8 bias magnitude FAIL (21/25, gate 22).
+
+| Model   | n_members | lr   | epochs | Cells out/100 | Suite 3 | Pass count |
+|---------|-----------|------|--------|---------------|---------|------------|
+| **99g** | 4         | 1e-3 | 40     | **4**         | PASS    | **5/8**    |
+| 99g_v2  | 4         | 5e-4 | 60     | 5             | FAIL    | 4/8        |
+| 99h     | 4(+scale) | 1e-3 | 40     | 6             | FAIL    | 4/8        |
+| 99i     | 8         | 1e-3 | 40     | 4             | FAIL    | 4/8        |
+
+### Architectural Ceiling Assessment (2026-03-09)
+
+After 27+ experiments (91a-99i), the model has reached a stable **5/8 PASS** ceiling
+with multiple independent configurations converging to the same result.
+
+**Suites that reliably pass (5)**: 1 (Surface Validity), 3 (Conditionality),
+4 (Time Series), 5 (Block-AR), 6 (Cointegration)
+
+**Suites that reliably fail (3)**:
+- **Suite 2 (CI Coverage)**: Best is 4/100 cells out of range (99g). The remaining
+  failures are at boundary horizons (h=1 too narrow, h=7/14 cell(0,0) too wide).
+  Three attempts to close this gap all regressed Suite 3 instead.
+- **Suite 7 (Regime Coverage)**: Structural — requires regime-conditional generation
+  that the GRU bottleneck cannot provide. Would need a fundamentally different encoder.
+- **Suite 8 (Distributional)**: KS IV levels 0/25 (D=0.23-0.57, gate <0.15). The model
+  generates correct dynamics but wrong absolute levels. This is a systematic bias that
+  the current architecture cannot fix without level-matching post-processing.
+
+**What would it take to reach 6/8?**
+Suite 2 is closest (4 cells, margins of 0.5-3.9pp). But every attempt to improve it
+(cell_scale, lower lr, more members) breaks Suite 3. The two suites are in tension:
+Suite 2 wants tighter per-cell calibration, Suite 3 wants the model to preserve
+condition sensitivity. The current architecture cannot satisfy both simultaneously
+for all 100 cell-horizon pairs.
+
+**Conclusion**: 5/8 represents the practical ceiling for the single-pass afCRPS
+architecture with GRU encoder. Further improvements require either:
+1. A fundamentally different encoder (e.g., transformer with regime tokens) for Suite 7
+2. Level-conditioning or post-hoc level matching for Suite 8
+3. An architecture that decouples per-cell spread from conditionality for Suite 2+3
+
+All reasonable hypotheses within the current architecture have been exhausted.
+
+### Exp 99j Series: Skip Bypass Cell Spread (2026-03-09)
+
+**Key insight from diagnostic analysis**: The decorrelation from noise skip doesn't
+structurally hurt CI calibration. The problem is that `cell_spread` multiplies the
+ENTIRE delta (including skip), creating a vicious cycle:
+1. CRPS shrinks cell_spread for low-variance cells
+2. Small cell_spread makes those cells invisible to the ratio loss (near-zero contribution)
+3. Those cells remain rank-1 correlated
+4. Model is mixture of decorrelated (high-spread) and rank-1 (low-spread) cells
+
+**Fix**: Skip connection bypasses cell_spread. Instead of
+`delta = cell_spread * (mlp + skip)`, use `delta = cell_spread * mlp + skip`.
+This ensures ALL cells have active decorrelation signal regardless of cell_spread.
+
+#### Exp 99j: Skip Bypass, noise_dim=16
+
+| Metric | 99g | 99j |
+|--------|-----|-----|
+| KS daily | 6/25 | **23/25** |
+| Kurtosis | 0.719 | **0.821** |
+| Cells out/100 | 4 | 6 |
+| h=1 CI | 78.5% FAIL | 75.9% FAIL |
+| cell_spread range | [0.548, 0.717] | [0.611, 0.779] |
+
+Skip bypass massively improved distributional fidelity (KS 6→23) but per-cell CI
+slightly worse. The issue: 16 noise dims for 25 cells limits the skip's ability to
+simultaneously achieve decorrelation AND correct per-cell amplitudes.
+
+Skip weight analysis: norms range 18x (0.003 to 0.057), correlation with GT_std = 0.883
+(model learned per-cell amplitude hierarchy). But effective rank = 3.48 and mean cosine
+similarity = 0.556 — still substantially correlated. 16 dims can't support 25
+near-orthogonal directions.
+
+#### Exp 99j_v2: Skip Bypass, noise_dim=32
+
+Doubling noise dims gives more room for orthogonal weight vectors.
+
+**Breakthrough metrics**: h=1 81.4% **PASS** (first model!), KS 24/25, kurtosis 1.765,
+calibration error 0.015, butterfly arb 16.6%, cointegration 0.690. Only 4 cells out of
+range. But per-cell skewness extreme: cell (0,3) = -13.776 (unbounded skip output).
+
+#### Exp 99j_v3: Skip Bypass, noise_dim=32, tanh-bounded skip — NEW BEST
+
+Apply tanh to skip output to prevent extreme values while preserving bypass structure:
+`delta = cell_spread * tanh(mlp) + tanh(skip(noise))`
+
+**5/8 PASS — highest quality model ever across nearly all metrics:**
+
+| Metric | 99g | 99j_v3 | Direction |
+|--------|-----|--------|-----------|
+| h=1 CI | 78.5% FAIL | **81.3% PASS** | first to pass |
+| KS daily | 6/25 | **24/25** | massive improvement |
+| Kurtosis | 0.719 | **1.428** | near-perfect |
+| Butterfly arb | 22.5% | **16.4%** | big improvement |
+| Coint gen/GT | 0.633 | **0.711** | best ever |
+| Suite 3 margin | -3.8% | **26.1%** | much safer |
+| Cells out/100 | 4 (2N+2W) | **3 (all wide)** | improved, structurally better |
+| Calib error | - | **0.016** | excellent |
+| cell_spread | [0.548, 0.717] | [0.665, 0.784] | tighter |
+
+**Remaining 3 out-of-range cells** (all too wide):
+- h=7: (4,0) = 98.0% (3pp over 95% gate)
+- h=14: (0,0) = 96.4% (1.4pp over)
+- h=30: (0,0) = 96.1% (1.1pp over)
+- h=1: **ALL 25 cells in range** — first model to achieve this
+
+The shift from mixed narrow/wide (99g) to all-wide (99j_v3) is structurally important:
+a model that's uniformly too wide can be corrected with global noise reduction, while
+mixed narrow/wide cannot.
+
+Training: same as 99g but `--ar_skip_bypass_spread --noise_dim 32`. No new hyperparameters.
+The tanh on skip is a one-line architectural change, not a tuning knob.
+
+### Visual Inspection & Risk Management Assessment (2026-03-09)
+
+Generated management report V1 for 90d, 97a, and 99j_v3 side-by-side. Visual comparison
+reveals important qualitative differences that test suite metrics don't fully capture.
+
+#### Fan Charts (Fig 1): 97a > 99j_v3
+
+97a's CI bands are wider and GT (green dashed) stays inside the fan consistently. 99j_v3's
+bands are narrower — overall CI 86.7% vs 97a's 93.6%. For "does GT fall inside our
+scenarios?" 97a is simply better calibrated. The 7pp CI gap in 99j_v3 is visible: GT
+excursions escape the fan more often, especially at longer horizons.
+
+#### Daily IV Change Distributions (Fig 7a/b): 97a looks more natural
+
+Despite 99j_v3 having better KS scores (24/25 vs ~19/25 for 97a), 97a's distributions
+look more natural to visual inspection:
+- **97a**: Generated distributions are uniformly slightly too narrow/peaked across all cells,
+  but shapes are smooth and consistent. Per-cell kurtosis ratios uniformly 0.02-0.83.
+- **99j_v3**: Most cells match GT well, but a few cells develop extreme leptokurtic behavior:
+  cell (0,3) kurtosis ratio = 27.14, (4,0) = 8.25, (3,0) = 8.34. These appear as extremely
+  peaked centers with heavy tails — visually much worse than GT.
+
+The KS statistic measures overall distributional distance and is dominated by the bulk.
+It doesn't penalize the extreme peakedness that makes individual cells visually wrong.
+97a's distributions are uniformly "wrong" (too smooth everywhere), which paradoxically
+looks more natural than 99j's mixture of good cells and a few extreme outliers.
+
+**Root cause of per-cell extremes**: The skip connection provides direct noise injection.
+Cells with large skip weight norms (corner cells) get too much noise diversity — many
+independent noise directions contribute small increments (peaked center by CLT-like effects),
+but occasional large noise draws create heavy tails. The tanh bounds prevent the WORST
+extremes but don't eliminate the leptokurtic shape.
+
+#### Kurtosis Heatmap (Fig 8): This is where 99j_v3 genuinely improves
+
+The daily change heatmap (time × cells) shows the most important structural difference:
+- **97a (rank-1)**: Each day column is nearly uniform color — the entire surface moves up
+  or down together. Cross-cell correlation = 0.88. Visually obvious that noise is rank-1.
+  Compared to GT (which shows varied colors within each day — some cells up, others down),
+  97a's generated samples look unrealistically synchronized.
+- **99j_v3 (decorrelated)**: More cell-level variation within each day. Some cells red while
+  others blue on the same day. Closer to GT's spatial heterogeneity. But also shows extreme
+  hot spots (dark patches) that GT doesn't have — the per-cell leptokurtic issue again.
+
+#### Risk Management Implications
+
+The question "which is better for risk management?" depends on the use case:
+
+**97a is better for: Directional risk (will IV go up or down?)**
+- 93.6% CI coverage means GT almost always falls within scenarios
+- Conservative: rank-1 overestimates portfolio-level risk (everything moves together)
+- Safe for simple VaR/ES calculations on directional positions
+
+**97a is dangerous for: Relative value risk**
+- With rank-1 noise, 97a CANNOT generate scenarios where short-tenor IV spikes while
+  long-tenor stays flat (happens frequently in reality)
+- Calendar spreads, butterfly trades, skew trades → massively underestimated risk
+- Hedging effectiveness → massively overestimated (cross-tenor hedges look perfect
+  in 97a's scenarios but fail when cells diverge in reality)
+- Any P&L that depends on surface SHAPE changes (not just level) is mispriced
+
+**99j_v3 is better for: Realistic multi-factor risk**
+- Decorrelated movement allows diverse surface shape scenarios
+- Better cointegration (0.711 vs 0.633) means long-run relationships are more realistic
+- But 7pp CI gap means ~7% of the time GT escapes scenarios → undercoverage risk
+
+**Bottom line**: For a sophisticated risk desk, 99j_v3's correlation structure is MORE
+important than 97a's CI gap. The CI gap can be fixed with post-hoc scaling; rank-1
+correlation CANNOT be fixed post-hoc without regenerating all scenarios. But ideally
+we want BOTH — which should be achievable since the GT data has both properties.
+
+#### Why We Can't Have Both (Yet): The Ratio Loss Overshoots
+
+The fundamental problem: **the L2/L1 ratio loss pushes for MAXIMUM decorrelation, not
+GT-level decorrelation.** GT has correlation 0.38, not 0.0.
+
+- λ=0 (97a): Perfect calibration, corr=0.88 (too high)
+- λ=10 ratio (99j_v3): Good decorrelation, CI regresses 7pp
+- Middle ground (λ=3?) never tested
+- Ratio loss has no "target" — it just maximizes L2/L1 regardless of GT structure
+
+The loss function never sees the GT correlation structure. CRPS is per-cell (zero cross-cell
+signal). Ratio loss is blind to the target (just maximizes). Neither says "correlation
+should be 0.38."
+
+#### Proposed Fix: Full Energy Score (Exp 99k)
+
+Replace the L2/L1 ratio loss with the **full Energy Score**:
+```
+ES = E||X - y||₂ − 0.5 * E||X - X'||₂
+```
+
+The full ES is a proper scoring rule for the JOINT distribution. Its minimum is at the
+true joint distribution — correct marginals AND correct correlation simultaneously.
+
+- **Accuracy term** (E||X-y||₂): Penalizes samples that are far from GT. Prevents
+  over-dispersion and CI regression. This is what the ratio loss lacks.
+- **Spread term** (-0.5*E||X-X'||₂): Drives decorrelation by rewarding diverse samples.
+  Same mechanism as ES-spread-only, but balanced by accuracy.
+- **Self-balancing**: The ratio of accuracy to spread is not a hyperparameter — it's
+  determined by the ES formula. Over-decorrelation increases accuracy penalty, creating
+  natural equilibrium at GT-level correlation.
+
+Previous full ES attempts failed (99a-99b) because:
+1. No skip bypass → dead zones (cell_spread killed ES signal)
+2. ES spread-only → no accuracy counterweight → amplitude explosion
+
+With 99j_v3 architecture (skip bypass + tanh + nd=32), both failures are addressed:
+- Skip bypasses cell_spread → all cells contribute to ES regardless of cell_spread
+- Tanh bounds skip → no amplitude explosion
+- Full ES (not spread-only) → accuracy term prevents over-dispersion
+
+Expected outcome: decorrelation at GT-appropriate level (~0.38-0.5) with CI ~90%+.
+The ES proper scoring rule should find the natural balance that the ratio loss can't.
+
+Alternative: simply reduce λ_ratio from 10 to 3 (pragmatic but unprincipled).
+
+Reports generated:
+- `results/block_ar/management_report_v1_90d/` — absorbing boundary baseline
+- `results/block_ar/management_report_v1_97a/` — reflecting, no decorrelation
+- `results/block_ar/management_report_v1_99j_v3/` — reflecting + skip bypass decorrelation
+- `results/block_ar/management_report_99j_v3/` — V2 report (per-cell detail)

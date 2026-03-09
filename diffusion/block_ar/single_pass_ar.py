@@ -119,6 +119,10 @@ class SinglePassConfig:
     ar_freeze_gru_state: bool = False    # freeze GRU state during generation (Exp 93e)
     ar_input_noise_std: float = 0.0      # noise std on GRU input during training (Exp 93f)
     ar_percell_bias: bool = False         # per-cell conditional bias loss (Exp 94a)
+    ar_independent_cells: bool = False   # 25 independent per-cell MLPs (Exp 98a)
+    ar_cell_hidden: int = 32             # hidden dim for per-cell MLPs
+    ar_noise_skip: bool = False          # per-cell noise skip connection (Exp 99b)
+    ar_skip_bypass_spread: bool = False  # skip bypasses cell_spread (Exp 99j)
 
     # Output
     output_dir: str = "models/backfill/afcrps"
@@ -196,10 +200,16 @@ class FrameDecoder(nn.Module):
                  horizon_embed_dim: int = 0, n_horizon_buckets: int = 0,
                  cell_embed: bool = False, cell_embed_dim: int = 8,
                  cell_cond_offset: bool = False,
+                 independent_cells: bool = False, cell_hidden: int = 32,
+                 noise_skip: bool = False,
+                 skip_bypass_spread: bool = False,
                  n_cells: int = 25):
         super().__init__()
         self.cell_embed_active = cell_embed
         self.cell_cond_offset_active = cell_cond_offset
+        self.independent_cells_active = independent_cells
+        self.noise_skip_active = noise_skip
+        self.skip_bypass_spread = skip_bypass_spread
         self.n_cells = n_cells
         self.pos_embed = SinusoidalTimeEmbedding(dim=pos_dim)
         self.horizon_embed = None
@@ -207,7 +217,27 @@ class FrameDecoder(nn.Module):
             self.horizon_embed = nn.Embedding(n_horizon_buckets, horizon_embed_dim)
             nn.init.normal_(self.horizon_embed.weight, std=0.02)
 
-        if cell_cond_offset:
+        if independent_cells:
+            # Exp 98a: 25 independent per-cell MLPs (no shared hidden layers)
+            self.cell_emb = None
+            self.cond_offsets = None
+            cell_input_dim = 1 + cond_dim + noise_dim + pos_dim + horizon_embed_dim
+            self.cell_mlps = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(cell_input_dim, cell_hidden),
+                    nn.SiLU(),
+                    nn.Linear(cell_hidden, cell_hidden),
+                    nn.SiLU(),
+                    nn.Linear(cell_hidden, 1),
+                )
+                for _ in range(n_cells)
+            ])
+            for cell_mlp in self.cell_mlps:
+                nn.init.zeros_(cell_mlp[-1].weight)
+                nn.init.zeros_(cell_mlp[-1].bias)
+            self.mlp = None
+            return  # Skip shared MLP creation
+        elif cell_cond_offset:
             self.cond_offsets = nn.Parameter(torch.randn(n_cells, cond_dim) * 0.01)
             self.cell_emb = None
             input_dim = 1 + cond_dim + noise_dim + pos_dim + horizon_embed_dim
@@ -235,6 +265,14 @@ class FrameDecoder(nn.Module):
         nn.init.zeros_(self.mlp[-1].weight)
         nn.init.zeros_(self.mlp[-1].bias)
 
+        # Noise skip connection: bypass shared hidden layers for per-cell noise
+        # Linear(noise_dim, n_cells) gives each cell its own noise projection
+        # ES spread loss drives these weights toward orthogonal directions
+        self.noise_skip_proj = None
+        if noise_skip and not cell_embed and not cell_cond_offset and not independent_cells:
+            self.noise_skip_proj = nn.Linear(noise_dim, n_cells, bias=False)
+            nn.init.zeros_(self.noise_skip_proj.weight)  # starts silent
+
     def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
                 noise_t: torch.Tensor, local_position: torch.Tensor,
                 horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
@@ -246,6 +284,9 @@ class FrameDecoder(nn.Module):
         horizon_bucket: (B,) optional coarse absolute-horizon bucket
         Returns:    (B, frame_dim) delta, tanh-bounded [-1,1]
         """
+        if self.independent_cells_active:
+            return self._forward_independent(prev_frame, condition, noise_t,
+                                             local_position, horizon_bucket)
         if self.cell_cond_offset_active:
             return self._forward_cond_offset(prev_frame, condition, noise_t,
                                              local_position, horizon_bucket)
@@ -259,7 +300,10 @@ class FrameDecoder(nn.Module):
                 horizon_bucket = torch.zeros_like(local_position)
             pieces.append(self.horizon_embed(horizon_bucket))
         x = torch.cat(pieces, dim=-1)
-        return torch.tanh(self.mlp(x))
+        delta = self.mlp(x)  # (B, frame_dim)
+        if self.noise_skip_proj is not None and not self.skip_bypass_spread:
+            delta = delta + self.noise_skip_proj(noise_t)  # per-cell noise bypass
+        return torch.tanh(delta)
 
     def _forward_per_cell(self, prev_frame: torch.Tensor, condition: torch.Tensor,
                           noise_t: torch.Tensor, local_position: torch.Tensor,
@@ -315,6 +359,27 @@ class FrameDecoder(nn.Module):
         x = torch.cat(pieces, dim=-1)       # (B*C, input_dim)
         delta = torch.tanh(self.mlp(x))      # (B*C, 1)
         return delta.reshape(B, C)            # (B, 25)
+
+    def _forward_independent(self, prev_frame: torch.Tensor, condition: torch.Tensor,
+                             noise_t: torch.Tensor, local_position: torch.Tensor,
+                             horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
+        """Independent per-cell MLPs: each cell has its own weights (Exp 98a)."""
+        B = prev_frame.shape[0]
+        C = self.n_cells  # 25
+        pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
+        # Build common input shared across all cells
+        common = [condition, noise_t, pos_emb]
+        if self.horizon_embed is not None:
+            if horizon_bucket is None:
+                horizon_bucket = torch.zeros_like(local_position)
+            common.append(self.horizon_embed(horizon_bucket))
+        common_cat = torch.cat(common, dim=-1)  # (B, cond+noise+pos [+horizon])
+        # Per-cell: prepend prev_cell(1), run through cell-specific MLP
+        cell_deltas = []
+        for c in range(C):
+            x_c = torch.cat([prev_frame[:, c:c+1], common_cat], dim=-1)
+            cell_deltas.append(torch.tanh(self.cell_mlps[c](x_c)))  # (B, 1)
+        return torch.cat(cell_deltas, dim=-1)  # (B, 25)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -485,6 +550,10 @@ class SinglePassBlockAR(nn.Module):
                 cell_embed=config.ar_cell_embed,
                 cell_embed_dim=config.ar_cell_embed_dim,
                 cell_cond_offset=config.ar_cell_cond_offset,
+                independent_cells=config.ar_independent_cells,
+                cell_hidden=config.ar_cell_hidden,
+                noise_skip=config.ar_noise_skip,
+                skip_bypass_spread=config.ar_skip_bypass_spread,
                 n_cells=frame_dim,
             )
             # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
@@ -492,9 +561,11 @@ class SinglePassBlockAR(nn.Module):
                 self.factor_loadings = nn.Parameter(
                     torch.randn(frame_dim, config.ar_n_factors) * config.ar_factor_init_scale
                 )
-            # Per-cell spread: condition → 25 positive scalars ≈ 1.0
+            # Per-cell spread: (condition, pos_emb) → 25 positive scalars ≈ 1.0
+            # Position input makes spread horizon-aware (different scaling at h=1 vs h=30)
             if config.ar_frame_cell_spread:
-                self.cell_spread_linear = nn.Linear(config.bottleneck_dim, frame_dim)
+                cs_input_dim = config.bottleneck_dim + config.pos_embed_dim
+                self.cell_spread_linear = nn.Linear(cs_input_dim, frame_dim)
                 nn.init.zeros_(self.cell_spread_linear.weight)
                 nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
             # Static per-cell scale: nn.Parameter(ones(25)), clamped [0.3, 3.0]
@@ -740,8 +811,13 @@ class SinglePassBlockAR(nn.Module):
                 cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
                 delta = cs * delta
             if hasattr(self, "cell_spread_linear"):
-                cs = F.softplus(self.cell_spread_linear(condition)).view(B, H, W)
+                pos_emb = self.frame_decoder.pos_embed(local_pos)
+                cs_in = torch.cat([condition, pos_emb], dim=-1)
+                cs = F.softplus(self.cell_spread_linear(cs_in)).view(B, H, W)
                 delta = cs * delta
+            # Skip bypass: add skip AFTER cell_spread so it's never suppressed
+            if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
+                delta = delta + torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
 
             vs = self._get_ar_frame_vol_scale(condition, vol_scale, vol_scale_cell)
             if log_space:
@@ -823,6 +899,7 @@ class SinglePassBlockAR(nn.Module):
         lambda_is: float = 0.0,
         lambda_cs_reg: float = 0.0,
         lambda_kurt: float = 0.0,
+        lambda_es: float = 0.0,
         n_train_blocks: int = 1,
         n_frames: int = 0,
     ) -> dict:
@@ -836,6 +913,7 @@ class SinglePassBlockAR(nn.Module):
             future: (B, future_len, 5, 5) in [-1, 1]
             n_members: K ensemble members per sample
             lambda_vs: Variogram score weight (0 = disabled)
+            lambda_es: Energy score weight (0 = disabled)
             n_train_blocks: Number of blocks to generate (block mode only)
             n_frames: Number of frames to generate (ar_frame mode; 0 = use blocks)
 
@@ -919,9 +997,14 @@ class SinglePassBlockAR(nn.Module):
 
                     # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
                     if hasattr(self, 'cell_spread_linear'):
-                        cs = F.softplus(self.cell_spread_linear(cond_t))
+                        pos_emb = self.frame_decoder.pos_embed(local_pos)
+                        cs_in = torch.cat([cond_t, pos_emb], dim=-1)
+                        cs = F.softplus(self.cell_spread_linear(cs_in))
                         cs = cs.view(B, H, W)
                         delta = cs * delta
+                    # Skip bypass: add skip AFTER cell_spread so it's never suppressed
+                    if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
+                        delta = delta + torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
                     vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
                     all_deltas.append(delta)
                     if self.config.ar_frame_log_space:
@@ -1001,10 +1084,23 @@ class SinglePassBlockAR(nn.Module):
             twcrps_beta=self.config.twcrps_beta,
         )
 
-        # Total loss (CRPS + variogram + interval score)
+        # Total loss (CRPS + energy score + variogram + interval score)
         loss = crps
         vs_val = torch.tensor(0.0, device=device)
         is_val = torch.tensor(0.0, device=device)
+        es_val = torch.tensor(0.0, device=device)
+        if lambda_es > 0:
+            # Scale-invariant spread ratio: L2/L1 spread ratio
+            # Rank-1: ratio ≈ 0.200, decorrelated: ratio ≈ 0.248 (for d=25)
+            # Maximizing this ratio drives decorrelation without affecting amplitude
+            _B, _K = iv_samples.shape[:2]
+            _s = iv_samples.reshape(_B, _K, n_frames, -1)  # (B, K, T, 25)
+            _idx_i, _idx_j = torch.triu_indices(_K, _K, offset=1, device=device)
+            _pd = _s[:, _idx_i] - _s[:, _idx_j]  # (B, P, T, 25)
+            _l2 = _pd.pow(2).sum(-1).clamp(min=1e-12).sqrt()  # (B, P, T)
+            _l1 = _pd.abs().sum(-1)  # (B, P, T)
+            es_val = -(_l2 / _l1.clamp(min=1e-8)).mean()  # negative: maximize ratio
+            loss = loss + lambda_es * es_val
         if lambda_vs > 0:
             vs_val = variogram_score(iv_samples, gt_iv)
             loss = loss + lambda_vs * vs_val
@@ -1049,6 +1145,7 @@ class SinglePassBlockAR(nn.Module):
             "mae": mae.detach(),
             "spread": spread.detach(),
             "variogram": vs_val.detach(),
+            "energy_score": es_val.detach(),
             "interval_score": is_val.detach(),
             "kurt_loss": kurt_val.detach(),
             "raw_kurt": raw_kurt_mean,
@@ -1246,6 +1343,57 @@ def interval_score(
     miss_high = (2.0 / alpha) * torch.relu(gt - upper)
     # Sum over T/H/W, mean over B — consistent with frame_sum CRPS
     return (miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+
+
+def energy_score(
+    samples: torch.Tensor,
+    gt: torch.Tensor,
+    spread_only: bool = False,
+) -> torch.Tensor:
+    """Energy Score — multivariate generalization of CRPS.
+
+    Uses L2 norm across all cells (d=H*W) per frame, providing gradient
+    signal for cross-cell decorrelation that univariate CRPS lacks.
+
+    Full ES = (1/K) Σ_j ||x_j - y||₂ − (1/(2P)) Σ_{j<k} ||x_j - x_k||₂
+
+    When spread_only=True, returns ONLY the negative spread term:
+        -0.5 * (1/P) Σ_{j<k} ||x_j - x_k||₂
+    This is the decorrelation-driving component. The accuracy term reinforces
+    rank-1 noise and should be omitted when CRPS handles marginal calibration.
+    Verified in toy test: spread-only drives PR from 2.5→9.8, corr 0.98→0.26.
+
+    Reduction: sum over T, mean over B (consistent with frame_sum CRPS).
+
+    Args:
+        samples: (B, K, T, H, W) ensemble members in IV space
+        gt: (B, T, H, W) ground truth in IV space
+        spread_only: if True, return only -0.5 * spread (decorrelation term)
+
+    Returns:
+        Scalar energy score loss
+    """
+    B, K, T, H, W = samples.shape
+    D = H * W  # 25
+
+    s = samples.reshape(B, K, T, D)  # (B, K, T, 25)
+
+    # Spread: pairwise L2 distance between members, per frame
+    idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=s.device)
+    pair_diff = s[:, idx_i] - s[:, idx_j]  # (B, n_pairs, T, D)
+    spr = pair_diff.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()  # (B, n_pairs, T)
+    # mean over pairs, sum over T, mean over B
+    spr_val = spr.mean(dim=1).sum(dim=-1).mean()
+
+    if spread_only:
+        return -0.5 * spr_val
+
+    # Full ES: accuracy - 0.5 * spread
+    g = gt.reshape(B, T, D)
+    acc = (s - g.unsqueeze(1)).pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
+    acc_val = acc.mean(dim=1).sum(dim=-1).mean()
+
+    return acc_val - 0.5 * spr_val
 
 
 def variogram_score(

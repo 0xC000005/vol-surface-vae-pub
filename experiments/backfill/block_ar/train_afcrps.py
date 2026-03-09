@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -130,6 +130,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_mae = 0.0
     total_spread = 0.0
     total_vs = 0.0
+    total_es = 0.0
     total_is = 0.0
     total_kurt = 0.0
     total_raw_kurt = 0.0
@@ -142,7 +143,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
 
         result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
                        lambda_is=lambda_is, lambda_cs_reg=lambda_cs_reg,
-                       lambda_kurt=lambda_kurt,
+                       lambda_kurt=lambda_kurt, lambda_es=lambda_es,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames)
         loss = result["loss"]
@@ -158,6 +159,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_mae += result["mae"].item()
         total_spread += result["spread"].item()
         total_vs += result["variogram"].item()
+        total_es += result["energy_score"].item()
         total_is += result["interval_score"].item()
         total_kurt += result["kurt_loss"].item()
         total_raw_kurt += result["raw_kurt"].item()
@@ -169,6 +171,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "mae": total_mae / max(n_batches, 1),
         "spread": total_spread / max(n_batches, 1),
         "variogram": total_vs / max(n_batches, 1),
+        "energy_score": total_es / max(n_batches, 1),
         "interval_score": total_is / max(n_batches, 1),
         "kurt_loss": total_kurt / max(n_batches, 1),
         "raw_kurt": total_raw_kurt / max(n_batches, 1),
@@ -292,6 +295,8 @@ def main():
                         help="Variogram score weight")
     parser.add_argument("--shared_noise_input", action="store_true",
                         help="Inject first noise element as shared spatial input (cross-cell correlation)")
+    parser.add_argument("--lambda_es", type=float, default=0.0,
+                        help="Energy score weight (multivariate decorrelation)")
     parser.add_argument("--lambda_is", type=float, default=0.0,
                         help="Interval score weight (CI calibration pressure)")
     parser.add_argument("--lambda_cs_reg", type=float, default=0.0,
@@ -376,6 +381,14 @@ def main():
                         help="Noise std on GRU input during training (Exp 93f, default: 0.0)")
     parser.add_argument("--ar_percell_bias", action="store_true",
                         help="Per-cell conditional bias loss (Exp 94a)")
+    parser.add_argument("--ar_independent_cells", action="store_true",
+                        help="25 independent per-cell MLPs (Exp 98a)")
+    parser.add_argument("--ar_cell_hidden", type=int, default=32,
+                        help="Hidden dim for per-cell MLPs (default: 32)")
+    parser.add_argument("--ar_noise_skip", action="store_true",
+                        help="Per-cell noise skip connection bypassing shared MLP (Exp 99b)")
+    parser.add_argument("--ar_skip_bypass_spread", action="store_true",
+                        help="Skip connection bypasses cell_spread (Exp 99j)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -409,6 +422,8 @@ def main():
         parser.error("--ar_dynamic_vs requires --ar_frame")
     if args.ar_dual_pos and not args.ar_frame:
         parser.error("--ar_dual_pos requires --ar_frame")
+    if sum([args.ar_independent_cells, args.ar_cell_embed, args.ar_cell_cond_offset]) > 1:
+        parser.error("--ar_independent_cells, --ar_cell_embed, --ar_cell_cond_offset are mutually exclusive")
     if args.ar_horizon_bucket_size <= 0 or args.ar_horizon_max_buckets <= 0:
         parser.error("horizon bucket settings must be positive")
     if args.ar_local_pos_period <= 0:
@@ -513,6 +528,10 @@ def main():
         ar_cell_cond_offset=args.ar_cell_cond_offset,
         ar_input_noise_std=args.ar_input_noise_std,
         ar_percell_bias=args.ar_percell_bias,
+        ar_independent_cells=args.ar_independent_cells,
+        ar_cell_hidden=args.ar_cell_hidden,
+        ar_noise_skip=args.ar_noise_skip,
+        ar_skip_bypass_spread=args.ar_skip_bypass_spread,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -724,7 +743,7 @@ def main():
             n_members=args.n_members, lambda_vs=args.lambda_vs,
             grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
             lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
-            lambda_kurt=args.lambda_kurt,
+            lambda_kurt=args.lambda_kurt, lambda_es=args.lambda_es,
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
@@ -759,13 +778,15 @@ def main():
         eval_str = ""
         if eval_metrics:
             eval_str = f"  CI={eval_metrics['coverage_90']:.1%}  Kurt={eval_metrics['kurtosis_ratio']:.3f}(mean:{eval_metrics['kurtosis_ratio_mean']:.3f})"
+        es_str = f"  es={train_metrics['energy_score']:.4f}" if args.lambda_es > 0 else ""
         print(
             f"Epoch {epoch:3d}/{args.epochs}  "
             f"loss={train_metrics['loss']:.4f}  "
             f"mae={train_metrics['mae']:.4f}  "
             f"spread={train_metrics['spread']:.6f}  "
             f"s/m={spread_ratio:.4f}  "
-            f"vs={train_metrics['variogram']:.4f}  "
+            f"vs={train_metrics['variogram']:.4f}"
+            f"{es_str}  "
             f"val={val_metrics['val_loss']:.4f}"
             f"{eval_str}  "
             f"({elapsed:.1f}s)"
@@ -777,12 +798,19 @@ def main():
 
         # Log frame_decoder stats if applicable
         if hasattr(model, 'frame_decoder'):
-            w = model.frame_decoder.mlp[-1].weight.detach()
-            extra = f"  n_frames={n_frames}" if args.progressive_rollout else ""
-            if hasattr(model.frame_decoder, 'cond_offsets') and model.frame_decoder.cond_offsets is not None:
-                off = model.frame_decoder.cond_offsets.detach()
-                extra += f"  offset_norm={off.norm():.3f}  offset_per_cell=[{off.norm(dim=1).min():.3f},{off.norm(dim=1).max():.3f}]"
-            print(f"  frame_decoder: w_norm={w.norm():.3f}" + extra)
+            if model.frame_decoder.mlp is not None:
+                w = model.frame_decoder.mlp[-1].weight.detach()
+                extra = f"  n_frames={n_frames}" if args.progressive_rollout else ""
+                if hasattr(model.frame_decoder, 'cond_offsets') and model.frame_decoder.cond_offsets is not None:
+                    off = model.frame_decoder.cond_offsets.detach()
+                    extra += f"  offset_norm={off.norm():.3f}  offset_per_cell=[{off.norm(dim=1).min():.3f},{off.norm(dim=1).max():.3f}]"
+                print(f"  frame_decoder: w_norm={w.norm():.3f}" + extra)
+            elif hasattr(model.frame_decoder, 'cell_mlps'):
+                w_norms = [mlp[-1].weight.detach().norm().item()
+                           for mlp in model.frame_decoder.cell_mlps]
+                extra = f"  n_frames={n_frames}" if args.progressive_rollout else ""
+                print(f"  frame_decoder (indep): w_norm=[{min(w_norms):.3f},"
+                      f"{max(w_norms):.3f}] mean={sum(w_norms)/len(w_norms):.3f}" + extra)
 
         # Log cell_scale stats if applicable (static per-cell scale)
         if hasattr(model, 'cell_scale'):
@@ -803,6 +831,29 @@ def main():
                 iv_changes = (s[:, :, 0, :, :] - prev.unsqueeze(1)).abs().mean(dim=(0, 1))  # (5, 5)
                 row_means = iv_changes.mean(dim=1)
                 print(f"  logit_monitor: mean|dIV| per row: [{', '.join(f'{row_means[r]:.5f}' for r in range(5))}]")
+
+        # Exp 98a: cross-cell correlation diagnostic at key epochs
+        if args.ar_independent_cells and epoch in {1, 5, 10, 20, 40}:
+            with torch.no_grad():
+                sample_batch = next(iter(val_loader))
+                hist = sample_batch["history"].to(device)
+                prev = denormalize_iv(hist[:, -1])  # (B, 5, 5)
+                n_diag = 20
+                all_d = []
+                for _ in range(n_diag):
+                    s = model.sample(hist, n_samples=1, n_frames=1)  # (B, 1, 1, 5, 5)
+                    all_d.append((s[:, 0, 0] - prev).reshape(-1, 25))
+                deltas = torch.cat(all_d, dim=0)  # (n_diag*B, 25)
+                cell_std = deltas.std(dim=0)
+                deltas_c = deltas - deltas.mean(dim=0, keepdim=True)
+                cov = (deltas_c.T @ deltas_c) / (deltas_c.shape[0] - 1)
+                std_out = cell_std.unsqueeze(0) * cell_std.unsqueeze(1) + 1e-8
+                corr = cov / std_out
+                mask = ~torch.eye(25, dtype=torch.bool, device=device)
+                mean_corr = corr[mask].mean().item()
+                print(f"  [DIAG] cell_std: [{cell_std.min():.5f}, {cell_std.max():.5f}]"
+                      f" mean={cell_std.mean():.5f}")
+                print(f"  [DIAG] cross-cell corr: {mean_corr:.3f} (GT ~0.38)")
 
         # Log cell_spread_linear stats if applicable (AR frame mode)
         if hasattr(model, 'cell_spread_linear'):
