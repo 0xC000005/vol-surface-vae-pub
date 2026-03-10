@@ -214,25 +214,31 @@ def plot_fan_charts(data):
             # Forecast boundary
             ax.axvline(0.5, color="gray", linestyle=":", alpha=0.6)
 
-            # Scenario paths
-            for s in range(min(20, N_SAMPLES)):
-                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
+            # Light background paths (all samples, very faint)
+            for s in range(min(N_SAMPLES, 50)):
+                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.04, linewidth=0.3)
 
-            # Confidence bands
-            for ci, pct_hi, band_alpha in [(5, 95, 0.12), (10, 90, 0.15), (25, 75, 0.20)]:
-                lo = np.percentile(samples_cell, ci, axis=0)
-                hi = np.percentile(samples_cell, pct_hi, axis=0)
-                ax.fill_between(fwd_days, lo, hi, color=color, alpha=band_alpha)
+            # 90% CI band (light shading for context)
+            q05 = np.percentile(samples_cell, 5, axis=0)
+            q95 = np.percentile(samples_cell, 95, axis=0)
+            ax.fill_between(fwd_days, q05, q95, color=color, alpha=0.08)
 
-            # Median and GT
-            median = np.median(samples_cell, axis=0)
-            ax.plot(fwd_days, median, color=color, linewidth=1.5, label="Median scenario")
+            # Individual paths — 6 distinct paths, visible and distinguishable
+            path_colors = ["#E91E63", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#607D8B"]
+            n_show = min(6, N_SAMPLES)
+            # Pick spread of paths: some from each quartile for variety
+            path_indices = np.linspace(0, N_SAMPLES - 1, n_show, dtype=int)
+            for pi, s in enumerate(path_indices):
+                lbl = f"Path {pi+1}" if (row == 0 and col == 0) else None
+                ax.plot(fwd_days, samples_cell[s], color=path_colors[pi % len(path_colors)],
+                        alpha=0.7, linewidth=1.0, label=lbl, zorder=4)
+                # Connect history to each path
+                ax.plot([0, 1], [hist_cell[-1], samples_cell[s, 0]],
+                        color=path_colors[pi % len(path_colors)], linewidth=0.7, alpha=0.5)
+
+            # GT (thick, dashed green)
             ax.plot(fwd_days, gt_cell, color=GT_COLOR, linewidth=2.0,
-                    linestyle="--", label="Ground truth", zorder=5)
-
-            # Connect history to forecast
-            ax.plot([0, 1], [hist_cell[-1], median[0]], color=color,
-                    linewidth=1, alpha=0.5)
+                    linestyle="--", label="Ground truth" if (row == 0 and col == 1) else None, zorder=5)
 
             ax.set_ylim(row_ylims[row])
 
@@ -253,8 +259,8 @@ def plot_fan_charts(data):
             if row == 3:
                 ax.set_xlabel("Day (0 = forecast start)")
 
-            if row == 0 and col == 1:
-                ax.legend(fontsize=8, loc="upper right")
+            if row == 0 and col == 0:
+                ax.legend(fontsize=7, loc="lower left", ncol=2)
 
             ax.tick_params(labelsize=9)
 
@@ -310,21 +316,25 @@ def plot_cross_cell_sensitivity(data):
             ax.plot(hist_days, hist_cell, color="black", linewidth=1.5, zorder=6)
             ax.axvline(0.5, color="gray", linestyle=":", alpha=0.6)
 
-            # Scenarios
-            for s in range(min(20, N_SAMPLES)):
-                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.08, linewidth=0.5)
+            # Light background paths
+            for s in range(min(N_SAMPLES, 50)):
+                ax.plot(fwd_days, samples_cell[s], color=color, alpha=0.04, linewidth=0.3)
 
             q05 = np.percentile(samples_cell, 5, axis=0)
             q95 = np.percentile(samples_cell, 95, axis=0)
-            ax.fill_between(fwd_days, q05, q95, color=color, alpha=0.15)
+            ax.fill_between(fwd_days, q05, q95, color=color, alpha=0.08)
 
-            median = np.median(samples_cell, axis=0)
-            ax.plot(fwd_days, median, color=color, linewidth=1.5)
+            # Individual paths — 6 distinct visible paths
+            path_colors = ["#E91E63", "#FF9800", "#9C27B0", "#00BCD4", "#795548", "#607D8B"]
+            n_show = min(6, N_SAMPLES)
+            path_indices = np.linspace(0, N_SAMPLES - 1, n_show, dtype=int)
+            for pi, s in enumerate(path_indices):
+                ax.plot(fwd_days, samples_cell[s], color=path_colors[pi % len(path_colors)],
+                        alpha=0.7, linewidth=1.0, zorder=4)
+                ax.plot([0, 1], [hist_cell[-1], samples_cell[s, 0]],
+                        color=path_colors[pi % len(path_colors)], linewidth=0.7, alpha=0.5)
+
             ax.plot(fwd_days, gt_cell, color=GT_COLOR, linewidth=2.0, linestyle="--", zorder=5)
-
-            # Connect history to forecast
-            ax.plot([0, 1], [hist_cell[-1], median[0]], color=color,
-                    linewidth=1, alpha=0.5)
 
             ax.text(0.97, 0.95, f"spread={spread*100:.1f}%",
                     transform=ax.transAxes, fontsize=8, ha="right", va="top",

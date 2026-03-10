@@ -900,6 +900,8 @@ class SinglePassBlockAR(nn.Module):
         lambda_cs_reg: float = 0.0,
         lambda_kurt: float = 0.0,
         lambda_es: float = 0.0,
+        lambda_cell_var: float = 0.0,
+        lambda_cum_cal: float = 0.0,
         n_train_blocks: int = 1,
         n_frames: int = 0,
     ) -> dict:
@@ -1089,17 +1091,18 @@ class SinglePassBlockAR(nn.Module):
         vs_val = torch.tensor(0.0, device=device)
         is_val = torch.tensor(0.0, device=device)
         es_val = torch.tensor(0.0, device=device)
+        es_acc = torch.tensor(0.0, device=device)
+        es_spr = torch.tensor(0.0, device=device)
         if lambda_es > 0:
-            # Scale-invariant spread ratio: L2/L1 spread ratio
-            # Rank-1: ratio ≈ 0.200, decorrelated: ratio ≈ 0.248 (for d=25)
-            # Maximizing this ratio drives decorrelation without affecting amplitude
-            _B, _K = iv_samples.shape[:2]
-            _s = iv_samples.reshape(_B, _K, n_frames, -1)  # (B, K, T, 25)
-            _idx_i, _idx_j = torch.triu_indices(_K, _K, offset=1, device=device)
-            _pd = _s[:, _idx_i] - _s[:, _idx_j]  # (B, P, T, 25)
-            _l2 = _pd.pow(2).sum(-1).clamp(min=1e-12).sqrt()  # (B, P, T)
-            _l1 = _pd.abs().sum(-1)  # (B, P, T)
-            es_val = -(_l2 / _l1.clamp(min=1e-8)).mean()  # negative: maximize ratio
+            # Full Energy Score: proper multivariate scoring rule (Gneiting & Raftery 2007)
+            # ES = E||X-y||₂ - 0.5·E||X-X'||₂ (accuracy - 0.5·spread)
+            # Accuracy pulls samples toward GT, spread rewards diversity.
+            # Self-balancing: minimized at true joint distribution.
+            es_val = energy_score(iv_samples, gt_iv, spread_only=False)
+            # Track components for diagnostics
+            with torch.no_grad():
+                es_spr = energy_score(iv_samples, gt_iv, spread_only=True)
+                es_acc = es_val - es_spr  # accuracy = full - spread_component
             loss = loss + lambda_es * es_val
         if lambda_vs > 0:
             vs_val = variogram_score(iv_samples, gt_iv)
@@ -1107,6 +1110,43 @@ class SinglePassBlockAR(nn.Module):
         if lambda_is > 0:
             is_val = interval_score(iv_samples, gt_iv, alpha=0.9)
             loss = loss + lambda_is * is_val
+
+        # Per-cell variance matching: directly teaches each cell its target spread
+        cell_var_loss = torch.tensor(0.0, device=device)
+        if lambda_cell_var > 0:
+            # GT per-cell change variance from this batch
+            gt_changes = gt_iv[:, 1:] - gt_iv[:, :-1]  # (B, T-1, H, W)
+            gt_cell_var = gt_changes.var(dim=(0, 1))  # (H, W)
+            # Gen per-cell change variance from ensemble samples
+            sample_changes = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
+            gen_cell_var = sample_changes.var(dim=(0, 1, 2))  # (H, W)
+            # Log-ratio squared error: symmetric for over/under-spread
+            cell_var_loss = (torch.log(gen_cell_var.clamp(min=1e-8)) - torch.log(gt_cell_var.clamp(min=1e-8))).pow(2).mean()
+            loss = loss + lambda_cell_var * cell_var_loss
+
+        # Cumulative calibration loss: match ensemble variance to squared prediction error
+        # at multiple horizons, directly addressing autocorrelation-driven over/under-spread
+        cum_cal_loss = torch.tensor(0.0, device=device)
+        if lambda_cum_cal > 0:
+            with torch.no_grad():
+                ens_mean = iv_samples.mean(dim=1)  # (B, T, H, W)
+            # Check horizons that exist in the generated sequence
+            T = iv_samples.shape[2]
+            cal_horizons = [h for h in [0, 6, 13, 29] if h < T]  # 0-indexed: h=1,7,14,30
+            for h in cal_horizons:
+                # Ensemble variance at this horizon (across members)
+                gen_var = iv_samples[:, :, h].var(dim=1)  # (B, H, W)
+                gen_var_mean = gen_var.mean(dim=0)  # (H, W) avg across windows
+                # Squared prediction error as GT variance proxy
+                gt_sq_err = (gt_iv[:, h] - ens_mean[:, h].detach()).pow(2)  # (B, H, W)
+                gt_var_est = gt_sq_err.mean(dim=0)  # (H, W)
+                # Log-ratio loss (symmetric)
+                cum_cal_loss = cum_cal_loss + (
+                    torch.log(gen_var_mean.clamp(min=1e-8)) -
+                    torch.log(gt_var_est.clamp(min=1e-8))
+                ).pow(2).mean()
+            cum_cal_loss = cum_cal_loss / max(len(cal_horizons), 1)
+            loss = loss + lambda_cum_cal * cum_cal_loss
 
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
@@ -1146,11 +1186,15 @@ class SinglePassBlockAR(nn.Module):
             "spread": spread.detach(),
             "variogram": vs_val.detach(),
             "energy_score": es_val.detach(),
+            "es_accuracy": es_acc.detach(),
+            "es_spread": es_spr.detach(),
             "interval_score": is_val.detach(),
             "kurt_loss": kurt_val.detach(),
             "raw_kurt": raw_kurt_mean,
             "spread_mae_ratio": (spread / mae.clamp(min=1e-8)).detach(),
             "bias_loss": bias_loss.detach(),
+            "cell_var_loss": cell_var_loss.detach(),
+            "cum_cal_loss": cum_cal_loss.detach(),
         }
 
     @torch.no_grad()
@@ -1336,9 +1380,7 @@ def interval_score(
     q_hi = 1 - q_lo            # 0.95
     lower = torch.quantile(samples, q_lo, dim=1)  # (B, T, H, W)
     upper = torch.quantile(samples, q_hi, dim=1)
-    # Only penalize misses (GT outside CI), no width penalty.
-    # Standard IS has `width + miss_low + miss_high` which rewards narrowing.
-    # We want pure "widen where undercovered" signal.
+    # Miss-only: penalize under-coverage without width penalty.
     miss_low = (2.0 / alpha) * torch.relu(lower - gt)
     miss_high = (2.0 / alpha) * torch.relu(gt - upper)
     # Sum over T/H/W, mean over B — consistent with frame_sum CRPS
@@ -1357,11 +1399,14 @@ def energy_score(
 
     Full ES = (1/K) Σ_j ||x_j - y||₂ − (1/(2P)) Σ_{j<k} ||x_j - x_k||₂
 
+    Strictly proper scoring rule for multivariate distributions (Gneiting &
+    Raftery 2007). Accuracy term prevents over-dispersion; spread term drives
+    decorrelation. Self-balancing: minimized at true joint distribution.
+
     When spread_only=True, returns ONLY the negative spread term:
         -0.5 * (1/P) Σ_{j<k} ||x_j - x_k||₂
-    This is the decorrelation-driving component. The accuracy term reinforces
-    rank-1 noise and should be omitted when CRPS handles marginal calibration.
-    Verified in toy test: spread-only drives PR from 2.5→9.8, corr 0.98→0.26.
+    WARNING: spread-only is NOT a proper scoring rule — it lacks the accuracy
+    counterweight, causing amplitude explosion (proven in Exp 99b).
 
     Reduction: sum over T, mean over B (consistent with frame_sum CRPS).
 

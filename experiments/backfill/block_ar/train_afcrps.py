@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -131,10 +131,14 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_spread = 0.0
     total_vs = 0.0
     total_es = 0.0
+    total_es_acc = 0.0
+    total_es_spr = 0.0
     total_is = 0.0
     total_kurt = 0.0
     total_raw_kurt = 0.0
     total_bias = 0.0
+    total_cell_var = 0.0
+    total_cum_cal = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -144,6 +148,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
                        lambda_is=lambda_is, lambda_cs_reg=lambda_cs_reg,
                        lambda_kurt=lambda_kurt, lambda_es=lambda_es,
+                       lambda_cell_var=lambda_cell_var,
+                       lambda_cum_cal=lambda_cum_cal,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames)
         loss = result["loss"]
@@ -160,10 +166,14 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_spread += result["spread"].item()
         total_vs += result["variogram"].item()
         total_es += result["energy_score"].item()
+        total_es_acc += result.get("es_accuracy", torch.tensor(0.0)).item()
+        total_es_spr += result.get("es_spread", torch.tensor(0.0)).item()
         total_is += result["interval_score"].item()
         total_kurt += result["kurt_loss"].item()
         total_raw_kurt += result["raw_kurt"].item()
         total_bias += result.get("bias_loss", torch.tensor(0.0)).item()
+        total_cell_var += result.get("cell_var_loss", torch.tensor(0.0)).item()
+        total_cum_cal += result.get("cum_cal_loss", torch.tensor(0.0)).item()
         n_batches += 1
 
     return {
@@ -172,11 +182,15 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "spread": total_spread / max(n_batches, 1),
         "variogram": total_vs / max(n_batches, 1),
         "energy_score": total_es / max(n_batches, 1),
+        "es_accuracy": total_es_acc / max(n_batches, 1),
+        "es_spread": total_es_spr / max(n_batches, 1),
         "interval_score": total_is / max(n_batches, 1),
         "kurt_loss": total_kurt / max(n_batches, 1),
         "raw_kurt": total_raw_kurt / max(n_batches, 1),
         "spread_mae_ratio": total_spread / max(total_mae, 1e-8),
         "bias_loss": total_bias / max(n_batches, 1),
+        "cell_var_loss": total_cell_var / max(n_batches, 1),
+        "cum_cal_loss": total_cum_cal / max(n_batches, 1),
     }
 
 
@@ -303,6 +317,10 @@ def main():
                         help="L2 penalty pulling cell_scale toward its spatial mean")
     parser.add_argument("--lambda_kurt", type=float, default=0.0,
                         help="Kurtosis matching loss weight")
+    parser.add_argument("--lambda_cell_var", type=float, default=0.0,
+                        help="Per-cell variance matching loss weight")
+    parser.add_argument("--lambda_cum_cal", type=float, default=0.0,
+                        help="Cumulative calibration loss weight (matches ensemble var to MSE at h=7,14,30)")
     parser.add_argument("--n_train_blocks", type=int, default=1,
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
     parser.add_argument("--direct_iv", action="store_true",
@@ -389,6 +407,10 @@ def main():
                         help="Per-cell noise skip connection bypassing shared MLP (Exp 99b)")
     parser.add_argument("--ar_skip_bypass_spread", action="store_true",
                         help="Skip connection bypasses cell_spread (Exp 99j)")
+    parser.add_argument("--freeze_after_epoch", type=int, default=0,
+                        help="Freeze frame_decoder MLP after this epoch, keep only skip/vol_scale/spread trainable (0=disabled)")
+    parser.add_argument("--freeze_spread_too", action="store_true",
+                        help="Also freeze cell_spread_linear when --freeze_after_epoch triggers")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -737,6 +759,32 @@ def main():
         else:
             n_frames = config.future_len if args.ar_frame else 0  # 0 = use block-based n_frames
 
+        # Freeze-at-peak: freeze MLP after specified epoch, keep skip/scale trainable
+        if args.freeze_after_epoch > 0 and epoch == args.freeze_after_epoch + 1:
+            frozen_count = 0
+            kept_count = 0
+            for name, param in model.named_parameters():
+                if not param.requires_grad:
+                    continue
+                # Keep: noise_skip_proj, log_vol_scale (and cell_spread unless frozen too)
+                keep = (
+                    "noise_skip_proj" in name
+                    or "log_vol_scale" in name
+                    or "cell_scale" in name
+                )
+                if not args.freeze_spread_too:
+                    keep = keep or "cell_spread_linear" in name
+                should_freeze = name.startswith("frame_decoder.") or (
+                    args.freeze_spread_too and "cell_spread_linear" in name
+                )
+                if not keep and should_freeze:
+                    param.requires_grad_(False)
+                    frozen_count += 1
+                else:
+                    kept_count += 1
+            n_still_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"  >> FREEZE at epoch {epoch}: froze {frozen_count} params, kept {kept_count} trainable ({n_still_trainable:,} params)")
+
         # Train
         train_metrics = train_epoch(
             model, train_loader, optimizer, device,
@@ -744,6 +792,8 @@ def main():
             grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
             lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
             lambda_kurt=args.lambda_kurt, lambda_es=args.lambda_es,
+            lambda_cell_var=args.lambda_cell_var,
+            lambda_cum_cal=args.lambda_cum_cal,
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
@@ -778,7 +828,9 @@ def main():
         eval_str = ""
         if eval_metrics:
             eval_str = f"  CI={eval_metrics['coverage_90']:.1%}  Kurt={eval_metrics['kurtosis_ratio']:.3f}(mean:{eval_metrics['kurtosis_ratio_mean']:.3f})"
-        es_str = f"  es={train_metrics['energy_score']:.4f}" if args.lambda_es > 0 else ""
+        es_str = (f"  es={train_metrics['energy_score']:.4f}"
+                  f"(acc={train_metrics['es_accuracy']:.3f},spr={train_metrics['es_spread']:.3f})"
+                  ) if args.lambda_es > 0 else ""
         print(
             f"Epoch {epoch:3d}/{args.epochs}  "
             f"loss={train_metrics['loss']:.4f}  "
@@ -820,6 +872,10 @@ def main():
         # Log bias loss if applicable
         if 'bias_loss' in train_metrics and train_metrics['bias_loss'] > 0:
             print(f"  bias_loss: {train_metrics['bias_loss']:.6f}")
+        if 'cell_var_loss' in train_metrics and train_metrics['cell_var_loss'] > 0:
+            print(f"  cell_var_loss: {train_metrics['cell_var_loss']:.4f}")
+        if 'cum_cal_loss' in train_metrics and train_metrics['cum_cal_loss'] > 0:
+            print(f"  cum_cal_loss: {train_metrics['cum_cal_loss']:.4f}")
 
         # Log mean |IV change| for logit-space monitoring (epochs 1,5,10,15,20,25,30,35,40)
         if getattr(config, 'ar_frame_logit_space', False) and epoch in {1, 5, 10, 15, 20, 25, 30, 35, 40}:
@@ -832,8 +888,8 @@ def main():
                 row_means = iv_changes.mean(dim=1)
                 print(f"  logit_monitor: mean|dIV| per row: [{', '.join(f'{row_means[r]:.5f}' for r in range(5))}]")
 
-        # Exp 98a: cross-cell correlation diagnostic at key epochs
-        if args.ar_independent_cells and epoch in {1, 5, 10, 20, 40}:
+        # Cross-cell correlation diagnostic at key epochs (Exp 98a / 99k)
+        if (args.ar_independent_cells or args.lambda_es > 0) and epoch in {1, 5, 10, 20, 40}:
             with torch.no_grad():
                 sample_batch = next(iter(val_loader))
                 hist = sample_batch["history"].to(device)
@@ -851,9 +907,16 @@ def main():
                 corr = cov / std_out
                 mask = ~torch.eye(25, dtype=torch.bool, device=device)
                 mean_corr = corr[mask].mean().item()
+                # Effective rank via participation ratio
+                eigvals = torch.linalg.eigvalsh(cov)
+                eigvals = eigvals.clamp(min=0)
+                pr = (eigvals.sum()**2) / (eigvals.pow(2).sum() + 1e-12)
+                pc1 = eigvals[-1] / (eigvals.sum() + 1e-12)
                 print(f"  [DIAG] cell_std: [{cell_std.min():.5f}, {cell_std.max():.5f}]"
                       f" mean={cell_std.mean():.5f}")
-                print(f"  [DIAG] cross-cell corr: {mean_corr:.3f} (GT ~0.38)")
+                print(f"  [DIAG] cross-cell corr: {mean_corr:.3f} (GT ~0.38)"
+                      f"  eff_rank: {pr.item():.2f} (GT ~2.6)"
+                      f"  PC1: {pc1.item()*100:.1f}% (GT ~59%)")
 
         # Log cell_spread_linear stats if applicable (AR frame mode)
         if hasattr(model, 'cell_spread_linear'):
