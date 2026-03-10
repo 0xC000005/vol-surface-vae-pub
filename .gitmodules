@@ -1,0 +1,3 @@
+[submodule "external/csdi"]
+	path = external/csdi
+	url = https://github.com/ermongroup/CSDI.git
