@@ -22,6 +22,10 @@ This codebase implements generative models for volatility surface forecasting. T
 
 For research rationale and architecture decisions, see `RESEARCH_LOG.md`.
 
+## Research Log
+
+The research log is in `RESEARCH_LOG.md` (25,000+ lines). **Never read the full file.** Use the `research-log` skill (MCP semantic search or targeted Read) to retrieve past findings. The skill is invoked automatically when you need to search or append to the log.
+
 ## Repository Structure
 
 ```

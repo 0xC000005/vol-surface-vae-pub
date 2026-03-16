@@ -229,3 +229,7 @@ ConversationWithClaudeWebRegardingMCVD.txt
 research/
 AGENTS.md
 GEMINI.md
+
+# Vector DB artifacts (mcp-local-rag)
+lancedb/
+# Note: embedding model (~90MB) cached in ~/.cache/, not in repo

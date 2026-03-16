@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "local-rag": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-local-rag"],
+      "env": {
+        "BASE_DIR": "/home/max/Documents/vol-surface-vae-pub"
+      }
+    }
+  }
+}
