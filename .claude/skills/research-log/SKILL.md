@@ -74,6 +74,18 @@ mcp__local-rag__query_documents({ query: "your question here", limit: 5 })
 
 **Tip:** Include specific keywords from the content, not just abstract descriptions. "99k full ES corr decorrelation" works better than "which experiment fixed correlation."
 
+**Project-specific note:** Experiments use IDs like `99k`, `99j_v3`, `97a`, `100a`. For known experiment IDs, skip MCP and use the Experiment ID Shortcut below — it's faster and more precise.
+
+### Experiment ID Shortcut (skip MCP, use Grep directly)
+
+**When:** You know the experiment ID (e.g., 99k, 99j_v3, 97a, 100a).
+
+Most experiments are `###` subsections, not `##` top-level entries. Go straight to Grep:
+```
+Grep pattern="### Exp 99k" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" output_mode="content"
+```
+Then Read at that offset. This is faster than MCP search for known experiment IDs.
+
 ### Targeted Section Read (MCP search as index → Read for content)
 
 **When:** You need comprehensive understanding of a topic — comparing experiment results in a table, understanding full reasoning behind an architecture decision, or any task where MCP search snippets are too fragmented.
@@ -84,10 +96,11 @@ mcp__local-rag__query_documents({ query: "experiment 99k results", limit: 3 })
 ```
 This returns chunks — note which part of the file the results point to.
 
-**Step 2:** Use Grep to find the exact line number of the section header:
+**Step 2:** Use Grep to find the exact line number of the section header. Note: most experiments are `###` subsections, not `##` top-level entries:
 ```
-Grep pattern="## 2026-03-09: Exp 99k" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md"
+Grep pattern="### Exp 99k" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" output_mode="content"
 ```
+If unsure of the heading level, search both: `Grep pattern="#{2,3} .*99k"`
 
 **Step 3:** Read that section with surrounding context:
 ```
@@ -107,9 +120,13 @@ mcp__local-rag__query_documents({ query: "your broad topic", limit: 15 })
 
 **Step 2:** Note the distinct section headers in the results.
 
-**Step 3:** Grep for all section headers to get line numbers (table of contents):
+**Step 3:** Grep for section headers to get line numbers (table of contents). Use `##` for dated entries, `###` for individual experiments:
 ```
 Grep pattern="^## 2026-" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" output_mode="content"
+```
+For experiment-level TOC:
+```
+Grep pattern="^### Exp 99" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" output_mode="content"
 ```
 
 **Step 4:** Read each relevant section individually with offset/limit. Typical section is 40-150 lines.
