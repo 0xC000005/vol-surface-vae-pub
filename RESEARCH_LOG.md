@@ -25904,3 +25904,132 @@ needs high rho. Without an explicit distributional loss, learned rho can't help.
 dynamics ≠ distributionally realistic dynamics. Fixed rho=0.8 is the right inductive bias.
 
 ---
+
+## 2026-03-17: Exp 104a — Mean-Reversion Dynamics (Direction C)
+
+**Based on**: Suite 8 KS IV levels failure (0-1/25). Additive `iv_t = prev + delta` anchors
+to history[-1].
+
+**Architecture**: Added `mr_mu_head: Linear(128→25) + sigmoid` (learned long-run mean in [0,1])
+and `mr_alpha_head: Linear(128→1)` (reversion speed, capped at 0.2). IV update becomes:
+`iv_t = prev + vs*delta + alpha*(mu - prev)`.
+
+**Result**: 5/8, score 64.65 (worst). Alpha converged to 0.036 (3.6% pull per step).
+
+| Metric | 99m_v2 | 104a | Delta |
+|--------|--------|------|-------|
+| Score | 66.31 | 64.65 | -1.66 |
+| Kurtosis | 0.845 | 0.568 | -0.28 |
+| KS daily | 20/25 | 17/25 | -3 |
+| Coint | 0.675 | 0.810 | +0.135 |
+| Catastrophic | 576 | 925 | +349 |
+| KS levels | 1/25 | 1/25 | = |
+
+**WHY it failed**: Mean-reversion pulls trajectories toward mu≈0.5, dampening tails (kurtosis
+collapse) and creating wrong-level pulls for extreme windows (catastrophic spike). KS levels
+didn't improve because mu is a single condition-dependent value — levels are still deterministic
+given condition, just anchored to mu instead of history[-1].
+
+**What was learned**: Mean-reversion changes the ANCHOR, not the DISTRIBUTION WIDTH. To fix
+KS levels, need noise in the level itself — either a stochastic mu or a level-matching loss.
+Best-ever cointegration (0.810) because mean-reversion creates the co-movement cointegration
+tests expect. But not worth the kurtosis/catastrophic regression.
+
+---
+
+## 2026-03-17: Exp 105a/105a_v2 — Freeze-Epoch Sweep (ep5, ep7)
+
+**Based on**: Cross-cell correlation at ep5-10 is near GT (0.32-0.52). Later freeze allows
+CRPS to pull correlation back toward rank-1. Hypothesis: earlier freeze preserves better
+factor structure, improving distributional properties.
+
+### 105a (freeze ep5, 60 total epochs): 4/8 REGRESSION
+
+Lost Suite 3 (worst cell MAE reduction -12.3% < -10% gate). MLP only had 5 epochs of
+training → conditionality undeveloped. BUT kurtosis 0.911 (best ever, GT≈1.0!) and
+KS daily 20/25 matching baseline. **Early freeze preserves distributional structure
+but sacrifices per-cell mean prediction quality.**
+
+### 105a_v2 (freeze ep7, 60 total epochs): 5/8, score 66.04
+
+Near-baseline. Cross-cell corr 0.417 at ep10 (near GT 0.38!) — **best factor structure
+in any evaluated model**. Kurtosis 0.823 (good). But corr still drifted to 0.76+ by ep40
+as cell_spread learns to compensate.
+
+| Metric | 99m_v2 (ep10) | 105a (ep5) | 105a_v2 (ep7) |
+|--------|---------------|------------|---------------|
+| Score | 66.31 | 56.47 | 66.04 |
+| Suites | 5/8 | 4/8 | 5/8 |
+| Kurtosis | 0.845 | **0.911** | 0.823 |
+| KS daily | 20/25 | 20/25 | 20/25 |
+| Corr ep10 | 0.927 | 0.521 | **0.417** |
+| MAE red | 87% | 89% | 89% |
+| Worst MAE | -3.2% | -12.3% FAIL | 31.2% |
+
+**Key insight**: Freeze timing trades kurtosis ↔ conditionality. ep5: best kurtosis but
+underfitted mean. ep7: best factor structure. ep10: best conditionality. There's no single
+optimal freeze point — it's a Pareto trade-off.
+
+**The cell_spread path keeps learning after freeze**, and this is how CRPS gradually restores
+high correlation through the only remaining trainable path. The correlation drift from 0.42
+to 0.76 over 50 post-freeze epochs is entirely via cell_spread weight growth (7.7 → 14.1).
+
+---
+
+## 2026-03-17: Exp 106a — Higher Energy Score Weight (λ_ES=5.0)
+
+**Based on**: ES is the only cross-cell loss. 5x weight should give stronger decorrelation.
+
+**Result**: 5/8, score 65.51. Kurtosis 0.754 (worse than baseline 0.845). KS 19/25.
+Higher ES weight crushes kurtosis by over-emphasizing spread diversity at expense of
+per-step accuracy. Cross-cell corr at ep5 was 0.507 (similar to baseline's 0.517).
+
+**WHY**: Increasing ES weight doesn't help because the accuracy term (E||X-y||) already
+balances the spread term (E||X-X'||) at λ=1.0. At λ=5.0, the spread term dominates,
+and the model over-diversifies at the cost of per-step quality.
+
+**Conclusion**: λ_ES=1.0 is already at the optimal balance point. This confirms the
+original finding from 99k that "λ insensitive (0.5-2.0 all work)."
+
+---
+
+## 2026-03-17: Autoresearch Session Summary (7 Iterations)
+
+**Goal**: Pass 8/8 test suites (currently 5/8).
+**Branch**: autoresearch-session-20260317
+**Baseline**: 99m_v2 (score 66.31, 5/8 PASS)
+
+### All Experiments
+
+| # | Exp | Change | Score | Key Finding |
+|---|-----|--------|-------|-------------|
+| 0 | 99m_v2 | baseline | **66.31** | 5/8 (1,3,4,5,6) |
+| 1 | 102a | noise_scale_cond | 65.73 | Redundant with cell_spread |
+| 2 | 103a | learned rho | 65.47 | CRPS-optimal rho=0.29 ≠ realistic |
+| 3 | 103a_v2 | clamped rho [0.6,0.95] | 66.20 | Gradient desert, ≈ fixed rho=0.7 |
+| 4 | 104a | mean-reversion | 64.65 | Dampens tails, wrong anchoring |
+| 5 | 105a | freeze ep5 | 56.47 | 4/8: MLP underfits |
+| 6 | 105a_v2 | freeze ep7 | 66.04 | Best corr (0.417 ≈ GT) but no suite flip |
+| 7 | 106a | λ_ES=5.0 | 65.51 | Over-diversifies, crushes kurtosis |
+
+### FUNDAMENTAL FINDING: CRPS Optimization Dynamics Are the Ceiling
+
+Every experiment confirmed the same pattern: **CRPS optimization dynamics oppose
+distributional realism.** Specifically:
+
+1. **Learned parameters converge to CRPS-optimal, not GT-realistic**: rho→0.29 (GT needs 0.8),
+   noise_scale→uniform (GT has 35x range), mean-reversion dampens tails
+2. **More capacity → more noise suppression**: 90g (hidden=256) scored 2/8, 90h (unfrozen
+   encoder) also collapsed. CRPS rewards reducing noise variance
+3. **Cross-cell correlation is achievable** (0.42 at ep10 in 105a_v2, GT=0.38) but CRPS
+   pulls it back through cell_spread over post-freeze training
+4. **Fixed inductive biases are better than learned dynamics**: rho=0.8 > learned rho,
+   fixed skip > learned noise_scale, freeze timing > architecture changes
+
+The 5/8 ceiling is **intrinsic to the combination of CRPS loss + shared MLP decoder +
+76K parameter budget.** Breaking through requires either:
+- A fundamentally different loss (GAN-style, flow matching, or explicit distributional)
+- A fundamentally different architecture (attention-based, non-autoregressive, >500K params)
+- Or accepting 5/8 as the production ceiling and using post-hoc (qmap) for Suite 2
+
+---
