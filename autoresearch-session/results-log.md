@@ -11,6 +11,7 @@
 | 0 | 99m_v2 | baseline  | 66.31 | 5/8    | BASELINE |
 | 1 | 102a   | B: noise_scale_cond | 65.73 | 5/8 | VALUABLE FAILURE |
 | 2 | 103a   | A: learned rho      | 65.47 | 5/8 | VALUABLE FAILURE |
+| 3 | 103a_v2| A: clamped rho 0.6-0.95 | 66.20 | 5/8 | VALUABLE FAILURE |
 
 ---
 
@@ -38,6 +39,16 @@
 - **WHY**: CRPS-optimal rho ≈ 0.29 produces poor KS. Fixed rho=0.8 is a BETTER inductive bias.
 - **INSIGHT**: Tension between CRPS-optimal dynamics and distributional realism. Constrained rho ∈ [0.6, 0.9] might preserve both.
 - **Decision**: VALUABLE FAILURE — key insight about CRPS-optimal rho. Next: try 103a_v2 with clamped rho, or Direction C.
+
+### Iteration 3: Exp 103a_v2 — Clamped Learned Rho [0.6, 0.95]
+- **Direction**: A refinement
+- **Hypothesis**: Clamp rho to [0.6, 0.95] preserves KS quality while allowing condition-dependence.
+- **Result**: 5/8, score 66.20 (-0.11 vs baseline). Near-identical to baseline.
+- **Key**: Rho stuck at 0.703 — sigmoid+clamp creates gradient desert. No condition-dependence learned.
+- **Improvements**: Median bias 25/25 (perfect), catastrophic 547 (best). CI 90.8%.
+- **Suite 2**: Cell (4,0) WORSE at 97.7-98.3% (fixed rho=0.7 produces more over-spread than 0.8).
+- **WHY**: Effectively a fixed-rho=0.7 model. No information gained beyond confirming rho=0.7 is slightly worse than 0.8.
+- **Decision**: VALUABLE FAILURE. Direction A exhausted (attempts 2/3, but root cause clear: can't learn rho without distributional loss). Move to Direction C.
 
 ---
 

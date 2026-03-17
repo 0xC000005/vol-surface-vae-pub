@@ -1,11 +1,11 @@
 {
-  "iteration": 2,
-  "current_hypothesis": "Condition-dependent learned rho for AR noise. sigmoid(rho_head(condition)) replaces fixed rho=0.8. Model can learn to dampen noise correlation when delta momentum is too strong.",
-  "experiment_id": "103a",
+  "iteration": 3,
+  "current_hypothesis": "Clamp learned rho to [0.6, 0.95]. Preserves high-rho distributional quality (KS, kurtosis) while keeping condition-dependent variation (best-ever coint, conditionality from 103a).",
+  "experiment_id": "103a_v2",
   "training_status": "running",
   "training_pid": null,
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_learned_rho --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --lambda_cell_var 1.0 --freeze_after_epoch 10 --disable_early_stop --output_dir models/backfill/afcrps_103a --device cuda",
-  "base_commit": "6d6ade6",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_learned_rho --ar_learned_rho_min 0.6 --ar_learned_rho_max 0.95 --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --lambda_cell_var 1.0 --freeze_after_epoch 10 --disable_early_stop --output_dir models/backfill/afcrps_103a_v2 --device cuda",
+  "base_commit": "2f56a51",
   "started_at": "2026-03-17",
   "phase": "training"
 }

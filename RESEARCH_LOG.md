@@ -25873,3 +25873,34 @@ to counter CRPS's preference for low rho.
 - Or accept rho=0.8 as the right inductive bias and focus on other failure modes
 
 ---
+
+## 2026-03-17: Exp 103a_v2 — Clamped Learned Rho [0.6, 0.95]
+
+**Based on**: 103a (learned rho converged to 0.29, hurting KS).
+
+**Hypothesis**: Clamp learned rho to [0.6, 0.95] to preserve distributional quality
+while allowing condition-dependent variation.
+
+**Result**: 5/8, score 66.20 (near-baseline). Rho stuck at 0.703 — sigmoid+clamp creates
+gradient desert at boundaries. Model never learned condition-dependent variation.
+
+| Metric | 99m_v2 | 103a | 103a_v2 |
+|--------|--------|------|---------|
+| Score  | 66.31 | 65.47 | 66.20 |
+| CI 90% | 91.3% | 88.6% | 90.8% |
+| KS daily | 20/25 | 17/25 | 19/25 |
+| Kurtosis | 0.845 | 0.732 | 0.679 |
+| Coint | 0.675 | 0.791 | 0.742 |
+| Median | 18/25 | 24/25 | 25/25 |
+| Catastrophic | 576 | 808 | 547 |
+
+**Key insight**: The clamped sigmoid creates gradient desert — rho can't move within
+[0.6, 0.95] because sigmoid is already saturated at init. Would need different
+parameterization (linear + clamp, or scaled sigmoid) to make condition-dependence learnable
+within a constrained range. But the fundamental tension remains: CRPS wants low rho, data
+needs high rho. Without an explicit distributional loss, learned rho can't help.
+
+**Direction A status**: EXHAUSTED after 2 experiments. Root cause clear: CRPS-optimal noise
+dynamics ≠ distributionally realistic dynamics. Fixed rho=0.8 is the right inductive bias.
+
+---
