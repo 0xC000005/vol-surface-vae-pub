@@ -1,29 +1,44 @@
 [
   {
-    "name": "A: Learnable noise dampening",
-    "theory": "EXHAUSTED. CRPS-optimal rho ≈ 0.29 produces poor distributional properties (KS, kurtosis). Fixed rho=0.8 is the correct inductive bias. Clamped rho creates gradient desert.",
-    "target": "Suite 2",
-    "attempts": 2,
+    "name": "F: One-shot generation with mean-reversion loss",
+    "theory": "I2 proved GT is strongly mean-reverting (VR=0.21 at h=30) while model is super-diffusive (VR=0.51). AR frame-by-frame may dilute h=30 gradient through 30 sequential operations. One-shot Conv3D decoder (already exists in codebase as SinglePassDecoder) generates all 30 frames at once — CRPS loss at h=30 has direct gradient to the decoder. Combined with a variance ratio loss that penalizes VR>GT, this directly targets the mean-reversion gap.",
+    "target": "Suite 2 (per-horizon over-spread), mean-reversion dynamics",
+    "prediction": "Variance ratio at h=30 should decrease toward GT 0.21. Per-horizon CI should be more uniform. Growing uncertainty should still pass (one-shot can learn it from the CRPS trajectory).",
+    "risk": "The Conv3D one-shot decoder was abandoned early (Exp 89) because it lacked temporal coherence. May need to re-validate surface validity. Also increases model params (Conv3D backbone is bigger than FrameDecoder MLP).",
+    "implementation": "Reactivate SinglePassDecoder with afCRPS loss. Add VR loss: penalize var(sum of h changes) / (h * var(1-change)) at h=10,20,30 when it exceeds GT values.",
+    "attempts": 0,
     "max_attempts": 3,
-    "status": "exhausted",
-    "finding": "103a: rho→0.29, KS 17/25. 103a_v2: rho stuck at 0.703, score=baseline."
+    "status": "active"
   },
   {
-    "name": "B: Encoder-modulated per-cell noise scale",
-    "theory": "REDUNDANT with cell_spread — proven by 102a. Both condition→25 scalars on same path.",
-    "target": "Suite 7",
-    "attempts": 1,
+    "name": "G: Per-cell condition fan-out",
+    "theory": "I1 proved encoder uses ~5 of 128 dims with 123 spare. I2 showed mean-reversion half-life varies 50x across grid (1.8 to 91 days). Current shared 128-dim condition gives all 25 cells identical conditioning — model can't differentiate fast-reverting corners from slow-reverting center. Fan-out Linear(128, 25*32) gives each cell its own 32-dim condition vector from the SAME frozen encoder.",
+    "target": "Suite 7 (regime coverage per cell), spatially-varying dynamics",
+    "prediction": "Suite 7's 4 failing regime-cell combos should get cell-specific conditioning. Per-cell coverage spread should decrease.",
+    "risk": "25*32=800 additional parameters per cell query. May overfit with 4K training samples. Start with cell_cond_dim=16.",
+    "implementation": "Add cell_condition_head: Linear(bottleneck_dim, n_cells * cell_cond_dim). In FrameDecoder, each cell gets its own condition slice instead of shared condition.",
+    "attempts": 0,
     "max_attempts": 3,
-    "status": "active",
-    "finding": "102a: 1.4x range (GT: 35x). Kurtosis regressed. Better calibration but no suite flip."
+    "status": "active"
   },
   {
-    "name": "C: Non-anchored dynamics / level prediction",
-    "theory": "Additive iv_t = prev + vs*delta anchors all trajectories to history[-1]. KS on IV levels fails 0-1/25. A horizon-dependent drift head or mean-reversion to learned long-run mean could break anchor dependency.",
-    "target": "Suite 8 (distributional) — KS on IV levels",
-    "prediction": "KS on IV levels should improve from 0-1/25.",
-    "risk": "May break surface validity. CRPS rewards anchoring (best per-step prediction).",
-    "implementation": "Horizon-dependent drift head: drift_head(condition, horizon) → (25,) cumulative offset added at each step. Or: mean_revert_head(condition) → (25,) learned long-run mean, with iv_t pulled toward it.",
+    "name": "H: Fat-tail noise (Student-t)",
+    "theory": "I4 proved marginal bottleneck is distribution SHAPE (kurtosis/tails), not rank. GT kurtosis ~77 vs Gaussian 3. Orthogonalizing rank-1 samples to rank-5 did NOT improve Wasserstein. Student-t noise (df=4-6) produces heavier tails naturally, matching GT's fat-tailed per-cell daily change distributions.",
+    "target": "Suite 8 (KS daily changes, marginal shape)",
+    "prediction": "Per-cell kurtosis ratio should improve. KS daily should increase from 20/25. Student-t with df=4 has kurtosis=inf (too heavy) — df=6 gives kurtosis=6 (closer to GT).",
+    "risk": "Student-t config option already exists (noise_dist='student_t', student_t_df=4.0) but was never tested with the full 99m_v2 recipe. May interact badly with cell_var_loss.",
+    "implementation": "Just add --noise_dist student_t --student_t_df 6.0 to 99m_v2 training command. Zero code changes needed.",
+    "attempts": 0,
+    "max_attempts": 3,
+    "status": "active"
+  },
+  {
+    "name": "I: Explicit mean-reversion in AR decoder (per-cell theta)",
+    "theory": "I2 showed the FrameDecoder MLP does NOT learn mean-reversion (model ACF=+0.16 vs GT=-0.37). Instead of one-shot (Direction F), add explicit per-cell mean-reversion: delta += theta_head(condition) * (mu_head(condition) - prev). Unlike Exp 104a which had a single alpha, this has PER-CELL theta learned from condition, matching I2 finding that half-life varies 50x. Also cap alpha smaller (0.05 vs 104a's 0.2) to avoid kurtosis collapse.",
+    "target": "Suite 2 (over-spread from positive ACF), mean-reversion dynamics",
+    "prediction": "Model ACF should shift negative. VR at h=30 should decrease. Kurtosis should be preserved (smaller alpha cap).",
+    "risk": "104a showed mean-reversion dampens tails. Smaller alpha + per-cell theta may avoid this, but uncertain.",
+    "implementation": "Modify 104a code: mr_mu_head stays (128→25), replace single mr_alpha_head(128→1) with per-cell mr_theta_head(128→25). Cap at 0.05 instead of 0.2.",
     "attempts": 0,
     "max_attempts": 3,
     "status": "active"

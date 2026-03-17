@@ -1,9 +1,9 @@
 {
-  "iteration": 7,
-  "current_hypothesis": "Higher ES weight (lambda_es=5.0 vs 1.0). ES is the only cross-cell loss. Stronger ES = stronger decorrelation pressure, counteracting CRPS noise suppression.",
-  "experiment_id": "106a",
-  "training_status": "running",
-  "base_commit": "06138dd",
+  "iteration": 9,
+  "current_hypothesis": "Student-t noise (df=6) for fat-tailed per-cell distributions. Zero code change, just hyperparameter. Directly addresses I4 finding that marginal bottleneck is tail shape.",
+  "experiment_id": "108a",
+  "training_status": "starting",
+  "base_commit": "5c81156",
   "started_at": "2026-03-17",
-  "phase": "training"
+  "phase": "hypothesize"
 }
