@@ -1,9 +1,9 @@
 {
-  "iteration": 6,
-  "current_hypothesis": "Freeze at ep7 (between ep5=underfitting and ep10=corr drift). 60 total epochs. Kurtosis should remain near 0.91 while conditionality recovers.",
-  "experiment_id": "105a_v2",
+  "iteration": 7,
+  "current_hypothesis": "Higher ES weight (lambda_es=5.0 vs 1.0). ES is the only cross-cell loss. Stronger ES = stronger decorrelation pressure, counteracting CRPS noise suppression.",
+  "experiment_id": "106a",
   "training_status": "running",
-  "base_commit": "da22ab9",
+  "base_commit": "06138dd",
   "started_at": "2026-03-17",
   "phase": "training"
 }
