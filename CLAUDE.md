@@ -4,177 +4,154 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Standing Directives (ALWAYS ACTIVE)
 
-1. **HEDA Cycle**: Follow the Hypothesize → Experiment → Document → Analyze loop.
+1. **HEDA Cycle**: Hypothesize → Experiment → Document → Analyze.
    After each experiment, IMMEDIATELY document results in RESEARCH_LOG.md before moving on.
 2. **Don't stop** until ALL 8 test suites PASS on the raw model (no conformal), or you have
-   exhausted all reasonable hypotheses. Check the **todo list** for current hypotheses and
-   **MEMORY.md** for accumulated findings. After context compaction, recover state from these.
-3. **Bitter Lesson**: Prefer approaches that scale with compute. No hand-tuned post-hoc fixes.
-   No assumptions about the data — everything must be LEARNED from data. No precomputed
-   per-cell/per-tenor constants, no data-derived lookup tables, no domain-specific heuristics.
-   The method must generalize to any conditional scenario generation problem (IV, rates, FX, etc.).
+   exhausted all reasonable hypotheses. Check **MEMORY.md** for accumulated findings.
+3. **Bitter Lesson**: Everything LEARNED from data. No per-cell/per-tenor constants, no
+   data-derived lookup tables, no domain-specific heuristics. Must generalize to any
+   conditional scenario generation problem (IV, rates, FX, etc.).
+4. **Autoresearch auto-resume**: If `autoresearch-session/current_state.json` exists,
+   an autoresearch loop is active. Invoke the `autoresearch` skill and follow its
+   Context Recovery Protocol to resume. Check for running training processes first.
 
 ## Project Overview
 
-**Branch: `diffusion-poc-v1`** - DDPM-based approach for multi-horizon IV surface forecasting.
+**Branch: `diffusion-poc-v1`** — Single-pass afCRPS ensemble for multi-horizon IV surface forecasting.
 
-This codebase implements generative models for volatility surface forecasting. The **diffusion approach** addresses fundamental VAE limitations in sample diversity, achieving 81.7% CI coverage vs 33% VAE baseline.
+Two-phase pipeline:
+1. **Pretrained encoder** (DDPM with MSE): `models/backfill/block_ar_vol_scaled_30ep/best_model.pt`
+2. **afCRPS fine-tuning**: Freeze encoder, train decoder with CRPS + auxiliary losses
 
-For research rationale and architecture decisions, see `RESEARCH_LOG.md`.
+Current best: **5/8 test suites PASS** (confirmed ceiling after 43+ experiments). Best models:
+- **97a+qmap** (best CI: 93.6%, production recommended)
+- **99m_v2** (best factor structure: eff_rank 2.66, kurtosis 0.845)
+- **99l_v3** (best correlation: corr 0.60, coint 0.93)
+- **99j_v3** (best per-cell KS: 24/25)
 
 ## Research Log
 
-The research log is in `RESEARCH_LOG.md` (25,000+ lines). **Never read the full file.** Use the `research-log` skill (MCP semantic search or targeted Read) to retrieve past findings. The skill is invoked automatically when you need to search or append to the log.
-
-## Repository Structure
-
-```
-vol-surface-vae-pub/
-├── diffusion/              # Core DDPM implementation (PRIMARY)
-│   ├── ddpm_scheduler.py   # Forward/reverse diffusion, DDPM & DDIM sampling
-│   ├── simple_denoiser.py  # 3D denoiser, ConditionalDDPM wrapper
-│   └── time_embedding.py   # Sinusoidal encoding, AdaptiveGroupNorm (FiLM)
-├── experiments/backfill/diffusion_poc/  # DDPM experiments
-│   ├── train_ddpm_poc.py   # Training script
-│   ├── test_ddpm_requirements.py  # Full validation (4 test suites)
-│   ├── test_progressive_sampling.py  # CI calibration tests
-│   ├── config_ddpm_poc.py  # Configuration
-│   └── metrics/            # FSD (Fréchet Surface Distance) metric
-├── vae/                    # VAE baseline (for comparison)
-├── data/                   # Input data files
-├── models/backfill/ddpm_poc/  # DDPM checkpoints
-└── results/ddpm_poc/       # Generated results
-```
+`RESEARCH_LOG.md` is 25,000+ lines. **Never read the full file.** Use the `research-log` skill
+(MCP semantic search or targeted Read with offset/limit).
 
 ## Development Environment
 
-- Uses `uv` for Python (>=3.13): `uv sync`
-- Key packages: PyTorch, NumPy, scipy, matplotlib
-- **Run all scripts from repository root**
+- Python >=3.13 via `uv`: `uv sync`
+- **Run all scripts from repo root** with `PYTHONPATH=.`
+- GPU: RTX 3070 Ti (8 GB) — can fit 2 concurrent training jobs
 
-## Diffusion Module (diffusion/)
-
-### Architecture
-
-**ConditionalDDPM** generates 30-day IV surface sequences conditioned on 30-day history:
+## Architecture (afCRPS Single-Pass)
 
 ```
-History (30×5×5) → HistoryEncoder → condition (128-dim)
-                                         ↓
-Noise (30×5×5) + Time Embedding → SimpleDenoiser3D → Predicted Noise
-                                         ↓
-                              Reverse Diffusion (DDIM 20 steps)
-                                         ↓
-                              Future Surfaces (30×5×5)
+History (30×5×5) → GRUEncoder → condition (128-dim)
+                                     ↓
+Noise z~N(0,I) → NoiseMLP → noise_embed
+                                     ↓
+         AR Frame Loop (30 steps):
+           prev_frame + condition + noise → FrameDecoder → delta
+           iv_{t+1} = iv_t + vol_scale × cell_spread × delta + skip(z)
+                                     ↓
+                          K ensemble members → (B, K, 30, 5, 5)
 ```
 
-**Key Components:**
-- `DDPMScheduler`: Cosine noise schedule, supports DDPM (all steps) and DDIM (accelerated)
-- `SimpleDenoiser3D`: 4 ResBlocks with AdaptiveGroupNorm for time/condition injection
-- `HistoryEncoder`: Reuses `CausalConv3d` from VAE for temporal encoding
+**Key classes** (all in `diffusion/block_ar/single_pass_ar.py`):
+- `SinglePassBlockAR`: Main model, `SinglePassConfig` (dataclass, ~100 hyperparams)
+- `FrameDecoder`: Per-frame MLP (hidden=128, zero-init output)
+- `GRUEncoder` (in `gru_encoder.py`): GRU(25→64) + attention pool → bottleneck(128)
 
-**Data Normalization:** IV surfaces normalized to [-1, 1] following Ho et al. 2020.
+**Noise process**: AR(1) with `rho=0.8`: `z_{t+1} = 0.8·z_t + √0.36·ε`
 
-### Common Commands
+## Common Commands
 
 ```bash
-# Train DDPM (50 epochs, ~2 hours on GPU)
-python experiments/backfill/diffusion_poc/train_ddpm_poc.py --epochs 50
+# Train afCRPS (best recipe: 99m_v2 settings)
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 60 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_XXX --device cuda
 
-# Quick training test
-python experiments/backfill/diffusion_poc/train_ddpm_poc.py --fast
+# Full validation (8 test suites, ~5 min)
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements.py \
+    --model_path models/backfill/afcrps_XXX/best_model.pt \
+    --no_ema --max_batches 20 --n_samples 50 \
+    --output_dir results/block_ar/XXX_30d --device cuda
 
-# Full validation (surface validity, CI coverage, marginals, time series)
-python experiments/backfill/diffusion_poc/test_ddpm_requirements.py \
-    --model_path models/backfill/ddpm_poc/checkpoint_epoch_50.pt \
-    --sampler ddim --ddim_steps 20 --max_batches 20
-
-# Progressive sampling with FSD metric
-python experiments/backfill/diffusion_poc/test_progressive_sampling.py \
-    --max_batches 15 --n_samples 50 --compute_fsd
+# Long-horizon test (252-day)
+PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py \
+    --model_path models/backfill/afcrps_XXX/best_model.pt \
+    --no_ema --max_batches 10 --n_samples 50 --device cuda
 ```
 
-### Key Results
+## Validation Test Suites (8)
 
-| Metric | VAE Baseline | DDPM POC |
-|--------|--------------|----------|
-| 90% CI Coverage | 33% | **81.7%** |
-| Out-of-range rate | N/A | 0% |
-| Kurtosis ratio | N/A | 0.45 (target: 0.5-2.0) |
+`test_block_ar_requirements.py` outputs `summary.json` with pass/fail for each:
 
-**Progressive Noise Results (h=30):**
-| Method | CI Coverage | CI Width Ratio |
-|--------|-------------|----------------|
-| Uniform DDPM | 86.5% | 1.01 |
-| Post-hoc noise | **95.5%** | 1.19 |
-
-**FSD (Fréchet Surface Distance):** Measures distributional realism. Lower = better.
-- FSD-Encoder: 4.338 (uniform) vs 4.377 (progressive) - nearly identical
-- Post-hoc noise improves CI calibration without hurting realism
-
-### Validation Test Suites
-
-`test_ddpm_requirements.py` runs 4 test suites:
-
-1. **Surface Validity**: Explosion rate, calendar/butterfly arbitrage, smile symmetry
-2. **CI Coverage**: Per-horizon (h=1,7,14,30), calibration curve
-3. **Marginal Recovery**: K-S test, mean/std comparison
-4. **Time Series**: ACF preservation, vol clustering, kurtosis matching
-
-### Why DDPM Beats VAE
-
-VAE decoder learns `μ_θ(z,x) ≈ E[y|z,x]` (conditional mean), squashing variance. DDPM samples directly in output space - different noise seeds → genuinely different trajectories.
-
-**Remaining Issues:**
-- Butterfly arbitrage: 24% (target: <5%)
-- Kurtosis ratio: 0.45 (target: 0.5-2.0)
-
-**Next Steps:** Hierarchical regime sampling, Diffusion Forcing training
-
-## Data Format
-
-**Input:** `data/vol_surface_with_ret.npz`
-- `surface`: (N, 5, 5) - 5×5 IV grids (moneyness × tenor)
-- `ret`: (N,) - Daily returns
-
-**DDPM Training Data:**
-- History: (B, 30, 5, 5) - 30 days context
-- Future: (B, 30, 5, 5) - 30 days to predict
+1. **Surface Validity**: Explosion rate, calendar/butterfly arbitrage
+2. **CI Coverage**: Per-horizon + per-cell 90% CI (worst_cell_pass is the hard gate)
+3. **Conditionality**: Turb/calm width ratio (>1.15), per-cell MAE reduction
+4. **Time Series**: ACF correlation, kurtosis ratio (0.5-2.0)
+5. **Block-AR Boundary**: Smoothness, growing uncertainty (monotonic with horizon)
+6. **Cointegration**: Cell-cell cointegration pass rate
+7. **Regime Coverage**: Per-regime per-cell CI (3-layer: horizon → regime → cell)
+8. **Distributional**: KS on daily changes, KS on IV levels, median bias
 
 ## Loading Models
 
 ```python
 import torch
-from diffusion.simple_denoiser import ConditionalDDPM, DenoiserConfig
+from diffusion.block_ar.single_pass_ar import SinglePassBlockAR, SinglePassConfig
 
-checkpoint = torch.load("models/backfill/ddpm_poc/checkpoint_epoch_50.pt", weights_only=False)
-model = ConditionalDDPM(DenoiserConfig(**checkpoint["config"]))
+checkpoint = torch.load("models/backfill/afcrps_XXX/best_model.pt", weights_only=False)
+model = SinglePassBlockAR(SinglePassConfig(**checkpoint["config"]))
 model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Generate samples
-samples = model.sample(history, n_samples=50, sampler="ddim", n_inference_steps=20)
-# samples: (B, n_samples, 30, 5, 5)
+samples = model.sample(history, n_samples=50)  # (B, 50, 30, 5, 5)
 ```
 
-## Import Structure
+## Data Format
 
-```python
-from diffusion.simple_denoiser import ConditionalDDPM, DenoiserConfig, denormalize_iv
-from diffusion.ddpm_scheduler import DDPMScheduler
-from experiments.backfill.diffusion_poc.config_ddpm_poc import get_default_config
-from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
-from experiments.backfill.diffusion_poc.metrics import compute_fsd, extract_domain_features
-```
+**Input:** `data/vol_surface_with_ret.npz`
+- `surface`: (N, 5, 5) — 5×5 IV grids (moneyness × tenor)
+- `ret`: (N,) — Daily SPX returns
 
-## VAE Baseline (Reference)
+Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding window.
 
-The `vae/` module contains the VAE baseline for comparison. Key model: `CVAEMemRand`.
+## Key Gotchas
 
-VAE achieves only 33% CI coverage due to decoder variance squashing. See `vae/README.md` for details.
+- **Always use `--no_ema`** — EMA destroys conditionality on small models
+- **`sample_batched()`** folds n_samples into batch dim — 9.4x speedup over loop
+- **Freeze-after-epoch**: MLP freeze at epoch 10 preserves cross-cell correlation (GT: 0.38)
+  Without freeze, CRPS pulls correlation to 0.88 (rank-1 attractor)
+- **rho=0.8 is essential**: Lower values break growing uncertainty and cointegration
+- **Returns are useless**: `Corr(ret_t, IV_{t+1})` = 0.001. The -0.81 leverage effect is
+  concurrent (same-day), not predictive. Encoder correctly ignores them.
+- **GT data floor**: Calendar arb 7.0%, Butterfly arb 20.1% — these are NOT model failures
 
 ## Path Conventions
 
-- DDPM checkpoints: `models/backfill/ddpm_poc/checkpoint_epoch_*.pt`
-- DDPM results: `results/ddpm_poc/`
+- Pretrained encoder: `models/backfill/block_ar_vol_scaled_30ep/best_model.pt`
+- afCRPS checkpoints: `models/backfill/afcrps_*/best_model.pt`
+- Test results: `results/block_ar/*/summary.json`
 - Data: `data/vol_surface_with_ret.npz`
+
+## Legacy Modules (Reference Only)
+
+- `diffusion/simple_denoiser.py`, `diffusion/ddpm_scheduler.py` — DDPM POC (superseded by afCRPS)
+- `vae/` — VAE baseline (33% CI coverage, for comparison only)
+- `experiments/backfill/diffusion_poc/` — DDPM POC experiments (superseded)
+
+## Disqualified Approaches (for raw model research)
+
+Per Bitter Lesson: no conformal calibration, no per-cell data-derived constants, no
+domain-specific heuristics. Everything must be learned end-to-end.
+
+**Exception**: Quantile mapping (qmap) is acceptable for production deployment (97a+qmap
+is the recommended production model). The Bitter Lesson constraint applies to research
+toward 6+/8 — post-hoc fixes don't count toward passing test suites.

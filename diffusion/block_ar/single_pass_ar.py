@@ -124,6 +124,10 @@ class SinglePassConfig:
     ar_noise_skip: bool = False          # per-cell noise skip connection (Exp 99b)
     ar_skip_bypass_spread: bool = False  # skip bypasses cell_spread (Exp 99j)
 
+    # Extra conditioning features (e.g. returns)
+    extra_features: int = 0              # number of extra encoder input features
+    return_scale: float = 0.05           # tanh(ret / return_scale) bounding
+
     # Output
     output_dir: str = "models/backfill/afcrps"
     device: str = "cuda"
@@ -524,6 +528,7 @@ class SinglePassBlockAR(nn.Module):
         # Encoder (same as DDPM)
         enc_config = EncoderConfig(
             input_dim=config.surface_h * config.surface_w,
+            extra_features=config.extra_features,
             gru_hidden_dim=config.gru_hidden_dim,
             bottleneck_dim=config.bottleneck_dim,
             dropout=config.encoder_dropout,
@@ -662,10 +667,16 @@ class SinglePassBlockAR(nn.Module):
 
     # ── GRU step-update helpers (for AR frame mode) ──
 
-    def _init_gru_state(self, history: torch.Tensor):
+    def _init_gru_state(self, history: torch.Tensor, extra_hist: Optional[torch.Tensor] = None):
         """Run GRU on history, return all hidden outputs + last hidden state."""
         B = history.shape[0]
         x = history.reshape(B, history.shape[1], -1)  # (B, T, 25)
+        if extra_hist is not None:
+            if extra_hist.dim() == 2:
+                extra_hist = extra_hist.unsqueeze(-1)  # (B, T) → (B, T, 1)
+            x = torch.cat([x, extra_hist], dim=-1)  # (B, T, 25+F)
+        elif self.config.extra_features > 0:
+            x = F.pad(x, (0, self.config.extra_features))  # zero-pad
         with torch.no_grad():
             all_outputs, h_last = self.encoder.gru(x)  # (B, T, H_gru), (1, B, H_gru)
         return all_outputs, h_last
@@ -675,6 +686,8 @@ class SinglePassBlockAR(nn.Module):
         """Feed one generated frame into GRU, recompute attention-pooled condition."""
         B = frame_iv.shape[0]
         x = normalize_iv(frame_iv).reshape(B, 1, -1)  # (B, 1, 25)
+        if self.config.extra_features > 0:
+            x = F.pad(x, (0, self.config.extra_features))  # (B, 1, 25+F) zero returns
         with torch.no_grad():
             new_output, h_last = self.encoder.gru(x, h_last)  # (B, 1, H_gru)
             all_outputs = torch.cat([all_outputs, new_output], dim=1)
@@ -769,6 +782,7 @@ class SinglePassBlockAR(nn.Module):
         history: torch.Tensor,
         n_frames: int,
         position_mode: str = "native",
+        extra_hist: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Sample one AR-frame trajectory in IV space."""
         B = history.shape[0]
@@ -785,8 +799,8 @@ class SinglePassBlockAR(nn.Module):
 
         z = self._sample_noise(B, device)
         z_t = z
-        gru_outputs, h_last = self._init_gru_state(history)
-        condition = self.encoder(history, mask=None)
+        gru_outputs, h_last = self._init_gru_state(history, extra_hist=extra_hist)
+        condition = self.encoder(history, mask=None, extra=extra_hist)
         prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
 
         frames = []
@@ -904,6 +918,7 @@ class SinglePassBlockAR(nn.Module):
         lambda_cum_cal: float = 0.0,
         n_train_blocks: int = 1,
         n_frames: int = 0,
+        extra_hist: Optional[torch.Tensor] = None,
     ) -> dict:
         """Training forward: generate K members, compute afCRPS.
 
@@ -960,11 +975,16 @@ class SinglePassBlockAR(nn.Module):
                 z_t = z
 
                 # Init GRU state from history
-                gru_outputs, h_last = self._init_gru_state(history)
+                gru_outputs, h_last = self._init_gru_state(history, extra_hist=extra_hist)
 
                 # Initial condition from full history
-                with torch.no_grad():
-                    condition = self.encoder(history, mask=None)
+                # When encoder is unfrozen (requires_grad), allow gradients
+                encoder_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
+                if encoder_unfrozen:
+                    condition = self.encoder(history, mask=None, extra=extra_hist)
+                else:
+                    with torch.no_grad():
+                        condition = self.encoder(history, mask=None, extra=extra_hist)
 
                 # prev_frame = last history frame in IV space
                 prev_frame = denormalize_iv(history[:, -1])  # (B, 5, 5)
@@ -984,8 +1004,8 @@ class SinglePassBlockAR(nn.Module):
                     )
                     prev_flat = prev_frame.reshape(B, H * W)
 
-                    # Generate delta (condition detached, prev_frame has gradient)
-                    cond_t = condition.detach()
+                    # Generate delta (condition detached when encoder frozen)
+                    cond_t = condition if encoder_unfrozen else condition.detach()
                     noise_input = self._get_noise_for_decoder(z_t)
                     delta = self.frame_decoder(
                         prev_flat, cond_t, noise_input, local_pos, horizon_bucket
@@ -1202,6 +1222,7 @@ class SinglePassBlockAR(nn.Module):
         self,
         history: torch.Tensor,
         n_samples: int = 50,
+        extra_hist: Optional[torch.Tensor] = None,
         **kwargs,  # ignore DDPM-specific args for compatibility
     ) -> torch.Tensor:
         """Generate ensemble of futures (compatible with test suite interface).
@@ -1209,6 +1230,7 @@ class SinglePassBlockAR(nn.Module):
         Args:
             history: (B, history_len, 5, 5) in [-1, 1]
             n_samples: Number of ensemble members
+            extra_hist: (B, history_len, F) optional extra features
 
         Returns:
             samples: (B, n_samples, future_len, 5, 5) in [0, 1]
@@ -1225,7 +1247,8 @@ class SinglePassBlockAR(nn.Module):
             for _ in range(n_samples):
                 all_samples.append(
                     self._sample_ar_frame_trajectory(
-                        history, n_frames=n_frames, position_mode=position_mode
+                        history, n_frames=n_frames, position_mode=position_mode,
+                        extra_hist=extra_hist,
                     )
                 )
 
@@ -1275,9 +1298,9 @@ class SinglePassBlockAR(nn.Module):
             samples = samples.clamp(0.0, 1.0)
             return samples
 
-    def sample_batched(self, *args, **kwargs):
+    def sample_batched(self, *args, extra_hist=None, **kwargs):
         """Alias for sample() — compatibility with test suite."""
-        return self.sample(*args, **kwargs)
+        return self.sample(*args, extra_hist=extra_hist, **kwargs)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1537,6 +1560,13 @@ def load_pretrained_weights(
                 if tgt_key in target_state:
                     if target_state[tgt_key].shape == src_val.shape:
                         target_state[tgt_key] = src_val
+                        stats["transferred"] += 1
+                    elif (tgt_key == "encoder.gru.weight_ih_l0"
+                          and target_state[tgt_key].shape[0] == src_val.shape[0]
+                          and target_state[tgt_key].shape[1] > src_val.shape[1]):
+                        # GRU input weight expanded by extra_features — copy first N columns
+                        target_state[tgt_key].zero_()  # zero all, then copy pretrained
+                        target_state[tgt_key][:, :src_val.shape[1]] = src_val
                         stats["transferred"] += 1
                     else:
                         stats["skipped"] += 1

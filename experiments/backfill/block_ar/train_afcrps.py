@@ -144,6 +144,9 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     for batch in loader:
         history = batch["history"].to(device)
         future = batch["future"].to(device)
+        extra_hist = batch.get("history_returns")
+        if extra_hist is not None:
+            extra_hist = extra_hist.to(device)
 
         result = model(history, future, n_members=n_members, lambda_vs=lambda_vs,
                        lambda_is=lambda_is, lambda_cs_reg=lambda_cs_reg,
@@ -151,7 +154,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        lambda_cell_var=lambda_cell_var,
                        lambda_cum_cal=lambda_cum_cal,
                        n_train_blocks=n_train_blocks,
-                       n_frames=n_frames)
+                       n_frames=n_frames,
+                       extra_hist=extra_hist)
         loss = result["loss"]
 
         optimizer.zero_grad()
@@ -205,7 +209,10 @@ def validate(model, loader, device, n_members):
     for batch in loader:
         history = batch["history"].to(device)
         future = batch["future"].to(device)
-        result = model(history, future, n_members=n_members)
+        extra_hist = batch.get("history_returns")
+        if extra_hist is not None:
+            extra_hist = extra_hist.to(device)
+        result = model(history, future, n_members=n_members, extra_hist=extra_hist)
         total_loss += result["loss"].item()
         total_mae += result["mae"].item()
         total_spread += result["spread"].item()
@@ -233,8 +240,11 @@ def quick_eval(model, loader, device, n_samples=50, max_batches=5):
             break
         history = batch["history"].to(device)
         future = batch["future"].to(device)
+        extra_hist = batch.get("history_returns")
+        if extra_hist is not None:
+            extra_hist = extra_hist.to(device)
 
-        samples = model.sample(history, n_samples=n_samples)  # (B, K, 30, 5, 5)
+        samples = model.sample(history, n_samples=n_samples, extra_hist=extra_hist)  # (B, K, 30, 5, 5)
         gt = denormalize_iv(future)  # (B, 30, 5, 5)
 
         # 90% CI coverage
@@ -377,6 +387,8 @@ def main():
                         help="Logit-space dynamics: iv = sigmoid(logit(prev) + vs * delta)")
     parser.add_argument("--ar_logit_jac", action="store_true",
                         help="Logit + Jacobian: iv = sigmoid(logit(prev) + vs*delta/(prev*(1-prev)))")
+    parser.add_argument("--ar_frame_rho", type=float, default=0.8,
+                        help="AR noise temporal correlation (default: 0.8, 0.0=iid)")
     parser.add_argument("--ar_reflect", action="store_true",
                         help="Reflecting boundaries: bounce off [floor, 1.0] instead of clamping")
     parser.add_argument("--ar_factor_noise", action="store_true",
@@ -407,6 +419,10 @@ def main():
                         help="Per-cell noise skip connection bypassing shared MLP (Exp 99b)")
     parser.add_argument("--ar_skip_bypass_spread", action="store_true",
                         help="Skip connection bypasses cell_spread (Exp 99j)")
+    parser.add_argument("--extra_features", type=int, default=0,
+                        help="Number of extra encoder features (e.g. 1 for returns)")
+    parser.add_argument("--return_scale", type=float, default=0.05,
+                        help="Scale for tanh bounding of returns: tanh(ret / scale)")
     parser.add_argument("--freeze_after_epoch", type=int, default=0,
                         help="Freeze frame_decoder MLP after this epoch, keep only skip/vol_scale/spread trainable (0=disabled)")
     parser.add_argument("--freeze_spread_too", action="store_true",
@@ -539,6 +555,7 @@ def main():
         ar_frame_log_space=args.ar_log_space,
         ar_frame_logit_space=getattr(args, 'ar_logit_space', False),
         ar_frame_logit_jac=getattr(args, 'ar_logit_jac', False),
+        ar_frame_rho=args.ar_frame_rho,
         ar_frame_reflect=getattr(args, 'ar_reflect', False),
         ar_factor_noise=args.ar_factor_noise,
         ar_n_factors=args.ar_n_factors,
@@ -554,6 +571,8 @@ def main():
         ar_cell_hidden=args.ar_cell_hidden,
         ar_noise_skip=args.ar_noise_skip,
         ar_skip_bypass_spread=args.ar_skip_bypass_spread,
+        extra_features=args.extra_features,
+        return_scale=args.return_scale,
         output_dir=args.output_dir,
         device=args.device,
     )
@@ -573,6 +592,14 @@ def main():
             if key.startswith("encoder."):
                 if key in tgt_state and tgt_state[key].shape == val.shape:
                     tgt_state[key] = val
+                    enc_transferred += 1
+                elif (key == "encoder.gru.weight_ih_l0"
+                      and key in tgt_state
+                      and tgt_state[key].shape[0] == val.shape[0]
+                      and tgt_state[key].shape[1] > val.shape[1]):
+                    # GRU input expanded by extra_features — zero then partial copy
+                    tgt_state[key].zero_()
+                    tgt_state[key][:, :val.shape[1]] = val
                     enc_transferred += 1
         model.load_state_dict(tgt_state)
         print(f"Scratch init: transferred {enc_transferred} encoder params")
@@ -699,13 +726,18 @@ def main():
     # Dataset
     data = np.load("data/vol_surface_with_ret.npz")
     surfaces = data["surface"]
+    returns = data["ret"] if args.extra_features > 0 else None
+    if returns is not None:
+        print(f"Returns loaded: {returns.shape}, scale={args.return_scale}")
     train_dataset = VolSurfaceDataset(
         surfaces, config.history_len, config.future_len,
         start_idx=0, end_idx=4040,
+        returns=returns, return_scale=args.return_scale,
     )
     val_dataset = VolSurfaceDataset(
         surfaces, config.history_len, config.future_len,
         start_idx=4040, end_idx=4540,
+        returns=returns, return_scale=args.return_scale,
     )
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)

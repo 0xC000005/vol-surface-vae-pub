@@ -15,6 +15,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from vae.causal_3d_blocks import CausalConv3d, ResnetBlockCausal3D
 
@@ -22,6 +23,7 @@ from vae.causal_3d_blocks import CausalConv3d, ResnetBlockCausal3D
 @dataclass
 class EncoderConfig:
     input_dim: int = 25
+    extra_features: int = 0  # additional input features (e.g. returns)
     gru_hidden_dim: int = 64
     bottleneck_dim: int = 64
     cond_aug_sigma: float = 0.0
@@ -33,7 +35,7 @@ class GRUEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.gru = nn.GRU(
-            input_size=config.input_dim,
+            input_size=config.input_dim + config.extra_features,
             hidden_size=config.gru_hidden_dim,
             batch_first=True,
         )
@@ -45,7 +47,10 @@ class GRUEncoder(nn.Module):
         self.cond_aug_sigma = config.cond_aug_sigma
 
     def forward(
-        self, surfaces: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self,
+        surfaces: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        extra: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Encode IV surface sequence into bottleneck conditioning vector.
@@ -56,6 +61,8 @@ class GRUEncoder(nn.Module):
         Args:
             surfaces: (B, T, 5, 5) IV surfaces in [-1, 1]
             mask: (B,) bool tensor or None. True = replace with null_embedding.
+            extra: (B, T, F) optional extra features (e.g. bounded returns).
+                   If None and extra_features > 0, zero-padded automatically.
 
         Returns:
             (B, bottleneck_dim) conditioning vector
@@ -64,6 +71,14 @@ class GRUEncoder(nn.Module):
 
         # Flatten spatial dims: (B, T, 5, 5) -> (B, T, 25)
         x = surfaces.reshape(B, surfaces.shape[1], -1)
+
+        # Concatenate extra features if provided
+        if extra is not None:
+            if extra.dim() == 2:
+                extra = extra.unsqueeze(-1)  # (B, T) → (B, T, 1)
+            x = torch.cat([x, extra], dim=-1)  # (B, T, 25+F)
+        elif self.config.extra_features > 0:
+            x = F.pad(x, (0, self.config.extra_features))  # zero-pad
 
         # GRU forward — use ALL hidden states, not just final
         output, _ = self.gru(x)  # output: (B, T, gru_hidden_dim)

@@ -25152,3 +25152,541 @@ inherent to the model's limited capacity and GRU encoder.
 - Much larger model (>500K params, deeper MLP, attention-based decoder)
 - Non-autoregressive architecture for the noise pathway
 - Per-regime per-cell variance modeling
+
+## 2026-03-10: Exp 100a — Return-Conditioned Encoder (SPX Returns as 26th Input)
+
+### Motivation
+
+The model generates IV surface scenarios conditioned ONLY on 30-day IV history, ignoring
+SPX daily returns which have **-0.81 correlation** with IV changes (leverage effect). This
+is a massive conditioning signal being wasted. Adding returns as a 26th GRU input feature
+tests whether expanded data improves scenario generation quality.
+
+**Bitter Lesson approach**: Returns are unbounded → one bounding step: `tanh(ret / 0.05)`
+maps to [-1, 1] matching normalized IV range. No elaborate preprocessing, no extra decoder
+head. The method must generalize to any additional feature (rates, FX, credit spreads).
+
+### Architecture Change
+
+```
+BEFORE:  IV history (B, 30, 25) → GRU(25→64) → attention pool → bottleneck → condition (B, 128)
+AFTER:   IV history (B, 30, 25) cat returns (B, 30, 1) → GRU(26→64) → same → condition (B, 128)
+```
+
+Decoder, loss, AR frame loop — all UNCHANGED. Only the encoder input widens by 1.
+
+### Implementation (6 files modified)
+
+1. **`diffusion/block_ar/gru_encoder.py`**: Added `extra_features: int = 0` to EncoderConfig,
+   expanded GRU `input_size` to `input_dim + extra_features`, added `extra` parameter to
+   `forward()` with auto zero-pad fallback when extra_features > 0 but no extra tensor given.
+
+2. **`diffusion/block_ar/single_pass_ar.py`**: Added `extra_features` and `return_scale` to
+   SinglePassConfig. Threaded `extra_hist` through `_init_gru_state` (accepts extra),
+   `_gru_step` (zero-pads for generated frames — returns unavailable during generation),
+   `_sample_ar_frame_trajectory`, `forward()`, `sample()`, and `sample_batched()`.
+   Made encoder `torch.no_grad()`/`detach()` conditional on `requires_grad` status —
+   when encoder is unfrozen, gradients flow through condition to GRU.
+   Added partial GRU weight loading in `load_pretrained_weights`: copies first 25 columns
+   of `weight_ih_l0` from pretrained, zero-inits column 26. Verified: zero extra_features
+   gives identical output to pretrained (diff ~1e-7).
+
+3. **`experiments/backfill/diffusion_poc/train_ddpm_poc.py`**: Added `returns` and
+   `return_scale` params to `VolSurfaceDataset.__init__`, returns `history_returns` with
+   `tanh(ret/scale)` bounding in `__getitem__`.
+
+4. **`experiments/backfill/block_ar/train_afcrps.py`**: Added `--extra_features` and
+   `--return_scale` CLI args. Loads `data["ret"]` from NPZ when extra_features > 0.
+   Passes `extra_hist` through train_epoch, validate, and quick_eval loops.
+
+5. **`experiments/backfill/block_ar/test_block_ar_requirements.py`**: Auto-detects
+   `extra_features` from model config, loads returns into dataset, passes `extra_hist`
+   through `generate_all_samples` and conditionality test.
+
+6. **`experiments/backfill/block_ar/test_long_horizon.py`**: Same auto-detection,
+   passes `extra_hist` through `sample_long_horizon`.
+
+### Training
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 40 --batch_size 8 --noise_dim 32 --n_members 4 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --extra_features 1 --return_scale 0.05 \
+    --unfreeze_encoder --lr_encoder 1e-4 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_100a --device cuda
+```
+
+76,195 params (all trainable, encoder unfrozen). 40 epochs × 48s = 32 min.
+
+### Training Dynamics
+
+| Epoch | Val Loss | CI% | Cross-cell Corr | Eff Rank | PC1 |
+|-------|----------|-----|-----------------|----------|-----|
+| 1     | 21.63    | 96.5| 0.340           | 1.57     | 79.2|
+| 10    | 20.80    | 95.5| **0.389 (GT!)**  | **2.35** | 62.6|
+| 20    | 19.19    | 96.5| 0.483           | 1.85     | 71.5|
+| 40    | 17.29    | 92.9| 0.756           | 1.41     | 83.3|
+| GT    | —        | 90  | 0.38            | 2.61     | 59  |
+
+**Critical observation**: At epoch 10, the model hit near-perfect factor structure
+(corr=0.389 ≈ GT 0.38, eff_rank=2.35 ≈ GT 2.61). Continued CRPS training then pulled
+correlation back toward rank-1. This is the same pattern seen in 99l (freeze-at-peak).
+
+### Test Suite Results (30-Day, ep39 best_model)
+
+| # | Suite | Result | Key Metrics |
+|---|-------|--------|-------------|
+| 1 | Surface Validity | **PASS** | Explosion: 0%, Calendar: 7.0%, Butterfly: 21.8% |
+| 2 | CI Coverage | **FAIL** | Overall: 87.0%. h=1: 71.7% (FAIL >80%). Worst cell (0,2)=57.2% |
+| 3 | Conditionality | **FAIL** | Turb/calm=1.565 PASS. Worst cell MAE red=-13.8% (cell 0,4) FAIL |
+| 4 | Time Series | **PASS** | ACF corr: 0.933, Kurtosis ratio: 0.890 |
+| 5 | Block Boundary | **PASS** | Boundary smoothness: 1.005 |
+| 6 | Cointegration | **PASS** | Gen/GT ratio: 0.537 |
+| 7 | Regime Coverage | **FAIL** | Layer 1: calm h=1=63.2% FAIL. Layer 2: worst cell 46.1% FAIL |
+| 8 | Distributional | **FAIL** | KS daily: 23/25 PASS. KS IV levels: 0/25 FAIL |
+
+**Score: 4/8 — regression from 5/8 baseline.**
+
+### Comparison with 99m_v2 (5/8 best balanced)
+
+| Metric | 100a | 99m_v2 | Better |
+|--------|------|--------|--------|
+| Test suites passed | 4/8 | 5/8 | 99m_v2 |
+| Overall CI | 87.0% | 91.3% | 99m_v2 |
+| h=1 CI | 71.7% | 84.8% | 99m_v2 |
+| KS daily changes | 23/25 | 20/25 | **100a** |
+| Kurtosis ratio | 0.890 | 0.845 | **100a** |
+| Turb/calm width | 1.565 | 1.51 | **100a** |
+| Spearman h=1 | 0.958 | 0.82-0.89 | **100a** |
+| Cross-cell corr | 0.756 | 0.61 | 99m_v2 |
+| Eff rank | 1.41 | 2.66 | 99m_v2 |
+| Coint ratio | 0.537 | 0.675 | 99m_v2 |
+
+### Analysis
+
+**What returns improved:**
+- **Regime sensitivity** massively better: Spearman 0.958 at h=1 (vs 0.82-0.89 in 99m_v2).
+  Returns ARE the regime signal — model can now directly see market moves.
+- **Turb/calm width ratio**: 1.565 (best ever, vs 1.51 99m_v2)
+- **P90/P10 width ratio at h=1**: 2.825x (vs 2.36x in 99m_v2) — wider dynamic range
+- **KS daily changes**: 23/25 (vs 20/25) — better per-cell distributional match
+- **Kurtosis**: 0.890 (vs 0.845) — more realistic tail behavior
+
+**What regressed:**
+- **Suite 3 conditionality FAIL**: Cell (0,4) has -13.8% MAE reduction. This short-tenor
+  deep-OTM corner cell is actually worse WITH conditioning. Possible cause: return signal
+  is wrong-sign or irrelevant for extreme moneyness corners.
+- **h=1 CI coverage dropped to 71.7%** (vs 84.8%). The unfrozen encoder may have learned
+  to over-differentiate h=1 responses, creating under-spread for some windows.
+- **Cross-cell correlation drifted**: Started at GT-match (0.389 at ep10) but CRPS pulled
+  it to 0.756 by ep40. Without freeze-at-peak, the rank-1 attractor dominates.
+
+**Root cause of regression**: Training too long without freezing. At ep10 the model had
+near-perfect factor structure AND returns conditioning. By ep40, CRPS destroyed the
+correlation structure and the overfit encoder created per-cell imbalances.
+
+### Next Steps
+
+1. **Exp 100b**: Same setup + `--freeze_after_epoch 10` — freeze MLP at the correlation
+   sweet spot while keeping skip/cell_spread trainable. This is the proven strategy from
+   99l that preserved GT-level correlation.
+2. Check if conditionality failure at cell (0,4) persists after freeze (ep10 model may
+   not have the overfit pattern yet).
+3. If 100b works, try qmap on top for Suite 2 CI calibration.
+
+### FUNDAMENTAL FINDING: Returns Are Redundant with IV History (2026-03-10)
+
+Deep root cause analysis reveals that **SPX returns carry ZERO predictive information for
+future IV changes** beyond what IV history already encodes.
+
+**Evidence:**
+
+1. **Concurrent, not predictive correlation**: The -0.81 "leverage effect" correlation is
+   between `return_t` and `IV_change_t` (SAME DAY). The predictive correlation
+   `Corr(return_t, IV_change_{t+1})` = **0.001** (effectively zero).
+
+2. **Partial correlation**: After controlling for historical vol-of-vol (rolling 30-day std
+   of IV changes), the partial correlation of |return| with future volatility = **0.079**
+   (negligible).
+
+3. **Marginal R²**: Adding 30 days of returns to 30 days of IV history for predicting
+   future 30-day average volatility: R² gain = **0.0023** (0.2%).
+
+4. **Model correctly ignored returns**: 100a encoder condition cosine similarity between
+   real returns and zero returns = **1.0000**. GRU return column weight norm = 0.57 vs
+   IV column weights = 7.21 (7.9% ratio). The encoder learned returns are useless.
+
+**Why the -0.81 correlation was misleading**: The leverage effect is an instantaneous
+relationship. When the market drops 2% today, today's IV rises ~1.6 vols. But tomorrow's
+IV change is driven by tomorrow's return (which is unpredictable) and IV mean-reversion.
+The 30-day IV history ALREADY captures the regime state (recent volatility level, trend,
+vol-of-vol) — returns add nothing the model can't already see in IV.
+
+**Implication**: Exp 100a's regression from 5/8 to 4/8 was NOT caused by returns being
+harmful — they were simply irrelevant. The regression came from confounded training
+differences (N_members=4 vs 8, no freeze, unfrozen encoder with no useful signal to learn).
+
+**Lesson for multi-factor extension**: Before adding any new conditioning feature (rates,
+FX, credit spreads), first verify it has **predictive** (not just concurrent) correlation
+with future IV changes. Candidate features must pass:
+- `Corr(feature_t, IV_change_{t+k}) > 0.05` for some k ∈ [1, 30]
+- Marginal R² gain > 0.01 beyond IV history alone
+- Partial correlation significant after controlling for vol-of-vol
+
+## 2026-03-10: Exp 101a — AR Noise Correlation Ablation (rho=0.0 vs 0.8)
+
+### Discovery
+
+While investigating 100a regression, discovered that `ar_frame_rho=0.8` (AR(1) correlated
+noise process) was NEVER ablated in the afCRPS architecture, despite an early Block-AR DDPM
+ablation (Jan 2026) that conclusively showed **rho=0.0 beats rho=0.5** on all key metrics:
+- CI calibration: 0.084 vs 0.180 (2x better with iid noise)
+- Growing uncertainty: PASS vs FAIL
+- ACF correlation: 0.724 vs 0.524
+
+The `ar_frame_rho=0.8` default was set in `SinglePassConfig` when the afCRPS architecture
+was built, and all 35+ experiments since (91a-99n) used it without question.
+
+### Why rho Matters for Suite 2
+
+Suite 2 fails because cumulative variance grows super-diffusively (over-spread at h=7-30).
+Root cause analysis reveals the AR(1) noise process:
+
+```python
+z_{t+1} = 0.8 * z_t + sqrt(0.36) * eps_{t+1}
+```
+
+This creates lag-1 noise correlation of 0.8. Since the MLP is continuous, delta_t inherits
+this correlation: `delta_t ≈ f(condition, z_t)` with `Corr(z_t, z_{t+1}) = 0.8`.
+
+**GT IV changes have NEGATIVE autocorrelation** (ACF = -0.35 to -0.51, mean-reverting).
+The model's deltas have POSITIVE autocorrelation (+0.25 to +0.83, trending).
+
+Positive autocorrelation → persistent trends → cumulative variance grows super-diffusively
+→ spreads at h=7-30 are too wide → per-cell CI exceeds 97% at some cells while others
+under-shoot → Suite 2 worst_cell_pass=false.
+
+### Experiment
+
+**101a**: Exact 99m_v2 settings + `--ar_frame_rho 0.0` (iid noise).
+Added `--ar_frame_rho` CLI arg to `train_afcrps.py`.
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 60 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_frame_rho 0.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_101a --device cuda
+```
+
+### Expected Outcome
+
+With iid noise, deltas should have lower autocorrelation → cumulative spread should
+grow closer to √t → per-cell CI should be more uniform → potential Suite 2 PASS.
+
+Risk: kurtosis may regress (coherent noise trends contribute to heavy tails).
+
+### Results: 100b and 101a (2026-03-10)
+
+**100b (returns + 99m_v2 settings)**: 5/8 PASS — matches 99m_v2 exactly.
+- CI=0.903, h1=0.849, kurtosis=0.821, KS daily=20/25, turb/calm=1.608
+- **Confirms returns are completely neutral** — no help, no harm
+- All metrics within noise of 99m_v2 (CI 0.903 vs 0.913, KS 20 vs 20)
+
+**101a (rho=0.0)**: 4/8 PASS — REGRESSION. Lost Suite 5 (growing uncertainty) + Suite 6
+(cointegration missing).
+
+| Metric | 99m_v2 (rho=0.8) | 101a (rho=0.0) | 100b (rho=0.8+ret) |
+|--------|-------------------|----------------|---------------------|
+| Score  | 5/8               | **4/8**        | 5/8                 |
+| CI 90% | 0.913             | 0.888          | 0.903               |
+| h=1 CI | 0.848             | **0.913**      | 0.849               |
+| h=30 CI| 0.885             | 0.872          | 0.888               |
+| Kurt   | 0.845             | 0.652          | 0.821               |
+| KS d   | 20/25             | **14/25**      | 20/25               |
+| T/C    | 1.512             | **1.727**      | 1.608               |
+| GU     | True              | **False**      | True                |
+
+**Why rho=0.0 fails**: Without noise correlation, cumulative variance saturates:
+- h=1 var: 0.0022 (higher per-step — correct for iid)
+- h=30 var: 0.0037 (lower cumulative — no coherent buildup)
+- h=20→h=30: 0.00370→0.00369 (NOT monotonic → growing uncertainty FAIL)
+- h=30/h=1 ratio: 1.68x (vs 2.60x with rho=0.8)
+
+Noise correlation is essential for temporal coherence. The AR(1) rho=0.8 creates the
+growing uncertainty the test suite requires. BUT it also causes super-diffusive spread.
+
+**Critical finding: Suite 2 failure is NOT rho-related**. All three models fail Suite 2
+for the same reason: `worst_cell_pass=False` (per-cell coverage imbalance). The per-horizon
+CI is fine for all three. The per-cell amplitude uniformity problem persists at any rho —
+it's a decoder architecture issue, not a noise correlation issue.
+
+### Updated Ceiling Assessment
+
+After 100a-101a, the ceiling assessment is STRONGER:
+- **Returns**: Proven useless for prediction (concurrent, not predictive)
+- **rho=0.0**: Breaks temporal coherence, loses growing uncertainty
+- **Suite 2**: Per-cell coverage imbalance, independent of rho or returns
+- **Suite 7**: Per-regime per-cell coverage, needs much larger model
+- **Suite 8**: IV level KS structural (0-1/25), no model variant passes
+
+**5/8 is confirmed as the hard ceiling** for this architecture class (single-pass afCRPS
+with shared MLP decoder, skip bypass, GRU encoder). The three remaining failures require:
+1. Per-cell adaptive spread (Suite 2) — not achievable with shared decoder
+2. Regime-conditional per-cell behavior (Suite 7) — needs per-cell regime routing
+3. IV level marginal matching (Suite 8) — structural limitation of additive dynamics
+
+### Exp 101b: rho=0.3 Sweep (2026-03-11)
+
+Full rho sweep confirms rho=0.8 is optimal:
+
+| rho | Score | CI   | h1 CI | Kurt  | KS d  | GU   | h30/h1 |
+|-----|-------|------|-------|-------|-------|------|--------|
+| 0.8 | **5/8** | 0.913 | 0.848 | 0.845 | 20/25 | PASS | 2.61   |
+| 0.3 | 4/8   | 0.888 | 0.896 | 0.594 | 16/25 | PASS | 1.85   |
+| 0.0 | 4/8   | 0.888 | 0.913 | 0.652 | 14/25 | FAIL | 1.68   |
+
+**Monotonic degradation**: Every key metric worsens as rho decreases. The AR(1) noise
+correlation is essential for temporal coherence, growing uncertainty, kurtosis, and
+distributional match. The early DDPM ablation (rho=0 better) does NOT generalize to
+the afCRPS architecture because CRPS training requires correlated noise for realistic
+multi-step dynamics.
+
+**Suite 2 independent of rho**: All three models fail Suite 2 for `worst_cell_pass=False`.
+Per-cell coverage imbalance is a decoder architecture issue.
+
+## 2026-03-16: Comprehensive 4-Model Comparison (97a_qmap, 99m_v2, 99l_v3, 99j_v3)
+
+### Context
+
+Head-to-head evaluation of the 4 best models across 8-suite tests, management report
+visuals, trading strategy P&L, factor structure, sample diversity, marginal quality
+(Wasserstein + kurtosis beyond KS), and inference speed. 20 batches × 50 samples each.
+
+### Bug Fix: Cointegration Test Silently Skipped
+
+Discovered that `test_block_ar_requirements.py` line 2607 only loaded returns when
+`extra_features > 0`. Since none of our 4 best models use extra_features, the cointegration
+test was silently skipped (Suite 6 = None). Fixed by separating `model_returns` (for GRU
+input, None when extra_features=0) from `returns` (always loaded for EWMA computation).
+
+### Suite Scorecard: All 4 Models Score 5/8
+
+| Suite | 97a_qmap | 99m_v2 | 99l_v3 | 99j_v3 |
+|-------|----------|--------|--------|--------|
+| 1. Surface | PASS | PASS | PASS | PASS |
+| 2. Coverage | FAIL | FAIL | FAIL | FAIL |
+| 3. Conditionality | PASS | PASS | PASS | PASS |
+| 4. Time Series | PASS | PASS | PASS | PASS |
+| 5. Block-AR | PASS | PASS | PASS | PASS |
+| 6. Cointegration | PASS | PASS | PASS | PASS |
+| 7. Regime Coverage | FAIL | FAIL | FAIL | FAIL |
+| 8. Distributional | FAIL | FAIL | FAIL | FAIL |
+
+Identical pass/fail pattern confirms failures are architectural, not model-specific.
+
+### Extended Metrics Comparison
+
+| Metric | 97a_qmap | 99m_v2 | 99l_v3 | 99j_v3 | GT |
+|--------|----------|--------|--------|--------|-----|
+| CI 90% | **0.936** | 0.910 | 0.928 | 0.869 | 0.90 |
+| h=1 CI | **0.903** | 0.849 | 0.905 | 0.815 | 0.90 |
+| Kurtosis ratio | 0.878 | 0.859 | 1.354 | 1.184 | 1.0 |
+| Cross-cell corr | 0.786 | **0.422** | 0.350 | 0.517 | 0.45 |
+| Effective rank | 1.50 | 3.51 | 5.27 | **2.69** | 2.88 |
+| PC1% | 81.2 | 49.3 | 40.4 | **58.3** | 56.0 |
+| KS daily | 19 | 20 | 11 | **24** | 25 |
+| Max kurt ratio | 64.5x | 47.2x | 48.8x | **377.8x** | 1.0 |
+| Cells >5x kurt | 10 | 9 | **2** | 9 | 0 |
+| Mean Wasserstein | 0.0094 | **0.0087** | 0.0122 | 0.0092 | 0 |
+| Growing unc | False | **True** | False | False | True |
+| Samples/sec | **112.8** | 87.3 | 86.7 | 86.7 | - |
+| ATM VaR99 ratio | 1.170 | **1.023** | 1.257 | 0.872 | 1.0 |
+| Calendar KS h30 | 0.151 | 0.165 | 0.239 | **0.145** | <0.15 |
+| Butterfly KS h30 | 0.113 | **0.085** | 0.096 | 0.086 | <0.15 |
+
+### Key Finding: The KS Paradox Confirmed
+
+99j_v3 has the best KS daily (24/25) but the WORST kurtosis extremes (377.8x at cell
+(4,0)). KS measures bulk distributional distance and is dominated by central quantiles.
+Extreme peakedness (CLT-like center from many small noise contributions) with heavy tails
+(occasional large noise draws from tanh-bounded skip) produces low KS but visually
+unrealistic marginals.
+
+**Wasserstein distance** (integral metric, tail-sensitive) shows 99m_v2 has the most
+realistic marginals overall (0.0087). 99l_v3 has the fewest extreme cells (only 2 >5x
+kurtosis) but worst overall Wasserstein (0.0122) due to uniform over-spreading.
+
+**Implication for evaluation methodology:** KS alone is misleading for comparing marginal
+quality. Future evaluations should report Wasserstein distance and max kurtosis ratio
+alongside KS pass count.
+
+### Growing Uncertainty: Only 99m_v2 Passes
+
+Only 99m_v2 has monotonically increasing spread with horizon. The other 3 models show
+non-monotonic variance (spread saturates or decreases at h=30). This is likely because
+99m_v2's combination of K=8 ensemble + cell_var_loss + freeze_after_epoch creates the
+right balance of per-step and cumulative spread dynamics.
+
+### Recommendations by Use Case
+
+1. **Production directional risk (VaR/ES)**: 97a_qmap — best CI (93.6%), fastest, conservative
+2. **Relative value / structured products**: 99m_v2 — best factor structure, only model with
+   growing uncertainty, best ATM VaR99 calibration (1.023), best Wasserstein
+3. **Research / realistic simulation**: 99j_v3 — nearest-GT factor structure (rank 2.69 ≈ GT
+   2.88, PC1 58.3% ≈ GT 56%), best KS daily, but caveat about kurtosis extremes
+4. **Cointegration-critical applications**: 99l_v3 — best coint (0.093), fewest kurtosis
+   extremes (2 cells >5x), smallest Frobenius to GT correlation matrix
+
+### Files
+
+```
+results/block_ar/comparison_2026_03_16/
+├── {97a_qmap,99m_v2,99l_v3,99j_v3}/summary.json      # 8-suite results
+├── mgmt_{97a_qmap,99m_v2,99l_v3,99j_v3}/fig*.png      # Management report visuals
+├── extended/*_{model}.json                              # Trading, diversity, factor, marginal, speed
+├── comparison_report.md                                 # Full comparison report
+experiments/backfill/block_ar/evaluate_comparison.py     # Extended evaluation script (new)
+```
+
+---
+
+## 2026-03-16: Three Deep Investigations from Model Comparison
+
+### Investigation 1: Growing Uncertainty h20→h30 Dip is STRUCTURAL
+
+3/4 models fail growing uncertainty because h=30 variance < h=20 variance. Multi-seed
+analysis (5/5 seeds for 97a) confirms this is NOT noise — it's structural.
+
+**Root cause: AR noise saturation + GRU state convergence.**
+
+The AR(1) noise `z_{t+1} = 0.8·z_t + √0.36·ε` reaches stationary variance by h~8
+(timescale = 1/(1-ρ²) ≈ 3 steps). Since noise drives 96.2% of delta variance, once
+noise saturates, no new spread is injected. Meanwhile, the GRU condition update feeds
+generated frames back in, causing ensemble members to converge at later horizons (GRU
+increasingly conditions on its own similar outputs → condition vectors converge across
+members → MLP output deltas shrink).
+
+Full variance curve (mean across cells):
+```
+Model      h=1     h=10    peak      h=20    h=30    h20>h30?
+GT         0.00285 0.00482 h30:0.007 0.00674 0.00770 No
+97a_qmap   0.00157 0.00393 h21:0.005 0.00513 0.00508 Yes (1.1%)
+99m_v2     0.00166 0.00343 h30:0.004 0.00396 0.00440 No (+11%)
+99l_v3     0.00096 0.00357 h8:0.004  0.00326 0.00312 Yes (4.4%)
+99j_v3     0.00083 0.00298 h22:0.003 0.00338 0.00323 Yes (4.7%)
+```
+
+**Why 99m_v2 alone passes**: cell_var_loss (λ=1.0) provides sustained pressure to maintain
+spread at all horizons, counteracting GRU convergence. K=8 also stabilizes variance estimates.
+
+**Potential fixes**: (a) cell_var_loss for all models, (b) fresh noise injection at later
+horizons, (c) freeze GRU state (`ar_freeze_gru_state=True`).
+
+### Investigation 2: Column 0 Kurtosis Explosion is a DENOMINATOR EFFECT
+
+ALL models produce kurtosis ratios 47-378x at cell (4,0), but column 4 is fine (~0.1-5x).
+
+**Root cause: Two interacting mechanisms.**
+
+1. **Model produces uniform kurtosis via scale mixing.** The effective change scale per cell
+   = `vol_scale × cell_spread`. Both vary with market conditions (CV=24-64% across windows).
+   A Gaussian variance mixture with CV=30% generates excess kurtosis ~120-180 for ALL cells,
+   regardless of position.
+
+2. **GT kurtosis varies 38x across cells.** GT kurtosis is driven by near-zero change
+   fractions (regime mixing in real markets):
+
+   | Cell   | Near-zero (<0.001) | GT kurtosis | Model kurtosis | Ratio |
+   |--------|-------------------|-------------|----------------|-------|
+   | (0,0)  | 2.2%              | 6.1         | ~50-190        | high  |
+   | (4,0)  | 17.2%             | 32.5        | ~50-190        | high  |
+   | (4,4)  | 28.3%             | 230.0       | ~50-190        | LOW   |
+
+   Column 0 short-tenor cells have LOW GT kurtosis (6-14) → high ratio.
+   Column 4 long-tenor cells have HIGH GT kurtosis (49-230) → low ratio.
+
+3. **99j_v3 is worst** because skip_bypass adds unconstrained per-cell noise with high
+   weight norms (0.085-0.094) at corner cells, inflating model kurtosis further.
+
+4. **GT kurtosis drops with horizon (CLT)** but model kurtosis from scale mixing persists,
+   so the ratio WORSENS at longer horizons within each 30-step trajectory.
+
+**Not fixable within current architecture.** Would need regime-dependent noise amplitude
+(encoder modulates noise scale, not just mean prediction through cell_spread).
+
+### Investigation 3: 99l_v3 "Over-Decorrelation" was a COMPARISON ARTIFACT
+
+**MAJOR CORRECTION**: The reported rank 5.27 for 99l_v3 came from epoch 8 (selected by
+val_loss), which is BEFORE the freeze at epoch 11. The actual final model (epoch 40)
+has rank 3.42 — closer to GT (2.64) than 99m_v2's final (3.52).
+
+Epoch-by-epoch factor structure:
+```
+Checkpoint       Epoch  Corr   Rank   Note
+99l_v3 best      8      0.270  6.83   Pre-freeze, misleading!
+99l_v3 ep10      10     0.313  5.59   Freeze point
+99l_v3 ep30      30     0.432  3.84   Converging
+99l_v3 ep40      40     0.462  3.42   Final — better than 99m_v2
+99m_v2 ep10      10     0.328  5.39   Freeze point
+99m_v2 ep30      30     0.241  6.89   WORSE than 99l_v3!
+99m_v2 ep55      55     0.392  3.85   Best model
+GT               -      0.488  2.64   Target
+```
+
+Both models over-decorrelate post-freeze, then converge. Trainable cell_spread (99m_v2)
+helps convergence SPEED (amplitude modulation as fast re-correlation mechanism) but not
+ceiling. 99l_v3 would likely match 99m_v2 given 60 epochs instead of 40.
+
+**IMPLICATION FOR COMPARISON REPORT**: The 99l_v3 comparison used best_model.pt (ep8),
+not final_model.pt (ep40). The final model would show:
+- Rank 3.42 (not 5.27) — second best after 99j_v3 (2.69)
+- Corr 0.462 (not 0.350) — closest to GT (0.488)
+- The "over-decorrelation" narrative was wrong
+
+**Action item**: Re-run the comparison for 99l_v3 using final_model.pt instead of
+best_model.pt to get accurate numbers.
+
+---
+
+### 99l_v3 Final Model (ep40) Re-Evaluation
+
+Re-ran comparison with `final_model.pt` (epoch 40) instead of `best_model.pt` (epoch 8).
+
+**Result: 4/8 PASS — lost Suite 3 (conditionality)**
+
+| Metric | ep8 (best) | ep40 (final) | Direction |
+|--------|-----------|-------------|-----------|
+| Score | 5/8 | **4/8** | Regressed |
+| Cross-cell corr | 0.350 | **0.503** (GT: 0.45) | Near-GT! |
+| Eff rank | 5.27 | **3.08** (GT: 2.88) | Near-GT! |
+| PC1% | 40.4 | **55.5** (GT: 56) | Near-GT! |
+| Coint | 0.093 | **0.113** (GT: ~0.12) | Best ever! |
+| Suite 3 worst cell MAE | +0.5% | **-10.2%** | FAIL |
+| CI 90% | 0.928 | 0.892 | Regressed |
+
+The ep40 model has the **best factor structure of any model** (corr 0.503 ≈ GT 0.45,
+rank 3.08 ≈ GT 2.88, coint 0.113 ≈ GT ~0.12). But the additional 32 epochs of CRPS
+training caused one cell to become conditionally WORSE (MAE reduction -10.2%), failing
+Suite 3's per-cell gate.
+
+**Trade-off**: ep8 passes more suites but has unrealistic factor structure. ep40 has
+near-perfect factor structure but loses conditionality. The ideal would be freezing at
+an intermediate epoch (maybe ep15-20) that balances both.
+
+**For the comparison report**: 99l_v3 should be evaluated with BOTH checkpoints noted.
+The best_model is the production choice (5/8). The final_model demonstrates that the
+architecture CAN achieve near-GT factor structure, just not simultaneously with
+per-cell conditionality.
+
+---

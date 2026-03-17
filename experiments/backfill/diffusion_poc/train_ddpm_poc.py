@@ -69,6 +69,8 @@ class VolSurfaceDataset(Dataset):
         end_idx: Optional[int] = None,
         regime_labels: Optional[np.ndarray] = None,
         data_start_idx: int = 0,
+        returns: Optional[np.ndarray] = None,
+        return_scale: float = 0.05,
     ):
         """
         Args:
@@ -79,6 +81,8 @@ class VolSurfaceDataset(Dataset):
             end_idx: End index (exclusive) in surfaces array
             regime_labels: (N - history_len - future_len + 1,) regime labels for all trajectories
             data_start_idx: Offset for indexing into regime_labels (equals start_idx)
+            returns: (N,) daily returns array (same length as surfaces)
+            return_scale: Scale for tanh bounding: tanh(ret / return_scale)
         """
         self.history_len = history_len
         self.future_len = future_len
@@ -87,6 +91,13 @@ class VolSurfaceDataset(Dataset):
         # Get subset of data
         end_idx = end_idx or len(surfaces)
         self.surfaces = surfaces[start_idx:end_idx]
+
+        # Returns (optional)
+        if returns is not None:
+            self.returns = returns[start_idx:end_idx]
+        else:
+            self.returns = None
+        self.return_scale = return_scale
 
         # Regime labels (full array indexed by global position)
         self.regime_labels = regime_labels
@@ -113,6 +124,12 @@ class VolSurfaceDataset(Dataset):
         future = normalize_iv(future)
 
         result = {"history": history, "future": future}
+
+        # Add bounded returns for history window if available
+        if self.returns is not None:
+            hist_ret = self.returns[start:start + self.history_len]  # (T_hist,)
+            hist_ret = np.tanh(hist_ret / self.return_scale)  # bound to [-1, 1]
+            result["history_returns"] = torch.from_numpy(hist_ret).float()  # (T_hist,)
 
         # Add regime label if available
         # global_start = position in full dataset = data_start_idx + start

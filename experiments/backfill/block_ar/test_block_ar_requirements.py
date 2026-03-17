@@ -222,11 +222,15 @@ def generate_all_samples(
 
             history = batch["history"].to(device)
             future_gt = denormalize_iv(batch["future"].to(device))
+            extra_hist = batch.get("history_returns")
+            if extra_hist is not None:
+                extra_hist = extra_hist.to(device)
 
             # model.sample_batched() returns (B, n_samples, T, 5, 5) in [0, 1]
             samples = model.sample_batched(
                 history, n_samples=n_samples, max_residual=max_residual,
                 max_global_residual=max_global_residual,
+                extra_hist=extra_hist,
             )
 
             if post_hoc_scale != 1.0:
@@ -675,9 +679,13 @@ def run_conditionality_tests(
             all_batch_vov.append(batch_vov)
 
             # --- Conditional samples ---
+            extra_hist = batch.get("history_returns")
+            if extra_hist is not None:
+                extra_hist = extra_hist.to(device)
             cond_samples = model.sample_batched(
                 history, n_samples=n_samples, max_residual=max_residual,
                 max_global_residual=max_global_residual,
+                extra_hist=extra_hist,
             )  # (B, n_samples, T, 5, 5)
             if post_hoc_scale != 1.0:
                 cond_samples = _apply_post_hoc_scale(cond_samples, post_hoc_scale)
@@ -2591,6 +2599,16 @@ def main():
     print("\nLoading test data...")
     data = np.load(config.data_path)
     surfaces = data["surface"]
+
+    # Detect extra_features from model config
+    _cfg = model.config if hasattr(model, "config") else model_config
+    extra_features = getattr(_cfg, "extra_features", 0)
+    return_scale = getattr(_cfg, "return_scale", 0.05)
+    # Load returns for model input (only when extra_features > 0)
+    model_returns = data["ret"] if (extra_features > 0 and "ret" in data) else None
+    if model_returns is not None:
+        print(f"  Returns loaded for extra_features={extra_features}, scale={return_scale}")
+    # Always load returns for cointegration test (needs EWMA vol computation)
     returns = data["ret"] if "ret" in data else None
 
     test_dataset = VolSurfaceDataset(
@@ -2598,6 +2616,8 @@ def main():
         config.history_len,
         config.future_len,
         start_idx=config.test_start,
+        returns=model_returns,
+        return_scale=return_scale,
     )
     test_loader = DataLoader(
         test_dataset,

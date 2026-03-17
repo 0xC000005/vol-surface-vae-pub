@@ -91,7 +91,8 @@ def _hash_jsonable(payload: dict) -> str:
 
 
 @torch.no_grad()
-def sample_long_horizon(model, history, n_samples, n_frames, pos_mode="native"):
+def sample_long_horizon(model, history, n_samples, n_frames, pos_mode="native",
+                        extra_hist=None):
     """Generate long-horizon samples through the model's native AR-frame sampler."""
     if not model.config.ar_frame:
         raise ValueError("Long-horizon generation is only implemented for ar_frame models")
@@ -100,6 +101,7 @@ def sample_long_horizon(model, history, n_samples, n_frames, pos_mode="native"):
         n_samples=n_samples,
         n_frames=n_frames,
         position_mode=pos_mode,
+        extra_hist=extra_hist,
     )
 
 
@@ -620,9 +622,18 @@ def main():
     surfaces = data["surface"]
     returns = data["ret"]
     history_len = 30
+    extra_features = getattr(model.config, "extra_features", 0)
+    return_scale = getattr(model.config, "return_scale", 0.05)
+    use_returns = extra_features > 0
+    if use_returns:
+        print(f"  Returns enabled: extra_features={extra_features}, scale={return_scale}")
     # We need history_len + n_frames for GT comparison
     gt_future_len = min(args.n_frames, len(surfaces) - 4540 - history_len)
-    dataset = VolSurfaceDataset(surfaces, history_len, gt_future_len, start_idx=4540)
+    dataset = VolSurfaceDataset(
+        surfaces, history_len, gt_future_len, start_idx=4540,
+        returns=returns if use_returns else None,
+        return_scale=return_scale,
+    )
     n_windows = min(args.n_windows, len(dataset))
     print(f"  Test windows: {n_windows} (GT future available: {gt_future_len} days)")
 
@@ -632,6 +643,7 @@ def main():
 
     all_history = []
     all_future = []
+    all_extra_hist = []
     n_collected = 0
     for batch in loader:
         if n_collected >= n_windows:
@@ -639,10 +651,13 @@ def main():
         take = min(batch["history"].shape[0], n_windows - n_collected)
         all_history.append(batch["history"][:take])
         all_future.append(batch["future"][:take])
+        if "history_returns" in batch:
+            all_extra_hist.append(batch["history_returns"][:take])
         n_collected += take
 
     history_t = torch.cat(all_history, dim=0).to(device)  # (N, 30, 5, 5) in [-1, 1]
     future_t = torch.cat(all_future, dim=0)  # (N, gt_future_len, 5, 5) in [-1, 1]
+    extra_hist_t = torch.cat(all_extra_hist, dim=0).to(device) if all_extra_hist else None
     N = history_t.shape[0]
 
     # Denormalize history and GT future for comparison
@@ -673,8 +688,10 @@ def main():
         for start in range(0, N, args.batch_size):
             end = min(start + args.batch_size, N)
             batch_hist = history_t[start:end]
+            batch_extra = extra_hist_t[start:end] if extra_hist_t is not None else None
             batch_samples = sample_long_horizon(
-                model, batch_hist, args.n_samples, args.n_frames, pos_mode=pos_mode
+                model, batch_hist, args.n_samples, args.n_frames, pos_mode=pos_mode,
+                extra_hist=batch_extra,
             )
             all_samples.append(batch_samples.cpu().numpy())
             print(f"  Generated batch {start}-{end} "
