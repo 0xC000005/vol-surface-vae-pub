@@ -431,6 +431,10 @@ def main():
                         help="Lower clamp for learned rho")
     parser.add_argument("--ar_learned_rho_max", type=float, default=1.0,
                         help="Upper clamp for learned rho")
+    parser.add_argument("--ar_mean_revert", action="store_true",
+                        help="Mean-reversion dynamics (Exp 104a)")
+    parser.add_argument("--ar_mean_revert_alpha_init", type=float, default=-3.0,
+                        help="Init for mean-reversion alpha (sigmoid(-3)≈0.047)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -589,6 +593,8 @@ def main():
         ar_learned_rho_init=args.ar_learned_rho_init,
         ar_learned_rho_min=args.ar_learned_rho_min,
         ar_learned_rho_max=args.ar_learned_rho_max,
+        ar_mean_revert=args.ar_mean_revert,
+        ar_mean_revert_alpha_init=args.ar_mean_revert_alpha_init,
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,
@@ -697,6 +703,11 @@ def main():
         if hasattr(model, 'rho_head'):
             param_groups.append(
                 {"params": list(model.rho_head.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
+            )
+        if hasattr(model, 'mr_mu_head'):
+            mr_params = list(model.mr_mu_head.parameters()) + list(model.mr_alpha_head.parameters())
+            param_groups.append(
+                {"params": mr_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
             )
         optimizer = torch.optim.AdamW(param_groups)
     else:
@@ -831,6 +842,8 @@ def main():
                     or "cell_scale" in name
                     or "noise_scale_head" in name
                     or "rho_head" in name
+                    or "mr_mu_head" in name
+                    or "mr_alpha_head" in name
                 )
                 if not args.freeze_spread_too:
                     keep = keep or "cell_spread_linear" in name
@@ -997,6 +1010,13 @@ def main():
             base_rho = torch.sigmoid(b).item()
             w_norm = model.rho_head.weight.detach().norm().item()
             print(f"  learned_rho: base={base_rho:.4f} w_norm={w_norm:.3f}")
+
+        if hasattr(model, 'mr_mu_head'):
+            mu_b = torch.sigmoid(model.mr_mu_head.bias.detach())
+            alpha_b = 0.2 * torch.sigmoid(model.mr_alpha_head.bias.detach()).item()
+            mu_w = model.mr_mu_head.weight.detach().norm().item()
+            print(f"  mean_revert: alpha={alpha_b:.4f} mu=[{mu_b.min():.3f}, {mu_b.max():.3f}] "
+                  f"w_norm={mu_w:.3f}")
 
         # Log cell_spread MLP stats if applicable
         if hasattr(model, 'cell_spread_mlp'):

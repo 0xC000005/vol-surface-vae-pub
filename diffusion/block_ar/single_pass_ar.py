@@ -129,6 +129,8 @@ class SinglePassConfig:
     ar_learned_rho_init: float = 1.1     # init bias so sigmoid(1.1) ≈ 0.75 (near default 0.8)
     ar_learned_rho_min: float = 0.0      # lower clamp for learned rho (0.0 = no clamp)
     ar_learned_rho_max: float = 1.0      # upper clamp for learned rho (1.0 = no clamp)
+    ar_mean_revert: bool = False         # mean-reversion dynamics (Exp 104a)
+    ar_mean_revert_alpha_init: float = -3.0  # sigmoid(-3.0) ≈ 0.047, small initial pull
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -603,6 +605,15 @@ class SinglePassBlockAR(nn.Module):
                 self.rho_head = nn.Linear(config.bottleneck_dim, 1)
                 nn.init.zeros_(self.rho_head.weight)
                 nn.init.constant_(self.rho_head.bias, config.ar_learned_rho_init)
+            # Mean-reversion dynamics (Exp 104a)
+            # mu: condition → 25 long-run mean levels, alpha: condition → 1 reversion speed
+            if config.ar_mean_revert:
+                self.mr_mu_head = nn.Linear(config.bottleneck_dim, frame_dim)
+                nn.init.zeros_(self.mr_mu_head.weight)
+                nn.init.zeros_(self.mr_mu_head.bias)  # init mu=0 → sigmoid → 0.5 (mid-range IV)
+                self.mr_alpha_head = nn.Linear(config.bottleneck_dim, 1)
+                nn.init.zeros_(self.mr_alpha_head.weight)
+                nn.init.constant_(self.mr_alpha_head.bias, config.ar_mean_revert_alpha_init)
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -782,6 +793,22 @@ class SinglePassBlockAR(nn.Module):
             multiplier = multiplier.view(B, H, 1).expand(B, H, W)
         return vs * multiplier
 
+    def _get_mean_revert(self, condition: torch.Tensor, prev_frame: torch.Tensor) -> torch.Tensor:
+        """Compute mean-reversion pull: alpha * (mu - prev) in IV space (Exp 104a).
+
+        Returns:
+            mr_term: (B, H, W) mean-reversion offset, or zero if disabled.
+        """
+        if not self.config.ar_mean_revert or not hasattr(self, 'mr_mu_head'):
+            return torch.zeros_like(prev_frame)
+        H, W = self.config.surface_h, self.config.surface_w
+        B = condition.shape[0]
+        # mu in [0, 1] IV space via sigmoid
+        mu = torch.sigmoid(self.mr_mu_head(condition)).view(B, H, W)  # (B, H, W)
+        # alpha in [0, 0.2] — small mean-reversion speed
+        alpha = 0.2 * torch.sigmoid(self.mr_alpha_head(condition)).view(B, 1, 1)  # (B, 1, 1)
+        return alpha * (mu - prev_frame)  # (B, H, W)
+
     def _get_learned_rho(self, condition: torch.Tensor) -> float | torch.Tensor:
         """Compute condition-dependent rho for AR noise (Exp 103a).
 
@@ -896,13 +923,15 @@ class SinglePassBlockAR(nn.Module):
                 logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
                 iv_t = torch.sigmoid(logit_prev + vs * delta)
             elif self.config.ar_frame_reflect:
-                raw = prev_frame + vs * delta
+                mr = self._get_mean_revert(condition, prev_frame)
+                raw = prev_frame + vs * delta + mr
                 width = 1.0 - floor
                 shifted = raw - floor
                 shifted = shifted % (2 * width)
                 iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
             else:
-                iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
+                mr = self._get_mean_revert(condition, prev_frame)
+                iv_t = (prev_frame + vs * delta + mr).clamp(floor, 1.0)
             frames.append(iv_t)
             prev_frame = iv_t
             if not self.config.ar_freeze_gru_state:
@@ -1102,13 +1131,15 @@ class SinglePassBlockAR(nn.Module):
                         logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
                         iv_t = torch.sigmoid(logit_prev + vs * delta)
                     elif self.config.ar_frame_reflect:
-                        raw = prev_frame + vs * delta
+                        mr = self._get_mean_revert(cond_t, prev_frame)
+                        raw = prev_frame + vs * delta + mr
                         width = 1.0 - floor
                         shifted = raw - floor
                         shifted = shifted % (2 * width)
                         iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
                     else:
-                        iv_t = (prev_frame + vs * delta).clamp(floor, 1.0)
+                        mr = self._get_mean_revert(cond_t, prev_frame)
+                        iv_t = (prev_frame + vs * delta + mr).clamp(floor, 1.0)
                     frames.append(iv_t)
 
                     # Update prev_frame — NOT detached (BPTT through frame chain)
