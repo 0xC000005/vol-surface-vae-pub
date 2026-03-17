@@ -26153,3 +26153,156 @@ cell_cond_dim (16-32) to control parameter count.
    best hyperparameters from 99m_v2 (freeze ep10, ES=1.0, rho=0.8). Full 60ep.
 
 ---
+
+## 2026-03-17: Pre-Architecture Investigation Plan — Four Open Questions
+
+### Context
+
+After 8 experiments (102a-107a) confirmed the 5/8 ceiling for the current MLP decoder
+architecture, the team discussed next directions. Before committing to architecture changes
+(attention decoder, per-cell conditions, one-shot generation), four investigations were
+identified to fill knowledge gaps. These are inference-only analyses — no GPU training
+needed — and their results determine which architecture direction to pursue.
+
+### Investigation I1: Encoder Representation Analysis
+
+**Question**: What does the 128-dim GRU condition space actually encode? How much capacity
+is used vs wasted?
+
+**Why it matters**: If the encoder only uses 20 of 128 dims effectively, there's room for
+per-cell conditioning info without replacing anything. If it's fully rank-128, the
+bottleneck is real and encoder changes may be needed.
+
+**Method**:
+- Run PCA on condition vectors across all test windows (1223 windows)
+- Compute effective rank of the condition matrix
+- Linear probes: which dimensions correlate with market features (IV level, vol-of-vol,
+  term structure slope, skew, moneyness smile curvature)?
+- t-SNE visualization: do calm/turb regimes form distinct clusters?
+- Per-cell analysis: does the condition differentiate cells or just encode global state?
+
+**Known prior evidence**:
+- Linear probes (from Feb 2026): IV level R²=0.80, future diff std R²=-0.28
+- Encoder capacity ablation: gru=64/bn=128 is a sharp optimum (not a plateau)
+- DDPM pretraining is uniquely effective — MSE, random, and unfrozen all score 2/8
+- We do NOT know why gru=64/bn=128 is special, or what fills the 128 dims beyond
+  IV level and vol-of-vol
+
+### Investigation I2: Mean-Reversion in GT Data vs Model
+
+**Question**: Does GT IV data mean-revert? Does the model produce mean-reverting paths?
+What's the half-life?
+
+**Why it matters**: Stakeholder concern that the current model is "not mean-reverting
+enough." If GT is strongly mean-reverting and the model produces random-walk-like paths,
+this is a specific failure mode we can target. Traditional interest rate models (Vasicek,
+Hull-White) have explicit mean-reversion — IV surfaces may need the same.
+
+**Method**:
+- Measure lag-1 to lag-30 autocorrelation of IV changes in GT data (all 25 cells)
+- Measure same for 99m_v2 generated paths
+- Ornstein-Uhlenbeck fit: estimate theta (mean-reversion speed) and mu (long-run mean)
+  for both GT and model, per cell
+- Compute cumulative drift per cell over 30 steps: does the model drift systematically
+  away from long-run means?
+- Variance ratio test: is var(h=30)/var(h=1) consistent with mean-reversion or random walk?
+
+**Known prior evidence**:
+- GT daily changes have negative lag-1 ACF (-0.35 to -0.51) — mean-reverting at daily scale
+- Model deltas have POSITIVE lag-1 ACF (+0.25 to +0.83) — trending, not mean-reverting
+- This ACF mismatch is the proven root cause of Suite 2 over-spread at h=7-30
+- Exp 104a (mean-reversion term) converged to alpha=0.036 but hurt kurtosis
+
+### Investigation I3: AR vs One-Shot Generation — Training Signal Comparison
+
+**Question**: Does the AR frame-by-frame generation inherently prevent the model from
+learning mean-reversion, because it only optimizes one-step deltas?
+
+**Why it matters**: In current AR mode, the model generates one frame at a time:
+delta_t = f(prev_frame, condition, noise). CRPS loss is on the full 30-frame trajectory,
+so the model DOES see multi-step consequences via BPTT. BUT the FrameDecoder only takes
+prev_frame as input — it has no explicit "target level" to revert toward.
+
+In one-shot mode (the Conv3D decoder path that already exists in single_pass_ar.py), the
+model generates all 30 frames simultaneously. The decoder sees the full temporal structure
+and can learn that frame 30 should revert toward some level. The CRPS loss on the full
+trajectory provides direct gradient to all frames simultaneously.
+
+**Method**:
+- Generate 99m_v2 paths (50 samples × 1223 windows)
+- Compute per-cell mean path: does it drift systematically?
+- Compare to GT mean path per cell
+- Analyze: does the drift pattern match the AR noise autocorrelation structure?
+- Theoretical: write out what gradient information reaches frame 30 via BPTT in AR mode
+  vs direct gradient in one-shot mode
+
+**Known prior evidence**:
+- The Conv3D one-shot decoder exists in the codebase (SinglePassDecoder class) but hasn't
+  been used with afCRPS since Exp 89 (early baseline). It was abandoned because it couldn't
+  do progressive rollout and lacked temporal coherence.
+- AR mode's BPTT does propagate gradients through all 30 frames — but through a chain of
+  30 sequential operations, which may dilute the signal
+- The model's systematic negative drift beyond training horizon (GRU goes OOD at h>30)
+  suggests the AR architecture DOES learn some drift pattern, just not the right one
+
+### Investigation I4: Factor Structure vs Marginal Quality (Capacity Hypothesis)
+
+**Question**: Does higher effective noise rank produce better per-cell marginal
+distributions? (Tests the stakeholder hypothesis that marginal mismatch is a capacity
+problem, not a loss problem.)
+
+**Why it matters**: The traditional interest rate modeling analogy — 1 factor captures
+parallel shift, 2 captures slope, 3 captures skew. If the model only has 1 effective
+noise factor (eff_rank=1.06), it can only produce parallel shifts in the ensemble. Per-cell
+marginals would all be scaled versions of the same distribution (which is exactly what we
+observe: ~0.07 std for all 25 cells despite GT having 35x range).
+
+If models with higher effective rank have demonstrably better per-cell marginals, the
+capacity hypothesis is confirmed and the path forward is: achieve high rank without losing
+conditionality. If marginals are similar despite rank differences, the bottleneck is
+elsewhere (CRPS dynamics, not architecture capacity).
+
+**Method**:
+- Compare three existing checkpoints with different effective ranks:
+  - 99m_v2 best_model: eff_rank ≈ 1.1 (rank-1 attractor, 5/8)
+  - 105a_v2 at ep10 checkpoint: eff_rank ≈ 1.3, corr=0.417 (best factor structure)
+  - 99l_v3 final_model (ep40): eff_rank ≈ 3.08 (near-GT, but different conditionality)
+- For each: generate samples, compute per-cell Wasserstein distance, per-cell KS statistic,
+  per-cell kurtosis ratio, per-cell skewness ratio
+- Scatter plot: eff_rank vs marginal quality metrics
+- If correlation is strong: capacity IS the bottleneck → focus on maintaining high rank
+- If correlation is weak: CRPS dynamics are the bottleneck → focus on loss changes
+
+**Known prior evidence**:
+- 99l_v3 final_model has rank 3.08 ≈ GT 2.88, but lost Suite 3 conditionality
+- 99m_v2 has rank 1.1 but better overall score (5/8 vs 99l_v3 best_model's 5/8)
+- The comprehensive 4-model comparison (2026-03-16) measured Wasserstein distances but
+  didn't cross-reference with effective rank
+- Toy experiments (V1-V4, 2026-03-09) showed per-cell amplitude uniformity is an
+  optimization dynamics problem, not architecture — but those were simpler models
+
+### Investigation Priority and Dependencies
+
+```
+I1 (encoder analysis)     — standalone, informs encoder decisions
+I2 (GT mean-reversion)    — standalone, informs model dynamics understanding
+I3 (AR vs one-shot)       — depends on I2 results, informs architecture choice
+I4 (rank vs marginals)    — standalone, informs decoder architecture choice
+
+Recommended order: I1 + I2 + I4 in parallel → I3 after I2
+```
+
+### How Results Map to Architecture Decisions
+
+| Finding | Implies | Architecture Direction |
+|---------|---------|----------------------|
+| I1: encoder uses <50 of 128 dims | Spare capacity | Add per-cell conditions via fan-out |
+| I1: encoder is full rank-128 | Real bottleneck | May need larger/different encoder |
+| I2: GT strongly mean-reverting, model isn't | Dynamics mismatch | One-shot generation or explicit MR |
+| I2: GT and model both random-walk-like | No MR needed | Focus on decoder diversity |
+| I3: AR dilutes gradient to frame 30 | Architecture limitation | Try one-shot Conv3D with afCRPS |
+| I3: AR gradient reaches frame 30 fine | Not the bottleneck | Focus elsewhere |
+| I4: higher rank → better marginals | Capacity hypothesis confirmed | Attention decoder (breaks rank-1) |
+| I4: rank doesn't predict marginals | CRPS dynamics is bottleneck | MMD/distributional loss |
+
+---
