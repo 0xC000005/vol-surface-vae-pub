@@ -95,10 +95,12 @@ If config exists: resume from last iteration.
 LOOP:
   ┌─────────────────────────────────────────────────────────┐
   │ 1. HYPOTHESIZE                                          │
-  │    ⚠️  PRE-CHECK: Was the previous iteration's entry     │
-  │    written to RESEARCH_LOG.md and committed? If not,     │
-  │    STOP and write it NOW before proceeding. Check by     │
-  │    grepping RESEARCH_LOG.md for the last experiment ID.  │
+  │    ⚠️  PRE-CHECK (skip for iteration 1):                 │
+  │    Read current_state.json → get last experiment_id.     │
+  │    Grep RESEARCH_LOG.md for "### Exp {experiment_id}".   │
+  │    If NOT FOUND → STOP. Write the missing entry NOW      │
+  │    (follow step 6 below) before doing anything else.     │
+  │    If FOUND → proceed.                                   │
   │                                                         │
   │    Read: results-log.md (this session's iterations)     │
   │    INVOKE the `research-log` skill to search for:       │
@@ -123,19 +125,21 @@ LOOP:
   │      - Are there confounded variables?                   │
   │      - Is the evaluation budget sufficient? (noise)      │
   ├─────────────────────────────────────────────────────────┤
-  │ 3. DOCUMENT (two destinations)                           │
+  │ 3. DOCUMENT (session log only — research log is step 6)  │
   │                                                         │
   │  A. results-log.md (session-local quick reference):      │
   │     - Iteration #, experiment ID, composite score        │
   │     - One-line hypothesis + one-line result              │
   │     - Decision: BUILD ON / VALUABLE FAILURE / etc.       │
   │                                                         │
-  │  B. RESEARCH_LOG.md (permanent, via research-log skill): │
-  │     This is the MAIN documentation. Future researchers   │
-  │     (including future Claude sessions) will search this  │
-  │     to generate hypotheses. Write it FOR THEM.           │
+  │  B. PREPARE research log content (written at step 6):    │
+  │     Draft the RESEARCH_LOG.md entry content now (you     │
+  │     have all metrics fresh in context), but the actual   │
+  │     write + commit happens at step 6 (BLOCKING GATE).   │
+  │     Do NOT skip ahead — step 4 (WHY) may add crucial    │
+  │     analysis that belongs in the entry.                  │
   │                                                         │
-  │     Every entry MUST contain:                            │
+  │     The entry MUST contain (template for step 6):        │
   │     - Experiment ID + based-on lineage                   │
   │     - Hypothesis with theoretical justification          │
   │     - Architecture/code change description               │
@@ -202,8 +206,11 @@ LOOP:
   │    ⚠️  DO NOT proceed to the next iteration until this   │
   │    step is COMPLETE. This is not optional.               │
   │                                                         │
-  │    Write the FULL experiment entry to RESEARCH_LOG.md    │
-  │    using the `research-log` skill (or direct append).    │
+  │    INVOKE the `research-log` skill to append the full    │
+  │    experiment entry to RESEARCH_LOG.md. The skill        │
+  │    handles appending + MCP index ingestion.              │
+  │    Fallback ONLY if MCP is down: direct Edit/append      │
+  │    to RESEARCH_LOG.md (but MCP index won't update).      │
   │    The entry MUST contain ALL items from step 3B above.  │
   │                                                         │
   │    Then git commit the research log update.              │
@@ -557,9 +564,9 @@ If `mcp-local-rag` is unavailable for research log search:
    loaded). A wrong test → wrong conclusion → blocked promising path.
 8. **Synthesize when stuck** — generate new directions from evidence, don't repeat failures
 9. **Quick then full** — validate cheaply before investing in full training
-10. **RESEARCH LOG IS A BLOCKING GATE** — You MUST append to RESEARCH_LOG.md (via
-    `research-log` skill or direct append) and git commit it BEFORE starting the next
-    iteration. This is step 6 of the HEDA loop. It is NOT optional. It is NOT deferrable.
+10. **RESEARCH LOG IS A BLOCKING GATE** — You MUST invoke the `research-log` skill to
+    append to RESEARCH_LOG.md, then git commit, BEFORE starting the next iteration.
+    This is step 6 of the HEDA loop. It is NOT optional. It is NOT deferrable.
     Do NOT batch-write multiple entries later — write EACH entry IMMEDIATELY after the
     DECIDE step. The session-local results-log.md is a convenience copy; RESEARCH_LOG.md
     is the permanent record. Missing entries = repeated experiments = wasted GPU hours.
