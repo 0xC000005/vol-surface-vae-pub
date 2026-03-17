@@ -125,6 +125,8 @@ class SinglePassConfig:
     ar_skip_bypass_spread: bool = False  # skip bypasses cell_spread (Exp 99j)
     ar_noise_scale_cond: bool = False    # condition-dependent per-cell noise scale (Exp 102a)
     ar_noise_scale_min: float = 0.1      # lower bound for noise scale (prevents collapse)
+    ar_learned_rho: bool = False         # condition-dependent rho (Exp 103a)
+    ar_learned_rho_init: float = 1.1     # init bias so sigmoid(1.1) ≈ 0.75 (near default 0.8)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -593,6 +595,12 @@ class SinglePassBlockAR(nn.Module):
                 self.noise_scale_head = nn.Linear(config.bottleneck_dim, frame_dim)
                 nn.init.zeros_(self.noise_scale_head.weight)
                 nn.init.constant_(self.noise_scale_head.bias, 0.541)  # softplus(0.541) ≈ 1.0
+            # Condition-dependent rho for AR noise (Exp 103a)
+            # condition → scalar rho via sigmoid, init near 0.8
+            if config.ar_learned_rho:
+                self.rho_head = nn.Linear(config.bottleneck_dim, 1)
+                nn.init.zeros_(self.rho_head.weight)
+                nn.init.constant_(self.rho_head.bias, config.ar_learned_rho_init)
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -772,6 +780,18 @@ class SinglePassBlockAR(nn.Module):
             multiplier = multiplier.view(B, H, 1).expand(B, H, W)
         return vs * multiplier
 
+    def _get_learned_rho(self, condition: torch.Tensor) -> float | torch.Tensor:
+        """Compute condition-dependent rho for AR noise (Exp 103a).
+
+        Returns:
+            rho: scalar tensor in [0, 1] via sigmoid, or fixed float if disabled.
+        """
+        if not self.config.ar_learned_rho or not hasattr(self, 'rho_head'):
+            return self.config.ar_frame_rho
+        raw = self.rho_head(condition)  # (B, 1)
+        rho = torch.sigmoid(raw)  # [0, 1]
+        return rho  # (B, 1)
+
     def _get_noise_scale(self, condition: torch.Tensor) -> torch.Tensor | None:
         """Compute condition-dependent per-cell noise scale (Exp 102a).
 
@@ -809,7 +829,6 @@ class SinglePassBlockAR(nn.Module):
         B = history.shape[0]
         device = history.device
         H, W = self.config.surface_h, self.config.surface_w
-        rho = self.config.ar_frame_rho
         log_space = self.config.ar_frame_log_space
         floor = self.config.ar_frame_floor_clamp
 
@@ -822,13 +841,17 @@ class SinglePassBlockAR(nn.Module):
         z_t = z
         gru_outputs, h_last = self._init_gru_state(history, extra_hist=extra_hist)
         condition = self.encoder(history, mask=None, extra=extra_hist)
+        rho = self._get_learned_rho(condition)
         prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
 
         frames = []
         for step_idx in range(n_frames):
             if step_idx > 0:
                 eps_t = torch.randn_like(z_t)
-                z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
+                if isinstance(rho, torch.Tensor):
+                    z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
+                else:
+                    z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
             local_pos, horizon_bucket = self._get_ar_frame_positions(
                 step_idx=step_idx,
@@ -992,7 +1015,6 @@ class SinglePassBlockAR(nn.Module):
 
         if self.config.ar_frame:
             # ── AR frame mode: per-frame generation with GRU step updates ──
-            rho = self.config.ar_frame_rho
             floor = self.config.ar_frame_floor_clamp
 
             for _ in range(n_members):
@@ -1011,6 +1033,9 @@ class SinglePassBlockAR(nn.Module):
                     with torch.no_grad():
                         condition = self.encoder(history, mask=None, extra=extra_hist)
 
+                # Compute rho (fixed or learned from condition)
+                rho = self._get_learned_rho(condition)
+
                 # prev_frame = last history frame in IV space
                 prev_frame = denormalize_iv(history[:, -1])  # (B, 5, 5)
 
@@ -1019,7 +1044,11 @@ class SinglePassBlockAR(nn.Module):
                     # AR noise update (skip first frame)
                     if t > 0:
                         eps_t = torch.randn_like(z_t)
-                        z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
+                        if isinstance(rho, torch.Tensor):
+                            # Learned rho: (B, 1), broadcast over noise_dim
+                            z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
+                        else:
+                            z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
                     local_pos, horizon_bucket = self._get_ar_frame_positions(
                         step_idx=t,
