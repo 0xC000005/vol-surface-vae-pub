@@ -25690,3 +25690,99 @@ architecture CAN achieve near-GT factor structure, just not simultaneously with
 per-cell conditionality.
 
 ---
+
+## 2026-03-17: Exp 102a — Condition-Dependent Per-Cell Noise Scale
+
+### Hypothesis
+**Based on**: 99m_v2 (base architecture) + Suite 2 root cause analysis (per-cell coverage
+imbalance: cell (4,0) over 95% at h=7-30 while overall CI is fine).
+
+**Theory**: All cells receive identical noise amplitude regardless of condition/regime. GT
+shows 35x range in per-cell std. A learned `noise_scale_head: Linear(128→25) + softplus`
+scales the skip bypass output per-cell based on encoder condition. This should allow the
+model to give wider noise to cells that need it and narrower to over-spread cells.
+
+**Bitter Lesson**: PASS — `nn.Linear` is fully learned from data, generalizes to any grid.
+
+### Architecture Change
+Added `noise_scale_head` in `SinglePassBlockAR.__init__` when `ar_noise_scale_cond=True`:
+```python
+self.noise_scale_head = nn.Linear(config.bottleneck_dim, frame_dim)
+# Init: softplus(0.541) ≈ 1.0, lower bound 0.1
+```
+Applied in both training forward loop and sampling path: `skip_out = skip_out * sigma.view(B,H,W)`
+where `sigma = softplus(noise_scale_head(condition)).clamp(min=0.1)`.
+
+Added to freeze-after-epoch keep list (stays trainable alongside noise_skip_proj and cell_spread).
+
+### Training
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_noise_scale_cond \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_102a --device cuda
+```
+
+### Results: 5/8 PASS (same as baseline)
+
+| Metric | 99m_v2 (baseline) | 102a | Delta |
+|--------|-------------------|------|-------|
+| Score  | 66.31 | 65.73 | -0.58 |
+| Suites | 5/8 | 5/8 | = |
+| CI 90% | 91.3% | 89.9% | -1.4pp |
+| h=1 worst cell | 74.5% | 81.1% | +6.6pp |
+| h=7 best cell | 98.7% | 96.0% | -2.7pp |
+| Kurtosis ratio | 0.845 | 0.605 | -0.24 |
+| KS daily | 20/25 | 21/25 | +1 |
+| Coint ratio | 0.675 | 0.720 | +0.045 |
+| Median bias | 18/25 | 23/25 | +5 |
+| Catastrophic | 576 | 671 | +95 |
+| Calibr err | 0.072 | 0.043 | -0.029 |
+
+Suite 2 still FAIL: cell (4,0) = row 4 col 0 at 96.0-96.7% (above 95% gate) at h=7-30.
+
+### Analysis: WHY It Didn't Work
+
+1. **noise_scale range too modest**: Learned only 1.4x range ([0.438, 0.630] at convergence).
+   GT per-cell std has 35x range. The model differentiated noise amplitude, but not enough.
+
+2. **Redundancy with cell_spread**: Both `cell_spread_linear` and `noise_scale_head` take
+   condition (128-dim) → 25 scalars. They're on the same signal path (skip bypass output).
+   The model can achieve the same effect by adjusting either one. Having both doesn't add
+   expressiveness — it adds a free parameter that CRPS optimizes toward redundancy.
+
+3. **CRPS per-cell decomposition**: CRPS decomposes per-cell with zero cross-cell gradient.
+   This means noise_scale_head sees the SAME gradient pressure as cell_spread: minimize
+   per-cell MAE (reduce noise) while maintaining minimum spread. Both converge to ~uniform.
+
+4. **Kurtosis regression**: 0.845 → 0.605. The noise_scale modulation smooths tail behavior
+   by making effective noise more uniform across different conditions. Kurtosis requires
+   condition-dependent variance heterogeneity — noise_scale_head reduces it.
+
+5. **Calibration improved**: Error 0.072 → 0.043. The extra flexibility helps overall
+   calibration even though per-cell extremes persist. Better h=1 (+6.6pp worst cell).
+
+### What Was Learned
+
+**Key insight**: Adding another learned condition→scalar multiplier on the noise path is
+REDUNDANT with existing cell_spread. The fundamental problem is CRPS optimization dynamics,
+not architectural capacity for per-cell scaling. Any learned scalar gets pulled toward
+uniformity by CRPS MAE gradient.
+
+**What would work differently**: Something that changes the noise DYNAMICS (temporal
+correlation structure, mean reversion) rather than just amplitude. Or an explicit
+non-CRPS loss that directly penalizes per-cell coverage imbalance.
+
+### What This Suggests Next
+- Direction A (learnable noise dampening) targets the DYNAMICS of noise, not just scale
+- Could also try explicit per-cell coverage loss that penalizes cells outside [70%, 95%]
+  (but this may violate Bitter Lesson — it's coverage-metric-specific)
+- The cell (4,0) over-spread is robust across ALL model variants — may be structural
+
+---

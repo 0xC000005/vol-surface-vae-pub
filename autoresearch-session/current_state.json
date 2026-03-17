@@ -1,12 +1,13 @@
 {
-  "iteration": 0,
+  "iteration": 1,
   "current_hypothesis": null,
-  "experiment_id": "99m_v2",
-  "training_status": "baseline_complete",
+  "experiment_id": "102a",
+  "training_status": "complete",
   "training_pid": null,
   "training_command": null,
-  "base_commit": "40123e2",
-  "started_at": "2026-03-17T00:00:00",
-  "baseline_score": 66.31,
-  "phase": "ready_for_iteration_1"
+  "base_commit": "70a3041",
+  "started_at": "2026-03-17",
+  "phase": "ready_for_iteration_2",
+  "last_score": 65.73,
+  "last_decision": "VALUABLE FAILURE — noise_scale_head redundant with cell_spread"
 }
