@@ -12,6 +12,7 @@
 | 1 | 102a   | B: noise_scale_cond | 65.73 | 5/8 | VALUABLE FAILURE |
 | 2 | 103a   | A: learned rho      | 65.47 | 5/8 | VALUABLE FAILURE |
 | 3 | 103a_v2| A: clamped rho 0.6-0.95 | 66.20 | 5/8 | VALUABLE FAILURE |
+| 4 | 104a   | C: mean-reversion | 64.65 | 5/8 | VALUABLE FAILURE |
 
 ---
 
@@ -49,6 +50,18 @@
 - **Suite 2**: Cell (4,0) WORSE at 97.7-98.3% (fixed rho=0.7 produces more over-spread than 0.8).
 - **WHY**: Effectively a fixed-rho=0.7 model. No information gained beyond confirming rho=0.7 is slightly worse than 0.8.
 - **Decision**: VALUABLE FAILURE. Direction A exhausted (attempts 2/3, but root cause clear: can't learn rho without distributional loss). Move to Direction C.
+
+### Iteration 4: Exp 104a — Mean-Reversion Dynamics
+- **Direction**: C (non-anchored dynamics)
+- **Hypothesis**: Add alpha*(mu(cond) - prev) term. Pulls trajectories toward learned equilibrium.
+- **Result**: 5/8, score 64.65 (WORST, -1.66 vs baseline).
+- **Alpha converged to 0.036** (3.6% pull per step) — too aggressive for 30 steps.
+- **Improvements**: Coint 0.810 (BEST EVER), calm/turb bias more symmetric
+- **Regressions**: Kurtosis 0.568 (barely passing), KS 17/25, catastrophic 925 (worst), h=30 worst 69.8% (UNDER 70%!)
+- **WHY**: Mean-reversion dampens tails (pulls to mu≈0.5), increases catastrophic failures (wrong-level pull). CRPS doesn't penalize level distribution — it rewards accurate per-step prediction, so mu converges to reduce CRPS regardless of level distribution quality.
+- **KS IV levels**: Still 1/25 — mean-reversion didn't help because mu is a single condition-dependent value, not a distribution. Levels are still anchored, just to mu instead of history[-1].
+- **INSIGHT**: Mean-reversion changes the anchor from history[-1] to mu, but doesn't widen the level distribution. Would need noise in mu itself, or horizon-dependent mu that grows in variance.
+- **Decision**: VALUABLE FAILURE. Direction C needs different implementation.
 
 ---
 

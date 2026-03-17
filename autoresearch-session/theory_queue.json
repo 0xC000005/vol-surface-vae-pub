@@ -1,31 +1,29 @@
 [
   {
     "name": "A: Learnable noise dampening",
-    "theory": "Fixed AR(1) z_{t+1} = 0.8*z_t + 0.6*eps creates positive autocorrelation in deltas, causing super-diffusive spread at h=7-30. Replace with learned z_{t+1} = f(cond)*z_t + g(cond)*eps where f,g are small MLPs conditioned on encoder output. This allows the model to learn mean-reverting noise dynamics (f < 1) that match GT negative autocorrelation.",
-    "target": "Suite 2 (CI coverage) — fix per-horizon over-spread at h=7-30",
-    "prediction": "Per-horizon CI should tighten. Lag-1 ACF of deltas should shift from +0.25..+0.83 toward GT -0.35..-0.51.",
-    "risk": "May destabilize noise process if f grows unbounded. Need sigmoid/tanh clamping on f to keep in [0, 1]. Also rho=0.0 ablation (101a) showed losing noise correlation breaks growing uncertainty — so f should NOT go to 0.",
-    "implementation": "Add LearnableARNoise module: f = sigmoid(MLP_f(condition)), g = softplus(MLP_g(condition)). Replace fixed rho in AR loop. Init f near 0.8.",
-    "attempts": 0,
+    "theory": "EXHAUSTED. CRPS-optimal rho ≈ 0.29 produces poor distributional properties (KS, kurtosis). Fixed rho=0.8 is the correct inductive bias. Clamped rho creates gradient desert.",
+    "target": "Suite 2",
+    "attempts": 2,
     "max_attempts": 3,
-    "status": "active"
+    "status": "exhausted",
+    "finding": "103a: rho→0.29, KS 17/25. 103a_v2: rho stuck at 0.703, score=baseline."
   },
   {
     "name": "B: Encoder-modulated per-cell noise scale",
-    "theory": "REDUNDANT with cell_spread — proven by Exp 102a. Both are condition→25 scalars on same path. CRPS per-cell gradient pulls both toward uniform.",
-    "target": "Suite 7 (regime coverage)",
-    "finding": "102a: noise_scale learned only 1.4x range (GT: 35x). Kurtosis regressed 0.845→0.605. Better calibration (0.072→0.043) but doesn't flip any suite.",
+    "theory": "REDUNDANT with cell_spread — proven by 102a. Both condition→25 scalars on same path.",
+    "target": "Suite 7",
     "attempts": 1,
     "max_attempts": 3,
-    "status": "active"
+    "status": "active",
+    "finding": "102a: 1.4x range (GT: 35x). Kurtosis regressed. Better calibration but no suite flip."
   },
   {
     "name": "C: Non-anchored dynamics / level prediction",
-    "theory": "Additive iv_t = prev + vs*delta anchors all trajectories to history[-1]. After 30 steps, distribution of levels is tightly centered around drift from anchor. GT levels at h=30 have much wider distribution. KS on IV levels fails 0-1/25 because the level distribution never departs enough from the anchor. A level-correction head or mean-reverting target could break this anchor dependency.",
+    "theory": "Additive iv_t = prev + vs*delta anchors all trajectories to history[-1]. KS on IV levels fails 0-1/25. A horizon-dependent drift head or mean-reversion to learned long-run mean could break anchor dependency.",
     "target": "Suite 8 (distributional) — KS on IV levels",
-    "prediction": "KS on IV levels should improve from 0-1/25. Level distribution should widen.",
-    "risk": "May break surface validity if level predictions are noisy. May conflict with per-step CRPS that rewards accurate per-step predictions (which favor anchoring).",
-    "implementation": "Options: (a) Horizon-dependent drift head that predicts cumulative level offset. (b) Mean-reversion to learned long-run mean. (c) Level-matching loss at select horizons. Start with (a) as most Bitter-Lesson compatible.",
+    "prediction": "KS on IV levels should improve from 0-1/25.",
+    "risk": "May break surface validity. CRPS rewards anchoring (best per-step prediction).",
+    "implementation": "Horizon-dependent drift head: drift_head(condition, horizon) → (25,) cumulative offset added at each step. Or: mean_revert_head(condition) → (25,) learned long-run mean, with iv_t pulled toward it.",
     "attempts": 0,
     "max_attempts": 3,
     "status": "active"
