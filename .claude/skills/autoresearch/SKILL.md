@@ -95,6 +95,11 @@ If config exists: resume from last iteration.
 LOOP:
   ┌─────────────────────────────────────────────────────────┐
   │ 1. HYPOTHESIZE                                          │
+  │    ⚠️  PRE-CHECK: Was the previous iteration's entry     │
+  │    written to RESEARCH_LOG.md and committed? If not,     │
+  │    STOP and write it NOW before proceeding. Check by     │
+  │    grepping RESEARCH_LOG.md for the last experiment ID.  │
+  │                                                         │
   │    Read: results-log.md (this session's iterations)     │
   │    INVOKE the `research-log` skill to search for:       │
   │      - what's been tried and failed (exhausted)         │
@@ -192,6 +197,34 @@ LOOP:
   │    that you have a working hypothesis for why, proceed   │
   │    to DECIDE. If still uncertain, log what you know and  │
   │    what you don't, then proceed anyway.                  │
+  ├─────────────────────────────────────────────────────────┤
+  │ 6. PERSIST TO RESEARCH LOG (BLOCKING GATE)              │
+  │    ⚠️  DO NOT proceed to the next iteration until this   │
+  │    step is COMPLETE. This is not optional.               │
+  │                                                         │
+  │    Write the FULL experiment entry to RESEARCH_LOG.md    │
+  │    using the `research-log` skill (or direct append).    │
+  │    The entry MUST contain ALL items from step 3B above.  │
+  │                                                         │
+  │    Then git commit the research log update.              │
+  │                                                         │
+  │    WHY THIS IS BLOCKING:                                │
+  │    - The research log is the ONLY artifact that survives │
+  │      context compaction and session boundaries           │
+  │    - results-log.md is session-local and disposable      │
+  │    - Without research log entries, future sessions WILL  │
+  │      repeat failed experiments (proven in this project:  │
+  │      autoresearch session 2026-03-17 deferred 4 entries  │
+  │      and only wrote them when the user intervened)       │
+  │    - A missing entry = wasted GPU hours in the future    │
+  │                                                         │
+  │    SELF-CHECK before proceeding:                         │
+  │      □ Did I append to RESEARCH_LOG.md (not just         │
+  │        results-log.md)?                                  │
+  │      □ Does the entry contain metrics table, WHY         │
+  │        analysis, and what was learned?                   │
+  │      □ Did I git commit the research log?                │
+  │      □ Only THEN start the next HYPOTHESIZE step         │
   └─────────────────────────────────────────────────────────┘
   REPEAT (forever or N times)
 ```
@@ -524,11 +557,15 @@ If `mcp-local-rag` is unavailable for research log search:
    loaded). A wrong test → wrong conclusion → blocked promising path.
 8. **Synthesize when stuck** — generate new directions from evidence, don't repeat failures
 9. **Quick then full** — validate cheaply before investing in full training
-10. **Log EVERYTHING permanently** — append to RESEARCH_LOG.md via `research-log` skill
-    after EVERY iteration. Log wins AND losses with equal detail. A failed experiment
-    that you understand deeply is more valuable than a success you can't explain.
-    Future sessions will search this log to generate hypotheses — missing entries mean
-    repeated experiments and wasted time.
+10. **RESEARCH LOG IS A BLOCKING GATE** — You MUST append to RESEARCH_LOG.md (via
+    `research-log` skill or direct append) and git commit it BEFORE starting the next
+    iteration. This is step 6 of the HEDA loop. It is NOT optional. It is NOT deferrable.
+    Do NOT batch-write multiple entries later — write EACH entry IMMEDIATELY after the
+    DECIDE step. The session-local results-log.md is a convenience copy; RESEARCH_LOG.md
+    is the permanent record. Missing entries = repeated experiments = wasted GPU hours.
+    **Failure mode to avoid**: writing to results-log.md and "planning to update the
+    research log later." Later never comes — context compaction or session end erases
+    the intent. Write it NOW, every time, no exceptions.
 11. **Experiment branch, never revert knowledge** — create `autoresearch-session-YYYYMMDD`
     branch at setup. All commits stay on the branch — NEVER revert commits, even for
     failed experiments. Code that didn't work is still valuable history. Each commit
