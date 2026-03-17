@@ -26514,3 +26514,78 @@ sequential operations — the signal may be diluted (Investigation I3 will test 
 - 9 diagnostic figures in `results/investigations/I2_mean_reversion/`
 
 ---
+
+## 2026-03-17: Investigation I4 — Factor Rank vs Marginal Quality (Results)
+
+### Stakeholder Hypothesis
+
+Like interest rate models where 1 factor = parallel shift, 2 = slope, 3 = skew, the
+hypothesis was: marginal distribution mismatch is a capacity problem. The model's effective
+noise rank of ~1 means it can only produce parallel shifts, not per-cell-differentiated
+distributions. Higher rank should improve marginals.
+
+### Cross-Model Comparison
+
+| Model | Eff Rank | Mean Corr | Mean W1 | Mean KS | KS<0.15 | Var Ratio | Kurt Ratio |
+|-------|----------|-----------|---------|---------|---------|-----------|------------|
+| 99m_v2 | 6.77 | 0.429 | 0.00764 | 0.126 | 18/25 | 1.53 | 0.845 |
+| 105a_v2 ep10 | 5.51 | 0.574 | 0.00928 | 0.173 | 9/25 | — | — |
+| 99l_v3 final | 6.59 | 0.519 | 0.01176 | 0.189 | 0/25 | 1.92 | 1.03 |
+
+Correlation between eff_rank and mean Wasserstein across models: r = -0.01 (no relationship).
+
+99m_v2 (rank 6.77) has BETTER marginals than 99l_v3 (rank 6.59) despite similar rank.
+105a_v2 (rank 5.51, best correlation structure) has the WORST marginals.
+
+### Synthetic Orthogonalization Test (Critical Experiment)
+
+Took 99m_v2 samples and post-hoc orthogonalized them (per-timestep whiten-then-color with
+GT covariance matrix). This surgically fixes the rank/correlation structure without retraining.
+
+| Metric | 99m_v2 Original | Orthogonalized | GT Target |
+|--------|----------------|----------------|-----------|
+| Eff rank | 6.77 | 5.74 | 5.10 |
+| Var ratio | 1.53 | **1.04** | 1.00 |
+| Cell std range | 44.5x | **79.9x** | 82.8x |
+| Mean Wasserstein | 0.00764 | **0.00766** | 0 |
+| KS pass | 0/25 | **0/25** | 25/25 |
+| Kurtosis ratio | 0.845 | 0.045 | 1.00 |
+
+**Orthogonalization perfectly fixed the variance structure** (var_ratio 1.53 → 1.04,
+cell_std_range 44.5x → 79.9x ≈ GT 82.8x). But **Wasserstein distance was UNCHANGED**
+(-0.3%, within noise). KS still 0/25.
+
+**The fix destroyed kurtosis** (0.845 → 0.045) because whiten-color preserves Gaussian
+tails but GT has fat tails. The marginal shape problem is INDEPENDENT of the rank problem.
+
+### VERDICT: CAPACITY HYPOTHESIS REJECTED
+
+1. **Fixing rank/correlation to GT values does NOT improve per-cell marginals.**
+   The synthetic orthogonalization test is definitive: perfect variance structure + near-GT
+   rank → same Wasserstein distance as rank-1 model.
+
+2. **The bottleneck is distribution SHAPE (kurtosis, tails), not cross-cell STRUCTURE.**
+   The model produces near-Gaussian per-cell distributions. GT has fat tails (kurtosis ~77
+   vs Gaussian 3). This shape mismatch dominates the marginal distance metric.
+
+3. **The interest rate analogy breaks down.** In rates, 3 factors improve the LEVEL
+   distribution across tenors. In our model, the per-cell LEVEL is already well-predicted
+   (Wasserstein is small). The issue is the per-cell SHAPE — which is not a rank problem.
+
+### Implications for Architecture Decisions
+
+- **Attention decoder for rank improvement: DEPRIORITIZED.** Rank is not the marginal
+  bottleneck. Attention may help cross-cell correlation (Suite 6) but won't fix Suite 8.
+- **Per-cell conditions: STILL VALUABLE.** Not for rank, but for per-cell conditioning
+  (Suite 7 regime coverage). I1 showed 123 spare dims available.
+- **Fat-tail generation: NEW PRIORITY.** The real marginal bottleneck is kurtosis/tail
+  shape. Approaches: Student-t noise (already a config option), flow-based tail modeling,
+  or distributional loss that explicitly targets tail shape.
+- **Mean-reversion (I2 finding) is a SEPARATE issue from marginals.** Both need fixing
+  but through different mechanisms.
+
+### Files
+- Results: `results/investigations/I4_rank_marginals/I4_results.json`
+- Figures: 6 PNGs in `results/investigations/I4_rank_marginals/`
+
+---
