@@ -26306,3 +26306,46 @@ Recommended order: I1 + I2 + I4 in parallel → I3 after I2
 | I4: rank doesn't predict marginals | CRPS dynamics is bottleneck | MMD/distributional loss |
 
 ---
+
+## 2026-03-17: Investigation Depth Allocation
+
+### Depth and Approach Per Investigation
+
+**I2 (Mean-Reversion) — DEEPEST (3-4h)**
+Not just "does GT mean-revert" but understand the generative process:
+- OU parameter estimation (theta, mu, sigma) per cell — is it OU or something else?
+- Half-life variation by moneyness × tenor (does deep OTM revert faster than ATM?)
+- Regime-dependent mean-reversion (different theta in calm vs turb?)
+- Model vs GT: which specific aspect of mean-reversion is missing?
+- Structural analysis: does the AR delta = f(prev, cond, noise) formulation have the
+  mathematical capacity to produce mean-reversion, or is it structurally prevented?
+
+**I4 (Rank vs Marginals) — DEEP (2-3h)**
+Not just "correlate rank with KS" but decompose the mechanism:
+- Per-cell Wasserstein decomposition: which moments (mean, variance, skew, kurtosis)
+  drive the distance? Does rank-1 specifically break variance or shape?
+- Synthetic experiment: take 99m_v2 samples and artificially orthogonalize the noise
+  (post-hoc SVD rotation). Does this improve marginals? If yes → capacity confirmed.
+- Cross-cell correlation matrix comparison: eigenspectrum of GT vs each model
+- Intervention: what happens to cell (0,0) marginal if we force its noise to be
+  orthogonal to cell (4,4)? Can we isolate the rank-1 effect?
+
+**I1 (Encoder) — MODERATE (2h)**
+- PCA + effective rank of condition matrix (quick diagnostics)
+- Intervention experiments: zero out top-K PCA components → which suites break?
+- Compare DDPM encoder condition vectors to MSE encoder (if checkpoint exists):
+  what's different in the representation, not just the downstream performance?
+- Cluster analysis: do condition vectors cluster by regime, or by something else?
+
+**I3 (AR vs One-Shot) — MODERATE (1-2h, after I2)**
+- Gradient norm analysis: ||dL/d_delta_t|| for t=1,5,10,20,30 — how fast does
+  gradient decay through the AR chain?
+- Theoretical: write out the Jacobian chain for 30 AR steps
+- If I2 shows strong GT mean-reversion: analyze whether one-shot architecture
+  would structurally enable learning it
+
+### Execution Order
+I1 + I2 + I4 can run in parallel (all inference on existing models).
+I3 depends on I2 results. Start after I2 completes.
+
+---
