@@ -26349,3 +26349,76 @@ I1 + I2 + I4 can run in parallel (all inference on existing models).
 I3 depends on I2 results. Start after I2 completes.
 
 ---
+
+## 2026-03-17: Investigation I1 — Encoder Representation Analysis (Results)
+
+### Key Findings
+
+**1. Condition space is ~3-5 dimensional** (effective rank 2.6 out of 128 dims)
+- PC1: 54.8% variance (IV level), PC2: 29.0% (shape/dynamics)
+- 5 components for 95%, 8 for 99%
+- 123+ dimensions carry negligible unique information
+
+**2. Linear probes reveal rich encoding:**
+
+| Target | R² | Interpretation |
+|--------|-----|---------------|
+| Mean IV level | 0.963 | Dominant information |
+| Skew (strike structure) | 0.907 | Surface shape encoded |
+| History trend | 0.856 | Dynamics captured |
+| Realized vol 5d | 0.857 | Recent volatility |
+| Term slope | 0.841 | Tenor structure |
+| Vol-of-vol | 0.810 | Regime info |
+| **Mean IV change (future)** | **0.656** | **Encoder encodes mean-reversion signals!** |
+| Future vol | 0.569 | Modest predictive power |
+
+The future IV change R²=0.656 is a surprise — the encoder carries information about WHERE
+IV will go next, not just where it is. This is directly relevant to mean-reversion (I2).
+
+**3. All 128 dims are alive (no dead neurons)** but highly redundant
+- Mean off-diagonal correlation: 0.549
+- Std range per dim: [0.014, 0.124]
+- The decoder only uses top 3-5 PCA directions (ablation: zeroing bottom 50% → 1.2% change)
+
+**4. Attention has 19x recency bias**
+- Last 5 steps: 45.6% of attention weight. First 5 steps: 3.4%
+- Attention pattern is similar across calm/turb regimes (no dynamic shifting)
+
+**5. Clusters track IV level, NOT regime**
+- k=3 clustering vs vol-of-vol regimes: ARI=0.008 (random)
+- Encoder organizes by surface level/shape, regime info is distributed not clustered
+
+**6. Intervention: ablating dims barely affects output**
+- Keep only top 5 PCA components → spread changes 0.3%
+- Keep only top 1 → spread changes 3%
+- Massive spare capacity in the 128-dim space
+
+### Why DDPM Pretraining Creates "Right Imprecision"
+
+The encoder compresses 750-dim input (30×5×5) into a ~3D manifold embedded in 128-dim space.
+DDPM pretraining forces learning features for full surface reconstruction → captures level,
+shape, dynamics naturally. The "imprecision" IS the redundancy: most dims are redundant
+linear combinations of ~5 true factors. This redundancy is beneficial — robust to noise,
+decoder extracts what it needs via simple linear combinations without overfitting.
+
+Random encoder: no structured manifold. MSE encoder: too precise (decoder ignores noise).
+Unfrozen encoder: CRPS collapses/distorts the representation. DDPM-frozen = sweet spot.
+
+### Implications for Architecture Decisions
+
+1. **Per-cell conditions via fan-out**: 123 unused dims means we can add per-cell info
+   without changing the encoder — just add a learned projection from the existing 128-dim
+   condition to 25 per-cell vectors. The information IS there (R²=0.96 for IV level,
+   0.91 for skew) — it just needs to be routed per-cell.
+
+2. **Encoder replacement is NOT needed**: The encoder works well. The bottleneck is
+   downstream (decoder MLP crushes noise to rank 1).
+
+3. **Mean-reversion signal EXISTS in the encoder** (R²=0.656 for future IV change).
+   The decoder may not be using it effectively — worth investigating (connects to I2).
+
+### Files
+- Results: `results/investigations/I1_encoder/results.json`
+- 7 diagnostic figures in `results/investigations/I1_encoder/`
+
+---
