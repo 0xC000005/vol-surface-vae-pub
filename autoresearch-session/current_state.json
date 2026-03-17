@@ -1,0 +1,12 @@
+{
+  "iteration": 0,
+  "current_hypothesis": null,
+  "experiment_id": "99m_v2",
+  "training_status": "baseline_complete",
+  "training_pid": null,
+  "training_command": null,
+  "base_commit": "40123e2",
+  "started_at": "2026-03-17T00:00:00",
+  "baseline_score": 66.31,
+  "phase": "ready_for_iteration_1"
+}

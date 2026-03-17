@@ -1,0 +1,35 @@
+[
+  {
+    "name": "A: Learnable noise dampening",
+    "theory": "Fixed AR(1) z_{t+1} = 0.8*z_t + 0.6*eps creates positive autocorrelation in deltas, causing super-diffusive spread at h=7-30. Replace with learned z_{t+1} = f(cond)*z_t + g(cond)*eps where f,g are small MLPs conditioned on encoder output. This allows the model to learn mean-reverting noise dynamics (f < 1) that match GT negative autocorrelation.",
+    "target": "Suite 2 (CI coverage) — fix per-horizon over-spread at h=7-30",
+    "prediction": "Per-horizon CI should tighten. Lag-1 ACF of deltas should shift from +0.25..+0.83 toward GT -0.35..-0.51.",
+    "risk": "May destabilize noise process if f grows unbounded. Need sigmoid/tanh clamping on f to keep in [0, 1].",
+    "implementation": "Add LearnableARNoise module: f = sigmoid(MLP_f(condition)), g = softplus(MLP_g(condition)). Replace fixed rho in AR loop.",
+    "attempts": 0,
+    "max_attempts": 3,
+    "status": "active"
+  },
+  {
+    "name": "B: Encoder-modulated per-cell noise scale",
+    "theory": "All cells get identical noise amplitude regardless of regime. GT shows 35x range in per-cell std. Suite 7 fails because 4/200 regime-cell combinations don't get appropriate coverage. Learn sigma = MLP(condition) producing 25 positive scalars that modulate noise per cell. Turbulent regimes get wider noise automatically.",
+    "target": "Suite 7 (regime coverage) — per-cell regime-appropriate spread",
+    "prediction": "Suite 7's 4 failing cells should get regime-appropriate coverage. Per-cell std range should approach GT 35x.",
+    "risk": "CRPS pressure may collapse sigma toward zero (spread collapse). Need lower bound or detached target.",
+    "implementation": "Add noise_scale_head: Linear(bottleneck_dim, 25) + softplus. Multiply noise_input by sigma before feeding to FrameDecoder. Init at 1.0.",
+    "attempts": 0,
+    "max_attempts": 3,
+    "status": "active"
+  },
+  {
+    "name": "C: Non-anchored dynamics / level prediction",
+    "theory": "Additive iv_t = prev + vs*delta anchors all trajectories to history[-1]. After 30 steps, distribution of levels is tightly centered around drift from anchor. GT levels at h=30 have much wider distribution. KS on IV levels fails 0-1/25 because the level distribution never departs enough from the anchor. A level-correction head or mean-reverting target could break this anchor dependency.",
+    "target": "Suite 8 (distributional) — KS on IV levels",
+    "prediction": "KS on IV levels should improve from 0-1/25. Level distribution should widen.",
+    "risk": "May break surface validity if level predictions are noisy. May conflict with per-step CRPS that rewards accurate per-step predictions (which favor anchoring).",
+    "implementation": "Options: (a) Horizon-dependent drift head that predicts cumulative level offset. (b) Mean-reversion to learned long-run mean. (c) Level-matching loss at select horizons. Start with (a) as most Bitter-Lesson compatible.",
+    "attempts": 0,
+    "max_attempts": 3,
+    "status": "active"
+  }
+]
