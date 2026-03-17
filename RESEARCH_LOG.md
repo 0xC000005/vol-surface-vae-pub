@@ -26589,3 +26589,70 @@ tails but GT has fat tails. The marginal shape problem is INDEPENDENT of the ran
 - Figures: 6 PNGs in `results/investigations/I4_rank_marginals/`
 
 ---
+
+## 2026-03-17: Exp 108a — Student-t Noise (df=6) for Fat Tails
+
+### Hypothesis
+**Based on**: I4 investigation (capacity hypothesis rejected — marginal bottleneck is tail
+SHAPE, not rank). GT kurtosis ~77, model produces near-Gaussian distributions.
+Student-t(df=6) noise has heavier tails than Gaussian.
+
+### Architecture Change
+Zero code change. CLI flags: `--noise_dist student_t --student_t_df 6.0`. The initial
+noise z~StudentT(6) is clamped to [-5,5] and scaled by 1/1.414. AR innovations (eps_t in
+the AR(1) update) remain Gaussian — only the initial draw is fat-tailed.
+
+### Training
+99m_v2 recipe + `--noise_dist student_t --student_t_df 6.0`. 30 epochs quick.
+
+### Results: 5/8 PASS — FIRST SCORE IMPROVEMENT OVER BASELINE
+
+| Metric | 99m_v2 (baseline) | 108a (Student-t) | Delta |
+|--------|-------------------|-------------------|-------|
+| **Score** | 66.31 | **66.93** | **+0.62** |
+| Suites | 5/8 | 5/8 | = |
+| **Kurtosis** | 0.845 | **0.955** | **+0.11 (near-perfect)** |
+| **CI 90%** | 91.3% | **92.0%** | **+0.7pp** |
+| **Catastrophic** | 576 | **450** | **-126 (best ever)** |
+| KS daily | 20/25 | 18/25 | -2 |
+| KS levels | 1/25 | 1/25 | = |
+| Coint | 0.675 | 0.653 | -0.02 |
+| Median bias | 18/25 | 19/25 | +1 |
+
+### Analysis: WHY It Improved
+
+1. **Kurtosis 0.955 (best ever, near-perfect)**: Student-t initial noise produces heavier
+   tails in the per-cell daily change distributions. Even though AR innovations are Gaussian,
+   the initial Student-t draw propagates through the AR chain via rho=0.8 correlation.
+   At step t, z_t = 0.8^t * z_0 + sum(0.8^k * eps_{t-k}). The z_0 contribution (fat-tailed)
+   decays as 0.8^t but is still 0.8^30 ≈ 0.001 at step 30 — negligible. The kurtosis
+   improvement likely comes from training dynamics: the model learned to USE heavy tails
+   rather than suppress them, because CRPS with fat-tailed noise has different optimal
+   weights than with Gaussian noise.
+
+2. **CI 92.0% (best ever)**: Better calibrated overall. Student-t noise's occasional
+   extreme samples may help CRPS learn better tail coverage.
+
+3. **Catastrophic 450 (best ever)**: Fewer extreme window-cell failures. Heavy-tailed
+   noise provides better coverage for extreme conditions.
+
+4. **KS daily 18/25 (down from 20)**: Some cells' daily change distributions are now
+   too heavy-tailed. The df=6 may be too aggressive for some cells.
+
+### Limitation Noted
+The AR(1) innovation eps_t is still Gaussian (line 1041: `torch.randn_like(z_t)`).
+Only z_0 is Student-t. Making eps_t also Student-t could further improve tail properties
+throughout the trajectory, not just at h=1.
+
+### What Was Learned
+- Student-t noise IS the right direction for marginal improvement (confirms I4)
+- df=6 may be too heavy for some cells (KS daily dropped 2)
+- The score improvement (+0.62) is the first positive delta in 9 experiments
+- Combined with per-cell conditions (Direction G), this could target different df per cell
+
+### What This Suggests Next
+- **108a_v2**: Try df=8 (lighter tails) to recover KS daily while keeping kurtosis gain
+- **108b**: Make AR innovations also Student-t (not just initial z_0)
+- Combine with Direction G (per-cell conditions) in a later experiment
+
+---
