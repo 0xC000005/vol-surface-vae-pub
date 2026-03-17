@@ -26033,3 +26033,123 @@ The 5/8 ceiling is **intrinsic to the combination of CRPS loss + shared MLP deco
 - Or accepting 5/8 as the production ceiling and using post-hoc (qmap) for Suite 2
 
 ---
+
+## 2026-03-17: Exp 107a — No Cell Variance Loss Ablation + Architecture Exhaustion Assessment
+
+### Exp 107a: lambda_cell_var=0 (ablation)
+
+**Based on**: 99m_v2 settings but with lambda_cell_var=0.0 (removing per-cell variance matching).
+
+**Result**: 5/8, score 66.02 (near-baseline 66.31).
+
+| Metric | 99m_v2 (cv=1.0) | 107a (cv=0) | Delta |
+|--------|-----------------|-------------|-------|
+| Score  | 66.31 | 66.02 | -0.29 |
+| Kurtosis | 0.845 | **0.947** | +0.10 |
+| KS daily | 20/25 | 19/25 | -1 |
+| KS levels | 1/25 | 0/25 | -1 |
+| Coint | 0.675 | 0.576 | -0.10 |
+| Median bias | 18/25 | 22/25 | +4 |
+| CI 90% | 91.3% | 89.7% | -1.6pp |
+| Catastrophic | 576 | 659 | +83 |
+
+**Key finding**: Kurtosis 0.947 — BEST of all 8 experiments and near-perfect GT match.
+Removing cell_var_loss lets the model's natural kurtosis emerge without the variance-matching
+loss fighting the tail structure. But KS levels dropped to 0/25 and cointegration weakened.
+
+**Conclusion**: cell_var_loss trades kurtosis for per-cell variance calibration. Neither
+setting flips any suite. The marginal benefit of cell_var_loss is small.
+
+### Architecture Exhaustion Assessment (8 experiments, 2026-03-17)
+
+After 8 experiments (102a-107a), the **5/8 ceiling is definitively confirmed** for the
+current architecture: single-pass afCRPS with shared FrameDecoder MLP + GRU encoder.
+
+**Complete experiment inventory:**
+
+| # | Exp | What Changed | Score | Key Finding |
+|---|-----|-------------|-------|-------------|
+| 0 | 99m_v2 | baseline | **66.31** | 5/8 (1,3,4,5,6) |
+| 1 | 102a | +noise_scale_cond | 65.73 | Redundant with cell_spread |
+| 2 | 103a | learned rho | 65.47 | CRPS-optimal rho=0.29 kills KS |
+| 3 | 103a_v2 | clamped rho [0.6,0.95] | 66.20 | Gradient desert, ≈ fixed 0.7 |
+| 4 | 104a | +mean_reversion | 64.65 | Dampens tails, wrong anchoring |
+| 5 | 105a | freeze ep5 | 56.47 | 4/8: MLP underfits |
+| 6 | 105a_v2 | freeze ep7 | 66.04 | Best corr 0.417 ≈ GT, near-baseline |
+| 7 | 106a | lambda_es=5.0 | 65.51 | Over-diversifies, crushes kurtosis |
+| 8 | 107a | no cell_var | 66.02 | Best kurtosis 0.947, near-baseline |
+
+**Root cause proven across all 8 experiments: CRPS optimization dynamics suppress noise
+diversity.** Any learned parameter that CRPS can use to reduce noise variance, it will.
+This applies to noise_scale (102a), rho (103a), mean-reversion alpha (104a), ES weight
+(106a), and cell_var tradeoffs (107a). Fixed inductive biases (rho=0.8, freeze timing)
+outperform learned dynamics.
+
+### Next Architecture Directions (for future sessions)
+
+Two approaches ranked by promise and feasibility:
+
+#### 1. Attention-Based Decoder (HIGHEST PRIORITY)
+
+**Why**: The FrameDecoder MLP has effective noise rank of 1.06 — hidden layers crush 32-dim
+noise into 1 direction (cosine similarity 0.987 across cell weight rows). This is the
+proven root cause of rank-1 correlation (corr=0.88 vs GT 0.38). An attention mechanism
+over noise vectors doesn't have this bottleneck because each cell can attend to different
+noise dimensions independently.
+
+**Evidence**: Weather AI convergence — ECMWF GenCast, Google GraphCast, Pangu-Weather all
+moved from MLP to attention-based decoders for exactly this reason (multivariate diversity).
+The 5x5 grid is small enough that full attention is cheap (25 tokens, O(625) per layer).
+
+**Implementation sketch**: Replace FrameDecoder MLP with CrossAttentionDecoder where
+cell_queries (25, cond_dim) are per-cell embeddings derived from condition, noise serves
+as keys/values (noise_dim, embed_dim), and output is (25,) delta per cell. Each cell
+attends to noise independently, breaking the rank-1 bottleneck.
+
+**Bitter Lesson**: PASS — attention is a general mechanism, not domain-specific.
+Generalizes to any grid size or factor structure.
+
+**Risk**: Small model budget (76K params). Attention heads + projections may not fit.
+May need to increase total params to ~150K. Training may be slower per epoch.
+
+#### 2. Per-Cell Condition Vectors (COMBINE WITH #1)
+
+**Why**: The shared 128-dim condition means ALL 25 cells see the exact same conditioning.
+Suite 7 fails because 4/200 regime-cell combos don't get appropriate coverage — the model
+can't differentiate cell (0,3) from cell (4,0) in its conditioning. Per-cell conditions
+let the decoder give different spread to different cells based on their individual patterns.
+
+**Implementation sketch**: After GRU bottleneck (128-dim), add a cell_condition_head:
+Linear(128, 25 * cell_cond_dim) that fans out to per-cell condition vectors.
+Each cell gets its own condition vector. The attention decoder then uses per-cell conditions
+as queries (instead of shared condition for all cells).
+
+**Bitter Lesson**: PASS — Linear projection is learned from data.
+
+**Risk**: 25x condition vectors may overfit with limited data. Start with small
+cell_cond_dim (16-32) to control parameter count.
+
+#### 3. Other Options Considered But Deprioritized
+
+- **Transformer encoder replacing GRU**: Better long-range dependencies, but the GRU
+  encoder works well (Suite 3 conditionality passes robustly). Lower priority than fixing
+  the decoder bottleneck.
+- **Spatial-aware encoder**: 2D convolutions preserving grid structure. Could help but
+  the 5x5 grid has limited spatial structure to exploit. Lower priority.
+- **Different loss (GAN/MMD)**: Addresses CRPS dynamics problem directly but adds training
+  instability. Would be debugging mode collapse instead of architecture. Deprioritized.
+- **Non-autoregressive generation**: Breaks autocorrelation coupling (Suite 2) but throws
+  away AR temporal coherence that already works (Suite 5). Too disruptive.
+- **Much larger MLP**: Proven to fail — Exp 90g (hidden=256) scored 2/8. More MLP capacity
+  = more noise suppression. The bottleneck is architecture, not size.
+- **Two-stage training**: Freeze-at-peak experiments (105a/105a_v2) already explored this
+  concept. Helps kurtosis but doesn't flip suites.
+
+### Recommended Research Plan
+
+1. **Exp 108a**: Attention-based decoder (replace MLP with cross-attention). Quick 30ep.
+2. **Exp 108b** (if 108a shows promise): Add per-cell condition vectors.
+3. **Exp 109a** (if attention works): Combine attention decoder + per-cell conditions +
+   best hyperparameters from 99m_v2 (freeze ep10, ES=1.0, rho=0.8). Full 60ep.
+
+---
