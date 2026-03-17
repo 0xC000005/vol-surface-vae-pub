@@ -26422,3 +26422,95 @@ Unfrozen encoder: CRPS collapses/distorts the representation. DDPM-frozen = swee
 - 7 diagnostic figures in `results/investigations/I1_encoder/`
 
 ---
+
+## 2026-03-17: Investigation I2 — Mean-Reversion in GT vs Model (Results)
+
+### GT Mean-Reversion Characterization
+
+**GT IV surfaces are STRONGLY mean-reverting.** This is not subtle:
+
+| Horizon | Variance Ratio | Interpretation |
+|---------|---------------|----------------|
+| h=2 | 0.627 | Sub-diffusive from day 1 |
+| h=5 | 0.398 | Variance grows at 40% of random walk rate |
+| h=10 | 0.289 | Strong mean-reversion |
+| h=20 | 0.236 | Very strong |
+| h=30 | 0.209 | Variance at h=30 is only 21% of what random walk predicts |
+
+A random walk has VR=1.0. Values <1.0 indicate mean-reversion. GT is massively sub-diffusive.
+
+**Ornstein-Uhlenbeck parameters per cell:**
+- Mean theta: 0.114 (mean-reversion speed)
+- Median half-life: 22.3 days
+- HUGE variation across the grid: corner cells (0,0), (0,4), (1,4) have half-life ~2 days
+  (very fast reversion), while center cells (2,2), (3,3) have 50-90 day half-lives
+- OU R^2 is low (mean 0.057) — OU is a crude approximation, actual dynamics are more complex
+- Regime-dependent: calm theta=0.147 vs turb theta=0.109 (calm reverts FASTER, ratio 0.74)
+
+**Lag-1 ACF of daily IV changes:**
+- GT mean: -0.373 (strongly negative = mean-reverting)
+- Range: -0.476 to -0.250 (ALL 25 cells are negative)
+
+### Model Mean-Reversion Characterization (99m_v2)
+
+**The model is NOT mean-reverting — it's super-diffusive in the interior:**
+
+| Horizon | GT VR | Model VR | Interpretation |
+|---------|-------|----------|----------------|
+| h=2 | 0.627 | 0.988 | Model ≈ random walk (GT is sub-diffusive) |
+| h=5 | 0.398 | 1.232 | Model is SUPER-diffusive (GT is strongly MR) |
+| h=10 | 0.289 | 1.149 | Diverging further from GT |
+| h=20 | 0.236 | 0.819 | Model starts contracting (GRU condition pulls back) |
+| h=30 | 0.209 | 0.513 | Model eventually sub-diffusive but still 2.5x GT |
+
+**Model lag-1 ACF of daily IV changes:**
+- Model mean: +0.158 (POSITIVE = trending, not mean-reverting)
+- Range: -0.383 to +0.601 across cells
+- Corner cells (0,0), (0,4), (1,4) have NEGATIVE ACF (mean-reverting like GT!)
+- Interior cells (2,2), (3,3), (3,4) have STRONG POSITIVE ACF (+0.45 to +0.60)
+
+### Key Mechanistic Findings
+
+**1. Mean-reversion mismatch is SPATIALLY STRUCTURED:**
+Corner cells (row 0, row 4, column 0, column 4) DO mean-revert in the model, matching GT.
+Interior cells (rows 1-3, columns 1-3) trend instead of reverting. This matches the
+cell_spread pattern: corner cells have larger spread (more noise relative to MLP signal)
+while interior cells are dominated by MLP trending behavior.
+
+**2. GT half-life varies 50x across the grid:**
+Cell (0,0): 1.8 days, Cell (3,3): 91.0 days. The model needs to learn VASTLY different
+mean-reversion speeds for different cells. A single rho=0.8 can't capture this.
+
+**3. The model's VR trajectory is non-monotonic (0.99 → 1.23 → 0.51):**
+- h=2-5: super-diffusive (AR noise builds up due to positive ACF)
+- h=10-20: GRU condition starts pulling trajectories back (growing uncertainty dip)
+- h=20-30: sub-diffusive (GRU mean-reversion kicks in)
+This matches the "growing uncertainty dip" found in earlier investigations.
+
+**4. GT is sub-diffusive at ALL horizons (VR always decreasing):**
+This is a fundamentally different dynamics regime. GT paths revert continuously,
+model paths trend then revert. The model's late reversion (h>20) comes from the
+GRU condition updating, not from learned mean-reversion in the decoder.
+
+### Implications
+
+**Your boss is right — the model is not mean-reverting enough.** The data shows:
+- GT VR at h=30 = 0.209 (strong mean-reversion)
+- Model VR at h=30 = 0.513 (2.5x too much variance growth)
+- GT lag-1 ACF = -0.37 everywhere; model = +0.16 on average
+
+**The AR architecture may structurally limit mean-reversion:** Each step computes
+delta = f(prev, cond, noise). For mean-reversion, f needs to be NEGATIVE when prev > mu
+and POSITIVE when prev < mu. The MLP CAN learn this theoretically, but CRPS pressure
+pushes it toward minimizing per-step error instead.
+
+**One-shot generation would help because:** The CRPS loss at h=30 would directly penalize
+paths that haven't reverted. In AR mode, frame-30 gradient must backprop through 30
+sequential operations — the signal may be diluted (Investigation I3 will test this).
+
+### Files
+- GT stats: `results/investigations/I2_mean_reversion/gt_mean_reversion_stats.npz`
+- Model stats: `results/investigations/I2_mean_reversion/model_mean_reversion_stats.npz`
+- 9 diagnostic figures in `results/investigations/I2_mean_reversion/`
+
+---
