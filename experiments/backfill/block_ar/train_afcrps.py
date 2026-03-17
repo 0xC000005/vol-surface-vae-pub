@@ -427,6 +427,10 @@ def main():
                         help="Condition-dependent AR noise rho (Exp 103a)")
     parser.add_argument("--ar_learned_rho_init", type=float, default=1.1,
                         help="Init bias for rho head (sigmoid(1.1)≈0.75)")
+    parser.add_argument("--ar_learned_rho_min", type=float, default=0.0,
+                        help="Lower clamp for learned rho")
+    parser.add_argument("--ar_learned_rho_max", type=float, default=1.0,
+                        help="Upper clamp for learned rho")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -583,6 +587,8 @@ def main():
         ar_noise_scale_min=args.ar_noise_scale_min,
         ar_learned_rho=args.ar_learned_rho,
         ar_learned_rho_init=args.ar_learned_rho_init,
+        ar_learned_rho_min=args.ar_learned_rho_min,
+        ar_learned_rho_max=args.ar_learned_rho_max,
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,

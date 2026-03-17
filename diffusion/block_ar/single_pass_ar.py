@@ -127,6 +127,8 @@ class SinglePassConfig:
     ar_noise_scale_min: float = 0.1      # lower bound for noise scale (prevents collapse)
     ar_learned_rho: bool = False         # condition-dependent rho (Exp 103a)
     ar_learned_rho_init: float = 1.1     # init bias so sigmoid(1.1) ≈ 0.75 (near default 0.8)
+    ar_learned_rho_min: float = 0.0      # lower clamp for learned rho (0.0 = no clamp)
+    ar_learned_rho_max: float = 1.0      # upper clamp for learned rho (1.0 = no clamp)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -784,12 +786,13 @@ class SinglePassBlockAR(nn.Module):
         """Compute condition-dependent rho for AR noise (Exp 103a).
 
         Returns:
-            rho: scalar tensor in [0, 1] via sigmoid, or fixed float if disabled.
+            rho: scalar tensor in [min, max] via sigmoid+clamp, or fixed float if disabled.
         """
         if not self.config.ar_learned_rho or not hasattr(self, 'rho_head'):
             return self.config.ar_frame_rho
         raw = self.rho_head(condition)  # (B, 1)
         rho = torch.sigmoid(raw)  # [0, 1]
+        rho = rho.clamp(self.config.ar_learned_rho_min, self.config.ar_learned_rho_max)
         return rho  # (B, 1)
 
     def _get_noise_scale(self, condition: torch.Tensor) -> torch.Tensor | None:
