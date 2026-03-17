@@ -15,6 +15,7 @@
 | 4 | 104a   | C: mean-reversion | 64.65 | 5/8 | VALUABLE FAILURE |
 | 5 | 105a   | E: freeze ep5+60ep | 56.47 | **4/8** | VALUABLE FAILURE |
 | 6 | 105a_v2| E: freeze ep7+60ep | 66.04 | 5/8 | VALUABLE FAILURE |
+| 7 | 106a   | D: lambda_es=5.0 | 65.51 | 5/8 | VALUABLE FAILURE |
 
 ---
 
