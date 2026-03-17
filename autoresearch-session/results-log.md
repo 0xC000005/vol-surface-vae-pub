@@ -10,6 +10,7 @@
 |---|--------|-----------|-------|--------|----------|
 | 0 | 99m_v2 | baseline  | 66.31 | 5/8    | BASELINE |
 | 1 | 102a   | B: noise_scale_cond | 65.73 | 5/8 | VALUABLE FAILURE |
+| 2 | 103a   | A: learned rho      | 65.47 | 5/8 | VALUABLE FAILURE |
 
 ---
 
@@ -24,6 +25,19 @@
 - **WHY**: noise_scale_head is redundant with cell_spread_linear — both are condition→25 scalars on same path. CRPS per-cell gradient has no cross-cell signal, so both converge to near-uniform. The fundamental spread-collapse problem (CRPS MAE dominates diversity) applies to noise_scale_head just as it did to cell_spread.
 - **INSIGHT**: Simply adding another learned scalar on the skip path doesn't help. Need to either (a) provide explicit variance target or (b) change the noise injection mechanism more fundamentally.
 - **Decision**: VALUABLE FAILURE — confirms learned per-cell scaling is redundant with cell_spread. Next: try Direction A (learnable noise dampening) which changes the noise DYNAMICS, not just amplitude.
+
+### Iteration 2: Exp 103a — Learned Rho for AR Noise
+- **Direction**: A (learnable noise dampening)
+- **Hypothesis**: Replace fixed rho=0.8 with sigmoid(rho_head(condition)). Model learns condition-dependent noise correlation.
+- **Prediction**: Delta autocorrelation should decrease, per-horizon spread calibration improves.
+- **Result**: 5/8 (same pattern). Score 65.47 (-0.84 vs baseline).
+- **Improvements**: coint 0.791 (BEST), turb/calm 1.721 (BEST), median 24/25, MAE red 90%, h1 worst 82.4%
+- **Regressions**: KS daily 17/25 (from 20), CI 88.6% (from 91.3%), catastrophic 808
+- **Learned rho converged to 0.289** (model wants low rho for CRPS; this matches 101b: rho=0.3→4/8)
+- **Cross-cell corr reached 0.323 at ep5 (near GT 0.38!)** but drifted to 0.661 by ep20
+- **WHY**: CRPS-optimal rho ≈ 0.29 produces poor KS. Fixed rho=0.8 is a BETTER inductive bias.
+- **INSIGHT**: Tension between CRPS-optimal dynamics and distributional realism. Constrained rho ∈ [0.6, 0.9] might preserve both.
+- **Decision**: VALUABLE FAILURE — key insight about CRPS-optimal rho. Next: try 103a_v2 with clamped rho, or Direction C.
 
 ---
 

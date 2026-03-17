@@ -25786,3 +25786,90 @@ non-CRPS loss that directly penalizes per-cell coverage imbalance.
 - The cell (4,0) over-spread is robust across ALL model variants — may be structural
 
 ---
+
+## 2026-03-17: Exp 103a — Condition-Dependent Learned Rho for AR Noise
+
+### Hypothesis
+**Based on**: 99m_v2 (base) + Suite 2 root cause (positive delta autocorrelation from
+fixed rho=0.8) + 101a/101b (rho sweep showed rho=0.0 breaks growing uncertainty).
+
+**Theory**: Replace fixed `rho=0.8` with learned `sigmoid(rho_head(condition))`. The model
+can learn condition-dependent noise correlation: high rho for temporal coherence, lower
+rho when delta momentum causes super-diffusive spread. Init `sigmoid(1.1) ≈ 0.75`.
+
+### Architecture Change
+Added `rho_head: Linear(128→1) + sigmoid` in SinglePassBlockAR. Replaces fixed `rho` in
+AR noise update: `z_{t+1} = rho(cond) * z_t + sqrt(1 - rho²) * eps`. Added to optimizer
+and freeze-keep list.
+
+### Training
+99m_v2 settings + `--ar_learned_rho`. 30 epochs quick.
+
+### Results: 5/8 PASS (same pattern)
+
+| Metric | 99m_v2 | 102a | 103a | Delta vs baseline |
+|--------|--------|------|------|-------------------|
+| Score  | 66.31 | 65.73 | 65.47 | -0.84 |
+| CI 90% | 91.3% | 89.9% | 88.6% | -2.7pp |
+| h=1 worst | 74.5% | 81.1% | 82.4% | +7.9pp |
+| Kurtosis | 0.845 | 0.605 | 0.732 | -0.11 |
+| KS daily | 20/25 | 21/25 | **17/25** | -3 |
+| Coint | 0.675 | 0.720 | **0.791** | +0.116 |
+| Median bias | 18/25 | 23/25 | **24/25** | +6 |
+| Turb/calm | 1.512 | 1.631 | **1.721** | +0.209 |
+| MAE red | 87% | 87% | **90%** | +3pp |
+| Catastrophic | 576 | 671 | **808** | +232 |
+
+Suite 2 still FAIL: cell (4,0) best=97.5% at h=7 (above 95% gate).
+
+### Training Dynamics — Key Observations
+
+1. **Rho converged to 0.289**: Model aggressively reduces rho from init 0.75 → 0.29.
+   This is between rho=0.3 (101b, 4/8) and rho=0.0 (101a, 4/8).
+
+2. **Cross-cell correlation at ep5: 0.323** (near GT 0.38!) — this is the closest to GT
+   ever achieved. Lower rho → less shared noise momentum → less artificial correlation.
+   But CRPS pulled it back to 0.661 by ep20 (the correlation attractor).
+
+3. **Growing uncertainty PRESERVED**: Despite rho=0.29, growing uncertainty passes.
+   The MLP's ∂delta/∂prev creates enough momentum for growing spread. This contradicts
+   the 101a finding (rho=0.0 broke GU) — the difference is that 103a's rho is learned
+   jointly with the decoder, so the decoder adapts.
+
+### Analysis: WHY KS Daily Regressed
+
+The 101a/b rho sweep showed **monotonic KS degradation as rho decreases**: rho=0.8→20/25,
+rho=0.3→16/25, rho=0.0→14/25. Model's learned rho=0.29 is consistent with this: 17/25.
+
+**Root cause**: Lower rho reduces noise coherence → per-step noise is more independent →
+generated daily change distribution has thinner tails (less compound drift) → mismatches
+GT's heavy-tailed daily change distribution → KS statistics increase.
+
+Higher rho creates momentum-like behavior that produces realistic heavy tails. The model
+WANTS low rho (minimizes CRPS) but the data NEEDS high rho (for realistic tails).
+
+### FUNDAMENTAL INSIGHT: CRPS-Optimal vs Distributionally-Realistic Noise Dynamics
+
+**The model's CRPS-optimal rho (~0.29) produces poor distributional properties.**
+- CRPS rewards narrow, accurate per-step predictions → low rho reduces noise correlation
+  → each step more independent → easier to predict → lower CRPS
+- BUT realistic IV dynamics have temporal coherence → correlated noise (high rho) produces
+  realistic heavy tails, persistent trends, and proper kurtosis
+- Fixed rho=0.8 is a BETTER INDUCTIVE BIAS than letting the model choose
+
+This is analogous to the "prior" in Bayesian learning: the fixed rho=0.8 encodes knowledge
+about temporal coherence that CRPS can't discover. Letting the model learn rho removes
+this prior, and the model converges to the CRPS-optimal solution which lacks distributional
+realism.
+
+**Implication**: Any learned noise dynamics component will face this tension. To make it
+work, we'd need: (a) Constrained rho ∈ [0.6, 0.9], or (b) Explicit distributional loss
+to counter CRPS's preference for low rho.
+
+### What This Suggests Next
+- **103a_v2**: Clamp learned rho to [0.6, 0.95] — preserve temporal coherence while
+  allowing condition-dependent variation within a safe range
+- **Direction C**: Non-anchored dynamics (independent of rho)
+- Or accept rho=0.8 as the right inductive bias and focus on other failure modes
+
+---

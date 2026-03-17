@@ -1,13 +1,11 @@
 {
-  "iteration": 1,
-  "current_hypothesis": null,
-  "experiment_id": "102a",
-  "training_status": "complete",
+  "iteration": 2,
+  "current_hypothesis": "Condition-dependent learned rho for AR noise. sigmoid(rho_head(condition)) replaces fixed rho=0.8. Model can learn to dampen noise correlation when delta momentum is too strong.",
+  "experiment_id": "103a",
+  "training_status": "running",
   "training_pid": null,
-  "training_command": null,
-  "base_commit": "70a3041",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_learned_rho --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --lambda_cell_var 1.0 --freeze_after_epoch 10 --disable_early_stop --output_dir models/backfill/afcrps_103a --device cuda",
+  "base_commit": "6d6ade6",
   "started_at": "2026-03-17",
-  "phase": "ready_for_iteration_2",
-  "last_score": 65.73,
-  "last_decision": "VALUABLE FAILURE — noise_scale_head redundant with cell_spread"
+  "phase": "training"
 }
