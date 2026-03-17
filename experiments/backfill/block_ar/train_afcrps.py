@@ -419,6 +419,10 @@ def main():
                         help="Per-cell noise skip connection bypassing shared MLP (Exp 99b)")
     parser.add_argument("--ar_skip_bypass_spread", action="store_true",
                         help="Skip connection bypasses cell_spread (Exp 99j)")
+    parser.add_argument("--ar_noise_scale_cond", action="store_true",
+                        help="Condition-dependent per-cell noise scale (Exp 102a)")
+    parser.add_argument("--ar_noise_scale_min", type=float, default=0.1,
+                        help="Lower bound for per-cell noise scale")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -571,6 +575,8 @@ def main():
         ar_cell_hidden=args.ar_cell_hidden,
         ar_noise_skip=args.ar_noise_skip,
         ar_skip_bypass_spread=args.ar_skip_bypass_spread,
+        ar_noise_scale_cond=args.ar_noise_scale_cond,
+        ar_noise_scale_min=args.ar_noise_scale_min,
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,
@@ -671,6 +677,10 @@ def main():
         if hasattr(model, 'factor_loadings'):
             param_groups.append(
                 {"params": [model.factor_loadings], "lr": 1e-3, "weight_decay": 0.0},
+            )
+        if hasattr(model, 'noise_scale_head'):
+            param_groups.append(
+                {"params": list(model.noise_scale_head.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
             )
         optimizer = torch.optim.AdamW(param_groups)
     else:
@@ -798,11 +808,12 @@ def main():
             for name, param in model.named_parameters():
                 if not param.requires_grad:
                     continue
-                # Keep: noise_skip_proj, log_vol_scale (and cell_spread unless frozen too)
+                # Keep: noise_skip_proj, log_vol_scale, noise_scale_head (and cell_spread unless frozen too)
                 keep = (
                     "noise_skip_proj" in name
                     or "log_vol_scale" in name
                     or "cell_scale" in name
+                    or "noise_scale_head" in name
                 )
                 if not args.freeze_spread_too:
                     keep = keep or "cell_spread_linear" in name
@@ -956,6 +967,13 @@ def main():
             b = model.cell_spread_linear.bias.detach()
             base_out = F.softplus(b)
             print(f"  cell_spread: out=[{base_out.min():.3f}, {base_out.max():.3f}] w_norm={w.norm():.3f}")
+
+        if hasattr(model, 'noise_scale_head'):
+            w = model.noise_scale_head.weight.detach()
+            b = model.noise_scale_head.bias.detach()
+            base_out = F.softplus(b)
+            print(f"  noise_scale: out=[{base_out.min():.3f}, {base_out.max():.3f}] "
+                  f"range={base_out.max()/base_out.min():.1f}x w_norm={w.norm():.3f}")
 
         # Log cell_spread MLP stats if applicable
         if hasattr(model, 'cell_spread_mlp'):

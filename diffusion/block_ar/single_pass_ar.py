@@ -123,6 +123,8 @@ class SinglePassConfig:
     ar_cell_hidden: int = 32             # hidden dim for per-cell MLPs
     ar_noise_skip: bool = False          # per-cell noise skip connection (Exp 99b)
     ar_skip_bypass_spread: bool = False  # skip bypasses cell_spread (Exp 99j)
+    ar_noise_scale_cond: bool = False    # condition-dependent per-cell noise scale (Exp 102a)
+    ar_noise_scale_min: float = 0.1      # lower bound for noise scale (prevents collapse)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -585,6 +587,12 @@ class SinglePassBlockAR(nn.Module):
                 self.dynamic_vs_head = nn.Linear(config.bottleneck_dim, out_dim)
                 nn.init.zeros_(self.dynamic_vs_head.weight)
                 nn.init.zeros_(self.dynamic_vs_head.bias)
+            # Condition-dependent per-cell noise scale (Exp 102a)
+            # condition → 25 positive scalars via softplus, init ≈ 1.0
+            if config.ar_noise_scale_cond:
+                self.noise_scale_head = nn.Linear(config.bottleneck_dim, frame_dim)
+                nn.init.zeros_(self.noise_scale_head.weight)
+                nn.init.constant_(self.noise_scale_head.bias, 0.541)  # softplus(0.541) ≈ 1.0
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -764,6 +772,19 @@ class SinglePassBlockAR(nn.Module):
             multiplier = multiplier.view(B, H, 1).expand(B, H, W)
         return vs * multiplier
 
+    def _get_noise_scale(self, condition: torch.Tensor) -> torch.Tensor | None:
+        """Compute condition-dependent per-cell noise scale (Exp 102a).
+
+        Returns:
+            sigma: (B, frame_dim) positive scalars, or None if disabled.
+        """
+        if not self.config.ar_noise_scale_cond or not hasattr(self, 'noise_scale_head'):
+            return None
+        raw = self.noise_scale_head(condition)  # (B, frame_dim)
+        sigma = F.softplus(raw)  # positive
+        sigma = sigma.clamp(min=self.config.ar_noise_scale_min)  # prevent collapse
+        return sigma
+
     def _get_noise_for_decoder(self, z_t: torch.Tensor) -> torch.Tensor:
         """Convert raw noise z_t to FrameDecoder input (shared or factor model)."""
         if self.config.ar_factor_noise:
@@ -831,7 +852,11 @@ class SinglePassBlockAR(nn.Module):
                 delta = cs * delta
             # Skip bypass: add skip AFTER cell_spread so it's never suppressed
             if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
-                delta = delta + torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
+                skip_out = torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
+                noise_scale = self._get_noise_scale(condition)
+                if noise_scale is not None:
+                    skip_out = skip_out * noise_scale.view(B, H, W)
+                delta = delta + skip_out
 
             vs = self._get_ar_frame_vol_scale(condition, vol_scale, vol_scale_cell)
             if log_space:
@@ -1026,7 +1051,12 @@ class SinglePassBlockAR(nn.Module):
                         delta = cs * delta
                     # Skip bypass: add skip AFTER cell_spread so it's never suppressed
                     if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
-                        delta = delta + torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
+                        skip_out = torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
+                        # Condition-dependent per-cell noise scale (Exp 102a)
+                        noise_scale = self._get_noise_scale(cond_t)
+                        if noise_scale is not None:
+                            skip_out = skip_out * noise_scale.view(B, H, W)
+                        delta = delta + skip_out
                     vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
                     all_deltas.append(delta)
                     if self.config.ar_frame_log_space:
