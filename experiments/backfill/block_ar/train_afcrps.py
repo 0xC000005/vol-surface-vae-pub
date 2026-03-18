@@ -333,6 +333,8 @@ def main():
                         help="Cumulative calibration loss weight (matches ensemble var to MSE at h=7,14,30)")
     parser.add_argument("--n_train_blocks", type=int, default=1,
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
+    parser.add_argument("--oneshot_additive", action="store_true",
+                        help="One-shot Conv3D with additive dynamics (Exp 111a)")
     parser.add_argument("--direct_iv", action="store_true",
                         help="Direct IV prediction (no exp/baseline transform)")
     parser.add_argument("--no_tanh", action="store_true",
@@ -555,6 +557,7 @@ def main():
         vol_scale_max=base_cfg.get("vol_scale_max", 2.0),
         vol_scale_power=base_cfg.get("vol_scale_power", 1.0),
         direct_iv=args.direct_iv,
+        oneshot_additive=args.oneshot_additive,
         no_tanh=args.no_tanh,
         learned_vol_scale=args.learned_vol_scale,
         twcrps_beta=args.twcrps_beta,

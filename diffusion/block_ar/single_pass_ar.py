@@ -84,6 +84,7 @@ class SinglePassConfig:
 
     # Direct IV mode: decoder outputs normalized IV directly (no exp/baseline)
     direct_iv: bool = False
+    oneshot_additive: bool = False  # One-shot Conv3D with additive dynamics (Exp 111a)
     no_tanh: bool = False  # remove tanh bounding (let loss learn output range)
     learned_vol_scale: bool = False  # per-cell vol_scale from condition MLP
     twcrps_beta: float = 0.0  # threshold-weighted CRPS beta (0 = standard CRPS)
@@ -1012,6 +1013,28 @@ class SinglePassBlockAR(nn.Module):
         if self.config.direct_iv:
             # Direct IV: decoder output is normalized IV, denormalize to [0, 1]
             iv_block = denormalize_iv(z_out).clamp(0.001, 1.0)
+        elif getattr(self.config, 'oneshot_additive', False):
+            # One-shot additive dynamics (Exp 111a): Conv3D outputs per-frame deltas,
+            # accumulated from baseline with reflecting boundaries.
+            # z_out: (B, T, H, W) in [-1, 1] via tanh — interpret as deltas
+            B = z_out.shape[0]
+            T = z_out.shape[1]
+            floor = self.config.ar_frame_floor_clamp
+            prev = baseline.squeeze(1)  # (B, H, W) — last history frame
+            frames = []
+            for t in range(T):
+                delta_t = z_out[:, t]  # (B, H, W)
+                if self.config.ar_frame_reflect:
+                    raw = prev + vol_scale.view(B, 1, 1) * delta_t
+                    width = 1.0 - floor
+                    shifted = raw - floor
+                    shifted = shifted % (2 * width)
+                    iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
+                else:
+                    iv_t = (prev + vol_scale.view(B, 1, 1) * delta_t).clamp(floor, 1.0)
+                frames.append(iv_t)
+                prev = iv_t
+            iv_block = torch.stack(frames, dim=1)  # (B, T, H, W)
         elif self.config.learned_vol_scale:
             # 1. Base samples with SCALAR vol_scale (preserves uniform kurtosis)
             base_iv = torch.exp(z_out * vol_scale) * baseline
