@@ -1,9 +1,9 @@
 {
-  "iteration": 18,
-  "current_hypothesis": "AR FrameDecoder + Student-t(df=6) + Variance Ratio loss. VR loss penalizes var(cumulative) / (h * var(1-step)) when it exceeds GT values at h=5,10,20,30. Should calibrate mean-reversion without architecture change. Combines 108a's Student-t improvement with direct MR targeting.",
-  "experiment_id": "113a",
-  "training_status": "implementing",
-  "base_commit": "b872056",
+  "iteration": 21,
+  "current_hypothesis": "Direction α: Evaluate 108a checkpoint with Gaussian inference noise instead of Student-t. Investigation 1 showed 80% of improvement from weight regularization, not noise tails.",
+  "experiment_id": "108a_gaussian_infer",
+  "training_status": "evaluating",
+  "base_commit": "ed1a248",
   "started_at": "2026-03-18",
-  "phase": "implementation"
+  "phase": "evaluation_only"
 }

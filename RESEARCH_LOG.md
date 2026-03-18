@@ -27460,3 +27460,45 @@ thought — the encoder already provides ~62% of GT regime differentiation. The 
 is temporal dynamics (ACF sign wrong in both regimes for AR models).
 
 ---
+
+## 2026-03-18: Direction alpha — Train Student-t, Infer Gaussian (NEW BEST: 67.36)
+
+### Hypothesis
+Investigation 1 showed 80% of 108a improvement from weight regularization, not inference
+noise. Student-t at inference hurts CI (lower effective variance from /1.414 + clamp).
+Switching to Gaussian at inference should improve CI while preserving weight-effect gains.
+
+### Method
+No training. Loaded 108a checkpoint, overrode noise_dist to gaussian, re-ran test suite.
+
+### Results: 5/8 PASS — NEW SESSION BEST (67.36)
+
+| Metric | 99m_v2 (baseline) | 108a (Student-t infer) | 108a (Gaussian infer) |
+|--------|-------------------|------------------------|----------------------|
+| Score | 66.31 | 66.93 | **67.36** |
+| CI 90% | 91.3% | 92.0% | **92.7%** |
+| Kurtosis | 0.845 | 0.955 | **0.987** |
+| KS daily | 20/25 | 18/25 | 18/25 |
+| Catastrophic | 576 | 450 | 395 |
+| Calibr err | 0.072 | 0.078 | 0.088 |
+
+### Investigation (Blocking Gate #1)
+Per-cell diagnostic script confirmed:
+- 18/25 cells improved coverage at h=7, zero regressed
+- Over-95% cells went 12 to 16 (Gaussian wider spread)
+- Gaussian noise has higher effective variance (no /1.414 scaling) -> wider ensemble spread
+- Per-cell kurtosis low for both (mean 0.23-0.25), aggregate kurtosis 0.987 comes from
+  pooled distribution (cell (0,0) dominates 4th moment)
+- KS unchanged (18/25) — KS is per-cell, not affected by noise distribution choice
+- Calibration error slightly worse (0.078 to 0.088) — wider spread overshoots at some cells
+
+### Mechanism
+Gaussian N(0,1) has variance 1.0. Student-t(6)/1.414 clamped to [-5,5] has effective
+variance ~0.85. The 15% wider Gaussian spread improves overall CI from 92.0% to 92.7%.
+The weight structure (trained with Student-t regularization) produces the same kurtosis
+regardless of inference noise distribution — confirming investigation 1's finding.
+
+### Decision: BUILD ON THIS — new best model configuration
+108a weights + Gaussian inference noise = score 67.36. This is the recommended configuration.
+
+---
