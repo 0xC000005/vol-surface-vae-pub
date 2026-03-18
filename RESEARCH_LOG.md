@@ -27138,3 +27138,30 @@ crushing spread. A lower lambda (0.5) might help, or the VR loss needs to be bil
 implementation needs refinement. The asymmetric penalty creates spread collapse at one end.
 
 ---
+
+## 2026-03-18: Exp 113a_v2 — VR Loss lambda=0.5 (Lower)
+
+Even lambda=0.5 crushes CI (87.8%) and spikes catastrophic (1062). The VR loss
+fundamentally fights CRPS — they have opposite objectives for long-horizon spread.
+
+| VR lambda | Score | CI | KS daily | Catastrophic |
+|-----------|-------|-----|----------|-------------|
+| 0 (108a) | 66.93 | 92.0% | 18 | 450 |
+| 0.5 | 65.18 | 87.8% | 20 | 1062 |
+| 2.0 | 65.47 | 87.0% | 21 | 1028 |
+
+VR loss direction: EXHAUSTED. The asymmetric penalty always collapses spread.
+
+### Full Session 2 Summary (Iterations 9-20)
+
+**Best overall: 108a (Student-t df=6, score 66.93)** — AR model with fat-tailed noise.
+**Best one-shot: 111b (Conv3D + rho=0.8, score 65.0)** — different strengths.
+
+Key discoveries this session:
+1. One-shot Conv3D is viable (5/8) with near-GT variance ratios (VR h=5 = 0.388)
+2. One-shot over-reverts without AR noise; rho=0.8 balances it
+3. Factor structure dramatically better in one-shot (eff_rank 1.90 vs AR's 1.1)
+4. VR loss fights CRPS — can't calibrate MR through loss engineering
+5. Pretrained DDPM weights help kurtosis in one-shot (0.52 vs 0.47)
+
+---
