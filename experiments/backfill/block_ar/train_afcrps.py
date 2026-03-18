@@ -452,6 +452,8 @@ def main():
                         help="Freeze frame_decoder MLP after this epoch, keep only skip/vol_scale/spread trainable (0=disabled)")
     parser.add_argument("--freeze_spread_too", action="store_true",
                         help="Also freeze cell_spread_linear when --freeze_after_epoch triggers")
+    parser.add_argument("--freeze_skip_too", action="store_true",
+                        help="Also freeze noise_skip_proj when --freeze_after_epoch triggers (Exp 114a)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -851,9 +853,9 @@ def main():
             for name, param in model.named_parameters():
                 if not param.requires_grad:
                     continue
-                # Keep: noise_skip_proj, log_vol_scale, noise_scale_head (and cell_spread unless frozen too)
+                # Keep: noise_skip_proj (unless frozen), log_vol_scale, noise_scale_head, etc.
                 keep = (
-                    "noise_skip_proj" in name
+                    ("noise_skip_proj" in name and not args.freeze_skip_too)
                     or "log_vol_scale" in name
                     or "cell_scale" in name
                     or "noise_scale_head" in name
