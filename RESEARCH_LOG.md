@@ -26672,3 +26672,45 @@ needs to be adjusted per df (it was hardcoded for df=4). 108a (df=6) remains the
 Student-t configuration.
 
 ---
+
+## 2026-03-18: Exp 108a_v2 + 109a — Student-t Sweep + Per-Cell Mean-Reversion
+
+### Exp 108a_v2: Student-t df=8 — 3/8 REGRESSION
+Scaling factor 1/1.414 (designed for df=4) breaks with df=8. Lost Suite 1 (calendar arb)
+and Suite 3 (worst cell MAE -29.6%). df=6 remains best Student-t configuration.
+
+### Exp 109a: Per-Cell Mean-Reversion + Student-t(df=6) — 4/8 REGRESSION
+
+**Based on**: 108a (Student-t, best score) + I2 (half-life varies 50x across grid) + 
+104a lessons (reduce alpha cap from 0.2 to 0.05).
+
+Per-cell alpha (128→25) with 0.05 cap, combined with Student-t(df=6).
+
+| Metric | 99m_v2 | 108a (best) | 109a | Delta vs 108a |
+|--------|--------|-------------|------|---------------|
+| Score | 66.31 | 66.93 | 54.41 | -12.52 |
+| Suites | 5/8 | 5/8 | **4/8** | -1 |
+| Kurtosis | 0.845 | 0.955 | 0.782 | -0.17 |
+| Median bias | 18/25 | 19/25 | **13/25** | -6 |
+| Conditionality | PASS | PASS | **FAIL** | regression |
+
+**WHY mean-reversion keeps failing**: The mean-reversion term alpha*(mu-prev) competes
+with the FrameDecoder's learned delta. The MLP already produces condition-dependent deltas
+that include some implicit mean-reversion (I1 showed encoder encodes MR signal R²=0.66).
+Adding explicit MR on top DOUBLES the mean-reversion, making paths over-revert at some
+cells (median bias collapses to 13/25). The 0.05 cap was still too high — or MR is simply
+not the right addition to an AR architecture that already learns per-step dynamics.
+
+**Pattern across 3 MR experiments**: 104a (5/8, worst score), 109a (4/8), both hurt.
+The model's lack of mean-reversion (I2 finding) is NOT fixable by adding explicit MR terms
+— the issue is in the NOISE DYNAMICS (positive ACF from rho=0.8 + MLP ∂delta/∂prev),
+not in the mean prediction. Explicit MR fixes the mean but damages the per-cell balance.
+
+**Direction I (explicit MR in AR decoder): EXHAUSTED after 2 experiments.**
+
+### Current Best: 108a (Student-t df=6, score 66.93)
+
+The Student-t noise direction is confirmed valuable. Mean-reversion direction is exhausted.
+Remaining active directions: F (one-shot generation), G (per-cell conditions).
+
+---
