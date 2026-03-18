@@ -26865,3 +26865,120 @@ Target: Transfer learning from proven decoder, mean-reversion.
 | 7 | L (DiT) | Most ambitious, most Bitter Lesson aligned | VERY HIGH |
 
 ---
+
+## 2026-03-18: Exp 111a — One-Shot Conv3D + Modern Recipe (Direction F)
+
+### Hypothesis
+Exp 89 one-shot scored 3/8 but with obsolete recipe (no ES, no cell_spread, no skip,
+no freeze, no reflect, no Student-t, using exp() not additive). Reactivate SinglePassDecoder
+with ALL modern innovations. One-shot generates all 30 frames at once — direct h=30 gradient
+should improve mean-reversion. Conv3D spatially mixes cells naturally.
+
+### Architecture
+SinglePassDecoder (Conv3D, 6 ResBlocks, 32 base channels, AdaGN) with new oneshot_additive
+mode: Conv3D outputs per-frame deltas in [-1,1] via tanh, accumulated additively from
+baseline with reflecting boundaries. block_size=30, n_train_blocks=1 (true one-shot).
+417K params. Pretrained weights transferred (77/77 params, 0 missing).
+Student-t(df=6) noise. No AR noise correlation (single z per trajectory).
+
+### Training
+30 epochs, lr=1e-3 (from_scratch=False, pretrained Conv3D weights). 25s/epoch (4x faster
+than AR's 100s/epoch because one Conv3D forward vs 30 sequential MLP calls).
+
+### Results: 3/8 PASS (Suites 1, 3, 5)
+
+| Metric | 99m_v2 (AR) | 108a (AR+StudentT) | 111a (One-Shot) |
+|--------|-------------|--------------------|--------------------|
+| Score | 66.31 | 66.93 | 47.13 |
+| Suites | 5/8 | 5/8 | 3/8 |
+| Kurtosis | 0.845 | 0.955 | **0.285 FAIL** |
+| KS daily | 20/25 | 18/25 | **22/25 BEST** |
+| Catastrophic | 576 | 450 | **151 BEST** |
+| Median bias | 18/25 | 19/25 | **23/25** |
+| CI 90% | 91.3% | 92.0% | **95.5%** |
+| eff_rank | 1.1 | ~1.1 | **1.90** |
+| PC1 | 92% | ~92% | **69.9%** |
+| Cross-cell corr | 0.88 | ~0.88 | **0.646** |
+| Coint ratio | 0.675 | 0.653 | 0.430 FAIL |
+
+### Deep Investigation: WHY — The Over-Reversion Discovery
+
+Variance ratio analysis revealed the one-shot model **OVER-reverts** — the opposite of AR:
+
+| Horizon | GT VR | AR (99m_v2) VR | **One-Shot VR** |
+|---------|-------|----------------|-----------------|
+| h=2 | 0.500 | 0.988 | **0.500** (perfect!) |
+| h=5 | 0.432 | 1.232 | **0.148** (too low) |
+| h=10 | 0.440 | 1.149 | 0.189 |
+| h=20 | 0.377 | 0.819 | 0.124 |
+| h=30 | 0.369 | 0.513 | **0.100** (3.7x too sub-diffusive) |
+
+Lag-1 ACF of generated daily changes:
+- GT: -0.37 (mean-reverting)
+- AR model: +0.16 (trending — wrong sign)
+- **One-shot: -0.80** (EXTREMELY mean-reverting — right sign, 2x too strong)
+
+### Mechanistic Analysis
+
+1. **One-shot CAN learn mean-reversion** (AR couldn't). The Conv3D decoder sees all 30
+   frames simultaneously. CRPS loss at h=30 provides direct gradient that penalizes
+   over-spread. The model responds by generating strongly mean-reverting paths.
+
+2. **Over-reversion mechanism**: The Conv3D generates per-frame deltas that are strongly
+   negatively correlated (ACF=-0.80). Each frame's delta partially cancels the previous
+   frame's delta. This is how the model achieves low variance ratios — but it overshoots.
+   GT deltas have ACF=-0.37, not -0.80.
+
+3. **Kurtosis collapse (0.285)** is a DIRECT consequence of over-reversion. When each
+   step cancels the previous, paths oscillate around the mean with small amplitude.
+   No persistent trends → no fat tails → kurtosis collapses toward Gaussian.
+
+4. **Cointegration failure (0.430)** — overly mean-reverting paths don't trend together
+   long enough for cointegration tests to detect co-movement. Paths are too "choppy."
+
+5. **KS daily BEST (22/25)** — per-STEP change distributions are actually better because
+   each step has more variance (strong deltas that cancel), just the cumulative variance
+   is too low. The marginal distribution of 1-day changes is closer to GT.
+
+6. **Factor structure dramatically better** (eff_rank 1.90 vs 1.1, PC1 70% vs 92%) —
+   Conv3D's spatial 3x3 convolutions naturally mix cells differently than the rank-1 MLP.
+   Each cell gets a different convolution filter response → natural decorrelation.
+
+### KEY INSIGHT: One-Shot vs AR Are Opposite Extremes
+
+| Property | AR (too little MR) | GT (target) | One-Shot (too much MR) |
+|----------|-------------------|-------------|----------------------|
+| VR h=30 | 0.513 | 0.369 | 0.100 |
+| Lag-1 ACF | +0.16 | -0.37 | -0.80 |
+| Kurtosis | 0.845 | 1.0 | 0.285 |
+| eff_rank | 1.1 | 2.6 | 1.90 |
+
+AR under-reverts because noise rho=0.8 creates positive ACF and BPTT dilutes h=30 gradient.
+One-shot over-reverts because direct h=30 gradient is too strong with no AR noise correlation.
+
+**The optimal model is BETWEEN these two extremes.** Possible approaches:
+- One-shot with AR noise correlation (add rho=0.8 to Conv3D noise process)
+- AR with variance ratio loss (add VR penalty to existing AR model)
+- One-shot with weaker CRPS weight at long horizons (progressive weighting)
+
+### What Was Learned
+
+1. **One-shot architecture IS viable** — Exp 89's failure was recipe, not architecture (confirmed)
+2. **One-shot naturally learns mean-reversion** — direct h=30 gradient works as predicted
+3. **One-shot overshoots** — the model over-reverts (VR=0.10 vs GT=0.37)
+4. **Conv3D has better factor structure** — eff_rank 1.90 vs MLP's 1.1
+5. **KS daily 22/25 is best ever** — per-step marginals are better with one-shot
+6. **The answer may be combining AR + one-shot strengths**
+7. Direction F is NOT exhausted — it shows clear promise. The over-reversion is fixable.
+
+### What This Suggests Next
+
+1. **111b**: One-shot + AR noise correlation. Add rho=0.8 noise process to Conv3D:
+   generate 30 z-vectors with AR(1) correlation, embed each separately. Should reduce
+   over-reversion by adding noise persistence.
+2. **111c**: One-shot + progressive horizon weighting. Weight CRPS loss more at h=1-5
+   and less at h=20-30 to reduce the long-horizon gradient that causes over-reversion.
+3. **Variance ratio loss**: Add VR penalty to EITHER AR or one-shot to directly target
+   the VR gap without changing architecture.
+
+---
