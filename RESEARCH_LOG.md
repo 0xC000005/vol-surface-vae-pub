@@ -26753,3 +26753,33 @@ right place for per-cell differentiation.
 Remaining active direction: F (one-shot generation). All other directions exhausted.
 
 ---
+
+## 2026-03-18: Exp 108b — Student-t AR Innovations (All Steps)
+
+**Based on**: 108a (Student-t z_0 only, score 66.93). Hypothesis: making ALL AR innovations
+Student-t (not just initial z_0) gives fat tails throughout the trajectory.
+
+| Metric | 99m_v2 | 108a (z0 only) | 108b (all eps) |
+|--------|--------|----------------|----------------|
+| Score | 66.31 | **66.93** | 66.12 |
+| Kurtosis | 0.845 | **0.955** | 0.789 |
+| KS daily | 20/25 | 18/25 | **20/25** |
+| CI 90% | 91.3% | **92.0%** | 90.9% |
+| Median bias | 18/25 | 19/25 | **23/25** |
+| Catastrophic | 576 | **450** | 609 |
+
+**WHY 108b < 108a**: Full Student-t innovations at every step create too much instantaneous
+variance. CRPS fights harder to suppress it → partially cancels the kurtosis benefit
+(0.789 vs 108a's 0.955). But KS daily recovered (20 vs 18) because the per-step distribution
+of changes is now more realistic (heavy tails at every step, not just at h=1).
+
+**Key insight**: There's an optimal amount of fat-tailed noise. z_0-only (108a) is better
+than all-steps (108b) for kurtosis, but all-steps is better for KS daily. The sweet spot
+might be intermediate — e.g., Student-t innovations only every Kth step.
+
+**108a remains the best model (score 66.93).**
+
+Direction H status: EXPLORED. 108a is the best variant. Further Student-t tweaking has
+diminishing returns — the +0.62 gain over baseline is real but modest.
+
+---
