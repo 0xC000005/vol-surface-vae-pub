@@ -27080,3 +27080,26 @@ vs 65.0). The improvements are in DIFFERENT metrics (better VR, eff_rank, catast
 while regressions are in kurtosis and KS daily. This suggests combining strengths.
 
 ---
+
+## 2026-03-18: Exp 111b_scratch — One-Shot Without Pretrained Weights (Direction P Ablation)
+
+Tests whether DDPM pretrained decoder weights help one-shot generation.
+Same architecture as 111b (one-shot Conv3D, rho=0.8, Student-t) but --from_scratch.
+
+| Metric | 111b (pretrained) | 111b_scratch (random) |
+|--------|-------------------|----------------------|
+| Score | 65.0 | 56.42 |
+| Suites | 5/8 | 4/8 (kurtosis 0.474 FAIL) |
+| KS daily | 15/25 | 21/25 |
+| Coint | 0.686 | 0.755 |
+
+**Pretrained weights help kurtosis** (0.522 vs 0.474 — the difference between pass/fail).
+The DDPM decoder learned IV surface spatial structure that helps maintain tail properties.
+**But scratch has better per-step distributions** (KS 21 vs 15) — the pretrained weights
+may impose priors that hurt per-step matching.
+
+**Direction P status**: Pretrained weights provide a modest but critical advantage for
+kurtosis. Worth keeping for any one-shot variant. But not a game-changer — the architecture
+(one-shot Conv3D) is what provides the big improvements (factor structure, VR, catastrophic).
+
+---
