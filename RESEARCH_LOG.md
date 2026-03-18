@@ -26714,3 +26714,42 @@ The Student-t noise direction is confirmed valuable. Mean-reversion direction is
 Remaining active directions: F (one-shot generation), G (per-cell conditions).
 
 ---
+
+## 2026-03-18: Exp 110a — Per-Cell Spread Conditioning + Student-t — 2/8 CATASTROPHIC
+
+**Based on**: I1 (123 spare encoder dims, per-cell fan-out cheap) + 108a (Student-t best).
+
+Per-cell spread: Linear(128→400) fans shared condition to 25×16-dim per-cell conditions.
+Cell_spread becomes per-cell: (cell_cond_16 + pos_emb) → softplus(Linear→1) per cell.
+51K new parameters from spread_cell_proj.
+
+**Result**: 2/8 CATASTROPHIC. Lost Suite 1 (surface), Suite 3 (conditionality), Suite 6
+(cointegration). Score 37.64 (worst ever). BUT CI=93.8%, catastrophic=275 (both best ever).
+
+**WHY**: 51K extra parameters gave spread path too much freedom. Per-cell spread learned
+to differentiate cells in ways that broke surface validity (calendar arb) and cointegration
+(cells no longer co-move). This confirms 93d's finding: per-cell conditioning through the
+shared decoder hurts because the MLP output layer can't reconcile conflicting per-cell signals.
+
+**Pattern across per-cell experiments**: 92b (cell_embed FAIL), 93d (cond_offset FAIL),
+98a (independent MLPs FAIL), 110a (per-cell spread FAIL). ALL attempts to give cells
+individual treatment through the shared decoder break the model. The shared MLP is not the
+right place for per-cell differentiation.
+
+**Direction G (per-cell conditions): EXHAUSTED.** Per-cell info breaks surface structure.
+
+### Session Status After 12 Experiments
+
+**Best model**: 108a (Student-t df=6, score 66.93) — the only improvement over baseline.
+
+| # | Exp | Score | Suites | Key |
+|---|-----|-------|--------|-----|
+| 0 | 99m_v2 | 66.31 | 5/8 | baseline |
+| 9 | **108a** | **66.93** | **5/8** | **Student-t df=6 — BEST** |
+| 10 | 108a_v2 | 47.79 | 3/8 | df=8 broke calendar arb |
+| 11 | 109a | 54.41 | 4/8 | per-cell MR hurt conditionality |
+| 12 | 110a | 37.64 | 2/8 | per-cell spread catastrophic |
+
+Remaining active direction: F (one-shot generation). All other directions exhausted.
+
+---
