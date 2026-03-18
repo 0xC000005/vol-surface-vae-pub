@@ -918,7 +918,11 @@ class SinglePassBlockAR(nn.Module):
         frames = []
         for step_idx in range(n_frames):
             if step_idx > 0:
-                eps_t = torch.randn_like(z_t)
+                if self.config.noise_dist == "student_t":
+                    dist = torch.distributions.StudentT(df=self.config.student_t_df)
+                    eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                else:
+                    eps_t = torch.randn_like(z_t)
                 if isinstance(rho, torch.Tensor):
                     z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
                 else:
@@ -1114,9 +1118,12 @@ class SinglePassBlockAR(nn.Module):
                 for t in range(n_frames):
                     # AR noise update (skip first frame)
                     if t > 0:
-                        eps_t = torch.randn_like(z_t)
+                        if self.config.noise_dist == "student_t":
+                            dist = torch.distributions.StudentT(df=self.config.student_t_df)
+                            eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                        else:
+                            eps_t = torch.randn_like(z_t)
                         if isinstance(rho, torch.Tensor):
-                            # Learned rho: (B, 1), broadcast over noise_dim
                             z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
                         else:
                             z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
