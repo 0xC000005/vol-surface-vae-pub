@@ -1,9 +1,9 @@
 {
-  "iteration": 17,
-  "current_hypothesis": "Direction M proxy: One-shot Conv3D with MSE loss instead of afCRPS. Tests whether CRPS dynamics are the ceiling. If MSE produces better distributional properties (kurtosis, VR, factor structure), CRPS is confirmed as the bottleneck. Quick proxy for full flow matching.",
-  "experiment_id": "112a",
-  "training_status": "running",
-  "base_commit": "b902e08",
+  "iteration": 18,
+  "current_hypothesis": "AR FrameDecoder + Student-t(df=6) + Variance Ratio loss. VR loss penalizes var(cumulative) / (h * var(1-step)) when it exceeds GT values at h=5,10,20,30. Should calibrate mean-reversion without architecture change. Combines 108a's Student-t improvement with direct MR targeting.",
+  "experiment_id": "113a",
+  "training_status": "implementing",
+  "base_commit": "b872056",
   "started_at": "2026-03-18",
-  "phase": "training"
+  "phase": "implementation"
 }

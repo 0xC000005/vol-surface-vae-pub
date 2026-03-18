@@ -27103,3 +27103,38 @@ kurtosis. Worth keeping for any one-shot variant. But not a game-changer — the
 (one-shot Conv3D) is what provides the big improvements (factor structure, VR, catastrophic).
 
 ---
+
+## 2026-03-18: Exp 113a — AR + Student-t + VR Loss (lambda_vr=2.0)
+
+### Hypothesis
+Combine best AR config (108a: Student-t df=6) with variance ratio loss. VR loss asymmetrically
+penalizes model VR > GT VR at h=5,10,20,30, directly targeting the mean-reversion gap.
+
+### Results: 5/8 PASS, score 65.47
+
+| Metric | 108a (no VR) | 113a (VR=2.0) | Delta |
+|--------|-------------|---------------|-------|
+| Score | 66.93 | 65.47 | -1.46 |
+| CI 90% | 92.0% | **87.0%** | -5pp |
+| KS daily | 18/25 | **21/25** | +3 |
+| Kurtosis | 0.955 | 0.827 | -0.13 |
+| Median bias | 19/25 | **24/25** | +5 |
+| Catastrophic | 450 | **1028** | +578 (worst!) |
+
+### WHY
+VR loss forces the model to reduce cumulative variance at h=5-30. This tightens the overall
+spread → CI drops from 92% to 87%. Some windows (especially calm) get over-tightened →
+catastrophic failures spike to 1028 (worst ever). The VR loss is fighting CRPS's desire to
+maintain spread, creating an unstable equilibrium.
+
+KS daily improved (21 vs 18) because per-step changes have more realistic variance ratios.
+Median bias improved (24 vs 19) because the tighter spread reduces systematic bias.
+
+**The VR loss lambda=2.0 is too aggressive.** It overcorrects the mean-reversion gap by
+crushing spread. A lower lambda (0.5) might help, or the VR loss needs to be bilateral
+(penalize both over AND under-spread) to prevent collapse.
+
+**Direction conclusion**: VR loss has the right idea (target VR directly) but the
+implementation needs refinement. The asymmetric penalty creates spread collapse at one end.
+
+---
