@@ -437,6 +437,8 @@ def main():
                         help="Init for mean-reversion alpha (sigmoid(-3)≈0.047)")
     parser.add_argument("--ar_mean_revert_percell", action="store_true",
                         help="Per-cell mean-reversion alpha (Exp 109a)")
+    parser.add_argument("--ar_percell_spread_cond", action="store_true",
+                        help="Per-cell condition for cell_spread (Exp 110a)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -598,6 +600,7 @@ def main():
         ar_mean_revert=args.ar_mean_revert,
         ar_mean_revert_alpha_init=args.ar_mean_revert_alpha_init,
         ar_mean_revert_percell=args.ar_mean_revert_percell,
+        ar_percell_spread_cond=getattr(args, 'ar_percell_spread_cond', False),
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,
@@ -686,6 +689,10 @@ def main():
             spread_params = list(model.cell_spread_linear.parameters())
             param_groups.append(
                 {"params": spread_params, "lr": args.lr_decoder, "weight_decay": 0.1},
+            )
+        if hasattr(model, 'spread_cell_proj'):
+            param_groups.append(
+                {"params": list(model.spread_cell_proj.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
             )
         if hasattr(model, 'cell_scale'):
             param_groups.append(
@@ -847,6 +854,7 @@ def main():
                     or "rho_head" in name
                     or "mr_mu_head" in name
                     or "mr_alpha_head" in name
+                    or "spread_cell_proj" in name
                 )
                 if not args.freeze_spread_too:
                     keep = keep or "cell_spread_linear" in name

@@ -132,6 +132,7 @@ class SinglePassConfig:
     ar_mean_revert: bool = False         # mean-reversion dynamics (Exp 104a)
     ar_mean_revert_alpha_init: float = -3.0  # sigmoid(-3.0) ≈ 0.047, small initial pull
     ar_mean_revert_percell: bool = False  # per-cell alpha (Exp 109a) vs shared (104a)
+    ar_percell_spread_cond: bool = False  # per-cell condition for cell_spread (Exp 110a)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -578,8 +579,17 @@ class SinglePassBlockAR(nn.Module):
             # Per-cell spread: (condition, pos_emb) → 25 positive scalars ≈ 1.0
             # Position input makes spread horizon-aware (different scaling at h=1 vs h=30)
             if config.ar_frame_cell_spread:
-                cs_input_dim = config.bottleneck_dim + config.pos_embed_dim
-                self.cell_spread_linear = nn.Linear(cs_input_dim, frame_dim)
+                if config.ar_percell_spread_cond:
+                    # Per-cell condition: project shared condition to per-cell,
+                    # then each cell's spread is conditioned on its own signal
+                    self.spread_cell_proj = nn.Linear(config.bottleneck_dim, frame_dim * 16)
+                    nn.init.normal_(self.spread_cell_proj.weight, std=0.01)
+                    nn.init.zeros_(self.spread_cell_proj.bias)
+                    cs_input_dim = 16 + config.pos_embed_dim  # per-cell cond(16) + pos
+                    self.cell_spread_linear = nn.Linear(cs_input_dim, 1)  # per-cell output
+                else:
+                    cs_input_dim = config.bottleneck_dim + config.pos_embed_dim
+                    self.cell_spread_linear = nn.Linear(cs_input_dim, frame_dim)
                 nn.init.zeros_(self.cell_spread_linear.weight)
                 nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
             # Static per-cell scale: nn.Parameter(ones(25)), clamped [0.3, 3.0]
@@ -795,6 +805,31 @@ class SinglePassBlockAR(nn.Module):
             multiplier = multiplier.view(B, H, 1).expand(B, H, W)
         return vs * multiplier
 
+    def _get_cell_spread(self, condition: torch.Tensor, local_pos: torch.Tensor) -> torch.Tensor:
+        """Compute per-cell spread scaling from condition + position.
+
+        Returns (B, H, W) positive scalars via softplus.
+        """
+        if not hasattr(self, 'cell_spread_linear'):
+            return None
+        B = condition.shape[0]
+        H, W = self.config.surface_h, self.config.surface_w
+        pos_emb = self.frame_decoder.pos_embed(local_pos)
+
+        if self.config.ar_percell_spread_cond and hasattr(self, 'spread_cell_proj'):
+            # Per-cell condition: (B, 128) → (B, 25*16) → reshape (B*25, 16)
+            cell_cond = self.spread_cell_proj(condition)  # (B, 25*16)
+            cell_cond = cell_cond.view(B, H * W, 16)  # (B, 25, 16)
+            # Expand pos_emb: (B, pos_dim) → (B, 25, pos_dim)
+            pos_exp = pos_emb.unsqueeze(1).expand(B, H * W, -1)
+            # Per-cell input: (B, 25, 16+pos_dim)
+            cs_in = torch.cat([cell_cond, pos_exp], dim=-1)  # (B, 25, 16+pos)
+            cs = F.softplus(self.cell_spread_linear(cs_in.view(B * H * W, -1)))  # (B*25, 1)
+            return cs.view(B, H, W)
+        else:
+            cs_in = torch.cat([condition, pos_emb], dim=-1)
+            return F.softplus(self.cell_spread_linear(cs_in)).view(B, H, W)
+
     def _get_mean_revert(self, condition: torch.Tensor, prev_frame: torch.Tensor) -> torch.Tensor:
         """Compute mean-reversion pull: alpha * (mu - prev) in IV space (Exp 104a).
 
@@ -904,10 +939,8 @@ class SinglePassBlockAR(nn.Module):
             if hasattr(self, "cell_scale"):
                 cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
                 delta = cs * delta
-            if hasattr(self, "cell_spread_linear"):
-                pos_emb = self.frame_decoder.pos_embed(local_pos)
-                cs_in = torch.cat([condition, pos_emb], dim=-1)
-                cs = F.softplus(self.cell_spread_linear(cs_in)).view(B, H, W)
+            cs = self._get_cell_spread(condition, local_pos)
+            if cs is not None:
                 delta = cs * delta
             # Skip bypass: add skip AFTER cell_spread so it's never suppressed
             if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
@@ -1110,11 +1143,8 @@ class SinglePassBlockAR(nn.Module):
                         delta = cs * delta
 
                     # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
-                    if hasattr(self, 'cell_spread_linear'):
-                        pos_emb = self.frame_decoder.pos_embed(local_pos)
-                        cs_in = torch.cat([cond_t, pos_emb], dim=-1)
-                        cs = F.softplus(self.cell_spread_linear(cs_in))
-                        cs = cs.view(B, H, W)
+                    cs = self._get_cell_spread(cond_t, local_pos)
+                    if cs is not None:
                         delta = cs * delta
                     # Skip bypass: add skip AFTER cell_spread so it's never suppressed
                     if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
