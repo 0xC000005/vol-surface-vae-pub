@@ -1,9 +1,9 @@
 {
-  "iteration": 15,
-  "current_hypothesis": "One-shot Conv3D + AR noise rho=0.8. Should balance 111a's over-reversion (VR=0.10) with noise persistence. AR noise adds temporal structure without AR generation.",
-  "experiment_id": "111b",
+  "iteration": 17,
+  "current_hypothesis": "Direction M proxy: One-shot Conv3D with MSE loss instead of afCRPS. Tests whether CRPS dynamics are the ceiling. If MSE produces better distributional properties (kurtosis, VR, factor structure), CRPS is confirmed as the bottleneck. Quick proxy for full flow matching.",
+  "experiment_id": "112a",
   "training_status": "running",
-  "base_commit": "3dd7b2f",
+  "base_commit": "b902e08",
   "started_at": "2026-03-18",
   "phase": "training"
 }
