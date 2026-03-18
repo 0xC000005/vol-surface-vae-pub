@@ -156,8 +156,11 @@ LOOP:
   │     documented failure prevents repeating that path AND  │
   │     may contain the insight for the next breakthrough.   │
   ├─────────────────────────────────────────────────────────┤
-  │ 4. INVESTIGATE WHY                                      │
-  │    This is the MOST IMPORTANT step. Do not skip it.      │
+  │ 4. INVESTIGATE WHY (BLOCKING GATE #1)                    │
+  │    ⚠️  This is a BLOCKING step. You MUST run at least     │
+  │    ONE diagnostic script before proceeding to DECIDE.     │
+  │    Narrative-only explanations ("I think because X")      │
+  │    are NOT sufficient. You must VERIFY with code.         │
   │                                                         │
   │    For EVERY result (success or failure), answer:         │
   │      - WHY did this metric improve/regress?              │
@@ -165,11 +168,12 @@ LOOP:
   │      - Does this reveal something new about the system?  │
   │      - Does this contradict or confirm previous findings?│
   │                                                         │
-  │    Investigation techniques:                             │
-  │      - Compare per-cell/per-horizon breakdowns           │
-  │      - Check if improvement is uniform or localized      │
-  │      - Look at training dynamics (did correlation drift?)│
-  │      - Run targeted diagnostics if something is surprising│
+  │    REQUIRED investigation actions (at least 2 of these): │
+  │      □ Per-cell/per-horizon metric breakdown script       │
+  │      □ Weight comparison vs baseline (norms, cosine sim) │
+  │      □ Training dynamics analysis (loss components, corr) │
+  │      □ Variance ratio / ACF analysis on generated samples│
+  │      □ Targeted diagnostic for surprising results        │
   │                                                         │
   │    The investigation may reveal:                         │
   │      - A new root cause → add to theory queue            │
@@ -185,6 +189,14 @@ LOOP:
   │      - Could the implementation have a bug?              │
   │    A wrong conclusion here can block a promising path    │
   │    for months. When in doubt, investigate more.          │
+  │                                                         │
+  │    SELF-CHECK before moving to DECIDE:                   │
+  │      □ Did I run at least 1 diagnostic SCRIPT (not just  │
+  │        read metrics from summary.json)?                  │
+  │      □ Can I explain the mechanism to a colleague who    │
+  │        wasn't in the room?                               │
+  │      □ Did the investigation produce any NUMBERS that    │
+  │        weren't in the original test output?              │
   ├─────────────────────────────────────────────────────────┤
   │ 5. DECIDE                                               │
   │    Based on the investigation (not just the score):      │
@@ -564,11 +576,13 @@ If `mcp-local-rag` is unavailable for research log search:
 3. **One change per iteration** — atomic, so you know what caused what
 4. **Bitter Lesson is non-negotiable** — no domain heuristics, no post-hoc fixes
 5. **Allow exploration** — temporary regression OK if theoretically motivated
-6. **ALWAYS investigate WHY** — the most important rule. Never just observe "score went
-   up/down" and move on. Dig into WHY. The investigation may reveal new root causes,
-   methodology bugs, or confounded variables. This understanding is the real output of
-   research, not the score. Premature conclusions based on insufficient investigation
-   block promising paths. When in doubt, investigate more, not less.
+6. **INVESTIGATION IS A BLOCKING GATE** — Step 4 requires running at least ONE diagnostic
+   script (not just reading summary.json metrics). Narrative explanations ("I think
+   because X") must be VERIFIED with code. The self-check in step 4 must pass before
+   proceeding to step 5. This was added after the 2026-03-17 session where 12/18
+   experiments got narrative-only investigation with zero diagnostic scripts.
+   **Failure mode to avoid**: writing "WHY: the model probably does X because Y" without
+   running ANY code to verify. Every WHY claim must have a NUMBER backing it up.
 7. **Verify methodology** — before trusting any result, verify the test is actually
    testing what you think. Check for confounded variables, insufficient eval budget,
    or silent test failures (like cointegration being skipped because returns weren't
@@ -590,6 +604,43 @@ If `mcp-local-rag` is unavailable for research log search:
     message includes the hypothesis. At session end, user reviews the full branch
     history and cherry-picks architectural winners to the main branch. The branch
     is a complete lab notebook.
+
+## Handling Complex Implementations
+
+Some directions require significant code changes (new architectures, new loss functions,
+new training loops). DO NOT STOP the loop and ask the user. The whole point of autoresearch
+is autonomous execution. Instead:
+
+**For implementations that take <2 hours:**
+1. Break the work into sub-steps using the Tasks API
+2. Implement step by step, testing compilation after each
+3. If stuck on a specific step for >30 min, simplify the approach
+4. Always have a MINIMAL VIABLE version that can train, even if incomplete
+
+**For implementations that take 2+ hours:**
+1. Start with a SIMPLIFIED PROXY experiment that tests the core hypothesis
+   with less code (e.g., test "does one-shot work?" before "does CSDI work?")
+2. If the proxy shows promise, implement the full version
+3. If the proxy fails, move to the next direction — don't spend hours on
+   something the proxy already disproved
+
+**NEVER DO THIS:**
+- Stop the loop and say "this is too complex, should I continue?"
+- Skip a direction because it requires "significant code work"
+- Ask for permission to implement something in the theory queue
+
+**ALWAYS DO THIS:**
+- Estimate implementation time before starting
+- If >2 hours: find a simpler proxy experiment first
+- Use the Agent tool to parallelize independent implementation tasks
+- Commit working code frequently (every 30 min of implementation)
+- If compilation fails after 3 attempts, simplify and move on
+
+**Example**: Direction "CSDI 2D attention denoiser" (estimated 3h):
+- Proxy: Can the existing Conv3D decoder with 2D attention conditioning
+  (instead of AdaGN) improve factor structure? (estimated 1h)
+- If proxy works: implement full CSDI framework
+- If proxy fails: move to next direction
 
 ## Controlled Loop Count
 
