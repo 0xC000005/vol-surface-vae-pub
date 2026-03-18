@@ -26783,3 +26783,85 @@ Direction H status: EXPLORED. 108a is the best variant. Further Student-t tweaki
 diminishing returns — the +0.62 gain over baseline is real but modest.
 
 ---
+
+## 2026-03-18: Direction Brainstorm — 7 Architecture Directions + One-Shot Reassessment
+
+### Why One-Shot (SinglePassDecoder) Deserves a Second Chance
+
+Exp 89 (March 3) tested one-shot Conv3D with afCRPS → scored 3/8. AR FrameDecoder (Exp 90,
+March 4) immediately scored 5/8, so one-shot was abandoned. BUT Exp 89 used the March 3
+recipe which LACKED every innovation that made AR work:
+
+| Innovation | Added In | Available to Exp 89? |
+|-----------|---------|---------------------|
+| Energy Score loss | 99k | NO |
+| Cell_spread | 99 series | NO |
+| Noise skip bypass | 99j | NO |
+| Freeze-at-peak | 99l | NO |
+| Cell_var_loss | 99m | NO |
+| Reflecting boundaries | 97a | NO |
+| Student-t noise | 108a | NO |
+| Additive dynamics | 90 | NO (89 used exp()) |
+
+Exp 89's failure was due to RECIPE, not ARCHITECTURE. The one-shot decoder was never
+tested with the modern recipe. This is a critical confound that invalidates the conclusion
+"one-shot doesn't work."
+
+One-shot SHOULD be better for mean-reversion (I2 finding): direct h=30 gradient instead
+of 30-step BPTT chain. And Conv3D backbone naturally mixes cells spatially (vs MLP rank-1).
+
+### 7 Architecture Directions (Post-Investigation, Post-Research)
+
+#### Direction F: One-Shot Conv3D + Modern Recipe
+Reactivate SinglePassDecoder but with ALL modern innovations: additive dynamics, reflecting
+boundaries, ES loss, cell_spread, skip bypass, freeze, Student-t noise. This is the
+lowest-risk big change since the decoder code already exists.
+Target: Mean-reversion (Suite 2), spatial mixing (Suite 7).
+
+#### Direction J: Copula Decomposition (Marginals + Dependence)
+2-stage: train current model for marginals, then learn copula for cross-cell/cross-time
+dependence. Separates two problems that have different optimal solutions.
+Target: Cross-cell structure, Suite 6.
+
+#### Direction K: CSDI-Style Score Diffusion
+Return to diffusion but with 2D attention denoiser (temporal + feature). Conditions on
+history, denoises all 30 future frames simultaneously. Code in external/csdi/.
+Target: Rank-1 bottleneck, cross-cell correlation, tails.
+
+#### Direction L: DiT (Diffusion Transformer)
+Full transformer encoder+decoder. Tokenize each (cell, timestep). Most Bitter-Lesson
+aligned but largest code change. 750 tokens (25 cells x 30 steps) feasible on 8GB GPU.
+Target: Everything.
+
+#### Direction M: Conditional Flow Matching (replace CRPS)
+Flow matching learns joint distribution directly via ODE velocity field. Unlike CRPS
+which decomposes per-cell with zero cross-cell gradient. TSFlow (ICLR 2026) combines
+CFM with GP priors for time series.
+Target: Root cause (CRPS dynamics).
+
+#### Direction O: DDPM Pretrain Full Model -> CRPS Fine-Tune
+Phase 1: Train DDPM on full model (encoder+decoder) to learn IV surface generation.
+Phase 2: Fine-tune with afCRPS for calibration. Gets best of both: diffusion learns
+realistic joint distributions, CRPS calibrates coverage.
+Target: Joint distribution quality + calibration.
+
+#### Direction P: One-Step Diffusion Decoder (Transfer DDPM Weights)
+Use the PRETRAINED Conv3DBlockDenoiser weights (from encoder pretraining checkpoint) as
+initialization for single-step generation. Different from SinglePassDecoder (Exp 89) which
+was random-init. The DDPM decoder already knows IV surface structure from MSE pretraining.
+Fine-tune with afCRPS. Simplest form of Direction O.
+Target: Transfer learning from proven decoder, mean-reversion.
+
+### Priority Assessment
+
+| Priority | Direction | Why First | Effort |
+|----------|-----------|-----------|--------|
+| 1 | F (one-shot + modern recipe) | Lowest risk, code exists, addresses boss's MR concern | MEDIUM |
+| 2 | P (transfer DDPM decoder weights) | Tests if pretrained decoder carries useful bias | MEDIUM |
+| 3 | M (flow matching) | Fixes root cause (CRPS dynamics) | HIGH |
+| 4 | K (CSDI diffusion) | Proven on multivariate TS, code available | HIGH |
+| 5 | J (copula decomposition) | Elegant but 2-stage complexity | MEDIUM |
+| 6 | O (DDPM->CRPS full 2-phase) | Comprehensive but complex | HIGH |
+| 7 | L (DiT) | Most ambitious, most Bitter Lesson aligned | VERY HIGH |
+
+---
