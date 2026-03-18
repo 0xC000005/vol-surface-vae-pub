@@ -27289,3 +27289,116 @@ cell (0,0) variance fluctuates → pooled m4 is unstable → kurtosis ratio is n
 7. **Per-cell CRPS always destroys spatial coherence** → any independent cell control fails
 
 ---
+
+## 2026-03-18: Revised Architecture Directions — Post-Investigation Synthesis
+
+### Context
+
+After 20 experiments and 9 deep mechanistic investigations, key beliefs were overturned.
+This entry synthesizes the investigation findings into revised architecture directions,
+replacing the pre-investigation direction list.
+
+### How Investigations Changed the Direction Landscape
+
+| Old Belief | Investigation Finding | Implication |
+|------------|----------------------|-------------|
+| AR can't learn mean-reversion | MLP Jacobian = -0.74 (mean-reverting!), rho=0.8 noise overwhelms 7.2x | Don't need new architecture for MR — reduce rho dominance |
+| One-shot fixes rank-1 problem | Ensemble rank 7.46, overshoots GT 2.48 | Need to CONSTRAIN one-shot diversity |
+| Student-t adds fat tails at inference | 80% of improvement from weight regularization during training | Train Student-t, infer Gaussian = best of both |
+| Per-cell conditioning helps Suite 7 | CRPS destroys spatial coherence every time (110a, 98a, 93d, 92b) | Any independent per-cell mechanism fails under CRPS |
+| Kurtosis-KS is a structural tradeoff | Not real (r=0.20, NS). Confounded by skip architecture | Can pursue both simultaneously |
+| VR loss calibrates mean-reversion | Model inflated denominator 2x as shortcut | Need bilateral absolute variance target, not ratio |
+| Learned rho converges to flat 0.29 | Actually varies 0.01-0.99 by condition (physically correct) | Condition-dependent rho works if constrained |
+| Cell_var removal improves kurtosis | Single-sample artifact (12x higher variance without cell_var) | Keep cell_var for stability |
+
+### Revised Direction List (6 directions, ordered by info-value per GPU-hour)
+
+#### Direction alpha: Train Student-t, Infer Gaussian
+**Effort**: ZERO (re-evaluate existing 108a checkpoint with Gaussian noise at inference)
+**Theory**: Investigation 1 showed 80% of 108a's improvement comes from weight changes
+during Student-t training, not from the fat tails at inference. Student-t at inference
+actually hurts CI slightly (lower effective variance from /1.414 scaling + [-5,5] clamp).
+Cross-swap experiment estimated CI 92.7% with Gaussian inference noise.
+**Prediction**: CI improves from 92.0% toward 92.7%. Kurtosis preserved (weight effect).
+**Info value**: LOW but FREE — no training needed, just re-evaluate.
+
+#### Direction beta: AR with Reduced Rho + Condition-Dependent Offset
+**Effort**: MEDIUM (modify rho computation)
+**Theory**: Investigation 7 proved the AR MLP already has mean-reverting Jacobian (-0.74),
+but rho=0.8 noise overwhelms it 7.2x. Investigation 4 showed learned rho varies 0.01-0.99
+by condition (low IV = mean-reverting, high IV = trending) — physically correct but CRPS
+pulls rho globally low. Fix: set base rho=0.5 (reduces noise dominance from 7.2x to ~3x),
+plus small learned condition-dependent offset (+/-0.2). Base can't go below 0.3.
+**Prediction**: ACF shifts from +0.16 toward GT -0.13. VR improves. Kurtosis may drop
+slightly but kurtosis-KS tradeoff is fake so KS shouldn't worsen.
+**Info value**: HIGH — tests whether moderate rho unlocks MLP's latent mean-reversion.
+
+#### Direction gamma: One-Shot Conv3D with 3-Factor Noise Constraint
+**Effort**: LOW (change noise_dim from 32 to 3 + learned projection)
+**Theory**: Investigation 2 showed 111b's Conv3D produces ensemble rank 7.46 (GT 2.48) —
+too many independent factors. AdaGN amplifies rank at every layer. Constraining noise to
+3 effective dimensions (matching GT's ~3 factor structure via a learned Linear(3, 32)
+bottleneck) should produce more realistic cross-cell correlation.
+**Prediction**: Ensemble rank drops from 7.46 toward GT 2.48. Cross-cell correlation
+increases. Kurtosis may improve (fewer noise directions = more correlated paths = heavier
+tails from correlation-induced leptokurtosis).
+**Info value**: HIGH — directly tests whether rank constraint improves one-shot.
+
+#### Direction delta: Bilateral Absolute Variance Loss
+**Effort**: MEDIUM (loss function change)
+**Theory**: Investigation 3 showed VR RATIO loss fails because model inflates denominator.
+Replace with bilateral ABSOLUTE cumulative variance target: penalize |cum_var(h) - GT_cum_var(h)|
+directly at h=5,10,20,30. No ratio formulation. No asymmetry. Uses precomputed GT cumulative
+variance per cell as target (stored as buffer). Cannot be gamed by inflating step variance.
+**Prediction**: Calibrates cumulative spread without denominator shortcut. Combined with
+Student-t training regularization, should maintain kurtosis.
+**Info value**: MEDIUM — fixes specific VR failure, but still loss engineering.
+
+#### Direction epsilon: Hybrid AR + One-Shot Ensemble
+**Effort**: MEDIUM (combine existing code paths)
+**Theory**: AR has good kurtosis + KS but poor MR. One-shot has good MR + factor structure
+but poor kurtosis + KS. Investigation 6 proved kurtosis-KS tradeoff is fake (confounded
+by architecture), so combining them shouldn't cancel out. Generate K/2 members from AR
+FrameDecoder, K/2 from SinglePassDecoder, evaluate as single K-member ensemble.
+**Prediction**: Gets AR's kurtosis + one-shot's VR + combined factor diversity. Catastrophic
+failures should decrease (more diverse ensemble from two architectures).
+**Info value**: HIGH — tests whether architectural diversity in ensemble helps.
+
+#### Direction zeta: CSDI-Style 2D Attention Denoiser
+**Effort**: HIGH (new denoising framework, ~200 lines)
+**Theory**: The fundamental finding across all investigations is that CRPS has zero cross-cell
+AND zero cross-time gradient. Every failure mode traces back to this: rank-1 attractor,
+spatial coherence destruction, ACF being architecture-determined not loss-determined.
+CSDI's 2D attention (temporal + feature) naturally couples all cells and timesteps. Iterative
+denoising (50 steps) produces diverse samples from score matching loss, not CRPS.
+**Prediction**: Should produce realistic joint distributions without CRPS limitations.
+**Info value**: HIGHEST — tests a completely different paradigm. If it works, proves CRPS
+is the fundamental ceiling for this problem.
+
+### Priority Ranking
+
+| Priority | Direction | Effort | GPU Hours | Rationale |
+|----------|-----------|--------|-----------|-----------|
+| 1 | alpha (Student-t train, Gaussian infer) | ZERO | 0.1h | Free test of investigation 1 finding |
+| 2 | gamma (one-shot 3-factor noise) | LOW | 0.5h | Direct test of rank constraint |
+| 3 | beta (AR rho=0.5 + condition offset) | MEDIUM | 1h | Unlocks MLP mean-reversion |
+| 4 | epsilon (hybrid AR + one-shot) | MEDIUM | 1h | Architectural diversity |
+| 5 | delta (bilateral absolute variance) | MEDIUM | 1h | Fixed VR loss |
+| 6 | zeta (CSDI 2D attention) | HIGH | 3h+ | Different paradigm |
+
+### Superseded Directions (from pre-investigation list)
+
+- **F (one-shot + modern recipe)**: EXPLORED (111a-111b_v2). Over-reversion discovered.
+  Replaced by gamma (rank-constrained one-shot).
+- **M (flow matching)**: DEFERRED. Investigation showed architecture matters more than
+  loss (one-shot improved factor structure WITH same CRPS). Replaced by zeta (CSDI)
+  which tests a different paradigm more directly.
+- **P (transfer DDPM weights)**: EXPLORED (111b_scratch). Pretrained helps kurtosis
+  modestly. Not a separate direction — always use pretrained.
+- **VR loss (ratio formulation)**: EXHAUSTED (113a, 113a_v2). Structurally flawed.
+  Replaced by delta (bilateral absolute variance).
+- **Per-cell conditioning (G)**: PERMANENTLY EXHAUSTED. Investigation 5 confirmed:
+  any independent per-cell mechanism under CRPS destroys spatial coherence. Four
+  separate implementations all failed (92b, 93d, 98a, 110a).
+
+---
