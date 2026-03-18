@@ -27402,3 +27402,61 @@ is the fundamental ceiling for this problem.
   separate implementations all failed (92b, 93d, 98a, 110a).
 
 ---
+
+## 2026-03-18: Investigation #8 — Epoch 10 Sweet Spot Root Cause
+
+### Finding: Natural Two-Phase Training Dynamics
+
+The ep10 correlation sweet spot is NOT an artifact of freeze scheduling — it occurs
+naturally in unfrozen models too (99k: corr 0.324 at ep10 without freeze).
+
+**Phase 1 (ep1-10)**: MLP learns mean prediction. MAE drops 27% at 1.5/epoch rate (23x
+faster than Phase 2). Noise weights grow from zero-init but remain random and diverse.
+GT-level correlation (0.32-0.42) is a TRANSIENT of initialization.
+
+**Phase 2 (ep10+)**: MAE saturates. CRPS spread gradient dominates, compressing
+noise_skip_proj rank: eff_rank 13.1→9.3, row cosine sim 0.31→0.45, top-1 SV explained
+variance 46%→55%. Freeze slows drift 3.4x but cannot stop it.
+
+**The MLP output layer is NOT the bottleneck** — effective rank 24.44 (near-perfect) and
+row cosine sim 0.008 (near-orthogonal) at ALL epochs. The problem is entirely in
+noise_skip_proj.
+
+**Phase transition observable**: v1 direction rotation speed — ep10-20: cosim 0.02
+(still exploring), ep40-50: cosim 0.90 (locked to rank-1). This rotation rate directly
+tracks the correlation drift.
+
+**Implication**: Freezing noise_skip_proj specifically at ep10 (keeping MLP, cell_spread
+trainable) should lock GT-level correlation permanently. This is more targeted than
+freeze-at-peak (which freezes the entire MLP).
+
+---
+
+## 2026-03-18: Investigation #9 — Condition-Dependent Behavior in All Models
+
+### Finding: Frozen GRU Encoder Drives Most Regime-Dependent Behavior
+
+All three architectures produce condition-dependent spread from the frozen encoder alone:
+
+| Model | Turb/Calm Spread Ratio | GT |
+|-------|----------------------|-----|
+| 99m_v2 (AR, fixed rho=0.8) | 1.51 | 1.84 |
+| 108a (AR, Student-t) | 1.61 | 1.84 |
+| 111b (one-shot Conv3D) | 1.91 | 1.84 |
+
+**The mechanism is NOT cell_spread** (which slightly CONTRACTS for turbulent: ratio 0.94).
+It comes from: (a) FrameDecoder producing larger magnitude deltas for turbulent conditions,
+(b) vol_scale being naturally larger for high-volatility histories.
+
+**AR models show condition-dependent ACF**: calm ACF=+0.35 (trending), turb ACF=+0.05
+(near-diffusive). The decoder responds differently to calm vs turb conditions, creating
+regime-dependent temporal dynamics. But sign is wrong vs GT (both should be negative).
+
+**111b matches GT spread ratio best** (1.91 vs 1.84) and achieves equal calm/turb
+coverage (gap=0.0%), but lacks condition-dependent temporal dynamics.
+
+**Implication**: Direction beta (condition-dependent rho) is less valuable than initially
+thought — the encoder already provides ~62% of GT regime differentiation. The real gap
+is temporal dynamics (ACF sign wrong in both regimes for AR models).
+
+---
