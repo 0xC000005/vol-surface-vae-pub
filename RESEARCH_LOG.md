@@ -27044,3 +27044,39 @@ approach GT 0.37.
 - The one-shot Conv3D architecture is confirmed as promising — the dynamics are controllable
 
 ---
+
+## 2026-03-18: Exp 111b_v2 — One-Shot + rho=0.5 — 4/8 REGRESSION
+
+rho=0.5 between rho=0 (111a) and rho=0.8 (111b). Expected to land near GT VR.
+
+| rho | Score | Suites | Kurtosis | KS daily | VR h=30 | ACF | Coint |
+|-----|-------|--------|----------|----------|---------|-----|-------|
+| 0.0 (111a) | 47.13 | 3/8 | 0.285 | 22/25 | 0.100 | -0.80 | 0.430 |
+| **0.5 (111b_v2)** | **54.41** | **4/8** | **0.294** | **8/25** | — | — | **0.806** |
+| 0.8 (111b) | 65.0 | 5/8 | 0.522 | 15/25 | 0.212 | -0.27 | 0.686 |
+
+**WHY rho=0.5 is WORSE than rho=0.8**: The relationship between rho and model quality is
+NOT linear for the one-shot architecture. rho=0.5 gives enough noise persistence to prevent
+the most extreme over-reversion, but not enough to produce realistic kurtosis. It sits in
+an awkward middle ground where per-step changes are too uniform (KS 8/25 — worst ever)
+but cumulative paths are still too mean-reverting (kurtosis 0.294).
+
+rho=0.8 works better because the strong noise persistence creates realistic momentum
+in paths (contributing to kurtosis), while the Conv3D's natural mean-reversion tendency
+(from direct h=30 gradient) provides the counterbalancing force.
+
+**The rho sweep for one-shot is NOT the same as for AR.** In AR mode, lower rho = less MR.
+In one-shot mode, the mean-reversion comes from the Conv3D architecture, not from rho.
+rho only controls noise persistence (kurtosis, momentum). Higher rho = better kurtosis.
+
+**Direction F conclusion after 3 experiments:**
+- 111a (rho=0): 3/8, over-reverts, best KS/catastrophic
+- 111b (rho=0.8): 5/8, near-GT VR at h=5, best balance
+- 111b_v2 (rho=0.5): 4/8, worst KS, awkward middle ground
+- **111b (rho=0.8) is the best one-shot variant.**
+
+The one-shot architecture with rho=0.8 is viable (5/8) but doesn't beat AR baseline (66.31
+vs 65.0). The improvements are in DIFFERENT metrics (better VR, eff_rank, catastrophic)
+while regressions are in kurtosis and KS daily. This suggests combining strengths.
+
+---
