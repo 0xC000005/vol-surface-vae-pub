@@ -478,8 +478,11 @@ class SinglePassDecoder(nn.Module):
         # Position embedding (frame indices)
         pos_emb = self.pos_embed(positions)  # (B, T, pos_embed_dim)
 
-        # Expand noise embedding to per-frame
-        noise_emb_expanded = noise_emb.unsqueeze(1).expand(-1, T, -1)  # (B, T, noise_embed_dim)
+        # Expand noise embedding to per-frame (or use per-frame noise if provided)
+        if noise_emb.dim() == 3 and noise_emb.shape[1] == T:
+            noise_emb_expanded = noise_emb  # Already (B, T, noise_embed_dim)
+        else:
+            noise_emb_expanded = noise_emb.unsqueeze(1).expand(-1, T, -1)  # (B, T, noise_embed_dim)
 
         # Expand condition to per-frame
         cond_expanded = condition.unsqueeze(1).expand(-1, T, -1)  # (B, T, bottleneck_dim)
@@ -1001,7 +1004,24 @@ class SinglePassBlockAR(nn.Module):
         H, W = self.config.surface_h, self.config.surface_w
 
         # Noise embedding (regime-dependent if cond_noise_mlp enabled)
-        noise_emb = self.noise_mlp(noise_z, condition=condition)  # (B, noise_embed_dim)
+        T = positions.shape[1]
+        B = condition.shape[0]
+        if getattr(self.config, 'oneshot_additive', False) and self.config.ar_frame_rho > 0:
+            # Per-frame AR-correlated noise for one-shot mode (Exp 111b)
+            rho = self.config.ar_frame_rho
+            z_t = noise_z  # (B, noise_dim)
+            noise_embs = [self.noise_mlp(z_t, condition=condition)]
+            for t in range(1, T):
+                if self.config.noise_dist == "student_t":
+                    dist = torch.distributions.StudentT(df=self.config.student_t_df)
+                    eps = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                else:
+                    eps = torch.randn_like(z_t)
+                z_t = rho * z_t + math.sqrt(1 - rho**2) * eps
+                noise_embs.append(self.noise_mlp(z_t, condition=condition))
+            noise_emb = torch.stack(noise_embs, dim=1)  # (B, T, noise_embed_dim)
+        else:
+            noise_emb = self.noise_mlp(noise_z, condition=condition)  # (B, noise_embed_dim)
 
         # Shared noise: first element of z vector → spatial input for cross-cell correlation
         shared_noise = noise_z[:, 0] if self.config.shared_noise_input else None
