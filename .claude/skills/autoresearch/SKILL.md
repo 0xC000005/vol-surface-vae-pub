@@ -197,20 +197,29 @@ LOOP:
   │        the research log permanently.                     │
   │    Update theory_queue.json with new insights            │
   │                                                         │
-  │    Investigation budget: ~10 min of analysis. If after   │
-  │    that you have a working hypothesis for why, proceed   │
-  │    to DECIDE. If still uncertain, log what you know and  │
-  │    what you don't, then proceed anyway.                  │
+  │    NO TIME LIMIT on investigation. Do not rush to the     │
+  │    next experiment. The WHY is more valuable than the     │
+  │    score. Dig until you have a mechanistic explanation:   │
+  │      - Run per-cell/per-horizon diagnostics               │
+  │      - Compare training dynamics (correlation drift,      │
+  │        loss components, weight norms)                     │
+  │      - If result is surprising, write a diagnostic script │
+  │        to trace the specific mechanism                    │
+  │      - Only move to DECIDE when you can explain the       │
+  │        result to a colleague who wasn't in the room       │
   ├─────────────────────────────────────────────────────────┤
   │ 6. PERSIST TO RESEARCH LOG (BLOCKING GATE)              │
   │    ⚠️  DO NOT proceed to the next iteration until this   │
   │    step is COMPLETE. This is not optional.               │
   │                                                         │
-  │    INVOKE the `research-log` skill to append the full    │
-  │    experiment entry to RESEARCH_LOG.md. The skill        │
-  │    handles appending + MCP index ingestion.              │
-  │    Fallback ONLY if MCP is down: direct Edit/append      │
-  │    to RESEARCH_LOG.md (but MCP index won't update).      │
+  │    Use the Skill tool to invoke `research-log` skill:     │
+  │      Skill(skill="research-log", args="append")          │
+  │    This loads the research-log skill which handles        │
+  │    appending via heredoc + MCP re-ingestion.             │
+  │    Follow the skill's append template (## date: title).  │
+  │    Then call mcp__local-rag__ingest_file to re-index.    │
+  │    Fallback ONLY if Skill tool fails: direct cat >>      │
+  │    to RESEARCH_LOG.md + manual ingest_file call.          │
   │    The entry MUST contain ALL items from step 3B above.  │
   │                                                         │
   │    Then git commit the research log update.              │
@@ -226,8 +235,10 @@ LOOP:
   │    - A missing entry = wasted GPU hours in the future    │
   │                                                         │
   │    SELF-CHECK before proceeding:                         │
-  │      □ Did I append to RESEARCH_LOG.md (not just         │
-  │        results-log.md)?                                  │
+  │      □ Did I call Skill(skill="research-log") to         │
+  │        append? (not raw Edit/cat — use the SKILL)        │
+  │      □ Did I call mcp__local-rag__ingest_file to         │
+  │        re-index? (or did the skill handle it?)           │
   │      □ Does the entry contain metrics table, WHY         │
   │        analysis, and what was learned?                   │
   │      □ Did I git commit the research log?                │
