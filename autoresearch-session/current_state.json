@@ -1,9 +1,9 @@
 {
-  "iteration": 9,
-  "current_hypothesis": "Student-t noise (df=6) for fat-tailed per-cell distributions. Zero code change, just hyperparameter. Directly addresses I4 finding that marginal bottleneck is tail shape.",
-  "experiment_id": "108a",
-  "training_status": "starting",
-  "base_commit": "5c81156",
+  "iteration": 10,
+  "current_hypothesis": "Student-t df=8 (lighter than df=6). Should recover KS daily 18→20+ while keeping kurtosis improvement. Quick 30ep.",
+  "experiment_id": "108a_v2",
+  "training_status": "running",
+  "base_commit": "a3f7a22",
   "started_at": "2026-03-17",
-  "phase": "hypothesize"
+  "phase": "training"
 }

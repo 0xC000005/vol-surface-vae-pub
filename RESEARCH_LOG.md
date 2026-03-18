@@ -26656,3 +26656,19 @@ throughout the trajectory, not just at h=1.
 - Combine with Direction G (per-cell conditions) in a later experiment
 
 ---
+
+## 2026-03-17: Exp 108a_v2 — Student-t df=8 (Lighter Tails) — REGRESSION 3/8
+
+**Based on**: 108a (df=6, score 66.93). Lighter tails to recover KS daily.
+
+**Result**: 3/8 REGRESSION. Lost Suite 1 (calendar arb) and Suite 3 (worst cell MAE -29.6%).
+Score 47.79. BUT kurtosis 0.966 (best), CI 93.0% (best), catastrophic 326 (best by far).
+
+The df=8 scaling interacted badly with the 1/1.414 normalization factor (designed for df=4).
+Surface validity broke — calendar arbitrage failed. Not worth further investigation.
+
+**Conclusion**: df=6 is better than df=8 for this architecture. The 1/1.414 scaling factor
+needs to be adjusted per df (it was hardcoded for df=4). 108a (df=6) remains the best
+Student-t configuration.
+
+---
