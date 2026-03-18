@@ -27165,3 +27165,127 @@ Key discoveries this session:
 5. Pretrained DDPM weights help kurtosis in one-shot (0.52 vs 0.47)
 
 ---
+
+## 2026-03-18: Deep Investigation Results — 9 Mechanistic Analyses
+
+### Overview
+
+After 20 experiments, comprehensive deep investigations were run on the most important
+results. Each used diagnostic scripts (not just narrative) to trace specific mechanisms.
+All outputs saved in results/investigations/.
+
+### Investigation 1: 108a — WHY Student-t Helps (Best Model)
+
+**CRITICAL CORRECTION**: 108a trained with Student-t at z0 only (not every step as initially
+claimed — the per-step code was added later for 108b).
+
+**Finding**: 80% of 108a's improvement comes from WEIGHT CHANGES during training, not from
+Student-t noise at inference. Cross-noise swap experiment: running 108a weights with Gaussian
+noise retains most of the kurtosis gain. Student-t acts as implicit regularizer — produces
+lower weight norms in cell_spread (0.67x), skip projection (0.72x), output layer (0.91x).
+
+**Implication**: "Train with Student-t, infer with Gaussian" would give CI 92.7% with better
+kurtosis. The noise distribution matters more for training dynamics than inference quality.
+
+### Investigation 2: 111b — WHY Better Factor Structure (One-Shot)
+
+**Finding**: AdaGN is the rank amplifier. Rank trace through Conv3D: conv_in=1.0 → after 6
+AdaGN layers → output=22.7. Each AdaGN applies multiplicative noise modulation that EXPANDS
+rank. MLP has single bottleneck that crushes rank.
+
+**Correction**: Ensemble rank is actually 7.46 (overshoots GT 2.48), not the reported 1.90
+(which measured per-noise-draw rank). Conv3D produces TOO MANY independent factors.
+
+**Mean-reversion mechanism**: Conv3D produces temporally smooth z_out (level ACF=0.73).
+Differencing smooth signal mathematically yields ACF ≈ (r-1)/2 = -0.14. Near-GT VR
+calibration comes from one-shot CRPS having direct gradient to all 30 frames.
+
+### Investigation 3: 113a — WHY VR Loss Crushes CI
+
+**Finding**: Model found a shortcut — instead of reducing cumulative variance (numerator),
+it inflated per-step variance 2x (denominator). Mathematically correct for reducing VR
+ratio but catastrophic for coverage.
+
+**Spatial pattern**: noise_skip_proj halved for mid-surface cells (columns 2-3). 86 new
+catastrophic pairs, 59 in column 3. The ratio formulation is structurally flawed — allows
+denominator inflation as cheap escape.
+
+### Investigation 4: 103a — Learned Rho Per Condition
+
+**Finding**: Rho is NOT constant at 0.29. It varies 0.01 to 0.99 by condition:
+- Low IV → rho ≈ 0.13 (fresh noise, mean-reverting)
+- High IV → rho ≈ 0.99 (persistent noise, trending)
+This is physically interpretable: high-vol regimes trend, low-vol regimes revert.
+
+**Correlation drift**: noise_skip_proj caused the 0.303→0.583 drift (row vectors aligning).
+Cell_spread actually fought AGAINST the drift. Same rank-1 attractor mechanism.
+
+### Investigation 5: 110a — WHY Per-Cell Spread Destroyed the Model (2/8)
+
+**Finding**: Three cascading failures:
+1. Cell_spread range 22x → adjacent tenors get different scaling → calendar arb (8.7%→16.4%)
+2. Cell (0,4) suppressed → negative conditioning (-14% MAE reduction)
+3. 16/25 cells near-zero kurtosis — interior cells scaled below noise floor
+
+**Root cause**: CRPS per-cell decomposition + independent cell spread = spatial coherence
+destroyed. Same mechanism as Exp 98a but through spread pathway.
+
+### Investigation 6: Kurtosis-KS Tradeoff — NOT REAL
+
+**Finding**: Pearson r = +0.198 (p=0.32, not significant). The apparent tradeoff was
+confounded by skip connection architecture:
+- skip=True → narrow/peaked distributions → high kurtosis, vulnerable to KS
+- skip=False → wide/diffuse distributions → low kurtosis, KS-resilient (wide CDFs smooth)
+
+One-shot models "pass" more KS cells because distributions are wider, not because they
+match GT better. Per-cell kurtosis has zero correlation with per-cell KS (r=-0.085).
+
+### Investigation 7: AR vs One-Shot Opposite Mean-Reversion
+
+**Finding**: AR MLP already has NEGATIVE Jacobian (d(delta)/d(prev) = -0.74, mean-reverting).
+But rho=0.8 noise overwhelms state feedback by 7.2x in variance. With rho=0, same AR weights
+produce ACF = -0.15, matching GT -0.13.
+
+One-shot negative ACF comes from differencing smooth Conv3D output: if z_out has level
+ACF=0.73, then dz has ACF ≈ (0.73-1)/2 = -0.14.
+
+**CRPS is ACF-agnostic** — zero cross-time gradient. ACF is entirely from architecture+noise.
+
+### Investigation 8: 108b vs 108a — Per-Step Student-t Hurts
+
+**Finding**: More fat tails at every step → CRPS fights harder → smaller MLP weights (0.888x)
+→ less nonlinear amplification → LESS kurtosis (0.728 vs 0.922).
+
+108a works because z0-only Student-t creates INTER-TRAJECTORY kurtosis (fat-tailed mixture
+across windows) without triggering per-step weight suppression. The z0 contribution decays
+by step 5, so MLP never sees extreme noise during training.
+
+**Optimal strategy**: One-time fat-tailed shock for trajectory-level leptokurtosis without
+per-step weight suppression.
+
+### Investigation 9: 107a — Cell_Var Kurtosis "Improvement" Was Artifact
+
+**Finding**: The reported 0.845→0.947 kurtosis improvement was a single-sample lucky draw.
+With proper repeated evaluation:
+- 99m_v2 (cell_var=1.0): mean ratio 0.836, std 0.020 (stable)
+- 107a (cell_var=0): mean ratio 1.143, std 0.251 (12x more variable)
+
+Cell_var_loss stabilizes kurtosis by pinning cell (0,0) variance near GT. Without it,
+cell (0,0) variance fluctuates → pooled m4 is unstable → kurtosis ratio is noisy.
+
+**Cell_var_loss is beneficial for stability, not harmful.**
+
+### Synthesis: What These Investigations Change
+
+1. **108a's mechanism is regularization, not tail shape** → could train with Student-t,
+   infer with Gaussian for best of both worlds
+2. **One-shot Conv3D overshoots on factor diversity** (rank 7.46 vs GT 2.48) → the problem
+   is TOO MANY factors, not too few
+3. **VR loss formulation is fundamentally flawed** → need bilateral target, not ratio
+4. **Kurtosis-KS tradeoff is fake** → can pursue both simultaneously
+5. **AR MLP is already mean-reverting** → the problem is noise overwhelms it
+6. **Learned rho varies 0.01-0.99 by condition** → physically correct but CRPS pulls
+   toward low rho. Constraint needed.
+7. **Per-cell CRPS always destroys spatial coherence** → any independent cell control fails
+
+---
