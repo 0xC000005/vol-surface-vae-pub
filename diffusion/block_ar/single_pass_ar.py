@@ -85,6 +85,7 @@ class SinglePassConfig:
     # Direct IV mode: decoder outputs normalized IV directly (no exp/baseline)
     direct_iv: bool = False
     oneshot_additive: bool = False  # One-shot Conv3D with additive dynamics (Exp 111a)
+    noise_bottleneck_dim: int = 0   # Factor noise constraint: sample z~N(0,I_k), project to noise_dim (Exp 115a)
     no_tanh: bool = False  # remove tanh bounding (let loss learn output range)
     learned_vol_scale: bool = False  # per-cell vol_scale from condition MLP
     twcrps_beta: float = 0.0  # threshold-weighted CRPS beta (0 = standard CRPS)
@@ -635,6 +636,11 @@ class SinglePassBlockAR(nn.Module):
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
             self.noise_mlp = NoiseMLP(config.noise_dim, config.noise_embed_dim, cond_dim=cond_dim)
 
+            # Noise bottleneck: sample z~N(0,I_k), project to noise_dim (Exp 115a)
+            if config.noise_bottleneck_dim > 0:
+                self.noise_bottleneck = nn.Linear(config.noise_bottleneck_dim, config.noise_dim)
+                nn.init.orthogonal_(self.noise_bottleneck.weight)
+
             # Decoder (modified Conv3D)
             self.decoder = SinglePassDecoder(config)
 
@@ -661,12 +667,18 @@ class SinglePassBlockAR(nn.Module):
         """Sample noise vector z ~ N(0,I) or StudentT(df)."""
         # Factor noise uses n_factors dim; shared noise uses noise_dim
         ndim = self.config.ar_n_factors if self.config.ar_factor_noise else self.config.noise_dim
+        # Noise bottleneck: sample in low-dim, project up (Exp 115a)
+        if self.config.noise_bottleneck_dim > 0 and hasattr(self, 'noise_bottleneck'):
+            ndim = self.config.noise_bottleneck_dim
         if self.config.noise_dist == "student_t":
             dist = torch.distributions.StudentT(df=self.config.student_t_df)
             z = dist.rsample((B, ndim)).to(device).clamp(-5, 5)
             z = z / 1.414  # scale so pretrained noise_mlp sees similar magnitude
         else:
             z = torch.randn(B, ndim, device=device)
+        # Project through bottleneck if active
+        if self.config.noise_bottleneck_dim > 0 and hasattr(self, 'noise_bottleneck'):
+            z = self.noise_bottleneck(z)  # (B, noise_dim)
         return z
 
     def _compute_vol_scale(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

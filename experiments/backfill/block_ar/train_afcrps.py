@@ -338,6 +338,8 @@ def main():
                         help="Number of AR blocks to generate during training (1=block1 only, 3=full 30 frames)")
     parser.add_argument("--oneshot_additive", action="store_true",
                         help="One-shot Conv3D with additive dynamics (Exp 111a)")
+    parser.add_argument("--noise_bottleneck_dim", type=int, default=0,
+                        help="Factor noise constraint: sample in k dims, project to noise_dim (Exp 115a)")
     parser.add_argument("--direct_iv", action="store_true",
                         help="Direct IV prediction (no exp/baseline transform)")
     parser.add_argument("--no_tanh", action="store_true",
@@ -563,6 +565,7 @@ def main():
         vol_scale_power=base_cfg.get("vol_scale_power", 1.0),
         direct_iv=args.direct_iv,
         oneshot_additive=args.oneshot_additive,
+        noise_bottleneck_dim=args.noise_bottleneck_dim,
         no_tanh=args.no_tanh,
         learned_vol_scale=args.learned_vol_scale,
         twcrps_beta=args.twcrps_beta,
@@ -717,6 +720,10 @@ def main():
         if hasattr(model, 'noise_scale_head'):
             param_groups.append(
                 {"params": list(model.noise_scale_head.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
+            )
+        if hasattr(model, 'noise_bottleneck'):
+            param_groups.append(
+                {"params": list(model.noise_bottleneck.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
             )
         if hasattr(model, 'rho_head'):
             param_groups.append(
