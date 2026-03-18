@@ -26982,3 +26982,65 @@ One-shot over-reverts because direct h=30 gradient is too strong with no AR nois
    the VR gap without changing architecture.
 
 ---
+
+## 2026-03-18: Exp 111b — One-Shot Conv3D + AR Noise rho=0.8
+
+### Hypothesis
+111a over-reverted (VR=0.10, ACF=-0.80) due to single noise per trajectory. Adding
+AR(1) noise correlation (rho=0.8) generates T per-frame noise embeddings with temporal
+persistence, counteracting over-reversion.
+
+### Architecture Change
+Modified generate_block: instead of one noise_emb expanded to T frames, now generates
+T noise vectors with AR(1) rho=0.8, each passed through NoiseMLP separately. Decoder
+receives (B, T, noise_embed_dim) per-frame embeddings.
+
+### Results: 5/8 PASS — Recovered from 111a's 3/8
+
+| Metric | 99m_v2 (AR) | 111a (rho=0) | **111b (rho=0.8)** | GT |
+|--------|-------------|--------------|---------------------|----|
+| Score | 66.31 | 47.13 | **65.0** | — |
+| Suites | 5/8 | 3/8 | **5/8** | 8/8 |
+| VR h=5 | 1.232 | 0.148 | **0.388** | 0.432 |
+| VR h=30 | 0.513 | 0.100 | **0.212** | 0.369 |
+| Lag-1 ACF | +0.16 | -0.80 | **-0.271** | -0.37 |
+| Kurtosis | 0.845 | 0.285 | 0.522 | 1.0 |
+| KS daily | 20/25 | 22/25 | 15/25 | 25/25 |
+| eff_rank | 1.1 | 1.90 | — | 2.6 |
+| Catastrophic | 576 | 151 | 395 | 0 |
+
+### Deep Investigation: WHY
+
+**VR h=5: 0.388 vs GT 0.432** — first model to get SHORT-HORIZON VR near GT! The one-shot
+architecture + AR noise combination produces realistic mean-reversion at short horizons.
+Longer horizons still too sub-diffusive (0.212 vs 0.369) — the model reverts too fast.
+
+**ACF -0.271 vs GT -0.37** — right sign and right ballpark (AR was +0.16, 111a was -0.80).
+The AR noise correlation moderates the one-shot's natural over-reversion tendency.
+
+**Kurtosis 0.522** — barely passing (target 0.5-2.0). Still lower than AR's 0.845 because
+the one-shot's mean-reversion dampens tails. The Conv3D doesn't produce as heavy tails as
+the AR FrameDecoder even with Student-t noise.
+
+**KS daily 15/25** — regressed from 111a's 22/25. The AR noise persistence creates smoother
+paths with less per-step variance, which hurts per-step distribution matching.
+
+### KEY FINDING: rho Controls the Mean-Reversion Dial
+
+| rho | VR h=30 | ACF | Kurtosis | KS daily |
+|-----|---------|-----|----------|----------|
+| 0.0 (111a) | 0.100 | -0.80 | 0.285 | 22/25 |
+| 0.8 (111b) | 0.212 | -0.27 | 0.522 | 15/25 |
+| GT target | 0.369 | -0.37 | 1.0 | 25/25 |
+| AR (99m_v2) | 0.513 | +0.16 | 0.845 | 20/25 |
+
+**The relationship is monotonic**: higher rho → higher VR → less mean-reversion → better
+kurtosis → different KS. The sweet spot appears to be around rho=0.4-0.6 where VR would
+approach GT 0.37.
+
+### What This Suggests Next
+- **111b_v2**: Try rho=0.5 — should land closer to GT VR=0.37
+- **VR loss**: Instead of guessing rho, add explicit VR loss to calibrate automatically
+- The one-shot Conv3D architecture is confirmed as promising — the dynamics are controllable
+
+---

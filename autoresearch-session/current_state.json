@@ -1,10 +1,9 @@
 {
-  "iteration": 14,
-  "current_hypothesis": "One-shot Conv3D + modern recipe (additive, reflect, Student-t df=6). All 30 frames at once via SinglePassDecoder. Tests whether one-shot is viable with modern recipe (Exp 89 was obsolete config).",
-  "experiment_id": "111a",
+  "iteration": 15,
+  "current_hypothesis": "One-shot Conv3D + AR noise rho=0.8. Should balance 111a's over-reversion (VR=0.10) with noise persistence. AR noise adds temporal structure without AR generation.",
+  "experiment_id": "111b",
   "training_status": "running",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 --lr 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --oneshot_additive --ar_reflect --ar_floor_clamp 0.01 --noise_dist student_t --student_t_df 6.0 --n_train_blocks 1 --disable_early_stop --output_dir models/backfill/afcrps_111a --device cuda",
-  "base_commit": "8d1b714",
+  "base_commit": "3dd7b2f",
   "started_at": "2026-03-18",
   "phase": "training"
 }
