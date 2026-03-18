@@ -1085,6 +1085,7 @@ class SinglePassBlockAR(nn.Module):
         n_train_blocks: int = 1,
         n_frames: int = 0,
         extra_hist: Optional[torch.Tensor] = None,
+        lambda_vr: float = 0.0,
     ) -> dict:
         """Training forward: generate K members, compute afCRPS.
 
@@ -1347,6 +1348,29 @@ class SinglePassBlockAR(nn.Module):
             cum_cal_loss = cum_cal_loss / max(len(cal_horizons), 1)
             loss = loss + lambda_cum_cal * cum_cal_loss
 
+        # Variance ratio loss: penalize when cumulative variance grows too fast (Exp 113a)
+        vr_loss = torch.tensor(0.0, device=device)
+        if lambda_vr > 0:
+            T_gen = iv_samples.shape[2]
+            # Per-step change variance (across ensemble + batch)
+            step_changes = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
+            step_var = step_changes.var(dim=(0, 1, 2))  # (H, W) per-cell 1-step variance
+            # Cumulative change variance at select horizons
+            vr_horizons = [h for h in [4, 9, 19, 29] if h < T_gen]  # 0-indexed: h=5,10,20,30
+            for h in vr_horizons:
+                cum_change = iv_samples[:, :, h] - iv_samples[:, :, 0]  # (B, K, H, W)
+                cum_var = cum_change.var(dim=(0, 1))  # (H, W)
+                # VR = cum_var / ((h+1) * step_var)
+                model_vr = cum_var / ((h + 1) * step_var.clamp(min=1e-8))
+                # GT VR targets (from I2 investigation)
+                gt_vr_targets = {4: 0.40, 9: 0.29, 19: 0.24, 29: 0.21}
+                gt_vr = gt_vr_targets.get(h, 0.3)
+                # Asymmetric: only penalize when model VR > GT (over-spread)
+                excess = (model_vr - gt_vr).clamp(min=0)
+                vr_loss = vr_loss + excess.pow(2).mean()
+            vr_loss = vr_loss / max(len(vr_horizons), 1)
+            loss = loss + lambda_vr * vr_loss
+
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
         if lambda_kurt > 0:
@@ -1394,6 +1418,7 @@ class SinglePassBlockAR(nn.Module):
             "bias_loss": bias_loss.detach(),
             "cell_var_loss": cell_var_loss.detach(),
             "cum_cal_loss": cum_cal_loss.detach(),
+            "vr_loss": vr_loss.detach(),
         }
 
     @torch.no_grad()

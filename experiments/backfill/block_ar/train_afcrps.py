@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -153,6 +153,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        lambda_kurt=lambda_kurt, lambda_es=lambda_es,
                        lambda_cell_var=lambda_cell_var,
                        lambda_cum_cal=lambda_cum_cal,
+                       lambda_vr=lambda_vr,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames,
                        extra_hist=extra_hist)
@@ -329,6 +330,8 @@ def main():
                         help="Kurtosis matching loss weight")
     parser.add_argument("--lambda_cell_var", type=float, default=0.0,
                         help="Per-cell variance matching loss weight")
+    parser.add_argument("--lambda_vr", type=float, default=0.0,
+                        help="Variance ratio loss weight (Exp 113a)")
     parser.add_argument("--lambda_cum_cal", type=float, default=0.0,
                         help="Cumulative calibration loss weight (matches ensemble var to MSE at h=7,14,30)")
     parser.add_argument("--n_train_blocks", type=int, default=1,
@@ -881,6 +884,7 @@ def main():
             lambda_kurt=args.lambda_kurt, lambda_es=args.lambda_es,
             lambda_cell_var=args.lambda_cell_var,
             lambda_cum_cal=args.lambda_cum_cal,
+            lambda_vr=args.lambda_vr,
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
