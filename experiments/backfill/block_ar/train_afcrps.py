@@ -435,6 +435,8 @@ def main():
                         help="Mean-reversion dynamics (Exp 104a)")
     parser.add_argument("--ar_mean_revert_alpha_init", type=float, default=-3.0,
                         help="Init for mean-reversion alpha (sigmoid(-3)≈0.047)")
+    parser.add_argument("--ar_mean_revert_percell", action="store_true",
+                        help="Per-cell mean-reversion alpha (Exp 109a)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -595,6 +597,7 @@ def main():
         ar_learned_rho_max=args.ar_learned_rho_max,
         ar_mean_revert=args.ar_mean_revert,
         ar_mean_revert_alpha_init=args.ar_mean_revert_alpha_init,
+        ar_mean_revert_percell=args.ar_mean_revert_percell,
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,

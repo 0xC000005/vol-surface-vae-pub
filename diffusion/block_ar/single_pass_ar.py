@@ -131,6 +131,7 @@ class SinglePassConfig:
     ar_learned_rho_max: float = 1.0      # upper clamp for learned rho (1.0 = no clamp)
     ar_mean_revert: bool = False         # mean-reversion dynamics (Exp 104a)
     ar_mean_revert_alpha_init: float = -3.0  # sigmoid(-3.0) ≈ 0.047, small initial pull
+    ar_mean_revert_percell: bool = False  # per-cell alpha (Exp 109a) vs shared (104a)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -611,7 +612,8 @@ class SinglePassBlockAR(nn.Module):
                 self.mr_mu_head = nn.Linear(config.bottleneck_dim, frame_dim)
                 nn.init.zeros_(self.mr_mu_head.weight)
                 nn.init.zeros_(self.mr_mu_head.bias)  # init mu=0 → sigmoid → 0.5 (mid-range IV)
-                self.mr_alpha_head = nn.Linear(config.bottleneck_dim, 1)
+                mr_alpha_out = frame_dim if config.ar_mean_revert_percell else 1
+                self.mr_alpha_head = nn.Linear(config.bottleneck_dim, mr_alpha_out)
                 nn.init.zeros_(self.mr_alpha_head.weight)
                 nn.init.constant_(self.mr_alpha_head.bias, config.ar_mean_revert_alpha_init)
         else:
@@ -805,8 +807,12 @@ class SinglePassBlockAR(nn.Module):
         B = condition.shape[0]
         # mu in [0, 1] IV space via sigmoid
         mu = torch.sigmoid(self.mr_mu_head(condition)).view(B, H, W)  # (B, H, W)
-        # alpha in [0, 0.2] — small mean-reversion speed
-        alpha = 0.2 * torch.sigmoid(self.mr_alpha_head(condition)).view(B, 1, 1)  # (B, 1, 1)
+        # alpha in [0, 0.05] per cell — small mean-reversion speed (reduced from 0.2 in 104a)
+        alpha = 0.05 * torch.sigmoid(self.mr_alpha_head(condition))  # (B, 25) or (B, 1)
+        if alpha.shape[-1] == 1:
+            alpha = alpha.view(B, 1, 1)  # broadcast (backward compat with 104a)
+        else:
+            alpha = alpha.view(B, H, W)  # per-cell (Exp 109a)
         return alpha * (mu - prev_frame)  # (B, H, W)
 
     def _get_learned_rho(self, condition: torch.Tensor) -> float | torch.Tensor:
