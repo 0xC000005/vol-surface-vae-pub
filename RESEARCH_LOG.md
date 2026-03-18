@@ -27542,3 +27542,29 @@ per-cell coverage improves (CI, catastrophic).
 - Or: periodic skip re-alignment (unfreeze briefly every 10 epochs)
 
 ---
+
+## 2026-03-18: Exp 115a — One-Shot + 3-Factor Noise (Direction gamma) — 4/8
+
+### Results
+Kurtosis 0.487 (0.013 below 0.500 pass threshold). Cointegration 0.834 (BEST EVER).
+Catastrophic 222 (BEST EVER). CI 94.9%.
+
+| Metric | 108a Gaussian (best) | 111b (one-shot 32d) | 115a (one-shot 3d) |
+|--------|---------------------|---------------------|-------------------|
+| Score | 67.36 | 65.0 | 56.91 |
+| Suites | 5/8 | 5/8 | 4/8 |
+| Kurtosis | 0.987 | 0.522 | 0.487 FAIL |
+| Coint | 0.652 | 0.686 | **0.834** |
+| Catastrophic | 395 | 395 | **222** |
+| CI 90% | 92.7% | 92.9% | **94.9%** |
+
+### Investigation
+3-factor constraint forces all cells through 3 noise directions. This creates strong
+cointegration (cells naturally co-move) and low catastrophic (uniform coverage). But
+reduces noise diversity below kurtosis threshold by 0.013.
+
+### What This Suggests
+- 115a_v2: try 5 factors — more diversity should push kurtosis above 0.5
+- The 3-factor constraint WORKS for cointegration — just needs slightly more noise
+
+---

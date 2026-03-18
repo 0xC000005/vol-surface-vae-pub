@@ -1,9 +1,10 @@
 {
-  "iteration": 22,
-  "current_hypothesis": "Direction η: Freeze noise_skip_proj at ep10 alongside MLP. Investigation 10 proved skip alignment is sole cause of correlation drift. Combined with Student-t training + Gaussian inference (Direction α best).",
-  "experiment_id": "114a",
+  "iteration": 23,
+  "current_hypothesis": "Direction γ: One-shot Conv3D + 3-factor noise bottleneck. z~N(0,I_3) → Linear(3,32) → NoiseMLP. Should constrain ensemble rank from 7.46 toward GT 2.48.",
+  "experiment_id": "115a",
   "training_status": "running",
-  "base_commit": "f820a39",
+  "base_commit": "ea5662d",
   "started_at": "2026-03-18",
-  "phase": "training"
+  "phase": "training",
+  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36}
 }
