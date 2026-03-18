@@ -27502,3 +27502,43 @@ regardless of inference noise distribution — confirming investigation 1's find
 108a weights + Gaussian inference noise = score 67.36. This is the recommended configuration.
 
 ---
+
+## 2026-03-18: Exp 114a — Freeze noise_skip_proj at ep10 (Direction eta) — 4/8
+
+### Hypothesis
+Investigation 10: skip alignment causes correlation drift (rank 13.1->9.3). Freeze skip
+at ep10 while keeping cell_spread trainable should lock GT-level correlation.
+
+### Results: 4/8 REGRESSION (lost Suite 1 surface validity)
+
+| Metric | 108a Gaussian (best) | 114a Gaussian |
+|--------|---------------------|---------------|
+| Score | 67.36 | 57.05 |
+| Suites | 5/8 | 4/8 |
+| CI 90% | 92.7% | **94.9%** (best ever) |
+| Calendar arb | 8.3% | **17.7% FAIL** |
+| Kurtosis | 0.987 | 0.704 |
+| Catastrophic | 395 | **278** (best AR) |
+| Median bias | 19/25 | **24/25** |
+
+### Investigation (Blocking Gate #1)
+Calendar arb jumped 8.3% to 17.7% (gate 15%). Butterfly 27.1% to 36.4%.
+Frozen skip cannot adapt to evolving cell_spread over 50 post-freeze epochs.
+Cell_spread weight norm grew to 16.2 while skip stayed fixed at ep10 state.
+The two pathways become misaligned, creating surface discontinuities.
+
+BUT: CI 94.9% and catastrophic 278 are both BEST EVER for AR models.
+Frozen skip preserves noise diversity = wider/more uniform spread.
+
+### Mechanism
+Skip and cell_spread must CO-ADAPT. Freezing one while the other evolves
+for 50 epochs creates a mismatch: cell_spread learns to rely on skip patterns
+that become stale. The result is spatial incoherence (calendar arb) even though
+per-cell coverage improves (CI, catastrophic).
+
+### What This Suggests
+- Freeze skip + cell_spread together (like 99l_v3) — but this was tried
+- Lower post-freeze LR for cell_spread to slow its drift from skip
+- Or: periodic skip re-alignment (unfreeze briefly every 10 epochs)
+
+---

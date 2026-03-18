@@ -1,9 +1,9 @@
 {
-  "iteration": 21,
-  "current_hypothesis": "Direction α: Evaluate 108a checkpoint with Gaussian inference noise instead of Student-t. Investigation 1 showed 80% of improvement from weight regularization, not noise tails.",
-  "experiment_id": "108a_gaussian_infer",
-  "training_status": "evaluating",
-  "base_commit": "ed1a248",
+  "iteration": 22,
+  "current_hypothesis": "Direction η: Freeze noise_skip_proj at ep10 alongside MLP. Investigation 10 proved skip alignment is sole cause of correlation drift. Combined with Student-t training + Gaussian inference (Direction α best).",
+  "experiment_id": "114a",
+  "training_status": "running",
+  "base_commit": "f820a39",
   "started_at": "2026-03-18",
-  "phase": "evaluation_only"
+  "phase": "training"
 }
