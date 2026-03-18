@@ -1,9 +1,11 @@
 {
-  "iteration": 10,
-  "current_hypothesis": "Student-t df=8 (lighter than df=6). Should recover KS daily 18→20+ while keeping kurtosis improvement. Quick 30ep.",
-  "experiment_id": "108a_v2",
-  "training_status": "running",
-  "base_commit": "a3f7a22",
-  "started_at": "2026-03-17",
-  "phase": "training"
+  "iteration": 13,
+  "current_hypothesis": null,
+  "experiment_id": "108b",
+  "training_status": "complete",
+  "base_commit": "5f9786d",
+  "started_at": "2026-03-18",
+  "phase": "ready_for_iteration_14_direction_F",
+  "session_best": {"exp": "108a", "score": 66.93},
+  "baseline": {"exp": "99m_v2", "score": 66.31}
 }
