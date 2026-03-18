@@ -1016,10 +1016,16 @@ def main():
 
         if hasattr(model, 'mr_mu_head'):
             mu_b = torch.sigmoid(model.mr_mu_head.bias.detach())
-            alpha_b = 0.2 * torch.sigmoid(model.mr_alpha_head.bias.detach()).item()
+            alpha_raw = torch.sigmoid(model.mr_alpha_head.bias.detach())
+            alpha_cap = 0.05 if model.config.ar_mean_revert_percell else 0.2
+            alpha_b = alpha_cap * alpha_raw
             mu_w = model.mr_mu_head.weight.detach().norm().item()
-            print(f"  mean_revert: alpha={alpha_b:.4f} mu=[{mu_b.min():.3f}, {mu_b.max():.3f}] "
-                  f"w_norm={mu_w:.3f}")
+            if alpha_b.numel() == 1:
+                print(f"  mean_revert: alpha={alpha_b.item():.4f} mu=[{mu_b.min():.3f}, {mu_b.max():.3f}] "
+                      f"w_norm={mu_w:.3f}")
+            else:
+                print(f"  mean_revert: alpha=[{alpha_b.min():.4f}, {alpha_b.max():.4f}] "
+                      f"mu=[{mu_b.min():.3f}, {mu_b.max():.3f}] w_norm={mu_w:.3f}")
 
         # Log cell_spread MLP stats if applicable
         if hasattr(model, 'cell_spread_mlp'):
