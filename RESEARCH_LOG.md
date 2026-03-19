@@ -27761,3 +27761,37 @@ Direction O is NOT dead — just needs correct timestep selection.
 | 118b: clamp dead zone, not deterministic x0 | Direction O viable at lower t values |
 
 ---
+
+## 2026-03-19: Exp 115a_v3 — One-Shot 3-Factor + Gaussian (No Student-t) — 4/8
+
+### Hypothesis
+Investigation 115a showed CLT on Student-t tails reduces kurtosis. Removing Student-t
+(using Gaussian noise) should eliminate excess kurtosis source and push ratio above 0.500.
+
+### Result: WRONG — Kurtosis DROPPED from 0.487 to 0.346
+
+| Metric | 115a (Student-t, 3-factor) | 115a_v3 (Gaussian, 3-factor) |
+|--------|--------------------------|------------------------------|
+| Kurtosis | 0.487 | 0.346 |
+| Per-cell kurt mean | 0.720 | 0.232 |
+| KS daily | 16/25 | 11/25 |
+| Cointegration | 0.834 | 0.725 |
+
+Student-t > Gaussian at ALL 25 cells for kurtosis ratio.
+
+### Investigation (Blocking Gate #1)
+Per-cell diagnostic confirms: Student-t provides excess kurtosis (1.86 per dim) that
+Conv3D ResBlock nonlinearities AMPLIFY into fat-tailed outputs. Gaussian (excess
+kurtosis=0) provides nothing to amplify → much lower output kurtosis.
+
+The 3-factor CLT REDUCES Student-t tails (1.86→1.13) but doesn't eliminate them.
+Starting from 0 (Gaussian) is far worse than starting from 1.13 (3-factor Student-t).
+
+### What Was Learned
+Student-t noise is ESSENTIAL for one-shot Conv3D kurtosis. The kurtosis bottleneck
+in 115a (0.487 < 0.500) cannot be fixed by changing the noise distribution — it's a
+fundamental property of how the Conv3D temporal smoothing interacts with the 3-factor
+constraint. The only paths to >0.500 are: (a) more training epochs, (b) modified Conv3D
+architecture, or (c) different kurtosis-preserving bottleneck design.
+
+---
