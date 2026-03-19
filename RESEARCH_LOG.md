@@ -28915,3 +28915,16 @@ ep10 helps, more training hurts). **30 epochs is the sweet spot for noise-free M
 this direction does NOT benefit from full budget.
 
 ---
+
+## 2026-03-19: Exp 120b_v4 — Noise-Free MLP + Strong Cell Var (lambda=5.0) — Regression
+
+### Results
+- Student-t: 4/8, score 54.84, kurtosis 0.673
+- Gaussian: 5/8, score 65.09, kurtosis 0.605
+Both worse than 120b (lambda_cv=1.0): 67.09/67.6
+
+Strong cell_var (lambda=5.0) fights CRPS on per-cell variance, same tradeoff as 99m_v3.
+Creates h=1 under-spread while h=7-30 still over-spread. lambda_cv=1.0 is the sweet spot
+for noise-free MLP. Direction exhausted.
+
+---
