@@ -27577,3 +27577,21 @@ More noise dimensions did NOT help kurtosis — the bottleneck is Conv3D tempora
 still 0.013 below kurtosis threshold. Direction explored.
 
 ---
+
+## 2026-03-18: Exp 116a — AR rho=0.5 + Offset [0.3,0.7] (Direction beta) — 5/8
+
+Rho collapsed to lower bound 0.3 (mean=0.300, std=0.000). Same CRPS-optimal pattern as 103a.
+Score 65.83. Coint 0.928 (ALL-TIME BEST). Median bias 25/25 (PERFECT). But KS daily 12/25.
+
+| Metric | 108a Gaussian (best) | 116a Gaussian |
+|--------|---------------------|---------------|
+| Score | 67.36 | 65.83 |
+| Coint | 0.652 | **0.928** |
+| Median | 19/25 | **25/25** |
+| KS daily | 18/25 | 12/25 |
+| Kurtosis | 0.987 | 0.597 |
+
+Direction beta EXHAUSTED. CRPS always pushes rho to minimum regardless of clamp/offset.
+Condition-dependent rho under CRPS is structurally impossible.
+
+---
