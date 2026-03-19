@@ -27612,3 +27612,20 @@ from architectural diversity. Proper implementation (dual decoder training) need
 full test suite evaluation. Direction epsilon: PROMISING, needs full implementation.
 
 ---
+
+## 2026-03-18: Exp 117a — Bilateral Absolute VR Loss (Direction delta) — 5/8
+
+Bilateral VR loss (lambda=0.1): score 66.08, below best 67.36.
+Kurtosis dropped 0.987→0.671. CI 93.2% (slightly above 108a's 92.7%).
+KS daily 18/25 (same). No catastrophic spike (480, normal range).
+
+The bilateral formulation avoids the denominator inflation shortcut but
+still fights CRPS. The VR loss wants specific cumulative variances per cell,
+while CRPS wants to minimize per-step error. Any auxiliary variance target
+competes with CRPS for the same parameters (cell_spread, skip).
+
+Direction delta: VALUABLE FAILURE. Bilateral is better than ratio (no
+catastrophic collapse) but still worse than no VR loss. The fundamental
+tension between CRPS and variance targeting persists regardless of formulation.
+
+---
