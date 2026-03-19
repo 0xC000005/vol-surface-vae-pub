@@ -28369,3 +28369,90 @@ linearly. The 25+25 balance averages AR's 0.69 and one-shot's 0.385 to GT's 0.50
 achieves near-GT correlation, joint training could be even better.
 
 ---
+
+## 2026-03-19: Exp 120a — AdaGN Noise Conditioning in AR FrameDecoder — 4/8 REGRESSION
+
+### Context
+Direction B1 from master list. Investigation 2 proved AdaGN amplifies effective noise rank
+from 1 to 22.7 in Conv3D (6 layers). Hypothesis: transferring AdaGN to AR FrameDecoder
+(2-layer MLP) would similarly amplify rank from 1.06 toward GT 2.6.
+
+Architecture change: removed noise from MLP input concatenation. Added LayerNorm + AdaGN
+(scale+shift from noise embedding) after each SiLU. Noise enters exclusively via multiplicative
+modulation, not additive concat.
+
+**Based on**: 99m_v2 (base settings) + Investigation 2 (AdaGN rank amplification finding)
+
+### Results
+
+| Metric | 120a (AdaGN) | 99m_v2 (baseline) | Direction |
+|--------|-------------|-------------------|-----------|
+| Suites PASS | **4/8** | 5/8 | REGRESSION |
+| Kurtosis ratio | **0.495** | 0.845 | FAIL (gate 0.5) |
+| KS daily | 14/25 | 20/25 | worse |
+| CI 90% | 90.7% | 91.3% | similar |
+| Coint ratio | 0.855 | 0.675 | better |
+| Turb/calm | 1.499 | — | good |
+| Catastrophic | 601 | 576 | similar |
+| Calendar arb | 9.9% | — | fine |
+
+Training: 30 epochs, freeze MLP at ep10, Student-t(df=6), K=8.
+Best model at epoch 28 (val_loss=18.22). Training time ~75 min (2.5 min/epoch).
+
+### Investigation: WHY AdaGN Killed Kurtosis (Variance Saturation)
+
+**Root cause: AdaGN creates immediate full-strength noise modulation at step 1.**
+
+1. **Variance growth (smoking gun)**:
+   - 120a: var ~ h^0.358 — saturates by h=5-10, then flat
+   - 99m_v2: var ~ h^0.494 — continues growing through h=20
+   - At h=1: 120a variance is 2.4x larger (0.00166 vs 0.00068)
+   - At h=30: both similar (0.00825 vs 0.00815)
+   - AdaGN starts too spread, then AR(1) rho=0.8 mean-reverts → variance plateaus
+
+2. **Effective noise rank (OPPOSITE of hypothesis)**:
+   - 120a: eff_rank = 7.6, participation_ratio = 3.8
+   - 99m_v2: eff_rank = 11.2, participation_ratio = 5.8
+   - AdaGN REDUCED diversity. Nonlinear multiplicative chain creates dependencies
+     that compress dimensionality, opposite of Conv3D's 6-layer amplification.
+
+3. **AdaGN scale/shift magnitudes**:
+   - Scale std = 0.32, range [-3.6, +4.7] → factor (1+scale) spans [-2.6, 5.7]
+   - Weight norms: adagn1_proj=7.0, adagn2_proj=8.0 (far from zero-init)
+   - In baseline, noise is 32 of 169 input dims. In AdaGN, noise MULTIPLIES
+     the entire 128-dim hidden state → immediate full-strength modulation.
+
+4. **Training dynamics**:
+   - Kurtosis never above 0.5 at ANY epoch (best: 0.298 at epoch 1)
+   - Collapse is structural from initialization, not a training dynamics issue
+   - Freeze at epoch 10 had no effect on kurtosis
+
+**Why Conv3D amplifies but AR MLP compresses**: Conv3D has 6 layers of multiplicative
+AdaGN on a 3D spatial feature map — each layer independently modulates, creating
+exponential rank amplification. AR MLP has only 2 layers on a 128-dim vector. The
+nonlinear multiplicative chain in shallow networks creates dependencies that compress
+rather than amplify. AdaGN rank amplification requires DEPTH (6+ layers).
+
+**Kurtosis mechanism**: Kurtosis in the pooled test comes from variance heterogeneity
+across horizons (mixing narrow h=1 and wide h=30 distributions creates heavy tails).
+When variance growth saturates (120a: h^0.36 vs baseline h^0.49), all horizons have
+similar variance, the mixture becomes near-Gaussian, and kurtosis collapses. The 1.71x
+kurtosis ratio (0.845/0.495) matches the theoretical variance heterogeneity ratio.
+
+### Decision
+**VALUABLE FAILURE**. Direction B1 exhausted. AdaGN is NOT a general rank amplifier —
+it requires depth that a 2-layer MLP cannot provide. The finding also explains why
+Conv3D one-shot has better factor structure (22.7 rank) than AR (1.06) — it's the
+6 multiplicative layers, not just "AdaGN vs concat."
+
+### What Was Learned
+1. AdaGN rank amplification is depth-dependent: needs 6+ layers, not 2
+2. Multiplicative noise in shallow MLPs creates variance saturation at early horizons
+3. Kurtosis is driven by variance heterogeneity across horizons, not per-step tails
+4. Any noise injection that makes h=1 too spread will kill kurtosis via saturation
+
+### Next
+Move to C2 (orthogonal reg on skip) or C1 (ACF loss) — both target root causes
+without changing the noise injection mechanism.
+
+---

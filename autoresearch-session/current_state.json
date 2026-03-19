@@ -1,22 +1,11 @@
 {
   "iteration": 35,
   "experiment_id": "120a",
-  "training_status": "preparing",
-  "phase": "hypothesize",
+  "training_status": "running",
+  "phase": "training",
+  "hypothesis": "AdaGN noise conditioning transfers rank amplification from Conv3D to AR MLP",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --ar_adagn_noise --noise_dist student_t --student_t_df 6.0 --lambda_cell_var 1.0 --freeze_after_epoch 10 --disable_early_stop --output_dir models/backfill/afcrps_120a --device cuda",
   "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
   "total_experiments": 34,
-  "total_investigations": 23,
-  "remaining_directions": ["B1 (AdaGN)", "C1 (ACF loss)", "C2 (ortho reg)", "B2 (noise-free MLP)", "D2 (4-factor)", "B3 (dual decoder)", "C3 (LR spread)", "D1 (curriculum)", "F2 (DDIM backprop)", "E3 (multi-ckpt)", "A4 (VIB)"],
-  "all_explored": [
-    "102a-107a: MLP tweaks (8 exp, all exhausted)",
-    "108a-108b: Student-t noise (3 exp, 108a+Gaussian=67.36 BEST)",
-    "109a-110a: Per-cell MR/spread (2 exp, both failed)",
-    "111a-111b_v2: One-shot Conv3D (4 exp, 111b=65.0 viable)",
-    "113a-113a_v2: VR ratio loss (2 exp, fights CRPS)",
-    "114a: Freeze skip (re-eval: still 4/8 at ep60)",
-    "115a-115a_v3: 3-factor noise (3 exp, 0.013 below kurtosis)",
-    "116a: rho=0.5+offset (collapsed to 0.3, coint 0.928)",
-    "117a: Bilateral VR (better than ratio but still hurts)",
-    "118a-118b_v2: Attention denoiser (3 exp, DDPM works but CRPS needs full DDIM)"
-  ]
+  "total_investigations": 23
 }
