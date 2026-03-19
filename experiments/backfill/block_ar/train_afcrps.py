@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -139,6 +139,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_bias = 0.0
     total_cell_var = 0.0
     total_cum_cal = 0.0
+    total_ortho = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -158,6 +159,18 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        n_frames=n_frames,
                        extra_hist=extra_hist)
         loss = result["loss"]
+
+        # Orthogonal regularization on noise_skip_proj (Exp 123b)
+        # Penalizes cosine similarity between skip weight rows → prevents rank-1 alignment
+        ortho_loss = torch.tensor(0.0, device=device)
+        if lambda_ortho > 0 and hasattr(model, 'frame_decoder') and model.frame_decoder.noise_skip_proj is not None:
+            W = model.frame_decoder.noise_skip_proj.weight  # (n_cells, noise_dim)
+            W_norm = F.normalize(W, dim=1)  # normalize each row
+            cosim = W_norm @ W_norm.T  # (n_cells, n_cells)
+            # Zero out diagonal (self-similarity = 1, not penalized)
+            mask = 1.0 - torch.eye(cosim.shape[0], device=device)
+            ortho_loss = (cosim * mask).abs().mean()
+            loss = loss + lambda_ortho * ortho_loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -179,6 +192,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_bias += result.get("bias_loss", torch.tensor(0.0)).item()
         total_cell_var += result.get("cell_var_loss", torch.tensor(0.0)).item()
         total_cum_cal += result.get("cum_cal_loss", torch.tensor(0.0)).item()
+        total_ortho += ortho_loss.item() if isinstance(ortho_loss, torch.Tensor) else ortho_loss
         n_batches += 1
 
     return {
@@ -196,6 +210,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "bias_loss": total_bias / max(n_batches, 1),
         "cell_var_loss": total_cell_var / max(n_batches, 1),
         "cum_cal_loss": total_cum_cal / max(n_batches, 1),
+        "ortho_loss": total_ortho / max(n_batches, 1),
     }
 
 
@@ -448,6 +463,8 @@ def main():
                         help="Per-cell condition for cell_spread (Exp 110a)")
     parser.add_argument("--ar_adagn_noise", action="store_true",
                         help="AdaGN noise conditioning in FrameDecoder MLP (Exp 120a)")
+    parser.add_argument("--lambda_ortho", type=float, default=0.0,
+                        help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -914,6 +931,7 @@ def main():
             lambda_cell_var=args.lambda_cell_var,
             lambda_cum_cal=args.lambda_cum_cal,
             lambda_vr=args.lambda_vr,
+            lambda_ortho=getattr(args, 'lambda_ortho', 0.0),
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
