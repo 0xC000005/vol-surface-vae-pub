@@ -28845,3 +28845,33 @@ removes the benefit.
 exposure, not curriculum. The 108a finding stands: train Student-t, infer Gaussian = optimal.
 
 ---
+
+## 2026-03-19: Exp 120b + Gaussian Inference — NEW BEST Single Model 67.6
+
+### Context
+Apply direction alpha (train Student-t, infer Gaussian) to 120b (noise-free MLP).
+Inference only, zero training.
+
+### Results
+
+| Metric | 120b+Gauss | 120b (Student-t) | 108a+Gauss | 99m_v2 |
+|--------|-----------|-----------------|-----------|--------|
+| Score | **67.6** | 67.09 | 67.36 | 66.31 |
+| Kurtosis | 0.789 | **1.050** | 0.987 | 0.845 |
+| KS daily | 15/25 | 16/25 | — | 20/25 |
+| Coint | **0.850** | 0.814 | — | 0.675 |
+| Catastrophic | **257** | 468 | — | 576 |
+| Turb/calm | 1.534 | — | — | — |
+
+### Analysis
+Gaussian inference on noise-free MLP gives best cointegration (0.850), fewest
+catastrophic pairs (257), and highest single-model composite score (67.6).
+Kurtosis drops from 1.050 to 0.789 (still PASS) because Gaussian removes the
+heavy tails from Student-t skip noise. The catastrophic improvement is dramatic
+(257 vs 468) — lighter noise tails mean fewer extreme IV paths.
+
+### Decision
+**NEW SINGLE-MODEL BEST**. 120b + Gaussian = recommended as new production model
+alongside 97a+qmap. Combines noise-free MLP architecture with Gaussian inference trick.
+
+---
