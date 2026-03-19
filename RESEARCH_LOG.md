@@ -29104,3 +29104,187 @@ epoch does spread start growing? Could early stopping at ep25 be the sweet spot?
 5. Consider retrying 124a with proper init if low-rank spread is still a viable direction
 
 ---
+
+## 2026-03-19: Deep Investigation Results — 7 Parallel Analyses (Round 3)
+
+### Overview
+Comprehensive parallel investigation of all experiments identified as shallow/minimal
+in the investigation depth audit. 8 agents launched, 7 completed (128a still running).
+Each produced diagnostic numbers beyond summary.json. Several findings CORRECT prior
+research log claims.
+
+### Investigation: E3/E4 Ensemble Decomposition — INTERVAL WIDENING, NOT CALIBRATION
+
+**Key finding: Ensemble works by brute-force interval widening, not better structure.**
+
+Per-model CI contribution (17 samples each):
+- 108a alone: 89.0%, 99m_v2 alone: 86.9%, 111b alone: 88.6%, 120b alone: 88.1%
+- E3 combined (51 samples): 94.2%, E4 combined (68 samples): 94.8%
+
+Cross-model correlation: AR models are near-redundant (corr 0.945-0.949). 111b (Conv3D)
+is the most distinct (corr 0.888-0.894 with AR models). Cross-model diversity is only
+6% larger than within-model stochastic diversity.
+
+**Leave-one-out ablation (E3):**
+
+| Dropped | CI Overall | Cost |
+|---------|-----------|------|
+| 111b (Conv3D) | 91.6% | **-2.6pp (most valuable)** |
+| 108a | 93.2% | -1.0pp |
+| 99m_v2 | 93.8% | -0.4pp (most redundant) |
+| None (full E3) | 94.2% | — |
+
+**111b is the MVP** — provides 4,656 unique coverage points (3.2% of total), 2x more
+than any AR model. The three AR models are largely redundant with each other.
+
+Every cell improves in the ensemble. Biggest gains at mid-surface cells: (2,3) +12.8pp,
+(0,2) +8.3pp. But this is WIDTH increase (+11%), not calibration improvement.
+
+**Implication for B3 (dual decoder)**: Joint AR + Conv3D training is the right design.
+Adding more AR variants gives diminishing returns. One AR + one Conv3D decoder is optimal.
+
+### Investigation: 126a Curriculum Noise — FREEZE TIMING CONFLICT, NOT OPTIMIZER DISRUPTION
+
+**The research log claim "optimizer state disruption" is WRONG.**
+
+No abrupt discontinuity at epoch 11 transition. All metrics transition smoothly.
+Loss delta at ep10→11: -0.718 (within normal range). Z-scores all below 2.0.
+
+**Real mechanism: frozen MLP + wrong noise = impedance mismatch.**
+- MLP freezes at ep10, locked into Gaussian-optimal weights
+- Student-t arrives at ep11 but frozen MLP can't adapt to exploit fat tails
+- Kurtosis growth rate post-freeze: 126a = +0.0004/ep (dead), 99m_v2 = +0.0036/ep (9x),
+  108a = +0.0057/ep (14x)
+- Final kurtosis at ep30: 126a = 0.328, 99m_v2 = 0.385, 108a = 0.472
+
+**Root cause**: Student-t kurtosis benefit requires the MLP to LEARN fat-tail mapping
+during ep1-10 when it's still trainable. In 126a, MLP is frozen before Student-t arrives.
+Fix would be: switch noise BEFORE freeze (not after), or use Student-t throughout (108a).
+
+### Investigation: 120b+Gaussian — NOISE SCALING BUG, NOT TAIL SHAPE
+
+**CRITICAL CORRECTION: The research log claim "lighter tails" is WRONG.**
+
+The catastrophic improvement (468→257) is from a **noise scaling mismatch**:
+```python
+# In _sample_noise():
+z = z / 1.414  # designed for Student-t(df=4), but model uses df=6
+```
+Student-t(df=6) has std = sqrt(6/4) = 1.225. The /1.414 scaling reduces effective noise
+std to 1.225/1.414 = **0.866**. Gaussian N(0,1) has std = 1.000.
+
+**Gaussian operates the model at 15% HIGHER effective noise amplitude than Student-t.**
+Counter-intuitive: Gaussian produces WIDER ensembles:
+- P99 abs daily change: Student-t 0.0894, Gaussian 0.1023 (+14%)
+- Ensemble IQR at h=1: Gaussian is +19% wider
+
+The coverage improvement is entirely a noise amplitude effect: wider noise → wider CIs →
+better coverage → fewer catastrophic pairs. Cost: KS daily 16→15 (slightly worse
+per-step distribution matching from wider spread).
+
+**Actionable fix**: Use correct normalizer for Student-t(df=6): divide by 1.2247 instead
+of 1.414. This would give Student-t the same effective noise amplitude as Gaussian while
+preserving tail shape. Could improve both kurtosis AND coverage simultaneously.
+
+### Investigation: 120b_v2 Ortho Reg — NORMS UNCHANGED, CONFIRMS MAGNITUDE BOTTLENECK
+
+**Ortho reg changed directions but NOT magnitudes — confirming the architectural bottleneck.**
+
+Skip weight per-row L2 norms (per-cell noise sensitivity):
+
+| Metric | 120b | 120b_v2 | Change |
+|--------|------|---------|--------|
+| Max/min norm ratio | 32.5x | 35.0x | slightly worse |
+| Col-0 / other ratio | 3.18x | 3.39x | slightly worse |
+| Mean off-diag cosim | 0.787 | 0.228 | **3.5x reduction** |
+| Effective rank (SVD) | 1.54 | 1.95 | +27% |
+| Condition number | 2387 | 747 | 3.2x improvement |
+
+Directions diversified dramatically, norms unchanged. The 35x norm range means column-0
+cells get 35x more noise variance regardless of direction diversity.
+
+Per-cell KS: only 1 cell flipped (4,3) from FAIL to PASS. Coverage at h=30 actually
+got WORSE — worst cell 78.6%→75.8% due to coverage redistribution.
+
+**Conclusion**: The skip noise sensitivity bottleneck is MAGNITUDE-based, not
+alignment-based. Fixing it requires per-cell noise scaling, not orthogonal regularization.
+
+### Investigation: 115a_v4 — AR ARCHITECTURE IS 67% OF KURTOSIS IMPROVEMENT
+
+**Three variables changed simultaneously (not two as assumed):**
+
+| Factor | Contribution | Share |
+|--------|-------------|-------|
+| AR frame architecture (non-AR → AR) | ~+0.24 | **67%** |
+| Student-t heavy tails (gaussian → df=8) | ~+0.09 | 25% |
+| Factor count (3 → 4) | ~+0.03 | 8% |
+
+Key discovery: **Student-t has a multiplicative interaction with AR architecture.**
+- Non-AR model: Gaussian 0.521, df=6 0.527, df=8 0.524 — Student-t barely matters
+- AR model: Gaussian 0.662, df=8 0.883, df=20 **1.008** — massive effect
+
+30-step sequential noise injection COMPOUNDS heavy-tailed draws. Each step's small
+excess kurtosis accumulates across the trajectory, amplifying kurtosis far more than
+a single noise draw can.
+
+**Free improvement found**: df=20 at inference achieves kurtosis ratio 1.008 (perfect)
+with CI still at 92.4%. This requires ZERO retraining — just change df at inference.
+
+### Investigation: 120b_v3 (60 Epochs) — CELL_VAR DIVERGES AT EPOCH 31, SWEET SPOT EP33-38
+
+**The divergence is gradual, not sudden, and starts exactly at Phase 2/3 boundary:**
+
+| Phase | Epochs | cell_var slope | Mean |
+|-------|--------|---------------|------|
+| Phase 2 (post-freeze) | ep11-30 | **-0.0012/ep** (improving) | 0.702 |
+| Phase 3 (extended) | ep31-60 | **+0.0038/ep** (degrading) | 0.765 |
+
+The slope reversal is at ep30. Phase 3 continues to improve val_loss (18.69→18.22)
+and kurtosis (0.260→0.290) but at the cost of cell_var (0.702→0.818).
+
+**Optimal stopping: ep33-38.** checkpoint_epoch_40.pt (cell_var ~0.748) is available
+for evaluation and sits near the tradeoff sweet spot.
+
+Root cause: skip + cell_spread (only trainable post-freeze) keep optimizing for CRPS,
+gradually increasing skip amplitude → per-cell variance drifts from GT. Same spread-
+collapse dynamic, operating in slow motion.
+
+### Investigation: 120b_v4 (Strong Cell Var) — RESEARCH LOG CLAIM WAS WRONG
+
+**The claim "creates h=1 under-spread" does NOT apply to 120b_v4 (cv=5.0).**
+That pattern belongs to 99m_v3 (cv=10).
+
+120b_v4 Student-t per-horizon CI:
+- h=1: 91.3% (no under-spread), h=7: 92.7%, h=14: 88.7%, h=30: 84.4%
+
+The coverage loss is UNIFORM across horizons (slightly worse at longer horizons),
+not h=1-specific. At cv=5.0, cell_var constraint is balanced — not strong enough to
+collapse h=1 spreads. The h=1 under-spread only emerges at cv=10 (99m_v3).
+
+The 4/8 regression (Student-t) vs 5/8 (Gaussian) is solely from Suite 6 cointegration:
+Student-t coint ratio 0.793 (FAIL) vs Gaussian 0.857 (PASS). Student-t tails disrupt
+cointegration structure at this amplitude.
+
+### Synthesis: What These 7 Investigations Change
+
+| Prior Belief | Correction | Impact |
+|-------------|-----------|--------|
+| Ensemble improves calibration | Ensemble just widens intervals (+11%) | B3 dual decoder should focus on AR+Conv3D diversity, not more AR variants |
+| 120b+Gauss: lighter tails help | Noise scaling bug: Student-t at 86.6% amplitude | Fix normalizer /1.2247 instead of /1.414 → potential best-of-both |
+| 126a: optimizer disruption | Frozen MLP can't learn fat-tail mapping | Student-t must be present BEFORE freeze, or not at all |
+| 120b_v2: ortho fixes skip problem | Norms unchanged (35x range) → magnitude bottleneck | Need per-cell noise scaling, not direction diversity |
+| 115a_v4: factors or df improved kurtosis | AR architecture = 67%, df=8 = 25%, factors = 8% | **df=20 at inference gives kurtosis 1.008 for FREE** |
+| 120b_v3: unknown divergence point | cell_var slope reverses at ep31, sweet spot ep33-38 | Evaluate checkpoint_epoch_40.pt |
+| 120b_v4: h=1 under-spread | h=1 is fine at cv=5.0, only cv=10 causes under-spread | cv=5.0 regime is balanced, failure is from Student-t coint disruption |
+
+### Actionable Next Steps From These Findings
+
+1. **Fix Student-t normalizer** (/1.2247 not /1.414) — could unlock simultaneous
+   kurtosis + coverage improvement across ALL Student-t models. Zero training cost.
+2. **Try df=20 at inference** on 108a and 120b — free kurtosis improvement to ~1.0
+3. **Evaluate 120b_v3 checkpoint_epoch_40.pt** — may be the sweet spot between 30ep and 60ep
+4. **B3 dual decoder should be AR + Conv3D** (not AR + AR) — Conv3D is 2.5x more
+   valuable than any second AR model in the ensemble
+5. **Per-cell noise scaling** (not ortho reg) is needed to fix the 35x norm imbalance
+
+---
