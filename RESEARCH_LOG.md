@@ -28719,3 +28719,48 @@ cannot match nonlinear diversity from noise-in-MLP. Direction B2 is at diminishi
 returns. Move to remaining unexplored directions.
 
 ---
+
+## 2026-03-19: E3 Multi-Checkpoint Ensemble — NEW BEST SCORE 68.33
+
+### Context
+Direction E3: inference-only. Three architecturally different models (AR 108a + AR 99m_v2 +
+one-shot 111b) each generate 17 samples -> 51 total members. No training required.
+
+### Results
+
+| Metric | E3 (3-model) | 108a+Gauss | 99m_v2 | Direction |
+|--------|-------------|-----------|--------|-----------|
+| Score | **68.33** | 67.36 | 66.31 | **NEW BEST** |
+| Suites | 5/8 | 5/8 | 5/8 | same |
+| Kurtosis | **0.955** | 0.987 | 0.845 | excellent |
+| KS daily | 18/25 | — | 20/25 | fair |
+| CI 90% | **94.2%** | — | 91.3% | best |
+| Turb/calm | **1.639** | — | — | best ever |
+| Coint | 0.692 | — | 0.675 | slightly better |
+| Catastrophic | — | — | 576 | — |
+
+### Analysis
+Mixing AR + one-shot architectures creates:
+1. CI boost from ensemble diversity (3 independent error patterns)
+2. Kurtosis from mixing AR heavy tails + one-shot lighter tails
+3. Best conditionality (1.639) from combining differently-responsive models
+4. Suite 2 still fails: cell (4,0) 98-99% coverage (over-spread amplified by ensemble)
+
+### Decision
+**NEW SESSION BEST**. This strongly motivates B3 (dual decoder training) — if post-hoc
+mixing of 3 checkpoints achieves 68.33, joint training could be even better. The
+ensemble approach also confirms architectural diversity is more valuable than any
+single-architecture improvement.
+
+### What Was Learned
+1. Multi-checkpoint ensemble achieves highest score (68.33) with zero training
+2. Architectural diversity (AR + one-shot) is more valuable than per-architecture tuning
+3. The 5/8 ceiling persists — Suite 2 per-cell, Suite 7 regime, Suite 8 distributional
+4. Ensemble amplifies over-spread problem for already-wide cells (Suite 2 gate)
+5. This is the strongest evidence yet for dual-decoder joint training (B3)
+
+### Next
+Direction B3: Dual decoder (FrameDecoder + SinglePassDecoder in one model).
+K/2 members from each decoder, single CRPS on combined ensemble.
+
+---
