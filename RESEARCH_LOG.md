@@ -28517,3 +28517,67 @@ Try C1 (ACF loss) — targets autocorrelation root cause independent of skip/MLP
 Or B2 (noise-free MLP) — removes noise from MLP entirely, forcing all diversity through skip.
 
 ---
+
+## 2026-03-19: Exp 123a — Explicit ACF Loss on Ensemble Deltas — 5/8 (Score Regressed)
+
+### Context
+Direction C1 from master list. Model deltas have positive lag-1 ACF (+0.16 to +0.83) vs GT
+(-0.35 to -0.51). Neither VR formulation (113a ratio, 117a bilateral) targeted ACF directly.
+Explicit loss: max(0, ACF + 0.25)^2 per cell.
+
+**Based on**: 99m_v2 (base settings) + Investigations 3, 117a (VR failure modes)
+
+### Results
+
+| Metric | 123a_v2 (ACF) | 99m_v2 (baseline) | Direction |
+|--------|-------------|-------------------|-----------|
+| Suites PASS | 5/8 | 5/8 | SAME |
+| Score | **65.39** | 66.31 | **-0.92** |
+| Kurtosis | **0.648** | 0.845 | worse |
+| KS daily | 20/25 | 20/25 | same |
+| CI 90% | **89.2%** | 91.3% | worse |
+| Catastrophic | **792** | 576 | worse |
+| Coint ratio | 0.641 | 0.675 | slightly worse |
+| ACF MAE | **0.020** | ~0.036 | better (intended) |
+
+Note: initial run with lambda_acf=1.0 caused NaN at epoch 1 (zero-division in correlation
+computation). Fixed by using var clamp(1e-6) instead of std clamp(1e-8).
+
+### Analysis: ACF Loss Follows Same Pattern as VR Losses
+
+ACF loss succeeded at its intended target (ACF MAE 0.020 vs 0.036) but hurt everything else.
+This is the THIRD time a loss targeting autocorrelation structure has regressed:
+
+| Exp | Loss Type | ACF Improvement | Score Impact |
+|-----|-----------|----------------|-------------|
+| 113a | VR ratio | yes | -3.86 |
+| 117a | VR bilateral | yes | -0.58 |
+| 123a | ACF direct | yes (0.020 vs 0.036) | -0.92 |
+
+The mechanism is consistent across all three:
+1. CRPS needs specific variance growth to maintain calibrated spread
+2. Forcing mean-reversion (negative ACF) reduces cumulative variance too aggressively
+3. CI drops, kurtosis drops (less variance heterogeneity), catastrophic increases
+
+**Root cause conclusion**: Autocorrelation structure is an EMERGENT property of rho=0.8
++ MLP dynamics, not independently controllable via loss. Any loss that forces negative ACF
+fights the fundamental CRPS calibration mechanism. The autocorrelation is the PRICE of
+calibrated spread — you can't fix one without breaking the other within this architecture.
+
+### Decision
+**VALUABLE FAILURE**. Direction C1 exhausted. All three autocorrelation-targeting losses
+(VR ratio, VR bilateral, ACF direct) show the same pattern. The loss engineering approach
+to fixing autocorrelation is fundamentally limited — it requires architectural change.
+
+### What Was Learned
+1. Explicit ACF loss works (ACF MAE 0.020 vs 0.036) but hurts overall score
+2. All 3 autocorrelation-targeting losses regress (113a: -3.86, 117a: -0.58, 123a: -0.92)
+3. Autocorrelation is emergent from rho + MLP, not independently loss-controllable
+4. Loss engineering for autocorrelation is EXHAUSTED — need architectural change
+5. NaN bug: correlation computation needs var clamp >=1e-6 at epoch 1 (near-zero output)
+
+### Next
+Move to B2 (noise-free MLP) — architectural change that addresses autocorrelation by
+removing noise-MLP coupling that creates the trending ACF pattern.
+
+---

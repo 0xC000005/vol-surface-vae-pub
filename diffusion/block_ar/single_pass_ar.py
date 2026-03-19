@@ -1477,10 +1477,11 @@ class SinglePassBlockAR(nn.Module):
             d2_flat = d2.reshape(-1, H, W)
             d1_centered = d1_flat - d1_flat.mean(dim=0, keepdim=True)
             d2_centered = d2_flat - d2_flat.mean(dim=0, keepdim=True)
+            var1 = d1_centered.pow(2).mean(dim=0).clamp(min=1e-6)  # (H, W)
+            var2 = d2_centered.pow(2).mean(dim=0).clamp(min=1e-6)
             cov = (d1_centered * d2_centered).mean(dim=0)  # (H, W)
-            std1 = d1_centered.pow(2).mean(dim=0).sqrt().clamp(min=1e-8)
-            std2 = d2_centered.pow(2).mean(dim=0).sqrt().clamp(min=1e-8)
-            acf1 = cov / (std1 * std2)  # (H, W) per-cell lag-1 ACF
+            acf1 = cov / (var1 * var2).sqrt()  # (H, W) per-cell lag-1 ACF
+            acf1 = acf1.clamp(-1.0, 1.0)  # ensure valid correlation range
             acf_mean = acf1.mean().detach()
             # Penalize ACF > -0.25 (target: slightly mean-reverting)
             acf_loss = F.relu(acf1 + 0.25).pow(2).mean()
