@@ -1,10 +1,10 @@
 {
-  "iteration": 23,
-  "current_hypothesis": "Direction γ: One-shot Conv3D + 3-factor noise bottleneck. z~N(0,I_3) → Linear(3,32) → NoiseMLP. Should constrain ensemble rank from 7.46 toward GT 2.48.",
-  "experiment_id": "115a",
-  "training_status": "running",
-  "base_commit": "ea5662d",
-  "started_at": "2026-03-18",
-  "phase": "training",
+  "iteration": 25,
+  "current_hypothesis": "Direction β: AR base rho=0.5 + condition-dependent offset ±0.2. Investigation 7: MLP Jacobian=-0.74 (MR!) but rho=0.8 overwhelms 7.2x. rho=0.5 reduces dominance to ~3x. Investigation 4: learned rho physically correct but needs constraint.",
+  "experiment_id": "116a",
+  "training_status": "implementing",
+  "base_commit": "efe0981",
+  "started_at": "2026-03-19",
+  "phase": "implementation",
   "session_best": {"exp": "108a_gaussian_infer", "score": 67.36}
 }
