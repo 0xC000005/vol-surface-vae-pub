@@ -28947,3 +28947,160 @@ operates per-layer and gets worse with depth (unless using multiplicative AdaGN
 which requires 6+ layers to start amplifying).
 
 ---
+
+## 2026-03-19: Investigation Depth Audit — All Experiments (102a–128a)
+
+### Purpose
+Comprehensive audit of investigation depth across all 47+ experiments in the autoresearch
+sessions. Identifies which experiments have deep mechanistic analysis, which are shallow,
+and which need further work. This ensures future sessions don't repeat failed experiments
+and that all insights have been properly extracted.
+
+### Experiments WITH Deep Investigations (16 total)
+
+All used diagnostic scripts producing new numbers beyond summary.json.
+
+| Exp | Investigation | Key Finding |
+|-----|-------------|-------------|
+| 103a | I4: Learned rho | Rho varies 0.01–0.99 by condition; skip alignment causes corr drift |
+| 107a | I9: Cell_var kurtosis | "Improvement" 0.845→0.947 was single-sample artifact (std=0.251) |
+| 108a | I1: Student-t mechanism | 80% from weight regularization, not inference tail shape |
+| 108b | I8: Per-step Student-t | More fat tails per step → CRPS fights harder → less kurtosis |
+| 110a | I5: Per-cell spread | 3 cascading failures from independent cell_spread (22x range) |
+| 111b | I2: One-shot factor structure | AdaGN amplifies rank 1→22.7 through 6 Conv3D layers |
+| 113a | I3: VR ratio loss | Denominator inflation shortcut — per-step var +99%, cum_var +4% |
+| 114a | R2: Freeze skip | Premise wrong — tested epoch 6 (pre-freeze) checkpoint |
+| 115a | R2: 3-factor noise | CLT on Student-t(4) through Linear(3,32) reduces kurtosis 39% |
+| 116a | R2: rho=0.3 cointegration | Median smoothing, not condition dominance |
+| 117a | R2: Bilateral VR | Proportional inflation (+57% step, +22% cum), neither targets ACF |
+| 118a | R2: Attention denoiser | No spatial awareness — all 25 cells identical variance |
+| 118b | R2: CRPS fine-tune | Clamp dead zone at t=199 (amplification 4058x) |
+| 120a | Agent: AdaGN in MLP | Variance saturation (var~h^0.358), eff_rank=7.6 (reduced not amplified) |
+| 120b | Agent: Noise-free MLP | MLP std=0.000, skip std=0.031, var growth alpha=0.203 matches GT |
+| 123b | Agent: Ortho reg on skip | cosim halved 0.479→0.207 but skip is only 4% of output |
+
+### Experiments Adequately Analyzed (6 total)
+
+Correct mechanistic reasoning from training logs or cross-referencing prior investigations.
+No separate diagnostic script, but analysis is sound.
+
+| Exp | Why Adequate |
+|-----|-------------|
+| 123a (ACF loss) | Cross-referenced 3 prior autocorr losses (113a, 117a, 123a) — same pattern |
+| 124a (LR spread) | Identified gradient trap from training log (w_norm=0.000 all 30 epochs) |
+| 120b_v3 (60 epochs) | cell_var_loss trajectory 0.67→0.82 shows over-training mechanism |
+| 108a_v2 (df=8) | Simple hyperparameter with predictable outcome |
+| 111b_scratch | Clear ablation — no pretrained weights = no encoder signal |
+| 113a_v2 | Same mechanism as 113a at lower lambda |
+
+### Experiments Subsumed by Parent Investigation (12 total — no action needed)
+
+| Exp | Subsumed By |
+|-----|------------|
+| 102a (noise scale cond) | 110a investigation (same per-cell noise mechanism) |
+| 103a_v2 (clamped rho) | 103a investigation (same rho dynamics) |
+| 104a (mean-reversion) | 117a investigation (mean-reversion vs CRPS dynamics) |
+| 105a/v2 (freeze sweep) | 114a investigation (freeze dynamics) |
+| 106a (higher ES) | Simple hyperparameter sweep |
+| 109a (per-cell MR) | 110a investigation (per-cell control failure) |
+| 111a (one-shot initial) | 111b investigation (same architecture) |
+| 111b_v2 (rho=0.5) | 101a rho sweep + 116a investigation |
+| 115a_v2 (5-factor) | 115a investigation (more factors = more CLT) |
+| 115a_v3 (3-factor Gauss) | 115a investigation (noise distribution variant) |
+| 118b_v2 (CRPS t=[20,60]) | 118b investigation (timestep selection fix) |
+| 114a final (60ep) | 114a investigation (same model, more epochs) |
+
+### HIGH PRIORITY — Needs Deep Investigation (5 experiments)
+
+These experiments have shallow or minimal analysis and could yield new mechanistic insights.
+
+#### 1. E3/E4 Multi-Checkpoint Ensembles (scores 68.33 / 68.74 — BEST EVER)
+**Current state**: E3 has 4-bullet narrative analysis. E4 has 3 sentences.
+**What's missing**:
+- Per-model CI contribution — which architecture adds what to the ensemble?
+- Cross-model sample correlation — how independent are the 3-4 models?
+- Per-cell coverage breakdown — does diversity fix chronically over-spread cells?
+- Leave-one-out ablation — which model matters most?
+**Why it matters**: These are the BEST scoring experiments with the LEAST understanding.
+Any dual-decoder (B3) design decisions should be informed by understanding which
+architectural combinations produce the most complementary diversity.
+
+#### 2. 128a (3-Layer AR MLP — 4/8, kurtosis 0.477/0.481)
+**Current state**: Claims "same mechanism as 120a" without verification.
+**What's missing**:
+- Per-layer effective rank trace (120a used AdaGN/multiplicative, 128a uses concat/additive)
+- Are they really the same mechanism? AdaGN compresses via nonlinear dependencies,
+  concat compresses via linear bottleneck — fundamentally different
+- Does the 3rd layer's output weight have the same near-zero norm as 2-layer?
+**Why it matters**: If deeper concat-MLP compresses rank differently than AdaGN,
+the "depth=bad for diversity" conclusion may be wrong — it may be "AdaGN depth=bad"
+while "concat depth=neutral". This would reopen the deeper-MLP direction.
+
+#### 3. 126a (Curriculum Noise — 5/8, kurtosis 0.739)
+**Current state**: "Likely cause: switching noise distribution mid-training disrupts
+optimizer state" — pure narrative, no verification.
+**What's missing**:
+- Training curve analysis at ep11 transition: did loss spike? Did weight norms shift?
+- Did kurtosis change abruptly at ep11 or gradually over ep11-30?
+- Compare ep10 checkpoint kurtosis vs ep11 — was the switch itself harmful or
+  was it the subsequent training?
+**Why it matters**: If the switch itself is fine but subsequent Student-t training
+is harmful post-freeze, it confirms 108a finding more precisely. If the switch
+causes an abrupt disruption, it's optimizer-state related (different insight).
+
+#### 4. 120b+Gaussian (best single model, score 67.6, catastrophic 257)
+**Current state**: "Lighter noise tails mean fewer extreme IV paths" — narrative only.
+**What's missing**:
+- Which cells/windows improved from 468→257 catastrophic?
+- Per-regime breakdown: does Gaussian help more in calm or turb?
+- Per-cell KS comparison: which cells flip pass/fail vs Student-t 120b?
+**Why it matters**: Understanding WHERE Gaussian inference helps most could inform
+whether to use Gaussian universally or regime-adaptively.
+
+#### 5. 120b_v2 (Noise-Free MLP + Ortho Reg — 5/8, score 66.92)
+**Current state**: Training diagnostics only (cross-cell corr 0.212). No separate script.
+**What's missing**:
+- Per-cell coverage pattern: did ortho reg fix the over-spread column-0 cells?
+- Skip weight norm distribution: did ortho change magnitudes or only directions?
+- Comparison of per-cell KS: which cell flipped from 120b to 120b_v2?
+**Why it matters**: Determines whether the skip concentration problem is about
+alignment (ortho fixes) or magnitudes (needs different approach).
+
+### MEDIUM PRIORITY — Confirmatory (4 experiments)
+
+#### 6. 115a_v4 (4-factor df=8 — 5/8, kurtosis 0.823)
+**What's missing**: Controlled ablation — run 3-factor+df=8 and 4-factor+df=6 separately
+to isolate which parameter improved kurtosis 0.487→0.823.
+
+#### 7. 124a (Low-Rank Spread — 3/8, gradient trap bug)
+**What's missing**: Retry with proper initialization (normal init on expand layer).
+The concept of low-rank spread coupling was never actually tested due to the bug.
+
+#### 8. 120b_v4 (Strong Cell Var lambda=5.0 — 4/8 Student-t, 5/8 Gaussian)
+**What's missing**: Per-horizon CI curve to verify h=1 under-spread vs h=7-30 over-spread
+claim. Compare to 99m_v3 (same lambda=5.0 tradeoff on different architecture).
+
+#### 9. 120b_v3 (60 Epochs — 4/8)
+**What's missing**: Epoch-by-epoch tracking of cell_var divergence. At what exact
+epoch does spread start growing? Could early stopping at ep25 be the sweet spot?
+
+### Investigation Statistics
+
+| Category | Count | % of Total |
+|----------|-------|-----------|
+| Deep investigation | 16 | 34% |
+| Adequate analysis | 6 | 13% |
+| Subsumed by parent | 12 | 26% |
+| **Needs work (HIGH)** | **5** | **11%** |
+| **Needs work (MED)** | **4** | **9%** |
+| No action needed | 4 | 9% |
+
+### Recommended Next Steps
+
+1. **Run E3/E4 decomposition** (inference only, ~30 min) — highest value per effort
+2. **Run 128a per-layer rank trace** (~15 min diagnostic script)
+3. **Run 126a training curve analysis** (~10 min from training_history.json)
+4. **Run 120b+Gauss catastrophic decomposition** (~20 min from saved samples)
+5. Consider retrying 124a with proper init if low-rank spread is still a viable direction
+
+---
