@@ -28295,3 +28295,54 @@ but DDIM sampling is uncalibrated. Full DDIM backprop would calibrate end-to-end
 5. Based on A+B results: decide whether A4 (VIB encoder) is worth pursuing
 
 ---
+
+## 2026-03-19: Analysis A+B Results — Encoder Mystery SOLVED
+
+### Analysis A: DDPM vs MSE Encoder — Prior Hypothesis Refuted
+
+**OLD hypothesis**: "MSE encoder is too precise → decoder ignores noise."
+**TRUTH**: MSE encoder COLLAPSED to rank 2 (17/128 bottleneck rows near-zero). It's
+UNDER-informative, not over-informative. DDPM encoder has 5 effective dims, all 128 rows
+active, per-cell prediction R²=0.72 (vs MSE: -0.17, worse than random).
+
+DDPM multi-scale denoising PREVENTS bottleneck collapse because the encoder must serve
+useful features at ALL noise levels. MSE at noise=0 allows collapse to minimal sufficient
+statistic (~2 dims for next-frame prediction).
+
+### Analysis B: Multi-Scale Mechanism — Push-Pull Compromise
+
+Low noise levels DOMINATE encoder training (120.7x gradient ratio t=0 vs t=99).
+Condition matters 14.4x more at low noise (fine corrections, not coarse structure).
+Low-t and high-t gradients are ANTI-CORRELATED (cosine sim = -0.72).
+
+The encoder's "right imprecision" comes from a COMPROMISE: low-t training pushes toward
+fine detail, high-t pushes toward coarse gist. The final 3 effective factors serve BOTH
+regimes — detailed enough for conditioning, abstract enough to not overfit.
+
+### Implications for Principled Encoder Design
+
+1. The key property is ANTI-COLLAPSE — the encoder must use >2 effective dimensions.
+   Any training objective that prevents bottleneck collapse should work.
+2. DDPM's multi-scale mechanism is ONE way to prevent collapse. Others: VIB with appropriate
+   beta, dropout on bottleneck (90j tried but wasn't strong enough), explicit rank penalty.
+3. The "precision" narrative was backwards. The DDPM encoder is MORE informative (R²=0.72)
+   than MSE (R²=-0.17). The downstream model works because the information is STRUCTURED
+   hierarchically (3 factors in 128 dims) not because it's imprecise.
+4. Principled encoder training (Direction A4: VIB) should target: effective rank >= 3,
+   anti-collapse regularization, hierarchical factor structure.
+
+### Per-Cell Meta-Analysis: Structural Problem Cells
+
+Same cells fail across ALL 24 experiments. Problem is STRUCTURAL not architectural:
+- Cell (4,0): over-spread 92% of experiments (1.1 moneyness, 1M tenor — deep OTM short)
+- Cell (2,4): KS fails 96% of experiments (ATM, 12M tenor — longest tenor)
+- Center cells (0.95-1.0, 3-6M): always pass in >95% of experiments
+- Over-spread is dominant failure mode (10/25 chronic at h=7), zero chronic under-spread
+- Calm/turb have OPPOSITE spatial patterns (confirms MEMORY.md finding)
+
+### 111b Gaussian Inference: Neutral (65.1 vs 65.0)
+
+Direction alpha doesn't help one-shot. Student-t tails don't compound in single-pass
+Conv3D like they do in AR's 30-step chain. The regularization benefit is AR-specific.
+
+---
