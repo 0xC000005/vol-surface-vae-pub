@@ -27795,3 +27795,26 @@ constraint. The only paths to >0.500 are: (a) more training epochs, (b) modified
 architecture, or (c) different kurtosis-preserving bottleneck design.
 
 ---
+
+## 2026-03-19: Exp 118b_v2 — CRPS Fine-Tune at t=[20,60] + 115a_v3 Gaussian 3-Factor
+
+### 118b_v2: CRPS at t=[20,60] (Investigation Fix Applied)
+Investigation 118b proved t=199 causes clamp dead zone. Fixed: sample t from [20,60].
+Training succeeded: spread/MAE=0.95 (healthy diversity, non-zero spread).
+BUT DDIM sampling still under-calibrated: CI=67.3%, kurtosis=0.033.
+
+Root cause: CRPS fine-tuning at t=[20,60] only improves noise prediction at those
+timesteps. DDIM samples through ALL t=200→0, and the un-fine-tuned high-t steps
+dominate. Full multi-step DDIM backprop (Direction O proper) is required.
+
+### 115a_v3: 3-Factor + Gaussian (No Student-t)
+Kurtosis DROPPED 0.487→0.346. Student-t essential — provides excess kurtosis for
+Conv3D ResBlocks to amplify. Gaussian (excess kurtosis=0) gives nothing to amplify.
+Student-t > Gaussian at ALL 25 cells.
+
+### Direction O Status
+Single-step CRPS: spread collapse (118b). Multi-timestep CRPS [20,60]: healthy spread
+but DDIM uncalibrated (118b_v2). Full DDIM backprop: needed but complex (~3h implementation).
+Direction O requires significant engineering beyond proxy experiments.
+
+---
