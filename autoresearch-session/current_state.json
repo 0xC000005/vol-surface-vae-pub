@@ -1,24 +1,10 @@
 {
   "iteration": 29,
-  "current_hypothesis": "Direction O proxy: Fine-tune 118a attention denoiser with afCRPS on single-step x0 prediction. Architecture works (118a proved it). Need CRPS calibration on top.",
+  "current_hypothesis": "Direction O proxy: afCRPS fine-tune of 118a attention denoiser. K=8 x0 predictions at t=T-1, CRPS on IV-space output.",
   "experiment_id": "118b",
-  "training_status": "implementing",
-  "base_commit": "26308e2",
+  "training_status": "running",
+  "base_commit": "c910225",
   "started_at": "2026-03-19",
-  "phase": "implementation_in_progress",
-  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
-  "implementation_notes": "Verified: can generate K=8 x0 predictions from attention denoiser at t=T-1. Each noise draw → different x0. afCRPS on these K predictions vs GT. Need to write training loop: load 118a pretrained weights, freeze encoder, train denoiser with afCRPS on x0 predictions. Script partially designed but not written yet.",
-  "directions_status": {
-    "α": "DONE — NEW BEST 67.36",
-    "η": "DONE — 4/8 (skip/spread must co-adapt)",
-    "γ": "DONE — 3-factor=4/8 (0.013 below kurtosis), 5-factor worse",
-    "β": "DONE — rho collapsed to 0.3 (CRPS minimizes)",
-    "ε": "PROXY DONE — CI 94.6% promising, needs full impl",
-    "δ": "DONE — bilateral VR loss still fights CRPS",
-    "ζ/K": "PROXY DONE (118a) — attention works, DDPM under-calibrated",
-    "O": "IN PROGRESS (118b) — CRPS fine-tune on 118a, needs training loop",
-    "J": "NOT STARTED — copula (may be deprioritized by I4 finding)",
-    "M": "NOT STARTED — flow matching",
-    "L": "NOT STARTED — DiT (proxy: add attention to Conv3D)"
-  }
+  "phase": "training",
+  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36}
 }

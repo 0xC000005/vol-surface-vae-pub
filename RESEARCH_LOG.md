@@ -27666,3 +27666,37 @@ PROMISING but needs Phase 2 (CRPS fine-tuning). The attention denoiser is viable
 architecturally. Next experiment should combine this with afCRPS.
 
 ---
+
+## 2026-03-18: Exp 118b — afCRPS Fine-Tune of Attention Denoiser — SPREAD COLLAPSE
+
+### Hypothesis
+Fine-tune 118a pretrained attention denoiser with afCRPS on single-step x0 predictions.
+K=8 members from different noise at t=T-1. Should calibrate coverage.
+
+### Result: TOTAL FAILURE — spread=0.0 (all members identical)
+
+Loss plateaued at 160.6 (pure MAE). Spread/MAE ratio = 0.0. Zero ensemble diversity.
+
+### Root Cause
+At t=T-1 (near-pure noise), the DDPM denoiser maps noise → conditional mean x0.
+Different noise draws produce the SAME x0 prediction because the denoiser is specifically
+trained to REMOVE noise. Diversity in diffusion comes from MULTI-STEP sampling (DDIM/DDPM
+trajectory), not single-step prediction. The x0 prediction at any single t is deterministic
+given condition — it's the posterior mean E[x0|x_t, condition].
+
+Single-step CRPS on diffusion x0 is STRUCTURALLY incompatible with ensemble diversity.
+The denoiser has learned that x0 is a FUNCTION of condition (not of noise at t=T-1).
+
+### What Was Learned
+1. Diffusion x0 prediction is deterministic given condition — diversity requires multi-step
+2. Cannot simply replace afCRPS's noise injection with diffusion's noise injection
+3. For CRPS training with attention denoiser, need: either (a) multi-step DDIM with
+   backprop through all steps, or (b) abandon diffusion entirely and use the attention
+   architecture as a direct generator (like our FrameDecoder, but with attention)
+
+### Decision: VALUABLE FAILURE
+Direction O (DDPM→CRPS two-phase) needs multi-step DDIM backprop, not single-step proxy.
+Alternative: use the 2D attention architecture as a DIRECT afCRPS generator (no diffusion).
+This would be a new direction: "Attention FrameDecoder" replacing the MLP with attention.
+
+---
