@@ -28928,3 +28928,22 @@ Creates h=1 under-spread while h=7-30 still over-spread. lambda_cv=1.0 is the sw
 for noise-free MLP. Direction exhausted.
 
 ---
+
+## 2026-03-19: Exp 128a — 3-Layer AR MLP — 4/8 Regression
+
+### Results
+4/8 PASS both Student-t (score 54.98, kurt 0.477) and Gaussian (55.77, kurt 0.481).
+KS daily 20/25 (same as 2-layer baseline). Kurtosis below 0.5 gate in both cases.
+
+### Analysis
+More MLP layers = more noise-rank compression. Same mechanism as 120a (AdaGN):
+each additional nonlinear layer in the noise path compresses effective dimensionality.
+3-layer MLP is strictly worse than 2-layer for kurtosis. Deeper MLPs create stronger
+rank-1 attractor under CRPS, not weaker.
+
+### Decision
+**VALUABLE FAILURE**. Deeper MLP hurts. Confirms the rank-compression mechanism
+operates per-layer and gets worse with depth (unless using multiplicative AdaGN
+which requires 6+ layers to start amplifying).
+
+---
