@@ -663,6 +663,12 @@ class SinglePassBlockAR(nn.Module):
         # Kurtosis matching target (populated from training data before training)
         self.register_buffer('target_kurt', torch.full((config.surface_h, config.surface_w), 3.0))
 
+        # GT cumulative variance targets for bilateral VR loss (Exp 117a)
+        # Populated from data/gt_cumulative_variance.npz in training script
+        for h in [4, 9, 19, 29]:
+            self.register_buffer(f'gt_cum_var_h{h}',
+                torch.full((config.surface_h, config.surface_w), 0.004))
+
     def _sample_noise(self, B: int, device: torch.device) -> torch.Tensor:
         """Sample noise vector z ~ N(0,I) or StudentT(df)."""
         # Factor noise uses n_factors dim; shared noise uses noise_dim
@@ -1360,26 +1366,28 @@ class SinglePassBlockAR(nn.Module):
             cum_cal_loss = cum_cal_loss / max(len(cal_horizons), 1)
             loss = loss + lambda_cum_cal * cum_cal_loss
 
-        # Variance ratio loss: penalize when cumulative variance grows too fast (Exp 113a)
+        # Bilateral absolute cumulative variance loss (Exp 117a, replaces 113a's ratio loss)
+        # Penalizes |cum_var(h) - GT_cum_var(h)| per cell. No ratio. Bilateral (not asymmetric).
+        # GT targets from data/gt_cumulative_variance.npz (precomputed from training data).
         vr_loss = torch.tensor(0.0, device=device)
         if lambda_vr > 0:
             T_gen = iv_samples.shape[2]
-            # Per-step change variance (across ensemble + batch)
-            step_changes = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
-            step_var = step_changes.var(dim=(0, 1, 2))  # (H, W) per-cell 1-step variance
-            # Cumulative change variance at select horizons
-            vr_horizons = [h for h in [4, 9, 19, 29] if h < T_gen]  # 0-indexed: h=5,10,20,30
+            vr_horizons = [h for h in [4, 9, 19, 29] if h < T_gen]
             for h in vr_horizons:
                 cum_change = iv_samples[:, :, h] - iv_samples[:, :, 0]  # (B, K, H, W)
-                cum_var = cum_change.var(dim=(0, 1))  # (H, W)
-                # VR = cum_var / ((h+1) * step_var)
-                model_vr = cum_var / ((h + 1) * step_var.clamp(min=1e-8))
-                # GT VR targets (from I2 investigation)
-                gt_vr_targets = {4: 0.40, 9: 0.29, 19: 0.24, 29: 0.21}
-                gt_vr = gt_vr_targets.get(h, 0.3)
-                # Asymmetric: only penalize when model VR > GT (over-spread)
-                excess = (model_vr - gt_vr).clamp(min=0)
-                vr_loss = vr_loss + excess.pow(2).mean()
+                gen_cum_var = cum_change.var(dim=(0, 1))  # (H, W) per-cell
+                # GT cumulative variance target (loaded as buffer or hardcoded mean)
+                if hasattr(self, f'gt_cum_var_h{h}'):
+                    gt_target = getattr(self, f'gt_cum_var_h{h}')  # (H, W)
+                else:
+                    # Fallback: use mean GT cum_var from I2 investigation
+                    gt_means = {4: 0.00347, 9: 0.00413, 19: 0.00472, 29: 0.00548}
+                    gt_target = torch.full_like(gen_cum_var, gt_means.get(h, 0.004))
+                # Bilateral log-ratio squared (symmetric — penalizes both over AND under)
+                vr_loss = vr_loss + (
+                    torch.log(gen_cum_var.clamp(min=1e-8)) -
+                    torch.log(gt_target.clamp(min=1e-8))
+                ).pow(2).mean()
             vr_loss = vr_loss / max(len(vr_horizons), 1)
             loss = loss + lambda_vr * vr_loss
 

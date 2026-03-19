@@ -829,6 +829,23 @@ def main():
         print(f"  Kurtosis matching: lambda={args.lambda_kurt}")
         print(f"  Target kurtosis per cell: [{target_kurt.min():.1f}, {target_kurt.max():.1f}]")
 
+    # Load GT cumulative variance targets for bilateral VR loss (Exp 117a)
+    if args.lambda_vr > 0:
+        import os
+        gt_cv_path = os.path.join(os.path.dirname(__file__), '../../../data/gt_cumulative_variance.npz')
+        if not os.path.exists(gt_cv_path):
+            gt_cv_path = 'data/gt_cumulative_variance.npz'
+        if os.path.exists(gt_cv_path):
+            gt_cv = np.load(gt_cv_path)
+            for h in [4, 9, 19, 29]:
+                key = f'h{h}'
+                if key in gt_cv:
+                    getattr(model, f'gt_cum_var_h{h}').copy_(
+                        torch.from_numpy(gt_cv[key]).float().to(device))
+            print(f"  Loaded GT cumulative variance targets from {gt_cv_path}")
+        else:
+            print(f"  WARNING: GT cum var file not found, using defaults")
+
     print(f"\n{'='*70}")
     print(f"Training afCRPS single-pass model")
     print(f"  noise_dim={config.noise_dim}, n_members={args.n_members}, n_train_blocks={args.n_train_blocks}")
