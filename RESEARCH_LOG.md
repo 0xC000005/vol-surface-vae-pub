@@ -28606,3 +28606,80 @@ Attention has fundamentally wrong inductive biases (rank 15, uniform std, no spa
 This confirms: improving the AR MLP path is the right strategy.
 
 ---
+
+## 2026-03-19: Exp 120b — Noise-Free MLP (Noise Only Through Skip) — 5/8, Score 67.09
+
+### Context
+Direction B2 from master list. Investigation 7 showed MLP Jacobian=-0.74 (mean-reverting)
+but noise overwhelms 7.2x via input concatenation. MLP-skip cancellation: MLP learns
+f(z) approx -skip(z). Hypothesis: remove noise from MLP input to break cancellation.
+
+**Based on**: 99m_v2 (base settings) + Investigation 7 (MLP-skip cancellation)
+
+### Architecture Change
+MLP input = [prev_frame(25), condition(128), pos_emb(16)] = 169 dims (was 201 with noise_dim=32).
+Noise enters ONLY through noise_skip_proj bypass. MLP is fully deterministic w.r.t. noise.
+
+### Results
+
+| Metric | 120b (noisefree) | 99m_v2 (baseline) | Direction |
+|--------|-----------------|-------------------|-----------|
+| Suites PASS | 5/8 | 5/8 | SAME |
+| Score | **67.09** | 66.31 | **+0.78** |
+| Kurtosis | **1.050** | 0.845 | **BEST EVER** |
+| Coint ratio | **0.814** | 0.675 | **BEST EVER** |
+| CI 90% | **92.0%** | 91.3% | better |
+| Catastrophic | **468** | 576 | better |
+| KS daily | **16/25** | 20/25 | **REGRESSION** |
+| Cross-cell corr | 0.502 | 0.433 | worse (GT 0.38) |
+| Var growth alpha | **0.203** | 0.229 | better (GT 0.199) |
+
+### Investigation: Clean Mean/Noise Separation
+
+**Why kurtosis is best ever (1.050)**:
+- Deterministic MLP + stochastic skip creates mixture distribution
+- MLP output varies by window (condition-dependent mean), skip adds noise
+- Pooled across windows, this mixture has heavier-than-Gaussian tails
+- Also: lower per-step variance (50% less than 99m_v2) improves variance heterogeneity
+
+**Why KS regresses (16/25 vs 20/25)**:
+- Skip weight norms concentrated in column-0 cells (short-tenor deep OTM)
+- Cells (1,0): 2.78x GT std, (3,0): 3.23x, (4,0): 6.02x — severely over-spread
+- Without MLP noise to partially cancel, skip over-spread is exposed directly
+- 55% of skip first singular value = too concentrated
+
+**Surprise: output eff_rank is identical**:
+- 120b: 1.57 at h=1, 3.27 at h=30
+- 99m_v2: 1.53 at h=1, 3.27 at h=30
+- Both equally rank-constrained at output — rank-1 is shared, not skip-specific
+
+**MLP vs skip contribution**:
+- 120b: MLP std = 0.000 (truly deterministic), skip std = 0.031 (100% of stochastic variance)
+- 99m_v2: MLP std = 0.058 (90.3% of stochastic variance), skip std = 0.019
+
+**Variance growth calibrated**:
+- 120b alpha = 0.203 matches GT 0.199 (best ever)
+- 99m_v2 alpha = 0.229 (slightly super-diffusive)
+- Noise-free MLP doesnt inject per-step stochastic variance, so cumulative growth is cleaner
+
+### What Was Learned
+1. Separating mean (MLP) from noise (skip) improves kurtosis (1.050) and var growth (alpha 0.203)
+2. The mixture of condition-varying means + skip noise creates correct heavy tails
+3. KS regression is from skip weight concentration in column-0 cells (fixable)
+4. Output eff_rank is architecture-invariant at ~1.5 (h=1) — rank-1 is structural, not noise-path-specific
+5. Cointegration improves because shared low-rank skip forces cells to co-move
+
+### Decision
+**VALUABLE FAILURE with promising elements**. Score 67.09 second only to 108a+Gaussian (67.36).
+Kurtosis and cointegration are BEST EVER. KS regression is from concentrated skip weights —
+potentially fixable by combining with ortho reg (Direction C2).
+
+**Key insight for next experiment**: In 123b, ortho reg was ineffective because skip was only
+4% of output. In 120b, skip is 100% of stochastic output. Combining noise-free MLP + ortho
+reg should directly affect ALL diversity. This is the natural next experiment: Exp 120b_v2.
+
+### Next
+Exp 120b_v2: Noise-free MLP + ortho reg on skip (lambda_ortho=1.0).
+Skip is now 100% of stochastic output, so ortho reg acts on the full diversity pathway.
+
+---
