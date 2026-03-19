@@ -28063,3 +28063,235 @@ by mechanistic findings. Direction D (principled encoder) is the longest-term bu
 impactful if it works.
 
 ---
+
+## 2026-03-19: Master Direction List — All Possible Future Work
+
+### Purpose
+Complete catalog of every actionable direction, organized by category. When autoresearch
+resumes, pick from this list based on current priorities and available compute. Each
+direction includes: what to do, why it should work (with investigation evidence), effort
+estimate, and expected info value.
+
+### Category A: Encoder Understanding (Investigation-First)
+
+#### A1: DDPM vs MSE Encoder Representation Comparison
+**Status**: RUNNING (agent launched)
+**What**: Compare eigenspectra, linear probes, CKA, per-cell reconstruction ability
+between DDPM and MSE encoders on same test data.
+**Why**: The DDPM encoder works (5/8) while MSE fails (2/8). We don't know WHY.
+**Effort**: 2h investigation | **Info**: CRITICAL
+
+#### A2: Multi-Scale Noise Level Representation
+**Status**: RUNNING (agent launched)
+**What**: Test if DDPM encoder learns hierarchical features from multi-noise training.
+Gradient contribution by t, condition dependence by t, partial PCA reconstruction.
+**Why**: Hypothesis: DDPM's multi-scale training creates "right imprecision."
+**Effort**: 2h investigation | **Info**: CRITICAL
+
+#### A3: Information Bottleneck Analysis
+**Status**: NOT STARTED
+**What**: Estimate mutual information I(condition; future) and I(condition; future_changes)
+for DDPM vs MSE encoders. Use MINE estimator or variational bounds.
+**Why**: If MSE has higher MI → decoder can predict exactly → noise unnecessary.
+**Effort**: 3h | **Info**: HIGH
+
+#### A4: Principled Encoder Training — VIB
+**Status**: NOT STARTED
+**What**: Train encoder with Variational Information Bottleneck objective. Minimize
+I(input; condition) while maximizing I(condition; target). Beta controls precision.
+**Why**: Explicitly engineers the precision-diversity tradeoff instead of relying on
+the DDPM accident.
+**Effort**: 4h (new training loop) | **Info**: HIGH (if A1-A3 confirm hypothesis)
+
+#### A5: Principled Encoder Training — Contrastive Predictive Coding
+**Status**: NOT STARTED
+**What**: Train encoder with CPC loss — predict future from past via contrastive learning.
+**Why**: CPC naturally captures regime/dynamics without encoding exact values.
+**Effort**: 4h | **Info**: MEDIUM
+
+#### A6: Bottleneck Dimension Sweep
+**Status**: NOT STARTED
+**What**: Train DDPM encoders with bottleneck_dim = 8, 16, 32, 64, 128, 256.
+Evaluate each with afCRPS downstream.
+**Why**: Current 128 may be accidental. Understanding the curve reveals whether
+imprecision (small bottleneck) or training objective matters more.
+**Effort**: 6h (6 DDPM trainings + 6 afCRPS trainings) | **Info**: MEDIUM
+
+### Category B: Decoder Architecture (Experiment)
+
+#### B1: AdaGN Noise Conditioning in AR FrameDecoder
+**Status**: NOT STARTED
+**What**: Replace additive noise concatenation in MLP with AdaGN-style multiplicative
+conditioning. After each SiLU: scale, shift = Linear(noise_emb); h = scale * h + shift.
+**Why**: Investigation 2 proved AdaGN is THE rank amplifier (1→22.7 in Conv3D).
+AR MLP crushes rank to 1.06 via additive concatenation.
+**Effort**: 1h code + 30min train | **Info**: HIGHEST among experiments
+**Exp ID**: 120a
+
+#### B2: Noise-Free MLP Path (Noise Only Through Skip)
+**Status**: NOT STARTED
+**What**: Remove noise from MLP input. MLP sees [prev, cond, pos] only. Noise enters
+exclusively through noise_skip_proj (which bypasses MLP).
+**Why**: Investigation 7: MLP Jacobian=-0.74 (mean-reverting) but noise overwhelms 7.2x.
+Removing noise from MLP lets natural mean-reversion surface.
+**Effort**: 30min code + 30min train | **Info**: HIGH
+**Exp ID**: 120b
+
+#### B3: Hybrid AR + One-Shot Dual Decoder (Training, Not Just Inference)
+**Status**: PROXY DONE (CI 94.6%)
+**What**: Single model with both FrameDecoder (AR) and SinglePassDecoder (one-shot).
+Generate K/2 members from each. Train with single afCRPS on combined ensemble.
+**Why**: Post-hoc hybrid showed CI 94.6%, kurtosis 0.752. Training jointly could be better.
+**Effort**: 2h code + 1h train | **Info**: HIGH
+**Exp ID**: 121a
+
+#### B4: Conv3D with Spatial Positional Encoding
+**Status**: NOT STARTED
+**What**: Add learned 2D positional encoding to Conv3D input (row/col embeddings).
+Currently Conv3D has CoordConv option but it's disabled in one-shot mode.
+**Why**: Investigation 118a showed attention has zero spatial awareness without positional
+encoding. Conv3D has local spatial bias from 3x3 kernels but no global position info.
+**Effort**: 30min code + 30min train | **Info**: MEDIUM
+**Exp ID**: 122a
+
+### Category C: Loss Engineering (Experiment)
+
+#### C1: Explicit ACF Loss
+**Status**: NOT STARTED
+**What**: Penalize positive lag-1 ACF of ensemble deltas. Loss = max(0, ACF + 0.25)^2.
+**Why**: Investigation 3+117a: neither VR formulation targets ACF directly. Ratio VR
+accidentally fixed ACF but with side effects. ACF is the actual root cause.
+**Effort**: 30min code + 30min train | **Info**: HIGH
+**Exp ID**: 123a
+
+#### C2: Orthogonal Regularization on noise_skip_proj
+**Status**: NOT STARTED
+**What**: Add loss += lambda * mean(|cosine_sim|) of skip row pairs. Penalizes alignment.
+**Why**: Investigation 10: skip alignment is sole cause of correlation drift.
+Freezing skip (114a) breaks surface validity. Soft penalty avoids this.
+**Effort**: 30min code + 30min train | **Info**: HIGH
+**Exp ID**: 123b
+
+#### C3: Low-Rank Per-Cell Spread (3 Shared Factors)
+**Status**: NOT STARTED
+**What**: Replace cell_spread_linear(128→25) with factored: Linear(128→3) @ Linear(3→25).
+**Why**: Investigation 5: independent per-cell spread destroys coherence. Low-rank
+couples cells through 3 shared factors → preserves spatial structure.
+**Effort**: 30min code + 30min train | **Info**: MEDIUM
+**Exp ID**: 124a
+
+#### C4: Multi-Horizon Weighted CRPS
+**Status**: NOT STARTED
+**What**: Weight CRPS loss differently by horizon. Upweight h=1-5 (where model is
+best), downweight h=20-30 (where over-spread dominates).
+**Why**: One-shot over-reverts because h=30 gradient is too strong. AR under-reverts
+because h=30 gradient is too weak (BPTT dilution). Explicit weighting could balance.
+**Effort**: 30min code + 30min train | **Info**: MEDIUM
+**Exp ID**: 125a
+
+### Category D: Noise Process (Experiment)
+
+#### D1: Curriculum Noise (Gaussian → Student-t at Freeze)
+**Status**: NOT STARTED
+**What**: Gaussian noise for ep1-10, switch to Student-t after MLP freeze.
+**Why**: Investigation 8: per-step Student-t suppresses weights. Curriculum separates
+MLP development (Gaussian) from regularization (Student-t after freeze).
+**Effort**: 30min code + 30min train | **Info**: MEDIUM
+**Exp ID**: 126a
+
+#### D2: 4-Factor + Student-t(df=8) in One-Shot
+**Status**: NOT STARTED
+**What**: noise_bottleneck_dim=4, student_t_df=8 (lighter tails than df=6).
+**Why**: Investigation 115a: CLT on 3-factor Student-t(6) reduces kurtosis too much
+(0.487). 4 factors = less CLT smoothing, df=8 = lighter input tails. Sweet spot.
+**Effort**: ZERO (hyperparameter change) | **Info**: MEDIUM
+**Exp ID**: 115a_v4
+
+#### D3: Independent Noise Per Cell (No Shared z)
+**Status**: NOT STARTED
+**What**: Instead of shared z~N(0,I_32) → NoiseMLP → all cells, sample independent
+noise per cell: z_cell ~ N(0,I) for each of 25 cells.
+**Why**: Shared noise is the root cause of rank-1 (all cells see same z through MLP).
+Independent noise is the extreme alternative. Previously tried as ar_independent_cells
+(98a) but with independent MLPs (failed). This uses shared MLP but independent noise.
+**Effort**: 30min code + 30min train | **Info**: MEDIUM
+**Exp ID**: 127a
+
+### Category E: Inference-Only (No Training)
+
+#### E1: 111b with Gaussian Inference
+**Status**: RUNNING (agent launched)
+**What**: Override 111b noise_dist to gaussian at inference.
+**Effort**: 10min | **Info**: LOW (but free)
+
+#### E2: Hybrid Ensemble Ratio Sweep
+**Status**: RUNNING (agent launched)
+**What**: Test 7 AR/one-shot ratios from 50:0 to 0:50.
+**Effort**: 30min | **Info**: MEDIUM
+
+#### E3: Multi-Checkpoint Ensemble (108a + 99m_v2 + 111b)
+**Status**: NOT STARTED
+**What**: 17 samples from each of 3 architecturally different models → 51 members.
+**Effort**: 30min | **Info**: MEDIUM
+
+#### E4: Per-Cell Coverage Meta-Analysis
+**Status**: RUNNING (agent launched)
+**What**: Which cells fail chronically across all 24 experiments?
+**Effort**: 30min | **Info**: HIGH
+
+#### E5: Full VR Curve (h=1 to h=30) for All Key Models
+**Status**: NOT STARTED
+**What**: Compute VR at every horizon for 108a, 111b, 115a, 116a, GT.
+**Effort**: 30min | **Info**: MEDIUM
+
+#### E6: Training Dynamics Comparison (Checkpoint Sweep)
+**Status**: NOT STARTED
+**What**: Load ep10/20/30/40/50/60 checkpoints for 108a, 114a, 105a_v2.
+Compare correlation/rank/kurtosis trajectories across models.
+**Effort**: 1h | **Info**: MEDIUM
+
+### Category F: Paradigm Shifts (Large Effort)
+
+#### F1: Flow Matching (CFM) Loss
+**Status**: NOT STARTED (original Direction M)
+**What**: Replace afCRPS with conditional flow matching velocity field loss.
+**Why**: CRPS has zero cross-cell gradient. CFM learns joint distribution directly.
+**Effort**: 4h+ | **Info**: HIGH (tests different paradigm)
+
+#### F2: Full DDIM Backprop (Direction O Proper)
+**Status**: NOT STARTED (118b_v2 showed partial fix works)
+**What**: Backprop through full DDIM trajectory (5-10 steps) + afCRPS on output.
+**Why**: 118b_v2 showed CRPS fine-tuning at t=[20,60] produces diversity (s/m=0.95)
+but DDIM sampling is uncalibrated. Full DDIM backprop would calibrate end-to-end.
+**Effort**: 3h | **Info**: HIGH
+
+#### F3: DiT (Diffusion Transformer) — Full Implementation
+**Status**: NOT STARTED (original Direction L)
+**What**: Replace both encoder and decoder with transformer. 750 tokens (25×30).
+**Why**: Most Bitter-Lesson aligned architecture.
+**Effort**: 6h+ | **Info**: MEDIUM (important long-term)
+
+#### F4: Copula Decomposition
+**Status**: NOT STARTED (original Direction J)
+**What**: 2-stage: model produces marginals, copula adds cross-cell correlation.
+**Why**: I4 investigation showed marginals are OK but structure is rank-1.
+**Effort**: 4h | **Info**: MEDIUM
+
+### Quick Reference: Effort vs Info Matrix
+
+| Effort | HIGHEST Info | HIGH Info | MEDIUM Info |
+|--------|-------------|-----------|-------------|
+| ZERO | — | — | D2 (4-factor df=8) |
+| 30min | — | B2 (noise-free MLP), C1 (ACF loss), C2 (ortho reg) | B4 (spatial pos), C3 (LR spread), C4 (horizon weight), D1 (curriculum), D3 (indep noise) |
+| 1h | B1 (AdaGN in AR) | — | — |
+| 2h | — | B3 (dual decoder), A3 (MI analysis) | E6 (checkpoint sweep) |
+| 4h+ | — | F1 (flow matching), F2 (DDIM backprop), A4 (VIB encoder) | F3 (DiT), F4 (copula), A5 (CPC), A6 (bottleneck sweep) |
+
+**Recommended execution order for next autoresearch session:**
+1. Wait for Analysis A+B results (encoder understanding)
+2. B1 (AdaGN in AR) — highest-info experiment
+3. C1 (ACF loss) + C2 (ortho reg) — quick, targeted at root causes
+4. B2 (noise-free MLP) — quick, tests investigation 7 finding
+5. Based on A+B results: decide whether A4 (VIB encoder) is worth pursuing
+
+---
