@@ -474,6 +474,8 @@ def main():
                         help="Noise-free MLP: noise only through skip (Exp 120b)")
     parser.add_argument("--ar_lowrank_spread", type=int, default=0,
                         help="Low-rank cell_spread factors (0=off, 3=Exp 124a)")
+    parser.add_argument("--ar_frame_n_layers", type=int, default=2,
+                        help="MLP hidden layer count (2=default, 3=Exp 128a)")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--lambda_acf", type=float, default=0.0,
@@ -649,6 +651,7 @@ def main():
         ar_adagn_noise=getattr(args, 'ar_adagn_noise', False),
         ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         ar_lowrank_spread=getattr(args, 'ar_lowrank_spread', 0),
+        ar_frame_n_layers=getattr(args, 'ar_frame_n_layers', 2),
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,

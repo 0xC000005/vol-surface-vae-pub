@@ -94,6 +94,7 @@ class SinglePassConfig:
     ar_frame: bool = False
     ar_frame_rho: float = 0.8        # temporal noise correlation
     ar_frame_hidden: int = 128       # MLP hidden dim
+    ar_frame_n_layers: int = 2        # MLP hidden layer count (Exp 128a: try 3)
     ar_frame_cell_spread: bool = False  # learned per-cell spread scaling (condition-dependent)
     ar_frame_static_cell_scale: bool = False  # static per-cell scale (nn.Parameter)
     ar_frame_bias_lambda: float = 0.0  # delta zero-mean loss weight
@@ -225,7 +226,8 @@ class FrameDecoder(nn.Module):
                  n_cells: int = 25,
                  adagn_noise: bool = False,
                  noise_embed_dim: int = 64,
-                 noisefree_mlp: bool = False):
+                 noisefree_mlp: bool = False,
+                 n_mlp_layers: int = 2):
         super().__init__()
         self.cell_embed_active = cell_embed
         self.cell_cond_offset_active = cell_cond_offset
@@ -320,13 +322,12 @@ class FrameDecoder(nn.Module):
             self.mlp = None  # signal that we use separate layers
         else:
             self.noise_embed = None
-            self.mlp = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
-                nn.SiLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.SiLU(),
-                nn.Linear(hidden_dim, out_dim),
-            )
+            # Build MLP with configurable depth
+            layers = [nn.Linear(input_dim, hidden_dim), nn.SiLU()]
+            for _ in range(n_mlp_layers - 1):
+                layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.SiLU()])
+            layers.append(nn.Linear(hidden_dim, out_dim))
+            self.mlp = nn.Sequential(*layers)
             # Zero-init last layer → delta=0 at init → prev_frame unchanged
             nn.init.zeros_(self.mlp[-1].weight)
             nn.init.zeros_(self.mlp[-1].bias)
@@ -666,6 +667,7 @@ class SinglePassBlockAR(nn.Module):
                 adagn_noise=config.ar_adagn_noise,
                 noise_embed_dim=config.noise_embed_dim,
                 noisefree_mlp=config.ar_noisefree_mlp,
+                n_mlp_layers=config.ar_frame_n_layers,
             )
             # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
             if config.ar_factor_noise:
