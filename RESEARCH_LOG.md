@@ -28456,3 +28456,64 @@ Move to C2 (orthogonal reg on skip) or C1 (ACF loss) — both target root causes
 without changing the noise injection mechanism.
 
 ---
+
+## 2026-03-19: Exp 123b — Orthogonal Regularization on noise_skip_proj — 5/8 (No Improvement)
+
+### Context
+Direction C2 from master list. Investigation 10 proved noise_skip_proj row alignment is the
+sole cause of correlation drift from GT (0.32 at ep10) to 0.44+. Freezing skip (114a) broke
+surface validity. Soft ortho penalty: loss += lambda * mean(|cosim(row_i, row_j)|).
+
+**Based on**: 99m_v2 (base settings) + Investigation 10 (skip alignment finding)
+
+### Results
+
+| Metric | 123b (ortho) | 99m_v2 (baseline) | Direction |
+|--------|-------------|-------------------|-----------|
+| Suites PASS | 5/8 | 5/8 | SAME |
+| Score | 66.47 | 66.31 | +0.16 |
+| Kurtosis | 0.862 | 0.845 | slight better |
+| KS daily | **21/25** | 20/25 | +1 |
+| Coint ratio | 0.594 | 0.675 | worse |
+| Turb/calm | 1.543 | — | good |
+| Catastrophic | 702 | 576 | worse |
+| Cross-cell corr | **0.325** | 0.389 (GT: 0.381) | overshot |
+
+### Investigation: Ortho Reg Works on Skip But Skip is Only 4% of Output
+
+**The ortho reg succeeded mechanistically:**
+
+| Metric | 99m_v2 | 123b | Delta |
+|--------|--------|------|-------|
+| Mean abs cosine sim (skip rows) | 0.479 | 0.207 | -0.273 |
+| Pairs with cosim > 0.5 | 314/600 | 56/600 | -258 |
+| Functional output eff rank (skip) | 5.51 | 12.05 | +6.54 |
+| PC1 via skip path | 53.7% | 27.4% | -26.3% |
+
+**But it cannot matter because skip path is tiny:**
+- Skip weight Frobenius norm: ~4% of MLP output norm (0.12 vs 3.36)
+- MLP contributes 96%+ of delta variance, remains rank-1
+- Cross-cell corr overshot GT (0.325 vs 0.381) — too much decorrelation
+  on a 4% path while the 96% MLP path is unaffected
+- Ortho loss was 0.6% of total loss throughout training — minor perturbation
+
+**Training dynamics**: Ortho loss dropped 30% in first 2 epochs (0.271→0.203), then
+plateaued at 0.19-0.21. After freeze at ep10, CRPS gradient on skip counteracted ortho
+reg → equilibrium. CRPS gradient on MLP (96% of variance) was unaffected.
+
+### What Was Learned
+1. Ortho reg on noise_skip_proj WORKS mechanistically (cosim halved, rank doubled)
+2. Skip path is only 4% of output magnitude — decorrelating it has negligible impact
+3. Any effective decorrelation must target the MLP weights directly (not just skip)
+4. Cross-cell correlation is controlled by MLP weight structure (96%), not skip (4%)
+5. Even doubling skip diversity doesn't help because MLP compensates
+
+### Decision
+**VALUABLE FAILURE**. Direction C2 exhausted. Skip-level interventions are insufficient.
+The MLP path dominates and CRPS drives it to rank-1 regardless of skip diversity.
+
+### Next
+Try C1 (ACF loss) — targets autocorrelation root cause independent of skip/MLP balance.
+Or B2 (noise-free MLP) — removes noise from MLP entirely, forcing all diversity through skip.
+
+---
