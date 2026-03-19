@@ -29543,3 +29543,22 @@ correlated). E5b (E4 + 108a_df20): 67.91 — worse due to df=20's poor coverage.
 4. **Per-cell noise scaling on skip** — addresses 35x norm imbalance.
 
 ---
+
+## 2026-03-19: Exp 129a — noise_dim=64 (wider noise) — 5/8, Score 66.08
+
+### Results
+5/8 PASS, score 66.08 (Student-t) / 66.19 (Gaussian). KS daily 15/25 (10/25 Gaussian).
+Coint 0.934 Student-t / **1.023** Gaussian (exceeds GT!). Kurtosis 0.702/0.610.
+
+### Analysis
+Wider noise (64 vs 32) makes MLP input even more dominated by noise (64/233 = 27% vs
+32/201 = 16%). This amplifies the noise-through-MLP path, creating stronger shared
+dynamics (excellent cointegration) but worse per-cell distributional match (KS 10-15/25).
+Wider noise does NOT help diversity — it makes the rank-1 attractor STRONGER because
+there are more redundant noise dimensions for CRPS to compress.
+
+### Decision
+**VALUABLE FAILURE**. Wider noise makes things worse for per-cell metrics.
+noise_dim=32 is the right scale. Direction exhausted.
+
+---
