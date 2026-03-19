@@ -1,20 +1,24 @@
 {
-  "iteration": 28,
-  "current_hypothesis": null,
-  "experiment_id": "117a",
-  "training_status": "complete",
-  "base_commit": "eb1e469",
+  "iteration": 29,
+  "current_hypothesis": "Direction O proxy: Fine-tune 118a attention denoiser with afCRPS on single-step x0 prediction. Architecture works (118a proved it). Need CRPS calibration on top.",
+  "experiment_id": "118b",
+  "training_status": "implementing",
+  "base_commit": "26308e2",
   "started_at": "2026-03-19",
-  "phase": "ready_for_next_direction",
+  "phase": "implementation_in_progress",
   "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
-  "directions_explored_this_session": [
-    "α: Train Student-t infer Gaussian → NEW BEST 67.36",
-    "η: Freeze skip at ep10 → 4/8, breaks surface validity",
-    "γ: One-shot 3-factor → 4/8, kurtosis 0.013 below threshold, BEST coint 0.834",
-    "γ_v2: 5-factor → worse than 3-factor",
-    "β: AR rho=0.5 + offset → rho collapsed to 0.3, CRPS always minimizes",
-    "ε: Hybrid AR+one-shot PROXY → CI 94.6%, kurtosis 0.752, promising",
-    "δ: Bilateral VR loss → 5/8, 66.08, better than ratio but still hurts"
-  ],
-  "next_directions": ["J (copula)", "ζ/K (CSDI proxy)", "O (DDPM→CRPS)", "M (flow matching)", "L (DiT)"]
+  "implementation_notes": "Verified: can generate K=8 x0 predictions from attention denoiser at t=T-1. Each noise draw → different x0. afCRPS on these K predictions vs GT. Need to write training loop: load 118a pretrained weights, freeze encoder, train denoiser with afCRPS on x0 predictions. Script partially designed but not written yet.",
+  "directions_status": {
+    "α": "DONE — NEW BEST 67.36",
+    "η": "DONE — 4/8 (skip/spread must co-adapt)",
+    "γ": "DONE — 3-factor=4/8 (0.013 below kurtosis), 5-factor worse",
+    "β": "DONE — rho collapsed to 0.3 (CRPS minimizes)",
+    "ε": "PROXY DONE — CI 94.6% promising, needs full impl",
+    "δ": "DONE — bilateral VR loss still fights CRPS",
+    "ζ/K": "PROXY DONE (118a) — attention works, DDPM under-calibrated",
+    "O": "IN PROGRESS (118b) — CRPS fine-tune on 118a, needs training loop",
+    "J": "NOT STARTED — copula (may be deprioritized by I4 finding)",
+    "M": "NOT STARTED — flow matching",
+    "L": "NOT STARTED — DiT (proxy: add attention to Conv3D)"
+  }
 }
