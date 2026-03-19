@@ -478,6 +478,8 @@ def main():
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--lambda_acf", type=float, default=0.0,
                         help="Explicit ACF loss on ensemble deltas (Exp 123a)")
+    parser.add_argument("--curriculum_noise_epoch", type=int, default=0,
+                        help="Switch from gaussian to student_t noise at this epoch (Exp 126a)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -940,6 +942,13 @@ def main():
                     kept_count += 1
             n_still_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
             print(f"  >> FREEZE at epoch {epoch}: froze {frozen_count} params, kept {kept_count} trainable ({n_still_trainable:,} params)")
+
+        # Curriculum noise: switch from gaussian to student_t at specified epoch
+        curriculum_ep = getattr(args, 'curriculum_noise_epoch', 0)
+        if curriculum_ep > 0 and epoch == curriculum_ep + 1 and model.config.noise_dist == 'gaussian':
+            model.config.noise_dist = 'student_t'
+            model.config.student_t_df = args.student_t_df
+            print(f"  >> CURRICULUM NOISE: switched to student_t(df={args.student_t_df}) at epoch {epoch}")
 
         # Train
         train_metrics = train_epoch(
