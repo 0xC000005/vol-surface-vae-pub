@@ -135,11 +135,12 @@ def main():
                 noise = torch.randn(B, 25, 30, device=device)
                 # x_t = sqrt(ab) * x_0 + sqrt(1-ab) * noise ≈ noise when ab ≈ 0
                 # For t=199 with cosine schedule, ab is very small → x_t ≈ noise
-                x_t = ab.sqrt() * gt_flat_batch.to(device) + (1 - ab).sqrt() * noise
+                ab_b = ab.view(B, 1, 1) if ab.dim() > 0 else ab  # (B,1,1) or scalar
+                x_t = ab_b.sqrt() * gt_flat_batch.to(device) + (1 - ab_b).sqrt() * noise
 
                 # Predict noise → get x0
                 noise_pred = model(x_t, condition, t_batch)
-                x0_pred = (x_t - (1 - ab).sqrt() * noise_pred) / ab.sqrt()
+                x0_pred = (x_t - (1 - ab_b).sqrt() * noise_pred) / ab_b.sqrt()
                 x0_pred = x0_pred.clamp(-1, 1)
 
                 # Denormalize to IV space [0, 1]
