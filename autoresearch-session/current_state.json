@@ -1,10 +1,22 @@
 {
-  "iteration": 31,
-  "current_hypothesis": "3-factor noise bottleneck + GAUSSIAN noise (not Student-t). Investigation 115a: CLT on Student-t tails reduces kurtosis. Gaussian removes excess kurtosis source. Should push kurtosis 0.487→>0.500.",
-  "experiment_id": "115a_v3",
-  "training_status": "running",
-  "base_commit": "bc167b8",
-  "started_at": "2026-03-19",
-  "phase": "training",
-  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36}
+  "iteration": 34,
+  "experiment_id": "114a_final",
+  "training_status": "complete",
+  "phase": "ready_for_next_direction",
+  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
+  "total_experiments": 34,
+  "total_investigations": 17,
+  "remaining_directions": ["J (copula)", "M (flow matching)", "L (DiT)"],
+  "all_explored": [
+    "102a-107a: MLP tweaks (8 exp, all exhausted)",
+    "108a-108b: Student-t noise (3 exp, 108a+Gaussian=67.36 BEST)",
+    "109a-110a: Per-cell MR/spread (2 exp, both failed)",
+    "111a-111b_v2: One-shot Conv3D (4 exp, 111b=65.0 viable)",
+    "113a-113a_v2: VR ratio loss (2 exp, fights CRPS)",
+    "114a: Freeze skip (re-eval: still 4/8 at ep60)",
+    "115a-115a_v3: 3-factor noise (3 exp, 0.013 below kurtosis)",
+    "116a: rho=0.5+offset (collapsed to 0.3, coint 0.928)",
+    "117a: Bilateral VR (better than ratio but still hurts)",
+    "118a-118b_v2: Attention denoiser (3 exp, DDPM works but CRPS needs full DDIM)"
+  ]
 }
