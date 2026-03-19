@@ -28790,3 +28790,34 @@ dampens excess kurtosis) not noise distribution. Direction D2 exhausted.
 **VALUABLE FAILURE**. One-shot kurtosis ceiling is architectural, not distributional.
 
 ---
+
+## 2026-03-19: Exp 124a — Low-Rank Cell Spread (3 Factors) — 3/8 REGRESSION
+
+### Context
+Direction C3: Replace cell_spread_linear(144->25) with factored Linear(144->3) @ Linear(3->25).
+Couples cells through 3 shared factors to preserve spatial structure.
+
+**Based on**: Investigation 5 (independent per-cell spread destroys coherence)
+
+### Results
+**3/8 PASS, score 46.96** — major regression from 5/8 baseline.
+
+### Root Cause: Gradient Trap in Double Zero-Init
+Both factor layer and expand layer were zero-initialized. Product of two zero-init
+linear layers has zero gradient: d(W2 @ W1 @ x)/dW1 = W2^T = 0 when W2=0.
+The expand layer NEVER received gradient signal — w_norm stayed 0.000 for all 30 epochs.
+
+Cell spread was determined entirely by bias (softplus(0.541) = 1.0), giving near-constant
+spread across all cells. This destroyed per-cell differentiation → Surface, Conditionality,
+Coverage all failed.
+
+### What Was Learned
+1. Factored linear layers require at least one non-zero init to avoid gradient trap
+2. Double zero-init = both layers dead forever (product of zero = zero gradient)
+3. Low-rank spread concept is NOT invalidated — the implementation was broken
+
+### Decision
+**CRASH (implementation bug)**. Direction C3 not properly tested. Could retry with normal
+init on expand layer, but the direction is low priority given more promising alternatives.
+
+---
