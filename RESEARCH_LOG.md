@@ -27700,3 +27700,64 @@ Alternative: use the 2D attention architecture as a DIRECT afCRPS generator (no 
 This would be a new direction: "Attention FrameDecoder" replacing the MLP with attention.
 
 ---
+
+## 2026-03-19: Deep Investigations — 6 Recent Experiments (Round 2)
+
+### Investigation: 114a (Freeze Skip) — PREMISE WAS WRONG
+The tested model was epoch 6 (BEFORE freeze), not post-freeze. Real effect of frozen skip:
+only 1-2pp calendar arb increase (not 9pp). Trainable skip learns tenor coherence — adjacent
+tenor cosine sim 0.86-0.94 (trained) vs 0.62-0.79 (frozen). Cell_spread cannot compensate
+because skip bypasses it (ar_skip_bypass_spread=True). 110% OTM strike has fundamentally
+different dynamics that skip can't reconcile (anti-correlated at -0.686).
+
+### Investigation: 115a (3-Factor Noise) — CLT ON HEAVY TAILS
+Primary mechanism: Student-t(4) excess kurtosis 1.86 per dim. Linear(3,32) bottleneck makes
+each NoiseMLP input a sum of 3 t4 variables → CLT reduces excess kurtosis to 1.13 (39%).
+This propagates through Conv3D ResBlock nonlinearities: frame-delta kurtosis 65.4→34.2 (48%).
+Counterfactual confirms: dimensionality constraint itself (not learned directions) is the
+mechanism. 3-factor HELPS kurtosis ratio (0.697 vs 111b's 0.382, closer to GT 1.0). The
+test failure (0.487) is from cumulative AR noise at late horizons. Fix: use 4 factors or
+Gaussian noise with bottleneck.
+
+### Investigation: 116a (rho=0.3 Cointegration) — MEDIAN SMOOTHING MECHANISM
+The 0.928 score is IV-EWMA cointegration (median IV vs EWMA vol). Mechanism: at rho=0.3,
+individual members have ACF≈0 (iid), but MEDIAN trajectory has ACF=-0.234 (matches GT
+-0.235!). This is median smoothing — iid noise creates a median that inherits condition-driven
+mean-reversion. Initial hypothesis (condition dominance) disproven: condition explains LESS
+at rho=0.3 (2.2%) than rho=0.8 (3.9%). Side effects: higher cross-cell corr (0.781 vs
+0.663), lower eff_rank (2.27 vs 3.94) — both worse.
+
+### Investigation: 117a (Bilateral VR Loss) — PROPORTIONAL INFLATION
+Bilateral VR inflated BOTH step_var (+57%) AND cum_var (+22%) proportionally, preserving
+the VR ratio (barely changed). Ratio VR (113a) inflated step_var +99% while keeping cum_var
++4%, which accidentally fixed ACF by -0.20. Bilateral VR only shifted ACF by -0.05. Neither
+formulation targets autocorrelation directly. 113a is closer to GT VR at all horizons
+despite being "flawed" — the denominator shortcut accidentally produced the right dynamics.
+
+### Investigation: 118a (Attention Denoiser) — NO SPATIAL AWARENESS
+All 25 cells produce identical variance (range 1.0x vs GT 82.8x). Cross-cell correlation
+0.000 (vs GT 0.473). Attention weights are nearly uniform — no learned spatial or temporal
+patterns. Root cause: no spatial inductive bias + DDPM per-pixel loss + spatially uniform
+condition injection. Conv3D BETTER for spatial structure (3x3 kernels encode adjacency).
+But attention gets temporal ACF right (-0.47, mean-reverting — right sign, overshoots GT
+-0.24). Hybrid (Conv3D spatial + attention temporal) might get both.
+
+### Investigation: 118b (CRPS Fine-Tune) — CLAMP-INDUCED GRADIENT DEAD ZONE
+Initial claim "x0 is deterministic" was WRONG. Pretrained 118a produces diverse x0 (std=0.24).
+CRPS training introduced mean bias +2.576 in eps_pred → x0 amplified by 4058x at t=199
+(alpha_bar=6e-8) → saturates clamp at -1.0 → zero spread → zero gradient → self-reinforcing.
+Fix: don't fine-tune at t=199. Use t<50 or range of timesteps where amplification is manageable.
+Direction O is NOT dead — just needs correct timestep selection.
+
+### Updated Understanding
+
+| Finding | Changes Direction Priority? |
+|---------|---------------------------|
+| 114a: frozen skip only 1-2pp arb, not 9pp | η could be revisited with proper checkpoint |
+| 115a: CLT on heavy tails is the mechanism | 3-factor + Gaussian noise could pass kurtosis |
+| 116a: median smoothing explains cointegration | Low rho's coint benefit is an artifact of median aggregation |
+| 117a: neither VR formulation targets ACF | Need explicit ACF loss (new direction) |
+| 118a: attention has no spatial awareness | Need spatial inductive bias (Conv3D or positional encoding) |
+| 118b: clamp dead zone, not deterministic x0 | Direction O viable at lower t values |
+
+---
