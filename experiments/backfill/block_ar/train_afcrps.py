@@ -731,8 +731,13 @@ def main():
             param_groups.append(
                 {"params": encoder_params, "lr": args.lr_encoder, "weight_decay": 1e-4},
             )
-        if hasattr(model, 'cell_spread_linear'):
+        if hasattr(model, 'cell_spread_linear') and model.cell_spread_linear is not None:
             spread_params = list(model.cell_spread_linear.parameters())
+            param_groups.append(
+                {"params": spread_params, "lr": args.lr_decoder, "weight_decay": 0.1},
+            )
+        if hasattr(model, 'cell_spread_factor') and model.cell_spread_factor is not None:
+            spread_params = list(model.cell_spread_factor.parameters()) + list(model.cell_spread_expand.parameters())
             param_groups.append(
                 {"params": spread_params, "lr": args.lr_decoder, "weight_decay": 0.1},
             )
@@ -924,9 +929,9 @@ def main():
                     or "spread_cell_proj" in name
                 )
                 if not args.freeze_spread_too:
-                    keep = keep or "cell_spread_linear" in name
+                    keep = keep or "cell_spread_linear" in name or "cell_spread_factor" in name or "cell_spread_expand" in name
                 should_freeze = name.startswith("frame_decoder.") or (
-                    args.freeze_spread_too and "cell_spread_linear" in name
+                    args.freeze_spread_too and ("cell_spread_linear" in name or "cell_spread_factor" in name or "cell_spread_expand" in name)
                 )
                 if not keep and should_freeze:
                     param.requires_grad_(False)
@@ -1073,11 +1078,16 @@ def main():
                       f"  PC1: {pc1.item()*100:.1f}% (GT ~59%)")
 
         # Log cell_spread_linear stats if applicable (AR frame mode)
-        if hasattr(model, 'cell_spread_linear'):
+        if hasattr(model, 'cell_spread_linear') and model.cell_spread_linear is not None:
             w = model.cell_spread_linear.weight.detach()
             b = model.cell_spread_linear.bias.detach()
             base_out = F.softplus(b)
             print(f"  cell_spread: out=[{base_out.min():.3f}, {base_out.max():.3f}] w_norm={w.norm():.3f}")
+        elif hasattr(model, 'cell_spread_expand') and model.cell_spread_expand is not None:
+            w = model.cell_spread_expand.weight.detach()
+            b = model.cell_spread_expand.bias.detach()
+            base_out = F.softplus(b)
+            print(f"  cell_spread(LR): out=[{base_out.min():.3f}, {base_out.max():.3f}] w_norm={w.norm():.3f}")
 
         if hasattr(model, 'noise_scale_head'):
             w = model.noise_scale_head.weight.detach()
