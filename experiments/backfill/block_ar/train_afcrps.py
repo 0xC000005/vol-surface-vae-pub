@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -140,6 +140,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_cell_var = 0.0
     total_cum_cal = 0.0
     total_ortho = 0.0
+    total_acf = 0.0
+    total_acf_mean = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -155,6 +157,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        lambda_cell_var=lambda_cell_var,
                        lambda_cum_cal=lambda_cum_cal,
                        lambda_vr=lambda_vr,
+                       lambda_acf=lambda_acf,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames,
                        extra_hist=extra_hist)
@@ -193,6 +196,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_cell_var += result.get("cell_var_loss", torch.tensor(0.0)).item()
         total_cum_cal += result.get("cum_cal_loss", torch.tensor(0.0)).item()
         total_ortho += ortho_loss.item() if isinstance(ortho_loss, torch.Tensor) else ortho_loss
+        total_acf += result.get("acf_loss", torch.tensor(0.0)).item()
+        total_acf_mean += result.get("acf_mean", torch.tensor(0.0)).item()
         n_batches += 1
 
     return {
@@ -211,6 +216,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "cell_var_loss": total_cell_var / max(n_batches, 1),
         "cum_cal_loss": total_cum_cal / max(n_batches, 1),
         "ortho_loss": total_ortho / max(n_batches, 1),
+        "acf_loss": total_acf / max(n_batches, 1),
+        "acf_mean": total_acf_mean / max(n_batches, 1),
     }
 
 
@@ -465,6 +472,8 @@ def main():
                         help="AdaGN noise conditioning in FrameDecoder MLP (Exp 120a)")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
+    parser.add_argument("--lambda_acf", type=float, default=0.0,
+                        help="Explicit ACF loss on ensemble deltas (Exp 123a)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -932,6 +941,7 @@ def main():
             lambda_cum_cal=args.lambda_cum_cal,
             lambda_vr=args.lambda_vr,
             lambda_ortho=getattr(args, 'lambda_ortho', 0.0),
+            lambda_acf=getattr(args, 'lambda_acf', 0.0),
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )

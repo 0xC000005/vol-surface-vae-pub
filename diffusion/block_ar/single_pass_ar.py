@@ -1174,6 +1174,7 @@ class SinglePassBlockAR(nn.Module):
         n_frames: int = 0,
         extra_hist: Optional[torch.Tensor] = None,
         lambda_vr: float = 0.0,
+        lambda_acf: float = 0.0,
     ) -> dict:
         """Training forward: generate K members, compute afCRPS.
 
@@ -1461,6 +1462,30 @@ class SinglePassBlockAR(nn.Module):
             vr_loss = vr_loss / max(len(vr_horizons), 1)
             loss = loss + lambda_vr * vr_loss
 
+        # Explicit ACF loss (Exp 123a): penalize positive lag-1 autocorrelation in ensemble deltas
+        # GT deltas have ACF ~ -0.35 to -0.51 (mean-reverting), model has +0.16 to +0.83 (trending)
+        acf_loss = torch.tensor(0.0, device=device)
+        acf_mean = torch.tensor(0.0, device=device)
+        if lambda_acf > 0:
+            # iv_samples: (B, K, T, H, W) — compute deltas
+            sample_deltas = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
+            # Lag-1 autocorrelation per cell: corr(delta_t, delta_{t+1})
+            d1 = sample_deltas[:, :, :-1]  # (B, K, T-2, H, W)
+            d2 = sample_deltas[:, :, 1:]   # (B, K, T-2, H, W)
+            # Compute per-cell correlation across time+batch+member
+            d1_flat = d1.reshape(-1, H, W)  # (B*K*(T-2), H, W)
+            d2_flat = d2.reshape(-1, H, W)
+            d1_centered = d1_flat - d1_flat.mean(dim=0, keepdim=True)
+            d2_centered = d2_flat - d2_flat.mean(dim=0, keepdim=True)
+            cov = (d1_centered * d2_centered).mean(dim=0)  # (H, W)
+            std1 = d1_centered.pow(2).mean(dim=0).sqrt().clamp(min=1e-8)
+            std2 = d2_centered.pow(2).mean(dim=0).sqrt().clamp(min=1e-8)
+            acf1 = cov / (std1 * std2)  # (H, W) per-cell lag-1 ACF
+            acf_mean = acf1.mean().detach()
+            # Penalize ACF > -0.25 (target: slightly mean-reverting)
+            acf_loss = F.relu(acf1 + 0.25).pow(2).mean()
+            loss = loss + lambda_acf * acf_loss
+
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
         if lambda_kurt > 0:
@@ -1509,6 +1534,8 @@ class SinglePassBlockAR(nn.Module):
             "cell_var_loss": cell_var_loss.detach(),
             "cum_cal_loss": cum_cal_loss.detach(),
             "vr_loss": vr_loss.detach(),
+            "acf_loss": acf_loss.detach(),
+            "acf_mean": acf_mean,
         }
 
     @torch.no_grad()
