@@ -27832,3 +27832,234 @@ Direction η confirmed exhausted: frozen skip permanently breaks surface validit
 regardless of training duration.
 
 ---
+
+## 2026-03-19: Principled Research Directions — From Investigation Synthesis + Encoder Theory
+
+### Context
+
+After 34 experiments and 17 deep investigations, the project has accumulated extensive
+empirical knowledge but lacks THEORETICAL grounding for key design choices. The most
+critical gap: WHY does the DDPM-pretrained encoder work, while MSE, random, and unfrozen
+alternatives all fail (2/8)? This was never explained — only observed. Building on an
+unexplained accident is the opposite of principled research.
+
+This entry documents two categories of directions:
+1. Investigation-derived directions (from mechanistic findings)
+2. Fundamental encoder/decoder understanding (from first principles)
+
+### Part 1: New Directions From 17 Deep Investigations
+
+#### Direction I: AdaGN Noise Conditioning in AR FrameDecoder
+**Source**: Investigation 2 (111b factor structure)
+**Finding**: AdaGN is THE rank amplifier — Conv3D rank goes 1.0→22.7 through 6 AdaGN layers.
+Each AdaGN applies MULTIPLICATIVE noise modulation per channel. The AR FrameDecoder MLP
+uses ADDITIVE concatenation [prev, cond, noise, pos] → noise goes through shared linear
+layers → rank crushed to 1.06. If we add AdaGN-style multiplicative noise conditioning
+between MLP hidden layers, the AR model should get Conv3D's rank amplification while
+keeping AR's kurtosis and temporal dynamics advantages.
+**Implementation**: After each SiLU in the 2-layer MLP, add AdaGN: scale, shift = Linear(noise_emb).
+The hidden activations get multiplied by noise-dependent scale → different noise → different
+activations → rank preserved through layers.
+**Bitter Lesson**: PASS — AdaGN is a general neural network mechanism.
+**Info value**: HIGHEST — directly transfers the PROVEN mechanism from Conv3D to AR.
+
+#### Direction II: Orthogonal Regularization on noise_skip_proj
+**Source**: Investigation 10 (ep10 sweet spot)
+**Finding**: noise_skip_proj row alignment (cosine sim 0.31→0.49 post-freeze) is the SOLE
+cause of correlation drift from GT-level (0.32) to rank-1 (0.44+). MLP output rank stays
+24.44 at ALL epochs. Freezing skip breaks surface validity (Investigation 114a: tenor
+coherence lost). Instead of freezing, add a soft penalty: loss += lambda * mean(|cosine_sim|
+of skip row pairs). This directly targets the rank-1 attractor without breaking adaptation.
+**Implementation**: Every N epochs, compute 25x25 pairwise cosine sim of noise_skip_proj rows.
+Add mean(|cosine_sim|) * lambda to loss. Or continuously: add to every training step.
+**Bitter Lesson**: PASS — orthogonal regularization is a standard ML technique.
+**Info value**: HIGH — most targeted intervention for the proven root cause.
+
+#### Direction III: Explicit ACF Loss
+**Source**: Investigation 3 (113a VR loss) + Investigation 117a (bilateral VR)
+**Finding**: Ratio VR accidentally fixed ACF (shifted -0.20 toward GT) via denominator
+inflation shortcut. Bilateral VR barely shifted ACF (-0.05). Neither formulation targets
+autocorrelation directly. The ROOT CAUSE of Suite 2 over-spread is positive delta
+autocorrelation (model ACF=+0.16 vs GT=-0.37). An explicit ACF loss would be the FIRST
+loss to directly target this.
+**Implementation**: Compute lag-1 ACF of ensemble deltas across the 30-frame trajectory.
+Loss = max(0, mean_ACF + target)^2 where target is GT ACF (approximately -0.25).
+Only penalize when ACF is too positive (wrong sign).
+**Bitter Lesson**: PASS — ACF is a mathematical statistic, not domain-specific.
+**Info value**: HIGH — first loss to target the actual root cause.
+
+#### Direction IV: Noise-Free MLP Path (Noise Only Through Skip)
+**Source**: Investigation 7 (AR vs one-shot MR)
+**Finding**: AR MLP has Jacobian=-0.74 (mean-reverting!), but rho=0.8 noise overwhelms it
+7.2x in delta variance. The noise enters BOTH the MLP (as concatenated input) AND the skip
+(as noise_skip_proj). If noise ONLY goes through skip, the MLP can express its natural
+mean-reversion without noise interference, while the skip provides per-cell diversity.
+**Implementation**: Remove noise from the MLP input concatenation. MLP sees only [prev, cond, pos].
+Noise enters exclusively through noise_skip_proj (which bypasses MLP entirely).
+**Bitter Lesson**: PASS — architectural routing choice.
+**Info value**: HIGH — lets MLP mean-reversion surface naturally.
+
+#### Direction V: Low-Rank Per-Cell Spread (3 Shared Factors)
+**Source**: Investigation 5 (110a per-cell spread catastrophe)
+**Finding**: Independent per-cell spread (110a: 25x16 = 400 params) → 22x spread range →
+calendar arb → 2/8. CRPS + independent per-cell control ALWAYS destroys spatial coherence.
+But CORRELATED per-cell control through shared low-rank factors might work: spread =
+softplus(Linear(cond, 3) @ Linear(3, 25)). Only 3 degrees of freedom control 25 cells →
+adjacent cells are coupled → spatial coherence preserved.
+**Implementation**: Replace cell_spread_linear(cond+pos → 25) with two-stage:
+cond → Linear(128, 3) → Linear(3, 25) → softplus. The 3-dim bottleneck forces correlation.
+**Bitter Lesson**: PASS — low-rank factorization is a general technique.
+**Info value**: MEDIUM — tests correlated vs independent per-cell, but may face same CRPS
+per-cell decomposition issue.
+
+#### Direction VI: Curriculum Noise (Gaussian → Student-t at Freeze)
+**Source**: Investigation 8 (108b per-step Student-t)
+**Finding**: Per-step Student-t → CRPS suppresses MLP weights → LESS kurtosis. But z0-only
+Student-t works because MLP never sees extreme noise during training. What if: train with
+Gaussian noise for ep1-10 (stable MLP development), then switch to Student-t at ep10 (when
+MLP is frozen)? The frozen MLP can't suppress weights in response to fat tails.
+**Implementation**: Add --noise_curriculum flag. Use gaussian for ep1-freeze, student_t after.
+**Info value**: MEDIUM — separates regularization timing from MLP development.
+
+### Part 2: Fundamental Encoder Understanding (First Principles)
+
+#### THE ENCODER PUZZLE
+
+The project's encoder story is deeply unsatisfying:
+
+1. A DDPM model was trained (vol-scale, 30 epochs) to denoise IV surfaces
+2. The DDPM model FAILED at ensemble generation (Exp 89: 3/8)
+3. We extracted the encoder, FROZE it, and built entirely different decoders
+4. This frozen encoder is ESSENTIAL — all alternatives score 2/8
+5. We don't understand WHY
+
+This is not science — it's alchemy. We found a magic ingredient and built on it without
+understanding what makes it magic. Every subsequent experiment (102a-118b) implicitly
+relies on this encoder being "right" without knowing what "right" means.
+
+#### What We Know (from Investigation I1 + Encoder Ablation 90d-90j)
+
+| Encoder | Training | Score | Why |
+|---------|----------|-------|-----|
+| DDPM frozen | Denoising MSE across 1000 noise levels | **5/8** | ???  |
+| MSE frozen | Next-frame prediction MSE at noise=0 | 2/8 | Too precise |
+| MSE+dropout | Same + dropout 0.3 | 2/8 | Still too precise |
+| Random frozen | No training | 2/8 | No useful signal |
+| DDPM unfrozen | Same but fine-tuned with CRPS | 2/8 | Adapts to suppress noise |
+
+The working hypothesis: DDPM pretraining creates "the right level of imprecision" in the
+condition vector. But this is hand-wavy. We need to understand the MECHANISM.
+
+#### Analysis A: DDPM vs MSE Encoder Representation Comparison
+**Question**: What is structurally DIFFERENT about the DDPM encoder's condition space vs MSE?
+**Method**:
+- Load both encoders (DDPM: block_ar_vol_scaled_30ep, MSE: afcrps_90f if exists)
+- For same test windows, compute condition vectors from both
+- Compare: PCA structure, effective rank, per-dim variance spectrum
+- Linear probes: which features are MORE recoverable from DDPM vs MSE?
+- Centered Kernel Alignment (CKA): how similar are the two representations?
+- KEY HYPOTHESIS: DDPM encoder has STEEPER eigenspectrum (more hierarchical — few dims
+  carry most info, many dims carry residual/noise). MSE has FLATTER spectrum (all dims
+  equally important for pixel-level accuracy).
+
+#### Analysis B: Multi-Scale Representation from Noise Levels
+**Question**: Does the DDPM encoder learn different representations at different noise levels?
+**Method**:
+- During DDPM training, the encoder sees inputs at ALL noise levels (t=1 to t=1000)
+- At high noise (t→T): only coarse features survive (IV level, term structure)
+- At low noise (t→0): fine details matter (per-cell values, curvature)
+- Hypothesis: encoder learns a HIERARCHICAL representation where PC1-2 capture coarse
+  features (useful at high t) and PC5-128 capture fine details (useful at low t)
+- Test: train linear probes from condition → reconstruction at t=10 vs t=100 vs t=500.
+  If hierarchical: high-t reconstruction should use fewer PCs than low-t.
+
+#### Analysis C: Information Bottleneck Perspective
+**Question**: How much information does the condition carry about the future vs about noise?
+**Method**:
+- Mutual information I(condition; future) — upper bound on what decoder can learn
+- Mutual information I(condition; future_changes) — what's relevant for diversity
+- Compare DDPM encoder vs MSE encoder: which has higher I(cond; future)?
+- Hypothesis: MSE encoder has HIGHER I(cond; future) → decoder can predict exactly →
+  noise unnecessary. DDPM encoder has LOWER I(cond; future) → decoder must use noise
+  to explain residual → diversity preserved.
+- Implementation: use MINE estimator or variational bounds on MI
+
+#### Analysis D: Principled Encoder Training Objectives
+**Question**: Can we train a BETTER encoder from first principles?
+**Candidates**:
+
+1. **Variational Information Bottleneck (VIB)**: Explicitly minimize I(input; condition)
+   while maximizing I(condition; target). Forces encoder to keep ONLY what's predictive,
+   discarding reconstruction details. Controls the precision-diversity tradeoff via beta.
+   
+2. **Contrastive Predictive Coding (CPC)**: Learn representations where future frames
+   are predictable from past via contrastive loss. Naturally captures regime/dynamics
+   without encoding exact values. Used in audio/NLP representation learning.
+
+3. **Multi-Task with Controlled Precision**: Train encoder to predict COARSE features
+   (regime label, vol-of-vol bucket, term structure slope sign) but NOT fine features
+   (per-cell IV values). This directly engineers the "right imprecision."
+
+4. **DDPM with Bottleneck Sweep**: Train multiple DDPM encoders with bottleneck_dim
+   = 8, 16, 32, 64, 128, 256. The current 128-dim may be accidental. Understanding
+   the bottleneck-performance curve would reveal whether the encoder needs to be
+   imprecise (small bottleneck) or just differently-trained.
+
+5. **Score Matching Encoder**: Instead of denoising MSE, train encoder with score matching
+   loss (gradient of log-density). This learns the DATA MANIFOLD structure directly, not
+   reconstruction. May produce representations aligned with the distribution geometry.
+
+### Part 3: Decoder Understanding
+
+#### Why Does the Decoder Architecture Matter So Much?
+
+Investigation 7 proved: same CRPS loss, same encoder, different decoder → opposite ACF sign
+(AR: +0.16, one-shot: -0.80). Investigation 2 proved: Conv3D AdaGN amplifies rank from 1→22.7
+while MLP crushes it to 1.06. Investigation 10 proved: noise_skip_proj alignment (not MLP)
+causes the rank-1 attractor.
+
+The decoder is not just a function approximator — its ARCHITECTURE determines:
+- Whether noise diversity survives (rank: AdaGN vs concatenation)
+- Whether temporal dynamics are mean-reverting (one-shot vs AR)
+- Whether spatial coherence is preserved (Conv3D kernels vs independent cells)
+
+#### Analysis E: Decoder Inductive Bias Catalog
+Systematically catalog what each decoder architecture induces:
+
+| Property | AR MLP | One-Shot Conv3D | Attention | GT Target |
+|----------|--------|----------------|-----------|-----------|
+| Noise rank | 1.06 (crushed by Linear layers) | 22.7 (amplified by AdaGN) | 23.9 (uniform, no structure) | 2.6 |
+| Temporal ACF | +0.16 (trending, from rho=0.8) | -0.47 (MR, from temporal smoothing) | -0.47 (MR, from temporal attention) | -0.24 |
+| Spatial corr | 0.88 (rank-1 from shared noise) | 0.30 (Conv3D mixing) | 0.00 (no spatial bias) | 0.47 |
+| Per-cell std range | 44x (cell_spread+skip) | 19x (Conv3D position-dependent) | 1x (uniform) | 83x |
+| Kurtosis | 0.85-0.99 (Student-t helps) | 0.29-0.52 (temporal smoothing dampens) | 0.10 (DDPM → Gaussian) | 1.0 |
+
+**No single architecture matches GT on all properties.** The ideal decoder would have:
+- Rank ~2.6 (not 1 or 23)
+- ACF ~ -0.24 (not +0.16 or -0.47)
+- Spatial corr ~0.47 (not 0.88 or 0.00)
+- Per-cell std ~83x (not 44x or 1x)
+
+This suggests the answer is not any SINGLE architecture but a PRINCIPLED COMBINATION
+informed by the target properties.
+
+### Priority for Next Phase
+
+| Priority | Analysis/Direction | Type | Effort |
+|----------|-------------------|------|--------|
+| **1** | **A: DDPM vs MSE encoder comparison** | Investigation | 2h |
+| **2** | **B: Multi-scale noise level representation** | Investigation | 2h |
+| **3** | **I: AdaGN noise in AR MLP** | Experiment | 1h |
+| **4** | **II: Orthogonal regularization on skip** | Experiment | 30min |
+| **5** | **III: Explicit ACF loss** | Experiment | 30min |
+| **6** | **IV: Noise-free MLP path** | Experiment | 30min |
+| **7** | **C: Information bottleneck analysis** | Investigation | 3h |
+| **8** | **D: Principled encoder training** | Experiment | 4h+ |
+| **9** | **E: Decoder inductive bias catalog** | Investigation | 2h |
+
+Analyses A and B should come FIRST — they answer the fundamental encoder question
+before we build more on top of it. Then Directions I-IV are quick experiments informed
+by mechanistic findings. Direction D (principled encoder) is the longest-term but most
+impactful if it works.
+
+---
