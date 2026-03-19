@@ -28581,3 +28581,28 @@ Move to B2 (noise-free MLP) — architectural change that addresses autocorrelat
 removing noise-MLP coupling that creates the trending ACF pattern.
 
 ---
+
+## 2026-03-19: Analysis E Complete — Decoder Inductive Bias Catalog (3 Architectures)
+
+### Key Findings
+
+| Metric | GT | AR MLP (108a) | Conv3D (111b) | Attention (118a) |
+|--------|-----|--------------|---------------|------------------|
+| Eff Rank | ~2.6 | **2.92** | 5.20 | 15.37 |
+| Cross-Cell Corr | 0.509 | **0.251** | 0.159 | -0.017 |
+| ACF Lag-1 | -0.395 | -0.154 | **-0.246** | -0.481 |
+| Per-Cell Std Range | 28x | **20x** | 13x | 1.1x |
+| Calendar Arb | ~7% | **9.1%** | 15.6% | 30.0% |
+| CI Coverage | 90% | **91.8%** | 95.3% | 87.1% |
+| Turb/Calm | >1.15 | 1.37 | **1.50** | 1.21 |
+
+**AR MLP is the best single architecture** — closest to GT on eff_rank, cross-cell corr,
+per-cell std, surface validity, and CI. Conv3D has best coverage but over-disperses.
+Attention has fundamentally wrong inductive biases (rank 15, uniform std, no spatial corr).
+
+**No architecture learns mean-reversion** (OU theta ≈ 0 for all, GT = 0.108).
+**All massively underestimate kurtosis** (ratios < 0.04 vs GT excess kurtosis 81.55).
+
+This confirms: improving the AR MLP path is the right strategy.
+
+---
