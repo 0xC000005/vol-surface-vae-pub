@@ -1,10 +1,20 @@
 {
-  "iteration": 27,
-  "current_hypothesis": "Direction δ: Bilateral absolute cumulative variance loss. Per-cell targets from GT data. lambda_vr=0.1. No ratio formulation (fixes 113a shortcut).",
+  "iteration": 28,
+  "current_hypothesis": null,
   "experiment_id": "117a",
-  "training_status": "running",
-  "base_commit": "bdf69ae",
+  "training_status": "complete",
+  "base_commit": "eb1e469",
   "started_at": "2026-03-19",
-  "phase": "training",
-  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36}
+  "phase": "ready_for_next_direction",
+  "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
+  "directions_explored_this_session": [
+    "α: Train Student-t infer Gaussian → NEW BEST 67.36",
+    "η: Freeze skip at ep10 → 4/8, breaks surface validity",
+    "γ: One-shot 3-factor → 4/8, kurtosis 0.013 below threshold, BEST coint 0.834",
+    "γ_v2: 5-factor → worse than 3-factor",
+    "β: AR rho=0.5 + offset → rho collapsed to 0.3, CRPS always minimizes",
+    "ε: Hybrid AR+one-shot PROXY → CI 94.6%, kurtosis 0.752, promising",
+    "δ: Bilateral VR loss → 5/8, 66.08, better than ratio but still hurts"
+  ],
+  "next_directions": ["J (copula)", "ζ/K (CSDI proxy)", "O (DDPM→CRPS)", "M (flow matching)", "L (DiT)"]
 }
