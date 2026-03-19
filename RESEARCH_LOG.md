@@ -27818,3 +27818,17 @@ but DDIM uncalibrated (118b_v2). Full DDIM backprop: needed but complex (~3h imp
 Direction O requires significant engineering beyond proxy experiments.
 
 ---
+
+## 2026-03-19: Exp 114a Final Model (Epoch 60) Re-evaluation
+
+Investigation 114a discovered the tested model was epoch 6 (pre-freeze). Re-evaluated
+with final_model.pt (epoch 60, 50 post-freeze epochs) + Gaussian inference.
+
+Still 4/8 — Suite 1 (calendar arb) still fails. CI 96.1% (best ever), catastrophic 241
+(best AR ever). But calendar arb persists even after 50 epochs of cell_spread adaptation
+without skip adaptation. Frozen skip → tenor incoherence is structural, not convergence.
+
+Direction η confirmed exhausted: frozen skip permanently breaks surface validity
+regardless of training duration.
+
+---
