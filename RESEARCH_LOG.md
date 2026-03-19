@@ -28683,3 +28683,39 @@ Exp 120b_v2: Noise-free MLP + ortho reg on skip (lambda_ortho=1.0).
 Skip is now 100% of stochastic output, so ortho reg acts on the full diversity pathway.
 
 ---
+
+## 2026-03-19: Exp 120b_v2 — Noise-Free MLP + Ortho Reg — 5/8, Score 66.92
+
+### Context
+Combination experiment: 120b (noise-free MLP, kurtosis 1.050, KS 16/25) + 123b (ortho reg).
+In 123b, ortho reg was ineffective because skip was 4% of output. In 120b, skip is 100%.
+
+**Based on**: 120b + 123b (combining architecturally complementary changes)
+
+### Results
+
+| Metric | 120b_v2 | 120b | 99m_v2 |
+|--------|---------|------|--------|
+| Score | 66.92 | 67.09 | 66.31 |
+| Suites | 5/8 | 5/8 | 5/8 |
+| Kurtosis | 1.036 | 1.050 | 0.845 |
+| KS daily | **17/25** | 16/25 | 20/25 |
+| Coint | **0.834** | 0.814 | 0.675 |
+| Catastrophic | 594 | 468 | 576 |
+| Cross-cell corr | 0.212 | 0.518 | 0.433 |
+
+Ortho reg recovered 1 KS cell (16->17) and improved coint (0.814->0.834).
+Cross-cell corr dropped to 0.212 (overshooting below GT 0.38).
+
+### Analysis
+Ortho reg on 100% stochastic skip path has stronger effect than on 4% path (123b),
+but still only recovers 1 KS cell. The skip concentration issue is about weight NORMS
+(some cells have 6x more skip weight), not just alignment. Ortho reg diversifies
+directions but not magnitudes.
+
+### Decision
+**KEEP WITH NOTE**. Noise-free MLP direction peaked at score ~67. The linear skip
+cannot match nonlinear diversity from noise-in-MLP. Direction B2 is at diminishing
+returns. Move to remaining unexplored directions.
+
+---
