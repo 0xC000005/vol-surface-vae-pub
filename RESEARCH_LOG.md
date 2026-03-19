@@ -27568,3 +27568,12 @@ reduces noise diversity below kurtosis threshold by 0.013.
 - The 3-factor constraint WORKS for cointegration — just needs slightly more noise
 
 ---
+
+## 2026-03-18: Exp 115a_v2 — One-Shot + 5-Factor Noise — 4/8 (Worse Than 3-Factor)
+
+5 factors: kurtosis 0.449 (worse than 3-factor's 0.487). Coint 0.800 (slightly below 0.834).
+More noise dimensions did NOT help kurtosis — the bottleneck is Conv3D temporal smoothing
+(investigation 2), not noise diversity. Direction gamma: 3-factor was the sweet spot but
+still 0.013 below kurtosis threshold. Direction explored.
+
+---
