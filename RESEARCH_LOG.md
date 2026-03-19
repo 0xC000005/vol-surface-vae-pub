@@ -28821,3 +28821,27 @@ Coverage all failed.
 init on expand layer, but the direction is low priority given more promising alternatives.
 
 ---
+
+## 2026-03-19: Exp 126a — Curriculum Noise (Gaussian→Student-t at ep10) — 5/8, Score 65.94
+
+### Context
+Direction D1: Gaussian noise ep1-10 (MLP development), Student-t(df=6) ep11-30 (regularization).
+Investigation 8: per-step Student-t suppresses weights during Phase 1.
+
+### Results
+Score 65.94 (baseline 66.31). Kurtosis 0.739 — WORSE than both Gaussian-only (0.987)
+and Student-t-throughout (0.845). Curriculum switch at ep11 confirmed in logs.
+
+### Analysis
+The curriculum approach produced WORSE kurtosis than either endpoint (Gaussian or Student-t).
+Likely cause: switching noise distribution mid-training disrupts the optimizer state and
+weight dynamics that were adapted to Gaussian. The Student-t regularization benefit from
+Investigation 8 (weight regularization during training) requires Student-t from the START,
+not just post-freeze. The "suppression" during Phase 1 IS the mechanism — removing it
+removes the benefit.
+
+### Decision
+**VALUABLE FAILURE**. Direction D1 exhausted. Student-t regularization requires full-training
+exposure, not curriculum. The 108a finding stands: train Student-t, infer Gaussian = optimal.
+
+---
