@@ -470,6 +470,8 @@ def main():
                         help="Per-cell condition for cell_spread (Exp 110a)")
     parser.add_argument("--ar_adagn_noise", action="store_true",
                         help="AdaGN noise conditioning in FrameDecoder MLP (Exp 120a)")
+    parser.add_argument("--ar_noisefree_mlp", action="store_true",
+                        help="Noise-free MLP: noise only through skip (Exp 120b)")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--lambda_acf", type=float, default=0.0,
@@ -641,6 +643,7 @@ def main():
         ar_mean_revert_percell=args.ar_mean_revert_percell,
         ar_percell_spread_cond=getattr(args, 'ar_percell_spread_cond', False),
         ar_adagn_noise=getattr(args, 'ar_adagn_noise', False),
+        ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,
