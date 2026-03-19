@@ -29288,3 +29288,68 @@ cointegration structure at this amplitude.
 5. **Per-cell noise scaling** (not ortho reg) is needed to fix the 35x norm imbalance
 
 ---
+
+## 2026-03-19: Deep Investigation — 128a 3-Layer MLP (DIFFERENT Mechanism from 120a AdaGN)
+
+### Context
+Research log claimed 128a (3-layer concat MLP) fails via "same mechanism as 120a (AdaGN)."
+Investigation proves this is WRONG — they are fundamentally different failure modes.
+
+### Finding: Two Distinct Rank Compression Mechanisms
+
+**128a (3-layer additive concat): PROGRESSIVE NOISE VARIANCE DECAY**
+
+Each hidden layer acts as a low-pass filter on noise-specific variance:
+
+| Layer | 99m_v2 (2-layer) eff_rank | 128a (3-layer) eff_rank | Compression |
+|-------|--------------------------|------------------------|-------------|
+| Hidden 1 | 37.3 | 48.6 | — |
+| Hidden 2 | 23.2 (1.6x) | 33.9 (1.4x) | — |
+| Hidden 3 | n/a | 17.7 (1.9x) | extra layer |
+| Output | 11.7 (2.0x) | **6.0 (2.9x)** | amplified |
+
+By the 3rd layer, only 31.2% of neurons have noise variance above 0.001 — noise has
+decayed below the SiLU nonlinearity threshold. 69% of neurons are effectively dead to noise.
+The output layer then compresses 2.9x (vs 2.0x in 2-layer) because 93.6% of noise variance
+is already in one direction (vs 81.2% in 2-layer).
+
+Output weight cell rows have mean cosine sim 0.191 (vs 0.008 in 99m_v2) — CRPS training
+aligned the output weights toward rank-1 more aggressively with the pre-compressed input.
+
+**120a (AdaGN, multiplicative): IMMEDIATE RANK COLLAPSE**
+
+AdaGN injects noise as (1+scale)*h + shift where h is deterministic (no noise in input).
+This is a rank-limited linear transformation of the noise embedding. After the very first
+AdaGN+SiLU, noise eff_rank is already 10.6 (vs 48.6 for 128a's first hidden layer).
+Collapse is immediate, not progressive.
+
+| Property | 128a (concat) | 120a (AdaGN) |
+|----------|--------------|--------------|
+| Where rank collapses | Progressively through layers | Immediately at 1st AdaGN |
+| Root cause | Noise variance decay below SiLU threshold | Rank-limited multiplicative projection |
+| Hidden 1 noise eff_rank | 48.6 (high) | 10.6 (already low) |
+| Output noise eff_rank | 6.0 | 7.8 |
+| Cell row cosine sim | 0.191 (aligned by training) | 0.000 (random) |
+
+### Why 128a Has Worse Kurtosis (0.477 vs 0.845)
+
+With 93.9% of variance on PC1 (vs 83.1% in 2-layer), per-cell deltas are effectively
+1D Gaussian projections through tanh. Single-step kurtosis: 0.084 (128a) vs 0.412 (99m_v2).
+
+Var(h=1) is 2.8x larger in 128a (front-loads variance) but Var(h=30) is identical.
+The rank-1 AR noise compounds less efficiently — each step adds the same direction,
+tanh caps cumulative spread.
+
+### What Was Learned
+
+1. **Deeper concat-MLP compresses rank progressively** (each layer attenuates noise
+   variance by ~1.5-2x). This is fundamentally different from AdaGN's immediate collapse.
+2. **69% of 3rd-layer neurons are dead to noise** — below SiLU activation threshold
+3. **CRPS amplifies the rank-1 tendency** — 128a output weight cosine sim 0.191 (24x
+   higher than 99m_v2's 0.008), showing training actively pushes toward alignment
+4. **2-layer is the sweet spot** for concat-MLP noise diversity. Adding layers always
+   hurts because the attenuation compounds multiplicatively.
+5. The "depth = bad for diversity" conclusion is CORRECT but for DIFFERENT reasons
+   depending on architecture: concat = progressive decay, AdaGN = immediate projection limit
+
+---
