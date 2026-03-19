@@ -29427,3 +29427,119 @@ These directions have been deeply investigated and the mechanisms fully understo
 - **Independent per-cell control**: CRPS always destroys spatial coherence (110a, 98a, 92b)
 
 ---
+
+## 2026-03-19: Inference-Only Evaluation Sweep — 10 Configurations Tested
+
+### Purpose
+Execute all zero-cost inference experiments identified in the investigation audit:
+fixed Student-t normalizer, df=20, ep40 checkpoint, 108a_v2 recovery, 5-model ensembles.
+
+### Master Results Table
+
+| Configuration | Score | Suites | Kurtosis | CI 90% | KS Daily | Coint | Notes |
+|--------------|-------|--------|----------|--------|----------|-------|-------|
+| **E4 (4-model ensemble)** | **68.74** | **5/8** | 0.950 | 95.0% | 18/25 | 0.725 | ALL-TIME BEST |
+| E5a (E4 + 120b_gauss) | 68.62 | 5/8 | 0.919 | 94.8% | 18/25 | 0.756 | 5th model redundant |
+| E5b (E4 + 108a_df20) | 67.91 | 5/8 | 0.948 | 93.5% | 18/25 | 0.673 | df=20 member hurts |
+| **120b + Gaussian** | **67.60** | **5/8** | 0.789 | 94.7% | 15/25 | 0.850 | BEST SINGLE MODEL |
+| 120b fixnorm (/1.2247) | 67.49 | 5/8 | 0.789 | 94.4% | 15/25 | 0.868 | ≈ Gaussian (as expected) |
+| 108a + Gaussian | 67.36 | 5/8 | 0.986 | 92.7% | 18/25 | 0.652 | |
+| 120b Student-t (default) | 67.09 | 5/8 | 1.050 | 92.0% | 16/25 | 0.814 | |
+| 108a fixnorm (/1.2247) | 67.04 | 5/8 | 0.986 | 92.2% | 18/25 | 0.638 | ≈ Gaussian |
+| 108a Student-t (default) | 66.93 | 5/8 | 0.955 | 92.0% | 18/25 | 0.653 | |
+| 99m_v2 fixnorm | 66.01 | 5/8 | 0.823 | 91.0% | 20/25 | 0.652 | Sampling noise |
+| 120b df=20 | 65.93 | 5/8 | 1.218 | 89.1% | 20/25 | 0.757 | Kurtosis overshoots |
+| 120b_v3 ep40 Gauss | 57.81 | 4/8 | — | — | — | — | NOT sweet spot |
+| 120b_v3 ep40 Student-t | 57.52 | 4/8 | 1.090 | — | 19/25 | FAIL | Coint collapses |
+| 108a df=20 | 54.60 | **4/8** | **1.363** | 85.5% | 23/25 | 0.558 | REGRESSION |
+| 108a_v2 ep30 Student-t | 5/8 | — | 1.055 | 87.7% | 20/25 | — | RECOVERED (see below) |
+| 108a_v2 ep30 Gaussian | 5/8 | — | 0.831 | 92.4% | 17/25 | — | RECOVERED |
+| 108a_v2 ep4 Gaussian | **3/8** | — | 0.991 | 93.8% | 18/25 | — | Still fails |
+
+### Finding 1: Fixed Normalizer ≈ Gaussian Inference (Marginal Improvement)
+
+Fixed Student-t(df=6)/1.2247 has effective std 0.987 vs Gaussian 1.000. The difference
+is negligible — scores within sampling noise (108a: 67.04 vs 67.36, 120b: 67.49 vs 67.60).
+
+The fix gives small h=1 CI improvement (108a: 82.1%→85.7%, 120b: 91.5%→93.5%) but
+doesn't flip any suites. **At inference time, fixing the normalizer is equivalent to
+using Gaussian noise.** The bigger win would be RETRAINING with the correct normalizer.
+
+### Finding 2: df=20 Is Harmful on AR Models (Opposite of One-Shot)
+
+| Model Type | df=6 Kurtosis | df=20 Kurtosis | df=20 CI | Impact |
+|-----------|--------------|---------------|----------|--------|
+| One-shot (115a_v4) | 0.487 | 1.008 | 92.4% | BENEFICIAL |
+| AR (108a) | 0.955 | 1.363 | 85.5% | **HARMFUL (4/8)** |
+| AR (120b) | 1.050 | 1.218 | 89.1% | Neutral-negative |
+
+Mechanism: AR's 30-step compounding already amplifies per-step tail heaviness to the
+correct level at df=6. Using df=20 (lighter tails) removes per-step heaviness but
+compounding still creates some excess → kurtosis overshoots. CI drops 3-6.5pp because
+df=20's thinner tails can't produce adequate spread at longer horizons.
+
+**df=6 is optimal for AR models. df=20 is only beneficial for one-shot.**
+
+### Finding 3: 108a_v2 (df=8) Regression Was From Early Stopping, Not Normalizer
+
+The 3/8 regression was NOT caused by the /1.414 normalizer bug. Gaussian inference
+at epoch 4 gives identical 3/8. The real cause: **val_loss had a false early minimum
+at epoch 4** (18.13), and the model was undertrained (calendar arb 15.3% > 15% gate).
+
+**Epoch 30 checkpoint recovers 5/8** with both Student-t and Gaussian inference.
+108a_v2 ep30 with Student-t(df=8) gives the BEST calibration of any model tested:
+calendar arb 7.6%, calibration error 0.018, kurtosis 1.055.
+
+**Actionable**: Retraining df=8 with correct normalizer (/1.155 not /1.414) AND
+disable_early_stop is a strong candidate. The ep30 weights show excellent properties.
+
+### Finding 4: 120b_v3 ep40 Is NOT the Sweet Spot
+
+Epoch 40 gives 4/8 (score 57.5) — worse than 30ep (5/8, score 67.09). The entire
+regression comes from Suite 6 (cointegration): worst cell ratio collapses from 0.446
+(ep30) to 0.093 (ep40) at cell (4,0). The cell_var divergence analysis was correct
+that degradation starts at ep31, but the damage is already fatal by ep40.
+
+**30 epochs is confirmed as the optimal budget for noise-free MLP.**
+
+### Finding 5: 5-Model Ensembles Don't Beat 4-Model E4
+
+E5a (E4 + 120b_gauss): 68.62 vs E4 68.74 (-0.12). Adding a duplicate model with
+different noise provides negligible diversity (120b Student-t and Gaussian are 94.7%
+correlated). E5b (E4 + 108a_df20): 67.91 — worse due to df=20's poor coverage.
+
+**4 architecturally diverse models is the saturation point for ensemble diversity.**
+
+### Updated Rankings
+
+**Best configurations (all 5/8 PASS):**
+1. E4 (4-model ensemble): **68.74** — all-time best, inference only
+2. E5a (5-model ensemble): 68.62 — diminishing returns
+3. E3 (3-model ensemble): 68.33 — still strong
+4. 120b + Gaussian: **67.60** — best single trainable model
+5. 120b fixnorm: 67.49 — equivalent to Gaussian
+6. 108a + Gaussian: 67.36 — best traditional AR model
+7. 120b Student-t: 67.09 — best kurtosis (1.050)
+8. 108a fixnorm: 67.04 — equivalent to Gaussian
+9. 99m_v2 baseline: 66.31 — reference
+
+### What's Truly Exhausted After This Sweep
+
+- **Inference-time noise distribution tuning**: Gaussian ≈ fixnorm > Student-t(default) > df=20.
+  No inference-time noise change can break 5/8.
+- **Ensemble diversity**: 4 architecturally distinct models saturate diversity. Adding
+  noise variants or df variants of existing models gives <0.5 point improvement.
+- **Epoch selection for 120b**: 30ep is optimal. ep40+ collapses cointegration.
+- **108a_v2 rehabilitation**: ep30 checkpoint works (5/8) but requires retraining with
+  correct normalizer for fair comparison.
+
+### Remaining Actionable Items (Requiring Training)
+
+1. **Retrain df=8 with correct normalizer** (/1.155) + disable_early_stop — ep30 shows
+   best calibration (cal_err 0.018) of any model. Strong candidate.
+2. **B3 dual decoder (AR + Conv3D)** — E3/E4 analysis proves Conv3D is the MVP.
+   Joint training could outperform post-hoc ensemble.
+3. **124a retry with proper init** — low-rank spread concept untested.
+4. **Per-cell noise scaling on skip** — addresses 35x norm imbalance.
+
+---
