@@ -137,6 +137,7 @@ class SinglePassConfig:
     ar_percell_spread_cond: bool = False  # per-cell condition for cell_spread (Exp 110a)
     ar_adagn_noise: bool = False           # AdaGN noise conditioning in MLP (Exp 120a)
     ar_noisefree_mlp: bool = False         # Noise-free MLP: noise only through skip (Exp 120b)
+    ar_lowrank_spread: int = 0             # Low-rank cell_spread factors (0=off, 3=Exp 124a)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -684,9 +685,21 @@ class SinglePassBlockAR(nn.Module):
                     self.cell_spread_linear = nn.Linear(cs_input_dim, 1)  # per-cell output
                 else:
                     cs_input_dim = config.bottleneck_dim + config.pos_embed_dim
-                    self.cell_spread_linear = nn.Linear(cs_input_dim, frame_dim)
-                nn.init.zeros_(self.cell_spread_linear.weight)
-                nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
+                    if config.ar_lowrank_spread > 0:
+                        # Exp 124a: factored cell_spread through k shared factors
+                        k = config.ar_lowrank_spread
+                        self.cell_spread_factor = nn.Linear(cs_input_dim, k)
+                        self.cell_spread_expand = nn.Linear(k, frame_dim)
+                        nn.init.zeros_(self.cell_spread_factor.weight)
+                        nn.init.zeros_(self.cell_spread_factor.bias)
+                        nn.init.zeros_(self.cell_spread_expand.weight)
+                        nn.init.constant_(self.cell_spread_expand.bias, 0.541)
+                        self.cell_spread_linear = None  # signal to use factored path
+                    else:
+                        self.cell_spread_linear = nn.Linear(cs_input_dim, frame_dim)
+                if self.cell_spread_linear is not None:
+                    nn.init.zeros_(self.cell_spread_linear.weight)
+                    nn.init.constant_(self.cell_spread_linear.bias, 0.541)  # softplus(0.541) ≈ 1.0
             # Static per-cell scale: nn.Parameter(ones(25)), clamped [0.3, 3.0]
             if config.ar_frame_static_cell_scale:
                 self.cell_scale = nn.Parameter(torch.ones(frame_dim))
@@ -922,7 +935,7 @@ class SinglePassBlockAR(nn.Module):
 
         Returns (B, H, W) positive scalars via softplus.
         """
-        if not hasattr(self, 'cell_spread_linear'):
+        if not hasattr(self, 'cell_spread_linear') and not hasattr(self, 'cell_spread_factor'):
             return None
         B = condition.shape[0]
         H, W = self.config.surface_h, self.config.surface_w
@@ -938,6 +951,12 @@ class SinglePassBlockAR(nn.Module):
             cs_in = torch.cat([cell_cond, pos_exp], dim=-1)  # (B, 25, 16+pos)
             cs = F.softplus(self.cell_spread_linear(cs_in.view(B * H * W, -1)))  # (B*25, 1)
             return cs.view(B, H, W)
+        elif self.config.ar_lowrank_spread > 0 and hasattr(self, 'cell_spread_factor'):
+            # Exp 124a: factored low-rank spread through k shared factors
+            cs_in = torch.cat([condition, pos_emb], dim=-1)
+            factors = self.cell_spread_factor(cs_in)  # (B, k)
+            spread = self.cell_spread_expand(factors)  # (B, 25)
+            return F.softplus(spread).view(B, H, W)
         else:
             cs_in = torch.cat([condition, pos_emb], dim=-1)
             return F.softplus(self.cell_spread_linear(cs_in)).view(B, H, W)
