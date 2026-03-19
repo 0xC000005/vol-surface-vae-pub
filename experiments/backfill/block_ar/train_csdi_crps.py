@@ -126,7 +126,8 @@ def main():
 
             # Generate K members via single-step x0 prediction
             ab = alpha_bar[t_denoise]
-            t_batch = torch.full((B,), t_denoise, device=device, dtype=torch.long)
+            t_denoise = torch.randint(20, 61, (B,), device=device)
+            t_batch = t_denoise
 
             members = []
             for _ in range(args.n_members):
