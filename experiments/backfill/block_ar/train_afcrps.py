@@ -446,6 +446,8 @@ def main():
                         help="Per-cell mean-reversion alpha (Exp 109a)")
     parser.add_argument("--ar_percell_spread_cond", action="store_true",
                         help="Per-cell condition for cell_spread (Exp 110a)")
+    parser.add_argument("--ar_adagn_noise", action="store_true",
+                        help="AdaGN noise conditioning in FrameDecoder MLP (Exp 120a)")
     parser.add_argument("--extra_features", type=int, default=0,
                         help="Number of extra encoder features (e.g. 1 for returns)")
     parser.add_argument("--return_scale", type=float, default=0.05,
@@ -612,6 +614,7 @@ def main():
         ar_mean_revert_alpha_init=args.ar_mean_revert_alpha_init,
         ar_mean_revert_percell=args.ar_mean_revert_percell,
         ar_percell_spread_cond=getattr(args, 'ar_percell_spread_cond', False),
+        ar_adagn_noise=getattr(args, 'ar_adagn_noise', False),
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,

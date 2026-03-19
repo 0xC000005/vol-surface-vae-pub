@@ -28346,3 +28346,26 @@ Direction alpha doesn't help one-shot. Student-t tails don't compound in single-
 Conv3D like they do in AR's 30-step chain. The regularization benefit is AR-specific.
 
 ---
+
+## 2026-03-19: Hybrid Ensemble Ratio Sweep — 25+25 Optimal, Corr Matches GT
+
+### Results
+7 AR/one-shot ratios tested (50:0 to 0:50). 25AR+25OS is optimal for multi-objective:
+
+| Ratio | CI | Kurt | Corr (GT=0.505) | Worst Cell |
+|-------|-----|------|-----------------|------------|
+| 50AR+0OS | 94.8% | **0.981** | 0.690 | 87.9% |
+| **25AR+25OS** | **97.0%** | 0.766 | **0.501** | **90.3%** |
+| 0AR+50OS | 95.6% | 0.587 | 0.385 | 88.6% |
+
+25+25 uniquely matches GT cross-cell correlation (0.501 vs 0.505). CI is highest (97.0%).
+Kurtosis passes (0.766). Worst cell is best (90.3%). All ratios fail Suite 2 cell gate
+(over-spread), but 25+25 is closest to passing.
+
+Monotonic trends: more one-shot = more diversity/CI, less kurtosis. Correlation decreases
+linearly. The 25+25 balance averages AR's 0.69 and one-shot's 0.385 to GT's 0.505.
+
+**This strongly motivates Direction B3 (dual decoder training)** — if post-hoc mixing
+achieves near-GT correlation, joint training could be even better.
+
+---

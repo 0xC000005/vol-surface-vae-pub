@@ -135,6 +135,7 @@ class SinglePassConfig:
     ar_mean_revert_alpha_init: float = -3.0  # sigmoid(-3.0) ≈ 0.047, small initial pull
     ar_mean_revert_percell: bool = False  # per-cell alpha (Exp 109a) vs shared (104a)
     ar_percell_spread_cond: bool = False  # per-cell condition for cell_spread (Exp 110a)
+    ar_adagn_noise: bool = False           # AdaGN noise conditioning in MLP (Exp 120a)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -219,13 +220,16 @@ class FrameDecoder(nn.Module):
                  independent_cells: bool = False, cell_hidden: int = 32,
                  noise_skip: bool = False,
                  skip_bypass_spread: bool = False,
-                 n_cells: int = 25):
+                 n_cells: int = 25,
+                 adagn_noise: bool = False,
+                 noise_embed_dim: int = 64):
         super().__init__()
         self.cell_embed_active = cell_embed
         self.cell_cond_offset_active = cell_cond_offset
         self.independent_cells_active = independent_cells
         self.noise_skip_active = noise_skip
         self.skip_bypass_spread = skip_bypass_spread
+        self.adagn_noise_active = adagn_noise
         self.n_cells = n_cells
         self.pos_embed = SinusoidalTimeEmbedding(dim=pos_dim)
         self.horizon_embed = None
@@ -264,22 +268,57 @@ class FrameDecoder(nn.Module):
             self.cond_offsets = None
             input_dim = 1 + cond_dim + noise_dim + pos_dim + cell_embed_dim + horizon_embed_dim
             out_dim = 1
+        elif adagn_noise:
+            # Exp 120a: AdaGN noise conditioning — noise NOT in input
+            # MLP takes [prev_frame, condition, pos_emb] only
+            # Noise enters via multiplicative scale+shift (AdaGN) after each SiLU
+            self.cell_emb = None
+            self.cond_offsets = None
+            input_dim = frame_dim + cond_dim + pos_dim + horizon_embed_dim
+            out_dim = frame_dim
         else:
             self.cell_emb = None
             self.cond_offsets = None
             input_dim = frame_dim + cond_dim + noise_dim + pos_dim + horizon_embed_dim
             out_dim = frame_dim
 
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, out_dim),
-        )
-        # Zero-init last layer → delta=0 at init → prev_frame unchanged
-        nn.init.zeros_(self.mlp[-1].weight)
-        nn.init.zeros_(self.mlp[-1].bias)
+        if adagn_noise:
+            # Build MLP as separate layers for AdaGN injection
+            # Noise embedding: noise_dim → noise_embed_dim
+            self.noise_embed = nn.Sequential(
+                nn.Linear(noise_dim, noise_embed_dim),
+                nn.SiLU(),
+                nn.Linear(noise_embed_dim, noise_embed_dim),
+            )
+            # MLP layers (no noise in input)
+            self.lin1 = nn.Linear(input_dim, hidden_dim)
+            self.ln1 = nn.LayerNorm(hidden_dim)
+            self.adagn1_proj = nn.Linear(noise_embed_dim, hidden_dim * 2)  # scale + shift
+            self.lin2 = nn.Linear(hidden_dim, hidden_dim)
+            self.ln2 = nn.LayerNorm(hidden_dim)
+            self.adagn2_proj = nn.Linear(noise_embed_dim, hidden_dim * 2)  # scale + shift
+            self.lin_out = nn.Linear(hidden_dim, out_dim)
+            # Zero-init output and AdaGN projections (starts as identity transform)
+            nn.init.zeros_(self.lin_out.weight)
+            nn.init.zeros_(self.lin_out.bias)
+            # Init AdaGN: scale=1 (bias=0 for first half), shift=0 (bias=0 for second half)
+            nn.init.zeros_(self.adagn1_proj.weight)
+            nn.init.zeros_(self.adagn1_proj.bias)
+            nn.init.zeros_(self.adagn2_proj.weight)
+            nn.init.zeros_(self.adagn2_proj.bias)
+            self.mlp = None  # signal that we use separate layers
+        else:
+            self.noise_embed = None
+            self.mlp = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.SiLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.SiLU(),
+                nn.Linear(hidden_dim, out_dim),
+            )
+            # Zero-init last layer → delta=0 at init → prev_frame unchanged
+            nn.init.zeros_(self.mlp[-1].weight)
+            nn.init.zeros_(self.mlp[-1].bias)
 
         # Noise skip connection: bypass shared hidden layers for per-cell noise
         # Linear(noise_dim, n_cells) gives each cell its own noise projection
@@ -310,13 +349,42 @@ class FrameDecoder(nn.Module):
             return self._forward_per_cell(prev_frame, condition, noise_t,
                                           local_position, horizon_bucket)
         pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
-        pieces = [prev_frame, condition, noise_t, pos_emb]
-        if self.horizon_embed is not None:
-            if horizon_bucket is None:
-                horizon_bucket = torch.zeros_like(local_position)
-            pieces.append(self.horizon_embed(horizon_bucket))
-        x = torch.cat(pieces, dim=-1)
-        delta = self.mlp(x)  # (B, frame_dim)
+
+        if self.adagn_noise_active:
+            # AdaGN path: noise enters via multiplicative scale+shift, not input concat
+            pieces = [prev_frame, condition, pos_emb]
+            if self.horizon_embed is not None:
+                if horizon_bucket is None:
+                    horizon_bucket = torch.zeros_like(local_position)
+                pieces.append(self.horizon_embed(horizon_bucket))
+            x = torch.cat(pieces, dim=-1)
+            # Compute noise embedding once
+            n_emb = self.noise_embed(noise_t)  # (B, noise_embed_dim)
+            # Layer 1 + AdaGN
+            h = self.lin1(x)
+            h = self.ln1(h)
+            scale_shift_1 = self.adagn1_proj(n_emb)  # (B, hidden*2)
+            scale1, shift1 = scale_shift_1.chunk(2, dim=-1)
+            h = (1 + scale1) * h + shift1  # AdaGN: multiplicative modulation
+            h = F.silu(h)
+            # Layer 2 + AdaGN
+            h = self.lin2(h)
+            h = self.ln2(h)
+            scale_shift_2 = self.adagn2_proj(n_emb)  # (B, hidden*2)
+            scale2, shift2 = scale_shift_2.chunk(2, dim=-1)
+            h = (1 + scale2) * h + shift2
+            h = F.silu(h)
+            # Output
+            delta = self.lin_out(h)
+        else:
+            pieces = [prev_frame, condition, noise_t, pos_emb]
+            if self.horizon_embed is not None:
+                if horizon_bucket is None:
+                    horizon_bucket = torch.zeros_like(local_position)
+                pieces.append(self.horizon_embed(horizon_bucket))
+            x = torch.cat(pieces, dim=-1)
+            delta = self.mlp(x)  # (B, frame_dim)
+
         if self.noise_skip_proj is not None and not self.skip_bypass_spread:
             delta = delta + self.noise_skip_proj(noise_t)  # per-cell noise bypass
         return torch.tanh(delta)
@@ -575,6 +643,8 @@ class SinglePassBlockAR(nn.Module):
                 noise_skip=config.ar_noise_skip,
                 skip_bypass_spread=config.ar_skip_bypass_spread,
                 n_cells=frame_dim,
+                adagn_noise=config.ar_adagn_noise,
+                noise_embed_dim=config.noise_embed_dim,
             )
             # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
             if config.ar_factor_noise:

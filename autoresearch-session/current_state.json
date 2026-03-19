@@ -1,12 +1,12 @@
 {
-  "iteration": 34,
-  "experiment_id": "114a_final",
-  "training_status": "complete",
-  "phase": "ready_for_next_direction",
+  "iteration": 35,
+  "experiment_id": "120a",
+  "training_status": "preparing",
+  "phase": "hypothesize",
   "session_best": {"exp": "108a_gaussian_infer", "score": 67.36},
   "total_experiments": 34,
-  "total_investigations": 17,
-  "remaining_directions": ["J (copula)", "M (flow matching)", "L (DiT)"],
+  "total_investigations": 23,
+  "remaining_directions": ["B1 (AdaGN)", "C1 (ACF loss)", "C2 (ortho reg)", "B2 (noise-free MLP)", "D2 (4-factor)", "B3 (dual decoder)", "C3 (LR spread)", "D1 (curriculum)", "F2 (DDIM backprop)", "E3 (multi-ckpt)", "A4 (VIB)"],
   "all_explored": [
     "102a-107a: MLP tweaks (8 exp, all exhausted)",
     "108a-108b: Student-t noise (3 exp, 108a+Gaussian=67.36 BEST)",

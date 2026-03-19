@@ -1,101 +1,112 @@
 [
   {
-    "name": "α: Train Student-t, Infer Gaussian",
-    "theory": "Investigation 1: 80% of 108a improvement from weight regularization, not inference noise. Student-t at inference hurts CI slightly. Cross-swap estimated CI 92.7% with Gaussian inference.",
-    "target": "CI improvement on best model (108a)",
-    "prediction": "CI 92.0% → ~92.7%. Kurtosis preserved. KS may recover 1-2 cells.",
-    "implementation": "Load 108a checkpoint, override noise_dist to gaussian at sample time. Re-run test suite.",
-    "info_value": "LOW but FREE — no training, 10 min",
-    "attempts": 0, "max_attempts": 1, "status": "active"
+    "name": "B1: AdaGN Noise Conditioning in AR FrameDecoder",
+    "theory": "Investigation 2 proved AdaGN is THE rank amplifier (1→22.7 in Conv3D). AR MLP crushes rank to 1.06 via additive concatenation. Replace concat with multiplicative scale+shift after each SiLU.",
+    "target": "Cross-cell correlation (Suite 2 root cause), factor structure",
+    "prediction": "Effective noise rank increases from 1.06 toward GT 2.6. Cross-cell corr decreases.",
+    "implementation": "After each SiLU in MLP: scale, shift = Linear(noise_emb); h = scale * LayerNorm(h) + shift. 120a.",
+    "info_value": "HIGHEST — transfers proven mechanism",
+    "attempts": 0, "max_attempts": 3, "status": "active",
+    "exp_id": "120a"
   },
   {
-    "name": "η: Freeze noise_skip_proj at ep10",
-    "theory": "Investigation 10: ep10 sweet spot is natural two-phase dynamics. noise_skip_proj alignment causes correlation drift. MLP output rank 24.44 at ALL epochs. Freezing skip specifically should lock GT-level correlation permanently.",
-    "target": "Suite 2 (cross-cell correlation), factor structure",
-    "prediction": "Cross-cell corr stays near 0.32 (GT 0.38) instead of drifting to 0.44+.",
-    "implementation": "Add --freeze_skip_after_epoch 10 flag. Freeze noise_skip_proj while keeping cell_spread trainable.",
-    "info_value": "HIGH — most targeted intervention for correlation",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "C1: Explicit ACF Loss",
+    "theory": "Investigation 3+117a: neither VR formulation targets ACF directly. Model deltas have positive lag-1 ACF (+0.16 to +0.83) vs GT (-0.35 to -0.51). Direct ACF penalty: max(0, ACF + 0.25)^2.",
+    "target": "Mean-reversion (Suite 4 time series), Suite 2 cumulative spread",
+    "prediction": "ACF shifts negative. Cumulative VR improves. May help Suite 2.",
+    "implementation": "Compute lag-1 ACF of ensemble deltas, penalize if > -0.25. Lambda sweep 0.1-1.0.",
+    "info_value": "HIGH — targets root cause directly",
+    "attempts": 0, "max_attempts": 3, "status": "active",
+    "exp_id": "123a"
   },
   {
-    "name": "γ: One-Shot Conv3D with 3-Factor Noise Constraint",
-    "theory": "Investigation 2: 111b Conv3D produces ensemble rank 7.46 (GT 2.48). Constraining noise to 3 dims via Linear(3,32) bottleneck should match GT factor structure.",
-    "target": "One-shot factor structure, cross-cell correlation",
-    "prediction": "Ensemble rank 7.46 → ~2.5. Kurtosis may improve from correlation-induced leptokurtosis.",
-    "implementation": "Sample z~N(0,I_3), project through Linear(3,32) before NoiseMLP. One new layer.",
-    "info_value": "HIGH — direct test of rank constraint",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "C2: Orthogonal Regularization on noise_skip_proj",
+    "theory": "Investigation 10: skip alignment is SOLE cause of correlation drift from GT-level (0.32 at ep10) to rank-1 (0.44+). Freezing skip (114a) breaks surface validity. Soft ortho penalty avoids this.",
+    "target": "Cross-cell correlation (Suite 2), factor structure",
+    "prediction": "Skip rows stay diverse. Correlation stays near ep10 level (~0.32).",
+    "implementation": "loss += lambda * mean(|cosine_sim(row_i, row_j)|) for skip weight rows.",
+    "info_value": "HIGH — targeted at sole mechanism",
+    "attempts": 0, "max_attempts": 3, "status": "active",
+    "exp_id": "123b"
   },
   {
-    "name": "β: AR rho=0.5 + Condition-Dependent Offset",
-    "theory": "Investigation 7: MLP Jacobian=-0.74 (mean-reverting!) but rho=0.8 overwhelms 7.2x. Investigation 4: learned rho physically correct. Investigation 9: encoder already provides 62% regime differentiation. Fix: base rho=0.5 + learned offset ±0.2.",
-    "target": "Mean-reversion (ACF +0.16 → GT -0.13), Suite 2",
-    "prediction": "ACF shifts toward GT. VR improves. Growing uncertainty passes (rho≥0.3).",
-    "implementation": "ar_frame_rho=0.5, rho_offset_head: Linear(128→1), clamp total rho to [0.3, 0.7].",
-    "info_value": "HIGH — unlocks MLP mean-reversion",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "B2: Noise-Free MLP Path",
+    "theory": "Investigation 7: MLP Jacobian=-0.74 (mean-reverting!) but noise overwhelms 7.2x. MLP-skip cancellation: MLP learns f(z) ≈ -skip(z). Removing noise from MLP lets natural MR surface.",
+    "target": "Mean-reversion, ACF, VR",
+    "prediction": "MLP mean-reversion emerges. ACF shifts negative. May break kurtosis.",
+    "implementation": "MLP input = [prev, cond, pos] only (no noise). Noise enters exclusively through skip.",
+    "info_value": "HIGH — tests investigation 7 finding",
+    "attempts": 0, "max_attempts": 3, "status": "active",
+    "exp_id": "120b"
   },
   {
-    "name": "ε: Hybrid AR + One-Shot Ensemble",
-    "theory": "AR has kurtosis/KS, one-shot has MR/factor structure. Kurtosis-KS tradeoff is fake (inv 6). K/2 AR + K/2 one-shot members should get best of both.",
-    "target": "All suites — architectural diversity in ensemble",
-    "prediction": "AR kurtosis + one-shot VR + combined factor diversity. Catastrophic decreases.",
-    "implementation": "Dual decoder: half members through FrameDecoder, half through SinglePassDecoder. Single CRPS on combined ensemble.",
-    "info_value": "HIGH — architectural diversity hypothesis",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "D2: 4-Factor + Student-t(df=8) in One-Shot",
+    "theory": "Investigation 115a: CLT on 3-factor Student-t(6) reduces kurtosis too much (0.487). 4 factors = less CLT smoothing, df=8 = lighter input tails.",
+    "target": "One-shot kurtosis improvement",
+    "prediction": "Kurtosis 0.487 → 0.6-0.7.",
+    "implementation": "noise_bottleneck_dim=4, student_t_df=8. Zero code change.",
+    "info_value": "MEDIUM — free experiment",
+    "attempts": 0, "max_attempts": 1, "status": "active",
+    "exp_id": "115a_v4"
   },
   {
-    "name": "δ: Bilateral Absolute Variance Loss",
-    "theory": "Investigation 3: VR ratio loss fails (denominator inflation shortcut). Bilateral absolute target: |cum_var(h) - GT_cum_var(h)| per cell. No ratio. No asymmetry.",
-    "target": "Mean-reversion calibration without CI collapse",
-    "prediction": "Cumulative spread calibrated. CI preserved.",
-    "implementation": "Precompute GT cum_var per cell per horizon. Loss = log-ratio squared (symmetric).",
-    "info_value": "MEDIUM — fixes VR failure mode",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "B3: Hybrid AR + One-Shot Dual Decoder (Training)",
+    "theory": "Post-hoc hybrid showed CI 97.0%, corr matches GT (0.501 vs 0.505). Joint training could be even better — CRPS on combined ensemble forces architectural diversity.",
+    "target": "All suites — architectural diversity",
+    "prediction": "Better than post-hoc mixing. Corr stays near GT. CI improves.",
+    "implementation": "Single model with both decoders. K/2 from each. Single CRPS.",
+    "info_value": "HIGH — proven by proxy",
+    "attempts": 0, "max_attempts": 3, "status": "active",
+    "exp_id": "121a"
   },
   {
-    "name": "J: Copula Decomposition (Marginals + Dependence)",
-    "theory": "Per-cell marginals are reasonable but cross-cell structure is rank-1. Copula separates these: model produces quantiles, copula resamples with realistic correlation.",
-    "target": "Cross-cell structure (Suite 6), joint distribution",
-    "prediction": "Better cross-cell correlation without breaking per-cell quality.",
-    "implementation": "Stage 1: 108a produces quantiles. Stage 2: vine/neural copula. PROXY: apply GT copula to 108a quantiles and re-evaluate.",
-    "info_value": "MEDIUM — tests decomposability",
-    "attempts": 0, "max_attempts": 3, "status": "active"
-  },
-  {
-    "name": "ζ/K: CSDI-Style 2D Attention Denoiser",
-    "theory": "CRPS has zero cross-cell AND zero cross-time gradient. CSDI 2D attention couples all cells+timesteps. Score matching loss, not CRPS. Code in external/csdi/.",
-    "target": "Root cause: CRPS limitations. Different paradigm.",
-    "prediction": "Realistic joint distributions. Inference 50x slower.",
-    "implementation": "Adapt external/csdi/ (180 lines). PROXY: Conv3D with temporal attention replacing AdaGN.",
-    "info_value": "HIGHEST — different paradigm entirely",
-    "attempts": 0, "max_attempts": 3, "status": "active"
-  },
-  {
-    "name": "O: DDPM→CRPS Two-Phase (Full Model)",
-    "theory": "ECMWF approach. Phase 1: DDPM full model. Phase 2: fine-tune with afCRPS via DDIM. Gets diffusion joint distribution + CRPS calibration.",
-    "target": "Joint distribution + calibration",
-    "prediction": "Better factor structure from diffusion + calibrated coverage.",
-    "implementation": "Extend DDPM training to 30-frame. DDIM(5 steps) + afCRPS. PROXY: fine-tune existing DDPM checkpoint.",
+    "name": "C3: Low-Rank Per-Cell Spread (3 Shared Factors)",
+    "theory": "Investigation 5: independent per-cell spread destroys coherence. Low-rank couples cells through 3 shared factors → preserves spatial structure.",
+    "target": "Per-cell spread structure",
+    "prediction": "Better spread coherence. May help Suite 7 regime coverage.",
+    "implementation": "cell_spread_linear = Linear(128→3) @ Linear(3→25).",
     "info_value": "MEDIUM",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "attempts": 0, "max_attempts": 2, "status": "active",
+    "exp_id": "124a"
   },
   {
-    "name": "M: Conditional Flow Matching (replace CRPS)",
-    "theory": "Flow matching learns joint distribution via ODE velocity field. Full cross-cell gradient. TSFlow (ICLR 2026). Architecture already improved factor structure with same CRPS, but FM addresses noise suppression.",
-    "target": "CRPS dynamics suppression",
-    "prediction": "Better diversity. New training framework.",
-    "implementation": "Replace afCRPS with CFM loss. PROXY: one-shot Conv3D with MSE on single sample.",
-    "info_value": "MEDIUM — architecture mattered more than loss",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "D1: Curriculum Noise (Gaussian → Student-t at Freeze)",
+    "theory": "Investigation 8: per-step Student-t suppresses weights during Phase 1. Curriculum separates MLP development (Gaussian) from regularization (Student-t after freeze).",
+    "target": "Kurtosis without weight suppression",
+    "prediction": "Better kurtosis than Student-t throughout. Better MLP development.",
+    "implementation": "Gaussian noise ep1-10, Student-t(df=6) ep11+.",
+    "info_value": "MEDIUM",
+    "attempts": 0, "max_attempts": 2, "status": "active",
+    "exp_id": "126a"
   },
   {
-    "name": "L: DiT (Diffusion Transformer)",
-    "theory": "Full transformer encoder+decoder. 750 tokens (25 cells × 30 steps). Most Bitter-Lesson aligned. TimeDiT, DiTS show viability.",
-    "target": "Everything — most general architecture",
-    "prediction": "If works: scale is all you need. If fails: data floor.",
-    "implementation": "PROXY: add 1-2 attention layers to Conv3D decoder first.",
-    "info_value": "MEDIUM — important long-term, expensive",
-    "attempts": 0, "max_attempts": 3, "status": "active"
+    "name": "F2: Full DDIM Backprop + afCRPS",
+    "theory": "118b_v2 showed CRPS fine-tuning at t=[20,60] produces diversity (s/m=0.95) but sampling is uncalibrated. Full DDIM backprop would calibrate end-to-end.",
+    "target": "Attention denoiser calibration",
+    "prediction": "Better calibration than 118b_v2. Potentially competitive with AR.",
+    "implementation": "Backprop through 5-10 DDIM steps + afCRPS on final output.",
+    "info_value": "HIGH — but expensive",
+    "attempts": 0, "max_attempts": 2, "status": "active",
+    "exp_id": "119a"
+  },
+  {
+    "name": "E3: Multi-Checkpoint Ensemble (108a + 99m_v2 + 111b)",
+    "theory": "Different architectures have complementary strengths. 17 samples from each → 51 members.",
+    "target": "All suites — extreme diversity",
+    "prediction": "Best composite score. Tests ceiling of diversity approach.",
+    "implementation": "Inference only. Load 3 checkpoints, 17 samples each, combine.",
+    "info_value": "MEDIUM — free",
+    "attempts": 0, "max_attempts": 1, "status": "active",
+    "exp_id": "inference_only"
+  },
+  {
+    "name": "A4: Principled Encoder Training — VIB",
+    "theory": "Analysis A proved MSE collapses to rank 2, DDPM prevents via push-pull. VIB explicitly controls information bottleneck: minimize I(input;condition) while maximizing I(condition;target).",
+    "target": "Replace DDPM encoder with principled alternative",
+    "prediction": "Better factor structure if beta tuned correctly.",
+    "implementation": "New encoder training loop with KL + reconstruction loss.",
+    "info_value": "HIGH — but large effort",
+    "attempts": 0, "max_attempts": 2, "status": "active",
+    "exp_id": "130a"
   }
 ]
