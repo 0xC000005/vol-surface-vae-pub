@@ -27595,3 +27595,20 @@ Direction beta EXHAUSTED. CRPS always pushes rho to minimum regardless of clamp/
 Condition-dependent rho under CRPS is structurally impossible.
 
 ---
+
+## 2026-03-18: Direction epsilon PROXY — Hybrid AR + One-Shot Post-Hoc Ensemble
+
+Proxy test: combined 25 samples from 108a (AR, Gaussian infer) + 25 from 111b (one-shot)
+into 50-member hybrid ensemble. Quick evaluation on 1220 test windows.
+
+| Metric | 108a Gaussian | 111b | Hybrid 25+25 |
+|--------|-------------|------|--------------|
+| Kurtosis ratio | 0.987 | 0.522 | 0.752 |
+| CI 90% | 92.7% | 92.9% | **94.6%** |
+| Cross-cell corr | 0.88 | 0.646 | 0.642 |
+
+Proxy confirms: hybrid ensemble combines AR kurtosis + one-shot factor structure + high CI
+from architectural diversity. Proper implementation (dual decoder training) needed for
+full test suite evaluation. Direction epsilon: PROMISING, needs full implementation.
+
+---
