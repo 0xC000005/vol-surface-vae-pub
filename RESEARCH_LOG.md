@@ -28875,3 +28875,20 @@ heavy tails from Student-t skip noise. The catastrophic improvement is dramatic
 alongside 97a+qmap. Combines noise-free MLP architecture with Gaussian inference trick.
 
 ---
+
+## 2026-03-19: E4 — 4-Model Ensemble (108a+99m_v2+111b+120b) — NEW ALL-TIME BEST 68.74
+
+### Results
+Score **68.74** (4 models x 13 samples = 52 members). Beats E3 (68.33) by +0.41.
+Kurtosis 0.950, CI 95.0%, turb/calm 1.598, KS 18/25, coint 0.725.
+Still 5/8 — same failure pattern (Suite 2 per-cell, Suite 7 regime, Suite 8 distributional).
+
+120b contributes highest individual coverage (90.1% from just 13 samples).
+
+### What This Means
+- Adding the noise-free MLP architecture to the ensemble provides complementary diversity
+- 4 architecturally different models > 3 > any single model
+- The 5/8 ceiling is robust even with maximum ensemble diversity
+- Breaking 5/8 requires fundamentally different architecture or training paradigm
+
+---
