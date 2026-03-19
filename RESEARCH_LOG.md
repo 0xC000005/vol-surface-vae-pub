@@ -29353,3 +29353,77 @@ tanh caps cumulative spread.
    depending on architecture: concat = progressive decay, AdaGN = immediate projection limit
 
 ---
+
+## 2026-03-19: Post-Round-3 Completeness Check — All Experiments Audited
+
+### Final Investigation Status (All ~50 Experiments)
+
+After Round 3 (8 parallel investigations), ALL experiments now have either deep investigation,
+adequate analysis, or are subsumed by a parent investigation. No remaining gaps.
+
+| Category | Count | Experiments |
+|----------|-------|-------------|
+| Deep investigation (diagnostic scripts + new numbers) | **24** | 103a, 107a, 108a, 108b, 110a, 111b, 113a, 114a, 115a, 116a, 117a, 118a, 118b, 120a, 120b, 123b, E3/E4, 128a, 126a, 120b+Gauss, 120b_v2, 115a_v4, 120b_v3, 120b_v4 |
+| Adequate analysis (from logs/cross-reference) | **8** | 123a, 124a, 108a_v2, 111b_scratch, 113a_v2, 92a/92b, 93a, 94a |
+| Subsumed by parent | **14** | 102a, 103a_v2, 104a, 105a/v2, 106a, 109a, 111a, 111b_v2, 115a_v2, 115a_v3, 118b_v2, 114a final, E4 (by E3) |
+| Early-era with solid original analysis | **6** | 90f, 90m, 91a/c/d/e, 93d/e/f, 95a, 99l, 100a, 101a |
+
+### Cross-Cutting Findings Not Yet Acted On
+
+These emerged from the investigations but haven't been tested yet:
+
+#### 1. Student-t Normalizer Bug (HIGHEST PRIORITY — zero training cost)
+**Source**: 120b+Gauss investigation
+**Finding**: `/1.414` normalizer is wrong for df=6. Should be `/1.2247` (= sqrt(df/(df-2))).
+Student-t runs at 86.6% amplitude → systematically narrower CIs than designed.
+**Action**: Fix normalizer in `_sample_noise()`, re-evaluate ALL Student-t models.
+This could flip multiple models from 5/8 to potentially better scores.
+**Estimated impact**: Every Student-t model gets ~15% wider spread → better CI, more
+catastrophic improvement. May hurt KS slightly (wider distributions).
+
+#### 2. df=20 at Inference (FREE kurtosis improvement)
+**Source**: 115a_v4 investigation
+**Finding**: On AR models, df=20 gives kurtosis ratio 1.008 (perfect) with CI 92.4%.
+Student-t compounding over 30 AR steps amplifies excess kurtosis multiplicatively.
+**Action**: Test df=20 inference on 108a and 120b. Zero training cost.
+**Risk**: May hurt CI slightly (92.4% vs 94.3% at df=8).
+
+#### 3. Checkpoint ep40 Sweet Spot for 120b_v3
+**Source**: 120b_v3 investigation
+**Finding**: cell_var slope reverses at ep31. Epoch 33-38 is the tradeoff sweet spot.
+checkpoint_epoch_40.pt (cell_var ~0.748) is available for evaluation.
+**Action**: Run test suite on 120b_v3/checkpoint_epoch_40.pt.
+
+#### 4. B3 Dual Decoder Should Be AR + Conv3D (NOT AR + AR)
+**Source**: E3/E4 investigation
+**Finding**: 111b (Conv3D) is 2.5x more valuable than any second AR model in ensemble.
+Three AR models are 94.5-94.9% correlated with each other. Conv3D provides only true
+architectural diversity (corr 0.889 with AR models).
+**Action**: When implementing B3, design as 1 AR decoder + 1 Conv3D decoder, not 2 AR variants.
+
+#### 5. Per-Cell Noise Scaling (Not Ortho Reg) for Skip Norm Imbalance
+**Source**: 120b_v2 investigation
+**Finding**: Skip weight norms have 35x range. Ortho reg fixes directions (cosim 0.787→0.228)
+but norms are unchanged. The noise sensitivity bottleneck is magnitude-based.
+**Action**: Add learned per-cell noise scale on skip output. Different from 102a (which
+scaled the entire delta, not just skip). In noise-free MLP mode, this directly controls
+the only stochastic pathway.
+
+### Experiments That Could Be Retried With Bug Fixes
+
+| Experiment | Bug | Potential Fix | Expected Impact |
+|-----------|-----|--------------|----------------|
+| 124a (LR spread) | Double zero-init gradient trap | Normal init on expand layer | Test if low-rank spread coupling actually helps |
+| ALL Student-t models | /1.414 normalizer wrong for df=6 | /1.2247 normalizer | ~15% wider CIs across all Student-t experiments |
+
+### What's Truly Exhausted (No Further Analysis Needed)
+
+These directions have been deeply investigated and the mechanisms fully understood:
+- **Loss engineering for autocorrelation**: 3/3 failed (113a, 117a, 123a) — emergent from rho+MLP
+- **Skip-level regularization**: ortho reg works mechanistically but skip is 4-100% of output → norms dominate
+- **Deeper MLP**: progressive noise decay (128a), immediate collapse (120a) — 2 layers is optimal
+- **Curriculum noise**: frozen MLP can't learn fat-tail mapping post-switch
+- **One-shot kurtosis**: limited by Conv3D temporal smoothing, not noise distribution
+- **Independent per-cell control**: CRPS always destroys spatial coherence (110a, 98a, 92b)
+
+---
