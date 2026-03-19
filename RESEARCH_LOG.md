@@ -27629,3 +27629,40 @@ catastrophic collapse) but still worse than no VR loss. The fundamental
 tension between CRPS and variance targeting persists regardless of formulation.
 
 ---
+
+## 2026-03-18: Exp 118a — CSDI Proxy: 2D Attention Denoiser (Direction zeta/K)
+
+### Architecture
+Minimal CSDI-style denoiser: 4 residual blocks, each with temporal self-attention
+(across 30 timesteps) + feature self-attention (across 25 cells). 568K params.
+Trained with DDPM score matching loss (cosine schedule, T=200), sampled via DDIM(20 steps).
+Frozen GRU encoder for conditioning. Training: 5.7s/epoch (30 epochs = 170s total).
+
+### Quick Evaluation (10 test windows, 20 samples)
+- CI 90%: 72.7% (AR baseline: 92.7%) — significantly under-spread
+- Kurtosis ratio: 0.102 (AR: 0.987) — near-Gaussian samples
+- Sample range: [0.001, 1.0], mean 0.23 — valid IV surface range
+
+### Analysis
+The 2D attention architecture WORKS — loss converges (0.43→0.082), generates valid IV
+surfaces. But DDPM+DDIM pipeline is under-calibrated after only 30 epochs with no tuning:
+- Under-spread: DDIM(20 steps) may not produce enough diversity. Need more steps or
+  different sampler.
+- Low kurtosis: DDPM with MSE loss produces near-Gaussian predictions (same issue as the
+  MSE-pretrained encoder finding from 90f). Score matching loss doesn't produce fat tails.
+- Would need: (a) more training epochs (100+), (b) tuned DDIM steps, (c) possibly
+  CRPS fine-tuning phase on top of DDPM pretraining (Direction O approach).
+
+### What Was Learned
+1. 2D attention on (25 cells x 30 steps) is computationally cheap (5.7s/epoch, 568K params)
+2. The attention architecture can learn IV surface generation from score matching
+3. But DDPM alone produces under-spread, near-Gaussian samples — the same limitation
+   that motivated the switch from DDPM to afCRPS in the first place (Exp 89)
+4. Direction O (DDPM→CRPS two-phase) is the natural next step: pretrain this attention
+   denoiser with DDPM, then fine-tune with afCRPS for calibration
+
+### Decision
+PROMISING but needs Phase 2 (CRPS fine-tuning). The attention denoiser is viable
+architecturally. Next experiment should combine this with afCRPS.
+
+---
