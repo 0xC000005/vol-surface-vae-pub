@@ -28764,3 +28764,29 @@ Direction B3: Dual decoder (FrameDecoder + SinglePassDecoder in one model).
 K/2 members from each decoder, single CRPS on combined ensemble.
 
 ---
+
+## 2026-03-19: Exp 115a_v4 — 4-Factor + Student-t(df=8) One-Shot — 5/8, Score 66.25
+
+### Context
+Direction D2: zero-code hyperparameter change. 3-factor + df=6 (115a) gave kurtosis 0.487.
+Hypothesis: 4 factors = less CLT smoothing, df=8 = lighter tails.
+
+**Based on**: 115a (3-factor, df=6) + Investigation 115a (CLT analysis)
+
+### Results
+
+| Metric | 115a_v4 | 115a (3-factor) | 99m_v2 |
+|--------|---------|----------------|--------|
+| Score | 66.25 | — | 66.31 |
+| Kurtosis | 0.823 | 0.487 | 0.845 |
+| KS daily | — | — | 20/25 |
+
+### Analysis
+4 factors + df=8 improves kurtosis over 3-factor+df=6 (0.823 vs 0.487) but doesn't exceed
+baseline (0.845). One-shot kurtosis is limited by architecture (Conv3D temporal smoothing
+dampens excess kurtosis) not noise distribution. Direction D2 exhausted.
+
+### Decision
+**VALUABLE FAILURE**. One-shot kurtosis ceiling is architectural, not distributional.
+
+---
