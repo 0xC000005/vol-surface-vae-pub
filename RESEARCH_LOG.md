@@ -28892,3 +28892,26 @@ Still 5/8 — same failure pattern (Suite 2 per-cell, Suite 7 regime, Suite 8 di
 - Breaking 5/8 requires fundamentally different architecture or training paradigm
 
 ---
+
+## 2026-03-19: Exp 120b_v3 — Noise-Free MLP 60 Epochs — 4/8 REGRESSION
+
+### Context
+Full 60-epoch budget for 120b (noise-free MLP, best at 30ep with score 67.09/67.6).
+
+### Results
+**4/8 PASS, score 56.63 (Student-t) / 58.63 (Gaussian)** — major regression from 30ep 5/8.
+cell_var_loss increased 0.67→0.82 — more training made per-cell spread DIVERGE from GT.
+Kurtosis 1.301 (Student-t) / 1.038 (Gaussian) — both too high or borderline.
+
+### Analysis
+CRPS over-trains the skip weights beyond 30 epochs. The noise-free MLP architecture
+converges quickly (mean prediction stabilizes by ep10, skip diversity develops ep10-30)
+then CRPS spread suppression kicks in (ep30-60), compressing skip diversity while
+increasing per-cell variance mismatch. This is the same dynamics as 99l_v3 (freeze at
+ep10 helps, more training hurts). **30 epochs is the sweet spot for noise-free MLP.**
+
+### Decision
+**VALUABLE FAILURE**. 120b optimal at 30ep. Quick-then-full strategy confirmed:
+this direction does NOT benefit from full budget.
+
+---
