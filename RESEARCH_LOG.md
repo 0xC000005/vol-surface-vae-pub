@@ -30362,3 +30362,56 @@ saturation. Two follow-up variants:
 5. h30/h1 variance ratio is the key kurtosis predictor (2.52x → kurt 0.27, 3.53x → kurt 0.85)
 
 ---
+
+## 2026-03-20: Exp 132a_v2, 132b — H3 CLN Variants: Freeze and Warmup
+
+### Context
+H3 (CLN/AdaGN) showed spatial rank breakthrough (eff_rank 3.83-4.99) but kurtosis collapse.
+Two variants to address variance saturation: (1) freeze at peak diversity, (2) horizon warmup.
+
+### Results
+
+| Exp | Config | Kurtosis | Coint | eff_rank (peak) | Suites | Score |
+|-----|--------|----------|-------|-----------------|--------|-------|
+| 132a | 4L CLN, 10ep | 0.272 | 0.498 | 3.83 | 3/8 | 44.24 |
+| 132a_v2 | + freeze@ep5, 30ep | 0.067 | — | 2.21→1.44 | — | — |
+| 132b | + warmup(10)+freeze@ep10, 30ep | 0.166 | **1.181** | **4.99** | 4/8 | 54.63 |
+| 99m_v2 | baseline | **0.845** | 0.675 | 1.57 | 5/8 | 66.31 |
+
+### Analysis
+
+**132a_v2 (freeze at ep5)**: Kurtosis stuck at 0.067 for all 24 post-freeze epochs.
+Freeze doesn't help because variance saturation is a GENERATION-TIME problem — the frozen
+CLN still produces full-strength noise modulation at h=1. The skip path adapted to CRPS,
+collapsing eff_rank from 2.21→1.44 despite frozen CLN. Freeze preserves CLN weights but
+not diversity because the skip/spread continue to rank-compress.
+
+**132b (warmup + freeze at ep10)**: Best CLN variant. Warmup scales CLN by min(1, t/10):
+zero noise at h=1, full at h=11+. Kurtosis improved 0.067→0.166 (2.5x better than 132a_v2)
+but still far below 0.5 target. Cointegration is excellent (1.181, best ever!) because
+warmup preserves low-rank comovement structure at early horizons. Eff_rank peaked at 4.99
+(ep5) then compressed to 1.95 (ep20) by skip/spread adaptation.
+
+**Root cause of kurtosis failure**: CLN modulates hidden state multiplicatively at every
+frame. Even with warmup (frames 11-30 at full CLN strength), the variance growth profile
+is flatter than baseline: the 20 full-CLN frames dominate the pooled kurtosis statistic.
+The h30/h1 variance ratio (which drives kurtosis) can't be recovered.
+
+### H3 Falsification Result
+**CONFIRMED: CLN + AR MLP cannot simultaneously achieve diversity AND kurtosis.**
+Kurtosis < 0.5 in all 3 variants despite eff_rank up to 4.99. Variance saturation
+is structural — CLN's multiplicative modulation flattens variance growth, destroying the
+horizon-heterogeneity that creates kurtosis (h^0.49 in baseline → h^0.35 in CLN).
+
+### Decision
+H3 EXHAUSTED. Proceed to H4 (non-AR generation with attention decoder).
+
+### What Was Learned
+1. CLN warmup preserves h=1 calibration AND cointegration (1.181, best ever)
+2. Freeze can't fix variance saturation — it's a generation-time property, not training
+3. Skip/spread continue to rank-compress even with frozen CLN (2.21→1.44 in 24 epochs)
+4. The kurtosis-diversity tradeoff is fundamental in AR+CLN: diversity requires CLN
+   modulation, but CLN modulation flattens variance → kills kurtosis
+5. Cointegration benefits enormously from reduced cross-cell correlation (0.085 at ep20)
+
+---
