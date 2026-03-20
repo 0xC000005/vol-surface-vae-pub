@@ -10436,8 +10436,6 @@ Potential fixes (not yet implemented):
 
 Issues #5-#11 are secondary. Most are acceptable with documentation for a scenario
 generator (as opposed to a single-path simulator or a pricing engine).
-
-
 ## 2026-02-26: Issue Fix Experiments (24a-24c, 25)
 
 ### Context
@@ -10611,8 +10609,6 @@ across all experiments. Investigation reveals:
 **Conclusion**: Butterfly arbitrage at 28-31% is NOT a model failure — it accurately
 reflects the inherent constraints of a 5-point moneyness grid. The issue is
 documented but does not require a fix.
-
-
 ## 2026-02-26: Full Review — VS Bestval Against All 11 Issues
 
 ### Model Under Review
@@ -29560,5 +29556,629 @@ there are more redundant noise dimensions for CRPS to compress.
 ### Decision
 **VALUABLE FAILURE**. Wider noise makes things worse for per-cell metrics.
 noise_dim=32 is the right scale. Direction exhausted.
+
+---
+
+## 2026-03-20: Literature Survey — Breaking the 5/8 Ceiling
+
+### Context
+Comprehensive online literature survey across 5 research domains to find novel approaches
+that could break the 5/8 test suite ceiling. Core bottlenecks targeted: (1) CRPS is
+structurally correlation-agnostic (zero cross-cell gradient → rank-1 collapse), (2) 2-layer
+MLP crushes noise to rank 1, (3) skip path carries only 4% of output magnitude.
+
+### Domain 1: Flow Matching & Rectified Flows for Time Series
+
+**Top finding: CW-Gen (ICLR 2026)** — Conditionally Whitened Generative Models.
+Separates covariance estimation (JMCE module) from sample diversity generation.
+Whitens targets so marginal CRPS in decorrelated space preserves original correlation.
+91.67% win rate on CRPS metrics across 5 datasets × 6 backbones. Works with both
+diffusion (CW-Diff) and flow matching (CW-Flow). [arXiv:2509.20928]
+
+Other notable papers:
+- **TSFlow (ICLR 2025)**: GP prior replaces isotropic N(0,I) with temporal covariance
+  structure. Decoder only learns residual. [arXiv:2410.03024]
+- **FlowTS**: Rectified flow with single-step generation (FID 0.019 on Stock vs prev 0.067).
+  Attention registers for cross-channel aggregation. [arXiv:2411.07506]
+- **Wasserstein Flow Matching (ICML 2025)**: Lifts flow matching to operate on entire
+  distributions, not individual points. Ensemble = single geometric entity. [arXiv:2411.00698]
+- **Smooth Flow Matching**: Copula flow separating marginal estimation from dependence.
+  [arXiv:2508.13831]
+- **CGFM**: Model-agnostic wrapper — keep deterministic predictor, add flow matching head
+  for residual distribution including covariance. [arXiv:2507.07192]
+
+### Domain 2: Correlation-Aware Losses & Copulas
+
+**Top finding: Variogram Score** — directly penalizes wrong pairwise dependence:
+`VS_p = Σ w_ij (E[|X_i - X_j|^p] - |y_i - y_j|^p)²`. With p=0.5, most discriminative
+for correlation. Computable from ensemble members, differentiable. NOT strictly proper
+alone — must combine with CRPS: `L = afCRPS + λ_vario * VS_0.5`. [Scheuerer & Hamill 2015;
+Lakatos 2026; Allen et al. ASCMO 2025, arXiv:2407.00650]
+
+Other notable approaches:
+- **MVG-CRPS (NeurIPS 2024 workshop)**: SVD whitening makes CRPS correlation-aware.
+  `L = Σ √λ_i · CRPS(N(0,1), w_i)` where w = S^{-1/2} U^T (z-μ). 30-50x faster than ES.
+  Requires parametric (Gaussian) assumption. [arXiv:2410.09133]
+- **Conditional CRPS (ECML-PKDD 2023)**: Decomposes into marginal + conditional terms.
+  Conditional terms create explicit gradients for correlation. [Roordink & Hess]
+- **Patched Energy Score (JMLR 2024)**: ES on 2x2 sub-grids of 5x5 surface. 16 patches,
+  each highly sensitive to local correlation. Sum of proper scores = proper. [Pacchiardi et al.]
+- **Signature Kernel MMD**: Treats trajectories as 25-dim paths, captures temporal + cross-cell
+  dependence jointly via iterated integrals. [arXiv:2407.19848, Chung et al. 2024]
+- **Signature Kernel Scoring Rule (ICLR 2025)**: Formalizes signature approach as strictly
+  proper scoring rule for stochastic processes. [arXiv:2510.19110]
+- **Sliced MMD with Riesz kernels (ICLR 2024)**: Exact 1D projections for energy distance.
+  O(N log N) per direction. [Hertrich et al.]
+- **Aggregation-and-Transformation Framework (ASCMO 2025)**: Meta-framework for building
+  composite proper scoring rules: `L = w1*afCRPS + w2*VS_0.5 + w3*PatchES(2x2)`. [arXiv:2407.00650]
+
+### Domain 3: RL for Generative Model Fine-Tuning
+
+**Top finding: FGN (DeepMind, June 2025)** — proves CRPS-trained marginals CAN learn joint
+correlation through shared low-dim noise + functional perturbations (sampling weight
+perturbations, not adding noise to inputs). 6.5% better CRPS than GenCast on 99.9% of
+targets. Validates shared noise → correlation mechanism. [arXiv:2506.10772]
+
+**REINFORCE with RLOO baseline**: Define R = composite of test suite metrics (KS + coint +
+kurtosis + CI). Use K=8 members for leave-one-out baselines. ~50 lines on existing loop.
+
+Other notable approaches:
+- **ORW-CFM (ICLR 2025)**: RL into flow matching with W2 regularization for non-differentiable
+  rewards. No reward gradients needed. [arXiv:2502.06061]
+- **DRaFT (ICLR 2024)**: Backprop reward gradients through full sampling chain with LoRA.
+  30-step AR loop ≈ 30-step denoising chain. [arXiv:2309.17400]
+- **DRAKES (ICLR 2025)**: REINFORCE + KL penalty for non-differentiable rewards.
+  [arXiv:2410.13643]
+- **Diffusion-DPO (CVPR 2024)**: Preference pairs from test suite scores. Step-aware variant
+  interesting — early frames need accuracy, late frames need growing uncertainty.
+  [arXiv:2311.12908]
+- **Pareto-guided RL (NeurIPS 2025)**: Multi-objective optimization without scalarization.
+  Pareto dominance as reward signal. [IBM Research]
+- **Decision-Focused Scenario Generation (NeurIPS 2025)**: Train generator to minimize
+  downstream decision cost, bypassing distributional matching entirely. [openreview.net]
+
+### Domain 4: Novel Architectures
+
+**Top finding: Conditional Layer Normalization for noise injection** (from AIFS-CRPS, ECMWF).
+Noise enters through normalization layers throughout the network, not a single skip path.
+Directly addresses "skip is only 4% of output magnitude" problem. [arXiv:2412.15832]
+
+**Rotation modulation (May 2025)**: Replace scale/shift with learned rotations. Unitary ops
+preserve rank by construction. ~12.8% FID improvement, 5.4% fewer params. [arXiv:2505.19122]
+
+**"Noise conditioning may be optional" (ICML 2025, Kaiming He)**: Models perform well or
+BETTER without noise conditioning. Validates our Exp 120b finding. [arXiv:2502.13129]
+
+Other notable architectures:
+- **TACTiS-2 (ICLR 2024)**: Two-encoder (marginals + copula), two-stage training. Stage 1:
+  CRPS for marginals. Stage 2: freeze marginals, train copula. Principled version of
+  "freeze at epoch 10". [arXiv:2310.01327]
+- **DiTS (Feb 2026)**: Dual-stream factorized Time Attention + Variate Attention. Learnable
+  low-rank decomposition. [arXiv:2602.06597]
+- **TimeDiT (KDD 2025)**: AdaLN distributes conditioning across every transformer layer.
+  Avoids 2-layer MLP depth limit. [arXiv:2409.02322]
+- **FDM: Neural SDE training (ICLR 2025)**: O(D) training for Neural SDEs. State-dependent
+  covariance matrix maintains multi-factor structure. [ICLR 2025 proceedings]
+- **CW-Gen**: Also appeared here — consensus #1 across all agents. [arXiv:2509.20928]
+- **CCDM**: Channel-aware contrastive diffusion. Contrastive loss orthogonal to CRPS,
+  explicitly preserves temporal dependencies. [arXiv:2410.02168]
+- **Mamba/S5 encoder**: Selective SSM with MIMO cross-variable coupling as GRU replacement.
+  Input-dependent state transitions may avoid rank collapse. [arXiv:2503.10873]
+- **Copula-Based Correlated Sample Paths**: Gaussian copula + AR(1) for one-pass correlated
+  generation, 3.7-100x faster than AR sampling. [arXiv:2510.02224]
+
+### Domain 5: Financial Scenario Generation
+
+**Top finding: No model captures correlation dynamics** (Caulfield & Gleeson 2024).
+Systematic comparison of RCGAN, TimeGAN, GMMN, CoMeTS, CTVAE, CTNF. RCGAN best overall
+but ALL models fail on conditional correlation drivers. Validates that correlation needs
+explicit architectural support. [arXiv:2412.06417]
+
+Notable domain-specific work:
+- **VolGAN (Applied Math Finance 2025)**: GAN for IV surface + underlying dynamics.
+  Arbitrage weighting scheme. [tandfonline, GitHub: milenavuletic/VolGAN]
+- **DDPM for IV Surfaces (Nov 2025)**: Conditional DDPM with SNR-weighted arbitrage loss.
+  FiLM conditioning. Outperforms VolGAN on MAPE. [arXiv:2511.07571]
+- **HyperIV (ICML 2025)**: Hypernetwork for arbitrage-free IV surfaces. Cross-asset
+  generalization. [openreview.net]
+- **ARBITER (2025)**: Neural operator for joint SPX-VIX term structures. Lipschitz
+  projections for hard no-arb constraints. [arXiv:2511.06451]
+- **MacroVAE (ICAIF 2025)**: Conditional VAE with FiLM conditioning on macro indicators.
+  Disentangles macro context from latent return dynamics. [ACM ICAIF]
+- **Time-Causal VAE (2024)**: Causal Wasserstein bounds for scenario generators used in
+  optimization. [arXiv:2411.02947]
+- **Diffusion for Correlation Matrices (ICAIF 2024)**: DDPM generating conditional
+  correlation matrices. Relevant for multi-factor extension. [ACM ICAIF]
+- **FinCast (CIKM 2025)**: 1B param finance foundation model with MoE. PQ-loss combining
+  point + distributional objectives. [arXiv:2508.19609]
+- **MarS (Microsoft)**: Large Market Model following scaling laws. [GitHub: microsoft/MarS]
+- **Patched Energy Scores (JMLR 2024)**: Also relevant here — correlation sensitivity via
+  sub-grid scoring. [JMLR vol.25]
+- **Multivariate CRPS Learning (2024)**: Generalizes CRPS to multivariate via smoothing.
+  [ScienceDirect]
+
+### Cross-Domain Consensus: Top Actionable Directions
+
+| Rank | Approach | Effort | Impact | Agents Recommending |
+|------|----------|--------|--------|-------------------|
+| 1 | **CW-Gen conditional whitening** | Medium | High | Flow, Arch, Corr |
+| 2 | **Variogram Score auxiliary loss** | Low | High | Flow, Corr, FinML |
+| 3 | **Conditional LayerNorm noise injection** | Medium | High | Arch, FinML, RL |
+| 4 | **Patched Energy Score (2x2 sub-grids)** | Low | Medium | Corr, FinML |
+| 5 | **TACTiS-2 two-stage (marginals→copula)** | Medium | High | Arch, Corr |
+| 6 | **REINFORCE w/ RLOO on composite reward** | Low | Medium | RL |
+| 7 | **FiLM conditioning (replace concat)** | Low | Medium | Arch, FinML |
+| 8 | **Rotation modulation (rank-preserving)** | Medium | Medium | Arch |
+| 9 | **Structured noise prior (GP/covariance)** | Medium | Medium | Flow |
+| 10 | **Neural SDE with FDM training** | High | High | Arch |
+
+### Decision
+This is a literature survey for ideation. No immediate implementation decision. Key insight:
+**CW-Gen** (conditional whitening) is the strongest consensus finding — it architecturally
+separates covariance learning from diversity generation, directly addressing the CRPS
+correlation-agnosticism bottleneck. The Variogram Score is the lowest-effort high-impact
+addition. Both are Bitter-Lesson-compatible (learned from data, no domain heuristics).
+
+Next: evaluate which approaches to prototype first based on effort/impact tradeoffs and
+compatibility with existing SinglePassBlockAR architecture.
+
+---
+
+## 2026-03-20: Meta-Research — Science of Ideation & AI Tools for Research
+
+### Context
+Literature survey on the meta-level question: how to systematically generate novel research
+ideas. Covers science of science, AI ideation tools, Claude Code skills/MCP servers for
+research, and structured creativity frameworks.
+
+### Part A: Science of Science — How Breakthroughs Happen
+
+**Key empirical finding (Si et al., ICLR 2025)**: LLM-generated ideas are MORE novel
+(p<0.05) than human expert ideas but weaker on feasibility. Critical follow-up (June 2025):
+after 100+ hours of execution, LLM idea scores dropped significantly more than human ideas
+on ALL metrics. The novelty advantage evaporated during implementation. [arXiv:2409.04109,
+arXiv:2506.20803]
+
+**Declining disruption (Park et al., Nature 2023)**: 91.9-100% decline in disruptive papers
+since 1945 across all fields. Key cause: scientists draw on narrower knowledge. Breadth of
+knowledge inputs predicts disruption. [Nature 41586-022-05543-x]
+
+**Practical ideation frameworks**:
+1. **TRIZ contradiction matrix**: When facing a trade-off (e.g., calibration vs sharpness),
+   look for architectural changes that decouple objectives, don't just tune weights
+2. **Zwicky Box**: Break problem into dimensions × options, explore all combinations
+   systematically. E.g., {encoder} × {noise process} × {loss} × {normalization} × {skip}
+3. **Chain of Ideas (EMNLP 2025)**: Organize papers into temporal chains of progress,
+   predict the next link. [arXiv:2410.13185]
+4. **Nova**: Deliberately search unrelated fields for each iteration → 3.4x more unique
+   novel ideas. [arXiv:2410.14255]
+
+**Research philosophy highlights**:
+- Hamming test: "Is this important AND do I have a reasonable attack?" Both must hold.
+- Hinton: Figure out YOUR solution first, THEN read how others solved it.
+- Nanda (May 2025): Research taste is learned like a neural net — needs diverse training
+  data (experiences). After each experiment, ask: "Was my prediction correct? What would
+  I do differently? What's most interesting about this result?"
+- Schulman: Read PhD theses (full context) over papers (fragments). Work on two things
+  simultaneously for cross-pollination.
+- Mollick's "Garbage Can": Keep running lists of unsolved problems + interesting
+  techniques. Scan for unexpected matches.
+
+**AI Scientist v2 (Sakana, April 2025)**: Uses agentic tree search over research space.
+First AI-generated peer-reviewed workshop paper accepted at ICLR 2025. Key: tree search
+(explore multiple directions, prune early) >> linear pipelines. [arXiv:2504.08066]
+
+**IRIS (ACL 2025)**: MCTS over idea space — the Bitter Lesson applied to meta-research
+itself: search + learning beats hand-crafted ideation heuristics. [arXiv:2504.16728]
+
+### Part B: AI Tools & MCP Servers for Research
+
+**Claude Code skills for research**:
+- **ARIS (Auto-Research-In-Sleep)**: 31 composable skills, cross-model review loop
+  (Claude generates, external LLM critiques). Overnight 20+ GPU experiments.
+  [github.com/wanshuiyin/Auto-claude-code-research-in-sleep]
+- **Orchestra AI-Research-SKILLs**: 70 skills across 19 categories for scientific
+  experimentation. [github.com/Orchestra-Research/AI-Research-SKILLs]
+- **Claude Scientific Skills (K-Dense)**: 170+ skills, strongest in life sciences.
+  [github.com/K-Dense-AI/claude-scientific-skills]
+
+**MCP servers for academic papers**:
+- **Academix**: Unified OpenAlex + DBLP + Semantic Scholar + arXiv + CrossRef.
+  [github.com/xingyulu23/Academix]
+- **Claude Deep Research MCP**: 13 providers (arXiv, PubMed, IEEE, etc.).
+  [github.com/mcherukara/Claude-Deep-Research]
+- **InfraNodus MCP**: Knowledge graph gap analysis — identifies structural gaps in
+  concept networks. Only tool doing topology-based gap detection. ($9/mo)
+  [smithery.ai/server/@infranodus/mcp-server-infranodus]
+
+**Research platforms**: Elicit (138M papers, research agents), Connected Papers
+(force-directed citation graphs), ResearchRabbit/Litmaps (citation visualization),
+AnswerThis (research gap finder with 300M+ papers).
+
+**Most relevant paper for our workflow**: "The Agentic Researcher" (March 2026) —
+practical guide to using Claude Code/Codex CLI as autonomous research assistants.
+Five-level taxonomy of AI integration, open-source framework, case studies from DL.
+[arXiv:2603.15914]
+
+### Decision
+No immediate implementation. Key actionable takeaways:
+1. Install Academix or Deep Research MCP for paper search during sessions
+2. Read "The Agentic Researcher" paper for workflow optimization
+3. Apply Zwicky Box systematically to current architecture design space
+4. Use the TRIZ contradiction matrix framing for the CRPS-vs-correlation trade-off
+5. Consider ARIS for cross-model critical review of research directions
+
+---
+
+
+## Cross-Domain Literature Search: Rank-1 Attractor Under Per-Component Loss (2026-03-19)
+
+### Problem Statement
+Our core architectural problem: optimizing per-component CRPS causes cross-component (cross-cell)
+correlation structure to collapse to rank 1. The MLP's shared weights create a rank-1 output
+(all 25 cells are scaled versions of the same noise signal), and CRPS has zero gradient w.r.t.
+cross-cell correlation. We searched 5 unrelated domains for analogous problems and transferable solutions.
+
+---
+
+### Domain 1: Weather Ensemble Forecasting (ECMWF)
+
+**The identical problem**: ECMWF ensemble forecasts are chronically under-dispersive. When univariate
+post-processing (EMOS/BMA) calibrates each weather variable independently, it destroys the
+multivariate dependency structure. The calibrated marginals are correct, but joint distributions
+are wrong — exactly our situation with per-cell CRPS.
+
+**Solutions developed**:
+1. **Ensemble Copula Coupling (ECC)**: Two-step approach. Step 1: calibrate marginals independently
+   (our CRPS step). Step 2: reorder calibrated samples to match the rank order structure of the
+   raw ensemble. This restores the copula (dependence structure) from a template.
+2. **Schaake Shuffle**: Same two-step, but use historical observations as the rank template instead
+   of the raw ensemble. Restores physically realistic spatio-temporal structure.
+3. **Dual-ECC (d-ECC)**: Incorporates past error autocorrelation to correct the dependency template.
+
+**Transferable mechanism**: The SEPARATION of marginal calibration from dependence structure is key.
+Their insight: you cannot learn both from one loss. Use CRPS for marginals, then a SEPARATE mechanism
+for dependence. In our case, this would mean: train CRPS normally for per-cell accuracy, then
+apply a rank-reordering step across cells using either (a) the encoder's learned structure or
+(b) historical observation copulas.
+
+**Limitation for us**: ECC/Schaake are post-hoc reordering, not learned end-to-end. But the
+PRINCIPLE — that marginal and dependence need separate treatment — is architecturally profound.
+
+---
+
+### Domain 2: Multivariate Proper Scoring Rules (Energy Score / Variogram Score)
+
+**The identical problem**: The Energy Score (multivariate CRPS) is INSENSITIVE to correlation
+misspecification. This is a proven mathematical property. The discriminatory power against
+incorrect correlations deteriorates in higher dimensions. This directly explains why our
+per-cell CRPS (which is essentially component-wise CRPS, even weaker than Energy Score)
+has zero gradient for cross-cell structure.
+
+**Solutions developed**:
+1. **Variogram Score** (Scheuerer & Hamill 2015): Scores based on PAIRWISE DIFFERENCES between
+   components: VS = Σ_{i,j} w_{ij} · (|y_i - y_j|^p - E[|X_i - X_j|^p])^2.
+   By looking at |cell_i - cell_j| instead of individual cells, it explicitly measures
+   the dependence structure. Parameter p=0.5 is optimal for detecting correlation misspecification.
+
+2. **MVG-CRPS** (Zheng & Sun 2024): Assumes multivariate Gaussian output. Applies PCA whitening
+   transformation to decorrelate the output, then evaluates univariate CRPS in the whitened space.
+   The whitening matrix is parameterized by the network (outputs Cholesky factor of covariance).
+   Closed-form, differentiable, and directly trainable. Forces the network to learn BOTH
+   marginals AND covariance structure because the whitening couples all components.
+
+3. **Conditional CRPS**: Decomposes multivariate scoring into marginal CRPS + conditional CRPS terms.
+   The conditional terms explicitly penalize errors in the dependence structure.
+   Closed-form for multivariate Gaussian.
+
+**CRITICAL INSIGHT — MVG-CRPS is directly implementable**:
+- Our model outputs K ensemble members of shape (B, K, 30, 5, 5)
+- Flatten the 5×5 grid to 25 dimensions per time step
+- Parameterize a 25×25 covariance matrix (or its Cholesky factor) from the encoder condition
+- Apply PCA whitening: z = L^{-1}(x - μ), where L is the Cholesky factor
+- Evaluate univariate CRPS on each of the 25 whitened components
+- The whitening transformation COUPLES all cells — gradient flows through L to ALL cells
+- This breaks the rank-1 attractor because L must have full rank to whiten properly
+
+**CRITICAL INSIGHT — Variogram Score as auxiliary loss**:
+- Add λ_vs · VS(samples, observations) as a loss term
+- VS directly penalizes wrong pairwise differences between cells
+- Can be computed from ensemble samples without parametric assumptions
+- Much simpler to implement than MVG-CRPS
+
+---
+
+### Domain 3: Multi-Output Gaussian Processes (Coregionalization)
+
+**The identical problem**: In the Linear Model of Coregionalization (LMC), the cross-output
+covariance is B = WW^T + diag(κ), where W ∈ R^{D×r}. When r=1 (rank-1), ALL outputs are
+scaled versions of a single latent function — exactly our rank-1 MLP output.
+
+**Solutions developed**:
+1. **Explicit rank control via W parameterization**: Set r > 1 (e.g., r=3-5) in WW^T to ensure
+   the cross-output covariance has rank > 1. The rank is a HYPERPARAMETER, not learned.
+2. **Multiple latent functions with separate kernels**: LMC uses Q different base kernels,
+   each with its own coregionalization matrix B_q. Sum of Q rank-1 matrices gives rank-Q.
+3. **Diagonal nugget term diag(κ)**: Always add task-specific independent noise. This ensures
+   the covariance matrix is full-rank even if W collapses.
+4. **Initialization matters critically**: GPflow documentation notes that initializing W=0
+   is a SADDLE POINT — the optimizer never escapes. Must initialize W with random non-zero values.
+
+**Transferable mechanism**: The GP community NEVER tries to learn the full covariance from data
+with a single latent process. They decompose it as "shared structure (WW^T) + independent (diag(κ))".
+This maps to our architecture: the MLP provides shared structure (rank-1), and the skip noise
+provides independent variation. The problem is that skip is only 4% of output magnitude.
+
+**Actionable insight**: We need MULTIPLE independent latent processes, not one. This means either:
+(a) Multiple independent noise inputs processed by separate projection heads, or
+(b) Explicit rank-r parameterization of the cell-cell mixing matrix.
+
+---
+
+### Domain 4: Deep Ensemble Diversity / Negative Correlation Learning
+
+**The identical problem**: Deep ensembles trained independently often collapse to the same mode
+in function space ("mode collapse"). Performance saturates as ensemble size grows because
+members are functionally identical despite different weights.
+
+**Solutions developed**:
+1. **Repulsive Deep Ensembles** (D'Angelo & Fortuin, NeurIPS 2021): Add a kernelized REPULSIVE
+   TERM to the gradient update. Inspired by Stein Variational Gradient Descent (SVGD).
+   Members repel each other in parameter or function space. Proven to be Bayesian —
+   the repulsive ensemble converges to the posterior as members → ∞.
+   Loss: L = Σ_k task_loss(f_k) - λ Σ_{k≠j} kernel(f_k, f_j)
+
+2. **Negative Correlation Learning (NCL)**: Add a penalty term that explicitly pushes
+   individual member predictions AWAY from the ensemble mean.
+   Loss_k = MSE(f_k, y) + λ · (f_k - f_mean) · Σ_{j≠k}(f_j - f_mean)
+   The λ parameter controls the accuracy-diversity trade-off.
+   At λ=0: independent training. At λ=1: maximum negative correlation.
+
+3. **Generalized NCL (GNCL)** (Buschjäger et al. 2020): Extends NCL to arbitrary
+   twice-differentiable losses. Derives an explicit bias-variance decomposition.
+   Key result: diversity is controlled by a SINGLE scalar λ that smoothly interpolates
+   between independent training and maximally diverse training.
+
+4. **Determinantal Point Process (DPP) Loss** (GDPP, Elfeki et al. 2019): Uses DPP
+   to encourage the KERNEL MATRIX of generated samples to match the kernel matrix of
+   real data. DPP assigns zero probability to parallel feature vectors — directly
+   prevents rank-1 collapse. Items with parallel features cannot be selected together.
+
+**CRITICAL INSIGHT — NCL/GNCL is directly applicable to our K=8 ensemble**:
+- Current: each of K=8 members is trained with CRPS independently (same loss, same weights)
+- The problem isn't really K members collapsing — it's that a single MLP maps one noise
+  to 25 cells, and the MLP creates rank-1 output
+- BUT: NCL-style penalty could be applied ACROSS CELLS within each member:
+  For each cell c, penalize (f_c - f_mean) · Σ_{c'≠c}(f_c' - f_mean)
+  This pushes cell outputs to be negatively correlated → prevents rank-1
+
+**CRITICAL INSIGHT — DPP kernel on cell outputs**:
+- Compute the 25×25 kernel matrix of cell outputs across ensemble members
+- DPP loss = -log det(K_generated) + log det(K_observed)
+- Forces the determinant (volume spanned by cell outputs) to match data
+- Zero determinant = rank deficient = exactly what we're preventing
+
+---
+
+### Domain 5: Portfolio Optimization (Ledoit-Wolf Shrinkage)
+
+**The identical problem**: When #assets >> #observations, the sample covariance matrix is
+rank-deficient. Mean-variance optimization then creates degenerate portfolios concentrated
+in few assets ("diversification collapse"). The optimizer exploits the rank-deficient structure
+because zero-eigenvalue directions have zero variance — infinite Sharpe ratio artifacts.
+
+**Solutions developed**:
+1. **Ledoit-Wolf Shrinkage**: Σ_shrunk = (1-α)·Σ_sample + α·Σ_target, where Σ_target is
+   typically the single-factor model (rank-1!) or scaled identity. The shrinkage intensity α
+   is analytically optimal. Key insight: shrink TOWARD simple structure, not away from it.
+
+2. **Factor models + residual**: Σ = B·F·B^T + D, where F is a low-rank factor covariance
+   and D is diagonal residual. Exactly the LMC decomposition from GPs.
+
+3. **Minimum variance portfolios with constraints**: Add explicit diversification constraints
+   (max weight per asset, sector constraints) to prevent concentration.
+
+4. **Robust optimization**: Instead of estimating Σ precisely, optimize for worst-case
+   within an uncertainty set around Σ. This naturally prevents exploiting rank deficiency.
+
+**Transferable mechanism**: The portfolio/finance community's solution is strikingly similar to GPs:
+decompose covariance as "factor structure + diagonal." The key insight is that you CANNOT
+reliably estimate a full D×D covariance from limited data. You must IMPOSE structure.
+
+For us: we cannot expect the MLP to learn a full 25×25 cross-cell covariance from CRPS gradients
+alone (zero gradient!). We must either (a) impose structure via architecture (separate factors)
+or (b) add an explicit covariance-aware loss (variogram/MVG-CRPS).
+
+---
+
+### SYNTHESIS: Transferable Mechanisms Ranked by Implementability
+
+#### Tier 1: Directly implementable (< 2 hours each)
+
+**M1. Variogram Score as auxiliary loss** (from Weather/Scoring Rules)
+- Add: λ_var · Σ_{i<j} w_{ij} · (|y_i - y_j|^0.5 - E[|X_i - X_j|^0.5])^2
+- Where i,j index the 25 cells, X are ensemble samples, y are observations
+- Computed from existing ensemble samples, no architecture change
+- Directly penalizes wrong pairwise cell differences
+- Expected effect: breaks rank-1 because rank-1 implies all pairwise differences are
+  proportional, which the variogram score would penalize if GT isn't rank-1
+
+**M2. Negative Correlation penalty across cells** (from NCL/Ensemble Diversity)
+- Add: λ_ncl · Σ_c (δ_c - δ_mean) · Σ_{c'≠c}(δ_c' - δ_mean)
+- Where δ_c is the per-cell ensemble member output and δ_mean is the cell-mean
+- Pushes individual cell outputs away from the ensemble mean of cells
+- Expected effect: directly penalizes the rank-1 structure where all cells co-move
+
+**M3. DPP kernel loss on cell outputs** (from DPP/Generative Models)
+- Compute 25×25 kernel matrix of cell output vectors
+- Loss = -log det(K_model) + log det(K_data) (or simplified: -log det(K_model))
+- Forces the volume of cell output space to be non-degenerate
+- Expected effect: det=0 for rank-1, so maximizing det pushes away from rank-1
+
+#### Tier 2: Requires architectural changes (2-4 hours)
+
+**M4. MVG-CRPS with learned Cholesky** (from Scoring Rules)
+- Add a Cholesky factor output head: L = lower_triangular(condition → 25×25)
+- Whiten samples: z = L^{-1}(x - μ)
+- Apply univariate CRPS to each whitened component
+- Forces full-rank covariance learning, couples all cells through L
+- Expected effect: most principled solution, but requires Cholesky parameterization
+
+**M5. Multi-factor noise architecture** (from GP Coregionalization + Portfolio Theory)
+- Replace single noise → MLP with Q independent noise sources, each projected by
+  separate W_q to create rank-Q output: output = Σ_q W_q · z_q + diagonal
+- Explicit rank-Q parameterization prevents collapse below rank Q
+- Expected effect: architecturally prevents rank-1 by construction
+
+**M6. Copula-then-calibrate (ECC-style)** (from Weather Forecasting)
+- Step 1: Train CRPS normally (marginal calibration)
+- Step 2: Learn a copula from GT observations (or use empirical copula)
+- Step 3: Reorder ensemble samples to match the copula rank structure
+- Expected effect: separates marginal accuracy from dependence structure
+- Most similar to our existing qmap approach but for correlation instead of marginals
+
+#### Key Cross-Domain Consensus
+
+All five domains converge on the same fundamental insight:
+**Per-component optimization cannot learn cross-component structure.**
+The solutions decompose into two families:
+1. **Add a cross-component loss** (Variogram, NCL, DPP, MVG-CRPS) — teach the model
+   what the right cross-component structure IS
+2. **Impose cross-component structure architecturally** (LMC rank-r, multi-factor, ECC)
+   — prevent the model from collapsing below a minimum rank
+
+The weather community has the most mature understanding: they proved that Energy Score
+(multivariate CRPS) is mathematically insensitive to correlation, and developed variogram
+scores specifically to address this. This is the most direct analogue to our problem.
+
+
+## 2026-03-19: Research Compass — Breaking the 5/8 Ceiling
+
+### Philosophy Applied
+- **Popper**: Every hypothesis has staged falsification tests. Failures are more informative than successes.
+- **Hamming**: All 4 hypotheses are important (address proven root causes) AND attackable (2-4h first checkpoint).
+- **Karpathy**: Staged checkpoints — each stage is independently valuable, no monolithic implementations.
+- **TRIZ**: The kurtosis-calibration contradiction is resolved by decoupling, not optimized by balancing.
+- **Hinton**: Independent reasoning preceded literature search. Key insight: the MLP+CRPS combination is a mathematical trap.
+- **Boden**: 3 combinatorial/exploratory hypotheses + 1 transformational (non-AR generation).
+- **Si et al.**: All hypotheses have 2h feasibility probes before full commitment (LLM ideas are novel but fragile).
+
+### Evidence Summary
+
+**Proven root causes (5+ experiments each):**
+1. CRPS is structurally correlation-agnostic — zero cross-cell gradient (Sklar's theorem)
+2. MLP crushes noise to rank 1.06 — the CRPS-optimal solution, not a bug
+3. Every auxiliary loss fights CRPS — VR, ACF, bilateral VR all regressed (Pattern B)
+4. Skip path is only 4% of output — Lambda-Skip theory proves this guarantees rank collapse
+5. MSE encoder collapses to rank 2 — DDPM prevents via anti-correlated gradients
+6. Per-cell differentiation breaks surface coherence — 4 approaches all failed (Pattern C)
+
+**Master contradiction (TRIZ):**
+Kurtosis requires rank-1 (co-movement → heavy tails). Calibration requires rank 2-3
+(per-cell differences → CI coverage). No single model under CRPS can have both.
+
+**Exhausted directions:** Loss engineering (ACF, VR, bilateral VR, ortho reg), noise
+architecture (skip, noise-free MLP, wider noise, deeper MLP, AdaGN, curriculum noise),
+learned noise dynamics (rho, noise_scale, mean-reversion), per-cell conditioning (4 approaches).
+
+**Where confidence exceeds evidence:**
+- "Any anti-collapse encoder should work" (HIGH confidence, ZERO evidence)
+- "rho=0.8 is optimal" (only 3 values tested)
+- "Dual decoder would reach 6/8" (motivated by E4 ensemble, never implemented)
+
+### Active Hypotheses (ranked by information value)
+
+#### Hypothesis 1: Diagnostic — Is rank-1 from CRPS or architecture? [HIGHEST PRIORITY]
+- **Evidence**: Output rank 1.57 in both 99m_v2 and 120b despite completely restructured noise
+- **Principled argument (Popper)**: Highest information value — answer redirects ALL future effort
+- **Bet**: Add log-det(Cov(ensemble)) penalty to loss. Train 5 epochs. Measure effective rank.
+- **Falsification**: If rank < 2.0 even with λ_rank=1.0 → architecture is fundamentally rank-limited
+- **Independence**: Standalone. 
+- **If fails**: MLP+skip cannot produce diverse outputs. Kills H2/H3, validates need for H4.
+- **Effort**: 2h probe + 2h analysis
+
+#### Hypothesis 2: Variogram Score as minimal correlation signal
+- **Evidence**: CRPS zero cross-cell gradient (Sklar). VS targets pairwise differences (orthogonal to CRPS).
+  Three prior aux losses fought CRPS but they targeted temporal properties, not spatial.
+- **Principled argument (TRIZ)**: VS operates on different axis than CRPS — shouldn't trigger tug-of-war
+- **Bet**: Add λ_vario * VS_0.5. No architecture changes.
+- **Falsification**: If rank < 1.5 AND correlation unchanged → VS gradient too weak (same as Pattern B)
+- **Independence**: Standalone. Pure loss addition.
+- **If fails**: Even orthogonal loss terms can't overcome MLP rank-1 attractor → problem is architectural
+- **Effort**: 2h probe + 3h validation
+
+#### Hypothesis 3: Conditional LayerNorm noise injection (AIFS-CRPS approach)
+- **Evidence**: AIFS-CRPS (ECMWF, operational) uses CLN under same afCRPS loss. Our Exp 120a
+  (AdaGN) failed — but CLN modulates normalization params, different mechanism.
+  Lambda-Skip theory: skip 4% guarantees collapse. CLN makes noise 100% of output.
+- **Principled argument (Bitter Lesson + Lambda-Skip)**: Structural guarantee, not training hope
+- **Bet**: Replace skip with CLN: h = γ(z)*LayerNorm(h) + β(z) after each layer
+- **Falsification**: If noise rank < 2.0 after 10ep → 2-layer MLP too shallow even for CLN (like 120a)
+- **Independence**: Standalone. Pure decoder modification.
+- **If fails**: 2-layer MLP is fundamentally limited → decoder class must change (validates H4)
+- **Effort**: 2h probe + 4h training + 4h validation
+
+#### Hypothesis 4: Non-AR joint generation with attention decoder [TRANSFORMATIONAL]
+- **Evidence**: AR loop processes same MLP with same noise 30 times → identical noise utilization.
+  Literature: CSDI, Diffusion Forcing, TransFusion all show non-AR preserves diversity.
+  Diffusion Forcing (NeurIPS 2024) is best hybrid — keeps causal structure + per-frame noise.
+- **Principled argument (TRIZ transformational)**: AR assumption CREATES rank-1 problem.
+  Violating it eliminates the root cause. 750 attention positions = 750 distinct noise pathways.
+- **Bet**: Replace AR+MLP with lightweight diffusion transformer over full (30,5,5)
+- **Falsification**: Stage 1: If non-AR can't denoise (MSE plateaus) → data too small for attention.
+  Stage 2: If rank collapses under CRPS even with attention → CRPS must be replaced entirely.
+- **Independence**: Replaces decoder entirely. Independent from H1-H3.
+- **If fails**: Rank-1 is CRPS-specific, not architecture-specific → loss paradigm must change
+- **Effort**: 3h probe + 4h CRPS training + 6h validation
+
+### Execution Order (Information Flow)
+
+```
+H1 (diagnostic, 2-4h)
+    │
+    ├── rank CAN increase → H2 (variogram, 2-5h) → evaluate
+    │
+    └── rank CANNOT increase → H3 (CLN, 2-10h)
+                                    │
+                                    ├── rank increases → done (CLN solved it)
+                                    │
+                                    └── rank still low → H4 (non-AR, 3-13h)
+```
+
+Each step produces independent value. No stacked dependencies. Every failure redirects.
+
+### Exhausted Directions (with WHY)
+- Loss engineering within CRPS: zero cross-cell gradient is algebraic (Sklar), not tunable
+- Noise path interventions: skip is 4%, Lambda-Skip proves this guarantees collapse
+- Per-cell MLP modifications: breaks spatial coherence (Pattern C, 4 experiments)
+- Deeper/wider MLP: more layers = more compression (128a, 129a)
+- Learned noise dynamics: CRPS suppresses all learned diversity parameters (Pattern E)
+
+### Open Questions
+1. Is output rank-1 from CRPS or architecture? (H1 answers this)
+2. Can the kurtosis-calibration contradiction be resolved, not just balanced?
+3. Would non-AR generation maintain growing uncertainty without explicit AR(1)?
+4. Is there a scoring rule that is both correlation-sensitive AND compatible with ensemble training?
+
+### Garbage Can Lists
+**Unsolved problems:**
+- CRPS correlation agnosticism (rank-1 attractor)
+- Kurtosis-calibration tension
+- Encoder rank-2 collapse (only DDPM prevents it)
+- Chronic cell failures ((4,0), (2,4))
+- Regime-specific cell response lost in encoder
+
+**Available techniques (from literature survey 2026-03-20):**
+- CW-Gen conditional whitening (requires non-AR)
+- Variogram Score (orthogonal to CRPS)
+- DPP kernel loss (directly prevents rank collapse)
+- Conditional LayerNorm (AIFS-CRPS, operational)
+- Rotation modulation (rank-preserving by construction)
+- TACTiS-2 two-stage training (marginals then copula)
+- Diffusion Forcing (hybrid AR/non-AR)
+- Integral noise (∫-noise, temporal correlation without AR)
+- Negative Correlation Learning (repulsive ensemble diversity)
+- Patched Energy Score (sub-grid correlation sensitivity)
+- Post-hoc covariance calibration (Zheng & Sun 2024)
 
 ---
