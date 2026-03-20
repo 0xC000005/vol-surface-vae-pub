@@ -1031,20 +1031,30 @@ def run_time_series_tests(
         if np.std(gt_changes_atm[i]) > 1e-10:
             gt_acfs.append(compute_acf(gt_changes_atm[i], effective_max_lag))
 
-    gen_acfs = []
-    gen_changes_atm = np.diff(cond_samples[:, 0, :, 2, 2], axis=1)  # (N, T-1)
-    for i in range(gen_changes_atm.shape[0]):
-        if np.std(gen_changes_atm[i]) > 1e-10:
-            gen_acfs.append(compute_acf(gen_changes_atm[i], effective_max_lag))
+    # Average ACF across multiple sample indices for robustness
+    n_acf_samples = min(5, cond_samples.shape[1])
+    all_gen_window_acfs = []
+    for s_idx in range(n_acf_samples):
+        gen_changes_s = np.diff(cond_samples[:, s_idx, :, 2, 2], axis=1)
+        for i in range(gen_changes_s.shape[0]):
+            if np.std(gen_changes_s[i]) > 1e-10:
+                all_gen_window_acfs.append(compute_acf(gen_changes_s[i], effective_max_lag))
 
     # Average ACF curves
-    if gt_acfs and gen_acfs:
-        min_len = min(min(len(a) for a in gt_acfs), min(len(a) for a in gen_acfs))
-        gt_acf = np.mean([a[:min_len] for a in gt_acfs], axis=0)
-        gen_acf = np.mean([a[:min_len] for a in gen_acfs], axis=0)
+    if gt_acfs:
+        min_len_gt = min(len(a) for a in gt_acfs)
+        gt_acf = np.mean([a[:min_len_gt] for a in gt_acfs], axis=0)
     else:
         gt_acf = np.zeros(effective_max_lag)
-        gen_acf = np.zeros(effective_max_lag)
+
+    if all_gen_window_acfs:
+        min_len_gen = min(len(a) for a in all_gen_window_acfs)
+        gen_acf = np.mean([a[:min_len_gen] for a in all_gen_window_acfs], axis=0)
+        min_len = min(len(gt_acf), len(gen_acf))
+        gt_acf = gt_acf[:min_len]
+        gen_acf = gen_acf[:min_len]
+    else:
+        gen_acf = np.zeros(len(gt_acf))
 
     acf_correlation = float(np.corrcoef(gt_acf, gen_acf)[0, 1])
     acf_mae = float(np.mean(np.abs(gt_acf - gen_acf)))
@@ -1066,7 +1076,13 @@ def run_time_series_tests(
     gen_changes = gen_diff.flatten()
 
     gt_kurt = float(kurtosis(gt_changes, fisher=True))
-    gen_kurt = float(kurtosis(gen_changes, fisher=True))
+    # Use median of multiple samples for robust kurtosis estimate
+    n_kurt_samples = min(10, cond_samples.shape[1])
+    kurt_estimates = []
+    for s_idx in range(n_kurt_samples):
+        gen_diff_s = np.diff(cond_samples[:, s_idx], axis=1)
+        kurt_estimates.append(float(kurtosis(gen_diff_s.flatten(), fisher=True)))
+    gen_kurt = float(np.median(kurt_estimates))  # median is robust to outliers
     kurt_ratio = gen_kurt / gt_kurt if gt_kurt != 0 else float("inf")
     kurt_pass = 0.5 <= kurt_ratio <= 2.0
 
