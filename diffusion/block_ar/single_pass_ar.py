@@ -141,6 +141,12 @@ class SinglePassConfig:
     ar_noisefree_mlp: bool = False         # Noise-free MLP: noise only through skip (Exp 120b)
     ar_lowrank_spread: int = 0             # Low-rank cell_spread factors (0=off, 3=Exp 124a)
 
+    # Joint transformer decoder (non-AR, Exp 133a/H4)
+    joint_decoder: bool = False              # Use JointTransformerDecoder instead of AR loop
+    joint_n_layers: int = 4                  # Transformer layers (each = temporal + spatial)
+    joint_d_model: int = 128                 # Hidden dim for transformer
+    joint_n_heads: int = 4                   # Attention heads
+
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
     return_scale: float = 0.05           # tanh(ret / return_scale) bounding
@@ -200,6 +206,136 @@ class NoiseMLP(nn.Module):
         else:
             x = z
         return self.mlp(x)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Joint Transformer Decoder (non-AR, all frames at once) — Exp 133a (H4)
+# ──────────────────────────────────────────────────────────────────────
+
+class JointTransformerDecoder(nn.Module):
+    """Generates all (T, H, W) outputs at once via factored attention.
+
+    Each of T*H*W positions gets its own noise vector, enabling independent
+    noise pathways — eliminating the AR loop's rank-1 bottleneck.
+
+    Architecture: temporal self-attention (T positions per cell) followed
+    by spatial self-attention (H*W positions per frame). Factored for
+    efficiency: O(T^2*HW + HW^2*T) instead of O((THW)^2).
+    """
+
+    def __init__(self, cond_dim: int = 128, noise_dim: int = 32,
+                 n_frames: int = 30, n_cells: int = 25,
+                 d_model: int = 128, n_heads: int = 4,
+                 n_layers: int = 4, dropout: float = 0.0):
+        super().__init__()
+        self.n_frames = n_frames
+        self.n_cells = n_cells
+        self.d_model = d_model
+
+        # Position embeddings
+        self.frame_pos = nn.Embedding(n_frames, d_model)
+        self.cell_pos = nn.Embedding(n_cells, d_model)
+
+        # Project noise to model dim (per-position noise)
+        self.noise_proj = nn.Linear(noise_dim, d_model)
+
+        # Project condition to model dim
+        self.cond_proj = nn.Linear(cond_dim, d_model)
+
+        # Project prev_frame (last history frame) per-cell
+        self.prev_proj = nn.Linear(1, d_model)
+
+        # Factored transformer: temporal then spatial, alternating
+        self.temporal_layers = nn.ModuleList()
+        self.spatial_layers = nn.ModuleList()
+        for _ in range(n_layers):
+            self.temporal_layers.append(
+                nn.TransformerEncoderLayer(
+                    d_model=d_model, nhead=n_heads,
+                    dim_feedforward=d_model * 2,
+                    dropout=dropout, batch_first=True,
+                    norm_first=True,
+                )
+            )
+            self.spatial_layers.append(
+                nn.TransformerEncoderLayer(
+                    d_model=d_model, nhead=n_heads,
+                    dim_feedforward=d_model * 2,
+                    dropout=dropout, batch_first=True,
+                    norm_first=True,
+                )
+            )
+
+        # Output projection: d_model → 1 (per-position delta)
+        self.out_proj = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, 1),
+        )
+        # Zero-init output
+        nn.init.zeros_(self.out_proj[1].weight)
+        nn.init.zeros_(self.out_proj[1].bias)
+
+        # Causal mask for temporal attention (frame t only sees ≤t)
+        self.register_buffer(
+            'causal_mask',
+            torch.triu(torch.ones(n_frames, n_frames), diagonal=1).bool()
+        )
+
+    def forward(self, condition: torch.Tensor, noise: torch.Tensor,
+                prev_frame: torch.Tensor) -> torch.Tensor:
+        """
+        condition: (B, cond_dim) from frozen encoder
+        noise: (B, T, H*W, noise_dim) per-position noise
+        prev_frame: (B, H*W) last history frame in IV space
+
+        Returns: (B, T, H, W) generated IV surface trajectory
+        """
+        B = condition.shape[0]
+        T, C = self.n_frames, self.n_cells
+
+        # Build per-position input: condition + noise + frame_pos + cell_pos + prev
+        cond_emb = self.cond_proj(condition)  # (B, d)
+        noise_emb = self.noise_proj(noise)  # (B, T, C, d)
+        frame_pos = self.frame_pos.weight.unsqueeze(1).expand(T, C, -1)  # (T, C, d)
+        cell_pos = self.cell_pos.weight.unsqueeze(0).expand(T, C, -1)  # (T, C, d)
+        prev_emb = self.prev_proj(prev_frame.unsqueeze(-1))  # (B, C, d)
+
+        # Combine: each position gets all embeddings
+        h = (noise_emb
+             + cond_emb.unsqueeze(1).unsqueeze(1)  # (B, 1, 1, d)
+             + frame_pos.unsqueeze(0)  # (1, T, C, d)
+             + cell_pos.unsqueeze(0)  # (1, T, C, d)
+             + prev_emb.unsqueeze(1))  # (B, 1, C, d)
+        # h: (B, T, C, d)
+
+        # Factored attention: alternate temporal and spatial
+        for temp_layer, spat_layer in zip(self.temporal_layers, self.spatial_layers):
+            # Temporal: attend across T for each cell
+            # Reshape: (B*C, T, d)
+            h_t = h.permute(0, 2, 1, 3).reshape(B * C, T, self.d_model)
+            h_t = temp_layer(h_t, src_mask=self.causal_mask)
+            h = h_t.reshape(B, C, T, self.d_model).permute(0, 2, 1, 3)
+
+            # Spatial: attend across C for each frame
+            # Reshape: (B*T, C, d)
+            h_s = h.reshape(B * T, C, self.d_model)
+            h_s = spat_layer(h_s)
+            h = h_s.reshape(B, T, C, self.d_model)
+
+        # Output: (B, T, C, 1) → (B, T, C)
+        delta = self.out_proj(h).squeeze(-1)  # (B, T, C)
+
+        # Residual from prev_frame: iv_t = prev + cumulative delta * vol_scale
+        # For non-AR: use cumulative sum for growing uncertainty
+        cum_delta = delta.cumsum(dim=1)  # (B, T, C) — growing with horizon
+
+        H = int(self.n_cells ** 0.5)
+        W = H
+        prev_iv = prev_frame.reshape(B, H, W)  # (B, H, W)
+        output = prev_iv.unsqueeze(1) + 0.02 * cum_delta.reshape(B, T, H, W)
+        output = output.clamp(0.001, 1.0)
+
+        return output  # (B, T, H, W) in IV space
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -739,6 +875,18 @@ class SinglePassBlockAR(nn.Module):
                 self.mr_alpha_head = nn.Linear(config.bottleneck_dim, mr_alpha_out)
                 nn.init.zeros_(self.mr_alpha_head.weight)
                 nn.init.constant_(self.mr_alpha_head.bias, config.ar_mean_revert_alpha_init)
+
+            # Joint transformer decoder (H4, non-AR)
+            if config.joint_decoder:
+                self.joint_transformer = JointTransformerDecoder(
+                    cond_dim=config.bottleneck_dim,
+                    noise_dim=config.noise_dim,
+                    n_frames=config.future_len,
+                    n_cells=frame_dim,
+                    d_model=config.joint_d_model,
+                    n_heads=config.joint_n_heads,
+                    n_layers=config.joint_n_layers,
+                )
         else:
             # Noise MLP (replaces TimeEmbedding)
             cond_dim = config.bottleneck_dim if config.cond_noise_mlp else 0
@@ -1270,7 +1418,26 @@ class SinglePassBlockAR(nn.Module):
         all_member_trajectories = []
         all_deltas = []  # for bias loss (AR frame mode)
 
-        if self.config.ar_frame:
+        if self.config.joint_decoder and hasattr(self, 'joint_transformer'):
+            # ── Joint transformer mode: generate all frames at once ──
+            encoder_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
+            if encoder_unfrozen:
+                condition = self.encoder(history, mask=None, extra=extra_hist)
+            else:
+                with torch.no_grad():
+                    condition = self.encoder(history, mask=None, extra=extra_hist)
+            cond_t = condition if encoder_unfrozen else condition.detach()
+            prev_frame = denormalize_iv(history[:, -1]).reshape(B, H * W)
+
+            for _ in range(n_members):
+                # Per-position noise: (B, T, C, noise_dim)
+                noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
+                trajectory = self.joint_transformer(cond_t, noise, prev_frame)
+                all_member_trajectories.append(trajectory)
+
+            iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, T, H, W)
+
+        elif self.config.ar_frame:
             # ── AR frame mode: per-frame generation with GRU step updates ──
             floor = self.config.ar_frame_floor_clamp
 
@@ -1652,7 +1819,23 @@ class SinglePassBlockAR(nn.Module):
         B = history.shape[0]
         device = history.device
 
-        if self.config.ar_frame:
+        if self.config.joint_decoder and hasattr(self, 'joint_transformer'):
+            # ── Joint transformer mode: all frames at once ──
+            H, W = self.config.surface_h, self.config.surface_w
+            n_frames = self.config.future_len
+            condition = self.encoder(history, mask=None, extra=extra_hist)
+            prev_frame = denormalize_iv(history[:, -1]).reshape(B, H * W)
+
+            all_samples = []
+            for _ in range(n_samples):
+                noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
+                trajectory = self.joint_transformer(condition, noise, prev_frame)
+                all_samples.append(trajectory)
+
+            samples = torch.stack(all_samples, dim=1)  # (B, n_samples, T, H, W)
+            return samples.clamp(0.0, 1.0)
+
+        elif self.config.ar_frame:
             # ── AR frame mode: per-frame generation ──
             n_frames = int(kwargs.get("n_frames", self.config.future_len))
             position_mode = kwargs.get("position_mode", "native")

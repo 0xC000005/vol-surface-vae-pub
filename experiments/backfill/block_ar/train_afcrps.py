@@ -491,6 +491,12 @@ def main():
                         help="Log-det covariance penalty for ensemble diversity (H1 diagnostic)")
     parser.add_argument("--ar_cln_warmup", type=int, default=0,
                         help="CLN warmup frames: scale modulation by min(1, t/N) (Exp 132b)")
+    parser.add_argument("--joint_decoder", action="store_true",
+                        help="Use joint transformer decoder instead of AR loop (H4)")
+    parser.add_argument("--joint_n_layers", type=int, default=4,
+                        help="Transformer layers for joint decoder")
+    parser.add_argument("--joint_d_model", type=int, default=128,
+                        help="Hidden dim for joint transformer decoder")
     parser.add_argument("--curriculum_noise_epoch", type=int, default=0,
                         help="Switch from gaussian to student_t noise at this epoch (Exp 126a)")
     parser.add_argument("--extra_features", type=int, default=0,
@@ -661,6 +667,9 @@ def main():
         ar_percell_spread_cond=getattr(args, 'ar_percell_spread_cond', False),
         ar_adagn_noise=getattr(args, 'ar_adagn_noise', False),
         ar_cln_warmup=getattr(args, 'ar_cln_warmup', 0),
+        joint_decoder=getattr(args, 'joint_decoder', False),
+        joint_n_layers=getattr(args, 'joint_n_layers', 4),
+        joint_d_model=getattr(args, 'joint_d_model', 128),
         ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         ar_lowrank_spread=getattr(args, 'ar_lowrank_spread', 0),
         ar_frame_n_layers=getattr(args, 'ar_frame_n_layers', 2),
