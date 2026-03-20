@@ -282,11 +282,12 @@ class JointTransformerDecoder(nn.Module):
         )
 
     def forward(self, condition: torch.Tensor, noise: torch.Tensor,
-                prev_frame: torch.Tensor) -> torch.Tensor:
+                prev_frame: torch.Tensor, vol_scale: float = 0.02) -> torch.Tensor:
         """
         condition: (B, cond_dim) from frozen encoder
         noise: (B, T, H*W, noise_dim) per-position noise
         prev_frame: (B, H*W) last history frame in IV space
+        vol_scale: scalar or (B,) condition-dependent scale
 
         Returns: (B, T, H, W) generated IV surface trajectory
         """
@@ -332,7 +333,12 @@ class JointTransformerDecoder(nn.Module):
         H = int(self.n_cells ** 0.5)
         W = H
         prev_iv = prev_frame.reshape(B, H, W)  # (B, H, W)
-        output = prev_iv.unsqueeze(1) + 0.02 * cum_delta.reshape(B, T, H, W)
+        # vol_scale can be scalar or (B,) tensor
+        if isinstance(vol_scale, torch.Tensor):
+            vs = vol_scale.reshape(B, 1, 1, 1)
+        else:
+            vs = vol_scale
+        output = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W)
         output = output.clamp(0.001, 1.0)
 
         return output  # (B, T, H, W) in IV space
@@ -1429,10 +1435,13 @@ class SinglePassBlockAR(nn.Module):
             cond_t = condition if encoder_unfrozen else condition.detach()
             prev_frame = denormalize_iv(history[:, -1]).reshape(B, H * W)
 
+            # Use condition-dependent vol_scale if available
+            joint_vs = vol_scale if vol_scale is not None else 0.02
+
             for _ in range(n_members):
                 # Per-position noise: (B, T, C, noise_dim)
                 noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
-                trajectory = self.joint_transformer(cond_t, noise, prev_frame)
+                trajectory = self.joint_transformer(cond_t, noise, prev_frame, vol_scale=joint_vs)
                 all_member_trajectories.append(trajectory)
 
             iv_samples = torch.stack(all_member_trajectories, dim=1)  # (B, K, T, H, W)
@@ -1826,10 +1835,16 @@ class SinglePassBlockAR(nn.Module):
             condition = self.encoder(history, mask=None, extra=extra_hist)
             prev_frame = denormalize_iv(history[:, -1]).reshape(B, H * W)
 
+            # Condition-dependent vol_scale
+            if not self.config.direct_iv:
+                _, vs = self._compute_vol_scale(history)
+            else:
+                vs = 0.02
+
             all_samples = []
             for _ in range(n_samples):
                 noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
-                trajectory = self.joint_transformer(condition, noise, prev_frame)
+                trajectory = self.joint_transformer(condition, noise, prev_frame, vol_scale=vs)
                 all_samples.append(trajectory)
 
             samples = torch.stack(all_samples, dim=1)  # (B, n_samples, T, H, W)
