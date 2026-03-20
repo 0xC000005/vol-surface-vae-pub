@@ -137,6 +137,7 @@ class SinglePassConfig:
     ar_mean_revert_percell: bool = False  # per-cell alpha (Exp 109a) vs shared (104a)
     ar_percell_spread_cond: bool = False  # per-cell condition for cell_spread (Exp 110a)
     ar_adagn_noise: bool = False           # AdaGN noise conditioning in MLP (Exp 120a)
+    ar_cln_warmup: int = 0                 # CLN warmup: scale modulation by min(1, t/warmup) (0=off, Exp 132b)
     ar_noisefree_mlp: bool = False         # Noise-free MLP: noise only through skip (Exp 120b)
     ar_lowrank_spread: int = 0             # Low-rank cell_spread factors (0=off, 3=Exp 124a)
 
@@ -350,7 +351,8 @@ class FrameDecoder(nn.Module):
 
     def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
                 noise_t: torch.Tensor, local_position: torch.Tensor,
-                horizon_bucket: torch.Tensor | None = None) -> torch.Tensor:
+                horizon_bucket: torch.Tensor | None = None,
+                cln_warmup_factor: float = 1.0) -> torch.Tensor:
         """
         prev_frame: (B, frame_dim) flattened 5×5 IV [0,1]
         condition:  (B, cond_dim) GRU-encoded context
@@ -385,7 +387,8 @@ class FrameDecoder(nn.Module):
                 h = ln(h)
                 scale_shift = proj(n_emb)  # (B, hidden*2)
                 scale, shift = scale_shift.chunk(2, dim=-1)
-                h = (1 + scale) * h + shift  # CLN: γ(z)*LN(h) + β(z)
+                # CLN warmup: at factor=0, pure LN (h unchanged); at factor=1, full CLN
+                h = (1 + cln_warmup_factor * scale) * h + cln_warmup_factor * shift
                 h = F.silu(h)
             delta = self.lin_out(h)
         elif self.noisefree_mlp_active:
@@ -1070,8 +1073,12 @@ class SinglePassBlockAR(nn.Module):
 
             prev_flat = prev_frame.reshape(B, H * W)
             noise_input = self._get_noise_for_decoder(z_t)
+            cln_wf = 1.0
+            if self.config.ar_cln_warmup > 0:
+                cln_wf = min(1.0, step_idx / max(self.config.ar_cln_warmup, 1))
             delta = self.frame_decoder(
-                prev_flat, condition, noise_input, local_pos, horizon_bucket
+                prev_flat, condition, noise_input, local_pos, horizon_bucket,
+                cln_warmup_factor=cln_wf,
             ).reshape(B, H, W)
             if hasattr(self, "cell_scale"):
                 cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
@@ -1314,8 +1321,13 @@ class SinglePassBlockAR(nn.Module):
                     # Generate delta (condition detached when encoder frozen)
                     cond_t = condition if encoder_unfrozen else condition.detach()
                     noise_input = self._get_noise_for_decoder(z_t)
+                    # CLN warmup: ramp noise modulation from 0→1 over first N frames
+                    cln_wf = 1.0
+                    if self.config.ar_cln_warmup > 0:
+                        cln_wf = min(1.0, t / max(self.config.ar_cln_warmup, 1))
                     delta = self.frame_decoder(
-                        prev_flat, cond_t, noise_input, local_pos, horizon_bucket
+                        prev_flat, cond_t, noise_input, local_pos, horizon_bucket,
+                        cln_warmup_factor=cln_wf,
                     )
                     delta = delta.reshape(B, H, W)
 

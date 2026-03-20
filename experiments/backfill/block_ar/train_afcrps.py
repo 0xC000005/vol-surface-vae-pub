@@ -489,6 +489,8 @@ def main():
                         help="Explicit ACF loss on ensemble deltas (Exp 123a)")
     parser.add_argument("--lambda_rank", type=float, default=0.0,
                         help="Log-det covariance penalty for ensemble diversity (H1 diagnostic)")
+    parser.add_argument("--ar_cln_warmup", type=int, default=0,
+                        help="CLN warmup frames: scale modulation by min(1, t/N) (Exp 132b)")
     parser.add_argument("--curriculum_noise_epoch", type=int, default=0,
                         help="Switch from gaussian to student_t noise at this epoch (Exp 126a)")
     parser.add_argument("--extra_features", type=int, default=0,
@@ -658,6 +660,7 @@ def main():
         ar_mean_revert_percell=args.ar_mean_revert_percell,
         ar_percell_spread_cond=getattr(args, 'ar_percell_spread_cond', False),
         ar_adagn_noise=getattr(args, 'ar_adagn_noise', False),
+        ar_cln_warmup=getattr(args, 'ar_cln_warmup', 0),
         ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         ar_lowrank_spread=getattr(args, 'ar_lowrank_spread', 0),
         ar_frame_n_layers=getattr(args, 'ar_frame_n_layers', 2),
