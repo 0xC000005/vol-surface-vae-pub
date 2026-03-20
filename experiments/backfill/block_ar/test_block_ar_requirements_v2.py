@@ -2485,6 +2485,10 @@ def main():
         "--freeze_gru_state", action="store_true",
         help="Freeze GRU state during generation (use initial condition for all frames)",
     )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for reproducibility (default: 42)",
+    )
     args = parser.parse_args()
 
     config = get_default_config()
@@ -2696,6 +2700,17 @@ def main():
               f"delta range=[{percell_scale_head.delta.min().item():.4f}, {percell_scale_head.delta.max().item():.4f}]")
 
     # =========================================================================
+    # Set random seeds for reproducibility
+    # =========================================================================
+    import random
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    print(f"Random seed: {args.seed}")
+
+    # =========================================================================
     # Generate samples (shared across test suites 1, 2, 4, 5, 7)
     # =========================================================================
     print("\nGenerating samples for validation tests...")
@@ -2844,6 +2859,9 @@ def main():
     results['coverage'] = run_ci_coverage_tests(cond_samples, ground_truth)
 
     # Test Suite 3: Conditionality (needs fresh data loader iteration + shuffled)
+    # Reset seed for conditionality reproducibility
+    torch.manual_seed(args.seed + 1)
+    np.random.seed(args.seed + 1)
     cond_test_loader = DataLoader(
         test_dataset,
         batch_size=config.batch_size,
