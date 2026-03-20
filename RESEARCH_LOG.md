@@ -30965,3 +30965,80 @@ without adding diversity (108a and 120b are both AR MLPs).
 uses architecturally diverse AR variants + Conv3D, NOT joint transformer.
 
 ---
+
+### Exp 133f-df: Student-t df sweep on Joint Transformer (inference-time)
+**Based on**: 133f (joint transformer decoder, gaussian noise)
+**Hypothesis**: Joint transformer is non-AR (generates all 30 frames at once), so the 30-step
+compounding that makes heavy tails harmful on AR models doesn't apply. Student-t noise at
+inference may improve kurtosis and distributional metrics like it did for one-shot models.
+
+**Method**: Created modified checkpoints with noise_dist=student_t and df in {4, 8, 12, 20}.
+Same trained weights, only inference noise distribution changed. Also re-ran Gaussian baseline
+for fair comparison (original 133f result was from a different run with different random seeds).
+
+**Results**:
+
+| Variant | Score | Suites | Kurtosis | CI 90% | KS daily | Coint ratio | ACF | Contin. Score |
+|---------|------:|-------:|---------:|-------:|---------:|------------:|----:|--------------:|
+| gauss (orig) | 63.78 | 5/8 | 1.722 | 0.8694 | 19/25 | 0.557 | 0.939 | 13.78 |
+| gauss (rerun) | 44.49 | 3/8 | 1.086 | 0.9014 | 12/25 | 0.575 | 0.943 | 14.49 |
+| t df=4 | 54.10 | 4/8 | 1.164 | 0.9012 | 12/25 | 0.551 | 0.938 | 14.10 |
+| t df=8 | 54.62 | 4/8 | 1.109 | 0.9018 | 12/25 | 0.591 | 0.938 | 14.62 |
+| t df=12 | 44.63 | 3/8 | 1.063 | 0.9012 | 12/25 | 0.564 | 0.947 | 14.63 |
+| t df=20 | 54.40 | 4/8 | 1.126 | 0.9008 | 12/25 | 0.551 | 0.948 | 14.40 |
+
+**Key observation — high stochastic variance**: The original 133f baseline scored 63.78 (5/8)
+but a fresh Gaussian rerun with identical weights scored only 44.49 (3/8). The difference is
+entirely from two stochastically borderline suites:
+- Suite 1 (surface): calendar arb worst_strike ~0.319 vs gate 0.363 — right on boundary
+- Suite 6 (cointegration): worst_cell_ratio ~0.24-0.28 — fluctuates above/below threshold
+
+**Continuous metrics are nearly identical across all variants**: The "ContinOnly" score
+(total minus suite*10) is 13.78-14.63 for all runs. No df value meaningfully changes any
+continuous metric. KS daily stays at 12/25, CI 90% stays ~0.90, kurtosis ~1.06-1.16.
+
+**Why Student-t has no effect on joint transformer**: The joint transformer's noise injection
+is a single z -> noise_mlp -> noise_embed that gets added to all frames simultaneously.
+Unlike AR models where z_t = rho*z_{t-1} + sqrt(1-rho^2)*eps is sampled 30 times (compounding),
+the joint transformer samples z ONCE and uses temporal attention to spread it. The noise MLP
+already transforms the distribution, so the input distribution shape barely matters.
+
+**Verdict**: NEGATIVE. Student-t df sweep has no meaningful effect on the joint transformer.
+The noise MLP acts as a distribution transformer, washing out any tail differences in the
+input noise. Unlike AR models where 30 sequential samples compound tail effects, the joint
+transformer's single-shot noise injection is distribution-agnostic.
+
+**Action**: No model change. The 133f model is equally good with Gaussian or any Student-t df.
+
+## 2026-03-20: B3 — df Sweep on Joint Transformer 133f — No Effect (Noise MLP Washes Out Tails)
+
+### Results
+
+| Variant | Score | Suites | Kurtosis | CI 90% | KS Daily |
+|---------|-------|--------|----------|--------|----------|
+| Gaussian (orig) | 63.78 | 5/8 | 1.722 | 86.9% | 19/25 |
+| Gaussian (rerun) | 44.49 | 3/8 | 1.086 | 90.1% | 12/25 |
+| df=4 | 54.10 | 4/8 | 1.164 | 90.1% | 12/25 |
+| df=8 | 54.62 | 4/8 | 1.109 | 90.2% | 12/25 |
+| df=12 | 44.63 | 3/8 | 1.063 | 90.1% | 12/25 |
+| df=20 | 54.40 | 4/8 | 1.126 | 90.1% | 12/25 |
+
+### Key Finding: High Stochastic Variance in 133f Evaluation
+The SAME model (Gaussian, same weights) scored 63.78 on one run and 44.49 on another.
+The 20-point gap comes from borderline suites flipping due to sampling noise (calendar
+arb at 31.9% vs gate 36.3%, cointegration worst cell fluctuating around threshold).
+
+### Why Student-t Has No Effect on Joint Transformer
+The joint transformer samples noise z ONCE and passes it through a noise MLP before
+temporal attention spreads it across 30 frames. The MLP acts as a distribution transformer
+that washes out input tail shape. This contrasts with AR models where z is resampled
+30 times sequentially (compounding tail effects). Continuous metrics are identical
+across all df values (within sampling noise).
+
+### Implication
+1. df tuning is ONLY relevant for AR models (30-step compounding amplifies tails)
+2. Joint transformer noise distribution is irrelevant — MLP normalizes it
+3. 133f evaluation has HIGH stochastic variance — scores can swing 20+ points
+   between runs. Need larger eval budget (max_batches > 20) for reliable comparison.
+
+---
