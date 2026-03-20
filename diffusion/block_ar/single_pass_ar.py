@@ -294,6 +294,11 @@ class JointTransformerDecoder(nn.Module):
         # Static per-cell scale (backward compat — used when cond not available)
         self.cell_scale = nn.Parameter(torch.ones(n_cells))
 
+        # Learned per-cell output bias: corrects systematic anchor bias (RC3-H1)
+        # Initialized to zero — model learns to shift mean for cells with
+        # anchor-GT mismatch (e.g., cell (0,0) mean-reverts but anchor doesn't)
+        self.output_bias = nn.Parameter(torch.zeros(n_cells))
+
         # Causal mask for temporal attention (frame t only sees ≤t)
         self.register_buffer(
             'causal_mask',
@@ -372,7 +377,9 @@ class JointTransformerDecoder(nn.Module):
             vs = vol_scale.reshape(B, 1, 1, 1)
         else:
             vs = vol_scale
-        raw = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W)
+        # Per-cell output bias: shift mean prediction (learned from data)
+        bias = self.output_bias.reshape(H, W).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        raw = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W) + bias
         # Reflecting boundaries (same as AR path): bounce off [floor, 1.0]
         floor = 0.01
         width = 1.0 - floor
