@@ -30942,3 +30942,26 @@ the 30-day training window. 120b has slightly better butterfly arb recovery (33.
 - **B3**: df sweep on joint transformer 133f (df=4,8,12,20)
 
 ---
+
+## 2026-03-20: A4 — Optimal Ensemble With Joint Transformer — E4 Still Best
+
+### Results
+
+| Ensemble | Score | Suites | Kurtosis | KS Daily | Catastrophic |
+|----------|-------|--------|----------|----------|-------------|
+| **E4 (baseline)** | **68.74** | **5/8** | 0.950 | **18/25** | 239 |
+| E_best3 (133f+111b+120b) | 67.83 | 5/8 | **1.101** | 12/25 | **184** |
+| E_best4 (133f+108a+111b+120b) | 67.56 | 5/8 | 1.085 | 12/25 | 218 |
+
+### Analysis
+Joint transformer helps kurtosis (1.10 vs 0.95) and catastrophic (184 vs 239) but
+kills KS daily (12/25 vs 18/25). Mixing AR + non-AR daily change distributions creates
+bimodal-like ensemble that fails KS test. The 6 lost KS cells cost 1.2 composite points.
+
+Adding 108a to E_best3 slightly hurts (67.83→67.56) — 4th model dilutes sample count
+without adding diversity (108a and 120b are both AR MLPs).
+
+**E4 (108a+99m_v2+111b+120b) remains the all-time best at 68.74.** The optimal ensemble
+uses architecturally diverse AR variants + Conv3D, NOT joint transformer.
+
+---
