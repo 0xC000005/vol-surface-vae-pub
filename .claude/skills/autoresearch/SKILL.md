@@ -229,7 +229,7 @@ LOOP:
   │    This loads the research-log skill which handles        │
   │    appending via heredoc + MCP re-ingestion.             │
   │    Follow the skill's append template (## date: title).  │
-  │    Then call mcp__local-rag__ingest_file to re-index.    │
+  │    Then call qmd update --collection research && qmd embed to re-index.    │
   │    Fallback ONLY if Skill tool fails: direct cat >>      │
   │    to RESEARCH_LOG.md + manual ingest_file call.          │
   │    The entry MUST contain ALL items from step 3B above.  │
@@ -249,7 +249,7 @@ LOOP:
   │    SELF-CHECK before proceeding:                         │
   │      □ Did I call Skill(skill="research-log") to         │
   │        append? (not raw Edit/cat — use the SKILL)        │
-  │      □ Did I call mcp__local-rag__ingest_file to         │
+  │      □ Did I call qmd update --collection research && qmd embed to         │
   │        re-index? (or did the skill handle it?)           │
   │      □ Does the entry contain metrics table, WHY         │
   │        analysis, and what was learned?                   │
@@ -270,8 +270,8 @@ commit to use as the BASE for the next iteration:
 
 | Score | Understanding | Decision | Next experiment |
 |-------|-------------|----------|-----------------|
-| Improved + understood why | Deep | **BUILD ON THIS** | New experiment (e.g., 102b) building on 102a's code |
-| Improved + don't understand why | Shallow | **INVESTIGATE FIRST** — spend time understanding the mechanism before building further. An unexplained improvement can't be reliably extended. | Investigation, then new experiment |
+| Improved + understood why | Deep | **BUILD ON THIS** — but first ask: is this Bitter-Lesson-compatible? Did the model LEARN this or did you engineer it? Engineered success won't generalize. | New experiment (e.g., 102b) building on 102a's code |
+| Improved + don't understand why | Shallow | **INVESTIGATE FIRST** (Popper: success without understanding is fragile). Spend time understanding the mechanism before building further. An unexplained improvement can't be reliably extended. What would BREAK this improvement? Design a stress test. | Investigation, then new experiment |
 | Worse + understood why + reveals mechanism | Deep | **VALUABLE FAILURE** — the code didn't work but the investigation revealed WHY. This "why" often points to the next breakthrough. | New experiment (e.g., 102c) using the insight, starting from pre-102a base |
 | Worse + don't understand why | None | **INVESTIGATE** — do NOT move on. Dig into per-cell breakdowns, training dynamics, compare predictions to results. The answer may be the key insight. | Investigation first, then decide |
 | Any result from wrong methodology | N/A | **FIX METHODOLOGY** — re-run with corrected test. No conclusions until methodology is sound. | Same experiment, fixed test |
@@ -312,36 +312,38 @@ Each direction is a structured object:
 Pick the active direction with fewest attempts. After max_attempts without
 improvement, mark "exhausted".
 
-### When Queue is Empty: SYNTHESIZE
+### When Queue is Empty: SYNTHESIZE (use Research Compass)
 
 This is the critical capability that makes the loop self-sustaining.
 
-**Step 1 — Gather evidence:**
-- Read `autoresearch-session/results-log.md` (all iterations this session)
-- **Use `research-log` skill** to search for: "exhausted approaches", "what hasn't been
-  tried", "root cause analysis", recent experiment results
-- Read the latest `summary.json` to understand current failure modes
+**Step 0 — Check for existing Research Compass:**
+Search QMD for the latest Research Compass entry:
+```
+mcp__qmd__query({ searches: [{ type: "lex", query: "\"Research Compass\"" }], limit: 3 })
+```
+If a recent Research Compass exists with active hypotheses, load those hypotheses
+into the theory queue. Each hypothesis becomes a direction with its staged checkpoints
+as sub-iterations. Follow the Research Compass's execution order (information flow).
 
-The research log is the PERSISTENT source of truth. It contains all past experiments,
-root cause analyses, and proven mechanisms. MEMORY.md is a summary that gets overwritten
-— always go to the research log for comprehensive evidence.
+**If no Research Compass exists OR all compass hypotheses are exhausted:**
 
-**Step 2 — Pattern recognition:**
-- Which changes improved which metrics? (cross-reference from results log)
-- Which changes caused unexpected regressions? (surprises = learning opportunities)
-- What architectural mechanisms are shared across failures?
-- What does the research log say has NOT been tried?
+Invoke the `research-ideation` skill to generate a new Research Compass:
+```
+Skill(skill="research-ideation", args="Generate research compass — theory queue empty")
+```
+This runs the full 4-phase process: evidence synthesis → independent reasoning →
+framework application → literature search → adversarial critique → ranked hypotheses.
+The research-ideation skill will save the compass to the research log.
 
-**Step 3 — Generate 2-3 new directions:**
-Each new direction must:
-- Reference specific experimental results that motivate it
-- Explain the theoretical mechanism (why should this work?)
-- Predict which metrics will improve and which might regress
-- Not repeat any exhausted direction from the research log
+**Why use research-ideation instead of ad-hoc synthesis:**
+The 2026-03-17 autoresearch session demonstrated the failure mode: when the theory
+queue ran out, the agent generated directions that were variants of exhausted approaches
+(metric chasing, not principled). The research-ideation skill applies Hamming/Popper/TRIZ
+filters, searches literature, and ensures hypotheses are independently testable with
+falsification criteria. This produces principled directions, not ad hoc ideas.
 
-**Step 4 — Present or auto-proceed:**
-- Interactive: show user the new directions and reasoning
-- Overnight: auto-proceed with the highest-confidence direction, log the reasoning
+**Fallback (if research-ideation skill unavailable):**
+Follow the theory-engine.md reference file for manual synthesis.
 
 ## Bitter Lesson Guard
 
@@ -559,7 +561,7 @@ If training crashes (OOM, NaN loss, CUDA error):
 
 ## MCP Server Fallback
 
-If `mcp-local-rag` is unavailable for research log search:
+If `QMD` is unavailable for research log search:
 - Fall back to Grep-based methods from the `research-log` skill
 - `Grep pattern="### Exp {id}" path="RESEARCH_LOG.md"` for known experiment IDs
 - `Grep pattern="^## 2026-" path="RESEARCH_LOG.md"` for section headers
