@@ -497,6 +497,8 @@ def main():
                         help="Transformer layers for joint decoder")
     parser.add_argument("--joint_d_model", type=int, default=128,
                         help="Hidden dim for joint transformer decoder")
+    parser.add_argument("--joint_noise_factors", type=int, default=0,
+                        help="Shared noise factors for joint decoder (0=per-cell, 5=shared k factors)")
     parser.add_argument("--curriculum_noise_epoch", type=int, default=0,
                         help="Switch from gaussian to student_t noise at this epoch (Exp 126a)")
     parser.add_argument("--extra_features", type=int, default=0,
@@ -670,6 +672,7 @@ def main():
         joint_decoder=getattr(args, 'joint_decoder', False),
         joint_n_layers=getattr(args, 'joint_n_layers', 4),
         joint_d_model=getattr(args, 'joint_d_model', 128),
+        joint_noise_factors=getattr(args, 'joint_noise_factors', 0),
         ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         ar_lowrank_spread=getattr(args, 'ar_lowrank_spread', 0),
         ar_frame_n_layers=getattr(args, 'ar_frame_n_layers', 2),

@@ -146,6 +146,7 @@ class SinglePassConfig:
     joint_n_layers: int = 4                  # Transformer layers (each = temporal + spatial)
     joint_d_model: int = 128                 # Hidden dim for transformer
     joint_n_heads: int = 4                   # Attention heads
+    joint_noise_factors: int = 0             # Shared noise factors (0=per-cell, 5=shared k factors)
 
     # Extra conditioning features (e.g. returns)
     extra_features: int = 0              # number of extra encoder input features
@@ -226,18 +227,27 @@ class JointTransformerDecoder(nn.Module):
     def __init__(self, cond_dim: int = 128, noise_dim: int = 32,
                  n_frames: int = 30, n_cells: int = 25,
                  d_model: int = 128, n_heads: int = 4,
-                 n_layers: int = 4, dropout: float = 0.0):
+                 n_layers: int = 4, dropout: float = 0.0,
+                 noise_factors: int = 0):
         super().__init__()
         self.n_frames = n_frames
         self.n_cells = n_cells
         self.d_model = d_model
+        self.noise_factors = noise_factors
 
         # Position embeddings
         self.frame_pos = nn.Embedding(n_frames, d_model)
         self.cell_pos = nn.Embedding(n_cells, d_model)
 
-        # Project noise to model dim (per-position noise)
-        self.noise_proj = nn.Linear(noise_dim, d_model)
+        # Noise projection
+        if noise_factors > 0:
+            # Shared factor noise: k factors → 25 cells via learned loadings
+            self.noise_proj = nn.Linear(noise_dim, d_model)
+            self.factor_loadings = nn.Linear(noise_factors, n_cells, bias=False)
+            nn.init.orthogonal_(self.factor_loadings.weight)
+        else:
+            self.noise_proj = nn.Linear(noise_dim, d_model)
+            self.factor_loadings = None
 
         # Project condition to model dim
         self.cond_proj = nn.Linear(cond_dim, d_model)
@@ -285,7 +295,7 @@ class JointTransformerDecoder(nn.Module):
                 prev_frame: torch.Tensor, vol_scale: float = 0.02) -> torch.Tensor:
         """
         condition: (B, cond_dim) from frozen encoder
-        noise: (B, T, H*W, noise_dim) per-position noise
+        noise: (B, T, H*W, noise_dim) per-position noise — or (B, T, k, noise_dim) if factor noise
         prev_frame: (B, H*W) last history frame in IV space
         vol_scale: scalar or (B,) condition-dependent scale
 
@@ -296,7 +306,18 @@ class JointTransformerDecoder(nn.Module):
 
         # Build per-position input: condition + noise + frame_pos + cell_pos + prev
         cond_emb = self.cond_proj(condition)  # (B, d)
-        noise_emb = self.noise_proj(noise)  # (B, T, C, d)
+
+        if self.factor_loadings is not None:
+            # Factor noise: (B, T, k, noise_dim) → project factors to cells
+            # noise: (B, T, k, noise_dim) → embed each factor
+            k = noise.shape[2]
+            factor_emb = self.noise_proj(noise)  # (B, T, k, d)
+            # Loading matrix: (k, C) → spread factors to cells
+            loadings = self.factor_loadings.weight.T  # (k, C)
+            # noise_emb: (B, T, C, d) via einsum
+            noise_emb = torch.einsum('btkd,kc->btcd', factor_emb, loadings)
+        else:
+            noise_emb = self.noise_proj(noise)  # (B, T, C, d)
         frame_pos = self.frame_pos.weight.unsqueeze(1).expand(T, C, -1)  # (T, C, d)
         cell_pos = self.cell_pos.weight.unsqueeze(0).expand(T, C, -1)  # (T, C, d)
         prev_emb = self.prev_proj(prev_frame.unsqueeze(-1))  # (B, C, d)
@@ -892,6 +913,7 @@ class SinglePassBlockAR(nn.Module):
                     d_model=config.joint_d_model,
                     n_heads=config.joint_n_heads,
                     n_layers=config.joint_n_layers,
+                    noise_factors=config.joint_noise_factors,
                 )
         else:
             # Noise MLP (replaces TimeEmbedding)
@@ -1440,7 +1462,9 @@ class SinglePassBlockAR(nn.Module):
 
             for _ in range(n_members):
                 # Per-position noise: (B, T, C, noise_dim)
-                noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
+                nf = self.config.joint_noise_factors
+                noise_cells = nf if nf > 0 else H * W
+                noise = torch.randn(B, n_frames, noise_cells, self.config.noise_dim, device=device)
                 trajectory = self.joint_transformer(cond_t, noise, prev_frame, vol_scale=joint_vs)
                 all_member_trajectories.append(trajectory)
 
@@ -1843,7 +1867,9 @@ class SinglePassBlockAR(nn.Module):
 
             all_samples = []
             for _ in range(n_samples):
-                noise = torch.randn(B, n_frames, H * W, self.config.noise_dim, device=device)
+                nf = self.config.joint_noise_factors
+                noise_cells = nf if nf > 0 else H * W
+                noise = torch.randn(B, n_frames, noise_cells, self.config.noise_dim, device=device)
                 trajectory = self.joint_transformer(condition, noise, prev_frame, vol_scale=vs)
                 all_samples.append(trajectory)
 
