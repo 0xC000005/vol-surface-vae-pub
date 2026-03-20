@@ -30485,3 +30485,70 @@ passing kurtosis + near-GT correlation at epoch 10. Needs stabilization:
 6. This is the first architecture to show ALL THREE: diversity + kurtosis + correlation
 
 ---
+
+## 2026-03-20: Exp 133c — H4 Stabilized: Joint Transformer PASSES Suite 4 (Kurtosis 1.60)
+
+### Context
+133b showed proof of concept (kurtosis 0.532 at ep10) but unstable training and missing
+conditionality (fixed vol_scale). 133c: K=8, LR=5e-4 (halved), condition-dependent vol_scale.
+
+### Results
+
+| Metric | 133c (Joint, K=8) | 99m_v2 (baseline) | Direction |
+|--------|-------------------|-------------------|-----------|
+| Suites passed | **4/8** | 5/8 | Different pattern |
+| Composite score | 53.54 | 66.31 | Lower (coint regresses) |
+| **Kurtosis ratio** | **1.599** | 0.845 | **PASSES (first time!)** |
+| Turb/calm ratio | **1.807** | 1.476* | **Excellent (vol_scale works)** |
+| CI 90% | 91.7% | 91.3% | Similar |
+| KS daily | 17/25 | 20/25 | Slightly worse |
+| **Coint ratio** | **0.318** | 0.675 | **REGRESSED (cells independent)** |
+| Cross-cell corr | 0.087 | 0.463 | Too low (GT 0.38) |
+| eff_rank | 3.88 | 1.57 | Much better (GT 2.6) |
+
+**Suite pass pattern**: 133c passes {1,3,4,5}, baseline passes {1,3,4,5,6}. 133c GAINS kurtosis
+quality but LOSES cointegration. The net effect is 4/8 vs 5/8.
+
+### Training Dynamics
+
+Kurtosis stabilized from epoch 12 onwards: consistently 0.9-1.6 (within target 0.5-2.0).
+Loss decreased steadily from 57.7 (ep1) to 34.9 (ep40). No variance saturation — confirming
+H4 eliminates the CLN/AR variance saturation problem.
+
+### Analysis (WHY)
+
+**Why kurtosis PASSES**: The cumulative delta mechanism (output = prev + vs * cumsum(delta))
+creates natural variance growth with horizon — no per-frame noise injection that causes
+saturation. The variance profile follows h^α where α is determined by the temporal attention
+structure, not by noise modulation strength.
+
+**Why cointegration FAILS**: Cross-cell correlation is 0.087 (GT 0.38). The spatial attention
+treats each cell nearly independently — it hasn't learned the factor structure. This kills
+cointegration because cells don't co-move. The model produces 25 nearly independent time
+series instead of a low-rank factor structure.
+
+**Why conditionality PASSES (now)**: Threading condition-dependent vol_scale into the joint
+transformer fixed the turb/calm ratio from 1.08 to 1.81. The model now widens spreads for
+turbulent conditions correctly.
+
+### Next Steps
+The joint transformer's main weakness is spatial correlation. Approaches:
+1. **Variogram score** (lambda_vs already in the loss — increase weight)
+2. **Spatial attention warmup**: start with identity (cells independent) then learn
+3. **Shared noise factors**: instead of per-position noise, use k shared factors projected
+   to 25 cells (like the factor noise in AR, but applied in transformer context)
+4. **Pre-train spatial attention**: train spatial layers separately on GT correlation targets
+
+### Decision
+**BUILD ON THIS** — first architecture to pass Suite 4 with excellent kurtosis (1.60).
+Focus on restoring cointegration (spatial correlation) without losing kurtosis.
+
+### What Was Learned
+1. Joint transformer with K=8 + LR=5e-4 produces stable kurtosis 1.0-1.6 (excellent!)
+2. Condition-dependent vol_scale is essential for conditionality (turb/calm 1.08 → 1.81)
+3. Spatial attention defaults to independent cells — needs explicit correlation signal
+4. The kurtosis-cointegration tradeoff is now ARCHITECTURAL (independent noise paths)
+   instead of LOSS-DRIVEN (CRPS rank-1 attractor). This is more tractable.
+5. 40 epochs at 70s/epoch = 47 min total training — fast iteration
+
+---
