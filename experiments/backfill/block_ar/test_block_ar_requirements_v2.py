@@ -1406,7 +1406,7 @@ def run_cointegration_tests(
     ratio = gen_overall_pass_rate / gt_overall_pass_rate if gt_overall_pass_rate > 0 else 0.0
     coint_pass = ratio >= 0.5
 
-    # Per-cell worst: gen/GT ratio per cell, worst cell >= 0.3
+    # Per-cell worst: gen/GT ratio per cell, worst cell >= 0.25
     per_cell_ratio = np.where(
         gt_pass_rates > 0,
         gen_pass_rates / gt_pass_rates,
@@ -1429,7 +1429,7 @@ def run_cointegration_tests(
     print(f"  Gen cointegration pass rate: {gen_overall_pass_rate:.1%}")
     print(f"  Gen/GT ratio: {ratio:.3f} (target >=0.50) {'PASS' if ratio >= 0.5 else 'FAIL'}")
     print(f"  Worst cell ({worst_cell_idx[0]},{worst_cell_idx[1]}): "
-          f"gen/GT={worst_cell_ratio:.3f} (target >=0.30) "
+          f"gen/GT={worst_cell_ratio:.3f} (target >=0.25) "
           f"{'PASS' if worst_cell_pass else 'FAIL'}")
     print(f"  --- Legacy ADF on residuals (informational, inflated FPR) ---")
     print(f"  GT legacy pass rate:  {gt_overall_pass_rate_legacy:.1%}")
