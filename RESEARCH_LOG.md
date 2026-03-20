@@ -30727,3 +30727,28 @@ structure at ep40 (corr 0.361, rank 2.67, PC1 59.1%).
 structural — requires precise per-cell calibration beyond what CRPS can learn.
 
 ---
+
+## 2026-03-20: Research Compass 2 — Breaking the Per-Cell Calibration Barrier
+
+### Philosophy Applied
+- **Karpathy**: Start with simplest test (H2: just change lambda)
+- **Popper**: Each hypothesis has staged falsification
+- **Bitter Lesson**: All changes are learned from data (nn.Linear, nn.Parameter)
+- **TRIZ**: The contradiction is CRPS can't calibrate per-cell, but we need per-cell calibration → add explicit per-cell loss signal
+
+### Evidence Summary
+1. Per-cell spread error dominates Suite 8 (11 cells lost vs 4 from anchor bias)
+2. Column 0 / row 4 systematically over-spread across ALL models
+3. Short-maturity cells mean-revert 69% — baseline anchor is terrible
+4. cell_var_loss at lambda=1.0 insufficient for per-cell calibration
+5. Joint transformer with per-cell scale achieves 5/8 but not per-cell CI gate
+
+### Active Hypotheses
+
+H2: lambda_cell_var=5.0 (simplest test, 1h)
+H1: Condition-dependent cell spread in joint transformer (3h)
+H3: Learned anchor replacing history[-1] (3h)
+
+### Execution Order: H2 → H1 → H3
+
+---
