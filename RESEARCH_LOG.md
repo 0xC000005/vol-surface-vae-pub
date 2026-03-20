@@ -30620,3 +30620,40 @@ But we don't break the 5/8 ceiling. Suites 2, 7, 8 remain failed. The per-cell C
 5. Suite 2 (per-cell CI) is the tightest gate: cell (1,0) consistently 99%+ coverage
 
 ---
+
+## 2026-03-20: Exp 133e + E6 — Factor Noise Overshoot & Best 3-Model Ensemble
+
+### 133e: Joint Transformer + 3 Factor Noise, LR=2e-4, 60 epochs
+3/8 suites, score 40.34. Kurtosis 4.07 (above 2.0 target — overshot). The model was
+in the kurtosis sweet spot (1.0-1.9) during ep9-19 but val_loss checkpoint selection
+chose ep27 where kurtosis had climbed to 3.13. The cross-cell corr reached 0.775 at
+ep10 (above GT 0.38) and continued rising to 0.823 at ep40.
+
+Key issue: val_loss doesn't track kurtosis quality. Need kurtosis-aware checkpoint
+selection or early stopping based on kurtosis.
+
+### E6: 3-Model Ensemble (133c + 99m_v2 + 132b), 17 samples each
+**5/8 suites, score 65.92** — best ensemble quality metrics.
+
+| Metric | E6 (3-model) | E5 (2-model) | 99m_v2 (baseline) |
+|--------|-------------|-------------|-------------------|
+| Suites | 5/8 | 5/8 | 5/8 |
+| Score | **65.92** | 65.3 | 66.31 |
+| Kurtosis | **1.58** | 1.58 | 0.845 |
+| Coint | **0.763** | 0.570 | 0.675 |
+| CI 90% | 93.0% | 93.1% | 91.3% |
+| KS daily | 17/25 | 17/25 | 20/25 |
+| Catastrophic | **386** | 382 | 576 |
+
+The 3-model ensemble (joint + AR + CLN) achieves the best kurtosis + cointegration
+combination. The CLN warmup model (132b) provides excellent cointegration (1.181
+alone) which boosts the ensemble to 0.763 (vs 0.570 for 2-model).
+
+### What Was Learned
+1. Factor noise with 3 factors is still too aggressive — kurtosis overshoots 2.0 by ep20
+2. Val_loss is a poor proxy for kurtosis quality — need kurtosis-aware selection
+3. 3-model ensemble (joint+AR+CLN) is the best combination for kurtosis+cointegration
+4. Architectural diversity is the key to ensemble quality — each model contributes different strengths
+5. The 5/8 ceiling remains structural — Suites 2, 7, 8 require per-cell calibration
+
+---
