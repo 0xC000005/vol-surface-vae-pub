@@ -30758,3 +30758,13 @@ H3: Learned anchor replacing history[-1] (3h)
 4/8 suites, score 51.6. Kurtosis 1.78 PASSES. Cointegration 0.214 FAILS (regressed from 133f's 0.557). Higher cell_var weight pushes per-cell variance matching but destroys cointegration. The cell_var_loss decreased from 2.06→0.54 (much lower) but per-cell CI gate still fails. Conclusion: per-cell CI failure is NOT about variance matching — it's about WHICH cells are over-spread (architecture/noise structure). RC2-H2 falsified: higher cell_var doesn't fix Suite 2.
 
 ---
+
+## 2026-03-20: Exp 134a — RC2-H1: Condition-Dependent Cell Spread
+
+5/8 suites, score 64.23. Kurtosis 0.629 (barely passes), cointegration **0.864** (best single-model ever!), KS daily 16/25. CI only 83.2% — condition-dependent spread actually makes CI worse by reducing spread magnitude.
+
+The condition-dependent cell spread creates a kurtosis-cointegration INVERSION: 133f (static cell_scale) has kurtosis 1.72 + coint 0.557, while 134a (condition cell_spread) has kurtosis 0.629 + coint 0.864. The condition-dependent projection allows the model to tighten per-cell spread, which improves cointegration (cells co-move more precisely) but destroys kurtosis (less variance heterogeneity).
+
+RC2-H1 teaches: condition-dependent cell spread is ANTI-CORRELATED with kurtosis. The model uses the extra capacity to minimize CRPS by tightening, not by producing diverse per-cell patterns.
+
+---
