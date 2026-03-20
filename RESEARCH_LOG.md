@@ -30701,3 +30701,29 @@ destroying the shared factor structure.
 5. The 5/8 ceiling is now matched by both AR and joint transformer architectures
 
 ---
+
+## 2026-03-20: Exp 133f_v2 — Higher Interval Score Weight: No Improvement
+
+Higher IS weight (2.0 vs 0.5) creates high CI from epoch 1 (95-99%) but prevents proper
+per-cell calibration. Best model (ep5) gets 4/8 (CI 86.4%), ep30 gets 3/8 (kurt 2.97).
+133f (IS=0.5) remains the best joint transformer model at 5/8 with kurtosis 1.72.
+
+### Session 3 Final Summary (2026-03-20)
+
+**15 experiments**: 130a, 132a/b/a_v2, 133a_v2/b/c/d/e/f/f_v2, E5/E6/E7/E8/E9
+
+| Rank | Model | Score | Suites | Kurtosis | Coint | Key Feature |
+|------|-------|-------|--------|----------|-------|-------------|
+| 1 | E9 (133f+99m+132b) | **66.01** | 5/8 | **1.67** | **0.75** | Best ensemble |
+| 2 | E6 (133c+99m+132b) | 65.92 | 5/8 | 1.58 | 0.76 | Alt ensemble |
+| 3 | 99m_v2 (AR baseline) | 66.31 | 5/8 | 0.85 | 0.68 | Baseline |
+| 4 | **133f** (Joint+cellscale) | **63.78** | **5/8** | **1.72** | 0.56 | Best joint single |
+
+**Breakthroughs**: Joint transformer decoder eliminates variance saturation, passes Suite 4
+with 2x better kurtosis. Per-cell scale enables 5/8 as single model. Near-GT factor
+structure at ep40 (corr 0.361, rank 2.67, PC1 59.1%).
+
+**5/8 ceiling confirmed across 75+ total experiments**: Suite 2 (per-cell CI) remains
+structural — requires precise per-cell calibration beyond what CRPS can learn.
+
+---
