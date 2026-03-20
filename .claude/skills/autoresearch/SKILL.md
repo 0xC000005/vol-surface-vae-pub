@@ -111,6 +111,14 @@ LOOP:
   │    Pick next hypothesis with theoretical justification   │
   │    Write prediction: "Expect X to improve because Y"     │
   │    Write risk: "May regress Z because W"                 │
+  │                                                         │
+  │    VERIFY PRIOR CLAIMS: If building on a previous        │
+  │    experiment's results, spot-check the key number your  │
+  │    hypothesis depends on. Re-read the actual summary.json│
+  │    or rerun evaluation if the claim is single-source.    │
+  │    The verification audit found prior claims (133d ep20  │
+  │    "sweet spot", 133f ep40 "near-GT") were falsified     │
+  │    when actually tested. Trust but verify.               │
   ├─────────────────────────────────────────────────────────┤
   │ 2. EXPERIMENT                                           │
   │    Make ONE focused change (architecture or training)    │
@@ -124,6 +132,14 @@ LOOP:
   │      - Is the test actually testing what we think?       │
   │      - Are there confounded variables?                   │
   │      - Is the evaluation budget sufficient? (noise)      │
+  │                                                         │
+  │    BORDERLINE RESULTS NEED 2 RUNS: If the suite count   │
+  │    is ±1 of a threshold (e.g., 5/8 vs 4/8 hinges on    │
+  │    one borderline suite), rerun with different seeds.    │
+  │    The verification audit found 133f scores ranged from  │
+  │    44 to 64 between runs — a 20-point swing from         │
+  │    sampling noise alone. Single-run scores near          │
+  │    thresholds are unreliable.                            │
   ├─────────────────────────────────────────────────────────┤
   │ 3. DOCUMENT (session log only — research log is step 6)  │
   │                                                         │
@@ -246,13 +262,24 @@ LOOP:
   │      and only wrote them when the user intervened)       │
   │    - A missing entry = wasted GPU hours in the future    │
   │                                                         │
+  │    ENTRY QUALITY GATE (minimum requirements):             │
+  │      □ Metrics comparison TABLE (not just prose)         │
+  │      □ Training command (for reproducibility)            │
+  │      □ WHY section with at least one NUMBER from a       │
+  │        diagnostic (not narrative-only)                   │
+  │      □ "What was learned" section (insight, not outcome) │
+  │    If any of these are missing, the entry is incomplete. │
+  │    The verification audit found late-session entries      │
+  │    (133f_v2, 133f_v3) degraded to single paragraphs     │
+  │    with no tables, no commands, no diagnostics. This     │
+  │    makes them nearly useless for future sessions.        │
+  │                                                         │
   │    SELF-CHECK before proceeding:                         │
   │      □ Did I call Skill(skill="research-log") to         │
   │        append? (not raw Edit/cat — use the SKILL)        │
-  │      □ Did I call qmd update --collection research && qmd embed to         │
-  │        re-index? (or did the skill handle it?)           │
-  │      □ Does the entry contain metrics table, WHY         │
-  │        analysis, and what was learned?                   │
+  │      □ Did I call qmd update --collection research &&    │
+  │        qmd embed to re-index?                            │
+  │      □ Does the entry pass the QUALITY GATE above?       │
   │      □ Did I git commit the research log?                │
   │      □ Only THEN start the next HYPOTHESIZE step         │
   └─────────────────────────────────────────────────────────┘
@@ -270,7 +297,7 @@ commit to use as the BASE for the next iteration:
 
 | Score | Understanding | Decision | Next experiment |
 |-------|-------------|----------|-----------------|
-| Improved + understood why | Deep | **BUILD ON THIS** — but first ask: is this Bitter-Lesson-compatible? Did the model LEARN this or did you engineer it? Engineered success won't generalize. | New experiment (e.g., 102b) building on 102a's code |
+| Improved + understood why | Deep | **BUILD ON THIS** — but first: (1) Is this Bitter-Lesson-compatible? (2) What would BREAK this? Design a quick stress test before the next experiment. (3) If result is near a threshold, rerun with different seed to confirm it's not noise. The verification audit found that skipping stress tests led to building on fragile successes (133f ep40 "near-GT" was falsified when tested). | New experiment — but stress test first |
 | Improved + don't understand why | Shallow | **INVESTIGATE FIRST** (Popper: success without understanding is fragile). Spend time understanding the mechanism before building further. An unexplained improvement can't be reliably extended. What would BREAK this improvement? Design a stress test. | Investigation, then new experiment |
 | Worse + understood why + reveals mechanism | Deep | **VALUABLE FAILURE** — the code didn't work but the investigation revealed WHY. This "why" often points to the next breakthrough. | New experiment (e.g., 102c) using the insight, starting from pre-102a base |
 | Worse + don't understand why | None | **INVESTIGATE** — do NOT move on. Dig into per-cell breakdowns, training dynamics, compare predictions to results. The answer may be the key insight. | Investigation first, then decide |
@@ -591,7 +618,23 @@ If `QMD` is unavailable for research log search:
    loaded). A wrong test → wrong conclusion → blocked promising path.
 8. **Synthesize when stuck** — generate new directions from evidence, don't repeat failures
 9. **Quick then full** — validate cheaply before investing in full training
-10. **RESEARCH LOG IS A BLOCKING GATE** — You MUST invoke the `research-log` skill to
+10. **Periodic methodology verification** — Every 5 iterations (or when starting a new
+    direction), run an "oracle test": feed GT data through the test suite to verify the
+    test itself is working correctly. The verification audit found a KS-levels truncation
+    bug that made the test structurally unfair (oracle passes only 5/25 cells). This single
+    bug may have hidden that the 5/8 ceiling was actually 6/8. Test your tests.
+11. **Novel findings trigger literature search** — When you encounter a result you can't
+    explain from existing knowledge (e.g., "transformer doesn't learn spatial correlation",
+    "noise MLP washes out all tail distributions"), launch a targeted literature search agent
+    before proceeding. Use arxiv MCP + WebSearch + PaperQA2. Someone else may have already
+    solved this specific sub-problem. Staying narrow produces incremental work (Park et al.,
+    Nature 2023).
+12. **Systematic per-cell analysis** — Every 5-10 experiments, run a comprehensive per-cell
+    failure map across ALL accumulated results (not just the latest). The verification audit
+    analyzed 367 summary.json files and corrected a months-old belief (cell (4,0) was assumed
+    worst; cell (0,3) is actually worst in 47% of models). Aggregate analysis catches what
+    single-experiment analysis misses.
+13. **RESEARCH LOG IS A BLOCKING GATE** — You MUST invoke the `research-log` skill to
     append to RESEARCH_LOG.md, then git commit, BEFORE starting the next iteration.
     This is step 6 of the HEDA loop. It is NOT optional. It is NOT deferrable.
     Do NOT batch-write multiple entries later — write EACH entry IMMEDIATELY after the
