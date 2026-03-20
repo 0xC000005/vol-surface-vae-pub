@@ -296,29 +296,37 @@ class FrameDecoder(nn.Module):
             out_dim = frame_dim
 
         if adagn_noise:
-            # Build MLP as separate layers for AdaGN injection
+            # Build configurable-depth MLP with CLN/AdaGN after each layer
             # Noise embedding: noise_dim → noise_embed_dim
             self.noise_embed = nn.Sequential(
                 nn.Linear(noise_dim, noise_embed_dim),
                 nn.SiLU(),
                 nn.Linear(noise_embed_dim, noise_embed_dim),
             )
-            # MLP layers (no noise in input)
-            self.lin1 = nn.Linear(input_dim, hidden_dim)
-            self.ln1 = nn.LayerNorm(hidden_dim)
-            self.adagn1_proj = nn.Linear(noise_embed_dim, hidden_dim * 2)  # scale + shift
-            self.lin2 = nn.Linear(hidden_dim, hidden_dim)
-            self.ln2 = nn.LayerNorm(hidden_dim)
-            self.adagn2_proj = nn.Linear(noise_embed_dim, hidden_dim * 2)  # scale + shift
+            # Variable-depth MLP layers with per-layer CLN
+            self.adagn_linears = nn.ModuleList()
+            self.adagn_lns = nn.ModuleList()
+            self.adagn_projs = nn.ModuleList()
+            for i in range(n_mlp_layers):
+                in_d = input_dim if i == 0 else hidden_dim
+                self.adagn_linears.append(nn.Linear(in_d, hidden_dim))
+                self.adagn_lns.append(nn.LayerNorm(hidden_dim))
+                proj = nn.Linear(noise_embed_dim, hidden_dim * 2)
+                nn.init.zeros_(proj.weight)
+                nn.init.zeros_(proj.bias)
+                self.adagn_projs.append(proj)
             self.lin_out = nn.Linear(hidden_dim, out_dim)
-            # Zero-init output and AdaGN projections (starts as identity transform)
+            # Zero-init output (starts as identity transform)
             nn.init.zeros_(self.lin_out.weight)
             nn.init.zeros_(self.lin_out.bias)
-            # Init AdaGN: scale=1 (bias=0 for first half), shift=0 (bias=0 for second half)
-            nn.init.zeros_(self.adagn1_proj.weight)
-            nn.init.zeros_(self.adagn1_proj.bias)
-            nn.init.zeros_(self.adagn2_proj.weight)
-            nn.init.zeros_(self.adagn2_proj.bias)
+            # Keep old attributes for backward compat with 120a checkpoints
+            self.lin1 = self.adagn_linears[0]
+            self.ln1 = self.adagn_lns[0]
+            self.adagn1_proj = self.adagn_projs[0]
+            if n_mlp_layers >= 2:
+                self.lin2 = self.adagn_linears[1]
+                self.ln2 = self.adagn_lns[1]
+                self.adagn2_proj = self.adagn_projs[1]
             self.mlp = None  # signal that we use separate layers
         else:
             self.noise_embed = None
@@ -363,30 +371,22 @@ class FrameDecoder(nn.Module):
         pos_emb = self.pos_embed(local_position)  # (B, pos_dim)
 
         if self.adagn_noise_active:
-            # AdaGN path: noise enters via multiplicative scale+shift, not input concat
+            # CLN/AdaGN path: noise enters via multiplicative scale+shift after each LayerNorm
             pieces = [prev_frame, condition, pos_emb]
             if self.horizon_embed is not None:
                 if horizon_bucket is None:
                     horizon_bucket = torch.zeros_like(local_position)
                 pieces.append(self.horizon_embed(horizon_bucket))
             x = torch.cat(pieces, dim=-1)
-            # Compute noise embedding once
             n_emb = self.noise_embed(noise_t)  # (B, noise_embed_dim)
-            # Layer 1 + AdaGN
-            h = self.lin1(x)
-            h = self.ln1(h)
-            scale_shift_1 = self.adagn1_proj(n_emb)  # (B, hidden*2)
-            scale1, shift1 = scale_shift_1.chunk(2, dim=-1)
-            h = (1 + scale1) * h + shift1  # AdaGN: multiplicative modulation
-            h = F.silu(h)
-            # Layer 2 + AdaGN
-            h = self.lin2(h)
-            h = self.ln2(h)
-            scale_shift_2 = self.adagn2_proj(n_emb)  # (B, hidden*2)
-            scale2, shift2 = scale_shift_2.chunk(2, dim=-1)
-            h = (1 + scale2) * h + shift2
-            h = F.silu(h)
-            # Output
+            h = x
+            for linear, ln, proj in zip(self.adagn_linears, self.adagn_lns, self.adagn_projs):
+                h = linear(h)
+                h = ln(h)
+                scale_shift = proj(n_emb)  # (B, hidden*2)
+                scale, shift = scale_shift.chunk(2, dim=-1)
+                h = (1 + scale) * h + shift  # CLN: γ(z)*LN(h) + β(z)
+                h = F.silu(h)
             delta = self.lin_out(h)
         elif self.noisefree_mlp_active:
             # Exp 120b: Noise-free MLP — noise excluded from input
