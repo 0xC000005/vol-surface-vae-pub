@@ -1,10 +1,12 @@
 {
-  "iteration": 49,
-  "experiment_id": "129a",
-  "training_status": "running",
-  "phase": "training",
-  "hypothesis": "noise_dim=64 (was 32) gives skip more input diversity, harder for CRPS to compress to rank-1",
-  "session_best": {"exp": "E4_multi_ckpt", "score": 68.74},
-  "total_experiments": 48,
-  "total_investigations": 26
+  "iteration": 0,
+  "experiment_id": "baseline",
+  "training_status": "setup",
+  "phase": "hypothesize",
+  "hypothesis": "Session setup — Research Compass H1-H4",
+  "session_best": {"exp": "99m_v2", "score": 66.31},
+  "total_experiments": 0,
+  "total_investigations": 0,
+  "compass_position": "H1",
+  "session_date": "2026-03-19"
 }

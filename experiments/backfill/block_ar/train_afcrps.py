@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, lambda_rank=0.0, n_frames=0, unfreeze_encoder=False):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -142,6 +142,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_ortho = 0.0
     total_acf = 0.0
     total_acf_mean = 0.0
+    total_rank_loss = 0.0
+    total_eff_rank = 0.0
     n_batches = 0
 
     for batch in loader:
@@ -158,6 +160,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        lambda_cum_cal=lambda_cum_cal,
                        lambda_vr=lambda_vr,
                        lambda_acf=lambda_acf,
+                       lambda_rank=lambda_rank,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames,
                        extra_hist=extra_hist)
@@ -198,6 +201,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_ortho += ortho_loss.item() if isinstance(ortho_loss, torch.Tensor) else ortho_loss
         total_acf += result.get("acf_loss", torch.tensor(0.0)).item()
         total_acf_mean += result.get("acf_mean", torch.tensor(0.0)).item()
+        total_rank_loss += result.get("rank_loss", torch.tensor(0.0)).item()
+        total_eff_rank += result.get("eff_rank", torch.tensor(0.0)).item()
         n_batches += 1
 
     return {
@@ -218,6 +223,8 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "ortho_loss": total_ortho / max(n_batches, 1),
         "acf_loss": total_acf / max(n_batches, 1),
         "acf_mean": total_acf_mean / max(n_batches, 1),
+        "rank_loss": total_rank_loss / max(n_batches, 1),
+        "eff_rank": total_eff_rank / max(n_batches, 1),
     }
 
 
@@ -480,6 +487,8 @@ def main():
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--lambda_acf", type=float, default=0.0,
                         help="Explicit ACF loss on ensemble deltas (Exp 123a)")
+    parser.add_argument("--lambda_rank", type=float, default=0.0,
+                        help="Log-det covariance penalty for ensemble diversity (H1 diagnostic)")
     parser.add_argument("--curriculum_noise_epoch", type=int, default=0,
                         help="Switch from gaussian to student_t noise at this epoch (Exp 126a)")
     parser.add_argument("--extra_features", type=int, default=0,
@@ -965,6 +974,7 @@ def main():
             lambda_vr=args.lambda_vr,
             lambda_ortho=getattr(args, 'lambda_ortho', 0.0),
             lambda_acf=getattr(args, 'lambda_acf', 0.0),
+            lambda_rank=getattr(args, 'lambda_rank', 0.0),
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
@@ -1047,6 +1057,8 @@ def main():
             print(f"  cell_var_loss: {train_metrics['cell_var_loss']:.4f}")
         if 'cum_cal_loss' in train_metrics and train_metrics['cum_cal_loss'] > 0:
             print(f"  cum_cal_loss: {train_metrics['cum_cal_loss']:.4f}")
+        if 'eff_rank' in train_metrics and train_metrics['eff_rank'] > 0:
+            print(f"  rank_loss={train_metrics['rank_loss']:.4f}  eff_rank={train_metrics['eff_rank']:.3f}")
 
         # Log mean |IV change| for logit-space monitoring (epochs 1,5,10,15,20,25,30,35,40)
         if getattr(config, 'ar_frame_logit_space', False) and epoch in {1, 5, 10, 15, 20, 25, 30, 35, 40}:

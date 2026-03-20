@@ -1216,6 +1216,7 @@ class SinglePassBlockAR(nn.Module):
         extra_hist: Optional[torch.Tensor] = None,
         lambda_vr: float = 0.0,
         lambda_acf: float = 0.0,
+        lambda_rank: float = 0.0,
     ) -> dict:
         """Training forward: generate K members, compute afCRPS.
 
@@ -1528,6 +1529,42 @@ class SinglePassBlockAR(nn.Module):
             acf_loss = F.relu(acf1 + 0.25).pow(2).mean()
             loss = loss + lambda_acf * acf_loss
 
+        # Log-det covariance penalty (H1 diagnostic): encourages ensemble diversity
+        # Penalizes -log(det(Cov)) of ensemble across members.
+        # Uses K×K Gram matrix (K << D) for efficiency.
+        rank_loss = torch.tensor(0.0, device=device)
+        eff_rank_val = torch.tensor(0.0, device=device)
+        if lambda_rank > 0:
+            # iv_samples: (B, K, T, H, W) → flatten spatial+temporal
+            K = iv_samples.shape[1]
+            flat = iv_samples.reshape(B, K, -1)  # (B, K, T*H*W)
+            # Center per-batch
+            flat_centered = flat - flat.mean(dim=1, keepdim=True)  # (B, K, D)
+            # K×K Gram matrix: G = X X^T / D
+            D = flat_centered.shape[2]
+            gram = torch.bmm(flat_centered, flat_centered.transpose(1, 2)) / D  # (B, K, K)
+            # Add small regularization for numerical stability
+            gram = gram + 1e-6 * torch.eye(K, device=device).unsqueeze(0)
+            # Log-det via Cholesky (more stable than eigendecomposition)
+            try:
+                L = torch.linalg.cholesky(gram)  # (B, K, K)
+                logdet = 2.0 * L.diagonal(dim1=-2, dim2=-1).log().sum(dim=-1)  # (B,)
+            except torch.linalg.LinAlgError:
+                # Fallback: eigenvalues
+                eigvals = torch.linalg.eigvalsh(gram)  # (B, K)
+                logdet = eigvals.clamp(min=1e-8).log().sum(dim=-1)  # (B,)
+            # Penalty: minimize -logdet (maximize determinant = maximize volume)
+            rank_loss = -logdet.mean()
+            loss = loss + lambda_rank * rank_loss
+            # Track effective rank for diagnostics
+            with torch.no_grad():
+                gram_diag = gram.diagonal(dim1=-2, dim2=-1)  # (B, K)
+                eigvals_d = torch.linalg.eigvalsh(gram)  # (B, K)
+                eigvals_d = eigvals_d.clamp(min=1e-8)
+                p = eigvals_d / eigvals_d.sum(dim=-1, keepdim=True)
+                entropy = -(p * p.log()).sum(dim=-1)  # (B,)
+                eff_rank_val = entropy.exp().mean()  # scalar
+
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
         if lambda_kurt > 0:
@@ -1578,6 +1615,8 @@ class SinglePassBlockAR(nn.Module):
             "vr_loss": vr_loss.detach(),
             "acf_loss": acf_loss.detach(),
             "acf_mean": acf_mean,
+            "rank_loss": rank_loss.detach(),
+            "eff_rank": eff_rank_val.detach() if isinstance(eff_rank_val, torch.Tensor) else eff_rank_val,
         }
 
     @torch.no_grad()
