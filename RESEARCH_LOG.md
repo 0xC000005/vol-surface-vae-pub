@@ -30657,3 +30657,47 @@ alone) which boosts the ensemble to 0.763 (vs 0.570 for 2-model).
 5. The 5/8 ceiling remains structural — Suites 2, 7, 8 require per-cell calibration
 
 ---
+
+## 2026-03-20: Exp 133f — Joint Transformer + Per-Cell Scale: 5/8 Single Model, Near-GT Factor Structure
+
+### Context
+Suite 2 fails because column 0 (short maturity) and row 4 (deep OTM) are over-spread.
+Added learned per-cell scale (nn.Parameter with softplus) to joint transformer output
+to allow per-cell spread calibration.
+
+### Results
+
+**133f standalone**: 5/8 PASS {1,3,4,5,6}, score 63.78 — FIRST joint transformer single model to pass 5/8!
+
+| Metric | 133f (Joint+cellscale) | 133c (Joint alone) | 99m_v2 (AR baseline) |
+|--------|----------------------|-------------------|---------------------|
+| Suites | **5/8** | 4/8 | 5/8 |
+| Score | 63.78 | 53.54 | 66.31 |
+| Kurtosis | **1.722** | 1.599 | 0.845 |
+| Coint ratio | **0.557** | 0.318 | 0.675 |
+| KS daily | **19/25** | 17/25 | 20/25 |
+| Turb/calm | **1.997** | 1.807 | — |
+| CI 90% | 86.9% | 91.7% | 91.3% |
+
+**Epoch 40 factor structure (NEAR PERFECT GT MATCH):**
+Cross-cell corr: **0.361** (GT 0.38), eff_rank: **2.67** (GT 2.6), PC1: **59.1%** (GT 59%).
+This is the closest any model has come to GT factor structure.
+
+**E9 ensemble (133f+99m_v2+132b)**: 5/8, score **66.01** — matches baseline score with 2x
+better kurtosis (1.67 vs 0.85) and excellent cointegration (0.745).
+
+### Analysis
+The per-cell scale allows the transformer to learn that different cells need different spread
+magnitudes. At ep40, the factor structure converged to near-GT values, but val_loss selected
+ep14 where the structure was still developing. The per-cell scale also helped cointegration
+recover (0.557 vs 0.318 in 133c) by allowing cells to be differentially scaled without
+destroying the shared factor structure.
+
+### What Was Learned
+1. Per-cell learned scale dramatically improves joint transformer quality (5/8 as single model!)
+2. Factor structure converges to GT by ep40 (corr 0.361, rank 2.67, PC1 59.1%)
+3. KS daily recovers to 19/25 (near baseline 20) — per-cell scale doesn't hurt distributional
+4. Cointegration recovered from 0.32 (133c) to 0.56 (133f) with per-cell scale
+5. The 5/8 ceiling is now matched by both AR and joint transformer architectures
+
+---
