@@ -1917,7 +1917,7 @@ def run_distributional_fidelity_tests(
         for c in range(5):
             gt_vals = gt_diff[:, :, r, c].ravel()
             gen_vals = gen_diff[:, :, :, r, c].ravel()
-            stat, pval = ks_2samp(gt_vals, gen_vals[:len(gt_vals)])
+            stat, pval = ks_2samp(gt_vals, gen_vals)
             ks_grid[r, c] = stat
             ks_pval_grid[r, c] = pval
             ks_pass_grid[r, c] = stat < KS_GATE
@@ -1948,7 +1948,7 @@ def run_distributional_fidelity_tests(
         for c in range(5):
             gt_vals = ground_truth[:, :, r, c].ravel()
             gen_vals = cond_samples[:, :n_samp_ks, :, r, c].ravel()
-            stat, pval = ks_2samp(gt_vals, gen_vals[:len(gt_vals)])
+            stat, pval = ks_2samp(gt_vals, gen_vals)
             level_ks_grid[r, c] = stat
             level_ks_pval_grid[r, c] = pval
             level_ks_pass_grid[r, c] = stat < LEVEL_KS_GATE
