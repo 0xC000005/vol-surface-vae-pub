@@ -242,3 +242,5 @@ quantile_map.npz
 .claude/guard_protected_paths.sh
 .claude/skills/autoresearch-workspace/
 autoresearch-session/
+external/csdi
+.agents/

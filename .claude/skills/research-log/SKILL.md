@@ -5,7 +5,7 @@ description: Manages the project research log — appending new entries, searchi
 
 # Research Log Skill
 
-The research log lives at `RESEARCH_LOG.md` (repo root) — a chronological, append-only file indexed by `mcp-local-rag` for semantic search.
+The research log lives at `RESEARCH_LOG.md` (repo root) — a chronological, append-only file indexed by QMD for hybrid search (BM25 + vector + LLM reranking). QMD indexes all markdown files in the project as the "research" collection.
 
 ## Appending New Entries
 
@@ -38,45 +38,55 @@ Key rules:
 - Use markdown tables for comparisons, bullet points for lists
 - Use the project's existing header format: `## YYYY-MM-DD: Title` (colon, not pipe)
 
-## Re-ingesting After Changes
+## Re-indexing After Changes
 
-After appending, always re-ingest so the new content is searchable:
+After appending, update the QMD index so the new content is searchable:
 
+```bash
+Bash command="qmd update --collection research && qmd embed" timeout=120000
 ```
-mcp__local-rag__ingest_file({ filePath: "/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" })
-```
 
-Re-ingesting updates existing chunks and adds new ones. It's idempotent and fast.
+QMD's update is incremental — it detects which files changed and only re-embeds those, skipping unchanged content. Much faster than a full re-index.
 
 ## Retrieving Past Research: Two Modes
 
 Choose the retrieval method based on what you need. Getting this right avoids either wasting tokens (reading everything when you need one fact) or missing context (getting fragments when you need the full picture).
 
-### Quick Lookup (use MCP semantic search)
+### Quick Lookup (use QMD semantic search)
 
 **When:** You need a specific fact, a single decision, a parameter value, or a quick answer.
 
 ```
-mcp__local-rag__query_documents({ query: "your question here", limit: 5 })
+mcp__qmd__query({
+  searches: [
+    { type: "lex", query: "your exact keywords here" },
+    { type: "vec", query: "your natural language question here" }
+  ],
+  intent: "what you're trying to find",
+  collection: "research",
+  limit: 5
+})
 ```
 
+**QMD search tips:**
+- Use `lex` for exact terms (experiment IDs, metric names, specific phrases)
+- Use `vec` for conceptual/semantic queries (understanding why something happened)
+- Combine both for best results — lex finds exact matches, vec finds related content
+- The `intent` field helps disambiguate (e.g., query="performance", intent="model training speed")
+- Avoid hyphens in `vec` queries — they get parsed as negation. Write "cross cell" not "cross-cell"
+- Use `lex` with quoted phrases for exact matches: `"Exp 120b"`, `"rank collapse"`
+
 **Works well for:**
-- "What CI coverage did experiment 99k achieve?" → returns the exact value
-- "What is the kurtosis ratio target?" → returns the threshold
-- "Why did we switch from ratio loss to full ES?" → returns the decision
+- "What CI coverage did experiment 99k achieve?" → `lex: "99k" CI coverage`
+- "What is the kurtosis ratio target?" → `vec: what is the target range for kurtosis ratio`
+- "Why did we switch from ratio loss to full ES?" → `vec: why switch from ratio loss to energy score`
 - Single facts, parameter values, specific decisions
 
-**Limitations to be aware of:**
-- Markdown tables get fragmented into individual rows — you'll get row 3 but miss rows 1, 2, 4, 5
-- Results are 1-2 sentence snippets with no surrounding context (no section headers, no motivation)
-- Semantic search can miss tabular data unless you include exact keywords from the table cells
-- If you need the full picture of a topic, quick lookup will give you disconnected fragments
+**QMD returns richer results than raw RAG:** each result includes the file path, line number, score (0-1, higher is better), and a context snippet with surrounding lines. This often gives enough information without needing a follow-up Read.
 
-**Tip:** Include specific keywords from the content, not just abstract descriptions. "99k full ES corr decorrelation" works better than "which experiment fixed correlation."
+**Project-specific note:** Experiments use IDs like `99k`, `99j_v3`, `97a`, `100a`. For known experiment IDs, skip QMD and use the Experiment ID Shortcut below — Grep is faster and more precise for exact ID lookups.
 
-**Project-specific note:** Experiments use IDs like `99k`, `99j_v3`, `97a`, `100a`. For known experiment IDs, skip MCP and use the Experiment ID Shortcut below — it's faster and more precise.
-
-### Experiment ID Shortcut (skip MCP, use Grep directly)
+### Experiment ID Shortcut (skip QMD, use Grep directly)
 
 **When:** You know the experiment ID (e.g., 99k, 99j_v3, 97a, 100a).
 
@@ -84,17 +94,25 @@ Most experiments are `###` subsections, not `##` top-level entries. Go straight 
 ```
 Grep pattern="### Exp 99k" path="/home/max/Documents/vol-surface-vae-pub/RESEARCH_LOG.md" output_mode="content"
 ```
-Then Read at that offset. This is faster than MCP search for known experiment IDs.
+Then Read at that offset. This is faster than QMD search for known experiment IDs.
 
-### Targeted Section Read (MCP search as index → Read for content)
+### Targeted Section Read (QMD search as index → Read for content)
 
-**When:** You need comprehensive understanding of a topic — comparing experiment results in a table, understanding full reasoning behind an architecture decision, or any task where MCP search snippets are too fragmented.
+**When:** You need comprehensive understanding of a topic — comparing experiment results in a table, understanding full reasoning behind an architecture decision, or any task where QMD search snippets are too fragmented.
 
-**Step 1:** MCP search to find the location:
+**Step 1:** QMD search to find the location:
 ```
-mcp__local-rag__query_documents({ query: "experiment 99k results", limit: 3 })
+mcp__qmd__query({
+  searches: [
+    { type: "lex", query: "experiment 99k" },
+    { type: "vec", query: "experiment 99k results and findings" }
+  ],
+  intent: "find the full results section for experiment 99k",
+  collection: "research",
+  limit: 3
+})
 ```
-This returns chunks — note which part of the file the results point to.
+This returns results with file paths and line numbers — note the line number from the snippet.
 
 **Step 2:** Use Grep to find the exact line number of the section header. Note: most experiments are `###` subsections, not `##` top-level entries:
 ```
@@ -113,12 +131,20 @@ This gives you the full section — tables intact, all rows visible, context + f
 
 **When:** You need to synthesize across multiple research entries — e.g., comparing results across the full 99-series experiments.
 
-**Step 1:** MCP search with higher limit to identify all relevant sections:
+**Step 1:** QMD search with higher limit to identify all relevant sections:
 ```
-mcp__local-rag__query_documents({ query: "your broad topic", limit: 15 })
+mcp__qmd__query({
+  searches: [
+    { type: "lex", query: "your keywords" },
+    { type: "vec", query: "your broad topic description" }
+  ],
+  intent: "find all entries related to this topic",
+  collection: "research",
+  limit: 15
+})
 ```
 
-**Step 2:** Note the distinct section headers in the results.
+**Step 2:** Note the distinct section headers and line numbers in the results.
 
 **Step 3:** Grep for section headers to get line numbers (table of contents). Use `##` for dated entries, `###` for individual experiments:
 ```
@@ -131,6 +157,16 @@ Grep pattern="^### Exp 99" path="/home/max/Documents/vol-surface-vae-pub/RESEARC
 
 **Step 4:** Read each relevant section individually with offset/limit. Typical section is 40-150 lines.
 
+### Retrieving from Other Project Files
+
+QMD indexes all markdown files in the project, not just RESEARCH_LOG.md. For content in investigation reports, kurtosis analysis, or other markdown files, use `mcp__qmd__get` to retrieve by file path:
+
+```
+mcp__qmd__get({ file: "research/results/investigations/120b-deep/synthesis.md" })
+```
+
+You can also slice by line: `mcp__qmd__get({ file: "path/to/file.md", fromLine: 50, maxLines: 100 })`
+
 ### Decision Flowchart
 
 ```
@@ -142,13 +178,13 @@ Is it a single fact or quick answer?
    YES          NO
     |           |
     v           v
-MCP search    Is it within a single section (one dated entry)?
+QMD search    Is it within a single section (one dated entry)?
 (limit: 5)      |           |
                YES          NO (spans multiple entries)
                 |           |
                 v           v
         Targeted Section   Multi-Section Read
-        Read (MCP→Grep     (MCP search limit:15 →
+        Read (QMD→Grep     (QMD search limit:15 →
          →Read offset)      Grep headers → Read
                             each section)
 ```
@@ -158,17 +194,19 @@ MCP search    Is it within a single section (one dated entry)?
 | Action | Tool | Token cost | When to use |
 |--------|------|-----------|-------------|
 | Append new entry | Bash (cat >>) | ~0 | Always — never read to append |
-| Quick fact lookup | query_documents (limit 5) | ~300-500 tokens | Single facts, decisions, values |
-| Broad search | query_documents (limit 15-20) | ~1,500-2,500 tokens | Multiple related facts |
-| Targeted section | MCP search → Grep → Read offset/limit | ~2,000-4,000 tokens | One section with full context |
-| Multi-section | MCP search → Grep headers → multiple Reads | ~4,000-8,000 tokens | Synthesizing across entries |
+| Quick fact lookup | mcp__qmd__query (limit 5) | ~300-500 tokens | Single facts, decisions, values |
+| Broad search | mcp__qmd__query (limit 15-20) | ~1,500-2,500 tokens | Multiple related facts |
+| Targeted section | QMD search → Grep → Read offset/limit | ~2,000-4,000 tokens | One section with full context |
+| Multi-section | QMD search → Grep headers → multiple Reads | ~4,000-8,000 tokens | Synthesizing across entries |
 | Edit existing entry | Read + Edit | Section only via offset/limit | Correcting past entries (rare) |
-| Re-index after append | ingest_file | ~0 | Always after appending |
+| Re-index after append | Bash: qmd update && qmd embed | ~0 (runs in shell) | Always after appending |
+| Retrieve other file | mcp__qmd__get | ~500-2,000 tokens | Investigation reports, analyses |
 
 ### Scaling Notes
 
 This approach works at any file size because you never read the entire file:
-- MCP search finds WHAT is relevant (semantic match on content)
+- QMD search finds WHAT is relevant (hybrid BM25 + semantic match on content)
 - Grep finds WHERE it is (exact line number)
 - Read with offset/limit gets the FULL SECTION (tables, context, reasoning intact)
+- QMD also indexes all other markdown files in the project (investigations, analyses, etc.)
 - No splitting into multiple files needed — one chronological log, any length

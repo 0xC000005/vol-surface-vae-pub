@@ -141,6 +141,19 @@ Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding
 - Test results: `results/block_ar/*/summary.json`
 - Data: `data/vol_surface_with_ret.npz`
 
+## Research Tools
+
+- **QMD MCP** (configured in `.mcp.json`): Hybrid search (BM25 + vector + LLM reranking)
+  over all project markdown files. Collection "research" indexes the entire repo.
+  Tools: `mcp__qmd__query`, `mcp__qmd__get`, `mcp__qmd__multi_get`, `mcp__qmd__status`.
+  After appending to RESEARCH_LOG.md, re-index with: `qmd update --collection research && qmd embed`
+- **arxiv MCP** (configured in `.mcp.json`): Search, download, and read arXiv papers.
+  Tools: `mcp__arxiv__search_papers`, `mcp__arxiv__download_paper`, `mcp__arxiv__read_paper`.
+- **PaperQA2** (CLI at `/home/max/miniconda3/bin/pqa`): Deep Q&A over scientific papers
+  with citations. Superhuman on literature search benchmarks. Use via Bash:
+  `pqa ask "your question"` — it searches for papers, builds a local index, and answers
+  with full citations. For local PDFs: `pqa ask --settings '{"paper_directory": "/path"}' "question"`
+
 ## Legacy Modules (Reference Only)
 
 - `diffusion/simple_denoiser.py`, `diffusion/ddpm_scheduler.py` — DDPM POC (superseded by afCRPS)

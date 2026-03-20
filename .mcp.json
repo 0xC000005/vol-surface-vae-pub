@@ -1,12 +1,17 @@
 {
   "mcpServers": {
-    "local-rag": {
+    "arxiv": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "mcp-local-rag"],
-      "env": {
-        "BASE_DIR": "/home/max/Documents/vol-surface-vae-pub"
-      }
+      "command": "arxiv-mcp-server",
+      "args": [
+        "--storage-path",
+        "/home/max/.arxiv-mcp-server/papers"
+      ]
+    },
+    "qmd": {
+      "type": "stdio",
+      "command": "qmd",
+      "args": ["mcp"]
     }
   }
 }
