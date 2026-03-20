@@ -30584,3 +30584,39 @@ strengths: 133c's kurtosis + 99m_v2's cointegration. If ensemble passes 6/8, tha
 the ceiling.
 
 ---
+
+## 2026-03-20: E5 Hybrid Ensemble — 133c (Joint) + 99m_v2 (AR): 5/8 PASS, Score 65.3
+
+### Results
+25 samples from each model (50 total ensemble).
+
+| Metric | E5 (hybrid) | 99m_v2 (baseline) | 133c (joint alone) |
+|--------|-------------|-------------------|--------------------|
+| Suites passed | **5/8** | 5/8 | 4/8 |
+| Score | 65.3 | 66.31 | 53.54 |
+| Kurtosis | **1.579** | 0.845 | **1.599** |
+| Coint ratio | **0.570** | 0.675 | 0.318 |
+| CI 90% | 93.1% | 91.3% | 91.7% |
+| KS daily | 17/25 | 20/25 | 17/25 |
+| Turb/calm | 1.631 | — | 1.807 |
+| Catastrophic | **382** | 576 | 502 |
+
+Pass pattern: {1, 3, 4, 5, 6} — same as baseline but with much better kurtosis (1.58 vs 0.85).
+
+### Analysis
+The hybrid preserves both models' strengths: 133c provides kurtosis/diversity (preventing
+rank-1 collapse), 99m_v2 provides spatial correlation/cointegration. The combined ensemble
+has better catastrophic coverage (382 vs 576 baseline) — architectural diversity reduces
+extreme failures.
+
+But we don't break the 5/8 ceiling. Suites 2, 7, 8 remain failed. The per-cell CI gate
+(Suite 2) is structural — some cells are systematically over-spread (e.g., cell (1,0) at 99%+).
+
+### What Was Learned
+1. Hybrid ensemble (joint + AR) preserves all baseline passes while improving kurtosis 2x
+2. Cointegration recovered to 0.57 (from 0.32 joint-only) by including AR members
+3. Architectural diversity reduces catastrophic failures (382 vs 576)
+4. The 5/8 ceiling persists — Suites 2, 7, 8 require per-cell calibration improvements
+5. Suite 2 (per-cell CI) is the tightest gate: cell (1,0) consistently 99%+ coverage
+
+---
