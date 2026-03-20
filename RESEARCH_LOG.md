@@ -30768,3 +30768,177 @@ The condition-dependent cell spread creates a kurtosis-cointegration INVERSION: 
 RC2-H1 teaches: condition-dependent cell spread is ANTI-CORRELATED with kurtosis. The model uses the extra capacity to minimize CRPS by tightening, not by producing diverse per-cell patterns.
 
 ---
+
+## 2026-03-20: Comprehensive Follow-Up Analyses — 8 Parallel Investigations (Round 4)
+
+### Overview
+Systematic follow-up on all inference-only experiments and analyses identified in the
+completeness audit. 8 agents launched: 6 completed (A1-A3, A5-A6, B5), 2 pending (A4, B3).
+Results documented as received.
+
+### A1: 133d ep20 Checkpoint — HYPOTHESIS FALSIFIED
+
+Research log claimed "near-GT correlation 0.473 at ep20." Evaluated with full test suite.
+
+| Metric | 133d ep20 | 133d best (ep28) | 133f best (ep14) |
+|--------|----------|-----------------|-----------------|
+| Score | 42.1 | 40.69 | **63.78** |
+| Suites | 3/8 | 3/8 | **5/8** |
+| Kurtosis | 3.572 FAIL | 3.372 FAIL | **1.722 PASS** |
+| Coint ratio | 0.581 | 0.316 | 0.557 |
+| Coint worst | 0.141 FAIL | 0.155 FAIL | **0.263 PASS** |
+| KS daily | 5/25 | 4/25 | **19/25** |
+
+**Verdict**: 133d ep20 is worse than 133f at every metric that matters. The "near-GT
+correlation" did NOT translate to passing suites because kurtosis massively overshoots
+(3.572, well above 2.0 ceiling). Factor noise in 133d generates excess kurtosis at
+every epoch — there is no sweet spot. 133f (per-cell scale, no factor noise) remains
+the best joint transformer by a wide margin.
+
+### A2: 133f ep40 Checkpoint — HYPOTHESIS FALSIFIED
+
+Research log documented "ep40: corr 0.361, rank 2.67, PC1 59.1%" — near-perfect GT
+factor structure. Hypothesis: this should score higher than val_loss-selected ep14.
+
+| Metric | ep14 (best) | ep20 | ep30 | ep40 |
+|--------|------------|------|------|------|
+| Score | **63.78** | 40.83 | 44.37 | 55.08 |
+| Suites | **5/8** | 3/8 | 3/8 | 4/8 |
+| Kurtosis | **1.72** | 3.09 FAIL | 2.90 FAIL | 2.19 FAIL |
+| Coint ratio | 0.557 | 0.348 | 0.708 | **0.772** |
+| Coint worst | 0.263 | 0.153 | 0.146 | **0.310** |
+| KS daily | **19/25** | 11/25 | 11/25 | 9/25 |
+| Catastrophic | 3.30% | 3.00% | 1.53% | **0.87%** |
+
+**Pattern**: As training progresses past ep14, factor structure and cointegration improve
+monotonically (coint 0.557→0.772, catastrophic 3.3%→0.87%), but kurtosis and distributional
+fidelity degrade (kurtosis 1.72→2.19, KS 19/25→9/25).
+
+**Verdict**: Val_loss correctly selected ep14. Near-perfect GT factor structure does NOT
+translate to better test scores. The kurtosis-cointegration tradeoff tightens with more
+training — you can't have both without architectural change.
+
+### A3: Cross-Architecture PC1 Loading Comparison — KEY STRUCTURAL INSIGHT
+
+Compared factor loading patterns across 4 architectures via PCA on generated daily changes.
+
+**GT factor structure**: PC1 explains 74.6%, concentrated on cell (0,0) (short-dated deep OTM).
+Effective rank = 2.30.
+
+**PC1 cosine similarity with GT**:
+
+| Model | cos(PC1, GT) | PC1 variance | Eff Rank |
+|-------|-------------|-------------|----------|
+| Joint TF (133f) | **0.938** | 14.7% | 4.60 |
+| Noise-free (120b) | 0.785 | 76.7% | 2.10 |
+| AR MLP (99m_v2) | 0.711 | 66.7% | 2.54 |
+| Conv3D (111b) | 0.663 | 70.0% | 2.31 |
+| **GT** | 1.000 | 74.6% | 2.30 |
+
+**Cross-model PC1 similarity**:
+
+| | AR MLP | Conv3D | Noisefree | Joint TF |
+|---|--------|--------|-----------|----------|
+| AR MLP | 1.00 | 0.86 | 0.83 | 0.65 |
+| Conv3D | 0.86 | 1.00 | 0.88 | 0.55 |
+| Noisefree | 0.83 | 0.88 | 1.00 | 0.70 |
+| Joint TF | 0.65 | 0.55 | 0.70 | 1.00 |
+
+**Key findings**:
+1. Three AR-based models form a cluster (similarity 0.83-0.88), learning SIMILAR factors
+2. Joint transformer learns a DIFFERENT factor (similarity 0.55-0.70 with AR models)
+3. Joint transformer has best spatial accuracy (cos=0.94 with GT) but worst variance
+   concentration (PC1 only 14.7% vs GT 74.6%)
+4. AR models concentrate variance correctly (67-77%) but blur the spatial pattern
+5. NO model matches GT PC2 or PC3 — beyond PC1, factor structure is architecture-dependent
+6. This is WHY ensembles work: joint TF provides spatial accuracy, AR provides variance
+   concentration. Combined they approximate the full GT structure.
+
+### A5: Per-Suite Failure Cell Master Map — 367 TEST RESULTS ANALYZED
+
+Aggregated per-cell failure patterns across ALL 367 summary.json files.
+
+**The structural bottleneck is cell (0,3)** — short tenor, high moneyness:
+- Worst cell in **47.1%** of all models (runner-up (0,4) at 16.9%)
+- Under-spread in **39%** of models
+- Under-spread in calm regime in **67%** of models
+- Average minimum coverage: 0.714 (barely above 0.70 floor)
+
+**Suite-specific bottlenecks**:
+- **Suite 2**: Cell (0,3) under-spread gates the per-cell CI in nearly half of models
+- **Suite 7**: Column M3 (cells (0,3), (1,3), (2,3)) systematically under-spreads in regimes
+- **Suite 8 KS-levels**: 98-100% failure rate for ALL 25 cells — structurally unlearned,
+  not a per-cell problem. Requires fundamentally different approach (level-aware loss).
+
+**Architecture comparison (AR N=280 vs Joint TF N=17)**:
+- Joint TF fixes cell (0,3): coverage 0.791 vs AR 0.709 (+8.2pp), under-spread 0% vs 41%
+- But Joint TF over-spreads bottom rows: cells (3,0)-(4,4) over-spread in 87-100% of models
+- **Complementary failure patterns**: AR under-spreads top-right, Joint over-spreads bottom
+
+### A6: 108a_v2 ep30 Scores + Training Dynamics + Pareto Frontier
+
+**108a_v2 ep30 scores**:
+- Student-t: 65.47 (5/8), kurtosis 1.055, CI 87.7%, cal_err 0.018 (best ever)
+- Gaussian: 66.24 (5/8), kurtosis 0.831, CI 92.4%
+
+**Training dynamics cross-model comparison**:
+
+| Model | Peak Kurt (training) | @ Epoch | Kurt after freeze |
+|-------|---------------------|---------|-------------------|
+| 99m_v2 (AR Gauss) | 0.478 | ep45 | +0.073 |
+| 108a (AR Student-t) | 0.506 | ep20 | +0.114 |
+| 120b (Noisefree) | 0.271 | ep3 | +0.037 |
+| 133c (Joint TF) | 1.591 | ep25 | **+1.051** |
+| 133f (Joint+cell) | 2.933 | ep29 | **+1.013** |
+
+AR models are structurally kurtosis-limited in training (never reach 0.5 — test kurtosis
+comes from Student-t inference compounding). Joint transformers gain massive kurtosis
+post-freeze (+1.0). No universal optimal epoch across architectures.
+
+**Kurtosis-Cointegration Pareto frontier** (335 models): 9 Pareto-optimal models identified.
+Current best 5/8 models (99m_v2, 108a) are NOT on the frontier — they sit at suboptimal
+kurtosis without compensating high cointegration. The frontier sweet spot is around
+kurtosis 0.94-1.06, cointegration 1.07-1.39 (from older experiments exp54b, exp80, exp88b).
+
+### B5: Long-Horizon Test (252-day) — 120b IS THE BEST LONG-HORIZON MODEL
+
+| Metric | 99m_v2 | 120b | 133f |
+|--------|--------|------|------|
+| Max horizon | 252 | 252 | **30 only** |
+| Explodes? | No | No | N/A |
+| Spread h=252 | 0.067 (shrinks) | **0.102 (grows)** | N/A |
+| CI h=252 | 62.8% | **85.2%** | N/A |
+| Calendar arb h=252 | 24.9% | 26.1% | N/A |
+| Kurtosis d180-251 | 12.80 | **1.81** | N/A |
+
+**120b is the clear winner for long-horizon generation**:
+1. Variance GROWS with horizon (correct) — 99m_v2 variance SHRINKS (incorrect)
+2. CI recovers to 85.2% at h=252 vs 62.8% for 99m_v2
+3. Kurtosis stays controlled (1.81 vs 12.80 — 99m_v2 explodes at late horizons)
+4. Neither model explodes — both stable with <0.02% floor/ceiling saturation
+
+**133f cannot extrapolate**: single-shot 30-frame architecture with no AR loop.
+This is a fundamental limitation — joint transformer cannot do long-horizon generation
+without architectural extension (e.g., sliding window or autoregressive wrapper).
+
+Calendar arb triples (~9%→~25%) for both AR models — spatial structure degrades beyond
+the 30-day training window. 120b has slightly better butterfly arb recovery (33.5% vs
+40.8% at h=252).
+
+### Synthesis: What Round 4 Changes
+
+| Prior Belief | New Evidence | Impact |
+|-------------|-------------|--------|
+| 133d ep20 is a sweet spot | 3/8, kurtosis 3.57 — no sweet spot exists | 133d direction fully exhausted |
+| 133f ep40 (GT factor) should score higher | 55.08 (4/8) vs ep14 63.78 (5/8) | Val_loss correctly selects; factor structure ≠ test scores |
+| Architectures learn similar factors | AR cluster (0.83-0.88) vs Joint TF outlier (0.55-0.70) | Explains WHY ensembles work (complementary factors) |
+| Cell (4,0) is the bottleneck | Cell **(0,3)** is worst in 47% of models | Redirects per-cell tuning focus |
+| Suite 8 KS-levels is per-cell | 98-100% failure for ALL 25 cells | Structural problem, needs level-aware loss |
+| 120b/99m_v2 similar at long horizon | 120b CI 85% vs 99m_v2 CI 63% at h=252 | 120b confirmed as production model |
+| Joint TF can do long horizon | Cannot — single-shot 30-frame only | Needs AR wrapper for production |
+
+### Remaining Agents (Results Pending)
+- **A4**: Optimal ensemble with 133f+111b+120b (3 maximally different architectures)
+- **B3**: df sweep on joint transformer 133f (df=4,8,12,20)
+
+---
