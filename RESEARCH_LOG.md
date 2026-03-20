@@ -31042,3 +31042,111 @@ across all df values (within sampling noise).
    between runs. Need larger eval budget (max_batches > 20) for reliable comparison.
 
 ---
+
+## 2026-03-20: Final Deep Analyses — KS-Levels Bug Found, Cell (0,3) Root Cause, Weighted Ensemble
+
+### Suite 8 KS-Levels: TRUNCATION BUG IN TEST SCRIPT (CRITICAL)
+
+**The KS-levels test has a truncation bug that makes it structurally unfair.**
+
+Location: `test_block_ar_requirements.py` line 1951:
+```python
+stat, pval = ks_2samp(gt_vals, gen_vals[:len(gt_vals)])  # BUG: truncates to 40/200 windows
+```
+
+The test generates samples from `cond_samples[:, :5, :, r, c].ravel()` (N*5*30 values)
+then truncates to `len(gt_vals)` (N*30). Because ravel is window-first, this retains
+only the first 40 out of 200 windows. The KS test compares 40 windows generated vs
+200 windows GT — systematically biased.
+
+**Proof**: A PERFECT ORACLE (returns exact GT futures) passes only **5/25 cells**.
+Mean KS from truncation bias alone: 0.217.
+
+**Additional issue**: Stride-1 overlapping windows create nonstationarity. GT fold A
+(windows 0-99) vs fold B (100-199) has mean KS = 0.452. The GT distribution itself
+is incomparable across time ranges.
+
+**Impact of fixing**:
+
+| Scenario | Cells Passing |
+|----------|-------------|
+| Current test (buggy) | 0-2/25 |
+| Remove truncation only | 3/25 |
+| Non-overlapping windows + no truncation | **16/25** |
+| Mean+std corrected (shape only) | 18/25 |
+| Perfect oracle with current test | 5/25 |
+
+**Fix**: Remove `[:len(gt_vals)]` truncation on lines 1920 and 1951. Use non-overlapping
+windows (stride >= 30) for level distribution comparison. With both fixes, 99m_v2
+achieves 16/25 cells passing — exceeding the 15/25 gate. **Suite 8 KS-levels would
+PASS for many existing models once the test is fixed.**
+
+**This means the 5/8 ceiling may actually be 6/8 with the bug fix.**
+
+The real model deficiency is variance inflation (mean std ratio 1.73x, worst cell 4.49x)
+and anchor bias (corr 0.84 between prediction error and anchor-GT gap). Shape mismatch
+is minor — 18/25 cells pass after mean+std correction.
+
+### Cell (0,3) Bottleneck: Both GT-Hard AND Conditional Mean Failure
+
+Cell (0,3) (short tenor, near-ATM) is the structural bottleneck — worst cell in 47%
+of 367 models. Root cause analysis reveals it's both fundamentally hard AND a model failure.
+
+**GT properties make it uniquely challenging**:
+
+| Property | Cell (0,3) | Cell (2,2) center | Cell (4,0) long/OTM |
+|----------|-----------|-------------------|---------------------|
+| Mean-reversion half-life | **2.0 days** | 26.3 days | 22.1 days |
+| Autocorrelation(1) | **0.703** | 0.974 | 0.969 |
+| Relative volatility | **57.3%** (highest) | 6.0% | 3.2% |
+| History→future correlation | **0.40** | 0.89 | 0.89 |
+
+Cell (0,3) has the fastest mean-reversion (2-day half-life), lowest predictability
+(R=0.40), and highest relative volatility (57%) of any cell in the 5x5 grid.
+
+**The model's specific failure — conditional drift under-prediction**:
+- In calm regime: GT mean-reverts from 0.058 → 0.116 (+99% drift over 30 days)
+- Model predicts: median 0.078 (captures only 33.5% of needed drift)
+- 30% of calm GT values fall ABOVE the model's 95th percentile
+- This is a **conditional mean failure**, not a spread calibration problem
+
+**Why joint transformer fixes it**: 133f generates wider spread at h=30 (width ratio
+2.98 vs AR's 1.07), compensating for the drift failure with brute-force width. But in
+calm regime specifically, both architectures struggle (AR 0.718, JT 0.727 coverage).
+
+**Architectural implication**: Fixing cell (0,3) requires either:
+1. Better conditional mean prediction for fast-reverting cells (encoder improvement)
+2. Regime-dependent drift mechanism (the model needs to predict +99% drift in calm)
+3. Per-cell conditional spread that widens specifically for high-relative-volatility cells
+
+### Weighted Ensemble: Equal-Weight E4 Is Already Near-Optimal
+
+| Config | Score | Delta vs E4 | Catastrophic |
+|--------|-------|-------------|-------------|
+| E4 (equal 13x4) | 68.74 | baseline | 239 |
+| Drop 99m_v2 (17x3) | **68.95** | +0.21 | **202** |
+| 111b 2x weight | 68.70 | -0.04 | 266 |
+| 111b 3x weight | 68.83 | +0.09 | 244 |
+| 108a+111b only (25x2) | 68.77 | +0.03 | 262 |
+
+**Overweighting 111b does NOT help** — 2x weight slightly underperforms baseline.
+Dropping 99m_v2 gives marginal best (68.95, +0.21) but within noise. All configs
+remain 5/8 with identical failure pattern.
+
+**Conclusion**: Equal-weight is already near-optimal. The 5/8 ceiling is structural,
+not addressable through ensemble weighting. The +0.21 from dropping 99m_v2 confirms
+the leave-one-out finding but is not actionable.
+
+### Synthesis: What These 3 Analyses Change
+
+| Finding | Impact | Action Required |
+|---------|--------|----------------|
+| KS-levels truncation bug | **Suite 8 may PASS with fix** → 6/8 possible | Fix test script lines 1920, 1951 |
+| Cell (0,3) is conditional mean failure | Suite 2 bottleneck is drift prediction, not spread | Need regime-dependent drift mechanism |
+| Weighted ensemble ≈ equal weight | Ensemble optimization exhausted | No further ensemble work |
+
+**The KS-levels bug is the single most impactful finding of this entire validation session.**
+If confirmed by fixing the test script and re-evaluating, multiple existing models may
+already pass 6/8 suites — breaking the ceiling that 75+ experiments couldn't breach.
+
+---
