@@ -41,16 +41,23 @@ def compute_score(summary_path: str) -> dict:
     # Suite 7: regime coverage
     regime = summary.get("regime_coverage", {})
     l3_catastrophic = regime.get("layer3_n_catastrophic", 600)
-    # Layer 2 failures (out of ~200 regime-cell combos)
+    # Layer 2 failures: per-regime per-horizon entries with [70%, 95%] gates
     l2 = regime.get("layer2_regime_cell", {})
     n_failing_l2 = 0
     total_l2 = 0
-    for regime_name, cells in l2.items():
-        if isinstance(cells, dict):
-            for cell, v in cells.items():
+    LAYER2_LOW = 0.70
+    LAYER2_HIGH = 0.95
+    for regime_name, horizons in l2.items():
+        if isinstance(horizons, dict):
+            for h, v in horizons.items():
                 total_l2 += 1
-                if isinstance(v, dict) and not v.get("pass", True):
-                    n_failing_l2 += 1
+                if isinstance(v, dict):
+                    worst = v.get("worst", 0.0)
+                    best = v.get("best", 1.0)
+                    low_pass = worst >= LAYER2_LOW
+                    high_pass = best <= LAYER2_HIGH
+                    if not (low_pass and high_pass):
+                        n_failing_l2 += 1
     regime_l2_component = max(0, (max(total_l2, 1) - n_failing_l2) / max(total_l2, 1)) * 3  # 0-3
     # Layer 3: catastrophic failures (fewer = better, out of ~600)
     regime_l3_component = max(0, (600 - l3_catastrophic) / 600) * 2  # 0-2
