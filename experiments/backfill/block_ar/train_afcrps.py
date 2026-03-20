@@ -752,6 +752,11 @@ def main():
             param_groups = [
                 {"params": decoder_params, "lr": args.lr_decoder, "weight_decay": 1e-4},
             ]
+        # Joint transformer decoder (H4) — add its params to optimizer
+        if hasattr(model, 'joint_transformer'):
+            param_groups.append(
+                {"params": list(model.joint_transformer.parameters()), "lr": args.lr_decoder, "weight_decay": 1e-4},
+            )
         if args.unfreeze_encoder:
             encoder_params = list(model.encoder.parameters())
             param_groups.append(
