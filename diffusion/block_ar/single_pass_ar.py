@@ -285,8 +285,13 @@ class JointTransformerDecoder(nn.Module):
         nn.init.zeros_(self.out_proj[1].weight)
         nn.init.zeros_(self.out_proj[1].bias)
 
-        # Learned per-cell scale: allows different spread for each cell
-        # Initialized to 1.0, learned from data (Bitter Lesson compatible)
+        # Per-cell spread: condition-dependent if cond_dim > 0, else static
+        # Initialized to output ~1.0 via softplus(0.541)
+        self.cell_spread_proj = nn.Linear(cond_dim, n_cells)
+        nn.init.zeros_(self.cell_spread_proj.weight)
+        nn.init.constant_(self.cell_spread_proj.bias, 0.541)  # softplus(0.541) ≈ 1.0
+
+        # Static per-cell scale (backward compat — used when cond not available)
         self.cell_scale = nn.Parameter(torch.ones(n_cells))
 
         # Causal mask for temporal attention (frame t only sees ≤t)
@@ -351,9 +356,9 @@ class JointTransformerDecoder(nn.Module):
         # Output: (B, T, C, 1) → (B, T, C)
         delta = self.out_proj(h).squeeze(-1)  # (B, T, C)
 
-        # Per-cell scale: learned soft-positive scaling (softplus so always > 0)
-        cell_sc = F.softplus(self.cell_scale)  # (C,)
-        delta = delta * cell_sc.unsqueeze(0).unsqueeze(0)  # (B, T, C)
+        # Condition-dependent per-cell spread: condition → 25 positive scales
+        cell_sc = F.softplus(self.cell_spread_proj(condition))  # (B, C)
+        delta = delta * cell_sc.unsqueeze(1)  # (B, T, C)
 
         # Residual from prev_frame: iv_t = prev + cumulative delta * vol_scale
         # For non-AR: use cumulative sum for growing uncertainty
