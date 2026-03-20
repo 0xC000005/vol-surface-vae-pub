@@ -30552,3 +30552,35 @@ Focus on restoring cointegration (spatial correlation) without losing kurtosis.
 5. 40 epochs at 70s/epoch = 47 min total training — fast iteration
 
 ---
+
+## 2026-03-20: Exp 133d — Shared Factor Noise: Overcorrected Correlation
+
+### Context
+133c achieved kurtosis 1.60 (PASSES!) but lost cointegration (corr 0.087). Added 5 shared
+noise factors projected to 25 cells via learned orthogonal loadings to couple cells.
+
+### Results
+3/8 suites, score 40.69. Kurtosis 3.37 (OVERSHOT, above 2.0 target), KS daily 4/25 (terrible).
+Factor noise pushed cross-cell corr from 0.087 (133c) → 0.303 at ep20 (near GT!) → 0.684 at
+ep40 (overcorrected). The model oscillated through an excellent state at ep20 (corr 0.303,
+eff_rank 2.77, kurt ~2.0) but couldn't stabilize there.
+
+### Key Observation
+The joint transformer with factor noise briefly achieves near-GT metrics on ALL dimensions
+simultaneously (ep20: corr 0.303→GT 0.38, rank 2.77→GT 2.6, PC1 55.1%→GT 59%,
+kurt ~2.0→target 0.5-2.0). But training is too unstable to exploit this.
+
+### H4 Session Summary
+
+| Exp | Factor noise | Kurtosis | Corr | Coint | Suites |
+|-----|-------------|----------|------|-------|--------|
+| 133c | no (per-cell) | **1.60** PASS | 0.087 | 0.32 FAIL | **4/8** |
+| 133d | 5 factors | 3.37 FAIL | 0.684 | 0.32 FAIL | 3/8 |
+| 99m_v2 | baseline AR | 0.845 PASS | 0.463 | 0.68 PASS | 5/8 |
+
+### Decision
+BUILD ON 133c (4/8 with kurtosis PASSING). Try hybrid ensemble with 99m_v2 to combine
+strengths: 133c's kurtosis + 99m_v2's cointegration. If ensemble passes 6/8, that breaks
+the ceiling.
+
+---
