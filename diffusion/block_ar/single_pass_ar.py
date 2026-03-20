@@ -295,9 +295,12 @@ class JointTransformerDecoder(nn.Module):
         self.cell_scale = nn.Parameter(torch.ones(n_cells))
 
         # Learned per-cell output bias: corrects systematic anchor bias (RC3-H1)
-        # Initialized to zero — model learns to shift mean for cells with
-        # anchor-GT mismatch (e.g., cell (0,0) mean-reverts but anchor doesn't)
         self.output_bias = nn.Parameter(torch.zeros(n_cells))
+
+        # Condition-dependent per-cell bias: adapts by market regime (RC3-H3)
+        self.cond_bias_proj = nn.Linear(cond_dim, n_cells)
+        nn.init.zeros_(self.cond_bias_proj.weight)
+        nn.init.zeros_(self.cond_bias_proj.bias)
 
         # Causal mask for temporal attention (frame t only sees ≤t)
         self.register_buffer(
@@ -377,9 +380,10 @@ class JointTransformerDecoder(nn.Module):
             vs = vol_scale.reshape(B, 1, 1, 1)
         else:
             vs = vol_scale
-        # Per-cell output bias: shift mean prediction (learned from data)
-        bias = self.output_bias.reshape(H, W).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-        raw = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W) + bias
+        # Per-cell output bias: static + condition-dependent (RC3-H1 + RC3-H3)
+        static_bias = self.output_bias.reshape(H, W).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        cond_bias = self.cond_bias_proj(condition).reshape(B, H, W).unsqueeze(1)  # (B, 1, H, W)
+        raw = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W) + static_bias + cond_bias
         # Reflecting boundaries (same as AR path): bounce off [floor, 1.0]
         floor = 0.01
         width = 1.0 - floor
