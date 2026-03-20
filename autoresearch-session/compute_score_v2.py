@@ -16,7 +16,7 @@ def compute_score(summary_path: str) -> dict:
     with open(summary_path) as f:
         summary = json.load(f)
 
-    # Count passing suites (8 total)
+    # Count passing suites (9 total)
     suite_map = {
         "surface": summary.get("surface", {}).get("overall_pass", False),
         "ci_coverage": summary.get("coverage", {}).get("pass", False),
@@ -26,6 +26,7 @@ def compute_score(summary_path: str) -> dict:
         "cointegration": summary.get("cointegration", {}).get("pass", False),
         "regime_coverage": summary.get("regime_coverage", {}).get("overall_pass", False),
         "distributional": summary.get("distributional", {}).get("overall_pass", False),
+        "cross_cell": summary.get("cross_cell_correlation", {}).get("overall_pass", False),
     }
     suites_passed = sum(1 for v in suite_map.values() if v)
 
@@ -76,6 +77,11 @@ def compute_score(summary_path: str) -> dict:
     median_pass = median.get("n_pass", 0)
     median_component = (median_pass / 25) * 2  # 0-2
 
+    # Suite 9: cross-cell correlation
+    xcell = summary.get("cross_cell_correlation", {})
+    corr_ratio = xcell.get("corr_ratio", 0.0)
+    xcell_component = max(0, min(3.0, (1.0 - abs(corr_ratio - 1.0)) * 3.0))  # 0-3, peaks at ratio=1.0
+
     # Suite 4: time series kurtosis
     ts = summary.get("time_series", {})
     kurt_info = ts.get("kurtosis", {})
@@ -94,7 +100,7 @@ def compute_score(summary_path: str) -> dict:
 
     # Composite
     total = (
-        suites_passed * 10              # 0-80, dominant signal
+        suites_passed * 10              # 0-90, dominant signal (9 suites)
         + ci_component                   # 0-3, CI coverage
         + ci_cell_component              # 0/3, per-cell CI
         + regime_l2_component            # 0-3, regime layer 2
@@ -105,11 +111,12 @@ def compute_score(summary_path: str) -> dict:
         + growing_unc                    # 0/3, growing uncertainty
         + coint_component                # 0-3, cointegration
         + median_component               # 0-2, median bias
+        + xcell_component                # 0-3, cross-cell correlation
     )
 
     return {
         "total_score": round(total, 2),
-        "max_possible": 109.0,
+        "max_possible": 122.0,
         "suites_passed": suites_passed,
         "suite_detail": suite_map,
         "components": {
@@ -124,6 +131,7 @@ def compute_score(summary_path: str) -> dict:
             "growing_unc": growing_unc,
             "cointegration": round(coint_component, 3),
             "median_bias": round(median_component, 3),
+            "xcell_corr": round(xcell_component, 3),
         },
         "raw_metrics": {
             "ci_90": round(ci_90, 4),
@@ -136,6 +144,7 @@ def compute_score(summary_path: str) -> dict:
             "kurtosis_ratio": round(kurtosis_ratio, 4),
             "coint_gen_gt_ratio": round(coint_ratio, 4),
             "median_bias_pass": median_pass,
+            "xcell_corr_ratio": round(corr_ratio, 4),
         }
     }
 
@@ -148,4 +157,4 @@ if __name__ == "__main__":
     result = compute_score(sys.argv[1])
     print(json.dumps(result, indent=2))
     print(f"\n=== COMPOSITE SCORE: {result['total_score']} / {result['max_possible']} "
-          f"(suites: {result['suites_passed']}/8) ===")
+          f"(suites: {result['suites_passed']}/9) ===")

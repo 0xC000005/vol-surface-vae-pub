@@ -2189,6 +2189,104 @@ def run_distributional_fidelity_tests(
 
 
 # =============================================================================
+# Test Suite 9: Cross-Cell Correlation Structure
+# =============================================================================
+
+def run_cross_cell_correlation_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+) -> Dict:
+    """Suite 9: Cross-cell correlation structure.
+
+    Tests whether generated samples preserve the GT cross-cell
+    correlation structure, effective rank, and factor loading pattern.
+    """
+    print("\n" + "=" * 60)
+    print("TEST SUITE 9: CROSS-CELL CORRELATION STRUCTURE")
+    print("=" * 60)
+
+    N, K, T, H, W = cond_samples.shape
+    n_cells = H * W
+
+    # Daily changes for correlation computation
+    gt_changes = np.diff(ground_truth, axis=1)  # (N, T-1, H, W)
+
+    # Average correlation matrix over multiple sample indices for stability
+    n_corr_samples = min(5, K)
+    gen_corr_matrices = []
+    for s in range(n_corr_samples):
+        gen_changes = np.diff(cond_samples[:, s], axis=1)
+        gen_flat = gen_changes.reshape(-1, n_cells)
+        gen_corr = np.corrcoef(gen_flat.T)
+        gen_corr_matrices.append(gen_corr)
+    gen_corr_avg = np.mean(gen_corr_matrices, axis=0)
+
+    # GT correlation matrix
+    gt_flat = gt_changes.reshape(-1, n_cells)
+    gt_corr = np.corrcoef(gt_flat.T)
+
+    # Mean off-diagonal correlation
+    mask = np.triu(np.ones((n_cells, n_cells), dtype=bool), k=1)
+    gt_mean_corr = float(gt_corr[mask].mean())
+    gen_mean_corr = float(gen_corr_avg[mask].mean())
+
+    # Effective rank via eigenvalue entropy
+    gt_eigvals = np.linalg.eigvalsh(gt_corr)[::-1]
+    gen_eigvals = np.linalg.eigvalsh(gen_corr_avg)[::-1]
+    gt_eigvals = np.maximum(gt_eigvals, 0)
+    gen_eigvals = np.maximum(gen_eigvals, 0)
+
+    def eff_rank(eigvals):
+        p = eigvals / (eigvals.sum() + 1e-10)
+        p = p[p > 1e-10]
+        return float(np.exp(-np.sum(p * np.log(p))))
+
+    gt_eff_rank = eff_rank(gt_eigvals)
+    gen_eff_rank = eff_rank(gen_eigvals)
+
+    # Frobenius distance
+    frob_dist = float(np.linalg.norm(gen_corr_avg - gt_corr, 'fro'))
+
+    # PC1 variance explained
+    gt_pc1 = float(gt_eigvals[0] / (gt_eigvals.sum() + 1e-10))
+    gen_pc1 = float(gen_eigvals[0] / (gen_eigvals.sum() + 1e-10))
+
+    # Gates
+    corr_ratio = gen_mean_corr / gt_mean_corr if abs(gt_mean_corr) > 1e-6 else float('inf')
+    corr_pass = 0.5 <= corr_ratio <= 2.0
+    rank_ratio = gen_eff_rank / gt_eff_rank if gt_eff_rank > 1e-6 else float('inf')
+    rank_pass = 0.5 <= rank_ratio <= 3.0
+
+    overall_pass = corr_pass and rank_pass
+
+    print(f"\n  GT mean cross-cell correlation: {gt_mean_corr:.3f}")
+    print(f"  Gen mean cross-cell correlation: {gen_mean_corr:.3f}")
+    print(f"  Correlation ratio: {corr_ratio:.3f} (target [0.5, 2.0]) "
+          f"{'PASS' if corr_pass else 'FAIL'}")
+    print(f"\n  GT effective rank: {gt_eff_rank:.2f}")
+    print(f"  Gen effective rank: {gen_eff_rank:.2f}")
+    print(f"  Rank ratio: {rank_ratio:.3f} (target [0.5, 3.0]) "
+          f"{'PASS' if rank_pass else 'FAIL'}")
+    print(f"\n  Frobenius distance: {frob_dist:.3f} (informational)")
+    print(f"  GT PC1 variance: {gt_pc1:.1%}, Gen PC1 variance: {gen_pc1:.1%}")
+
+    return {
+        "gt_mean_corr": gt_mean_corr,
+        "gen_mean_corr": gen_mean_corr,
+        "corr_ratio": corr_ratio,
+        "corr_pass": corr_pass,
+        "gt_eff_rank": gt_eff_rank,
+        "gen_eff_rank": gen_eff_rank,
+        "rank_ratio": rank_ratio,
+        "rank_pass": rank_pass,
+        "frob_dist": frob_dist,
+        "gt_pc1_var": gt_pc1,
+        "gen_pc1_var": gen_pc1,
+        "overall_pass": overall_pass,
+    }
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 
@@ -2325,6 +2423,16 @@ def print_summary(results: Dict) -> bool:
               f"<{10}% {'PASS' if df['cell_mae']['pass'] else 'FAIL'}")
         print(f"  Overall:                 {'PASS' if df['overall_pass'] else 'FAIL'}")
 
+    # Suite 9
+    if 'cross_cell_correlation' in results:
+        xcell = results.get("cross_cell_correlation", {})
+        print(f"\nTest Suite 9: Cross-Cell Correlation")
+        print(f"  Correlation ratio:   {xcell.get('corr_ratio', 0):.3f} "
+              f"{'PASS' if xcell.get('corr_pass') else 'FAIL'}")
+        print(f"  Rank ratio:          {xcell.get('rank_ratio', 0):.3f} "
+              f"{'PASS' if xcell.get('rank_pass') else 'FAIL'}")
+        print(f"  Overall:             {'PASS' if xcell.get('overall_pass') else 'FAIL'}")
+
     # Overall
     print("\n" + "=" * 60)
     all_pass = all([
@@ -2338,6 +2446,8 @@ def print_summary(results: Dict) -> bool:
         all_pass = all_pass and results['regime_coverage']['overall_pass']
     if 'distributional' in results:
         all_pass = all_pass and results['distributional']['overall_pass']
+    if 'cross_cell_correlation' in results:
+        all_pass = all_pass and results['cross_cell_correlation']['overall_pass']
     # Cointegration is informational — doesn't affect overall pass/fail yet
     if 'cointegration' in results and not results['cointegration']['pass']:
         print("  NOTE: Cointegration test FAILED (informational)")
@@ -2910,6 +3020,10 @@ def main():
     results['distributional'] = run_distributional_fidelity_tests(
         cond_samples, ground_truth, history_arr,
     )
+
+    # Suite 9: Cross-cell correlation structure
+    cross_cell_results = run_cross_cell_correlation_tests(cond_samples, ground_truth)
+    results["cross_cell_correlation"] = cross_cell_results
 
     # =========================================================================
     # Summary
