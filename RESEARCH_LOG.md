@@ -30752,3 +30752,9 @@ H3: Learned anchor replacing history[-1] (3h)
 ### Execution Order: H2 → H1 → H3
 
 ---
+
+## 2026-03-20: Exp 133f_v3 — RC2-H2: Higher Cell Variance Loss (lambda=5.0)
+
+4/8 suites, score 51.6. Kurtosis 1.78 PASSES. Cointegration 0.214 FAILS (regressed from 133f's 0.557). Higher cell_var weight pushes per-cell variance matching but destroys cointegration. The cell_var_loss decreased from 2.06→0.54 (much lower) but per-cell CI gate still fails. Conclusion: per-cell CI failure is NOT about variance matching — it's about WHICH cells are over-spread (architecture/noise structure). RC2-H2 falsified: higher cell_var doesn't fix Suite 2.
+
+---

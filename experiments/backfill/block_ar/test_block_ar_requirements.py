@@ -2558,7 +2558,7 @@ def main():
         sp_config = SinglePassConfig(**sp_cfg)
         model = SinglePassBlockAR(sp_config)
         print(f"  Model type: SinglePassBlockAR (afCRPS)")
-        model.load_state_dict(checkpoint["model_state_dict"])
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     else:
         model = ConditionalBlockARDDPM(model_config)
         # Load EMA params if available (and not disabled), otherwise regular state dict
