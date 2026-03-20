@@ -31183,3 +31183,46 @@ and 134a would achieve **6/8** (adding Suite 8 to existing {1,3,4,5,6}).
 5. 134a is the closest to 6/8 of any model — needs cell (0,0) bias reduction
 
 ---
+
+## 2026-03-20: Research Compass 3 — Breaking 6/8 via Suite 8 Bias Reduction
+
+### Philosophy Applied
+- **Karpathy**: Start with zero-training experiments (H2: multi-seed) then simplest code (H1: static bias)
+- **Popper**: Each hypothesis has clear falsification at each stage
+- **TRIZ**: The anchor-bias contradiction (good for h=1, bad for h=30) resolved by learned offset
+
+### Evidence Summary (Post-Bug-Fix)
+
+**Re-evaluation with fixed KS-levels test:**
+
+| Model | KS Daily | KS Levels (fixed) | Bias Frac | Bias Mag | Suite 8 | Suites |
+|-------|----------|-------------------|-----------|----------|---------|--------|
+| 99m_v2 | 22/25 | 16/25 PASS | 18/25 FAIL | 21/25 FAIL | FAIL | 5/8 |
+| 133f | 12/25 FAIL | 17/25 PASS | 22/25 PASS | ?/25 | FAIL | 4/8 |
+| 134a | 17-18/25 | 21-22/25 PASS | 23-24/25 PASS | 21-24/25 | FAIL (borderline) | 5/8 |
+
+**134a is the closest model to 6/8.** Suite 8 failure is now ONLY bias magnitude
+(21-24/25 across runs, needs ≥22). High stochastic variance means some runs pass, some don't.
+
+**Root cause of cell (0,0) bias (-6.87 IV pts):** Regression slope 0.31 → 69% mean-reversion
+over 30 days. Model anchors to history[-1], producing systematically low median for this cell.
+
+### Active Hypotheses
+
+**H2: Multi-Seed Evaluation (zero training, 25 min)**
+- Run 134a test suite 5× with different seeds
+- Falsification: if 0/5 pass Suite 8 → bias is consistent, not noise
+- If ≥1/5 pass → 6/8 is achievable with lucky sampling
+
+**H1: Learned Per-Cell Output Bias (simplest code, 1.5h)**
+- Add nn.Parameter(zeros(25)) to JointTransformerDecoder output
+- Falsification: if bias magnitude doesn't reach ≥22/25 → bias isn't correctable by static offset
+- If works → potential 6/8 from a single architectural change
+
+**H3: Condition-Dependent Output Bias (if H1 insufficient, 1.5h)**
+- Replace static bias with Linear(cond_dim, n_cells)
+- Falsification: if no improvement over H1 → bias doesn't vary by regime
+
+### Execution Order: H2 → H1 → H3
+
+---
