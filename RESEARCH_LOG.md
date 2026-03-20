@@ -30282,3 +30282,83 @@ rank-1 is architectural. Skip H2, proceed to H3 (CLN).
    or through a fundamentally different architecture (attention decoder)
 
 ---
+
+## 2026-03-20: Exp 132a — H3: 4-Layer CLN MLP — Spatial Rank Breakthrough But Kurtosis Collapse
+
+### Context
+H1 (Exp 130a) confirmed 2-layer MLP is architecturally rank-limited. Research Compass H3 proposes
+CLN (Conditional LayerNorm) to make noise 100% of output. Key insight from 120a investigation:
+AdaGN/CLN rank amplification requires DEPTH (6+ layers in Conv3D, only 2 in our MLP).
+Implementation: generalized AdaGN to configurable depth, tested with 4 layers.
+
+**Based on**: 99m_v2 (base settings) + 120a investigation (depth required) + H1 finding (architecture bottleneck)
+
+### Results
+
+| Metric | 132a (4L CLN) | 99m_v2 (baseline) | Direction |
+|--------|---------------|-------------------|-----------|
+| Suites passed | 3/8 | 5/8 | REGRESSED |
+| Composite score | 44.24 | 66.31 | REGRESSED |
+| Kurtosis ratio | 0.272 | 0.845 | FAIL (variance saturation) |
+| Coint ratio | 0.498 | 0.675 | FAIL (below 0.50) |
+| CI 90% | 92.4% | 91.3% | Improved |
+| KS daily | 15/25 | 20/25 | Worse |
+| Turb/calm | 1.784 | — | Strong PASS |
+
+### Training Dynamics (KEY FINDING)
+
+| Epoch | eff_rank | cross-cell corr | PC1 | Kurtosis |
+|-------|----------|----------------|-----|----------|
+| 1 | **2.32** | 0.477 | 63.0% | 0.213 |
+| 5 | **3.83** | **0.262** (below GT 0.38!) | **43.2%** | 0.100 |
+| 10 | 1.93 | 0.528 | 68.1% | 0.261 |
+
+**Epoch 5 spatial rank 3.83 is the first time ANY model has exceeded GT diversity (2.6).**
+
+### Variance Growth Diagnostic
+
+| Horizon | 132a variance | 99m_v2 variance | Ratio |
+|---------|---------------|-----------------|-------|
+| h=1 | 0.001535 | 0.000900 | **1.71x** (too spread) |
+| h=5 | 0.004093 | 0.002188 | 1.87x |
+| h=15 | 0.003664 | 0.003184 | 1.15x (converging) |
+| h=30 | 0.003869 | 0.003181 | 1.22x |
+| h30/h1 ratio | **2.52x** | 3.53x | Flatter → less kurtosis |
+
+### Analysis (WHY)
+
+**Spatial rank achievement**: 4-layer CLN produces eff_rank 3.83 at epoch 5 because each CLN layer
+independently modulates the hidden state with noise, creating exponential diversity through the
+depth. This validates the 120a finding: rank amplification is depth-dependent. 4 layers is enough
+to exceed GT diversity.
+
+**CRPS pulls rank back**: From epoch 5→10, CRPS optimization compresses eff_rank from 3.83→1.93.
+This REFRAMES H1: with 2 layers, architecture is the bottleneck. With 4 layers, CRPS becomes
+the bottleneck again. The rank-1 attractor is CRPS-driven, not purely architectural — but it
+requires sufficient architectural capacity to observe this.
+
+**Kurtosis collapse**: Same mechanism as 120a but quantified. CLN makes h=1 variance 1.71x
+larger than baseline (immediate full-strength noise modulation). This flattens the variance
+growth profile (h30/h1 = 2.52x vs 3.53x), reducing kurtosis from 0.845 to 0.272. Kurtosis =
+variance heterogeneity across horizons. Flat variance → near-Gaussian → low kurtosis.
+
+**Cointegration collapse**: The extreme diversity at intermediate epochs breaks the low-rank
+comovement structure that cointegration tests detect. By epoch 10, cointegration partially
+recovers (0.498) but doesn't reach baseline (0.675).
+
+### Decision
+**VALUABLE FAILURE** with critical architectural insight: 4-layer CLN proves the diversity
+capacity exists but two problems must be solved: (1) CRPS rank compression, (2) variance
+saturation. Two follow-up variants:
+
+- **132a_v2**: Freeze CLN at epoch 5 (lock peak diversity, let CRPS optimize rest)
+- **132b**: Horizon-dependent CLN warmup (scale = min(1, t/T), zero noise at h=1)
+
+### What Was Learned
+1. 4-layer CLN can produce eff_rank 3.83 (above GT 2.6) — FIRST architecture to do this
+2. CRPS actively compresses rank from 3.83→1.93 in 5 epochs (CRPS IS the bottleneck at 4+ layers)
+3. Variance saturation at h=1 kills kurtosis — CLN's full-strength modulation starts too spread
+4. The architecture-vs-CRPS boundary depends on depth: 2 layers = architecture-limited, 4+ = CRPS-limited
+5. h30/h1 variance ratio is the key kurtosis predictor (2.52x → kurt 0.27, 3.53x → kurt 0.85)
+
+---
