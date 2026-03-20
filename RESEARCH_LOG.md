@@ -31226,3 +31226,42 @@ over 30 days. Model anchors to history[-1], producing systematically low median 
 ### Execution Order: H2 → H1 → H3
 
 ---
+
+## 2026-03-20: RC3-H2 — Multi-Seed Evaluation of 134a: FALSIFIED (0/5 Pass Suite 8)
+
+### Hypothesis
+Run 134a test suite 5× to check if Suite 8 pass is stochastic.
+
+### Results
+
+| Seed | Score | Suites | Bias Mag | Win Floor | Floor Expl | KS Levels |
+|------|-------|--------|----------|-----------|------------|-----------|
+| 1 | 66.95 | 5/8 | 21/25 | 6.1% | 12.5% | 21/25 |
+| 2 | 66.98 | 5/8 | 21/25 | 6.2% | 12.5% | 22/25 |
+| 3 | 66.67 | 5/8 | 21/25 | 6.1% | 12.4% | 21/25 |
+| 4 | 66.98 | 5/8 | 21/25 | 6.4% | 12.5% | 22/25 |
+| 5 | 66.97 | 5/8 | 21/25 | 6.1% | 12.3% | 22/25 |
+
+### Analysis
+**Zero stochastic variance on 134a** — scores range 66.67-66.98 (±0.3 points). All three
+Suite 8 failures are DETERMINISTIC:
+
+1. **Floor explosion 12.5%** (gate <5%) — worst cell has 12.5% of samples at floor (≤0.001).
+   This is a single cell producing near-zero IV in ~1/8 of windows.
+2. **Window floor 6.1%** (gate <5%) — 74/1223 windows have <50% coverage.
+3. **Bias magnitude 21/25** (gate ≥22) — 4 cells have bias > 3 IV pts.
+
+The floor explosion is the DOMINANT failure — more severe than bias magnitude. The joint
+transformer's cumulative delta mechanism can produce extreme negative values that push IV
+to the floor clamp (0.001) on certain cells.
+
+### What Was Learned
+1. 134a's failures are deterministic, not stochastic — multi-seed won't help
+2. Floor explosion is the dominant Suite 8 blocker (12.5% vs 5% gate)
+3. The cumulative delta mechanism needs bounds to prevent extreme undershoots
+4. RC3-H1 (output bias) won't fix floor explosion — needs architectural change
+
+### Training Command
+N/A — inference only
+
+---
