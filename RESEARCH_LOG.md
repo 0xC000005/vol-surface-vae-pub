@@ -31530,3 +31530,42 @@ to produce conditionally calibrated per-cell spread and regime-adapted coverage.
 to 6/8+ is through better models, not test fixes.
 
 ---
+
+## 2026-03-20: Exp 134c — Learned Output Bias: Score 69.41 (New All-Time Best)
+
+### Context
+134b (score 69.36) has bias magnitude 21/25 as sole Suite 8 blocker. Added
+`nn.Parameter(zeros(25))` as output_bias to shift mean prediction per cell.
+
+### Training Command
+Same as 134b but with output_bias parameter (zero-init, learned via CRPS backprop).
+
+### Results
+
+| Metric | 134c (bias) | 134b (no bias) | 99m_v2 |
+|--------|------------|----------------|--------|
+| **Score** | **69.41** | 69.36 | 68.32 |
+| Suites | 5/8 | 5/8 | 5/8 |
+| **KS daily** | **24/25** | 23/25 | 22/25 |
+| KS levels | 22/25 | 21/25 | 16/25 |
+| Kurtosis | 1.305 | 1.095 | 0.837 |
+| Coint | 0.809 | 0.682 | 0.668 |
+| Bias mag | **21/25** | 21/25 | 21/25 |
+| Floor expl | 0.00% | 0.00% | — |
+
+### Analysis
+The output bias provided marginal improvements: KS daily 23→24, kurtosis 1.10→1.31, coint
+0.68→0.81. But bias magnitude STUCK at 21/25 — the 4 failing cells have bias that varies
+by market regime, making a static offset insufficient. The bias learned non-zero values
+(verified by checking parameter) but couldn't fully correct the anchor-GT mismatch for
+cells (0,0), (0,4), (1,4), (2,4).
+
+### What Was Learned
+1. Static output bias helps globally (KS +1, kurtosis +0.2, coint +0.1) but can't fix
+   regime-dependent per-cell bias
+2. Score 69.41 is new ALL-TIME BEST (surpassing 134b's 69.36)
+3. KS daily 24/25 is new ALL-TIME BEST for any model
+4. The 4 failing bias cells are in column 4 (3 cells) and cell (0,0) — high-IV mean-reverting cells
+5. Condition-dependent bias (RC3-H3) is the natural next step
+
+---
