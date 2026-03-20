@@ -74,3 +74,15 @@
 - **Result**: 5/8 PASS (1,3,4,5,6). FAIL: 2 (CI), 7 (regime), 8 (distributional)
 - **Composite score**: 66.31/109
 - **Key metrics**: CI90=0.913, worst_cell=FAIL, KS daily 20/25, KS levels 1/25, kurtosis 0.845, coint 0.675, median bias 18/25, regime L3 catastrophic=576
+
+### Session 2 (2026-03-19) — Post-Investigation Experiments
+
+| # | Exp ID | Direction | Score | Suites | Decision |
+|---|--------|-----------|-------|--------|----------|
+| 35 | 120a | B1: AdaGN noise in MLP | — | **4/8** | VALUABLE FAILURE — variance saturation |
+| 36 | 123b | C2: Ortho reg on skip | 66.47 | 5/8 | VALUABLE FAILURE — skip only 4% |
+| 37 | 123a_v2 | C1: ACF loss | 65.39 | 5/8 | VALUABLE FAILURE — fights CRPS |
+| 38 | 120b | B2: Noise-free MLP | PENDING | — | TRAINING |
+
+**Exhausted directions**: B1 (AdaGN), C1 (ACF loss), C2 (ortho reg)
+**Key insight**: MLP path (96% of output) dominates — skip-level and loss-level interventions insufficient.
