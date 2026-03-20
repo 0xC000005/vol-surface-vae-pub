@@ -31150,3 +31150,36 @@ If confirmed by fixing the test script and re-evaluating, multiple existing mode
 already pass 6/8 suites — breaking the ceiling that 75+ experiments couldn't breach.
 
 ---
+
+## 2026-03-20: CRITICAL BUG FIX — KS-Levels Truncation (Oracle 0/25 → 25/25)
+
+### Bug Description
+Lines 1920, 1951 in test_block_ar_requirements.py: `gen_vals[:len(gt_vals)]` truncated
+generated samples to first ~20% of test windows. Due to temporal non-stationarity in IV
+data, this created a distributional mismatch even for a PERFECT model (oracle: 0/25 pass).
+
+### Impact
+**ALL KS-levels results across 75+ experiments were INVALID.** The "structurally impossible"
+Suite 8 KS-levels test was actually a test BUG, not a model limitation.
+
+### Re-evaluation Results (Fixed Test)
+
+| Model | KS Daily | KS Levels (OLD) | KS Levels (FIXED) | Suite 8 Blocker |
+|-------|----------|-----------------|-------------------|-----------------|
+| 99m_v2 | 22/25 | 1/25 | **16/25 PASS** | Median bias (18/25 frac, 21/25 mag) |
+| 133f | 12/25 | 0/25 | **17/25 PASS** | KS daily (12/25), stochastic |
+| 134a | 17/25 | 0/25 | **22/25 PASS** | Bias magnitude (21/25, needs 22) |
+
+### Key Finding
+134a is **1 cell short** of passing Suite 8 bias magnitude gate (21/25, needs 22).
+Cell (0,0) has -6.87 IV pts bias — if that single cell were <3 pts, Suite 8 would PASS
+and 134a would achieve **6/8** (adding Suite 8 to existing {1,3,4,5,6}).
+
+### What Was Learned
+1. ALWAYS run oracle tests on test infrastructure — this bug was present for months
+2. KS 2-sample test handles unequal sizes natively — truncation was unnecessary
+3. The "5/8 ceiling" was partially a TEST ceiling, not a MODEL ceiling
+4. Suite 8 is now gated by median bias, not KS levels
+5. 134a is the closest to 6/8 of any model — needs cell (0,0) bias reduction
+
+---
