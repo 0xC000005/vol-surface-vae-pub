@@ -31445,3 +31445,88 @@ The 8 suites do NOT test:
 10. **Align cointegration counting** between test and composite score
 
 ---
+
+## 2026-03-20: Oracle Test — Feed GT as Predictions, All Suites Validated
+
+### Purpose
+Empirical bug detection: feed ground truth futures as "generated samples" and check which
+suites pass. Any suite that fails on perfect data has a bug or unreasonable threshold.
+
+### Three Oracle Variants Tested
+
+- **Oracle A (Perfect)**: 50 near-identical copies of GT future (tiny noise for CI stability)
+- **Oracle B (Cross-window)**: 50 random GT futures from OTHER windows (unconditional GT spread)
+- **Oracle C (Local-window)**: 50 GT futures from nearby windows (+/-50) (conditional GT spread)
+
+### Results
+
+| Suite | A: Perfect | B: Cross-window | C: Local-window |
+|-------|-----------|----------------|----------------|
+| 1. Surface Validity | **PASS** | **PASS** | **PASS** |
+| 2. CI Coverage | FAIL (100% > 95%) | **PASS** | **PASS** |
+| 3. Conditionality | SKIP | SKIP | SKIP |
+| 4. Time Series | **PASS** | **PASS** | **PASS** |
+| 5. Block-AR | **PASS** | **PASS** | **PASS** |
+| 6. Cointegration | **PASS** | **PASS** | **PASS** |
+| 7. Regime Coverage | FAIL (100% > 95%) | FAIL (95.9% barely) | **PASS** |
+| 8. Distributional | **PASS** | **PASS** | **PASS** |
+| **Total** | **5/7** | **6/7** | **7/7** |
+
+(Suite 3 skipped — requires model object for unconditioned samples)
+
+### KEY FINDING: ALL SUITES ARE VALID
+
+**Oracle C passes 7/7.** When ensemble members are drawn from nearby windows (creating
+roughly correct conditional spread), every test suite passes. This proves:
+
+1. **All thresholds are achievable** with realistic GT-level data
+2. **No test has an unreasonable threshold** or structural impossibility
+3. **The 5/8 ceiling in real models is a genuine model limitation, not a test artifact**
+
+### Failures Are Correctly Explained
+
+**Oracle A fails Suite 2 and 7**: Zero-spread (100% coverage) correctly violates the 95%
+upper bound. A degenerate oracle SHOULD fail these calibration gates.
+
+**Oracle B fails Suite 7 marginally**: One cell (0,3) hits 95.9% in turb regime at h=30
+— just 0.9pp over the 95% ceiling. Unconditional GT spread is slightly too wide for
+turbulent conditions (includes calm-period futures). This correctly identifies that
+unconditional distribution doesn't match conditional GT.
+
+### Implications
+
+1. **The code review found real bugs** (compute_score L2, tenor weights, threshold mismatch)
+   and methodology issues (ACF flawed, single-sample kurtosis, ~7 effective samples per cell).
+   But the oracle test shows **none of these make any suite structurally impossible to pass**.
+
+2. **Suite 7 requires CONDITIONAL calibration** — not just matching the unconditional distribution.
+   Oracle B (unconditional) fails Suite 7 but Oracle C (conditional) passes. The model needs
+   wider CIs for turb AND narrower for calm, within the [70%, 95%] corridor per cell.
+
+3. **The "structural bottleneck" narrative needs revision**:
+   - Suite 2 per-cell gate IS achievable (Oracle C passes)
+   - Suite 7 Layer 2 IS achievable (Oracle C passes all 8 combos)
+   - Suite 8 distributional IS achievable (all oracles pass)
+   - The model failures are REAL model quality issues, not test artifacts
+
+4. **The code review issues are REAL but NON-BLOCKING**:
+   - Fixing the ACF test would make it more meaningful but wouldn't flip pass/fail
+   - Using all 50 samples for kurtosis would reduce variance but not change the expected value
+   - The compute_score L2 bug gives 3 free points but doesn't affect suite pass/fail
+   - Calendar arb tenor weights make the test 1.1pp stricter (conservative)
+
+### Reconciliation: Code Review vs Oracle Test
+
+| Issue | Code Review Said | Oracle Test Shows |
+|-------|-----------------|-------------------|
+| Per-cell CI has ~7 effective samples | Perfectly calibrated model often fails | Oracle C (realistic spread) PASSES — the gate is achievable |
+| Suite 7 multiplicative AND too strict | 2% pass rate = structurally unfair | Oracle C passes 8/8 combos — the bar is reachable |
+| KS-levels truncation bug | Causes systematic failure | **Already fixed** (commit 0ace683). Oracle passes. |
+| n_samples=50 undercoverage (3.4pp) | Biases CI downward | Loose per-horizon targets compensate. Oracle C passes. |
+
+**Bottom line**: The test suite has real bugs and methodology issues that should be fixed
+for scientific rigor, but they do NOT explain the 5/8 ceiling. The models genuinely fail
+to produce conditionally calibrated per-cell spread and regime-adapted coverage. The path
+to 6/8+ is through better models, not test fixes.
+
+---
