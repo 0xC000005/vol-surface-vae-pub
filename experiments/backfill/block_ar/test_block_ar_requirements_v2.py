@@ -319,7 +319,9 @@ def test_calendar_arbitrage(samples: np.ndarray) -> Dict:
 
     Target: avg < 15%, worst strike < 25%
     """
-    tenors = np.array([1, 2, 4, 8, 12])
+    # Actual data tenors: [1M, 3M, 6M, 12M, 24M] = [1/12, 1/4, 1/2, 1, 2] years
+    # Using proportional months for total_var = IV^2 * tau
+    tenors = np.array([1, 3, 6, 12, 24])
     violations = []
     per_strike_violations = {k: [] for k in range(5)}
     for t_idx in range(samples.shape[1]):
