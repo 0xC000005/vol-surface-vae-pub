@@ -31569,3 +31569,39 @@ cells (0,0), (0,4), (1,4), (2,4).
 5. Condition-dependent bias (RC3-H3) is the natural next step
 
 ---
+
+## 2026-03-20: Exp 134d — RC3-H3: Condition-Dependent Bias — REGRESSED (4/8)
+
+### Results
+4/8 suites (score 54.21) — REGRESSION from 134c (69.41).
+
+| Metric | 134d (cond bias) | 134c (static bias) | 134b (no bias) |
+|--------|-----------------|-------------------|----------------|
+| Score | 54.21 | **69.41** | 69.36 |
+| Suites | 4/8 | 5/8 | 5/8 |
+| Kurtosis | **2.26 FAIL** | 1.31 | 1.10 |
+| KS daily | **6/25 FAIL** | 24/25 | 23/25 |
+| KS levels | 20/25 | 22/25 | 21/25 |
+| Bias mag | 21/25 | 21/25 | 21/25 |
+| Coint | 0.614 | 0.809 | 0.682 |
+
+### Analysis
+Condition-dependent bias (Linear(128,25)) gives CRPS too much freedom to shift per-window
+means. The model exploits this to CRPS-optimize (reduce per-window error) but this destroys:
+1. KS daily: 24→6 (distribution shape damaged by per-window mean shifts)
+2. Kurtosis: 1.31→2.26 (overshoots target, likely from extreme mean shifts in some windows)
+
+Same pattern as 134a (condition-dependent spread): condition-dependent per-cell parameters
+inversely affect distributional quality. CRPS optimization with flexible per-cell params
+sacrifices distributional shape for per-window accuracy.
+
+### What Was Learned
+1. Condition-dependent bias HURTS distributional metrics — same mechanism as condition-dependent spread
+2. Static bias (134c) > condition-dependent bias (134d) by a large margin
+3. The kurtosis-vs-flexibility tradeoff is fundamental: more per-cell flexibility → CRPS tightening → less kurtosis
+4. **134c (score 69.41) remains the all-time best model**
+
+### Training Command
+Same as 134c but with cond_bias_proj(condition → 25) added to output.
+
+---
