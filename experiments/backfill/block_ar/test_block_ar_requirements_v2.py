@@ -1020,12 +1020,32 @@ def run_time_series_tests(
     # --- ACF test ---
     print("\n  --- Test 4a: ACF Preservation ---")
 
-    # ATM series for ACF
-    gt_atm = ground_truth[:, :, 2, 2].flatten()
-    gen_atm = cond_samples[:, 0, :, 2, 2].flatten()  # first sample per window
+    # Compute ACF on daily changes within each window, then average
+    # (flattening stride-1 overlapping windows creates fake backward jumps)
+    gt_changes_atm = np.diff(ground_truth[:, :, 2, 2], axis=1)  # (N, T-1)
 
-    gt_acf = compute_acf(gt_atm, max_lag)
-    gen_acf = compute_acf(gen_atm, max_lag)
+    effective_max_lag = min(max_lag, gt_changes_atm.shape[1] - 1)
+
+    gt_acfs = []
+    for i in range(gt_changes_atm.shape[0]):
+        if np.std(gt_changes_atm[i]) > 1e-10:
+            gt_acfs.append(compute_acf(gt_changes_atm[i], effective_max_lag))
+
+    gen_acfs = []
+    gen_changes_atm = np.diff(cond_samples[:, 0, :, 2, 2], axis=1)  # (N, T-1)
+    for i in range(gen_changes_atm.shape[0]):
+        if np.std(gen_changes_atm[i]) > 1e-10:
+            gen_acfs.append(compute_acf(gen_changes_atm[i], effective_max_lag))
+
+    # Average ACF curves
+    if gt_acfs and gen_acfs:
+        min_len = min(min(len(a) for a in gt_acfs), min(len(a) for a in gen_acfs))
+        gt_acf = np.mean([a[:min_len] for a in gt_acfs], axis=0)
+        gen_acf = np.mean([a[:min_len] for a in gen_acfs], axis=0)
+    else:
+        gt_acf = np.zeros(effective_max_lag)
+        gen_acf = np.zeros(effective_max_lag)
+
     acf_correlation = float(np.corrcoef(gt_acf, gen_acf)[0, 1])
     acf_mae = float(np.mean(np.abs(gt_acf - gen_acf)))
     acf_pass = acf_correlation > 0.5
