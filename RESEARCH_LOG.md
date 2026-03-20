@@ -31323,3 +31323,125 @@ systematic negative bias from the anchor effect (mean-reversion not captured).
 5. Suite 8 bias magnitude (21/25) is now the SOLE remaining blocker for 6/8
 
 ---
+
+## 2026-03-20: Test Suite Code Review — 5 Parallel Agents (Oracle Test Pending)
+
+### Purpose
+Comprehensive review of all 8 test suites + scoring framework for bugs, methodology
+issues, and whether metrics measure what they claim. 5 code review agents + 1 oracle
+test agent launched. Oracle test feeds GT as predictions to empirically catch bugs.
+
+### BUGS FOUND
+
+#### BUG 1: compute_score.py regime L2 component ALWAYS returns 3.0 (CRITICAL)
+**Location**: compute_score.py lines 46-54
+The code iterates over `layer2_regime_cell` looking for `v.get("pass", True)`. But the
+actual JSON has no "pass" key in sub-dicts — default `True` always fires. This component
+provides **zero signal** — it's always maxed at 3.0/3.0 regardless of actual performance.
+**Impact**: ~3 points of composite score are meaningless.
+
+#### BUG 2: Calendar arb tenor weights wrong (Suite 1)
+**Location**: test_block_ar_requirements.py line 322
+Uses `[1, 2, 4, 8, 12]` but actual data tenors are [1/12, 1/4, 1/2, 1, 2] years.
+Correct weights: `[1, 3, 6, 12, 24]` (or actual year fractions).
+**Impact**: Makes test 1.1pp stricter (conservative direction). GT arb 7.5% vs correct 6.4%.
+
+#### BUG 3: Cointegration worst_cell threshold mismatch (Suite 6)
+**Location**: test_block_ar_requirements.py lines 1407/1417/1430
+Comment says >=0.3, code uses >=0.25, print says "target >=0.30".
+**Impact**: Gate is actually easier than documented (0.25 not 0.30). Misleading output.
+
+#### BUG 4: EWMA initialization from single squared return (Suite 6)
+**Location**: test_block_ar_requirements.py lines 1296-1297
+Initializes `variance[0] = ret_window[0]**2` instead of warming up from history returns.
+**Impact**: Noisy first ~15 of 30 EWMA values. GT pass rate would be higher (~20-30%)
+with proper warmup. Both gen and GT affected equally — ratio is noisier but unbiased.
+
+### METHODOLOGY ISSUES (Significant)
+
+#### ISSUE 1: ACF test is mathematically flawed (Suite 4, lines 1022-1023)
+Flattens stride-1 overlapping windows into a "time series" that has 28-day backward
+jumps at every 30-position boundary. The resulting ACF is dominated by overlap structure,
+not genuine temporal dynamics. Both GT and generated share this artifact, so ACF
+*correlation* passes for the wrong reason.
+
+#### ISSUE 2: Single-sample kurtosis/ACF — explains stochastic variance (Suite 4)
+Lines 1023, 1041 use only `cond_samples[:, 0]` (sample index 0 from 50). This means
+kurtosis and ACF statistics have 50x more noise than necessary. Directly explains the
+20+ point score variance between identical runs on 133f.
+
+#### ISSUE 3: Per-cell CI gate has only ~7 effective independent samples (Suite 2)
+With stride-1 overlap (29/30 shared), ~1223 windows yield ~7 truly independent samples
+per cell per horizon. Standard deviation of per-cell coverage is ~11.3%. Expected worst
+cell of 25 noisy estimates: ~67% (below 70% gate). **A perfectly calibrated model fails
+the per-cell gate a significant fraction of the time due to noise alone.**
+
+#### ISSUE 4: n_samples=50 creates 3.4pp systematic CI undercoverage (Suite 2)
+Empirical 5th/95th percentiles from 50 samples are biased toward center. True 90% CI
+from 50 samples covers only ~86.6%. Per-horizon targets are loose enough to compensate,
+but per-cell gate is not.
+
+#### ISSUE 5: Suite 7 Layer 2 multiplicative AND over 8 combinations
+Tests worst cell across 25 cells × 2 regimes × 4 horizons = 8 combinations, ALL must
+pass [70%, 95%]. With noisy per-cell estimates, probability all 8 pass is low even for
+good models. Primary cause of 2% pass rate.
+
+#### ISSUE 6: Suite 2 two-sided trap — 95% upper bound + 70% lower bound
+Widening CIs to fix under-covered cells (like (0,3)) pushes over-spread cells (like
+(4,0)) above 95%. Only per-cell calibration (not uniform scaling) can satisfy both
+bounds simultaneously.
+
+#### ISSUE 7: Cointegration suite counting discrepancy
+Test script marks Suite 6 as "informational" (line 2295) but compute_score.py counts
+it as one of 8 suites worth 10 points. The "5/8" counts in research log include Suite 6.
+
+#### ISSUE 8: No random seed control
+No `torch.manual_seed()` or `np.random.seed()`. Every run draws fresh noise. Suite 3
+regenerates ALL samples independently (different from other suites), adding more variance.
+
+#### ISSUE 9: Suite 5 meaningless for non-AR models
+Block boundary smoothness test trivially passes for joint transformer (no boundaries).
+Gives free points to non-AR architectures without validating anything.
+
+### METHODOLOGY ISSUES (Minor)
+
+- Zero-history as unconditional baseline (Suite 3): feeds all-zeros (50% IV flat surface)
+  as "unconditional" — trivially easy to beat. Secondary gate only.
+- Skewness ratio computed but never gated (Suite 4 line 1054)
+- Stride-1 overlap inflates all effective sample sizes ~30x
+- No multiple comparison correction for per-cell tests (25 cells)
+- KS-levels pools all horizons, mixing different distributional regimes
+- Suite 8 n_samp_ks=5 is ad-hoc sample reduction to control KS power
+
+### MISSING TEST DIMENSIONS
+
+The 8 suites do NOT test:
+1. **Cross-cell correlation structure** — the most critical model property (rank-1 attractor
+   vs GT 0.38). No suite measures this despite being the dominant research finding.
+2. **Tail dependence / copula structure** — joint extreme events not tested
+3. **Factor structure** — effective rank, PC1 loading alignment with GT
+4. **Path smoothness** — jagged trajectories not penalized if aggregate stats match
+
+### CONFIRMED CORRECT
+
+- Train/test split: no leakage (train 0:4040, val 4040:4540, test 4540+)
+- Calendar/butterfly arb computation logic (except tenor weights)
+- CI quantile computation along correct axis
+- Denormalization is identity (IV already in [0,1])
+- Horizon indexing (h=1 → index 0) is correct
+- With batch_size=64, max_batches=20 covers all 1223 test windows
+
+### RECOMMENDATIONS (Priority Order)
+
+1. **Fix compute_score.py L2 bug** — parse actual per-cell pass/fail from JSON
+2. **Add random seed** — at minimum log it; ideally fix for reproducibility
+3. **Use all 50 samples for kurtosis/ACF** — average across sample indices, not just index 0
+4. **Fix ACF computation** — use non-overlapping windows or per-window ACF averaging
+5. **Fix calendar arb tenor weights** — use actual data tenors
+6. **Add cross-cell correlation test** — most important missing dimension
+7. **Relax Suite 7 Layer 2** — require 6/8 combinations instead of 8/8, or aggregate horizons
+8. **Increase n_samples to 100+** for per-cell CI stability (or use bootstrap correction)
+9. **Warm up EWMA** from history returns for cointegration test
+10. **Align cointegration counting** between test and composite score
+
+---
