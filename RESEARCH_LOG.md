@@ -31265,3 +31265,61 @@ to the floor clamp (0.001) on certain cells.
 N/A — inference only
 
 ---
+
+## 2026-03-20: Exp 134b — Reflecting Boundaries Fix: Score 69.36 (ALL-TIME BEST Single Model)
+
+### Context
+134a had 12.5% floor explosion blocking Suite 8. Replaced hard clamp (0.001, 1.0) with
+reflecting boundaries [0.01, 1.0] in JointTransformerDecoder output.
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_99m_v2/best_model.pt \
+    --no_ema --epochs 40 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 5e-4 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --joint_decoder --joint_n_layers 4 --joint_d_model 128 \
+    --disable_early_stop --output_dir models/backfill/afcrps_134b --device cuda
+```
+
+### Results
+
+| Metric | 134b (reflect) | 134a (clamp) | 99m_v2 (baseline) |
+|--------|---------------|-------------|-------------------|
+| **Score** | **69.36** | 66.95 | 68.32 |
+| Suites | 5/8 | 5/8 | 5/8 |
+| Kurtosis | **1.095** | 0.604 | 0.837 |
+| Coint | 0.682 | 0.870 | 0.668 |
+| KS daily | **23/25** | 17/25 | 22/25 |
+| KS levels | 21/25 | 21/25 | 16/25 |
+| Bias mag | 21/25 | 21/25 | 21/25 |
+| Win floor | **2.6% PASS** | 6.1% FAIL | — |
+| Floor expl | **0.00% PASS** | 12.5% FAIL | — |
+| CI 90% | 94.2% | 83.2% | 91.3% |
+
+### Analysis (WHY)
+
+**Reflecting boundaries fix 3 problems simultaneously:**
+1. **Floor explosion**: 12.5% → 0.00%. Reflecting prevents samples from accumulating at floor.
+   Instead of clamping (which pins values at 0.001), reflecting bounces them back into valid range.
+2. **Window floor**: 6.1% → 2.6%. Fewer extreme low-coverage windows because samples don't pile
+   up at the boundary.
+3. **KS daily**: 17/25 → 23/25. The hard clamp created an artificial spike in the IV distribution
+   at 0.001. Reflecting preserves the smooth distribution shape.
+4. **Kurtosis**: 0.604 → 1.095. The clamp was truncating tails, reducing kurtosis. Reflecting
+   preserves tail behavior by bouncing rather than truncating.
+
+**Why bias magnitude is STILL 21/25**: The reflecting boundary doesn't change the model's
+MEAN prediction — it only changes what happens to extreme samples. Cell (0,0) still has
+systematic negative bias from the anchor effect (mean-reversion not captured).
+
+### What Was Learned
+1. **Hard clamping is toxic for distributional metrics** — creates floor/ceiling spikes
+2. Reflecting boundaries should be DEFAULT for any bounded generation (not just AR path)
+3. The improvement from clamp→reflect is purely output-space — no retraining needed
+4. Score 69.36 is ALL-TIME BEST for any single model (previous: E4 ensemble at 68.74)
+5. Suite 8 bias magnitude (21/25) is now the SOLE remaining blocker for 6/8
+
+---
