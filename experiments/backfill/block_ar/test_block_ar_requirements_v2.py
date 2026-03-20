@@ -1757,10 +1757,12 @@ def run_regime_coverage_tests(
                 f"{'PASS' if high_pass else 'FAIL'}"
             )
 
-    # Relaxed: require 6/8 regime-horizon combinations to pass (was 8/8)
-    layer2_pass = n_l2_passing >= 6
+    # Require ALL regime-horizon combinations to pass [70%, 95%] per-cell gate.
+    # Both under-spread (<70%) and over-spread (>95%) are real model deficiencies:
+    # under-spread = missed risk, over-spread = overestimated VaR = capital waste.
+    layer2_pass = n_l2_passing == n_l2_total
     print(f"\n  Layer 2 summary: {n_l2_passing}/{n_l2_total} combinations pass "
-          f"(gate >= 6) {'PASS' if layer2_pass else 'FAIL'}")
+          f"(gate: all) {'PASS' if layer2_pass else 'FAIL'}")
 
     # =================================================================
     # Layer 3: Catastrophic window-cell detection
