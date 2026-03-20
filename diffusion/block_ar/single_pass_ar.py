@@ -372,8 +372,13 @@ class JointTransformerDecoder(nn.Module):
             vs = vol_scale.reshape(B, 1, 1, 1)
         else:
             vs = vol_scale
-        output = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W)
-        output = output.clamp(0.001, 1.0)
+        raw = prev_iv.unsqueeze(1) + vs * cum_delta.reshape(B, T, H, W)
+        # Reflecting boundaries (same as AR path): bounce off [floor, 1.0]
+        floor = 0.01
+        width = 1.0 - floor
+        shifted = raw - floor
+        shifted = shifted % (2 * width)
+        output = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
 
         return output  # (B, T, H, W) in IV space
 
