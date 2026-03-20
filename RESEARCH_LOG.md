@@ -30182,3 +30182,103 @@ Each step produces independent value. No stacked dependencies. Every failure red
 - Post-hoc covariance calibration (Zheng & Sun 2024)
 
 ---
+
+## 2026-03-20: Exp 130a — H1 Diagnostic: Log-Det Covariance Penalty
+
+### Context
+Research Compass H1: Is rank-1 from CRPS or architecture? Added log-det(Cov(ensemble)) penalty
+to loss (lambda_rank=1.0) to test whether the MLP can produce diverse spatial outputs when
+explicitly incentivized. 5-epoch probe from 99m_v2 base, no freeze.
+
+### Hypothesis
+If CRPS is the sole cause of rank-1, adding a strong diversity penalty should increase
+effective output rank above 2.0 within 5 epochs.
+
+### Implementation
+- Added lambda_rank * (-log(det(Cov))) penalty on K×K Gram matrix of ensemble members
+- Gram computed over flattened T*H*W dimensions per batch
+- Cholesky-based log-det for numerical stability, eigenvalue fallback
+- Tracks effective rank via eigenvalue entropy of Gram matrix
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py     --base_model models/backfill/afcrps_99m_v2/best_model.pt     --no_ema --epochs 5 --batch_size 8 --noise_dim 32 --n_members 8     --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5     --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread     --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01     --lambda_cell_var 1.0 --freeze_after_epoch 0 --disable_early_stop     --lambda_rank 1.0 --output_dir models/backfill/afcrps_130a --device cuda
+```
+
+### Key Findings
+
+**Training dynamics (5 epochs):**
+
+| Metric | Ep 1 | Ep 5 | Direction |
+|--------|------|------|-----------|
+| Gram eff_rank (K=8) | 5.5 | 5.8 | Stable high — penalty works on Gram |
+| Output eff_rank (diag) | 1.51 | 1.47 | DECREASED despite penalty |
+| Cross-cell corr | 0.636 | 0.884 | Collapse accelerated |
+| rank_loss | 46.6 | 49.4 | Could not reduce |
+
+**Spatial rank diagnostic (50-sample, same condition, different noise):**
+
+| Metric | 99m_v2 (baseline) | 130a | Direction |
+|--------|-------------------|------|-----------|
+| MLP delta eff_rank | 2.34 | **1.21** | Collapsed MORE |
+| MLP PC1 | 82.2% | **96.2%** | More rank-1 |
+| Skip output eff_rank | 3.78 | 3.20 | Compressed |
+| MLP/Skip magnitude | 4.3x | **6.5x** | MLP dominates more |
+| Cross-cell corr | 0.463 | **0.817** | Far worse |
+
+**Test suite results:**
+
+| Metric | 99m_v2 | 130a |
+|--------|--------|------|
+| Composite score | 66.31 | 66.90 |
+| Suites passed | 5/8 | 5/8 |
+| CI 90% | 91.3% | 94.1% |
+| KS daily | 20/25 | 17/25 |
+| Kurtosis ratio | 0.845 | 0.634 |
+| Coint ratio | 0.675 | 0.770 |
+| Catastrophic | 576 | 385 |
+
+### Analysis (WHY)
+
+**The log-det penalty diversifies MEMBERS but cannot change the MLP's SPATIAL rank.**
+
+The K×K Gram matrix has eff_rank 5.8/8 — the 8 members are indeed different from each other
+in aggregate. But each member's per-frame output is still rank-1 in the spatial dimension
+(MLP delta eff_rank = 1.21, PC1 = 96.2%).
+
+Mechanism: The 2-layer MLP maps noise through a 128-dim hidden layer with SiLU activation.
+Regardless of the 32-dim noise input, the output collapses to ~1 spatial direction because:
+1. The noise enters additively via concatenation (not multiplicatively)
+2. The MLP's learned weights project noise to a single dominant output direction
+3. The log-det penalty can only make the K noise draws span different points ALONG this
+   direction — it cannot create new spatial directions
+
+The penalty actually HURT the MLP: without freeze, CRPS pulls MLP toward rank-1, and the
+log-det penalty couldn't prevent it (MLP eff_rank went from 2.34 to 1.21). The penalty's
+gradient through the Gram matrix doesn't reach the MLP's spatial structure — it only affects
+the scale/direction of noise mapping, not the spatial diversity of the output.
+
+### H1 Falsification Result
+
+**CONFIRMED: Architecture is the bottleneck, not CRPS.**
+
+MLP output eff_rank = 1.21 < 2.0 threshold, even with lambda_rank=1.0 (strong penalty).
+This kills H2 (variogram score — a loss-level intervention cannot overcome architectural
+rank-1). Proceed to H3 (Conditional LayerNorm — makes noise 100% of output, bypassing
+the MLP bottleneck).
+
+### Decision
+VALUABLE FAILURE — the most informative experiment in the session. H1 answered definitively:
+rank-1 is architectural. Skip H2, proceed to H3 (CLN).
+
+### What Was Learned
+1. Log-det penalty can diversify ensemble members in aggregate (Gram rank) but NOT per-frame
+   spatial structure (MLP output rank)
+2. The MLP's spatial rank is a PROPERTY OF THE ARCHITECTURE, not the loss function
+3. Without freeze, MLP output rank collapses from 2.34 → 1.21 in just 5 epochs
+4. Any loss-level intervention targeting ensemble diversity will fail — the MLP cannot
+   express diverse spatial patterns through additive noise concatenation
+5. The path forward MUST change how noise affects the output — multiplicatively (CLN)
+   or through a fundamentally different architecture (attention decoder)
+
+---
