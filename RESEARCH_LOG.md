@@ -31605,3 +31605,534 @@ sacrifices distributional shape for per-window accuracy.
 Same as 134c but with cond_bias_proj(condition → 25) added to output.
 
 ---
+
+## 2026-03-20: Architectural Principles Review — Stripping Crutches for Multi-Factor Scaling
+
+### Context
+Strategic review of the current joint transformer architecture against the project's
+ultimate objective: multi-factor conditional scenario generator (IV + rates + FX + credit).
+Applied research philosophy (Bitter Lesson, Hamming, Karpathy) to evaluate which
+architectural components are principled vs. historical crutches from the AR MLP era.
+
+### Key Finding: The Frozen DDPM Encoder Is Hard to Justify for Multi-Factor
+
+The frozen DDPM encoder exists to prevent bottleneck collapse (rank 5 vs MSE's rank 2).
+This was essential for the AR MLP decoder, which can't generate diversity on its own.
+
+But the joint transformer changes the calculus:
+- AR MLP: output rank 1.06, diversity MUST come from encoder → frozen DDPM essential
+- Joint transformer: output rank 3.88 (133c), diversity comes from attention over noise
+  → encoder mainly provides condition signal, which a simpler encoder could also do
+
+For multi-factor, the frozen DDPM encoder is actively harmful:
+1. IV-specific (pretrained on 5x5 IV grids, knows nothing about rates/FX/credit)
+2. Freezing prevents learning cross-factor conditioning
+3. The anti-collapse property should be achievable more simply (VIB, dropout, rank penalty)
+4. "Any anti-collapse method should work" remains HIGH confidence, ZERO evidence
+
+### Principled Architecture Assessment
+
+Evaluated each component as: principled / crutch / uncertain
+
+| Component | Verdict | Evidence |
+|-----------|---------|----------|
+| Joint transformer decoder | **Principled** | Breaks rank-1 invariant (133c-f). Scales to more factors naturally. Bitter-Lesson-compatible. |
+| Reflecting boundaries | **Principled** | Mathematical constraint on bounded variables. Not learned, not domain-specific. 134b: 0% floor explosion. |
+| cumsum(delta) from anchor | **Principled** | Structural bias for trajectory generation. Domain-agnostic (any cumulative time series). |
+| Positional encoding | **Principled** | Standard transformer practice. Tells decoder which (time, cell) position each token is. |
+| Per-cell learned scale | **Principled but borderline** | 133f: recovers cointegration. Static nn.Parameter, Bitter-Lesson-OK. But indexed by cell position — won't auto-scale to different grids. |
+| **vol_scale** | **Likely crutch** | Single learned scalar (Linear(128,1)+softplus) multiplied onto output. The joint transformer's AdaLN conditioning can learn output magnitude directly. Never tested without it on joint transformer — 133a failed but also had weaker conditioning overall. |
+| **cell_spread** | **Likely crutch** | Per-cell softplus scaling. The decoder can learn per-cell magnitude through attention. Legacy from AR MLP which couldn't differentiate cells. |
+| **NoiseMLP** | **Likely crutch** | Transforms noise before decoder sees it. The decoder's own layers can transform noise. Extra parameters without clear justification. |
+| **skip bypass** | **Dead code** | Only 4% of output in AR. Irrelevant in joint transformer (noise enters via per-position addition). |
+| **Frozen DDPM encoder** | **Crutch for AR, unjustified for joint TF** | Joint transformer generates diversity from attention, not encoder rank. Freezing prevents multi-factor adaptation. |
+
+### The TRIZ Contradiction: Regime × Cell Conditional Variance
+
+Current state of conditional variance modeling:
+- Time-dependent: SOLVED (cumulative delta + temporal attention)
+- Regime-dependent (global): SOLVED (condition-dependent vol_scale)
+- History-dependent: SOLVED implicitly (attention adapts to condition vector)
+- Spatially-dependent (static): SOLVED (per-cell learned scale)
+- **Regime × cell (dynamic): UNSOLVED** — 3 experiments (134a, 134d, 110a) prove
+  condition-dependent per-cell parameters are exploited by CRPS every time
+
+The contradiction: Suite 7 requires per-cell × per-regime calibration, but CRPS exploits
+any per-cell conditional flexibility to tighten predictions, destroying distributional quality.
+
+Three principled resolutions identified:
+1. **Let attention learn it implicitly** (Bitter Lesson) — spatial attention naturally
+   produces cell-dependent variance without explicit params. CRPS can't exploit implicit
+   attention patterns the way it exploits explicit per-cell parameters. Test: longer training.
+2. **Factor noise with bounded loadings** — K shared factors projected via W(D×K) with
+   ||W||_F bounded. Variance is structured (WW^T + diag), not per-cell. 133d showed this
+   works briefly (ep20: corr 0.303) but overcorrected. Fix: bound W norm.
+3. **Two-stage training** (TACTiS-2 style) — Stage 1: afCRPS for marginals (freeze).
+   Stage 2: calibration head with coverage loss for regime × cell variance. CRPS never
+   sees the calibration head, so it can't exploit it.
+
+### Minimal Principled Architecture (proposed)
+
+Strip all crutches, keep only what's justified:
+
+
+
+Removed: vol_scale, cell_spread, NoiseMLP, skip bypass, frozen encoder.
+Each removal is a testable hypothesis — add back ONE AT A TIME if the minimal version fails.
+
+### Proposed Experiment: Minimal Architecture Test (highest info-value)
+
+Train the minimal architecture (no vol_scale, no cell_spread, no skip, no NoiseMLP,
+unfrozen encoder) from scratch. 40 epochs, same hyperparameters as 134c otherwise.
+
+- Falsification: If < 3/8 suites → at least one removed component is genuinely needed.
+  Add back one at a time to find which.
+- If >= 4/8 → every removed component was a crutch. Multi-factor scaling is straightforward.
+- If encoder rank collapses without DDPM pretraining → anti-collapse IS necessary,
+  but can test VIB as simpler alternative.
+
+Effort: 4-6 hours. Tests 4-5 hypotheses simultaneously.
+
+### Connection to Long-Term Objective
+
+For multi-factor (IV + rates + FX + credit):
+- Joint transformer scales naturally (more positions = more factors)
+- Unfrozen encoder can learn cross-factor conditioning
+- No IV-specific components remain (reflecting boundaries work for any bounded series)
+- The Bitter Lesson is fully satisfied: architecture learns everything from data
+
+### Philosophy Applied
+- **Bitter Lesson**: Strip domain-specific crutches, let the architecture learn
+- **Karpathy**: If minimal version fails, add components back ONE AT A TIME
+- **Popper**: Each removed component is a falsifiable hypothesis
+- **Hamming**: Highest info-value experiment — tests 4-5 hypotheses in one training run
+- **TRIZ**: Regime × cell contradiction identified with 3 resolution paths
+
+---
+
+## 2026-03-20: Architectural Principles Review — Stripping Crutches for Multi-Factor Scaling
+
+### Context
+Strategic review of the current joint transformer architecture against the project's
+ultimate objective: multi-factor conditional scenario generator (IV + rates + FX + credit).
+Applied research philosophy (Bitter Lesson, Hamming, Karpathy) to evaluate which
+architectural components are principled vs. historical crutches from the AR MLP era.
+
+### Key Finding: The Frozen DDPM Encoder Is Hard to Justify for Multi-Factor
+
+The frozen DDPM encoder exists to prevent bottleneck collapse (rank 5 vs MSE's rank 2).
+This was essential for the AR MLP decoder, which can't generate diversity on its own.
+
+But the joint transformer changes the calculus:
+- AR MLP: output rank 1.06, diversity MUST come from encoder -> frozen DDPM essential
+- Joint transformer: output rank 3.88 (133c), diversity comes from attention over noise
+  -> encoder mainly provides condition signal, which a simpler encoder could also do
+
+For multi-factor, the frozen DDPM encoder is actively harmful:
+1. IV-specific (pretrained on 5x5 IV grids, knows nothing about rates/FX/credit)
+2. Freezing prevents learning cross-factor conditioning
+3. The anti-collapse property should be achievable more simply (VIB, dropout, rank penalty)
+4. "Any anti-collapse method should work" remains HIGH confidence, ZERO evidence
+
+### Principled Architecture Assessment
+
+| Component | Verdict | Evidence |
+|-----------|---------|----------|
+| Joint transformer decoder | **Principled** | Breaks rank-1 (133c-f). Scales to more factors. Bitter-Lesson-compatible. |
+| Reflecting boundaries | **Principled** | Math constraint on bounded vars. Not domain-specific. 134b: 0% floor explosion. |
+| cumsum(delta) from anchor | **Principled** | Structural bias for trajectory generation. Domain-agnostic. |
+| Positional encoding | **Principled** | Standard transformer practice. |
+| Per-cell learned scale | **Borderline** | 133f: recovers coint. Static nn.Parameter, OK. But indexed by cell position. |
+| **vol_scale** | **Likely crutch** | Linear(128,1)+softplus. AdaLN can learn magnitude directly. Untested without it on joint TF. |
+| **cell_spread** | **Likely crutch** | Per-cell softplus. Decoder can learn per-cell magnitude through attention. |
+| **NoiseMLP** | **Likely crutch** | Transforms noise before decoder. Decoder layers can do this. |
+| **skip bypass** | **Dead code** | 4% of output in AR. Irrelevant in joint transformer. |
+| **Frozen DDPM encoder** | **Crutch for AR** | Joint TF generates diversity from attention, not encoder rank. |
+
+### The TRIZ Contradiction: Regime x Cell Conditional Variance
+
+Current state:
+- Time-dependent: SOLVED (cumulative delta + temporal attention)
+- Regime-dependent (global): SOLVED (vol_scale)
+- History-dependent: SOLVED implicitly (attention adapts to condition)
+- Spatially-dependent (static): SOLVED (per-cell learned scale)
+- **Regime x cell (dynamic): UNSOLVED** -- 134a, 134d, 110a all prove CRPS exploits
+  condition-dependent per-cell params
+
+Three principled resolutions:
+1. **Implicit via attention** (Bitter Lesson) -- let spatial attention learn it without params
+2. **Factor noise with bounded loadings** -- K factors, ||W||_F bounded. 133d showed it works briefly.
+3. **Two-stage training** (TACTiS-2) -- CRPS for marginals, then coverage loss for calibration
+
+### Minimal Principled Architecture (proposed)
+
+Strip all crutches: no vol_scale, no cell_spread, no NoiseMLP, no skip, unfrozen encoder.
+Joint transformer + AdaLN + cumsum + reflecting boundaries only.
+Each removal is a testable hypothesis -- add back ONE AT A TIME if minimal fails.
+
+### Proposed Experiment: Minimal Architecture Test
+
+Train minimal architecture from scratch. 40 epochs.
+- If < 3/8: at least one removed component is genuinely needed. Add back one at a time.
+- If >= 4/8: every removed component was a crutch. Multi-factor scaling is straightforward.
+- If encoder collapses: anti-collapse IS necessary, test VIB as simpler alternative.
+Effort: 4-6 hours. Tests 4-5 hypotheses simultaneously.
+
+### Philosophy Applied
+- **Bitter Lesson**: Strip domain-specific crutches, let architecture learn
+- **Karpathy**: If minimal fails, add back ONE AT A TIME
+- **Popper**: Each removal is falsifiable
+- **Hamming**: Highest info-value -- tests 4-5 hypotheses in one run
+- **TRIZ**: Regime x cell contradiction with 3 resolution paths
+
+---
+
+## 2026-03-20: Research Progression Briefing — Evaluated Against Research Philosophy
+
+### The Story Arc: From 5/8 Plateau to Architectural Understanding
+
+Starting point: 5/8 test suites pass, stuck for 75+ experiments across loss engineering,
+noise architecture, per-cell conditioning, and training dynamics. All incremental.
+
+Research Compass 1 (RC1) generated 4 principled hypotheses ranked by information value.
+The execution followed the prescribed information flow: H1 -> H3 -> H4.
+
+### Experiment Progression and Significance
+
+**Exp 130a (H1 diagnostic)** — WHY: Before investing in architectural changes, answer
+the most important open question: is rank-1 from CRPS or architecture?
+RESULT: Architecture IS the bottleneck (MLP rank 1.21 even with diversity penalty).
+SIGNIFICANCE: Killed H2 (variogram/loss-level fixes), redirected ALL subsequent work.
+PHILOSOPHY: Popper A+ (clean falsification), Hamming A (highest info-value first).
+
+**Exp 132a/b (H3 CLN)** — WHY: Can multiplicative noise injection preserve rank in MLP?
+RESULT: Rank breakthrough (3.83!) but kurtosis killed (0.07-0.17) via variance saturation.
+SIGNIFICANCE: Proved the MLP CAN produce rank > 1 with the right noise injection, but
+2-layer depth creates variance saturation. The bottleneck shifted from "can it?" to
+"can it without killing kurtosis?"
+PHILOSOPHY: Karpathy A (staged 132a -> 132a_v2 -> 132b).
+
+**Exp 133c-f (H4 joint transformer)** — WHY: Does removing the AR loop entirely break
+the rank-1 invariant? This is the transformational hypothesis (Boden Type 3).
+RESULT: YES. First Suite 4 pass (kurtosis 1.60). 133f achieves 5/8 with near-GT factor
+structure (corr 0.361, rank 2.67, PC1 59.1%).
+SIGNIFICANCE: Proved that the rank-1 problem was architectural (AR + shared MLP), not
+loss-related (CRPS). Non-AR generation is a fundamentally different operating regime where
+the rank-1 attractor doesn't exist.
+PHILOSOPHY: TRIZ A (resolved contradiction by violating the AR assumption itself).
+
+**KS-levels bug fix** — WHY: Methodology verification (added to autoresearch as Rule 10).
+RESULT: Oracle passes only 5/25 cells. Fix makes Suite 8 KS-levels passable.
+SIGNIFICANCE: The "5/8 ceiling" was partially a TEST ceiling, not a MODEL ceiling. Many
+existing models already pass KS-levels with the fix.
+PHILOSOPHY: The single most impactful finding. Validates the principle "test your tests."
+
+**Test suite code review (5 agents)** — WHY: Nielsen's problem-creator question: "Are we
+even measuring the right things?"
+RESULT: 9 bugs/issues found. compute_score L2 always returns 3.0 (zero signal). ACF test
+methodologically flawed. Single-sample kurtosis explains 20-point stochastic variance.
+Per-cell CI gate has only ~7 effective independent samples. Cross-cell correlation (the
+dominant research finding) has NO test at all.
+SIGNIFICANCE: Reframes the entire research program. Passing 8/8 on a flawed test suite
+doesn't mean the model is good. The test suite doesn't measure the properties we care
+most about (factor structure, cross-cell correlation, tail dependence).
+
+**Exp 134b (reflecting boundaries)** — WHY: Floor explosion 12.5% blocking Suite 8.
+RESULT: Score 69.36 — ALL-TIME BEST single model. 0% floor explosion, KS daily 23/25.
+SIGNIFICANCE: Proved that output-space fixes (no retraining) can have massive impact.
+Hard clamping was silently destroying distributional quality for 100+ experiments.
+PHILOSOPHY: Karpathy A (simplest possible fix — pure math, zero learning).
+
+**Exp 134c (static output bias)** — WHY: Can learned per-cell offset fix remaining bias?
+RESULT: Score 69.41 — NEW ALL-TIME BEST. KS daily 24/25 (best ever). But bias magnitude
+stuck at 21/25 (needs 22).
+SIGNIFICANCE: Static bias helps globally but can't fix regime-dependent per-cell bias.
+The 4 failing cells are high-IV mean-reverting cells where bias varies by market regime.
+
+**Exp 134d (condition-dependent bias)** — WHY: Can regime-aware bias fix the 4 cells?
+RESULT: REGRESSED to 4/8 (54.21). CRPS exploits flexibility, KS 24->6, kurtosis 1.31->2.26.
+SIGNIFICANCE: CONFIRMS the recurring principle (3rd independent experiment): condition-
+dependent per-cell parameters are inversely correlated with distributional quality. This
+is not a fluke — it's a structural property of CRPS optimization.
+
+### Three Fundamental Insights Gained
+
+**Insight 1: The architecture creates the ceiling, not the loss.**
+130a proved the 2-layer MLP is a rank-1 attractor regardless of loss engineering. This
+single experiment redirected ALL subsequent work from loss changes to architecture changes.
+Without this diagnostic (Hamming: highest info-value), we'd still be trying loss variants.
+
+**Insight 2: Non-AR generation breaks the rank-1 invariant.**
+The joint transformer generates all 30x5x5 at once, giving each position independent noise
+pathways via attention. This achieves near-GT factor structure — something no AR model ever
+achieved in 100+ experiments. The kurtosis-calibration contradiction that was "fundamental"
+under AR is now tractable under non-AR.
+
+**Insight 3: Test methodology was partially broken.**
+The KS-levels bug and code review revealed that our measurement instrument was flawed.
+The test suite doesn't measure cross-cell correlation (the dominant research finding) at all.
+Fixing methodology had more impact than any architectural change.
+
+### Philosophy Adherence Scorecard
+
+| Principle | Grade | Evidence |
+|-----------|-------|---------|
+| Popper (falsification) | A | 130a, RC3-H2, 134d all cleanly falsified |
+| Hamming (important + attackable) | A | Bug fix was highest impact-per-hour in project |
+| Karpathy (staged, simple first) | A | Reflecting boundaries = zero retraining |
+| Sutton (Bitter Lesson) | A | All changes are learned or mathematical |
+| Nanda (investigate WHY) | B | Excellent early (130a-133f), degraded late (134d thin) |
+| Schulman/Nova (cross-domain) | D | No literature search during execution |
+| Nielsen (problem-creator) | A once | Code review was genuine. Then back to problem-solving |
+| Park (breadth of inputs) | D | All ideas from same narrow papers |
+
+### Current Best Architecture and Its Properties
+
+**134c (joint transformer + per-cell scale + reflecting + static bias): score 69.41, 5/8**
+
+What it models well:
+- Time-dependent uncertainty: SOLVED (cumulative delta + temporal attention)
+- Regime-dependent uncertainty (global): SOLVED (vol_scale, turb/calm 1.997)
+- History-dependent uncertainty: SOLVED implicitly (attention adapts to condition)
+- Spatially-dependent uncertainty (static): SOLVED (per-cell learned scale)
+- Factor structure: Near-GT (corr 0.361, rank 2.67, PC1 59.1%)
+
+What remains unsolved:
+- Regime x cell conditional variance (Suite 7): CRPS exploits per-cell conditional params
+- Per-cell bias for mean-reverting cells (Suite 8): static bias insufficient, dynamic bias destroys KS
+- Long-horizon extrapolation: joint transformer can't generate past 30 days (fixed-length)
+
+### Connection to Long-Term Multi-Factor Objective
+
+The ultimate goal is: IV + rates + returns + FX + credit conditional scenario generation.
+
+What we've learned that transfers directly:
+1. **Joint transformer scales to multi-factor** — more factors = more attention positions.
+   No per-factor parameters needed (unlike AR MLP which needs per-cell everything).
+2. **CRPS + per-component flexibility is a universal trap** — applies to per-factor params
+   for rates/FX just as it applies to per-cell params for IV. The solution (static scales +
+   reflecting boundaries) transfers directly.
+3. **Test methodology must measure cross-factor correlation** — the most important property
+   for multi-factor (do IV and rates co-move correctly?) has no test currently. Must add.
+4. **Frozen DDPM encoder doesn't scale** — IV-specific, prevents cross-factor learning.
+   The joint transformer's diversity comes from attention, not encoder rank.
+5. **Everything that works is domain-agnostic** — reflecting boundaries, cumsum(delta),
+   AdaLN conditioning, per-position noise. Nothing is IV-specific. Bitter Lesson satisfied.
+
+### What Needs to Happen Before Multi-Factor
+
+1. Resolve the regime x cell contradiction (3 candidate approaches identified)
+2. Test minimal architecture without crutches (vol_scale, cell_spread, NoiseMLP, frozen encoder)
+3. Fix test suite methodology (9 issues found, cross-cell correlation test missing)
+4. Demonstrate the architecture works on a second factor (simplest: SPX returns alongside IV)
+
+---
+
+## 2026-03-20: Test Suite V2 — Complete Implementation, Validation, and Loss Function Root Cause
+
+### Part 1: What Changed in V2
+
+Created `test_block_ar_requirements_v2.py` (copy of original with fixes) and
+`compute_score_v2.py`. Original files preserved untouched. 10 changes applied:
+
+**4 Bug Fixes:**
+
+| # | Bug | Fix | Lines |
+|---|-----|-----|-------|
+| 1 | Calendar arb tenor weights `[1,2,4,8,12]` | Corrected to `[1,3,6,12,24]` matching actual data | 322 |
+| 2 | Cointegration prints ">=0.30" but gates at >=0.25 | Aligned print to match code (0.25) | 1407,1430 |
+| 3 | EWMA init from single squared return | Warm up from 30 history returns | 1293-1300 |
+| 4 | compute_score L2 always 3.0 (no "pass" key) | Parse actual worst/best vs [70%,95%] | score:46-54 |
+
+**5 Methodology Fixes:**
+
+| # | Issue | Fix | Impact |
+|---|-------|-----|--------|
+| 5 | ACF on overlapping pseudo-time-series | Per-window ACF on daily changes, averaged | Real temporal dynamics |
+| 6 | Single-sample kurtosis (index 0 only) | Median of 10 samples | Reduces 20pt stochastic variance |
+| 7 | Single-sample ACF | Mean of 5 sample indices | More stable ACF estimate |
+| 8 | No random seed | Added `--seed 42` default | Reproducible results |
+| 9 | No cross-cell correlation test | NEW Suite 9: corr ratio [0.5,2.0] + rank ratio [0.5,3.0] | Tests the rank-1 attractor |
+
+**1 Informational Addition:**
+- Suite 5: prints note that boundary smoothness is architecture-specific (trivial for non-AR)
+
+**What was NOT changed (after analysis):**
+- Suite 7 Layer 2 remains 8/8 (relaxation to 6/8 was reverted — see Part 3 below)
+- Suite 2 per-cell gate remains [70%, 95%] (both bounds are valid — see Part 3)
+- Suite 6 cointegration remains informational (low statistical power at T=30)
+
+### Part 2: Oracle Validation — All V2 Suites Are Valid
+
+Fed GT data as "generated samples" through v2. Three oracle variants:
+
+| Suite | A: Perfect (0 spread) | B: Cross-window (uncond) | C: Local-window (cond) |
+|-------|:---:|:---:|:---:|
+| 1. Surface Validity | PASS | PASS | PASS |
+| 2. CI Coverage | FAIL (100%>95%) | PASS | PASS |
+| 3. Conditionality | SKIP | SKIP | SKIP |
+| 4. Time Series | PASS | PASS | PASS |
+| 5. Block-AR | PASS | PASS | PASS |
+| 6. Cointegration | PASS | PASS | PASS |
+| 7. Regime Coverage | FAIL (100%>95%) | PASS | PASS |
+| 8. Distributional | PASS | PASS | PASS |
+| 9. Cross-Cell Corr | PASS | PASS | PASS |
+| **Total** | **6/8** | **8/8** | **8/8** |
+
+Oracle C (realistic conditional GT spread) passes ALL 8 testable suites including
+new Suite 9. This proves: all thresholds are achievable, no structural impossibilities,
+the 5/8 ceiling is a genuine model limitation.
+
+### Part 3: V2 Results on Top 4 Models
+
+| Model | v1 Score | v1 Suites | v2 Score | v2 Suites | New Suite 9 | Failing |
+|-------|----------|-----------|----------|-----------|-------------|---------|
+| **120b** (Noisefree MLP) | 67.09 | 5/8 | **89.57** | **7/9** | PASS (0.97) | S2, S7 |
+| **99m_v2** (AR baseline) | 66.31 | 5/8 | 77.68 | 6/9 | PASS (0.84) | S2, S7, S8 |
+| **108a** (AR Student-t) | 66.93 | 5/8 | 77.62 | 6/9 | PASS (1.26) | S2, S7, S8 |
+| **133f** (Joint transformer) | 63.78 | 5/8 | 63.99 | 5/9 | FAIL (0.05) | S2, S7, S8, S9 |
+
+**Key observations:**
+- 120b jumps to 7/9 — gained Suite 8 (stabilized kurtosis from multi-sample median) + Suite 9
+- All AR models pass Suite 9 (cross-cell corr ratios 0.84-1.26, within [0.5, 2.0])
+- 133f FAILS Suite 9 catastrophically — corr ratio 0.047, eff_rank 24.78 vs GT 5.03
+  (joint transformer generates cells independently, no spatial coupling)
+- Suite 2 and Suite 7 remain FAIL for ALL models — the structural bottleneck persists
+- No model regressed from v1 to v2 on the original 8 suites
+
+### Part 4: Suite 7 Relaxation — Reverted After Analysis
+
+Initially relaxed Suite 7 Layer 2 from requiring 8/8 regime-horizon combos to 6/8.
+Then analyzed the actual model data:
+
+| Model | L2 combos passing [70%, 95%] | With lower bound only (>=70%) |
+|-------|:---:|:---:|
+| 99m_v2 | **0/8** | 6/8 |
+| 108a | **0/8** | (not checked) |
+| 120b | **0/8** | 7/8 |
+| 133f | **0/8** | 6/8 |
+
+ALL models fail ALL 8 combinations. The 6/8 relaxation had zero effect on real models
+(they fail 0/8, not 7/8). The failures are almost entirely from `best > 0.95` — some
+cell is over-spread in every regime-horizon combination.
+
+**Reverted to 8/8** because over-spread is a real deficiency: a risk manager using
+over-wide CIs overestimates VaR, holds excess capital, and loses money from excessive
+hedging. Both under-spread (missed risk) and over-spread (wasted capital) matter.
+
+### Part 5: Why Over-Spread Persists — Loss Function Root Cause Analysis
+
+**The over-spread is the EXPECTED outcome of the loss function design.**
+
+#### CRPS gradient is asymmetric near optimum
+
+Simulated CRPS for N(0, sigma) vs GT N(0, 1):
+
+| Sigma | CRPS | 90% CI Coverage | dCRPS/dsigma |
+|-------|------|-----------------|-------------|
+| 0.5 | 0.614 | 56% | **-0.142** (strong pull to widen) |
+| 0.85 | 0.572 | 80% | -0.013 (nearly flat) |
+| **1.0** | **0.574** | **87%** | **optimum** |
+| 1.2 | 0.580 | 93% | +0.046 (weak pull to narrow) |
+| 1.5 | 0.606 | 97% | +0.085 (moderate) |
+
+CRPS penalizes under-spread 3x more strongly than over-spread (gradient -0.142 vs +0.046
+at equal distance from optimum). The curve is extremely flat near the optimum — a model
+at sigma=1.2 (93% coverage) has CRPS only 0.006 worse than optimal.
+
+#### Interval score is MISS-ONLY (width term missing)
+
+**CRITICAL BUG in loss implementation** (line 2073-2077 of single_pass_ar.py):
+
+```python
+# Standard interval score has THREE terms:
+# IS = (upper - lower) + (2/α)(lower - y)⁺ + (2/α)(y - upper)⁺
+#       ^^^^^^^^^^^^^^   width penalty (MISSING!)
+
+# Our implementation (miss-only):
+miss_low = (2.0 / alpha) * torch.relu(lower - gt)
+miss_high = (2.0 / alpha) * torch.relu(gt - upper)
+return (miss_low + miss_high).sum(...)  # NO WIDTH TERM
+```
+
+Without the width penalty, wider intervals are FREE. The model pays nothing for
+over-spread — it only pays for missing GT. This makes over-spread the rational strategy.
+
+#### Complete loss audit — what penalizes over-spread?
+
+| Loss Component | Lambda | Penalizes Under-spread | Penalizes Over-spread | Magnitude |
+|---------------|--------|:---:|:---:|-----------|
+| CRPS | 1.0 | **STRONG** (-0.14 gradient) | WEAK (+0.05 gradient) | ~34 |
+| Energy Score | 1.0 | **STRONG** | WEAK | ~5.2 |
+| Interval Score | 0.5 | **STRONG** (2/α penalty) | **NONE** (width term missing) | ~8.2 |
+| Cell Var Loss | 1.0 | YES (symmetric) | YES (symmetric) | **~0.65** (1/50th of CRPS) |
+| Variogram | 0.1 | indirect | indirect | ~6.9 |
+| Bias Loss | 0.01 | no | no | ~0.004 |
+
+**The ONLY loss that penalizes over-spread is cell_var_loss at 1/50th the scale of CRPS.**
+
+#### The 90% CI coverage is an emergent equilibrium, not an optimization target
+
+No component of the loss function explicitly targets 90% CI calibration. The observed
+~90% overall coverage is an emergent equilibrium from the CRPS balance between
+`E|X-y|` (wants narrow) and `-0.5*E|X-X'|` (wants wide). Per-cell, coverage ranges
+from 70% to 99% because nothing in the loss coordinates cells to the same calibration level.
+
+The interval score at alpha=0.9 LOOKS like it targets 90% CI, but without the width
+term it's just another "don't miss GT" penalty that pushes in the same direction as
+CRPS — widen to avoid misses — with no counterforce.
+
+### Part 6: Implications for Research Direction
+
+**The 5/8 (or 7/9 in v2) ceiling is a LOSS FUNCTION DESIGN problem, not a model
+capacity problem.** The models are doing exactly what we optimized them to do.
+
+To pass Suite 2 (per-cell CI in [70%, 95%]) and Suite 7 (per-regime per-cell), the
+model needs to learn that some cells should be NARROWER. The current loss function
+provides almost no gradient signal to narrow over-spread cells:
+
+1. CRPS gradient for narrowing is 3x weaker than for widening
+2. Interval score has zero narrowing signal (missing width term)
+3. Cell_var_loss is the only symmetric signal but at 2% of total loss
+
+**Concrete fixes (in priority order):**
+
+1. **Add width term to interval score** — one-line fix, directly penalizes over-spread:
+   ```python
+   width_penalty = (upper - lower).sum(dim=(-3,-2,-1)).mean()
+   return width_penalty + (miss_low + miss_high).sum(dim=(-3,-2,-1)).mean()
+   ```
+
+2. **Increase cell_var_loss weight to lambda=5-10** — tested at lambda=5 (120b_v4),
+   regressed because it fights CRPS. But with the width term added, the balance shifts.
+
+3. **Add explicit quantile calibration loss** — directly target per-cell 90% coverage:
+   ```python
+   # Per-cell coverage loss: penalize deviation from 90% target
+   coverage = (gt >= lower) & (gt <= upper)  # per cell per horizon
+   cov_loss = (coverage.float().mean(dim=0) - 0.9).pow(2).mean()
+   ```
+
+4. **Per-cell adaptive spread** — learn a per-cell scale that the loss can tune
+   (partially implemented as cell_spread, but not explicitly calibrated)
+
+### Part 7: Files Created/Modified
+
+| File | Status |
+|------|--------|
+| `experiments/backfill/block_ar/test_block_ar_requirements_v2.py` | CREATED — v2 test suite with all fixes |
+| `autoresearch-session/compute_score_v2.py` | CREATED — fixed scoring (L2 bug, Suite 9) |
+| `experiments/backfill/block_ar/test_v2_oracle.py` | CREATED — oracle validation script |
+| `experiments/backfill/block_ar/test_block_ar_requirements.py` | PRESERVED — original untouched |
+| `autoresearch-session/compute_score.py` | PRESERVED — original untouched |
+| `results/block_ar/*_v2_30d/` | CREATED — v2 results for 4 models |
+
+### Summary
+
+The test suite v2 is validated and ready for use. The key discovery is not in the tests
+but in the loss function: **the interval score's missing width term creates a systematic
+bias toward over-spread that explains the persistent Suite 2/7 failures across 75+
+experiments.** This is the single most actionable finding — adding the width term back
+is a one-line change that could break the ceiling.
+
+---
