@@ -285,6 +285,10 @@ class JointTransformerDecoder(nn.Module):
         nn.init.zeros_(self.out_proj[1].weight)
         nn.init.zeros_(self.out_proj[1].bias)
 
+        # Learned per-cell scale: allows different spread for each cell
+        # Initialized to 1.0, learned from data (Bitter Lesson compatible)
+        self.cell_scale = nn.Parameter(torch.ones(n_cells))
+
         # Causal mask for temporal attention (frame t only sees ≤t)
         self.register_buffer(
             'causal_mask',
@@ -346,6 +350,10 @@ class JointTransformerDecoder(nn.Module):
 
         # Output: (B, T, C, 1) → (B, T, C)
         delta = self.out_proj(h).squeeze(-1)  # (B, T, C)
+
+        # Per-cell scale: learned soft-positive scaling (softplus so always > 0)
+        cell_sc = F.softplus(self.cell_scale)  # (C,)
+        delta = delta * cell_sc.unsqueeze(0).unsqueeze(0)  # (B, T, C)
 
         # Residual from prev_frame: iv_t = prev + cumulative delta * vol_scale
         # For non-AR: use cumulative sum for growing uncertainty
