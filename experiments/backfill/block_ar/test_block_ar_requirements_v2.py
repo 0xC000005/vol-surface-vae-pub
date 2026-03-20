@@ -1292,11 +1292,17 @@ def run_cointegration_tests(
     # Use median of samples as the generated IV trajectory
     gen_median = np.median(cond_samples, axis=1)  # (N, T, 5, 5)
 
-    def compute_ewma_vol(ret_window, lambda_=ewma_lambda):
-        """Compute EWMA vol for a window of returns."""
+    def compute_ewma_vol(ret_window, lambda_=ewma_lambda, warmup_returns=None):
+        """Compute EWMA vol for a window of returns, with optional warmup."""
         n = len(ret_window)
         variance = np.zeros(n)
-        variance[0] = ret_window[0] ** 2
+        if warmup_returns is not None and len(warmup_returns) > 0:
+            var_init = warmup_returns[0] ** 2
+            for r in warmup_returns[1:]:
+                var_init = lambda_ * var_init + (1 - lambda_) * r ** 2
+            variance[0] = lambda_ * var_init + (1 - lambda_) * ret_window[0] ** 2
+        else:
+            variance[0] = ret_window[0] ** 2
         for t in range(1, n):
             variance[t] = lambda_ * variance[t - 1] + (1 - lambda_) * ret_window[t] ** 2
         return np.sqrt(variance * 252)  # annualized
@@ -1355,9 +1361,11 @@ def run_cointegration_tests(
         if future_start_global + future_len > len(returns):
             continue
 
-        # EWMA vol for this window's future period
+        # EWMA vol for this window's future period, warmed up from history returns
+        history_start_global = test_start + win_idx
+        warmup_rets = returns[history_start_global:history_start_global + history_len]
         ret_window = returns[future_start_global:future_start_global + future_len]
-        ewma_vol = compute_ewma_vol(ret_window)
+        ewma_vol = compute_ewma_vol(ret_window, warmup_returns=warmup_rets)
 
         n_valid += 1
 
