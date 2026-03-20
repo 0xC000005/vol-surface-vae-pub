@@ -30415,3 +30415,73 @@ H3 EXHAUSTED. Proceed to H4 (non-AR generation with attention decoder).
 5. Cointegration benefits enormously from reduced cross-cell correlation (0.085 at ep20)
 
 ---
+
+## 2026-03-20: Exp 133a/133b — H4: Joint Transformer Decoder — Proof of Concept
+
+### Context
+H1 → architecture bottleneck (2L MLP). H3 → CLN achieves diversity but variance saturation
+kills kurtosis. H4 eliminates the root cause: replace the AR loop with a joint transformer
+that generates all (30,5,5) outputs at once with independent per-position noise.
+
+Architecture: factored temporal self-attention (causal mask, T=30 positions per cell) +
+spatial self-attention (C=25 positions per frame), alternating for 4 layers. Each position
+gets its own noise vector → 750 independent noise pathways. Cumulative delta from prev_frame.
+1.09M decoder params (vs 50K AR MLP). Trains 5x faster (37s/ep vs 195s).
+
+### Results
+
+**Training dynamics (133b, 40 epochs, K=4):**
+
+| Epoch | eff_rank | cross-cell corr | Kurtosis | val_loss |
+|-------|----------|----------------|----------|----------|
+| 1 | 11.46 | -0.004 | 0.025 | 21.13 |
+| 5 | 8.62 | 0.053 | 0.122 | 19.32 |
+| **10** | **3.85** | **0.362** | **0.532** | 18.70 |
+| 20 | 6.75 | 0.162 | 0.146 | 19.65 |
+| 30 | ~5 | ~0.3 | 0.260 | 18.28 |
+| 40 | 8.21 | 0.273 | 0.272 | 18.35 |
+
+**Epoch 10 is the FIRST model to simultaneously achieve near-GT correlation (0.362 vs 0.38)
+AND passing kurtosis (0.532) with high diversity (eff_rank 3.85).**
+
+**Test suite (best_model = ep29):** 3/8 PASS, score 42.83.
+Lost conditionality (turb/calm 1.08), time series (kurt 0.244), distributional (KS 10/25).
+
+### Analysis
+
+**Why H4 succeeds where H3 fails (kurtosis):**
+CLN variance saturation = each frame gets full-strength multiplicative noise modulation,
+flattening variance growth across horizons. Joint transformer doesn't have per-frame
+variance injection — it generates all frames at once, with cumulative delta providing
+growing uncertainty naturally through temporal structure, not per-step noise.
+
+**Why training is unstable:**
+The model oscillates between two regimes: (1) spatially correlated output with moderate
+diversity (ep10: corr 0.362, rank 3.85) and (2) spatially independent output with high
+diversity (ep20: corr 0.162, rank 6.75). The CRPS loss landscape has multiple local
+minima and K=4 members provide noisy gradient signal. Likely fixes: K=8, lower LR,
+learning rate warmup/cosine schedule, or explicit spatial correlation regularization.
+
+**Why conditionality fails:**
+The cumulative delta mechanism (output = prev + 0.02 * cumsum(delta)) uses a fixed
+vol_scale (0.02) instead of the condition-dependent vol_scale from the AR path. The
+model can't differentiate turbulent from calm because it has no access to the condition-
+derived vol_scale.
+
+### Decision
+**PROOF OF CONCEPT** — H4 architecture eliminates variance saturation and achieves
+passing kurtosis + near-GT correlation at epoch 10. Needs stabilization:
+1. K=8 members (more stable CRPS gradient)
+2. Condition-dependent vol_scale (fix conditionality)
+3. Lower LR (1e-4 instead of 1e-3) or LR warmup
+4. Epoch checkpointing (save at ep10 specifically)
+
+### What Was Learned
+1. Non-AR joint generation ELIMINATES variance saturation — kurtosis can pass (0.532)
+2. Factored temporal+spatial attention learns spatial correlation structure (corr 0.362→GT)
+3. Training is unstable with K=4 — oscillates between correlated and independent regimes
+4. 5x training speedup (37s vs 195s/epoch) enables rapid iteration
+5. Fixed vol_scale in the transformer path kills conditionality — needs condition threading
+6. This is the first architecture to show ALL THREE: diversity + kurtosis + correlation
+
+---
