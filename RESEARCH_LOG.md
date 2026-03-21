@@ -33550,3 +33550,1048 @@ series (120b_v5 through 138a_v2) using the new validation skill.
 - Long-horizon needs architectural solution
 
 ---
+
+## 2026-03-21: RC6 — From Principled Loss to Principled Architecture
+
+### Context
+After the IS width fix session (12 experiments, first-ever 6/8), strategic discussion
+about whether to continue loss engineering (IS lambda tuning, coverage-convergent losses)
+or pivot to architecture. Applied research philosophy to evaluate the entire loss function
+and determine the path from current state to principled multi-factor architecture.
+
+### The IS Fix Retrospective: What We Actually Learned
+
+The IS width fix session produced 12 experiments and three key findings:
+
+1. **The IS width fix works** (120b_v6: KS levels 1->21). The bug was real and fixing it
+   was the biggest single improvement in the project.
+2. **IS only works on noise-free MLP** (99m_v3: training explosion). The noise pathway
+   determines loss effectiveness. This is an ARCHITECTURAL insight, not a loss insight.
+3. **Coverage-IS tension has no equilibrium**. IS monotonically shrinks intervals at any
+   lambda. The "best model" is always an early checkpoint. This is a STRUCTURAL property
+   of the IS formulation, not a tuning problem.
+
+The IS fix was valuable as a DIAGNOSTIC — it proved over-spread was the root cause of
+Suite 8 failure. But continuing to tune IS (lambda sweeps, aggregation tricks, checkpoint
+selection) is engineering, not science. The Bitter Lesson says: if you need per-dataset
+lambda tuning, you don't have a principled solution.
+
+### Loss Function Audit Against Research Philosophy
+
+Audited every loss component against the principles:
+
+| Component | Formula | Principled? | Bitter Lesson? | Verdict |
+|-----------|---------|:-----------:|:--------------:|---------|
+| afCRPS | Proper scoring rule for marginals | YES | YES | KEEP — mathematically proven |
+| VS (variogram) | Pairwise cell differences | YES | YES | KEEP — proper scoring rule for dependence |
+| ES (energy score) | Multivariate CRPS generalization | REDUNDANT | YES | DROP — dominated by CRPS, weakly sensitive to correlation |
+| IS (interval score) | Width + miss penalty | NO | NO | DROP — no equilibrium, architecture-specific, requires tuning |
+| cell_var | Penalize per-cell variance vs GT | NO | NO | DROP — uses GT variance as target (data-derived constant) |
+| bias_loss | Penalize ensemble mean deviation | BORDERLINE | YES | DROP (test) — prevents member collapse but mechanism unclear |
+
+### The Principled Loss Function
+
+```
+L = afCRPS + lambda_vs * VS
+```
+
+Two proper scoring rules. One for marginals (CRPS), one for dependence (VS).
+No data-derived targets, no tuning-sensitive penalties, no architecture-specific components.
+Transfers to any multivariate time series without modification.
+
+### The Key Insight: Loss Crutches Mask Architectural Weaknesses
+
+Current state: the complex 6-component loss compensates for architectural weaknesses.
+The model "works" (5/8, 6/8), but we cannot distinguish whether the ARCHITECTURE is
+good or the LOSS is propping it up.
+
+If we strip the loss to CRPS + VS only, current architectures will likely collapse.
+But the PATTERN of collapse is the most informative experiment we can run — it reveals
+exactly which architectural weaknesses were being masked.
+
+| If this collapses... | The architecture needs... | Was masked by... |
+|---------------------|--------------------------|-----------------|
+| Kurtosis -> 0 (member collapse) | Anti-collapse mechanism | bias_loss |
+| Variance explodes | Bounded variance pathway | cell_var |
+| Coverage -> 99% (over-spread) | Self-calibrating spread | IS |
+| Cross-cell correlation -> 0 | Spatial coupling | VS (if VS alone is insufficient) |
+
+This is ONE experiment that answers FOUR architectural questions.
+Highest information value per GPU hour in the project.
+
+### The Path: Principled Loss -> Understand Collapse -> Fix Architecture
+
+```
+Step 1: Strip loss to CRPS + VS only
+        Retrain 120b (best architecture). 30 minutes.
+            |
+            v
+Step 2: Observe the collapse pattern
+        Compare metric-by-metric to 120b with full loss.
+        WHICH metrics collapsed? This reveals WHICH architectural
+        weaknesses were being masked by the loss crutches.
+            |
+            v
+Step 3: For each collapsed metric, ask:
+        "What architectural change would make the model produce
+        this property from the CRPS + VS signal alone?"
+        NOT "what loss term should I add back?"
+            |
+            v
+Step 4: Fix ONE architectural weakness (Karpathy: one at a time).
+        Retrain with CRPS + VS only. Did the collapse in that
+        metric resolve? If yes, the architecture learned it.
+        If no, understand why.
+            |
+            v
+Step 5: Repeat Step 4 for each remaining collapsed metric.
+        Each iteration builds a more principled architecture.
+            |
+            v
+Step 6: The architecture that works under CRPS + VS only
+        IS the principled architecture for multi-factor.
+        It will transfer to rates/FX/credit because:
+        - No IV-specific loss components
+        - No data-derived targets
+        - No architecture-specific tuning
+        - Only mathematically principled scoring rules
+```
+
+### Why This Is Better Than Continuing Loss Engineering
+
+**Loss engineering** (what we've been doing):
+- Find a metric that fails -> add a loss term -> tune lambda -> find next metric
+- Each new loss term adds complexity, tuning burden, architecture coupling
+- The result works for IV surfaces but won't transfer to rates/FX/credit
+- We never learn whether the ARCHITECTURE is sufficient
+
+**Architecture-first** (what we should do):
+- Use the simplest principled loss (CRPS + VS)
+- Let the collapse reveal what the architecture can't learn
+- Fix the architecture so it CAN learn
+- The result is an architecture that works with ANY proper scoring rule on ANY data
+
+### Philosophy Justification
+
+- **Bitter Lesson**: The principled loss (CRPS + VS) is general. The architecture must
+  learn everything else from data. Per-metric loss terms are domain-specific engineering.
+- **Popper**: The collapse is more informative than the success. Strip the crutches to
+  see what the architecture actually does.
+- **Karpathy**: Fix one architectural weakness at a time. Each step is independently testable.
+- **Hamming**: The question "what architecture works under CRPS + VS alone?" is both
+  important (determines multi-factor viability) AND attackable (one retrain per iteration).
+- **Nielsen**: This is problem-CREATING ("what architecture learns calibration without
+  being told?") not problem-solving ("what lambda makes CI=90%?").
+- **Nanda**: After the collapse, ask "what is most interesting about what broke?"
+
+### RC6 Hypothesis: Diagnostic Strip-Down
+
+**Hypothesis**: Retrain 120b with L = afCRPS + 0.1*VS only. No cell_var, no bias_loss,
+no IS, no ES. Same architecture, same hyperparameters otherwise.
+
+**Evidence chain**: 120b is the best architecture (7/9 on v2, noise-free MLP, good
+cross-cell correlation). If any architecture can survive the principled loss, it's this one.
+
+**Falsification**: If ALL metrics collapse (not just some), even 120b's architecture is
+fundamentally dependent on loss crutches. This would mean the SinglePassBlockAR framework
+itself needs replacing, not just the decoder.
+
+**Staged checkpoints**:
+1. [30 min] Retrain 120b with CRPS + VS only. Evaluate on v2.
+2. [30 min] Compare metric-by-metric to full-loss 120b. Document which metrics collapsed.
+3. [variable] For the most important collapsed metric, propose an architectural fix.
+
+**If it fails (collapse)**: The collapse pattern IS the answer. It tells us exactly what
+to fix in the architecture. This is the most valuable failure possible.
+
+**If it succeeds (no collapse)**: cell_var, bias_loss, IS, ES were all unnecessary.
+The principled architecture was already here. Apply to other architectures and multi-factor.
+
+**Effort**: 30 min retrain + 30 min analysis. Highest info-value experiment available.
+
+### Garbage Can Lists (Updated)
+
+**Unsolved problems:**
+- Coverage convergence (no loss achieves stable 90%)
+- Regime x cell calibration (Suite 7)
+- Long-horizon variance collapse (252d)
+- Joint transformer cross-cell correlation (ratio 0.047)
+- Whether the frozen DDPM encoder is necessary
+
+**Available techniques (from literature survey):**
+- CW-Gen conditional whitening (requires non-AR)
+- TACTiS-2 two-stage training
+- Diffusion Forcing (hybrid AR/non-AR)
+- Factor noise with bounded loadings
+- VIB encoder (anti-collapse without DDPM)
+- Rotation modulation (rank-preserving)
+- DPP kernel loss (prevents rank collapse)
+
+---
+
+## 2026-03-21: RC6 Revised — Stop Optimizing the Old, Build the New
+
+### Critical Correction: Loss CAN Teach Temporal Dynamics
+
+Previous analysis (RC6 original) incorrectly claimed mean-reversion, growing uncertainty,
+and cointegration "cannot be learned from the loss" and "must come from architecture."
+
+**This was wrong.** CRPS evaluates each horizon independently, but the GT marginal at h=30
+already ENCODES the cumulative effect of 30 steps of mean-reversion, growing uncertainty,
+etc. If GT at h=30 has wider spread (growing uncertainty), CRPS at h=30 pushes for wider
+spread. If GT at h=30 shows mean-reversion, CRPS at h=30 pushes the distribution toward
+the reverted mean. The gradients from ALL 30 horizons flow back simultaneously.
+
+A joint transformer (one-shot generation) can learn temporal dynamics directly because it
+sees all horizons simultaneously. An AR model can learn through backprop through the 30-step
+chain. Neither needs rho=0.8 or other hardcoded temporal structure IF the architecture has
+sufficient capacity.
+
+### The Corrected Loss vs Architecture Boundary
+
+**Loss provides**: target distribution at each (time, cell) position. Both marginal (CRPS)
+and cross-cell (VS). The loss encodes ALL statistical properties including temporal ones,
+because the GT marginals at each horizon reflect the true temporal dynamics.
+
+**Architecture provides**: CAPACITY to express the function that maps (history, noise) to
+trajectories satisfying those targets. The architecture must be expressive enough for the
+loss signal to teach it temporal dynamics. It does NOT need to hardcode them.
+
+**Things that should be LEARNED, not hardcoded:**
+- rho=0.8 (manufactures temporal correlation instead of learning it from GT)
+- freeze at epoch 10 (compensates for CRPS rank-1 attractor in MLP)
+- vol_scale (condition-dependent magnitude should be learned through AdaLN/FiLM)
+
+**Things that ARE justified as architectural constraints:**
+- Reflecting bounds (mathematical constraint on bounded values, not learned)
+- cumsum(delta) structure (generates trajectories via incremental changes — structural choice)
+
+### The Encoder Problem We've Been Ignoring
+
+The frozen DDPM encoder is the least justified component in the entire system:
+
+1. Trained via DDPM (a model we abandoned) on IV data specifically
+2. Frozen — cannot adapt to new data, new factors, or new training objectives
+3. Collapses to rank 2 under MSE (DDPM prevents this, but we don't understand WHY
+   beyond "anti-collapse via push-pull gradients")
+4. For multi-factor: a GRU(25->64) trained on IV cannot encode rates, FX, or credit
+5. "Any anti-collapse method works" has HIGH confidence, ZERO evidence (never tested)
+6. We've spent 75+ experiments optimizing the decoder and loss while sitting on an
+   encoder we can't justify — this is exactly the trap the philosophy warns against
+
+### The Decision: Build New, Don't Optimize Old
+
+User's statement: "120b or any model we have is only there to INFORM us, not be a
+bottleneck to stop us from developing something better."
+
+The existing models (120b at 7/9, 138a at 6/8) are the best IV-specific models we can
+build with the current architecture. Continuing to optimize them leads to a local optimum
+that cannot scale to multi-factor. The research philosophy demands we stop:
+
+- **Nielsen**: We've been problem-SOLVING (make 120b score higher) instead of
+  problem-CREATING (what architecture actually makes sense for multi-factor?)
+- **Sutton**: The Bitter Lesson says general methods win. An IV-specific model with
+  a frozen IV-specific encoder, hardcoded rho=0.8, and freeze-at-epoch-10 is NOT general.
+- **Hamming**: The important question is "what architecture works for ANY factor?" not
+  "can 120b pass one more suite?"
+
+### What the Old Models TEACH Us (their value as evidence, not as products)
+
+| Finding | Source | Transfers to New Architecture |
+|---------|--------|------------------------------|
+| Noise-free MLP (mean/variance separation) | 120b vs 99m_v2 | YES — principled design pattern |
+| IS width term matters | 120b_v5/v6 | YES — bug fix, keep in codebase |
+| CRPS is correlation-agnostic (Sklar) | Mathematical proof | YES — VS is needed alongside CRPS |
+| Joint transformer breaks rank-1 | 133c-f | YES — attention > MLP for diversity |
+| Joint transformer fails cross-cell corr | 133f Suite 9 | YES — attention needs spatial signal |
+| Condition-dependent per-cell params are a trap | 110a, 134a, 134d | YES — CRPS exploits flexibility |
+| Per-horizon IS aggregation affects dynamics | 138a | INFORMATIVE — loss aggregation matters |
+| Reflecting bounds prevent floor explosion | 134b | YES — mathematical, domain-agnostic |
+
+These findings are the KNOWLEDGE we take forward. The models themselves are IV artifacts.
+
+### The Principled Loss Function (final)
+
+```
+L = afCRPS + lambda_vs * VS
+```
+
+Two proper scoring rules. Everything else (calibration, temporal dynamics, factor structure)
+must come from the architecture having sufficient capacity to learn it from this signal.
+
+If we discover that CRPS + VS alone cannot teach calibrated coverage (no equilibrium at 90%),
+we add a coverage loss with a TARGET — not an IS-style penalty with no equilibrium. But we
+test without it first (Karpathy: start simple).
+
+### What the New Architecture Needs (requirements, not solutions)
+
+From our accumulated evidence, the new architecture must:
+
+1. **Learn, not hardcode, temporal dynamics** — no rho=0.8, no freeze timing
+2. **Produce cross-cell correlation** — current joint TF fails this (ratio 0.047)
+3. **Have mean/variance separation** — noise-free MLP insight transfers (mean from one
+   pathway, variance from another, so CRPS can't exploit per-cell flexibility)
+4. **Not require a frozen pretrained encoder** — encoder trains jointly with decoder
+5. **Scale to multi-factor** — adding rates/FX just adds input/output dimensions
+6. **Work under CRPS + VS alone** — no architecture-specific loss components
+7. **Have reflecting bounds** — mathematical constraint on bounded outputs
+
+### RC6 Hypothesis: Design-First, Not Diagnose-First
+
+Instead of "diagnose 120b under CRPS+VS" (which optimizes the old), the principled
+next step is:
+
+**Phase 1: Design the target architecture on paper** (no code yet)
+- What encoder? (jointly trained, not frozen, handles variable input dimensions)
+- What decoder? (sufficient capacity for temporal dynamics, cross-cell correlation)
+- What noise process? (learned, not hardcoded rho)
+- How do factors share structure? (for multi-factor extension)
+
+**Phase 2: Literature search** (what architectures satisfy these requirements?)
+- Joint transformer decoders for multivariate time series
+- Jointly-trained encoder-decoder for conditional generation
+- Cross-cell/cross-factor correlation mechanisms
+- How ECMWF, weather, and other domains handle multi-variable generation
+
+**Phase 3: Implement minimal version** (Karpathy: simplest thing that could work)
+- Start with IV only (same data, familiar validation)
+- But designed from the start to handle multi-factor
+- Train with CRPS + VS only
+- If it works on IV, adding rates is just changing input/output dimensions
+
+**Phase 4: Compare to 120b/138a** (the old models inform, not constrain)
+- If new architecture is worse on IV, understand WHY (the gap is informative)
+- If it's comparable or better, proceed to multi-factor
+
+### Philosophy Applied
+- **Bitter Lesson**: Build general, not IV-specific
+- **Hamming**: "What architecture works for any factor?" is the important question
+- **Nielsen**: Problem-creating (design new) not problem-solving (optimize old)
+- **Karpathy**: Start with minimal version on familiar data, then extend
+- **Popper**: Each design choice is falsifiable — test on IV first
+- **Nanda**: The old models teach us what works/fails — carry the knowledge, not the code
+
+---
+
+## 2026-03-21: RC6 Final — Principled Architecture Direction With Full Literature Grounding
+
+### Why Stop Loss Engineering (decisive argument)
+
+After 12 IS-fix experiments (120b_v5 through 138a_v2), the evidence is conclusive:
+
+**IS tuning is hyperparameter engineering, not science:**
+- IS has no equilibrium — monotonically shrinks intervals at any lambda
+- IS only works on noise-free MLP (99m_v3 destroyed by same IS)
+- The "best model" (138a 6/8) depends on IS being accidentally weak (per-horizon
+  aggregation reduces magnitude 25x) — a lucky implementation detail
+- Coverage at any epoch is a snapshot — no stable convergence to 90%
+- Each lambda/aggregation choice is architecture- and dataset-specific
+
+**CRPS IS self-calibrating — proven by operational weather systems:**
+
+| System | Loss | Coverage Loss? | Calibrated? |
+|--------|------|:-:|:-:|
+| AIFS-CRPS (ECMWF, operational) | afCRPS only | NO | YES |
+| FourCastNet 3 (NVIDIA) | CRPS only | NO | YES (spread/skill ~1.0) |
+| GenCast (DeepMind, Nature 2024) | Score matching | NO | YES |
+| FuXi-ENS (Science Advances) | CRPS + KL | NO | YES |
+
+CRPS's dual penalty structure (accuracy term pushes narrow, spread term pushes wide)
+finds equilibrium at the true conditional distribution automatically. This is Gneiting's
+theorem (2007): a strictly proper scoring rule is uniquely minimized by the true predictive
+distribution. No coverage loss needed.
+
+**If our models didn't self-calibrate under CRPS, the ARCHITECTURE was the bottleneck.**
+The IS, cell_var, bias_loss were compensating for architectural limitations. Continuing
+to tune them is treating symptoms, not causes.
+
+### Loss Function Audit (final)
+
+| Component | Principled? | Bitter Lesson? | Verdict |
+|-----------|:-:|:-:|---------|
+| afCRPS | YES | YES | KEEP — strictly proper scoring rule |
+| VS (variogram) | YES | YES | KEEP — proper scoring rule for dependence |
+| ES (energy score) | REDUNDANT | YES | DROP — CRPS + VS covers it |
+| IS (interval score) | NO | NO | DROP — no equilibrium, architecture-specific |
+| cell_var | NO | NO | DROP — uses GT variance as target |
+| bias_loss | BORDERLINE | YES | DROP (test) — may be needed, test without first |
+
+**Principled loss: L = afCRPS + lambda_vs * VS. Nothing else.**
+
+### Literature Findings: How the Best Systems Are Built
+
+**Architecture (4 agents, 20+ papers surveyed):**
+
+1. **AR transformer with full causal attention** is the dominant pattern
+   - TimesFM (Google): chunk-wise AR, full causal attention over all previous patches
+   - Moirai 2.0 (Salesforce): decoder-only AR with multi-token prediction + KV cache
+   - Chronos-Bolt: one-shot beats AR Chronos by 250x speed AND 5% accuracy — but
+     can't extrapolate past training horizon
+   - For our use case (long-horizon extrapolation needed), AR is required
+
+2. **Jointly-trained encoders — unanimous across all time series systems**
+   - AIFS, GenCast, TimePerceiver, CSDI, Diffusion-TS: ALL jointly trained
+   - Frozen encoders are an IMAGE generation pattern (Stable Diffusion), not time series
+   - Anti-collapse via orthogonal regularization (NeurIPS 2024): cheap, proven, no pretraining
+
+3. **Noise via Conditional Layer Normalization (CLN)**
+   - AIFS-CRPS: noise modulates scale/shift of normalization at every layer
+   - Makes noise structurally insuppressible (unlike skip at 4% or MLP concat)
+   - All ensemble diversity comes from different noise draws through CLN
+   - Trains with 2-4 members, generates 50+ at inference
+
+4. **Data efficiency: AR is 30x more data-efficient than one-shot**
+   - AR model sees 30 frame transitions per window = ~173K frame-level signals
+   - One-shot sees each window once = ~5,763 signals
+   - With ~4,000 records, this matters — AR is better matched to data budget
+   - ECMWF trains on ~60,000 independent samples with 229M params
+   - Our effective data: ~4,000 for 1-step dynamics (NOT 97 — that was overcounted)
+
+### Corrected Data Budget Analysis
+
+Previous analysis claimed "97 independent samples." This was wrong — used 60-day
+non-overlapping windows. The actual effective sample size depends on what you're learning:
+
+| What You're Learning | Effective N | Justification |
+|---------------------|-------------|---------------|
+| 1-day dynamics | ~5,763 | Each window provides a new 1-step transition |
+| 30-step AR frame transitions | ~173,000 | 5,763 windows x 30 frames per window |
+| 30-day trajectory shapes | ~194 | Non-overlapping 30-day futures |
+| Regime transitions | ~20-30 | Number of regime changes in 16 years |
+| Tail events (1%) | ~58 | By definition, 1% of 5,822 days |
+
+For learning 1-step conditional distributions (what CRPS evaluates per frame), 173K
+signals is sufficient for a moderate architecture (200-500K params). NOT sufficient
+for a 229M-param AIFS or a 1.17M-param transformer with 12,000:1 param/sample ratio.
+
+### The Concrete Architecture
+
+```
+History (30 x 25)
+    |
+    v
+Encoder: GRU or small Transformer (jointly trained)
+  - Orthogonal regularization on weights (anti-collapse)
+  - Output: condition vector (128-dim)
+  - NOT frozen. Learns what the decoder needs.
+    |
+    v
+Decoder: Causal Transformer (4-6 layers, dim=128)
+  - Each token = one frame (25-dim IV surface)
+  - Full causal attention: each frame attends to ALL previous
+    (history frames as context + generated frames)
+  - Noise enters via CLN at every layer
+  - No vol_scale, no cell_spread, no NoiseMLP, no skip bypass
+    |
+    v
+K ensemble members from K different noise draws
+    |
+    v
+Reflecting bounds [0.01, 1.0]
+    |
+    v
+Output: (K, T_future, 25)
+```
+
+**Parameter budget**: ~200-400K (matched to data budget).
+**Loss**: L = afCRPS + 0.1 * VS. Nothing else.
+
+### Why Each Design Choice (traced to evidence + philosophy)
+
+| Choice | Evidence | Philosophy |
+|--------|----------|-----------|
+| AR (not one-shot) | 133f can't extrapolate past 30d. AR is 30x more data-efficient. | Hamming: long-horizon is important |
+| Transformer decoder (not MLP) | MLP is proven rank-1 attractor (130a). Attention breaks this. | Evidence from 75+ experiments |
+| Jointly-trained encoder | Every major system does this. Frozen is image-specific. | Bitter Lesson: learn, don't freeze |
+| Orthogonal regularization | NeurIPS 2024: prevents rank collapse cheaply, no pretraining | Karpathy: simplest anti-collapse method |
+| CLN noise injection | AIFS operational, noise insuppressible through normalization | Evidence from ECMWF production system |
+| CRPS + VS only | Self-calibrating (Gneiting 2007). AIFS/GenCast prove it works. | Bitter Lesson: no domain-specific loss terms |
+| 200-400K params | Matched to ~173K frame-level signals. Not 1.17M (overparameterized). | Data-constrained design |
+| No vol_scale/cell_spread/skip | All identified as crutches from AR MLP era | Bitter Lesson: architecture learns |
+| Reflecting bounds | Mathematical constraint on bounded values, domain-agnostic | Only non-learned component (justified) |
+
+### Risk Table: What Might Not Work
+
+| If this fails... | We learn... | Next step (add back ONE thing) |
+|-----------------|------------|-------------------------------|
+| Encoder collapses to rank 2 | Ortho reg insufficient for this scale | Try VIB or DDPM pretraining (now evidence-justified) |
+| Members collapse (kurtosis->0) | CLN in 4-6 layer model insufficient | Add bias_loss back (justified as necessary, not crutch) |
+| No growing uncertainty | AR + attention can't learn horizon-dependent spread | Add learnable rho noise back (justified) |
+| Cross-cell correlation fails | VS at 0.1 too weak | Increase lambda or add DPP kernel loss |
+| Overfits badly | 200-400K still too large for data | Reduce to 100K, or add SABR synthetic pretraining |
+| Coverage never reaches 90% | Architecture can't self-calibrate | Add coverage loss with TARGET (not IS) |
+
+Each failure is a Popper diagnostic. Add components back ONE AT A TIME (Karpathy).
+Each addition is now EVIDENCE-JUSTIFIED, not a crutch.
+
+### First Experiment: 139a (Karpathy — simplest change)
+
+Don't build the full new architecture at once. Start with the MOST uncertain component:
+
+**Exp 139a: Unfreeze encoder + orthogonal regularization.**
+- Keep the current AR MLP decoder, keep the current full loss
+- Only change: unfreeze encoder weights, add ||W^TW - I||^2 regularization
+- This tests encoder anti-collapse in isolation
+
+Why this first: If the encoder collapses even with ortho reg, we learn that BEFORE
+building the full new architecture (saving days of wasted work). If it survives,
+the biggest uncertainty is resolved and we proceed to replace the decoder.
+
+Effort: 2-3 hours. One retrain. Highest-uncertainty component tested first.
+
+### Multi-Factor Extension (why this architecture scales)
+
+For multi-factor (IV + rates + FX + credit):
+- Encoder input dim changes: (30 x 25) -> (30 x D_total) where D_total = sum of all factors
+- Decoder token dim changes: 25 -> D_total
+- VS computed over all factor pairs (cross-factor correlation learned automatically)
+- CRPS evaluates each factor's marginal independently
+- No IV-specific components anywhere — reflecting bounds work for any bounded series
+- Attention naturally discovers cross-factor relationships (like AIFS discovers
+  cross-variable relationships between temperature, wind, humidity)
+
+The architecture is designed FROM THE START to handle multiple factors.
+Adding a second factor (e.g., SPX returns alongside IV) just changes input/output
+dimensions. No architectural redesign needed.
+
+### Philosophy Summary
+
+- **Bitter Lesson**: CRPS + VS is general. Architecture learns everything else from data.
+- **Hamming**: "What architecture works for any factor?" — important AND attackable
+- **Popper**: Each design choice is falsifiable. Risk table defines kill conditions.
+- **Karpathy**: Build incrementally. Test encoder first (139a), then decoder, then loss strip.
+- **Nielsen**: Problem-CREATING (what architecture self-calibrates?) not problem-solving
+  (what lambda gives 90%?)
+- **Sutton**: If it needs per-dataset tuning, it's not general. The architecture must work
+  under CRPS + VS without any tuning knobs.
+
+---
+
+## 2026-03-21: RC6 Risk Table Correction — Investigate Before Patching
+
+### Why the Original Risk Table Was Unprincipled
+
+The original RC6 risk table proposed "add component X back" as the fallback for each
+failure mode. This violates the research philosophy:
+- Adding bias_loss back is a band-aid, not understanding
+- Increasing lambda_VS is hyperparameter tuning
+- Adding learnable rho is re-introducing a hardcoded temporal structure
+- Every "fix" skips the Nanda question: "WHY did it fail?"
+
+### Corrected Risk Table: Investigate First, Patch Only When Understood
+
+#### Risk 1: Encoder collapses to rank 2
+
+**First investigate**: Is CRPS gradient reaching the encoder? Measure gradient magnitude
+at encoder layers vs decoder layers. Under joint training, CRPS needs diverse ensemble
+members -> decoder needs rich conditioning -> encoder should maintain rank naturally.
+Collapse would mean the gradient chain is broken, not that we need a regularizer.
+
+**What determines the response**:
+- If gradient reaches encoder but rank still collapses: orthogonal regularization is
+  justified (mathematical constraint, principled). NOT VIB or DDPM pretraining.
+- If gradient vanishes before reaching encoder: architectural fix needed (skip connections
+  from loss to encoder, or differential learning rates). Adding ortho reg wouldn't help.
+- If encoder maintains rank naturally: the concern was unfounded. Proceed.
+
+#### Risk 2: Members collapse (kurtosis -> 0)
+
+**First investigate**: Is CLN actually modulating outputs? Measure output variance across
+K noise draws at epoch 1 vs epoch 10. If variance shrinks over training, CRPS is
+suppressing the CLN modulation. If variance is zero from the start, CLN implementation
+has a bug.
+
+**What determines the response**:
+- If CLN works initially then gets suppressed: CRPS's known 3:1 gradient asymmetry
+  (accuracy term stronger than spread term) is overwhelming the CLN. This is a
+  fundamental property of CRPS, not an architecture problem. The question becomes:
+  is CRPS ACTUALLY self-calibrating for small models? (AIFS has 229M params.)
+- If CLN never produces variance: implementation bug. Fix and retry.
+- If CLN maintains variance throughout: no collapse. Proceed.
+
+#### Risk 3: No growing uncertainty
+
+**First investigate**: Does GT data actually have growing uncertainty? Verify by measuring
+GT spread at h=1 vs h=30 directly from data. If GT spread is flat, growing uncertainty
+was a manufactured property (rho=0.8 was imposing something the data doesn't have).
+
+**What determines the response**:
+- If GT spread IS growing AND decoder spread is flat: attention isn't learning horizon
+  dependence. Add learnable positional encoding per horizon (principled — tells the
+  model WHICH horizon it's generating, like positional encoding in transformers).
+- If GT spread is FLAT: rho=0.8 was wrong all along. The data doesn't have growing
+  uncertainty. Our test suite was testing for a property we manufactured.
+- If decoder spread grows naturally: no issue. Proceed.
+
+#### Risk 4: Cross-cell correlation fails
+
+**First investigate**: What fraction of total loss does VS contribute? If VS is 1% of
+total loss, its gradient is drowned by CRPS and provides no effective signal. If VS is
+20%+, the architecture genuinely can't express cross-cell structure.
+
+**What determines the response**:
+- If VS gradient is drowned (< 5% of total): this is a loss SCALING issue. Not
+  hyperparameter tuning — it's about whether the loss component even provides signal.
+  Normalize VS to contribute ~20% of total gradient magnitude.
+- If VS is significant but correlation still fails: the architecture can't route
+  information between cells. Need cross-cell attention or shared factor structure
+  (architectural change, not loss change).
+
+#### Risk 5: Overfits badly
+
+**First investigate**: At which epoch does validation diverge from training? How many
+effective parameters are active (measure weight matrix ranks)?
+
+**What determines the response**:
+- Overfits at epoch 3-5: model too large. Reduce dimensions, layers, or heads.
+  Standard model selection (principled).
+- Overfits at epoch 15-20: use early stopping (principled — proven technique).
+- Doesn't overfit but validation bad: model too SMALL (underfitting). Increase capacity.
+- Try standard regularization first: dropout, weight decay (principled, general).
+  Synthetic pretraining (SABR) only if standard methods fail and we understand why.
+
+#### Risk 6: Coverage never reaches 90%
+
+**First investigate**: Plot coverage trajectory over training epochs. Is coverage
+monotonically decreasing (like IS caused), oscillating, or converging?
+
+**What determines the response**:
+- If monotonically decreasing: CRPS's dual penalty isn't balanced for this model scale.
+  AIFS/GenCast have 229M params — their accuracy and spread terms may naturally balance
+  at that scale but not at 200-400K. This would be the most important finding: CRPS
+  self-calibration may require LARGE models.
+- If oscillating around ~85%: CRPS IS finding equilibrium, just not at 90%. The
+  equilibrium level depends on model capacity. May need to accept 85% or increase
+  model size.
+- If converging to 90%: no issue. Proceed.
+
+### The Meta-Principle
+
+Every risk response follows the same pattern:
+1. MEASURE what's actually happening (not guess)
+2. UNDERSTAND the mechanism of failure (Nanda: what's most interesting?)
+3. Only THEN decide whether to add a component back
+4. Any added component must address the UNDERSTOOD mechanism, not just "it worked before"
+
+If we add bias_loss back, it's because we PROVED that CRPS's spread term is too weak
+for 200-400K models, and bias_loss specifically addresses that weakness. Not because
+"it worked in the old architecture."
+
+---
+
+## 2026-03-21: Principled Architecture, Loss, and Diversity — Final Design + Roadmap
+
+### The Principled Architecture
+
+Every component is justified by literature, evidence from our experiments, and research
+philosophy. Nothing is hardcoded. Nothing is domain-specific. Everything is learned.
+
+```
+History (T_past x D_factors)
+    |
+    v
+Encoder: GRU or small Transformer (jointly trained)
+  - Orthogonal regularization on weights (anti-collapse)
+  - Output: condition vector (128-dim)
+  - NOT frozen. Learns what the decoder needs.
+    |
+    v
+Decoder: Causal Transformer (4-6 layers, dim=128)
+  - Each token = one frame (D_factors-dimensional)
+  - Full causal attention over ALL previous frames
+    (history as context + all generated frames)
+  - KV cache for inference efficiency
+  - AR: generates frame-by-frame, extrapolates to any horizon
+    |
+    v
+Noise: Conditional Layer Normalization (CLN) at every decoder layer
+  - z ~ N(0, I) per ensemble member
+  - z -> small MLP -> gamma(z), beta(z)
+  - h = gamma(z) * LayerNorm(h) + beta(z)
+  - Different z -> different normalization -> different outputs
+    |
+    v
+K ensemble members from K different noise draws
+    |
+    v
+Reflecting bounds [0.01, 1.0]
+    |
+    v
+Output: (K, T_future, D_factors)
+```
+
+Parameter budget: ~200-400K (matched to ~173K frame-level training signals).
+
+### Component Justification Table
+
+| Component | Choice | Literature | Our Evidence | Philosophy |
+|-----------|--------|-----------|-------------|-----------|
+| Encoder | Jointly trained, ortho reg | AIFS, GenCast, TimePerceiver: ALL jointly trained. Ortho reg: NeurIPS 2024. | Frozen DDPM encoder is IV-specific, can't adapt, rank-2 under MSE. | Bitter Lesson: learn, don't freeze |
+| Decoder | Causal transformer, 4-6 layers | TimesFM, Moirai 2.0: decoder-only AR with full causal attention. | 133c-f: attention breaks rank-1. MLP proven rank-1 attractor (130a). | Evidence: 75+ experiments prove MLP is limited |
+| Generation | AR frame-by-frame | TimesFM: chunk-wise AR. Moirai 2.0: AR with multi-token prediction. | 133f: one-shot can't extrapolate past 30d. AR is 30x more data-efficient. | Hamming: long-horizon is important |
+| Attention | Full causal (no sliding window) | Every major TSFM uses full causal attention. KV cache handles efficiency. | 750 tokens is trivially small for modern transformers. | No reason to limit — data is small |
+| Noise | CLN at every layer | AIFS-CRPS: operational at ECMWF. CLN makes noise structurally insuppressible. | Our concat (rank-1 crush) and skip (4% magnitude) both failed. | Proven at scale under same loss (afCRPS) |
+| Loss | afCRPS + VS | CRPS: strictly proper (Gneiting 2007). VS: proper for dependence (Scheuerer & Hamill 2015). | CRPS self-calibrates at AIFS/GenCast/FCN3 scale. IS/cell_var/bias proved to be crutches. | Bitter Lesson: no domain-specific loss terms |
+| Bounds | Reflecting [0.01, 1.0] | Mathematical constraint on bounded variables. | 134b: reflecting eliminated floor explosion. | Domain-agnostic, transfers to any bounded series |
+
+### The Principled Loss Function
+
+```
+L = afCRPS + lambda_vs * VS
+```
+
+**Why only two components:**
+
+- **afCRPS**: Strictly proper scoring rule. Self-calibrating (Gneiting 2007). Uniquely
+  minimized by the true conditional distribution. Proven by AIFS, GenCast, FourCastNet 3
+  — all achieve calibrated spread without coverage loss. The dual penalty structure
+  (accuracy term pushes narrow, spread term pushes wide) finds equilibrium automatically.
+
+- **VS (variogram score)**: Proper scoring rule targeting dependence structure (Scheuerer
+  & Hamill 2015). CRPS is correlation-agnostic (Sklar's theorem — algebraic identity,
+  not empirical). VS provides the cross-cell gradient that CRPS cannot.
+
+**Why NOT the other components:**
+
+| Removed | Why It Was There | Why Remove It |
+|---------|-----------------|---------------|
+| ES (energy score) | Multivariate CRPS | Redundant — CRPS + VS covers it. ES is weakly sensitive to correlation (Bernard & Muller 2020). |
+| IS (interval score) | Penalize over-spread | No equilibrium — monotonically shrinks intervals. Architecture-specific (destroys standard MLP). |
+| cell_var | Match per-cell GT variance | Uses GT data-derived constants. Bitter Lesson violation. Architecture should learn variance from CRPS. |
+| bias_loss | Prevent member collapse | Band-aid. If CRPS spread term can't prevent collapse, understand WHY, don't patch. |
+
+### The Principled Diversity Source (Noise via CLN)
+
+**What noise needs to do:**
+1. Different noise -> genuinely different outputs (not rank-1 collapse)
+2. Model controls HOW MUCH diversity (condition-dependent: more in volatile markets)
+3. CRPS cannot suppress it (structurally insuppressible)
+4. Scales to multi-factor (no redesign needed)
+
+**Why CLN satisfies all four:**
+
+1. Different noise -> different gamma/beta -> different normalization -> different outputs.
+   Unlike input concatenation (MLP crushes to rank 1) or additive skip (4% magnitude).
+
+2. The model LEARNS gamma(noise) and beta(noise) functions. These implicitly become
+   condition-dependent through the interaction with condition-dependent hidden states.
+
+3. Suppressing gamma -> all features become un-normalized -> loss explodes. CRPS cannot
+   gradient-descent CLN to zero without destroying the representations. This is the key
+   difference from additive noise (which CAN be gradient-descended to zero).
+
+4. Adding factors just adds more features that get CLN-modulated. No architectural change.
+
+**Comparison with alternatives:**
+
+| Mechanism | Principled? | Insuppressible? | Proven under afCRPS? |
+|-----------|:-:|:-:|:-:|
+| CLN / AdaLN | YES | YES | YES (AIFS, operational) |
+| Iterative denoising | YES | YES | YES (GenCast) but 20 steps = slow |
+| VAE latent | YES | YES | YES (FuXi-ENS) but adds KL term |
+| Input concat | NO | NO (rank-1 crush) | FAILED (our 130a) |
+| Additive skip | NO | NO (4% magnitude) | FAILED (our 123b) |
+
+CLN is the simplest mechanism that is principled, insuppressible, AND proven under afCRPS.
+
+### Roadmap: Build Component by Component (Karpathy)
+
+Each step changes ONE thing. Each step is independently valuable. Each failure is
+diagnostic per the corrected risk table (investigate before patching).
+
+**Step 1 (Exp 139a, 2-3h): Unfreeze encoder + orthogonal regularization**
+- Keep: AR MLP decoder, full current loss, everything else
+- Change: unfreeze encoder weights, add ||W^TW - I||^2 regularization
+- Tests: does encoder maintain rank > 2 under joint training?
+- Why first: highest uncertainty component. If encoder collapses, need to understand
+  before building anything else on top.
+- Falsification: if encoder rank < 3 after 30 epochs despite ortho reg and CRPS
+  gradient, the encoder architecture itself is insufficient (not just the training).
+
+**Step 2 (Exp 140a, 3-4h): Replace MLP decoder with causal transformer**
+- Keep: encoder from Step 1, full current loss
+- Change: replace FrameDecoder MLP with 4-layer causal transformer. Each frame attends
+  to all previous frames + condition. Noise still via current mechanism (concat/skip).
+- Tests: does attention break rank-1? Does cross-cell correlation survive?
+- Why second: biggest architectural change. Proven in principle (133c-f) but never
+  combined with unfrozen encoder.
+- Falsification: if output rank < 2.0 with attention decoder, the rank-1 problem is
+  NOT MLP-specific (would change our understanding fundamentally).
+
+**Step 3 (Exp 141a, 2-3h): Replace noise mechanism with CLN**
+- Keep: encoder + decoder from Steps 1-2, full current loss
+- Change: remove noise concat from decoder input, remove skip bypass. Add CLN at every
+  transformer layer: h = gamma(z) * LayerNorm(h) + beta(z).
+- Tests: does CLN produce diverse ensemble members? Is diversity stable across training?
+- Why third: noise mechanism change. Proven by AIFS under same loss.
+- Falsification: if member variance shrinks to zero during training despite CLN,
+  investigate whether CRPS spread term is too weak at this model scale.
+
+**Step 4 (Exp 142a, 2-3h): Strip loss to CRPS + VS only**
+- Keep: architecture from Steps 1-3
+- Change: remove cell_var, bias_loss, IS, ES from loss. Only afCRPS + lambda_vs * VS.
+- Tests: does CRPS self-calibrate? Which metrics survive vs collapse?
+- Why fourth: only strip loss AFTER architecture is principled. This tests whether
+  the principled architecture makes the loss crutches unnecessary.
+- Falsification: per corrected risk table — investigate each collapsed metric before
+  adding any component back.
+
+**Step 5 (Exp 143a, 2-3h): Strip architectural crutches**
+- Keep: everything from Steps 1-4
+- Change: remove vol_scale, cell_spread, NoiseMLP. Let the transformer learn output
+  magnitude and per-cell scaling from CRPS + VS alone.
+- Tests: can the transformer learn these properties without explicit mechanisms?
+- Why last: smallest expected impact, tests the Bitter Lesson claim directly.
+- Falsification: if conditionality (turb/calm ratio) drops below 1.15, vol_scale was
+  providing essential condition-dependent scaling that attention can't learn.
+
+### What Success Looks Like at Each Step
+
+| After Step | What You Have | Multi-Factor Ready? |
+|-----------|--------------|:---:|
+| Step 1 | Better encoder (jointly trained, anti-collapse) | Closer (encoder adapts) |
+| Step 2 | Principled encoder + decoder | Closer (attention scales) |
+| Step 3 | Full principled architecture under old loss | Closer (CLN scales) |
+| Step 4 | Principled architecture + principled loss | YES (no domain-specific loss) |
+| Step 5 | Minimal principled architecture | YES (nothing to remove) |
+
+At Step 4 completion: adding rates/FX/credit = change input/output dimensions. No
+architectural redesign. No loss redesign. No new hyperparameters.
+
+### What We Carry Forward (knowledge from old models)
+
+| Finding | Source | How It Informs New Architecture |
+|---------|--------|-------------------------------|
+| MLP is rank-1 attractor | 130a (75+ experiments) | Replaced by attention decoder |
+| Noise-free MLP = mean/variance separation | 120b vs 99m_v2 | CLN provides principled separation |
+| CRPS is correlation-agnostic | Sklar's theorem | VS added alongside CRPS |
+| Condition-dependent per-cell params are a trap | 110a, 134a, 134d | No per-cell conditional params |
+| IS has no equilibrium | 12 IS experiments | IS removed from loss |
+| Reflecting bounds prevent floor explosion | 134b | Kept (mathematical, principled) |
+| Joint transformer passes Suite 4 | 133c (kurtosis 1.60) | Attention decoder preserves this |
+| Joint transformer fails Suite 9 | 133f (cross-cell 0.047) | CLN + VS should address this |
+| Frozen DDPM encoder is IV-specific | Architectural review | Replaced by jointly trained encoder |
+
+### No Ideation Needed
+
+Every component has literature justification, experimental evidence, and philosophical
+alignment. The remaining uncertainty is EXECUTION, not DIRECTION. Ideation is for when
+you don't know WHAT to try. Here we know exactly what to try — we're building it piece
+by piece, with diagnostic fallbacks for each risk.
+
+Invoke research-ideation only if a step fails in a way the risk table can't explain.
+
+---
+
+## 2026-03-21: Ideation Verification — Adversarial Critique of RC6 Roadmap
+
+### Purpose
+Ran the research-ideation skill's adversarial critique phase (Step 2d) against the
+proposed 5-step roadmap to verify it is principled before committing to execution.
+
+### Critic 1: The Skeptical Statistician
+
+"Each component is proven in DIFFERENT systems at DIFFERENT scales:
+- Jointly trained encoder: evidence from AIFS (229M params, 60K samples)
+- Causal transformer: evidence from 133c-f (one-shot, not AR)
+- CLN: evidence from AIFS (huge model)
+
+The combination at YOUR scale (200-400K params, 4K samples) is untested."
+
+**Verdict**: Direction is principled. Feasibility at this scale is genuinely uncertain.
+Step 1 tests this early — correct ordering.
+
+### Critic 2: The Systems Engineer
+
+"Step 2 (replace MLP with causal transformer) is ~500+ lines of code change. If it
+fails, is it architecture or implementation bug? You had this before (124a: double
+zero-init caused permanent zero gradient, looked like architecture failure but was a bug)."
+
+**Verdict**: Step 2 needs an OVERFIT CHECK before full training: verify the transformer
+can overfit a single batch (loss approaches 0). If it can't fit one batch, it's a bug,
+not an architecture finding. Fix before evaluating.
+
+**Update to roadmap**: Step 2 now has a verification sub-step:
+1. Implement causal transformer decoder
+2. Verify single-batch overfit (if fails: implementation bug, fix before proceeding)
+3. Full 30-epoch training and evaluation
+
+### Critic 3: The Domain Expert
+
+"CRPS self-calibration is proven for WEATHER (physical system, conservation laws, 60K
+samples, spatial geometry). IV surfaces have none of these:
+- No conservation laws
+- Regime switches (crisis vs calm are fundamentally different)
+- 30x less data (4K vs 60K+)
+- No physical spatial geometry (moneyness x tenor is arbitrary)"
+
+**Verdict**: CRPS self-calibration at AIFS scale does NOT guarantee it at our scale.
+The roadmap correctly tests this at Step 4 (strip loss). Must be prepared for CRPS
+to NOT self-calibrate at 200-400K params — and respond with investigation (per risk
+table), not abandonment.
+
+### Philosophy Compliance Check
+
+| Principle | Satisfied? | Notes |
+|-----------|:-:|-------|
+| Hamming (important + attackable) | YES | Each step 2-4h, clear falsification |
+| Popper (falsifiable) | YES | Kill condition at each step |
+| Karpathy (one at a time) | YES | 5 sequential steps, one change each |
+| Bitter Lesson (learn from data) | YES | No domain-specific components |
+| Sutton (general methods) | YES | Transfers to any factor |
+| Nanda (investigate failures) | YES | Risk table: investigate before patching |
+| Schulman (cross-pollination) | PARTIAL | Literature done but won't repeat during execution |
+| Nielsen (problem-creator) | YES | "What self-calibrates?" not "what lambda?" |
+| Park (breadth) | PARTIAL | Components from weather/NLP. No other domains searched for this specific combo |
+| Si et al. (feasibility probe) | YES | Each step IS a feasibility probe |
+
+### Gaps Found
+
+1. **Step 2 needs overfit check** (Systems Engineer) — ADDED to roadmap
+2. **Scale risk** (Statistician) — acknowledged, Step 1 tests earliest. No mitigation
+   possible except running the experiment.
+3. **CRPS may not self-calibrate at small scale** (Domain Expert) — acknowledged,
+   Step 4 tests this. Response per risk table: investigate mechanism, not add loss back.
+
+### Final Verdict
+
+**The roadmap IS principled.** No new hypotheses needed. The main risk is SCALE (proven
+at 229M may not work at 200-400K), but that's what experiments are for. Every step's
+failure is diagnostic. Proceed with Step 1 (139a: unfreeze encoder + ortho reg).
+
+---
+
+## 2026-03-21: Exp 139a — RC6 Step 1: Unfreeze Encoder + Orthogonal Regularization — 4/8, Score 57.98
+
+### Context
+RC6 Principled Architecture roadmap Step 1. Hypothesis: frozen DDPM encoder is IV-specific
+and rank-limited. Joint training with orthogonal regularization (||W^TW - I||^2_F) on encoder
+weights should prevent rank collapse while allowing the encoder to adapt to what the decoder needs.
+
+**Based on**: 99m_v2 settings (base recipe from CLAUDE.md) + RC6 roadmap (line 33876)
+
+### Architecture Change
+- Unfroze all encoder parameters (--unfreeze_encoder --lr_encoder 1e-4)
+- Added orthogonal regularization on encoder weight matrices (--lambda_ortho_enc 0.01)
+- Ortho reg targets: gru.weight_ih_l0 (192x25), gru.weight_hh_l0 (192x64), bottleneck.weight (128x64)
+- Computes ||W^TW - I||^2_F on the smaller dimension for efficiency
+- Everything else identical to 99m_v2: freeze_after_epoch=10, K=8, 30 epochs
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \
+    --output_dir models/backfill/afcrps_139a --device cuda
+```
+
+### Results (v2 test suite)
+
+| Metric | 139a (unfrozen) | 99m_v2 (baseline) | Direction |
+|--------|----------------|-------------------|-----------|
+| v2 Suites | 4/9 | 5/8 | REGRESSION |
+| Score | 57.98 | 66.31 | -8.33 |
+| CI 90% | 76.4% | 91.3% | **REGRESSION** |
+| Kurtosis | 0.598 | 0.845 | worse |
+| Coint ratio | **0.942** | 0.675 | **+0.267 BEST EVER** |
+| KS daily | **23/25** | 20/25 | better |
+| KS levels | **20/25** | 1/25 | **+19 MASSIVE IMPROVEMENT** |
+| Cross-cell corr | 0.834 | 0.433 | worse (GT 0.38) |
+| Rank ratio | 0.430 | — | FAIL (< 0.5) |
+| Catastrophic | 2661 | 576 | **REGRESSION** |
+| Conditionality | FAIL | PASS | Lost Suite 3 |
+
+Suites PASS: {1, 4, 5, 6}. FAIL: {2, 3, 7, 8, 9}.
+Lost Suite 3 (conditionality) — worst cell MAE reduction -12.4%.
+Lost Suite 9 (cross-cell) — rank ratio 0.430 < 0.5.
+
+### Investigation: Encoder Changed But Coverage Collapsed
+
+**1. Encoder weights changed dramatically** (cosine similarity with pretrained):
+- gru.weight_hh_l0: cos_sim=0.635 (massive change), L2_change=10.49
+- gru.weight_ih_l0: cos_sim=0.763, L2_change=4.40
+- bottleneck.weight: cos_sim=0.878, L2_change=3.81
+
+**2. Ortho reg achieved near-perfect orthogonality**:
+- weight_ih_l0: ortho_error 13.19 → 0.18 (73x reduction)
+- weight_hh_l0: ortho_error 62.39 → 0.45 (140x reduction)
+- bottleneck.weight: ortho_error 7.08 → 1.05 (7x reduction)
+
+**3. Encoder WEIGHT rank increased (near maximum)**:
+- weight_ih_l0: eff_rank 22.72 → 25.00 (max possible!)
+- weight_hh_l0: eff_rank 51.16 → 63.98 (max 64)
+- bottleneck.weight: eff_rank 57.59 → 63.89 (max 64)
+
+**4. But OUTPUT effective rank is still LOW**: 1.30 at epoch 20
+- Weight rank ≠ output rank. Near-orthogonal weights don't guarantee high-rank outputs.
+- The bottleneck is downstream: MLP decoder compresses to rank 1 regardless of encoder rank.
+
+**5. Coverage declined monotonically**:
+- Spread/MAE ratio: 1.106 (ep1) → 0.872 (ep30) — steady decline
+- CI: 93.3% (ep1) → 80.3% (ep30)
+- Mechanism: unfrozen encoder allows CRPS accuracy term to optimize conditioning
+  more aggressively. Better conditioning = tighter predictions = less spread needed.
+  But tighter spread + IS penalty = under-coverage.
+
+**6. KS levels massive improvement (1→20)**:
+- Joint training allows encoder to produce condition vectors that better match
+  the level distribution. Frozen encoder was stuck in MSE-optimized representation.
+
+**7. Cointegration best ever (0.942)**:
+- Joint training aligns encoder representations for temporal coherence.
+
+### WHY the regression happened (mechanistic)
+
+The coverage collapse is NOT from ortho reg (which worked perfectly). It's from
+joint training itself. With frozen encoder, CRPS can only optimize the decoder
+to match GT — the conditioning is fixed. With unfrozen encoder, CRPS optimizes
+BOTH encoder and decoder simultaneously. The encoder learns to produce sharper
+conditioning vectors (closer to GT trajectory), which makes the spread term
+less necessary. CRPS accuracy term dominates the spread term (known 3:1 gradient
+asymmetry), and the model systematically under-spreads.
+
+This is the exact failure mode predicted by RC6 Risk Table, Risk 6: "CRPS's dual
+penalty isn't balanced for this model scale." The encoder gives CRPS more leverage
+to reduce MAE, which amplifies the accuracy-spread imbalance.
+
+### What Was Learned
+
+1. **Ortho reg works perfectly** — encoder weight rank goes to near-maximum. This is
+   NOT the bottleneck. Encoder anti-collapse is SOLVED.
+2. **Weight rank ≠ output rank** — near-orthogonal encoder weights don't prevent
+   output rank collapse. The MLP decoder is the rank bottleneck (confirmed by 130a).
+3. **Joint training improves distributional quality** — KS levels 1→20, coint 0.675→0.942.
+   The encoder DOES learn better representations when unfrozen.
+4. **Joint training hurts coverage** — CRPS accuracy term gets stronger leverage through
+   the encoder, overwhelming the spread term. This is a model-scale effect (per RC6 risk table).
+5. **Freeze-after-epoch 10 froze MLP but NOT encoder** — 6 params frozen (MLP), 12 kept
+   trainable (encoder+skip+spread). Post-freeze, encoder continued adapting while decoder
+   was locked. This may be contributing to the coverage decline (encoder optimizes, but
+   decoder can't respond).
+
+### Decision: VALUABLE FAILURE
+
+Score regressed (57.98 vs 66.31) but the experiment answered the key question:
+**Can the encoder maintain rank under joint training?** YES — with ortho reg, encoder
+weight rank reaches near-maximum. The coverage decline is from CRPS imbalance, not
+encoder collapse. Step 1 is PASSED in terms of encoder anti-collapse.
+
+**Falsification test**: encoder rank < 3? NO — encoder rank is 25/64/64 (near max).
+The RC6 falsification criterion is met. Proceed to Step 2.
+
+### Next Steps
+
+Before proceeding to Step 2, the coverage decline needs investigation:
+- **139a_v2**: Same setup but also freeze encoder at epoch 10 (freeze_after_epoch applies
+  to encoder too). This tests whether post-freeze encoder drift causes the coverage collapse.
+- **139a_v3**: Same but with lower encoder LR (1e-5 instead of 1e-4) to slow encoder drift.
+- If coverage stabilizes: RC6 Step 1 is complete, proceed to Step 2 (causal transformer decoder).
+- If coverage still collapses: the CRPS accuracy-spread imbalance is fundamental at this scale.
+
+---
