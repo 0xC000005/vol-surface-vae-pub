@@ -1,0 +1,93 @@
+{
+  "n_valid_windows": 10,
+  "horizon": 252,
+  "ewma_lambda": 0.94,
+  "generated": {
+    "cointegration_pass_rate_mean": 0.204,
+    "cointegration_rsq_mean": 0.05421052586688336,
+    "per_cell_pass_rate": [
+      [
+        0.5,
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      [
+        0.7,
+        0.0,
+        0.3,
+        0.3,
+        0.1
+      ],
+      [
+        0.2,
+        0.0,
+        0.3,
+        0.6,
+        0.1
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "atm6m_iv_vs_ewma_corr_mean": 0.12016858692987627,
+    "atm6m_iv_vs_ewma_rsq_mean": 0.02967128013715751
+  },
+  "ground_truth": {
+    "cointegration_pass_rate_mean": 0.988,
+    "cointegration_rsq_mean": 0.3402580364963886,
+    "per_cell_pass_rate": [
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.8
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.9
+      ]
+    ],
+    "atm6m_iv_vs_ewma_corr_mean": 0.8119450168444076,
+    "atm6m_iv_vs_ewma_rsq_mean": 0.6594623704728318
+  },
+  "gen_vs_gt_pass_rate_ratio": 0.20647773279352225,
+  "worst_cell_gen_vs_gt_ratio": 0.0
+}

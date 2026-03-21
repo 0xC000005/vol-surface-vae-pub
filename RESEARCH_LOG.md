@@ -33513,3 +33513,40 @@ The λ=1.0 version over-corrects. The optimal per-horizon λ is likely around 0.
 4. **Ensemble**: 138a + 120b_v6 could combine 6/8 suite pass pattern with distributional quality.
 
 ---
+
+## 2026-03-21: Validation Audit — 12 experiments, 8 verifications
+
+### Scope
+Audited research log entries from 2026-03-19 to 2026-03-21. Focused on the IS width fix
+series (120b_v5 through 138a_v2) using the new validation skill.
+
+### Gaps Found
+9 gaps (2 HIGH, 6 MEDIUM, 1 LOW). Most common: MISSING_ANALYSIS — breakthrough models
+(138a, 120b_v6) had no follow-up analysis despite being the most important results.
+
+### Verification Results
+
+| Task | Finding |
+|------|---------|
+| 138a multi-seed (3 seeds) | **6/8 ROBUST** — identical pass/fail across all seeds |
+| 138a long-horizon (252d) | Stable (0% explosion) but CI drops 98%→55%. Spread shrinks. |
+| 120b_v6 long-horizon (252d) | Same pattern — CI 99%→42%. AR limitation, not IS-related. |
+| 138a + 120b_v6 ensemble | **No benefit** — 6/8 same as 138a alone. KS regresses 21→15. |
+| Lambda sweep artifact | Saved as structured JSON with 4 data points. |
+| 138a compute_score v2 | **v1=76.62 (6/8), v2=85.52 (7/9)** — ALL-TIME BEST. |
+| 9 training scripts | All saved as executable .sh files. |
+| 138a_v2 bestcov eval | 4/8, CI 88.4%. λ=1.0 too strong. 138a (λ=0.05) superior. |
+
+### Key Insights
+1. **138a 6/8 is robust** — not a lucky seed. KS levels exactly 15/25 across all seeds.
+2. **Long-horizon variance collapse** is the next frontier. Both IS-fix models have
+   spread that shrinks instead of growing at 252d. This is an AR(1) rho=0.8 limitation.
+3. **Ensemble doesn't help** — 138a's weaker KS dilutes 120b_v6's distributional quality.
+4. **138a_v2 (λ=1.0) confirmed inferior** — even bestcov (ep3, CI 88.4%) only gets 4/8.
+
+### Outstanding
+- RC6 ideation needed (RC5 exhausted)
+- Per-horizon IS λ sweep 0.1-0.3 could push past 6/8
+- Long-horizon needs architectural solution
+
+---

@@ -1,0 +1,15 @@
+{
+  "experiment_id": "lambda_sweep",
+  "verification_type": "analysis",
+  "timestamp": "2026-03-21T05:15:00Z",
+  "script_path": null,
+  "result_paths": ["results/validations/2026-03-21/analysis/lambda_sweep_comparison.json"],
+  "status": "PASS",
+  "summary": "Lambda sweep comparison table saved as structured JSON. 4 data points (λ=0, 0.02, 0.05, 0.5) with all metrics and key findings.",
+  "claims_verified": [
+    {"claim": "Coverage-IS tension is structural at any λ>0", "verified": true, "evidence": "All 3 non-zero λ show monotonic coverage decline"},
+    {"claim": "Operating point is epoch, not lambda", "verified": true, "evidence": "Best model at ep1-3 across all λ values"},
+    {"claim": "120b_v6 bestcov (λ=0.05 ep3) is best single model", "verified": true, "evidence": "Score 67.35, highest across sweep"}
+  ],
+  "metrics": {}
+}

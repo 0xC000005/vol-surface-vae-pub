@@ -1,0 +1,92 @@
+{
+  "task": "138a_long_horizon",
+  "model": "models/backfill/afcrps_138a/best_model.pt",
+  "model_hash": "1c12daaef154",
+  "checkpoint_epoch": 27,
+  "timestamp": "2026-03-21",
+  "test_params": {
+    "n_frames": 252,
+    "n_samples": 50,
+    "n_windows": 10,
+    "batch_size": 8,
+    "pos_mode": "native",
+    "generation_time_s": 15.3
+  },
+
+  "claims_verified": {
+    "does_IS_fix_maintain_quality_at_252_days": {
+      "verdict": "PARTIALLY — no explosion but significant degradation",
+      "details": "Zero explosion rate at all horizons (0% at h=252). Spatial structure preserved (term slope 0.12, smile convexity 0.14 at h=252). However CI coverage degrades severely: 98% at h=30 → 54.8% at h=252. Ensemble spread does NOT grow monotonically — it actually shrinks slightly (mean std 0.083 at h=30 vs 0.065 at h=252), meaning intervals are too narrow at long horizons."
+    },
+    "does_weak_IS_cause_divergence": {
+      "verdict": "NO explosion, but UNDER-SPREAD at long horizons",
+      "details": "The weak per-horizon IS (effective lambda ~0.002) does NOT cause divergence — no surfaces explode. The ar_frame_floor_clamp=0.01 and ar_frame_reflect=true prevent any IV from going below 1% or above 100%. However, the spread fails to grow appropriately with horizon, causing severe CI under-coverage at h=180 (66%) and h=252 (54.8%). Stationarity ratio is reasonable at 1.12 (early_std=0.0127, late_std=0.0142), but rolling std shows a mid-horizon bump around d120-d180."
+    }
+  },
+
+  "key_metrics": {
+    "ci_coverage_by_horizon": {
+      "h30": 0.98,
+      "h60": 0.872,
+      "h90": 0.82,
+      "h180": 0.66,
+      "h252": 0.548
+    },
+    "ensemble_spread_mean_std": {
+      "h30": 0.0832,
+      "h60": 0.0819,
+      "h90": 0.0712,
+      "h180": 0.0882,
+      "h252": 0.0651
+    },
+    "explosion_rate": {
+      "h30": 0.0,
+      "h60": 0.0,
+      "h90": 0.0,
+      "h180": 0.0,
+      "h252": 0.0
+    },
+    "spatial_structure": {
+      "term_slope_h252_gen": 0.125,
+      "term_slope_h252_gt": 0.048,
+      "smile_conv_h252_gen": 0.135,
+      "smile_conv_h252_gt": 0.066
+    },
+    "stationarity_ratio": 1.12,
+    "acf_lag1": -0.337,
+    "cointegration_pass_rate_gen": 0.688,
+    "cointegration_pass_rate_gt": 0.988,
+    "cross_cell_corr_gen": 0.314,
+    "cross_cell_corr_gt": 0.480,
+    "daily_change_corr_gen": 0.114,
+    "daily_change_corr_gt": 0.467,
+    "kurtosis_d0_d30": 4.24,
+    "kurtosis_d30_d60": 1.41,
+    "kurtosis_d90_d180": 5.50,
+    "kurtosis_d180_d251": 3.03
+  },
+
+  "qualitative_observations": {
+    "fan_chart": "Shows reasonable trajectory with GT well within 5-95% band for first ~60 days, then GT escapes the band intermittently. Notable spike behavior around d120-150 suggests the model produces occasional regime-like jumps but they don't match GT timing.",
+    "ensemble_spread": "Spread is NOT monotonically growing — it's roughly flat or slightly declining. This is a key failure mode: at h=252, mean spread (0.065) is actually LOWER than at h=30 (0.083). The per-cell spread plot shows high variation across cells, with some cells (cell ~8, ATM 6M) having consistently high spread.",
+    "path_stationarity": "Rolling std shows a significant bump from d100-d180 (peak ~0.023 vs baseline ~0.010), suggesting temporary instability in that range. The 1M K=0.70 cell shows growing volatility of daily changes over the horizon, while ATM 6M is stable.",
+    "kurtosis_heatmap": "Daily changes show structured pattern with visible 30-day periodicity (the trained block length). Some cells have persistent red/blue streaks indicating systematic bias in certain periods."
+  },
+
+  "comparison_to_baseline": {
+    "note": "Previous AR models (99m_v2) showed similar long-horizon degradation. The 138a model's key advantage (6/8 at 30-day) does not translate to qualitatively different long-horizon behavior.",
+    "key_weakness": "Ensemble spread fails to grow with sqrt(t), causing severe CI under-coverage beyond h=90. The noisefree_mlp architecture (ar_noisefree_mlp=true) may limit long-horizon variance accumulation since the MLP deterministic component doesn't inject per-frame randomness."
+  },
+
+  "overall_assessment": "STABLE but UNDER-SPREAD. Model 138a generates physically valid surfaces at 252 days (0% explosion, preserved term structure and smile). However, the weak IS and noisefree MLP design cause the ensemble spread to flatten rather than grow with horizon, resulting in CI coverage dropping from 98% (h=30) to 55% (h=252). Cointegration also degrades (68.8% vs GT 98.8%). The model does NOT diverge — it's the opposite problem: insufficient uncertainty growth at long horizons.",
+
+  "output_files": {
+    "results_json": "results/block_ar/long_horizon_138a/results_native.json",
+    "cointegration_json": "results/block_ar/long_horizon_138a/cointegration_summary_native.json",
+    "fan_chart_png": "results/block_ar/long_horizon_138a/6_fan_chart_native.png",
+    "spread_png": "results/block_ar/long_horizon_138a/1_ensemble_spread_native.png",
+    "stationarity_png": "results/block_ar/long_horizon_138a/4_path_stationarity_native.png",
+    "kurtosis_png": "results/block_ar/long_horizon_138a/8_kurtosis_heatmap_native.png",
+    "script": "results/validations/2026-03-21/scripts/138a_long_horizon.sh"
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "verification_task": "120b_v6 best_coverage_model long-horizon (252-day) test",
+  "timestamp": "2026-03-21",
+  "model_path": "models/backfill/afcrps_120b_v6/best_coverage_model.pt",
+  "model_hash": "bc2a4d70d0b8",
+  "checkpoint_epoch": 3,
+  "test_config": {
+    "n_frames": 252,
+    "n_samples": 50,
+    "n_windows": 10,
+    "position_mode": "native",
+    "device": "cuda"
+  },
+  "generation_time_s": 8.06,
+  "results_dir": "results/block_ar/long_horizon_120b_v6",
+
+  "claims_verified": {
+    "is_fix_maintains_distributional_quality_at_252d": {
+      "verdict": "PARTIALLY - spatial structure maintained but CI degrades significantly",
+      "details": "0% explosion rate at all horizons (good). Term slope and smile convexity remain nonzero at 252d. However, CI coverage drops from 99.2% at d30 to 42.4% at d252 -- ensemble spread shrinks rather than grows."
+    },
+    "strong_ks_performance_persists_at_long_horizons": {
+      "verdict": "CANNOT VERIFY - long-horizon test does not report KS metrics",
+      "details": "The test_long_horizon.py script does not compute KS statistics. KS performance at 252d would need a separate test or extension."
+    }
+  },
+
+  "key_metrics": {
+    "surface_stability": {
+      "explosion_rate_all_horizons": "0.0%",
+      "verdict": "PASS - no surface explosions at any horizon"
+    },
+    "ensemble_spread": {
+      "d30_mean_std": 0.0770,
+      "d60_mean_std": 0.0652,
+      "d90_mean_std": 0.0746,
+      "d180_mean_std": 0.0644,
+      "d252_mean_std": 0.0466,
+      "verdict": "CONCERN - spread SHRINKS from 0.077 (d30) to 0.047 (d252); should grow with horizon"
+    },
+    "ci_coverage_90pct": {
+      "d30": 0.992,
+      "d60": 0.672,
+      "d90": 0.844,
+      "d180": 0.540,
+      "d252": 0.424,
+      "verdict": "FAIL - coverage drops to 42.4% at d252 (target: 90%). Non-monotonic pattern (d60 < d90) is also concerning"
+    },
+    "spatial_structure": {
+      "d252_term_slope": 0.137,
+      "d252_smile_conv": 0.085,
+      "gt_d252_term_slope": 0.048,
+      "gt_d252_smile_conv": 0.066,
+      "verdict": "MODERATE - spatial structure preserved but term slope ~2.8x GT and smile convexity ~1.3x GT (over-structured)"
+    },
+    "stationarity_ratio": {
+      "value": 0.514,
+      "verdict": "CONCERN - late_std / early_std = 0.51, meaning paths lose variability over time (variance collapse)"
+    },
+    "cross_cell_correlation": {
+      "gen_level_corr": 0.502,
+      "gt_level_corr": 0.480,
+      "gen_change_corr": 0.441,
+      "gt_change_corr": 0.467,
+      "verdict": "GOOD - both level and change correlations close to GT"
+    },
+    "cointegration": {
+      "gen_pass_rate": 0.204,
+      "gt_pass_rate": 0.988,
+      "gen_vs_gt_ratio": 0.206,
+      "atm6m_iv_ewma_corr_gen": 0.120,
+      "atm6m_iv_ewma_corr_gt": 0.812,
+      "verdict": "FAIL - cointegration pass rate 20.4% vs GT 98.8%. Bottom two rows entirely 0%. IV-EWMA decorrelated (0.12 vs 0.81)"
+    },
+    "kurtosis": {
+      "d0_d30": 0.68,
+      "d30_d60": 0.43,
+      "d60_d90": 0.51,
+      "d90_d180": 1.12,
+      "d180_d251": 0.89,
+      "verdict": "MODERATE - kurtosis reasonable but early windows below 1.0 (thin tails)"
+    },
+    "acf": {
+      "lag1_acf": -0.054,
+      "lag1_abs_acf": 0.141,
+      "lag10_acf": -0.216,
+      "verdict": "CONCERN - lag-10 ACF of -0.216 suggests spurious mean-reversion pattern"
+    }
+  },
+
+  "overall_assessment": {
+    "verdict": "MIXED - stable surfaces but significant long-horizon deficiencies",
+    "summary": "The 120b_v6 best_coverage_model generates valid, non-explosive surfaces at 252 days with good cross-cell correlation structure. However, three critical long-horizon pathologies emerge: (1) ensemble spread SHRINKS rather than growing with horizon, causing CI coverage to drop from 99.2% at d30 to 42.4% at d252; (2) cointegration collapses to 20.4% vs GT 98.8%, with zero pass rate in the bottom two rows of the surface grid; (3) stationarity ratio of 0.51 indicates variance collapse in later horizons. These are consistent with the known AR model limitations -- the AR(1) noise process with rho=0.8 provides good short-horizon dynamics but cannot sustain realistic spread growth over 252 steps.",
+    "comparison_note": "The IS fix that gives 120b_v6 strong KS scores at 30d does not appear to help at 252d. The fundamental issue is architectural (spread collapse over many AR steps), not distributional."
+  },
+
+  "output_files": [
+    "results/block_ar/long_horizon_120b_v6/results_native.json",
+    "results/block_ar/long_horizon_120b_v6/cointegration_summary_native.json",
+    "results/block_ar/long_horizon_120b_v6/1_ensemble_spread_native.png",
+    "results/block_ar/long_horizon_120b_v6/4_path_stationarity_native.png",
+    "results/block_ar/long_horizon_120b_v6/6_fan_chart_native.png",
+    "results/block_ar/long_horizon_120b_v6/8_kurtosis_heatmap_native.png"
+  ]
+}

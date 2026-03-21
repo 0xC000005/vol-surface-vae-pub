@@ -1,0 +1,14 @@
+{
+  "experiment_id": "138a",
+  "verification_type": "analysis",
+  "timestamp": "2026-03-21T05:15:00Z",
+  "script_path": null,
+  "result_paths": ["results/validations/2026-03-21/analysis/138a_scores.json"],
+  "status": "PASS",
+  "summary": "138a compute_score v1=76.62 (6/8), v2=85.52 (7/9). Both are ALL-TIME BEST composite scores. Confirmed 6/8 on v1 and 7/9 on v2.",
+  "claims_verified": [
+    {"claim": "138a best_model is 6/8 on v1", "verified": true, "evidence": "compute_score.py: 76.62/109, suites_passed=6"},
+    {"claim": "138a best_model is 7/9 on v2", "verified": true, "evidence": "compute_score_v2.py: 85.52/122, suites_passed=7 (incl S9 cross_cell PASS)"}
+  ],
+  "metrics": {"v1_score": 76.62, "v2_score": 85.52, "v1_suites": 6, "v2_suites": 7}
+}

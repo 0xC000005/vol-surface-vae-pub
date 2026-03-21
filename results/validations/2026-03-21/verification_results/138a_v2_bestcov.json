@@ -1,0 +1,126 @@
+{
+  "verification_task": "138a_v2 best_coverage_model evaluation",
+  "timestamp": "2026-03-21T11:11:17-04:00",
+  "model_path": "models/backfill/afcrps_138a_v2/best_coverage_model.pt",
+  "model_epoch": 3,
+  "test_suite": "test_block_ar_requirements_v2.py",
+  "test_params": {
+    "max_batches": 20,
+    "n_samples": 50,
+    "seed": 42,
+    "no_ema": true,
+    "device": "cuda"
+  },
+  "output_dir": "results/block_ar/138a_v2_bestcov_30d",
+
+  "result": {
+    "suites_passed": 4,
+    "suites_total": 8,
+    "composite_score": 57.01,
+    "max_possible_score": 109.0,
+    "overall_ci_90": 0.884,
+    "suite_results": {
+      "suite_1_surface_validity": {
+        "passed": true,
+        "explosion_rate": 0.0,
+        "calendar_arb": 0.087,
+        "butterfly_arb": 0.359
+      },
+      "suite_2_ci_coverage": {
+        "passed": false,
+        "overall_90_ci": 0.884,
+        "h1_coverage": 0.765,
+        "h7_coverage": 0.905,
+        "h14_coverage": 0.895,
+        "h30_coverage": 0.886,
+        "worst_cell_h1": "cell(2,2)=58.1%",
+        "worst_cell_h14": "cell(1,4)=64.8%",
+        "worst_cell_h30": "cell(1,4)=58.2%",
+        "failure_reason": "per-cell coverage outside [70%,95%] band at multiple horizons; h1 horizon coverage 76.5% < 80%"
+      },
+      "suite_3_conditionality": {
+        "passed": false,
+        "turb_calm_ratio": 1.705,
+        "mae_reduction": 0.880,
+        "worst_cell_mae_reduction": -0.253,
+        "failure_reason": "worst cell MAE reduction -25.3% < -10%; worst cell width ratio 1.77 > 1.20"
+      },
+      "suite_4_time_series": {
+        "passed": false,
+        "acf_correlation": 0.422,
+        "kurtosis_ratio": 1.709,
+        "failure_reason": "ACF correlation 0.422 < 0.5 threshold"
+      },
+      "suite_5_block_ar": {
+        "passed": true,
+        "boundary_smoothness_ratio": 1.100,
+        "growing_uncertainty": true
+      },
+      "suite_6_cointegration": {
+        "passed": true,
+        "gen_gt_ratio": 0.654,
+        "worst_cell_ratio": 0.285
+      },
+      "suite_7_regime_coverage": {
+        "passed": false,
+        "layer1_pass": true,
+        "layer2_pass": false,
+        "layer2_combinations_passing": "0/8",
+        "layer3_catastrophic_rate": 0.024,
+        "failure_reason": "Layer 2 per-regime per-cell: 0/8 combinations pass (gate >= 6)"
+      },
+      "suite_8_distributional": {
+        "passed": true,
+        "ks_daily_pass": "21/25",
+        "ks_levels_pass": "20/25",
+        "median_bias_fraction_pass": "22/25",
+        "median_bias_magnitude_pass": "22/25",
+        "window_coverage_floor": 0.018,
+        "per_cell_mae_pass": "24/25"
+      },
+      "suite_9_correlation": {
+        "passed": true,
+        "correlation_ratio": 1.135,
+        "rank_ratio": 0.904,
+        "note": "Suite 9 is informational and not counted in pass/fail totals"
+      }
+    }
+  },
+
+  "comparison": {
+    "vs_138a_v2_best_model": {
+      "model": "138a_v2 best_model (ep30)",
+      "suites_passed": 4,
+      "ci_coverage": 0.710,
+      "composite_score": "unknown (not computed in prior eval)",
+      "delta_suites": 0,
+      "delta_ci": "+17.4pp (88.4% vs 71.0%)",
+      "assessment": "Same 4/8 suites but much higher CI coverage (88.4% vs 71.0%). bestcov (ep3) has better calibration but still fails per-cell gates."
+    },
+    "vs_138a_best_model": {
+      "model": "138a best_model (lambda=0.05)",
+      "suites_passed": 6,
+      "ci_coverage": 0.787,
+      "composite_score": "unknown",
+      "delta_suites": -2,
+      "delta_ci": "+9.7pp (88.4% vs 78.7%)",
+      "assessment": "bestcov has higher CI (88.4% vs 78.7%) but passes 2 fewer suites (4 vs 6). 138a at lambda=0.05 remains clearly superior overall."
+    }
+  },
+
+  "key_findings": [
+    "best_coverage_model saved at epoch 3 (very early) with overall 90% CI of 88.4%",
+    "Passes 4/8 suites: {1-Surface, 5-BlockAR, 6-Cointegration, 8-Distributional}",
+    "Same suite count as best_model (ep30) which also scored 4/8 — but different profile",
+    "CI at 88.4% is much better than best_model's 71.0% (+17.4pp), confirming early-epoch CI advantage",
+    "But still fails Suite 2 (per-cell CI) due to cells outside [70%, 95%] band",
+    "Fails Suite 3 (conditionality) — corner cells (0,4) and (1,4) have negative MAE reduction",
+    "Fails Suite 4 (time series) — ACF correlation 0.422 < 0.5 threshold, but kurtosis ratio 1.71 passes",
+    "Fails Suite 7 (regime) — Layer 2 per-regime per-cell coverage 0/8, same structural weakness as best_model",
+    "Composite score 57.01 — lower than 99m_v2 baseline (66.31) despite better CI",
+    "The lambda=1.0 IS penalty damages conditionality and time-series properties even at early epochs",
+    "Confirms research log finding: sweet spot is near lambda=0.05 (138a), not lambda=1.0 (138a_v2)"
+  ],
+
+  "verdict": "CONFIRMED: bestcov adds no new suite passes vs best_model. 4/8 with higher CI (88.4%) but lower composite score than baselines. lambda=1.0 IS is too strong; 138a (lambda=0.05) at 6/8 remains the superior 138-series model."
+}

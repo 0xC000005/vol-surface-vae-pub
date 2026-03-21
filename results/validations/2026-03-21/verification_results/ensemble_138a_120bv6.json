@@ -1,0 +1,127 @@
+{
+  "verification_task": "Test 50/50 ensemble of 138a best_model + 120b_v6 best_coverage_model",
+  "timestamp": "2026-03-21T11:10:00-04:00",
+  "status": "COMPLETED",
+  "test_version": "v2",
+  "elapsed_seconds": 129,
+
+  "ensemble_config": {
+    "model_a": "models/backfill/afcrps_138a/best_model.pt",
+    "model_b": "models/backfill/afcrps_120b_v6/best_coverage_model.pt",
+    "samples_per_model": [25, 25],
+    "total_samples": 50,
+    "max_batches": 20,
+    "test_windows": 1223
+  },
+
+  "results_summary": {
+    "suites_passed": 6,
+    "suites_total": 8,
+    "passing_suites": ["S1_surface", "S3_conditionality", "S4_time_series", "S5_block_ar", "S6_cointegration", "S8_distributional"],
+    "failing_suites": ["S2_coverage", "S7_regime_coverage"]
+  },
+
+  "suite_details": {
+    "S1_surface": {
+      "pass": true,
+      "explosion_rate": 0.0,
+      "calendar_arb": 0.071,
+      "butterfly_arb": 0.293
+    },
+    "S2_coverage": {
+      "pass": false,
+      "overall_90pct_ci": 0.874,
+      "worst_cell_pass": false,
+      "note": "Per-cell gate [70%, 95%] FAIL - some cells over-spread or under-spread"
+    },
+    "S3_conditionality": {
+      "pass": true,
+      "turb_calm_ratio": 1.335,
+      "mae_reduction_pct": 88.4,
+      "worst_cell_mae_reduction_pct": 26.0
+    },
+    "S4_time_series": {
+      "pass": true,
+      "acf_correlation": 0.842,
+      "kurtosis_ratio": 0.787,
+      "note": "Ensemble successfully combines: 138a kurtosis 0.794, 120b_v6 kurtosis 1.708 -> 0.787"
+    },
+    "S5_block_ar": {
+      "pass": true,
+      "boundary_smoothness": 1.008
+    },
+    "S6_cointegration": {
+      "pass": true,
+      "gen_gt_ratio": 1.010
+    },
+    "S7_regime_coverage": {
+      "pass": false,
+      "layer1_pass": true,
+      "layer2_pass": false,
+      "layer2_n_passing": "0/8",
+      "layer3_pass": true,
+      "note": "Layer 2 (regime x cell) fails completely: 0/8 passing (gate >= 6)"
+    },
+    "S8_distributional": {
+      "pass": true,
+      "ks_changes": "19/25",
+      "ks_levels": "15/25",
+      "median_bias_frac": "21/25",
+      "median_bias_mag": "22/25"
+    }
+  },
+
+  "comparison_vs_components": {
+    "138a_standalone": {
+      "suites_passed": "6/8",
+      "passing": ["S1", "S3", "S4", "S5", "S6", "S8"],
+      "ci_coverage": "78.7%",
+      "ks_levels": "15/25",
+      "kurtosis": 0.794
+    },
+    "120b_v6_standalone": {
+      "suites_passed": "5/8",
+      "ci_coverage": "87.5%",
+      "ks_levels": "21/25",
+      "kurtosis": 1.708
+    },
+    "ensemble_result": {
+      "suites_passed": "6/8",
+      "passing": ["S1", "S3", "S4", "S5", "S6", "S8"],
+      "ci_coverage": "87.4%",
+      "ks_levels": "15/25",
+      "kurtosis": 0.787
+    }
+  },
+
+  "claims_verified": {
+    "claim_combine_strengths_S4_S8_from_138a_CI_from_120bv6": {
+      "verified": "PARTIAL",
+      "detail": "S4 and S8 PASS (from 138a). CI improves from 78.7% to 87.4% (from 120b_v6). But ensemble does NOT achieve 7+/8; same 6/8 as 138a alone."
+    },
+    "claim_ensemble_achieves_7plus_v2": {
+      "verified": "FALSE",
+      "detail": "Ensemble achieves 6/8 on v2, same as 138a standalone. S2 (per-cell CI) and S7 (regime coverage Layer 2) both FAIL."
+    },
+    "claim_ensemble_achieves_6plus_v1": {
+      "verified": "LIKELY_TRUE",
+      "detail": "v1 was not explicitly tested but v2 is stricter. 6/8 on v2 strongly implies at least 6/8 on v1."
+    }
+  },
+
+  "key_findings": [
+    "Ensemble achieves 6/8 PASS on v2 test suites — same as 138a standalone",
+    "CI coverage improves to 87.4% (vs 78.7% for 138a), but per-cell gate still fails",
+    "KS levels REGRESSES from 120b_v6's 21/25 to 15/25 — 138a's weaker level distribution dominates",
+    "Kurtosis ratio 0.787 — reasonable blend of 138a (0.794) and 120b_v6 (1.708)",
+    "Suite 7 Layer 2 (regime x cell) 0/8 passing — structural failure, not addressable by ensemble mixing",
+    "No net benefit from ensembling: 138a alone already achieves same 6/8 suite set",
+    "The complementary strengths do NOT compose: 120b_v6's better KS levels (21/25) is diluted by 138a's weaker samples"
+  ],
+
+  "artifacts": {
+    "summary_json": "results/block_ar/ensemble_138a_120bv6_30d/summary.json",
+    "eval_script": "results/validations/2026-03-21/scripts/ensemble_138a_120bv6.py",
+    "bash_wrapper": "results/validations/2026-03-21/scripts/ensemble_138a_120bv6.sh"
+  }
+}

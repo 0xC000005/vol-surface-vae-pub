@@ -1,0 +1,11 @@
+{
+  "experiment": "138a",
+  "checkpoint": "best_model (ep30)",
+  "v1_score": 76.62,
+  "v1_max": 109.0,
+  "v1_suites": 6,
+  "v2_score": 85.52,
+  "v2_max": 122.0,
+  "v2_suites": 7,
+  "note": "FIRST EVER 6/8 (v1) / 7/9 (v2). All-time best composite scores on both scoring systems."
+}

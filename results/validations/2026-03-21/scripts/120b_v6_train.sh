@@ -1,0 +1,15 @@
+#!/bin/bash
+# Training: Exp 120b_v6 — IS Width Fix at λ_IS=0.05 (DIAGNOSTIC)
+# Purpose: Binary diagnostic — is there ANY λ where coverage ~90% AND KS improves?
+# Result: ANSWER YES — CI 87.5%, KS levels 21/25 (best distributional model)
+set -euo pipefail
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.05 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_120b_v6 --device cuda

@@ -1,0 +1,95 @@
+{
+  "seed123": {
+    "suite_pass": {
+      "surface": true,
+      "coverage": false,
+      "conditionality": true,
+      "time_series": true,
+      "block_ar": true,
+      "cointegration": true,
+      "regime_coverage": false,
+      "distributional": true,
+      "cross_cell_correlation": true
+    },
+    "total_pass": 7,
+    "total_suites": 9,
+    "key_metrics": {
+      "kurtosis_ratio": 0.8135280003977743,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90": 0.7863003543199782,
+      "acf_corr": 0.840830612854268
+    }
+  },
+  "seed456": {
+    "suite_pass": {
+      "surface": true,
+      "coverage": false,
+      "conditionality": true,
+      "time_series": true,
+      "block_ar": true,
+      "cointegration": true,
+      "regime_coverage": false,
+      "distributional": true,
+      "cross_cell_correlation": true
+    },
+    "total_pass": 7,
+    "total_suites": 9,
+    "key_metrics": {
+      "kurtosis_ratio": 0.7843057293561979,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90": 0.7870504224584356,
+      "acf_corr": 0.8417460889004214
+    }
+  },
+  "seed42_v1": {
+    "suite_pass": {
+      "surface": true,
+      "coverage": false,
+      "conditionality": true,
+      "time_series": true,
+      "block_ar": true,
+      "cointegration": true,
+      "regime_coverage": false,
+      "distributional": true,
+      "cross_cell_correlation": true
+    },
+    "total_pass": 7,
+    "total_suites": 9,
+    "note": "v1 test suite (8 suites, no S9)",
+    "key_metrics": {
+      "kurtosis_ratio": 0.7940508774706626,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90": 0.7872041428182066,
+      "acf_corr": 0.8435329580363081
+    }
+  },
+  "analysis": {
+    "robust_6_of_8_across_seeds": true,
+    "suite_stability": {
+      "surface": true,
+      "coverage": true,
+      "conditionality": true,
+      "time_series": true,
+      "block_ar": true,
+      "cointegration": true,
+      "regime_coverage": true,
+      "distributional": true,
+      "cross_cell_correlation": true
+    },
+    "all_suites_stable": true,
+    "seed_counts": {
+      "seed123": 7,
+      "seed456": 7
+    },
+    "borderline_metrics": {
+      "kurtosis_ratio_range": [
+        0.8135280003977743,
+        0.7843057293561979
+      ],
+      "ks_levels_pass_range": [
+        15,
+        15
+      ]
+    }
+  }
+}

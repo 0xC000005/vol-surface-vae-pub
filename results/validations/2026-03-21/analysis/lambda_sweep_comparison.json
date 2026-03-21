@@ -1,0 +1,76 @@
+{
+  "description": "Complete IS lambda sweep on noise-free MLP (120b architecture)",
+  "date": "2026-03-21",
+  "architecture": "noise-free MLP + skip bypass + Student-t(df=6)",
+  "base_model": "120b (7/9 v2, best baseline)",
+  "sweep": [
+    {
+      "experiment": "120b_orig",
+      "lambda_is": 0.0,
+      "is_fix": false,
+      "checkpoint": "best_model",
+      "results_path": "results/block_ar/120b_v2_30d/summary.json",
+      "ci_90": 0.920,
+      "ks_daily": 16,
+      "ks_levels": 1,
+      "kurtosis_ratio": 1.050,
+      "coint_ratio": 0.814,
+      "v1_suites": 5,
+      "v2_suites": 7,
+      "v1_score": 67.09
+    },
+    {
+      "experiment": "120b_v7",
+      "lambda_is": 0.02,
+      "is_fix": true,
+      "checkpoint": "best_coverage_model (ep1)",
+      "results_path": "results/block_ar/120b_v7_bestcov_30d/summary.json",
+      "ci_90": 0.915,
+      "ks_daily": 19,
+      "ks_levels": 17,
+      "kurtosis_ratio": 1.163,
+      "coint_ratio": 0.504,
+      "v1_suites": 2,
+      "v1_score": 38.12,
+      "note": "barely trained — ep1 selected for coverage"
+    },
+    {
+      "experiment": "120b_v6",
+      "lambda_is": 0.05,
+      "is_fix": true,
+      "checkpoint": "best_coverage_model (ep3)",
+      "results_path": "results/block_ar/120b_v6_bestcov_30d/summary.json",
+      "ci_90": 0.875,
+      "ks_daily": 22,
+      "ks_levels": 21,
+      "kurtosis_ratio": 1.708,
+      "coint_ratio": 0.724,
+      "v1_suites": 5,
+      "v2_suites": 6,
+      "v1_score": 67.35,
+      "note": "BEST single model — highest composite + massive KS improvement"
+    },
+    {
+      "experiment": "120b_v5",
+      "lambda_is": 0.50,
+      "is_fix": true,
+      "checkpoint": "best_model (ep1)",
+      "results_path": "results/block_ar/120b_v5_is_fix_30d/summary.json",
+      "ci_90": 0.720,
+      "ks_daily": 18,
+      "ks_levels": 21,
+      "kurtosis_ratio": 0.135,
+      "coint_ratio": 0.334,
+      "v1_suites": 3,
+      "v1_score": 45.12,
+      "note": "over-corrected — IS dominates 67% of total loss"
+    }
+  ],
+  "key_findings": {
+    "coverage_is_tension": "IS monotonically decreases coverage at ANY lambda > 0. No equilibrium.",
+    "operating_point": "The sweet spot is an EPOCH (early checkpoint), not a lambda value.",
+    "best_lambda": 0.05,
+    "best_checkpoint_strategy": "best_coverage_model (saved automatically)",
+    "structural_insight": "Lambda controls SPEED of coverage decline, not whether it declines."
+  }
+}

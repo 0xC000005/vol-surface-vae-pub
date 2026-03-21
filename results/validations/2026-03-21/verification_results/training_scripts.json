@@ -1,0 +1,21 @@
+{
+  "experiment_id": "all_03-21",
+  "verification_type": "other",
+  "timestamp": "2026-03-21T05:15:00Z",
+  "script_path": null,
+  "result_paths": [
+    "results/validations/2026-03-21/scripts/120b_v5_train.sh",
+    "results/validations/2026-03-21/scripts/120b_v6_train.sh",
+    "results/validations/2026-03-21/scripts/120b_v7_train.sh",
+    "results/validations/2026-03-21/scripts/120b_v8_train.sh",
+    "results/validations/2026-03-21/scripts/99m_v3_train.sh",
+    "results/validations/2026-03-21/scripts/135a_train.sh",
+    "results/validations/2026-03-21/scripts/136a_train.sh",
+    "results/validations/2026-03-21/scripts/137a_train.sh",
+    "results/validations/2026-03-21/scripts/138a_train.sh"
+  ],
+  "status": "PASS",
+  "summary": "9 training scripts extracted from research log and saved as executable .sh files. All include set -euo pipefail, PYTHONPATH=., --no_ema, and header comments with experiment context.",
+  "claims_verified": [],
+  "metrics": {"scripts_saved": 9}
+}

@@ -1,0 +1,61 @@
+{
+  "verification": "138a_multiseed",
+  "date": "2026-03-21",
+  "status": "VERIFIED",
+  "claim": "138a passes 6/8 suites (S1,S3,S4,S5,S6,S8)",
+  "verdict": "ROBUST — 6/8 (original suites) confirmed across all 3 seeds. Actually 7/9 on v2 test suite (which adds S9:CrossCell).",
+  "model": "models/backfill/afcrps_138a/best_model.pt",
+  "test_script": "experiments/backfill/block_ar/test_block_ar_requirements_v2.py",
+  "reproduction_script": "results/validations/2026-03-21/scripts/138a_multiseed.sh",
+  "seeds_tested": [42, 123, 456],
+  "results_by_seed": {
+    "seed42": {
+      "source": "results/block_ar/138a_best_30d/summary.json",
+      "note": "Existing result (v1 test suite, but same 9 suites detected in file)",
+      "suites_pass": ["surface", "conditionality", "time_series", "block_ar", "cointegration", "distributional", "cross_cell_correlation"],
+      "suites_fail": ["coverage", "regime_coverage"],
+      "pass_count_of_9": 7,
+      "pass_count_of_8_original": 6,
+      "kurtosis_ratio": 0.794,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90_pct": 78.7
+    },
+    "seed123": {
+      "source": "results/block_ar/138a_seed123_30d/summary.json",
+      "suites_pass": ["surface", "conditionality", "time_series", "block_ar", "cointegration", "distributional", "cross_cell_correlation"],
+      "suites_fail": ["coverage", "regime_coverage"],
+      "pass_count_of_9": 7,
+      "pass_count_of_8_original": 6,
+      "kurtosis_ratio": 0.814,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90_pct": 78.6
+    },
+    "seed456": {
+      "source": "results/block_ar/138a_seed456_30d/summary.json",
+      "suites_pass": ["surface", "conditionality", "time_series", "block_ar", "cointegration", "distributional", "cross_cell_correlation"],
+      "suites_fail": ["coverage", "regime_coverage"],
+      "pass_count_of_9": 7,
+      "pass_count_of_8_original": 6,
+      "kurtosis_ratio": 0.784,
+      "ks_levels_n_pass": 15,
+      "overall_ci_90_pct": 78.7
+    }
+  },
+  "stability_analysis": {
+    "all_suites_identical_across_seeds": true,
+    "pass_fail_pattern_identical": true,
+    "kurtosis_ratio_range": [0.784, 0.814],
+    "kurtosis_threshold": [0.5, 2.0],
+    "kurtosis_margin_to_lower_bound": 0.284,
+    "ks_levels_all_seeds": 15,
+    "ks_levels_threshold": 15,
+    "ks_levels_margin": 0,
+    "ci_90_range_pct": [78.6, 78.7]
+  },
+  "borderline_assessment": {
+    "S4_kurtosis": "SAFE — ratio 0.784-0.814, well above 0.5 lower bound (56-63% margin). Not borderline.",
+    "S8_ks_levels": "BORDERLINE BUT STABLE — exactly 15/25 across all 3 seeds (threshold is 15). No variance observed, but zero margin.",
+    "S6_cointegration": "SAFE — passes across all seeds"
+  },
+  "conclusion": "The 6/8 suite result for Exp 138a is fully robust across seeds. The pass/fail pattern is identical for all 3 seeds tested (42, 123, 456). Sampling noise has essentially zero impact on suite-level pass/fail decisions. The only metric at the exact threshold is KS levels (15/25), but it was perfectly stable across all seeds. This is NOT a lucky seed result."
+}

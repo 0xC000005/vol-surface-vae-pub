@@ -1,0 +1,67 @@
+{
+  "validation_date": "2026-03-21",
+  "scope": "Research log entries from 2026-03-19 to 2026-03-21",
+  "experiments_audited": 12,
+  "gaps_found": {"HIGH": 2, "MEDIUM": 6, "LOW": 1, "total": 9},
+  "tasks_dispatched": 8,
+  "tasks_completed": 8,
+  "tasks_failed": 0,
+  "results": [
+    {
+      "task": "T1: 138a multi-seed",
+      "type": "MISSING_ANALYSIS",
+      "status": "PASS",
+      "finding": "6/8 is ROBUST — identical pass/fail across seeds 42, 123, 456. KS levels exactly 15/25 every time."
+    },
+    {
+      "task": "T2: 138a long-horizon",
+      "type": "MISSING_ANALYSIS",
+      "status": "PARTIAL",
+      "finding": "Stable surfaces (0% explosion) but CI drops 98%→55% at 252d. Spread shrinks instead of growing. AR limitation."
+    },
+    {
+      "task": "T3: 120b_v6 long-horizon",
+      "type": "MISSING_ANALYSIS",
+      "status": "PARTIAL",
+      "finding": "Same pattern — CI 99%→42% at 252d. Spread shrinks. Cross-cell correlation good. Cointegration poor (20.4%)."
+    },
+    {
+      "task": "T4: 138a + 120b_v6 ensemble",
+      "type": "MISSING_ANALYSIS",
+      "status": "PASS",
+      "finding": "Ensemble = 6/8, same as 138a alone. CI improves 78.7→87.4% but per-cell gate fails. KS levels regresses 21→15. No net benefit."
+    },
+    {
+      "task": "T5: Lambda sweep artifact",
+      "type": "MISSING_RESULTS",
+      "status": "PASS",
+      "finding": "4-lambda comparison saved as structured JSON with key findings."
+    },
+    {
+      "task": "T6: 138a compute_score_v2",
+      "type": "MISSING_ANALYSIS",
+      "status": "PASS",
+      "finding": "v1=76.62 (6/8), v2=85.52 (7/9). ALL-TIME BEST composite scores on both systems."
+    },
+    {
+      "task": "T7: Training scripts",
+      "type": "NO_SCRIPT",
+      "status": "PASS",
+      "finding": "9 training scripts saved as executable .sh files."
+    },
+    {
+      "task": "T8: 138a_v2 bestcov evaluation",
+      "type": "MISSING_ANALYSIS",
+      "status": "PASS",
+      "finding": "bestcov (ep3) = 4/8, CI 88.4%. Same suite count as best_model but higher CI. λ=1.0 still too strong. 138a (λ=0.05) remains superior."
+    }
+  ],
+  "corrections": [],
+  "key_insights": [
+    "138a 6/8 is robust (multi-seed verified)",
+    "Long-horizon: both IS-fix models have variance collapse at 252d (AR limitation)",
+    "Ensemble of 138a+120b_v6 doesn't improve over 138a alone",
+    "138a_v2 bestcov (λ=1.0) is still weaker than 138a (λ=0.05)",
+    "138a is confirmed ALL-TIME BEST: v1=76.62 (6/8), v2=85.52 (7/9)"
+  ]
+}
