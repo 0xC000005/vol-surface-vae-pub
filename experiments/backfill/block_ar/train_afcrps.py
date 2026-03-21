@@ -537,6 +537,8 @@ def main():
                         help="Also freeze cell_spread_linear when --freeze_after_epoch triggers")
     parser.add_argument("--freeze_skip_too", action="store_true",
                         help="Also freeze noise_skip_proj when --freeze_after_epoch triggers (Exp 114a)")
+    parser.add_argument("--freeze_encoder_too", action="store_true",
+                        help="Also freeze encoder when --freeze_after_epoch triggers (Exp 139a_v2)")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="Unfreeze GRU encoder")
     parser.add_argument("--lr_encoder", type=float, default=1e-4,
@@ -993,6 +995,8 @@ def main():
                     keep = keep or "cell_spread_linear" in name or "cell_spread_factor" in name or "cell_spread_expand" in name
                 should_freeze = name.startswith("frame_decoder.") or (
                     args.freeze_spread_too and ("cell_spread_linear" in name or "cell_spread_factor" in name or "cell_spread_expand" in name)
+                ) or (
+                    getattr(args, 'freeze_encoder_too', False) and name.startswith("encoder.")
                 )
                 if not keep and should_freeze:
                     param.requires_grad_(False)
