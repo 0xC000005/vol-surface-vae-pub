@@ -353,6 +353,8 @@ def main():
                         help="Energy score weight (multivariate decorrelation)")
     parser.add_argument("--lambda_is", type=float, default=0.0,
                         help="Interval score weight (CI calibration pressure)")
+    parser.add_argument("--is_warmup_epoch", type=int, default=0,
+                        help="Keep lambda_is=0 for first N epochs, then use configured value")
     parser.add_argument("--lambda_cs_reg", type=float, default=0.0,
                         help="L2 penalty pulling cell_scale toward its spatial mean")
     parser.add_argument("--lambda_kurt", type=float, default=0.0,
@@ -987,7 +989,8 @@ def main():
             model, train_loader, optimizer, device,
             n_members=args.n_members, lambda_vs=args.lambda_vs,
             grad_clip=args.grad_clip, n_train_blocks=args.n_train_blocks,
-            lambda_is=args.lambda_is, lambda_cs_reg=args.lambda_cs_reg,
+            lambda_is=args.lambda_is if epoch > getattr(args, 'is_warmup_epoch', 0) else 0.0,
+            lambda_cs_reg=args.lambda_cs_reg,
             lambda_kurt=args.lambda_kurt, lambda_es=args.lambda_es,
             lambda_cell_var=args.lambda_cell_var,
             lambda_cum_cal=args.lambda_cum_cal,
