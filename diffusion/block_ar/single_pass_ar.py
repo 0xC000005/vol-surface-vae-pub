@@ -2054,9 +2054,10 @@ def interval_score(
 ) -> torch.Tensor:
     """Interval score for CI calibration.
 
-    Penalizes wide intervals AND missed coverage. Has steep gradient for
-    undercoverage — when GT falls outside the CI, penalty is proportional
-    to distance scaled by 2/alpha. Much stronger spread signal than CRPS.
+    IS = (upper-lower) + (2/alpha)(lower-y)+ + (2/alpha)(y-upper)+
+    Penalizes wide intervals AND missed coverage. Width term ensures the
+    model pays for over-spread; miss terms have steep gradient for
+    undercoverage proportional to distance scaled by 2/alpha.
 
     Args:
         samples: (B, K, T, H, W) ensemble members in IV space
@@ -2070,11 +2071,12 @@ def interval_score(
     q_hi = 1 - q_lo            # 0.95
     lower = torch.quantile(samples, q_lo, dim=1)  # (B, T, H, W)
     upper = torch.quantile(samples, q_hi, dim=1)
-    # Miss-only: penalize under-coverage without width penalty.
+    # Width penalty + miss penalty (standard interval score formulation)
+    width = upper - lower
     miss_low = (2.0 / alpha) * torch.relu(lower - gt)
     miss_high = (2.0 / alpha) * torch.relu(gt - upper)
     # Sum over T/H/W, mean over B — consistent with frame_sum CRPS
-    return (miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+    return (width + miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
 
 
 def energy_score(
