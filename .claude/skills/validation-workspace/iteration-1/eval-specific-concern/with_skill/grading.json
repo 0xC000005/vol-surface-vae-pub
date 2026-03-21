@@ -1,0 +1,35 @@
+{
+  "expectations": [
+    {
+      "text": "Checks disk for v2-specific data (cross_cell_correlation key)",
+      "passed": true,
+      "evidence": "References cross_cell_corr/cross_cell_correlation in audit"
+    },
+    {
+      "text": "Confirms v2 results are on disk (corrects initial concern)",
+      "passed": true,
+      "evidence": "All 4 models marked as SAVED and TRACKED"
+    },
+    {
+      "text": "Names all 4 models (120b, 108a, 99m_v2, 133f)",
+      "passed": true,
+      "evidence": "All four model IDs appear in audit table"
+    },
+    {
+      "text": "Verifies metrics match research log claims",
+      "passed": true,
+      "evidence": "Per-model verification with 'log says X, ratio Y' format"
+    },
+    {
+      "text": "Identifies oracle results as untracked gap",
+      "passed": true,
+      "evidence": "Oracle v2 results flagged as NOT TRACKED (MEDIUM severity)"
+    },
+    {
+      "text": "Stops at user approval gate",
+      "passed": true,
+      "evidence": "Contains USER APPROVAL GATE at end"
+    }
+  ],
+  "pass_rate": 1.0
+}

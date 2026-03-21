@@ -1,0 +1,35 @@
+{
+  "eval_id": 1,
+  "eval_name": "standard-trigger",
+  "prompt": "validate experiments from the last 2 days",
+  "assertions": [
+    {
+      "text": "Produces an audit table with at least 5 experiments/tasks",
+      "check": "Count rows in audit table. Must be >= 5."
+    },
+    {
+      "text": "Identifies MISSING_RESULTS for v2 test suite",
+      "check": "Audit mentions v2 test results are not on disk."
+    },
+    {
+      "text": "Uses gap severity categorization (HIGH/MEDIUM/LOW)",
+      "check": "Gap types are categorized with severity levels."
+    },
+    {
+      "text": "Stops at user approval gate",
+      "check": "Output ends with request for approval before executing."
+    },
+    {
+      "text": "Searches research log efficiently (QMD/grep, not full read)",
+      "check": "Tool usage shows grep or QMD, no full file read."
+    },
+    {
+      "text": "Cross-references claims with disk (ls/glob for summary.json)",
+      "check": "Agent checked filesystem for result artifacts."
+    },
+    {
+      "text": "Proposes concrete verification tasks",
+      "check": "Output includes specific verification actions for each gap."
+    }
+  ]
+}

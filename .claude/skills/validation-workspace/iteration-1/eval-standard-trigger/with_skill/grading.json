@@ -1,0 +1,45 @@
+{
+  "expectations": [
+    {
+      "text": "Produces an audit table with at least 5 experiments",
+      "passed": true,
+      "evidence": "Found 93 bold-formatted rows in audit table"
+    },
+    {
+      "text": "Identifies MISSING_RESULTS gaps for analyses not on disk",
+      "passed": true,
+      "evidence": "MISSING_RESULTS appears in gap table, NOT SAVED in audit rows (A3, A5, oracle)"
+    },
+    {
+      "text": "Categorizes gaps by severity (HIGH/MEDIUM/LOW)",
+      "passed": true,
+      "evidence": "All three severity levels present in gap categorization table"
+    },
+    {
+      "text": "Stops at user approval gate",
+      "passed": true,
+      "evidence": "Contains 'STOP: Awaiting user approval' at end"
+    },
+    {
+      "text": "Uses efficient search (not full file read)",
+      "passed": true,
+      "evidence": "References specific line numbers (28683-32334), indicating targeted read"
+    },
+    {
+      "text": "Cross-references claims with disk artifacts",
+      "passed": true,
+      "evidence": "25 metrics verified with Log Value vs Disk Value comparison table"
+    },
+    {
+      "text": "Proposes concrete verification tasks",
+      "passed": true,
+      "evidence": "14 tasks proposed (T1-T14) in priority batches"
+    },
+    {
+      "text": "Identifies UNEVALUATED_MODEL (120b_v5_is_fix)",
+      "passed": true,
+      "evidence": "120b_v5_is_fix flagged as trained but never evaluated \u2014 highest priority gap"
+    }
+  ],
+  "pass_rate": 1.0
+}

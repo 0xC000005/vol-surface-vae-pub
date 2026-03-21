@@ -1,0 +1,31 @@
+{
+  "eval_id": 2,
+  "eval_name": "specific-concern",
+  "prompt": "I'm worried the v2 test suite results weren't saved to disk. check if all models we tested on v2 have summary.json files",
+  "assertions": [
+    {
+      "text": "Checks disk for cross_cell_corr key in summary.json files",
+      "check": "Agent searched for v2-specific data marker in existing results."
+    },
+    {
+      "text": "Confirms v2 results NOT on disk despite being in research log",
+      "check": "Explicitly states the discrepancy between log claims and disk state."
+    },
+    {
+      "text": "Names all 4 models (120b, 108a, 99m_v2, 133f)",
+      "check": "All four model IDs appear in the output."
+    },
+    {
+      "text": "Proposes re-running v2 test suite with scripts",
+      "check": "Verification tasks include test commands for each model."
+    },
+    {
+      "text": "Includes --no_ema in proposed commands",
+      "check": "Every test command includes the --no_ema flag."
+    },
+    {
+      "text": "References the Verification Agent Contract pattern",
+      "check": "Output mentions saving scripts and verification_result.json."
+    }
+  ]
+}

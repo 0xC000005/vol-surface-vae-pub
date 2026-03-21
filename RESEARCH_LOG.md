@@ -32136,3 +32136,259 @@ experiments.** This is the single most actionable finding — adding the width t
 is a one-line change that could break the ceiling.
 
 ---
+
+## 2026-03-20: Priority Decision — Fix Loss Function Before Any Architecture Work
+
+### Context
+Strategic discussion about what to work on next, given multiple open directions:
+loss function fix, joint transformer cross-cell correlation, minimal architecture,
+test suite fixes, and the long-term multi-factor objective.
+
+### The User's Core Values (from Socratic questioning)
+When asked "what ONE property matters most for the actual use case," the user stated:
+1. **Realism first** — scenarios must look like ground truth (mean-reversion, IV dynamics,
+   rate response, cross-factor correlation). Without realism, scenarios are useless.
+2. **Calibrated uncertainty second** — the model should learn when to widen/narrow intervals
+   based on regime, time, history, and spatial position. The conditional distribution matters.
+
+### Two Bombshell Findings That Reframe Everything
+
+**Finding 1: The interval score is missing its width term (one-line bug)**
+Standard IS = (upper-lower) + (2/alpha)(lower-y)+ + (2/alpha)(y-upper)+
+The width term (upper-lower) is MISSING in the implementation. Without it, wider intervals
+are FREE. The model pays NOTHING for over-spread.
+
+Loss audit showing systematic over-spread bias:
+| Loss Component | Penalizes Under-spread | Penalizes Over-spread |
+|---------------|:---:|:---:|
+| CRPS (dominant) | STRONG (-0.14 gradient) | WEAK (+0.05 gradient) |
+| Energy Score | STRONG | WEAK |
+| Interval Score | STRONG (2/alpha) | NONE (width term missing) |
+| Cell Var Loss | YES (symmetric, but 1/50th of CRPS magnitude) | YES |
+
+This explains why Suite 2 (per-cell CI) and Suite 7 (per-regime per-cell CI) fail across
+ALL 75+ experiments. The loss function literally incentivizes over-spread.
+
+**Finding 2: Joint transformer catastrophically fails Suite 9 (cross-cell correlation)**
+V2 test suite results:
+| Model | Architecture | v2 Suites | Suite 9 (cross-cell corr) |
+|-------|-------------|-----------|--------------------------|
+| 120b | AR noisefree MLP | **7/9** | PASS (ratio 0.97) |
+| 99m_v2 | AR MLP | 6/9 | PASS (ratio 0.84) |
+| 108a | AR MLP Student-t | 6/9 | PASS (ratio 1.26) |
+| 133f | Joint transformer | 5/9 | FAIL (ratio 0.047) |
+
+The "principled" joint transformer generates 25 nearly independent time series.
+The "exhausted" AR architecture was actually closer to the goal all along — we just
+weren't measuring cross-cell correlation until v2.
+
+### Priority Decision (applied philosophy)
+
+**Hamming test**: Fix loss (important: explains 75+ failures; attackable: one-line change)
+vs fix joint TF correlation (important: but no clear attack — 133d overcorrected).
+WINNER: Fix loss.
+
+**Popper test**: If fixed loss still over-spreads -> CRPS's own 3:1 gradient asymmetry
+is the root cause, need fundamentally different calibration (HIGH information value).
+If joint TF correlation fix works -> still need to fix the loss anyway.
+WINNER: Fix loss first (information flows one way).
+
+**Karpathy test**: Loss fix = one line of code + retrain. Joint TF correlation = unknown
+implementation path. WINNER: Fix loss (simpler).
+
+**Key principle**: You cannot evaluate ANY architecture fairly while the loss function is
+broken. Every model trained under the current loss inherits systematic over-spread bias.
+
+### The Retraining Question
+
+The loss fix invalidates ALL prior experimental results — every model was trained with
+a loss that had zero penalty for over-spread. This means we need to retrain representative
+models from each architecture class to understand how each responds to the corrected loss.
+
+**Distinct architecture classes (not individual experiments — architecture TYPES):**
+
+| Architecture Class | Representative | Why This One | Distinct Properties |
+|-------------------|---------------|-------------|-------------------|
+| AR MLP (baseline) | 99m_v2 | Best-tuned AR, all skip/cell_spread/freeze | Rank-1 output, good cross-cell corr |
+| AR MLP noise-free | 120b | Best v2 score (7/9), noise only via skip | Clean mean/noise separation |
+| AR MLP Student-t | 108a | Best calibration (cal_err 0.018) | Weight regularization from heavy tails |
+| Joint transformer | 133f/134c | Best kurtosis, near-GT factor structure | Non-AR, independent cell generation |
+| Conv3D | 111b | Different spatial inductive bias | Used in E4 ensemble |
+
+We do NOT need to retrain all 130+ experiments. We need to retrain ONE model per
+architecture class (5 total) with the fixed loss, then compare. Each retraining takes
+30-60 minutes. Total: 3-5 hours for a complete architecture-vs-loss interaction map.
+
+### Recommended Execution Order
+
+**Step 1 (30 min): Fix interval score + retrain 120b**
+Why 120b first: it's currently 7/9 on v2 — highest baseline. If the loss fix pushes it
+to 8/9 or 9/9, we may not need any architectural change at all.
+Falsification: if over-spread cells don't decrease -> CRPS asymmetry is deeper problem.
+
+**Step 2 (30 min): Retrain 99m_v2 with fixed loss**
+Why: controls for the noise-free architecture. If 99m_v2 also improves similarly, the
+loss fix is architecture-agnostic (good). If only 120b improves, the noise-free
+architecture interacts with the loss in a special way (interesting).
+
+**Step 3 (30 min): Retrain 133f (joint transformer) with fixed loss**
+Why: tests whether the joint transformer's cross-cell correlation failure (Suite 9 ratio
+0.047) is caused by the broken loss or by the architecture. If fixed loss improves Suite 9
+-> the over-spread was preventing the model from learning spatial coupling.
+If Suite 9 still fails -> the architecture genuinely doesn't learn cross-cell structure.
+
+**Step 4 (analysis): Compare all 3 architectures under fixed loss**
+Build the architecture-vs-loss interaction table. This tells us:
+- Does the loss fix help all architectures equally? (loss was THE bottleneck)
+- Does it help some more than others? (architecture x loss interaction)
+- Does any architecture reach 8+/9 on v2? (ceiling broken)
+
+**Step 5 (conditional): Based on Step 4 results, invoke research-ideation for RC4**
+The Step 4 results will be the most informative evidence we've ever had — the first time
+we see architectures compared under a NON-broken loss. RC4 should be generated from
+this new evidence, not from the old broken-loss evidence.
+
+### Why NOT retrain all 130+ experiments
+- Most are variants within the same architecture class (99a through 99m are all AR MLP)
+- The architecture class determines the loss response, not the hyperparameters within a class
+- 5 representative models x 30 min = 2.5 hours covers all distinct architectures
+- If we discover a surprising interaction, we can add targeted retrains
+
+### Connection to Long-Term Multi-Factor Objective
+The loss fix is architecture-agnostic and transfers directly to multi-factor. Whatever
+architecture wins under the corrected loss is the one to scale to rates/FX/credit.
+Without the fix, we'd be choosing architectures based on broken evaluation.
+
+### Philosophy Applied
+- **Hamming**: Fix loss is both important AND attackable (one-line change)
+- **Popper**: If fixed loss still over-spreads, that's the most informative outcome
+- **Karpathy**: Simplest change first (one line), then staged retraining (one architecture at a time)
+- **Bitter Lesson**: The loss fix is mathematical, not domain-specific — transfers to any factor
+- **Nanda**: After each retrain, compare to broken-loss version to understand the interaction
+
+---
+
+## 2026-03-21: RC4 — Fix Interval Score Width Term, Retrain 120b ONLY
+
+### Philosophy Applied
+- **Karpathy**: ONE model, not five. Understand the first result before deciding the next.
+- **Popper**: Clear falsification — if over-spread doesn't decrease, CRPS asymmetry is deeper.
+- **Hamming**: 120b is the highest-baseline model (7/9 on v2). Maximum information per retrain.
+
+### The Fix
+Add the missing width term to the interval score implementation:
+```python
+# Current (broken): only penalizes missed coverage, not width
+IS = (2/alpha)(lower - y)+ + (2/alpha)(y - upper)+
+
+# Fixed: add width penalty
+IS = (upper - lower) + (2/alpha)(lower - y)+ + (2/alpha)(y - upper)+
+```
+Location: `diffusion/block_ar/single_pass_ar.py`, interval score computation.
+
+### Why 120b First (and ONLY 120b)
+- Currently 7/9 on v2 test suite — highest baseline
+- If loss fix pushes to 8+/9, no other retraining needed
+- If it doesn't improve, that answers whether the problem is deeper than IS
+- Retraining all 5 architecture classes upfront violates Karpathy (test one thing, understand it)
+
+### Execution
+1. Fix interval score width term (one-line code change)
+2. Retrain 120b with fixed loss, 30 epochs, same hyperparameters otherwise
+3. Evaluate on v2 test suite (9 suites)
+4. Compare per-cell coverage to broken-loss 120b — did over-spread cells decrease?
+
+### Information Flow (decide AFTER seeing the result)
+```
+Retrain 120b with fixed IS
+    |
+    +-- Over-spread decreases, 8+/9 --> DONE. Loss was the answer.
+    |
+    +-- Over-spread decreases, still 7/9 --> Retrain 133f to check joint TF
+    |
+    +-- Over-spread unchanged --> CRPS asymmetry is deeper.
+        Need explicit calibration loss. Don't retrain others.
+```
+
+### Falsification
+If 120b's over-spread cells (those above 95% per-cell CI) do NOT decrease after the
+IS width fix, the over-spread is driven by CRPS's own gradient asymmetry (3:1 ratio
+of under-spread vs over-spread penalty), not the missing IS term. In that case, a
+fundamentally different approach is needed (two-stage training or explicit coverage loss).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_120b_v5_is_fix --device cuda
+```
+Note: ensure the noise-free MLP configuration from 120b is preserved (noise removed
+from MLP input concatenation, all stochasticity through skip bypass).
+
+---
+
+## 2026-03-21: Validation Skill Created — Research Gap Analysis & Reproducible Audit
+
+### Context
+Created a new skill at `.claude/skills/validation/SKILL.md` (436 lines) to standardize
+the validation workflow that was previously done ad-hoc in "validation conversation branches."
+The skill was motivated by two problems: (1) subagent analyses done in conversation but not
+persisted to disk, and (2) no systematic way to identify what follow-up analysis is missing.
+
+### Design
+**Two jobs:** Gap analysis (what analysis is missing?) + Reproducible audit (are results saved?).
+
+Key components:
+- **Analysis Playbook**: 8 standard follow-up analyses for trained models (test suite eval,
+  per-cell breakdown, factor analysis, cross-model comparison, long-horizon, ensemble,
+  checkpoint comparison, multi-seed). Used to identify MISSING_ANALYSIS gaps.
+- **Verification Agent Contract**: Mandatory persistence protocol for dispatched agents —
+  write script first, save results to standard paths, write verification_result.json.
+- **Depth Standard**: Borrowed from research-ideation (Nanda's 3 questions + falsification
+  cleanliness + mechanism identification).
+- **10 gap types**: UNEVALUATED_MODEL, MISSING_RESULTS, UNVERIFIED_CLAIM, STALE_METRIC (HIGH);
+  MISSING_ANALYSIS, SHALLOW_ANALYSIS, NO_SCRIPT, UNTESTED_HYPOTHESIS, DIRTY_FALSIFICATION (MED);
+  INCOMPLETE_FOLLOWUP (LOW).
+
+### Eval Results (2 test cases, 14/14 assertions pass)
+
+**eval-standard** ("validate experiments from last 2 days"):
+- Scanned 55 entries (3,650 lines), audited 40+ experiments
+- Verified 25 numerical claims against disk — zero discrepancies
+- Found 18 gaps: 4 HIGH, 9 MEDIUM, 5 LOW
+- Top finding: 120b_v5_is_fix (RC4) trained but never evaluated, possible config mismatch
+- 133,666 tokens, 348s
+
+**eval-specific** ("check if v2 test results saved"):
+- Found all 4 v2 results ARE on disk and git-tracked (commit 2c5bb36)
+- Key name is `cross_cell_correlation` not `cross_cell_corr` (earlier search had typo)
+- Correctly identified oracle v2 results as untracked (MEDIUM gap)
+- 58,788 tokens, 254s
+
+### Meta-validation (skill validates itself)
+Used the validation skill on its own eval artifacts. Found 7 gaps:
+- No reproduction scripts for eval agents (fixed: reproduce.sh created)
+- No grading results saved (fixed: grading.json with 14/14 pass)
+- No timing data persisted (fixed: timing.json from task notifications)
+- Nothing git-tracked (fixing now)
+- No research log entry (this entry)
+
+### Key Insight
+The original premise ("v2 test results were lost") was wrong — the key name was
+`cross_cell_correlation` not `cross_cell_corr`. The actual value of the skill is
+the Analysis Playbook (finding what follow-up analysis is missing), not just checking
+if artifacts exist on disk.
+
+### Integration with Other Skills
+- **autoresearch**: Forward loop; validation is the backward check
+- **research-ideation**: Provides Depth Standard + Research Compass tracking
+- **research-log**: Shared dependency for scan and documentation
+- **dispatching-parallel-agents**: Used for Phase 4 execution
+
+---

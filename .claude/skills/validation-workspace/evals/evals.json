@@ -1,0 +1,63 @@
+{
+  "skill_name": "validation",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standard-trigger",
+      "prompt": "validate experiments from the last 2 days",
+      "expected_output": "Audit table showing recent experiments (130a-134d) with gap categorization. Should identify: (1) v2 test results as MISSING_RESULTS for 120b/108a/99m_v2/133f, (2) oracle test results partially missing, (3) multiple experiments lacking reproducible scripts. Should stop at user approval gate.",
+      "assertions": [
+        {
+          "text": "Produces an audit table with at least 5 experiments",
+          "type": "output_contains"
+        },
+        {
+          "text": "Identifies MISSING_RESULTS gaps for v2 test suite results",
+          "type": "output_contains"
+        },
+        {
+          "text": "Categorizes gaps by severity (HIGH/MEDIUM/LOW)",
+          "type": "output_contains"
+        },
+        {
+          "text": "Stops at user approval gate before executing verifications",
+          "type": "behavioral"
+        },
+        {
+          "text": "Uses QMD or grep to search research log (not reading full file)",
+          "type": "behavioral"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "specific-concern",
+      "prompt": "I'm worried the v2 test suite results weren't saved to disk. check if all models we tested on v2 have summary.json files",
+      "expected_output": "Should check disk for v2 test results, find that no summary.json contains cross_cell_corr key, identify specific models (120b, 108a, 99m_v2, 133f) as missing v2 results, and propose re-running the v2 test suite with verification agent contract.",
+      "assertions": [
+        {
+          "text": "Checks disk for v2 test results (cross_cell_corr key or v2-specific paths)",
+          "type": "behavioral"
+        },
+        {
+          "text": "Identifies that v2 results exist in research log but NOT on disk",
+          "type": "output_contains"
+        },
+        {
+          "text": "Names specific models missing results (120b, 108a, 99m_v2, 133f)",
+          "type": "output_contains"
+        },
+        {
+          "text": "Proposes verification tasks with reproducible scripts",
+          "type": "output_contains"
+        },
+        {
+          "text": "Includes --no_ema flag in any proposed test commands",
+          "type": "output_contains"
+        }
+      ],
+      "files": []
+    }
+  ]
+}
