@@ -33294,3 +33294,83 @@ remains the best recipe.
 - H2 (selective freeze): Conditional on H1/H3 failing → worth trying next
 
 ---
+
+## 2026-03-21: Exp 137a — RC5-H2: Early Freeze (ep3) + IS — Identical to 120b_v6
+
+### Context
+RC5-H2: Tests whether freezing MLP earlier (ep3 instead of ep10) combined with IS from
+ep1 preserves coverage better. The idea: lock in the MLP's conditional mean at the
+coverage peak, then let IS calibrate only the skip weights.
+
+**Based on**: 120b_v6 (freeze at ep10 + IS from ep1: CI 87.5%, KS 21/25)
+**Change**: freeze_after_epoch=3 (was 10)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.05 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 3 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_137a --device cuda
+```
+
+### Training Dynamics — More Stable Coverage
+| Epoch | Phase | Coverage 90% | val_loss | IS |
+|-------|-------|-------------|---------|-----|
+| 1 | MLP+skip | 88.9% | 18.0 | 102.5 |
+| 3 | MLP+skip | **91.0%** | 18.0 | 91.5 |
+| 5 | skip-only | 88.8% | 18.0 | 84.9 |
+| 10 | skip-only | 89.6% | 17.6 | 82.1 |
+| 15 | skip-only | 88.6% | 17.4 | 78.3 |
+| 20 | skip-only | 87.8% | 17.0 | 73.6 |
+| 30 | skip-only | 78.1% | 16.8 | 67.5 |
+
+Coverage holds above 87% for 20 epochs (vs 120b_v6's 75% at ep20). Early freeze
+produces more stable coverage trajectory. But the best_coverage_model is still at ep3.
+
+### Results — best_coverage_model is IDENTICAL to 120b_v6
+
+| Metric | 120b_v6 bestcov | 137a bestcov | 137a best_model |
+|--------|----------------|-------------|----------------|
+| Score | 67.35 | **67.35** | — |
+| CI 90% | 87.5% | **87.5%** | 70.9% |
+| KS daily | 22/25 | **22/25** | — |
+| KS levels | 21/25 | **21/25** | — |
+| Kurtosis | 1.708 | **1.708** | 1.841 |
+
+Every single metric is identical because both models' best_coverage is at epoch 3,
+where the training is identical (same IS, same MLP+skip, same learning rate).
+
+### What Was Learned
+1. **Early freeze doesn't change the coverage peak**: The peak is at ep3 regardless
+   of when the freeze happens (ep3 or ep10). The best_coverage checkpoint is the same.
+2. **Early freeze improves later-epoch stability**: Coverage at ep20 is 87.8% (vs 75%
+   for 120b_v6). But this doesn't help because the best model is still at ep3.
+3. **The 87.5% coverage is determined by the FIRST 3 epochs**: Before any freeze.
+   The MLP learns a mean trajectory, the skip provides initial stochastic spread.
+   IS immediately starts shrinking this spread. By ep3, coverage has already started
+   its monotonic decline.
+
+### Decision
+**NO IMPROVEMENT — identical result.** H2 doesn't change the outcome.
+
+### RC5 Status — ALL HYPOTHESES EXHAUSTED
+- H1 (asymmetric CRPS): FALSIFIED — IS has superior gradient structure
+- H2 (selective freeze): NO IMPROVEMENT — identical best_coverage model
+- H3 (ACF loss): FALSIFIED — ACF and KS are anti-correlated
+
+**The 120b_v6 bestcov model (score 67.35, CI 87.5%, KS 21/25) is the best achievable
+with the current architecture under the IS fix.** The 2.5pp coverage gap to 90% is
+structural — it's determined in the first 3 epochs of training and cannot be closed
+by loss-level or freeze-schedule changes.
+
+Breaking through 90% coverage while maintaining KS 21/25 requires a fundamentally
+different approach: either architectural (how noise creates spread) or training paradigm
+(two-stage, adversarial, or non-CRPS loss).
+
+---
