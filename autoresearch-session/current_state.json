@@ -1,12 +1,11 @@
 {
-  "iteration": 0,
-  "experiment_id": "baseline",
-  "training_status": "setup",
-  "phase": "hypothesize",
-  "hypothesis": "Session setup — Research Compass H1-H4",
-  "session_best": {"exp": "99m_v2", "score": 66.31},
-  "total_experiments": 0,
-  "total_investigations": 0,
-  "compass_position": "H1",
-  "session_date": "2026-03-19"
+  "iteration": 23,
+  "experiment_id": "120b_v6",
+  "training_status": "running",
+  "phase": "training",
+  "hypothesis": "RC4: IS width fix at λ_IS=0.05 — balanced loss contribution (~17% of total)",
+  "session_best": {"exp": "134c", "score": 69.41, "suites": 5},
+  "total_experiments": 23,
+  "compass_position": "RC4",
+  "session_date": "2026-03-21"
 }
