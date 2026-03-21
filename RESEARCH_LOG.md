@@ -32702,3 +32702,104 @@ by using a slightly earlier checkpoint or λ_IS=0.03. If not, proceed to apply t
 fix to 99m_v2 (second architecture class) to test architecture-independence.
 
 ---
+
+## 2026-03-21: Exp 99m_v3 — IS Fix on Standard AR MLP — IS Fix is NOT Architecture-Agnostic
+
+### Context
+Architecture independence test per RC4: same IS fix (λ_IS=0.05) applied to 99m_v2 (standard
+AR MLP with noise in MLP input). Tests whether the IS width fix is universal or 120b-specific.
+
+**Based on**: 120b_v6 (IS fix works on noise-free MLP) + 99m_v2 (standard AR MLP baseline)
+**Change**: Add IS width term at λ_IS=0.05 to 99m_v2 recipe (no --ar_noisefree_mlp, Gaussian noise)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.05 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_99m_v3 --device cuda
+```
+
+### Training Dynamics — CATASTROPHIC INSTABILITY
+| Epoch | val_loss | Coverage 90% | IS |
+|-------|---------|-------------|-----|
+| 1 | 18.1 | 90.4% | 109.9 |
+| 3 | **17.3** | 91.4% | 96.7 |
+| 5 | 20.2 | 94.2% | 114.8 |
+| 10 | **50.6** | 98.3% | 338.0 |
+| 20 | 57.7 | 98.0% | 426.7 |
+| 30 | 56.4 | 98.0% | 416.2 |
+
+val_loss EXPLODES from 17 to 56 (3.3x) after epoch 5. Coverage goes UP to 98%
+(over-spread!). IS values grow to 416 (vs 120b_v6's ~70). **OPPOSITE behavior from 120b.**
+Best model selected at ep3 before instability.
+
+### Results (v2 test suite, best_model = ep3)
+
+| Metric | 99m_v2 orig | 99m_v3 (IS fix) | 120b_v6 (IS fix) | Direction |
+|--------|-------------|-----------------|------------------|-----------|
+| Score | 66.31 | **47.78** | **67.35** | CATASTROPHIC |
+| v1 Suites | 5/8 | **3/8** | 5/8 | REGRESSION |
+| CI 90% | 91.3% | 87.7% | 87.5% | similar |
+| Kurtosis | 0.845 | **1.569** | 1.708 | improved |
+| KS daily | 20/25 | **24/25** | 22/25 | improved |
+| KS levels | 1/25 | **19/25** | 21/25 | improved |
+| Coint | 0.675 | **0.773** | 0.725 | improved |
+| Conditionality | PASS | **FAIL** | PASS | REGRESSION |
+| ACF | PASS (0.56) | **FAIL** (0.45) | FAIL (0.43) | regression |
+
+### WHY: Noise Pathway Determines IS Effectiveness
+
+**Root cause**: The MLP's noise pathway determines whether IS can control spread.
+
+**120b (noise-free MLP)**: Noise enters ONLY through skip bypass (limited capacity).
+IS width penalty can effectively shrink intervals because the model's stochasticity
+is constrained. IS gradient reaches the skip weights, which have limited capacity to
+fight back. Result: intervals shrink as intended.
+
+**99m_v2 (noise in MLP)**: Noise enters through MLP input concatenation (full capacity).
+The MLP can amplify noise to create wider intervals. When IS penalizes width, the MLP
+increases its noise response to maintain wide intervals (CRPS rewards this). This creates
+a tug-of-war: CRPS pushes wider (via MLP noise amplification), IS pushes narrower (via
+width penalty). The MLP has enough capacity to win, causing val_loss explosion.
+
+**Evidence**: IS raw values tell the story:
+- 120b_v6: IS starts at 103, decreases to 67 (intervals shrinking — IS winning)
+- 99m_v3: IS starts at 110, INCREASES to 416 (intervals growing — CRPS winning via MLP)
+
+### What Was Learned
+1. **IS fix is NOT architecture-agnostic**: Works on noise-free MLP (120b), destroys
+   standard AR MLP (99m_v2). The noise pathway is the key variable.
+2. **Noise-free MLP + IS fix is a principled COMBINATION**: The constrained noise pathway
+   (skip-only) gives the IS enough control over spread. Together they produce the best
+   distributional quality seen in the project (KS levels 21/25, KS daily 22/25).
+3. **Full-MLP noise + IS creates destructive tug-of-war**: CRPS and IS fight for control
+   of interval width. CRPS wins because the MLP has unlimited capacity to amplify noise.
+4. **The "correct" architecture for calibrated spread is noise-free MLP**: This is NOT a
+   hack — it's a principled architectural choice. Separating mean (MLP) from variance
+   (skip) is standard in probabilistic forecasting (mean/variance decomposition).
+
+### Decision
+**VALUABLE FAILURE — confirms architectural insight, not just a loss fix.**
+
+The IS width fix alone is not sufficient. It works ONLY when combined with the noise-free
+MLP architecture (120b). The principled recipe is:
+  noise-free MLP (mean) + skip bypass (variance) + IS width penalty (calibration)
+
+This is a three-part solution, not a one-line fix. Each component has a clear role:
+- MLP: learns the conditional mean trajectory (deterministic)
+- Skip: adds calibrated stochastic perturbations (bounded)
+- IS: penalizes over-spread to keep intervals honest (calibration)
+
+### Next Steps
+The IS fix + noise-free MLP is the best path. Questions remaining:
+1. Can the coverage gap (87.5% vs 90%) be closed with λ_IS=0.03 or earlier checkpoint?
+2. Does running 120b_v6 for 60 epochs with freeze_after_epoch=3 preserve coverage?
+3. Can an ensemble of 120b_v6 + 99m_v2 orig combine distributional quality with coverage?
+
+---
