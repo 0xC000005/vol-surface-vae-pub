@@ -33431,3 +33431,85 @@ while not killing kurtosis (0.794 > 0.5 gate). It's a Goldilocks zone.
 the kurtosis-friendly training dynamics.
 
 ---
+
+## 2026-03-21: Exp 138a_v2 — Per-Horizon IS at λ=1.0 — Over-Corrected (4/8)
+
+### Context
+Building on 138a (first-ever 6/8 with weak per-horizon IS at λ=0.05). Increased λ to
+1.0 to compensate for the 25x magnitude reduction from per-horizon aggregation.
+
+**Based on**: 138a (per-horizon IS λ=0.05: score 76.62, 6/8)
+**Change**: λ_IS=1.0 (was 0.05)
+
+### Results
+Score 56.61, 4/8 suites (S1, S3, S4, S5). Coverage 71.0% (too low). λ=1.0 is too strong
+even with per-horizon aggregation. The sweet spot for per-horizon IS is between λ=0.05
+(138a: 6/8, CI 78.7%) and λ=1.0 (138a_v2: 4/8, CI 71.0%).
+
+### What Was Learned
+Per-horizon IS at λ=0.05 produces the best suite count (6/8) seen in the project.
+The λ=1.0 version over-corrects. The optimal per-horizon λ is likely around 0.1-0.3.
+
+---
+
+## 2026-03-21: Session Summary — IS Width Fix + Per-Horizon Aggregation
+
+### Session Overview (12 experiments, 2026-03-21)
+
+| # | Exp | Direction | Score | Suites | Key Finding |
+|---|-----|-----------|-------|--------|-------------|
+| 1 | 120b_v5 | IS fix λ=0.5 | 45.12 | 3/8 | IS works but too strong |
+| 2 | **120b_v6** | **IS fix λ=0.05** | **67.35** | **5/8** | **Best distributional quality (KS 21/25)** |
+| 3 | 99m_v3 | IS on std MLP | 47.78 | 3/8 | IS destroys std MLP (not architecture-agnostic) |
+| 4 | 120b_v7 | IS fix λ=0.02 | 57.14 | 4/8 | Lambda sweep complete |
+| 5 | 120b_v8 | IS warmup | 57.92 | 4/8 | Warmup confounded with freeze |
+| 6 | 135a | IS + ACF loss | 41.67 | 3/8 | ACF and KS anti-correlated (RC5-H3 killed) |
+| 7 | 136a | Asymmetric CRPS | 36.74 | 2/8 | IS has superior gradient (RC5-H1 killed) |
+| 8 | 137a | Early freeze + IS | 67.35 | 5/8 | Identical to 120b_v6 (RC5-H2 no change) |
+| 9 | **138a** | **Per-horizon IS** | **76.62** | **6/8** | **FIRST EVER 6/8 (S1,S3,S4,S5,S6,S8)** |
+| 10 | 138a_v2 | Per-horizon IS λ=1.0 | 56.61 | 4/8 | Over-corrected |
+
+### Key Discoveries
+
+**1. IS width fix is the biggest single improvement in the project**
+- KS levels: 1/25 → 21/25 (120b_v6), the first KS improvement in 75+ experiments
+- Root cause of Suite 8 failure across ALL prior experiments was a one-line bug
+
+**2. IS works ONLY on noise-free MLP architecture**
+- Standard MLP (99m_v3): training instability, val_loss explosion
+- Noise-free MLP (120b): clean mean/variance separation lets IS control spread
+- The principled recipe: noise-free MLP (mean) + skip (variance) + IS (calibration)
+
+**3. Coverage-IS tension is structural**
+- IS monotonically shrinks intervals at ANY λ > 0, no equilibrium
+- The "sweet spot" is an epoch, not a lambda
+- Best model is always at an early checkpoint (ep3 for 120b_v6)
+
+**4. Per-horizon IS aggregation achieves first-ever 6/8**
+- Equal IS weight per timestep prevents h=30 from dominating
+- Weak IS (1/25 magnitude) preserves kurtosis (Suite 4 passes)
+- Suite 8 still passes with KS levels 15/25
+
+**5. RC5 hypotheses all falsified or no-improvement**
+- H1 (asymmetric CRPS): IS has superior gradient structure
+- H2 (selective freeze): identical best_coverage model
+- H3 (ACF loss): ACF and KS are anti-correlated
+
+### Best Models Produced
+
+| Model | Score | Suites | Best For |
+|-------|-------|--------|----------|
+| **138a best_model** | **76.62** | **6/8** | **Highest suite count ever** |
+| 120b_v6 bestcov | 67.35 | 5/8 | Best distributional quality (KS 21/25) |
+| 120b orig | 67.09 | 5/8 | Best coverage (92.0%) |
+
+### What's Next (for future sessions)
+1. **Tune per-horizon IS λ**: The 6/8 sweet spot is between λ=0.05 and λ=1.0. Try λ=0.2.
+2. **Combine per-horizon IS with coverage-aware checkpoint**: 138a best_model at ep30
+   has 78.7% CI. An intermediate epoch might have CI > 90% AND 6/8 suites.
+3. **Consider: is 6/8 at 78.7% CI actually better for the use case than 5/8 at 87.5%?**
+   The user values realism first, calibration second. 138a has better suite count but
+   worse calibration. 120b_v6 has better calibration but fewer suites.
+4. **Ensemble**: 138a + 120b_v6 could combine 6/8 suite pass pattern with distributional quality.
+
+---
