@@ -32906,3 +32906,65 @@ Next steps should be principled, not more λ tuning:
 4. Consider ensemble: 120b_v6_bestcov + 120b_orig (combine IS quality with coverage)
 
 ---
+
+## 2026-03-21: Exp 120b_v8 — IS Warmup (CRPS-only 10ep + IS 20ep) — Warmup Doesn't Help
+
+### Context
+Tests whether two-stage training (CRPS-only pretraining → IS fine-tuning) maintains
+coverage above 90%. Added --is_warmup_epoch=10 so IS activates at epoch 11.
+
+**Based on**: 120b_v6 (λ=0.05 from ep1: CI 87.5%) + lambda sweep insight (coverage declines monotonically)
+**Change**: IS warmup — λ_IS=0 for ep1-10, then λ_IS=0.05 for ep11-30
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.05 \
+    --is_warmup_epoch 10 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_120b_v8 --device cuda
+```
+
+### Results
+Best coverage model (ep2, CRPS-only phase): score=57.92, 4/8, CI=91.8%, KS levels=14/25.
+Essentially a barely-trained CRPS-only model — no IS benefit.
+
+### Training Dynamics
+| Phase | Epochs | Coverage Range | IS Active? |
+|-------|--------|---------------|-----------|
+| CRPS-only | 1-10 | 92.7% → 87.7% | No |
+| CRPS+IS | 11-30 | 83.6% → 76.3% | Yes |
+
+### WHY: Warmup Is Confounded With Freeze
+The freeze happens at epoch 10 = same epoch IS activates. From ep11 onwards:
+- MLP is frozen → only skip weights train
+- IS kicks in → pushes skip weights to narrow intervals
+- Same coverage decline as 120b_v6, just delayed by 10 epochs
+
+The CRPS-only phase (ep1-10) already drops coverage from 92.7% to 87.7% — the freeze
+itself reduces coverage, not IS. IS just accelerates an existing trend.
+
+### What Was Learned
+1. **Warmup doesn't help when freeze and IS activation coincide**: The two effects compound
+2. **Coverage decline is partly from freeze, not just IS**: CRPS-only training with freeze
+   also loses coverage over time
+3. **The best model is still at an early epoch**: ep2 (CRPS-only) has 91.8% CI but poor
+   overall quality (57.92) because it's barely trained
+
+### Decision
+**STOP IS λ/scheduling tuning.** Five experiments (v5 through v8 + 99m_v3) have mapped the
+IS landscape thoroughly. The best single model is **120b_v6 bestcov** (score 67.35, CI 87.5%,
+KS levels 21/25, KS daily 22/25). This is the highest composite score in the project AND
+has massively better distributional quality than any prior model.
+
+The 2.5pp coverage gap (87.5% vs 90%) requires a principled solution, not more λ tuning.
+Next step: invoke research-ideation for RC5, or try an ensemble of 120b_v6 + 120b_orig
+to combine IS-quality distributions with original coverage.
+
+---
