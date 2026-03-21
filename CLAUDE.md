@@ -75,8 +75,8 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
     --disable_early_stop \
     --output_dir models/backfill/afcrps_XXX --device cuda
 
-# Full validation (8 test suites, ~5 min)
-PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements.py \
+# Full validation (9 test suites, ~5 min) — ALWAYS use v2
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
     --model_path models/backfill/afcrps_XXX/best_model.pt \
     --no_ema --max_batches 20 --n_samples 50 \
     --output_dir results/block_ar/XXX_30d --device cuda
@@ -87,9 +87,9 @@ PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py \
     --no_ema --max_batches 10 --n_samples 50 --device cuda
 ```
 
-## Validation Test Suites (8)
+## Validation Test Suites (9)
 
-`test_block_ar_requirements.py` outputs `summary.json` with pass/fail for each:
+`test_block_ar_requirements_v2.py` outputs `summary.json` with pass/fail for each:
 
 1. **Surface Validity**: Explosion rate, calendar/butterfly arbitrage
 2. **CI Coverage**: Per-horizon + per-cell 90% CI (worst_cell_pass is the hard gate)
@@ -99,6 +99,7 @@ PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py \
 6. **Cointegration**: Cell-cell cointegration pass rate
 7. **Regime Coverage**: Per-regime per-cell CI (3-layer: horizon → regime → cell)
 8. **Distributional**: KS on daily changes, KS on IV levels, median bias
+9. **Cross-Cell Correlation**: Correlation ratio and effective rank ratio (v2 only)
 
 ## Loading Models
 

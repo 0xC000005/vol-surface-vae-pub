@@ -7,7 +7,7 @@
     "diffusion/block_ar/single_pass_ar.py",
     "diffusion/block_ar/gru_encoder.py",
     "experiments/backfill/block_ar/train_afcrps.py",
-    "experiments/backfill/block_ar/test_block_ar_requirements.py"
+    "experiments/backfill/block_ar/test_block_ar_requirements_v2.py"
   ],
   "constraints": {
     "bitter_lesson": true,
