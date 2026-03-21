@@ -33129,3 +33129,75 @@ H2 (selective freeze) -- depends on understanding from H1/H3
 H1 and H3 can run in PARALLEL (independent). H2 is conditional.
 
 ---
+
+## 2026-03-21: Exp 135a — RC5-H3: IS Fix + ACF Loss — ACF and KS Are Anti-Correlated
+
+### Context
+RC5-H3: Tests whether ACF loss (temporal autocorrelation) is orthogonal to IS (spread
+control). Hypothesis: adding λ_acf=0.1 to 120b noise-free MLP + IS fix should improve
+Suite 4 (ACF) without hurting Suite 8 (KS).
+
+**Based on**: 120b_v6 bestcov (IS fix, ACF=0.426, KS levels=21/25)
+**Change**: Add --lambda_acf 0.1
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.05 \
+    --lambda_acf 0.1 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_135a --device cuda
+```
+
+### Results
+
+| Metric | 120b_v6 (IS only) | 135a (IS + ACF) | Direction |
+|--------|-------------------|-----------------|-----------|
+| Score | 67.35 | **41.67** | CATASTROPHIC |
+| ACF | 0.426 | **0.950** | MASSIVE improvement |
+| Kurtosis | 1.708 | **0.130** | DESTROYED |
+| KS daily | 22/25 | **1/25** | DESTROYED |
+| KS levels | 21/25 | **5/25** | DESTROYED |
+| CI 90% | 87.5% | 90.0% | improved |
+| Coint | 0.724 | **1.040** | improved |
+
+### Training Dynamics
+val_loss explodes from 18.2 → 40.6 by ep10. ACF loss drops quickly (0.73→0.02),
+indicating the model aggressively optimizes temporal structure at the expense of
+distributional diversity. cell_spread range widens to [0.55, 1.93] (vs [0.69, 0.86]
+for 120b_v6) — the skip weights are being distorted.
+
+### WHY: ACF and KS Are Anti-Correlated, Not Orthogonal
+The ACF loss enforces smooth temporal autocorrelation. To satisfy this, the model:
+1. Makes paths more predictable (high ACF = smooth trajectories)
+2. This reduces variance heterogeneity across horizons → low kurtosis (0.130)
+3. Smooth paths have narrow daily change distributions → poor KS (1/25)
+4. The skip weights distort to produce correlated noise that satisfies ACF
+   at the expense of distributional fidelity
+
+The fundamental coupling: good ACF requires smooth, correlated paths. Good KS
+requires realistic variance in daily changes. These are geometrically opposed
+when both act on the same noise pathway (skip bypass).
+
+### Decision
+**FALSIFIED.** H3 is killed. ACF and IS/KS are anti-correlated, not orthogonal.
+Suite 4 (ACF) cannot be fixed via loss without destroying Suite 8 (distributional).
+ACF needs an architectural solution (e.g., AR noise pathway that naturally produces
+temporal structure) rather than a loss-level fix.
+
+### What Was Learned
+1. **ACF and distributional quality are anti-correlated**: Same noise pathway, opposite
+   objectives. Cannot be both smooth AND have diverse daily changes.
+2. **λ_acf=0.1 is too strong**: But even at lower values, the coupling would persist.
+   The problem is structural, not λ-specific.
+3. **Temporal structure must emerge from architecture (rho, AR), not loss**. The ACF at
+   0.426 in 120b_v6 is what the rho=0.8 AR process naturally produces. Forcing it
+   higher via loss destroys everything else.
+
+---
