@@ -386,6 +386,8 @@ def main():
                         help="Degrees of freedom for Student-t noise")
     parser.add_argument("--twcrps_beta", type=float, default=0.0,
                         help="twCRPS beta (0=standard, 2.0=3x weight at ±1 IQR)")
+    parser.add_argument("--spread_weight", type=float, default=0.5,
+                        help="CRPS spread term coefficient (0.5=standard, lower=less over-spread)")
     parser.add_argument("--ar_frame", action="store_true",
                         help="Use per-frame AR decoder instead of Conv3D")
     parser.add_argument("--progressive_rollout", action="store_true",
@@ -626,6 +628,7 @@ def main():
         no_tanh=args.no_tanh,
         learned_vol_scale=args.learned_vol_scale,
         twcrps_beta=args.twcrps_beta,
+        spread_weight=args.spread_weight,
         ar_frame=args.ar_frame,
         ar_frame_cell_spread=args.ar_cell_spread,
         ar_frame_static_cell_scale=args.ar_static_cell_scale,

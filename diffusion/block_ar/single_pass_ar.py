@@ -89,6 +89,7 @@ class SinglePassConfig:
     no_tanh: bool = False  # remove tanh bounding (let loss learn output range)
     learned_vol_scale: bool = False  # per-cell vol_scale from condition MLP
     twcrps_beta: float = 0.0  # threshold-weighted CRPS beta (0 = standard CRPS)
+    spread_weight: float = 0.5  # CRPS spread term coefficient (0.5 = standard, lower = less over-spread)
 
     # AR frame decoder: per-frame autoregressive generation (replaces Conv3D blocks)
     ar_frame: bool = False
@@ -1656,6 +1657,7 @@ class SinglePassBlockAR(nn.Module):
             cell_median=self.cell_median if self.config.twcrps_beta > 0 else None,
             cell_iqr=self.cell_iqr if self.config.twcrps_beta > 0 else None,
             twcrps_beta=self.config.twcrps_beta,
+            spread_weight=self.config.spread_weight,
         )
 
         # Total loss (CRPS + energy score + variogram + interval score)
@@ -1982,6 +1984,7 @@ def afcrps_loss(
     cell_median: torch.Tensor = None,
     cell_iqr: torch.Tensor = None,
     twcrps_beta: float = 0.0,
+    spread_weight: float = 0.5,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Almost-Fair CRPS loss (ECMWF AIFS-CRPS, α=0.95).
 
@@ -2041,7 +2044,7 @@ def afcrps_loss(
         mae = (samples - gt.unsqueeze(1)).abs().mean()
         spread = (samples[:, idx_i] - samples[:, idx_j]).abs().mean()
 
-    fcrps = mae - 0.5 * spread
+    fcrps = mae - spread_weight * spread
     loss = alpha * fcrps + (1 - alpha) * mae
 
     return loss, mae, spread
