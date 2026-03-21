@@ -32803,3 +32803,106 @@ The IS fix + noise-free MLP is the best path. Questions remaining:
 3. Can an ensemble of 120b_v6 + 99m_v2 orig combine distributional quality with coverage?
 
 ---
+
+## 2026-03-21: Exp 120b_v7 — λ_IS=0.02 Completes the Lambda Sweep
+
+### Context
+Final data point in the λ_IS sweep on noise-free MLP (120b). Tests whether λ=0.02
+holds coverage above 90% while improving KS levels. Completes the diagnostic: is
+there a λ where coverage ≥90% AND KS >1/25?
+
+**Based on**: 120b_v6 (λ=0.05: CI 87.5%, KS 21/25) + 120b_v5 (λ=0.5: CI 72%, KS 21/25)
+**Change**: λ_IS=0.02 (was 0.05)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.02 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_120b_v7 --device cuda
+```
+
+### Training Dynamics
+Coverage declines monotonically (slower than λ=0.05 but still monotonic):
+| Epoch | Coverage 90% | IS | val_loss |
+|-------|-------------|-----|---------|
+| 1 | 90.8% | 109.3 | 18.4 |
+| 3 | 90.1% | 96.5 | 18.6 |
+| 10 | 88.2% | 81.5 | 17.6 |
+| 20 | 83.4% | 72.4 | 17.3 |
+| 30 | 81.0% | 69.3 | 17.2 |
+
+### Results
+
+| Checkpoint | Test CI | KS Levels | KS Daily | Kurt | Score | Suites |
+|-----------|---------|-----------|----------|------|-------|--------|
+| best_cov (ep1) | 91.5% | 17/25 | 19/25 | 1.16 | 38.12 | 2/8* |
+| best_model (ep30) | 73.6% | 16/25 | 21/25 | 0.83 | 57.14 | 4/8 |
+
+*ep1 = barely trained, most suites fail from insufficient learning
+
+### Complete Lambda Sweep Summary
+
+| λ_IS | Checkpoint | Test CI | KS Levels | KS Daily | Kurt | Score |
+|------|-----------|---------|-----------|----------|------|-------|
+| 0.00 | 120b orig | 92.0% | 1/25 | 16/25 | 1.05 | 67.09 |
+| 0.02 | v7 ep1 | 91.5% | 17/25 | 19/25 | 1.16 | 38.12 |
+| 0.02 | v7 best | 73.6% | 16/25 | 21/25 | 0.83 | 57.14 |
+| 0.05 | v6 ep3 | 87.5% | 21/25 | 22/25 | 1.71 | **67.35** |
+| 0.50 | v5 ep1 | 72.0% | 21/25 | 18/25 | 0.13 | 45.12 |
+
+### WHY: Coverage-IS Tension is Structural
+
+The key finding across all three λ values: **IS monotonically shrinks intervals during
+training at ANY λ > 0.** Coverage always declines. There is no equilibrium where IS and
+CRPS coexist.
+
+Why: CRPS wants wider intervals (gradient asymmetry: under-spread penalty 3x stronger than
+over-spread). IS wants narrower intervals (width term penalizes spread linearly). These
+opposing gradients never balance — IS steadily erodes coverage each epoch.
+
+**Evidence**: Coverage trajectory shape is identical across all λ:
+- λ=0.5: 76% → 41% over 30 epochs (fast decline)
+- λ=0.05: 89% → 75% over 30 epochs (moderate decline)
+- λ=0.02: 91% → 81% over 30 epochs (slow decline)
+All monotonically decreasing. The λ controls SPEED, not whether coverage declines.
+
+### The Operating Point Is an EPOCH, Not a Lambda
+
+The "sweet spot" where coverage ~90% AND KS >15/25 exists at:
+- λ=0.05, ep3: CI 87.5%, KS 21/25 — best overall model (score 67.35)
+- λ=0.02, ep1: CI 91.5%, KS 17/25 — but barely trained
+
+The practical solution: train with λ_IS=0.05, use best_coverage_model checkpoint (saved
+automatically). The coverage-based checkpoint selection IS the early stopping criterion.
+This is already implemented in the training script.
+
+### What Was Learned
+1. **Coverage-IS tension is structural**: IS monotonically decreases coverage at any λ>0
+2. **The operating point is an epoch, not a lambda**: λ determines speed of coverage decline
+3. **λ=0.05 ep3 is the practical best**: score 67.35 with massively improved KS (1→21)
+4. **Coverage-aware checkpoint selection already works**: best_coverage_model captures the
+   right epoch automatically
+5. **The 87.5% vs 90% gap may not be closable without addressing the fundamental tension**
+   — adaptive λ scheduling or two-stage training could help, but that's a larger change
+
+### Decision
+**DIAGNOSTIC COMPLETE — no more λ tuning.** The sweep answered the binary question:
+YES, coverage and KS can coexist (at early epochs). NO, they don't reach equilibrium.
+
+**Best model: 120b_v6 best_coverage_model (λ=0.05, ep3)**
+Score 67.35, KS daily 22/25, KS levels 21/25, CI 87.5%, kurtosis 1.71.
+
+Next steps should be principled, not more λ tuning:
+1. Invoke research-ideation for RC5 — how to close the 87.5%→90% gap principally
+2. Consider adaptive IS scheduling (λ=0 for first N epochs, then λ=0.05)
+3. Consider two-stage training (CRPS stage → IS fine-tuning stage)
+4. Consider ensemble: 120b_v6_bestcov + 120b_orig (combine IS quality with coverage)
+
+---
