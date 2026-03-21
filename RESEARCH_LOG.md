@@ -32968,3 +32968,164 @@ Next step: invoke research-ideation for RC5, or try an ensemble of 120b_v6 + 120
 to combine IS-quality distributions with original coverage.
 
 ---
+
+## 2026-03-21: RC5 — Research Compass After IS Width Fix
+
+### Philosophy Applied
+- **Hamming**: The 87.5%→90% gap is important but may not be the most attackable.
+  Suite 4 (ACF) might be easier and break a different ceiling.
+- **Popper**: Each hypothesis has a specific falsification test.
+- **Bitter Lesson**: All solutions must learn from data, no per-cell constants.
+- **Karpathy**: Each hypothesis is independently testable in 2-4 hours.
+
+### Evidence Summary (from 80+ experiments + IS sweep)
+
+**Proven root causes:**
+1. CRPS has zero cross-cell/horizon/regime gradient — optimizes slots independently
+2. Coverage-IS tension is structural — IS monotonically shrinks intervals, no equilibrium
+3. IS fix works only on noise-free MLP (bounded skip pathway)
+4. Freeze at ep10 preserves correlation as initialization transient, not learned property
+5. The operating point is an EPOCH, not a lambda — coverage always declines over training
+
+**Key architectural finding:**
+The noise-free MLP + skip + IS decomposition works because:
+- MLP (44K params): conditional mean, noise-free → IS can't be gamed
+- Skip (800 params): stochastic spread, tanh-bounded → IS can control
+- IS: directly penalizes width, calibrates the skip
+
+**The fundamental tension:**
+CRPS wants wider intervals (3:1 gradient asymmetry favoring under-spread penalty).
+IS wants narrower intervals (linear width penalty). These NEVER reach equilibrium.
+The best model exists at an early epoch where both are temporarily balanced.
+
+### Active Hypotheses (ranked by information value)
+
+#### Hypothesis 1: Asymmetric CRPS — Fix the Gradient Imbalance Directly
+
+**Evidence chain**: CRPS has 3:1 gradient asymmetry (under-spread penalty 3x stronger
+than over-spread). IS tries to counteract this but creates a tug-of-war. What if we
+fix the asymmetry IN CRPS itself, eliminating the need for IS entirely?
+
+**Principled argument**: The standard CRPS scoring rule penalizes undercoverage ~3x more
+than overcoverage. This is mathematically correct for proper scoring but creates systematic
+over-spread bias. A "rebalanced" CRPS that scales the spread term by a factor < 1 would
+reduce over-spread without the tug-of-war. This is the twCRPS (threshold-weighted CRPS)
+approach — weight the MAE and spread terms differently.
+
+**The bet**: Implement asymmetric CRPS where spread_weight < 1.0 (e.g., 0.5). This
+directly reduces the over-spread incentive without fighting a separate IS loss.
+
+**Staged checkpoints**:
+1. [1h] Implement spread_weight parameter in CRPS computation. Train 120b with spread_weight=0.5, no IS. Check if coverage is 88-92% AND KS improves.
+2. [2h] If Stage 1 works, sweep spread_weight ∈ {0.3, 0.5, 0.7} to find operating point.
+3. [4h] Apply to 99m_v2 to test architecture independence (no noise-free requirement).
+
+**Falsification**: If spread_weight=0.5 still produces 92%+ coverage (no effect on over-spread),
+the asymmetry is deeper than the spread term weighting. Kill this hypothesis.
+
+**Independence**: Does NOT depend on noise-free MLP or IS fix. Tests a fundamentally
+different approach to the over-spread problem.
+
+**If it fails**: Confirms that CRPS's over-spread bias is structural to the scoring rule,
+not fixable by reweighting. Would point toward a non-CRPS loss (explicit coverage loss).
+
+**Effort**: Stage 1: 1h, Stage 2: 2h, Stage 3: 2h
+
+---
+
+#### Hypothesis 2: Separate Freeze for MLP and Skip — Decouple Mean and Variance Training
+
+**Evidence chain**: Current freeze_after_epoch=10 freezes the ENTIRE MLP at once. But the
+MLP learns the mean, and the skip learns the variance. These have different convergence
+timelines: mean converges fast (ep1-10), variance needs longer training. Freezing the MLP
+at ep10 also freezes the skip's interaction with the MLP, limiting its expressiveness.
+
+120b_v8 showed that coverage declines even during CRPS-only training (no IS) after freeze.
+This is because the skip, now the only trainable component, is being optimized purely by
+CRPS which compresses its rank. What if we freeze the MLP early (ep5) but NEVER freeze
+the skip, and use IS specifically on the skip's output?
+
+**Principled argument**: In the noise-free MLP architecture, MLP and skip have cleanly
+separated roles (mean vs variance). They should have independent training schedules:
+- MLP: freeze at ep5 (mean converges fast)
+- Skip: never freeze, train with CRPS + IS for full 30 epochs
+- IS: only penalizes width from skip contribution, not total output
+
+This is conceptually similar to TACTiS-2's two-stage training (marginals then copula)
+but implemented within a single training loop via selective freezing.
+
+**Staged checkpoints**:
+1. [2h] Implement selective freeze: freeze MLP at ep5 but keep skip trainable. Train with λ_IS=0.05. Check if coverage holds above 90%.
+2. [3h] If coverage holds, check if ACF improves (longer skip training may help temporal structure).
+
+**Falsification**: If coverage still declines monotonically with skip-only training + IS,
+the tension is in the skip weights themselves, not the MLP-skip interaction.
+
+**Independence**: Builds on 120b noise-free MLP but does NOT depend on H1 (asymmetric CRPS).
+
+**If it fails**: Proves that the skip pathway itself cannot maintain coverage under IS
+pressure regardless of MLP state. Would point toward needing a different noise architecture.
+
+**Effort**: Stage 1: 2h, Stage 2: 2h
+
+---
+
+#### Hypothesis 3: ACF-Aware Loss — Fix Suite 4 Independently
+
+**Evidence chain**: Suite 4 fails on ACF correlation (<0.5 target). ACF measures temporal
+autocorrelation of generated paths. CRPS provides zero cross-horizon gradient, so temporal
+structure is an emergent property of rho=0.8, not a learned one. The ACF at 120b_v6 is
+0.426 — only 0.074 below the 0.5 threshold.
+
+We already have a lambda_acf loss parameter in the training script (added for Exp 113a).
+It penalizes the difference between generated and GT autocorrelation. But it was never
+tested with the IS fix or noise-free MLP.
+
+**Principled argument**: ACF is orthogonal to IS — ACF measures temporal correlation,
+IS measures spread width. They should not interfere. Adding lambda_acf to the 120b_v6
+recipe might independently close the Suite 4 gap without affecting KS or coverage.
+
+**Staged checkpoints**:
+1. [1h] Train 120b with IS fix (λ_IS=0.05) + ACF loss (λ_acf=0.1). Check if ACF > 0.5 AND coverage/KS maintained.
+
+**Falsification**: If ACF doesn't improve OR if coverage/KS regresses, the ACF loss
+interferes with IS (not orthogonal as predicted).
+
+**Independence**: Orthogonal to H1 and H2. Tests a different suite entirely.
+
+**If it fails**: ACF correlation is structurally determined by rho and architecture,
+not trainable via loss. Would need architectural change for Suite 4.
+
+**Effort**: Stage 1: 1h
+
+### Exhausted Directions (do NOT retry)
+- λ_IS tuning (5 experiments, complete sweep — operating point is epoch, not lambda)
+- Per-cell condition-dependent parameters (CRPS exploits every time — 134a, 134d, 110a)
+- 2-layer MLP rank improvements (proven architecturally limited — H1, 130a)
+- CLN/AdaGN noise modulation (variance saturation kills kurtosis — 132a/b, 120a)
+- IS warmup scheduling (confounded with freeze — 120b_v8)
+- IS on standard AR MLP (training instability — 99m_v3)
+
+### Execution Order (information flow)
+```
+H1 (asymmetric CRPS) -- independent, highest info value
+    |
+    +-- Works → may eliminate need for IS entirely
+    |
+    +-- Fails → confirms CRPS is structurally over-spread
+
+H3 (ACF loss) -- independent, quick (1h)
+    |
+    +-- Works → Suite 4 solved, can combine with H1 result
+    |
+    +-- Fails → ACF is architectural, not trainable
+
+H2 (selective freeze) -- depends on understanding from H1/H3
+    |
+    +-- Only pursue if H1 fails (still need IS) and H3 shows
+        loss-level fixes can work
+```
+
+H1 and H3 can run in PARALLEL (independent). H2 is conditional.
+
+---
