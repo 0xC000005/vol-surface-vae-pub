@@ -2078,8 +2078,12 @@ def interval_score(
     width = upper - lower
     miss_low = (2.0 / alpha) * torch.relu(lower - gt)
     miss_high = (2.0 / alpha) * torch.relu(gt - upper)
-    # Sum over T/H/W, mean over B — consistent with frame_sum CRPS
-    return (width + miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+    # Per-horizon IS: mean over H,W per timestep, then sum over T.
+    # Each horizon contributes equally regardless of absolute CI width.
+    # This prevents h=30 (wide CI) from dominating the width penalty
+    # while h=1 (narrow CI) gets negligible gradient.
+    per_step = (width + miss_low + miss_high).mean(dim=(-2, -1))  # (B, T)
+    return per_step.sum(dim=-1).mean()  # sum T, mean B
 
 
 def energy_score(
