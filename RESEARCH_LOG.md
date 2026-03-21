@@ -33374,3 +33374,60 @@ different approach: either architectural (how noise creates spread) or training 
 (two-stage, adversarial, or non-CRPS loss).
 
 ---
+
+## 2026-03-21: Exp 138a — Per-Horizon IS Aggregation — FIRST EVER 6/8 SUITES (best_model)
+
+### Context
+Modified IS aggregation from sum(T,H,W) to mean(H,W) per timestep then sum(T).
+Each horizon gets equal IS weight. This accidentally reduced IS magnitude by 25x
+(mean vs sum over 25 cells), making the IS very weak (λ_eff ≈ 0.002).
+
+**Based on**: 120b_v6 (IS fix, 87.5% CI, KS 21/25)
+**Change**: IS aggregation: mean(H,W) per T, then sum(T) instead of sum(T,H,W)
+
+### Training Command
+Same as 120b_v6 but with per-horizon IS aggregation (code change in interval_score()).
+
+### Results
+
+| Checkpoint | Score | Suites | CI | KS_d | KS_l | Kurt |
+|-----------|-------|--------|-----|------|------|------|
+| best_model (ep30) | **76.62** | **6/8** | 78.7% | 19 | 15 | 0.794 |
+| best_coverage (ep3) | 35.33 | 2/8 | 94.8% | 11 | 6 | 0.367 |
+| 120b_v6 bestcov (ref) | 67.35 | 5/8 | 87.5% | 22 | 21 | 1.708 |
+| 120b orig (ref) | 67.09 | 5/8 | 92.0% | 16 | 1 | 1.050 |
+
+**FIRST EVER 6/8**: S1, S3, S4, S5, S6, S8 all PASS. Suite 4 (time series) passes
+because weak IS preserves kurtosis (0.794, within 0.5-2.0). Suite 8 (distributional)
+passes with KS levels 15/25.
+
+### WHY: Weak IS Allows Longer Training, Preserving Kurtosis
+
+The per-horizon aggregation reduces IS magnitude by 25x (mean vs sum over 25 cells).
+At λ=0.05, effective IS contribution is only 0.15 (vs 3.69 for sum aggregation).
+
+This has two effects:
+1. **IS barely affects coverage**: Coverage declines from 92% to 78.7% over 30 epochs
+   (vs 89%→75% with sum IS). Slower decline = more training epochs before coverage drops.
+2. **Kurtosis survives**: IS doesn't destroy variance heterogeneity because the width
+   penalty is too weak to reshape the variance profile. Kurtosis stays at 0.794 (PASS).
+
+The 6/8 happens because the weak IS gives just enough KS improvement (15/25 > 15 gate)
+while not killing kurtosis (0.794 > 0.5 gate). It's a Goldilocks zone.
+
+### What Was Learned
+1. **6/8 IS achievable**: First time in 80+ experiments. The combination of noise-free MLP
+   + weak per-horizon IS + 30 epochs of training produces 6/8 suites PASS.
+2. **Weak IS is better than strong IS for suite count**: Strong IS (120b_v6) maximizes
+   distributional quality (KS 21/25) but drops coverage below 90%. Weak IS preserves
+   more suites by not destroying kurtosis.
+3. **Coverage 78.7% is still too low**: Suite 2 fails. Need to increase IS magnitude
+   (try λ=1.0 to match the sum-aggregation magnitude) while preserving the per-horizon
+   structure.
+
+### Decision
+**BUILD ON THIS.** 6/8 is a breakthrough. Try λ_IS=1.0 with per-horizon aggregation
+(effective magnitude ≈ old λ=0.04). This should increase KS levels while preserving
+the kurtosis-friendly training dynamics.
+
+---
