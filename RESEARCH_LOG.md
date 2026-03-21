@@ -32392,3 +32392,105 @@ if artifacts exist on disk.
 - **dispatching-parallel-agents**: Used for Phase 4 execution
 
 ---
+
+## 2026-03-21: Exp 120b_v5 — IS Width Fix at λ_IS=0.5 — VALUABLE FAILURE (Over-Corrected)
+
+### Context
+RC4 direction: fix the missing width term in the interval score implementation. The IS was
+computing only miss penalties without the (upper-lower) width term, meaning the model paid
+NOTHING for over-spread. This one-line bug explains systematic over-coverage across 75+ experiments.
+
+**Based on**: 120b (noise-free MLP, 7/9 on v2, highest baseline)
+**Hypothesis**: Adding the width term will penalize over-spread, reducing per-cell CI that exceeds 95%
+**Prediction**: Over-spread cells decrease, potentially pushing 120b from 7/9 to 8+/9
+
+### The Fix (one line)
+```python
+# Before (broken): only miss penalties
+return (miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+
+# After (fixed): standard IS with width penalty
+return (width + miss_low + miss_high).sum(dim=(-3, -2, -1)).mean()
+```
+Location: `diffusion/block_ar/single_pass_ar.py`, `interval_score()` function.
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_120b_v5_is_fix --device cuda
+```
+
+### Results (v2 test suite)
+
+| Metric | 120b_orig (broken IS) | 120b_v5_best (ep1) | 120b_v5_cov (ep7) | Direction |
+|--------|----------------------|--------------------|--------------------|-----------|
+| v2 Suites | 7/9 | 3/9 | 3/9 | REGRESSION |
+| v1 Suites | 5/8 | 3/8 | 3/8 | REGRESSION |
+| CI 90% | 92.0% | 72.0% | 68.5% | under-spread |
+| Kurtosis | 1.050 | 0.135 | 0.959 | collapsed (best) / ok (cov) |
+| Coint ratio | 0.814 | 0.334 | 0.543 | REGRESSION |
+| KS daily | 16/25 | 18/25 | 20/25 | **IMPROVEMENT** |
+| KS levels | **1/25** | **21/25** | 15/25 | **MASSIVE IMPROVEMENT** |
+| Median bias | 21/25 | **25/25** | 17/25 | **IMPROVEMENT** |
+| Cross-cell corr | PASS (0.97) | FAIL (0.34) | PASS (0.55) | mixed |
+| Composite (v1) | 67.09 | 45.12 | 46.63 | REGRESSION |
+
+### Training Dynamics
+Coverage dropped monotonically during training as IS width term shrank intervals:
+| Epoch | Coverage 90% | IS Loss |
+|-------|-------------|---------|
+| 1 | 75.9% | 73.8 |
+| 10 | 64.9% | 64.2 |
+| 20 | 54.7% | 58.9 |
+| 30 | 41.3% | 56.4 |
+
+### WHY: Loss Magnitude Analysis (diagnostic)
+The IS width term at λ_IS=0.5 **dominates the total loss**:
+- IS raw value at ep1: 73.76. Contribution: 73.76 × 0.5 = **36.9**
+- val_loss (CRPS-dominated) at ep1: 18.2
+- IS contributes **67% of total loss** — starving CRPS of gradient signal
+- At λ_IS=0.05: IS contribution = 3.7 (~17% of total) — much more balanced
+- At λ_IS=0.1: IS contribution = 7.4 (~29% of total) — moderate
+
+The IS raw value (73.76) is so large because it sums over all 750 cells (30×5×5).
+Each cell's width ≈ 0.05 IV, so width sum ≈ 750 × 0.05 = 37.5 per sample.
+This structural magnitude mismatch means λ_IS must be much smaller than for other losses.
+
+### What Was Learned
+1. **IS width fix WORKS**: KS levels 1/25 → 21/25 is the biggest single improvement in project
+   history for level distributions. The broken IS allowed completely wrong level distributions
+   because the model could over-spread without cost.
+2. **λ_IS=0.5 is catastrophically too strong**: Contributes 67% of total loss, collapsing ensemble
+   diversity (kurtosis 0.135), destroying cointegration (0.334), and crushing coverage (72%).
+3. **Structural magnitude mismatch**: IS sums over 750 cells making its raw value ~4x larger
+   than CRPS. λ_IS must be calibrated to ~0.05-0.1 to contribute a reasonable ~17-29% of loss.
+4. **Over-spread → under-spread transition is monotonic**: Coverage drops continuously during
+   training (76% → 41% over 30 epochs), suggesting a λ_IS exists that holds coverage at ~90%.
+5. **The RC4 diagnosis was correct**: Over-spread DID decrease. The loss IS the answer —
+   just needs λ tuning, not a different approach.
+
+### Decision
+**VALUABLE FAILURE — build on this with lower λ_IS.**
+The fix works (proven by KS levels improvement). Next: retrain 120b with λ_IS=0.05.
+At this weight, IS contributes ~17% of total loss — enough to penalize over-spread without
+starving CRPS. If 0.05 still under-spreads, try 0.02.
+
+### RC4 Information Flow Update
+We are in branch 1: "Over-spread decreases → Loss was the answer."
+The loss fix works. Need to calibrate λ_IS. Do NOT retrain other architectures until
+λ_IS is calibrated on 120b (Karpathy: understand one result before branching).
+
+### Next
+Exp 120b_v6: Same as 120b_v5 but with λ_IS=0.05. Same architecture, same hyperparameters.
+Only change: --lambda_is 0.05 (was 0.5). Prediction: coverage stays near 90%, KS levels
+improve from 1/25 (possibly not as high as 21/25 but significantly better than 1/25).
+
+---
