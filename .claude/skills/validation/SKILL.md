@@ -279,6 +279,19 @@ After all agents complete:
    <Items that need human attention or GPU time>
    ```
 
+#### Self-application: the validation session itself must be reproducible
+
+The Verification Agent Contract applies to dispatched agents, but the orchestrator's
+own work (the audit table, grading, timing data) must also be saved. Before committing:
+
+- Save timing data from agent task notifications to `timing.json` in each agent's dir
+- Grade agent outputs against assertions, save `grading.json`
+- Write reproduction scripts (the exact agent prompts) so evals can be re-run
+- Everything the orchestrator produces goes to files, not just conversation text
+
+This prevents the meta-problem discovered in eval: the skill found gaps in its own
+eval artifacts because the orchestrator didn't follow the same persistence rules.
+
 ### Phase 6: Commit
 
 ```bash
