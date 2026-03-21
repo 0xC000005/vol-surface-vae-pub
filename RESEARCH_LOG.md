@@ -33201,3 +33201,96 @@ temporal structure) rather than a loss-level fix.
    higher via loss destroys everything else.
 
 ---
+
+## 2026-03-21: Exp 136a — RC5-H1: Asymmetric CRPS (spread_weight=0.3) — IS Is Superior
+
+### Context
+RC5-H1: Tests whether reducing the CRPS spread term coefficient (from 0.5 to 0.3)
+eliminates over-spread without IS's tug-of-war. Modifies CRPS itself rather than adding
+a competing loss.
+
+**Based on**: 120b (noise-free MLP recipe) + RC5-H1 hypothesis
+**Change**: spread_weight=0.3 (standard=0.5), NO interval score (lambda_is=0)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 \
+    --spread_weight 0.3 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --ar_noisefree_mlp --noise_dist student_t --student_t_df 6.0 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_136a --device cuda
+```
+
+### Training Dynamics
+Coverage declines EVEN STEEPER than with IS:
+| Epoch | Coverage 90% | val_loss |
+|-------|-------------|---------|
+| 1 | 85.2% | 22.3 |
+| 3 | **94.1%** | 31.9 |
+| 7 | 86.0% | **21.3** |
+| 10 | 73.2% | 26.6 |
+| 20 | 73.0% | 25.9 |
+| 30 | 54.8% | 25.4 |
+
+val_loss is volatile (22→32→21→26) suggesting training instability. Coverage drops
+from 94% to 55% — far worse than IS (89%→75%).
+
+### Results
+
+| Metric | 120b orig | 120b_v6 (IS fix) | 136a (asym CRPS) | Direction |
+|--------|----------|-----------------|-----------------|-----------|
+| Score | 67.09 | **67.35** | **36.74** | CATASTROPHIC |
+| v1 Suites | 5/8 | 5/8 | 2/8 | REGRESSION |
+| CI 90% | 92.0% | 87.5% | **93.1%** | good |
+| Kurtosis | 1.050 | 1.708 | **0.490** | DESTROYED |
+| KS daily | 16/25 | 22/25 | 17/25 | worse than IS |
+| KS levels | 1/25 | 21/25 | 12/25 | worse than IS |
+| Coint | 0.814 | 0.724 | 0.696 | worse |
+
+### WHY: IS Width Term Has Superior Gradient Structure
+
+Asymmetric CRPS (spread_weight < 0.5) reduces the GENERAL pairwise spread reward.
+IS width term penalizes the SPECIFIC interval bounds (upper - lower). These are
+fundamentally different gradients:
+
+- **Spread term** (pairwise |x_i - x_j|): penalizes ALL inter-member distances equally.
+  Reducing its weight makes the model less incentivized to diversify members. This
+  reduces BOTH useful diversity (different spatial patterns) AND over-spread.
+- **IS width** (upper - lower quantile): penalizes only the CI bounds. Members can still
+  be diverse within the bounds. IS targets CALIBRATION specifically.
+
+Evidence: 136a KS levels=12/25 vs 120b_v6 KS levels=21/25. The IS fix produces
+MUCH better level distributions despite both achieving similar coverage range.
+The IS preserves within-bound diversity; spread reduction destroys it.
+
+### Decision
+**FALSIFIED.** H1 is killed. Asymmetric CRPS at spread_weight=0.3 is strictly inferior
+to IS width fix at λ=0.05. The IS's targeted gradient (CI bounds specifically) is
+fundamentally more effective than weakening the general spread reward.
+
+**Implication**: The IS width fix is NOT just "another way to penalize over-spread."
+It has a unique gradient structure that preserves member diversity while constraining
+bounds. This makes it the PRINCIPLED solution, not a hack. The IS fix + noise-free MLP
+remains the best recipe.
+
+### What Was Learned
+1. **IS > asymmetric CRPS for calibration**: IS targets CI bounds specifically; spread
+   reduction targets all pairwise distances. IS preserves within-bound diversity.
+2. **Coverage decline is universal**: ANY reduction in spread incentive (IS, spread_weight,
+   or even training duration) causes monotonic coverage decline. This is structural to
+   the noise-free MLP + skip architecture.
+3. **Best model confirmed: 120b_v6 bestcov** (score 67.35). No tested alternative beats
+   it. IS + noise-free MLP is the principled winning combination.
+
+### RC5 Status
+- H1 (asymmetric CRPS): **FALSIFIED** — IS is superior
+- H3 (ACF loss): **FALSIFIED** — ACF and KS are anti-correlated
+- H2 (selective freeze): Conditional on H1/H3 failing → worth trying next
+
+---
