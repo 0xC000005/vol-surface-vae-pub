@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, lambda_rank=0.0, n_frames=0, unfreeze_encoder=False):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, lambda_rank=0.0, n_frames=0, unfreeze_encoder=False, lambda_ortho_enc=0.0):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -140,6 +140,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
     total_cell_var = 0.0
     total_cum_cal = 0.0
     total_ortho = 0.0
+    total_ortho_enc = 0.0
     total_acf = 0.0
     total_acf_mean = 0.0
     total_rank_loss = 0.0
@@ -178,6 +179,23 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
             ortho_loss = (cosim * mask).abs().mean()
             loss = loss + lambda_ortho * ortho_loss
 
+        # Orthogonal regularization on encoder weights (Exp 139a — RC6 Step 1)
+        # Penalizes ||W^TW - I||^2_F on encoder weight matrices to prevent rank collapse
+        ortho_enc_loss = torch.tensor(0.0, device=device)
+        if lambda_ortho_enc > 0 and unfreeze_encoder:
+            for name, param in model.encoder.named_parameters():
+                if 'weight' in name and param.dim() == 2 and min(param.shape) > 1:
+                    W = param  # (M, N)
+                    # Regularize on the smaller dimension for efficiency
+                    if W.shape[0] <= W.shape[1]:
+                        gram = W @ W.T  # (M, M)
+                        eye = torch.eye(W.shape[0], device=device)
+                    else:
+                        gram = W.T @ W  # (N, N)
+                        eye = torch.eye(W.shape[1], device=device)
+                    ortho_enc_loss = ortho_enc_loss + ((gram - eye) ** 2).sum()
+            loss = loss + lambda_ortho_enc * ortho_enc_loss
+
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
@@ -199,6 +217,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         total_cell_var += result.get("cell_var_loss", torch.tensor(0.0)).item()
         total_cum_cal += result.get("cum_cal_loss", torch.tensor(0.0)).item()
         total_ortho += ortho_loss.item() if isinstance(ortho_loss, torch.Tensor) else ortho_loss
+        total_ortho_enc += ortho_enc_loss.item() if isinstance(ortho_enc_loss, torch.Tensor) else ortho_enc_loss
         total_acf += result.get("acf_loss", torch.tensor(0.0)).item()
         total_acf_mean += result.get("acf_mean", torch.tensor(0.0)).item()
         total_rank_loss += result.get("rank_loss", torch.tensor(0.0)).item()
@@ -221,6 +240,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
         "cell_var_loss": total_cell_var / max(n_batches, 1),
         "cum_cal_loss": total_cum_cal / max(n_batches, 1),
         "ortho_loss": total_ortho / max(n_batches, 1),
+        "ortho_enc_loss": total_ortho_enc / max(n_batches, 1),
         "acf_loss": total_acf / max(n_batches, 1),
         "acf_mean": total_acf_mean / max(n_batches, 1),
         "rank_loss": total_rank_loss / max(n_batches, 1),
@@ -489,6 +509,8 @@ def main():
                         help="MLP hidden layer count (2=default, 3=Exp 128a)")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
+    parser.add_argument("--lambda_ortho_enc", type=float, default=0.0,
+                        help="Orthogonal reg on encoder weights: ||W^TW - I||^2_F (Exp 139a, RC6)")
     parser.add_argument("--lambda_acf", type=float, default=0.0,
                         help="Explicit ACF loss on ensemble deltas (Exp 123a)")
     parser.add_argument("--lambda_rank", type=float, default=0.0,
@@ -999,6 +1021,7 @@ def main():
             lambda_cum_cal=args.lambda_cum_cal,
             lambda_vr=args.lambda_vr,
             lambda_ortho=getattr(args, 'lambda_ortho', 0.0),
+            lambda_ortho_enc=getattr(args, 'lambda_ortho_enc', 0.0),
             lambda_acf=getattr(args, 'lambda_acf', 0.0),
             lambda_rank=getattr(args, 'lambda_rank', 0.0),
             n_frames=n_frames,
