@@ -36237,3 +36237,140 @@ gap (Suites 2, 7, 8) requires new research directions, not hyperparameter tuning
 Ready for research-ideation.
 
 ---
+
+## 2026-03-22: Research Compass RC8 — Breaking the 5/8 Ceiling via Heteroscedastic Spread
+
+### Philosophy Applied
+- **Schulman**: Cross-pollination from weather (AIFS-CRPS) and computer vision (Kendall & Gal)
+- **Bitter Lesson**: Per-cell sigma is a general mechanism (any multi-output model), not domain-specific
+- **Karpathy**: Each hypothesis independently testable with staged checkpoints
+- **Popper**: Clear falsification tests for each
+
+### Evidence Summary
+
+**The 5/8 ceiling persists because the model produces UNIFORM spread but GT requires
+HETEROGENEOUS per-cell, per-regime, per-window spread.** Specifically:
+- Suite 2: Worst cells at 30-37% (GT has 5-10x variance heterogeneity across cells)
+- Suite 7: Per-regime per-cell coverage fails (model averages calm/turbulent)
+- Suite 8: KS daily 6/25 (daily changes too smooth from attention averaging)
+
+**AIFS-CRPS achieves per-variable spread through 3 mechanisms:**
+1. CLN (we have this ✓)
+2. Per-variable CRPS loss with per-variable weights (we DON'T have this)
+3. Large model (229M) learns variable-specific noise-to-perturbation mappings (we have 282K)
+
+**The missing mechanism is #2**: Our CRPS is computed on the full 25-cell surface equally.
+The model has no loss signal to differentiate per-cell spread. The principled solution:
+give the model a PER-CELL output variance that CRPS can differentially optimize.
+
+### Active Hypotheses (ranked by information value)
+
+#### H1: Learned Per-Cell Noise Scale (sigma_head)
+
+**Evidence chain**: AIFS uses CLN + per-variable CRPS weights. We have CLN but not
+per-variable differentiation. The heteroscedastic literature (Kendall & Gal, Beta-NLL)
+shows predicting per-output variance from shared features works at small scale. Our
+model already has cell_var loss (removed in 143a) that constrained per-cell variance
+— this is the principled LEARNED replacement.
+
+**Principled argument**: Add a small MLP that predicts log_sigma per cell from the
+encoder condition vector: sigma = softplus(sigma_head(condition)). Then scale the
+noise per cell: noise_scaled = sigma * noise. Different cells get different noise
+amplitudes based on the market state (condition). CRPS naturally trains sigma to
+produce correct per-cell spread because over-spread cells get penalized by the
+accuracy term and under-spread cells get penalized by the spread term — SEPARATELY
+per cell if sigma differs per cell. This is the LEARNED, PRINCIPLED replacement for
+the removed cell_spread crutch.
+
+**The bet**: Add sigma_head (condition → 25-dim sigma) to CausalARTransformerDecoder.
+Scale noise by sigma before CLN modulation. Train with existing CRPS+VS+cell_var loss.
+
+**Staged checkpoints:**
+1. (30min) Add sigma_head to 143a architecture. Train 30 epochs. Check if per-cell
+   coverage variance decreases (more uniform coverage across cells).
+2. (30min) If coverage improves, check Suite 7 (regime) — does regime-dependent
+   condition → regime-dependent sigma → regime-dependent spread?
+3. (30min) If both improve, try removing cell_var (test if sigma_head makes it redundant).
+
+**Falsification**: If per-cell coverage doesn't improve (worst cell stays <40%) →
+the model can't learn per-cell sigma from CRPS alone at 282K params. Would need
+per-cell CRPS weighting (mechanism #2 from AIFS).
+
+**Independence**: Stands alone. Does not depend on other hypotheses.
+
+**If it fails**: CRPS gradient is too weak per-cell at 25 cells to train sigma.
+Would need explicit per-cell loss weighting (AIFS-style).
+
+**Effort**: Stage 1: 30min | Stage 2: 30min | Stage 3: 30min
+
+#### H2: Per-Cell CRPS Weighting (AIFS mechanism #2)
+
+**Evidence chain**: AIFS computes CRPS per-variable with per-variable weights. Our CRPS
+averages over all 25 cells. Cells with small GT variance (interior cells) contribute
+tiny absolute CRPS values — their gradients are drowned by high-variance cells (cell 0,0).
+
+**Principled argument**: Weight CRPS per cell inversely proportional to GT cell std:
+w_i = 1 / std_i. This gives equal GRADIENT MAGNITUDE to each cell regardless of
+its absolute variance. Not a Bitter Lesson violation — it's a loss normalization
+(like gradient normalization), not a per-cell constant baked into the model.
+
+**The bet**: Modify afcrps_loss to compute per-cell CRPS with learned or fixed weights.
+Start with simple 1/std weighting, then try learned weights.
+
+**Staged checkpoints:**
+1. (20min) Add per-cell CRPS weighting with 1/GT_std weights. Train 143a architecture.
+2. (30min) If per-cell coverage improves, try learned weights (nn.Parameter per cell).
+3. (30min) Combine with H1 (sigma_head + per-cell CRPS).
+
+**Falsification**: Per-cell coverage doesn't improve → the problem isn't gradient
+magnitude but architectural (model genuinely can't express per-cell spread).
+
+**Bitter Lesson concern**: Fixed 1/GT_std weights are data-derived constants. However,
+AIFS uses per-variable weights too — this is standard loss normalization, not a
+model-internal heuristic. Borderline principled.
+
+**Effort**: Stage 1: 20min | Stage 2: 30min | Stage 3: 30min
+
+#### H3: Increased Model Capacity (d_model=128)
+
+**Evidence chain**: AIFS has 229M params (815x larger). Our model may not have enough
+capacity to simultaneously learn per-cell, per-regime, per-horizon spread patterns.
+d_model=64 → d_model=128 gives ~4x params (~1.1M total), still far below AIFS but
+may be sufficient for 25 cells × 30 horizons.
+
+**Principled argument**: The Bitter Lesson says scale helps. 282K may be too small
+for the complexity of per-cell heteroscedastic spread across 30 horizons and 2+
+regimes. The data budget (173K frame-level signals) can support ~500K-1M params.
+
+**The bet**: Retrain 143a with d_model=128 (everything else same). Check if per-cell
+coverage improves from scale alone.
+
+**Staged checkpoints:**
+1. (30min) Train d_model=128, same loss, same everything else. Compare coverage.
+2. (30min) If coverage improves, combine with H1 (sigma_head + larger model).
+
+**Falsification**: If d_model=128 doesn't improve per-cell coverage → scale alone
+doesn't help. The missing mechanism is architectural (sigma_head or per-cell CRPS).
+
+**Effort**: Stage 1: 30min | Stage 2: 30min
+
+### Execution Order
+
+1. **H1** (sigma_head) — highest information value, literature-grounded, low risk
+2. **H2** (per-cell CRPS) — if H1 insufficient, addresses gradient magnitude
+3. **H3** (d_model=128) — if H1+H2 insufficient, tests pure scale hypothesis
+4. **H1+H2+H3** combined — if each individually insufficient
+
+### Exhausted Directions
+- Changing noise distribution (Gaussian, Student-t: all fail CLT in additive space)
+- Additive skip noise (suppressible, 14% of output)
+- IS (interval score) — no equilibrium, fights CRPS
+- ES (redundant with CRPS+VS)
+- bias_loss (negligible effect)
+
+### Open Questions
+- Is 143a ep30's kurtosis 0.982 reproducible or fragile? (training instability)
+- Can sigma_head + cell_var coexist or do they fight?
+- Would per-cell CRPS weights transfer to multi-factor (Bitter Lesson test)?
+
+---
