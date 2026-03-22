@@ -34952,3 +34952,99 @@ This makes noise structurally insuppressible — the transformer MUST produce di
 outputs for different noise draws because normalization parameters change.
 
 ---
+
+## 2026-03-22: Validation Audit — RC6 Session (139a, 139a_v2, 140a)
+
+### Scope
+Audited 3 experiments from RC6 principled architecture session plus 1 theoretical analysis
+entry. 4 parallel verification agents dispatched. All artifacts verified on disk.
+
+### Bug Fix: summary.json key inconsistency
+Coverage, conditionality, and cointegration suites used `'pass'` while the other 6 suites
+used `'overall_pass'`. Fixed in test_block_ar_requirements_v2.py — all 9 suites now use
+`'overall_pass'`. compute_score.py updated with backward-compatible fallback.
+
+### CRITICAL CORRECTION: Cross-Cell Correlation Metric Confusion
+
+The 140a research log entry claimed "cross-cell corr 0.389 vs GT 0.38 — essentially perfect."
+This was **WRONG** — it conflated two different metrics:
+
+| Metric | What it measures | 140a value | GT |
+|--------|-----------------|------------|-----|
+| Ensemble-member correlation | Do cells co-move across noise draws? | 0.389 | 0.38 |
+| Daily-change correlation (Suite 9) | Do cells co-move across days? | 0.178 | 0.510 |
+
+The training `[DIAG]` output reports ensemble-member correlation (0.382-0.432). Suite 9
+measures daily-change correlation (0.178, ratio 0.349 → FAIL). These are fundamentally
+different quantities. The 140a entry's claim about "matching GT correlation" was about
+ensemble diversity structure, NOT about the temporal covariance that Suite 9 tests.
+
+**Impact**: The 140a entry's conclusion that "transformer solves the correlation problem"
+is overstated. The transformer solves ensemble diversity structure but NOT daily-change
+correlation. Suite 9 still fails (ratio 0.349).
+
+### Verification Results
+
+#### Task 1: 140a Epoch 10 Checkpoint Evaluation
+- **Score**: 53.6 (vs best ep9: 53.16). Effectively identical.
+- **Kurtosis**: 0.406 (vs 0.364 at ep9). Improved but still below 0.5 threshold.
+- **Suites**: 4/8 same pattern {1,3,5,6}
+- **Finding**: Peak factor structure in training diagnostics does NOT translate to better
+  test suite scores. The training `[DIAG]` eff_rank measures MLP output rank, which is a
+  different quantity than the sample-level covariance rank the test suite evaluates.
+
+#### Task 2: 140a vs 133c Architecture Comparison
+- **Both pass 4 suites but DIFFERENT ones**: 140a={1,3,5,6}, 133c={1,3,4,5}
+- **Suite 4 vs Suite 6 tradeoff**: Structurally opposed.
+  - AR (140a): kurtosis 0.364 FAIL, cointegration 2.75 PASS
+  - One-shot (133c): kurtosis 1.60 PASS, cointegration 0.32 FAIL
+- **Root cause of kurtosis difference**: AR accumulates 30 small Gaussian deltas → CLT →
+  converges to Gaussian → low kurtosis. One-shot generates from single noise draw →
+  preserves heavy tails.
+- **Implication for Step 3**: Suite 4 and Suite 6 are structurally opposed between AR and
+  one-shot. CLN alone won't fix this — need either AR with non-Gaussian innovations or
+  hybrid approach.
+
+#### Task 3: 140a Attention Pattern Analysis (DEEPEST FINDING)
+- **Noise survives all 4 transformer layers** at ~100% L2 retention
+- **90.6% noise drop occurs entirely at out_proj** (64→25 linear projection)
+- **Strong head specialization**:
+  - L1H0: "recent-frame" head (locality=0.76, history focus=0.09)
+  - L3H3: "pure history" anchor head (locality=0.07, history focus=0.87)
+- **Attention is noise-INVARIANT**: cosine similarity 0.96-0.99 between different noise
+  draws. This is the ROOT CAUSE of low kurtosis and poor coverage — the transformer's
+  computation is effectively deterministic regardless of noise input.
+- **Three compounding noise suppression factors**:
+  1. frame_proj dominates noise_proj 3:1 at token creation
+  2. Attention over 30+ noise-free history tokens dilutes noise by averaging
+  3. out_proj crushes remaining noise (90.6% drop at this layer)
+- **CLN Step 3 implications**:
+  - CLN must modulate BEFORE out_proj (at hidden state level)
+  - CLN should modulate attention VALUE projections to make attention noise-dependent
+  - Must break the noise-invariant attention pattern (cosine sim 0.96-0.99)
+
+#### Task 4: Ensemble 140a + 99m_v2
+- **4/9 suites** — worse than 99m_v2 alone (5/8). Hypothesis rejected.
+- 140a drags down 99m_v2's strengths: kurtosis 0.365 (was 0.845), CI 87.1% (was 91.3%)
+- Confirms: 140a's noise suppression is so severe that even ensemble mixing can't recover diversity
+
+### Key Learnings from Validation
+
+1. **Two different "correlation" metrics were being conflated**: ensemble-member correlation
+   (training [DIAG]) vs daily-change correlation (Suite 9). Must always specify which.
+2. **Training diagnostic metrics ≠ test suite metrics**: eff_rank from [DIAG] measures a
+   different quantity than sample covariance rank in Suite 9.
+3. **AR vs one-shot creates a fundamental Suite 4/6 tradeoff**: CLT kills kurtosis in AR,
+   but AR preserves cointegration. Need principled resolution before Step 3.
+4. **Noise suppression in 140a has THREE causes, not one**: token creation ratio, attention
+   dilution, and out_proj compression. CLN must address all three, not just skip bypass.
+5. **Ensemble complementarity fails when one model is severely under-spread**: 140a poisons
+   the ensemble rather than complementing it.
+
+### Outstanding Items
+
+- [ ] Correct the 140a research log entry's correlation claim (append correction note)
+- [ ] Re-evaluate whether Step 3 (CLN) can address the AR kurtosis problem
+- [ ] Consider non-Gaussian noise innovations for AR to preserve heavy tails
+
+---
