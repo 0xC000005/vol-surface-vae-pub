@@ -2037,7 +2037,7 @@ class SinglePassBlockAR(nn.Module):
             gt_cell_var = gt_changes.var(dim=(0, 1))  # (H, W)
             # Gen per-cell change variance from ensemble samples
             sample_changes = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
-            gen_cell_var = sample_changes.var(dim=(0, 1, 2))  # (H, W)
+            gen_cell_var = sample_changes.var(dim=2).mean(dim=(0, 1))  # (H, W) — temporal var per member, averaged
             # Log-ratio squared error: symmetric for over/under-spread
             cell_var_loss = (torch.log(gen_cell_var.clamp(min=1e-8)) - torch.log(gt_cell_var.clamp(min=1e-8))).pow(2).mean()
             loss = loss + lambda_cell_var * cell_var_loss
