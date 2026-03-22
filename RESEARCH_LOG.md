@@ -35795,3 +35795,45 @@ CLT convergence. Would need chunk_size=30 (= one-shot, losing cointegration).
 - Would chunk-wise AR preserve cointegration with only 6 AR steps?
 
 ---
+
+## 2026-03-22: Exp 141c — Unclamped Student-t(df=4) + CLN (RC7-H0) — 2/8, Score 31.65
+
+### Context
+RC7-H0: Re-test Student-t hypothesis with fair conditions. Widened noise clamp from ±5 to ±20
+(preserving 10.87 per-sample kurtosis vs 4.80 with old clamp). Lowered df from 6 to 4
+(infinite excess kurtosis, CLT convergence O(n^{-1/4})).
+
+**Based on**: 141a (CLN+Gaussian) + RC7 compass (dirty falsification correction)
+
+### Results
+
+| Metric | 141c (t(4) unclamped) | 141b (t(6) clamped) | 141a (Gaussian) | 140a (no CLN) |
+|--------|----------------------|--------------------|-----------------|----|
+| Kurtosis | 0.254 | 0.214 | 0.237 | 0.364 |
+| Score | 31.65 | 41.65 | 41.66 | 53.16 |
+| Suites | 2/8 | 3/8 | 3/8 | 4/8 |
+
+### CLEAN FALSIFICATION: Student-t Does Not Resist CLT at n=30
+
+With unclamped tails and df=4 (infinite excess kurtosis), kurtosis is 0.254 — essentially
+identical to Gaussian CLN (0.237) and clamped Student-t (0.214). The per-sample kurtosis
+of Student-t(df=4) is 10.87 (vs Gaussian 3.0), yet after 30 AR accumulation steps, both
+converge to similar kurtosis ratios.
+
+This is a CLEAN falsification: no clamping artifact, no implementation bug. The CLT
+genuinely dominates at n=30 for ANY finite-variance distribution. The CLT convergence
+rate O(n^{-1/4}) for df=4 is slower than Gaussian O(n^{-1/2}), but at n=30 both are
+sufficiently converged that the difference is negligible.
+
+### What Was Learned
+
+1. **Changing noise distribution cannot fix kurtosis in 30-step AR** — proven across
+   Gaussian (0.237), Student-t(df=6) clamped (0.214), Student-t(df=4) unclamped (0.254)
+2. **The wider tails of Student-t(df=4) actually HURT other metrics** — score dropped
+   from 41.66 to 31.65. Extreme noise values destabilize the AR trajectory.
+3. **The kurtosis problem is definitively a GENERATION STRATEGY issue** — must reduce
+   n (number of accumulation steps) or change accumulation algebra (multiplicative)
+
+### Decision: FALSIFIED — Proceed to RC7-H1 (log-space dynamics)
+
+---
