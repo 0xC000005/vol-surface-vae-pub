@@ -1579,7 +1579,7 @@ class SinglePassBlockAR(nn.Module):
             if step_idx > 0:
                 if self.config.noise_dist == "student_t":
                     dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                    eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                    eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
                 else:
                     eps_t = torch.randn_like(z_t)
                 if isinstance(rho, torch.Tensor):
@@ -1673,7 +1673,7 @@ class SinglePassBlockAR(nn.Module):
             for t in range(1, T):
                 if self.config.noise_dist == "student_t":
                     dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                    eps = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                    eps = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
                 else:
                     eps = torch.randn_like(z_t)
                 z_t = rho * z_t + math.sqrt(1 - rho**2) * eps
@@ -1866,7 +1866,7 @@ class SinglePassBlockAR(nn.Module):
                 if t > 0:
                     if self.config.noise_dist == "student_t":
                         dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                        eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
+                        eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
                     else:
                         eps_t = torch.randn_like(z_t)
                     if isinstance(rho, torch.Tensor):
