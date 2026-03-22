@@ -35048,3 +35048,179 @@ correlation. Suite 9 still fails (ratio 0.349).
 - [ ] Consider non-Gaussian noise innovations for AR to preserve heavy tails
 
 ---
+
+## 2026-03-22: RC6 Course Correction — What the Validation Revealed About the Architecture
+
+### The Original RC6 Assumptions vs What We Found
+
+The RC6 plan was built on 4 pillars. The validation tested all of them:
+
+| RC6 Assumption | Status | Evidence |
+|----------------|--------|----------|
+| 1. AR is required for extrapolation | HOLDS | 133c (one-shot) can't extrapolate past 30d |
+| 2. Transformer breaks rank-1 | CONFIRMED | 140a output eff_rank 4.0-5.6 (MLP: 1.3) |
+| 3. CLN makes noise insuppressible | UNTESTED but CHALLENGED | Attention is 96-99% noise-invariant. CLN on LayerNorm may not be enough. |
+| 4. CRPS self-calibrates coverage | FALSIFIED at this scale | Coverage monotonically declines in ALL models (139a: 93→76%, 140a: 70→64%) |
+
+### The Deeper Problem: AR + Gaussian Noise → CLT → Low Kurtosis
+
+This failure was NOT in the risk table. The risk table anticipated "members collapse
+(kurtosis→0)" from CLN being insufficient. The actual mechanism is different:
+
+**AR generation accumulates 30 small Gaussian deltas per trajectory. By the Central
+Limit Theorem, this sum converges toward Gaussian regardless of the per-step noise
+distribution. This kills excess kurtosis structurally.**
+
+Evidence:
+- 140a (AR transformer): kurtosis 0.364 (30 accumulated steps)
+- 133c (one-shot transformer): kurtosis 1.60 (single noise draw per frame)
+- The difference is NOT the noise mechanism — both use similar noise pathways
+- The difference is the GENERATION STRATEGY: AR accumulates, one-shot doesn't
+
+This means **CLN alone cannot fix kurtosis in an AR model**, because CLN modulates
+per-step noise which still gets accumulated over 30 steps. Even if CLN makes per-step
+diversity perfect, 30 accumulated diversities → Gaussian by CLT.
+
+### The Suite 4 / Suite 6 Structural Opposition
+
+| Property | AR (140a) | One-shot (133c) |
+|----------|-----------|-----------------|
+| Kurtosis (Suite 4) | 0.364 FAIL | 1.60 PASS |
+| Cointegration (Suite 6) | 2.75 PASS | 0.32 FAIL |
+| Growing uncertainty (Suite 5) | PASS | PASS (trivially) |
+| Long-horizon extrapolation | YES (by design) | NO (fixed to training horizon) |
+
+AR preserves temporal coherence (cells move together step by step → cointegration)
+but kills distributional tails (CLT). One-shot preserves distributional shape (each
+frame from independent noise → heavy tails) but loses temporal coherence (no step-by-step
+coupling → no cointegration).
+
+**This is not fixable by changing the noise mechanism.** It's a fundamental property
+of the generation strategy.
+
+### What the Risk Table Should Have Said
+
+The corrected risk table (investigate before patching) was principled in its META-approach
+but missed this specific risk because it assumed CLN was the answer to member collapse.
+Here's what we now know:
+
+**Risk 2 (corrected)**: Members collapse (kurtosis → 0)
+- Original assumption: "CLN being insufficient"
+- Actual cause: CLT from AR accumulation of Gaussian perturbations
+- CLN addresses noise INSUPPRESSIBILITY but not noise ACCUMULATION
+- These are orthogonal problems
+
+### Three Principled Responses (Ranked by Philosophy Alignment)
+
+#### Option A: Non-Gaussian AR Innovations (Preserve AR, Fix CLT)
+
+If you add 30 draws from a heavy-tailed distribution, the CLT convergence is SLOWER.
+Student-t with low df preserves excess kurtosis under accumulation:
+- Gaussian: kurtosis = 3 (by definition, CLT kills excess)
+- Student-t(df=4): kurtosis = ∞ (undefined, very heavy tails)
+- Student-t(df=6): kurtosis = 6 (decays slower under accumulation)
+
+We already have `--noise_dist student_t --student_t_df 6.0` in the codebase (used in 120b
+experiments). Combining transformer + CLN + Student-t innovations would:
+- CLN: make noise insuppressible (addresses attention's 96-99% noise-invariance)
+- Student-t: resist CLT convergence (addresses 30-step accumulation)
+- AR: preserve cointegration and extrapolation
+
+**Philosophy**: Principled — the noise distribution is a hyperparameter like d_model.
+Student-t is still learned from data via CRPS (CRPS is proper for any continuous distribution).
+No domain heuristic. Bitter Lesson compatible.
+
+**Risk**: Student-t df is a hyperparameter choice. But so is Gaussian (df=∞ is a choice too).
+
+#### Option B: Chunk-wise AR (Reduce Accumulation Steps)
+
+Instead of generating 30 individual frames, generate chunks of k frames (e.g., k=5)
+with 30/k = 6 AR steps. Within each chunk, use one-shot generation (preserving tails).
+Between chunks, use AR (preserving cointegration).
+
+This is exactly what TimesFM (Google) does: "chunk-wise AR with full causal attention
+over all previous patches."
+
+- Fewer AR accumulation steps (6 vs 30) → slower CLT convergence
+- Within-chunk one-shot → preserves distributional shape
+- Between-chunk AR → preserves temporal coherence
+
+**Philosophy**: Principled — chunk size is an architecture decision, not a domain heuristic.
+TimesFM validates it at scale. Bitter Lesson compatible.
+
+**Risk**: Chunk boundaries may create discontinuities (but our existing Block-AR already
+handles this with the Block-AR boundary test).
+
+#### Option C: Hybrid Ensemble (Accept the Tradeoff, Combine)
+
+Accept that AR and one-shot are complementary. Train both. Combine at inference.
+The E5 hybrid (133c + 99m_v2) already achieved 5/8 with kurtosis 1.58.
+
+**Philosophy**: Pragmatic but unprincipled — two models where one should suffice.
+Doesn't generalize to multi-factor (need to train 2x models per factor combination).
+Not Bitter Lesson compatible (the architecture should learn, not the human combining).
+
+### Recommended Path: Option A First, Then Option B If Needed
+
+**Why A first**: It's the smallest change (one parameter: noise distribution). It tests
+whether CLT resistance via heavy-tailed innovations is sufficient. If Student-t(df=6)
+with CLN gives kurtosis > 0.5 in the AR transformer, the AR architecture is viable
+and we proceed with the RC6 roadmap.
+
+**Why not B first**: Chunk-wise AR requires significant implementation (new generation
+loop, chunk boundaries, within-chunk one-shot decoder). If Option A works, we skip
+this complexity entirely.
+
+**Why not C**: Violates Bitter Lesson. Two models is a crutch, not a solution.
+
+### Updated RC6 Roadmap
+
+The original Step 3 (CLN only) is now Step 3a+3b:
+
+**Step 3a (Exp 141a)**: Add CLN to transformer layers. Keep Gaussian noise, keep full loss.
+- Tests: Does CLN make attention noise-DEPENDENT? (cosine sim should drop from 0.96-0.99)
+- This tests the CLN hypothesis in isolation, even though we expect kurtosis to still fail.
+
+**Step 3b (Exp 141b)**: Switch noise to Student-t(df=6) with CLN.
+- Tests: Does heavy-tailed noise + insuppressible CLN preserve kurtosis under AR?
+- This tests the CLT resistance hypothesis.
+- If kurtosis > 0.5: AR + CLN + Student-t is the viable architecture. Proceed to Step 4.
+- If kurtosis < 0.5: CLT wins even with Student-t. Move to Option B (chunk-wise AR).
+
+Steps 4-5 remain unchanged (strip loss, strip crutches) — they only make sense after
+the noise mechanism is resolved.
+
+### What CRPS Self-Calibration Failure Means
+
+Coverage declined monotonically in EVERY model we tested:
+- 139a: 93.3% → 76.4% (30 epochs)
+- 139a_v2: 95.1% → 80.3% (30 epochs)
+- 140a: 69.5% → 64.5% (30 epochs)
+
+The RC6 plan assumed "CRPS is self-calibrating" based on AIFS/GenCast (229M params,
+60K samples). At our scale (182-200K params, 4K samples), CRPS accuracy term
+systematically overwhelms spread term. This was Risk 6 in the corrected risk table:
+
+"CRPS self-calibration may require LARGE models."
+
+**This is now confirmed.** The response per the risk table:
+- Coverage is NOT converging to 90% — it's monotonically decreasing
+- This means CRPS alone cannot maintain calibration at our model scale
+- We need either: (a) accept ~85% coverage and tune model selection epoch, or
+  (b) add a principled coverage mechanism
+
+For now: proceed with architecture (Steps 3a/3b), address coverage AFTER noise
+is resolved. Coverage is a scaling issue, not an architecture issue.
+
+### Philosophy Compliance
+
+| Principle | This course correction |
+|-----------|----------------------|
+| Popper | CLT hypothesis is falsifiable: Student-t should resist convergence |
+| Nanda | "What's most interesting?" — CLT kills kurtosis regardless of noise mechanism |
+| Karpathy | One change at a time: CLN first (3a), then Student-t (3b) |
+| Bitter Lesson | Student-t is a distribution choice, not a domain heuristic |
+| Hamming | "Is this important AND attackable?" — Yes: 2-hour experiment |
+| Nielsen | Problem-creating: "What generation strategy preserves both kurtosis and cointegration?" |
+
+---
