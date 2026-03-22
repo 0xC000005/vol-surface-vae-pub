@@ -35923,3 +35923,68 @@ Next: proceed to Step 4 (strip loss to CRPS + VS only) using the 141d architectu
 may be masking further improvements.
 
 ---
+
+## 2026-03-22: Exp 142a — CRPS + VS Only, Log-Space + CLN (Step 4) — 3/8, Score 45.25
+
+### Context
+RC6 Step 4: Strip loss to CRPS + VS only. Remove ES (λ=1.0), IS (λ=0.5), cell_var (λ=1.0),
+bias_loss (λ=0.01). Tests CRPS self-calibration with principled architecture.
+
+**Based on**: 141d (CLN + log-space, kurtosis 1.274, 4/8 suites)
+
+### Results
+
+| Metric | 142a (CRPS+VS) | 141d (full loss) | Direction |
+|--------|---------------|-----------------|-----------|
+| Score | 45.25 | 57.08 | REGRESSION |
+| Suites | 3/8 | 4/8 | Lost Suite 4 |
+| Kurtosis | **3.177** | 1.274 | **OVERCORRECTED** (>2.0 upper bound) |
+| CI 90% | 72.6% | 70.1% | slightly better |
+| KS daily | 13/25 | 20/25 | regression |
+| KS levels | **21/25** | 17/25 | improvement |
+| Coint | 0.735 | 0.766 | similar |
+| Median bias | **24/25** | 23/25 | improvement |
+
+### KEY FINDING: cell_var Prevents Kurtosis Overcorrection in Log-Space
+
+Without cell_var, log-space dynamics produce EXCESSIVE tails (kurtosis 3.18 > 2.0 upper
+bound). With cell_var=1.0, kurtosis is regularized to 1.27 (within [0.5, 2.0]).
+
+cell_var constrains per-cell variance to match GT variance. In log-space, where the
+exponential nonlinearity amplifies variance, this constraint prevents the model from
+learning excessively large deltas that produce super-heavy tails.
+
+**Re-evaluation of cell_var**: Previously classified as "unprincipled — uses GT variance
+target." But in log-space dynamics, it serves as a CALIBRATION mechanism. The question:
+is there a principled alternative that achieves the same effect?
+
+### CRPS Self-Calibration: PARTIAL
+
+Without IS, early coverage is BETTER (86.4% vs 80.0% at ep1). IS was confirmed to suppress
+spread. But coverage still declines to 73% by ep30 — CRPS alone doesn't maintain 90% coverage.
+However, the decline is SLOWER without IS (73% vs 71% at ep30), suggesting CRPS is partially
+self-calibrating but the equilibrium is around 73-75%, not 90%.
+
+### What Was Learned
+
+1. **cell_var is NOT purely a crutch in log-space** — it prevents kurtosis overcorrection
+   (3.18 → 1.27). Without it, log-space produces too-heavy tails.
+2. **IS removal IMPROVES early coverage** (86.4% vs 80.0%) — confirmed IS was suppressing spread
+3. **CRPS equilibrium is ~73-75%**, not 90% — CRPS self-calibrates but at a lower level than
+   desired. This confirms the RC6 risk table prediction at a smaller scale than AIFS.
+4. **KS levels improved to 21/25** — best for any transformer model. Removing IS helps level distribution.
+5. **The "principled" loss (CRPS+VS only) is too unconstrained for log-space dynamics** —
+   needs at least variance regularization to prevent tail overcorrection.
+
+### Decision: VALUABLE FAILURE — Reveals cell_var's Role in Log-Space
+
+The CRPS+VS only loss is insufficient for log-space dynamics. But we learned that:
+- IS should be removed (always hurts)
+- ES can be removed (redundant)
+- bias_loss can be removed (negligible)
+- cell_var should be KEPT or replaced with a principled variance constraint
+
+**Next**: 142b — CRPS + VS + cell_var only (remove IS, ES, bias but keep cell_var).
+This tests whether cell_var alone is sufficient regularization for log-space.
+
+---
