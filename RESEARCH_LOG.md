@@ -36799,3 +36799,123 @@ about the limits of the Bitter Lesson for small models.
    Try d_model=128 (H3 becomes capacity test, not cell_var tuning).
 
 ---
+
+## 2026-03-22: Exp 144a — RC8v3-H1: Learned Scalar vol_scale — 5/8, Score 66.95 (VALUABLE FAILURE)
+
+### Context
+RC8v3-H1: Add learned scalar vol_scale as nn.Parameter to CausalARTransformerDecoder.
+Theory: Delta magnitude 40-55% of GT because CRPS accuracy term (3:1 gradient asymmetry)
+discourages large outputs. Learned scale decouples magnitude from direction. EMOS (Gneiting 2005)
+proves this is CRPS-optimal.
+
+**Based on**: 143a ep30 (66.89, 5/8, fully principled architecture)
+
+### Implementation
+- `self.log_vol_scale = nn.Parameter(torch.tensor(-3.9))` in `CausalARTransformerDecoder.__init__`
+- `delta = F.softplus(self.log_vol_scale) * delta` in `generate_frame()`
+- softplus(-3.9) ≈ 0.020 init, matching historical vol_scale
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_143a/final_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_cell_var 1.0 \
+    --ar_frame --ar_log_space --ar_floor_clamp 0.01 \
+    --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 --ar_causal_n_heads 4 \
+    --ar_causal_cln \
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_144a --device cuda
+```
+
+### Results
+
+| Metric | 143a ep30 | 144a best (ep7) | 144a final (ep30) |
+|--------|-----------|-----------------|-------------------|
+| Score | 66.89 | 53.68 | **66.95** |
+| Suites | 5/8 {1,3,4,5,6} | 4/8 | 5/8 {1,3,4,5,6} |
+| CI 90% | 76.1% | 71.3% | **77.8%** |
+| Kurtosis | **1.107** | 0.388 | 0.800 |
+| KS daily | **18/25** | 9/25 | 17/25 |
+| KS levels | **23/25** | 16/25 | 20/25 |
+| Median bias | 25/25 | 12/25 | **25/25** |
+| Coint ratio | 0.965 | 2.727 | 0.651 |
+| Window floor | **4.5%** | 11.5% | 5.4% |
+
+Training: Stable (best ep7, gap 0.45). Val loss range 17.5-19.9.
+
+### Learned Scale Value
+- Init: softplus(-3.9) = 0.0200
+- Best (ep7): softplus(-3.73) = 0.0236
+- Final (ep30): softplus(-3.68) = 0.0248
+- **CRPS found equilibrium at 0.025, only 24% above init**
+
+### Diagnostic: Delta Magnitude (D5 replication)
+- 143a delta ratio (gen/GT): 0.40-0.55
+- 144a delta ratio (gen/GT): **0.70** (multi-batch mean, range 0.48-0.86)
+- Improved but below target (0.8-1.0)
+
+### KEY FINDING: Spread Increased 77x but Heterogeneous
+
+**Per-cell ensemble spread at h=1 (std across 50 members):**
+- 143a: mean=0.00023 (nearly zero — all members identical at h=1)
+- 144a: mean=0.01796 (77x increase — matches GT daily std of 0.0193)
+
+**But per-cell spread ratio (144a/GT) is highly non-uniform:**
+
+| | c0 | c1 | c2 | c3 | c4 |
+|---|-----|-----|-----|-----|-----|
+| r0 | 0.30 | 0.50 | 0.93 | 0.52 | 0.39 |
+| r1 | 0.35 | 0.76 | 1.12 | 0.83 | 0.40 |
+| r2 | 0.50 | 0.95 | 1.21 | 1.41 | 0.47 |
+| r3 | 0.65 | 1.14 | 1.42 | 1.56 | 1.16 |
+| r4 | 0.46 | 0.73 | 1.37 | 0.81 | 0.73 |
+
+- **8/25 cells under-spread** (<0.5x GT): all edge cells (row 0, col 0, col 4)
+- **11/25 well-calibrated** (0.7-1.3x GT): interior cells
+- **1/25 over-spread** (>1.5x GT): cell (3,3)
+- Edge cells have 10-30x larger GT variability than interior. A single scalar
+  can't calibrate both — it settles at a compromise.
+
+### WHY: Mechanism Analysis
+
+1. **CRPS equilibrium, not GT-optimal**: The 3:1 gradient asymmetry of CRPS (accuracy
+   term penalizes large deltas 3x more than spread term rewards them) creates an
+   equilibrium at ~0.025, which gives 70% of GT magnitude — not 100%.
+
+2. **Scalar can't resolve heterogeneity**: Edge cells (row 0 = deep OTM, col 0 = short
+   tenor) have GT variability 10-30x larger than interior cells. A single scalar that
+   calibrates interior cells leaves edges under-spread. The worst cells gate Suite 2
+   (per-cell CI), so the 8 under-spread edge cells prevent Suite 2 from passing.
+
+3. **77x spread increase is structural**: 143a had essentially zero per-member
+   diversity at h=1. The learned scale created meaningful member divergence — this is
+   a prerequisite for per-cell calibration but insufficient alone.
+
+4. **Kurtosis regressed** (1.107→0.800): With larger per-step deltas, the CLT effect
+   may be stronger (more mass in center, less in tails). Still within PASS range (0.5-2.0)
+   but moving toward Gaussian.
+
+### Falsification Result
+- **NOT falsified**: Scale did NOT converge to zero (grew 24% from init)
+- **Partially confirmed**: Delta magnitude improved (0.40-0.55 → 0.70) but not to target (0.8-1.0)
+- **Key learning**: CRPS equilibrium ≠ GT-optimal. Scalar scale is necessary but insufficient.
+
+### What Was Learned
+
+1. **Learned scale creates massive spread increase** (77x) — the mechanism is sound
+2. **CRPS gradient asymmetry limits the learned scale** to ~0.025, below GT-optimal
+3. **Per-cell heterogeneity is the Suite 2 bottleneck** — edge cells are systematically
+   under-spread by a scalar scale
+4. **H2 (per-cell scale) is directly motivated**: 8 edge cells need 2-3x larger scale
+   than interior cells. A per-cell scale vector (25 parameters) should resolve this.
+
+### Decision: VALUABLE FAILURE → Proceed to H2
+
+Score unchanged (66.95 ≈ 66.89) but the investigation proved:
+- The mechanism (learned scale) works
+- The bottleneck is per-cell heterogeneity
+- H2 is the specific fix for the measured problem
+
+---

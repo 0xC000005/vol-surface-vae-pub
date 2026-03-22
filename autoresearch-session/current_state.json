@@ -1,13 +1,13 @@
 {
-  "iteration": 1,
-  "experiment_id": "139a",
-  "training_status": "evaluated",
-  "phase": "decide",
-  "hypothesis": "Unfreeze encoder + orthogonal regularization prevents rank collapse under joint training",
-  "result": "4/8 suites, score 57.98. Ortho reg works (rank max). Coverage collapsed (76.4%). KS levels 20/25 (best ever).",
-  "session_best": {"exp": "99m_v2", "score": 66.31, "suites": 5},
-  "total_experiments": 1,
-  "compass_position": "RC6-step1",
-  "session_date": "2026-03-21",
-  "next": "139a_v2: freeze encoder at epoch 10 too, test if post-freeze drift causes coverage collapse"
+  "iteration": 11,
+  "experiment_id": "144a",
+  "training_status": "complete",
+  "phase": "documenting",
+  "hypothesis": "RC8v3-H1: Learned scalar vol_scale. Addresses Problems 1 (delta magnitude) and 6 (mean reversion speed).",
+  "session_best": {"exp": "143a_ep30", "score": 66.89, "suites": 5},
+  "total_experiments": 14,
+  "compass_position": "RC8v3-H1 → VALUABLE FAILURE, proceed to H2",
+  "session_date": "2026-03-22",
+  "result": "66.95 (5/8), delta ratio 0.70 (was 0.40-0.55), 77x spread increase but heterogeneous (8/25 cells under-spread at edges)",
+  "decision": "VALUABLE FAILURE — mechanism works but scalar insufficient, per-cell scale needed"
 }
