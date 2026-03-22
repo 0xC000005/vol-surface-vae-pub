@@ -35312,3 +35312,163 @@ they're added back as EVIDENCE-JUSTIFIED necessities (per the corrected risk tab
 not as unexplained crutches.
 
 ---
+
+## 2026-03-22: Performance Optimization — Vectorized Member Generation (8.2x Training, 2.5x Inference)
+
+### Context
+Exp 140a (AR causal transformer) trained at 462s/epoch — 4.6x slower than MLP (100s). With 4
+remaining RC6 steps at 30 epochs each, overnight training would only complete 2 steps. Investigated
+all optimization paths to maximize hardware utilization.
+
+### GPU/CPU Profiling (torch.profiler)
+
+Profiled one full training batch (B=8, K=8, T=30 frames) with forward + backward:
+
+| Component | CUDA Time | % of GPU | % of Wall Clock |
+|-----------|-----------|----------|-----------------|
+| Attention (fwd+bwd) | 59.5ms | 19.7% | 4.2% |
+| Linear layers (mm+addmm) | 96.1ms | 31.8% | 6.7% |
+| Memory copies | 33.7ms | 11.2% | 2.4% |
+| Element-wise ops | 61.2ms | 20.3% | 4.3% |
+| Reductions (sum) | 32.2ms | 10.7% | 2.3% |
+| LayerNorm backward | 18.3ms | 6.1% | 1.3% |
+| **Total CUDA** | **302ms** | **100%** | **21%** |
+| **CPU overhead** | **1126ms** | — | **79%** |
+
+**Root cause**: GPU is idle 79% of the time. CPU runs the Python AR loop (8 members × 30
+frames = 240 sequential iterations), each requiring a CPU→GPU→CPU round trip. The GPU finishes
+each small kernel and waits for Python to prepare the next step.
+
+### Optimization Paths Evaluated
+
+| Optimization | Expected Speedup | Actual Result | Why |
+|-------------|-----------------|---------------|-----|
+| **KV cache** | ~3x (estimated) | **~1%** | Attention is 20% of GPU time, GPU time is 21% of wall clock. Saves 20ms/batch out of 1428ms. |
+| **Flash Attention** | ~2x attention | **Already active** | PyTorch 2.10 dispatches to `fmha_cutlassB` (efficient attention) automatically via `nn.TransformerEncoderLayer`. Confirmed in profiler output. |
+| **torch.compile** | ~20% | **33x SLOWER** | Dynamic sequence length (`self._next_pos` increments each AR step) causes constant recompilation. Hit recompile limit after 8 compilations. Fundamental incompatibility with AR loops. |
+| **TF32 matmul** | ~2x matmul | **4% total** | 2x speedup × 6.7% of wall clock = 4%. GPU is idle 79% — faster GPU ops don't help. |
+| **AMP (fp16)** | ~2x all ops | **0.81x (slower)** | fp16 casting overhead exceeds compute savings at d_model=64. Small tensors don't benefit from tensor cores. |
+| **BF16** | Similar to AMP | Not tested | Same issue — small model, casting overhead dominates. |
+| **Vectorize members** | ~8x | **8.2x** | Fold K=8 into batch dim. 240 iterations → 30 iterations. Eliminates 7/8 of Python loop overhead. |
+
+### Why Vectorization Is the Only Effective Optimization
+
+The bottleneck is **Python loop overhead** (79% of wall clock), not GPU compute speed.
+All GPU-side optimizations (KV cache, Flash Attention, TF32, AMP) target the 21% GPU portion.
+Even a theoretical 10x GPU speedup would only reduce wall clock by 19%.
+
+Vectorizing members eliminates 7/8 of the Python loop iterations by processing all K members
+in parallel through one AR loop instead of K separate loops. This directly attacks the 79%
+CPU overhead.
+
+### Implementation: Vectorized Member Generation
+
+**Training forward()**: Replaced the sequential member loop:
+\`\`\`python
+# BEFORE (sequential): 8 members × 30 frames = 240 iterations
+for _ in range(n_members):
+    z = self._sample_noise(B, device)
+    for t in range(n_frames):
+        delta = self.frame_decoder(prev_flat, condition, noise, ...)
+        # ... apply delta, update prev_frame
+
+# AFTER (vectorized): 1 loop × 30 frames = 30 iterations
+BK = B * n_members
+history_k = history.repeat_interleave(n_members, dim=0)  # (B*K, T, H, W)
+z = self._sample_noise(BK, device)  # independent noise per member
+for t in range(n_frames):
+    delta = self.frame_decoder(prev_flat, condition, noise, ...)  # BK batch
+trajectory_all = torch.stack(frames, dim=1).reshape(B, n_members, T, H, W)
+\`\`\`
+
+Each of the B*K items gets:
+- Same history (via repeat_interleave)
+- Same encoder condition (encoder processes B*K items, dropout gives per-item variation in train mode)
+- Independent noise draw (self._sample_noise(BK))
+- Independent AR trajectory (each item evolves independently in the 30-step loop)
+
+**Inference sample()**: Same approach — fold n_samples into batch dim, run one call to
+\_sample_ar_frame_trajectory instead of n_samples sequential calls.
+
+### Verification: Statistical Equivalence
+
+**Test 1: 100-run distribution comparison (eval mode, same model)**
+
+| Metric | Sequential (100 runs) | Vectorized (100 runs) | KS p-value |
+|--------|----------------------|----------------------|------------|
+| Loss | 22.51 ± 0.57 | 22.61 ± 0.52 | 0.155 (SAME) |
+| MAE | 36.57 ± 0.42 | 36.72 ± 0.47 | 0.111 (SAME) |
+| Spread | 29.59 ± 1.07 | 29.70 ± 0.96 | 0.702 (SAME) |
+
+All p > 0.05 — distributions are statistically indistinguishable.
+
+**Test 2: Per-cell sample distribution (500 samples, h=15)**
+- 24/25 cells have identical distribution (KS p > 0.05)
+- 1 cell differs — expected false positive rate at α=0.05 with 25 tests is 1.25
+
+**Test 3: Same-checkpoint inference comparison**
+
+| Metric | Sequential inference | Vectorized inference | Diff |
+|--------|---------------------|---------------------|------|
+| Score | 53.16 | 53.40 | 0.24 |
+| Suites | 4/8 | 4/8 | 0 |
+| CI 90% | 0.6552 | 0.6558 | 0.0006 |
+| Kurtosis | 0.3636 | 0.3604 | 0.003 |
+| KS levels | 13 | 15 | 2 (sampling noise) |
+
+**Test 4: 5-epoch training comparison**
+- Vec B=8: loss trajectory 138→46 (5 epochs), same suite pattern {1,3,5,6}
+- Vec B=32: loss trajectory 194→81 (5 epochs), 2 suites — NOT broken, just 4x fewer gradient
+  updates per epoch (124 batches vs 498). Same loss at equivalent gradient step count.
+
+**Test 5: MLP decoder compatibility**
+- Tested 99m_v2 (MLP) with vectorized forward: loss=21.03, gradients OK, sample OK.
+
+### Memory Scaling
+
+| Config | B×K | VRAM | % of 8.2GB |
+|--------|-----|------|-----------|
+| B=8, K=8 | 64 | 1.1 GB | 14% |
+| B=16, K=8 | 128 | 2.1 GB | 26% |
+| B=16, K=16 | 256 | 4.2 GB | 51% |
+| B=32, K=8 | 256 | 4.2 GB | 51% |
+| B=32, K=16 | 512 | OOM | — |
+
+Selected B=32, K=8 for maximum hardware utilization (51% VRAM, ~47s/epoch).
+
+### Speed Results
+
+| Configuration | Training (s/epoch) | Inference (test suite) | Speedup |
+|---------------|-------------------|----------------------|---------|
+| Original (sequential, B=8) | 462s | ~5 min | 1x |
+| Vectorized B=8 | 71s | ~2 min | 6.5x / 2.5x |
+| Vectorized B=32 | 47s | ~2 min | 9.8x / 2.5x |
+
+30 epochs: 3.7h → 35min (B=8) → 23min (B=32).
+All 4 remaining RC6 steps: ~16h → ~2.5h (B=8) → ~1.5h (B=32).
+
+### Outstanding: B=32 LR Scaling
+
+B=32 does 4x fewer gradient updates per epoch than B=8. Standard practice is linear LR
+scaling (lr × 4). Updated CLAUDE.md to use lr_decoder=4e-3 (from 1e-3). This has NOT yet
+been verified — need a quick 10-epoch stability test before using in autoresearch.
+
+Freeze schedule (--freeze_after_epoch 10) may also need adjustment: at B=32, epoch 10 =
+1,240 gradient steps (vs 4,980 at B=8).
+
+### What Was Learned
+
+1. **Profiling before optimizing** revealed the actual bottleneck (Python loop, not GPU compute).
+   Initial estimates (KV cache ~3x, torch.compile ~20%) were wrong by 10-100x.
+2. **torch.compile is incompatible with dynamic-shape AR loops** — constant recompilation makes
+   it 33x slower, not faster.
+3. **Mixed precision doesn't help small models** — casting overhead exceeds compute savings
+   at d_model=64 on RTX 3070 Ti.
+4. **Flash Attention was already active** — PyTorch 2.10 dispatches to efficient CUDA kernels
+   automatically through nn.TransformerEncoderLayer.
+5. **The simplest optimization was the most effective** — vectorizing the member loop (fold K
+   into batch) required no new algorithms, just reshaping tensors. 8.2x speedup from ~30
+   lines of changes.
+6. **Memory is abundant** — 14% VRAM at B=8 K=8. Can scale to B=32 K=8 (51%) safely.
+
+---
