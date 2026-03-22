@@ -1314,7 +1314,7 @@ class SinglePassBlockAR(nn.Module):
         if self.config.noise_dist == "student_t":
             dist = torch.distributions.StudentT(df=self.config.student_t_df)
             z = dist.rsample((B, ndim)).to(device).clamp(-5, 5)
-            z = z / 1.414  # scale so pretrained noise_mlp sees similar magnitude
+            z = z / math.sqrt(self.config.student_t_df / (self.config.student_t_df - 2))  # scale so pretrained noise_mlp sees similar magnitude
         else:
             z = torch.randn(B, ndim, device=device)
         # Project through bottleneck if active
@@ -1588,7 +1588,7 @@ class SinglePassBlockAR(nn.Module):
             if step_idx > 0:
                 if self.config.noise_dist == "student_t":
                     dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                    eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
+                    eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / math.sqrt(self.config.student_t_df / (self.config.student_t_df - 2))
                 else:
                     eps_t = torch.randn_like(z_t)
                 if isinstance(rho, torch.Tensor):
@@ -1682,7 +1682,7 @@ class SinglePassBlockAR(nn.Module):
             for t in range(1, T):
                 if self.config.noise_dist == "student_t":
                     dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                    eps = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
+                    eps = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / math.sqrt(self.config.student_t_df / (self.config.student_t_df - 2))
                 else:
                     eps = torch.randn_like(z_t)
                 z_t = rho * z_t + math.sqrt(1 - rho**2) * eps
@@ -1875,7 +1875,7 @@ class SinglePassBlockAR(nn.Module):
                 if t > 0:
                     if self.config.noise_dist == "student_t":
                         dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                        eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / 1.414
+                        eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-20, 20) / math.sqrt(self.config.student_t_df / (self.config.student_t_df - 2))
                     else:
                         eps_t = torch.randn_like(z_t)
                     if isinstance(rho, torch.Tensor):
@@ -2155,11 +2155,11 @@ class SinglePassBlockAR(nn.Module):
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
         if lambda_kurt > 0:
-            with torch.no_grad():
-                ensemble_mean = iv_samples.mean(dim=1)  # (B, T, H, W)
-            residuals = gt_iv - ensemble_mean.detach()
-            m2 = residuals.pow(2).mean(dim=(0, 1))  # (H, W)
-            m4 = residuals.pow(4).mean(dim=(0, 1))  # (H, W)
+            # Kurtosis of per-member residuals — gradient flows through iv_samples
+            ensemble_mean = iv_samples.mean(dim=1).detach()  # (B, T, H, W) — detach mean only
+            residuals = iv_samples - ensemble_mean.unsqueeze(1)  # (B, K, T, H, W) — per-member deviation
+            m2 = residuals.pow(2).mean(dim=(0, 1, 2))  # (H, W)
+            m4 = residuals.pow(4).mean(dim=(0, 1, 2))  # (H, W)
             raw_kurt = m4 / m2.pow(2).clamp(min=1e-8)  # (H, W)
             kurt_val = (raw_kurt - self.target_kurt).pow(2).mean()
             raw_kurt_mean = raw_kurt.mean().detach()
