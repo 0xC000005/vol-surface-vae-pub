@@ -36919,3 +36919,103 @@ Score unchanged (66.95 ≈ 66.89) but the investigation proved:
 - H2 is the specific fix for the measured problem
 
 ---
+
+## 2026-03-22: Exp 144b — RC8v3-H2: Per-Cell Learned Scale — 5/8, Score 69.28 (BUILD ON)
+
+### Context
+RC8v3-H2: Replace scalar vol_scale with per-cell learned scale vector (25 nn.Parameter).
+Directly motivated by 144a diagnostic: 8/25 edge cells under-spread (<0.5x GT) because
+scalar can't calibrate both edge and interior simultaneously.
+
+**Based on**: 144a (66.95, 5/8, warm start from transformer weights + new per-cell scale)
+
+### Implementation
+- `self.log_vol_scale = nn.Parameter(torch.full((25,), -3.68))` (init from 144a's scalar)
+- `delta = F.softplus(self.log_vol_scale) * delta` (broadcasts: (25,) × (B, 25))
+- Added afCRPS→afCRPS warm start in train_afcrps.py (shape-matched key transfer, 129/130 params)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_144a/final_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_cell_var 1.0 \
+    --ar_frame --ar_log_space --ar_floor_clamp 0.01 \
+    --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 --ar_causal_n_heads 4 \
+    --ar_causal_cln \
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_144b --device cuda
+```
+
+### Results
+
+| Metric | 143a ep30 | 144a final | **144b best** |
+|--------|-----------|------------|---------------|
+| Score | 66.89 | 66.95 | **69.28** |
+| Suites | 5/8 | 5/8 | **5/8** |
+| KS daily | 18/25 | 17/25 | **22/25** |
+| Kurtosis | 1.107 | 0.800 | **1.049** |
+| CI 90% | **78.1%** | 77.8% | 74.0% |
+| KS levels | **23/25** | 20/25 | 18/25 |
+| Coint ratio | 0.965 | 0.651 | **2.898** |
+| Median bias | 25/25 | 25/25 | 24/25 |
+
+Training: Very stable (best ep23, gap 0.057). Val loss 17.26-17.47.
+
+### KEY DIAGNOSTIC: Per-Cell Scale Learned GT Pattern
+
+**Learned per-cell scale (softplus values):**
+```
+[[0.032 0.022 0.016 0.023 0.028]
+ [0.025 0.015 0.015 0.017 0.025]
+ [0.018 0.013 0.014 0.015 0.024]
+ [0.015 0.012 0.013 0.014 0.018]
+ [0.016 0.014 0.013 0.013 0.019]]
+```
+- Range: 0.012 to 0.032 (2.56x ratio)
+- **Spearman correlation with GT per-cell std: ρ = 0.854** (STRONG)
+- CRPS learned the correct per-cell variability pattern from data alone
+
+**Per-cell spread ratio (144b/GT at h=1):**
+- Under-spread cells (<0.5x): **0/25** (was 8/25 in 144a!)
+- Well-calibrated (0.7-1.3x): **17/25** (was 11/25 in 144a)
+- Mean ratio: 0.87 (closer to target 1.0 than 144a's 0.83)
+
+**Delta magnitude ratio (gen/GT): 0.993 ± 0.214** — effectively at target (was 0.40-0.55)
+
+### WHY: Coverage Dropped Despite Better Calibration
+
+Per-horizon worst-cell coverage tells the story:
+
+| Horizon | 143a | 144a | 144b |
+|---------|------|------|------|
+| h=1 | 0.169 | 0.418 | **0.500** |
+| h=7 | 0.397 | 0.402 | **0.489** |
+| h=14 | 0.480 | 0.540 | 0.476 |
+| h=30 | **0.579** | 0.548 | 0.471 |
+
+144b has BEST near-term coverage (h=1, h=7) but WORST long-term (h=30).
+The per-cell scale calibrates per-step deltas correctly, but over 30 steps
+the larger deltas accumulate and create over-spread at some cells while
+under-spread at others. The overall CI (74%) is dominated by the h=30 regression.
+
+This suggests the model needs to learn horizon-dependent dynamics — the scale
+should decrease at later horizons as the random walk accumulates naturally.
+
+### What Was Learned
+
+1. **Per-cell scale learns GT variability** (ρ = 0.854) — Bitter Lesson confirmed again
+2. **Delta calibration solved**: ratio 0.993 ≈ 1.0 (was the #1 root cause problem)
+3. **KS daily best ever (22/25)**: better per-step calibration → better distributional match
+4. **Long-horizon coverage regresses**: per-step calibration doesn't imply 30-step calibration
+5. **Suite 2 bottleneck shifted**: from edge under-spread (h=1) to long-horizon over-accumulation (h=30)
+6. **H3 (capacity) is now about horizon dynamics, not just mean reversion**
+
+### Decision: BUILD ON THIS
+
+Score improved +2.4 points. KS daily 22/25, kurtosis 1.049 (best metrics of any model).
+Per-cell scale is validated. The remaining gap is long-horizon coverage, which H3 (capacity)
+should help — more capacity allows the model to learn horizon-dependent scale modulation.
+
+---
