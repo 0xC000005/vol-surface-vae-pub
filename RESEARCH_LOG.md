@@ -37741,3 +37741,78 @@ After training 146d (only if H3 succeeds):
 - **GOAL**: ZERO hand-tuned constants. Fully Bitter Lesson compliant.
 
 ---
+
+## 2026-03-22: Exp 146a — cell_var variance decomposition fix (VALUABLE FAILURE)
+
+### Exp 146a: cell_var temporal-only variance (RC10-H1)
+**Based on**: 144b (69.28, 5/9 {1,3,4,5,6})
+
+**Hypothesis**: cell_var pools variance across (B, K, T) dims. 67.7% of measured
+variance is between-member spread. Fix: `var(dim=2).mean(dim=(0,1))` to measure
+within-member temporal variance only. Prediction: CI 74%→82-85%.
+
+**Change**: single_pass_ar.py line 2040:
+```python
+# OLD: gen_cell_var = sample_changes.var(dim=(0, 1, 2))
+# NEW: gen_cell_var = sample_changes.var(dim=2).mean(dim=(0, 1))
+```
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py     --base_model models/backfill/afcrps_144b/best_model.pt     --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8     --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5     --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread     --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01     --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln     --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01     --disable_early_stop --output_dir models/backfill/afcrps_146a --device cuda
+```
+
+Best epoch: 26 (stable training, gap=0.076).
+
+**Results**:
+
+| Metric | 144b | 146a | Change |
+|--------|------|------|--------|
+| Suites | 5/9 {1,3,4,5,6} | 5/9 {1,3,4,5,6} | Same |
+| CI 90% | 74.0% | 70.8% | **-3.2pp** |
+| h=1 CI | 64.7% | 39.5% | **-25.2pp** |
+| h=7 CI | 75.1% | 71.7% | -3.4pp |
+| h=14 CI | 75.3% | 74.7% | -0.6pp |
+| h=30 CI | 74.7% | 74.3% | -0.4pp |
+| KS daily | 22/25 | 20/25 | -2 |
+| Kurtosis | 1.049 | 0.607 | -0.44 |
+| Eff rank | 1.47 | 1.67 | +0.20 |
+| Rank ratio | 0.293 | 0.332 | +0.04 |
+| Training spread (ep30) | 26.8 | 23.4 | -3.4 |
+
+Long-horizon (252d): coverage 53.2% at d252 (spread plateaus as expected, P3 unaddressed).
+
+**WHY it failed** (diagnostic evidence):
+
+1. **Variance decomposition** (results/validations/2026-03-22/analysis/146a_diagnostics/):
+   Between-member fraction is ~0% at test time for BOTH models. The fix made no
+   practical difference to variance structure at inference.
+
+2. **Training spread dropped**: From 26.8 → 23.4. The OLD cell_var was implicitly
+   REWARDING between-member spread: by counting between-member variance toward the
+   pooled measurement, it inflated gen_cell_var. The model compensated by producing
+   MORE spread to match GT target. The fix removed this inflation → less spread → lower CI.
+
+3. **h=1 collapse** (64.7% → 39.5%): Short-horizon spread most affected because
+   between-member variance dominates at short horizons (members haven't diverged
+   temporally yet). Removing between-member component hit h=1 hardest.
+
+**Mechanism**: Cell_var pooling is a "beneficial bug" — it implicitly rewards ensemble
+diversity by counting between-member spread as temporal variance. The theoretical
+diagnosis was INVERTED: cell_var wasn't suppressing diversity, it was rewarding it.
+
+**FALSIFICATION**: H1 is cleanly falsified. CI did not improve (70.8% < 74.0%).
+The cell_var variance conflation is not the cause of the CI gap.
+
+**What was learned**:
+- Cell_var's pooled formulation is functionally a diversity reward, not a penalty
+- The CI gap (74% vs 90%) has a different root cause than cell_var
+- Removing cell_var's between-member component weakens short-horizon coverage most
+- Slight eff_rank improvement (1.47→1.67) suggests reduced cell_var constraint
+  gives the model slightly more cross-cell freedom, but not enough to matter
+
+**Decision**: VALUABLE FAILURE. Revert cell_var to original formulation. Use 144b as
+base for H2 (factor noise) and H3 (multi-horizon CRPS). The CI root cause remains open
+— likely pure CRPS gradient asymmetry or architectural spread limitation.
+
+---
