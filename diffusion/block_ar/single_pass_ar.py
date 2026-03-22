@@ -2108,21 +2108,24 @@ class SinglePassBlockAR(nn.Module):
             return samples.clamp(0.0, 1.0)
 
         elif self.config.ar_frame:
-            # ── AR frame mode: per-frame generation ──
+            # ── AR frame mode: per-frame generation (vectorized across samples) ──
             n_frames = int(kwargs.get("n_frames", self.config.future_len))
             position_mode = kwargs.get("position_mode", "native")
 
-            all_samples = []
-            for _ in range(n_samples):
-                all_samples.append(
-                    self._sample_ar_frame_trajectory(
-                        history, n_frames=n_frames, position_mode=position_mode,
-                        extra_hist=extra_hist,
-                    )
-                )
+            # Fold n_samples into batch dimension: (B, ...) → (B*n_samples, ...)
+            history_k = history.repeat_interleave(n_samples, dim=0)
+            extra_hist_k = None
+            if extra_hist is not None:
+                extra_hist_k = extra_hist.repeat_interleave(n_samples, dim=0)
 
-            # Stack and return in [0, 1] (already IV space, no denormalize needed)
-            samples = torch.stack(all_samples, dim=1)  # (B, n_samples, future_len, 5, 5)
+            trajectory = self._sample_ar_frame_trajectory(
+                history_k, n_frames=n_frames, position_mode=position_mode,
+                extra_hist=extra_hist_k,
+            )  # (B*n_samples, n_frames, H, W)
+
+            # Reshape back: (B*n_samples, T, H, W) → (B, n_samples, T, H, W)
+            samples = trajectory.reshape(B, n_samples, n_frames,
+                                         self.config.surface_h, self.config.surface_w)
             return samples.clamp(0.0, 1.0)
 
         else:
