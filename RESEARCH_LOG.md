@@ -36374,3 +36374,77 @@ doesn't help. The missing mechanism is architectural (sigma_head or per-cell CRP
 - Would per-cell CRPS weights transfer to multi-factor (Bitter Lesson test)?
 
 ---
+
+## 2026-03-22: CORRECTION — "Uniform Spread" Assumption Was Wrong, Actual Root Cause Is h=1 Collapse
+
+### What Was Claimed
+RC8 compass stated: "the model produces UNIFORM spread but GT requires HETEROGENEOUS spread."
+This was assumed from test suite pass/fail, never verified with actual measurements.
+
+### What the Data Actually Shows
+
+Direct measurement of 143a ep30 ensemble spread on 41 test windows:
+
+**Spread IS heterogeneous, not uniform:**
+- Model spread CV: 0.879 (coefficient of variation across 25 cells)
+- GT std CV: 0.994
+- Ratio: 0.884 — model is 88% as heterogeneous as GT
+
+**The spread PATTERN is wrong, not the heterogeneity level:**
+- Over-spread: Column 0 (deep OTM) at 1.7-2.2x GT std
+- Under-spread: Columns 2-3 (ATM) at 0.27-0.54x GT std
+- The model allocates too much spread to low-moneyness cells, too little to ATM cells
+
+### Actual Root Causes (Verified with Numbers)
+
+**Root Cause 1: h=1 coverage catastrophically collapsed to 36.7%**
+- h=1 worst cell: 16.9% coverage (nearly zero)
+- h=7: 75.0%, h=14: 80.6%, h=30: 88.7% — all reasonable
+- This is NOT a per-cell issue. It's a HORIZON issue. The first generated frame has
+  almost no ensemble spread.
+- This single failure cascades into BOTH Suite 2 (per-cell CI) and Suite 7 (regime coverage):
+  - Suite 2: h=1 at 36.7% fails the >80% gate
+  - Suite 7: calm h=1 = 35.7%, turb h=1 = 35.5% — both fail
+
+**Root Cause 2: KS daily 6/25 (Suite 8, independent)**
+- Daily change distributions don't match GT across 19 of 25 cells
+- KS D-statistics: 0.13-0.22, most just above the 0.15 gate
+- This is a distributional SHAPE issue, not a coverage issue
+- Likely caused by attention smoothing per-step outputs
+
+### Why h=1 Collapse Happens
+
+The stripped architecture (143a) removed vol_scale. In log-space dynamics:
+\`\`\`
+iv_1 = prev * exp(delta_1)
+\`\`\`
+At the FIRST frame, the transformer has only history context (no generated frames).
+The CLN noise modulates the output, but the model hasn't learned the correct MAGNITUDE
+for the first delta. Without vol_scale to calibrate the initial step size, the first
+frame's delta is too small → exp(small) ≈ 1 + small → almost no change from history →
+ensemble members are nearly identical at h=1.
+
+By h=7+, the AR loop has accumulated enough noise-driven divergence that coverage recovers.
+But h=1 is a single step with a single noise draw per member — insufficient diversity.
+
+### Implications for RC8
+
+The sigma_head hypothesis is still relevant but for a different reason:
+- NOT "add heterogeneity to uniform spread" (wrong diagnosis)
+- BUT "amplify h=1 noise so the first frame has sufficient spread"
+
+However, a simpler hypothesis may be: **the h=1 problem is specifically about the
+INITIAL frame's noise magnitude.** A targeted fix (larger initial noise, or a
+horizon-dependent noise scale) might be more direct than a full sigma_head.
+
+### What Was Learned
+
+1. **Always verify assumptions with direct measurement** — the "uniform spread" claim
+   was assumed from test pass/fail, never measured. The model is 88% as heterogeneous
+   as GT, not uniform.
+2. **The 5/8 ceiling is dominated by ONE failure: h=1 coverage (36.7%).** Fix this and
+   Suite 2 likely passes (h=7/14/30 are OK). Suite 7 improves substantially.
+3. **Suite 8 is independent** — a daily change distributional shape issue.
+4. **The cascade**: h=1 collapse → Suite 2 FAIL → Suite 7 FAIL (2 suites from 1 root cause)
+
+---
