@@ -35472,3 +35472,33 @@ Freeze schedule (--freeze_after_epoch 10) may also need adjustment: at B=32, epo
 6. **Memory is abundant** — 14% VRAM at B=8 K=8. Can scale to B=32 K=8 (51%) safely.
 
 ---
+
+## 2026-03-22: Step 0 — B=32 LR Scaling Verification (PASSED)
+
+### Result
+B=32 lr_decoder=4e-3 (linear scaling from B=8 lr=1e-3) produces stable training.
+Loss decreases monotonically 150.9→43.4 over 10 epochs, no NaN, no spikes. Val loss
+19.9 (comparable to B=8's 19.6). Training at 41.5s/epoch (9.8x faster than original 462s).
+
+### Comparison vs B=8 reference (140a)
+
+| Metric | B=8 lr=1e-3 (ep10) | B=32 lr=4e-3 (ep10) | Notes |
+|--------|-------------------|--------------------|----|
+| Train loss | 34.1 | 43.4 | B=32 has 4x fewer gradient steps |
+| Val loss | 19.6 | 19.9 | Nearly identical generalization |
+| S/M ratio | 0.805 | 0.885 | B=32 less over-fit (fewer steps) |
+| Eff rank | 1.72 | 3.36 | B=32 rank crush SLOWER (beneficial!) |
+| Cross-cell corr | 0.326 | 0.484 | More training needed for convergence |
+| Stable? | YES | YES | — |
+
+### Bonus Finding: Slower Rank Crush at B=32
+B=32 at epoch 10 has eff_rank 3.36 (vs B=8's 1.72). CRPS rank suppression is slower
+because fewer gradient steps have been applied. The model spends more epochs with good
+factor structure. This could be beneficial for Steps 3a/3b where we want to preserve
+noise diversity longer.
+
+### Decision
+ADOPT B=32 lr_decoder=4e-3 for all remaining experiments. Encoder LR stays at 1e-4
+(not scaled — encoder learns fast). Freeze schedule stays at epoch 10 for now.
+
+---
