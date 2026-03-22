@@ -37209,3 +37209,57 @@ loss must target the Gram matrix or effective rank directly, not pairwise differ
 Proceed to H3 (DPP/Gram matrix loss) which directly targets effective rank.
 
 ---
+
+## 2026-03-22: Exp 145c — RC9-H3: DPP Rank Loss (λ_rank=0.1) — 5/8, Score 65.37 (MIXED)
+
+### Context
+RC9-H3: Add DPP-style Gram matrix diversity loss (-logdet penalty on K×K member Gram matrix).
+Directly targets effective rank via maximizing ensemble volume.
+
+**Based on**: 144b (69.28, 5/8). Same architecture + lambda_rank=0.1.
+
+### Results
+
+| Metric | 144b best | 145c best (ep29) |
+|--------|-----------|------------------|
+| Score | **69.28** | 65.37 |
+| Eff rank (training) | 3.82 | **4.36** |
+| Kurtosis | 1.049 | **1.018** |
+| CI 90% | 74.0% | **78.1%** |
+| KS daily | **22/25** | 4/25 |
+| Rank ratio (test) | 0.293 | **0.319** |
+| Suite 7 L2 | 0/8 | **1/8** |
+| Window floor | 8.3% | **6.1%** |
+
+### Training Command
+Same as 144b but added `--lambda_rank 0.1`.
+
+### WHY: Rank Improved But KS Daily Collapsed
+
+**Positive signals**: Eff_rank 3.82→4.36 (+14%), CI 78.1% (best of all transformer models),
+kurtosis 1.018 (near-perfect), Suite 7 L2 moved from 0/8 to 1/8 (first progress ever).
+
+**Negative**: KS daily collapsed 22→4, same pattern as 145a (VS too strong). The rank loss
+interacts with CRPS's per-cell calibration, distorting per-step distributions.
+
+**Mechanism**: The -logdet loss pushes members apart in ALL dimensions simultaneously. This
+creates diverse members but with non-physical per-cell distributions — the diversity is
+"uniform" rather than matching the GT's structured correlation pattern.
+
+### What Was Learned
+
+1. **DPP loss successfully increases effective rank** (3.82→4.36, confirmed in training)
+2. **CI improved to 78.1%** — the best coverage of any principled transformer model
+3. **But distributional quality suffers** — same whack-a-mole pattern as VS
+4. **Rank ratio barely moves in test suite** (0.293→0.319) despite training eff_rank improvement
+   — the test suite measures daily-change correlation, not ensemble member rank
+5. **Suite 7 L2 1/8** — first-ever progress on regime coverage, suggesting rank loss helps
+6. **The tension**: diversity losses (VS, DPP) improve coverage/rank but destroy distributional
+   calibration. Need a WEAKER application or a different diversity mechanism.
+
+### Decision: MIXED — DPP mechanism works but needs tuning
+
+The rank loss is the right DIRECTION (eff_rank up, CI up, Suite 7 progress). But λ=0.1
+is too aggressive for distributional quality. Try λ=0.01 or combine with curriculum.
+
+---
