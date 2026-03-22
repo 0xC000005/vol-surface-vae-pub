@@ -141,6 +141,10 @@ class SinglePassConfig:
     ar_cln_warmup: int = 0                 # CLN warmup: scale modulation by min(1, t/warmup) (0=off, Exp 132b)
     ar_noisefree_mlp: bool = False         # Noise-free MLP: noise only through skip (Exp 120b)
     ar_lowrank_spread: int = 0             # Low-rank cell_spread factors (0=off, 3=Exp 124a)
+    ar_causal_transformer: bool = False    # AR causal transformer decoder (RC6 Step 2, Exp 140a)
+    ar_causal_n_layers: int = 4            # Transformer layers for causal AR decoder
+    ar_causal_d_model: int = 128           # Hidden dim for causal AR decoder
+    ar_causal_n_heads: int = 4             # Attention heads for causal AR decoder
 
     # Joint transformer decoder (non-AR, Exp 133a/H4)
     joint_decoder: bool = False              # Use JointTransformerDecoder instead of AR loop
@@ -393,6 +397,163 @@ class JointTransformerDecoder(nn.Module):
         output = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
 
         return output  # (B, T, H, W) in IV space
+
+
+# ──────────────────────────────────────────────────────────────────────
+# AR Causal Transformer Decoder (RC6 Step 2, Exp 140a)
+# ──────────────────────────────────────────────────────────────────────
+
+class CausalARTransformerDecoder(nn.Module):
+    """AR transformer decoder where each frame attends to ALL previous frames.
+
+    Unlike the MLP FrameDecoder (which only sees prev_frame+condition), this
+    transformer builds up context via causal self-attention over the full
+    sequence of frames. Each generated frame can attend to:
+      - All history frames (from encoder)
+      - All previously generated frames
+      - The condition vector (prepended as a special token)
+
+    Generates one frame at a time. Uses KV cache for efficient inference.
+
+    RC6 Step 2: Replaces FrameDecoder MLP. Proven by 133c that attention
+    breaks rank-1 (kurtosis 1.60). This AR variant preserves extrapolation.
+    """
+
+    def __init__(self, frame_dim: int = 25, cond_dim: int = 128,
+                 noise_dim: int = 32, d_model: int = 128,
+                 n_heads: int = 4, n_layers: int = 4,
+                 dropout: float = 0.0):
+        super().__init__()
+        self.frame_dim = frame_dim
+        self.d_model = d_model
+        self.n_layers = n_layers
+
+        # Project frame (25-dim IV) to model dim
+        self.frame_proj = nn.Linear(frame_dim, d_model)
+
+        # Project condition to model dim (condition is a special prefix token)
+        self.cond_proj = nn.Linear(cond_dim, d_model)
+
+        # Project noise to model dim (added to each frame token)
+        self.noise_proj = nn.Linear(noise_dim, d_model)
+
+        # Learnable position embeddings (up to 61 = 30 hist + 1 cond + 30 future)
+        self.pos_embed = nn.Embedding(62, d_model)
+
+        # Transformer layers (pre-norm for stability)
+        self.layers = nn.ModuleList()
+        for _ in range(n_layers):
+            self.layers.append(
+                nn.TransformerEncoderLayer(
+                    d_model=d_model, nhead=n_heads,
+                    dim_feedforward=d_model * 2,
+                    dropout=dropout, batch_first=True,
+                    norm_first=True,
+                )
+            )
+
+        # Output: d_model → frame_dim (delta prediction)
+        self.out_norm = nn.LayerNorm(d_model)
+        self.out_proj = nn.Linear(d_model, frame_dim)
+        # Zero-init output for smooth warm-start
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
+
+        # Noise skip projection (for compatibility with existing skip bypass)
+        self.noise_skip_proj = nn.Linear(noise_dim, frame_dim)
+
+        # KV cache state (set during AR generation)
+        self._kv_cache = None
+
+    def init_context(self, condition: torch.Tensor,
+                     history_frames: torch.Tensor) -> None:
+        """Initialize transformer context with condition + history frames.
+
+        Args:
+            condition: (B, cond_dim) encoder output
+            history_frames: (B, T_hist, frame_dim) flattened history IV surfaces
+        """
+        B, T_hist = history_frames.shape[:2]
+
+        # Build context sequence: [cond_token, hist_frame_0, ..., hist_frame_T-1]
+        cond_token = self.cond_proj(condition).unsqueeze(1)  # (B, 1, d)
+        hist_tokens = self.frame_proj(history_frames)  # (B, T_hist, d)
+
+        # Add position embeddings
+        positions = torch.arange(T_hist + 1, device=condition.device)
+        pos_emb = self.pos_embed(positions).unsqueeze(0)  # (1, T_hist+1, d)
+
+        # Combine
+        context = torch.cat([cond_token, hist_tokens], dim=1)  # (B, T_hist+1, d)
+        context = context + pos_emb
+
+        # Run through transformer with causal mask
+        seq_len = context.shape[1]
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=condition.device), diagonal=1
+        ).bool()
+
+        for layer in self.layers:
+            context = layer(context, src_mask=causal_mask)
+
+        # Store the processed context for AR generation
+        self._context = context  # (B, T_hist+1, d)
+        self._next_pos = T_hist + 1  # Next position index
+
+    def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
+                noise: torch.Tensor, position: torch.Tensor,
+                horizon_bucket: object = None,
+                cln_warmup_factor: float = 1.0) -> torch.Tensor:
+        """Generate delta for next frame given context.
+
+        Interface matches FrameDecoder for drop-in replacement.
+
+        Args:
+            prev_frame: (B, frame_dim) previous frame (flattened IV)
+            condition: (B, cond_dim) — used only if context not initialized
+            noise: (B, noise_dim) noise vector for this frame
+            position: ignored (we use internal position counter)
+            horizon_bucket: ignored
+            cln_warmup_factor: ignored (CLN comes in Step 3)
+
+        Returns:
+            (B, frame_dim) delta prediction
+        """
+        B = prev_frame.shape[0]
+
+        # Project current frame + noise
+        frame_token = self.frame_proj(prev_frame)  # (B, d)
+        noise_emb = self.noise_proj(noise)  # (B, d)
+
+        # Add position embedding
+        pos_idx = min(self._next_pos, 61)  # Clamp to max position
+        pos_emb = self.pos_embed(
+            torch.tensor([pos_idx], device=prev_frame.device)
+        )  # (1, d)
+
+        # Combine: frame + noise + position
+        new_token = (frame_token + noise_emb + pos_emb).unsqueeze(1)  # (B, 1, d)
+
+        # Append to context and run causal attention
+        full_seq = torch.cat([self._context, new_token], dim=1)  # (B, L+1, d)
+        seq_len = full_seq.shape[1]
+
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=prev_frame.device), diagonal=1
+        ).bool()
+
+        for layer in self.layers:
+            full_seq = layer(full_seq, src_mask=causal_mask)
+
+        # Update context with the new processed sequence
+        self._context = full_seq
+        self._next_pos += 1
+
+        # Output: take the LAST token's representation
+        last_hidden = full_seq[:, -1, :]  # (B, d)
+        delta = self.out_proj(self.out_norm(last_hidden))  # (B, frame_dim)
+
+        return delta
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -836,35 +997,47 @@ class SinglePassBlockAR(nn.Module):
         self.encoder = GRUEncoder(enc_config)
 
         if config.ar_frame:
-            # AR frame decoder: per-frame MLP (no Conv3D, no NoiseMLP)
+            # AR frame decoder: per-frame MLP or causal transformer
             frame_dim = config.surface_h * config.surface_w
             # Factor noise: noise input is per-cell (frame_dim) instead of shared (noise_dim)
             fd_noise_dim = frame_dim if config.ar_factor_noise else config.noise_dim
-            self.frame_decoder = FrameDecoder(
-                frame_dim=frame_dim,
-                cond_dim=config.bottleneck_dim,
-                noise_dim=fd_noise_dim,
-                pos_dim=config.pos_embed_dim,
-                hidden_dim=config.ar_frame_hidden,
-                horizon_embed_dim=(
-                    config.ar_horizon_embed_dim if config.ar_dual_pos else 0
-                ),
-                n_horizon_buckets=(
-                    config.ar_horizon_max_buckets if config.ar_dual_pos else 0
-                ),
-                cell_embed=config.ar_cell_embed,
-                cell_embed_dim=config.ar_cell_embed_dim,
-                cell_cond_offset=config.ar_cell_cond_offset,
-                independent_cells=config.ar_independent_cells,
-                cell_hidden=config.ar_cell_hidden,
-                noise_skip=config.ar_noise_skip,
-                skip_bypass_spread=config.ar_skip_bypass_spread,
-                n_cells=frame_dim,
-                adagn_noise=config.ar_adagn_noise,
-                noise_embed_dim=config.noise_embed_dim,
-                noisefree_mlp=config.ar_noisefree_mlp,
-                n_mlp_layers=config.ar_frame_n_layers,
-            )
+
+            if config.ar_causal_transformer:
+                # RC6 Step 2: Causal transformer AR decoder
+                self.frame_decoder = CausalARTransformerDecoder(
+                    frame_dim=frame_dim,
+                    cond_dim=config.bottleneck_dim,
+                    noise_dim=fd_noise_dim,
+                    d_model=config.ar_causal_d_model,
+                    n_heads=config.ar_causal_n_heads,
+                    n_layers=config.ar_causal_n_layers,
+                )
+            else:
+                self.frame_decoder = FrameDecoder(
+                    frame_dim=frame_dim,
+                    cond_dim=config.bottleneck_dim,
+                    noise_dim=fd_noise_dim,
+                    pos_dim=config.pos_embed_dim,
+                    hidden_dim=config.ar_frame_hidden,
+                    horizon_embed_dim=(
+                        config.ar_horizon_embed_dim if config.ar_dual_pos else 0
+                    ),
+                    n_horizon_buckets=(
+                        config.ar_horizon_max_buckets if config.ar_dual_pos else 0
+                    ),
+                    cell_embed=config.ar_cell_embed,
+                    cell_embed_dim=config.ar_cell_embed_dim,
+                    cell_cond_offset=config.ar_cell_cond_offset,
+                    independent_cells=config.ar_independent_cells,
+                    cell_hidden=config.ar_cell_hidden,
+                    noise_skip=config.ar_noise_skip,
+                    skip_bypass_spread=config.ar_skip_bypass_spread,
+                    n_cells=frame_dim,
+                    adagn_noise=config.ar_adagn_noise,
+                    noise_embed_dim=config.noise_embed_dim,
+                    noisefree_mlp=config.ar_noisefree_mlp,
+                    n_mlp_layers=config.ar_frame_n_layers,
+                )
             # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
             if config.ar_factor_noise:
                 self.factor_loadings = nn.Parameter(
@@ -1257,6 +1430,11 @@ class SinglePassBlockAR(nn.Module):
         rho = self._get_learned_rho(condition)
         prev_frame = denormalize_iv(history[:, -1])  # (B, H, W)
 
+        # Initialize causal transformer context with history frames
+        if self.config.ar_causal_transformer and isinstance(self.frame_decoder, CausalARTransformerDecoder):
+            hist_flat = denormalize_iv(history).reshape(B, history.shape[1], H * W)  # (B, T_hist, 25)
+            self.frame_decoder.init_context(condition, hist_flat)
+
         frames = []
         for step_idx in range(n_frames):
             if step_idx > 0:
@@ -1525,6 +1703,11 @@ class SinglePassBlockAR(nn.Module):
 
                 # prev_frame = last history frame in IV space
                 prev_frame = denormalize_iv(history[:, -1])  # (B, 5, 5)
+
+                # Initialize causal transformer context with history frames
+                if self.config.ar_causal_transformer and isinstance(self.frame_decoder, CausalARTransformerDecoder):
+                    hist_flat = denormalize_iv(history).reshape(B, history.shape[1], H * W)
+                    self.frame_decoder.init_context(condition, hist_flat)
 
                 frames = []
                 for t in range(n_frames):

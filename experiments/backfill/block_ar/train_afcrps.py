@@ -507,6 +507,14 @@ def main():
                         help="Low-rank cell_spread factors (0=off, 3=Exp 124a)")
     parser.add_argument("--ar_frame_n_layers", type=int, default=2,
                         help="MLP hidden layer count (2=default, 3=Exp 128a)")
+    parser.add_argument("--ar_causal_transformer", action="store_true",
+                        help="Use AR causal transformer decoder instead of MLP (RC6 Step 2, Exp 140a)")
+    parser.add_argument("--ar_causal_n_layers", type=int, default=4,
+                        help="Transformer layers for causal AR decoder")
+    parser.add_argument("--ar_causal_d_model", type=int, default=128,
+                        help="Hidden dim for causal AR decoder")
+    parser.add_argument("--ar_causal_n_heads", type=int, default=4,
+                        help="Attention heads for causal AR decoder")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
                         help="Orthogonal reg on noise_skip_proj rows (Exp 123b)")
     parser.add_argument("--lambda_ortho_enc", type=float, default=0.0,
@@ -705,6 +713,10 @@ def main():
         ar_noisefree_mlp=getattr(args, 'ar_noisefree_mlp', False),
         ar_lowrank_spread=getattr(args, 'ar_lowrank_spread', 0),
         ar_frame_n_layers=getattr(args, 'ar_frame_n_layers', 2),
+        ar_causal_transformer=getattr(args, 'ar_causal_transformer', False),
+        ar_causal_n_layers=getattr(args, 'ar_causal_n_layers', 4),
+        ar_causal_d_model=getattr(args, 'ar_causal_d_model', 128),
+        ar_causal_n_heads=getattr(args, 'ar_causal_n_heads', 4),
         extra_features=args.extra_features,
         return_scale=args.return_scale,
         output_dir=args.output_dir,
