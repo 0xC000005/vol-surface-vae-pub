@@ -138,6 +138,10 @@ Training windows: history (B, 30, 5, 5) + future (B, 30, 5, 5), stride-1 sliding
 - **Returns are useless**: `Corr(ret_t, IV_{t+1})` = 0.001. The -0.81 leverage effect is
   concurrent (same-day), not predictive. Encoder correctly ignores them.
 - **GT data floor**: Calendar arb 7.0%, Butterfly arb 20.1% — these are NOT model failures
+- **ALWAYS `normalize_iv()` before `model.sample()`**: Model expects [-1,1] input, returns
+  [0,1] output. Raw IV data is [0,1]. Use `from diffusion.block_ar.single_pass_ar import
+  normalize_iv; hist_norm = normalize_iv(raw_hist)`. Forgetting this produces ~3x
+  overprediction — looks like catastrophic bias but is an input format error.
 
 ## Path Conventions
 
