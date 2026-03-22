@@ -39,6 +39,10 @@ Current best: **5/8 test suites PASS** (confirmed ceiling after 43+ experiments)
 - Python >=3.13 via `uv`: `uv sync`
 - **Run all scripts from repo root** with `PYTHONPATH=.`
 - GPU: RTX 3070 Ti (8 GB) — can fit 2 concurrent training jobs
+- **Training batch size**: Use `--batch_size 32 --n_members 8` (B*K=256, 4.2GB VRAM, 51%).
+  Members are vectorized into batch dim — no sequential member loop.
+  With B=32: ~47s/epoch for transformer, ~30s/epoch for MLP. Scale LR linearly if
+  changing batch size from a recipe (e.g., B=8→B=32 means LR×4).
 
 ## Architecture (afCRPS Single-Pass)
 
@@ -64,11 +68,11 @@ Noise z~N(0,I) → NoiseMLP → noise_embed
 ## Common Commands
 
 ```bash
-# Train afCRPS (best recipe: 99m_v2 settings)
+# Train afCRPS (best recipe: 99m_v2 settings, B=32 for hardware efficiency)
 PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
     --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
-    --no_ema --epochs 60 --batch_size 8 --noise_dim 32 --n_members 8 \
-    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --no_ema --epochs 60 --batch_size 32 --noise_dim 32 --n_members 8 \
+    --lr_decoder 4e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
     --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
     --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
     --lambda_cell_var 1.0 --freeze_after_epoch 10 \
