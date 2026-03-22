@@ -428,6 +428,10 @@ class CausalARTransformerDecoder(nn.Module):
         self.d_model = d_model
         self.n_layers = n_layers
 
+        # Sinusoidal position embedding for cell_spread compatibility
+        # (cell_spread accesses self.frame_decoder.pos_embed(local_pos))
+        self.pos_embed = SinusoidalTimeEmbedding(dim=16)
+
         # Project frame (25-dim IV) to model dim
         self.frame_proj = nn.Linear(frame_dim, d_model)
 
@@ -438,7 +442,7 @@ class CausalARTransformerDecoder(nn.Module):
         self.noise_proj = nn.Linear(noise_dim, d_model)
 
         # Learnable position embeddings (up to 61 = 30 hist + 1 cond + 30 future)
-        self.pos_embed = nn.Embedding(62, d_model)
+        self.token_pos_embed = nn.Embedding(62, d_model)
 
         # Transformer layers (pre-norm for stability)
         self.layers = nn.ModuleList()
@@ -481,7 +485,7 @@ class CausalARTransformerDecoder(nn.Module):
 
         # Add position embeddings
         positions = torch.arange(T_hist + 1, device=condition.device)
-        pos_emb = self.pos_embed(positions).unsqueeze(0)  # (1, T_hist+1, d)
+        pos_emb = self.token_pos_embed(positions).unsqueeze(0)  # (1, T_hist+1, d)
 
         # Combine
         context = torch.cat([cond_token, hist_tokens], dim=1)  # (B, T_hist+1, d)
@@ -527,7 +531,7 @@ class CausalARTransformerDecoder(nn.Module):
 
         # Add position embedding
         pos_idx = min(self._next_pos, 61)  # Clamp to max position
-        pos_emb = self.pos_embed(
+        pos_emb = self.token_pos_embed(
             torch.tensor([pos_idx], device=prev_frame.device)
         )  # (1, d)
 
