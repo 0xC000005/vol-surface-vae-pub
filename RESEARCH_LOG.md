@@ -37592,3 +37592,78 @@ If per-step quality regresses → multi-horizon signal conflicts with per-step C
 - Beta-NLL (Seitzer 2022): Reweighting loss by variance for calibration
 
 ---
+
+## 2026-03-22: Research Compass RC10 — REVISED H1 (Mechanistic cell_var Fix)
+
+### Revision Reason
+
+Original H1 proposed hyperparameter tuning (spread_weight=0.65). User correctly challenged
+this as unprincipled — it doesn't explain WHY the model is under-dispersed.
+
+Investigation found the mechanistic root cause: **cell_var conflates between-member spread
+with within-member temporal variance.**
+
+### The Smoking Gun (Variance Decomposition)
+
+Measured on 144b with 10 test windows, K=50 members:
+
+| Component | Value | Fraction of Total |
+|-----------|-------|-------------------|
+| GT daily change variance | 0.002904 | (target) |
+| Gen TOTAL variance (what cell_var sees) | 0.003157 | 100% |
+| — Within-member temporal variance | 0.001018 | **32.3%** |
+| — Between-member spread | 0.002138 | **67.7%** |
+
+cell_var loss: `(log(gen_total_var) - log(gt_temporal_var))²`
+
+It compares gen_total (which is 67.7% spread) against GT temporal variance. When members
+are diverse, cell_var sees "high variance" and pushes it down — suppressing the very spread
+that CI coverage needs.
+
+### Root Cause of cell_var Bug
+
+Line 2040 of single_pass_ar.py:
+```python
+gen_cell_var = sample_changes.var(dim=(0, 1, 2))  # pools B × K × T together
+```
+
+This pools across members (K) AND timesteps (T). The variance over K (spread) should NOT
+be penalized — only variance over T (temporal dynamics) should match GT.
+
+### Revised H1: Fix cell_var to Measure Within-Member Variance Only
+
+**The bet**: Change one line:
+```python
+# BEFORE: pools members and time
+gen_cell_var = sample_changes.var(dim=(0, 1, 2))  # B × K × T pooled → (H, W)
+
+# AFTER: temporal variance per member, then average
+gen_cell_var = sample_changes.var(dim=2).mean(dim=(0, 1))  # var(T), mean(B × K) → (H, W)
+```
+
+**Evidence chain**: 67.7% of total variance is between-member spread (measured). cell_var
+penalizes this as "excess variance." CRPS alone has 1.05:1 gradient ratio (literature),
+but cell_var adds a variance-constraining gradient that creates the measured 2.05:1.
+
+**Prediction**: CI coverage improves from 74% toward 82-85% (recovering most of the ~8pp
+bias + ~5pp gradient asymmetry). Kurtosis may increase slightly (cell_var is less
+constraining) but should stay in 0.5-2.0 range.
+
+**Falsification**: If CI doesn't improve → cell_var was not the spread suppressor. The
+2.05:1 ratio comes from elsewhere.
+
+**What failure teaches**: The spread suppression is deeper than the loss — possibly in
+the log-space dynamics or the attention mechanism.
+
+**Independence**: Does NOT depend on H2 or H3.
+**Effort**: 1 line of code + 30 min training.
+
+### Updated RC10 Execution Order
+
+1. **H1** (cell_var fix): 1-line change, tests specific mechanism. Exp 146a.
+2. **H2** (factor noise): Architectural, addresses P2. Exp 146b.
+3. **H3** (multi-horizon CRPS): Loss change, addresses P3. Exp 146c.
+
+All three are independent and could theoretically run in parallel.
+
+---
