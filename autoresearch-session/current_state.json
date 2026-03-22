@@ -1,13 +1,12 @@
 {
-  "iteration": 11,
-  "experiment_id": "144a",
-  "training_status": "complete",
-  "phase": "documenting",
-  "hypothesis": "RC8v3-H1: Learned scalar vol_scale. Addresses Problems 1 (delta magnitude) and 6 (mean reversion speed).",
-  "session_best": {"exp": "143a_ep30", "score": 66.89, "suites": 5},
-  "total_experiments": 14,
-  "compass_position": "RC8v3-H1 → VALUABLE FAILURE, proceed to H2",
+  "iteration": 18,
+  "experiment_id": "146c",
+  "training_status": "running",
+  "phase": "training",
+  "hypothesis": "RC10-H3: Multi-horizon CRPS via cum_cal loss. Provides direct gradient signal about calibration at h=1,7,14,30 without flowing through 30 AR steps.",
+  "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
+  "total_experiments": 20,
+  "compass_position": "RC10-H3",
   "session_date": "2026-03-22",
-  "result": "66.95 (5/8), delta ratio 0.70 (was 0.40-0.55), 77x spread increase but heterogeneous (8/25 cells under-spread at edges)",
-  "decision": "VALUABLE FAILURE — mechanism works but scalar insufficient, per-cell scale needed"
+  "base_model": "models/backfill/afcrps_144b/best_model.pt"
 }
