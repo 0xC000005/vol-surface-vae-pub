@@ -1684,124 +1684,137 @@ class SinglePassBlockAR(nn.Module):
 
         elif self.config.ar_frame:
             # ── AR frame mode: per-frame generation with GRU step updates ──
+            # Vectorized: fold K members into batch dimension for single AR loop.
+            # B*K items run through the same 30-step loop instead of K separate loops.
             floor = self.config.ar_frame_floor_clamp
+            BK = B * n_members
 
-            for _ in range(n_members):
-                z = self._sample_noise(B, device)
-                z_t = z
+            # Expand history: (B, T, H, W) → (B*K, T, H, W)
+            history_k = history.repeat_interleave(n_members, dim=0)
+            extra_hist_k = None
+            if extra_hist is not None:
+                extra_hist_k = extra_hist.repeat_interleave(n_members, dim=0)
 
-                # Init GRU state from history
-                gru_outputs, h_last = self._init_gru_state(history, extra_hist=extra_hist)
+            # Init GRU state from expanded history
+            gru_outputs, h_last = self._init_gru_state(history_k, extra_hist=extra_hist_k)
 
-                # Initial condition from full history
-                # When encoder is unfrozen (requires_grad), allow gradients
-                encoder_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
-                if encoder_unfrozen:
-                    condition = self.encoder(history, mask=None, extra=extra_hist)
-                else:
-                    with torch.no_grad():
-                        condition = self.encoder(history, mask=None, extra=extra_hist)
+            # Encoder on expanded history
+            encoder_unfrozen = any(p.requires_grad for p in self.encoder.parameters())
+            if encoder_unfrozen:
+                condition = self.encoder(history_k, mask=None, extra=extra_hist_k)
+            else:
+                with torch.no_grad():
+                    condition = self.encoder(history_k, mask=None, extra=extra_hist_k)
 
-                # Compute rho (fixed or learned from condition)
-                rho = self._get_learned_rho(condition)
+            # Noise: each of B*K items gets independent noise
+            z = self._sample_noise(BK, device)
+            z_t = z
 
-                # prev_frame = last history frame in IV space
-                prev_frame = denormalize_iv(history[:, -1])  # (B, 5, 5)
+            rho = self._get_learned_rho(condition)
+            prev_frame = denormalize_iv(history_k[:, -1])  # (BK, H, W)
 
-                # Initialize causal transformer context with history frames
-                if self.config.ar_causal_transformer and isinstance(self.frame_decoder, CausalARTransformerDecoder):
-                    hist_flat = denormalize_iv(history).reshape(B, history.shape[1], H * W)
-                    self.frame_decoder.init_context(condition, hist_flat)
+            # Expand vol_scale for B*K
+            if vol_scale is not None:
+                if isinstance(vol_scale, torch.Tensor):
+                    vol_scale = vol_scale.repeat_interleave(n_members, dim=0)
+            if vol_scale_cell is not None:
+                vol_scale_cell = vol_scale_cell.repeat_interleave(n_members, dim=0)
 
-                frames = []
-                for t in range(n_frames):
-                    # AR noise update (skip first frame)
-                    if t > 0:
-                        if self.config.noise_dist == "student_t":
-                            dist = torch.distributions.StudentT(df=self.config.student_t_df)
-                            eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
-                        else:
-                            eps_t = torch.randn_like(z_t)
-                        if isinstance(rho, torch.Tensor):
-                            z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
-                        else:
-                            z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
+            # Initialize causal transformer context with history frames
+            if self.config.ar_causal_transformer and isinstance(self.frame_decoder, CausalARTransformerDecoder):
+                hist_flat = denormalize_iv(history_k).reshape(BK, history_k.shape[1], H * W)
+                self.frame_decoder.init_context(condition, hist_flat)
 
-                    local_pos, horizon_bucket = self._get_ar_frame_positions(
-                        step_idx=t,
-                        batch_size=B,
-                        device=device,
-                        position_mode="native",
-                    )
-                    prev_flat = prev_frame.reshape(B, H * W)
-
-                    # Generate delta (condition detached when encoder frozen)
-                    cond_t = condition if encoder_unfrozen else condition.detach()
-                    noise_input = self._get_noise_for_decoder(z_t)
-                    # CLN warmup: ramp noise modulation from 0→1 over first N frames
-                    cln_wf = 1.0
-                    if self.config.ar_cln_warmup > 0:
-                        cln_wf = min(1.0, t / max(self.config.ar_cln_warmup, 1))
-                    delta = self.frame_decoder(
-                        prev_flat, cond_t, noise_input, local_pos, horizon_bucket,
-                        cln_warmup_factor=cln_wf,
-                    )
-                    delta = delta.reshape(B, H, W)
-
-                    # Static per-cell scale (clamped [0.3, 3.0])
-                    if hasattr(self, 'cell_scale'):
-                        cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
-                        delta = cs * delta
-
-                    # Residual: iv_t = prev + vol_scale * [cell_spread *] delta
-                    cs = self._get_cell_spread(cond_t, local_pos)
-                    if cs is not None:
-                        delta = cs * delta
-                    # Skip bypass: add skip AFTER cell_spread so it's never suppressed
-                    if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
-                        skip_out = torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(B, H, W)
-                        # Condition-dependent per-cell noise scale (Exp 102a)
-                        noise_scale = self._get_noise_scale(cond_t)
-                        if noise_scale is not None:
-                            skip_out = skip_out * noise_scale.view(B, H, W)
-                        delta = delta + skip_out
-                    vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
-                    all_deltas.append(delta)
-                    if self.config.ar_frame_log_space:
-                        iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
-                    elif self.config.ar_frame_logit_jac:
-                        pf = prev_frame.clamp(1e-3, 1 - 1e-3)
-                        logit_prev = torch.logit(pf)
-                        jac = pf * (1 - pf)
-                        iv_t = torch.sigmoid(logit_prev + vs * delta / jac)
-                    elif self.config.ar_frame_logit_space:
-                        logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
-                        iv_t = torch.sigmoid(logit_prev + vs * delta)
-                    elif self.config.ar_frame_reflect:
-                        mr = self._get_mean_revert(cond_t, prev_frame)
-                        raw = prev_frame + vs * delta + mr
-                        width = 1.0 - floor
-                        shifted = raw - floor
-                        shifted = shifted % (2 * width)
-                        iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
+            frames = []
+            for t in range(n_frames):
+                # AR noise update (skip first frame)
+                if t > 0:
+                    if self.config.noise_dist == "student_t":
+                        dist = torch.distributions.StudentT(df=self.config.student_t_df)
+                        eps_t = dist.rsample(z_t.shape).to(z_t.device).clamp(-5, 5) / 1.414
                     else:
-                        mr = self._get_mean_revert(cond_t, prev_frame)
-                        iv_t = (prev_frame + vs * delta + mr).clamp(floor, 1.0)
-                    frames.append(iv_t)
+                        eps_t = torch.randn_like(z_t)
+                    if isinstance(rho, torch.Tensor):
+                        z_t = rho * z_t + torch.sqrt(1 - rho**2 + 1e-8) * eps_t
+                    else:
+                        z_t = rho * z_t + math.sqrt(1 - rho**2) * eps_t
 
-                    # Update prev_frame — NOT detached (BPTT through frame chain)
-                    prev_frame = iv_t
+                local_pos, horizon_bucket = self._get_ar_frame_positions(
+                    step_idx=t,
+                    batch_size=BK,
+                    device=device,
+                    position_mode="native",
+                )
+                prev_flat = prev_frame.reshape(BK, H * W)
 
-                    # Update GRU condition (no grad, frozen encoder)
-                    gru_input = iv_t.detach()
-                    if self.training and self.config.ar_input_noise_std > 0:
-                        gru_input = gru_input + self.config.ar_input_noise_std * torch.randn_like(gru_input)
-                    condition, gru_outputs, h_last = self._gru_step(
-                        gru_input, gru_outputs, h_last
-                    )
+                # Generate delta
+                cond_t = condition if encoder_unfrozen else condition.detach()
+                noise_input = self._get_noise_for_decoder(z_t)
+                cln_wf = 1.0
+                if self.config.ar_cln_warmup > 0:
+                    cln_wf = min(1.0, t / max(self.config.ar_cln_warmup, 1))
+                delta = self.frame_decoder(
+                    prev_flat, cond_t, noise_input, local_pos, horizon_bucket,
+                    cln_warmup_factor=cln_wf,
+                )
+                delta = delta.reshape(BK, H, W)
 
-                trajectory = torch.stack(frames, dim=1)  # (B, n_frames, 5, 5)
-                all_member_trajectories.append(trajectory)
+                # Static per-cell scale
+                if hasattr(self, 'cell_scale'):
+                    cs = self.cell_scale.clamp(0.3, 3.0).view(H, W)
+                    delta = cs * delta
+
+                # Cell spread
+                cs = self._get_cell_spread(cond_t, local_pos)
+                if cs is not None:
+                    delta = cs * delta
+                # Skip bypass
+                if self.config.ar_skip_bypass_spread and self.frame_decoder.noise_skip_proj is not None:
+                    skip_out = torch.tanh(self.frame_decoder.noise_skip_proj(noise_input)).reshape(BK, H, W)
+                    noise_scale = self._get_noise_scale(cond_t)
+                    if noise_scale is not None:
+                        skip_out = skip_out * noise_scale.view(BK, H, W)
+                    delta = delta + skip_out
+                vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
+                all_deltas.append(delta)
+                if self.config.ar_frame_log_space:
+                    iv_t = (prev_frame * torch.exp(vs * delta)).clamp(floor, 1.0)
+                elif self.config.ar_frame_logit_jac:
+                    pf = prev_frame.clamp(1e-3, 1 - 1e-3)
+                    logit_prev = torch.logit(pf)
+                    jac = pf * (1 - pf)
+                    iv_t = torch.sigmoid(logit_prev + vs * delta / jac)
+                elif self.config.ar_frame_logit_space:
+                    logit_prev = torch.logit(prev_frame.clamp(1e-3, 1 - 1e-3))
+                    iv_t = torch.sigmoid(logit_prev + vs * delta)
+                elif self.config.ar_frame_reflect:
+                    mr = self._get_mean_revert(cond_t, prev_frame)
+                    raw = prev_frame + vs * delta + mr
+                    width = 1.0 - floor
+                    shifted = raw - floor
+                    shifted = shifted % (2 * width)
+                    iv_t = torch.where(shifted > width, 2 * width - shifted, shifted) + floor
+                else:
+                    mr = self._get_mean_revert(cond_t, prev_frame)
+                    iv_t = (prev_frame + vs * delta + mr).clamp(floor, 1.0)
+                frames.append(iv_t)
+
+                prev_frame = iv_t
+
+                # Update GRU condition
+                gru_input = iv_t.detach()
+                if self.training and self.config.ar_input_noise_std > 0:
+                    gru_input = gru_input + self.config.ar_input_noise_std * torch.randn_like(gru_input)
+                condition, gru_outputs, h_last = self._gru_step(
+                    gru_input, gru_outputs, h_last
+                )
+
+            # (BK, n_frames, H, W) → (B, K, n_frames, H, W)
+            trajectory_all = torch.stack(frames, dim=1)  # (BK, n_frames, H, W)
+            iv_samples = trajectory_all.reshape(B, n_members, n_frames, H, W)
+            # Collect all_member_trajectories for compatibility with downstream code
+            for k in range(n_members):
+                all_member_trajectories.append(iv_samples[:, k])
 
         else:
             # ── Block mode: existing multi-block generation ──
