@@ -35655,3 +35655,143 @@ don't address kurtosis. Running them now would accumulate experiments that all f
 Suite 4 for the same structural reason.
 
 ---
+
+## 2026-03-22: Research Compass RC7 — Solving the AR+Kurtosis Tradeoff
+
+### Philosophy Applied
+- **Popper**: 141b's falsification was DIRTY — the clamp(-5,5)/1.414 truncated Student-t tails.
+  Must re-test without clamping before concluding Student-t doesn't work.
+- **Hinton**: Independent reasoning (before literature) identified 3 hypotheses. Literature
+  validated H1 (TTF) and H2 (chunk-wise) and CORRECTED the Student-t failure analysis.
+- **Karpathy**: Test cheapest hypothesis first. H0 (unclamped Student-t) is 10 min.
+- **Bitter Lesson**: All hypotheses use learned components. No domain heuristics.
+
+### Evidence Summary
+
+**Proven root causes:**
+1. AR + CLT → Gaussian tails (kurtosis 0.21-0.36 for transformer, 0.845 for MLP)
+2. Transformer attention flattens variance profile (kills variance heterogeneity)
+3. CLN works for noise insuppressibility but doesn't fix CLT
+4. One-shot preserves kurtosis (1.60) but kills cointegration (0.32)
+
+**CRITICAL CORRECTION**: Exp 141b used Student-t(df=6) with clamp(-5,5)/1.414.
+The clamping at ±3.54σ removes exactly the heavy tails that resist CLT. The experiment
+did NOT fairly test whether Student-t innovations can preserve kurtosis under AR.
+Student-t(df=4) has INFINITE excess kurtosis and CLT convergence rate O(n^{-1/4}) —
+dramatically slower than Gaussian O(n^{-1/2}). The Heavy-Tailed Diffusion paper
+(Pandey et al., 2024) confirms Student-t works with minimal code changes when tails
+are preserved.
+
+**From literature (3 parallel agents):**
+- Tail Transform Flow (TTF): post-hoc heavy-tail injection via learned output transform
+- Chunk-wise AR (BehaviorGPT NP3, TimesFM): reduce AR steps from 30 to 5-6
+- Heavy-Tailed Diffusion: Student-t perturbation kernel preserves under marginalization
+- Coarse-to-fine (TimeMar, C2FAR): hierarchical with Pareto tail bins
+- Block Forcing (BlockVid): bidirectional diffusion within chunks, causal across
+- Fractional SDE-Net: long-range dependent noise breaks CLT assumptions
+
+### Active Hypotheses (ranked by information value)
+
+#### H0: Unclamped Student-t(df=4) — Re-test with fair conditions
+**Evidence chain**: 141b used df=6 with clamp(-5,5)/1.414 which truncated tails. Student-t(df=4)
+has infinite excess kurtosis. CLT convergence O(n^{-1/4}) vs Gaussian O(n^{-1/2}). Heavy-Tailed
+Diffusion paper confirms this works. Our codebase already has \`--noise_dist student_t\`.
+
+**Principled argument**: The clamp in our implementation is at ±5/1.414 = ±3.54σ. For Gaussian,
+this removes 0.04% of density. For Student-t(df=4), this removes 2.7% — including exactly
+the extreme tails responsible for heavy-tail behavior. Removing the clamp (or raising to ±10)
+and lowering df to 4 gives the hypothesis a fair test.
+
+**Staged checkpoints:**
+1. (10min) Modify noise clamp from 5 to 20 (or remove). Train 141a arch + Student-t(df=4).
+2. (30min) Evaluate kurtosis. If > 0.5, this is the simplest fix.
+3. (30min) If training is unstable (NaN), try df=5 or gradient clipping.
+
+**Falsification**: Kurtosis < 0.5 with unclamped Student-t(df=4) → CLT still dominates
+even with infinite excess kurtosis. Would need to break CLT assumptions entirely.
+
+**Independence**: Completely independent. Minimal code change.
+
+**If it fails**: CLT convergence at rate O(n^{-1/4}) with n=30 still gives ~0.43 —
+potentially insufficient. Would confirm that 30 steps is too many for ANY finite-step approach.
+
+**Effort**: Stage 1: 10min | Stage 2: 30min | Stage 3: 30min
+
+#### H1: Log-space AR dynamics (multiplicative accumulation)
+**Evidence chain**: \`ar_frame_log_space\` already exists in config but never tested with
+transformer + CLN. Multiplicative accumulation: iv_t = prev * exp(vs * delta). Products
+of random variables → log-normal, which has kurtosis = e^{4σ²}+2e^{3σ²}+3e^{2σ²}-6.
+Log-normal resists CLT because the SUM of log-normals is NOT log-normal (no closure).
+
+**Principled argument**: In additive space, CLT applies because sum of iid → Gaussian.
+In log-space, the trajectory is a PRODUCT of factors, not a sum. Products have heavier
+tails by construction. This changes the accumulation algebra fundamentally.
+
+**Staged checkpoints:**
+1. (10min) Train 141a arch + \`--ar_frame_log_space\`. Zero code change.
+2. (30min) Evaluate kurtosis.
+
+**Falsification**: Kurtosis < 0.5 → reflecting bounds clamp [0.01, 1.0] truncate log-space tails.
+
+**Independence**: Completely independent. Existing flag.
+
+**Effort**: Stage 1: 10min | Stage 2: 30min
+
+#### H2: Tail Transform Layer on AR Output
+**Evidence chain**: TTF paper (Hickling & Prangle, 2024) shows learned output transform
+converts Gaussian → GPD tails. Applied AFTER the AR loop, so doesn't interfere with
+temporal structure. Keeps internal network Gaussian (stable optimization).
+
+**Principled argument**: Separate concerns — let the transformer learn temporal structure
+(Gaussian-optimal), then transform output tails to match GT distribution. The transform
+is a learned invertible function, not a heuristic.
+
+**Staged checkpoints:**
+1. (1h) Implement TailTransformLayer: delta → delta * (1 + tail_scale * sign(delta) * |delta|^alpha),
+   where alpha and tail_scale are learned per-cell from noise vector.
+2. (30min) Train 30 epochs with 140a arch (no CLN) + TailTransform.
+3. (30min) If kurtosis improves, combine with CLN.
+
+**Falsification**: Kurtosis < 0.5 → CRPS can't learn tail shape from ensemble evaluation alone.
+
+**Effort**: Stage 1: 1h | Stage 2: 30min | Stage 3: 30min
+
+#### H3: Chunk-wise AR (5-frame blocks)
+**Evidence chain**: 133c (one-shot, 30 frames) kurtosis 1.60. With chunk_size=5, only
+6 AR steps. BehaviorGPT, TimesFM validate chunk-wise at scale. Block Forcing (BlockVid)
+shows bidirectional within-chunk + causal across-chunk works for video.
+
+**Principled argument**: CLT convergence depends on n (number of accumulated steps). Reducing
+n from 30 to 6 dramatically slows convergence. Within-chunk one-shot preserves per-frame
+distributional properties. Cross-chunk AR preserves temporal coherence.
+
+**Staged checkpoints:**
+1. (2h) Implement chunk-wise generation: each chunk generates 5 frames simultaneously.
+2. (30min) Train 30 epochs with chunk_size=5.
+3. (30min) Compare kurtosis AND cointegration vs frame-by-frame and one-shot.
+
+**Falsification**: Kurtosis < 0.5 with 6 chunks → even 6 accumulated steps causes too much
+CLT convergence. Would need chunk_size=30 (= one-shot, losing cointegration).
+
+**Effort**: Stage 1: 2h | Stage 2: 30min | Stage 3: 30min
+
+### Execution Order (cheapest first, per Karpathy)
+
+1. **H0**: Unclamped Student-t(df=4) — 10 min, tests if 141b's failure was dirty
+2. **H1**: Log-space dynamics — 10 min, tests multiplicative accumulation
+3. **H2**: Tail Transform Layer — 2h, literature-grounded post-hoc tail injection
+4. **H3**: Chunk-wise AR — 3h, most principled architectural change
+
+### Exhausted Directions
+- Gaussian AR noise (CLT proven)
+- Student-t(df=6) with clamp(-5,5)/1.414 (tails truncated — dirty test)
+- CLN alone for kurtosis (addresses insuppressibility, not CLT)
+- Additive noise skip (suppressible — 14% of output)
+
+### Open Questions
+- Is 141b's failure from clamping or from CLT genuinely winning at n=30?
+- Does log-space dynamics interact correctly with reflecting bounds?
+- Can CRPS learn tail shape, or does it need explicit tail loss?
+- Would chunk-wise AR preserve cointegration with only 6 AR steps?
+
+---
