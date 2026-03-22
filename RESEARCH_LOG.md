@@ -37019,3 +37019,77 @@ Per-cell scale is validated. The remaining gap is long-horizon coverage, which H
 should help — more capacity allows the model to learn horizon-dependent scale modulation.
 
 ---
+
+## 2026-03-22: Exp 144c — RC8v3-H3: d_model=128 Capacity Test — 5/8, Score 65.84 (VALUABLE FAILURE)
+
+### Context
+RC8v3-H3: Increase transformer capacity from d_model=64 to d_model=128 (930K vs 282K params).
+Tests if more capacity enables horizon-dependent dynamics and improves mean reversion.
+
+**Based on**: 144b (69.28, 5/8, per-cell scale with d_model=64). Warm start from 144b — only
+encoder transferred (decoder shape mismatch due to d_model change, trains from scratch).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_144b/best_model.pt \
+    --no_ema --epochs 40 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_cell_var 1.0 \
+    --ar_frame --ar_log_space --ar_floor_clamp 0.01 \
+    --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 128 --ar_causal_n_heads 4 \
+    --ar_causal_cln \
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_144c --device cuda
+```
+
+### Results
+
+| Metric | 144b best (d=64) | **144c best (d=128)** |
+|--------|------------------|----------------------|
+| Score | **69.28** | 65.84 |
+| KS daily | **22/25** | 11/25 |
+| Kurtosis | **1.049** | 1.546 |
+| Corr ratio | **1.271** | 0.194 |
+| Eff rank | ~3.0 | **1.17** |
+| KS levels | 18/25 | **22/25** |
+| CI 90% | **74.0%** | 72.3% |
+| Delta ratio | 0.993 | **0.917** |
+
+Training: Stable (best ep38, gap 0.146). VRAM: 7.6 GB (tight fit). ~1.7 min/epoch.
+
+### KEY FINDING: CRPS Rank Collapse Scales with Model Capacity
+
+**Diagnostic: Effective rank = 1.17** (GT: 6.19, ratio = 0.19)
+- Off-diagonal correlation: 0.101 (GT: 0.332, ratio 0.31)
+- The d_model=128 model collapsed to near rank-1 despite CLN
+
+**Mechanism**: CRPS has zero cross-cell gradient (proven in RC6 findings). The optimal
+CRPS solution is rank-1 (all cells correlated). CLN at d_model=64 provided sufficient
+noise injection to resist this attractor. At d_model=128, the model has MORE parameters
+to find ways around CLN — more capacity means more paths to the rank-1 attractor.
+
+**This falsifies H3 cleanly**: More capacity doesn't help — it actively hurts by enabling
+deeper rank collapse. The d_model=64 with CLN is the right balance point.
+
+### What Was Learned
+
+1. **CRPS rank-1 attractor is capacity-dependent** — larger models collapse more deeply
+2. **CLN is necessary but not sufficient at scale** — d_model=64 is the sweet spot for current CLN
+3. **Capacity is NOT the bottleneck** for coverage or mean reversion
+4. **Anti-rank mechanisms must scale with capacity** — future work on d_model=128+ needs
+   stronger anti-rank losses (like the cross-cell correlation suite 9 loss) or architectural
+   changes (per-cell decorrelation, rank regularization)
+5. **144b (d_model=64) remains the best principled architecture**
+
+### Decision: VALUABLE FAILURE — RC8v3 compass exhausted
+
+H1-H3 all tested. Results:
+- H1 (scalar scale): VALUABLE FAILURE — mechanism works, scalar insufficient
+- H2 (per-cell scale): BUILD ON — score 69.28, delta calibration solved
+- H3 (capacity): VALUABLE FAILURE — rank collapse scales with capacity
+
+Best model: **144b best (ep23, score 69.28, 5/8)** with per-cell scale at d_model=64.
+New compass needed to break 5/8 ceiling.
+
+---
