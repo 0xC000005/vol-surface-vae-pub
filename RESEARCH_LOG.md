@@ -35582,3 +35582,76 @@ because it overcorrects. The kurtosis failure confirms CLT is the separate probl
 Student-t must address. Proceed to Step 3b (CLN + Student-t).
 
 ---
+
+## 2026-03-22: Exp 141b — CLN + Student-t(df=6) (RC6 Step 3b) — 3/8, Score 41.65
+
+### Context
+RC6 Step 3b: Test whether Student-t(df=6) noise resists CLT over 30 AR steps.
+Theory: Student-t has excess kurtosis 6 (vs Gaussian's 0), which should converge
+slower under CLT accumulation.
+
+**Based on**: 141a (CLN + Gaussian, kurtosis 0.237)
+
+### Training Command
+Same as 141a but added `--noise_dist student_t --student_t_df 6.0`.
+
+### Results
+
+| Metric | 141b (CLN+t) | 141a (CLN+G) | 140a (no CLN) | 99m_v2 |
+|--------|-------------|-------------|--------------|--------|
+| Score | 41.65 | 41.66 | 53.16 | 66.31 |
+| Suites | 3/8 | 3/8 | 4/8 | 5/8 |
+| Kurtosis | **0.214** | 0.237 | 0.364 | 0.845 |
+| CI 90% | 71.4% | 70.7% | 65.5% | 91.3% |
+| Eff rank ep10 | 2.99 | 2.99 | 1.72 | 1.57 |
+| Eff rank ep20 | 2.64 | 2.89 | 1.90 | — |
+
+### KEY FINDING: Student-t Does NOT Resist CLT
+
+Kurtosis DECREASED (0.214 vs 0.237 Gaussian). Student-t(df=6) with the clamp(-5,5)/1.414
+normalization may be too truncated to preserve excess kurtosis. The clamping at ±5 removes
+the heavy tails that make Student-t different from Gaussian. After clamping and normalizing,
+the effective distribution is nearly Gaussian.
+
+But even without clamping concerns: 30 accumulated steps of ANY finite-variance distribution
+converges to Gaussian by CLT. Student-t(df=6) has finite variance (σ²=3/2), so CLT applies.
+Only Student-t(df≤2) has infinite variance that would resist CLT, but that's numerically
+unstable for training.
+
+### Falsification Triggered
+
+The theory queue specified: "If kurtosis < 0.5 even with Student-t(df=6) + CLN → CLT wins
+regardless, need chunk-wise AR (Option B) or hybrid generation."
+
+**CLT is confirmed as a fundamental limitation of frame-by-frame AR generation with
+any finite-variance noise distribution.** The per-step noise distribution doesn't matter
+because 30 accumulated finite-variance steps always converge to Gaussian.
+
+### What Was Learned
+
+1. **Student-t(df=6) doesn't help because CLT applies to any finite-variance distribution**
+2. **The clamp(-5,5)/1.414 normalization further removes heavy tails**
+3. **Kurtosis is a GENERATION STRATEGY problem, not a noise distribution problem**
+4. **CLN + Student-t gives same score (41.65) as CLN + Gaussian (41.66) — no benefit**
+5. **The remaining path for kurtosis is chunk-wise AR** (fewer accumulation steps) or
+   **hybrid AR + one-shot** (one-shot preserves tails, AR preserves cointegration)
+
+### Decision: FALSIFIED — Move to Option B (Chunk-wise AR) or Re-evaluate Roadmap
+
+Steps 3a/3b have answered their questions:
+- CLN works (noise insuppressible, rank preserved) ✓
+- Student-t doesn't fix CLT ✗
+- Kurtosis requires changing the GENERATION STRATEGY, not the noise mechanism
+
+Before proceeding to Steps 4/5 (loss stripping, crutch removal), the kurtosis problem
+needs a principled solution. Options:
+- **Chunk-wise AR** (TimesFM-style): generate k-frame chunks, reduce AR steps from 30 to 6
+- **Hybrid**: one-shot for distributional shape + AR for cointegration
+- **Accept kurtosis failure**: proceed to Steps 4/5, address kurtosis separately
+
+Recommend: pause the RC6 linear roadmap and invoke research-ideation for the kurtosis
+problem specifically. The remaining steps (4/5) are about loss/crutch stripping, which
+don't address kurtosis. Running them now would accumulate experiments that all fail
+Suite 4 for the same structural reason.
+
+---
