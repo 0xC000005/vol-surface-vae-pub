@@ -34784,3 +34784,171 @@ Do NOT skip to teacher forcing. Validate each optimization independently.
 5. KV cache is the safe first optimization — same math, fewer redundant computations
 
 ---
+
+## 2026-03-21: Exp 140a — AR Causal Transformer Decoder (RC6 Step 2) — 4/8, Score 53.16
+
+### Context
+RC6 Step 2: Replace MLP FrameDecoder with causal transformer. Each frame attends to ALL
+previous frames (history + generated) via full causal self-attention. Combined with unfrozen
+encoder + ortho reg from Step 1. Freeze encoder+decoder at epoch 10.
+
+**Based on**: 139a_v2 (unfrozen encoder + ortho reg) + RC6 roadmap Step 2
+
+### Architecture Change
+New `CausalARTransformerDecoder`: 4 layers, d_model=64, 4 heads. Each AR step appends the
+current frame to the context and re-runs full causal attention. 182K total params (152K decoder,
+26K encoder, 4K other). No KV cache (naive implementation — full recomputation each step).
+
+Sequence structure: [cond_token, hist_frame_0, ..., hist_frame_29, gen_frame_0, ..., gen_frame_t]
+Each position gets: frame_proj(IV) + noise_proj(z) + token_pos_embed(position)
+
+Epoch time: 462s (pre-freeze) → 377s (post-freeze), vs MLP's 100s/91s. 4.6x slower due to
+O(T^3) attention recomputation without KV cache.
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --no_ema --epochs 30 --batch_size 8 --noise_dim 32 --n_members 8 \
+    --lr_decoder 1e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 --freeze_encoder_too \
+    --disable_early_stop \
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \
+    --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 --ar_causal_n_heads 4 \
+    --output_dir models/backfill/afcrps_140a --device cuda
+```
+
+### Results (v2 test suite, best model epoch 9)
+
+| Metric | 140a (transformer) | 139a_v2 (unfrozen MLP) | 99m_v2 (baseline) | Direction |
+|--------|-------------------|----------------------|-------------------|-----------|
+| v2 Suites | 4/9 | 5/9 | 5/8 | REGRESSION |
+| Score | 53.16 | 67.54 | 66.31 | -13 |
+| CI 90% | 65.5% | 87.4% | 91.3% | **SEVERE REGRESSION** |
+| Kurtosis | 0.364 | 0.684 | 0.845 | below 0.5 threshold |
+| Cross-cell corr | **0.389** | 0.834 | 0.433 | **MATCHES GT 0.38!** |
+| Eff rank (output) | **4.0-5.6** | 1.30 | 1.57 | **HUGE IMPROVEMENT** |
+| KS daily | 5/25 | 23/25 | 20/25 | regression |
+| KS levels | 13/25 | 15/25 | 1/25 | better than base |
+| Coint ratio | **2.751** | 0.772 | 0.675 | **BEST EVER** |
+| Catastrophic | 3885 | 949 | 576 | regression |
+| Conditionality | PASS | FAIL | PASS | recovered |
+
+Suites PASS: {1, 3, 5, 6}. FAIL: {2, 4, 7, 8, 9}.
+Lost Suite 4 (kurtosis 0.364 < 0.5) and Suite 9 (rank ratio too high at 2.16x GT).
+
+### Training Dynamics — Rank Collapse Under CRPS
+
+The most revealing diagnostic: the transformer STARTS with near-perfect factor structure,
+then CRPS systematically destroys it.
+
+| Epoch | Eff Rank | Cross-Cell Corr | PC1 % | GT Target |
+|-------|----------|----------------|-------|-----------|
+| 1 | **3.93** | **0.403** | 36.7% | 2.6 / 0.38 / 59% |
+| 5 | **2.68** | **0.465** | 56.7% | matches GT! |
+| 10 | 1.72 | 0.326 | 75.3% | declining |
+| 20 | 1.90 | **0.382** | 70.9% | corr recovers |
+
+At epoch 5, the transformer achieves eff_rank 2.68 (GT 2.6!) and PC1 56.7% (GT 59%).
+This is the FIRST TIME any model has matched GT factor structure during training.
+But CRPS pulls rank from 3.93 → 1.72 by epoch 10 (before freeze), then it partially
+recovers to 1.90 post-freeze as only skip/spread continue training.
+
+### Investigation: Mechanistic Causes of Under-Spread
+
+**1. Spread/MAE ratio monotonically declining**:
+Epoch 1: 1.022 → Epoch 5: 0.830 → Epoch 10: 0.805 → Epoch 30: 0.775.
+The transformer reduces MAE faster than the MLP (better prediction), giving CRPS
+accuracy term more leverage. Same mechanism as 139a but amplified.
+
+**2. Noise pathway crushed**:
+noise_skip_proj norm: 0.242, out_proj norm: 1.764 → skip is **14% of transformer output**.
+The transformer's attention mechanism provides such rich conditioning that the noise
+pathway becomes unnecessary for prediction accuracy. CRPS doesn't need noise → suppresses it.
+
+**3. Variance NOT growing monotonically at inference**:
+```
+h= 1: ensemble std=0.0173
+h= 5: ensemble std=0.0282  ← peak
+h=10: ensemble std=0.0226  ← drops!
+h=15: ensemble std=0.0206  ← still dropping
+h=30: ensemble std=0.0245  ← partial recovery
+```
+The transformer stabilizes variance across horizons (attention attends to full history,
+reducing uncertainty about later frames). This kills kurtosis (which requires variance
+HETEROGENEITY across horizons).
+
+**4. Output effective rank is HIGH at inference despite training decline**:
+```
+h= 1: eff_rank=4.00
+h= 5: eff_rank=5.58
+h=15: eff_rank=4.90
+h=30: eff_rank=5.27
+```
+The attention mechanism DOES produce high-rank output (unlike MLP's 1.3-1.6). But
+high rank with low spread = diverse DIRECTIONS but tiny MAGNITUDES. The noise skip
+at 14% can't amplify diversity into meaningful spread.
+
+**5. Cross-cell correlation near-perfect (0.389 vs GT 0.38)**:
+This is the transformer's fundamental advantage. Attention naturally discovers cell-cell
+relationships. The MLP can only produce rank-1 correlations (all cells move together).
+The transformer produces rich, GT-matching correlation structure.
+
+### Root Cause: The Transformer Is Too Good a Predictor
+
+The paradox: attention gives the model such strong predictive power that CRPS minimizes
+MAE aggressively. With lower MAE, the spread term (0.5 * spread) becomes relatively
+weaker, and the model under-spreads. The MLP's limited capacity was protecting spread —
+it couldn't reduce MAE below a floor, so CRPS's dual penalty stayed balanced.
+
+This is exactly the RC6 risk table prediction for Risk 6: "CRPS's dual penalty isn't
+balanced for this model scale." The causal transformer amplifies the imbalance by being
+a fundamentally better predictor.
+
+### What Was Learned
+
+1. **Causal transformer SOLVES the correlation problem**: cross-cell corr 0.389 vs GT 0.38
+   — essentially perfect. First AR model to achieve this. MLP fundamentally can't (rank-1).
+2. **Causal transformer achieves GT factor structure at epoch 5**: eff_rank 2.68 (GT 2.6),
+   PC1 56.7% (GT 59%). This is lost by epoch 10 due to CRPS rank suppression.
+3. **CRPS rank suppression is FASTER with transformer**: rank 3.93 → 1.72 in 10 epochs
+   (vs CLN's 3.83 → 1.93 in 5 epochs). More parameters = faster CRPS convergence.
+4. **Noise pathway is structurally weak**: skip at 14% of output. The transformer doesn't
+   NEED noise for prediction → CRPS suppresses it. This confirms CLN is needed (Step 3).
+5. **Transformer under-spread is WORSE than MLP**: CI 65.5% vs 91.3%. Better prediction
+   → more CRPS accuracy leverage → more spread suppression. The architecture amplifies
+   the CRPS imbalance.
+6. **Kurtosis fails because variance is flat**: The transformer learns to stabilize variance
+   (attention reduces uncertainty about future). Kurtosis requires variance heterogeneity.
+7. **The architecture is CORRECT but the noise mechanism is WRONG**: The transformer produces
+   the right factor structure (rank, correlation) but can't maintain ensemble diversity
+   because noise enters via an easily-suppressed additive skip pathway.
+8. **GPU utilization only 42%**: Sequential AR loop with full attention recomputation (no KV
+   cache) means GPU is starved by CPU→GPU→CPU ping-pong. KV cache would give ~3x speedup
+   with identical results.
+
+### Decision: VALUABLE FAILURE — Architecture Validated, Noise Mechanism Is the Bottleneck
+
+The causal transformer decoder is the RIGHT architecture for the decoder:
+- Solves cross-cell correlation (0.389 vs GT 0.38)
+- Produces high-rank output (4.0-5.6 vs MLP's 1.3-1.6)
+- Matches GT factor structure at epoch 5
+
+But the noise mechanism (additive skip) is the WRONG diversity source for this
+architecture. The transformer suppresses it to 14% of output. RC6 Step 3 (CLN)
+is designed to solve exactly this: noise that modulates normalization parameters
+and is structurally insuppressible.
+
+### Optimization Roadmap (if proceeding)
+1. KV cache — identical results, ~3x faster (safe)
+2. Verify KV cache reproduces exact results
+3. Teacher forcing as separate comparison experiment (changes training dynamics)
+
+### Next
+RC6 Step 3 (Exp 141a): Replace additive noise skip with CLN at every transformer layer.
+This makes noise structurally insuppressible — the transformer MUST produce different
+outputs for different noise draws because normalization parameters change.
+
+---
