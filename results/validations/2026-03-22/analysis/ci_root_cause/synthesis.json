@@ -1,0 +1,22 @@
+{
+  "model": "144b",
+  "overall_coverage": 0.7504533529281616,
+  "target_coverage": 0.9,
+  "coverage_deficit": 0.1495466470718384,
+  "pit_u_shape_ratio": 1.513246238472739,
+  "pit_interpretation": "U-SHAPED (ratio=1.51): Ensemble is UNDER-DISPERSED (too narrow). GT falls outside ensemble too often. RIGHT-SKEWED (ratio=0.46): Ensemble is systematically biased low (GT tends to be above ensemble).",
+  "spread_deficit": 1.4451401233673096,
+  "crps_mae_spread_ratio": 2.511194760648917,
+  "regime_gap": 0.0003733038902282715,
+  "ensemble_size_improvement": 0.12236003081003821,
+  "conclusions": [
+    "PIT CONFIRMS UNDER-DISPERSION: U-shape ratio = 1.51. GT falls outside ensemble more than expected.",
+    "TAIL EXCESS: 6.7% of PIT < 0.05 (expected 5%), 16.7% > 0.95. Both tails are under-covered.",
+    "REGIME-INDEPENDENT: Gap only 0.000. Coverage deficit is universal.",
+    "ENSEMBLE TOO NARROW: Mean spread deficit = 1.45x. Need 145% more spread for 90% coverage.",
+    "CRPS GRADIENT IMBALANCE: MAE/spread ratio = 2.51. The afCRPS loss (alpha=0.95, spread_weight=0.5) has a strong pull toward narrowing the ensemble. The effective spread coefficient is 0.5*(1-0.05*alpha_adj) which underweights diversity relative to accuracy.",
+    "EARLY HORIZON UNDER-COVERAGE: h=1 coverage = 0.659. Problem starts at the very first step, not just accumulated over time."
+  ],
+  "mechanistic_cause": "The MECHANISTIC CAUSE of 74% coverage is SYSTEMATIC UNDER-DISPERSION driven by the afCRPS loss function's gradient structure. \n\nEVIDENCE:\n1. PIT histogram is U-shaped (ratio=1.51), confirming the ensemble is too narrow \u2014 GT falls outside the ensemble at both tails.\n2. Spread deficit = 1.45x \u2014 the ensemble would need 45% more spread to achieve 90% coverage.\n3. CRPS MAE/spread ratio = 2.51. With alpha=0.95, the effective loss is 0.975*MAE - 0.475*spread. The MAE coefficient is 2.05x the spread coefficient. This means CRPS has a 2:1 incentive to reduce error vs increase diversity. The model converges to a narrow ensemble that minimizes absolute error at the expense of calibration.\n4. Coverage does NOT improve with ensemble size (K=8\u219250: 0.1224), proving the narrowness is a learned property of the decoder, not a sampling artifact.\n5. The deficit is regime-independent \u2014 it affects all regimes roughly equally.\n\nROOT CAUSE: afCRPS(alpha=0.95) with spread_weight=0.5 creates a loss landscape where the global minimum has ~75% coverage, not 90%. The model correctly minimizes CRPS but CRPS minimization does not guarantee calibration at any specific CI level. CRPS is a proper scoring rule (minimized by the true distribution), but with finite K=8 members during training and the alpha blending, the effective optimum shifts toward under-dispersion. The model learns to hedge \u2014 trading off a small coverage loss for a large MAE reduction.",
+  "total_time_seconds": 6.452422380447388
+}

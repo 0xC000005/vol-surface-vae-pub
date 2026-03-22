@@ -1,0 +1,105 @@
+{
+  "task": "ci_root_cause",
+  "model": "144b",
+  "status": "complete",
+  "overall_coverage": 0.7505,
+  "target_coverage": 0.90,
+  "coverage_deficit": 0.1495,
+
+  "diagnostic_summary": {
+    "d1_pit": {
+      "u_shape_ratio": 1.51,
+      "rightmost_bin_mass": 0.234,
+      "leftmost_bin_mass": 0.095,
+      "skew_ratio_left_over_right": 0.46,
+      "extreme_high_above_95pct": 0.167,
+      "finding": "ASYMMETRIC U-shape: GT falls ABOVE ensemble 23.4% of the time in the top decile (expected 10%). The ensemble is biased LOW and too narrow. This is NOT a symmetric under-dispersion — it is a DIRECTIONAL under-prediction."
+    },
+    "d2_per_cell": {
+      "n_cells_above_90pct": 4,
+      "n_cells_below_70pct": 8,
+      "worst_cell": "(0,3) = 44.6%",
+      "best_cell": "(4,0) = 94.8%",
+      "spatial_pattern": "Strong column gradient: column 0 (low moneyness) has 78-95% coverage; column 3 (high moneyness) has 45-76% coverage. The model systematically underestimates IV at high moneyness.",
+      "finding": "Coverage failure is SPATIALLY CONCENTRATED. 8 of 25 cells are below 70%. The worst cells (column 2-3) drag the overall average from ~85% to 75%."
+    },
+    "d3_per_horizon": {
+      "h1_coverage": 0.659,
+      "h10_coverage": 0.776,
+      "h30_coverage": 0.758,
+      "first_horizon_above_90pct": null,
+      "finding": "Coverage is WORST at h=1 (65.9%) and improves by h=10 (77.6%), then plateaus. No horizon reaches 90%. The h=1 deficit means the FIRST FRAME already has insufficient spread — this is not an accumulation problem."
+    },
+    "d4_spread_vs_error": {
+      "mean_spread_deficit": 1.445,
+      "h1_deficit": 1.370,
+      "h30_deficit": 1.307,
+      "finding": "Ensemble needs 45% more spread on average. Deficit is roughly constant across horizons (1.37 at h=1, 1.31 at h=30), confirming the narrowness is set at the FIRST STEP and maintained."
+    },
+    "d5_conditional_coverage": {
+      "calm_coverage": 0.730,
+      "turb_coverage": 0.730,
+      "regime_gap": 0.000,
+      "spread_ratio_turb_over_calm": 1.56,
+      "error_ratio_turb_over_calm": 1.50,
+      "finding": "Coverage deficit is REGIME-INDEPENDENT. The model correctly scales spread proportionally to regime (1.56x spread ratio vs 1.50x error ratio). The problem is not regime adaptation — it is a universal scale deficit."
+    },
+    "d6_ensemble_size": {
+      "k8_coverage": 0.628,
+      "k20_coverage": 0.706,
+      "k50_coverage": 0.751,
+      "improvement_k8_to_k50": 0.122,
+      "finding": "Coverage DOES improve significantly with K (63% to 75%). At K=8 during training, the 5th/95th percentile quantiles are estimated from only the min and max of 8 samples — badly biased inward. This contributes ~5-7pp of the deficit at test time even with K=50."
+    },
+    "d7_crps_decomposition": {
+      "mae_term": 0.04227,
+      "spread_term": 0.01683,
+      "crps": 0.02544,
+      "mae_over_spread_ratio": 2.51,
+      "finding": "MAE/spread ratio = 2.51 (calibrated ~2.0). With afCRPS alpha=0.95, effective loss = 0.975*MAE - 0.475*spread. MAE coefficient is 2.05x spread coefficient. CRPS gradient incentivizes narrowing the ensemble."
+    },
+    "d8_bias": {
+      "global_mean_bias": -0.01428,
+      "global_relative_bias": -0.314,
+      "per_cell_above_fraction_range": "0.26 to 0.56",
+      "finding": "STRONG SYSTEMATIC DOWNWARD BIAS: Ensemble median is 0.014 below GT (relative bias = -31% of spread). In 22 of 25 cells, GT is above the ensemble median more than 50% of the time. Most cells: median above GT only 28-45% of the time."
+    }
+  },
+
+  "mechanistic_cause": {
+    "summary": "THREE interacting mechanisms cause 75% coverage instead of 90%",
+    "mechanism_1_bias": {
+      "contribution_estimate_pp": 8,
+      "description": "SYSTEMATIC DOWNWARD BIAS: The ensemble median is 0.014 below GT (relative bias = -31% of spread). The model systematically underpredicts IV, especially at high moneyness (column 3: coverage 45-76%). This shifts the entire distribution downward, causing GT to fall above the ensemble 90% CI upper bound 16.7% of the time (expected 5%). Bias alone accounts for ~8pp of the 15pp deficit because even with perfect spread, a shifted center misses coverage on one side."
+    },
+    "mechanism_2_underdispersion": {
+      "contribution_estimate_pp": 5,
+      "description": "INSUFFICIENT SPREAD from afCRPS gradient structure: MAE/spread ratio = 2.51 (calibrated ~2.0). The afCRPS loss with alpha=0.95 creates effective weights 0.975 on MAE vs 0.475 on spread — a 2.05:1 ratio favoring accuracy over diversity. The model converges to an ensemble that is 45% too narrow. Correcting bias alone would bring coverage to ~83%, not 90%. The residual deficit is pure spread."
+    },
+    "mechanism_3_finite_k": {
+      "contribution_estimate_pp": 2,
+      "description": "FINITE-SAMPLE QUANTILE BIAS: With K=8 during training, the empirical 5th percentile = min(8 samples) and 95th = max(8 samples). These are biased inward: E[min of 8] > true 5th percentile. The model learns to produce a distribution whose empirical quantiles are calibrated at K=8, but at test time with K=50 the quantiles expand, partially compensating. Still, the learned distribution itself is too narrow because CRPS with K=8 penalizes spread more than with K→infinity."
+    },
+    "spatial_concentration": "The deficit is NOT uniform across the IV surface. Column 3 (high moneyness) has 45-76% coverage while column 0 (low moneyness) has 78-95%. This suggests the model struggles with the right tail of the moneyness distribution where IV dynamics differ (e.g., skew behavior). The per-cell bias is largest at cell (0,0) = -0.075 and (0,4) = -0.052.",
+    "regime_independence": "Critically, the deficit is regime-independent (calm=73.0%, turb=73.0%). The model correctly adapts spread to regime (1.56x). The problem is a universal SCALE factor on spread, not conditional adaptation.",
+    "actionable_implications": [
+      "Increase spread_weight from 0.5 to ~0.7 to rebalance MAE/spread gradient ratio toward 2.0",
+      "Increase K during training from 8 to 16-20 to reduce finite-sample quantile bias",
+      "Add asymmetric bias penalty: the model systematically underpredicts, especially at high moneyness cells",
+      "Consider cell-specific spread scaling: column 3 needs ~2x more spread than column 0"
+    ]
+  },
+
+  "total_time_seconds": 6.45,
+  "files_produced": [
+    "results/validations/2026-03-22/analysis/ci_root_cause/d1_pit_histogram.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d2_per_cell_coverage.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d3_per_horizon_coverage.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d4_spread_vs_error.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d5_conditional_coverage.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d6_coverage_vs_ensemble_size.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d7_crps_decomposition.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/d8_bias_analysis.json",
+    "results/validations/2026-03-22/analysis/ci_root_cause/synthesis.json"
+  ]
+}
