@@ -36667,3 +36667,135 @@ necessary and can't be reduced.
 | No verified measurements | 7 diagnostics with reproducible scripts |
 
 ---
+
+## 2026-03-22: DIAGNOSTIC 8 — Mean Reversion Is Too Slow (6th Problem)
+
+### Measurement
+Compared HIGH-start (Q75) vs LOW-start (Q25) IV trajectories for 143a ep30.
+Cell (2,2) ATM 90d, 40 test windows, 50 ensemble members.
+
+| Horizon | Model gap | GT gap | Model % remaining | GT % remaining |
+|---------|----------|--------|-------------------|----------------|
+| h=1 | 0.147 | 0.135 | 100% | 100% |
+| h=5 | 0.134 | 0.124 | 91% | 92% |
+| h=10 | 0.129 | 0.119 | 88% | 88% |
+| h=15 | 0.125 | 0.111 | 85% | 82% |
+| h=20 | 0.120 | 0.104 | 82% | 77% |
+| h=30 | 0.121 | 0.100 | **82%** | **74%** |
+
+Model mean-reverts to 82% of initial gap. GT reverts to 74%. The model under-estimates
+mean reversion speed by ~30% (82% vs 74% remaining at h=30).
+
+### Multi-Cell Mean Reversion (h=30 gap / h=1 gap)
+Values < 1.0 = mean-reverting. Lower = faster reversion.
+
+\`\`\`
+Model:                    GT would be lower (~0.60-0.75)
+0.69  0.56  0.75  0.75  0.40
+0.71  0.76  0.82  0.88 -1.17
+0.77  0.83  0.85  0.87  1.23
+0.82  0.85  0.87  0.88  0.83
+0.84  0.82  0.85  0.87  0.87
+\`\`\`
+
+Most cells show ratios 0.75-0.88 (some reversion, but too slow).
+Cells (1,4) and (2,4) show ANTI-mean-reversion (>1.0) — these diverge.
+
+### Root Cause
+AR generation with log-space dynamics: \`iv_t = prev * exp(delta)\`. The transformer
+learns to predict small deltas (conservative, as shown in Diagnostic 5). Small deltas
+mean slow change from current level → slow mean reversion. The model is "sticky" —
+it stays near the starting level longer than GT does.
+
+This is connected to Problem #1 (delta under-stepping). If deltas are 40-55% of GT,
+the mean reversion rate is also reduced proportionally. Fixing delta magnitude (H1)
+should partially fix mean reversion speed.
+
+However, mean reversion also requires the model to learn DIRECTION — that high IV
+should produce NEGATIVE deltas and low IV should produce POSITIVE deltas. This is a
+conditional property that depends on the encoder capturing the current level relative
+to the long-run mean.
+
+### Updated Root Cause Map (6 Problems)
+
+| # | Problem | Measurement | Affects | H1 fixes? |
+|---|---------|-------------|---------|-----------|
+| 1 | Delta under-stepping | 40-55% of GT | S2, S7, S8 | YES |
+| 2 | Delta variability narrow | 35-45% of GT | S8 KS | NO |
+| 3 | Wrong lag-1 ACF | +0.04 vs -0.27 | S8 KS | NO |
+| 4 | Member re-convergence | cosine 0.989 at h=30 | Late diversity | NO |
+| 5 | Row 0 bias | -2.8 to -3.0 IV pts | Per-cell | NO |
+| **6** | **Mean reversion too slow** | **82% vs GT 74% at h=30** | **Scenario quality** | **PARTIALLY** (bigger deltas → faster reversion, but direction also needed) |
+
+### Impact on RC8v2
+
+H1 (learned scalar scale) should partially address Problem #6 because bigger deltas
+→ faster movement → faster reversion. But it doesn't address the DIRECTIONAL component
+— the model also needs to learn that high IV → negative delta (revert down) more
+strongly than it currently does.
+
+This directional component is what the encoder + attention should learn from the
+conditioning. The question: does the current encoder capture "current IV is high
+relative to mean" well enough? Or does the model need an explicit mean-reversion
+mechanism?
+
+Per the Bitter Lesson: the model SHOULD learn mean reversion from data via CRPS.
+If it doesn't after fixing delta magnitude, that's a capacity or data limitation,
+not a missing mechanism. Adding explicit mean-reversion (like the old ar_mean_revert
+config option) would be a domain heuristic.
+
+---
+
+## 2026-03-22: Research Compass RC8v3 — Updated with Mean Reversion (6 Problems)
+
+### Updated Root Cause Map
+
+| # | Problem | Severity | H1 fixes? | H2 fixes? | Needs new hypothesis? |
+|---|---------|----------|-----------|-----------|----------------------|
+| 1 | Delta under-stepping (40-55%) | HIGH | **YES** | YES | — |
+| 2 | Delta variability narrow (35-45%) | MEDIUM | NO | MAYBE | YES if H1+H2 fail |
+| 3 | Wrong lag-1 ACF (+0.04 vs -0.27) | MEDIUM | NO | NO | YES — structural |
+| 4 | Member re-convergence at h=30 | LOW | NO | NO | Deferred |
+| 5 | Row 0 bias (-3 IV pts) | LOW | NO | NO | Deferred |
+| **6** | **Mean reversion too slow (82% vs 74%)** | **HIGH** | **PARTIALLY** | **PARTIALLY** | **MAYBE** |
+
+### Revised Hypothesis Assessment
+
+H1 (learned scalar scale) addresses:
+- Problem 1: directly (bigger deltas)
+- Problem 6: partially (bigger deltas → faster movement, but not directional)
+- NOT: Problems 2, 3, 4, 5
+
+Expected outcome of H1: Suite 2 improves (coverage width). Mean reversion speeds up
+but may still be insufficient. Suite 8 KS unchanged.
+
+### What Would Be Needed AFTER H1
+
+If H1 gives us 6/8 but mean reversion is still too slow:
+- **Diagnostic**: measure mean reversion rate with H1's model. If improved from 82%→77%
+  (closer to GT 74%), the scalar scale was sufficient.
+- **If still too slow**: The model needs stronger DIRECTIONAL learning — high IV should
+  produce negative deltas. Options:
+  a) More training epochs (the model may not have converged on this)
+  b) Larger model (d_model=128 gives more capacity for conditional dynamics)
+  c) Explicit mean-reversion term — BUT this is a domain heuristic (Bitter Lesson violation)
+  
+The principled approach per Bitter Lesson: try (a) and (b) before (c). If the model
+genuinely can't learn mean reversion from CRPS at this scale, that's an important finding
+about the limits of the Bitter Lesson for small models.
+
+### Execution Plan (unchanged, but with added verification)
+
+1. **H1**: Learned scalar scale. AFTER training, re-run BOTH the 7-diagnostic script
+   AND the mean reversion test. Measure:
+   - Delta magnitude (target: 80-100% of GT, was 40-55%)
+   - Mean reversion rate (target: gap at h=30 ≤ 77%, was 82%)
+   - Suite 2 coverage (target: h=1 > 60%, was 36.7%)
+
+2. **If H1 helps coverage but mean reversion still slow**: H2 (per-cell scale) may help
+   because per-cell scaling lets the model amplify directional deltas differently per cell.
+
+3. **If H1+H2 help coverage but mean reversion still slow**: This is a capacity issue.
+   Try d_model=128 (H3 becomes capacity test, not cell_var tuning).
+
+---
