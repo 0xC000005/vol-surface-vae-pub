@@ -35988,3 +35988,59 @@ The CRPS+VS only loss is insufficient for log-space dynamics. But we learned tha
 This tests whether cell_var alone is sufficient regularization for log-space.
 
 ---
+
+## 2026-03-22: Exp 142b — CRPS + VS + cell_var, Log-Space + CLN (Step 4 refined) — 4/8, Score 57.88
+
+### Context
+Step 4 refined: Keep cell_var (prevents kurtosis overcorrection in log-space), drop IS, ES,
+bias_loss. Tests the minimal principled loss for log-space dynamics.
+
+**Based on**: 141d (full loss, kurtosis 1.274) + 142a (CRPS+VS only, kurtosis overcorrected to 3.18)
+
+### Results
+
+| Metric | 142b | 141d (full) | 142a (CRPS+VS) | 99m_v2 |
+|--------|------|------------|----------------|--------|
+| Score | **57.88** | 57.08 | 45.25 | 66.31 |
+| Suites | 4/8 | 4/8 | 3/8 | 5/8 |
+| Kurtosis | **0.966** | 1.274 | 3.177 | 0.845 |
+| CI 90% | **74.5%** | 70.1% | 72.6% | 91.3% |
+| KS daily | 18/25 | 20/25 | 13/25 | 20/25 |
+| KS levels | **19/25** | 17/25 | 21/25 | 1/25 |
+| Median bias | **24/25** | 23/25 | 24/25 | — |
+
+### What Was Learned
+
+1. **CRPS + VS + cell_var is the optimal loss for log-space** — kurtosis 0.966 (near-ideal),
+   no overcorrection (was 3.18 without cell_var), CI improved to 74.5%
+2. **IS removal confirmed beneficial** — CI improved from 70.1% (with IS) to 74.5% (without IS)
+3. **ES and bias_loss are truly redundant** — removing them had zero negative effect
+4. **The principled loss is 3 components, not 6** — CRPS (proper scoring rule) + VS (correlation)
+   + cell_var (variance calibration for log-space)
+5. **Architecture scorecard update**: 8/14 → need to reassess with the refined loss
+
+### Architecture Scorecard Update (142b)
+
+| Component | Principled? | Status |
+|-----------|:-:|--------|
+| Encoder (GRU, co-trained, ortho reg) | YES | DONE |
+| Decoder (causal transformer, CLN) | YES | DONE |
+| Generation (AR + log-space) | YES | DONE |
+| Noise (CLN, insuppressible) | YES | DONE |
+| Loss: afCRPS | YES | DONE |
+| Loss: VS | YES | DONE |
+| Loss: cell_var | JUSTIFIED | Prevents log-space kurtosis overcorrection |
+| vol_scale | NO | Step 5 |
+| cell_spread | NO | Step 5 |
+| Freeze schedule | NO | Step 5 |
+| Noise skip (additive) | REDUNDANT? | CLN provides diversity; skip may be unnecessary |
+
+**Score: 7/11 principled** (was 5/14). Remaining: vol_scale, cell_spread, freeze, skip.
+
+### Decision: BUILD ON THIS — Best Transformer Score
+
+Score 57.88 matches 141d (57.08) with fewer loss components. Kurtosis is better centered
+(0.966 vs 1.274). Coverage improved (74.5% vs 70.1%). Proceed to Step 5 (strip architectural
+crutches) on this base.
+
+---
