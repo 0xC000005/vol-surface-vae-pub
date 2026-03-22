@@ -37166,3 +37166,46 @@ H1 first (zero implementation), H3 second (complements H1), H2 third (independen
 H1 and H2 are independent — address different suites (9 vs 2).
 
 ---
+
+## 2026-03-22: Exp 145a — RC9-H1: Strong VS (λ_vs=1.0) — 5/8, Score 62.28 (VALUABLE FAILURE)
+
+### Context
+RC9-H1: Increase variogram score weight from 0.1 to 1.0 (10x). Zero code changes.
+Tests whether stronger cross-cell signal breaks rank-1 attractor.
+
+**Based on**: 144b (69.28, 5/8, per-cell scale, d_model=64)
+
+### Results
+
+| Metric | 144b best | 145a best (ep7) |
+|--------|-----------|-----------------|
+| Score | **69.28** | 62.28 |
+| KS daily | **22/25** | 2/25 |
+| Rank ratio | 0.293 | 0.319 (+9%) |
+| Kurtosis | **1.049** | 1.657 |
+| Median bias | **24/25** | 12/25 |
+| CI 90% | 74.0% | 73.2% |
+
+### Training Command
+Same as 144b but `--lambda_vs 1.0` instead of `--lambda_vs 0.1`.
+
+### WHY: VS Cannot Break Rank Collapse
+
+Rank ratio improved only 9% (0.293→0.319) despite 10x weight increase. Meanwhile KS daily
+collapsed from 22→2 and median bias from 24→12. The VS gradient overwhelmed CRPS's per-cell
+calibration signal, distorting per-cell distributions.
+
+**Mechanism**: VS penalizes pairwise differences `(|Y_i-Y_j|^p - |X_i-X_j|^p)^2`. At λ=1.0,
+this drives the model to match pairwise difference MAGNITUDES, which distorts individual cell
+distributions. The VS doesn't directly target RANK structure — it targets difference magnitudes.
+Rank collapse means all members move in the same direction, not that magnitudes are wrong.
+
+**Key learning**: VS targets the wrong thing for rank recovery. Rank collapse is about the
+DIRECTION of ensemble member variation, not the MAGNITUDE of pairwise differences. A rank-aware
+loss must target the Gram matrix or effective rank directly, not pairwise differences.
+
+### Decision: VALUABLE FAILURE — VS is wrong mechanism for rank
+
+Proceed to H3 (DPP/Gram matrix loss) which directly targets effective rank.
+
+---
