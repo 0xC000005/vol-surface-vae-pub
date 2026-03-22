@@ -140,6 +140,15 @@ LOOP:
   │    44 to 64 between runs — a 20-point swing from         │
   │    sampling noise alone. Single-run scores near          │
   │    thresholds are unreliable.                            │
+  │                                                         │
+  │    UNSTABLE TRAINING NEEDS FINAL_MODEL EVAL:             │
+  │    If best_model is from epoch ≤ 5 OR val_loss gap       │
+  │    (final - best) > 1.0, also run the test suite on      │
+  │    final_model.pt. Val_loss is unreliable when training   │
+  │    is unstable — the converged model may score higher     │
+  │    on the test suite despite worse val_loss. This was     │
+  │    proven in Exp 143a where best_model (ep1) scored       │
+  │    58.83 but final_model (ep30) scored 66.89 (5/8).      │
   ├─────────────────────────────────────────────────────────┤
   │ 3. DOCUMENT (session log only — research log is step 6)  │
   │                                                         │
