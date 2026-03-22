@@ -37489,3 +37489,106 @@ factor structure — they need separate solutions. Research Compass RC10 should 
 hypotheses for each of the three independent problems.
 
 ---
+
+## 2026-03-22: Research Compass RC10 — Three Independent Solutions for Three Independent Problems
+
+### Philosophy Applied
+- **Hamming**: All three problems are important (block suites) AND attackable (solutions exist)
+- **Karpathy**: One change per experiment, three independent problem tracks
+- **Popper**: Each hypothesis has a specific falsification test
+- **Bitter Lesson**: All solutions are learned from data (nn.Parameter, proper scoring rules)
+- **TRIZ**: P1 resolved by decoupling accuracy from spread; P2 by separating marginals from
+  structure architecturally; P3 by giving the model capacity for horizon-dependent noise
+
+### Evidence Summary (from validation audit, NOT assumptions)
+
+Three independent problems (independence PROVEN: r=-0.036, p=0.81, n=47 models):
+
+**P1: CI Coverage 74% → 90%** (Suites 2, 7)
+- Bias: ~8pp (PIT top bin 23.4%, 22/25 cells biased low)
+- CRPS gradient asymmetry: ~5pp (measured 2.05:1, literature says theoretical is 1.05:1 —
+  the discrepancy likely from auxiliary losses cell_var/VS competing)
+- Finite K=8: ~2pp (K=50 gives 75.1% vs K=8 62.8%)
+- ECMWF achieves calibrated PIT with K=4 — our ceiling is NOT inherent to CRPS
+
+**P2: Factor Structure 1.48 vs GT 4.74** (Suite 9, helps 8)
+- CRPS rank-1 attractor (zero cross-cell gradient)
+- DPP targets wrong metric (inter-member, not within-member)
+- Literature recommends factor-structured noise (architectural) or VS (loss-based)
+
+**P3: Long-Horizon Spread Plateau** (252-day)
+- AR(1) sqrt(t) growth with ρ=0.8 (3 alternatives falsified)
+- Literature: multi-horizon CRPS (AIFS-CRPS) or horizon-dependent noise scale
+
+### Active Hypotheses
+
+#### H1: CRPS Spread Rebalancing + Bias Fix (P1)
+
+**Evidence**: CI root cause found 3 sub-causes totaling 15pp. ECMWF proves CRPS CAN calibrate.
+The measured gradient asymmetry (2.05:1) likely comes from auxiliary losses competing with
+CRPS spread term, not from CRPS itself (theoretical ratio is 1.05:1).
+
+**The bet**: Two quick sub-experiments:
+- H1a: `spread_weight=0.65` (rebalance, zero code changes)
+- H1b: `n_members=16` (reduce finite-K bias, zero code changes)
+
+**Falsification**: If PIT histogram remains right-skewed at spread_weight=0.65 → bias is from
+log-space dynamics (Jensen's inequality), not gradient asymmetry. Need explicit bias correction.
+
+**Independence**: Does NOT depend on H2 or H3.
+**Effort**: 0 code + 30min training each.
+
+#### H2: Factor-Structured Noise (P2)
+
+**Evidence**: Eff_rank 1.48 across ALL models. DPP failed (wrong metric). Literature recommends
+factor-structured noise as top approach — architecturally forces multi-factor output.
+
+**The bet**: Replace single CLN noise with factor-structured noise:
+`delta = W(condition) @ factors + sigma(condition) * residual`
+where W is 25×5 learned loadings, factors are 5 independent noise streams.
+
+**Falsification**: If eff_rank doesn't improve despite 5 independent streams → rank collapse is
+in the attention/decoder, not the noise. If KS daily regresses → factor noise disrupts calibration.
+
+**Independence**: Does NOT depend on H1.
+**Effort**: ~2h implementation + 30min training.
+
+#### H3: Multi-Horizon CRPS (P3, also helps P1 at h=30)
+
+**Evidence**: AR(1) sqrt(t) proven. Coverage worst at h=1 (65.9%), model never sees h=30 loss.
+AIFS-CRPS validates staged rollout training at ECMWF (operational since Feb 2025).
+
+**The bet**: Add CRPS evaluation at accumulated horizons [10, 30] during training:
+`loss = per_step_crps + λ_cum * mean(afCRPS(iv_at_h, gt_at_h) for h in [10, 30])`
+
+**Falsification**: If h=30 coverage doesn't improve → vanishing gradients through 30 AR steps.
+If per-step quality regresses → multi-horizon signal conflicts with per-step CRPS.
+
+**Independence**: Does NOT depend on H1 or H2.
+**Effort**: ~1.5h implementation + 30min training.
+
+### Execution Order
+
+1. **H1a** (spread_weight=0.65): Zero code, 30 min. Highest info/minute.
+2. **H1b** (K=16): Zero code, 30 min. Can run parallel with H1a.
+3. **H2** (factor noise): 2h implementation. Addresses most fundamental structural deficit.
+4. **H3** (multi-horizon CRPS): 1.5h implementation. Addresses independent bottleneck.
+
+### Exhausted Directions (from this session + validation)
+- Strong VS λ=1.0 (145a: KS daily 22→2)
+- DPP rank loss (targets inter-member, not within-member factor structure)
+- d_model=128 capacity increase (rank collapse scales with capacity)
+- Student-t noise (CLT dominates at n=30)
+- IS tuning (Goldilocks zone too narrow)
+- ACF loss (geometrically opposes other metrics)
+
+### Literature Sources
+- AIFS-CRPS (Lang et al. 2024): afCRPS formulation, progressive rollout, K=4 calibrated
+- CW-Gen (Yang et al. 2025): Conditional whitening, factor-structured covariance
+- MVG-CRPS (Zheng et al. 2024): Whitened multivariate CRPS
+- dualGNN (Lakatos 2025): ES+VS composite outperforms ES-only
+- PIT calibration (Dheur 2024): MCB regularizer for enforcing uniform PIT
+- Diffusion Forcing (NeurIPS 2024): Variable noise levels across temporal positions
+- Beta-NLL (Seitzer 2022): Reweighting loss by variance for calibration
+
+---
