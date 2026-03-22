@@ -37667,3 +37667,77 @@ the log-space dynamics or the attention mechanism.
 All three are independent and could theoretically run in parallel.
 
 ---
+
+## 2026-03-22: Research Compass RC10 — FINAL (4 Hypotheses + Deep Diagnostics)
+
+### Revision: Addressing Non-Principled Components
+
+User correctly identified two borderline components not addressed in RC10:
+1. **ρ=0.8**: Hand-tuned constant. CRPS prefers ρ=0.3 (116a) but we override it.
+2. **cell_var**: Even if H1 fixes the variance conflation, cell_var constrains the model
+   to match a data-derived target. If log-space NEEDS this, we need to understand WHY.
+
+Added H4 (learned ρ) and deep diagnostic plans for every hypothesis. Each hypothesis now
+includes a "principled check" that verifies whether the fix is genuine or papering over
+a deeper issue.
+
+### Execution Order (with dependencies)
+
+```
+H1 (cell_var fix) ─────────────→ H2 (factor noise) ─── independent
+        │                                │
+        ├─ probe: cell_var=0             ├─ ablation: random W
+        │                                │
+        └──────────────────→ H3 (multi-horizon CRPS) ──→ H4 (learned ρ)
+                                         │                      │
+                                         ├─ gradient flow        ├─ ρ convergence
+                                         └─ 252d test            └─ full principled audit
+```
+
+### Diagnostic Philosophy
+
+Every hypothesis gets THREE levels of verification:
+1. **Metric verification**: Did the target metric improve? (test suite)
+2. **Mechanism verification**: Does the improvement come from the hypothesized mechanism? (diagnostic scripts with specific numbers)
+3. **Principled check**: Is the fix genuinely principled, or does it mask a deeper problem? (probe experiments, ablations)
+
+Level 3 is what distinguishes science from metric chasing. If H1 improves CI but the
+principled check reveals cell_var is masking a fundamental log-space instability, that
+finding is MORE valuable than the CI improvement itself.
+
+### H1 Diagnostic Plan Summary
+
+After training 146a:
+- PIT histogram (top bin: 23.8% → target <15%)
+- Variance decomposition (between-member fraction no longer suppressed)
+- CRPS gradient ratio (2.05:1 → target ~1.05:1)
+- Kurtosis control: IF >2.0 → deeper issue, not fixable by cell_var
+- **PROBE**: Train with lambda_cell_var=0. If kurtosis stays <2.0, cell_var was unnecessary.
+
+### H2 Diagnostic Plan Summary
+
+After training 146b:
+- PCA eigenvalues and loadings (eff_rank target ≥3.0)
+- Visualize 5 learned factor loadings as 5×5 heatmaps
+- Factor independence verification
+- **ABLATION**: Freeze loadings W at random, train only residual
+- **STABILITY**: Retrain with different seed, compare W matrices
+
+### H3 Diagnostic Plan Summary
+
+After training 146c:
+- Per-horizon coverage curve (should be more uniform)
+- Spread growth trajectory (should exceed sqrt(t))
+- Gradient flow analysis through 30 AR steps
+- 252-day long-horizon test (business requirement)
+- **PROBE**: Make ρ learned with multi-horizon CRPS. Does it converge or collapse?
+
+### H4 Diagnostic Plan Summary
+
+After training 146d (only if H3 succeeds):
+- ρ convergence trajectory across epochs
+- Suite 5 growing uncertainty with learned ρ
+- Full principled audit: every component learned from data
+- **GOAL**: ZERO hand-tuned constants. Fully Bitter Lesson compliant.
+
+---
