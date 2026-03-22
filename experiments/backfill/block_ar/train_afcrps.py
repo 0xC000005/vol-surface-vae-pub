@@ -451,14 +451,6 @@ def main():
                         help="AR noise temporal correlation (default: 0.8, 0.0=iid)")
     parser.add_argument("--ar_reflect", action="store_true",
                         help="Reflecting boundaries: bounce off [floor, 1.0] instead of clamping")
-    parser.add_argument("--ar_factor_noise", action="store_true",
-                        help="Factor model noise: z_factors @ loadings.T for per-cell noise")
-    parser.add_argument("--ar_n_factors", type=int, default=5,
-                        help="Number of latent noise factors (requires --ar_factor_noise)")
-    parser.add_argument("--ar_factor_noise_norm", action="store_true",
-                        help="Normalize cell_noise to unit variance (loadings control corr only)")
-    parser.add_argument("--ar_factor_init_scale", type=float, default=0.1,
-                        help="Factor loadings initialization std (default: 0.1)")
     parser.add_argument("--ar_floor_clamp", type=float, default=0.001,
                         help="Lower IV clamp in AR frame generation (default: 0.001)")
     parser.add_argument("--ar_cell_embed", action="store_true",
@@ -684,10 +676,6 @@ def main():
         ar_frame_logit_jac=getattr(args, 'ar_logit_jac', False),
         ar_frame_rho=args.ar_frame_rho,
         ar_frame_reflect=getattr(args, 'ar_reflect', False),
-        ar_factor_noise=args.ar_factor_noise,
-        ar_n_factors=args.ar_n_factors,
-        ar_factor_noise_norm=args.ar_factor_noise_norm,
-        ar_factor_init_scale=args.ar_factor_init_scale,
         ar_frame_floor_clamp=args.ar_floor_clamp,
         ar_cell_embed=args.ar_cell_embed,
         ar_cell_embed_dim=args.ar_cell_embed_dim,

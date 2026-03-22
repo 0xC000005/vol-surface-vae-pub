@@ -37816,3 +37816,87 @@ base for H2 (factor noise) and H3 (multi-horizon CRPS). The CI root cause remain
 — likely pure CRPS gradient asymmetry or architectural spread limitation.
 
 ---
+
+## 2026-03-22: Exp 146b — Factor-structured noise skip (PARTIAL SUCCESS)
+
+### Exp 146b: FactorNoiseSkip 5 factors (RC10-H2)
+**Based on**: 144b (69.28, 5/9 {1,3,4,5,6})
+
+**Hypothesis**: CRPS rank-1 attractor (eff_rank 1.47 vs GT 5.03). Factor-structured
+noise forces multi-factor output: `FactorNoiseSkip(noise_dim=32, frame_dim=25, n_factors=5)`
+replaces Linear noise_skip_proj. Splits noise into 5 factor streams via learned loadings
+W (25×5) + residual (25×27).
+
+**Change**: Added FactorNoiseSkip class, replaced noise_skip_proj in CausalARTransformerDecoder.
+Cleaned up old factor_noise code paths (_get_noise_for_decoder, _sample_noise).
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_144b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --ar_factor_noise 5 --disable_early_stop \
+    --output_dir models/backfill/afcrps_146b --device cuda
+```
+
+Best epoch: 17 (stable, gap=0.083).
+
+**Results**:
+
+| Metric | 144b | 146b | Change |
+|--------|------|------|--------|
+| Suites | 5/9 | 5/9 | Same {1,3,4,5,6} |
+| CI 90% | 74.0% | **77.3%** | **+3.3pp** |
+| h=30 CI | 74.7% | **84.9%** | **+10.2pp** |
+| KS daily | 22/25 | 21/25 | -1 |
+| Kurtosis | 1.049 | 1.210 | OK |
+| **Eff rank** | **1.47** | **2.26** | **+0.79 (+54%)** |
+| Rank ratio | 0.293 | **0.450** | **+0.157** (need 0.50) |
+| Corr ratio | 1.271 | **1.143** | Better |
+| ACF corr | 0.752 | **0.946** | **+0.194** |
+| Cal. error | 0.117 | **0.062** | **Halved** |
+| Window floor | 8.3% | **5.3%** | Better |
+| Median bias | 25/25 | 19/25 | Regressed |
+| 252d coverage | 53.2% | **13.6%** | **Severe regression** |
+
+**WHY it worked** (diagnostic evidence):
+
+1. **Factor loadings W** (25×5): All 5 factors active (SVD condition number 2.53).
+   Loadings are small (0.001-0.01) but sufficient to break rank-1 attractor.
+   Factor norms: [0.0095, 0.0125, 0.0163, 0.0176, 0.0123].
+
+2. **Mechanism**: The skip bypass is the DIRECT noise→delta path. By forcing 5
+   independent streams through it, the output delta has rank ≥ 5 (from the factor
+   component), even though CRPS gradient pulls toward rank-1. The residual path
+   (27 dims → 25) provides fine-grained per-cell control.
+
+3. **Why CI also improved** (despite r=-0.036 independence): Factor noise increased
+   ensemble spread (variance 0.004 vs 0.003 at h=30). More spread → higher CI. The
+   independence was measured across MODELS, but within a model, factor noise directly
+   adds per-cell spread that was previously suppressed.
+
+4. **Why long-horizon degrades**: Factor noise adds per-cell variation that is
+   independent at each time step. Over 252 steps, this COMPOUNDS, creating extreme
+   kurtosis (77.5 at d180-d251 vs 6.3 for 146a). The AR(1) ρ=0.8 correlation doesn't
+   prevent factor noise from compounding because it's added AFTER the AR update.
+
+**Falsification**: Eff_rank DID improve (1.47→2.26) → noise pathway IS part of rank
+collapse. But didn't reach 3.0 target → decoder/attention also contributes. PARTIAL.
+
+**What was learned**:
+- Skip bypass is a viable path for breaking rank-1 attractor
+- Even small factor loadings (0.01) produce measurable eff_rank improvement
+- Factor noise improves 30-day metrics but degrades 252-day (kurtosis compounding)
+- CI and rank are "statistically independent across models" but mechanically linked
+  within a model (more noise → more spread → better CI)
+- Rank_ratio 0.450 is VERY close to passing Suite 9 (needs 0.50)
+
+**Decision**: PARTIAL SUCCESS. 30-day suite improvements are real. Long-horizon
+regression needs H3 (multi-horizon CRPS) to address. Proceed to H3 from 144b base.
+
+---
