@@ -1,0 +1,55 @@
+{
+  "task": "cross_model_comparison",
+  "date": "2026-03-22",
+  "models_analyzed": [
+    "144a",
+    "144b",
+    "144c",
+    "145a",
+    "145c"
+  ],
+  "n_test_windows": 9,
+  "n_samples_per_window": 50,
+  "device": "cuda",
+  "status": "complete",
+  "key_findings": {
+    "best_eff_rank_model": "144c",
+    "best_eff_rank_value": 1.6425098854036058,
+    "best_suites_model": "144a",
+    "best_suites_count": 5,
+    "gt_eff_rank": 4.741581589557224,
+    "hardest_cell_count": 5,
+    "eff_rank_comparison_summary": {
+      "144a": {
+        "train": null,
+        "test_pca": 1.5220484296077386,
+        "test_summary": 1.5125887867858683,
+        "rank_ratio": 0.3008010913864418
+      },
+      "144b": {
+        "train": null,
+        "test_pca": 1.480432889702814,
+        "test_summary": 1.4711828652242904,
+        "rank_ratio": 0.29256689944717074
+      },
+      "144c": {
+        "train": null,
+        "test_pca": 1.6425098854036058,
+        "test_summary": 1.610858787579143,
+        "rank_ratio": 0.32034356303994094
+      },
+      "145a": {
+        "train": null,
+        "test_pca": 1.6169195869304083,
+        "test_summary": 1.6050485094209141,
+        "rank_ratio": 0.31918810160420746
+      },
+      "145c": {
+        "train": 4.3646954278792105,
+        "test_pca": 1.5971362559416538,
+        "test_summary": 1.6027316720584486,
+        "rank_ratio": 0.3187273635547899
+      }
+    }
+  }
+}

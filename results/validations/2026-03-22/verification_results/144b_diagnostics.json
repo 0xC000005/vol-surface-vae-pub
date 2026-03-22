@@ -1,0 +1,78 @@
+{
+  "verification_id": "144b_diagnostics",
+  "model_path": "models/backfill/afcrps_144b/best_model.pt",
+  "timestamp": "2026-03-22",
+  "script_path": "results/validations/2026-03-22/scripts/144b_diagnostics.py",
+  "bash_script_path": "results/validations/2026-03-22/scripts/144b_diagnostics.sh",
+  "result_paths": [
+    "results/validations/2026-03-22/analysis/144b/diagnostics_results.json",
+    "results/validations/2026-03-22/analysis/144b/diagnostics_stdout.log"
+  ],
+  "test_config": {
+    "device": "cuda",
+    "max_batches": 20,
+    "batch_size": 16,
+    "n_samples": 50,
+    "n_windows": 320,
+    "test_start_idx": 4540,
+    "checkpoint_epoch": 23
+  },
+  "claim_verdicts": {
+    "claim_1_delta_ratio": {
+      "claimed": "0.993 +/- 0.214",
+      "measured": "0.370 +/- 0.156",
+      "verdict": "REFUTED",
+      "notes": "Median-trajectory delta magnitude is 2.7x smaller than GT. The 0.993 claim was likely measured with a different methodology (possibly per-sample deltas rather than median trajectory, or using std rather than mean-abs). The median trajectory compresses deltas because it averages out noise across 50 samples, resulting in much smaller changes. The original claim may have used per-sample member deltas."
+    },
+    "claim_2_learned_scale_spearman": {
+      "claimed": 0.854,
+      "measured": 0.832,
+      "verdict": "CONFIRMED",
+      "notes": "Spearman rho = 0.832 vs claimed 0.854 — within expected variation (p < 0.0001). Per-cell learned scale strongly correlates with GT per-cell std. Pattern confirmed: edge cells (1M, 2Y tenors and extreme moneyness) have larger scales."
+    },
+    "claim_3_under_spread": {
+      "claimed": "0/25 cells under-spread (<0.5x GT) at h=1",
+      "measured_h1": "16/25 under-spread at h=1",
+      "measured_h30": "3/25 under-spread at h=30",
+      "verdict": "REFUTED (methodology mismatch)",
+      "notes": "Using cross-sample std / cross-window GT std metric, 16/25 cells are under-spread at h=1. The original claim likely used a different spread metric (e.g., std of per-sample daily changes vs std of GT daily changes, where the model's per-step delta std may indeed match). At h=30 accumulation helps and only 3/25 are under-spread."
+    },
+    "claim_4_well_calibrated": {
+      "claimed": "17/25 cells well-calibrated (0.7-1.3x GT) at h=1",
+      "measured_h1": "1/25 at h=1",
+      "measured_h30": "7/25 at h=30",
+      "verdict": "REFUTED (methodology mismatch)",
+      "notes": "Using level-based spread ratio, only 1/25 cells are well-calibrated at h=1. The original claim likely used per-step delta spread comparison rather than level-based CI spread. The model generates correct per-step delta shapes but cross-sample variance at any single horizon is much less than cross-window GT variance."
+    }
+  },
+  "new_analyses": {
+    "analysis_5_acf_lag1": {
+      "finding": "144b shows EXCELLENT mean reversion ACF",
+      "gt_acf_mean": -0.235,
+      "gen_acf_mean": -0.269,
+      "acf_gap": -0.034,
+      "significance": "Unlike 143a (ACF +0.04), 144b captures mean reversion well. The gap of -0.034 means the model slightly OVER-reverts. Per-cell variation: GT ranges [-0.440, -0.078], generated is more uniform [-0.297, -0.245]. The model homogenizes ACF across cells but gets the mean level right."
+    },
+    "analysis_6_ci_breakdown": {
+      "finding": "Coverage bottleneck is K=1.00 and K=1.15 columns (ATM/OTM puts)",
+      "overall_coverage": 0.726,
+      "cells_below_80pct": 13,
+      "cells_below_70pct": 10,
+      "cells_below_60pct": 6,
+      "worst_cells": ["1M_K=1.15 (37.1%)", "3M_K=1.15 (39.7%)", "6M_K=1.15 (48.7%)", "1M_K=1.00 (54.8%)", "3M_K=1.00 (56.6%)"],
+      "best_cells": ["2Y_K=0.70 (94.6%)", "1Y_K=0.70 (92.6%)", "6M_K=0.70 (91.9%)", "2Y_K=0.85 (92.2%)", "1Y_K=0.85 (84.5%)"],
+      "pattern": "Clear moneyness gradient: deep ITM (K=0.70) has 90%+ coverage, ATM/OTM (K=1.00, K=1.15) has 37-57% coverage. Also tenor gradient: 2Y better than 1M. The model under-spreads ATM/near-OTM puts at short tenors."
+    },
+    "analysis_7_ks_daily": {
+      "finding": "0/25 cells pass KS at alpha=0.05 (both daily changes and levels)",
+      "daily_pass": 0,
+      "level_pass": 0,
+      "notes": "With N=320 windows and pooled data, even small distributional differences become significant. KS stats range 0.091-0.197 for daily changes. The 22/25 claim in the research log likely used a different KS methodology (e.g., per-window KS with Bonferroni correction, or a different sample size). The daily KS stats are smallest at 2Y tenor (0.091-0.139) and largest at 1M tenor (0.135-0.197), consistent with the coverage pattern."
+    }
+  },
+  "summary": {
+    "claims_confirmed": 1,
+    "claims_refuted": 3,
+    "methodology_notes": "Claims 1, 3, 4 are likely REFUTED due to methodology mismatch rather than model failure. The original diagnostics appear to have used per-step delta-level metrics (comparing model's step-wise delta distribution to GT step-wise delta distribution), while this verification uses trajectory-level metrics (cross-sample spread at each horizon vs cross-window GT variance). Claim 2 (Spearman rho) is robustly confirmed. The ACF analysis (new) shows 144b has excellent mean reversion, a major improvement over 143a. The CI breakdown reveals a clear moneyness-dependent under-coverage pattern centered on K=1.00 and K=1.15."
+  }
+}

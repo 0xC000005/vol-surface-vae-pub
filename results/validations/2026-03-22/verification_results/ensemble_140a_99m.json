@@ -1,0 +1,165 @@
+{
+  "verification_id": "ensemble_140a_99m",
+  "date": "2026-03-22",
+  "status": "COMPLETED",
+  "description": "Hybrid ensemble of 140a (AR causal transformer) + 99m_v2 (AR MLP baseline), 25 samples each (50 total)",
+
+  "ensemble_config": {
+    "models": ["140a", "99m_v2"],
+    "model_paths": [
+      "models/backfill/afcrps_140a/best_model.pt",
+      "models/backfill/afcrps_99m_v2/best_model.pt"
+    ],
+    "samples_per_model": [25, 25],
+    "total_samples": 50,
+    "max_batches": 20,
+    "test_windows": 1223,
+    "device": "cuda"
+  },
+
+  "suite_results": {
+    "suite_1_surface_validity": {
+      "pass": true,
+      "explosion_rate": 0.0,
+      "calendar_arb": 0.080,
+      "butterfly_arb": 0.273
+    },
+    "suite_2_ci_coverage": {
+      "pass": false,
+      "overall_90_ci": 0.871,
+      "worst_cell_pass": false,
+      "per_horizon_90": {
+        "h1": 0.871,
+        "h7": 0.905,
+        "h14": 0.870,
+        "h30": 0.830
+      },
+      "failure_reason": "Per-cell coverage: some cells >95% (over-spread) and h30 worst cell 67.5% (<70%)"
+    },
+    "suite_3_conditionality": {
+      "pass": true,
+      "turb_calm_ratio": 1.249,
+      "mae_reduction_pct": 77.4,
+      "worst_cell_mae_reduction": 3.9
+    },
+    "suite_4_time_series": {
+      "pass": false,
+      "acf_correlation": 0.804,
+      "acf_pass": true,
+      "kurtosis_ratio": 0.365,
+      "kurtosis_pass": false,
+      "skewness_ratio": 0.204,
+      "skewness_pass": false,
+      "failure_reason": "Kurtosis 0.365 (need 0.5-2.0), skewness 0.204 (need >=0.25)"
+    },
+    "suite_5_block_ar": {
+      "pass": true,
+      "boundary_smoothness": 0.906,
+      "growing_uncertainty": true
+    },
+    "suite_6_cointegration": {
+      "pass": true,
+      "gen_pass_rate": 0.204,
+      "gt_pass_rate": 0.121,
+      "gen_gt_ratio": 1.677,
+      "gen_mean_r2": 0.190
+    },
+    "suite_7_regime_coverage": {
+      "pass": false,
+      "layer1_per_regime_horizon": true,
+      "layer2_per_regime_cell": false,
+      "layer3_catastrophic": true,
+      "catastrophic_rate": 0.028,
+      "failure_reason": "Per-regime per-cell coverage out of [70%,95%] band at longer horizons"
+    },
+    "suite_8_distributional": {
+      "pass": false,
+      "ks_changes_pass": "5/25",
+      "ks_levels_pass": "13/25",
+      "median_bias_fraction": "20/25",
+      "median_bias_magnitude": "21/25",
+      "per_cell_mae": "24/25",
+      "failure_reason": "KS changes 5/25 (need 15), KS levels 13/25 (need 15), bias magnitude 21/25 (need 22)"
+    },
+    "suite_9_cross_cell_correlation": {
+      "pass": false,
+      "gt_mean_corr": 0.510,
+      "gen_mean_corr": 0.176,
+      "corr_ratio": 0.345,
+      "gt_eff_rank": 5.03,
+      "gen_eff_rank": 17.70,
+      "rank_ratio": 3.519,
+      "failure_reason": "Correlation ratio 0.345 (need 0.5-2.0), rank ratio 3.519 (need 0.5-3.0)"
+    }
+  },
+
+  "suites_passed": 4,
+  "suites_total": 9,
+  "suites_pass_list": ["surface_validity", "conditionality", "block_ar", "cointegration"],
+  "suites_fail_list": ["ci_coverage", "time_series", "regime_coverage", "distributional", "cross_cell_correlation"],
+
+  "key_metrics": {
+    "overall_90_ci": 0.871,
+    "kurtosis_ratio": 0.365,
+    "acf_correlation": 0.804,
+    "turb_calm_ratio": 1.249,
+    "coint_ratio": 1.677,
+    "ks_changes_pass_count": 5,
+    "ks_levels_pass_count": 13,
+    "cross_cell_corr_ratio": 0.345,
+    "cross_cell_rank_ratio": 3.519
+  },
+
+  "per_model_cross_cell": {
+    "140a": {
+      "corr": 0.244,
+      "gt_corr": 0.512,
+      "eff_rank": 14.40,
+      "gt_eff_rank": 5.03,
+      "corr_ratio": 0.477,
+      "rank_ratio": 2.864
+    },
+    "99m_v2": {
+      "corr": 0.309,
+      "gt_corr": 0.512,
+      "eff_rank": 11.64,
+      "gt_eff_rank": 5.03,
+      "corr_ratio": 0.605,
+      "rank_ratio": 2.315
+    },
+    "E10_ensemble": {
+      "corr": 0.274,
+      "gt_corr": 0.512,
+      "eff_rank": 13.51,
+      "gt_eff_rank": 5.03,
+      "corr_ratio": 0.536,
+      "rank_ratio": 2.687
+    }
+  },
+
+  "comparison_vs_hypothesis": {
+    "hypothesis": "140a+99m_v2 should combine complementary strengths like E5 (133c+99m_v2)",
+    "claimed_140a_strengths": {
+      "cross_cell_corr_0.389": "NOT CONFIRMED — actual corr 0.244 (GT 0.512), corr_ratio 0.477",
+      "high_output_rank_4_to_5.6": "NOT CONFIRMED — actual eff_rank 14.40 (higher = LESS structured, GT 5.03)"
+    },
+    "claimed_99m_v2_strengths": {
+      "good_coverage_91.3pct": "PARTIALLY CONFIRMED — ensemble overall 87.1% (lower than solo 99m_v2)",
+      "kurtosis_0.845": "NOT PRESERVED — ensemble kurtosis 0.365 (lower than 99m_v2 solo)"
+    },
+    "verdict": "HYPOTHESIS REJECTED — ensemble is WORSE than expected. 140a drags down 99m_v2 metrics without contributing the claimed complementary strengths. The 140a cross-cell correlation claims (0.389) do not match measured values (0.244). The ensemble achieves only 4/8 suites vs 99m_v2 solo at 5/8."
+  },
+
+  "comparison_vs_e5": {
+    "e5_133c_99m_v2": "5/8 PASS, kurtosis 1.58",
+    "e10_140a_99m_v2": "4/8 PASS, kurtosis 0.365",
+    "verdict": "E10 is strictly worse than E5 on both suite count AND kurtosis"
+  },
+
+  "output_paths": {
+    "summary_json": "results/block_ar/E10_140a_99m_30d/summary.json",
+    "cross_cell_json": "results/validations/2026-03-22/analysis/ensemble_140a_99m/cross_cell_correlation.json",
+    "ensemble_log": "results/validations/2026-03-22/analysis/ensemble_140a_99m/ensemble_8suite.log",
+    "analysis_dir": "results/validations/2026-03-22/analysis/ensemble_140a_99m/"
+  }
+}

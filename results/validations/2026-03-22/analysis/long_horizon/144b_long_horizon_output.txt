@@ -1,0 +1,117 @@
+======================================================================
+LONG-HORIZON GENERATION TEST
+======================================================================
+  Model: models/backfill/afcrps_144b/best_model.pt
+  Frames: 252 (1.0 years)
+  Samples: 50, Windows: 100
+  Position mode: native
+
+  Model loaded: ar_frame=True, future_len=30
+Dataset: 1001 sequences from indices 4540:5822
+  Test windows: 100 (GT future available: 252 days)
+
+======================================================================
+POSITION MODE: NATIVE (model-native position semantics)
+======================================================================
+  Generated batch 0-16 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 16-32 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 32-48 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 48-64 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 64-80 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 80-96 [torch.Size([16, 50, 252, 5, 5]), range: 0.0100-1.0000]
+  Generated batch 96-100 [torch.Size([4, 50, 252, 5, 5]), range: 0.0100-1.0000]
+
+  Generation: 139.4s, shape=(100, 50, 252, 5, 5)
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 1: Ensemble Spread
+──────────────────────────────────────────────────
+
+  Ensemble spread summary (native):
+   Horizon    Mean std    Min cell    Max cell
+        30      0.0364      0.0100      0.1346
+        60      0.0300      0.0110      0.0703
+        90      0.0318      0.0124      0.0811
+       180      0.0361      0.0142      0.1127
+       252      0.0371      0.0143      0.1133
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 3: Spatial Structure
+──────────────────────────────────────────────────
+
+  Spatial structure (native):
+   Horizon   TermSlope   SmileConv   Explosion
+        30      0.0521      0.0640      0.000%
+        60      0.0638      0.0191      0.000%
+        90      0.0650      0.0168      0.000%
+       180      0.0645      0.0150      0.000%
+       252      0.0625      0.0123      0.000%
+
+  Spatial structure (gt_native):
+   Horizon   TermSlope   SmileConv   Explosion
+        30      0.0607      0.0701      0.000%
+        60      0.0626      0.0882      0.000%
+        90      0.0460      0.0860      0.000%
+       180      0.0202      0.0521      0.000%
+       252      0.0416      0.0775      0.000%
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 4: Path Stationarity
+──────────────────────────────────────────────────
+
+  Stationarity (native): early_std=0.0065, late_std=0.0010, ratio=0.16
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 5: ACF
+──────────────────────────────────────────────────
+
+  ACF of daily changes, ATM 6M (native):
+     Lag       ACF     |ACF|
+       1   -0.0906    0.5172
+       5    0.0221    0.2401
+      10   -0.0028    0.1494
+      20   -0.0042    0.1141
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 6: Fan Chart
+──────────────────────────────────────────────────
+  Fan chart saved (turbulent window 5)
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 7: CI Coverage vs Horizon
+──────────────────────────────────────────────────
+
+  CI coverage (90%) vs horizon (native), GT available for 252 days:
+   Horizon    Coverage       Width
+        30     81.640%      0.1131
+        60     53.040%      0.0909
+        90     44.440%      0.0973
+       180     29.640%      0.1100
+       252     44.840%      0.1135
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 9: Cross-Cell Correlation
+──────────────────────────────────────────────────
+  Level corr mean: gen=0.621, gt=0.460
+  Daily-change corr mean: gen=0.402, gt=0.467
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 10: Cointegration / IV-RV Structure
+──────────────────────────────────────────────────
+  ATM 6M IV~EWMA corr: gen=-0.307, gt=0.842
+  Cointegration pass rate: gen=15.4%, gt=98.4%
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 8: Kurtosis
+──────────────────────────────────────────────────
+
+  Kurtosis of daily changes by horizon (native):
+        Window   Mean Kurt       Min       Max     ATM6M
+        d0-d30        5.94      3.23     20.74      3.56
+       d30-d60        9.52      3.79     72.05      4.47
+       d60-d90        9.05      3.27     70.72      3.99
+      d90-d180        9.22      3.24     49.74      4.36
+     d180-d251        9.57      3.02     40.74      4.70
+  Kurtosis heatmap saved
+
+  Results saved to results/validations/2026-03-22/analysis/long_horizon/144b/

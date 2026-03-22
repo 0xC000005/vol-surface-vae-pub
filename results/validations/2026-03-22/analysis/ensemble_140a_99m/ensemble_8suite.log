@@ -1,0 +1,347 @@
+============================================================
+MULTI-ARCHITECTURE ENSEMBLE EVALUATION
+============================================================
+  [0] 140a: 25 samples, noise=none
+  [1] 99m_v2: 25 samples, noise=none
+  Total: 50 samples
+  Max batches: 20
+  Output: results/block_ar/E10_140a_99m_30d
+============================================================
+
+Loading models...
+  [0] 140a: models/backfill/afcrps_140a/best_model.pt
+    arch=AR_MLP, noise=gaussian, epoch=9, params=182,076
+  [1] 99m_v2: models/backfill/afcrps_99m_v2/best_model.pt
+    arch=AR_MLP, noise=gaussian, epoch=55, params=76,003
+
+Loading test data...
+Dataset: 1223 sequences from indices 4540:5822
+  Test windows: 1223, batch_size: 64
+
+============================================================
+GENERATING ENSEMBLE SAMPLES
+============================================================
+
+  Ensemble config: 2 models, samples=[25, 25], total=50
+  Test batches: 20
+
+  Model 0: generating 25 samples...
+  Model 0:   0%|          | 0/20 [00:00<?, ?it/s]  Model 0:   5%|▌         | 1/20 [00:01<00:20,  1.06s/it]  Model 0:  10%|█         | 2/20 [00:01<00:17,  1.04it/s]  Model 0:  15%|█▌        | 3/20 [00:02<00:15,  1.07it/s]  Model 0:  20%|██        | 4/20 [00:03<00:14,  1.09it/s]  Model 0:  25%|██▌       | 5/20 [00:04<00:13,  1.10it/s]  Model 0:  30%|███       | 6/20 [00:05<00:12,  1.10it/s]  Model 0:  35%|███▌      | 7/20 [00:06<00:11,  1.11it/s]  Model 0:  40%|████      | 8/20 [00:07<00:10,  1.11it/s]  Model 0:  45%|████▌     | 9/20 [00:08<00:09,  1.11it/s]  Model 0:  50%|█████     | 10/20 [00:09<00:08,  1.11it/s]  Model 0:  55%|█████▌    | 11/20 [00:10<00:08,  1.12it/s]  Model 0:  60%|██████    | 12/20 [00:10<00:07,  1.11it/s]  Model 0:  65%|██████▌   | 13/20 [00:11<00:06,  1.12it/s]  Model 0:  70%|███████   | 14/20 [00:12<00:05,  1.11it/s]  Model 0:  75%|███████▌  | 15/20 [00:13<00:04,  1.11it/s]  Model 0:  80%|████████  | 16/20 [00:14<00:03,  1.11it/s]  Model 0:  85%|████████▌ | 17/20 [00:15<00:02,  1.11it/s]  Model 0:  90%|█████████ | 18/20 [00:16<00:01,  1.11it/s]  Model 0:  95%|█████████▌| 19/20 [00:17<00:00,  1.11it/s]  Model 0: 100%|██████████| 20/20 [00:18<00:00,  1.16it/s]                                                          
+  Model 1: generating 25 samples...
+  Model 1:   0%|          | 0/20 [00:00<?, ?it/s]  Model 1:   5%|▌         | 1/20 [00:00<00:06,  2.90it/s]  Model 1:  10%|█         | 2/20 [00:00<00:06,  2.91it/s]  Model 1:  15%|█▌        | 3/20 [00:01<00:05,  2.93it/s]  Model 1:  20%|██        | 4/20 [00:01<00:05,  2.95it/s]  Model 1:  25%|██▌       | 5/20 [00:01<00:05,  2.97it/s]  Model 1:  30%|███       | 6/20 [00:02<00:04,  2.98it/s]  Model 1:  35%|███▌      | 7/20 [00:02<00:04,  2.95it/s]  Model 1:  40%|████      | 8/20 [00:02<00:04,  2.97it/s]  Model 1:  45%|████▌     | 9/20 [00:03<00:03,  2.98it/s]  Model 1:  50%|█████     | 10/20 [00:03<00:03,  2.97it/s]  Model 1:  55%|█████▌    | 11/20 [00:03<00:03,  2.99it/s]  Model 1:  60%|██████    | 12/20 [00:04<00:02,  2.99it/s]  Model 1:  65%|██████▌   | 13/20 [00:04<00:02,  3.00it/s]  Model 1:  70%|███████   | 14/20 [00:04<00:01,  3.00it/s]  Model 1:  75%|███████▌  | 15/20 [00:05<00:01,  3.00it/s]  Model 1:  80%|████████  | 16/20 [00:05<00:01,  3.00it/s]  Model 1:  85%|████████▌ | 17/20 [00:05<00:01,  2.99it/s]  Model 1:  90%|█████████ | 18/20 [00:06<00:00,  3.00it/s]  Model 1:  95%|█████████▌| 19/20 [00:06<00:00,  3.00it/s]  Model 1: 100%|██████████| 20/20 [00:06<00:00,  3.04it/s]                                                          
+  Ensemble samples: (1223, 50, 30, 5, 5)
+  Ground truth:     (1223, 30, 5, 5)
+  History:          (1223, 30, 5, 5)
+
+============================================================
+TEST SUITE 1: SURFACE VALIDITY
+============================================================
+  Total generated trajectories: 61150
+  Ground truth windows: 1223
+  Explosion rate: 0.0% (target <5%) PASS
+  Calendar arbitrage: 8.0% (target <15%) PASS
+  Butterfly arbitrage: 27.3% (target <40%) PASS
+  Calendar worst strike: 26.9% (GT: 26.3%, gate <GT+10pp=36.3%) PASS
+  Butterfly worst tenor: 33.1% (target <50%) PASS
+
+============================================================
+TEST SUITE 2: CI COVERAGE
+============================================================
+  Overall 90% CI Coverage: 87.1%
+    50% CI: 49.5%
+    80% CI: 78.2%
+    90% CI: 87.1%
+    95% CI: 91.2%
+
+  Per-Horizon Coverage (90% CI):
+    h= 1: 87.1% (target >80%) PASS
+    h= 7: 90.5% (target >75%) PASS
+    h=14: 87.0% (target >70%) PASS
+    h=30: 83.0% (target >65%) PASS
+
+  Per-Cell Coverage (90% CI) — gate: [70%, 95%]:
+    h= 1: worst (0,4) = 76.4% PASS | best (4,0) = 97.0% FAIL
+    h= 7: worst (0,3) = 77.8% PASS | best (3,0) = 97.9% FAIL
+    h=14: worst (0,3) = 74.7% PASS | best (4,1) = 97.8% FAIL
+    h=30: worst (0,3) = 67.5% FAIL | best (4,1) = 95.6% FAIL
+  Calibration Error: 0.009
+Conditionality (ensemble):   0%|          | 0/15 [00:00<?, ?it/s]Conditionality (ensemble):   7%|▋         | 1/15 [00:02<00:36,  2.62s/it]Conditionality (ensemble):  13%|█▎        | 2/15 [00:05<00:33,  2.61s/it]Conditionality (ensemble):  20%|██        | 3/15 [00:07<00:31,  2.61s/it]Conditionality (ensemble):  27%|██▋       | 4/15 [00:10<00:28,  2.60s/it]Conditionality (ensemble):  33%|███▎      | 5/15 [00:13<00:25,  2.60s/it]Conditionality (ensemble):  40%|████      | 6/15 [00:14<00:19,  2.16s/it]Conditionality (ensemble):  47%|████▋     | 7/15 [00:15<00:15,  1.88s/it]Conditionality (ensemble):  53%|█████▎    | 8/15 [00:16<00:11,  1.69s/it]Conditionality (ensemble):  60%|██████    | 9/15 [00:18<00:09,  1.57s/it]Conditionality (ensemble):  67%|██████▋   | 10/15 [00:19<00:07,  1.49s/it]Conditionality (ensemble):  73%|███████▎  | 11/15 [00:20<00:05,  1.43s/it]Conditionality (ensemble):  80%|████████  | 12/15 [00:22<00:04,  1.39s/it]Conditionality (ensemble):  87%|████████▋ | 13/15 [00:23<00:02,  1.36s/it]Conditionality (ensemble):  93%|█████████▎| 14/15 [00:24<00:01,  1.34s/it]Conditionality (ensemble): 100%|██████████| 15/15 [00:26<00:00,  1.33s/it]Conditionality (ensemble): 100%|██████████| 15/15 [00:26<00:00,  1.73s/it]
+
+============================================================
+TEST SUITE 3: CONDITIONALITY (ENSEMBLE)
+============================================================
+  Turb/Calm ratio:        1.249 (target >1.15) PASS
+  Width ratio (c/u):      0.316 (informational)
+  MAE reduction:          77.4% PASS
+  Worst cell MAE red:     3.9% PASS
+  Growing uncertainty:    PASS
+  Overall:                PASS
+
+============================================================
+TEST SUITE 4: TIME SERIES PROPERTIES
+============================================================
+
+  --- Test 4a: ACF Preservation ---
+  ACF correlation: 0.804 (target >0.5) PASS
+  ACF MAE: 0.0400
+
+  --- Test 4b: Kurtosis Matching ---
+  GT kurtosis:  77.028
+  Gen kurtosis: 28.152
+  Kurtosis ratio: 0.365 (target 0.5-2.0) FAIL
+  GT skewness:  0.389
+  Gen skewness: 0.079
+  Skewness ratio: 0.204 (target >=0.25) FAIL
+
+  --- Test 4c: Per-Cell Kurtosis ---
+  Worst cell (4,3): 0.013, Best cell (0,1): 0.481
+  Per-cell kurtosis range: [0.013, 0.481] (informational)
+
+  --- Test 4d: Per-Cell Skewness ---
+  Worst cell (0,4): -1.814, Best cell (4,2): 1.064
+  Per-cell skewness grid:
+     0.358 -0.576 -0.510  0.031 -1.814
+     0.448 -0.150 -0.487 -0.255  0.054
+    -0.034 -0.162 -0.558  0.401 -1.444
+    -0.234 -0.182 -0.269 -0.306 -0.602
+     0.917 -0.695  1.064 -0.002 -0.064
+  Per-cell skewness range: [-1.814, 1.064] (informational)
+
+============================================================
+TEST SUITE 5: BLOCK-AR SPECIFIC
+============================================================
+
+  --- Test 5a: Block Boundary Smoothness ---
+  Avg boundary jump:    0.027118
+  Avg intra-block jump: 0.029935
+  Boundary/Intra ratio: 0.906 (target <2.0) PASS
+
+  --- Test 5b: Growing Uncertainty Monotonicity ---
+    Var(h= 1): 0.001602
+    Var(h=10): 0.002726
+    Var(h=20): 0.002884
+    Var(h=30): 0.003051
+  Monotonically increasing: PASS (informational, not gated)
+
+============================================================
+TEST SUITE 6: IV-EWMA COINTEGRATION
+============================================================
+
+  Windows tested: 1223
+  --- MacKinnon coint() (proper critical values) ---
+  GT cointegration pass rate:  12.1%
+  Gen cointegration pass rate: 20.4%
+  Gen/GT ratio: 1.677 (target >=0.50) PASS
+  Worst cell (4,4): gen/GT=0.538 (target >=0.30) PASS
+  --- Legacy ADF on residuals (informational, inflated FPR) ---
+  GT legacy pass rate:  54.1%
+  Gen legacy pass rate: 72.6%
+  Legacy Gen/GT ratio:  1.341
+  --- R² diagnostics ---
+  GT mean R²:  0.2848
+  Gen mean R²: 0.1895
+
+  Per-grid gen pass rates — MacKinnon (%):
+    [ 20.2  14.1   8.3  36.1  15.5]
+    [ 28.1  10.9  14.0  15.5  14.3]
+    [ 14.0   9.7  11.2  70.8   8.7]
+    [ 18.1  22.8  16.4  28.2  57.4]
+    [ 22.5  23.5   7.1  15.9   5.7]
+
+============================================================
+TEST SUITE 7: REGIME COVERAGE (THREE-LAYER)
+============================================================
+  Windows: 1223 total, 245 calm (Q20), 245 turb (Q80)
+  Vol-of-vol thresholds: Q20=0.01175, Q80=0.01867
+
+  --- Layer 1: Per-Regime Per-Horizon Coverage ---
+    calm  h= 1: 83.4% (target >65%) PASS  bias=UP (gt>upper=4.8%, gt<lower=11.8%)
+    calm  h= 7: 91.1% (target >65%) PASS  bias=~0 (gt>upper=6.3%, gt<lower=2.6%)
+    calm  h=14: 87.7% (target >65%) PASS  bias=~0 (gt>upper=7.7%, gt<lower=4.6%)
+    calm  h=30: 83.0% (target >65%) PASS  bias=~0 (gt>upper=11.9%, gt<lower=5.1%)
+    turb  h= 1: 86.4% (target >65%) PASS  bias=UP (gt>upper=4.6%, gt<lower=9.0%)
+    turb  h= 7: 85.3% (target >65%) PASS  bias=~0 (gt>upper=8.8%, gt<lower=5.8%)
+    turb  h=14: 81.2% (target >65%) PASS  bias=~0 (gt>upper=9.8%, gt<lower=9.0%)
+    turb  h=30: 78.3% (target >65%) PASS  bias=~0 (gt>upper=9.8%, gt<lower=11.9%)
+
+  --- Path-Level Directional Bias (>80% same-sign) ---
+    calm : 47.3% windows persistently LOW (median<GT >80%% of steps), 18.8% persistently HIGH, avg frac_below=65.4%
+    turb : 42.4% windows persistently LOW (median<GT >80%% of steps), 24.5% persistently HIGH, avg frac_below=57.0%
+
+  --- CI Width Turb/Calm Ratio (informational) ---
+    h= 1: turb/calm=2.089x (calm=0.0509, turb=0.1063)
+    h= 7: turb/calm=1.538x (calm=0.0958, turb=0.1474)
+    h=14: turb/calm=1.440x (calm=0.1073, turb=0.1546)
+    h=30: turb/calm=1.458x (calm=0.1141, turb=0.1664)
+
+  CI Width ~ Vol-of-Vol Correlation:
+    h= 1: Spearman=0.909 (p=0.0e+00), P90/P10 width=2.494x (P10=0.0479, P90=0.1194)
+    h= 7: Spearman=0.794 (p=5.6e-266), P90/P10 width=1.791x (P10=0.0922, P90=0.1651)
+    h=14: Spearman=0.674 (p=5.6e-163), P90/P10 width=1.657x (P10=0.1049, P90=0.1738)
+    h=30: Spearman=0.701 (p=9.6e-182), P90/P10 width=1.677x (P10=0.1115, P90=0.1869)
+
+  --- Layer 2: Per-Regime Per-Cell Coverage [70%, 95%] ---
+    calm  h= 1: worst (0,4) = 71.0% PASS | best (4,0) = 93.1% PASS
+    calm  h= 7: worst (0,3) = 73.9% PASS | best (3,2) = 98.4% FAIL
+    calm  h=14: worst (0,3) = 69.8% FAIL | best (3,0) = 99.2% FAIL
+    calm  h=30: worst (0,3) = 62.0% FAIL | best (4,1) = 98.8% FAIL
+    turb  h= 1: worst (1,3) = 70.6% PASS | best (4,0) = 95.9% FAIL
+    turb  h= 7: worst (1,3) = 70.6% PASS | best (4,1) = 95.5% FAIL
+    turb  h=14: worst (1,3) = 60.4% FAIL | best (0,0) = 96.7% FAIL
+    turb  h=30: worst (1,3) = 57.1% FAIL | best (0,0) = 94.7% PASS
+
+  --- Layer 3: Catastrophic Window-Cell Detection ---
+  Catastrophic (window,cell) pairs: 862/30575 (2.8%)
+  Gate: < 5% catastrophic PASS
+  Worst windows:
+    Window 497: 15 catastrophic cells, vol_of_vol=0.01923, cells=[(np.int64(0), np.int64(1)), (np.int64(0), np.int64(2)), (np.int64(1), np.int64(0)), (np.int64(1), np.int64(1)), (np.int64(1), np.int64(2))]...
+    Window 494: 14 catastrophic cells, vol_of_vol=0.01890, cells=[(np.int64(0), np.int64(0)), (np.int64(0), np.int64(1)), (np.int64(0), np.int64(2)), (np.int64(1), np.int64(0)), (np.int64(1), np.int64(1))]...
+    Window 500: 14 catastrophic cells, vol_of_vol=0.02093, cells=[(np.int64(0), np.int64(1)), (np.int64(0), np.int64(2)), (np.int64(0), np.int64(3)), (np.int64(1), np.int64(0)), (np.int64(1), np.int64(1))]...
+
+  Overall: FAIL
+
+============================================================
+TEST SUITE 8: DISTRIBUTIONAL FIDELITY
+============================================================
+
+  --- Test 8a: Per-Cell Daily Change Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.176* 0.106  0.115  0.204* 0.070 
+    0.115  0.154* 0.163* 0.142  0.183*
+    0.201* 0.215* 0.177* 0.455* 0.264*
+    0.267* 0.266* 0.242* 0.282* 0.188*
+    0.323* 0.323* 0.289* 0.294* 0.302*
+  Cells passing: 5/25 (gate >= 15) FAIL
+  Worst: (2,3) D=0.455, median D=0.204
+
+  --- Test 8a2: Per-Cell IV Level Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.282* 0.228* 0.148  0.215* 0.164*
+    0.164* 0.173* 0.112  0.124  0.151*
+    0.169* 0.175* 0.143  0.083  0.299*
+    0.144  0.152* 0.102  0.167* 0.123 
+    0.128  0.106  0.086  0.087  0.124 
+  Cells passing: 13/25 (gate >= 15) FAIL
+  Worst: (2,4) D=0.299, median D=0.148
+
+  --- Test 8b: Per-Cell Median Bias ---
+  Fraction where median > GT (50% = unbiased, gate [30%, 70%]):
+    37.9%  28.1%* 48.1%  45.4%  33.4% 
+    38.8%  24.1%* 45.7%  48.1%  33.3% 
+    35.2%  24.4%* 40.3%  54.8%  20.5%*
+    37.2%  31.9%  46.9%  67.6%  43.0% 
+    77.2%* 53.6%  54.4%  62.8%  66.6% 
+  Fraction gate: 20/25 (gate >= 20) PASS
+  Mean bias (IV points × 100):
+     -6.60*  -2.84   -1.45   -2.77   -5.17*
+     -1.24   -2.04   -1.03   -0.71   -4.61*
+     -0.87   -1.53   -1.07   +0.15   -4.21*
+     -0.42   -0.64   -0.38   +0.58   -0.05 
+     +1.45   +0.24   +0.22   +0.40   +0.74 
+  Bias magnitude: 21/25 cells < 3 IV pts (gate >= 22) FAIL
+  Worst: (0,0) = -6.60 IV pts
+
+  --- Test 8c: Per-Window Coverage Floor ---
+  Windows with <50% coverage: 25/1223 (2.0%, gate < 5%) PASS
+  Worst window 494: 25.7% coverage
+  P10 window coverage: 73.4%
+  Coverage distribution: [25.7%, P25=84.4%, P50=90.5%, P75=94.4%, 99.3%]
+
+  --- Test 8d: Sample Explosion/Ceiling Rate ---
+  Samples at ceiling (>=0.99): 0.004% (gate < 2%) PASS
+  Samples at floor (<=0.001):  0.000% (gate < 2%) PASS
+  Worst cell ceiling: (0,0) = 0.09% (gate < 5%) PASS
+  Per-cell ceiling rate (%):
+     0.09   0.00   0.00   0.00   0.00 Traceback (most recent call last):
+  File "/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_ensemble_full.py", line 517, in main
+    from autoresearch_session.compute_score import compute_score
+ModuleNotFoundError: No module named 'autoresearch_session'
+
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+
+  --- Test 8e: Per-Cell Absolute MAE ---
+  Per-cell MAE (IV points, gate < 10%):
+    12.74*  4.85   3.67   6.18   8.36 
+     4.25   3.07   2.78   2.56   7.15 
+     2.56   2.29   2.15   2.18   5.68 
+     1.76   1.43   1.46   1.70   1.27 
+     1.94   1.07   1.07   1.21   1.43 
+  Cells passing: 24/25 (gate >= 20) PASS
+  Worst: (0,0) MAE=12.74%
+
+============================================================
+SUMMARY - PASS/FAIL
+============================================================
+
+Test Suite 1: Surface Validity
+  Explosion rate:        0.0% PASS
+  Calendar arbitrage:    8.0% (worst strike: 26.9%, GT: 26.3%) PASS
+  Butterfly arbitrage:   27.3% (worst tenor: 33.1%) PASS
+  Overall:               PASS
+
+Test Suite 2: CI Coverage
+  Overall 90% CI:        87.1%
+    h= 1: 87.1% (worst cell: 76.4%, best cell: 97.0%) PASS
+    h= 7: 90.5% (worst cell: 77.8%, best cell: 97.9%) PASS
+    h=14: 87.0% (worst cell: 74.7%, best cell: 97.8%) PASS
+    h=30: 83.0% (worst cell: 67.5%, best cell: 95.6%) PASS
+  Per-cell gate [70%, 95%]: FAIL
+  Calibration error:     0.009
+  Overall:               FAIL
+
+Test Suite 3: Conditionality
+  Turb/Calm ratio:     1.249 (target >1.15) PASS
+  Width ratio c/u:     0.316 (informational)
+  MAE reduction:       77.4% PASS
+  Growing uncertainty: PASS
+  Worst cell MAE red:  3.9% PASS
+  calm  width vs uncond: avg=0.281, worst=0.281 (informational)
+  turb  width vs uncond: avg=0.351, worst=0.351 (informational)
+  Overall:             PASS
+
+Test Suite 4: Time Series Properties
+  ACF correlation:     0.804 PASS
+  Kurtosis ratio:      0.365 (per-cell: [0.013, 0.481]) FAIL
+  Overall:             FAIL
+
+Test Suite 5: Block-AR Specific
+  Boundary smoothness: 0.906 PASS
+  Growing uncertainty: PASS
+  Overall:             PASS
+
+Test Suite 6: IV-EWMA Cointegration
+  Gen pass rate:       20.4%
+  GT pass rate:        12.1%
+  Gen/GT ratio:        1.677 (worst cell: 0.538) PASS
+  Legacy (ADF):        gen=72.6%, gt=54.1%, ratio=1.341 (informational)
+  Gen mean R²:         0.1895
+
+Test Suite 7: Regime Coverage (Three-Layer)
+  Layer 1 (regime×horizon): PASS
+  Layer 2 (regime×cell):    FAIL
+  Layer 3 (catastrophic):   2.8% PASS
+  Width turb/calm:          1.440x - 2.089x (informational)
+  Overall:                  FAIL
+
+Test Suite 8: Distributional Fidelity
+  KS test (daily changes): 5/25 cells (D<0.15) FAIL
+  KS test (IV levels):     13/25 cells (D<0.15) FAIL
+  Median bias (fraction):  20/25 cells in [30%, 70%] PASS
+  Median bias (magnitude): 21/25 cells <3 IV pts FAIL
+  Window coverage floor:   2.0% windows <50% cov PASS
+  Sample explosion (agg):  ceiling=0.00% floor=0.00% PASS
+  Sample explosion (cell): worst=0.09% PASS
+  Per-cell MAE:            24/25 cells <10% PASS
+  Overall:                 FAIL
+
+============================================================
+OVERALL: SOME TESTS FAILED
+============================================================
+
+Results saved to results/block_ar/E10_140a_99m_30d/summary.json
+  Composite score error: No module named 'autoresearch_session'
+
+All outputs saved to: results/block_ar/E10_140a_99m_30d

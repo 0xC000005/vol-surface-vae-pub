@@ -1,0 +1,78 @@
+{
+  "verification": "140a_ep10_eval",
+  "date": "2026-03-22",
+  "model_path": "models/backfill/afcrps_140a/checkpoint_epoch_10.pt",
+  "output_dir": "results/block_ar/140a_ep10_30d",
+  "script_path": "results/validations/2026-03-22/scripts/140a_ep10_eval.sh",
+
+  "result": {
+    "composite_score": 53.6,
+    "max_possible": 109.0,
+    "suites_passed": 4,
+    "suites_total": 8,
+    "passing_suites": ["surface", "conditionality", "block_ar", "cointegration"],
+    "failing_suites": ["ci_coverage", "time_series", "regime_coverage", "distributional"]
+  },
+
+  "key_metrics": {
+    "ci_90_coverage": 0.6571,
+    "kurtosis_ratio": 0.406,
+    "cross_cell_corr_ratio": 0.364,
+    "eff_rank_ratio": 3.384,
+    "gen_pc1_variance_pct": 27.0,
+    "gt_pc1_variance_pct": 60.9,
+    "acf_correlation": 0.917,
+    "coint_gen_gt_ratio": 2.823,
+    "turb_calm_width_ratio": 1.361,
+    "mae_reduction": 0.598,
+    "ks_daily_pass": 4,
+    "ks_levels_pass": 17,
+    "median_bias_pass": 22,
+    "calendar_arb": 0.055,
+    "butterfly_arb": 0.263
+  },
+
+  "comparison": {
+    "vs_140a_best_epoch9": {
+      "score": {"ep10": 53.6, "ep9": 53.16, "delta": "+0.44"},
+      "suites_passed": {"ep10": 4, "ep9": 4, "same_suites": true},
+      "ci_90": {"ep10": 0.657, "ep9": 0.655, "delta": "+0.2pp"},
+      "kurtosis_ratio": {"ep10": 0.406, "ep9": 0.364, "delta": "+0.042, closer to 0.5 threshold but still FAIL"},
+      "cross_cell_corr_ratio": {"ep10": 0.364, "ep9": 0.389, "delta": "-0.025, slightly worse"},
+      "eff_rank_ratio": {"ep10": 3.384, "ep9": "not_recorded"},
+      "gen_pc1_pct": {"ep10": 27.0, "ep9": "not_recorded"}
+    },
+    "vs_99m_v2_baseline": {
+      "score": {"ep10": 53.6, "ep9": 53.16, "baseline": 66.31},
+      "suites_passed": {"ep10": 4, "baseline": 5},
+      "notes": "140a ep10 still far below 99m_v2 baseline"
+    }
+  },
+
+  "claims_verified": {
+    "better_factor_structure_than_ep9": {
+      "verdict": "MIXED",
+      "detail": "Kurtosis improved (0.406 vs 0.364), but cross-cell correlation worsened (0.364 vs 0.389). Eff_rank ratio 3.384 is far above target range [0.5,3.0], meaning generated samples have much higher effective rank than GT (17.02 vs 5.03) -- factor structure is actually too dispersed, not concentrated enough. The ep5 training diagnostics (eff_rank 2.68, corr 0.465) measured MLP output rank, not sample-level rank. These are different metrics."
+    },
+    "better_structure_translates_to_better_suites": {
+      "verdict": "NO",
+      "detail": "Score 53.6 vs 53.16 is essentially identical (+0.44). Same 4/8 suites pass. The marginal kurtosis improvement (0.406 vs 0.364) does not cross the 0.5 threshold needed to pass Suite 4."
+    },
+    "kurtosis_at_ep10": {
+      "verdict": "MEASURED",
+      "detail": "Kurtosis ratio = 0.406 at ep10 vs 0.364 at ep9 (best_model). Both below the 0.5 threshold. Suite 4 still FAIL. The per-cell range is [0.024, 0.487] -- cell (4,1) is close to threshold but most cells are far below."
+    }
+  },
+
+  "additional_observations": [
+    "Gen PC1 variance 27.0% vs GT 60.9% -- transformer decoder disperses variance across too many components",
+    "Eff_rank 17.02 vs GT 5.03 -- generated correlation matrix is near-identity (cells nearly independent)",
+    "Cross-cell correlation 0.186 vs GT 0.510 -- severely under-correlated samples",
+    "The training diagnostic metric (MLP output eff_rank 2.68 at ep5) does NOT translate to sample-level factor structure",
+    "Cointegration strong (2.823x GT) despite weak correlation -- temporal coherence preserved even without spatial coherence",
+    "4 catastrophic cells in KS daily changes vs only 4/25 passing -- distributional shape remains poor",
+    "h=1 coverage 55% is particularly bad -- short-horizon calibration poor for transformer decoder"
+  ],
+
+  "conclusion": "Epoch 10 is essentially identical to epoch 9 (best_model). Score 53.6 vs 53.16, same 4/8 suites. The peak factor structure observed in training diagnostics at ep5 (eff_rank 2.68) does NOT translate to better sample-level test suite results. The training diagnostic measures MLP output rank, while test suites measure the rank of the full generated sample covariance -- these are fundamentally different quantities. The AR causal transformer decoder (140a) remains a VALUABLE FAILURE at 4/8 suites regardless of epoch selection."
+}

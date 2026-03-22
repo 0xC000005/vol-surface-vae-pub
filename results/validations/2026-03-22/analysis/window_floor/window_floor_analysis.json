@@ -1,0 +1,145 @@
+{
+  "methodology": {
+    "window_definition": "Each window is a (history=30d, future=30d) pair from the test set, stride-1",
+    "coverage_definition": "Fraction of (T=30 timesteps x 5x5 cells = 750) points where GT falls inside 90% CI",
+    "bad_window_threshold": 0.5,
+    "gate": "< 5% of windows should have coverage < 50%",
+    "total_windows": 1223,
+    "n_samples_per_window": 50,
+    "test_start_idx": 4540
+  },
+  "results_144b": {
+    "n_bad_windows": 98,
+    "pct_bad": 0.08013082583810302,
+    "worst_window_cov": 0.164,
+    "p10_cov": 0.5216,
+    "coverage_distribution": {
+      "min": 0.164,
+      "p25": 0.644,
+      "p50": 0.7746666666666666,
+      "p75": 0.856,
+      "max": 0.9853333333333333
+    }
+  },
+  "clustering": {
+    "n_clusters_gap5": 21,
+    "clusters": [
+      [
+        139,
+        139
+      ],
+      [
+        145,
+        151
+      ],
+      [
+        172,
+        173
+      ],
+      [
+        189,
+        189
+      ],
+      [
+        203,
+        203
+      ],
+      [
+        281,
+        293
+      ],
+      [
+        401,
+        401
+      ],
+      [
+        480,
+        504
+      ],
+      [
+        512,
+        512
+      ],
+      [
+        565,
+        570
+      ],
+      [
+        618,
+        627
+      ],
+      [
+        668,
+        668
+      ],
+      [
+        708,
+        711
+      ],
+      [
+        720,
+        724
+      ],
+      [
+        877,
+        881
+      ],
+      [
+        933,
+        933
+      ],
+      [
+        985,
+        990
+      ],
+      [
+        1120,
+        1127
+      ],
+      [
+        1135,
+        1142
+      ],
+      [
+        1170,
+        1180
+      ],
+      [
+        1212,
+        1219
+      ]
+    ],
+    "n_consecutive_pairs": 65,
+    "median_gap": 1.0
+  },
+  "regime_breakdown": {
+    "calm": {
+      "n_windows": 306,
+      "n_bad": 42,
+      "bad_rate": 0.13725490196078433
+    },
+    "mid": {
+      "n_windows": 611,
+      "n_bad": 47,
+      "bad_rate": 0.07692307692307693
+    },
+    "turb": {
+      "n_windows": 306,
+      "n_bad": 9,
+      "bad_rate": 0.029411764705882353
+    }
+  },
+  "spread_analysis": {
+    "bad_mean_spread": 0.02681129425764084,
+    "good_mean_spread": 0.03017808310687542,
+    "ratio": 0.888435959815979
+  },
+  "gt_change_analysis": {
+    "bad_change_mag": 0.02454630471765995,
+    "good_change_mag": 0.01576005294919014,
+    "ratio": 1.5575014352798462,
+    "bad_displacement": 0.06890232115983963,
+    "good_displacement": 0.037432216107845306,
+    "displacement_ratio": 1.8407224416732788
+  }
+}

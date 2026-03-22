@@ -1,0 +1,32 @@
+Loading models...
+Dataset: 1223 sequences from indices 4540:5822
+Ensemble samples: (1223, 50, 30, 5, 5)
+Ground truth: (1223, 30, 5, 5)
+
+============================================================
+TEST SUITE 9: CROSS-CELL CORRELATION STRUCTURE
+============================================================
+
+  GT mean cross-cell correlation: 0.510
+  Gen mean cross-cell correlation: 0.176
+  Correlation ratio: 0.345 (target [0.5, 2.0]) FAIL
+
+  GT effective rank: 5.03
+  Gen effective rank: 17.70
+  Rank ratio: 3.519 (target [0.5, 3.0]) FAIL
+
+  Frobenius distance: 10.754 (informational)
+  GT PC1 variance: 60.9%, Gen PC1 variance: 25.4%
+
+============================================================
+SUITE 9: CROSS-CELL CORRELATION
+============================================================
+  Correlation ratio: 0.345041560908434
+  Effective rank ratio: ?
+  Pass: ?
+
+Per-model cross-cell correlation (for comparison):
+  140a                : corr=0.244 (GT 0.512), eff_rank=14.40 (GT 5.03), corr_ratio=0.477, rank_ratio=2.864
+  99m_v2              : corr=0.309 (GT 0.512), eff_rank=11.64 (GT 5.03), corr_ratio=0.605, rank_ratio=2.315
+  E10 ensemble        : corr=0.274 (GT 0.512), eff_rank=13.51 (GT 5.03), corr_ratio=0.536, rank_ratio=2.687
+  Saved to results/validations/2026-03-22/analysis/ensemble_140a_99m/cross_cell_correlation.json

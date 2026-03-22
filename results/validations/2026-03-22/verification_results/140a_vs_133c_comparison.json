@@ -1,0 +1,71 @@
+{
+  "verification": "140a_vs_133c_comparison",
+  "timestamp": "2026-03-22T00:07:23.121435",
+  "status": "COMPLETED",
+  "summary": {
+    "140a_suites_passing": 4,
+    "133c_suites_passing": 4,
+    "140a_suites": {
+      "1_surface": "PASS",
+      "2_coverage": "FAIL",
+      "3_conditionality": "PASS",
+      "4_time_series": "FAIL",
+      "5_block_ar": "PASS",
+      "6_cointegration": "PASS",
+      "7_regime": "FAIL",
+      "8_distributional": "FAIL",
+      "9_cross_cell": "FAIL"
+    },
+    "133c_suites": {
+      "1_surface": "PASS",
+      "2_coverage": "FAIL",
+      "3_conditionality": "PASS",
+      "4_time_series": "PASS",
+      "5_block_ar": "PASS",
+      "6_cointegration": "FAIL",
+      "7_regime": "FAIL",
+      "8_distributional": "FAIL",
+      "9_cross_cell": "N/A (not in results)"
+    }
+  },
+  "key_findings": {
+    "kurtosis": {
+      "140a_ratio": 0.36358823111082234,
+      "133c_ratio": 1.5987889674686797,
+      "root_cause": "AR accumulates 30 small Gaussian deltas -> CLT -> low kurtosis. One-shot preserves heavy tails.",
+      "140a_gen_kurtosis": 28.00637435913086,
+      "133c_gen_kurtosis": 123.15107727050781,
+      "gt_kurtosis": 77.02772521972656
+    },
+    "cointegration": {
+      "140a_gen_gt_ratio": 2.7514256091238978,
+      "133c_gen_gt_ratio": 0.317985998922994,
+      "finding": "AR preserves long-run equilibrium (ratio near 1.0); one-shot loses it (ratio ~0.32)"
+    },
+    "coverage": {
+      "140a_overall_90": 0.6552074134641591,
+      "133c_overall_90": 0.9169245025892614,
+      "finding": "133c has much better coverage (91.7% vs 65.5%); 140a severely under-spread"
+    },
+    "conditionality": {
+      "140a_mae_reduction": 61.925624798912615,
+      "133c_mae_reduction": 89.35156817818859,
+      "finding": "Both conditional; 133c much stronger MAE reduction"
+    },
+    "cross_cell_correlation": {
+      "140a_available": true,
+      "133c_available": false
+    }
+  },
+  "architectural_implications": {
+    "for_kurtosis": "One-shot generation essential; AR sums -> CLT kills heavy tails",
+    "for_cointegration": "AR structure essential; one-shot loses cell-cell equilibrium",
+    "for_step3_cln": "Need hybrid: either AR with non-Gaussian innovations, or one-shot with cointegration loss",
+    "tradeoff": "Suite 4 (kurtosis) and Suite 6 (cointegration) appear structurally opposed between AR and one-shot"
+  },
+  "files_produced": [
+    "results/validations/2026-03-22/analysis/140a_vs_133c/comparison_report.txt",
+    "results/validations/2026-03-22/analysis/140a_vs_133c/full_analysis.json",
+    "results/validations/2026-03-22/verification_results/140a_vs_133c_comparison.json"
+  ]
+}

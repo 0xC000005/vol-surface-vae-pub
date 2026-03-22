@@ -1,0 +1,231 @@
+====================================================================================================
+COMPARISON REPORT: 140a (AR Causal Transformer) vs 133c (One-Shot Joint Transformer)
+Generated: 2026-03-22T00:07:23.120749
+====================================================================================================
+
+SUITE PASS/FAIL COMPARISON
+------------------------------------------------------------
+Suite                     140a         133c         Match     
+------------------------------------------------------------
+1_surface                 PASS         PASS         YES       
+2_coverage                FAIL         FAIL         YES       
+3_conditionality          PASS         PASS         YES       
+4_time_series             FAIL         PASS         NO        
+5_block_ar                PASS         PASS         YES       
+6_cointegration           PASS         FAIL         NO        
+7_regime                  FAIL         FAIL         YES       
+8_distributional          FAIL         FAIL         YES       
+9_cross_cell              FAIL         N/A (not in results) NO        
+------------------------------------------------------------
+TOTAL PASSING             4            4           
+
+KEY METRICS COMPARISON
+----------------------------------------------------------------------------------------------------
+Metric                                   140a (AR Causal)     133c (One-Shot)      Delta/Note          
+----------------------------------------------------------------------------------------------------
+acf_correlation                          0.7398               0.9001               -0.1603             
+acf_mae                                  0.1529               0.0440               +0.1089             
+best_cell_kurtosis_ratio                 0.8059               8.8915               -8.0856             
+boundary_smoothness_mean                 N/A                  N/A                                      
+boundary_smoothness_pass                 PASS                 PASS                 +0.0000             
+butterfly_worst_tenor                    0.3101               0.3624               -0.0523             
+calendar_worst_strike                    0.2389               0.2830               -0.0442             
+calibration_error                        0.1570               0.0475               +0.1095             
+coint_gen_gt_ratio                       2.7514               0.3180               +2.4334             
+coint_gen_mean_rsq                       0.1030               0.3378               -0.2348             
+coint_gen_pass_rate                      0.3472               0.0386               +0.3086             
+coint_gt_mean_rsq                        0.2727               0.2848               -0.0121             
+coint_gt_pass_rate                       0.1262               0.1215               +0.0047             
+corr_ratio                               0.3488               N/A                                      
+coverage_h14_90                          0.6713               0.9154               -0.2440             
+coverage_h1_90                           0.4335               0.8619               -0.4284             
+coverage_h30_90                          0.6319               0.9644               -0.3325             
+coverage_h7_90                           0.7295               0.9207               -0.1912             
+explosion_rate                           0.0000               0.0000               +0.0000             
+gen_eff_rank                             17.5715              N/A                                      
+gen_kurtosis                             28.0064              123.1511             -95.1447            
+gen_mean_corr                            0.1778               N/A                                      
+gen_pc1_var                              0.2569               N/A                                      
+gen_skewness                             0.1009               3.2472               -3.1463             
+growing_uncertainty_monotonic            N/A                  N/A                                      
+growing_uncertainty_pass                 FAIL                 FAIL                 +0.0000             
+gt_eff_rank                              5.0285               N/A                                      
+gt_kurtosis                              77.0277              77.0277              +0.0000             
+gt_mean_corr                             0.5098               N/A                                      
+gt_pc1_var                               0.6091               N/A                                      
+gt_skewness                              0.3893               0.3893               +0.0000             
+ks_level_median_stat                     0.1469               0.4007               -0.2538             
+ks_level_n_pass                          13                   0                    +13.0000            
+ks_level_worst_stat                      0.3022               0.4959               -0.1936             
+ks_median_stat                           0.2056               0.1149               +0.0907             
+ks_n_pass                                5                    17                   -12.0000            
+ks_worst_stat                            0.4537               0.2935               +0.1602             
+kurtosis_ratio                           0.3636               1.5988               -1.2352             
+mae_reduction_pct                        61.9256              89.3516              -27.4259            
+median_bias_mean                         [[-0.0839708223938942, -0.0283742006868124, -0.017558250576257706, -0.030505483970046043, -0.0501423217356205], [-0.023353807628154755, -0.020163077861070633, -0.009831107221543789, -0.006589394528418779, -0.03794865682721138], [-0.010329432785511017, -0.01603306643664837, -0.011749736964702606, 0.002421736717224121, -0.03914615884423256], [-0.002806976204738021, -0.00897898431867361, -0.005150354001671076, 0.005775116384029388, -0.0016290016938000917], [0.010249226354062557, 0.004621976055204868, 0.0020770628470927477, 0.003978357184678316, 0.006180179305374622]] [[-0.0644889771938324, -0.020160021260380745, -0.008741892874240875, -0.010698196478188038, -0.0434800460934639], [-0.0294836163520813, -0.012048320844769478, -0.008789102546870708, -0.00622944300994277, -0.04330718144774437], [-0.019490711390972137, -0.010914120823144913, -0.007809906732290983, -0.005100675858557224, -0.03171943500638008], [-0.007520048413425684, -0.010028413496911526, -0.0081925755366683, -0.005234244279563427, -0.0057870978489518166], [-0.006101957522332668, -0.006732927169650793, -0.005616769660264254, -0.005234844516962767, -0.004732897505164146]]                     
+median_bias_pass                         FAIL                 FAIL                 +0.0000             
+overall_90_coverage                      0.6552               0.9169               -0.2617             
+rank_ratio                               3.4944               N/A                                      
+regime_layer1_pass                       FAIL                 PASS                 -1.0000             
+regime_layer2_n_passing                  0                    N/A                                      
+regime_layer2_n_total                    8                    N/A                                      
+regime_layer2_pass                       FAIL                 FAIL                 +0.0000             
+regime_layer3_catastrophic_rate          0.1271               0.0164               +0.1106             
+skewness_ratio                           0.2592               8.3403               -8.0811             
+turb_calm_ratio                          1.3674               1.8072               -0.4398             
+width_ratio                              1.0497               2.2047               -1.1550             
+worst_cell_h1                            0.0139               0.7416               -0.7277             
+worst_cell_h14                           0.3385               0.7760               -0.4374             
+worst_cell_h30                           0.3508               0.9174               -0.5666             
+worst_cell_h7                            0.4677               0.8152               -0.3475             
+worst_cell_kurtosis_ratio                0.0216               0.0472               -0.0256             
+worst_cell_mae_reduction                 9.3661               58.2970              -48.9310            
+worst_cell_pass                          FAIL                 FAIL                 +0.0000             
+----------------------------------------------------------------------------------------------------
+
+================================================================================
+KURTOSIS DEEP DIVE
+================================================================================
+140a kurtosis ratio: 0.3636 (gen=28.01, gt=77.03)
+133c kurtosis ratio: 1.5988 (gen=123.15, gt=77.03)
+Ratio of ratios: 0.2274 (140a/133c)
+
+Per-cell kurtosis ratio statistics:
+  140a: mean=0.2492, std=0.1899, min=0.0216 at [4, 3], max=0.8059 at [0, 2]
+  133c: mean=1.9494, std=1.7187, min=0.0472 at [4, 3], max=8.8915 at [0, 3]
+  140a cells in pass range [0.5, 2.0]: 2/25
+  133c cells in pass range [0.5, 2.0]: 12/25
+
+Per-cell kurtosis ratio grids (5x5, moneyness x tenor):
+  140a:
+     0.084   0.611   0.806   0.312   0.369
+     0.453   0.125   0.240   0.202   0.081
+     0.170   0.165   0.498   0.038   0.084
+     0.061   0.239   0.289   0.110   0.247
+     0.265   0.354   0.370   0.022   0.033
+  133c:
+     3.097   2.149   2.253   8.892   4.247
+     2.150   2.016   2.161   0.595   1.849
+     1.520   0.941   1.502   0.314   2.065
+     1.685   1.406   1.043   0.639   1.041
+     3.163   2.702   0.750   0.047   0.509
+  Difference (140a - 133c):
+    -3.013  -1.538  -1.447  -8.580  -3.879
+    -1.696  -1.891  -1.921  -0.393  -1.767
+    -1.350  -0.776  -1.003  -0.275  -1.981
+    -1.624  -1.166  -0.753  -0.530  -0.794
+    -2.898  -2.348  -0.380  -0.026  -0.475
+
+140a cells with kurtosis ratio < 0.5 (23/25):
+  Cell [0, 0]: 140a=0.0841, 133c=3.0974
+  Cell [0, 3]: 140a=0.3120, 133c=8.8915
+  Cell [0, 4]: 140a=0.3687, 133c=4.2473
+  Cell [1, 0]: 140a=0.4531, 133c=2.1495
+  Cell [1, 1]: 140a=0.1249, 133c=2.0157
+  Cell [1, 2]: 140a=0.2400, 133c=2.1608
+  Cell [1, 3]: 140a=0.2018, 133c=0.5947
+  Cell [1, 4]: 140a=0.0812, 133c=1.8486
+  Cell [2, 0]: 140a=0.1703, 133c=1.5198
+  Cell [2, 1]: 140a=0.1650, 133c=0.9411
+  Cell [2, 2]: 140a=0.4985, 133c=1.5019
+  Cell [2, 3]: 140a=0.0384, 133c=0.3136
+  Cell [2, 4]: 140a=0.0838, 133c=2.0646
+  Cell [3, 0]: 140a=0.0615, 133c=1.6852
+  Cell [3, 1]: 140a=0.2394, 133c=1.4059
+  Cell [3, 2]: 140a=0.2893, 133c=1.0426
+  Cell [3, 3]: 140a=0.1098, 133c=0.6394
+  Cell [3, 4]: 140a=0.2471, 133c=1.0411
+  Cell [4, 0]: 140a=0.2655, 133c=3.1632
+  Cell [4, 1]: 140a=0.3536, 133c=2.7021
+  Cell [4, 2]: 140a=0.3701, 133c=0.7499
+  Cell [4, 3]: 140a=0.0216, 133c=0.0472
+  Cell [4, 4]: 140a=0.0334, 133c=0.5088
+
+HYPOTHESIS: AR Variance Saturation via CLT
+  AR models accumulate variance step-by-step with rho=0.8 AR(1) noise. Each frame adds a small delta. Over 30 frames, the accumulated noise becomes approximately Gaussian (CLT), which REDUCES kurtosis toward 3.0 (ratio 0.039 for excess kurtosis). One-shot models generate all frames at once with a single noise draw, preserving the heavy-tailed nature of the noise.
+
+================================================================================
+COVERAGE PATTERNS (per-cell at 90% CI)
+================================================================================
+Horizon horizon_1:
+  140a: mean=0.4335, min=0.0139 at [3, 0], below_80=21, below_50=13
+  133c: mean=0.8619, min=0.7416 at [0, 4], below_80=4, below_50=0
+  Mean diff: -0.4284
+Horizon horizon_7:
+  140a: mean=0.7295, min=0.4677 at [1, 3], below_80=17, below_50=1
+  133c: mean=0.9207, min=0.8152 at [0, 2], below_80=0, below_50=0
+  Mean diff: -0.1912
+Horizon horizon_14:
+  140a: mean=0.6713, min=0.3385 at [1, 3], below_80=23, below_50=2
+  133c: mean=0.9154, min=0.7760 at [0, 3], below_80=2, below_50=0
+  Mean diff: -0.2440
+Horizon horizon_30:
+  140a: mean=0.6319, min=0.3508 at [3, 3], below_80=23, below_50=4
+  133c: mean=0.9644, min=0.9174 at [1, 3], below_80=0, below_50=0
+  Mean diff: -0.3325
+
+================================================================================
+FACTOR STRUCTURE & CROSS-CELL CORRELATION
+================================================================================
+140a cross-cell correlation:
+  GT mean corr: 0.5097869223809657
+  Gen mean corr: 0.17781678377752555
+  Corr ratio: 0.34880609127246776
+  GT eff rank: 5.028534902629832
+  Gen eff rank: 17.571546852673794
+  Rank ratio: 3.4943670856265103
+133c: cross_cell_correlation not available in 133c results
+
+Cointegration comparison:
+  140a gen/gt ratio: 2.7514256091238978
+  133c gen/gt ratio: 0.317985998922994
+  140a gen pass rate: 0.34717906786590347
+  133c gen pass rate: 0.03862632869991823
+
+================================================================================
+CONDITIONALITY PATTERNS
+================================================================================
+Width ratio: 140a mean=0.9801 (std=0.2384), 133c mean=2.0869 (std=0.4565)
+Cells below 1.0: 140a=15/25, 133c=0/25
+MAE reduction: 140a mean=64.91% (min=9.37% at [0, 0]), 133c mean=88.22% (min=58.30% at [0, 0])
+
+================================================================================
+DISTRIBUTIONAL (KS TESTS)
+================================================================================
+ks_test:
+  140a: n_pass=5/25, worst=0.45370062311444437, median=0.2055713762088702
+  133c: n_pass=17/25, worst=0.29348408379620494, median=0.11489553669608366
+ks_level_test:
+  140a: n_pass=13/25, worst=0.30220768601798853, median=0.1468792586535841
+  133c: n_pass=0/25, worst=0.4958571817934042, median=0.4007086399563914
+
+================================================================================
+CONCLUSIONS
+================================================================================
+
+1. KURTOSIS (Suite 4): The critical difference.
+   - 133c (one-shot): ratio 1.599 -> PASSES (0.5-2.0 range)
+   - 140a (AR): ratio 0.364 -> FAILS (too low)
+   ROOT CAUSE: AR generation accumulates 30 small deltas. By the Central Limit
+   Theorem, summing many small increments produces near-Gaussian distributions,
+   which have low excess kurtosis. One-shot generation avoids this by producing
+   the full trajectory from a single noise draw, preserving heavy tails.
+
+2. COVERAGE (Suite 2): Both fail worst_cell_pass but for different reasons.
+   - 140a has dramatically under-spread cells (some <5% coverage at h=1)
+   - 133c has much better per-cell coverage but still fails worst_cell_pass
+
+3. CONDITIONALITY (Suite 3): 133c dominates.
+   - 133c MAE reduction 89.4% vs 140a 61.9%
+   - 133c maintains high width ratios across all cells
+
+4. COINTEGRATION (Suite 6): 140a dominates massively.
+   - 140a gen/gt ratio: 2.7514256091238978
+   - 133c gen/gt ratio: 0.317985998922994
+   AR structure naturally preserves cell-cell long-run equilibrium.
+
+5. ARCHITECTURE IMPLICATIONS FOR STEP 3 (CLN):
+   - One-shot generation is ESSENTIAL for kurtosis (Suite 4)
+   - AR structure is ESSENTIAL for cointegration (Suite 6)
+   - Hybrid approach needed: AR skeleton with non-Gaussian innovations
+   - OR: one-shot generation with explicit cointegration loss

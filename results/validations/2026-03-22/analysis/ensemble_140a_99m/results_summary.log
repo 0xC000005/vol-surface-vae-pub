@@ -1,0 +1,27 @@
+
+============================================================
+8-SUITE RESULTS SUMMARY
+============================================================
+  Surface Validity          FAIL  <--- FAIL
+  CI Coverage               FAIL  <--- FAIL
+  Conditionality            PASS
+  Time Series               FAIL  <--- FAIL
+  Block-AR Boundary         FAIL  <--- FAIL
+  Cointegration             PASS
+  Regime Coverage           FAIL  <--- FAIL
+  Distributional            FAIL  <--- FAIL
+  -------
+  Total: 2/8 suites PASS
+
+============================================================
+KEY METRICS
+============================================================
+  CI Coverage: ?
+  Worst cell pass: False
+  Kurtosis ratio: ?
+  ACF correlation: ?
+  KS changes pass: ?/25
+  KS levels pass: ?/25
+  Cointegration rate: ?
+
+Analysis complete.

@@ -1,0 +1,320 @@
+{
+  "provenance": {
+    "model_path": "/home/max/Documents/vol-surface-vae-pub/models/backfill/afcrps_144b/best_model.pt",
+    "model_hash": "42f9983ed3d1",
+    "checkpoint_epoch": 23,
+    "quantile_map_path": null,
+    "quantile_map_hash": null,
+    "model_config_hash": "5cbc8ae1ee98",
+    "model_config": {
+      "history_len": 30,
+      "future_len": 30,
+      "surface_h": 5,
+      "surface_w": 5,
+      "block_size": 10,
+      "gru_hidden_dim": 64,
+      "bottleneck_dim": 128,
+      "encoder_dropout": 0.1,
+      "conv3d_base_channels": 32,
+      "conv3d_n_res_blocks": 6,
+      "conv3d_groups": 8,
+      "pos_embed_dim": 16,
+      "noise_dim": 32,
+      "noise_embed_dim": 64,
+      "shared_noise_input": false,
+      "cond_noise_mlp": false,
+      "noise_dist": "gaussian",
+      "student_t_df": 4.0,
+      "global_mean_vol": 0.0187,
+      "vol_scale_min": 0.5,
+      "vol_scale_max": 2.0,
+      "vol_scale_power": 1.0,
+      "direct_iv": false,
+      "oneshot_additive": false,
+      "noise_bottleneck_dim": 0,
+      "no_tanh": false,
+      "learned_vol_scale": false,
+      "twcrps_beta": 0.0,
+      "spread_weight": 0.5,
+      "ar_frame": true,
+      "ar_frame_rho": 0.8,
+      "ar_frame_hidden": 128,
+      "ar_frame_n_layers": 2,
+      "ar_frame_cell_spread": false,
+      "ar_frame_static_cell_scale": false,
+      "ar_frame_bias_lambda": 0.0,
+      "ar_frame_percell_vol_scale": false,
+      "ar_dual_pos": false,
+      "ar_local_pos_period": 30,
+      "ar_horizon_bucket_size": 30,
+      "ar_horizon_max_buckets": 9,
+      "ar_horizon_embed_dim": 8,
+      "ar_dynamic_vs": false,
+      "ar_dynamic_vs_mode": "scalar",
+      "ar_dynamic_vs_scale": 0.15,
+      "ar_frame_log_space": true,
+      "ar_frame_logit_space": false,
+      "ar_frame_logit_jac": false,
+      "ar_frame_reflect": false,
+      "ar_factor_noise": false,
+      "ar_n_factors": 5,
+      "ar_factor_noise_norm": false,
+      "ar_factor_init_scale": 0.1,
+      "ar_frame_floor_clamp": 0.01,
+      "ar_cell_embed": false,
+      "ar_cell_embed_dim": 8,
+      "ar_cell_cond_offset": false,
+      "ar_freeze_gru_state": false,
+      "ar_input_noise_std": 0.0,
+      "ar_percell_bias": false,
+      "ar_independent_cells": false,
+      "ar_cell_hidden": 32,
+      "ar_noise_skip": false,
+      "ar_skip_bypass_spread": false,
+      "ar_noise_scale_cond": false,
+      "ar_noise_scale_min": 0.1,
+      "ar_learned_rho": false,
+      "ar_learned_rho_init": 1.1,
+      "ar_learned_rho_min": 0.0,
+      "ar_learned_rho_max": 1.0,
+      "ar_mean_revert": false,
+      "ar_mean_revert_alpha_init": -3.0,
+      "ar_mean_revert_percell": false,
+      "ar_percell_spread_cond": false,
+      "ar_adagn_noise": false,
+      "ar_cln_warmup": 0,
+      "ar_noisefree_mlp": false,
+      "ar_lowrank_spread": 0,
+      "ar_causal_transformer": true,
+      "ar_causal_n_layers": 4,
+      "ar_causal_d_model": 64,
+      "ar_causal_n_heads": 4,
+      "ar_causal_cln": true,
+      "joint_decoder": false,
+      "joint_n_layers": 4,
+      "joint_d_model": 128,
+      "joint_n_heads": 4,
+      "joint_noise_factors": 0,
+      "extra_features": 0,
+      "return_scale": 0.05,
+      "output_dir": "models/backfill/afcrps_144b",
+      "device": "cuda"
+    },
+    "eval_args": {
+      "model_path": "models/backfill/afcrps_144b/best_model.pt",
+      "no_ema": true,
+      "n_samples": 50,
+      "n_windows": 100,
+      "batch_size": 16,
+      "n_frames": 252,
+      "quantile_map": null,
+      "qmap_alpha": 0.3,
+      "pos_mode": "native",
+      "output_dir": "results/validations/2026-03-22/analysis/long_horizon/144b",
+      "device": "cuda"
+    }
+  },
+  "pos_mode": "native",
+  "n_frames": 252,
+  "n_samples": 50,
+  "n_windows": 100,
+  "generation_time_s": 139.4097843170166,
+  "spatial_structure": {
+    "30": {
+      "term_slope": 0.05211697891354561,
+      "smile_conv": 0.06403126567602158,
+      "explosion_rate": 0.0
+    },
+    "60": {
+      "term_slope": 0.06384983658790588,
+      "smile_conv": 0.019139587879180908,
+      "explosion_rate": 0.0
+    },
+    "90": {
+      "term_slope": 0.06499538570642471,
+      "smile_conv": 0.01679041236639023,
+      "explosion_rate": 0.0
+    },
+    "180": {
+      "term_slope": 0.06448224931955338,
+      "smile_conv": 0.0150308758020401,
+      "explosion_rate": 0.0
+    },
+    "252": {
+      "term_slope": 0.06247415021061897,
+      "smile_conv": 0.012348175048828125,
+      "explosion_rate": 0.0
+    }
+  },
+  "ground_truth_spatial_structure": {
+    "30": {
+      "term_slope": 0.060651324689388275,
+      "smile_conv": 0.07011048495769501,
+      "explosion_rate": 0.0
+    },
+    "60": {
+      "term_slope": 0.06262156367301941,
+      "smile_conv": 0.08818718045949936,
+      "explosion_rate": 0.0
+    },
+    "90": {
+      "term_slope": 0.04600656405091286,
+      "smile_conv": 0.08598806709051132,
+      "explosion_rate": 0.0
+    },
+    "180": {
+      "term_slope": 0.020182454958558083,
+      "smile_conv": 0.052148330956697464,
+      "explosion_rate": 0.0
+    },
+    "252": {
+      "term_slope": 0.04164251312613487,
+      "smile_conv": 0.07745424658060074,
+      "explosion_rate": 0.0
+    }
+  },
+  "stationarity_ratio": 0.15959774574424734,
+  "acf": {
+    "1": {
+      "acf": -0.09055568233650274,
+      "abs_acf": 0.5171633626276134
+    },
+    "5": {
+      "acf": 0.022121715783409518,
+      "abs_acf": 0.24012657865476003
+    },
+    "10": {
+      "acf": -0.0027543661951020073,
+      "abs_acf": 0.1493781174913073
+    },
+    "20": {
+      "acf": -0.004193499081503512,
+      "abs_acf": 0.11406386648922552
+    }
+  },
+  "ci_coverage": {
+    "30": {
+      "coverage": 0.8164,
+      "width": 0.11311594396829605
+    },
+    "60": {
+      "coverage": 0.5304,
+      "width": 0.09086720645427704
+    },
+    "90": {
+      "coverage": 0.4444,
+      "width": 0.09731564670801163
+    },
+    "180": {
+      "coverage": 0.2964,
+      "width": 0.10995789617300034
+    },
+    "252": {
+      "coverage": 0.4484,
+      "width": 0.11347271502017975
+    }
+  },
+  "cross_cell_correlation": {
+    "generated": {
+      "level_corr_mean": 0.6211172830806998,
+      "daily_change_corr_mean": 0.40196582153561816
+    },
+    "ground_truth": {
+      "level_corr_mean": 0.4596729850605119,
+      "daily_change_corr_mean": 0.46694822054653484
+    }
+  },
+  "cointegration": {
+    "n_valid_windows": 100,
+    "horizon": 252,
+    "ewma_lambda": 0.94,
+    "generated": {
+      "cointegration_pass_rate_mean": 0.154,
+      "cointegration_rsq_mean": 0.1386181010764788,
+      "per_cell_pass_rate": [
+        [
+          0.61,
+          0.25,
+          0.13,
+          0.39,
+          0.4
+        ],
+        [
+          0.12,
+          0.19,
+          0.07,
+          0.1,
+          0.23
+        ],
+        [
+          0.21,
+          0.16,
+          0.06,
+          0.06,
+          0.17
+        ],
+        [
+          0.04,
+          0.07,
+          0.02,
+          0.0,
+          0.01
+        ],
+        [
+          0.12,
+          0.41,
+          0.01,
+          0.0,
+          0.02
+        ]
+      ],
+      "atm6m_iv_vs_ewma_corr_mean": -0.3073102299180579,
+      "atm6m_iv_vs_ewma_rsq_mean": 0.1434656080708325
+    },
+    "ground_truth": {
+      "cointegration_pass_rate_mean": 0.9843999999999999,
+      "cointegration_rsq_mean": 0.37268577848155154,
+      "per_cell_pass_rate": [
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          0.99,
+          0.96,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          0.99,
+          0.99
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          0.99,
+          0.83
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          0.96,
+          0.9
+        ]
+      ],
+      "atm6m_iv_vs_ewma_corr_mean": 0.8424094531824096,
+      "atm6m_iv_vs_ewma_rsq_mean": 0.7108118046816504
+    },
+    "gen_vs_gt_pass_rate_ratio": 0.1564404713531085,
+    "worst_cell_gen_vs_gt_ratio": 0.0
+  }
+}

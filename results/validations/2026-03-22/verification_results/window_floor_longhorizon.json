@@ -1,0 +1,157 @@
+{
+  "verification_date": "2026-03-22",
+  "verified_by": "verification_agent",
+  "sub_tasks": {
+    "window_floor_methodology": {
+      "status": "COMPLETE",
+      "model": "144b",
+      "findings": {
+        "methodology_sound": true,
+        "window_definition": "Stride-1 (history=30d, future=30d) pair from test set (start_idx=4540). N=1223 total windows.",
+        "coverage_definition": "Fraction of 750 points (30 timesteps x 25 cells) where GT is inside 90% CI (5th-95th percentile of 50 samples).",
+        "bad_window_threshold": 0.50,
+        "gate": "< 5% of windows bad",
+        "result_144b": {
+          "n_bad_windows": 98,
+          "pct_bad": 0.080,
+          "gate_pass": false,
+          "worst_window_cov": 0.164,
+          "p10_cov": 0.522
+        },
+        "clustering": {
+          "heavily_clustered": true,
+          "n_clusters": 21,
+          "largest_cluster_size": 25,
+          "consecutive_pair_fraction": "65/97 (67%)",
+          "explanation": "Stride-1 windows share 29/30 future days, so failures on specific market episodes affect all overlapping windows."
+        },
+        "regime_breakdown": {
+          "calm_bad_rate": 0.137,
+          "mid_bad_rate": 0.077,
+          "turb_bad_rate": 0.029,
+          "key_finding": "Bad windows concentrate in CALM periods (13.7%) not turbulent (2.9%). Model overestimates calm-period predictability."
+        },
+        "root_cause": {
+          "spread_ratio_bad_vs_good": 0.888,
+          "gt_change_ratio_bad_vs_good": 1.56,
+          "gt_displacement_ratio": 1.84,
+          "explanation": "Bad windows have 11% less ensemble spread but GT moves 56% faster. The model underestimates uncertainty during unexpectedly volatile calm periods."
+        }
+      },
+      "output_files": [
+        "results/validations/2026-03-22/analysis/window_floor/methodology.md",
+        "results/validations/2026-03-22/analysis/window_floor/window_floor_analysis.json",
+        "results/validations/2026-03-22/analysis/window_floor/window_floor_output.txt"
+      ]
+    },
+    "long_horizon_252d": {
+      "status": "COMPLETE",
+      "model": "144b",
+      "findings": {
+        "generation_successful": true,
+        "no_explosions": true,
+        "generation_time_s": 139.4,
+        "ci_coverage_by_horizon": {
+          "30d": 0.816,
+          "60d": 0.530,
+          "90d": 0.444,
+          "180d": 0.296,
+          "252d": 0.448
+        },
+        "ensemble_spread": {
+          "30d_mean_std": 0.0364,
+          "60d_mean_std": 0.0300,
+          "90d_mean_std": 0.0318,
+          "180d_mean_std": 0.0361,
+          "252d_mean_std": 0.0371,
+          "note": "Spread stays stable (no explosion or collapse), but does not grow monotonically as theory requires for longer horizons."
+        },
+        "spatial_structure": {
+          "term_slope_preserved": true,
+          "smile_convexity": "Decreases from 0.064 (30d) to 0.012 (252d), GT is 0.070-0.077. Model flattens smile at long horizons.",
+          "explosion_rate": 0.0
+        },
+        "stationarity": {
+          "ratio": 0.16,
+          "note": "Late-period daily change std is 16% of early-period = model becomes too stable at long horizons."
+        },
+        "kurtosis": {
+          "30d": 5.94,
+          "60d": 9.52,
+          "180d": 9.22,
+          "note": "Heavy tails maintained at all horizons (log-space dynamics working)."
+        },
+        "cointegration_252d": {
+          "gen_pass_rate": 0.154,
+          "gt_pass_rate": 0.984,
+          "ratio": 0.156,
+          "note": "SEVERE degradation at 252d. Model loses IV-EWMA relationship at long horizons."
+        },
+        "cross_cell_correlation": {
+          "gen_daily_change_corr": 0.402,
+          "gt_daily_change_corr": 0.467,
+          "note": "Reasonable match at 252d (ratio 0.86), better than 30d suite."
+        },
+        "key_concern": "Coverage drops from 82% at 30d to 30% at 180d. Spread stabilizes rather than growing, causing systematic undercoverage at long horizons. Cointegration collapses (15% vs GT 98%)."
+      },
+      "output_files": [
+        "results/validations/2026-03-22/analysis/long_horizon/144b/results_native.json",
+        "results/validations/2026-03-22/analysis/long_horizon/144b/cointegration_summary_native.json",
+        "results/validations/2026-03-22/analysis/long_horizon/144b_long_horizon_output.txt",
+        "results/validations/2026-03-22/analysis/long_horizon/144b/1_ensemble_spread_native.png",
+        "results/validations/2026-03-22/analysis/long_horizon/144b/6_fan_chart_native.png",
+        "results/validations/2026-03-22/analysis/long_horizon/144b/8_kurtosis_heatmap_native.png"
+      ]
+    },
+    "eff_rank_discrepancy_145c": {
+      "status": "COMPLETE",
+      "models_compared": ["144b", "145c"],
+      "findings": {
+        "discrepancy_confirmed": true,
+        "metric_a_gram_eff_rank": {
+          "description": "K x K Gram matrix of ensemble members (what training DPP loss optimizes)",
+          "144b": 3.403,
+          "145c": 4.236,
+          "delta": 0.833,
+          "note": "DPP loss successfully increases Gram eff_rank by +24%."
+        },
+        "metric_b_daily_change_corr_eff_rank": {
+          "description": "25x25 correlation matrix of daily changes across cells (what test Suite 9 measures)",
+          "gt": 5.029,
+          "144b_gen": 1.474,
+          "145c_gen": 1.595,
+          "144b_ratio": 0.293,
+          "145c_ratio": 0.317,
+          "delta": 0.122,
+          "note": "Only +8% improvement in test metric despite +24% in training metric."
+        },
+        "per_member_structure": {
+          "144b_per_member_eff_ranks": [1.496, 1.470, 1.469, 1.453, 1.474],
+          "145c_per_member_eff_ranks": [1.607, 1.584, 1.588, 1.595, 1.598],
+          "note": "Per-member correlation structure barely changed. All members have rank ~1.5, confirming rank-1 attractor within each member."
+        },
+        "cross_member_diversity": {
+          "144b_cross_member_corr": 0.226,
+          "145c_cross_member_corr": 0.105,
+          "note": "DPP successfully halved cross-member correlation (members are more diverse). But this diversity is along PC1, not across cells."
+        },
+        "explanation": "The DPP loss diversifies ensemble MEMBERS (makes them different from each other in the T*H*W output space). But it does NOT change the WITHIN-member factor structure. Each individual member still has rank-1 cell correlation (all 25 cells move together). The test suite measures the 25x25 cell correlation matrix using individual sample trajectories, so it sees the within-member structure. DPP creates members that are different along the dominant PC1 axis, which increases Gram rank but leaves the per-trajectory cell correlation virtually unchanged.",
+        "eigenvalue_evidence": {
+          "gt_top5": [15.228, 2.045, 1.461, 1.028, 0.931],
+          "144b_top5": [23.246, 0.650, 0.381, 0.223, 0.122],
+          "145c_top5": [22.817, 0.793, 0.437, 0.268, 0.183],
+          "note": "GT has 5+ meaningful eigenvalues. Both models are dominated by eigenvalue 1 (93% and 91% PC1 variance vs GT 61%). The DPP slightly reduced PC1 dominance (93% -> 91%) but nowhere near GT's 61%."
+        },
+        "implication": "To improve Suite 9, need a loss that directly targets within-member cell correlation structure (e.g., variogram score, correlation matching loss, or factor-structured noise injection). DPP alone cannot solve rank-1."
+      },
+      "output_files": [
+        "results/validations/2026-03-22/analysis/145c_rank_discrepancy/rank_discrepancy_analysis.json",
+        "results/validations/2026-03-22/analysis/145c_rank_discrepancy/rank_output.txt"
+      ]
+    }
+  },
+  "scripts_used": [
+    "results/validations/2026-03-22/scripts/window_floor_analysis.py",
+    "results/validations/2026-03-22/scripts/rank_discrepancy_145c.py"
+  ]
+}

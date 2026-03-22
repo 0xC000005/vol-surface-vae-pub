@@ -1,0 +1,122 @@
+============================================================
+145c Eff_rank Discrepancy Investigation
+============================================================
+Dataset: 1223 sequences from indices 4540:5822
+
+========================================
+Model: 144b
+========================================
+Generating samples (n_samples=50, max_batches=20)...
+  Batch 5/20
+  Batch 10/20
+  Batch 15/20
+  Batch 20/20
+  N=1223, S=50, T=30
+
+  --- Metric A: Gram Matrix Eff_rank (Training Metric) ---
+  Mean Gram eff_rank (K=8): 3.403
+  Distribution: min=1.568, median=3.369, max=5.667
+
+  --- Metric B: Daily Change Correlation Eff_rank (Test Suite Metric) ---
+  GT eff_rank: 5.029
+  Gen eff_rank: 1.474
+  Rank ratio: 0.293
+  GT PC1 variance: 60.9%
+  Gen PC1 variance: 93.0%
+  GT participation ratio: 2.576
+  Gen participation ratio: 1.155
+  GT top-5 eigenvalues: ['15.228', '2.045', '1.461', '1.028', '0.931']
+  Gen top-5 eigenvalues: ['23.246', '0.650', '0.381', '0.223', '0.122']
+
+  --- Metric C: Per-Member Correlation Structure ---
+  Per-member eff_ranks: ['1.496', '1.470', '1.469', '1.453', '1.474']
+  Std across members: 0.0138
+
+  --- Metric D: Cross-Member Daily Change Similarity ---
+  Mean cross-member correlation (ATM cell): 0.2351
+  Mean cross-member correlation (all cells): 0.2260
+  This tells us how much diversity DPP actually created between members
+
+========================================
+Model: 145c
+========================================
+Generating samples (n_samples=50, max_batches=20)...
+  Batch 5/20
+  Batch 10/20
+  Batch 15/20
+  Batch 20/20
+  N=1223, S=50, T=30
+
+  --- Metric A: Gram Matrix Eff_rank (Training Metric) ---
+  Mean Gram eff_rank (K=8): 4.236
+  Distribution: min=1.746, median=4.261, max=6.197
+
+  --- Metric B: Daily Change Correlation Eff_rank (Test Suite Metric) ---
+  GT eff_rank: 5.029
+  Gen eff_rank: 1.595
+  Rank ratio: 0.317
+  GT PC1 variance: 60.9%
+  Gen PC1 variance: 91.3%
+  GT participation ratio: 2.576
+  Gen participation ratio: 1.198
+  GT top-5 eigenvalues: ['15.228', '2.045', '1.461', '1.028', '0.931']
+  Gen top-5 eigenvalues: ['22.817', '0.793', '0.437', '0.268', '0.183']
+
+  --- Metric C: Per-Member Correlation Structure ---
+  Per-member eff_ranks: ['1.607', '1.584', '1.588', '1.595', '1.598']
+  Std across members: 0.0080
+
+  --- Metric D: Cross-Member Daily Change Similarity ---
+  Mean cross-member correlation (ATM cell): 0.1110
+  Mean cross-member correlation (all cells): 0.1047
+  This tells us how much diversity DPP actually created between members
+
+============================================================
+COMPARISON: 144b vs 145c
+============================================================
+
+Metric A: Gram Matrix Eff_rank (Training DPP metric)
+  144b: 3.403
+  145c: 4.236
+  Delta: +0.833
+
+Metric B: Daily Change Corr Eff_rank (Test Suite metric)
+  144b: 1.474 (ratio=0.293)
+  145c: 1.595 (ratio=0.317)
+  Delta: +0.122
+
+Metric D: Cross-Member Correlation
+  144b: 0.2260
+  145c: 0.1047
+
+============================================================
+EXPLANATION
+============================================================
+
+The DPP loss operates on the K x K Gram matrix of ensemble MEMBERS.
+It diversifies the K members relative to each other in the full
+(T*H*W)-dimensional output space.
+
+The test suite measures the 25x25 correlation matrix of daily CHANGES
+across CELLS. This measures whether the model reproduces the factor
+structure of the volatility surface (how cells co-move).
+
+These are fundamentally different quantities:
+- Gram eff_rank (Metric A): "How diverse are the K ensemble members?"
+  Higher = members explore more orthogonal directions in output space.
+- Corr eff_rank (Metric B): "How many independent factors drive cell co-movement?"
+  Higher = more independent sources of variation across the 25 cells.
+
+WHY DPP doesn't transfer:
+The DPP loss makes members different from EACH OTHER, but each individual
+member still has the same internal correlation structure (all 25 cells
+still move together in rank-1 fashion). Diversifying members along the
+dominant PC1 direction produces high Gram rank but doesn't change the
+WITHIN-member cell correlation structure.
+
+To fix Metric B, you need a loss that directly penalizes the cross-cell
+correlation structure of individual members (e.g., variogram score, or
+an explicit correlation matching loss).
+
+
+Results saved to results/validations/2026-03-22/analysis/145c_rank_discrepancy/rank_discrepancy_analysis.json

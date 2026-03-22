@@ -1,0 +1,14 @@
+{
+  "gt_mean_corr": 0.5097869223809657,
+  "gen_mean_corr": 0.1758976754290351,
+  "corr_ratio": 0.345041560908434,
+  "corr_pass": false,
+  "gt_eff_rank": 5.028534902629832,
+  "gen_eff_rank": 17.69771675989185,
+  "rank_ratio": 3.5194578744270557,
+  "rank_pass": false,
+  "frob_dist": 10.754333208188367,
+  "gt_pc1_var": 0.6091210638173526,
+  "gen_pc1_var": 0.2536519590391947,
+  "overall_pass": false
+}
