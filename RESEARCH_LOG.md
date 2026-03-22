@@ -37093,3 +37093,76 @@ Best model: **144b best (ep23, score 69.28, 5/8)** with per-cell scale at d_mode
 New compass needed to break 5/8 ceiling.
 
 ---
+
+## 2026-03-22: Research Compass RC9 — Breaking the 5/8 Ceiling via Multivariate Loss
+
+### Philosophy Applied
+- **TRIZ**: CRPS-vs-correlation is a DECOUPLED problem (CRPS for marginals, VS for structure)
+- **Zwicky**: Never tried strong VS (λ>0.1) on principled architecture — unexplored cell
+- **Bitter Lesson**: VS/ES are mathematical scoring rules, not domain heuristics
+- **Hamming**: Rank-1 collapse is THE bottleneck (blocks Suites 2, 7, 8, 9)
+- **Popper**: Each hypothesis has a clean falsification test
+
+### Evidence Summary
+
+**Proven root causes** (from 3 parallel evidence agents across 130+ experiments):
+1. CRPS rank-1 attractor: zero cross-cell gradient, proven across MLP/transformer/d=64/d=128
+2. CRPS 3:1 gradient asymmetry: coverage caps at 74-78%
+3. Per-step calibration ≠ multi-step calibration: 144b h=1 best (0.50) but h=30 worst (0.47)
+4. Capacity amplifies rank collapse: d_model=128 → eff_rank 1.17
+
+**Three structural tensions** that create the 5/8 ceiling:
+1. CRPS optimizes marginals but destroys correlation (Suite 9)
+2. Log-space fixes kurtosis but changes calibration landscape (Suite 2)
+3. Per-step calibration doesn't compose to multi-step (Suite 2 at h=30)
+
+**Literature validation**:
+- ATLAS/Nvidia: "CRPS-based models do not guarantee physically meaningful spatial correlations"
+- AIFS-CRPS: Staged rollout training for multi-horizon calibration
+- Lakatos 2025: ES+VS composite outperforms CRPS-only on both univariate AND multivariate metrics
+- GDPP/Particle Guidance: Cross-domain solutions using repulsive potentials between members
+
+### Active Hypotheses (ranked by information value)
+
+#### H1: Strong Variogram Score (λ_vs = 1.0)
+
+**Evidence chain**: 144b uses λ_vs=0.1. VS has O(625) cross-cell terms vs CRPS's O(25).
+At λ=0.1, VS contributes <5% of gradient. Lakatos 2025 shows ES+VS composite outperforms
+CRPS-only. ATLAS uses spectral regularization for the same purpose.
+
+**The bet**: Retrain 144b with λ_vs=1.0 (10x current weight). Zero code changes.
+
+**Falsification**: If rank ratio doesn't improve → VS cannot break rank collapse at this scale.
+
+**Effort**: 0 implementation + 30 min training. Exp 145a.
+
+#### H2: Multi-Horizon CRPS Loss (Cumulative Evaluation)
+
+**Evidence chain**: 144b h=30 worst-cell coverage 0.471 is Suite 2 bottleneck. AIFS-CRPS
+validates staged rollout training. Currently loss is per-step only — model never sees
+multi-horizon signal.
+
+**The bet**: Add cumulative CRPS at horizons [10, 30] during training. λ_cum=0.5.
+
+**Falsification**: If h=30 coverage doesn't improve → AR accumulation error is structural.
+
+**Effort**: ~1h implementation + 30 min training. Exp 145b.
+
+#### H3: DPP Gram Matrix Diversity Loss
+
+**Evidence chain**: From cross-domain search. GDPP (ICML 2019) uses log det(Gram matrix)
+to match diversity. Particle Guidance (ICLR 2024) uses repulsive kernels. Both prevent
+mode collapse architecturally. Our rank-1 attractor is mode collapse by another name.
+
+**The bet**: Add `L_dpp = (log_det(G_gen) - log_det(G_gt))^2` on the K×K Gram matrix.
+
+**Falsification**: If eff_rank doesn't improve → diversity loss doesn't overcome CRPS attractor.
+
+**Effort**: ~30min implementation + 30 min training. Exp 145c.
+
+### Execution Order
+
+H1 first (zero implementation), H3 second (complements H1), H2 third (independent bottleneck).
+H1 and H2 are independent — address different suites (9 vs 2).
+
+---
