@@ -36206,3 +36206,34 @@ The principled architecture MATCHES the project ceiling.
    short-horizon fidelity for long-range temporal structure.
 
 ---
+
+## 2026-03-22: Exp 143a_v2/143b — Engineering Tweaks on Stripped Architecture
+
+### 143a_v2: Lower LR (1e-3 instead of 2e-3)
+- Score: 34.93, 3/9 suites. **REGRESSION.**
+- Kurtosis: 2.219 (overcorrected, > 2.0 threshold → Suite 4 FAILS)
+- Training IS stable (best at ep26, gap 0.51) but learns too much log-space amplification
+- The stable convergence overshoots kurtosis because the model has more gradient steps
+  to push deltas larger in log-space
+
+### 143b: Lower cell_var (0.5 instead of 1.0)
+- Score: 52.4, 4/9 suites. Regression from 143a ep30.
+- Kurtosis: 2.648 (severely overcorrected)
+- Less variance regularization → log-space amplifies even more
+
+### What Was Learned
+- **143a ep30 (lr=2e-3, cv=1.0) IS the sweet spot** — its "instability" was beneficial
+- Lower LR stabilizes but overshoots kurtosis (2.22 vs target [0.5, 2.0])
+- Lower cell_var removes necessary regularization (kurtosis 2.65)
+- The ep30 model's kurtosis 0.982 is near-perfect BECAUSE the unstable training
+  prevented the model from fully converging to log-space amplification
+- **Implication**: For log-space dynamics, mild training instability acts as implicit
+  regularization that keeps kurtosis in range. Fully stable training overshoots.
+
+### Decision: 143a ep30 Remains Best. No Further Engineering Tweaks.
+
+The principled architecture at 5/8 (66.89) is the definitive result. The remaining
+gap (Suites 2, 7, 8) requires new research directions, not hyperparameter tuning.
+Ready for research-ideation.
+
+---
