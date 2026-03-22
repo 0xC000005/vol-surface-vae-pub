@@ -1,0 +1,24 @@
+{
+  "task": "long_horizon_spread_diagnostic",
+  "model": "models/backfill/afcrps_144b/best_model.pt",
+  "status": "complete",
+  "hypotheses_tested": 4,
+  "confirmed": [
+    "A"
+  ],
+  "falsified": [
+    "B",
+    "C",
+    "D"
+  ],
+  "key_numbers": {
+    "ar1_expected_growth_252_vs_30": 3.1121,
+    "delta_ratio_last5_over_first5": 1.0125,
+    "max_near_floor_fraction": 0.006525,
+    "raw_cosine_h30": 0.9688,
+    "spread_h30": 0.034555,
+    "spread_growth_h30_over_h10": 1.3486
+  },
+  "results_path": "results/validations/2026-03-22/analysis/long_horizon_root_cause/spread_diagnostic_144b.json",
+  "elapsed_seconds": 5.9
+}

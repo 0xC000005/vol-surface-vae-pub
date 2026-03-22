@@ -1,0 +1,455 @@
+{
+  "model": "models/backfill/afcrps_144b/best_model.pt",
+  "config_summary": {
+    "ar_frame_rho": 0.8,
+    "ar_frame_log_space": true,
+    "ar_frame_floor_clamp": 0.01,
+    "ar_causal_transformer": true,
+    "ar_causal_cln": true,
+    "noise_dim": 32,
+    "ar_causal_d_model": 64,
+    "ar_freeze_gru_state": false
+  },
+  "hypothesis_A_ar1_noise": {
+    "rho": 0.8,
+    "effective_var_per_step": 9.0,
+    "marginal_variance_is_constant": true,
+    "cumulative_std_h30": 15.1674,
+    "cumulative_std_h252": 47.2017,
+    "expected_growth_252_vs_30": 3.1121,
+    "growth_table": {
+      "1": {
+        "cumulative_std": 1.0,
+        "sqrt_t_reference": 1.0,
+        "ratio_to_iid": 1.0,
+        "growth_from_h1": 1.0
+      },
+      "5": {
+        "cumulative_std": 4.2553,
+        "sqrt_t_reference": 2.2361,
+        "ratio_to_iid": 1.903,
+        "growth_from_h1": 4.2553
+      },
+      "10": {
+        "cumulative_std": 7.3685,
+        "sqrt_t_reference": 3.1623,
+        "ratio_to_iid": 2.3301,
+        "growth_from_h1": 7.3685
+      },
+      "15": {
+        "cumulative_std": 9.8187,
+        "sqrt_t_reference": 3.873,
+        "ratio_to_iid": 2.5352,
+        "growth_from_h1": 9.8187
+      },
+      "20": {
+        "cumulative_std": 11.8516,
+        "sqrt_t_reference": 4.4721,
+        "ratio_to_iid": 2.6501,
+        "growth_from_h1": 11.8516
+      },
+      "25": {
+        "cumulative_std": 13.607,
+        "sqrt_t_reference": 5.0,
+        "ratio_to_iid": 2.7214,
+        "growth_from_h1": 13.607
+      },
+      "30": {
+        "cumulative_std": 15.1674,
+        "sqrt_t_reference": 5.4772,
+        "ratio_to_iid": 2.7692,
+        "growth_from_h1": 15.1674
+      },
+      "50": {
+        "cumulative_std": 20.2485,
+        "sqrt_t_reference": 7.0711,
+        "ratio_to_iid": 2.8636,
+        "growth_from_h1": 20.2485
+      },
+      "100": {
+        "cumulative_std": 29.3258,
+        "sqrt_t_reference": 10.0,
+        "ratio_to_iid": 2.9326,
+        "growth_from_h1": 29.3258
+      },
+      "150": {
+        "cumulative_std": 36.1939,
+        "sqrt_t_reference": 12.2474,
+        "ratio_to_iid": 2.9552,
+        "growth_from_h1": 36.1939
+      },
+      "200": {
+        "cumulative_std": 41.9524,
+        "sqrt_t_reference": 14.1421,
+        "ratio_to_iid": 2.9665,
+        "growth_from_h1": 41.9524
+      },
+      "252": {
+        "cumulative_std": 47.2017,
+        "sqrt_t_reference": 15.8745,
+        "ratio_to_iid": 2.9734,
+        "growth_from_h1": 47.2017
+      }
+    },
+    "conclusion": "AR(1) with rho=0.8 has stationary MARGINAL variance (always 1), but CUMULATIVE std still grows as sqrt(t * 9.0). Expected spread growth from h=30 to h=252 is 3.11x. The noise process alone does NOT explain spread plateau \u2014 cumulative effect keeps growing. However, growth is sub-linear (sqrt), so spread growth DECELERATES."
+  },
+  "hypothesis_B_delta_shrinkage": {
+    "delta_by_horizon": {
+      "0": {
+        "mean_abs_raw_delta": 0.047971,
+        "mean_abs_effective_delta": 0.041643
+      },
+      "1": {
+        "mean_abs_raw_delta": 0.067955,
+        "mean_abs_effective_delta": 0.05874
+      },
+      "2": {
+        "mean_abs_raw_delta": 0.065055,
+        "mean_abs_effective_delta": 0.056412
+      },
+      "3": {
+        "mean_abs_raw_delta": 0.055243,
+        "mean_abs_effective_delta": 0.047687
+      },
+      "4": {
+        "mean_abs_raw_delta": 0.047051,
+        "mean_abs_effective_delta": 0.041141
+      },
+      "5": {
+        "mean_abs_raw_delta": 0.042254,
+        "mean_abs_effective_delta": 0.037115
+      },
+      "6": {
+        "mean_abs_raw_delta": 0.050654,
+        "mean_abs_effective_delta": 0.044208
+      },
+      "7": {
+        "mean_abs_raw_delta": 0.075634,
+        "mean_abs_effective_delta": 0.065962
+      },
+      "8": {
+        "mean_abs_raw_delta": 0.05247,
+        "mean_abs_effective_delta": 0.045626
+      },
+      "9": {
+        "mean_abs_raw_delta": 0.047299,
+        "mean_abs_effective_delta": 0.040735
+      },
+      "10": {
+        "mean_abs_raw_delta": 0.048985,
+        "mean_abs_effective_delta": 0.042297
+      },
+      "11": {
+        "mean_abs_raw_delta": 0.051533,
+        "mean_abs_effective_delta": 0.044816
+      },
+      "12": {
+        "mean_abs_raw_delta": 0.082217,
+        "mean_abs_effective_delta": 0.07132
+      },
+      "13": {
+        "mean_abs_raw_delta": 0.05356,
+        "mean_abs_effective_delta": 0.046157
+      },
+      "14": {
+        "mean_abs_raw_delta": 0.048203,
+        "mean_abs_effective_delta": 0.041563
+      },
+      "15": {
+        "mean_abs_raw_delta": 0.06857,
+        "mean_abs_effective_delta": 0.059606
+      },
+      "16": {
+        "mean_abs_raw_delta": 0.053175,
+        "mean_abs_effective_delta": 0.046204
+      },
+      "17": {
+        "mean_abs_raw_delta": 0.042771,
+        "mean_abs_effective_delta": 0.037071
+      },
+      "18": {
+        "mean_abs_raw_delta": 0.048793,
+        "mean_abs_effective_delta": 0.042678
+      },
+      "19": {
+        "mean_abs_raw_delta": 0.072415,
+        "mean_abs_effective_delta": 0.063175
+      },
+      "20": {
+        "mean_abs_raw_delta": 0.056342,
+        "mean_abs_effective_delta": 0.049182
+      },
+      "21": {
+        "mean_abs_raw_delta": 0.078963,
+        "mean_abs_effective_delta": 0.068855
+      },
+      "22": {
+        "mean_abs_raw_delta": 0.051092,
+        "mean_abs_effective_delta": 0.044659
+      },
+      "23": {
+        "mean_abs_raw_delta": 0.061471,
+        "mean_abs_effective_delta": 0.053578
+      },
+      "24": {
+        "mean_abs_raw_delta": 0.053786,
+        "mean_abs_effective_delta": 0.046911
+      },
+      "25": {
+        "mean_abs_raw_delta": 0.060038,
+        "mean_abs_effective_delta": 0.052359
+      },
+      "26": {
+        "mean_abs_raw_delta": 0.051204,
+        "mean_abs_effective_delta": 0.044767
+      },
+      "27": {
+        "mean_abs_raw_delta": 0.075369,
+        "mean_abs_effective_delta": 0.065384
+      },
+      "28": {
+        "mean_abs_raw_delta": 0.05175,
+        "mean_abs_effective_delta": 0.045388
+      },
+      "29": {
+        "mean_abs_raw_delta": 0.048468,
+        "mean_abs_effective_delta": 0.041889
+      }
+    },
+    "summary": {
+      "first5_mean_raw_delta": 0.056655,
+      "last5_mean_raw_delta": 0.057366,
+      "raw_delta_ratio_last5_over_first5": 1.0125,
+      "first5_mean_effective_delta": 0.049124,
+      "last5_mean_effective_delta": 0.049957,
+      "effective_delta_ratio_last5_over_first5": 1.017,
+      "raw_delta_linear_slope": 0.00011279,
+      "effective_delta_linear_slope": 0.00010679
+    },
+    "hypothesis_confirmed": false,
+    "conclusion": "Raw delta ratio (last5/first5) = 1.0125. FALSIFIED: Delta magnitude does NOT decrease significantly over horizon."
+  },
+  "hypothesis_C_floor_clamp": {
+    "floor_clamp": 0.01,
+    "near_floor_threshold": 0.02,
+    "floor_by_horizon": {
+      "0": {
+        "fraction_at_floor": 0.0,
+        "fraction_near_floor": 0.001975
+      },
+      "1": {
+        "fraction_at_floor": 0.000125,
+        "fraction_near_floor": 0.002425
+      },
+      "2": {
+        "fraction_at_floor": 3.8e-05,
+        "fraction_near_floor": 0.002063
+      },
+      "3": {
+        "fraction_at_floor": 0.000163,
+        "fraction_near_floor": 0.002512
+      },
+      "4": {
+        "fraction_at_floor": 8.7e-05,
+        "fraction_near_floor": 0.002425
+      },
+      "5": {
+        "fraction_at_floor": 6.3e-05,
+        "fraction_near_floor": 0.002363
+      },
+      "6": {
+        "fraction_at_floor": 0.00015,
+        "fraction_near_floor": 0.003
+      },
+      "7": {
+        "fraction_at_floor": 3.8e-05,
+        "fraction_near_floor": 0.002387
+      },
+      "8": {
+        "fraction_at_floor": 7.5e-05,
+        "fraction_near_floor": 0.002725
+      },
+      "9": {
+        "fraction_at_floor": 6.3e-05,
+        "fraction_near_floor": 0.002725
+      },
+      "10": {
+        "fraction_at_floor": 0.000213,
+        "fraction_near_floor": 0.00325
+      },
+      "11": {
+        "fraction_at_floor": 0.00035,
+        "fraction_near_floor": 0.004062
+      },
+      "12": {
+        "fraction_at_floor": 5e-05,
+        "fraction_near_floor": 0.00295
+      },
+      "13": {
+        "fraction_at_floor": 5e-05,
+        "fraction_near_floor": 0.003325
+      },
+      "14": {
+        "fraction_at_floor": 5e-05,
+        "fraction_near_floor": 0.003388
+      },
+      "15": {
+        "fraction_at_floor": 0.000362,
+        "fraction_near_floor": 0.004537
+      },
+      "16": {
+        "fraction_at_floor": 0.000287,
+        "fraction_near_floor": 0.004513
+      },
+      "17": {
+        "fraction_at_floor": 0.000325,
+        "fraction_near_floor": 0.004587
+      },
+      "18": {
+        "fraction_at_floor": 0.000625,
+        "fraction_near_floor": 0.00565
+      },
+      "19": {
+        "fraction_at_floor": 0.000237,
+        "fraction_near_floor": 0.004725
+      },
+      "20": {
+        "fraction_at_floor": 0.000462,
+        "fraction_near_floor": 0.0056
+      },
+      "21": {
+        "fraction_at_floor": 0.00015,
+        "fraction_near_floor": 0.00445
+      },
+      "22": {
+        "fraction_at_floor": 0.000137,
+        "fraction_near_floor": 0.004075
+      },
+      "23": {
+        "fraction_at_floor": 0.000287,
+        "fraction_near_floor": 0.0051
+      },
+      "24": {
+        "fraction_at_floor": 0.0003,
+        "fraction_near_floor": 0.005175
+      },
+      "25": {
+        "fraction_at_floor": 0.000562,
+        "fraction_near_floor": 0.006525
+      },
+      "26": {
+        "fraction_at_floor": 0.000437,
+        "fraction_near_floor": 0.006112
+      },
+      "27": {
+        "fraction_at_floor": 0.000188,
+        "fraction_near_floor": 0.004938
+      },
+      "28": {
+        "fraction_at_floor": 0.000313,
+        "fraction_near_floor": 0.005213
+      },
+      "29": {
+        "fraction_at_floor": 0.000338,
+        "fraction_near_floor": 0.005138
+      }
+    },
+    "summary": {
+      "max_fraction_at_floor": 0.000625,
+      "max_fraction_near_floor": 0.006525,
+      "h30_fraction_at_floor": 0.000338,
+      "h30_fraction_near_floor": 0.005138
+    },
+    "hypothesis_confirmed": false,
+    "conclusion": "Max near-floor fraction = 0.6525%, h30 = 0.5138%. FALSIFIED: Very few values hit the floor \u2014 clamp is not compressing spread."
+  },
+  "hypothesis_D_attention_consensus": {
+    "cosine_similarity_by_horizon": {
+      "1": {
+        "centered_cosine_sim": 0.1552,
+        "raw_cosine_sim": 0.9954
+      },
+      "5": {
+        "centered_cosine_sim": -0.0118,
+        "raw_cosine_sim": 0.9917
+      },
+      "10": {
+        "centered_cosine_sim": -0.022,
+        "raw_cosine_sim": 0.9843
+      },
+      "15": {
+        "centered_cosine_sim": -0.0163,
+        "raw_cosine_sim": 0.9797
+      },
+      "20": {
+        "centered_cosine_sim": -0.024,
+        "raw_cosine_sim": 0.9727
+      },
+      "25": {
+        "centered_cosine_sim": -0.0263,
+        "raw_cosine_sim": 0.9735
+      },
+      "30": {
+        "centered_cosine_sim": -0.0225,
+        "raw_cosine_sim": 0.9688
+      }
+    },
+    "spread_trajectory": {
+      "1": 0.015621,
+      "2": 0.012646,
+      "3": 0.017678,
+      "4": 0.015365,
+      "5": 0.018087,
+      "6": 0.021342,
+      "7": 0.020802,
+      "8": 0.026119,
+      "9": 0.022973,
+      "10": 0.025623,
+      "11": 0.023834,
+      "12": 0.024365,
+      "13": 0.027843,
+      "14": 0.026821,
+      "15": 0.029186,
+      "16": 0.027399,
+      "17": 0.029377,
+      "18": 0.029565,
+      "19": 0.028794,
+      "20": 0.031656,
+      "21": 0.029583,
+      "22": 0.033519,
+      "23": 0.034111,
+      "24": 0.030723,
+      "25": 0.030985,
+      "26": 0.030361,
+      "27": 0.030638,
+      "28": 0.035441,
+      "29": 0.032367,
+      "30": 0.034555
+    },
+    "summary": {
+      "raw_cosine_h1": 0.9954,
+      "raw_cosine_h15": 0.9797,
+      "raw_cosine_h30": 0.9688,
+      "centered_cosine_h1": 0.1552,
+      "centered_cosine_h30": -0.0225,
+      "spread_h1": 0.015621,
+      "spread_h10": 0.025623,
+      "spread_h30": 0.034555,
+      "spread_growth_h30_over_h10": 1.3486
+    },
+    "hypothesis_confirmed": false,
+    "conclusion": "Raw cosine sim: h1=0.9954, h15=0.9797, h30=0.9688. Spread growth h30/h10 = 1.3486. FALSIFIED: No re-convergence pattern detected \u2014 cosine does not increase toward h=30."
+  },
+  "elapsed_seconds": 5.9,
+  "summary": {
+    "confirmed_hypotheses": [
+      "A: AR(1) noise growth decelerates (sub-linear) but does NOT plateau"
+    ],
+    "falsified_hypotheses": [
+      "B: Raw delta ratio (last5/first5) = 1",
+      "C: Max near-floor fraction = 0",
+      "D: Raw cosine sim: h1=0"
+    ],
+    "primary_root_cause": "See individual hypothesis results for details"
+  }
+}

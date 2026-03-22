@@ -1,0 +1,134 @@
+[
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "rank_ratio",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "Rank Ratio (gen/GT)",
+    "n": 47,
+    "pearson_r": -0.1045,
+    "pearson_p": 0.4847,
+    "spearman_r": -0.0357,
+    "spearman_p": 0.8115
+  },
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "gen_eff_rank",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "Gen Effective Rank",
+    "n": 47,
+    "pearson_r": -0.1045,
+    "pearson_p": 0.4847,
+    "spearman_r": -0.0357,
+    "spearman_p": 0.8115
+  },
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "corr_ratio",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "Correlation Ratio",
+    "n": 47,
+    "pearson_r": 0.0069,
+    "pearson_p": 0.9631,
+    "spearman_r": 0.0471,
+    "spearman_p": 0.7534
+  },
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "ks_daily_npass",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "KS Daily Pass Count",
+    "n": 47,
+    "pearson_r": 0.346,
+    "pearson_p": 0.0172,
+    "spearman_r": 0.306,
+    "spearman_p": 0.0365
+  },
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "kurtosis_ratio",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "Kurtosis Ratio",
+    "n": 47,
+    "pearson_r": 0.0889,
+    "pearson_p": 0.5524,
+    "spearman_r": 0.1861,
+    "spearman_p": 0.2105
+  },
+  {
+    "metric1": "ci_90_overall",
+    "metric2": "n_suites_pass",
+    "label1": "CI 90% Coverage (Overall)",
+    "label2": "Suite Pass Count",
+    "n": 47,
+    "pearson_r": -0.141,
+    "pearson_p": 0.3444,
+    "spearman_r": 0.0134,
+    "spearman_p": 0.9287
+  },
+  {
+    "metric1": "rank_ratio",
+    "metric2": "ks_daily_npass",
+    "label1": "Rank Ratio (gen/GT)",
+    "label2": "KS Daily Pass Count",
+    "n": 47,
+    "pearson_r": -0.4391,
+    "pearson_p": 0.002,
+    "spearman_r": -0.2433,
+    "spearman_p": 0.0994
+  },
+  {
+    "metric1": "rank_ratio",
+    "metric2": "kurtosis_ratio",
+    "label1": "Rank Ratio (gen/GT)",
+    "label2": "Kurtosis Ratio",
+    "n": 47,
+    "pearson_r": -0.3485,
+    "pearson_p": 0.0164,
+    "spearman_r": -0.4127,
+    "spearman_p": 0.0039
+  },
+  {
+    "metric1": "rank_ratio",
+    "metric2": "n_suites_pass",
+    "label1": "Rank Ratio (gen/GT)",
+    "label2": "Suite Pass Count",
+    "n": 47,
+    "pearson_r": -0.388,
+    "pearson_p": 0.007,
+    "spearman_r": -0.4609,
+    "spearman_p": 0.0011
+  },
+  {
+    "metric1": "gen_eff_rank",
+    "metric2": "kurtosis_ratio",
+    "label1": "Gen Effective Rank",
+    "label2": "Kurtosis Ratio",
+    "n": 47,
+    "pearson_r": -0.3485,
+    "pearson_p": 0.0164,
+    "spearman_r": -0.4127,
+    "spearman_p": 0.0039
+  },
+  {
+    "metric1": "gen_eff_rank",
+    "metric2": "ks_daily_npass",
+    "label1": "Gen Effective Rank",
+    "label2": "KS Daily Pass Count",
+    "n": 47,
+    "pearson_r": -0.4391,
+    "pearson_p": 0.002,
+    "spearman_r": -0.2433,
+    "spearman_p": 0.0994
+  },
+  {
+    "metric1": "ks_daily_npass",
+    "metric2": "kurtosis_ratio",
+    "label1": "KS Daily Pass Count",
+    "label2": "Kurtosis Ratio",
+    "n": 47,
+    "pearson_r": 0.3271,
+    "pearson_p": 0.0248,
+    "spearman_r": 0.4732,
+    "spearman_p": 0.0008
+  }
+]
