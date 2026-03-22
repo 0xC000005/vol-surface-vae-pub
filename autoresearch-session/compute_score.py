@@ -16,16 +16,22 @@ def compute_score(summary_path: str) -> dict:
     with open(summary_path) as f:
         summary = json.load(f)
 
+    def _suite_pass(d: dict) -> bool:
+        """Get suite pass status, checking both 'overall_pass' and legacy 'pass' keys."""
+        if "overall_pass" in d:
+            return d["overall_pass"]
+        return d.get("pass", False)
+
     # Count passing suites (8 total)
     suite_map = {
-        "surface": summary.get("surface", {}).get("overall_pass", False),
-        "ci_coverage": summary.get("coverage", {}).get("pass", False),
-        "conditionality": summary.get("conditionality", {}).get("pass", False),
-        "time_series": summary.get("time_series", {}).get("overall_pass", False),
-        "block_ar": summary.get("block_ar", {}).get("overall_pass", False),
-        "cointegration": summary.get("cointegration", {}).get("pass", False),
-        "regime_coverage": summary.get("regime_coverage", {}).get("overall_pass", False),
-        "distributional": summary.get("distributional", {}).get("overall_pass", False),
+        "surface": _suite_pass(summary.get("surface", {})),
+        "ci_coverage": _suite_pass(summary.get("coverage", {})),
+        "conditionality": _suite_pass(summary.get("conditionality", {})),
+        "time_series": _suite_pass(summary.get("time_series", {})),
+        "block_ar": _suite_pass(summary.get("block_ar", {})),
+        "cointegration": _suite_pass(summary.get("cointegration", {})),
+        "regime_coverage": _suite_pass(summary.get("regime_coverage", {})),
+        "distributional": _suite_pass(summary.get("distributional", {})),
     }
     suites_passed = sum(1 for v in suite_map.values() if v)
 

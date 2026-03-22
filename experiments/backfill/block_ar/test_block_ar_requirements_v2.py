@@ -594,7 +594,7 @@ def run_ci_coverage_tests(
         },
         'calibration_error': calibration_error,
         'horizon_pass': horizon_pass,
-        'pass': all_horizons_pass and worst_cell_pass_all,
+        'overall_pass': all_horizons_pass and worst_cell_pass_all,
     }
 
 
@@ -991,7 +991,7 @@ def run_conditionality_tests(
         'worst_cell_mae_reduction': float(worst_cell_mae_reduction),
         'worst_cell_mae_pass': worst_cell_mae_pass,
         'per_regime_conditionality': per_regime_cond,
-        'pass': overall_pass,
+        'overall_pass': overall_pass,
     }
 
 
@@ -1511,7 +1511,7 @@ def run_cointegration_tests(
         'n_valid_windows': n_valid,
         'adf_alpha': adf_alpha,
         'adf_lags': adf_lags,
-        'pass': coint_pass,
+        'overall_pass': coint_pass,
     }
 
 
@@ -2334,7 +2334,7 @@ def print_summary(results: Dict) -> bool:
         print(f"    h={h:2d}: {cov:.1%} (worst cell: {worst:.1%}, best cell: {best:.1%}) {'PASS' if passed else 'FAIL'}")
     print(f"  Per-cell gate [70%, 95%]: {'PASS' if c.get('worst_cell_pass', True) else 'FAIL'}")
     print(f"  Calibration error:     {c['calibration_error']:.3f}")
-    print(f"  Overall:               {'PASS' if c['pass'] else 'FAIL'}")
+    print(f"  Overall:               {'PASS' if c['overall_pass'] else 'FAIL'}")
 
     # Test Suite 3: Conditionality
     d = results['conditionality']
@@ -2355,7 +2355,7 @@ def print_summary(results: Dict) -> bool:
             rc = prc[regime]
             print(f"  {regime:5s} width vs uncond: avg={rc['avg_width_ratio']:.3f}, "
                   f"worst={rc['worst_cell_width_ratio']:.3f} (informational)")
-    print(f"  Overall:             {'PASS' if d['pass'] else 'FAIL'}")
+    print(f"  Overall:             {'PASS' if d['overall_pass'] else 'FAIL'}")
 
     # Test Suite 4: Time Series
     ts = results['time_series']
@@ -2385,7 +2385,7 @@ def print_summary(results: Dict) -> bool:
         print(f"  GT pass rate:        {co['gt_pass_rate']:.1%}")
         print(f"  Gen/GT ratio:        {co['gen_gt_ratio']:.3f} "
               f"(worst cell: {co.get('worst_cell_ratio', 0):.3f}) "
-              f"{'PASS' if co['pass'] else 'FAIL'}")
+              f"{'PASS' if co['overall_pass'] else 'FAIL'}")
         if 'gen_pass_rate_legacy' in co:
             print(f"  Legacy (ADF):        gen={co['gen_pass_rate_legacy']:.1%}, "
                   f"gt={co['gt_pass_rate_legacy']:.1%}, "
@@ -2451,8 +2451,8 @@ def print_summary(results: Dict) -> bool:
     print("\n" + "=" * 60)
     all_pass = all([
         s['overall_pass'],
-        c['pass'],
-        d['pass'],
+        c['overall_pass'],
+        d['overall_pass'],
         ts['overall_pass'],
         ba['overall_pass'],
     ])
@@ -2463,7 +2463,7 @@ def print_summary(results: Dict) -> bool:
     if 'cross_cell_correlation' in results:
         all_pass = all_pass and results['cross_cell_correlation']['overall_pass']
     # Cointegration is informational — doesn't affect overall pass/fail yet
-    if 'cointegration' in results and not results['cointegration']['pass']:
+    if 'cointegration' in results and not results['cointegration']['overall_pass']:
         print("  NOTE: Cointegration test FAILED (informational)")
     if all_pass:
         print("OVERALL: ALL TESTS PASSED")
