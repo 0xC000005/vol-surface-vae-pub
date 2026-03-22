@@ -146,6 +146,7 @@ class SinglePassConfig:
     ar_causal_d_model: int = 128           # Hidden dim for causal AR decoder
     ar_causal_n_heads: int = 4             # Attention heads for causal AR decoder
     ar_causal_cln: bool = False            # CLN noise injection in transformer (RC6 Step 3, Exp 141a)
+    ar_factor_noise: int = 0                # Factor-structured noise skip (0=off, 5=5 factors, Exp 146b)
 
     # Joint transformer decoder (non-AR, Exp 133a/H4)
     joint_decoder: bool = False              # Use JointTransformerDecoder instead of AR loop
@@ -496,6 +497,39 @@ class CLNTransformerLayer(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Factor-structured noise skip (RC10-H2, Exp 146b)
+# ──────────────────────────────────────────────────────────────────────
+
+class FactorNoiseSkip(nn.Module):
+    """Factor-structured noise for skip bypass (drop-in replacement for Linear).
+
+    Splits noise into n_factors independent streams + residual.
+    Factor contribution has exactly n_factors independent modes via
+    learned loadings W, forcing multi-factor output structure.
+
+    forward(noise) → (B, frame_dim), same interface as nn.Linear.
+    """
+
+    def __init__(self, noise_dim: int, frame_dim: int, n_factors: int = 5):
+        super().__init__()
+        self.n_factors = n_factors
+        # Learned loadings: which cells respond to which factors
+        # Initialize with small random values (will be learned)
+        self.W = nn.Parameter(torch.randn(frame_dim, n_factors) * 0.02)
+        # Residual projection for remaining noise dims
+        self.residual_proj = nn.Linear(noise_dim - n_factors, frame_dim, bias=False)
+        nn.init.zeros_(self.residual_proj.weight)  # starts silent like original
+
+    def forward(self, noise: torch.Tensor) -> torch.Tensor:
+        """noise: (B, noise_dim) → (B, frame_dim)"""
+        z_factors = noise[:, :self.n_factors]      # (B, n_factors)
+        z_residual = noise[:, self.n_factors:]     # (B, noise_dim - n_factors)
+        factor_out = z_factors @ self.W.T          # (B, frame_dim) — rank n_factors
+        residual_out = self.residual_proj(z_residual)  # (B, frame_dim)
+        return factor_out + residual_out
+
+
+# ──────────────────────────────────────────────────────────────────────
 # AR Causal Transformer Decoder (RC6 Step 2, Exp 140a)
 # ──────────────────────────────────────────────────────────────────────
 
@@ -518,7 +552,8 @@ class CausalARTransformerDecoder(nn.Module):
     def __init__(self, frame_dim: int = 25, cond_dim: int = 128,
                  noise_dim: int = 32, d_model: int = 128,
                  n_heads: int = 4, n_layers: int = 4,
-                 dropout: float = 0.0, use_cln: bool = False):
+                 dropout: float = 0.0, use_cln: bool = False,
+                 n_factor_noise: int = 0):
         super().__init__()
         self.frame_dim = frame_dim
         self.d_model = d_model
@@ -585,7 +620,10 @@ class CausalARTransformerDecoder(nn.Module):
         nn.init.zeros_(self.out_proj.bias)
 
         # Noise skip projection (for compatibility with existing skip bypass)
-        self.noise_skip_proj = nn.Linear(noise_dim, frame_dim)
+        if n_factor_noise > 0:
+            self.noise_skip_proj = FactorNoiseSkip(noise_dim, frame_dim, n_factor_noise)
+        else:
+            self.noise_skip_proj = nn.Linear(noise_dim, frame_dim)
 
         # KV cache state (set during AR generation)
         self._kv_cache = None
@@ -1146,8 +1184,7 @@ class SinglePassBlockAR(nn.Module):
         if config.ar_frame:
             # AR frame decoder: per-frame MLP or causal transformer
             frame_dim = config.surface_h * config.surface_w
-            # Factor noise: noise input is per-cell (frame_dim) instead of shared (noise_dim)
-            fd_noise_dim = frame_dim if config.ar_factor_noise else config.noise_dim
+            fd_noise_dim = config.noise_dim
 
             if config.ar_causal_transformer:
                 # RC6 Step 2: Causal transformer AR decoder
@@ -1159,6 +1196,7 @@ class SinglePassBlockAR(nn.Module):
                     n_heads=config.ar_causal_n_heads,
                     n_layers=config.ar_causal_n_layers,
                     use_cln=config.ar_causal_cln,
+                    n_factor_noise=config.ar_factor_noise,
                 )
             else:
                 self.frame_decoder = FrameDecoder(
@@ -1186,11 +1224,7 @@ class SinglePassBlockAR(nn.Module):
                     noisefree_mlp=config.ar_noisefree_mlp,
                     n_mlp_layers=config.ar_frame_n_layers,
                 )
-            # Factor noise loadings: (frame_dim, n_factors) — learned spatial correlation
-            if config.ar_factor_noise:
-                self.factor_loadings = nn.Parameter(
-                    torch.randn(frame_dim, config.ar_n_factors) * config.ar_factor_init_scale
-                )
+            # Factor noise is now handled by FactorNoiseSkip in the decoder's noise_skip_proj
             # Per-cell spread: (condition, pos_emb) → 25 positive scalars ≈ 1.0
             # Position input makes spread horizon-aware (different scaling at h=1 vs h=30)
             if config.ar_frame_cell_spread:
@@ -1306,8 +1340,7 @@ class SinglePassBlockAR(nn.Module):
 
     def _sample_noise(self, B: int, device: torch.device) -> torch.Tensor:
         """Sample noise vector z ~ N(0,I) or StudentT(df)."""
-        # Factor noise uses n_factors dim; shared noise uses noise_dim
-        ndim = self.config.ar_n_factors if self.config.ar_factor_noise else self.config.noise_dim
+        ndim = self.config.noise_dim
         # Noise bottleneck: sample in low-dim, project up (Exp 115a)
         if self.config.noise_bottleneck_dim > 0 and hasattr(self, 'noise_bottleneck'):
             ndim = self.config.noise_bottleneck_dim
@@ -1540,15 +1573,8 @@ class SinglePassBlockAR(nn.Module):
         return sigma
 
     def _get_noise_for_decoder(self, z_t: torch.Tensor) -> torch.Tensor:
-        """Convert raw noise z_t to FrameDecoder input (shared or factor model)."""
-        if self.config.ar_factor_noise:
-            # z_t: (B, n_factors) → cell_noise: (B, frame_dim) via learned loadings
-            cell_noise = z_t @ self.factor_loadings.T
-            if self.config.ar_factor_noise_norm:
-                # Normalize to unit variance per cell — loadings only control correlation,
-                # not scale. Prevents CRPS from shrinking loadings to reduce noise.
-                cell_noise = cell_noise / (cell_noise.std(dim=0, keepdim=True) + 1e-6)
-            return cell_noise
+        """Convert raw noise z_t to FrameDecoder input.
+        Factor structure (if enabled) is handled by FactorNoiseSkip in the skip projection."""
         return z_t
 
     @torch.no_grad()
