@@ -35257,3 +35257,58 @@ The loss is not confounding the architectural findings (CLT/kurtosis, noise-inva
 rank). It only confounds coverage analysis, which is deferred to Step 4.
 
 ---
+
+## 2026-03-22: Architecture Audit — 140a Principled Scorecard (5/14)
+
+### Purpose
+Before proceeding to Step 3, audit exactly which components of the current 140a model
+are principled vs inherited from the MLP era. Understanding this prevents conflating
+architectural findings with training scaffolding effects.
+
+### Scorecard: 5 of 14 Components Are Principled
+
+| Component | Principled? | Notes |
+|-----------|:-:|-------|
+| Encoder (GRU, co-trained, ortho reg) | YES | RC6 Step 1 — DONE |
+| Decoder (causal transformer, 4L d=64) | YES | RC6 Step 2 — DONE |
+| Generation (AR + reflecting bounds) | YES | AR for extrapolation, bounds are math constraint |
+| Noise mechanism (additive skip) | NO | Proven suppressible: 14% of output (attention analysis) |
+| Noise distribution (Gaussian) | NO | CLT kills kurtosis over 30 AR steps |
+| vol_scale (global_mean_vol=0.0187) | NO | Hardcoded constant, not learned |
+| cell_spread (condition-dependent) | NO | Learned but crutch — transformer should learn scaling |
+| Loss: afCRPS | YES | Strictly proper scoring rule |
+| Loss: VS (λ=0.1) | YES | Proper scoring rule for dependence |
+| Loss: ES (λ=1.0) | NO | Redundant with CRPS+VS |
+| Loss: IS (λ=0.5) | NO | No equilibrium, fights CRPS spread |
+| Loss: cell_var (λ=1.0) | NO | Uses GT per-cell variance — Bitter Lesson violation |
+| Loss: bias_loss (λ=0.01) | NO | Band-aid for delta drift |
+| Freeze schedule (epoch 10) | NO | MLP-era heuristic, may not suit transformer |
+
+### What This Means
+
+The current 140a is a **principled architecture wrapped in unprincipled training scaffolding**.
+The encoder and decoder are correct (Steps 1-2 validated this). The remaining 9 unprincipled
+components are inherited from the MLP-era recipe and kept as CONTROLLED VARIABLES — same
+scaffolding across experiments ensures architectural changes are cleanly attributable.
+
+The 4/8 suites, score 53.16 reflects the principled architecture struggling under unprincipled
+training conditions — NOT the architecture's true potential. Specifically:
+- IS is actively suppressing coverage (contaminating CRPS's spread term)
+- cell_var is providing GT variance information (masking whether architecture can learn it)
+- Gaussian noise + additive skip = CLT convergence + noise suppression (double problem)
+- Freeze at ep10 was designed for MLP, may be wrong for transformer
+
+### Remaining RC6 Steps Map to Unprincipled Components
+
+| Step | Removes | Components Affected |
+|------|---------|-------------------|
+| 3a | Additive skip → CLN | Noise mechanism |
+| 3b | Gaussian → Student-t | Noise distribution |
+| 4 | ES, IS, cell_var, bias_loss | 4 loss components |
+| 5 | vol_scale, cell_spread, freeze schedule | 3 training crutches |
+
+After Step 5: 14/14 principled. Or, if some components prove necessary when removed,
+they're added back as EVIDENCE-JUSTIFIED necessities (per the corrected risk table),
+not as unexplained crutches.
+
+---
