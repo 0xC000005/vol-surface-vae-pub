@@ -145,6 +145,7 @@ class SinglePassConfig:
     ar_causal_n_layers: int = 4            # Transformer layers for causal AR decoder
     ar_causal_d_model: int = 128           # Hidden dim for causal AR decoder
     ar_causal_n_heads: int = 4             # Attention heads for causal AR decoder
+    ar_causal_cln: bool = False            # CLN noise injection in transformer (RC6 Step 3, Exp 141a)
 
     # Joint transformer decoder (non-AR, Exp 133a/H4)
     joint_decoder: bool = False              # Use JointTransformerDecoder instead of AR loop
@@ -400,6 +401,101 @@ class JointTransformerDecoder(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Conditional Layer Normalization (CLN) — RC6 Step 3, Exp 141a
+# ──────────────────────────────────────────────────────────────────────
+
+class ConditionalLayerNorm(nn.Module):
+    """Noise-conditioned LayerNorm: h = gamma(z) * LN(h) + beta(z).
+
+    Different noise draws produce different gamma/beta → different normalization
+    → different outputs. Structurally insuppressible: CRPS cannot gradient-descent
+    gamma to zero without destroying all representations (LN output becomes
+    un-normalized → loss explodes). Proven at ECMWF's AIFS under same afCRPS loss.
+    """
+
+    def __init__(self, d_model: int, noise_dim: int):
+        super().__init__()
+        self.ln = nn.LayerNorm(d_model, elementwise_affine=False)
+        # Noise → gamma, beta via small MLP
+        self.noise_to_gamma = nn.Sequential(
+            nn.Linear(noise_dim, d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+        )
+        self.noise_to_beta = nn.Sequential(
+            nn.Linear(noise_dim, d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+        )
+        # Init: gamma ≈ 1 (identity), beta ≈ 0 (no shift)
+        nn.init.zeros_(self.noise_to_gamma[2].weight)
+        nn.init.ones_(self.noise_to_gamma[2].bias)
+        nn.init.zeros_(self.noise_to_beta[2].weight)
+        nn.init.zeros_(self.noise_to_beta[2].bias)
+
+    def forward(self, h: torch.Tensor, noise_embed: torch.Tensor) -> torch.Tensor:
+        """
+        h: (B, L, d_model) — hidden states
+        noise_embed: (B, noise_dim) — noise embedding (shared across sequence)
+        """
+        gamma = self.noise_to_gamma(noise_embed).unsqueeze(1)  # (B, 1, d_model)
+        beta = self.noise_to_beta(noise_embed).unsqueeze(1)    # (B, 1, d_model)
+        return gamma * self.ln(h) + beta
+
+
+class CLNTransformerLayer(nn.Module):
+    """Transformer encoder layer with CLN replacing standard LayerNorm.
+
+    Pre-norm architecture:
+        h = h + self_attn(CLN_1(h, noise))
+        h = h + FFN(CLN_2(h, noise))
+
+    Noise modulates normalization BEFORE attention and FFN, making the
+    attention computation itself noise-dependent (breaking the 96-99%
+    cosine similarity observed in 140a's standard LayerNorm).
+    """
+
+    def __init__(self, d_model: int, n_heads: int, noise_dim: int,
+                 dim_feedforward: int = 256, dropout: float = 0.0):
+        super().__init__()
+        # CLN replaces standard LayerNorm
+        self.cln1 = ConditionalLayerNorm(d_model, noise_dim)
+        self.cln2 = ConditionalLayerNorm(d_model, noise_dim)
+
+        # Standard self-attention
+        self.self_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True
+        )
+
+        # Standard FFN
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, h: torch.Tensor, noise_embed: torch.Tensor,
+                src_mask: torch.Tensor = None) -> torch.Tensor:
+        """
+        h: (B, L, d_model)
+        noise_embed: (B, noise_dim)
+        src_mask: (L, L) causal mask
+        """
+        # Pre-norm attention with CLN
+        h_norm = self.cln1(h, noise_embed)
+        attn_out, _ = self.self_attn(h_norm, h_norm, h_norm, attn_mask=src_mask)
+        h = h + attn_out
+
+        # Pre-norm FFN with CLN
+        h_norm = self.cln2(h, noise_embed)
+        h = h + self.ffn(h_norm)
+
+        return h
+
+
+# ──────────────────────────────────────────────────────────────────────
 # AR Causal Transformer Decoder (RC6 Step 2, Exp 140a)
 # ──────────────────────────────────────────────────────────────────────
 
@@ -422,11 +518,13 @@ class CausalARTransformerDecoder(nn.Module):
     def __init__(self, frame_dim: int = 25, cond_dim: int = 128,
                  noise_dim: int = 32, d_model: int = 128,
                  n_heads: int = 4, n_layers: int = 4,
-                 dropout: float = 0.0):
+                 dropout: float = 0.0, use_cln: bool = False):
         super().__init__()
         self.frame_dim = frame_dim
         self.d_model = d_model
         self.n_layers = n_layers
+        self.use_cln = use_cln
+        self.noise_dim = noise_dim
 
         # Sinusoidal position embedding for cell_spread compatibility
         # (cell_spread accesses self.frame_decoder.pos_embed(local_pos))
@@ -438,23 +536,41 @@ class CausalARTransformerDecoder(nn.Module):
         # Project condition to model dim (condition is a special prefix token)
         self.cond_proj = nn.Linear(cond_dim, d_model)
 
-        # Project noise to model dim (added to each frame token)
+        # Project noise to model dim (added to each frame token — used when NOT CLN)
         self.noise_proj = nn.Linear(noise_dim, d_model)
+
+        # Noise embedding for CLN (shared across layers)
+        if use_cln:
+            self.noise_embed_proj = nn.Sequential(
+                nn.Linear(noise_dim, d_model),
+                nn.SiLU(),
+                nn.Linear(d_model, noise_dim),
+            )
 
         # Learnable position embeddings (up to 61 = 30 hist + 1 cond + 30 future)
         self.token_pos_embed = nn.Embedding(62, d_model)
 
-        # Transformer layers (pre-norm for stability)
+        # Transformer layers
         self.layers = nn.ModuleList()
         for _ in range(n_layers):
-            self.layers.append(
-                nn.TransformerEncoderLayer(
-                    d_model=d_model, nhead=n_heads,
-                    dim_feedforward=d_model * 2,
-                    dropout=dropout, batch_first=True,
-                    norm_first=True,
+            if use_cln:
+                self.layers.append(
+                    CLNTransformerLayer(
+                        d_model=d_model, n_heads=n_heads,
+                        noise_dim=noise_dim,
+                        dim_feedforward=d_model * 2,
+                        dropout=dropout,
+                    )
                 )
-            )
+            else:
+                self.layers.append(
+                    nn.TransformerEncoderLayer(
+                        d_model=d_model, nhead=n_heads,
+                        dim_feedforward=d_model * 2,
+                        dropout=dropout, batch_first=True,
+                        norm_first=True,
+                    )
+                )
 
         # Output: d_model → frame_dim (delta prediction)
         self.out_norm = nn.LayerNorm(d_model)
@@ -497,12 +613,19 @@ class CausalARTransformerDecoder(nn.Module):
             torch.ones(seq_len, seq_len, device=condition.device), diagonal=1
         ).bool()
 
-        for layer in self.layers:
-            context = layer(context, src_mask=causal_mask)
+        if self.use_cln:
+            # History context uses zero noise (no diversity for history tokens)
+            zero_noise = torch.zeros(B, self.noise_dim, device=condition.device)
+            for layer in self.layers:
+                context = layer(context, zero_noise, src_mask=causal_mask)
+        else:
+            for layer in self.layers:
+                context = layer(context, src_mask=causal_mask)
 
         # Store the processed context for AR generation
         self._context = context  # (B, T_hist+1, d)
         self._next_pos = T_hist + 1  # Next position index
+        self._current_noise = None  # Will be set in forward()
 
     def forward(self, prev_frame: torch.Tensor, condition: torch.Tensor,
                 noise: torch.Tensor, position: torch.Tensor,
@@ -525,9 +648,8 @@ class CausalARTransformerDecoder(nn.Module):
         """
         B = prev_frame.shape[0]
 
-        # Project current frame + noise
+        # Project current frame
         frame_token = self.frame_proj(prev_frame)  # (B, d)
-        noise_emb = self.noise_proj(noise)  # (B, d)
 
         # Add position embedding
         pos_idx = min(self._next_pos, 61)  # Clamp to max position
@@ -535,8 +657,16 @@ class CausalARTransformerDecoder(nn.Module):
             torch.tensor([pos_idx], device=prev_frame.device)
         )  # (1, d)
 
-        # Combine: frame + noise + position
-        new_token = (frame_token + noise_emb + pos_emb).unsqueeze(1)  # (B, 1, d)
+        if self.use_cln:
+            # CLN mode: noise enters via CLN modulation, NOT token addition
+            # Noise embedding for CLN layers
+            noise_embed = self.noise_embed_proj(noise)  # (B, noise_dim)
+            new_token = (frame_token + pos_emb).unsqueeze(1)  # (B, 1, d) — NO noise added
+        else:
+            # Standard mode: noise added to token representation
+            noise_emb = self.noise_proj(noise)  # (B, d)
+            noise_embed = None
+            new_token = (frame_token + noise_emb + pos_emb).unsqueeze(1)  # (B, 1, d)
 
         # Append to context and run causal attention
         full_seq = torch.cat([self._context, new_token], dim=1)  # (B, L+1, d)
@@ -546,8 +676,12 @@ class CausalARTransformerDecoder(nn.Module):
             torch.ones(seq_len, seq_len, device=prev_frame.device), diagonal=1
         ).bool()
 
-        for layer in self.layers:
-            full_seq = layer(full_seq, src_mask=causal_mask)
+        if self.use_cln:
+            for layer in self.layers:
+                full_seq = layer(full_seq, noise_embed, src_mask=causal_mask)
+        else:
+            for layer in self.layers:
+                full_seq = layer(full_seq, src_mask=causal_mask)
 
         # Update context with the new processed sequence
         self._context = full_seq
@@ -1015,6 +1149,7 @@ class SinglePassBlockAR(nn.Module):
                     d_model=config.ar_causal_d_model,
                     n_heads=config.ar_causal_n_heads,
                     n_layers=config.ar_causal_n_layers,
+                    use_cln=config.ar_causal_cln,
                 )
             else:
                 self.frame_decoder = FrameDecoder(
