@@ -37263,3 +37263,75 @@ The rank loss is the right DIRECTION (eff_rank up, CI up, Suite 7 progress). But
 is too aggressive for distributional quality. Try λ=0.01 or combine with curriculum.
 
 ---
+
+## 2026-03-22: Validation Audit #3 — RC8v3+RC9 Session (5 Experiments, 4 Agents)
+
+### Scope
+Audited experiments 144a through 145c. 4 parallel verification agents, 8 verification tasks.
+All results persisted to results/validations/2026-03-22/.
+
+### CRITICAL CORRECTION: 144b Mean Reversion ACF = -0.269
+
+Prior claim: "Mean reversion ACF = +0.04" was measured on 143a, never on 144b.
+**Actual 144b result: ACF = -0.269** (GT = -0.235, gap only 0.034).
+
+This means 144b achieves near-perfect mean reversion. The per-cell scale enabled the
+model to learn directional dynamics that 143a couldn't. This is a MAJOR positive finding
+that was missed during the autoresearch session.
+
+### Claims Verification
+
+| Claim | Status |
+|-------|--------|
+| 144b score 69.28, 5/8 suites | CONFIRMED |
+| 144b KS daily 22/25 | CONFIRMED |
+| 144b kurtosis 1.049 | CONFIRMED |
+| 144b per-cell ρ = 0.854 | CONFIRMED (re-measured 0.832) |
+| 144b delta ratio 0.993 | METHODOLOGY MISMATCH (per-step vs trajectory-level) |
+| Warm start confound | LOW (2.5% of improvement) |
+
+### Key Finding: DPP Loss Targets WRONG Metric
+
+The 145c DPP rank loss improved inter-member diversity (Gram eff_rank 3.40→4.24) but
+did NOT improve within-member factor structure (corr eff_rank 1.47→1.60). Suite 9
+measures the WITHIN-member structure. DPP makes members different from each other
+but each member still has rank-1 internal correlation (all 25 cells move together).
+
+**Implication**: To fix Suite 9, need a loss that targets WITHIN-member cell correlation,
+not inter-member diversity. This invalidates RC9-H3 as formulated.
+
+### Window Floor: CALM Period Overconfidence
+
+Bad windows (coverage <50%) concentrate in CALM periods (13.7% bad rate) not turbulent
+(2.9%). The model overestimates predictability during calm periods that turn out to have
+unexpectedly volatile moves (+56% faster daily moves despite low vol-of-vol regime).
+
+### Long-Horizon (252-day): Spread Stabilizes
+
+At 252-day horizon: coverage degrades to 30% at 180d, spread stabilizes at [0.030, 0.037]
+instead of growing with horizon. Cointegration collapses (15.4% vs GT 98.4%).
+Kurtosis preserved (log-space property robust).
+
+### Factor Structure: ALL Models Collapsed
+
+PCA across all 5 models shows eff_rank 1.48-1.64 (GT: 4.74). PC1 explains 90-93% of
+variance (GT: 62%). The CRPS rank-1 attractor is universal — no intervention broke it
+at the factor level. This is THE fundamental bottleneck for Suites 7, 8, 9.
+
+### Updated Problem Assessment for 144b
+
+| Property | Grade | Evidence |
+|----------|-------|---------|
+| Valid surfaces | A | PASS |
+| Conditionality | B+ | turb/calm 2.04x PASS |
+| Kurtosis | A | 1.049 near-perfect |
+| Per-step calibration | A | Delta ratio 0.993 per-member |
+| **Mean reversion** | **A-** | **ACF -0.269 vs GT -0.235** |
+| Cointegration (30d) | A | ratio 2.90 PASS |
+| Per-cell CI | D | 74% overall, worst cell 47% |
+| Factor structure | F | eff_rank 1.48 vs GT 4.74 |
+| Regime coverage | F | 0/8 L2 passing |
+| Window robustness | C- | 8% bad windows in calm periods |
+| Long-horizon | D | Coverage 30% at 180d, spread plateaus |
+
+---
