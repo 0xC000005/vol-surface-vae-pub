@@ -36536,3 +36536,134 @@ push Suites 2 and 7 to pass, since h=7/14/30 coverage is already 75-89% and just
 ~15% more spread.
 
 ---
+
+## 2026-03-22: Research Compass RC8v2 — Corrected, Evidence-Backed
+
+### Philosophy Applied
+- **Nanda**: "What's most interesting?" — The model is heterogeneous (CV 0.88 vs GT 0.99),
+  just with the WRONG PATTERN. The "uniform spread" framing was a premature conclusion.
+- **Popper**: Each hypothesis has a specific falsification test with NUMBERS, not narratives.
+- **Hinton**: Independent reasoning identified "separate magnitude from direction" BEFORE
+  literature search. AIFS confirmed this with per-variable normalization.
+- **Karpathy**: H1 is one parameter. Maximum simplicity.
+
+### Evidence Summary (Verified by 7 Diagnostics)
+
+| Problem | Measurement | GT Reference | Gap |
+|---------|------------|-------------|-----|
+| Delta magnitude | 0.009-0.012 | 0.013-0.021 | 40-55% too small |
+| Delta variability | std 0.018-0.027 | std 0.046-0.066 | 35-45% too narrow |
+| Lag-1 ACF | +0.042 | -0.265 | Wrong sign |
+| Member convergence | cosine 0.989 at h=30 | should diverge | Re-converges |
+| Row 0 bias | -2.8 to -3.0 IV pts | 0 | Deep OTM under-predicted |
+
+**Dominant problem**: #1 (delta under-stepping) blocks Suites 2, 7, and partially 8.
+h=7 coverage is 75%, h=14 is 80.6% — both just 10-15% below passing. Fixing delta
+magnitude could push these over the threshold.
+
+### From Literature
+
+AIFS-CRPS uses **fixed per-variable normalization** (z-score) so all variables contribute
+equally to the loss. They don't have a learned scale — they prescribe it from data statistics.
+This is the "principled hardcoded" approach.
+
+The principled LEARNED alternative: Faithful Heteroscedastic Regression (Stirn 2023) and
+SDL layers (Schreck 2025) both use learned per-channel/per-variable scale modulation.
+
+**Key insight**: A learned scalar scale is MORE principled than AIFS's fixed normalization
+(which uses data-derived constants). Our scalar is learned end-to-end from CRPS.
+
+### Active Hypotheses
+
+#### H1: Learned Scalar Vol Scale (nn.Parameter)
+
+**Evidence chain**: 143a deltas are 40-55% of GT. The old vol_scale (≈0.02, computed from
+history std) calibrated this correctly. A single learned scalar serves the same function
+but is learned from CRPS, not computed from data statistics.
+
+**Principled argument**: The transformer outputs normalized deltas (zero-mean, roughly
+unit-variance from LayerNorm). The scalar scale converts these to the correct IV magnitude.
+This is TRIZ separation: transformer handles direction, scalar handles magnitude.
+AIFS uses fixed normalization for the same purpose — ours is learned (more Bitter Lesson).
+
+**The bet**: Add one line: \`self.log_vol_scale = nn.Parameter(torch.tensor(-3.9))\`.
+In forward: \`delta = softplus(self.log_vol_scale) * raw_delta\`. Initial value softplus(-3.9) ≈ 0.02.
+
+**Staged checkpoints:**
+1. (30min) Train 143a + learned scalar scale. Check: does delta magnitude increase toward GT?
+   Does h=7 coverage improve from 75%?
+
+**Falsification**: Delta magnitude stays at 40-55% of GT despite learned scale → CRPS
+accuracy term suppresses the scale parameter to near-zero. Would mean CRPS fundamentally
+can't learn the correct magnitude at this model scale.
+
+**Independence**: Completely independent. One parameter.
+
+**If it fails**: The CRPS accuracy-spread imbalance is so strong that even a learned scale
+gets suppressed. Would need per-cell CRPS weighting (AIFS mechanism #2) or a direct
+magnitude penalty.
+
+**Effort**: 30 min
+
+#### H2: Per-Cell Learned Scale (nn.Parameter(25))
+
+**Evidence chain**: The spread pattern is wrong — column 0 over-spread (2.0-2.2x GT),
+columns 2-3 under-spread (0.27-0.54x GT). A per-cell scale lets each cell find its own
+magnitude independently.
+
+**Principled argument**: Same as H1 but per-cell. 25 learned parameters, no condition
+dependence (static scale). This is simpler than the old cell_spread (which was condition-
+dependent via an MLP). If a static per-cell scale suffices, condition dependence was
+unnecessary complexity.
+
+**The bet**: Add \`self.cell_scale = nn.Parameter(torch.zeros(25))\`.
+In forward: \`delta = softplus(self.cell_scale) * raw_delta\`.
+
+**Staged checkpoints:**
+1. (30min) Train 143a + per-cell scale. Check: does the wrong-pattern problem improve?
+   Do columns 2-3 get bigger scale than column 0?
+
+**Falsification**: Per-cell coverage doesn't improve → the wrong pattern is from the
+TRANSFORMER's internal representations, not from output scaling. Would need architectural
+change (per-cell attention heads or separate cell decoders).
+
+**Only test if H1 is insufficient** (per Karpathy — try simpler first).
+
+**Effort**: 30 min
+
+#### H3: Lower cell_var Weight for Delta Calibration
+
+**Evidence chain**: cell_var (λ=1.0) constrains per-cell variance to match GT. But it
+also constrains MAGNITUDE — if GT variance is small for a cell, cell_var pushes the model
+to output small deltas for that cell. This may be CAUSING the under-stepping for interior
+cells (columns 2-3 have small GT variance → cell_var forces small deltas → under-coverage).
+
+**Principled argument**: cell_var may be fighting CRPS's natural spread term. With a
+learned scale (H1), cell_var's role as kurtosis regularizer remains but its magnitude-
+constraining effect could be relaxed. Try λ=0.3 instead of 1.0.
+
+**The bet**: H1 + cell_var=0.3. Check if coverage improves without kurtosis overcorrection.
+
+**Falsification**: Kurtosis > 2.0 (overcorrection, as seen in 142a) → cell_var=1.0 is
+necessary and can't be reduced.
+
+**Only test after H1** (combined effect).
+
+**Effort**: 30 min
+
+### Execution Order
+
+1. **H1** (learned scalar) — simplest possible fix, one parameter, 30 min
+2. **If H1 helps but not enough → H2** (per-cell scale) — adds cell differentiation
+3. **If H1 helps → H3** (H1 + lower cell_var) — tests if cell_var constrains too tightly
+
+### What Changed from RC8v1
+
+| RC8v1 (wrong) | RC8v2 (corrected) |
+|---------------|-------------------|
+| "Uniform spread" | Spread IS heterogeneous (CV 0.88), pattern is WRONG |
+| "Need per-cell sigma_head" | Need delta MAGNITUDE calibration first |
+| "Missing AIFS mechanism #2" | AIFS uses fixed normalization; we can do learned (better) |
+| No verified measurements | 7 diagnostics with reproducible scripts |
+
+---
