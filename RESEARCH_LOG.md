@@ -35224,3 +35224,36 @@ is resolved. Coverage is a scaling issue, not an architecture issue.
 | Nielsen | Problem-creating: "What generation strategy preserves both kurtosis and cointegration?" |
 
 ---
+
+## 2026-03-22: Correction — CRPS Self-Calibration Claim Is Premature
+
+### What Was Claimed
+The RC6 course correction entry stated: "CRPS self-calibration confirmed to fail at our
+model scale (~200K params). Coverage monotonically decreases in ALL models."
+
+### Why This Claim Is Contaminated
+All models in the RC6 session (139a, 139a_v2, 140a) trained with the FULL loss stack
+including IS (interval score) at λ=0.5. IS was proven across 12 experiments (120b_v5
+through 138a) to monotonically shrink intervals with no equilibrium. IS actively fights
+CRPS's spread term.
+
+The observed coverage decline (93% → 65%) cannot be attributed to CRPS alone because IS
+is simultaneously suppressing spread. Without IS, CRPS might self-calibrate at a different
+equilibrium. We don't know.
+
+### Corrected Position
+"CRPS self-calibration at our model scale is UNTESTED." The question is properly deferred
+to RC6 Step 4 (strip loss to CRPS + VS only). Only then can we evaluate whether CRPS's
+dual penalty structure finds equilibrium without IS interference.
+
+### Why We Keep the Full Loss for Steps 3a/3b
+The extra loss components (IS, cell_var, ES) are CONTROLLED VARIABLES — kept constant
+across architectural changes so comparisons are valid:
+- 140a (skip noise) vs 141a (CLN) vs 141b (CLN + Student-t) all share the same loss
+- Any difference is from the noise mechanism, not the loss
+- Stripping now would invalidate all comparisons and require re-baselining
+
+The loss is not confounding the architectural findings (CLT/kurtosis, noise-invariance,
+rank). It only confounds coverage analysis, which is deferred to Step 4.
+
+---
