@@ -37335,3 +37335,157 @@ at the factor level. This is THE fundamental bottleneck for Suites 7, 8, 9.
 | Long-horizon | D | Coverage 30% at 180d, spread plateaus |
 
 ---
+
+## 2026-03-22: Evidence-Backed Problem Map — Three Independent Bottlenecks (Post-Validation)
+
+### Purpose
+
+After running 4 validation agents, 2 diagnostic agents, and 1 CI root cause agent across
+the RC8v3+RC9 session (experiments 144a-145c), this entry documents the VALIDATED problem
+map for the 5/8 ceiling. Every claim below has a reproducible script and results on disk
+at `results/validations/2026-03-22/`.
+
+**Critical correction**: The earlier narrative ("all failures trace to CRPS rank-1 attractor")
+was WRONG. CI coverage and factor structure are **statistically independent** (Spearman
+r = -0.036, p = 0.81, n = 47 models). There are THREE independent problems, not one.
+
+---
+
+### Problem 1: CI Coverage 74% Instead of 90% (Suites 2, 7)
+
+**What fails**: 90% CI coverage is 74.0% overall. Worst cell (0,3) at 44.6%. Worst
+horizon h=1 at 65.9%. Suite 2 (per-cell CI) and Suite 7 (regime coverage, which depends
+on per-cell CI) both fail.
+
+**Three mechanistic causes (measured, decomposed)**:
+
+| Sub-cause | Contribution | How measured | Evidence file |
+|-----------|-------------|-------------|---------------|
+| Systematic downward bias | ~8pp | PIT histogram: top bin 23.4% (expected 10%). 22/25 cells biased low. Median bias -0.014 IV pts (-31% of spread width) | `analysis/ci_root_cause/d1_pit_histogram.json` |
+| CRPS gradient asymmetry | ~5pp | CRPS MAE/spread ratio = 2.51 (calibrated target ~2.0). With alpha=0.95, spread_weight=0.5: effective gradient is 2.05:1 accuracy-over-spread. Ensemble needs 45% more spread. | `analysis/ci_root_cause/d7_crps_decomposition.json` |
+| Finite K=8 quantile bias | ~2pp | Coverage at K=8: 62.8%, K=20: 71.3%, K=50: 75.1%. Training with K=8 biases quantile estimates toward center. | `analysis/ci_root_cause/d6_ensemble_size.json` |
+
+**How the PIT histogram was computed**: For 200 test windows (indices 4540+, stride 5),
+50 ensemble members generated per window. For each of 30 horizons × 25 cells = 750 points
+per window: rank = (members below GT) / 50. If calibrated, ranks should be Uniform(0,1).
+The histogram shows right-skew (GT falls above ensemble too often = bias low).
+
+**How CRPS decomposition was computed**: CRPS = E|Y-X| - 0.5×E|X-X'|. Term 1 (accuracy)
+and Term 2 (spread) computed separately across all test windows. Ratio of 2.51 means
+accuracy gradient is 2.51× stronger than spread gradient.
+
+**Spatial pattern**: Column 3 (high moneyness K=1.15) has 45-76% coverage. Column 0
+(low moneyness K=0.70) has 78-95%. Clear moneyness gradient.
+
+**Horizon pattern**: h=1 worst (65.9%), improves to h=10 (77.6%), plateaus. Problem is
+set at FIRST frame, not temporal accumulation.
+
+**Regime pattern**: NOT regime-dependent (calm=73.0%, turb=73.0%). Model scales spread
+proportionally to regime (turb/calm ratio 2.04x) but absolute level is universally too small.
+
+**Independence from factor structure**: Spearman r = -0.036, p = 0.81 across 47 models
+with both CI and rank data. Computed at `analysis/ci_vs_rank/correlation_matrix.json`.
+Fixing rank will NOT fix CI. They need separate mechanisms.
+
+---
+
+### Problem 2: Factor Structure Collapsed (Suite 9, Helps Suite 8)
+
+**What fails**: Generated daily changes have effective rank 1.48 (GT: 4.74). PC1 explains
+93% of variance (GT: 62%). All 25 cells move together — the model has ~1.5 factors
+instead of GT's ~5. Suite 9 (cross-cell correlation) fails on rank_ratio = 0.293.
+
+**Root cause**: CRPS decomposes per-cell with zero cross-cell gradient. The mathematically
+optimal CRPS solution is rank-1 (all cells perfectly correlated). This is proven:
+- MLP decoder: eff_rank drifts to 1.3 by epoch 40
+- CLN transformer d=64: eff_rank ~3 early, ~1.5 at convergence
+- CLN transformer d=128: eff_rank 1.17 (more capacity = faster collapse, Exp 144c)
+
+**How measured**: PCA on generated daily changes (flattened to 25-dim) across 10 test
+batches × 50 samples. Eigenvalue decomposition of correlation matrix. Effective rank
+computed as exp(entropy of normalized eigenvalues). Results at
+`analysis/cross_model/cross_model_results.json`.
+
+**Uniformity across models**: ALL 5 session models have eff_rank 1.48-1.64. No
+intervention (per-cell scale, VS, DPP) broke the rank-1 attractor at the factor level.
+
+**DPP loss targets WRONG metric**: 145c's DPP loss improved INTER-member diversity
+(Gram matrix eff_rank 3.40→4.24) but NOT WITHIN-member factor structure (corr matrix
+eff_rank 1.47→1.60). Suite 9 measures the latter. Verified at
+`analysis/145c_rank_discrepancy/rank_discrepancy_analysis.json`.
+
+**Correlated cluster**: Rank, kurtosis, and KS daily are correlated with each other
+(r=0.41-0.47, p<0.005). Better rank → better kurtosis → better KS daily. Fixing rank
+would help Suite 8 distributional quality.
+
+---
+
+### Problem 3: Long-Horizon Spread Plateau (252-Day Only)
+
+**What fails**: At 252-day horizon, ensemble spread stabilizes at [0.030, 0.037] instead
+of growing. Coverage degrades to 30% at 180d. Cointegration collapses (15.4% vs GT 98.4%).
+
+**Root cause**: AR(1) noise with ρ=0.8 has sqrt(t) cumulative growth. Each step adds only
+11% new information (innovation fraction = (1-ρ)/(1+ρ) = 0.111). Three alternatives
+FALSIFIED:
+
+| Alternative hypothesis | Test | Result |
+|-----------------------|------|--------|
+| Transformer shrinks deltas | Delta ratio first5/last5 | 1.01 — FALSIFIED |
+| Floor clamp absorbs spread | Fraction near floor | <1% — FALSIFIED |
+| Attention re-convergence | Cosine sim trajectory | Monotonically decreasing — FALSIFIED |
+
+**How measured**: Generated 100 windows × 50 samples × 252 frames. Computed ensemble
+std at each horizon, delta magnitude per step, floor-hit fraction, pairwise cosine
+similarity. Results at `analysis/long_horizon_root_cause/spread_diagnostic_144b.json`.
+
+**Impact scope**: Only affects >30-day applications. The 30-day test suite is not directly
+impacted (spread IS growing within 30 days, just decelerating).
+
+---
+
+### What's SOLVED (No Longer Problems)
+
+| Property | Grade | Evidence |
+|----------|-------|---------|
+| Surface validity | A | Suite 1 PASS, explosion rate 0.04% |
+| Conditionality | A | Turb/calm 2.04x, Suite 3 PASS |
+| Kurtosis | A | 1.049, log-space exp(Gaussian)=log-normal, Suite 4 PASS |
+| Boundary smoothness | A | Suite 5 PASS |
+| Cointegration (30d) | A | Ratio 2.90, Suite 6 PASS |
+| Mean reversion | B+ | ACF -0.177 vs GT -0.245, gap 0.07. Enabled by per-cell scale |
+| Per-step calibration | A | Delta ratio 0.993 per-member |
+| Per-cell scale | A- | ρ=0.832 with GT std, learned from CRPS alone |
+
+### Correction: Mean Reversion
+
+Prior claim (from 143a diagnostic): ACF = +0.04 (no mean reversion).
+Corrected (144b, validated): ACF = -0.177 (near GT -0.245). The per-cell scale
+amplified deltas to where the transformer's conditional directional signal became
+measurable. Mean reversion was LATENT — suppressed at small delta magnitude.
+
+---
+
+### Evidence Inventory
+
+All results persisted with reproducible scripts at `results/validations/2026-03-22/`:
+
+| Analysis | Script | Results | Agent |
+|----------|--------|---------|-------|
+| CI root cause (PIT, CRPS decomp, K-sweep) | `scripts/ci_root_cause_diagnostic.py` | `analysis/ci_root_cause/` (9 files) | ci-root-cause |
+| CI vs rank independence (47 models) | `scripts/ci_vs_rank_analysis.py` | `analysis/ci_vs_rank/` (5 files) | diag-ci-rank |
+| Long-horizon spread (4 hypotheses) | `scripts/long_horizon_spread_diagnostic.py` | `analysis/long_horizon_root_cause/` | diag-spread |
+| Cross-model factor analysis (5 models) | `scripts/cross_model_comparison.py` | `analysis/cross_model/` | verify-crossmodel |
+| 144b claims verification | `scripts/144b_diagnostics.py` | `analysis/144b/` | verify-144b |
+| 145c rank discrepancy | (in window_floor agent) | `analysis/145c_rank_discrepancy/` | verify-window-longhz |
+| Warm start confound | `scripts/warm_start_confound.py` | `analysis/warm_start_confound/` | verify-warmstart |
+| Window floor methodology | (in window_floor agent) | `analysis/window_floor/` | verify-window-longhz |
+
+### Decision
+
+This problem map replaces all prior root cause analyses (RC8v3 root cause map, RC9 compass
+evidence summary). The key correction is that CI coverage is an INDEPENDENT problem from
+factor structure — they need separate solutions. Research Compass RC10 should propose
+hypotheses for each of the three independent problems.
+
+---
