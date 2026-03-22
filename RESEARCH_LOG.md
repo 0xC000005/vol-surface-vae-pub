@@ -35502,3 +35502,83 @@ ADOPT B=32 lr_decoder=4e-3 for all remaining experiments. Encoder LR stays at 1e
 (not scaled — encoder learns fast). Freeze schedule stays at epoch 10 for now.
 
 ---
+
+## 2026-03-22: Exp 141a — CLN Transformer (RC6 Step 3a) — 3/8, Score 41.66
+
+### Context
+RC6 Step 3a: Add Conditional Layer Normalization to transformer decoder. Noise modulates
+gamma/beta of LayerNorm at every layer. Tests whether CLN breaks the 96-99% noise-invariant
+attention observed in 140a.
+
+**Based on**: 140a (AR causal transformer) + attention analysis (noise cosine sim 0.96-0.99)
+
+### Architecture Change
+Added `ConditionalLayerNorm` and `CLNTransformerLayer`. Each layer: h = gamma(z)*LN(h) + beta(z).
+gamma, beta from 2-layer MLP on noise vector. Init: gamma≈1, beta≈0 (identity at start).
+282K total params (+100K from CLN). B=32 OOM → used B=16 lr=2e-3.
+
+### Training Command
+\`\`\`bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \\
+    --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \\
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \\
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \\
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \\
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \\
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 --freeze_encoder_too \\
+    --disable_early_stop \\
+    --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 \\
+    --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 \\
+    --ar_causal_n_heads 4 --ar_causal_cln \\
+    --output_dir models/backfill/afcrps_141a --device cuda
+\`\`\`
+
+### Results
+
+| Metric | 141a (CLN) | 140a (no CLN) | 99m_v2 (baseline) |
+|--------|-----------|--------------|-------------------|
+| Score | 41.66 | 53.16 | 66.31 |
+| Suites | 3/8 | 4/8 | 5/8 |
+| CI 90% | ~61% | 65.5% | 91.3% |
+| Kurtosis | 0.363 | 0.364 | 0.845 |
+| Eff rank ep10 | **2.99** | 1.72 | 1.57 |
+| Eff rank ep20 | **2.89** | 1.90 | — |
+
+### KEY FINDING: CLN Breaks Noise Invariance Completely
+
+**Noise cosine similarity: -0.38** (vs 140a's 0.96-0.99). CLN doesn't just break noise
+invariance — it produces NEGATIVELY correlated outputs for different noise draws. The
+falsification test PASSES decisively (threshold was < 0.90).
+
+### BUT: CLN Is TOO Strong — Over-Diversity
+
+| Horizon | 140a ensemble std | 141a ensemble std | Ratio |
+|---------|------------------|------------------|-------|
+| h=1 | 0.017 | 0.103 | **6.1x** |
+| h=5 | 0.028 | 0.030 | 1.1x |
+| h=15 | 0.021 | 0.031 | 1.5x |
+| h=30 | 0.025 | 0.033 | 1.3x |
+
+CLN creates massive diversity at h=1 (6x more than without CLN) but this doesn't compound
+over time — it actually decreases from h=1 to h=5. The problem: CLN modulates EVERY layer
+including during history context processing (with zero noise). When generation starts with
+actual noise, the first frame gets a shock of diversity that doesn't propagate.
+
+### What Was Learned
+
+1. **CLN WORKS for breaking noise invariance**: cosine sim -0.38 (was 0.96-0.99). Decisive.
+2. **CLN prevents rank crush**: eff_rank 2.99 at ep10 (was 1.72). CRPS can't suppress CLN diversity.
+3. **Kurtosis unchanged (0.363)**: Confirms CLT hypothesis — CLN makes per-step diversity
+   insuppressible but 30 accumulated steps still converge to Gaussian. CLN alone doesn't fix kurtosis.
+4. **CLN overcorrects at h=1**: 6x more spread than needed. CI drops to 44% at ep1.
+   The initial "noise shock" when transitioning from zero-noise history to noisy generation
+   creates excessive first-frame diversity.
+5. **Coverage still declines monotonically**: IS is still active (controlled variable).
+
+### Decision: VALUABLE FAILURE — CLN Validated, Proceed to Step 3b
+
+CLN achieves its goal (insuppressible noise, rank preservation) but the score regresses
+because it overcorrects. The kurtosis failure confirms CLT is the separate problem that
+Student-t must address. Proceed to Step 3b (CLN + Student-t).
+
+---
