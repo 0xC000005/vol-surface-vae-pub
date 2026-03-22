@@ -36448,3 +36448,91 @@ horizon-dependent noise scale) might be more direct than a full sigma_head.
 4. **The cascade**: h=1 collapse → Suite 2 FAIL → Suite 7 FAIL (2 suites from 1 root cause)
 
 ---
+
+## 2026-03-22: Comprehensive Diagnostic — 143a ep30 Root Cause Map (7 Diagnostics)
+
+### Purpose
+Complete mechanistic analysis of the principled architecture's failures. Every finding
+is based on direct measurement, not inference from test suite pass/fail.
+
+### 7 Diagnostic Measurements
+
+**D1: Per-horizon ensemble spread profile**
+- h=1: std=0.008, h=10: 0.030, h=30: 0.062. Spread DOES grow with horizon.
+- h=1 is small but NOT zero. Coverage fails because GT delta std is 0.058 but model is 0.018.
+
+**D2: Per-cell spread at h=1 vs h=15**
+- Cell (0,0) dominates: std=0.035 at h=1 (4x other cells), 0.142 at h=15
+- Min cell std at h=1: 0.003 (nearly zero for some interior cells)
+
+**D3: Member divergence trajectory**
+- Members diverge h=1→h=15 (cosine 0.999→0.922) then RE-CONVERGE at h=30 (cosine 0.989)
+- Transformer attention pulls members back toward consensus at long horizons
+
+**D4: Per-cell bias**
+- Row 0 (deep OTM): systematic -2.8 to -3.0 IV point under-prediction
+- Interior cells: bias < 0.5 IV points (well-calibrated)
+
+**D5: Per-step delta magnitude**
+- Model: mean|delta| = 0.009-0.012 (constant across horizons)
+- GT: mean|delta| = 0.013-0.021
+- Model deltas are 40-55% of GT at ALL horizons — global under-stepping
+
+**D6: Daily change autocorrelation**
+- GT lag-1 ACF: -0.265 (negative, mean-reverting)
+- Model lag-1 ACF: +0.042 (near-zero, no mean-reversion)
+- AR generation doesn't capture the negative autocorrelation in daily changes
+
+**D7: Variance growth**
+- h=1→h=30 ratio: 31.9x (super-diffusive, near random-walk expected 30x)
+- Monotonically increasing. Variance growth is working correctly.
+
+### Root Cause Map (5 Independent Problems)
+
+| # | Problem | Magnitude | Affects | Root Mechanism |
+|---|---------|-----------|---------|----------------|
+| 1 | **Delta under-stepping** | 40-55% of GT | Coverage (S2), KS (S8) | No vol_scale → uncalibrated exp() step size |
+| 2 | **Delta variability too narrow** | 35-45% of GT | KS daily (S8) | CLN diversifies members but not per-step magnitude |
+| 3 | **Wrong lag-1 ACF** | +0.04 vs GT -0.27 | KS daily (S8) | AR conditions on previous → positive correlation by construction |
+| 4 | **Member re-convergence** | cosine 0.989 at h=30 | Late-horizon diversity | Attention consensus-seeking at long horizons |
+| 5 | **Row 0 systematic bias** | -2.8 to -3.0 IV pts | Per-cell metrics (S2, S8) | Deep OTM cells poorly handled by log-space |
+
+### Problem → Suite Mapping
+
+| Suite | Which problems cause failure? |
+|-------|------------------------------|
+| Suite 2 (per-cell CI) | #1 (under-stepping → under-coverage at ALL horizons), #5 (row 0 bias) |
+| Suite 7 (regime) | #1 (under-coverage cascades to per-regime), #4 (re-convergence at h=30) |
+| Suite 8 (KS daily) | #2 (narrow delta variability), #3 (wrong ACF) |
+
+### Key Insight: Problem #1 Is the Dominant Issue
+
+Delta under-stepping (40-55% of GT magnitude) is NOT h=1-specific. It affects ALL horizons.
+The h=1 coverage collapse is the most visible symptom because h=1 has the least margin,
+but h=7 (75%) and h=14 (80.6%) are also below target. The model's deltas are systematically
+too conservative across the board.
+
+This is a direct consequence of removing vol_scale. In the old architecture:
+\`\`\`
+delta_iv = vol_scale × delta_raw   (vol_scale ≈ 0.02, calibrated from history std)
+\`\`\`
+The vol_scale CALIBRATED the raw network output to match GT step sizes. Without it,
+the model must learn the correct output magnitude purely from the loss. It learned
+conservatively — smaller deltas reduce MAE (accuracy term of CRPS) at the cost of
+under-spread (penalized by spread term, but less strongly at 3:1 gradient asymmetry).
+
+### What This Means for RC8
+
+The sigma_head hypothesis (H1) addresses problems #1 and #2 by giving the model explicit
+control over per-cell noise amplitude. But it doesn't address #3 (ACF) or #4 (re-convergence).
+
+A simpler approach: **add back vol_scale as a LEARNED parameter** (nn.Parameter, not
+computed from history). This is Bitter Lesson compatible — it's learned from data, not
+hardcoded. It directly addresses problem #1 (delta calibration) without the complexity
+of a sigma_head.
+
+The 5 problems are largely INDEPENDENT — addressing #1 alone (delta magnitude) could
+push Suites 2 and 7 to pass, since h=7/14/30 coverage is already 75-89% and just needs
+~15% more spread.
+
+---
