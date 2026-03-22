@@ -34692,3 +34692,95 @@ Replace MLP decoder with causal transformer. Keep unfrozen encoder + ortho reg f
 Overfit check required per adversarial critique (Systems Engineer).
 
 ---
+
+## 2026-03-21: Teacher Forcing vs AR Training Analysis — Theoretical Justification
+
+### Context
+During Exp 140a training (AR causal transformer, 4L d=64, ~450s/epoch), GPU utilization
+was only 42% and CPU at 5% (1 core of 20). Investigated whether teacher forcing could
+accelerate training without changing results.
+
+### Key Finding: Teacher Forcing Changes Training Dynamics
+
+**Initial claim (wrong)**: Teacher forcing is "mathematically identical" — just a speedup.
+**Corrected analysis**: Teacher forcing changes what the model learns, through two mechanisms.
+
+#### Mechanism 1: Residual Delta Calibration (mild risk)
+
+GPT predicts absolute tokens — teacher forcing works because P(token_t | context) is
+the same regardless of context source. Our model predicts **residual deltas** applied
+to previous frames:
+
+```
+iv_t = prev_frame + vol_scale * delta_t
+```
+
+With teacher forcing, delta_t is calibrated for GT prev_frame. At inference, prev_frame
+is the model's own output (potentially drifted). Same delta, different base → different
+result. Over 30 steps with vol_scale=0.02, estimated drift: 1-3 IV points.
+
+**Mitigating factors**: IV surfaces are mean-reverting (Lyapunov exponent < 0), unlike
+weather (chaotic, λ > 0). Reflecting bounds [0.01, 1.0] prevent divergence. Error
+dissipates rather than amplifies. Risk is real but bounded.
+
+#### Mechanism 2: Ensemble Diversity Under-Learning (bigger risk)
+
+This is the more important issue for CRPS training:
+
+```
+AR training (current):
+  Member 1: z₁ → frame₁¹ → delta₂(sees frame₁¹) → frame₂¹ → ...
+  Member 2: z₂ → frame₁² → delta₂(sees frame₁²) → frame₂² → ...
+  → Members see DIFFERENT contexts → diversity COMPOUNDS over time
+  → Model learns: "noise history → trajectory divergence"
+
+Teacher forcing:
+  All members see SAME GT context → diversity = per-step noise only
+  → Model never learns path divergence → growing uncertainty under-learned
+```
+
+Under AR training, the transformer learns that noise history creates path divergence
+that should be maintained. Under teacher forcing, it can't learn this because all
+members always see identical GT context. This directly affects Suite 5b (growing
+uncertainty) and CI coverage.
+
+### Why GPT Gets Away With Teacher Forcing But We Might Not
+
+| Property | GPT | Our model |
+|----------|-----|-----------|
+| Output type | Absolute (next token) | Residual (delta on prev) |
+| Error propagation | Token is valid regardless | Delta applied to drifted base |
+| Ensemble training | N/A (single output) | K members, diversity critical |
+| Chaos | N/A | Mean-reverting (safe) |
+| Growing uncertainty | N/A | Required for calibration |
+
+### Why Weather Models Use AR Training
+
+Not because teacher forcing is always wrong, but because weather dynamics are chaotic
+(Lyapunov exponent > 0) — tiny errors grow exponentially. Our IV system is NOT chaotic
+(mean-reverting, bounded), so exposure bias risk is lower. But the ensemble diversity
+argument (Mechanism 2) applies to both weather and IV.
+
+### Decision: Conservative Step-by-Step Validation
+
+The optimization roadmap, IF the causal transformer architecture (140a) proves useful:
+
+1. **KV cache** — mathematically identical, ~3x inference speedup. Zero risk. Implement first.
+2. **Verify KV cache reproduces exact results** — bit-for-bit comparison with naive implementation.
+3. **Teacher forcing experiment** — train 140a_v3 with TF, compare test suite results to AR-trained 140a.
+   If results are comparable (within noise), TF is validated for this architecture.
+   If growing uncertainty or CI degrades, TF is rejected.
+
+Do NOT skip to teacher forcing. Validate each optimization independently.
+
+### What Was Learned
+
+1. Teacher forcing is NOT "just a speedup" — it changes what the model learns about
+   ensemble diversity and path divergence
+2. The residual delta architecture makes exposure bias more relevant than for GPT-style
+   absolute prediction
+3. IV surfaces are mean-reverting (not chaotic), so drift risk is bounded but non-zero
+4. The ensemble diversity mechanism (not drift) is the primary concern for CRPS models
+5. KV cache is the safe first optimization — same math, fewer redundant computations
+
+---
