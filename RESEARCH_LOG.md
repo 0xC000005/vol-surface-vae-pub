@@ -35837,3 +35837,89 @@ sufficiently converged that the difference is negligible.
 ### Decision: FALSIFIED — Proceed to RC7-H1 (log-space dynamics)
 
 ---
+
+## 2026-03-22: Exp 141d — Log-Space + CLN (RC7-H1) — 4/8, Score 57.08 — KURTOSIS BREAKTHROUGH
+
+### Context
+RC7-H1: Multiplicative dynamics (iv_t = prev * exp(vs * delta)) instead of additive
+(iv_t = prev + vs * delta). Products accumulate as log-normal (heavy-tailed by construction)
+rather than Gaussian (CLT). Uses existing \`--ar_log_space\` flag. Zero new code.
+
+**Based on**: 141a (CLN + Gaussian, kurtosis 0.237)
+
+### Training Command
+Same as 141a but added \`--ar_log_space\` and removed \`--ar_reflect\`.
+
+### Results
+
+| Metric | 141d (log-space) | 141a (additive) | 141c (t(4) unclamped) | 140a (no CLN) | 99m_v2 |
+|--------|-----------------|-----------------|----------------------|--------------|--------|
+| Score | **57.08** | 41.66 | 31.65 | 53.16 | 66.31 |
+| Suites | **4/8** | 3/8 | 2/8 | 4/8 | 5/8 |
+| Kurtosis | **1.274** | 0.237 | 0.254 | 0.364 | 0.845 |
+| Suite 4 | **PASS** | FAIL | FAIL | FAIL | PASS |
+| CI 90% | 70.1% | 70.7% | 70.2% | 65.5% | 91.3% |
+| KS daily | **20/25** | — | 6/25 | 5/25 | 20/25 |
+| KS levels | **17/25** | — | 9/25 | 13/25 | 1/25 |
+| Coint | 0.766 | — | — | 2.751 | 0.675 |
+
+Suites PASS: {1, 3, 4, 5}. FAIL: {2, 6, 7, 8}.
+**FIRST AR transformer to pass Suite 4 (kurtosis)!**
+
+### Training Dynamics — Kurtosis Trajectory
+
+| Epoch | Kurtosis | CI | Notes |
+|-------|----------|-----|-------|
+| 1 | 0.987 | 80.0% | Already near-passing from epoch 1! |
+| 3 | 0.624 | 78.5% | |
+| 5 | 0.663 | 79.7% | |
+| 7 | **1.180** | 81.3% | Kurtosis > 1.0 |
+| 10 | 1.377 | 72.9% | |
+| 20 | **1.632** | 76.8% | |
+| 30 | 1.689 | 71.0% | Stable at ~1.7 |
+
+Kurtosis INCREASES over training (0.99 → 1.69) — the opposite of all additive models
+which decrease. Log-space dynamics create heavier tails as training progresses because
+the model learns to use the exponential nonlinearity to produce occasional large moves.
+
+### WHY Log-Space Works (Mechanistic Analysis)
+
+**Additive dynamics**: iv_t = prev + Σ(vs * delta_i). The sum of 30 small Gaussian deltas
+→ Gaussian by CLT. Kurtosis of the sum converges to 3 (excess 0).
+
+**Log-space dynamics**: iv_t = prev * Π(exp(vs * delta_i)) = prev * exp(Σ(vs * delta_i)).
+The SUM in the exponent is still Gaussian by CLT, BUT exp(Gaussian) = log-normal.
+Log-normal has kurtosis = e^{4σ²}+2e^{3σ²}+3e^{2σ²}-6, which is ALWAYS heavy-tailed
+for any σ > 0. The exponential nonlinearity converts the Gaussian sum into a heavy-tailed
+distribution at the OUTPUT level.
+
+This is NOT fighting the CLT — it's EMBRACING it. The CLT operates in log-space (sums
+of deltas are Gaussian). The exponential maps this back to heavy-tailed IV space.
+
+### What Was Learned
+
+1. **Log-space dynamics solve the CLT kurtosis problem** — kurtosis 1.274 (was 0.21-0.36)
+2. **The solution is algebraic, not distributional** — changing accumulation from additive
+   to multiplicative (sums → products) exploits exp(Gaussian) = log-normal = heavy-tailed
+3. **Zero code change** — used existing \`--ar_log_space\` flag
+4. **Kurtosis INCREASES over training** — opposite of all additive models. The model learns
+   to exploit the exponential nonlinearity.
+5. **KS daily recovers to 20/25** (was 5-6 for additive CLN models)
+6. **KS levels 17/25** (competitive with best models)
+7. **Coverage still declining** (80% → 71%) — IS contamination, deferred to Step 4
+8. **Cointegration drops to 0.766** (from 2.75 with additive 140a) — the multiplicative
+   dynamics change the cointegration structure. Needs investigation.
+
+### Decision: BUILD ON THIS — Kurtosis Solved
+
+This is the most principled result of the session. Log-space dynamics:
+- Solve kurtosis (1.274) via algebraic structure, not noise engineering
+- Are Bitter Lesson compatible (learned from data, no domain heuristic)
+- Require zero new code (existing flag)
+- Produce the first AR transformer to pass Suite 4
+
+Next: proceed to Step 4 (strip loss to CRPS + VS only) using the 141d architecture
+(CLN + log-space). The remaining unprincipled components (IS, cell_var, ES, bias_loss)
+may be masking further improvements.
+
+---
