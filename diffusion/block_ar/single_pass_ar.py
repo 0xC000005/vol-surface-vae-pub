@@ -526,9 +526,10 @@ class CausalARTransformerDecoder(nn.Module):
         self.use_cln = use_cln
         self.noise_dim = noise_dim
 
-        # Learned scalar vol_scale: decouples delta magnitude from direction
-        # softplus(-3.9) ≈ 0.02, matching historical vol_scale init
-        self.log_vol_scale = nn.Parameter(torch.tensor(-3.9))
+        # Learned per-cell vol_scale: decouples delta magnitude from direction
+        # Per-cell (25 params) lets edge cells learn larger scale than interior
+        # Init from 144a's learned scalar value: softplus(-3.68) ≈ 0.025
+        self.log_vol_scale = nn.Parameter(torch.full((frame_dim,), -3.68))
 
         # Sinusoidal position embedding for cell_spread compatibility
         # (cell_spread accesses self.frame_decoder.pos_embed(local_pos))
@@ -695,7 +696,8 @@ class CausalARTransformerDecoder(nn.Module):
         last_hidden = full_seq[:, -1, :]  # (B, d)
         delta = self.out_proj(self.out_norm(last_hidden))  # (B, frame_dim)
 
-        # Apply learned scalar scale (EMOS-style: decouple magnitude from direction)
+        # Apply learned per-cell scale (EMOS-style: decouple magnitude from direction)
+        # log_vol_scale is (frame_dim,) → broadcasts with delta (B, frame_dim)
         delta = F.softplus(self.log_vol_scale) * delta
 
         return delta

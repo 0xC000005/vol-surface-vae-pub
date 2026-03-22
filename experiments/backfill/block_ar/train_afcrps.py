@@ -753,8 +753,24 @@ def main():
         model.load_state_dict(tgt_state)
         print(f"Scratch init: transferred {enc_transferred} encoder params")
     else:
-        stats = load_pretrained_weights(model, args.base_model, device="cpu", use_ema=not args.no_ema)
-        print(f"Pretrained init: {stats}")
+        # Try afCRPS → afCRPS warm start first (same architecture, shape-matched)
+        src_state = base_ckpt.get("model_state_dict", base_ckpt)
+        tgt_state = model.state_dict()
+        transferred, skipped = 0, 0
+        for key, val in src_state.items():
+            if key in tgt_state and tgt_state[key].shape == val.shape:
+                tgt_state[key] = val
+                transferred += 1
+            else:
+                skipped += 1
+        if transferred > len(tgt_state) * 0.5:
+            # Most params matched — this is an afCRPS checkpoint
+            model.load_state_dict(tgt_state)
+            print(f"afCRPS warm start: {transferred} transferred, {skipped} skipped (shape mismatch or new params)")
+        else:
+            # Fall back to DDPM → afCRPS mapping
+            stats = load_pretrained_weights(model, args.base_model, device="cpu", use_ema=not args.no_ema)
+            print(f"Pretrained init: {stats}")
     model = model.to(device)
 
     # Re-init conv_out for direct IV mode (pretrained weights learned z-scores for exp())
