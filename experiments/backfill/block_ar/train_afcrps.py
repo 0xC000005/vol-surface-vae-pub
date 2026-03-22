@@ -1096,7 +1096,7 @@ def main():
 
         # Log frame_decoder stats if applicable
         if hasattr(model, 'frame_decoder'):
-            if model.frame_decoder.mlp is not None:
+            if hasattr(model.frame_decoder, 'mlp') and model.frame_decoder.mlp is not None:
                 w = model.frame_decoder.mlp[-1].weight.detach()
                 extra = f"  n_frames={n_frames}" if args.progressive_rollout else ""
                 if hasattr(model.frame_decoder, 'cond_offsets') and model.frame_decoder.cond_offsets is not None:
