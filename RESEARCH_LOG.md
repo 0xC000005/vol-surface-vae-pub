@@ -39209,3 +39209,70 @@ All prior dead ends + literature-falsified levers (biased CRPS warmup, VS increa
 - Is the 25pp Suite 2/7 gap achievable at 285K params?
 
 ---
+
+## 2026-03-23: Exp 150a — RC13-H1: Clamped Per-Cell Noise + Unfrozen Scale
+
+### Exp 150a: Clamped per-cell noise [0.8, 1.5] + unfrozen scale (30 epochs)
+**Based on**: 146b base model + 149c's per-cell noise architecture
+**Hypothesis**: 149c's h=1 CI improvement (+8.1pp) came from per-cell independence, not extreme scale values. Clamping softplus to [0.8, 1.5] prevents fat tails (kurtosis 3.33 → KS 0/25) while preserving the CI benefit. Unfreezing percell_noise_scale (was frozen at epoch 10 inside frame_decoder.*) allows full 30-epoch convergence.
+**Prediction**: KS ≥ 20/25, h=1 CI +4-5pp preserved, kurtosis ≤ 2.0
+**Kill condition**: KS < 15 OR h=1 CI no improvement OR eff_rank < 2.26
+
+**Code changes**:
+1. `F.softplus(self.percell_noise_scale(noise_embed)).clamp(0.8, 1.5)` in single_pass_ar.py
+2. Added `percell_noise_scale` to freeze keep-list in train_afcrps.py
+
+**Training**: 30 epochs on 146b base, B=16 K=8, --ar_percell_cln, freeze_after_epoch=10 (but percell_noise_scale excluded from freeze)
+
+| Metric | 146b | 149c | 150a | Change vs 146b |
+|--------|------|------|------|----------------|
+| Suites | 5/9 {1,3,4,5,6} | 4/9 | 5/9 {1,3,4,5,6} | same |
+| KS daily | 21/25 | 0/25 | **24/25** | **+3** |
+| Kurtosis | 1.21 | 3.33 | 1.37 | in range |
+| h=1 CI | 59.8% | 67.9% | **47.8%** | **−12.0pp** |
+| Overall CI | 77.3% | 71.0% | 67.6% | −9.7pp |
+| eff_rank | 2.26 | — | **2.38** | **+5.3%** |
+| Rank ratio | — | — | 0.474 | needs ≥0.50 |
+| Suite 8 frac | 19/25 | — | 18/25 | −1 |
+| Suite 8 mag | 21/25 | — | 20/25 | −1 |
+| Coint ratio | — | — | 1.068 | PASS |
+| 252d CI | ~14% | — | 14.0% | same |
+
+**Kill: h=1 CI regressed −12pp (47.8% vs 59.8%). CONFIRMED.**
+
+### WHY — Mechanistic Analysis (5 diagnostics run)
+
+**1. Per-cell scale distribution**: Mean=1.24, but BIMODAL — 31.8% of values at lower clamp (0.8), 59.6% at upper clamp (1.5). Raw pre-clamp values range 0.0001 to 20.6 (P50=2.96). The model pushes to extremes in both directions, hitting both clamp boundaries.
+
+**2. Spread REDUCED across horizons**: h=1 ratio=0.884, h=7=0.899, h=14=0.833 (all LOWER than 146b). Cell (4,1) spread dropped 68%. Only h=30 slightly higher (1.077). The per-cell scale NET EFFECT is spread reduction, not improvement.
+
+**3. Factor noise W MORE collapsed**: eff_rank 12.88 → 8.52, top-1 energy 58.5% → 81.9%. The percell_noise_scale absorbs factor diversity, letting CRPS collapse factor W further.
+
+**4. Coverage monotonically declining**: 0.851 (ep5) → 0.765 (ep10) → 0.697 (ep20) → 0.657 (ep30). CRPS suppression deepens with more training. Best coverage model was epoch 5.
+
+**5. CI per-cell regression uniform**: All 25 cells show reduced CI at h=1. Cell (4,1) worst: 76% → 26% (−50pp). Cell (0,0): 78% → 70%.
+
+### ROOT CAUSE: CRPS Spread Suppression via Per-Cell Lever
+
+This is the **5th independent confirmation** of CRPS spread suppression:
+1. RC11-H0: noise amplitude scaling — zero effect (amplitude irrelevant)
+2. RC11-H1: plain skip — CRPS collapsed to norm=0.103
+3. RC11-H3: noise_scale_head — learned 0.75× uniform suppression
+4. RC12-H1: 10 factors — CRPS collapsed 5/10 to near-zero
+5. **RC13-H1: percell_noise_scale — CRPS drives toward lower clamp bound**
+
+The mechanism is always the same: CRPS accuracy term benefits from narrower spread. Any learned parameter that controls spread will be optimized toward LESS spread. The per-cell scale gives CRPS a cell-level lever to selectively reduce noise — worse than global reduction because it can target the cells where suppression helps accuracy most.
+
+**149c's +8.1pp came from EXTREME unclamped values** (P95=3.89, max=19.92), not per-cell independence. Clamping removes this effect. The per-cell independence mechanism contributes little on its own within [0.8, 1.5].
+
+### What Was Learned
+- Any learned spread parameter is a suppression lever under CRPS. This applies to: noise_scale_head, percell_noise_scale, factor noise W, skip proj weights.
+- Clamping prevents tail inflation (KS improved 21→24) but also prevents the CI benefit.
+- The eff_rank improvement (2.26→2.38) despite factor W collapse suggests per-cell modulation DOES add diversity through a different mechanism than factor noise.
+- Suite 9 rank ratio at 0.474 (needs 0.50) — tantalizingly close. Per-cell modulation IS the right direction for rank, but CI cost is prohibitive under CRPS.
+- Coverage declines monotonically during training. Best coverage is at early epochs. This suggests the spread suppression is a TRAINING DYNAMICS problem, not just an architecture problem.
+
+### Decision: VALUABLE FAILURE
+Kill confirmed. Proceed to RC13-H2 (CLN adaLN-Zero init). The training dynamics insight (coverage peaks early, declines monotonically) is directly relevant to H2's hypothesis about zero-init giving noise pathway time to establish diversity before CLN dominates.
+
+---
