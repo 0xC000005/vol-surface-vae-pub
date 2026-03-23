@@ -768,7 +768,7 @@ class CausalARTransformerDecoder(nn.Module):
         # Different noise draws → different per-cell scales → different cells
         # move independently (not all in the same direction).
         if self.percell_cln and noise_embed is not None:
-            percell_scale = F.softplus(self.percell_noise_scale(noise_embed))  # (B, frame_dim), positive
+            percell_scale = F.softplus(self.percell_noise_scale(noise_embed)).clamp(0.8, 1.5)  # (B, frame_dim), clamped to prevent fat tails
             delta = delta * percell_scale
 
         return delta

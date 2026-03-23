@@ -1011,6 +1011,7 @@ def main():
                     or "log_vol_scale" in name
                     or "cell_scale" in name
                     or "noise_scale_head" in name
+                    or "percell_noise_scale" in name
                     or "rho_head" in name
                     or "mr_mu_head" in name
                     or "mr_alpha_head" in name
