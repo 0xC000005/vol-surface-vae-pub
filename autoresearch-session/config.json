@@ -1,7 +1,7 @@
 {
-  "goal": "RC11: Complete the noise architecture. Enable disabled pathways, add learned spread control. Break through 5/9 ceiling to 6+/9.",
-  "starting_model": "models/backfill/afcrps_144b/best_model.pt",
-  "starting_experiment": "144b",
+  "goal": "RC12: Per-cell noise architecture. Increase independent noise channels from 5→10→25. Fix median bias regression. Break through 5/9 ceiling to 6+/9.",
+  "starting_model": "models/backfill/afcrps_146b/best_model.pt",
+  "starting_experiment": "146b",
   "scope": "Level C — Full architecture: single_pass_ar.py, gru_encoder.py, train_afcrps.py, test scripts",
   "scope_files": [
     "diffusion/block_ar/single_pass_ar.py",
@@ -15,7 +15,7 @@
     "no_domain_heuristics": true,
     "no_post_hoc_corrections": true,
     "must_generalize": "Any conditional scenario generation (IV, rates, FX, credit)",
-    "research_compass": "RC11: Complete the architecture, don't add losses",
+    "research_compass": "RC12: Complete per-cell noise architecture (AIFS-inspired)",
     "investigation_blocking": "5-6 diagnostic scripts required per experiment. Understand WHY, not just what.",
     "post_investigation_required": true
   },
@@ -23,7 +23,7 @@
   "guard": {
     "min_suites": 4,
     "never_break_all_of": [1, 3, 4, 5],
-    "never_break_suite_6": "cointegration is fragile — cum_cal broke it at λ=0.1",
+    "never_break_suite_6": "cointegration is fragile",
     "individual_regression_ok_if_motivated": true
   },
   "budget": {
@@ -31,43 +31,47 @@
     "quick_epochs": 30,
     "full_epochs": 60,
     "quick_first": true,
-    "inference_only_probes": "H0 requires zero training"
+    "inference_only_probes": "H2-Stage1 requires zero training"
   },
-  "baseline_model": "144b",
-  "baseline_score": 69.28,
+  "baseline_model": "146b",
+  "baseline_score": 69.14,
   "baseline_suites_passed": 5,
   "baseline_pass_pattern": [1, 3, 4, 5, 6],
   "baseline_fail_pattern": [2, 7, 8, 9],
-  "best_modification": {
-    "model": "146b",
-    "score": 69.14,
-    "suites": 5,
-    "key_improvements": "eff_rank +54%, CI +3.3pp, ACF +0.19, calibration halved"
+  "quantitative_gaps": {
+    "suite_9": "eff_rank 2.26→2.51 (+11.2%). Most tractable.",
+    "suite_8": "1 cell away on frac_pass AND mag_pass. 146b regression from 144b. Window floor 5.31% vs 5.0%.",
+    "suite_2": "h=1 CI 59.8%→90% (+30.2pp). Hardest gap. Need 2× interval width.",
+    "suite_7": "Calm h=1 51.4%→90% (+38.6pp). Same root cause as Suite 2."
+  },
+  "mechanistic_understanding": {
+    "why_factor_noise_works": "W(25×5) has eff_rank 4.74. 5 independent channels can't be aligned to rank-1 by CRPS. Structural inductive bias.",
+    "why_plain_skip_fails": "Linear(32→25) has 800 free params. CRPS optimizes them to rank-1 (69% energy in PC1). No structural resistance.",
+    "skip_variance_fraction": "2.7% of total delta variance. But 100% of eff_rank improvement.",
+    "aifs_comparison": "Same loss, per-location noise (35K dims), 180M params → no collapse. Architecture is the key.",
+    "suite_8_regression": "Factor noise W has level-shift factor (cosine=-0.87 with level). Shifts median DOWN. All 25 cells negative bias."
   },
   "dead_ends": [
-    "cum_cal at any weight (146c, 147a, 147b — breaks KS or cointegration)",
-    "cell_var temporal-only fix (146a — cell_var is diversity reward)",
-    "d_model=128 with CRPS alone (144c — rank collapse scales with capacity)",
-    "direct variance-target losses (CRPS-LAM literature confirms)"
+    "noise amplitude scaling (H0: zero effect at 3×)",
+    "plain Linear skip (H1: CRPS collapses to norm=0.10)",
+    "noise_scale_cond alone (H3: learns 0.75× suppression)",
+    "cum_cal at any weight (breaks KS or cointegration)",
+    "cell_var temporal fix (cell_var = diversity reward)",
+    "d_model=128 (rank collapse scales with capacity)",
+    "post-hoc spread corrections (Bitter Lesson violation)",
+    "spread weight tuning (doesn't resolve fundamental CRPS structure)",
+    "post-training rescaling / SDL (post-hoc engineering)"
   ],
-  "mechanistic_understanding": {
-    "bottleneck_1": "CLN rank-1: Jacobian rank 1.23, same modulation all tokens",
-    "bottleneck_2": "Skip bypass DISABLED in 144b: 100% diversity from CLN",
-    "bottleneck_3": "Encoder = level only: direction cos 0.99998, regime cos 0.9996",
-    "bottleneck_4": "Constant vol_scale: ~2x residual heteroscedasticity beyond GBM",
-    "bottleneck_5": "Decoder positive bias: +0.123 zero-noise delta",
-    "bottleneck_6": "CRPS rank collapse over training",
-    "bottleneck_7": "Calm tail vulnerability: 59 persistent bad windows"
-  },
   "literature": [
-    "AIFS-CRPS: per-location noise avoids rank-1 (Lang et al. 2024)",
-    "FGN: rank constraint as feature, but needs 180M params (Alet et al. 2025)",
-    "CRPS-LAM: spread suppression documented (Larsson et al. 2025)",
-    "SDL: post-inference spread rescaling (Schreck et al. 2025)",
-    "Neural SDE: heteroscedastic output standard (Kidger et al. 2021)"
+    "AIFS-CRPS (2412.15832): per-location noise, same afCRPS → no collapse",
+    "CRPS-LAM (2510.09484): global noise → same collapse as us. Confirms architecture is key.",
+    "FourCastNet3 (2507.12144): biased CRPS warmup trick (complementary)",
+    "Repulsive ensembles (2106.11642): Jacobian repulsion for diversity",
+    "CRPS-LAM spread suppression (Larsson et al. 2025)",
+    "Neural SDE heteroscedastic output (Kidger et al. 2021)"
   ],
-  "directions": "RC11 compass: H0 (inference probe) → H1 (skip bypass) → H2 (heteroscedastic) → H3 (noise scale cond)",
+  "directions": "RC12: H1 (n_factors=10, 30min) → H2 (bias fix, 30min) → H3 (per-cell CLN, 2h)",
   "created_at": "2026-03-21",
-  "updated_at": "2026-03-22",
+  "updated_at": "2026-03-23",
   "branch": "autoresearch-session-20260321"
 }

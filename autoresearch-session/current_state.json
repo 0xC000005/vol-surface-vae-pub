@@ -1,18 +1,20 @@
 {
   "iteration": 24,
-  "experiment_id": "pending_RC12",
-  "training_status": "synthesizing",
-  "phase": "theory_queue_exhausted_need_RC12",
-  "hypothesis": "RC11 complete. All 3 tested hypotheses confirm CRPS spread suppression as root constraint. Need new Research Compass (RC12) focused on loss modification.",
+  "experiment_id": "149a",
+  "training_status": "pending",
+  "phase": "ready_for_RC12_H1",
+  "hypothesis": "RC12-H1: Increase factor count from 5→10 on 146b. Tests whether more independent noise channels improve eff_rank past 2.51 threshold (Suite 9).",
   "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
+  "session_best_modification": {"exp": "146b", "score": 69.14, "suites": 5, "note": "Best eff_rank (2.26) and CI (77.3%)"},
   "total_experiments": 25,
-  "compass_position": "RC11 complete → RC12 needed",
+  "compass_position": "RC12-H1",
+  "compass_theme": "Per-cell noise architecture (AIFS-inspired)",
   "session_date": "2026-03-23",
-  "base_model": "models/backfill/afcrps_144b/best_model.pt",
-  "rc11_results": {
-    "H0": "FALSIFIED (amplitude irrelevant)",
-    "H1": "CONFOUNDED (skip collapsed under CRPS)",
-    "H2": "SKIPPED (depends on H1 which failed)",
-    "H3": "PARTIALLY KILLED (noise_scale learned suppression)"
-  }
+  "base_model": "models/backfill/afcrps_146b/best_model.pt",
+  "rc11_summary": {
+    "experiments": ["148_probe (H0: amplitude irrelevant)", "148a (H1: skip collapsed)", "148c (H3: noise_scale suppression)"],
+    "key_finding": "CRPS spread suppression is resolved by ARCHITECTURE (per-cell noise), not loss modification. Factor noise provides structural resistance via independent channels.",
+    "dead_ends": ["noise amplitude", "plain skip", "noise_scale_cond", "loss modification"]
+  },
+  "rc12_execution_order": ["H1 (n_factors=10, 30min)", "H2-Stage1 (bias probe, 5min)", "H2-Stage2 (bias fix, 30min)", "H1-Stage2 (n_factors=15/25, 30min)", "H3 (per-cell CLN, 2h)"]
 }

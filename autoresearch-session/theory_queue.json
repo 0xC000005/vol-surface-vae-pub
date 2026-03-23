@@ -107,5 +107,69 @@
     "status": "completed",
     "result": "PARTIALLY KILLED. Turb/calm decreased 2.14→1.76 (−18%, opposite of prediction). noise_scale_head learned 0.75× uniform suppression (CV=1.6%). KS improved 21→25/25 (best ever) but CI dropped 77→68%. Confirms CRPS spread suppression from 4th angle.",
     "experiment_id": "148c"
+  },
+  {
+    "name": "RC12-H1: Increase factor count (5→10→25)",
+    "theory": "Factor noise resists CRPS collapse via structural inductive bias — 5 independent channels can't be aligned to rank-1 by CRPS (W eff_rank=4.74/5, all active). AIFS uses per-location noise (35K dims). More factors = more independent directions. Suite 9 needs only +11.2% eff_rank (2.26→2.51). GT eff_rank=5.03 with PC1=60.9%.",
+    "target": "Suite 9 PASS (eff_rank ratio ≥ 0.50, i.e., gen_eff_rank ≥ 2.51). Secondary: check if more factors help Suite 2 (CI) and Suite 7 (regime).",
+    "falsification": "n_factors=10 gives eff_rank < 2.51 → diminishing returns from more factors. OR n_factors=10 breaks Suite 8 further (frac_pass < 17/25) → more factors worsens bias.",
+    "implementation": "Change --ar_factor_noise 5 to --ar_factor_noise 10 in 146b recipe. Single hyperparameter change. Then test 15, 25.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. eff_rank comparison: 5 factors (2.26) vs 10 vs 15 vs 25. Does it scale linearly?",
+        "2. SVD of W loadings: are all 10 factors active? What's the min/max singular value ratio?",
+        "3. Per-cell CI grids at h=1 and h=7: which cells benefit from more factors?",
+        "4. Suite 8 check: does median bias get worse with more factors? Check frac_pass and mag_pass.",
+        "5. Factor interpretability: do the 10 factors correspond to known surface patterns (level, slope, curvature, smile, twist)?",
+        "6. Skip pathway variance fraction: does it increase from 2.7% with more factors?"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 3,
+    "status": "active",
+    "experiment_id": "149a"
+  },
+  {
+    "name": "RC12-H2: Fix median bias regression (146b broke Suite 8)",
+    "theory": "144b passed Suite 8 (frac=24/25, mag=pass). 146b fails (frac=19/25, mag=21/25). Factor noise W learned a level-shift factor (factor 4 loads uniformly negative, cosine=-0.87 with level) that shifts median DOWN. All 25 cells have negative mean_bias. Two possible causes: (A) decoder zero-noise bias (+0.123) interacts with factor structure, or (B) factor loadings direction is anti-correlated with GT mean. ar_bias_lambda=0.01 may be insufficient.",
+    "target": "Suite 8 PASS (frac≥20/25, mag≥22/25, window_floor<5%). Without breaking any of Suites {1,3,4,5,6}.",
+    "falsification": "If zero-noise delta in 146b is already < 0.05 → bias_lambda not the issue (factor direction is). If ar_bias_lambda=0.05 still fails Suite 8 → need to constrain factor loadings instead.",
+    "implementation": "Stage 1: Compute zero-noise delta for 146b (inference only, 5 min). Stage 2: Train with --ar_bias_lambda 0.05 on 146b base.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Zero-noise delta: what is the decoder output when noise=0? Compare 144b vs 146b vs new model.",
+        "2. Per-cell mean_bias grid: which cells improved? Which got worse?",
+        "3. Suite 8 subtest breakdown: frac_pass, mag_pass, window_floor each.",
+        "4. Factor loadings W direction: compute mean(W, dim=0) — is the mean loading negative (level-shift bias)?",
+        "5. Cross-suite regression check: did any passing suite break?",
+        "6. If bias_lambda fails: compute factor output mean across ensemble — is it systematically non-zero?"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "active",
+    "experiment_id": "149b"
+  },
+  {
+    "name": "RC12-H3: Per-cell CLN noise injection (AIFS approach)",
+    "theory": "CLN broadcasts same gamma/beta to all 25 cells → Jacobian rank 1.23. This is 97.3% of variance. AIFS uses per-location noise (each grid point gets independent CLN modulation). Per-cell CLN would give each cell its own gamma/beta computed from [noise_embed, cell_embed_c]. This makes rank-1 collapse architecturally impossible (same mechanism as AIFS). 285K→~290K params (small overhead).",
+    "target": "eff_rank > 3.0 (breakthrough territory). Suite 9 PASS. Secondary: CI improvement from multi-directional CLN diversity.",
+    "falsification": "eff_rank stays < 2.5 despite per-cell CLN → CRPS collapses even per-cell modulation at 285K param scale. Training diverges → architecture change is destabilizing.",
+    "implementation": "Modify CLN to accept cell_index, produce per-cell gamma/beta. Add 25 learned cell embeddings (8-dim each). CLN MLP input: [noise_embed(64); cell_embed(8)] → gamma, beta. ~200 params per CLN layer, ~50 LOC change.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. eff_rank by horizon: h=1, h=7, h=14, h=30. Compare vs 146b at each horizon.",
+        "2. CLN Jacobian analysis: compute Jacobian rank for the new per-cell CLN. Should be >> 1.23.",
+        "3. Per-cell gamma/beta: are they actually different across cells? Compute pairwise cosine similarity.",
+        "4. Cell embedding visualization: PCA on the 25 learned cell embeddings. Do they cluster by moneyness? By tenor?",
+        "5. CI per-cell grids at all horizons. Compare vs 146b.",
+        "6. Training dynamics: does the model converge stably? Track loss components over epochs."
+      ]
+    },
+    "note": "Larger implementation. Consider as Stage 3 after H1 and H2 provide quick signal.",
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "blocked_by_H1",
+    "experiment_id": "149c"
   }
 ]

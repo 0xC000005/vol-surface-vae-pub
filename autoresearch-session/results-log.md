@@ -103,3 +103,35 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 - **KEY FINDING**: noise_scale_head learned 0.75× uniform suppression (CV=1.6%). CRPS optimizes toward less noise everywhere. KS-CI trade-off is fundamental under CRPS.
 - **KILL**: Turb/calm decreased 2.14→1.76 (−18%, opposite of prediction). Encoder signal used for suppression, not differentiation.
 - **Decision**: VALUABLE FAILURE. 4th independent confirmation of CRPS spread suppression. 5/9 ceiling is a LOSS problem, not architecture.
+
+## RC12: Per-Cell Noise Architecture (AIFS-Inspired)
+
+**Goal**: Break through 5/9 ceiling by completing the per-cell noise architecture.
+**Compass**: RC12 (RESEARCH_LOG.md — "Research Compass RC12")
+**Theme**: More independent noise channels = more structural resistance to CRPS collapse.
+**Base model**: 146b (69.14, 5/9). Best modification with eff_rank 2.26.
+
+### Evidence Base (from deep investigation)
+- Factor noise resists CRPS collapse: W eff_rank 4.74/5, all 5 factors active
+- Skip pathway = 2.7% of variance but 100% of eff_rank improvement
+- AIFS uses per-location noise (35K dims) with same loss → no collapse
+- Suite 9 needs only +11.2% eff_rank. Suite 8 is 1 cell away.
+- 146b broke Suite 8 (was passing in 144b). Factor noise worsened median bias.
+
+### Quantitative Gap Table
+
+| Suite | Metric | Current | Target | Gap | Tractability |
+|-------|--------|---------|--------|-----|-------------|
+| 9 | eff_rank | 2.26 | 2.51 | +11.2% | **Easiest** |
+| 8 | frac_pass | 19/25 | 20/25 | 1 cell | Near-miss |
+| 8 | mag_pass | 21/25 | 22/25 | 1 cell | Near-miss |
+| 8 | window_floor | 5.31% | <5.0% | ~4 windows | Near-miss |
+| 2 | h=1 CI | 59.8% | 90% | +30.2pp | Hard |
+| 7 | calm h=1 | 51.4% | 90% | +38.6pp | Hard |
+
+### RC12 Theory Queue
+| # | Hypothesis | Type | Status |
+|---|-----------|------|--------|
+| H1 | n_factors=10→25 (Suite 9) | Single hyperparam, 30 min | NEXT |
+| H2 | Fix median bias regression (Suite 8) | ar_bias_lambda probe + training | Parallel with H1 |
+| H3 | Per-cell CLN noise injection | ~50 LOC, 2h | After H1/H2 signal |
