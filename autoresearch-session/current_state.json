@@ -1,12 +1,18 @@
 {
-  "iteration": 23,
-  "experiment_id": "148c",
-  "training_status": "running",
-  "phase": "H3_noise_scale_cond_training",
-  "hypothesis": "RC11-H3: Enable noise_scale_cond on 146b. Tests whether encoder has regime signal for noise_scale_head to modulate skip pathway spread.",
+  "iteration": 24,
+  "experiment_id": "pending_RC12",
+  "training_status": "synthesizing",
+  "phase": "theory_queue_exhausted_need_RC12",
+  "hypothesis": "RC11 complete. All 3 tested hypotheses confirm CRPS spread suppression as root constraint. Need new Research Compass (RC12) focused on loss modification.",
   "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
   "total_experiments": 25,
-  "compass_position": "RC11-H3",
+  "compass_position": "RC11 complete → RC12 needed",
   "session_date": "2026-03-23",
-  "base_model": "models/backfill/afcrps_146b/best_model.pt"
+  "base_model": "models/backfill/afcrps_144b/best_model.pt",
+  "rc11_results": {
+    "H0": "FALSIFIED (amplitude irrelevant)",
+    "H1": "CONFOUNDED (skip collapsed under CRPS)",
+    "H2": "SKIPPED (depends on H1 which failed)",
+    "H3": "PARTIALLY KILLED (noise_scale learned suppression)"
+  }
 }
