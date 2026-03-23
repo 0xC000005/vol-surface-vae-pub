@@ -39514,3 +39514,42 @@ Remaining RC13 experiments should verify reproducibility. H4 (spread_weight=0.9)
 **CRITICAL NEXT STEP**: Run the SAME command with a different seed to verify reproducibility. If 7/9 is seed-dependent, the result is fragile.
 
 ---
+
+## 2026-03-23: Exp 150d — RC13-H4: spread_weight=0.9 (Over-Spread)
+
+### Exp 150d: spread_weight=0.9 on 146b base
+**Based on**: 146b base model, spread_weight default 0.5 → 0.9
+**Hypothesis**: Doubling spread gradient emphasis might help CI without killing KS.
+**Also serves as**: Control for 150b — tests if "any retrain from 146b" gives 7/9.
+
+**Result: 5/9 {1, 3, 5, 6, 9}. Kill: kurtosis 0.411 < 0.5 (Suite 4 FAIL).**
+
+| Metric | 146b | 150d | Change |
+|--------|------|------|--------|
+| Suites | 5/9 | 5/9 | same count, different pattern |
+| Overall CI | 77.3% | **99.0%** | +22pp (too wide) |
+| KS daily | 21/25 | **12/25** | −9 |
+| Kurtosis | 1.21 | **0.41** | below range |
+| eff_rank | 2.26 | **3.32** | +47% |
+| rank_ratio | — | **0.660** | PASS |
+| Suite 8 frac | 19/25 | 19/25 | same |
+| 252d CI | ~14% | **100%** | but width=0.95 (useless) |
+
+Best model at epoch 2 (very early). Training val_loss is NEGATIVE (spread dominates).
+
+**Kill: kurtosis too LOW (0.41 < 0.5). Too much spread suppresses variability.**
+
+### WHY
+1. spread_weight=0.9 makes effective loss = mae − 0.855×spread. Spread nearly equals accuracy.
+2. Model maximizes spread instead of accuracy → 99% CI (too wide) but KS 12/25 (shape wrong).
+3. Kurtosis too low: model produces overly smooth daily changes (spread is uniform, not structured).
+4. Suite 9 PASSES (eff_rank 3.32, rank_ratio 0.660) — strong spread emphasis DOES help diversity.
+5. Long-horizon: 100% CI at d252 but width=0.95 (entire IV range). Useless.
+
+### Implications for 150b
+**150d (spread_weight=0.9) gets 5/9. 150b (spread_weight=0.5) gets 7/9.** The 7/9 result is NOT a general "any retrain from 146b gives 7/9" effect. 150b's improvement is specific to its training trajectory at the default spread_weight. The gamma zero-init (which was overwritten by warm-start) is a red herring.
+
+### Decision: VALUABLE FAILURE
+Confirms: more spread emphasis → better diversity (Suite 9) but → worse distributional fidelity. There IS a sweet spot, and spread_weight=0.5 appears to be in the right ballpark.
+
+---
