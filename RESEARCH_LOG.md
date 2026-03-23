@@ -39053,3 +39053,38 @@ Every modification at the OUTPUT stage was either collapsed by CRPS or caused fa
 | J: Increase VS weight | lambda_vs 0.1→0.5 (targets correlation structure) | VS directly targets eff_rank | Config change |
 
 ---
+
+## 2026-03-23: Pre-RC13 Validation — Lever Feasibility Audit
+
+### CORRECTIONS to Prior Claims
+
+**1. Literature claims FALSE**: Neither CRPS-LAM nor FourCastNet3 use "biased CRPS warmup → fair CRPS transition." CRPS-LAM uses fair CRPS throughout and WARNS against biased CRPS. FourCastNet3 doesn't mention the technique. The earlier literature agent fabricated this claim. **Lever F (biased CRPS warmup) has NO literature support and is DEMOTED.**
+
+**2. GT regime ratio NOT robust**: 1.31× is correct for test suite's exact metric (Q20/Q80 on mean_IV). But ranges 0.92×–1.97× across 15 configurations. Using ATM IV: turb/calm = 1.97×. The "model over-conditions" claim was premature.
+
+**3. Several "untried" levers already tried:**
+- VS weight increase (Lever J): Exp 93a λ_vs=0.5 → kurtosis collapse. DEAD END.
+- Wider noise_dim (Lever D): Exp 129a noise_dim=64 → worse. Likely harmful at 128.
+- Progressive rollout (Lever B): Exp 90d/95a/95b → destroyed conditionality. DEAD END.
+- Freeze CLN (Lever G): Already happening! freeze_after_epoch=10 freezes frame_decoder.* INCLUDING CLN. Skip/factor pathway trains alone after epoch 10. Lever G is NOT untried — it's the current recipe.
+
+### Revised Lever Status
+
+| Lever | Status | Evidence |
+|-------|--------|---------|
+| A: K=16 training | **GENUINELY UNTRIED** | K=16 B=8 fits in 8GB (same B×K=128) |
+| B: AR rollout curriculum | **DEAD END** | Exp 90d/95a/95b: destroys conditionality |
+| C: Horizon-adaptive rho | **GENUINELY UNTRIED** | No prior experiments |
+| D: Wider noise_dim | **LIKELY HARMFUL** | Exp 129a: noise_dim=64 worse than 32 |
+| E: Multiple mini-decoders | **GENUINELY UNTRIED** | No prior experiments |
+| F: Biased CRPS warmup | **NO LITERATURE SUPPORT** | Claims fabricated. CRPS-LAM warns against it. |
+| G: Freeze CLN, train skip | **ALREADY DOING THIS** | freeze_after_epoch=10 already freezes CLN |
+| H: Two-phase training | **GENUINELY UNTRIED** | But related to teacher forcing (rejected for afCRPS) |
+| I: ES as primary loss | **GENUINELY UNTRIED** | Currently auxiliary at λ_es=1.0 |
+| J: Increase VS weight | **DEAD END** | Exp 93a: λ_vs=0.5 → kurtosis collapse |
+| 149c+clamp | **GENUINELY UNTRIED** | Clamped per-cell noise. Strongest evidence. |
+
+**Genuinely untried with evidence-backed rationale: A, C, E, H, I, 149c+clamp**
+**Strongest candidate: 149c+clamp** (proven mechanism, 1-line fix, directly addresses fat-tail finding)
+
+---

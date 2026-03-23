@@ -1,0 +1,141 @@
+{
+  "search_date": "2026-03-23",
+  "search_target": "RESEARCH_LOG.md",
+  "purpose": "Prior evidence check for 10 untried levers listed in Post-RC12 section (line 39027)",
+  "freeze_after_epoch_baseline": {
+    "summary": "freeze_after_epoch=10 is the standard recipe, freezing the ENTIRE MLP at epoch 10. Used in 99m_v2 and all subsequent experiments. Exp 120b_v8 showed that CRPS-only training with freeze still loses CI coverage (92.7%→87.7% by ep10) — freeze itself reduces coverage because only skip weights train post-freeze and CRPS compresses them.",
+    "line_references": [25382, 32802, 35456],
+    "experiments_using_it": ["99m_v2", "120b_v6", "120b_v8", "136a", "137a", "138a", "144b", "146b", "148a", "148c", "149a", "149b", "149c"],
+    "key_finding": "Freeze at ep10 is universally used. Confounded with IS activation in 120b_v8. Decoupled freeze (MLP early, skip never) proposed but never executed."
+  },
+  "levers": [
+    {
+      "lever_id": "1_rollout_curriculum",
+      "search_terms": ["rollout", "curriculum"],
+      "match_count": "rollout: ~35 matches, curriculum: ~10 matches",
+      "experiments_found": ["Exp 90 (progressive rollout 5→15→30 frames)", "Exp 90m (progressive rollout 30→60→120→252)", "Exp 95a (60-frame progressive rollout)", "Exp 96c (60-frame rollout)", "Exp 97b (60-frame rollout)", "Exp 126a (curriculum noise Gaussian→Student-t)", "Lever B in post-RC12 table (1-step→5-step→30-step AR rollout)"],
+      "key_finding": "Progressive rollout TRIED extensively in Exp 90–97b series. 60-frame rollout reliably destroyed conditionality (confirmed across 96c and 97b). 30-frame progressive rollout is safe and currently used. Curriculum NOISE (Gaussian→Student-t switch at ep10) tried in Exp 126a (5/8, kurtosis 0.739) — produced WORSE kurtosis than either endpoint. The specific lever 'B: AR rollout curriculum (1-step→5-step→30-step)' within the afCRPS+factor-noise architecture (146b base) is listed as untried in Post-RC12 table but closely related experiments exist. The AIFS-style staged rollout for multi-horizon calibration (longer rollouts for gradient signal at h>30) remains untried at the 146b base.",
+      "verdict": "PARTIALLY TRIED — progressive rollout tried at Exp 90–97b level (pre-factor-noise era). Curriculum noise tried as Exp 126a. The specific combination of (1→5→30-step rollout) ON THE 146b ARCHITECTURE has NOT been tried. Curriculum noise (distinct from rollout) is exhausted.",
+      "genuinely_untried": false,
+      "note": "Rollout curriculum on 146b base is a genuine untried variant. Curriculum noise Gaussian→Student-t is exhausted."
+    },
+    {
+      "lever_id": "2_larger_K_training",
+      "search_terms": ["K=16", "K=32", "n_members=16", "n_members=32"],
+      "match_count": "K=16: 5 matches; K=32: 1 match (table only); n_members=16: 1 match (table only)",
+      "experiments_found": ["Exp 89h (K=16, pre-AR-frame era)", "H1b in RC9 compass (K=16 proposed but superseded by RC10)"],
+      "key_finding": "Exp 89h tested K=16 with the OLD architecture (pre-AR-frame, pre-factor-noise, pre-skip-bypass). Result: faster convergence but same CRPS equilibrium (CI 76.5% vs 77.6% for K=4). H1b (K=16 with 99m_v2 recipe) was PROPOSED in RC9 compass but was superseded before execution when user challenged spread_weight=0.65 as unprincipled. The Post-RC12 lever 'A: Larger K in training (K=8→16 or K=32)' on the 146b base has NEVER been run.",
+      "verdict": "TRIED IN OLD ARCHITECTURE (Exp 89h, pre-factor-noise). NOT tried on current 146b/factor-noise architecture. H1b was proposed but never executed.",
+      "genuinely_untried": true,
+      "note": "K=16 on the 146b+factor-noise architecture is genuinely untried. 89h result (same equilibrium) may not generalize because factor noise changes the collapse mechanism."
+    },
+    {
+      "lever_id": "3_biased_CRPS_warmup",
+      "search_terms": ["biased CRPS", "warmup AND CRPS", "IS Warmup", "CRPS warmup"],
+      "match_count": "biased CRPS: 3 matches; IS warmup: found Exp 120b_v8; warmup CRPS: 3 matches",
+      "experiments_found": ["Exp 120b_v8 (IS Warmup — CRPS-only 10ep + IS 20ep, 4/8)", "biased CRPS referenced in RC10 compass and post-RC12 table as Lever F"],
+      "key_finding": "IS warmup (CRPS-only then IS activation) tried as Exp 120b_v8 — result 4/8, confounded with freeze timing. This is DIFFERENT from biased CRPS warmup. Biased CRPS warmup (CRPS-LAM approach: large K + biased CRPS for first 10 epochs, then fair afCRPS) is LISTED in post-RC12 table as Lever F and has never been executed. References: CRPS-LAM (arxiv 2510.09484) and FourCastNet3 (2507.12144).",
+      "verdict": "IS warmup tried (Exp 120b_v8, confounded). True biased-to-fair CRPS warmup (large K + biased CRPS then switch to fair afCRPS) is GENUINELY UNTRIED.",
+      "genuinely_untried": true,
+      "note": "Lever F (biased CRPS warmup) is distinct from IS warmup and is genuinely untried on 146b base."
+    },
+    {
+      "lever_id": "4_freeze_CLN",
+      "search_terms": ["freeze CLN", "freeze.*cln", "CLN.*freeze"],
+      "match_count": "4 matches",
+      "experiments_found": ["Exp 132a_v2 (freeze CLN at epoch 5)", "Lever G in post-RC12 table (freeze CLN, train skip)"],
+      "key_finding": "Exp 132a_v2 tried freezing CLN at epoch 5 on the 4-layer CLN architecture (NOT the current factor-noise skip architecture). Result: kurtosis stuck at 0.067, eff_rank collapsed from 2.21→1.44 because skip/spread continued to rank-compress despite frozen CLN. The Post-RC12 Lever G ('After 10 epochs, freeze CLN weights, continue skip/factor training') is targeted at the 146b architecture where CLN and factor-noise skip coexist — this specific combination has NOT been tried.",
+      "verdict": "CLN freeze tried on 4-layer CLN architecture (132a_v2, failed). NOT tried on 146b+factor-noise architecture where CLN and skip interact differently.",
+      "genuinely_untried": true,
+      "note": "132a_v2 failed for a different architectural reason (skip continued compressing rank). On 146b, CLN freeze after ep10 + continued factor-noise skip training is genuinely untried."
+    },
+    {
+      "lever_id": "5_wider_noise_dim",
+      "search_terms": ["noise_dim AND (64 OR 128)"],
+      "match_count": "noise_dim=64: 3 direct matches; noise_dim=128: 1 mention in post-RC12 table",
+      "experiments_found": ["Exp 89r (noise_dim=64, K=8, pre-AR-frame era)", "Exp 129a (noise_dim=64, 5/8, score 66.08)"],
+      "key_finding": "noise_dim=64 tried twice: Exp 89r (old architecture, no improvement on kurtosis) and Exp 129a (current architecture: 5/8, score 66.08 vs baseline 66.31 — slight regression). Exp 129a analysis: wider noise makes MLP input even more noise-dominated (27% vs 16%), amplifying shared noise pathway and strengthening rank-1 attractor. noise_dim=128 is LISTED in post-RC12 table as Lever D but has NEVER been run.",
+      "verdict": "noise_dim=64 TRIED (Exp 129a, marginal regression). noise_dim=128 has never been tried.",
+      "genuinely_untried": false,
+      "note": "noise_dim=64 is exhausted (129a showed slight harm). noise_dim=128 is a new point on the curve but Exp 129a suggests the direction is harmful (more noise dims = more rank-1 pressure). The mechanism is understood: wider noise amplifies shared pathway."
+    },
+    {
+      "lever_id": "6_energy_score_primary",
+      "search_terms": ["energy score AND primary", "replace CRPS", "ES as primary loss"],
+      "match_count": "energy score: ~12 matches; replace CRPS: 4 matches",
+      "experiments_found": ["Exp 99k (CRPS + full Energy Score, 2026-03-09)", "Post-RC12 Lever I (ES as primary loss — replace CRPS entirely)"],
+      "key_finding": "Exp 99k tested CRPS + full Energy Score (ES as AUXILIARY loss, not primary). Result: decorrelation improved (corr 0.92→0.61) but exposed uniform ~0.07 std across all cells. No weather system uses ES as primary training loss per literature search. Post-RC12 Lever I proposes replacing CRPS entirely with Energy Score — this has never been tried. Current use (99k) was ES as AUXILIARY alongside CRPS.",
+      "verdict": "ES as AUXILIARY tried (Exp 99k). ES as PRIMARY LOSS (replacing CRPS entirely) is GENUINELY UNTRIED.",
+      "genuinely_untried": true,
+      "note": "The distinction matters: CRPS+ES auxiliary (99k) vs ES-only primary are fundamentally different training regimes. ES-only is genuinely untried."
+    },
+    {
+      "lever_id": "7_variogram_higher_weight",
+      "search_terms": ["variogram AND (0.5 OR increase OR higher)", "lambda_vs AND (0.5 OR higher OR increase)"],
+      "match_count": "lambda_vs=0.5: 2 explicit matches; lambda_vs=1.0: found as 145a",
+      "experiments_found": ["Exp 93a (lambda_vs=0.5, FAILED — kurtosis collapsed to 0.05-0.06)", "Exp 145a (lambda_vs=1.0, 5/8, score 62.28, KS daily 22→2)"],
+      "key_finding": "Both lambda_vs=0.5 (Exp 93a) and lambda_vs=1.0 (Exp 145a) have been tried and failed. Exp 93a: variogram score value did NOT decrease with higher weight (model architecturally cannot comply), kurtosis collapsed. Exp 145a: labeled 'VALUABLE FAILURE' — KS daily dropped from 22→2. The post-RC12 lever J proposes lambda_vs=0.5 but this is exactly Exp 93a's setting (already falsified).",
+      "verdict": "TRIED AND FALSIFIED. lambda_vs=0.5 (Exp 93a) and lambda_vs=1.0 (Exp 145a) both failed. The mechanism is understood: model cannot reduce VS loss architecturally, so it collapses kurtosis instead.",
+      "genuinely_untried": false,
+      "note": "Lever J (lambda_vs 0.1→0.5) is NOT genuinely untried — it is Exp 93a exactly. Post-RC12 table appears to have missed this when listing it as an untried lever."
+    },
+    {
+      "lever_id": "8_learned_rho_adaptive",
+      "search_terms": ["learned rho", "horizon.*adaptive", "adaptive.*rho"],
+      "match_count": "learned rho: ~10 matches; horizon-adaptive rho: 1 match in post-RC12 table",
+      "experiments_found": ["Exp 103a (condition-dependent learned rho, 5/8, score 65.47)", "Exp 103a_v2 (clamped learned rho [0.6, 0.95], failed)"],
+      "key_finding": "Condition-dependent learned rho tried in Exp 103a: rho converged to 0.29 (CRPS-optimal), not the desired 0.8 for realistic dynamics. Hurt KS badly. 103a_v2 clamped rho to [0.6, 0.95] — still failed because without distributional loss, learned rho cannot help. HOWEVER: these experiments used a SCALAR learned rho (single value per condition). The Post-RC12 Lever C ('horizon-adaptive rho: low at h=1, high at h=30') is a HORIZON-VARYING schedule (not condition-dependent scalar) — this specific form has NOT been tried.",
+      "verdict": "Scalar learned rho (103a, 103a_v2) TRIED AND FAILED. Horizon-adaptive rho (rho(t) varies by horizon step, not condition) is GENUINELY UNTRIED.",
+      "genuinely_untried": true,
+      "note": "103a used condition-dependent rho (same value across all horizons). Horizon-adaptive rho (lower early horizons, higher late horizons within one trajectory) is architecturally distinct and untried."
+    },
+    {
+      "lever_id": "9_multi_decoder_MoE",
+      "search_terms": ["multi.*decoder", "mixture.*expert", "multiple.*decoder", "MoE", "mixture of expert"],
+      "match_count": "MoE: 1 match (FinCast reference only); multi-decoder: 0 matches; multiple decoder: 0 matches",
+      "experiments_found": ["FinCast reference (MoE mentioned as literature, not implemented)"],
+      "key_finding": "No experiment has tested multiple decoders, mixture of experts, or parallel mini-decoders. FinCast (CIKM 2025) is mentioned as using MoE but only as literature context. Post-RC12 Lever E ('N=5 decoders with independent noise, average output — structurally prevents rank-1') is listed as untried with ~100 LOC effort estimate.",
+      "verdict": "GENUINELY UNTRIED. No experiment has tested any multi-decoder or MoE architecture.",
+      "genuinely_untried": true,
+      "note": "Lever E (multiple mini-decoders) is fully untried. The structural argument (independent noise per decoder prevents rank-1) has never been tested empirically."
+    },
+    {
+      "lever_id": "10_spread_weight_annealing",
+      "search_terms": ["spread_weight", "alpha.*schedule", "spread.*anneal", "anneal.*spread"],
+      "match_count": "spread_weight: ~15 matches; anneal: 2 matches in post-RC12 context",
+      "experiments_found": ["Exp 136a (spread_weight=0.3, asymmetric CRPS, 2/8, FALSIFIED)", "H1a proposal (spread_weight=0.65, proposed but superseded before execution)", "H3 spread weight annealing (0.9→0.5 over 15 epochs, proposed in RC10 but never executed)"],
+      "key_finding": "Fixed spread_weight=0.3 tried in Exp 136a — FALSIFIED (strictly inferior to IS, reduced spread reward across the board). spread_weight=0.65 was H1a in RC9, proposed but user correctly challenged as unprincipled and it was replaced by the mechanistic RC10 compass before execution. Spread weight annealing (high→standard: 0.9→0.5) was proposed as RC10-H3 but was NEVER EXECUTED — it appears in the RC10 compass planning but no experiment ran it.",
+      "verdict": "Fixed low spread_weight TRIED AND FALSIFIED (Exp 136a). Spread weight ANNEALING (0.9→0.5 schedule) is GENUINELY UNTRIED — it was planned in RC10 but execution never happened.",
+      "genuinely_untried": true,
+      "note": "The annealing schedule (high spread_weight early for exploration, lower later for exploitation) is conceptually distinct from fixed asymmetric CRPS. It has not been run."
+    }
+  ],
+  "summary_table": {
+    "genuinely_untried": [
+      "2_larger_K_training (K=16 on 146b base)",
+      "3_biased_CRPS_warmup (Lever F: large K + biased CRPS → fair afCRPS)",
+      "4_freeze_CLN (Lever G: freeze CLN on 146b+factor-noise, not tried on this arch)",
+      "6_energy_score_primary (Lever I: ES replacing CRPS entirely)",
+      "8_learned_rho_adaptive (Lever C: horizon-varying rho, not condition-varying)",
+      "9_multi_decoder_MoE (Lever E: N=5 independent mini-decoders)",
+      "10_spread_weight_annealing (RC10-H3: 0.9→0.5 schedule, never executed)"
+    ],
+    "tried_and_failed": [
+      "7_variogram_higher_weight (Exp 93a: lambda_vs=0.5 → kurtosis collapse; Exp 145a: lambda_vs=1.0 → KS 22→2)",
+      "5_wider_noise_dim (Exp 129a: noise_dim=64 → slight regression; direction understood as harmful)"
+    ],
+    "partially_tried": [
+      "1_rollout_curriculum (progressive rollout tried Exp 90–97b on old arch; curriculum noise tried Exp 126a; AR rollout curriculum on 146b base genuinely untried)"
+    ],
+    "tried_differently": [
+      "3_biased_CRPS_warmup (IS warmup tried Exp 120b_v8 — different mechanism; biased CRPS warmup itself untried)",
+      "4_freeze_CLN (CLN freeze tried Exp 132a_v2 on 4-layer CLN arch — failed; not tried on 146b)",
+      "8_learned_rho_adaptive (scalar learned rho tried Exp 103a/103a_v2 — failed; horizon-varying schedule untried)"
+    ]
+  },
+  "critical_flags": [
+    "Lever J (increase VS weight 0.1→0.5) listed as 'untried' in post-RC12 table is ACTUALLY Exp 93a exactly — already falsified. The post-RC12 table has an error here.",
+    "noise_dim=128 (Lever D) has never been run but the directional evidence from Exp 129a (noise_dim=64 worse) suggests it would be harmful for the same reason — wider noise amplifies shared pathway rank-1 pressure.",
+    "Biased CRPS warmup (Lever F) is the highest-priority genuinely untried lever: supported by two production systems (CRPS-LAM, FourCastNet3), zero code change to architecture, targets the TRAINING STAGE bottleneck identified in Post-RC12 analysis."
+  ]
+}

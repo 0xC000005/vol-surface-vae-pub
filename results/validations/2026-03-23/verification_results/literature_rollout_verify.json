@@ -1,0 +1,111 @@
+{
+  "verification_date": "2026-03-23",
+  "task": "Verify literature claims from earlier literature agent (CHECK 1) and search research log for AR rollout length variation (CHECK 2)",
+
+  "check_1_literature_claims": {
+    "original_claim": "CRPS-LAM uses 'biased CRPS warmup with large K, then transition to fair CRPS'. FourCastNet3 (Bonev et al.) uses the same trick.",
+
+    "crps_lam_2510_09484": {
+      "claim_verified": false,
+      "verdict": "CONTRADICTED",
+      "details": {
+        "actual_training_procedure": "CRPS-LAM uses the FAIR CRPS estimator throughout training. The paper explicitly references 'biased CRPS estimator with a large ensemble early in training, later transitioning to a smaller ensemble and the unbiased fair CRPS estimator' as a competing method technique but does NOT adopt this approach itself.",
+        "k_values": "N=25 ensemble members for evaluation. No K-scheduling or member count variation during training is mentioned.",
+        "training_schedule": "600 epochs LR=0.001 (1 AR step), 400 epochs LR=0.0001 (1 AR step), 200 epochs LR=0.00001 (2 AR steps). No warmup K-schedule, no biased-to-fair CRPS transition.",
+        "stability_mechanism": "Uses autoregressive training steps (multi-step) to stabilize latent variable usage at longer lead times, NOT K-scheduling.",
+        "source": "https://arxiv.org/html/2510.09484v1",
+        "summary": "The claim that CRPS-LAM uses biased CRPS warmup is FALSE. The paper explicitly distinguishes its approach (fair CRPS throughout) from the biased-warmup approach used by others. The literature agent inverted the attribution."
+      }
+    },
+
+    "fourcastnet3_2507_12144": {
+      "claim_verified": false,
+      "verdict": "NOT SUPPORTED — claim attributed to FCN3 not found in paper",
+      "details": {
+        "actual_training_procedure": "FCN3 minimizes a composite probabilistic CRPS-based loss. Training curriculum: step-wise training at 6-hour leads, then multi-step autoregressive rollout refinement, then fine-tuning on recent data. Batch size 16, ensemble size K=16 during training, 50-member ensemble for evaluation.",
+        "k_values": "K=16 during training, K=50 for evaluation.",
+        "biased_to_fair_transition": "No such transition is described in the paper. The paper does not discuss fair vs biased CRPS variants or K-scheduling.",
+        "actual_crps_contribution": "FCN3 uses a spatially localized CRPS loss combined with a spectral loss to preserve correct spatial correlations at all wavelengths. Their key insight is that scalar per-variable CRPS fails for multivariate spatial processes. Their solution is spectral CRPS, not K-scheduling.",
+        "source": "https://arxiv.org/html/2507.12144v1",
+        "summary": "The claim that FCN3 uses biased CRPS warmup is UNSUPPORTED. The paper contains no such description. The confusion likely arose because FourCastNet3 is mentioned in our research log alongside CRPS-LAM in a list of 'evidence' for the biased warmup hypothesis, but neither paper actually employs this trick as described."
+      }
+    },
+
+    "what_actually_uses_biased_warmup": {
+      "note": "The biased-to-fair CRPS warmup technique may exist in some literature but our verification found it in NEITHER CRPS-LAM nor FourCastNet3. CRPS-LAM explicitly identifies it as a competing-method technique that they do NOT use. The original attribution appears to be a hallucination by the earlier literature agent.",
+      "aifs_crps_note": "AIFS-CRPS (arxiv 2412.15832) uses almost-fair CRPS (afCRPS = 0.95*fCRPS + 0.05*CRPS) with K=4 training members. This is a fixed alpha, not a warmup schedule. No biased-to-fair transition is described in that paper either."
+    },
+
+    "research_log_contamination": {
+      "lines_citing_false_claims": [
+        {
+          "line_approx": 38649,
+          "text": "CRPS-LAM 2025 uses biased CRPS warmup with large K, then transitions to fair CRPS. Our afCRPS spread_weight=0.5 is fixed.",
+          "verdict": "FALSE — CRPS-LAM does NOT use this warmup. The paper explicitly describes it as a competing method they rejected."
+        },
+        {
+          "line_approx": 38689,
+          "text": "CRPS-LAM (arxiv 2510.09484): biased CRPS warmup + fair CRPS annealing",
+          "verdict": "FALSE"
+        },
+        {
+          "line_approx": 38844,
+          "text": "FourCastNet3 (2507.12144): biased CRPS warmup trick (complementary to architectural fix)",
+          "verdict": "UNSUPPORTED — not found in the FCN3 paper"
+        },
+        {
+          "line_approx": 39033,
+          "text": "F: Biased CRPS warmup | Large K + biased CRPS for 10 epochs, then afCRPS K=8 | CRPS-LAM + FourCastNet3 production systems",
+          "verdict": "FALSE evidence chain — neither paper supports this"
+        }
+      ]
+    }
+  },
+
+  "check_2_ar_rollout_length_in_research": {
+    "question": "Did ANY of our 100+ experiments vary the number of AR steps during training? Did we ever try fewer than 30 AR steps?",
+
+    "finding_progressive_rollout": {
+      "answer": "YES — progressive rollout was used extensively in early experiments (Exp 90d, 95a, 95b, 96c, 97b) but was ABANDONED because it reliably destroyed conditionality.",
+      "schedules_used": [
+        "5 frames → 15 frames → 30 frames (3-phase)",
+        "5 → 15 → 30 → 60 frames (4-phase, tested in Exp 95a, 96c)",
+        "5 → 15 → 30 → 60 → 120 frames (5-phase, proposed for 95b)"
+      ],
+      "key_finding_from_log": "60-frame progressive rollout reliably destroys conditionality (confirmed across 96c and 97b). Progressive rollout from 5→15→30 was used in early experiments. The current afCRPS training (Exp 99+, 144+, 146+) does NOT use progressive rollout — it trains on full 30-step rollout from epoch 1.",
+      "relevant_log_lines": [21922, 21794, 19218, 20788]
+    },
+
+    "current_setup": {
+      "n_frames": 30,
+      "always_30_steps": true,
+      "progressive_rollout_flag": "--progressive_rollout (exists in train_afcrps.py but not used in current best recipes)",
+      "future_len_default": 30,
+      "note": "The train_afcrps.py code supports progressive rollout via resolve_progressive_frames() function, but ALL current best experiments (99m_v2, 99l_v3, 99j_v3, 144b, 146b) use fixed 30 AR steps."
+    },
+
+    "finding_teacher_forcing": {
+      "answer": "YES — teacher forcing was discussed and explicitly REJECTED for the afCRPS pipeline.",
+      "details": "Research log (around line 34700) documents investigation of teacher forcing. Conclusion: 'Under teacher forcing, it can't [maintain temporal coherence] because all deltas are calibrated for GT prev_frame. At inference, prev_frame is model-generated.' Teacher forcing was considered but ruled out because production rollout uses model-generated frames.",
+      "relevant_log_lines": [34700, 34718, 34743, 34774],
+      "key_quote": "Do NOT skip to teacher forcing. Validate each optimization independently."
+    },
+
+    "finding_fewer_ar_steps": {
+      "answer": "NO specific experiment in the afCRPS era varied the number of AR steps as a hyperparameter to test fewer steps (e.g., 10 or 15 instead of 30). Progressive rollout in early experiments started at 5 frames but was not a deliberate ablation of rollout length — it was a training curriculum that always ended at 30.",
+      "search_terms_checked": ["future_len", "rollout", "n_frames", "ar_steps", "teacher forcing"],
+      "conclusion": "We have NEVER run an experiment comparing 30-step vs 15-step vs 5-step fixed rollout length in the afCRPS regime. The AR rollout curriculum (1-step → 5-step → 30-step) appears in the 10-untried-levers table (line 39036) as hypothesis B, explicitly labeled as untried."
+    },
+
+    "untried_ar_curriculum": {
+      "status": "PROPOSED but never executed",
+      "log_reference": "Line 39036: 'B: AR rollout curriculum | 1-step→5-step→30-step progressive rollout | AIFS uses this. Noise matters more per step early. | Training loop'",
+      "note": "The AIFS-CRPS staged rollout training is also cited (line 37121) as relevant evidence but was never implemented in the afCRPS experiments."
+    }
+  },
+
+  "summary": {
+    "check_1_verdict": "LITERATURE AGENT CLAIMS ARE FALSE. Neither CRPS-LAM nor FourCastNet3 use the 'biased CRPS warmup → fair CRPS transition' trick as claimed. CRPS-LAM explicitly rejects this approach; FourCastNet3 does not describe it at all. The research log has 4 entries propagating this false attribution. Hypothesis F in the 10-untried-levers table (biased CRPS warmup) has no valid literature support from these two papers.",
+    "check_2_verdict": "AR rollout length was varied via progressive rollout in early experiments but was ABANDONED due to conditionality destruction. In the current afCRPS regime (Exp 99+), ALL experiments use fixed 30 AR steps. No experiment has ever tested fewer fixed AR steps (e.g., 15 or 10) as a hyperparameter. The AR rollout curriculum idea is listed as untried hypothesis B."
+  }
+}

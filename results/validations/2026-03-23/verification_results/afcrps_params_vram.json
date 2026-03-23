@@ -1,0 +1,93 @@
+{
+  "verification_date": "2026-03-23",
+  "model": "afCRPS SinglePassBlockAR",
+
+  "check1_spread_weight_alpha": {
+    "question": "What is spread_weight / alpha in afCRPS?",
+    "findings": {
+      "spread_weight_default": 0.5,
+      "spread_weight_cli_arg": "--spread_weight (float, default=0.5)",
+      "alpha_in_loss_function": 0.95,
+      "alpha_hardcoded": true,
+      "alpha_source": "afcrps_loss() call in single_pass_ar.py line 2061: alpha=0.95 (hardcoded, not a CLI arg)",
+      "spread_weight_source": "SinglePassConfig.spread_weight=0.5 (default), passed via --spread_weight CLI arg",
+      "loss_formula": "fcrps = mae - spread_weight * spread;  loss = alpha * fcrps + (1 - alpha) * mae",
+      "expanded_formula": "loss = 0.95 * (mae - 0.5 * spread) + 0.05 * mae  =  1.0 * mae - 0.475 * spread",
+      "is_spread_weight_the_alpha": false,
+      "clarification": "There are TWO separate parameters: (1) 'alpha=0.95' is the AIFS-style interpolation between fair CRPS and standard CRPS — it is hardcoded in the forward() call, not exposed as a CLI arg. (2) 'spread_weight=0.5' controls the spread term coefficient inside fCRPS = mae - spread_weight*spread. Standard CRPS uses spread_weight=0.5; lower values reduce the spread incentive. These are independent knobs. The 'almost-fair' in afCRPS refers to alpha=0.95 (not fully fair, not fully standard).",
+      "best_recipe_spread_weight": 0.5,
+      "note": "CLAUDE.md best recipe does not pass --spread_weight, so training uses the default 0.5 (standard)"
+    }
+  },
+
+  "check2_vram_k16_b8": {
+    "question": "Can K=16 B=8 fit in 8GB VRAM?",
+    "gpu": "NVIDIA GeForce RTX 3070 Ti",
+    "vram_total_mb": 8192,
+    "vram_used_mb_at_query_time": 388,
+    "vram_free_mb_at_query_time": 7452,
+    "reference_config": {
+      "B": 16,
+      "K": 8,
+      "BxK": 128,
+      "vram_gb": 4.2,
+      "source": "CLAUDE.md"
+    },
+    "proposed_config": {
+      "B": 8,
+      "K": 16,
+      "BxK": 128
+    },
+    "analysis": {
+      "same_total_samples": true,
+      "BxK_identical": 128,
+      "k_dependent_memory_beyond_batch": {
+        "exists": true,
+        "details": "In afcrps_loss(), pairwise spread computation uses torch.triu_indices(K, K, offset=1) → K*(K-1)/2 pairs. K=8 → 28 pairs; K=16 → 120 pairs. The spread_abs tensor is (B, n_pairs, T, H, W). With K=16 B=8: 8 * 120 * 30 * 5 * 5 = 7,200,000 elements vs K=8 B=16: 16 * 28 * 30 * 5 * 5 = 3,360,000 elements. Ratio: ~2.14x MORE memory for spread computation with K=16 B=8.",
+        "spread_tensor_elements_k8_b16": 3360000,
+        "spread_tensor_elements_k16_b8": 7200000,
+        "spread_tensor_ratio": 2.14
+      },
+      "activation_memory": "Forward pass activations scale with B*K folded into batch dim. B*K=128 is identical, so activation memory during forward is the same.",
+      "gradient_memory": "Same B*K=128, so same gradient memory for most parameters.",
+      "pairwise_spread_overhead_gb_estimate": "At fp32: 7.2M * 4 bytes = 28.8 MB — negligible absolute difference (~14 MB extra vs K=8 B=16 during loss computation)",
+      "vram_estimate_k16_b8_gb": "~4.2 GB (same as B=16 K=8, pairwise overhead is negligible in absolute terms)",
+      "feasibility": "FEASIBLE — K=16 B=8 should fit comfortably within 8GB VRAM. The pairwise spread tensor difference is ~14 MB, well within the ~3.8 GB headroom."
+    },
+    "verdict": "YES — K=16 B=8 fits. VRAM is dominated by activations (B*K=128 identical) not pairwise spread overhead."
+  },
+
+  "check3_freeze_after_epoch": {
+    "question": "What gets frozen by freeze_after_epoch and is CLN included?",
+    "default_value": 0,
+    "when_active": "freeze_after_epoch > 0, freeze triggers at epoch == freeze_after_epoch + 1",
+    "always_frozen_from_start": ["encoder.*  (unless --unfreeze_encoder is passed)"],
+    "what_gets_frozen_by_freeze_after_epoch": {
+      "primary_target": "frame_decoder.*  — all parameters whose name starts with 'frame_decoder.'",
+      "conditional_targets": [
+        "cell_spread_linear, cell_spread_factor, cell_spread_expand  (only if --freeze_spread_too)",
+        "encoder.*  (only if --freeze_encoder_too)"
+      ]
+    },
+    "what_is_kept_trainable": [
+      "noise_skip_proj  (unless --freeze_skip_too)",
+      "log_vol_scale",
+      "cell_scale",
+      "noise_scale_head",
+      "rho_head",
+      "mr_mu_head",
+      "mr_alpha_head",
+      "spread_cell_proj",
+      "cell_spread_linear, cell_spread_factor, cell_spread_expand  (unless --freeze_spread_too)"
+    ],
+    "cln_freeze_analysis": {
+      "cln_parameter_names": "Both CLN variants (ar_causal_cln and ar_percell_cln) live inside CausalARTransformerDecoder, which is assigned to self.frame_decoder. Their param names are e.g. 'frame_decoder.layers.0.cln1.*', 'frame_decoder.percell_noise_scale.*'",
+      "cln_frozen_by_freeze_after_epoch": true,
+      "reason": "CLN params start with 'frame_decoder.' → matched by freeze condition 'name.startswith(\"frame_decoder.\")'. None of the 'keep' exceptions cover CLN-specific names.",
+      "exception": "If --freeze_skip_too is NOT passed, noise_skip_proj is kept. CLN is not noise_skip_proj, so CLN is ALWAYS frozen when freeze_after_epoch triggers.",
+      "implication_for_rc12_h3": "For RC12-H3 (per-cell CLN, Exp 149c): if freeze_after_epoch=10 is used, the CLN (percell_noise_scale and cln1/cln2 gamma/beta heads) will be frozen after epoch 10. This means CLN modulation is fixed after epoch 10, limiting adaptation. To keep CLN trainable after freeze, the keep condition would need to include CLN parameter names — which it currently does NOT."
+    },
+    "best_recipe_setting": 10,
+    "best_recipe_source": "CLAUDE.md: '--freeze_after_epoch 10'"
+  }
+}
