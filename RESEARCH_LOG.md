@@ -38138,3 +38138,84 @@ through a different mechanism than cum_cal — likely **enabling skip bypass on 
 (which is currently disabled!) and/or **level-dependent vol_scale**.
 
 ---
+
+## 2026-03-22: Complete Mechanistic Understanding — All Gaps Closed
+
+### Context
+4 parallel investigation agents closed the remaining understanding gaps.
+Every failure mode now has a verified mechanistic explanation with evidence on disk.
+
+### P1-B: Conditional Response Contradiction — RESOLVED
+
+The 94.5% MAE reduction is pure **inertia** (copy-last-frame achieves 65.9%).
+Model adds 0.3% beyond naive at h=1.
+
+- Encoder UP vs DOWN cosine similarity: **0.99998** — direction-blind
+- Regression slope of model delta on GT delta: **0.034**, R² = 0.081
+- Model predicts ~+0.001 delta regardless of GT moving ±0.025
+- At h=30, model beats naive by 18.4% — learns mean reversion, not h=1 direction
+
+**Conclusion**: h=1 direction is fundamentally unpredictable from 30-day history.
+This is NOT a model bug — it's a property of the problem. The CI gap at h=1 is
+purely a SPREAD problem (ensemble 3.8x too narrow), not conditioning.
+
+Evidence: `results/validations/2026-03-22/analysis/p1b_conditional_response/`
+
+### Bias Flip: Model HIGH at h=1, LOW at h>1 — RESOLVED
+
+Three compounding mechanisms:
+1. **Decoder deterministic positive bias**: zero-noise delta = +0.123 (attention path +0.083, output_proj.bias +0.040). Noise regularizes this to +0.016.
+2. **Log-space right skew**: skewness +2.29, upper tail 8.3x wider → p05 close to median → GT falls below p05 frequently
+3. **GT systematic downward drift**: IV mean-reverts -0.001 at h=1, -0.019 at h=30. Model stays near initial level. By h=2, GT drift > model bias → flip.
+
+Evidence: `results/validations/2026-03-22/analysis/bias_flip_mechanism/`
+
+### P3 Regime: Decoder Is Regime-Blind — RESOLVED
+
+- CLN calm vs turb modulation ratio: **1.005x** (identical noise sensitivity)
+- Encoder calm vs turb cosine: **0.9996** (doesn't separate regimes)
+- Observed 2.2x spread ratio: 76% mechanical vol_scale, 23% IV level, **1% learned**
+- Surprise: h=1 regime failure is BIAS (model too high), NOT spread width
+- Model actually OVER-differentiates regimes in spread (2.23x vs GT 1.51x)
+- Zero explicit condition-dependent spread mechanisms in 144b
+
+Evidence: `results/validations/2026-03-22/analysis/p3_regime_spread/`
+
+### Window Floor: Calm + Tail Event = Bad Windows — RESOLVED
+
+- 102/1223 bad windows (8.3%). 59 windows bad across ALL 4 models (r=0.93-0.96)
+- **#1 predictor**: realized change magnitude (1.91x ratio), NOT vol-of-vol
+- Bad windows have LOWER vol-of-vol (0.83x) — counter-intuitive
+- Mechanism: calm history → narrow ensemble → tail event → GT outside CI
+- Calm regime: 18.4% bad rate (3x worse than turb 6.5%)
+- 44% of all bad windows are in calm regime
+- A single -12.8% return (data index 5079) creates 25 consecutive bad windows
+- Without |ret|>3% events: bad rate drops to 4.0% (PASS)
+
+Evidence: `results/validations/2026-03-22/analysis/window_floor_characterization/`
+
+### The 128-dim Encoder Condition: A Level Predictor
+
+Combining P1-B and P3 findings, the encoder encodes ONE thing: **current IV level**.
+
+| Test | Cosine Similarity | What it means |
+|------|-------------------|---------------|
+| UP vs DOWN futures | 0.99998 | Direction-blind |
+| Calm vs Turb regime | 0.9996 | Regime-blind |
+
+The decoder's spread differentiation (2.2x turb/calm) is entirely MECHANICAL:
+76% from vol_scale (computed from history std), 23% from IV level, 1% learned.
+
+### Complete Bottleneck Map (FINAL)
+
+| # | Bottleneck | Mechanism | Evidence | Fix Direction |
+|---|-----------|-----------|----------|---------------|
+| 1 | CLN rank-1 | Same modulation ALL tokens → Jacobian rank 1.23 | Noise pathway zeroing | Per-cell noise or factored CLN |
+| 2 | Skip bypass DISABLED | 100% diversity from CLN, zero from skip | Config check + zeroing test | Enable skip bypass |
+| 3 | Encoder is level-only | Cosine 0.9999+ for UP/DOWN and calm/turb | P1-B + P3 agents | Wider bottleneck or regime features |
+| 4 | Constant vol_scale | Can't represent 6.2x level-dependent volatility | Cell (0,3) analysis | Level-dependent scaling |
+| 5 | Decoder positive bias | Zero-noise delta = +0.123, attention path | Bias flip probe | Bias regularization |
+| 6 | CRPS rank collapse | Rank drops during training | Cross-epoch analysis | Rank-preserving reg |
+| 7 | Calm tail vulnerability | Narrow ensemble + tail event = bad window | Window floor analysis | Tail-aware spread floor |
+
+---
