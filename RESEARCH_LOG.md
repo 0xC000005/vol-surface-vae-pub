@@ -38844,3 +38844,61 @@ See `results/validations/2026-03-23/` — 5 verification JSONs, 5 scripts, 5 ana
 - FourCastNet3 (2507.12144): biased CRPS warmup trick (complementary to architectural fix)
 
 ---
+
+## 2026-03-23: RC12-H1 — Increase Factor Count 5→10 (Exp 149a)
+
+### Exp 149a: n_factors=10 on 146b base (FALSIFIED)
+**Based on**: 146b (69.14, 5/9, factor noise with 5 channels)
+**Hypothesis**: More independent noise channels = more structural resistance to CRPS collapse. Suite 9 needs eff_rank 2.26→2.51 (+11.2%). Doubling factors from 5→10 should increase diversity.
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --ar_factor_noise 10 --unfreeze_encoder --lr_encoder 1e-4 \
+    --disable_early_stop --output_dir models/backfill/afcrps_149a --device cuda
+```
+Best epoch: 22 (stable, gap=0.067). Val loss 16.22 (lower than 146b's 16.46).
+
+**Results**:
+
+| Metric | 146b (5f) | 149a (10f) | Delta |
+|--------|:-:|:-:|:-:|
+| CI 90% | 77.3% | 72.2% | −5.1pp |
+| CI h=1 | 59.8% | 46.1% | −13.7pp |
+| KS daily | 21/25 | **6/25** | −15 |
+| Eff rank | 2.26 | 2.17 | −0.09 |
+| Rank ratio | 0.45 | 0.43 | −0.02 |
+| ACF | 0.95 | 0.98 | +0.03 |
+| Kurtosis | 1.21 | 1.95 | +0.74 |
+| Suites | 5/9 | **4/9** | −1 (lost cointegration) |
+
+### WHY — Mechanistic Analysis (SVD of W loadings)
+
+**CRPS collapsed 5 of 10 factors.** The W loadings matrix (25×10) SVD shows:
+- Top-1 energy: 80.0% (was 46.8% with 5 factors) — MORE rank-1, not less
+- Active factors (SV > 10% of max): 5/10 (146b had 5/5)
+- Min/max SV ratio: 0.032 (was 0.396) — 12× wider gap between strongest and weakest factor
+- Effective rank of W: 5.70/10 = 57% (was 4.74/5 = 95%)
+
+**Mechanism**: With 5 factors initialized randomly, all 5 had similar magnitude and CRPS couldn't collapse any. With 10 factors, CRPS had more degrees of freedom to concentrate energy on fewer factors while killing others. The structural resistance has a **sweet spot** — 5 factors with noise_dim=32 is near-optimal.
+
+**KS collapse (21→6)**: The concentrated rank-1 factor distorts daily change distributions. With 80% of skip variance in one direction, the generated ensemble has a dominant mode that fails KS in most cells.
+
+### What Was Learned
+
+1. **Factor noise resistance does NOT scale linearly with factor count.** CRPS exploits extra degrees of freedom to collapse factors. 5 factors is near-optimal for this model scale.
+2. **This is analogous to the d_model=128 finding (144c)**: more capacity → more room for CRPS to collapse. The sweet spot is where capacity = just enough for diversity but not enough for CRPS to exploit.
+3. **The path forward is NOT more factors in the skip pathway (2.7% of variance)**. It must be changing the DOMINANT variance pathway (97.3% via CLN) — i.e., per-cell CLN (H3).
+
+### Decision: VALUABLE FAILURE — "more factors = better" cleanly falsified
+
+Factor count sweet spot is 5 for this model scale. Proceed to H2 (bias fix) and H3 (per-cell CLN).
+
+---

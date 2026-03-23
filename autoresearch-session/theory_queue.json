@@ -17,42 +17,42 @@
   {
     "name": "RC10 (all 4 hypotheses + probes)",
     "status": "completed",
-    "result": "H1 FALSIFIED (cell_var=diversity reward). H2 PARTIAL (eff_rank+54%). H3 FAILS at any λ (cum_cal breaks KS/coint). H4 SKIPPED. 147a/b probes confirm cum_cal dead end. 8 investigation agents → COMPLETE mechanistic understanding of 7 bottlenecks."
+    "result": "H1 FALSIFIED (cell_var=diversity reward). H2 PARTIAL (eff_rank+54%). H3 FAILS at any \u03bb (cum_cal breaks KS/coint). H4 SKIPPED. 147a/b probes confirm cum_cal dead end. 8 investigation agents \u2192 COMPLETE mechanistic understanding of 7 bottlenecks."
   },
   {
     "name": "RC11-H0: Inference-time noise scaling probe",
-    "theory": "CRPS spread suppression (documented, CRPS-LAM 2025) makes ensemble 3.8x too narrow. If scaling noise z by beta>1 at inference pushes CI toward 90%, the architecture CAN produce correct spread — CRPS just chose too little. If CI stays low even at beta=3, rank-1 structure prevents coverage regardless of amplitude.",
+    "theory": "CRPS spread suppression (documented, CRPS-LAM 2025) makes ensemble 3.8x too narrow. If scaling noise z by beta>1 at inference pushes CI toward 90%, the architecture CAN produce correct spread \u2014 CRPS just chose too little. If CI stays low even at beta=3, rank-1 structure prevents coverage regardless of amplitude.",
     "target": "Determine whether bottleneck is amplitude (fixable by spread encouragement) or structure (requires rank fix).",
-    "falsification": "beta=3.0 gives CI<80% → rank-1 is binding, amplitude doesn't help.",
+    "falsification": "beta=3.0 gives CI<80% \u2192 rank-1 is binding, amplitude doesn't help.",
     "implementation": "At inference, multiply noise z by beta before passing to decoder. Test beta={1.5, 2.0, 3.0}. Zero training. ~5 min.",
     "diagnostic_plan": {
       "after_inference": [
-        "1. Per-cell coverage grids at each beta — which cells improve most?",
-        "2. Per-cell KS at each beta — at what beta does each cell start failing?",
-        "3. Eff_rank at each beta — scaling shouldn't change rank (same direction, more magnitude)",
-        "4. Threshold beta where KS starts failing — how much spread headroom exists?",
-        "5. Ensemble std at beta=2 vs GT std per cell — is spread now matched?"
+        "1. Per-cell coverage grids at each beta \u2014 which cells improve most?",
+        "2. Per-cell KS at each beta \u2014 at what beta does each cell start failing?",
+        "3. Eff_rank at each beta \u2014 scaling shouldn't change rank (same direction, more magnitude)",
+        "4. Threshold beta where KS starts failing \u2014 how much spread headroom exists?",
+        "5. Ensemble std at beta=2 vs GT std per cell \u2014 is spread now matched?"
       ]
     },
     "attempts": 1,
     "max_attempts": 1,
     "status": "completed",
-    "result": "FALSIFIED — β=3.0 CI=73.9% < 80%. Bottleneck is 100% structural (rank-1 CLN), not amplitude. Eff_rank unchanged 1.47→1.48. Conditioned width unchanged. h=1 CI worsened 64.7→60.9%.",
+    "result": "FALSIFIED \u2014 \u03b2=3.0 CI=73.9% < 80%. Bottleneck is 100% structural (rank-1 CLN), not amplitude. Eff_rank unchanged 1.47\u21921.48. Conditioned width unchanged. h=1 CI worsened 64.7\u219260.9%.",
     "experiment_id": "148_probe"
   },
   {
     "name": "RC11-H1: Enable skip bypass on 144b",
-    "theory": "144b has ar_noise_skip=False, ar_skip_bypass_spread=False. 100% diversity from CLN (Jacobian rank 1.23). 146b enabled skip+factor → eff_rank+54%. H1 isolates skip bypass WITHOUT factor structure. AIFS uses per-location noise (analogous). Tests whether plain Linear skip resists CRPS rank collapse.",
-    "target": "Eff_rank > 1.47 and/or CI > 74%. If near 146b levels → factor structure was bonus, not essential.",
-    "falsification": "Eff_rank stays 1.47 AND CI stays 74% → plain Linear collapsed by CRPS. Factor structure essential.",
+    "theory": "144b has ar_noise_skip=False, ar_skip_bypass_spread=False. 100% diversity from CLN (Jacobian rank 1.23). 146b enabled skip+factor \u2192 eff_rank+54%. H1 isolates skip bypass WITHOUT factor structure. AIFS uses per-location noise (analogous). Tests whether plain Linear skip resists CRPS rank collapse.",
+    "target": "Eff_rank > 1.47 and/or CI > 74%. If near 146b levels \u2192 factor structure was bonus, not essential.",
+    "falsification": "Eff_rank stays 1.47 AND CI stays 74% \u2192 plain Linear collapsed by CRPS. Factor structure essential.",
     "implementation": "Add --ar_noise_skip --ar_skip_bypass_spread to 144b training recipe. Zero code changes. 30 epochs.",
     "diagnostic_plan": {
       "after_training": [
         "1. Eff_rank comparison: 144b (1.47) vs H1 vs 146b (2.26)",
-        "2. PCA on generated daily changes — eigenvalue spectrum, PC1-PC5",
+        "2. PCA on generated daily changes \u2014 eigenvalue spectrum, PC1-PC5",
         "3. Noise pathway decomposition: zero skip weights, measure CLN vs skip diversity fraction",
         "4. Per-cell coverage grids at h=7 and h=30",
-        "5. SVD of skip Linear weight matrix — if rank-1, CRPS collapsed it",
+        "5. SVD of skip Linear weight matrix \u2014 if rank-1, CRPS collapsed it",
         "6. Training dynamics: track spread over epochs. Does skip maintain a spread floor?"
       ],
       "principled_check": "If H1 succeeds: is plain skip + CRPS sufficient, or does factor structure (146b) add independent value? Compare H1 vs 146b on all 9 suites."
@@ -60,15 +60,15 @@
     "attempts": 1,
     "max_attempts": 1,
     "status": "completed",
-    "result": "CONFOUNDED. Eff_rank +15% (1.47→1.69) but CI −2.3pp, KS −7. Skip proj norm=0.103 (near-zero). CRPS collapsed plain skip. Factor noise (146b) provides structural resistance. Recipe differences (added ES/IS/cell_spread) confound the CI regression.",
+    "result": "CONFOUNDED. Eff_rank +15% (1.47\u21921.69) but CI \u22122.3pp, KS \u22127. Skip proj norm=0.103 (near-zero). CRPS collapsed plain skip. Factor noise (146b) provides structural resistance. Recipe differences (added ES/IS/cell_spread) confound the CI regression.",
     "experiment_id": "148a"
   },
   {
     "name": "RC11-H2: Heteroscedastic decoder output (delta + log_sigma)",
-    "theory": "Cell (0,3) has 6.2x level-dependent volatility. Log-space provides GBM-level scaling but ~2x residual heteroscedasticity remains (Neural SDE literature: Kidger 2021, FuNVol 2023). Constant vol_scale cannot represent this. Decoder already sees prev_frame — give it output channel for state-dependent noise amplitude.",
+    "theory": "Cell (0,3) has 6.2x level-dependent volatility. Log-space provides GBM-level scaling but ~2x residual heteroscedasticity remains (Neural SDE literature: Kidger 2021, FuNVol 2023). Constant vol_scale cannot represent this. Decoder already sees prev_frame \u2014 give it output channel for state-dependent noise amplitude.",
     "target": "Cell (0,3) coverage improves from 47% toward 70%. Learned sigma varies with IV level.",
-    "falsification": "Learned sigma is constant across IV levels → CRPS doesn't use the capacity.",
-    "implementation": "Widen CausalARTransformerDecoder output 25→50. Split: delta_raw, log_sigma. Apply delta = softplus(log_sigma) * delta_raw. ~20 lines of code.",
+    "falsification": "Learned sigma is constant across IV levels \u2192 CRPS doesn't use the capacity.",
+    "implementation": "Widen CausalARTransformerDecoder output 25\u219250. Split: delta_raw, log_sigma. Apply delta = softplus(log_sigma) * delta_raw. ~20 lines of code.",
     "diagnostic_plan": {
       "after_training": [
         "1. Learned sigma vs IV level: plot for cell (0,3) and 5 other cells. Monotonic?",
@@ -76,11 +76,11 @@
         "3. Sigma stability over AR steps: h=1, h=10, h=30. Growing or constant?",
         "4. Sigma vs existing vol_scale: correlated (redundant) or different pattern (new info)?",
         "5. KS per-cell check: does heteroscedastic output change daily-change distributions?",
-        "6. Ablation: freeze sigma at 1.0, train only delta. Same performance → sigma unused."
+        "6. Ablation: freeze sigma at 1.0, train only delta. Same performance \u2192 sigma unused."
       ],
-      "principled_check": "Does sigma learn the CEV exponent? If sigma ∝ IV^gamma, what is gamma? GT data suggests gamma > 1 (6.2x range across 3x level range → gamma ≈ 1.5)."
+      "principled_check": "Does sigma learn the CEV exponent? If sigma \u221d IV^gamma, what is gamma? GT data suggests gamma > 1 (6.2x range across 3x level range \u2192 gamma \u2248 1.5)."
     },
-    "note": "DEPENDS on H1 — if noise is rank-1, per-cell sigma scales same direction. Test after skip bypass enabled.",
+    "note": "DEPENDS on H1 \u2014 if noise is rank-1, per-cell sigma scales same direction. Test after skip bypass enabled.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "blocked_by_H1",
@@ -90,7 +90,7 @@
     "name": "RC11-H3: Condition-dependent noise amplitude",
     "theory": "P3 agent proved decoder calm/turb modulation = 1.005x (identical). Window floor: 44% bad windows in calm regime. Encoder calm/turb cosine = 0.9996 but there may be residual signal extractable. ar_noise_scale_cond exists but is disabled.",
     "target": "Turb/calm spread ratio changes by >5%. Window floor bad rate drops below 7%.",
-    "falsification": "Spread ratio unchanged (<5% change) → encoder doesn't provide regime signal for noise_scale_head.",
+    "falsification": "Spread ratio unchanged (<5% change) \u2192 encoder doesn't provide regime signal for noise_scale_head.",
     "implementation": "Add --ar_noise_scale_cond to training. Existing module, zero new code. 30 epochs.",
     "diagnostic_plan": {
       "after_training": [
@@ -105,14 +105,14 @@
     "attempts": 1,
     "max_attempts": 1,
     "status": "completed",
-    "result": "PARTIALLY KILLED. Turb/calm decreased 2.14→1.76 (−18%, opposite of prediction). noise_scale_head learned 0.75× uniform suppression (CV=1.6%). KS improved 21→25/25 (best ever) but CI dropped 77→68%. Confirms CRPS spread suppression from 4th angle.",
+    "result": "PARTIALLY KILLED. Turb/calm decreased 2.14\u21921.76 (\u221218%, opposite of prediction). noise_scale_head learned 0.75\u00d7 uniform suppression (CV=1.6%). KS improved 21\u219225/25 (best ever) but CI dropped 77\u219268%. Confirms CRPS spread suppression from 4th angle.",
     "experiment_id": "148c"
   },
   {
-    "name": "RC12-H1: Increase factor count (5→10→25)",
-    "theory": "Factor noise resists CRPS collapse via structural inductive bias — 5 independent channels can't be aligned to rank-1 by CRPS (W eff_rank=4.74/5, all active). AIFS uses per-location noise (35K dims). More factors = more independent directions. Suite 9 needs only +11.2% eff_rank (2.26→2.51). GT eff_rank=5.03 with PC1=60.9%.",
-    "target": "Suite 9 PASS (eff_rank ratio ≥ 0.50, i.e., gen_eff_rank ≥ 2.51). Secondary: check if more factors help Suite 2 (CI) and Suite 7 (regime).",
-    "falsification": "n_factors=10 gives eff_rank < 2.51 → diminishing returns from more factors. OR n_factors=10 breaks Suite 8 further (frac_pass < 17/25) → more factors worsens bias.",
+    "name": "RC12-H1: Increase factor count (5\u219210\u219225)",
+    "theory": "Factor noise resists CRPS collapse via structural inductive bias \u2014 5 independent channels can't be aligned to rank-1 by CRPS (W eff_rank=4.74/5, all active). AIFS uses per-location noise (35K dims). More factors = more independent directions. Suite 9 needs only +11.2% eff_rank (2.26\u21922.51). GT eff_rank=5.03 with PC1=60.9%.",
+    "target": "Suite 9 PASS (eff_rank ratio \u2265 0.50, i.e., gen_eff_rank \u2265 2.51). Secondary: check if more factors help Suite 2 (CI) and Suite 7 (regime).",
+    "falsification": "n_factors=10 gives eff_rank < 2.51 \u2192 diminishing returns from more factors. OR n_factors=10 breaks Suite 8 further (frac_pass < 17/25) \u2192 more factors worsens bias.",
     "implementation": "Change --ar_factor_noise 5 to --ar_factor_noise 10 in 146b recipe. Single hyperparameter change. Then test 15, 25.",
     "diagnostic_plan": {
       "after_training": [
@@ -124,25 +124,26 @@
         "6. Skip pathway variance fraction: does it increase from 2.7% with more factors?"
       ]
     },
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 3,
-    "status": "active",
-    "experiment_id": "149a"
+    "status": "completed",
+    "experiment_id": "149a",
+    "result": "FALSIFIED. eff_rank 2.26\u21922.17 (WORSE). CRPS collapsed 5/10 factors (top-1 energy 80%, active 5/10). KS 21\u21926/25. Sweet spot is 5 factors for this model scale."
   },
   {
     "name": "RC12-H2: Fix median bias regression (146b broke Suite 8)",
     "theory": "144b passed Suite 8 (frac=24/25, mag=pass). 146b fails (frac=19/25, mag=21/25). Factor noise W learned a level-shift factor (factor 4 loads uniformly negative, cosine=-0.87 with level) that shifts median DOWN. All 25 cells have negative mean_bias. Two possible causes: (A) decoder zero-noise bias (+0.123) interacts with factor structure, or (B) factor loadings direction is anti-correlated with GT mean. ar_bias_lambda=0.01 may be insufficient.",
-    "target": "Suite 8 PASS (frac≥20/25, mag≥22/25, window_floor<5%). Without breaking any of Suites {1,3,4,5,6}.",
-    "falsification": "If zero-noise delta in 146b is already < 0.05 → bias_lambda not the issue (factor direction is). If ar_bias_lambda=0.05 still fails Suite 8 → need to constrain factor loadings instead.",
+    "target": "Suite 8 PASS (frac\u226520/25, mag\u226522/25, window_floor<5%). Without breaking any of Suites {1,3,4,5,6}.",
+    "falsification": "If zero-noise delta in 146b is already < 0.05 \u2192 bias_lambda not the issue (factor direction is). If ar_bias_lambda=0.05 still fails Suite 8 \u2192 need to constrain factor loadings instead.",
     "implementation": "Stage 1: Compute zero-noise delta for 146b (inference only, 5 min). Stage 2: Train with --ar_bias_lambda 0.05 on 146b base.",
     "diagnostic_plan": {
       "after_training": [
         "1. Zero-noise delta: what is the decoder output when noise=0? Compare 144b vs 146b vs new model.",
         "2. Per-cell mean_bias grid: which cells improved? Which got worse?",
         "3. Suite 8 subtest breakdown: frac_pass, mag_pass, window_floor each.",
-        "4. Factor loadings W direction: compute mean(W, dim=0) — is the mean loading negative (level-shift bias)?",
+        "4. Factor loadings W direction: compute mean(W, dim=0) \u2014 is the mean loading negative (level-shift bias)?",
         "5. Cross-suite regression check: did any passing suite break?",
-        "6. If bias_lambda fails: compute factor output mean across ensemble — is it systematically non-zero?"
+        "6. If bias_lambda fails: compute factor output mean across ensemble \u2014 is it systematically non-zero?"
       ]
     },
     "attempts": 0,
@@ -152,10 +153,10 @@
   },
   {
     "name": "RC12-H3: Per-cell CLN noise injection (AIFS approach)",
-    "theory": "CLN broadcasts same gamma/beta to all 25 cells → Jacobian rank 1.23. This is 97.3% of variance. AIFS uses per-location noise (each grid point gets independent CLN modulation). Per-cell CLN would give each cell its own gamma/beta computed from [noise_embed, cell_embed_c]. This makes rank-1 collapse architecturally impossible (same mechanism as AIFS). 285K→~290K params (small overhead).",
+    "theory": "CLN broadcasts same gamma/beta to all 25 cells \u2192 Jacobian rank 1.23. This is 97.3% of variance. AIFS uses per-location noise (each grid point gets independent CLN modulation). Per-cell CLN would give each cell its own gamma/beta computed from [noise_embed, cell_embed_c]. This makes rank-1 collapse architecturally impossible (same mechanism as AIFS). 285K\u2192~290K params (small overhead).",
     "target": "eff_rank > 3.0 (breakthrough territory). Suite 9 PASS. Secondary: CI improvement from multi-directional CLN diversity.",
-    "falsification": "eff_rank stays < 2.5 despite per-cell CLN → CRPS collapses even per-cell modulation at 285K param scale. Training diverges → architecture change is destabilizing.",
-    "implementation": "Modify CLN to accept cell_index, produce per-cell gamma/beta. Add 25 learned cell embeddings (8-dim each). CLN MLP input: [noise_embed(64); cell_embed(8)] → gamma, beta. ~200 params per CLN layer, ~50 LOC change.",
+    "falsification": "eff_rank stays < 2.5 despite per-cell CLN \u2192 CRPS collapses even per-cell modulation at 285K param scale. Training diverges \u2192 architecture change is destabilizing.",
+    "implementation": "Modify CLN to accept cell_index, produce per-cell gamma/beta. Add 25 learned cell embeddings (8-dim each). CLN MLP input: [noise_embed(64); cell_embed(8)] \u2192 gamma, beta. ~200 params per CLN layer, ~50 LOC change.",
     "diagnostic_plan": {
       "after_training": [
         "1. eff_rank by horizon: h=1, h=7, h=14, h=30. Compare vs 146b at each horizon.",
@@ -169,7 +170,7 @@
     "note": "Larger implementation. Consider as Stage 3 after H1 and H2 provide quick signal.",
     "attempts": 0,
     "max_attempts": 2,
-    "status": "blocked_by_H1",
+    "status": "active",
     "experiment_id": "149c"
   }
 ]

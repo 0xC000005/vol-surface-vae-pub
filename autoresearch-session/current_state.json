@@ -1,20 +1,12 @@
 {
   "iteration": 24,
   "experiment_id": "149a",
-  "training_status": "pending",
-  "phase": "ready_for_RC12_H1",
-  "hypothesis": "RC12-H1: Increase factor count from 5→10 on 146b. Tests whether more independent noise channels improve eff_rank past 2.51 threshold (Suite 9).",
+  "training_status": "running",
+  "phase": "RC12_H1_training",
+  "hypothesis": "RC12-H1: n_factors=10 on 146b base. More independent noise channels for eff_rank ≥ 2.51 (Suite 9).",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/afcrps_146b/best_model.pt --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 --ar_factor_noise 10 --unfreeze_encoder --lr_encoder 1e-4 --disable_early_stop --output_dir models/backfill/afcrps_149a --device cuda",
   "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
-  "session_best_modification": {"exp": "146b", "score": 69.14, "suites": 5, "note": "Best eff_rank (2.26) and CI (77.3%)"},
-  "total_experiments": 25,
-  "compass_position": "RC12-H1",
-  "compass_theme": "Per-cell noise architecture (AIFS-inspired)",
-  "session_date": "2026-03-23",
   "base_model": "models/backfill/afcrps_146b/best_model.pt",
-  "rc11_summary": {
-    "experiments": ["148_probe (H0: amplitude irrelevant)", "148a (H1: skip collapsed)", "148c (H3: noise_scale suppression)"],
-    "key_finding": "CRPS spread suppression is resolved by ARCHITECTURE (per-cell noise), not loss modification. Factor noise provides structural resistance via independent channels.",
-    "dead_ends": ["noise amplitude", "plain skip", "noise_scale_cond", "loss modification"]
-  },
-  "rc12_execution_order": ["H1 (n_factors=10, 30min)", "H2-Stage1 (bias probe, 5min)", "H2-Stage2 (bias fix, 30min)", "H1-Stage2 (n_factors=15/25, 30min)", "H3 (per-cell CLN, 2h)"]
+  "compass_position": "RC12-H1",
+  "session_date": "2026-03-23"
 }

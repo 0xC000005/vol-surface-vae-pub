@@ -135,3 +135,9 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 | H1 | n_factors=10→25 (Suite 9) | Single hyperparam, 30 min | NEXT |
 | H2 | Fix median bias regression (Suite 8) | ar_bias_lambda probe + training | Parallel with H1 |
 | H3 | Per-cell CLN noise injection | ~50 LOC, 2h | After H1/H2 signal |
+
+### Iteration 24: Exp 149a — n_factors=10 on 146b (RC12-H1)
+- **Hypothesis**: More factor channels (5→10) = more structural diversity = eff_rank ≥ 2.51.
+- **Result**: 4/9 (−1, lost cointegration). eff_rank 2.26→2.17 (−0.09). KS 21→6/25 (−15!). CI −5.1pp.
+- **KEY FINDING**: CRPS collapsed 5/10 factors (top-1 energy 80% vs 46.8%). Min/max SV ratio 0.032 vs 0.396. Factor resistance has a SWEET SPOT at 5 for this model scale.
+- **Decision**: VALUABLE FAILURE. "More factors = better" cleanly falsified. Path forward is per-cell CLN (H3), not more skip factors.
