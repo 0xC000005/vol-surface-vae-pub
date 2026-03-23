@@ -509,6 +509,8 @@ def main():
                         help="Attention heads for causal AR decoder")
     parser.add_argument("--ar_causal_cln", action="store_true",
                         help="Use CLN noise injection in transformer layers (RC6 Step 3, Exp 141a)")
+    parser.add_argument("--ar_percell_cln", action="store_true",
+                        help="Per-cell CLN: each cell gets independent gamma/beta (RC12-H3, Exp 149c)")
     parser.add_argument("--ar_factor_noise", type=int, default=0,
                         help="Factor-structured noise skip: N independent factors (0=off, 5=Exp 146b)")
     parser.add_argument("--lambda_ortho", type=float, default=0.0,
@@ -710,6 +712,7 @@ def main():
         ar_causal_d_model=getattr(args, 'ar_causal_d_model', 128),
         ar_causal_n_heads=getattr(args, 'ar_causal_n_heads', 4),
         ar_causal_cln=getattr(args, 'ar_causal_cln', False),
+        ar_percell_cln=getattr(args, 'ar_percell_cln', False),
         ar_factor_noise=getattr(args, 'ar_factor_noise', 0),
         extra_features=args.extra_features,
         return_scale=args.return_scale,

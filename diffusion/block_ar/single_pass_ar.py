@@ -146,6 +146,7 @@ class SinglePassConfig:
     ar_causal_d_model: int = 128           # Hidden dim for causal AR decoder
     ar_causal_n_heads: int = 4             # Attention heads for causal AR decoder
     ar_causal_cln: bool = False            # CLN noise injection in transformer (RC6 Step 3, Exp 141a)
+    ar_percell_cln: bool = False            # Per-cell CLN: each cell gets independent gamma/beta (Exp 149c, RC12-H3)
     ar_factor_noise: int = 0                # Factor-structured noise skip (0=off, 5=5 factors, Exp 146b)
 
     # Joint transformer decoder (non-AR, Exp 133a/H4)
@@ -412,11 +413,17 @@ class ConditionalLayerNorm(nn.Module):
     → different outputs. Structurally insuppressible: CRPS cannot gradient-descent
     gamma to zero without destroying all representations (LN output becomes
     un-normalized → loss explodes). Proven at ECMWF's AIFS under same afCRPS loss.
+
+    Per-cell mode (percell=True): Each sequence position gets INDEPENDENT gamma/beta
+    computed from [noise_embed; cell_embed_c]. This makes rank-1 collapse architecturally
+    impossible — different cells receive different modulation by construction. Analogous
+    to AIFS per-location noise. (RC12-H3, Exp 149c)
     """
 
-    def __init__(self, d_model: int, noise_dim: int):
+    def __init__(self, d_model: int, noise_dim: int, n_cells: int = 0, cell_embed_dim: int = 8):
         super().__init__()
         self.ln = nn.LayerNorm(d_model, elementwise_affine=False)
+
         # Noise → gamma, beta via small MLP
         self.noise_to_gamma = nn.Sequential(
             nn.Linear(noise_dim, d_model),
@@ -457,11 +464,12 @@ class CLNTransformerLayer(nn.Module):
     """
 
     def __init__(self, d_model: int, n_heads: int, noise_dim: int,
-                 dim_feedforward: int = 256, dropout: float = 0.0):
+                 dim_feedforward: int = 256, dropout: float = 0.0,
+                 n_cells: int = 0, cell_embed_dim: int = 8):
         super().__init__()
         # CLN replaces standard LayerNorm
-        self.cln1 = ConditionalLayerNorm(d_model, noise_dim)
-        self.cln2 = ConditionalLayerNorm(d_model, noise_dim)
+        self.cln1 = ConditionalLayerNorm(d_model, noise_dim, n_cells=n_cells, cell_embed_dim=cell_embed_dim)
+        self.cln2 = ConditionalLayerNorm(d_model, noise_dim, n_cells=n_cells, cell_embed_dim=cell_embed_dim)
 
         # Standard self-attention
         self.self_attn = nn.MultiheadAttention(
@@ -553,13 +561,15 @@ class CausalARTransformerDecoder(nn.Module):
                  noise_dim: int = 32, d_model: int = 128,
                  n_heads: int = 4, n_layers: int = 4,
                  dropout: float = 0.0, use_cln: bool = False,
-                 n_factor_noise: int = 0):
+                 n_factor_noise: int = 0, percell_cln: bool = False,
+                 cell_embed_dim: int = 8):
         super().__init__()
         self.frame_dim = frame_dim
         self.d_model = d_model
         self.n_layers = n_layers
         self.use_cln = use_cln
         self.noise_dim = noise_dim
+        self.percell_cln = percell_cln
 
         # Learned per-cell vol_scale: decouples delta magnitude from direction
         # Per-cell (25 params) lets edge cells learn larger scale than interior
@@ -600,6 +610,8 @@ class CausalARTransformerDecoder(nn.Module):
                         noise_dim=noise_dim,
                         dim_feedforward=d_model * 2,
                         dropout=dropout,
+                        n_cells=frame_dim if percell_cln else 0,
+                        cell_embed_dim=cell_embed_dim,
                     )
                 )
             else:
@@ -624,6 +636,19 @@ class CausalARTransformerDecoder(nn.Module):
             self.noise_skip_proj = FactorNoiseSkip(noise_dim, frame_dim, n_factor_noise)
         else:
             self.noise_skip_proj = nn.Linear(noise_dim, frame_dim)
+
+        # Per-cell noise modulation (RC12-H3): noise-dependent per-cell scale
+        # Applied AFTER output projection. Each cell gets an independent scale
+        # computed from noise — breaks rank-1 at the output stage.
+        if percell_cln:
+            self.percell_noise_scale = nn.Sequential(
+                nn.Linear(noise_dim, frame_dim * 2),
+                nn.SiLU(),
+                nn.Linear(frame_dim * 2, frame_dim),
+            )
+            # Init: softplus(0.541) ≈ 1.0, so default scale is identity
+            nn.init.zeros_(self.percell_noise_scale[2].weight)
+            nn.init.constant_(self.percell_noise_scale[2].bias, 0.541)
 
         # KV cache state (set during AR generation)
         self._kv_cache = None
@@ -737,6 +762,14 @@ class CausalARTransformerDecoder(nn.Module):
         # Apply learned per-cell scale (EMOS-style: decouple magnitude from direction)
         # log_vol_scale is (frame_dim,) → broadcasts with delta (B, frame_dim)
         delta = F.softplus(self.log_vol_scale) * delta
+
+        # Per-cell noise modulation: each cell gets a noise-dependent scale
+        # This breaks the rank-1 CLN bottleneck at the output stage.
+        # Different noise draws → different per-cell scales → different cells
+        # move independently (not all in the same direction).
+        if self.percell_cln and noise_embed is not None:
+            percell_scale = F.softplus(self.percell_noise_scale(noise_embed))  # (B, frame_dim), positive
+            delta = delta * percell_scale
 
         return delta
 
@@ -1197,6 +1230,8 @@ class SinglePassBlockAR(nn.Module):
                     n_layers=config.ar_causal_n_layers,
                     use_cln=config.ar_causal_cln,
                     n_factor_noise=config.ar_factor_noise,
+                    percell_cln=config.ar_percell_cln,
+                    cell_embed_dim=config.ar_cell_embed_dim,
                 )
             else:
                 self.frame_decoder = FrameDecoder(
