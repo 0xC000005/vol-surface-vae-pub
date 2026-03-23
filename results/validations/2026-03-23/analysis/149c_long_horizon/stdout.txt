@@ -1,0 +1,111 @@
+======================================================================
+LONG-HORIZON GENERATION TEST
+======================================================================
+  Model: models/backfill/afcrps_149c/best_model.pt
+  Frames: 252 (1.0 years)
+  Samples: 50, Windows: 10
+  Position mode: native
+
+  Model loaded: ar_frame=True, future_len=30
+Dataset: 1001 sequences from indices 4540:5822
+  Test windows: 10 (GT future available: 252 days)
+
+======================================================================
+POSITION MODE: NATIVE (model-native position semantics)
+======================================================================
+  Generated batch 0-10 [torch.Size([10, 50, 252, 5, 5]), range: 0.0100-1.0000]
+
+  Generation: 9.3s, shape=(10, 50, 252, 5, 5)
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 1: Ensemble Spread
+──────────────────────────────────────────────────
+
+  Ensemble spread summary (native):
+   Horizon    Mean std    Min cell    Max cell
+        30      0.0717      0.0216      0.2127
+        60      0.0686      0.0236      0.2068
+        90      0.0696      0.0258      0.1788
+       180      0.0801      0.0325      0.2010
+       252      0.0820      0.0330      0.1950
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 3: Spatial Structure
+──────────────────────────────────────────────────
+
+  Spatial structure (native):
+   Horizon   TermSlope   SmileConv   Explosion
+        30      0.0532      0.0690      0.000%
+        60      0.0578      0.0280      0.000%
+        90      0.0582      0.0171      0.000%
+       180      0.0546     -0.0013      0.000%
+       252      0.0503     -0.0079      0.000%
+
+  Spatial structure (gt_native):
+   Horizon   TermSlope   SmileConv   Explosion
+        30      0.0335      0.0460      0.000%
+        60      0.0661      0.0766      0.000%
+        90      0.0749      0.0608      0.000%
+       180      0.0077      0.0658      0.000%
+       252      0.0483      0.0659      0.000%
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 4: Path Stationarity
+──────────────────────────────────────────────────
+
+  Stationarity (native): early_std=0.0092, late_std=0.0057, ratio=0.62
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 5: ACF
+──────────────────────────────────────────────────
+
+  ACF of daily changes, ATM 6M (native):
+     Lag       ACF     |ACF|
+       1   -0.4556    0.5750
+       5    0.0152    0.1512
+      10   -0.0077    0.0462
+      20    0.0045    0.0208
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 6: Fan Chart
+──────────────────────────────────────────────────
+  Fan chart saved (turbulent window 5)
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 7: CI Coverage vs Horizon
+──────────────────────────────────────────────────
+
+  CI coverage (90%) vs horizon (native), GT available for 252 days:
+   Horizon    Coverage       Width
+        30     99.200%      0.1884
+        60     93.600%      0.1961
+        90     96.800%      0.1956
+       180     71.200%      0.2261
+       252     82.800%      0.2207
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 9: Cross-Cell Correlation
+──────────────────────────────────────────────────
+  Level corr mean: gen=0.791, gt=0.480
+  Daily-change corr mean: gen=0.312, gt=0.467
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 10: Cointegration / IV-RV Structure
+──────────────────────────────────────────────────
+  ATM 6M IV~EWMA corr: gen=-0.140, gt=0.812
+  Cointegration pass rate: gen=25.6%, gt=98.8%
+
+──────────────────────────────────────────────────
+DIAGNOSTIC 8: Kurtosis
+──────────────────────────────────────────────────
+
+  Kurtosis of daily changes by horizon (native):
+        Window   Mean Kurt       Min       Max     ATM6M
+        d0-d30      112.91     10.52    266.51    106.20
+       d30-d60       80.19     19.14    306.00     90.43
+       d60-d90       61.16     14.96    132.46     31.14
+      d90-d180      115.14     16.75    355.40    111.61
+     d180-d251      101.86     14.34    272.28     87.12
+  Kurtosis heatmap saved
+
+  Results saved to results/block_ar/long_horizon_test/

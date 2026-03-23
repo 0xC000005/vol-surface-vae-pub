@@ -1,0 +1,115 @@
+{
+  "verification_id": "149c_long_horizon_v2",
+  "date": "2026-03-23",
+  "model": "models/backfill/afcrps_149c/best_model.pt",
+  "test": "long_horizon_252d",
+  "command": "PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py --model_path models/backfill/afcrps_149c/best_model.pt --no_ema --n_windows 10 --n_samples 50 --device cuda",
+  "stdout": "results/validations/2026-03-23/analysis/149c_long_horizon/stdout.txt",
+
+  "ci_coverage_90pct": {
+    "d30":  { "coverage_pct": 99.2, "width": 0.1884 },
+    "d60":  { "coverage_pct": 93.6, "width": 0.1961 },
+    "d90":  { "coverage_pct": 96.8, "width": 0.1956 },
+    "d180": { "coverage_pct": 71.2, "width": 0.2261 },
+    "d252": { "coverage_pct": 82.8, "width": 0.2207 }
+  },
+
+  "ensemble_spread": {
+    "d30":  { "mean_std": 0.0717, "min_cell": 0.0216, "max_cell": 0.2127 },
+    "d60":  { "mean_std": 0.0686, "min_cell": 0.0236, "max_cell": 0.2068 },
+    "d90":  { "mean_std": 0.0696, "min_cell": 0.0258, "max_cell": 0.1788 },
+    "d180": { "mean_std": 0.0801, "min_cell": 0.0325, "max_cell": 0.2010 },
+    "d252": { "mean_std": 0.0820, "min_cell": 0.0330, "max_cell": 0.1950 }
+  },
+
+  "spread_monotonicity": {
+    "values_by_horizon": [0.0717, 0.0686, 0.0696, 0.0801, 0.0820],
+    "strictly_monotonic": false,
+    "overall_trend": "non-monotonic — dips at d60/d90 then rises at d180/d252",
+    "note": "spread at d252 (0.0820) exceeds d30 (0.0717), so uncertainty grows long-run, but mid-range dip violates strict monotonicity"
+  },
+
+  "explosion_rate": {
+    "d30":  "0.000%",
+    "d60":  "0.000%",
+    "d90":  "0.000%",
+    "d180": "0.000%",
+    "d252": "0.000%",
+    "pass": true
+  },
+
+  "kurtosis_by_window": {
+    "d0_d30":    { "mean": 112.91, "min": 10.52,  "max": 266.51, "atm6m": 106.20 },
+    "d30_d60":   { "mean": 80.19,  "min": 19.14,  "max": 306.00, "atm6m": 90.43  },
+    "d60_d90":   { "mean": 61.16,  "min": 14.96,  "max": 132.46, "atm6m": 31.14  },
+    "d90_d180":  { "mean": 115.14, "min": 16.75,  "max": 355.40, "atm6m": 111.61 },
+    "d180_d251": { "mean": 101.86, "min": 14.34,  "max": 272.28, "atm6m": 87.12  },
+    "assessment": "SEVERELY elevated — kurtosis 60-115x across all horizon windows (normal=3). The 3.33 kurtosis reported at 30d in the v2 test suite is per-cell aggregate; long-horizon shows 106-112 ATM 6M kurtosis, suggesting extreme fat tails / spike behavior throughout the path."
+  },
+
+  "spatial_structure": {
+    "explosion_rate_all_horizons": "0.000%",
+    "smile_convexity_d180": -0.0013,
+    "smile_convexity_d252": -0.0079,
+    "note": "smile convexity goes slightly negative at d180/d252 (flat/inverted smile at ultra-long horizons)"
+  },
+
+  "stationarity": {
+    "early_std": 0.0092,
+    "late_std": 0.0057,
+    "ratio": 0.62,
+    "assessment": "mean-reverting — spread contracts 38% from early to late path. Suggests model is pulling toward a fixed attractor rather than maintaining realistic uncertainty."
+  },
+
+  "cointegration": {
+    "gen_pass_rate_pct": 25.6,
+    "gt_pass_rate_pct": 98.8,
+    "atm6m_iv_ewma_corr_gen": -0.140,
+    "atm6m_iv_ewma_corr_gt": 0.812,
+    "assessment": "CRITICAL FAILURE — cointegration rate 25.6% vs GT 98.8%. IV-EWMA correlation is negative (-0.140) vs GT +0.812. Model completely loses mean-reversion structure at long horizons."
+  },
+
+  "cross_cell_correlation": {
+    "level_corr_gen": 0.791,
+    "level_corr_gt": 0.480,
+    "daily_change_corr_gen": 0.312,
+    "daily_change_corr_gt": 0.467,
+    "assessment": "Level correlations over-correlated (gen 0.791 vs GT 0.480). Daily-change correlations under-correlated (gen 0.312 vs GT 0.467)."
+  },
+
+  "acf_lag1": -0.4556,
+  "acf_assessment": "Strong negative lag-1 ACF (-0.456) indicates excessive mean-reversion / oscillation in daily changes.",
+
+  "key_questions_answered": {
+    "q1_does_h1_ci_improvement_persist": {
+      "answer": "PARTIALLY — d30 CI is 99.2% (excellent), d60 93.6%, d90 96.8%. But breaks down severely at d180 (71.2%) and partially recovers at d252 (82.8%). The near-term improvement persists but mid-range (d90-d180) collapses.",
+      "d30_ci": 99.2,
+      "d60_ci": 93.6,
+      "d90_ci": 96.8,
+      "d180_ci": 71.2,
+      "d252_ci": 82.8
+    },
+    "q2_does_kurtosis_blowup_worsen_at_252d": {
+      "answer": "YES — kurtosis is catastrophically elevated throughout the entire path (60-115x at all horizons). It does not worsen monotonically but remains extreme. The 3.33 kurtosis in the 30d v2 suite is likely a different metric (ratio vs. normal, not raw); raw kurtosis is 106+ at ATM 6M throughout.",
+      "verdict": "KURTOSIS IS A FUNDAMENTAL PROBLEM ACROSS ALL HORIZONS"
+    }
+  },
+
+  "overall_assessment": {
+    "verdict": "FAIL — long-horizon generation is severely broken",
+    "strengths": [
+      "Zero explosion rate at all horizons (0.000%)",
+      "Near-term CI coverage is very strong: d30=99.2%, d60=93.6%, d90=96.8%",
+      "Overall spread grows from d30 to d252 (0.0717 → 0.0820)"
+    ],
+    "critical_failures": [
+      "Cointegration rate 25.6% vs GT 98.8% — model loses mean-reversion structure",
+      "IV-EWMA correlation -0.140 vs GT +0.812 — negative correlation is wrong sign",
+      "Kurtosis 60-115x normal across all horizon windows — fat-tail spikes throughout",
+      "d180 CI drops to 71.2% — significant undercoverage at 9-month horizon",
+      "Spread contraction (stationarity ratio 0.62) — uncertainty collapses over time",
+      "Smile convexity goes negative at d180/d252 — surface structure degrades"
+    ],
+    "comparison_to_144b_baseline": "Cannot directly compare without 144b long-horizon results, but 149c's near-term CI is excellent while long-horizon cointegration failure is likely similar to or worse than baseline given the kurtosis severity."
+  }
+}

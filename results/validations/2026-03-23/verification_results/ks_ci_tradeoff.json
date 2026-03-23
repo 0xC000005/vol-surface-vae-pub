@@ -1,0 +1,57 @@
+{
+  "task": "KS-CI trade-off deep investigation",
+  "timestamp": "2026-03-23T08:33:17.376154",
+  "status": "COMPLETE",
+  "key_findings": {
+    "trade_off_fundamental": false,
+    "primary_mechanism": "noise_scale_tail_inflation",
+    "primary_driver": "center_shift",
+    "corr_ks_vs_kurtosis": -0.004608754913817486,
+    "corr_ks_vs_bias": 0.4106236798058064,
+    "degradation_type": "additive",
+    "median_bias_barely_changed": true,
+    "kurtosis_tripled": true,
+    "ci_h1_improvement_149c": "+8.1pp (59.8% -> 67.9%)",
+    "all_25_cells_ks_degraded_in_149c": true,
+    "recommended_fix": "clamp softplus noise scale to [0.8, 1.5]"
+  },
+  "per_model_summary": {
+    "146b": {
+      "ks_n_pass": 21,
+      "ks_median": 0.10219640792849691,
+      "kurtosis_ratio": 1.2103025521142754,
+      "ci_h1": 0.5981030253475061,
+      "ci_overall": 0.7730237121831561
+    },
+    "149a": {
+      "ks_n_pass": 6,
+      "ks_median": 0.16916570332985592,
+      "kurtosis_ratio": 1.9518957569884365,
+      "ci_h1": 0.46093213409648404,
+      "ci_overall": 0.7218261106568548
+    },
+    "149b": {
+      "ks_n_pass": 5,
+      "ks_median": 0.18673132771308543,
+      "kurtosis_ratio": 2.0305582964167233,
+      "ci_h1": 0.4415699100572363,
+      "ci_overall": 0.691694739711093
+    },
+    "149c": {
+      "ks_n_pass": 0,
+      "ks_median": 0.20343417825020438,
+      "kurtosis_ratio": 3.3343132421001296,
+      "ci_h1": 0.6792477514309077,
+      "ci_overall": 0.7103036249659308
+    }
+  },
+  "mechanism_evidence": {
+    "distribution_center_unchanged": "Mean |median_bias change| = 0.0182, median_bias n_pass improved 19->23",
+    "tails_inflated": "Kurtosis ratio 1.21 -> 3.33 (2.8x increase)",
+    "ci_improvement_from_wider_tails": "Wider tails = wider CI = better coverage. CI improved at ALL horizons but most at h=1 where tails matter most."
+  },
+  "output_files": [
+    "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/analysis/ks_ci_tradeoff/analysis_results.json",
+    "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/analysis/ks_ci_tradeoff/report.txt"
+  ]
+}

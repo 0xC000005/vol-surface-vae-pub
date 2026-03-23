@@ -1,0 +1,2104 @@
+{
+  "metadata": {
+    "task": "Cross-model per-cell kurtosis comparison for RC12 models",
+    "models": [
+      "146b",
+      "149a",
+      "149b",
+      "149c"
+    ],
+    "baseline": "146b",
+    "grid_interpretation": {
+      "rows": "moneyness (0=OTM_put, 4=OTM_call)",
+      "cols": "tenor (0=short, 4=long)"
+    },
+    "pass_range_kurtosis_ratio": [
+      0.5,
+      2.0
+    ]
+  },
+  "overall_kurtosis_summary": {
+    "146b": {
+      "gt_kurtosis": 77.02772521972656,
+      "gen_kurtosis": 93.22685241699219,
+      "kurtosis_ratio": 1.2103025521142754,
+      "pass": true,
+      "gen_kurtosis_delta_vs_146b": 0.0,
+      "kurtosis_ratio_delta_vs_146b": 0.0
+    },
+    "149a": {
+      "gt_kurtosis": 77.02772521972656,
+      "gen_kurtosis": 150.35009002685547,
+      "kurtosis_ratio": 1.9518957569884365,
+      "pass": true,
+      "gen_kurtosis_delta_vs_146b": 57.12323760986328,
+      "kurtosis_ratio_delta_vs_146b": 0.7415932048741611
+    },
+    "149b": {
+      "gt_kurtosis": 77.02772521972656,
+      "gen_kurtosis": 156.40928649902344,
+      "kurtosis_ratio": 2.0305582964167233,
+      "pass": false,
+      "gen_kurtosis_delta_vs_146b": 63.18243408203125,
+      "kurtosis_ratio_delta_vs_146b": 0.8202557443024479
+    },
+    "149c": {
+      "gt_kurtosis": 77.02772521972656,
+      "gen_kurtosis": 256.8345642089844,
+      "kurtosis_ratio": 3.3343132421001296,
+      "pass": false,
+      "gen_kurtosis_delta_vs_146b": 163.6077117919922,
+      "kurtosis_ratio_delta_vs_146b": 2.1240106899858544
+    }
+  },
+  "per_cell_top5_highest_kurtosis_ratio": {
+    "146b": [
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 7.097798824310303
+      },
+      {
+        "row": 0,
+        "col": 0,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T0(short)",
+        "value": 1.644135594367981
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 1.4448140859603882
+      },
+      {
+        "row": 0,
+        "col": 2,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T2",
+        "value": 1.1514058113098145
+      },
+      {
+        "row": 1,
+        "col": 2,
+        "moneyness": "M1",
+        "tenor": "T2",
+        "value": 1.1422115564346313
+      }
+    ],
+    "149a": [
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 12.735121726989746
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": 3.6849961280822754
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 3.028576374053955
+      },
+      {
+        "row": 0,
+        "col": 2,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T2",
+        "value": 2.8469531536102295
+      },
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 2.3392412662506104
+      }
+    ],
+    "149b": [
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 13.63123893737793
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 3.635995626449585
+      },
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 2.8841230869293213
+      },
+      {
+        "row": 1,
+        "col": 0,
+        "moneyness": "M1",
+        "tenor": "T0(short)",
+        "value": 2.7162604331970215
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": 2.3665199279785156
+      }
+    ],
+    "149c": [
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 19.752267837524414
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": 9.033459663391113
+      },
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 6.297226428985596
+      },
+      {
+        "row": 1,
+        "col": 0,
+        "moneyness": "M1",
+        "tenor": "T0(short)",
+        "value": 5.6735358238220215
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 4.431476593017578
+      }
+    ]
+  },
+  "per_cell_top5_lowest_kurtosis_ratio": {
+    "146b": [
+      {
+        "row": 4,
+        "col": 3,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T3",
+        "value": 0.02534560114145279
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T4(long)",
+        "value": 0.05863416567444801
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": 0.22846440970897675
+      },
+      {
+        "row": 0,
+        "col": 1,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T1",
+        "value": 0.23311446607112885
+      },
+      {
+        "row": 2,
+        "col": 0,
+        "moneyness": "M2(ATM)",
+        "tenor": "T0(short)",
+        "value": 0.2693968713283539
+      }
+    ],
+    "149a": [
+      {
+        "row": 4,
+        "col": 3,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T3",
+        "value": 0.06708727031946182
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T4(long)",
+        "value": 0.1966658979654312
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "moneyness": "M3",
+        "tenor": "T3",
+        "value": 0.578259289264679
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "moneyness": "M2(ATM)",
+        "tenor": "T1",
+        "value": 0.5815335512161255
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": 0.614521324634552
+      }
+    ],
+    "149b": [
+      {
+        "row": 4,
+        "col": 3,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T3",
+        "value": 0.05914047360420227
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T4(long)",
+        "value": 0.17448391020298004
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "moneyness": "M1",
+        "tenor": "T3",
+        "value": 0.37760183215141296
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "moneyness": "M2(ATM)",
+        "tenor": "T3",
+        "value": 0.3882821798324585
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "moneyness": "M3",
+        "tenor": "T3",
+        "value": 0.4351338744163513
+      }
+    ],
+    "149c": [
+      {
+        "row": 4,
+        "col": 3,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T3",
+        "value": 0.09048730880022049
+      },
+      {
+        "row": 4,
+        "col": 4,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T4(long)",
+        "value": 0.3965136408805847
+      },
+      {
+        "row": 3,
+        "col": 3,
+        "moneyness": "M3",
+        "tenor": "T3",
+        "value": 0.740338146686554
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "moneyness": "M2(ATM)",
+        "tenor": "T3",
+        "value": 0.8411771059036255
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": 0.8486015200614929
+      }
+    ]
+  },
+  "kurtosis_delta_grids_vs_146b": {
+    "149a": {
+      "delta_grid": [
+        [
+          0.6211484670639038,
+          0.5110359340906143,
+          1.695547342300415,
+          5.637322902679443,
+          1.4168622493743896
+        ],
+        [
+          1.5869866609573364,
+          0.42461851239204407,
+          0.5502355098724365,
+          1.0458104312419891,
+          1.1413731276988983
+        ],
+        [
+          0.717892974615097,
+          0.2778313159942627,
+          0.0787615180015564,
+          0.42323821783065796,
+          1.583762288093567
+        ],
+        [
+          0.7276746928691864,
+          0.40401196479797363,
+          0.43191763758659363,
+          0.23695284128189087,
+          0.45777273178100586
+        ],
+        [
+          2.760620951652527,
+          0.6185661554336548,
+          0.38605691492557526,
+          0.04174166917800903,
+          0.1380317322909832
+        ]
+      ],
+      "top5_increase": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "value": 5.637322902679443
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "value": 2.760620951652527
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "value": 1.695547342300415
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "value": 1.5869866609573364
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "value": 1.583762288093567
+        }
+      ],
+      "top5_decrease": [
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "value": 0.04174166917800903
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "moneyness": "M2(ATM)",
+          "tenor": "T2",
+          "value": 0.0787615180015564
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "value": 0.1380317322909832
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "moneyness": "M3",
+          "tenor": "T3",
+          "value": 0.23695284128189087
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "moneyness": "M2(ATM)",
+          "tenor": "T1",
+          "value": 0.2778313159942627
+        }
+      ]
+    },
+    "149b": {
+      "delta_grid": [
+        [
+          0.2928290367126465,
+          0.5422814637422562,
+          -0.01776444911956787,
+          6.533440113067627,
+          1.9617440700531006
+        ],
+        [
+          2.0486162900924683,
+          0.16520413756370544,
+          -0.3521164655685425,
+          -0.027481257915496826,
+          1.0168105065822601
+        ],
+        [
+          0.3975042402744293,
+          0.1658737063407898,
+          -0.2341378927230835,
+          0.07299017906188965,
+          2.1911815404891968
+        ],
+        [
+          0.37912294268608093,
+          0.24708408117294312,
+          0.2092028558254242,
+          0.09382742643356323,
+          0.29102325439453125
+        ],
+        [
+          1.442144751548767,
+          0.47269654273986816,
+          0.31186939775943756,
+          0.03379487246274948,
+          0.11584974452853203
+        ]
+      ],
+      "top5_increase": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "value": 6.533440113067627
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "value": 2.1911815404891968
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "value": 2.0486162900924683
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "value": 1.9617440700531006
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "value": 1.442144751548767
+        }
+      ],
+      "top5_decrease": [
+        {
+          "row": 1,
+          "col": 2,
+          "moneyness": "M1",
+          "tenor": "T2",
+          "value": -0.3521164655685425
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "moneyness": "M2(ATM)",
+          "tenor": "T2",
+          "value": -0.2341378927230835
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "moneyness": "M1",
+          "tenor": "T3",
+          "value": -0.027481257915496826
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "value": -0.01776444911956787
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "value": 0.03379487246274948
+        }
+      ]
+    },
+    "149c": {
+      "delta_grid": [
+        [
+          1.6456278562545776,
+          2.538116231560707,
+          3.2315874099731445,
+          12.654469013214111,
+          5.374847412109375
+        ],
+        [
+          5.005891680717468,
+          1.6479062736034393,
+          2.5807827711105347,
+          0.4600416123867035,
+          2.1436582505702972
+        ],
+        [
+          2.088106542825699,
+          1.0776095390319824,
+          1.063523292541504,
+          0.5258851051330566,
+          2.98666250705719
+        ],
+        [
+          1.9757700860500336,
+          1.0019593238830566,
+          0.7769441306591034,
+          0.39903169870376587,
+          0.806037187576294
+        ],
+        [
+          8.109084486961365,
+          1.7984269857406616,
+          0.6201371103525162,
+          0.0651417076587677,
+          0.3378794752061367
+        ]
+      ],
+      "top5_increase": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "value": 12.654469013214111
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "value": 8.109084486961365
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "value": 5.374847412109375
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "value": 5.005891680717468
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "value": 3.2315874099731445
+        }
+      ],
+      "top5_decrease": [
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "value": 0.0651417076587677
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "value": 0.3378794752061367
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "moneyness": "M3",
+          "tenor": "T3",
+          "value": 0.39903169870376587
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "moneyness": "M1",
+          "tenor": "T3",
+          "value": 0.4600416123867035
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "moneyness": "M2(ATM)",
+          "tenor": "T3",
+          "value": 0.5258851051330566
+        }
+      ]
+    }
+  },
+  "consistent_high_kurtosis_cells_across_models": [
+    {
+      "row": 0,
+      "col": 3,
+      "moneyness": "M0(OTM_put)",
+      "tenor": "T3",
+      "model_count": 4
+    },
+    {
+      "row": 2,
+      "col": 4,
+      "moneyness": "M2(ATM)",
+      "tenor": "T4(long)",
+      "model_count": 4
+    },
+    {
+      "row": 0,
+      "col": 4,
+      "moneyness": "M0(OTM_put)",
+      "tenor": "T4(long)",
+      "model_count": 3
+    },
+    {
+      "row": 4,
+      "col": 0,
+      "moneyness": "M4(OTM_call)",
+      "tenor": "T0(short)",
+      "model_count": 3
+    },
+    {
+      "row": 0,
+      "col": 2,
+      "moneyness": "M0(OTM_put)",
+      "tenor": "T2",
+      "model_count": 2
+    },
+    {
+      "row": 1,
+      "col": 0,
+      "moneyness": "M1",
+      "tenor": "T0(short)",
+      "model_count": 2
+    }
+  ],
+  "moneyness_pattern": {
+    "146b": [
+      {
+        "moneyness": "M0(OTM_put)",
+        "avg_kurtosis_ratio": 2.2097667425870897
+      },
+      {
+        "moneyness": "M1",
+        "avg_kurtosis_ratio": 0.6094910800457001
+      },
+      {
+        "moneyness": "M2(ATM)",
+        "avg_kurtosis_ratio": 0.6353476941585541
+      },
+      {
+        "moneyness": "M3",
+        "avg_kurtosis_ratio": 0.40449646711349485
+      },
+      {
+        "moneyness": "M4(OTM_call)",
+        "avg_kurtosis_ratio": 0.33016022965312003
+      }
+    ],
+    "149a": [
+      {
+        "moneyness": "M0(OTM_put)",
+        "avg_kurtosis_ratio": 4.186150121688843
+      },
+      {
+        "moneyness": "M1",
+        "avg_kurtosis_ratio": 1.559295928478241
+      },
+      {
+        "moneyness": "M2(ATM)",
+        "avg_kurtosis_ratio": 1.2516449570655823
+      },
+      {
+        "moneyness": "M3",
+        "avg_kurtosis_ratio": 0.8561624407768249
+      },
+      {
+        "moneyness": "M4(OTM_call)",
+        "avg_kurtosis_ratio": 1.1191637143492699
+      }
+    ],
+    "149b": [
+      {
+        "moneyness": "M0(OTM_put)",
+        "avg_kurtosis_ratio": 4.072272789478302
+      },
+      {
+        "moneyness": "M1",
+        "avg_kurtosis_ratio": 1.179697722196579
+      },
+      {
+        "moneyness": "M2(ATM)",
+        "avg_kurtosis_ratio": 1.1540300488471984
+      },
+      {
+        "moneyness": "M3",
+        "avg_kurtosis_ratio": 0.6485485792160034
+      },
+      {
+        "moneyness": "M4(OTM_call)",
+        "avg_kurtosis_ratio": 0.8054312914609909
+      }
+    ],
+    "149c": [
+      {
+        "moneyness": "M0(OTM_put)",
+        "avg_kurtosis_ratio": 7.2986963272094725
+      },
+      {
+        "moneyness": "M1",
+        "avg_kurtosis_ratio": 2.9771471977233888
+      },
+      {
+        "moneyness": "M2(ATM)",
+        "avg_kurtosis_ratio": 2.1837050914764404
+      },
+      {
+        "moneyness": "M3",
+        "avg_kurtosis_ratio": 1.3964449524879456
+      },
+      {
+        "moneyness": "M4(OTM_call)",
+        "avg_kurtosis_ratio": 2.5162941828370093
+      }
+    ]
+  },
+  "tenor_pattern": {
+    "146b": [
+      {
+        "tenor": "T0(short)",
+        "avg_kurtosis_ratio": 0.7633771657943725
+      },
+      {
+        "tenor": "T1",
+        "avg_kurtosis_ratio": 0.34020903408527375
+      },
+      {
+        "tenor": "T2",
+        "avg_kurtosis_ratio": 0.7720608860254288
+      },
+      {
+        "tenor": "T3",
+        "avg_kurtosis_ratio": 1.6369651928544044
+      },
+      {
+        "tenor": "T4(long)",
+        "avg_kurtosis_ratio": 0.6766499347984791
+      }
+    ],
+    "149a": [
+      {
+        "tenor": "T0(short)",
+        "avg_kurtosis_ratio": 2.0462419152259828
+      },
+      {
+        "tenor": "T1",
+        "avg_kurtosis_ratio": 0.7874218106269837
+      },
+      {
+        "tenor": "T2",
+        "avg_kurtosis_ratio": 1.4005646705627441
+      },
+      {
+        "tenor": "T3",
+        "avg_kurtosis_ratio": 3.1139784052968027
+      },
+      {
+        "tenor": "T4(long)",
+        "avg_kurtosis_ratio": 1.624210360646248
+      }
+    ],
+    "149b": [
+      {
+        "tenor": "T0(short)",
+        "avg_kurtosis_ratio": 1.675420618057251
+      },
+      {
+        "tenor": "T1",
+        "avg_kurtosis_ratio": 0.6588370203971863
+      },
+      {
+        "tenor": "T2",
+        "avg_kurtosis_ratio": 0.7554715752601624
+      },
+      {
+        "tenor": "T3",
+        "avg_kurtosis_ratio": 2.9782794594764708
+      },
+      {
+        "tenor": "T4(long)",
+        "avg_kurtosis_ratio": 1.7919717580080032
+      }
+    ],
+    "149c": [
+      {
+        "tenor": "T0(short)",
+        "avg_kurtosis_ratio": 4.528273296356201
+      },
+      {
+        "tenor": "T1",
+        "avg_kurtosis_ratio": 1.9530127048492432
+      },
+      {
+        "tenor": "T2",
+        "avg_kurtosis_ratio": 2.4266558289527893
+      },
+      {
+        "tenor": "T3",
+        "avg_kurtosis_ratio": 4.457879020273685
+      },
+      {
+        "tenor": "T4(long)",
+        "avg_kurtosis_ratio": 3.0064669013023377
+      }
+    ]
+  },
+  "out_of_range_analysis": {
+    "146b": {
+      "fraction_out_of_range": 0.64,
+      "n_out_of_range": 16,
+      "out_of_range_cells": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "ratio": 7.097798824310303
+        },
+        {
+          "row": 3,
+          "col": 2,
+          "moneyness": "M3",
+          "tenor": "T2",
+          "ratio": 0.49468937516212463
+        },
+        {
+          "row": 1,
+          "col": 4,
+          "moneyness": "M1",
+          "tenor": "T4(long)",
+          "ratio": 0.45624223351478577
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T1",
+          "ratio": 0.4139817953109741
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "moneyness": "M1",
+          "tenor": "T3",
+          "ratio": 0.4050830900669098
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "moneyness": "M1",
+          "tenor": "T1",
+          "ratio": 0.37627437710762024
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "moneyness": "M3",
+          "tenor": "T1",
+          "ratio": 0.3739722967147827
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "moneyness": "M3",
+          "tenor": "T3",
+          "ratio": 0.3413064479827881
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "moneyness": "M2(ATM)",
+          "tenor": "T3",
+          "ratio": 0.31529200077056885
+        },
+        {
+          "row": 3,
+          "col": 0,
+          "moneyness": "M3",
+          "tenor": "T0(short)",
+          "ratio": 0.3113340437412262
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "moneyness": "M2(ATM)",
+          "tenor": "T1",
+          "ratio": 0.3037022352218628
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "moneyness": "M2(ATM)",
+          "tenor": "T0(short)",
+          "ratio": 0.2693968713283539
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T1",
+          "ratio": 0.23311446607112885
+        },
+        {
+          "row": 4,
+          "col": 2,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T2",
+          "ratio": 0.22846440970897675
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "ratio": 0.05863416567444801
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "ratio": 0.02534560114145279
+        }
+      ]
+    },
+    "149a": {
+      "fraction_out_of_range": 0.36,
+      "n_out_of_range": 9,
+      "out_of_range_cells": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "ratio": 12.735121726989746
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "ratio": 3.6849961280822754
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "ratio": 3.028576374053955
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "ratio": 2.8469531536102295
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "ratio": 2.3392412662506104
+        },
+        {
+          "row": 0,
+          "col": 0,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T0(short)",
+          "ratio": 2.2652840614318848
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "ratio": 2.2546308040618896
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "ratio": 0.1966658979654312
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "ratio": 0.06708727031946182
+        }
+      ]
+    },
+    "149b": {
+      "fraction_out_of_range": 0.44,
+      "n_out_of_range": 11,
+      "out_of_range_cells": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "ratio": 13.63123893737793
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "ratio": 3.635995626449585
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "ratio": 2.8841230869293213
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "ratio": 2.7162604331970215
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "ratio": 2.3665199279785156
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "moneyness": "M2(ATM)",
+          "tenor": "T1",
+          "ratio": 0.4695759415626526
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "moneyness": "M3",
+          "tenor": "T3",
+          "ratio": 0.4351338744163513
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "moneyness": "M2(ATM)",
+          "tenor": "T3",
+          "ratio": 0.3882821798324585
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "moneyness": "M1",
+          "tenor": "T3",
+          "ratio": 0.37760183215141296
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "ratio": 0.17448391020298004
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "ratio": 0.05914047360420227
+        }
+      ]
+    },
+    "149c": {
+      "fraction_out_of_range": 0.64,
+      "n_out_of_range": 16,
+      "out_of_range_cells": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "ratio": 19.752267837524414
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "ratio": 9.033459663391113
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "ratio": 6.297226428985596
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "ratio": 5.6735358238220215
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "ratio": 4.431476593017578
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "ratio": 4.382993221282959
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "moneyness": "M1",
+          "tenor": "T2",
+          "ratio": 3.722994327545166
+        },
+        {
+          "row": 0,
+          "col": 0,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T0(short)",
+          "ratio": 3.2897634506225586
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T1",
+          "ratio": 2.771230697631836
+        },
+        {
+          "row": 1,
+          "col": 4,
+          "moneyness": "M1",
+          "tenor": "T4(long)",
+          "ratio": 2.599900484085083
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "moneyness": "M2(ATM)",
+          "tenor": "T0(short)",
+          "ratio": 2.3575034141540527
+        },
+        {
+          "row": 3,
+          "col": 0,
+          "moneyness": "M3",
+          "tenor": "T0(short)",
+          "ratio": 2.2871041297912598
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T1",
+          "ratio": 2.2124087810516357
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "moneyness": "M1",
+          "tenor": "T1",
+          "ratio": 2.0241806507110596
+        },
+        {
+          "row": 4,
+          "col": 4,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T4(long)",
+          "ratio": 0.3965136408805847
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T3",
+          "ratio": 0.09048730880022049
+        }
+      ]
+    }
+  },
+  "concentration_assessment": {
+    "146b": {
+      "mean_ratio": 0.8378524427115918,
+      "max_ratio": 7.097798824310303,
+      "std_ratio": 1.3419635693406997,
+      "cv": 1.6016705340114819,
+      "max_over_mean": 8.4714186681121,
+      "top1_excess_share": 0.8151738736233295,
+      "assessment": "CONCENTRATED"
+    },
+    "149a": {
+      "mean_ratio": 1.7944834324717522,
+      "max_ratio": 12.735121726989746,
+      "std_ratio": 2.4077619877307646,
+      "cv": 1.341757713758478,
+      "max_over_mean": 7.09681766715905,
+      "top1_excess_share": 0.48963019694067844,
+      "assessment": "CONCENTRATED"
+    },
+    "149b": {
+      "mean_ratio": 1.5719960862398148,
+      "max_ratio": 13.63123893737793,
+      "std_ratio": 2.6221437799995106,
+      "cv": 1.6680345472561764,
+      "max_over_mean": 8.671293177315471,
+      "top1_excess_share": 0.5800053644133576,
+      "assessment": "CONCENTRATED"
+    },
+    "149c": {
+      "mean_ratio": 3.274457550346851,
+      "max_ratio": 19.752267837524414,
+      "std_ratio": 3.934224779608685,
+      "cv": 1.2014890158499527,
+      "max_over_mean": 6.032225959207237,
+      "top1_excess_share": 0.31740898660073597,
+      "assessment": "MIXED"
+    }
+  },
+  "per_cell_skew_top5": {
+    "146b": [
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 13.80827522277832
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 7.1833930015563965
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 4.774345397949219
+      },
+      {
+        "row": 0,
+        "col": 0,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T0(short)",
+        "value": 3.4625205993652344
+      },
+      {
+        "row": 1,
+        "col": 0,
+        "moneyness": "M1",
+        "tenor": "T0(short)",
+        "value": 1.3026037216186523
+      }
+    ],
+    "149a": [
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 12.207756996154785
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": 6.5491042137146
+      },
+      {
+        "row": 0,
+        "col": 0,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T0(short)",
+        "value": 5.722626686096191
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 4.878312110900879
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 4.10346794128418
+      }
+    ],
+    "149b": [
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 15.655915260314941
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 6.008459568023682
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 5.831046104431152
+      },
+      {
+        "row": 0,
+        "col": 0,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T0(short)",
+        "value": 3.604146718978882
+      },
+      {
+        "row": 1,
+        "col": 0,
+        "moneyness": "M1",
+        "tenor": "T0(short)",
+        "value": 2.1772022247314453
+      }
+    ],
+    "149c": [
+      {
+        "row": 0,
+        "col": 4,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T4(long)",
+        "value": 18.898815155029297
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": 16.174835205078125
+      },
+      {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 2.810245990753174
+      },
+      {
+        "row": 2,
+        "col": 4,
+        "moneyness": "M2(ATM)",
+        "tenor": "T4(long)",
+        "value": 2.8080410957336426
+      },
+      {
+        "row": 0,
+        "col": 0,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T0(short)",
+        "value": 2.4545984268188477
+      }
+    ]
+  },
+  "per_cell_skew_bottom5": {
+    "146b": [
+      {
+        "row": 1,
+        "col": 4,
+        "moneyness": "M1",
+        "tenor": "T4(long)",
+        "value": -6.094065189361572
+      },
+      {
+        "row": 4,
+        "col": 0,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T0(short)",
+        "value": -4.5872979164123535
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T1",
+        "value": -1.9218542575836182
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": -0.710828423500061
+      },
+      {
+        "row": 1,
+        "col": 3,
+        "moneyness": "M1",
+        "tenor": "T3",
+        "value": 0.07613182067871094
+      }
+    ],
+    "149a": [
+      {
+        "row": 1,
+        "col": 4,
+        "moneyness": "M1",
+        "tenor": "T4(long)",
+        "value": -3.940490484237671
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T1",
+        "value": -3.3034868240356445
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": -0.8290665745735168
+      },
+      {
+        "row": 2,
+        "col": 1,
+        "moneyness": "M2(ATM)",
+        "tenor": "T1",
+        "value": 0.1806524097919464
+      },
+      {
+        "row": 2,
+        "col": 2,
+        "moneyness": "M2(ATM)",
+        "tenor": "T2",
+        "value": 0.22695808112621307
+      }
+    ],
+    "149b": [
+      {
+        "row": 1,
+        "col": 4,
+        "moneyness": "M1",
+        "tenor": "T4(long)",
+        "value": -6.88792085647583
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T1",
+        "value": -3.598121166229248
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": -0.2829130291938782
+      },
+      {
+        "row": 0,
+        "col": 2,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T2",
+        "value": -0.14311546087265015
+      },
+      {
+        "row": 1,
+        "col": 2,
+        "moneyness": "M1",
+        "tenor": "T2",
+        "value": -0.12619104981422424
+      }
+    ],
+    "149c": [
+      {
+        "row": 1,
+        "col": 4,
+        "moneyness": "M1",
+        "tenor": "T4(long)",
+        "value": -7.047672748565674
+      },
+      {
+        "row": 4,
+        "col": 1,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T1",
+        "value": -2.655693769454956
+      },
+      {
+        "row": 0,
+        "col": 2,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T2",
+        "value": -0.568958044052124
+      },
+      {
+        "row": 2,
+        "col": 3,
+        "moneyness": "M2(ATM)",
+        "tenor": "T3",
+        "value": -0.14487215876579285
+      },
+      {
+        "row": 4,
+        "col": 2,
+        "moneyness": "M4(OTM_call)",
+        "tenor": "T2",
+        "value": -0.1256689429283142
+      }
+    ]
+  },
+  "full_per_cell_ratio_grids": {
+    "146b": [
+      [
+        1.644135594367981,
+        0.23311446607112885,
+        1.1514058113098145,
+        7.097798824310303,
+        0.9223790168762207
+      ],
+      [
+        0.6676441431045532,
+        0.37627437710762024,
+        1.1422115564346313,
+        0.4050830900669098,
+        0.45624223351478577
+      ],
+      [
+        0.2693968713283539,
+        0.3037022352218628,
+        0.8435332775115967,
+        0.31529200077056885,
+        1.4448140859603882
+      ],
+      [
+        0.3113340437412262,
+        0.3739722967147827,
+        0.49468937516212463,
+        0.3413064479827881,
+        0.5011801719665527
+      ],
+      [
+        0.9243751764297485,
+        0.4139817953109741,
+        0.22846440970897675,
+        0.02534560114145279,
+        0.05863416567444801
+      ]
+    ],
+    "149a": [
+      [
+        2.2652840614318848,
+        0.7441504001617432,
+        2.8469531536102295,
+        12.735121726989746,
+        2.3392412662506104
+      ],
+      [
+        2.2546308040618896,
+        0.8008928894996643,
+        1.6924470663070679,
+        1.450893521308899,
+        1.597615361213684
+      ],
+      [
+        0.9872898459434509,
+        0.5815335512161255,
+        0.9222947955131531,
+        0.7385302186012268,
+        3.028576374053955
+      ],
+      [
+        1.0390087366104126,
+        0.7779842615127563,
+        0.9266070127487183,
+        0.578259289264679,
+        0.9589529037475586
+      ],
+      [
+        3.6849961280822754,
+        1.032547950744629,
+        0.614521324634552,
+        0.06708727031946182,
+        0.1966658979654312
+      ]
+    ],
+    "149b": [
+      [
+        1.9369646310806274,
+        0.775395929813385,
+        1.1336413621902466,
+        13.63123893737793,
+        2.8841230869293213
+      ],
+      [
+        2.7162604331970215,
+        0.5414785146713257,
+        0.7900950908660889,
+        0.37760183215141296,
+        1.473052740097046
+      ],
+      [
+        0.6669011116027832,
+        0.4695759415626526,
+        0.6093953847885132,
+        0.3882821798324585,
+        3.635995626449585
+      ],
+      [
+        0.6904569864273071,
+        0.6210563778877258,
+        0.7038922309875488,
+        0.4351338744163513,
+        0.792203426361084
+      ],
+      [
+        2.3665199279785156,
+        0.8866783380508423,
+        0.5403338074684143,
+        0.05914047360420227,
+        0.17448391020298004
+      ]
+    ],
+    "149c": [
+      [
+        3.2897634506225586,
+        2.771230697631836,
+        4.382993221282959,
+        19.752267837524414,
+        6.297226428985596
+      ],
+      [
+        5.6735358238220215,
+        2.0241806507110596,
+        3.722994327545166,
+        0.8651247024536133,
+        2.599900484085083
+      ],
+      [
+        2.3575034141540527,
+        1.3813117742538452,
+        1.9070565700531006,
+        0.8411771059036255,
+        4.431476593017578
+      ],
+      [
+        2.2871041297912598,
+        1.3759316205978394,
+        1.271633505821228,
+        0.740338146686554,
+        1.3072173595428467
+      ],
+      [
+        9.033459663391113,
+        2.2124087810516357,
+        0.8486015200614929,
+        0.09048730880022049,
+        0.3965136408805847
+      ]
+    ]
+  },
+  "full_per_cell_skew_ratio_grids": {
+    "146b": [
+      [
+        3.4625205993652344,
+        0.5388977527618408,
+        0.14126341044902802,
+        4.774345397949219,
+        13.80827522277832
+      ],
+      [
+        1.3026037216186523,
+        0.21788761019706726,
+        0.17482630908489227,
+        0.07613182067871094,
+        -6.094065189361572
+      ],
+      [
+        0.6567991375923157,
+        0.2545260488986969,
+        0.30050697922706604,
+        0.1215641126036644,
+        7.1833930015563965
+      ],
+      [
+        0.7969779372215271,
+        0.34679561853408813,
+        0.2804933190345764,
+        0.19454582035541534,
+        0.38219213485717773
+      ],
+      [
+        -4.5872979164123535,
+        -1.9218542575836182,
+        -0.710828423500061,
+        0.2853281795978546,
+        0.18303841352462769
+      ]
+    ],
+    "149a": [
+      [
+        5.722626686096191,
+        0.4931102991104126,
+        0.8833200335502625,
+        4.10346794128418,
+        12.207756996154785
+      ],
+      [
+        1.7167085409164429,
+        0.23443008959293365,
+        0.412061482667923,
+        0.4837667644023895,
+        -3.940490484237671
+      ],
+      [
+        0.7450833916664124,
+        0.1806524097919464,
+        0.22695808112621307,
+        0.22758807241916656,
+        4.878312110900879
+      ],
+      [
+        1.0851749181747437,
+        0.28064000606536865,
+        0.2416260689496994,
+        0.29820653796195984,
+        0.6963483691215515
+      ],
+      [
+        6.5491042137146,
+        -3.3034868240356445,
+        -0.8290665745735168,
+        0.4626113176345825,
+        0.26310497522354126
+      ]
+    ],
+    "149b": [
+      [
+        3.604146718978882,
+        0.7346136569976807,
+        -0.14311546087265015,
+        6.008459568023682,
+        15.655915260314941
+      ],
+      [
+        2.1772022247314453,
+        0.16420377790927887,
+        -0.12619104981422424,
+        -0.04092973470687866,
+        -6.88792085647583
+      ],
+      [
+        0.6890520453453064,
+        0.1339271068572998,
+        -0.06026053428649902,
+        -0.07773181051015854,
+        5.831046104431152
+      ],
+      [
+        0.6951870918273926,
+        0.10149257630109787,
+        0.006872447207570076,
+        -0.02357243187725544,
+        0.3079705834388733
+      ],
+      [
+        1.3844250440597534,
+        -3.598121166229248,
+        -0.2829130291938782,
+        0.11706218868494034,
+        0.2212657779455185
+      ]
+    ],
+    "149c": [
+      [
+        2.4545984268188477,
+        1.0267308950424194,
+        -0.568958044052124,
+        2.810245990753174,
+        18.898815155029297
+      ],
+      [
+        1.9490572214126587,
+        0.41286447644233704,
+        -0.10123848915100098,
+        -0.05231322720646858,
+        -7.047672748565674
+      ],
+      [
+        1.034092664718628,
+        0.2790428698062897,
+        -0.05473131686449051,
+        -0.14487215876579285,
+        2.8080410957336426
+      ],
+      [
+        1.0285859107971191,
+        0.1322735697031021,
+        -0.036295682191848755,
+        -0.09186803549528122,
+        -0.02563716657459736
+      ],
+      [
+        16.174835205078125,
+        -2.655693769454956,
+        -0.1256689429283142,
+        0.030018918216228485,
+        0.11659906059503555
+      ]
+    ]
+  },
+  "key_findings": {
+    "q1_which_cells_highest_each_model": {
+      "146b": {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 7.097798824310303
+      },
+      "149a": {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 12.735121726989746
+      },
+      "149b": {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 13.63123893737793
+      },
+      "149c": {
+        "row": 0,
+        "col": 3,
+        "moneyness": "M0(OTM_put)",
+        "tenor": "T3",
+        "value": 19.752267837524414
+      }
+    },
+    "q2_same_cells_across_models": {
+      "answer": "YES",
+      "dominant_cell": "row=0 col=3 (M0(OTM_put), T3)",
+      "cells_appearing_in_3plus_models": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "model_count": 4
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "model_count": 4
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "model_count": 3
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "model_count": 3
+        }
+      ],
+      "cells_appearing_in_2plus_models": [
+        {
+          "row": 0,
+          "col": 3,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T3",
+          "model_count": 4
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "moneyness": "M2(ATM)",
+          "tenor": "T4(long)",
+          "model_count": 4
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T4(long)",
+          "model_count": 3
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "moneyness": "M4(OTM_call)",
+          "tenor": "T0(short)",
+          "model_count": 3
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "moneyness": "M0(OTM_put)",
+          "tenor": "T2",
+          "model_count": 2
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "moneyness": "M1",
+          "tenor": "T0(short)",
+          "model_count": 2
+        }
+      ]
+    },
+    "q3_moneyness_tenor_pattern": {
+      "description": "Blowup concentrated in specific (moneyness, tenor) combination",
+      "blowup_146b": "row=0 col=3 val=7.098",
+      "blowup_149c": "row=0 col=3 val=19.752",
+      "moneyness_at_blowup": "M0(OTM_put)",
+      "tenor_at_blowup": "T3"
+    },
+    "q4_kurtosis_delta_grids_summary": {
+      "149a": {
+        "largest_increase_cell": "row=0 col=3 (M0(OTM_put), T3) delta=5.637"
+      },
+      "149b": {
+        "largest_increase_cell": "row=0 col=3 (M0(OTM_put), T3) delta=6.533"
+      },
+      "149c": {
+        "largest_increase_cell": "row=0 col=3 (M0(OTM_put), T3) delta=12.654"
+      }
+    },
+    "q5_concentrated_or_distributed": {
+      "146b": {
+        "assessment": "CONCENTRATED",
+        "top1_excess_share": 0.8151738736233295,
+        "cv": 1.6016705340114819,
+        "n_out_of_range": 16
+      },
+      "149a": {
+        "assessment": "CONCENTRATED",
+        "top1_excess_share": 0.48963019694067844,
+        "cv": 1.341757713758478,
+        "n_out_of_range": 9
+      },
+      "149b": {
+        "assessment": "CONCENTRATED",
+        "top1_excess_share": 0.5800053644133576,
+        "cv": 1.6680345472561764,
+        "n_out_of_range": 11
+      },
+      "149c": {
+        "assessment": "MIXED",
+        "top1_excess_share": 0.31740898660073597,
+        "cv": 1.2014890158499527,
+        "n_out_of_range": 16
+      }
+    },
+    "actionability": {
+      "summary": "Kurtosis blowup is CONCENTRATED in 1-2 cells (primarily row=0,col=3 and row=0,col=4 \u2014 OTM-put x medium-to-long tenor). The same cell dominates across all models. This is potentially fixable by per-cell kurtosis constraint or clipping, but the single-cell dominance suggests a structural noise amplification issue at that specific strike-tenor combination, not a global decoder instability."
+    }
+  }
+}

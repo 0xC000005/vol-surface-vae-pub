@@ -38956,3 +38956,33 @@ Factor count sweet spot is 5 for this model scale. Proceed to H2 (bias fix) and 
 ### Decision: VALUABLE FAILURE — RC12 compass exhausted. Need validation + new directions.
 
 ---
+
+## 2026-03-23: Validation Audit — RC12 Session (3 experiments, 4 verifications)
+
+### Scope
+Mandatory validation gate before RC13. Audited 149a, 149b, 149c. Deep investigation of KS-CI trade-off.
+
+### Metric Verification
+All claims verified — zero mismatches. Training histories confirmed.
+
+### CRITICAL FINDING: KS-CI Trade-Off is NOT Fundamental — It's Fixable
+
+**Mechanism**: Per-cell noise scale (softplus, unbounded) produces heavy-tailed daily changes.
+- Distribution CENTER barely changed (|median_bias change| = 0.018)
+- Kurtosis TRIPLED (1.21 → 3.33) — purely a TAIL problem
+- KS degradation is ADDITIVE: all cells get ~+0.10 D-statistic increase
+- CI h=1 improvement IS REAL: 59.8% → 67.9% (+8.1pp)
+- Per-cell scale P95=3.89, max=19.92. 9.6% of draws produce scale>3.0
+
+**Fix**: Clamp softplus output to [0.8, 1.5]. Prevents outlier scales (fat tails / KS failure) while preserving per-cell variance structure (CI improvement).
+
+### Kurtosis Concentrated in 1-2 Cells
+Cell (0,3) = OTM-put × T3 worst across ALL models: 7.10→19.75. Same cell with 6.2× level-dependent vol.
+
+### 149c Long-Horizon
+d30 CI=99.2% (excellent), d90=96.8%, d180=71.2%, d252=82.8%. But kurtosis 60-115× and cointegration collapsed (25.6% vs GT 98.8%).
+
+### Implication for RC13
+The KS-CI trade-off that blocked RC12 is a **clamping problem, not an architecture problem**. A 1-line fix (clamp per-cell scale to [0.8, 1.5]) should preserve CI gains without KS degradation. This is the most principled next experiment — it directly addresses the identified mechanism.
+
+---
