@@ -1,0 +1,55 @@
+{
+  "verification_id": "148c_noise_scale",
+  "date": "2026-03-23",
+  "experiment": "148c",
+  "claim": "noise_scale_head learned 0.75x uniform suppression (CV=1.6%)",
+  "model_path": "/home/max/Documents/vol-surface-vae-pub/models/backfill/afcrps_148c/best_model.pt",
+  "script_path": "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/scripts/148c_noise_scale_analysis.sh",
+  "analysis_json": "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/analysis/148c_noise_scale/noise_scale_analysis.json",
+
+  "claim_sub_checks": {
+    "baseline_mean_approx_0755": {
+      "claim": "softplus(bias) mean ~ 0.755 +/- 0.012",
+      "measured": 0.7552354335784912,
+      "tolerance_low": 0.743,
+      "tolerance_high": 0.767,
+      "pass": true
+    },
+    "baseline_cv_below_5pct": {
+      "claim": "CV < 5% (nearly constant across 25 cells)",
+      "measured_cv_pct": 1.5419894212243823,
+      "threshold": 5.0,
+      "pass": true
+    },
+    "weight_norm_approx_1557": {
+      "claim": "Frobenius norm of weight ~ 15.57",
+      "measured": 15.566651344299316,
+      "tolerance_low": 14.0,
+      "tolerance_high": 17.0,
+      "pass": true
+    }
+  },
+  "overall_pass": true,
+
+  "key_measurements": {
+    "noise_scale_head_weight_shape": [25, 128],
+    "noise_scale_head_bias_shape": [25],
+    "baseline_scale_mean": 0.7552354335784912,
+    "baseline_scale_std": 0.011645650491118431,
+    "baseline_scale_cv_pct": 1.5419894212243823,
+    "baseline_scale_min": 0.7194827795028687,
+    "baseline_scale_max": 0.7711395621299744,
+    "weight_frobenius_norm": 15.566651344299316,
+    "weight_max_abs": 0.6979032754898071
+  },
+
+  "simulation_note": {
+    "description": "When conditioned on realistic random vectors z~N(0,I), the full softplus(Wz+b) output is highly variable (CV=118%, mean=1.54, p5=0.006, p95=5.36). The 0.75x suppression is the ZERO-CONDITIONING BASELINE. Under actual conditioning, the head produces a wide dynamic range — it is NOT uniformly suppressed at runtime. The bias term sets a ~0.755 floor, but the weight matrix (norm 15.57) allows large excursions.",
+    "simulated_global_mean": 1.5442421436309814,
+    "simulated_global_cv_pct": 117.50680541992188,
+    "simulated_p5": 0.006436315830796957,
+    "simulated_p95": 5.355358123779297
+  },
+
+  "verdict": "CLAIM VERIFIED (with important caveat). All three quantitative sub-checks PASS against the raw bias vector: baseline mean=0.755 (within 0.012), CV=1.54% (well below 5%), weight norm=15.57 (exact match to claim). The claim is accurate for the BIAS BASELINE. The caveat is that the full conditioned output is NOT uniformly ~0.75: with random conditioning vectors the head produces scales ranging from near-zero to 11.7 (CV=118%). The '0.75x uniform suppression' characterizes only the intercept/prior of the learned function."
+}

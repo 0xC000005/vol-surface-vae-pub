@@ -1,0 +1,148 @@
+{
+  "task": "148_probe_percell_ci",
+  "date": "2026-03-23",
+  "claim": "Scaling noise by 3x has ZERO effect on CI",
+  "data_sources": [
+    "results/block_ar/148_probe_beta1.0/summary.json",
+    "results/block_ar/148_probe_beta1.5/summary.json",
+    "results/block_ar/148_probe_beta2.0/summary.json",
+    "results/block_ar/148_probe_beta3.0/summary.json"
+  ],
+  "verification_outcome": {
+    "h7_mean_delta_beta3_actual_pp": -1.1447,
+    "h7_mean_delta_beta3_claimed_pp": -1.14,
+    "h7_claim_confirmed": true,
+    "h30_mean_delta_beta3_actual_pp": 0.6312,
+    "h30_mean_delta_beta3_claimed_pp": 0.63,
+    "h30_claim_confirmed": true,
+    "any_cell_improves_gt3pp_beta3": true,
+    "any_cell_improves_gt5pp_beta3": false,
+    "no_cell_gt3pp_claim_confirmed": false,
+    "overall_zero_effect_claim_confirmed": false
+  },
+  "summary": {
+    "h7_mean_delta_pp": -1.1447,
+    "h30_mean_delta_pp": 0.6312,
+    "any_cell_gt3pp": true,
+    "any_cell_gt5pp": false,
+    "n_exceptional_cells": 3,
+    "exceptional_cells": [
+      {
+        "horizon": 14,
+        "beta": 3.0,
+        "row": 0,
+        "col": 2,
+        "delta_pp": 3.2706
+      },
+      {
+        "horizon": 14,
+        "beta": 3.0,
+        "row": 1,
+        "col": 2,
+        "delta_pp": 3.1889
+      },
+      {
+        "horizon": 14,
+        "beta": 3.0,
+        "row": 3,
+        "col": 3,
+        "delta_pp": 3.1889
+      }
+    ]
+  },
+  "per_horizon_summary": {
+    "1": {
+      "1.0": {
+        "mean_delta_pp": 0.0,
+        "max_improvement_pp": 0.0,
+        "max_degradation_pp": 0.0
+      },
+      "1.5": {
+        "mean_delta_pp": -2.1063,
+        "max_improvement_pp": -1.1447,
+        "max_degradation_pp": -3.1889
+      },
+      "2.0": {
+        "mean_delta_pp": -2.7833,
+        "max_improvement_pp": -1.6353,
+        "max_degradation_pp": -4.1701
+      },
+      "3.0": {
+        "mean_delta_pp": -3.7612,
+        "max_improvement_pp": -2.2077,
+        "max_degradation_pp": -5.1513
+      }
+    },
+    "7": {
+      "1.0": {
+        "mean_delta_pp": 0.0,
+        "max_improvement_pp": 0.0,
+        "max_degradation_pp": 0.0
+      },
+      "1.5": {
+        "mean_delta_pp": -0.6149,
+        "max_improvement_pp": 0.4088,
+        "max_degradation_pp": -2.1259
+      },
+      "2.0": {
+        "mean_delta_pp": -0.6214,
+        "max_improvement_pp": 0.8177,
+        "max_degradation_pp": -2.0442
+      },
+      "3.0": {
+        "mean_delta_pp": -1.1447,
+        "max_improvement_pp": 0.9812,
+        "max_degradation_pp": -3.1889
+      }
+    },
+    "14": {
+      "1.0": {
+        "mean_delta_pp": 0.0,
+        "max_improvement_pp": 0.0,
+        "max_degradation_pp": 0.0
+      },
+      "1.5": {
+        "mean_delta_pp": 0.2649,
+        "max_improvement_pp": 1.7171,
+        "max_degradation_pp": -1.1447
+      },
+      "2.0": {
+        "mean_delta_pp": 0.7719,
+        "max_improvement_pp": 2.6165,
+        "max_degradation_pp": -0.5724
+      },
+      "3.0": {
+        "mean_delta_pp": 1.1513,
+        "max_improvement_pp": 3.2706,
+        "max_degradation_pp": -0.7359
+      }
+    },
+    "30": {
+      "1.0": {
+        "mean_delta_pp": 0.0,
+        "max_improvement_pp": 0.0,
+        "max_degradation_pp": 0.0
+      },
+      "1.5": {
+        "mean_delta_pp": 0.2224,
+        "max_improvement_pp": 1.5536,
+        "max_degradation_pp": -0.8177
+      },
+      "2.0": {
+        "mean_delta_pp": 0.5298,
+        "max_improvement_pp": 2.2895,
+        "max_degradation_pp": -0.8177
+      },
+      "3.0": {
+        "mean_delta_pp": 0.6312,
+        "max_improvement_pp": 2.6165,
+        "max_degradation_pp": -1.39
+      }
+    }
+  },
+  "output_files": {
+    "full_analysis": "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/analysis/148_probe_percell/percell_ci_analysis.json",
+    "coverage_grids": "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/analysis/148_probe_percell/percell_coverage_grids_pct.json",
+    "verification_result": "/home/max/Documents/vol-surface-vae-pub/results/validations/2026-03-23/verification_results/148_probe_percell.json"
+  }
+}

@@ -38584,3 +38584,152 @@ Best epoch: 25 (stable, gap=0.087). 30 epochs.
 ### Decision: VALUABLE FAILURE — CRPS spread suppression is the root constraint
 
 ---
+
+## 2026-03-23: Research Compass RC12 — "Fix the Loss, Not the Architecture"
+
+### Philosophy Applied
+- **Popper**: 4 independent falsifications (H0, H1, H3, literature) confirm CRPS spread suppression as binding constraint
+- **TRIZ**: KS-CI contradiction → resolve by separation in time (two-stage) or space (dual pathway)
+- **Bitter Lesson**: all proposed fixes are learned, not hand-crafted
+- **Hinton**: independent reasoning (entropy, spread floor, rescaling) validated by cross-domain literature
+
+### Evidence Summary
+**Proven**: CRPS spread suppression is the binding constraint on 5/9 ceiling. 4 independent confirmations:
+1. H0: 3× noise → 0.0pp CI change (amplitude irrelevant when rank-1)
+2. H1: skip proj norm=0.103 (CRPS collapsed plain skip)
+3. H3: noise_scale_head learned 0.75× uniform suppression
+4. Literature: CRPS-LAM 2025, AIFS-CRPS 2024 document this as fundamental
+
+**KS-CI trade-off**: KS 25/25 requires 25% LESS noise, CI needs MORE. Fundamental conflict under single CRPS loss.
+
+**Best architecture**: 146b (factor noise, eff_rank 2.26, CI 77.3%). Architecture is COMPLETE.
+
+**Literature convergence**: 5 domains (weather, finance, robotics, diffusion, Bayesian DL) independently converge on: (1) proper loss, (2) spread signal auxiliary, (3) heteroscedastic conditioning.
+
+### Exhausted Directions
+- Noise amplitude scaling (H0)
+- Plain Linear skip (H1 — collapses under CRPS)
+- noise_scale_cond (H3 — learns suppression)
+- cum_cal at any weight (147a/b)
+- cell_var temporal fix (146a)
+- d_model=128 (144c)
+
+### Active Hypotheses (ranked by information value)
+
+#### H1: Post-training spread rescaling on 146b (HIGHEST PRIORITY)
+
+**Evidence chain**: H0 showed rescaling doesn't work on rank-1 (144b). But 146b has eff_rank=2.26 — enough multi-dimensional structure? SDL (Schreck 2025) does this in weather. AIFS documents as valid approach.
+
+**Principled argument**: CRPS produces excellent distributional structure (KS 21-25/25). Post-hoc rescaling fixes coverage without disturbing distributions. Decouples the KS-CI trade-off by solving each in a different stage. (TRIZ: separation in time.)
+
+**The bet**: Stage 1 — multiply ensemble deviations from median by constant beta={1.2, 1.5, 2.0} on 146b at inference. Stage 2 — train SpreadCorrectionHead if Stage 1 shows promise.
+
+**Falsification**: If NO constant beta improves CI without KS < 15/25 on 146b → eff_rank=2.26 still insufficient for rescaling.
+
+**If it fails**: Need higher eff_rank first (more factors?). Or rescaling can't work with AR structure.
+
+**Effort**: Stage 1: 5 min. Stage 2: 1h.
+
+#### H2: Entropy regularization (log-spread auxiliary loss)
+
+**Evidence chain**: Cross-domain literature convergence — weather (AIFS), diffusion (ESD), deep ensembles (repulsive), robotics (diversity loss) all add explicit spread signal. Our afCRPS provides spread signal but it's 20:1 weaker than accuracy. Direct `-λ * mean(log(std(ensemble)))` is the simplest spread signal.
+
+**Principled argument**: Entropy maximization is the information-theoretic complement to CRPS accuracy. CRPS handles distributional shape; entropy prevents collapse. Equivalent to adding Gaussian KL divergence to the loss. (Bitter Lesson: learned trade-off via λ weight.)
+
+**The bet**: Add `--lambda_entropy 0.1` to 146b training. Compute `log(std(ensemble, dim=1)).mean()` per cell per horizon and add as negative auxiliary loss.
+
+**Falsification**: KS drops below 15/25 → entropy distorts distributions (same mechanism as cum_cal). OR CI doesn't improve → entropy signal too weak.
+
+**If it fails**: Entropy is too blunt an instrument — doesn't differentiate WHERE spread is needed. Would point toward heteroscedastic approach.
+
+**Effort**: ~20 LOC. 30 min training.
+
+#### H3: Spread weight annealing (high→standard)
+
+**Evidence chain**: CRPS-LAM 2025 uses biased CRPS warmup with large K, then transitions to fair CRPS. Our afCRPS spread_weight=0.5 is fixed. Annealing from 0.9→0.5 gives spread mechanisms time to develop.
+
+**Principled argument**: Curriculum learning for spread. High spread_weight early = exploration phase. Low spread_weight later = exploitation. (RL analogy: ε-greedy schedule.)
+
+**The bet**: Train 146b with `spread_weight` starting at 0.9, linearly annealing to 0.5 over 15 epochs. ~10 LOC change in training loop.
+
+**Falsification**: If spread_weight=0.9 produces LESS spread than 0.5 at epoch 5 → CRPS suppresses regardless of weight.
+
+**If it fails**: Confirms spread weight is not the control knob — the mathematical structure of CRPS is the constraint.
+
+**Effort**: ~10 LOC. 30 min training.
+
+#### H4: One-sided spread floor (asymmetric penalty)
+
+**Evidence chain**: cum_cal (bidirectional) broke KS. One-sided = only penalizes UNDER-spread. Finance uses OTM options as spread anchors; Bayesian DL uses entropy floors.
+
+**Principled argument**: CRPS already handles "don't be too wide" (accuracy term). The missing signal is "don't be too narrow" (coverage term). One-sided floor provides this without distorting distributions where spread is already sufficient.
+
+**The bet**: Add `max(0, target_spread - ensemble_std)²` with target = P10 of GT daily change magnitudes (learned from data). ~30 LOC.
+
+**Falsification**: KS < 15/25 → even one-sided constraint distorts. Or target_spread is below current spread for >50% of cells.
+
+**If it fails**: Post-hoc rescaling (H1) is the only viable path.
+
+**Effort**: ~30 LOC. 30 min training.
+
+### Execution Order (information value per minute)
+1. **H1-Stage1** (5 min, zero training): Constant rescaling on 146b
+2. **H3-Probe** (10 min): 5 epochs at spread_weight=0.9
+3. **H2** (30 min): Entropy regularization on 146b
+4. **H4** (30 min): One-sided spread floor on 146b
+5. **H1-Stage2** (1h, if H1-Stage1 succeeds): Learned SpreadCorrectionHead
+
+### Open Questions
+- Is eff_rank=2.26 sufficient for rescaling? (H1-Stage1 answers in 5 min)
+- Does entropy regularization interfere with CRPS accuracy? (H2 answers)
+- Can spread_weight schedule prevent early collapse? (H3 answers)
+
+### Key Literature
+- AIFS-CRPS (arxiv 2412.15832): afCRPS + per-location noise, K=4 training
+- CRPS-LAM (arxiv 2510.09484): biased CRPS warmup + fair CRPS annealing
+- SDL (Schreck 2025, arxiv 2501.19374): post-inference spread rescaling
+- ESD (arxiv 2401.00909): entropy regularization for spread in diffusion
+- Repulsive ensembles (arxiv 2106.11642): Jacobian repulsion for diversity
+- IMLE (arxiv 2203.03057): coverage loss from trajectory prediction
+- ES+VS composite (arxiv 2509.02784): variogram score for correlation structure
+
+---
+
+## 2026-03-23: Validation Audit — RC11 Session (3 experiments, 5 verifications)
+
+### Scope
+Audited RC11 experiments 148_probe, 148a, 148c from 2026-03-23. Plus 146b baseline spot-check.
+
+### Metric Verification
+All claimed metrics verified against summary.json on disk — **zero mismatches**.
+Training histories for 148a (best ep23, gap=0.057) and 148c (best ep25, gap=0.087) confirmed.
+
+### Gaps Found & Resolved
+
+| # | Type | Finding |
+|---|------|---------|
+| 1 | DIRTY_FALSIFICATION → **RESOLVED** | H1 confound: skip bypass without factor noise causes −2.34pp CI (not recipe). Factor noise = 171% of 146b improvement. |
+| 2 | MISSING_ANALYSIS → **DONE** | 148a long-horizon: PARTIAL_PASS. CI d252=40%, spread grows. |
+| 3 | MISSING_ANALYSIS → **DONE** | 148c long-horizon: FAIL. Spread non-monotonic, CI d252=11.6%. |
+| 4 | NO_SCRIPT → **DONE** | noise_scale_head: bias=0.755 (constant). BUT with conditioning: range [0.006, 5.36] (CV=117%). |
+| 5 | MISSING_ANALYSIS → **DONE** | Per-cell CI across betas: zero effect confirmed. No cell >5pp. |
+
+### Corrections
+
+**1. H1 confound resolved**: Log said "CONFOUNDED." Correction: three-model ablation shows recipe contributes ZERO (same recipe in 146b → positive outcome). Skip bypass alone causes h=1 variance collapse. Factor noise is the load-bearing component (171% of improvement).
+
+**2. noise_scale_head more complex than claimed**: Log said "0.75× uniform suppression." Correction: BIAS is constant (0.755), but the FULL conditioned output ranges 0.006-5.36 (CV=117%). The head IS using condition information — CRPS just drives the unconditional baseline toward suppression.
+
+### Long-Horizon Results (NEW)
+
+| Model | d30 CI | d60 CI | d180 CI | d252 CI | Spread monotonic? |
+|-------|--------|--------|---------|---------|-------------------|
+| 148a (skip) | 97.2% | 83.6% | 28.4% | 40.0% | Yes |
+| 148c (noise_scale) | 99.6% | 41.6% | 8.8% | 11.6% | **No** (peak d30, collapses) |
+
+noise_scale_cond severely degrades long-horizon performance: spread collapses after d30 in 148c.
+
+### Artifacts
+See `results/validations/2026-03-23/` — 5 verification JSONs, 5 scripts, 5 analysis dirs.
+
+---

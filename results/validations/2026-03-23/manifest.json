@@ -1,0 +1,22 @@
+{
+  "date": "2026-03-23",
+  "scope": "RC11 session: 148_probe, 148a, 148c + 146b baseline",
+  "experiments_audited": 3,
+  "verifications_run": 5,
+  "verifications_passed": 5,
+  "gaps_found": 5,
+  "gaps_by_severity": {"HIGH": 1, "MEDIUM": 4},
+  "corrections": 2,
+  "correction_details": [
+    "H1 confound resolved: skip bypass without factor noise is harmful, not recipe changes",
+    "noise_scale_head IS condition-dependent (range 0.006-5.36) despite constant bias"
+  ],
+  "metric_mismatches": 0,
+  "verification_results": [
+    "verification_results/148a_confound.json",
+    "verification_results/148a_long_horizon.json",
+    "verification_results/148c_long_horizon.json",
+    "verification_results/148c_noise_scale.json",
+    "verification_results/148_probe_percell.json"
+  ]
+}

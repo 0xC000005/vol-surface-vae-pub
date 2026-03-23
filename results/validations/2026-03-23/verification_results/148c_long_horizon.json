@@ -1,0 +1,52 @@
+{
+  "experiment": "148c",
+  "test": "long_horizon_252day",
+  "date": "2026-03-23",
+  "model_path": "models/backfill/afcrps_148c/best_model.pt",
+  "command": "PYTHONPATH=. python experiments/backfill/block_ar/test_long_horizon.py --model_path models/backfill/afcrps_148c/best_model.pt --no_ema --n_windows 10 --n_samples 50 --device cuda",
+  "status": "COMPLETED",
+  "script": "results/validations/2026-03-23/scripts/148c_long_horizon.sh",
+  "stdout": "results/validations/2026-03-23/analysis/148c_long_horizon/stdout.txt",
+
+  "key_metrics": {
+    "ci_coverage_90pct": {
+      "horizon_30":  99.6,
+      "horizon_60":  41.6,
+      "horizon_90":  30.4,
+      "horizon_180":  8.8,
+      "horizon_252": 11.6
+    },
+    "ensemble_spread_mean_std": {
+      "horizon_30":  0.0707,
+      "horizon_60":  0.0507,
+      "horizon_90":  0.0437,
+      "horizon_180": 0.0465,
+      "horizon_252": 0.0384
+    },
+    "explosion_rate_pct": {
+      "horizon_30":  0.0,
+      "horizon_60":  0.0,
+      "horizon_90":  0.0,
+      "horizon_180": 0.0,
+      "horizon_252": 0.0
+    },
+    "stationarity_late_to_early_std_ratio": 0.18,
+    "cointegration_pass_rate_gen_pct": 56.4,
+    "cointegration_pass_rate_gt_pct": 98.8,
+    "kurtosis_d0_d30_mean": 7.30,
+    "kurtosis_d180_d251_mean": 22.70
+  },
+
+  "findings": {
+    "spread_grows_with_horizon": false,
+    "spread_note": "Spread is NON-MONOTONIC. Peak at horizon 30 (0.0707), then decays to 0.0384 at 252. Spread collapses at long horizons — FAILING the growing-uncertainty requirement.",
+    "explosion_issues": false,
+    "ceiling_issues": false,
+    "ci_coverage_summary": "SEVERE COLLAPSE beyond horizon 30. Coverage drops from 99.6% at d30 to 8.8% at d180 and 11.6% at d252. The model is vastly under-dispersed at long horizons.",
+    "stationarity_issue": "Late-horizon std (0.0022) is only 18% of early std (0.0118), confirming spread collapse / mean-reversion to a fixed attractor.",
+    "cointegration_issue": "Gen cointegration pass rate 56.4% vs GT 98.8% — long-horizon paths lose memory-of-level structure.",
+    "kurtosis_escalation": "Kurtosis escalates sharply from 7.3 (d0-30) to 31.2 (d90-180), indicating fat-tail instability in the middle horizon window."
+  },
+
+  "verdict": "FAIL — spread collapses with horizon (non-monotonic, ratio 0.18 by d252). CI coverage at long horizons is near-zero (8-12%). Model does not satisfy the long-horizon generation business requirement."
+}

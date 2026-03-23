@@ -1,0 +1,81 @@
+{
+  "verification_id": "148a_long_horizon",
+  "date": "2026-03-23",
+  "model": "models/backfill/afcrps_148a/best_model.pt",
+  "test": "252-day long-horizon generation test",
+  "script_path": "results/validations/2026-03-23/scripts/148a_long_horizon.sh",
+  "stdout_path": "results/validations/2026-03-23/analysis/148a_long_horizon/stdout.txt",
+  "status": "COMPLETED",
+  "exit_code": 0,
+
+  "key_metrics": {
+    "ci_coverage_90pct": {
+      "d30":  97.2,
+      "d60":  83.6,
+      "d90":  87.2,
+      "d180": 28.4,
+      "d252": 40.0,
+      "note": "Severe degradation beyond d90; coverage collapses to ~28-40% at long horizon (target: 90%)"
+    },
+    "ensemble_spread_mean_std": {
+      "d30":  0.0520,
+      "d60":  0.0530,
+      "d90":  0.0567,
+      "d180": 0.0649,
+      "d252": 0.0687,
+      "grows_monotonically": true,
+      "note": "Spread grows across all checkpoints — no collapse"
+    },
+    "explosion_rate_all_horizons": 0.0,
+    "stationarity": {
+      "early_std": 0.0133,
+      "late_std":  0.0021,
+      "ratio":     0.15,
+      "note": "Late-path variance dramatically lower than early — paths converge / mean-revert strongly by d252"
+    },
+    "kurtosis_by_window": {
+      "d0_d30":    6.35,
+      "d30_d60":   9.90,
+      "d60_d90":  11.56,
+      "d90_d180": 17.29,
+      "d180_d251": 33.15,
+      "note": "Kurtosis explodes at long horizons; fat tails accumulate (d180-d251 mean=33)"
+    },
+    "cross_cell_correlation": {
+      "level_corr_gen": 0.603,
+      "level_corr_gt":  0.480,
+      "daily_change_corr_gen": 0.436,
+      "daily_change_corr_gt":  0.467
+    },
+    "cointegration": {
+      "pass_rate_gen": 0.260,
+      "pass_rate_gt":  0.988,
+      "note": "CRITICAL FAILURE — cointegration collapses at long horizon (26% vs 98.8% GT)"
+    },
+    "atm_6m_iv_ewma_corr": {
+      "gen": -0.218,
+      "gt":   0.812,
+      "note": "IV-RV relationship inverts at long horizon (gen = -0.22, GT = +0.81)"
+    },
+    "spatial_structure_explosion_rate": 0.0
+  },
+
+  "findings": {
+    "spread_grows": "PASS — ensemble std grows monotonically from 0.0520 (d30) to 0.0687 (d252)",
+    "no_explosion": "PASS — explosion rate = 0.0% at all horizons; IV stays in [0.01, 1.00]",
+    "ci_coverage_short_horizon": "PASS at d30 (97.2%), marginal at d60/d90 (83.6%, 87.2%)",
+    "ci_coverage_long_horizon": "FAIL — drops to 28.4% at d180 and 40.0% at d252 (target: 90%)",
+    "cointegration_long_horizon": "FAIL — 26% pass rate vs 98.8% GT; AR process loses mean-reversion structure",
+    "path_stationarity": "CONCERN — late_std/early_std = 0.15; paths collapse to near-constant by d252",
+    "kurtosis_growth": "CONCERN — kurtosis grows to 33 by d180-d251 window; likely linked to tail instability",
+    "overall_assessment": "PARTIAL PASS — model survives 252 days without explosion and spread grows, but long-horizon realism fails: CI coverage collapses beyond d90, cointegration breaks down, and paths lose mean-reversion (over-converge)"
+  },
+
+  "verdict": "PARTIAL_PASS",
+  "pass_criteria": {
+    "no_explosion": true,
+    "spread_grows": true,
+    "ci_coverage_252d_ge_70pct": false,
+    "cointegration_ge_50pct": false
+  }
+}
