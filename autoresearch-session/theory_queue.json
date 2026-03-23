@@ -174,5 +174,95 @@
     "status": "completed",
     "experiment_id": "149c",
     "result": "FALSIFIED. 4/9 (lost Suite 4). CI h=1 +8.1pp (first improvement!). But KS 0/25, kurtosis 3.33. KS-CI trade-off is fundamental."
+  },
+  {
+    "name": "RC13-H1: Clamped per-cell noise + unfrozen scale",
+    "theory": "149c proved per-cell noise modulation improves h=1 CI (+8.1pp) via per-cell independence. Two fixable failure modes: (1) unbounded softplus (P95=3.89, max=19.92) causes fat tails → kurtosis 3.33 → KS 0/25. (2) percell_noise_scale frozen at epoch 10 (inside frame_decoder.*) → only 10/30 epochs of training → extreme scale values from insufficient convergence. Fix both: clamp(0.8, 1.5) + exclude from freeze.",
+    "target": "Suite 9 PASS (eff_rank ≥ 2.51). KS ≥ 20/25 (kurtosis ≤ 2.0). h=1 CI improvement preserved (~+4-5pp). Suite 8 near-miss may also fix.",
+    "falsification": "KS < 15/25 → clamping insufficient, distributional damage persists. OR h=1 CI no improvement → the +8.1pp came from extreme scale values, not per-cell independence. OR eff_rank < 2.26 → per-cell modulation hurts factor structure.",
+    "implementation": "1-line clamp: F.softplus(x).clamp(0.8, 1.5). Add 'percell_noise_scale' to freeze keep-list in train_afcrps.py. Train on 146b base, 30 epochs.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Per-cell scale distribution: compute softplus(MLP(z)).clamp(0.8,1.5) for 10K random z. Report P5/P50/P95 per cell. Compare to 149c unclamped (P95=3.89).",
+        "2. KS per-cell grid comparison: 146b vs RC13-H1. Which cells improved/regressed? Does clamping restore KS to 146b levels?",
+        "3. Kurtosis per-cell comparison: 146b vs RC13-H1. Is kurtosis back in [0.5, 2.0] range? Which cells are still out of range?",
+        "4. h=1 CI per-cell grid: did the +8.1pp improvement survive clamping? Which cells benefited most? Cross-reference with cells that had extreme scale in 149c.",
+        "5. eff_rank by horizon: h=1, h=7, h=14, h=30. Does per-cell modulation improve eff_rank beyond 146b's 2.26?",
+        "6. Training dynamics: plot scale distribution at epoch 5, 10, 15, 20, 30. Does unfreezing change the convergence trajectory? Compare to 149c (frozen at 10).",
+        "7. Daily change distribution shape: overlay 146b vs RC13-H1 vs GT for the 3 worst KS cells. Is the distribution CENTER unchanged (as in 149c) with only tails constrained?",
+        "8. Long-horizon test (252d): does clamping prevent the spread collapse seen in 149c (spread peak at d30 then decay)?",
+        "9. Suite 8 subtest check: frac_pass, mag_pass, window_floor — did clamping fix the bias regression from 146b?"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "active",
+    "experiment_id": "150a"
+  },
+  {
+    "name": "RC13-H2: CLN adaLN-Zero initialization",
+    "theory": "CLN gamma initializes at 1.0 (identity). From epoch 1, CLN rank-1 modulation dominates (97.3% of variance). By epoch 10 (freeze), rank-1 is established and permanent. adaLN-Zero (DiT, ICCV 2023) shows zero-init of conditioning output is the standard approach: gamma starts at 0 → CLN has no effect early → noise pathway dominates → diversity established → CLN gradually gains influence. Literature: 'zero initialization is the single most important element' (OpenReview 2024 analysis).",
+    "target": "eff_rank > 2.26 (any improvement over 146b). Secondary: check if diversity established early persists after CLN ramps up.",
+    "falsification": "eff_rank < 2.26 at epoch 30 → zero-init doesn't help. OR Suite 4 kurtosis > 2.0 → training instability from weak CLN. OR Suites {1,3,5,6} break → CLN too weak, accuracy degraded.",
+    "implementation": "Change CLN gamma bias init from 1.0 to 0.0: nn.init.zeros_(self.noise_to_gamma[2].bias) instead of nn.init.ones_. 1-line change. Train on 146b base.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Diversity trajectory: compute eff_rank at checkpoints (epoch 5, 10, 20, 30). Plot eff_rank over training. Does diversity start high (noise dominates early) and gradually decrease as CLN grows? Or does it stay high?",
+        "2. CLN gamma magnitude over training: what's the actual gamma norm at each checkpoint? How fast does it grow from zero? Does it reach the same magnitude as 146b's gamma by epoch 30?",
+        "3. Compare gamma values: 146b gamma norms vs RC13-H2 gamma norms at epoch 30. If similar → CLN caught up. If smaller → CLN permanently weaker (good for diversity, maybe bad for accuracy).",
+        "4. Skip pathway variance fraction: 146b skip = 2.7% of variance. Does adaLN-Zero init increase this? If skip is a larger fraction, the factor noise contributes more diversity.",
+        "5. Per-cell CI grids at h=1 and h=30. Compare vs 146b.",
+        "6. Suite-by-suite comparison vs 146b. Did we gain Suite 9? Did we lose anything?",
+        "7. Cosine similarity of CLN gamma vectors between ensemble members: in 146b, gamma is identical across members (rank-1). In RC13-H2, if gamma grows slowly, there may be a window where noise differences persist through CLN. Measure at h=1.",
+        "8. Long-horizon test: does the diversity trajectory affect 252-day generation?"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "active",
+    "experiment_id": "150b"
+  },
+  {
+    "name": "RC13-H3: K=16 training (information experiment)",
+    "theory": "Literature says afCRPS corrects finite-K bias so K shouldn't matter. But our model has rank-1 attractor. K=16 gives 120 pairwise comparisons vs K=8's 28 (4.3x more diversity gradient). If K=16 doesn't help → definitively proves bottleneck is architectural (CLN structure), not gradient strength. Expected outcome: NEGATIVE (no improvement).",
+    "target": "Information: does K affect diversity under afCRPS with rank-1 CLN? If positive: eff_rank > 2.26. If negative (expected): confirms architecture is binding.",
+    "falsification": "If BOTH eff_rank unchanged AND CI unchanged → gradient strength is irrelevant (expected). If eff_rank improves → our afCRPS was K-starved (unexpected, changes everything).",
+    "implementation": "Change --n_members 8 --batch_size 16 to --n_members 16 --batch_size 8. Same B*K=128. Zero code change.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. eff_rank comparison: K=8 (146b: 2.26) vs K=16. The key number.",
+        "2. Per-member diversity: compute pairwise cosine similarity of generated trajectories across 16 members. Compare to 146b (8 members). Are the 16 members more diverse than the 8?",
+        "3. Training dynamics: does higher K change the loss trajectory? Plot CRPS, spread term, and accuracy term over epochs for K=16 vs K=8.",
+        "4. Factor noise W loadings: does K=16 change the learned W structure? SVD comparison.",
+        "5. If NEGATIVE (expected): document as definitive proof that gradient strength is not the bottleneck. This is the most valuable outcome — it eliminates an entire class of potential fixes (anything that increases diversity gradient signal).",
+        "6. If POSITIVE (unexpected): this changes everything. Run full analysis: which suites improved? By how much? Is this a new best model?"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "active",
+    "experiment_id": "150c"
+  },
+  {
+    "name": "RC13-H4: spread_weight=0.9 (quick probe)",
+    "theory": "Current spread_weight=0.5 → effective loss = mae - 0.475*spread. At 0.9 → mae - 0.855*spread. Spread term nearly equals accuracy term. Exp 136a tried spread_weight=0.3 (LESS spread emphasis) and FAILED. The OPPOSITE direction (MORE) is untried. If diversity is gradient-starved under current weighting, doubling the spread gradient may help.",
+    "target": "CI improvement (any amount) without KS regression. Secondary: check if spread_weight=0.9 maintains spread through training instead of collapsing.",
+    "falsification": "CI doesn't improve AND KS drops → higher spread weight distorts distributions (same mechanism as cum_cal). OR kurtosis > 2.0 → spread weight too aggressive.",
+    "implementation": "Add --spread_weight 0.9 to 146b training recipe. Zero code change.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Spread trajectory over training: plot ensemble spread at epoch 5, 10, 20, 30. Does spread_weight=0.9 maintain higher spread than 0.5? Or does CRPS still collapse it?",
+        "2. Factor noise W comparison: does the spread emphasis change what the factor loadings learn? SVD comparison vs 146b.",
+        "3. KS per-cell grid: did higher spread weight help or hurt distributional fidelity?",
+        "4. CI per-horizon: where does the CI change? Uniformly or horizon-specific?",
+        "5. eff_rank: does stronger spread gradient improve factor structure?",
+        "6. If FAILS: compare to 136a (spread_weight=0.3 which also failed). Is there a U-shaped relationship? Both extremes bad, 0.5 optimal? Document the shape of the spread_weight → CI curve.",
+        "7. Long-horizon test if results are promising."
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "active",
+    "experiment_id": "150d"
   }
 ]
