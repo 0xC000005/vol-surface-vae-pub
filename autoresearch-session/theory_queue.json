@@ -15,99 +15,94 @@
     "result": "Per-cell scale validated (144b, 69.28). VS/DPP/capacity all falsified. Three independent problems identified."
   },
   {
-    "name": "RC10-H1: Fix cell_var variance decomposition",
-    "theory": "cell_var pools B×K×T variance, but 67.7% is between-member spread. Suppresses ensemble diversity. Fix: var(dim=2).mean(dim=(0,1)) to measure within-member temporal variance only.",
-    "target": "CI coverage improves from 74% toward 82-85%. Kurtosis stays in 0.5-2.0.",
-    "falsification": "CI doesn't improve → cell_var is not the spread suppressor.",
-    "implementation": "single_pass_ar.py line 2040: change sample_changes.var(dim=(0, 1, 2)) to sample_changes.var(dim=2).mean(dim=(0, 1)). One line.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Test suite on BOTH best_model and final_model",
-        "2. PIT histogram — top bin should drop from 23.8% toward 10%",
-        "3. Variance decomposition — recompute between-member vs within-member fraction. If cell_var fix worked, between-member should no longer be suppressed",
-        "4. CRPS gradient ratio — recompute MAE/spread ratio. Should move from 2.05:1 toward 1.05:1",
-        "5. Kurtosis control check: IF kurtosis > 2.0 → cell_var fix removed too much constraint → log-space NEEDS external variance control → this is a deeper architectural issue, not fixable by cell_var reformulation",
-        "6. Per-cell CI heatmap — which cells improved? Same spatial pattern as before (column 3 worst)?",
-        "7. Per-horizon coverage curve — did h=1 and h=30 both improve, or only one?",
-        "8. Long-horizon test (252d) — does the fix affect spread growth or only calibration?"
-      ],
-      "principled_check": "Is cell_var still needed? Train a PROBE experiment with lambda_cell_var=0 and the fixed formulation side by side. If lambda=0 achieves similar kurtosis, cell_var is unnecessary. If kurtosis explodes, cell_var IS necessary and the fixed formulation is the principled version."
-    },
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "falsified",
-    "experiment_id": "146a",
-    "result": "FALSIFIED: CI dropped 74%→70.8%. Cell_var pooling is a beneficial bug rewarding diversity, not suppressing it. h=1 collapsed 64.7%→39.5%. Training spread decreased 26.8→23.4."
+    "name": "RC10 (all 4 hypotheses + probes)",
+    "status": "completed",
+    "result": "H1 FALSIFIED (cell_var=diversity reward). H2 PARTIAL (eff_rank+54%). H3 FAILS at any λ (cum_cal breaks KS/coint). H4 SKIPPED. 147a/b probes confirm cum_cal dead end. 8 investigation agents → COMPLETE mechanistic understanding of 7 bottlenecks."
   },
   {
-    "name": "RC10-H2: Factor-structured noise (5 independent streams)",
-    "theory": "CRPS rank-1 attractor gives eff_rank 1.48 (GT 4.74). DPP failed (wrong metric). Factor-structured noise forces multi-factor output architecturally: delta = W(cond) @ factors + sigma(cond) * residual.",
-    "target": "Eff_rank ≥ 3.0. Suite 9 rank_ratio ≥ 0.5. KS daily maintained ≥ 20/25.",
-    "falsification": "Eff_rank doesn't improve despite 5 independent streams → rank collapse is in decoder/attention, not noise pathway.",
-    "implementation": "Add FactorNoiseHead to CausalARTransformerDecoder. 5 factor noise streams + 25 residual. Condition-dependent loadings W (25×5).",
+    "name": "RC11-H0: Inference-time noise scaling probe",
+    "theory": "CRPS spread suppression (documented, CRPS-LAM 2025) makes ensemble 3.8x too narrow. If scaling noise z by beta>1 at inference pushes CI toward 90%, the architecture CAN produce correct spread — CRPS just chose too little. If CI stays low even at beta=3, rank-1 structure prevents coverage regardless of amplitude.",
+    "target": "Determine whether bottleneck is amplitude (fixable by spread encouragement) or structure (requires rank fix).",
+    "falsification": "beta=3.0 gives CI<80% → rank-1 is binding, amplitude doesn't help.",
+    "implementation": "At inference, multiply noise z by beta before passing to decoder. Test beta={1.5, 2.0, 3.0}. Zero training. ~5 min.",
     "diagnostic_plan": {
-      "after_training": [
-        "1. Test suite on both checkpoints",
-        "2. PCA on generated daily changes — eigenvalues, eff_rank, PC1-PC5 loadings. Compare spatial patterns of loadings vs GT",
-        "3. Learned loadings matrix W — visualize the 5 factors as 5×5 heatmaps. Do they correspond to known IV surface modes (level, slope, curvature, skew, kurtosis)?",
-        "4. Factor independence check — correlate the 5 factor noise contributions across ensemble members. They should be independent (r ≈ 0)",
-        "5. Per-cell KS daily — did any cells regress? Factor noise might disrupt per-cell calibration",
-        "6. Ablation: freeze loadings W at random init, train only residual path. If eff_rank still improves, it's the architectural structure that helps, not the learned loadings",
-        "7. CI coverage — factor noise should NOT directly help CI (independence proven r=-0.036). If CI changes, investigate why",
-        "8. Long-horizon test (252d) — does factor structure persist at 252 days or collapse?"
-      ],
-      "principled_check": "Are the learned loadings stable? Retrain with different seed and compare W matrices. If they're similar (up to rotation), the factor structure is robust. If completely different, the model is finding arbitrary orthogonal decompositions rather than meaningful IV surface factors."
-    },
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "partial_success",
-    "experiment_id": "146b",
-    "result": "PARTIAL: eff_rank 1.47→2.26 (+54%), CI 74→77.3%, ACF 0.95. But 252d coverage 53→14% (kurtosis compounding). Rank_ratio 0.450 just misses 0.50."
-  },
-  {
-    "name": "RC10-H3: Multi-horizon CRPS (AIFS-CRPS style)",
-    "theory": "AR(1) sqrt(t) spread proven. Model never sees loss signal at h=30. AIFS-CRPS validates rollout training. Add CRPS at accumulated horizons [10, 30].",
-    "target": "h=30 coverage improves from 47% toward 60%+. 252-day spread grows faster.",
-    "falsification": "h=30 coverage unchanged → vanishing gradients through 30 AR steps.",
-    "implementation": "During training, unroll AR loop, compute afCRPS at accumulated IV surfaces at h=10 and h=30.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Test suite on both checkpoints",
-        "2. Per-horizon coverage curve at h=1,5,10,15,20,25,30 — should be more uniform than 144b's 65.9%→77.6%→plateau",
-        "3. Per-horizon spread growth — plot ensemble std at each horizon. Should grow faster than sqrt(t)",
-        "4. Gradient flow analysis — compute gradient norms at each AR step during training. If gradients vanish at h=25-30, the multi-horizon signal isn't reaching early steps",
-        "5. Per-step delta magnitude — did the model learn to produce larger deltas at later steps? Or did it increase noise? The mechanism matters",
-        "6. Long-horizon test (252d) — this is the KEY test. Coverage at 90d, 180d, 252d. Spread growth curve",
-        "7. Kurtosis per-horizon — does kurtosis change with the multi-horizon loss? Log-space kurtosis depends on accumulated variance",
-        "8. Cointegration at 252d — 144b collapsed to 15.4% at 252d. Does multi-horizon CRPS help?"
-      ],
-      "principled_check": "After H3, does learned ρ still collapse to 0.3? Train a probe with learned ρ (nn.Parameter) + multi-horizon CRPS. If ρ converges to a reasonable value (0.5-0.8) instead of collapsing, multi-horizon CRPS provides the gradient signal that makes ρ learnable. If ρ still collapses → the AR(1) structure itself is the bottleneck, not the loss."
+      "after_inference": [
+        "1. Per-cell coverage grids at each beta — which cells improve most?",
+        "2. Per-cell KS at each beta — at what beta does each cell start failing?",
+        "3. Eff_rank at each beta — scaling shouldn't change rank (same direction, more magnitude)",
+        "4. Threshold beta where KS starts failing — how much spread headroom exists?",
+        "5. Ensemble std at beta=2 vs GT std per cell — is spread now matched?"
+      ]
     },
     "attempts": 0,
     "max_attempts": 1,
     "status": "active",
-    "experiment_id": "146c"
+    "experiment_id": "148_probe"
   },
   {
-    "name": "RC10-H4: Learned ρ (sequential after H3)",
-    "theory": "ρ=0.8 is the only hand-tuned non-principled constant. CRPS alone collapses ρ to 0.3 (Exp 116a) because it only sees per-step loss and prefers independence. Multi-horizon CRPS (H3) provides the gradient that says 'if ρ is too low, h=30 coverage suffers.' This should prevent collapse and let the model find the optimal ρ.",
-    "target": "Learned ρ converges to 0.5-0.8 (not 0.3). Suite 5 growing uncertainty preserved. Architecture becomes FULLY principled (no hand-tuned constants).",
-    "falsification": "ρ still collapses to 0.3 even with multi-horizon CRPS → the ρ-coverage relationship isn't learnable through the AR chain, and ρ=0.8 is a necessary engineering choice.",
-    "implementation": "Replace config.ar_frame_rho=0.8 with self.log_rho = nn.Parameter(torch.tensor(1.1)) and rho = sigmoid(log_rho). Requires H3 to be active.",
+    "name": "RC11-H1: Enable skip bypass on 144b",
+    "theory": "144b has ar_noise_skip=False, ar_skip_bypass_spread=False. 100% diversity from CLN (Jacobian rank 1.23). 146b enabled skip+factor → eff_rank+54%. H1 isolates skip bypass WITHOUT factor structure. AIFS uses per-location noise (analogous). Tests whether plain Linear skip resists CRPS rank collapse.",
+    "target": "Eff_rank > 1.47 and/or CI > 74%. If near 146b levels → factor structure was bonus, not essential.",
+    "falsification": "Eff_rank stays 1.47 AND CI stays 74% → plain Linear collapsed by CRPS. Factor structure essential.",
+    "implementation": "Add --ar_noise_skip --ar_skip_bypass_spread to 144b training recipe. Zero code changes. 30 epochs.",
     "diagnostic_plan": {
       "after_training": [
-        "1. Track learned ρ value across training epochs — does it converge? To what value?",
-        "2. If ρ < 0.5: check Suite 5 (growing uncertainty). If FAIL, the model sacrificed coherence for short-term CRPS",
-        "3. If ρ converges to 0.7-0.9: the multi-horizon signal works. Architecture is now fully principled",
-        "4. Compare ensemble spread trajectory with learned ρ vs fixed ρ=0.8",
-        "5. Long-horizon test (252d) — does learned ρ improve 252-day coverage?"
+        "1. Eff_rank comparison: 144b (1.47) vs H1 vs 146b (2.26)",
+        "2. PCA on generated daily changes — eigenvalue spectrum, PC1-PC5",
+        "3. Noise pathway decomposition: zero skip weights, measure CLN vs skip diversity fraction",
+        "4. Per-cell coverage grids at h=7 and h=30",
+        "5. SVD of skip Linear weight matrix — if rank-1, CRPS collapsed it",
+        "6. Training dynamics: track spread over epochs. Does skip maintain a spread floor?"
       ],
-      "principled_check": "After H4, the ENTIRE architecture should be principled. Audit: encoder (learned), decoder (learned), noise (CLN, learned), scale (learned), loss (proper scoring rules), ρ (learned). If cell_var is still needed (from H1 probe), document WHY log-space requires it as a mathematical necessity, not a heuristic."
+      "principled_check": "If H1 succeeds: is plain skip + CRPS sufficient, or does factor structure (146b) add independent value? Compare H1 vs 146b on all 9 suites."
     },
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H3",
-    "experiment_id": "146d",
-    "note": "Only run if H3 succeeds. Sequential dependency."
+    "status": "blocked_by_H0",
+    "experiment_id": "148a"
+  },
+  {
+    "name": "RC11-H2: Heteroscedastic decoder output (delta + log_sigma)",
+    "theory": "Cell (0,3) has 6.2x level-dependent volatility. Log-space provides GBM-level scaling but ~2x residual heteroscedasticity remains (Neural SDE literature: Kidger 2021, FuNVol 2023). Constant vol_scale cannot represent this. Decoder already sees prev_frame — give it output channel for state-dependent noise amplitude.",
+    "target": "Cell (0,3) coverage improves from 47% toward 70%. Learned sigma varies with IV level.",
+    "falsification": "Learned sigma is constant across IV levels → CRPS doesn't use the capacity.",
+    "implementation": "Widen CausalARTransformerDecoder output 25→50. Split: delta_raw, log_sigma. Apply delta = softplus(log_sigma) * delta_raw. ~20 lines of code.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Learned sigma vs IV level: plot for cell (0,3) and 5 other cells. Monotonic?",
+        "2. Cell (0,3) coverage before/after",
+        "3. Sigma stability over AR steps: h=1, h=10, h=30. Growing or constant?",
+        "4. Sigma vs existing vol_scale: correlated (redundant) or different pattern (new info)?",
+        "5. KS per-cell check: does heteroscedastic output change daily-change distributions?",
+        "6. Ablation: freeze sigma at 1.0, train only delta. Same performance → sigma unused."
+      ],
+      "principled_check": "Does sigma learn the CEV exponent? If sigma ∝ IV^gamma, what is gamma? GT data suggests gamma > 1 (6.2x range across 3x level range → gamma ≈ 1.5)."
+    },
+    "note": "DEPENDS on H1 — if noise is rank-1, per-cell sigma scales same direction. Test after skip bypass enabled.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "blocked_by_H1",
+    "experiment_id": "148b"
+  },
+  {
+    "name": "RC11-H3: Condition-dependent noise amplitude",
+    "theory": "P3 agent proved decoder calm/turb modulation = 1.005x (identical). Window floor: 44% bad windows in calm regime. Encoder calm/turb cosine = 0.9996 but there may be residual signal extractable. ar_noise_scale_cond exists but is disabled.",
+    "target": "Turb/calm spread ratio changes by >5%. Window floor bad rate drops below 7%.",
+    "falsification": "Spread ratio unchanged (<5% change) → encoder doesn't provide regime signal for noise_scale_head.",
+    "implementation": "Add --ar_noise_scale_cond to training. Existing module, zero new code. 30 epochs.",
+    "diagnostic_plan": {
+      "after_training": [
+        "1. Turb/calm spread ratio before (2.2x) vs after",
+        "2. Noise_scale_head weights: what patterns learned? Correlate with vol-of-vol",
+        "3. Window floor by regime: calm bad rate before (18.4%) vs after",
+        "4. Correlation between learned noise_scale and vol_of_vol per window (r > 0.5 = success)",
+        "5. If fails: confirms encoder limitation. Next step = encoder augmentation."
+      ],
+      "principled_check": "If it works: is the improvement from noise_scale_head orthogonal to skip bypass (H1)? Run both together and check for interaction."
+    },
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "blocked_by_H0",
+    "experiment_id": "148c"
   }
 ]

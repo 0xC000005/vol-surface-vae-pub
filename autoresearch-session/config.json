@@ -1,7 +1,7 @@
 {
-  "goal": "RC6 Principled Architecture: Build principled encoder-decoder piece by piece (Karpathy). Step 1: Unfreeze encoder + orthogonal regularization.",
-  "starting_model": "models/backfill/block_ar_vol_scaled_30ep/best_model.pt",
-  "starting_experiment": "99m_v2",
+  "goal": "RC11: Complete the noise architecture. Enable disabled pathways, add learned spread control. Break through 5/9 ceiling to 6+/9.",
+  "starting_model": "models/backfill/afcrps_144b/best_model.pt",
+  "starting_experiment": "144b",
   "scope": "Level C — Full architecture: single_pass_ar.py, gru_encoder.py, train_afcrps.py, test scripts",
   "scope_files": [
     "diffusion/block_ar/single_pass_ar.py",
@@ -15,27 +15,59 @@
     "no_domain_heuristics": true,
     "no_post_hoc_corrections": true,
     "must_generalize": "Any conditional scenario generation (IV, rates, FX, credit)",
-    "research_compass": "RC6: 5-step principled architecture roadmap",
-    "investigation_blocking": "Diagnostic scripts required, narrative-only not sufficient"
+    "research_compass": "RC11: Complete the architecture, don't add losses",
+    "investigation_blocking": "5-6 diagnostic scripts required per experiment. Understand WHY, not just what.",
+    "post_investigation_required": true
   },
   "metric": "composite",
   "guard": {
     "min_suites": 4,
     "never_break_all_of": [1, 3, 4, 5],
+    "never_break_suite_6": "cointegration is fragile — cum_cal broke it at λ=0.1",
     "individual_regression_ok_if_motivated": true
   },
   "budget": {
     "probe_epochs": 5,
     "quick_epochs": 30,
     "full_epochs": 60,
-    "quick_first": true
+    "quick_first": true,
+    "inference_only_probes": "H0 requires zero training"
   },
-  "baseline_model": "99m_v2",
-  "baseline_score": 66.31,
+  "baseline_model": "144b",
+  "baseline_score": 69.28,
   "baseline_suites_passed": 5,
   "baseline_pass_pattern": [1, 3, 4, 5, 6],
-  "baseline_fail_pattern": [2, 7, 8],
-  "directions": "RC6 5-step roadmap (RESEARCH_LOG.md line 33876)",
+  "baseline_fail_pattern": [2, 7, 8, 9],
+  "best_modification": {
+    "model": "146b",
+    "score": 69.14,
+    "suites": 5,
+    "key_improvements": "eff_rank +54%, CI +3.3pp, ACF +0.19, calibration halved"
+  },
+  "dead_ends": [
+    "cum_cal at any weight (146c, 147a, 147b — breaks KS or cointegration)",
+    "cell_var temporal-only fix (146a — cell_var is diversity reward)",
+    "d_model=128 with CRPS alone (144c — rank collapse scales with capacity)",
+    "direct variance-target losses (CRPS-LAM literature confirms)"
+  ],
+  "mechanistic_understanding": {
+    "bottleneck_1": "CLN rank-1: Jacobian rank 1.23, same modulation all tokens",
+    "bottleneck_2": "Skip bypass DISABLED in 144b: 100% diversity from CLN",
+    "bottleneck_3": "Encoder = level only: direction cos 0.99998, regime cos 0.9996",
+    "bottleneck_4": "Constant vol_scale: ~2x residual heteroscedasticity beyond GBM",
+    "bottleneck_5": "Decoder positive bias: +0.123 zero-noise delta",
+    "bottleneck_6": "CRPS rank collapse over training",
+    "bottleneck_7": "Calm tail vulnerability: 59 persistent bad windows"
+  },
+  "literature": [
+    "AIFS-CRPS: per-location noise avoids rank-1 (Lang et al. 2024)",
+    "FGN: rank constraint as feature, but needs 180M params (Alet et al. 2025)",
+    "CRPS-LAM: spread suppression documented (Larsson et al. 2025)",
+    "SDL: post-inference spread rescaling (Schreck et al. 2025)",
+    "Neural SDE: heteroscedastic output standard (Kidger et al. 2021)"
+  ],
+  "directions": "RC11 compass: H0 (inference probe) → H1 (skip bypass) → H2 (heteroscedastic) → H3 (noise scale cond)",
   "created_at": "2026-03-21",
+  "updated_at": "2026-03-22",
   "branch": "autoresearch-session-20260321"
 }

@@ -1,12 +1,20 @@
 {
-  "iteration": 18,
-  "experiment_id": "146c",
-  "training_status": "running",
-  "phase": "training",
-  "hypothesis": "RC10-H3: Multi-horizon CRPS via cum_cal loss. Provides direct gradient signal about calibration at h=1,7,14,30 without flowing through 30 AR steps.",
+  "iteration": 20,
+  "experiment_id": "148_probe",
+  "training_status": "pending",
+  "phase": "ready_for_H0",
+  "hypothesis": "RC11-H0: Inference-time noise scaling probe. Scale z by beta={1.5, 2.0, 3.0} on 144b. Zero training. Tests amplitude vs structure bottleneck.",
   "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
-  "total_experiments": 20,
-  "compass_position": "RC10-H3",
+  "session_best_modification": {"exp": "146b", "score": 69.14, "suites": 5, "note": "Best eff_rank (2.26) and CI (77.3%)"},
+  "total_experiments": 22,
+  "compass_position": "RC11-H0",
+  "compass_theme": "Complete the architecture, don't add losses",
   "session_date": "2026-03-22",
-  "base_model": "models/backfill/afcrps_144b/best_model.pt"
+  "base_model": "models/backfill/afcrps_144b/best_model.pt",
+  "rc10_summary": {
+    "experiments": ["146a (falsified)", "146b (partial success)", "146c (fails)", "147a (fails)", "147b (partial)"],
+    "key_finding": "7 architectural bottlenecks identified with complete mechanistic understanding",
+    "dead_ends": ["cum_cal at any weight", "cell_var temporal fix", "d_model=128 alone"]
+  },
+  "rc11_execution_order": ["H0 (5min inference probe)", "H1 (30min skip bypass)", "H2 (1.5h heteroscedastic)", "H3 (30min noise scale cond)"]
 }
