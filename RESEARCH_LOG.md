@@ -38733,3 +38733,114 @@ noise_scale_cond severely degrades long-horizon performance: spread collapses af
 See `results/validations/2026-03-23/` — 5 verification JSONs, 5 scripts, 5 analysis dirs.
 
 ---
+
+## 2026-03-23: Research Compass RC12 — "Per-Cell Noise Architecture" (Revised)
+
+### Philosophy Applied
+- **Bitter Lesson**: AIFS (180M params) uses per-location noise with same loss and gets well-calibrated ensembles. The difference is ARCHITECTURE (per-location noise), not loss. More independent noise channels = more capacity for the model to learn.
+- **Popper**: Each hypothesis has a specific falsification test. "More factors" is cleanly testable.
+- **Hinton**: Independent reasoning before literature led to "fix the loss" — but AIFS comparison showed the loss works fine at scale with per-location noise. The gap between my naive solution and the published one IS the insight: architecture, not loss.
+- **Karpathy**: Each change is independently testable. n_factors is a single hyperparameter.
+- **TRIZ**: The contradiction "CRPS suppresses spread" is resolved by SEPARATION IN STRUCTURE — design the architecture so CRPS CAN'T collapse diversity (factor noise does this; plain skip doesn't).
+
+### Evidence Summary
+
+**Proven root causes (with evidence)**:
+1. Factor noise resists CRPS collapse via structural inductive bias (W eff_rank 4.74/5, min/max ratio 0.54). 148a plain skip collapsed to rank-1 (69% energy in PC1). 146b factor noise maintains diversity (55.6% in PC1).
+2. Skip pathway is only 2.7% of variance but accounts for 100% of eff_rank improvement (+0.789). A small, well-structured perturbation > a large, collapsed one.
+3. AIFS uses per-location noise (35K noise dims) with same afCRPS → no spread suppression. Our model uses 32-dim global noise → rank-1 attractor. Factor noise (5 channels) is a budget approximation.
+4. Suite 9 needs only +0.254 eff_rank (11.2%) to pass. Suite 8 is 1 cell away. Suites 2+7 need 2× more absolute width at h=1.
+5. 146b broke Suite 8 (was passing in 144b) — factor noise worsened median bias.
+
+**Exhausted directions**: noise amplitude scaling, plain skip, noise_scale_cond alone, cum_cal, cell_var temporal fix, d_model=128, post-hoc corrections (Bitter Lesson).
+
+### Active Hypotheses (ranked by information value × tractability)
+
+#### H1: Increase factor count (5→10→25) on 146b base
+
+**Evidence chain**: 146b uses 5 factors → eff_rank 2.26. W has eff_rank 4.74/5 (all factors active). AIFS uses per-location noise (~35K dims). GT has eff_rank 5.03. Suite 9 needs eff_rank 2.51 — only +11.2% more.
+
+**Principled argument**: Factor noise provides structural resistance to CRPS collapse via independent noise channels. More channels = more independent directions CRPS can't align. The limit (n_factors=25 = one per cell) approaches AIFS's per-location noise. This is Bitter Lesson compatible: more learned parameters, not domain heuristics. (TRIZ: resolve contradiction by increasing structural independence.)
+
+**The bet**: Train 146b recipe with `--ar_factor_noise 10` (double factors). If eff_rank passes 2.51, Suite 9 passes. Then try n=15, n=25.
+
+**Staged checkpoints**:
+1. (30 min) n_factors=10, 30 epochs on 146b base. Check eff_rank and Suite 9.
+2. (30 min) If passes Suite 9, also check if Suite 8 regression is worse (more factors = more bias shift?). Run full 9-suite eval.
+3. (30 min) n_factors=25 (per-cell noise). Full eval + long-horizon.
+
+**Falsification test**:
+- Stage 1: If n_factors=10 gives eff_rank < 2.51 → diminishing returns from more factors. Kill.
+- Stage 2: If n_factors=10 breaks Suite 8 further (e.g., frac_pass drops to 17/25) → more factors worsens bias. Need bias correction first.
+- Stage 3: If n_factors=25 gives eff_rank < 4.0 → CRPS still collapses even with per-cell noise at our scale (285K params). Fundamental capacity issue.
+
+**Independence**: Single hyperparameter change. Does not depend on H2 or H3.
+
+**If it fails**: Would mean factor noise has reached its limit at this model scale. Would point toward per-cell CLN (changing noise injection mechanism from broadcast to per-cell) or increasing model capacity.
+
+**Effort**: Stage 1: 30 min. Stage 2: 5 min. Stage 3: 30 min.
+
+#### H2: Fix the median bias regression (146b broke Suite 8)
+
+**Evidence chain**: 144b passed Suite 8 (frac=24/25, mag=pass). 146b fails (frac=19/25, mag=21/25). Factor noise redistributed variance in a direction anti-correlated with GT median, shifting the median trajectory downward. All 25 cells have NEGATIVE mean bias. Cells (0,0), (0,4), (1,0), (1,4) are worst.
+
+**Principled argument**: The factor loadings W learned a structure that amplifies downward moves more than upward moves (factor 4 loads uniformly negative = level shift down). This is a training artifact — the factors should be mean-zero. Adding a soft constraint that factor outputs are mean-zero across the ensemble would fix this without domain heuristics. Alternatively, increasing ar_bias_lambda (bias regularization) from 0.01 to a higher value specifically penalizes the decoder's systematic bias.
+
+**The bet**: Train with `--ar_bias_lambda 0.05` (5× current) on 146b base. This directly penalizes the +0.123 zero-noise delta documented in bottleneck 5.
+
+**Staged checkpoints**:
+1. (5 min) Check current ar_bias_lambda effect: what is the zero-noise delta in 146b? If it's still +0.123, bias_lambda=0.01 wasn't sufficient.
+2. (30 min) Train with ar_bias_lambda=0.05. Check if Suite 8 passes without breaking Suites 1,3,4,5,6.
+
+**Falsification test**:
+- Stage 1: If zero-noise delta in 146b is already < 0.05 → bias_lambda isn't the issue. The bias is coming from factor noise direction, not decoder. Kill bias_lambda approach.
+- Stage 2: If Suite 8 still fails with ar_bias_lambda=0.05 → bias is structural (from factor direction), not from decoder bias. Need to constrain factor loadings instead.
+
+**Independence**: Does not depend on H1. Can test in parallel.
+
+**If it fails**: Factor noise direction is the source of bias, not decoder bias term. Would need to add a zero-mean constraint on factor outputs: `mean(W @ z_factor, dim=-1) → 0`.
+
+**Effort**: Stage 1: 5 min. Stage 2: 30 min.
+
+#### H3: Per-cell CLN noise injection (replace broadcast with per-cell)
+
+**Evidence chain**: AIFS uses per-location noise → no rank-1 collapse. Our CLN broadcasts same gamma/beta to all 25 cells → Jacobian rank 1.23. Factor noise partially fixes this (eff_rank 2.26) but the CLN pathway still accounts for 97.3% of variance and is still rank-1.
+
+**Principled argument**: The CLN rank-1 bottleneck is the DOMINANT variance pathway. Factor noise adds diversity via the skip pathway (2.7% of variance). Making the DOMINANT pathway per-cell would be a much larger structural change. Instead of `gamma = MLP(z)` → broadcast to all 25 cells, use `gamma_c = MLP(z, cell_embedding_c)` → per-cell modulation. This is the exact AIFS approach adapted to our scale.
+
+**The bet**: Modify CLN to accept a cell embedding and produce per-cell gamma/beta. Each cell gets a learned 8-dim embedding. CLN MLP input becomes [noise_embed; cell_embed] → gamma, beta per cell. ~200 extra params per CLN layer.
+
+**Staged checkpoints**:
+1. (1h) Implement per-cell CLN. Verify training runs without crash.
+2. (30 min) Train 30 epochs. Check eff_rank and CI. If eff_rank > 3.0, this is a breakthrough.
+3. (30 min) Full eval + long-horizon.
+
+**Falsification test**:
+- Stage 1: If training crashes or diverges → architecture change is destabilizing. Simplify.
+- Stage 2: If eff_rank stays < 2.5 despite per-cell CLN → CRPS collapses even per-cell modulation at this scale. Fundamental capacity limit.
+
+**Independence**: Larger code change (~50 LOC). Independent of H1/H2 but could be combined.
+
+**If it fails**: Would mean the model scale (285K params) is fundamentally too small for per-cell noise diversity. Would need to increase model capacity first.
+
+**Effort**: Stage 1: 1h. Stage 2: 30 min. Stage 3: 30 min.
+
+### Execution Order
+1. **H1-Stage1** (30 min): n_factors=10 — easiest, single hyperparameter, directly targets Suite 9
+2. **H2-Stage1** (5 min): Check 146b zero-noise delta — informs H2 viability
+3. **H1-Stage2+3** (30 min each): n_factors=15, n_factors=25 if Stage1 promising
+4. **H2-Stage2** (30 min): ar_bias_lambda=0.05 — targets Suite 8
+5. **H3** (2h): Per-cell CLN — largest change, highest potential payoff
+
+### Open Questions
+- Does eff_rank scale linearly with n_factors? (H1 answers)
+- Is the median bias from decoder bias term or factor direction? (H2-Stage1 answers)
+- Can per-cell CLN work at 285K param scale? (H3 answers)
+- At what n_factors does CRPS start collapsing some factors? (H1 with n=25 answers)
+
+### Key Literature
+- AIFS-CRPS (2412.15832): per-location noise, 35K noise dims, same afCRPS → no collapse
+- CRPS-LAM (2510.09484): global noise vector → same collapse as us. Confirms architecture is key.
+- FourCastNet3 (2507.12144): biased CRPS warmup trick (complementary to architectural fix)
+
+---
