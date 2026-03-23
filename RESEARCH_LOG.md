@@ -38007,3 +38007,97 @@ normalize_iv() compliance confirmed in PCA agent.
 None — all prior claims verified.
 
 ---
+
+## 2026-03-22: Deep Mechanistic Analysis — 5 Architectural Bottlenecks Identified
+
+### Context
+Post-RC10 deep investigation. 4 parallel analysis agents + 2 training probes.
+Goal: mechanistic understanding of ALL deficiencies before next research ideation.
+
+### BREAKTHROUGH: 144b Skip Bypass is DISABLED
+
+The noise pathway agent discovered that 144b's `noise_skip_proj` exists (learned weight
+norm 2.82) but is **never called**. The config has `ar_skip_bypass_spread=False`.
+
+- 100% of ensemble diversity comes from CLN (Conditional Layer Normalization)
+- Jacobian d(delta)/d(noise) has effective rank **1.23** (32D noise → 1D output)
+- CLN applies SAME gamma/beta to ALL tokens → fundamentally rank-1
+- Per-cell vol_scale (0.013–0.031, 2.5x ratio) only SCALES the shared direction
+- Eff_rank grows from 1.30 (h=1) to 1.79 (h=30) via AR accumulation, but far from GT 4.74
+
+**This explains 146b's success**: adding `ar_factor_noise=5` with skip bypass ACTIVE
+created an entirely NEW noise pathway (not just restructuring). The skip bypass provides
+DIRECT, per-cell-independent noise that CLN cannot.
+
+### P1 Root Cause: Conditional Response Attenuation
+
+The CI gap (74% vs 90%) has TWO components:
+
+**A) Ensemble 3.8x too narrow at h=1**
+- Model ensemble std at h=1: 0.016
+- GT cross-window std at h=1: 0.057
+- Spread ratio: 26.4%
+- Central cells (K=1.00, K=1.05, short tenor): worst at 7.5-10%
+
+**B) Conditional response nearly unconditional**
+- When GT moves X% at h=1, model median moves 0.085X%
+- Model predicts ~+0.1% regardless of realized outcome
+- Coverage for worst quintile (Q1, GT down 2.5%): only 39.1%
+- Bias flips: model HIGH at h=1 (ratio 0.83), model LOW at h>1 (ratio 0.26-0.35)
+
+**Width scaling is the dominant lever**: 2x width at h=1 → 93% coverage.
+Conditional response improvement would push to 95%+.
+
+### Cell (0,3) Mechanism: Level-Dependent Volatility
+
+Cell (0,3) = 30d tenor, K=1.05. Worst across ALL models, ALL horizons.
+
+Three reinforcing mechanisms:
+1. Extreme CV (0.698, rank 1/25): lowest mean IV (0.123) + 5th highest std (0.086)
+2. Data floor clustering: 47.2% below 10% IV (vs 7.8% grid average, 6x ratio)
+3. **6.2x regime-dependent volatility**: daily change std = 0.016 at low IV, 0.071 at high IV
+
+The model uses CONSTANT per-cell vol_scale (0.023). This cannot represent the 6.2x
+volatility range. The fix requires **level-dependent noise scaling**: `vol_scale * f(current_IV)`
+where f is learned.
+
+### Five Architectural Bottlenecks
+
+| # | Bottleneck | Mechanism | Affects | Fix Direction |
+|---|-----------|-----------|---------|---------------|
+| 1 | CLN rank-1 | Same gamma/beta ALL tokens → 1D output diversity | P2, P1 | Per-cell or factored CLN |
+| 2 | Constant vol_scale × log-space | Low-IV cells get narrow spread | P1 (0,3) | Level-dependent scaling |
+| 3 | No regime-specific spread | Calm under-spread | P3 (S7) | Condition-dependent noise scale |
+| 4 | CRPS rank collapse | Rank drops during training | P2 | Rank-preserving regularization |
+| 5 | Near-unconditional h=1 | 128D condition doesn't differentiate futures | P1 (h=1) | Wider encoder bottleneck? |
+
+### Exp 147a: Weak cum_cal probe (λ=0.1)
+
+| Metric | 144b | 147a | Change |
+|--------|------|------|--------|
+| CI 90% | 74.0% | 72.9% | -1.1pp |
+| h=1 CI | 64.7% | 73.9% | +9.2pp |
+| KS daily | 22/25 | 4/25 | **Still broken** |
+| Kurtosis | 1.049 | 1.964 | Borderline |
+
+Even 10x weaker cum_cal (λ=0.1 vs 1.0) still breaks KS distributions (4/25 vs 22/25).
+The cum_cal loss is fundamentally incompatible with distributional fidelity — it's not
+a dosage problem, it's a mechanism problem. cum_cal optimizes variance matching
+which distorts the SHAPE of daily-change distributions.
+
+### Three Independent Problems — CONFIRMED (n=21 cross-model correlation)
+
+| Problem | Suites | Internal r | Cross-problem r |
+|---------|--------|-----------|----------------|
+| P1-Spread | S2, S7-L3, S8 | >0.80 | <0.16 vs P2, P3 |
+| P2-Rank | S9 | — | <0.16 vs all |
+| P3-Regime | S7-L1 | — | <0.15 vs all |
+
+### Binding Constraint Order (easiest → hardest)
+
+1. **Suite 9** (rank): 146b achieved 0.450 vs 0.500 threshold. 11% relative gap.
+2. **Suite 8** (distributional): coupled to Suite 2 (r=-0.808). Follows from P1 fix.
+3. **Suite 2** (CI): requires noise injection redesign. No model exceeded 78.1%.
+4. **Suite 7** (regime): requires condition-dependent spread ON TOP of P1 fix.
+
+---
