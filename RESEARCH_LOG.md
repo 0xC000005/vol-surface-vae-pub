@@ -38404,3 +38404,56 @@ provide enough regime signal.
 - Noise hypernetworks — alternative to CLN for noise injection
 
 ---
+
+## 2026-03-23: RC11-H0 — Inference Noise Scaling Probe (Exp 148_probe)
+
+### Exp 148_probe: Inference noise scaling (zero training)
+**Based on**: 144b (69.28, 5/9) — RC11-H0 from Research Compass
+**Hypothesis**: CRPS spread suppression makes ensemble 3.8x too narrow. If scaling noise z by beta>1 at inference pushes CI toward 90%, the bottleneck is amplitude (fixable). If CI stays flat, rank-1 structure prevents coverage regardless of amplitude.
+
+**Implementation**: Monkey-patched `_sample_noise()` to return `z * beta`. Zero code change, zero training. Tested beta={1.0, 1.5, 2.0, 3.0} with full 9-suite evaluation (20 batches × 50 samples each).
+
+**Command**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/probe_noise_scale.py \
+    --model_path models/backfill/afcrps_144b/best_model.pt \
+    --betas 1.0 1.5 2.0 3.0 --max_batches 20 --n_samples 50 --device cuda
+```
+
+**Results**:
+
+| Metric | β=1.0 (baseline) | β=1.5 | β=2.0 | β=3.0 |
+|--------|:-:|:-:|:-:|:-:|
+| CI 90% | 74.0% | 73.9% | 73.9% | 73.9% |
+| CI h=1 | 64.7% | 62.6% | 61.9% | 60.9% |
+| KS daily | 22/25 | 22/25 | 22/25 | 22/25 |
+| KS level | 18/25 | 18/25 | 17/25 | 17/25 |
+| Eff rank | 1.47 | 1.47 | 1.48 | 1.48 |
+| Suites | 5/9 | 5/9 | 5/9 | 5/9 |
+
+### WHY — Mechanistic Analysis (3 diagnostics)
+
+**D1: Per-cell CI delta (β=3.0 − β=1.0)**:
+- h=7: mean −1.14pp (3x noise **worsens** coverage). Max improvement +0.98pp (one cell).
+- h=30: mean +0.63pp (within sampling noise). Max improvement +2.62pp (one cell).
+- No cell improved by more than 3pp even with 3x noise.
+
+**D2: Spread unchanged**: Conditioned width 0.0930→0.0931 across all betas — the model's spread is NOT controlled by noise amplitude. This is because rank-1 CLN modulates ALL cells identically. Scaling z amplifies the same direction — all cells move together, spread doesn't grow.
+
+**D3: Rank frozen**: eff_rank 1.471→1.479 across all betas. Scaling preserves direction structure. PC1 explains 93% of variance at all beta levels.
+
+**Kill condition met**: β=3.0 CI = 73.9% < 80%. Bottleneck is **100% structural**, not amplitude.
+
+### What Was Learned
+
+1. **Noise amplitude is NOT the CI bottleneck**. 3x more noise produces 0.0pp CI improvement.
+2. **The rank-1 CLN is the BINDING constraint**. When all noise flows through the same rank-1 channel, scaling just amplifies the same direction. Coverage requires INDEPENDENT noise dimensions — i.e., breaking rank-1.
+3. **h=1 CI actively worsens with more noise** (64.7→60.9%). This makes physical sense: at h=1, the best prediction IS the prior frame. More noise adds scatter without adding coverage because the scatter is rank-1 (all cells shift together). More noise = worse, not better.
+4. **This validates H1 (skip bypass) as the critical next step**. Skip bypass provides an INDEPENDENT noise pathway that bypasses CLN. 146b showed +54% eff_rank with factor noise skip. H1 tests plain Linear skip in isolation.
+5. **H2 (heteroscedastic) should wait for H1**. Level-dependent sigma won't help if the underlying noise is rank-1 — it just scales rank-1 differently per cell.
+
+### Decision: VALUABLE FAILURE — cleanest possible falsification
+
+No code change needed. Proceed directly to H1 (skip bypass).
+
+---

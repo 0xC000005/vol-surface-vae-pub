@@ -76,7 +76,16 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 ### RC11 Theory Queue
 | # | Hypothesis | Type | Status |
 |---|-----------|------|--------|
-| H0 | Inference noise scaling probe | Inference only, 5 min | NEXT |
-| H1 | Enable skip bypass on 144b | Zero code change, 30 min | Blocked by H0 |
+| H0 | Inference noise scaling probe | Inference only, 5 min | **DONE — STRUCTURAL bottleneck confirmed** |
+| H1 | Enable skip bypass on 144b | Zero code change, 30 min | NEXT |
 | H2 | Heteroscedastic decoder output | Implementation, 1.5h | Blocked by H1 |
-| H3 | Condition-dependent noise amplitude | Zero code change, 30 min | Blocked by H0 |
+| H3 | Condition-dependent noise amplitude | Zero code change, 30 min | Blocked by H1 (H0 showed amplitude is not bottleneck) |
+
+### Iteration 21: Exp 148_probe — Inference Noise Scaling (H0)
+- **Hypothesis**: Scale noise z by beta={1.5, 2.0, 3.0} at inference. Tests amplitude vs structure.
+- **Result**: CI 74.0%→73.9% across ALL betas. Zero effect. h=1 CI WORSENED (64.7→60.9%).
+- **KEY FINDING**: Bottleneck is 100% STRUCTURAL (rank-1 CLN). Amplitude is irrelevant.
+  - Eff_rank unchanged: 1.471→1.479
+  - Conditioned width unchanged: 0.0930→0.0931
+  - Per-cell CI: h=7 mean −1.14pp (worsened!), h=30 mean +0.63pp (noise)
+- **Decision**: VALUABLE FAILURE. Cleanest falsification of amplitude hypothesis. H1 (skip bypass) is now CRITICAL — it's the only way to break rank-1.

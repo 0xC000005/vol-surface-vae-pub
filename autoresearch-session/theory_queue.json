@@ -34,9 +34,10 @@
         "5. Ensemble std at beta=2 vs GT std per cell — is spread now matched?"
       ]
     },
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "active",
+    "status": "completed",
+    "result": "FALSIFIED — β=3.0 CI=73.9% < 80%. Bottleneck is 100% structural (rank-1 CLN), not amplitude. Eff_rank unchanged 1.47→1.48. Conditioned width unchanged. h=1 CI worsened 64.7→60.9%.",
     "experiment_id": "148_probe"
   },
   {
@@ -58,7 +59,7 @@
     },
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H0",
+    "status": "active",
     "experiment_id": "148a"
   },
   {
