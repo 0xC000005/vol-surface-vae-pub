@@ -39276,3 +39276,241 @@ The mechanism is always the same: CRPS accuracy term benefits from narrower spre
 Kill confirmed. Proceed to RC13-H2 (CLN adaLN-Zero init). The training dynamics insight (coverage peaks early, declines monotonically) is directly relevant to H2's hypothesis about zero-init giving noise pathway time to establish diversity before CLN dominates.
 
 ---
+
+## 2026-03-23: Literature Review — Alternative Generative Architectures for Breaking 5/9 Ceiling
+
+### Context
+After 35 experiments across RC6-RC13, all within the single-pass AR + afCRPS paradigm, the model remains stuck at 5/9 test suites (best: 144b at 69.28). RC13 (constrained noise + training dynamics) is actively being tested (150a training). This review explores whether fundamentally different generative architectures could solve the three root-cause problems that RC6-RC13 have failed to fix.
+
+### The Three Unsolved Problems (Impact on Risk Scenarios)
+
+**Problem 1: Scenarios too narrow at short horizons (Suites 2, 7)**
+- h=1 day: 90% CI covers only 60% of outcomes (need 90%). Interval width 2-3x too narrow.
+- Calm markets worse: 51% coverage at h=1 — coin flip.
+- Risk impact: Systematically underestimates 1-week VaR by ~40%. Desk would be blindsided by "impossible" moves that happen 40% of the time.
+
+**Problem 2: Insufficient factor diversity (Suite 9)**
+- Effective rank 2.26 vs GT 5.03. PC1 captures 84% of variance (GT: 61%).
+- Risk impact: Ensemble has ~1 degree of freedom — all cells move together. Cannot generate skew steepening, twist, or butterfly deformations. Portfolio hedged on parallel shifts but exposed to higher-order risks shows zero risk in scenarios.
+
+**Problem 3: Systematic downward median bias (Suite 8)**
+- Model median undershoots GT in 69% of time steps. 6/25 cells outside acceptable bias range.
+- Risk impact: Directional bet masquerading as neutral forecast — consistently underestimates future vol levels.
+
+**Root cause (proven across 35 experiments)**: CLN rank-1 attractor. Same noise modulation applied to all 25 cells (Jacobian rank 1.23). CRPS training suppresses all diversity mechanisms: skip weights -> 0.103, noise_scale learns 0.75x suppression, factor collapse at n>5.
+
+### Architectures Investigated
+
+#### 1. Conditional Diffusion (CSDI, TimeGrad, SSSD)
+**Mechanistic argument**: Each sample starts from independent per-cell noise and follows independent denoising trajectory. No shared bottleneck -> no rank collapse possible.
+
+**Literature evidence on calibration**:
+- SSSD: PICP distance 1.1-1.8 across all datasets — CATASTROPHICALLY miscalibrated (Source: RDIT paper, Table 2)
+- RDIT (best calibrated diffusion TS model): Achieves good coverage ONLY after two post-hoc calibration steps (EAE + CO). Their own finding: "a strong point estimator + zero-mean Gaussian matching training error achieves SOTA" — diffusion component barely helps (Source: arxiv 2509.02341)
+- ArchesClimate (flow matching for climate): Systematic underdispersion, std 0.51 degC vs 0.71 degC reference (Source: arxiv 2509.15942)
+- GenCast: Well-calibrated but at 229M params / 0.25 deg global grid — 800x our scale
+
+**Literature evidence on cross-variable correlation**: ZERO papers report this metric. CRPS (standard evaluation) is provably blind to correlation (Scheuerer & Hamill 2015). Variogram score almost never used.
+
+**Literature evidence on ensemble diversity / effective rank**: ZERO papers report this for time series. Not measured anywhere in the TS domain.
+
+**Verdict**: Mechanistic argument is sound but EMPIRICALLY UNVALIDATED at our scale. Raw diffusion does NOT calibrate without post-hoc fixes. No evidence it solves correlation or diversity for small multivariate TS.
+
+#### 2. Flow Matching (TSFlow, Sundial, FlowTime, FlowTS, CW-Gen)
+**Key papers**:
+- TSFlow (ICLR 2025): Conditional flow matching + GP priors
+- Sundial (ICML 2025 Oral, 128M params): Foundation model, "TimeFlow Loss mitigates mode collapse"
+- FlowTime (Mar 2025): Autoregressive flow matching decomposition
+- FlowTS (Nov 2024): Rectified flow, Context-FID 0.015 vs Diffusion-TS 0.147 (10x better fidelity)
+- CW-Gen (ICLR 2026): Conditionally whitened flow matching — MOST RELEVANT
+
+**Advantages over diffusion**:
+
+| Metric | Flow matching | Diffusion | Source |
+|--------|--------------|-----------|--------|
+| Sampling steps | 4-16 NFE | 50-200 NFE | TSFlow, FlowTS |
+| Fidelity (Context-FID) | 0.015 | 0.147 | FlowTS |
+| Discriminative score | 0.019 | 0.067 | FlowTS |
+| Temporal correlation | 0.938 | 1.411 | FlowTS |
+
+**CW-Gen (most relevant)**: Learns sliding-window conditional mean and covariance. Replaces N(0,I) prior with N(mu_hat, Sigma_hat). Nuclear norm + Frobenius norm penalties on Cholesky factor. Reports ProbCorr: raw 0.214-0.401, CW variants 0.206-0.266. Theorem proving KL reduction. This DIRECTLY targets our Suite 9 problem (cross-cell correlation).
+
+**Same gaps as diffusion**: No CI coverage numbers, no effective rank, no 5x5 grid tests. ArchesClimate shows underdispersion persists.
+
+**Verdict**: Strictly better than diffusion on speed and quality. CW-Gen is the only paper in ANY paradigm that explicitly learns and regularizes cross-variable covariance. Best bet IF we pursue multi-step generation.
+
+#### 3. AIFS-Diffusion vs AIFS-CRPS (ECMWF Head-to-Head)
+**ECMWF's verdict** (Newsletter 185, Oct 2025): "AIFS-CRPS gives more accurate forecasts than diffusion-based models" — chose CRPS for operational deployment July 2025.
+
+**Reasons**: (1) More accurate on CRPS skill, (2) 1 forward pass vs ~20 for diffusion, (3) CRPS supports multi-step AR training.
+
+**Key numbers from AIFS-CRPS paper**:
+- 5-20% CRPS improvement over IFS ENS for upper-air variables
+- Overdispersive for upper-air (opposite of our problem)
+- Underdispersive in tropics
+- 229M params, per-location noise (35K+ dims), CLN injection
+- 4 members at training, 50+1 at inference
+
+**Critical insight**: AIFS escapes rank collapse with noise_dim >= output_dim (35K noise for 35K output cells). Our noise is 32-dim for 750-dim output (30x25). The ratio is 0.04 vs AIFS's >=1.0.
+
+**No head-to-head numbers published** comparing AIFS-Diffusion vs AIFS-CRPS on spread-skill, diversity, or effective rank. The "more accurate" claim is from a newsletter, not peer-reviewed.
+
+#### 4. Hybrid and Other Approaches
+- **CRPS-LAM**: Documents same collapse we face in single-pass CRPS: "careful design choices and autoregressive training strategies" needed to stabilize. Confirms our problem is not unique.
+- **TACTiS-2** (copula-based transformer, ICLR 2024): Only model with theoretical guarantee of learning valid joint distributions. Not diffusion-based.
+- No hybrid (diffusion for diversity + CRPS for calibration) has been published.
+
+### Evidence Gap Map
+
+| Question | Evidence exists? | Answer |
+|----------|-----------------|--------|
+| Does diffusion avoid rank collapse at our scale? | NO | Unknown — not measured |
+| Does diffusion calibrate CI at our scale? | YES | NO without post-hoc fixes |
+| Does diffusion preserve cross-cell correlation? | NO | Unknown — not measured |
+| Does flow matching beat diffusion? | YES | Yes on speed (4-16 vs 50-200 steps) and quality |
+| Is CW-Gen's whitening relevant to Suite 9? | YES | Most directly relevant approach found |
+| Does noise_dim >= output_dim matter? | YES | Common factor across AIFS, FuXi-ENS, GenCast |
+| Is our rank-1 problem unique? | YES | No — CRPS-LAM documents same collapse |
+| Has anyone solved calibration + correlation + diversity on small multivariate TS? | NO | Gaping hole in literature |
+
+### Key Insight: noise_dim vs output_dim Ratio
+
+| System | Noise dim | Output dim | Ratio | Rank collapse? |
+|--------|-----------|------------|-------|---------------|
+| Our model | 32 | 750 (30x25) | 0.04 | YES (eff_rank 2.26) |
+| AIFS-CRPS | ~35K | ~35K | ~1.0 | No |
+| FuXi-ENS | 156x721x1440 | Same | 1.0 | No |
+| GenCast | Full grid | Full grid | 1.0 | No |
+
+This may be the most actionable finding: the common factor across all systems that avoid collapse is noise_dim >= output_dim. Our ratio of 0.04 is uniquely low.
+
+### Honest Assessment of Proposed Alternatives
+
+**What is backed by evidence**:
+- Flow matching is strictly better than diffusion for multi-step generation (speed, quality, mode collapse mitigation)
+- CW-Gen's conditional whitening is the only principled mechanism targeting cross-variable covariance
+- noise_dim >= output_dim is the common factor across systems that avoid collapse
+- Post-hoc calibration is the norm for diffusion/flow TS models — raw generation doesn't calibrate
+
+**What is mechanistic reasoning only (unvalidated)**:
+- That per-cell output-space noise solves rank-1 at our scale (25 cells, 285K params)
+- That flow matching produces diverse ensemble members for IV surfaces
+- That CW-Gen's whitening transfers to AR generation of financial time series
+- That any alternative preserves our 5 passing suites (cointegration, conditionality, temporal dynamics, boundary smoothness, surface validity)
+
+### Recommendations (If RC13 Fails)
+
+1. **Most evidence-backed change within current paradigm**: Increase noise dimensionality to match output space (750-dim noise for 750-dim output). This is what AIFS/FuXi-ENS/GenCast all do. RC13's per-cell CLN is a step in this direction.
+
+2. **Best alternative architecture**: CW-Gen-style flow matching with learned conditional covariance prior. Only approach with principled mechanism for Suite 9 (correlation). 4-16 NFE keeps inference fast.
+
+3. **Feasibility probe before committing**: 2-3 day budget, adapt CSDI or implement minimal flow matching for our data format, measure all 9 suites. Kill conditions: if eff_rank doesn't improve AND CI doesn't improve, the mechanistic argument is wrong at our scale.
+
+### Sources
+- RDIT: arxiv 2509.02341 (calibration numbers for diffusion TS)
+- CSDI: arxiv 2107.03502 (conditional score diffusion for imputation)
+- TSFlow: arxiv 2410.03024 (ICLR 2025, flow matching for TS)
+- FlowTime: arxiv 2503.10375 (autoregressive flow matching)
+- FlowTS: arxiv 2411.07506 (rectified flow for TS generation)
+- Sundial: arxiv 2502.00816 (ICML 2025 Oral, TimeFlow Loss)
+- CW-Gen: arxiv 2509.20928 (ICLR 2026, conditionally whitened generative models)
+- CRPS-LAM: arxiv 2510.09484 (single-pass CRPS vs diffusion comparison)
+- AIFS-CRPS: arxiv 2412.15832 (ECMWF operational ensemble)
+- GenCast: arxiv 2312.15796 (Nature, DeepMind weather ensemble)
+- FuXi-ENS: arxiv 2405.05925 (VAE + CRPS weather ensemble)
+- ArchesClimate: arxiv 2509.15942 (flow matching, decadal climate)
+- MVG-CRPS: arxiv 2410.09133 (CRPS insensitivity to correlation)
+- Scheuerer & Hamill 2015 (variogram score for spatial dependency)
+- TACTiS-2: arxiv 2310.01327 (ICLR 2024, copula-based transformer)
+- ECMWF Newsletter 185 (AIFS ENS operational, Oct 2025)
+- ECMWF Newsletter 181 (AIFS ensemble intro, Autumn 2024)
+
+---
+
+## 2026-03-23: Exp 150b — RC13-H2: CLN adaLN-Zero Init — BREAKTHROUGH 7/9 Suites
+
+### Exp 150b: CLN gamma bias zero-init (adaLN-Zero), 30 epochs from 146b base
+**Based on**: 146b base model
+**Hypothesis**: CLN gamma zero-init → noise pathway dominates early → diversity established before CLN overrides. adaLN-Zero (DiT, ICCV 2023).
+**Prediction**: eff_rank > 2.26, Suite 4 stable
+
+**RESULT: 7/9 SUITES PASS — {1, 3, 4, 5, 6, 8, 9}. TWO NEW SUITES.**
+
+**CRITICAL MECHANISTIC NOTE**: The gamma zero-init was OVERWRITTEN by 146b warm-start (132/132 params transferred, 0 skipped). Configs identical except output_dir. The improvement is NOT directly from the code change — it's from the TRAINING DYNAMICS of retraining 146b with a fresh optimizer. Best model at epoch 8 (pre-freeze) captures a diversity peak that CRPS collapses by epoch 30.
+
+| Metric | 146b | 150b | Change |
+|--------|------|------|--------|
+| Suites | 5/9 | **7/9** | **+2** |
+| Overall CI | 77.3% | 81.7% | +4.4pp |
+| h=1 CI | 59.8% | 54.5% | -5.3pp |
+| h=7 CI | — | 80.3% | PASS |
+| KS daily | 21/25 | 24/25 | +3 |
+| Kurtosis | 1.21 | 1.17 | better |
+| eff_rank | 2.26 | **2.56** | **+13.3%** |
+| rank_ratio | — | **0.510** | **PASS** |
+| Suite 8 frac | 19/25 | 23/25 PASS | +4 |
+| Suite 8 mag | 21/25 | 22/25 PASS | +1 |
+| Window floor | FAIL | **3.4%** | **PASS** |
+| Coint ratio | — | 0.737 | PASS |
+| d252 CI | ~14% | **56.0%** | **+42pp** |
+
+Training command: identical to 146b recipe from 146b base. No --ar_percell_cln.
+```
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --ar_factor_noise 5 --unfreeze_encoder --lr_encoder 1e-4 \
+    --freeze_after_epoch 10 --disable_early_stop \
+    --output_dir models/backfill/afcrps_150b --device cuda
+```
+
+### WHY — Deep Investigation (8 diagnostics)
+
+**1. Best model at epoch 8 (pre-freeze)**. All other 146b-based experiments have best_model at epochs 22-30 (post-freeze). 150b captured a diversity peak before CRPS collapse. Best coverage model at epoch 3.
+
+**2. Spread INCREASED 18%**: h=1 ratio 1.181×, h=7 1.184×, h=14 1.158×, h=30 1.143× vs 146b. OPPOSITE of 150a which had REDUCED spread.
+
+**3. Factor noise W PRESERVED**: eff_rank 13.28 (vs 146b 12.88), norm 0.115 (vs 0.089). Factor noise NOT collapsed, unlike 150a (8.52).
+
+**4. Checkpoint trajectory — CRPS collapse visible**:
+| Checkpoint | gamma_bias | skip_er | spread_h1 | spread_h30 |
+|-----------|------------|---------|-----------|------------|
+| best(ep8) | 0.818 | 13.28 | 0.01493 | 0.04962 |
+| ep10 | 0.813 | 13.17 | 0.01277 | 0.05197 |
+| ep20 | 0.813 | 11.08 | 0.00876 | 0.04069 |
+| ep30 | 0.813 | 7.74 | 0.00763 | 0.03933 |
+
+After freeze at epoch 11, skip W eff_rank collapses (13.17→7.74) and h=1 spread halves (0.013→0.008). CRPS collapses the remaining trainable parameters. The best model escapes this by being selected at epoch 8.
+
+**5. Gamma zero-init NOT the cause**: 132/132 params transferred from 146b, 0 skipped. Gamma bias in 150b best_model ≈ 1.0 (same as 146b). The code change was overwritten by warm-start.
+
+**6. Long-horizon dramatically improved**: d252 CI 56% vs 14% in 146b. d90 99.6%. The wider spread + better factor structure propagates to longer horizons.
+
+**7. Suite 8 passed all 5 subtests**: KS 24/25, median frac 23/25, median mag 22/25, window floor 3.4% (best ever), sample explosion clean.
+
+**8. Suite 9 first PASS ever**: rank_ratio 0.510 ≥ 0.50, eff_rank 2.56 (vs GT 5.03). Correlation ratio 1.10.
+
+### What Was Learned
+
+1. **The model is CAPABLE of 7/9 at early epochs.** CRPS collapse is a TRAINING DYNAMICS problem, not an architectural impossibility. The diversity exists in the first 8 epochs, then CRPS erodes it.
+
+2. **Early stopping is critical.** Best model at epoch 8 captured the diversity peak. All other experiments selected later epochs (22-30) where CRPS had already collapsed diversity.
+
+3. **Fresh optimizer warm-start creates variation.** Loading converged weights but resetting optimizer state allows exploration of different parts of the loss landscape in early epochs. This particular run found a high-diversity minimum.
+
+4. **Reproducibility question open.** Same seed (42) = deterministic. But is this ROBUST across seeds? Need to verify with different seeds.
+
+5. **Skip W collapse is the post-freeze bottleneck.** After epoch 10, only 14 params remain trainable. CRPS collapses skip W from eff_rank 13.28 to 7.74 in 20 epochs. The best_model at epoch 8 (pre-freeze, all params trainable) avoids this.
+
+### Decision: BUILD ON THIS — NEW SESSION BEST (7/9, score TBD)
+
+Remaining RC13 experiments should verify reproducibility. H4 (spread_weight=0.9) runs the same code — if it also scores 7/9, it confirms the fresh-optimizer effect. H3 (K=16) tests if higher K can prevent the post-freeze collapse.
+
+**CRITICAL NEXT STEP**: Run the SAME command with a different seed to verify reproducibility. If 7/9 is seed-dependent, the result is fragile.
+
+---
