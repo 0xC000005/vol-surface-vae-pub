@@ -38219,3 +38219,188 @@ The decoder's spread differentiation (2.2x turb/calm) is entirely MECHANICAL:
 | 7 | Calm tail vulnerability | Narrow ensemble + tail event = bad window | Window floor analysis | Tail-aware spread floor |
 
 ---
+
+## 2026-03-22: Research Compass RC11 — Complete the Architecture, Don't Add Losses
+
+### Philosophy Applied
+- **Hinton**: Reasoned independently before literature. Key independent insight: "enable the disabled skip bypass" was identified before literature confirmed per-location noise is standard (AIFS).
+- **Popper**: Every hypothesis has a specific kill condition. H0 is a pure falsification probe.
+- **Bitter Lesson**: All hypotheses are architectural capacity changes or learned parameters. No domain heuristics.
+- **Karpathy**: Each hypothesis is independently testable. H0→H1→H2→H3 ordered by information value, not stacked.
+- **TRIZ**: The CRPS-calibration vs distributional-fidelity contradiction is RESOLVED by architecture (more noise pathways) rather than optimized by loss (cum_cal). Decouple spread provision (architecture) from spread calibration (CRPS).
+
+### Evidence Summary
+
+**7 architectural bottlenecks** identified with complete mechanistic understanding:
+1. CLN rank-1 (Jacobian 1.23, same modulation all tokens)
+2. Skip bypass DISABLED (100% diversity from CLN)
+3. Encoder = level only (direction cos 0.99998, regime cos 0.9996)
+4. Constant vol_scale (can't represent 6.2x level-dependent volatility)
+5. Decoder positive bias (+0.123 zero-noise delta)
+6. CRPS rank collapse over training
+7. Calm tail vulnerability (59 persistent bad windows)
+
+**Literature validation** (3 agents, 40+ papers):
+- AIFS-CRPS uses per-location noise (not global) — avoids rank-1
+- FGN argues rank constraint is a feature BUT requires 180M params/24 layers
+- CRPS spread suppression is documented (CRPS-LAM 2025)
+- Post-inference spread rescaling is valid (SDL, Schreck 2025)
+- Log-space insufficient for level-dependent vol (Neural SDE literature confirms)
+
+### Exhausted Directions (precise scope)
+
+| Exhausted | Mechanism | Evidence | NOT exhausted variant |
+|-----------|-----------|----------|----------------------|
+| cum_cal loss at any λ | Variance matching distorts distribution shape | 146c, 147a, 147b (3 tests) | Post-inference rescaling, VS loss |
+| cell_var temporal-only fix | Removes diversity reward | 146a: CI 74→70.8% | cell_var removal (λ=0) untested |
+| d_model=128 with CRPS alone | Rank collapse scales with capacity | 144c: eff_rank 1.17 | d_model=128 + rank preservation |
+| Direct variance-target losses | Degenerate optimization landscape | cum_cal + CRPS-LAM literature | Proper scoring rules (VS) for correlation |
+
+### Active Hypotheses (ranked by information value)
+
+---
+
+#### H0: Inference-Time Noise Scaling Probe (ZERO TRAINING, 5 min)
+
+**Evidence chain**: Ensemble is 3.8x too narrow (noise pathway agent). CRPS spread
+suppression is documented (CRPS-LAM 2025). SDL (Schreck et al. 2025) validates
+post-inference noise rescaling.
+
+**Principled argument** (Popper): Pure diagnostic. Answers: "Is the architecture
+CAPABLE of 90% CI if we override CRPS's chosen spread?" Maximum information, zero cost.
+
+**The bet**: Multiply noise z by beta ∈ {1.5, 2.0, 3.0} at inference. Run test suite.
+
+**Falsification**:
+- beta=2.0 gives CI≈90% AND KS≈22/25 → amplitude is bottleneck, architecture is fine
+- beta=2.0 gives CI≈90% BUT KS<15 → amplitude helps but distorts distributions
+- beta=3.0 gives CI<80% → rank-1 prevents coverage regardless of amplitude
+
+**Post-investigation plan**:
+1. Per-cell coverage grids at each beta — which cells improve most?
+2. Per-cell KS at each beta — at what beta does each cell start failing KS?
+3. Eff_rank at each beta — does amplifying rank-1 noise change eff_rank? (It shouldn't, since scaling doesn't change direction, only magnitude)
+4. If beta=2 helps CI but hurts KS: measure the THRESHOLD beta where KS starts failing. This tells us how much spread headroom the architecture has before distributional fidelity breaks.
+5. Compare ensemble std at beta=2 vs GT std per cell — is the spread now matched?
+
+**What we learn regardless of outcome**:
+- SUCCESS (CI→90%): The architecture CAN produce correct spread. CRPS suppresses it. Fix = stronger spread encouragement (biased CRPS curriculum, or architectural spread floor).
+- FAILURE (CI stays low): Rank-1 is the binding constraint. Must fix noise structure before amplitude matters. All subsequent hypotheses targeting spread amplitude are deprioritized.
+- MIXED (CI improves but KS breaks): The architecture has partial capacity. We need BOTH more amplitude AND more structure. H1 and H2 become complementary, not sequential.
+
+**Effort**: 5 min.
+
+---
+
+#### H1: Enable Skip Bypass on 144b (zero code change, 30 min)
+
+**Evidence chain**: 144b has ar_noise_skip=False, ar_skip_bypass_spread=False. Noise
+pathway agent: 100% diversity from CLN, Jacobian rank 1.23. 146b enabled skip bypass
++ factor noise → eff_rank +54%, CI +3.3pp. AIFS uses per-location noise (analogous).
+
+**Principled argument** (Karpathy): Isolate skip bypass from factor noise. 146b changed
+two things — H1 tests one.
+
+**The bet**: Add `--ar_noise_skip --ar_skip_bypass_spread` to 144b recipe. Zero code changes.
+
+**Falsification**: eff_rank stays at 1.47 AND CI stays at 74% → plain Linear skip doesn't resist CRPS rank collapse. Factor structure (FactorNoiseSkip) is essential.
+
+**Post-investigation plan**:
+1. **Eff_rank comparison**: 144b (1.47) vs H1 vs 146b (2.26). If H1 is near 144b → skip bypass without factor structure gets collapsed by CRPS. If near 146b → factor structure was unnecessary.
+2. **PCA on generated daily changes**: eigenvalue spectrum, PC1-PC5 loadings. Compare to 144b and 146b PCA results already on disk.
+3. **Noise pathway decomposition** (repeat the analysis from noise_pathway agent): Zero skip bypass weights, measure fraction of diversity from skip vs CLN. If skip contributes >20% of diversity → the pathway is being used.
+4. **Per-cell coverage grids** at h=7 and h=30 — does skip bypass improve the same cells that 146b improved?
+5. **Skip weight analysis**: What did the Linear(32→25) learn? Compute SVD of the skip weight matrix. If rank-1 → CRPS collapsed it. If rank>3 → skip maintained diversity.
+6. **Training dynamics**: Track spread over epochs. Does spread still decrease (CRPS suppression) or does skip bypass maintain a spread floor?
+
+**What we learn regardless of outcome**:
+- SUCCESS: Plain skip bypass resists CRPS collapse → factor structure was bonus, not necessary. Simplifies the architecture.
+- FAILURE: CRPS collapses ANY linear projection to rank-1 → we need ARCHITECTURAL rank preservation (factor structure, orthogonal constraints, or freeze-after-peak on skip weights).
+- PARTIAL (eff_rank improves to ~1.8 but not 2.2): Skip helps but factor structure adds value. Both needed.
+
+**Effort**: 30 min.
+
+---
+
+#### H2: Heteroscedastic Decoder Output (delta + log_sigma, 1h implementation)
+
+**Evidence chain**: Cell (0,3) has 6.2x level-dependent volatility. Log-space provides
+GBM-level scaling but ~2x residual heteroscedasticity remains (literature: Neural SDE,
+Kidger 2021; FuNVol 2023). Constant vol_scale cannot represent this.
+
+**Principled argument** (Bitter Lesson): Let the decoder LEARN sigma(x_t, condition)
+from data. Standard in Neural SDEs. Decoder already sees prev_frame as input.
+
+**The bet**: Widen output from 25 to 50. Split: delta_raw, log_sigma. Apply
+`delta = softplus(log_sigma) * delta_raw`. CRPS trains both.
+
+**IMPORTANT**: H2 may depend on H1. If noise is rank-1, per-cell sigma can scale each
+cell differently but they still move in the same direction. Test H2 AFTER H1.
+
+**Falsification**: Learned sigma is constant across IV levels after training → CRPS
+doesn't use the capacity. The heteroscedastic channel is wasted.
+
+**Post-investigation plan**:
+1. **Learned sigma vs IV level**: Plot sigma(cell) vs current_IV for cell (0,3) and 5 other cells. Is there a monotonic relationship? The literature predicts sigma should increase with IV level (CEV with gamma>1).
+2. **Cell (0,3) specific**: Coverage at cell (0,3) before/after. If coverage improves from 47% toward 70% → heteroscedastic output works for the bottleneck cell.
+3. **Sigma stability over AR steps**: Track sigma at h=1, h=10, h=30. Does sigma grow or shrink over the trajectory? If it grows → model learns increasing uncertainty. If constant → no temporal structure.
+4. **Sigma vs vol_scale**: Compare learned sigma to the existing learned vol_scale (25 per-cell params). Are they correlated? If sigma ≈ vol_scale → redundant. If different pattern → sigma captures something new.
+5. **KS per-cell check**: Does heteroscedastic output change daily-change distributions? If KS improves at previously failing cells → sigma corrects distributional shape.
+6. **Ablation**: Freeze sigma at 1.0 (constant), train only delta. Compare to full H2. If performance is similar → sigma isn't being used.
+
+**What we learn regardless of outcome**:
+- SUCCESS: Level-dependent volatility is real and learnable. The decoder can express per-cell per-state noise amplitude. This is a fundamental architectural improvement.
+- FAILURE: Either (a) rank-1 prevents sigma from helping (per H1 dependency), or (b) CRPS drives sigma toward constant (same suppression as spread). If (b), it means CRPS suppresses noise amplitude as well as noise direction — a deeper problem than we thought.
+
+**Effort**: Stage 1: 1h (implementation). Stage 2: 30min (training). Stage 3: 30min (combine with H1).
+
+---
+
+#### H3: Condition-Dependent Noise Amplitude (30 min)
+
+**Evidence chain**: P3 agent: decoder calm/turb modulation 1.005x. Window floor agent:
+44% bad windows in calm regime. Encoder calm/turb cosine 0.9996.
+
+**Principled argument** (Bitter Lesson): Enable `ar_noise_scale_cond` — existing module
+that maps condition → per-cell noise amplitude. Let CRPS train it.
+
+**The bet**: Add `--ar_noise_scale_cond` to training. Zero new code.
+
+**Falsification**: Turb/calm spread ratio stays at 2.2x (changes <5%) → encoder doesn't
+provide enough regime signal.
+
+**Post-investigation plan**:
+1. **Turb/calm spread ratio**: Before (2.2x mechanical) vs after. If changes meaningfully → model learned to use condition for spread. If unchanged → encoder signal too weak.
+2. **Noise_scale_head weights**: What patterns did the head learn? Visualize the learned noise scale as function of condition — does it correlate with vol-of-vol?
+3. **Window floor by regime**: Calm bad rate before (18.4%) vs after. If decreases → noise_scale_cond helps calm tail vulnerability.
+4. **Encoder gradient analysis**: Does training with noise_scale_cond change the encoder gradients? If the encoder starts receiving gradients through noise_scale_head → it may learn to encode regime information (currently it's frozen so this wouldn't apply unless encoder is unfrozen).
+5. **Correlation between learned noise_scale and vol_of_vol**: Compute for each test window. If r > 0.5 → model learned to estimate uncertainty from condition. If r < 0.2 → model can't extract uncertainty from the condition vector.
+
+**What we learn regardless of outcome**:
+- SUCCESS: The encoder DOES contain some regime signal (despite cos 0.9996) and the decoder can extract it. The condition-dependent spread mechanism works.
+- FAILURE: Encoder truly doesn't encode regime info. Need encoder modification: wider bottleneck (256-dim), auxiliary regime classification loss, or explicit vol-of-vol feature input. This is a fundamental encoder limitation that no decoder change can fix.
+
+**Effort**: 30 min.
+
+---
+
+### Garbage Can Lists (Updated)
+
+**Unsolved problems**:
+- CRPS spread suppression (architectural, not loss-fixable)
+- CLN rank-1 in small models
+- Encoder encodes only level, not regime/direction
+- Calm regime tail vulnerability
+- 252-day spread plateau (P3 — not addressed by RC11)
+
+**Available techniques** (from literature):
+- Per-location noise (AIFS-style) — addresses rank-1
+- FactorNoiseSkip (proven in 146b) — partially addresses rank-1
+- Post-inference spread rescaling (SDL) — addresses CRPS suppression
+- Variogram Score (VS p=0.5) — addresses correlation structure
+- Biased-to-fair CRPS curriculum — addresses early spread collapse
+- Neural SDE heteroscedastic output — addresses level-dependent vol
+- Multi-model ensemble (FGN) — addresses underdispersion orthogonally
+- Noise hypernetworks — alternative to CLN for noise injection
+
+---
