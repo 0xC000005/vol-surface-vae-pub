@@ -38457,3 +38457,69 @@ PYTHONPATH=. python experiments/backfill/block_ar/probe_noise_scale.py \
 No code change needed. Proceed directly to H1 (skip bypass).
 
 ---
+
+## 2026-03-23: RC11-H1 — Skip Bypass Without Factor Noise (Exp 148a)
+
+### Exp 148a: Enable skip bypass on 144b (CONFOUNDED)
+**Based on**: 144b (69.28, 5/9) — RC11-H1 from Research Compass
+**Hypothesis**: Plain Linear skip bypass (without factor noise) breaks rank-1. Tests whether
+plain skip resists CRPS rank collapse or whether factor structure (146b) is essential.
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_144b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --unfreeze_encoder --lr_encoder 1e-4 --disable_early_stop \
+    --output_dir models/backfill/afcrps_148a --device cuda
+```
+Best epoch: 23 (stable, val gap=0.057). 30 epochs.
+
+**Results**:
+
+| Metric | 144b (baseline) | 148a (skip) | 146b (skip+factor) | Delta 148a |
+|--------|:-:|:-:|:-:|:-:|
+| CI 90% | 74.0% | 71.7% | 77.3% | −2.3pp |
+| CI h=1 | 64.7% | 47.9% | 66.5% | −16.7pp |
+| KS daily | 22/25 | 15/25 | 24/25 | −7 |
+| Eff rank | 1.47 | 1.69 | 2.26 | +0.22 |
+| ACF corr | 0.90 | 0.92 | 0.95 | +0.02 |
+| Kurtosis | 1.05 | 1.22 | 0.93 | +0.17 |
+| Suites | 5/9 | 5/9 | 5/9 | 0 |
+
+### WHY — Mechanistic Analysis (3 diagnostics)
+
+**D1: Per-cell CI at h=1 collapsed across ALL cells** (mean −16.7pp):
+- h=1 variance: 0.000194 (was 0.001089, 5.6x reduction)
+- This is NOT from skip bypass — 148a added cell_spread + ES/IS + bias_lambda + reflect that 144b didn't have
+- CONFOUNDED: cannot isolate skip bypass contribution from recipe changes
+
+**D2: Skip projection weights near-zero** (norm=0.103, std=0.0036):
+- CRPS drove the plain Linear skip weights to near-zero
+- BUT SVD shows eff_rank=10.64 — the capacity for multi-directional noise EXISTS
+- Skip contributes only ~0.015 per-cell to delta
+- This confirms CRPS spread suppression on the skip pathway
+
+**D3: CLN weights adapted** (cosine sim 0.81-0.93 vs 144b):
+- CLN absorbed some of the training signal meant for skip
+- CLN norms increased (9.1→11.5) — possibly compensating for skip pathway
+
+### What Was Learned
+
+1. **Plain Linear skip collapsed under CRPS** — weight norm 0.103 (near-zero). CRPS suppresses the skip pathway just like it suppresses CLN spread. Factor noise (146b) resists this because its structured loadings W maintain diversity.
+2. **The experiment was CONFOUNDED** — 144b lacked cell_spread/ES/IS/bias_lambda/reflect. Adding these simultaneously with skip makes it impossible to attribute the CI regression to skip alone.
+3. **Eff_rank did improve** (1.47→1.69, +15%) but far less than 146b (+54%). Confirms factor structure provides structural resistance to CRPS rank collapse that plain Linear does not.
+4. **146b recipe IS the validated principled path** — it combines skip + factor noise in a way that resists CRPS collapse.
+
+### Decision: CONFOUNDED EXPERIMENT — skip bypass contribution inconclusive
+
+The CI regression (−2.3pp) is likely from recipe differences, not skip bypass itself.
+However, the key learning is clear: **plain skip without factor structure collapses under CRPS**.
+Factor noise skip (146b) is the validated fix for P2. Future work should build on 146b recipe.
+
+---

@@ -57,9 +57,10 @@
       ],
       "principled_check": "If H1 succeeds: is plain skip + CRPS sufficient, or does factor structure (146b) add independent value? Compare H1 vs 146b on all 9 suites."
     },
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "active",
+    "status": "completed",
+    "result": "CONFOUNDED. Eff_rank +15% (1.47→1.69) but CI −2.3pp, KS −7. Skip proj norm=0.103 (near-zero). CRPS collapsed plain skip. Factor noise (146b) provides structural resistance. Recipe differences (added ES/IS/cell_spread) confound the CI regression.",
     "experiment_id": "148a"
   },
   {

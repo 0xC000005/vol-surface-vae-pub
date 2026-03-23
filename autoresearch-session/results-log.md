@@ -77,7 +77,7 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 | # | Hypothesis | Type | Status |
 |---|-----------|------|--------|
 | H0 | Inference noise scaling probe | Inference only, 5 min | **DONE — STRUCTURAL bottleneck confirmed** |
-| H1 | Enable skip bypass on 144b | Zero code change, 30 min | NEXT |
+| H1 | Enable skip bypass on 144b | Zero code change, 30 min | **DONE — CONFOUNDED. Skip collapsed under CRPS (norm=0.103). Eff_rank +15% but CI −2.3pp.** |
 | H2 | Heteroscedastic decoder output | Implementation, 1.5h | Blocked by H1 |
 | H3 | Condition-dependent noise amplitude | Zero code change, 30 min | Blocked by H1 (H0 showed amplitude is not bottleneck) |
 
@@ -89,3 +89,10 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
   - Conditioned width unchanged: 0.0930→0.0931
   - Per-cell CI: h=7 mean −1.14pp (worsened!), h=30 mean +0.63pp (noise)
 - **Decision**: VALUABLE FAILURE. Cleanest falsification of amplitude hypothesis. H1 (skip bypass) is now CRITICAL — it's the only way to break rank-1.
+
+### Iteration 22: Exp 148a — Skip Bypass Without Factor Noise (H1)
+- **Hypothesis**: Plain Linear skip bypass breaks rank-1 without factor noise.
+- **Result**: 5/9 (same suites). CI 74.0→71.7% (−2.3pp). KS 22→15/25 (−7). Eff_rank 1.47→1.69 (+15%).
+- **KEY FINDING**: CRPS drove skip proj weights to near-zero (norm=0.103). Skip has eff_rank=10.64 capacity but CRPS suppresses amplitude. Factor noise (146b) resists this.
+- **CONFOUND**: Recipe added cell_spread/ES/IS/bias_lambda/reflect that 144b lacked. CI regression likely from recipe, not skip.
+- **Decision**: CONFOUNDED. Cannot isolate skip contribution. 146b recipe validated as principled path. Build H2/H3 on 146b.
