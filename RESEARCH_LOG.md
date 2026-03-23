@@ -39665,3 +39665,25 @@ K=16 produces MORE extreme samples (kurtosis 2.58 = heavy tails) and WORSE KS (2
 Proceed to reproducibility verification of 150b.
 
 ---
+
+## 2026-03-23: Exp 150b_v2 — Reproducibility Confirmation (gamma=ones ablation)
+
+### Exp 150b_v2: Exact 150b recipe with gamma=ones (no code change)
+**Purpose**: Isolate whether gamma zero-init caused 150b's 7/9, or if it was training dynamics.
+
+**Result: 7/9 IDENTICAL to 150b.** Same pass pattern {1, 3, 4, 5, 6, 8, 9}. Same CI 81.7%.
+
+Training dynamics are EXACTLY identical to 150b (all 30 val_loss values match to 4 decimal places). Best model at epoch 8 with val_loss=17.0993.
+
+### Conclusive Findings
+1. **Gamma zero-init has ZERO effect.** Warm-start from 146b overwrites the init completely. 132/132 params transferred.
+2. **7/9 is REPRODUCIBLE** with seed=42. Deterministic.
+3. **The improvement is from**: retraining 146b with fresh optimizer → best model selected at epoch 8 (pre-freeze diversity peak) → CRPS hasn't yet collapsed spread.
+4. **Open question**: Is this specific to seed=42? Need multi-seed verification.
+
+### Mechanistic Understanding Updated
+The 146b architecture is CAPABLE of 7/9 quality. The problem was not architecture — it was TRAINING DYNAMICS. Early in training (epochs 1-10), all parameters are trainable and the model explores a high-diversity region. CRPS then collapses diversity over epochs 10-30 (skip W eff_rank: 13.28→7.74). The fix is to CAPTURE the early epoch model before collapse.
+
+This reframes the 5/9 ceiling: it's not a fundamental limit of the architecture, but a training dynamics problem where CRPS grad suppresses spread over time. The architecture CAN produce 7/9 output — CRPS just trains it away.
+
+---
