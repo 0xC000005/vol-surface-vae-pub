@@ -141,3 +141,9 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 - **Result**: 4/9 (−1, lost cointegration). eff_rank 2.26→2.17 (−0.09). KS 21→6/25 (−15!). CI −5.1pp.
 - **KEY FINDING**: CRPS collapsed 5/10 factors (top-1 energy 80% vs 46.8%). Min/max SV ratio 0.032 vs 0.396. Factor resistance has a SWEET SPOT at 5 for this model scale.
 - **Decision**: VALUABLE FAILURE. "More factors = better" cleanly falsified. Path forward is per-cell CLN (H3), not more skip factors.
+
+### Iteration 25: Exp 149b — ar_bias_lambda=0.05 on 146b (RC12-H2)
+- **Hypothesis**: 5× bias regularization fixes median bias → Suite 8 PASS.
+- **Result**: 4/9 (−1, lost Suite 4: kurtosis 2.03). CI −8.1pp, KS −16, eff_rank −0.28.
+- **KEY FINDING**: Bias regularization too strong. Bias is structural (factor W direction + CLN interaction), not simple decoder offset.
+- **Decision**: VALUABLE FAILURE. H2 falsified at this level. Proceed to H3 (per-cell CLN).

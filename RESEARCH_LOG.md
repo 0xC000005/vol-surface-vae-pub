@@ -38902,3 +38902,19 @@ Best epoch: 22 (stable, gap=0.067). Val loss 16.22 (lower than 146b's 16.46).
 Factor count sweet spot is 5 for this model scale. Proceed to H2 (bias fix) and H3 (per-cell CLN).
 
 ---
+
+## 2026-03-23: RC12-H2 — Fix Median Bias (ar_bias_lambda=0.05, Exp 149b)
+
+### Exp 149b: ar_bias_lambda=0.05 on 146b base (FALSIFIED)
+**Based on**: 146b (69.14, 5/9). H2-Stage1 showed zero-noise delta flipped from +0.177 (144b) to −0.106 (146b).
+**Hypothesis**: 5× stronger bias regularization (0.01→0.05) reduces decoder bias, recovering Suite 8.
+
+**Results**: 4/9 suites (−1, lost Suite 4). CI −8.1pp, KS 21→5/25 (−16), eff_rank 2.26→1.98, kurtosis 1.21→2.03 (>2.0 threshold).
+
+**Kill condition met**: Suite 8 still fails AND Suite 4 broke. ar_bias_lambda=0.05 is too strong — it distorts the training dynamics without fixing the median bias.
+
+**H2-Stage1 finding**: Zero-noise delta FLIPPED from +0.177 (144b) to −0.106 (146b). The bias isn't a simple decoder offset — it's an interaction between factor noise direction and the CLN pathway. Higher bias_lambda suppresses this but also suppresses useful signal.
+
+**Decision**: VALUABLE FAILURE. ar_bias_lambda alone can't fix the median bias without breaking other metrics. The bias is structural (factor W direction), not a simple decoder term. Proceed to H3 (per-cell CLN).
+
+---

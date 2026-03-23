@@ -146,10 +146,11 @@
         "6. If bias_lambda fails: compute factor output mean across ensemble \u2014 is it systematically non-zero?"
       ]
     },
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 2,
-    "status": "active",
-    "experiment_id": "149b"
+    "status": "completed",
+    "experiment_id": "149b",
+    "result": "FALSIFIED. 4/9 (lost Suite 4). KS 21\u21925/25. Kurtosis 2.03>2.0. Bias is structural not decoder offset."
   },
   {
     "name": "RC12-H3: Per-cell CLN noise injection (AIFS approach)",
