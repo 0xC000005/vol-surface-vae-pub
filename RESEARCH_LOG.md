@@ -37969,3 +37969,41 @@ cum_cal adds calibration at the cost of distributional accuracy.
 RC10 session. H4 (learned ρ) deprioritized since H3 result is mixed.
 
 ---
+
+## 2026-03-22: Validation Audit — RC10 session (146a, 146b, 146c)
+
+### Scope
+3 experiments + baseline verified. 5 parallel validation agents dispatched.
+
+### Metric Verification
+ALL claims match disk. 32/33 exact match, 1 rounding difference (146c eff_rank 1.58 vs 1.59).
+Training histories verified. Cell_var revert confirmed. Factor loadings match checkpoint.
+normalize_iv() compliance confirmed in PCA agent.
+
+### New Findings from Follow-up Analysis
+
+**146b PCA (factor structure verification)**:
+- PCA eff_rank: 1.314→2.039 (+55%), independently confirms test suite improvement
+- PC1 variance 94.3%→81.8% (GT 61.5%): factor noise spreads variance across components
+- PC2 cosine with GT: 0.32 vs 0.09 (3.4x better PC2 capture) — factor noise helps
+  the model learn the slope/skew mode, not just level shifts
+
+**146c KS collapse (spatial analysis)**:
+- 24/25 cells uniformly worse, not localized. Mean D-stat +0.066 across all cells
+- KS on IV LEVELS fine (20/25) — failure is specifically in daily CHANGES
+- cum_cal preserves marginal distributions but distorts step-to-step dynamics
+- Moneyness gradient: worst at OTM puts (80%), least bad at OTM calls (120%)
+
+**Per-cell CI structural bottleneck**:
+- Cell (0,3) = 30d tenor, K=1.05 is THE worst cell across ALL models at ALL horizons
+- This is a structural limitation, not experiment-specific
+- 146b achieves +19.6pp improvement at some h=30 cells (180d/K=1.00: 66%→86%)
+
+**Coverage trends**:
+- 146b is the ONLY model with strong increasing coverage with horizon (h30-h1 = +25.1pp)
+- 146c DECREASES with horizon (h30-h1 = -0.1pp) — cum_cal flattens the curve
+
+### Corrections
+None — all prior claims verified.
+
+---

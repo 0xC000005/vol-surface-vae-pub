@@ -1,55 +1,39 @@
 {
-  "task": "cross_model_comparison",
-  "date": "2026-03-22",
-  "models_analyzed": [
-    "144a",
-    "144b",
-    "144c",
-    "145a",
-    "145c"
+  "verification": "cross_model_comparison",
+  "timestamp": "2026-03-22T20:32:00Z",
+  "status": "COMPLETE",
+  "description": "Extracted key metrics from 4 summary.json files (144b, 146a, 146b, 146c) and created cross-model comparison table in JSON and markdown formats.",
+  "models_compared": ["144b", "146a", "146b", "146c"],
+  "input_files": [
+    "results/block_ar/144b_best_30d/summary.json",
+    "results/block_ar/146a_best_30d/summary.json",
+    "results/block_ar/146b_best_30d/summary.json",
+    "results/block_ar/146c_best_30d/summary.json"
   ],
-  "n_test_windows": 9,
-  "n_samples_per_window": 50,
-  "device": "cuda",
-  "status": "complete",
+  "result_paths": {
+    "comparison_json": "results/validations/2026-03-22/analysis/cross_model/comparison.json",
+    "comparison_md": "results/validations/2026-03-22/analysis/cross_model/comparison.md"
+  },
+  "script_path": "results/validations/2026-03-22/scripts/cross_model_comparison.sh",
   "key_findings": {
-    "best_eff_rank_model": "144c",
-    "best_eff_rank_value": 1.6425098854036058,
-    "best_suites_model": "144a",
-    "best_suites_count": 5,
-    "gt_eff_rank": 4.741581589557224,
-    "hardest_cell_count": 5,
-    "eff_rank_comparison_summary": {
-      "144a": {
-        "train": null,
-        "test_pca": 1.5220484296077386,
-        "test_summary": 1.5125887867858683,
-        "rank_ratio": 0.3008010913864418
-      },
-      "144b": {
-        "train": null,
-        "test_pca": 1.480432889702814,
-        "test_summary": 1.4711828652242904,
-        "rank_ratio": 0.29256689944717074
-      },
-      "144c": {
-        "train": null,
-        "test_pca": 1.6425098854036058,
-        "test_summary": 1.610858787579143,
-        "rank_ratio": 0.32034356303994094
-      },
-      "145a": {
-        "train": null,
-        "test_pca": 1.6169195869304083,
-        "test_summary": 1.6050485094209141,
-        "rank_ratio": 0.31918810160420746
-      },
-      "145c": {
-        "train": 4.3646954278792105,
-        "test_pca": 1.5971362559416538,
-        "test_summary": 1.6027316720584486,
-        "rank_ratio": 0.3187273635547899
-      }
-    }
+    "suite_results": {
+      "144b": {"pass": 5, "total": 9, "passed": ["surface", "conditionality", "time_series", "block_ar", "cointegration"]},
+      "146a": {"pass": 5, "total": 9, "passed": ["surface", "conditionality", "time_series", "block_ar", "cointegration"]},
+      "146b": {"pass": 5, "total": 9, "passed": ["surface", "conditionality", "time_series", "block_ar", "cointegration"]},
+      "146c": {"pass": 5, "total": 9, "passed": ["surface", "conditionality", "time_series", "block_ar", "cointegration"]}
+    },
+    "all_models_same_5_suites": true,
+    "failing_suites_all_models": ["coverage", "regime_coverage", "distributional", "cross_cell_correlation"],
+    "notable_differences": {
+      "ci_90_best": {"model": "146b", "value": 0.773, "note": "Best CI coverage, +3.3pp over 144b baseline"},
+      "ci_90_worst": {"model": "146a", "value": 0.708, "note": "Worst CI coverage, -3.2pp vs 144b"},
+      "calibration_error_best": {"model": "146b", "value": 0.062, "note": "Best calibration, 37% lower than 144b"},
+      "ks_changes_catastrophic": {"model": "146c", "value": 1, "note": "Only 1/25 cells pass KS changes -- severe regression"},
+      "eff_rank_best": {"model": "146b", "value": 2.260, "note": "Best factor structure, rank_ratio 0.45 (still failing)"},
+      "kurtosis_best": {"model": "144b", "value": 1.049, "note": "Closest to 1.0 target"},
+      "acf_best": {"model": "146b", "value": 0.946, "note": "Best ACF correlation"},
+      "window_floor_best": {"model": "146b", "value": 0.053, "note": "Lowest bad-window rate"}
+    },
+    "summary": "All 4 models pass identical 5/9 suites. 146b shows best improvement in CI (77.3%), calibration (0.062), eff_rank (2.26), and window floor (5.3%). 146c has catastrophic KS regression (1/25 pass). No model breaks through the 5/9 ceiling."
   }
 }
