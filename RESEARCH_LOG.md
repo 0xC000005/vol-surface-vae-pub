@@ -38918,3 +38918,41 @@ Factor count sweet spot is 5 for this model scale. Proceed to H2 (bias fix) and 
 **Decision**: VALUABLE FAILURE. ar_bias_lambda alone can't fix the median bias without breaking other metrics. The bias is structural (factor W direction), not a simple decoder term. Proceed to H3 (per-cell CLN).
 
 ---
+
+## 2026-03-23: RC12-H3 — Per-Cell Noise Modulation (Exp 149c)
+
+### Exp 149c: per-cell noise scale on 146b base
+**Based on**: 146b (69.14, 5/9). AIFS uses per-location noise → no rank-1 collapse.
+**Hypothesis**: Per-cell noise-dependent output scale breaks rank-1 at the output stage. Each cell's delta × softplus(MLP(noise)) → independent cell movement.
+
+**Training**: 146b recipe + `--ar_percell_cln`. Best ep27, val loss 15.995 (lowest ever), gap 0.055.
+
+**Results**:
+
+| Metric | 146b | 149c | Delta |
+|--------|:-:|:-:|:-:|
+| CI 90% | 77.3% | 71.0% | −6.3pp |
+| CI h=1 | 59.8% | **67.9%** | **+8.1pp** |
+| KS daily | 21/25 | **0/25** | −21 |
+| Eff rank | 2.26 | 2.22 | −0.04 |
+| Kurtosis | 1.21 | **3.33** | +2.12 |
+| Suites | 5/9 | 4/9 | −1 |
+
+### WHY
+
+**h=1 CI improved** (first time ANY experiment achieved this): per-cell noise modulation makes different cells move independently at h=1, exactly as designed. The noise-dependent per-cell scale learned to differentiate cells.
+
+**KS collapsed** (0/25): per-cell noise scale distorts the daily change distributions. The softplus(MLP) produces heavy-tailed scales that inject excess kurtosis (3.33 vs target 0.5-2.0). The per-cell scale amplifies outlier noise draws → fat tails → KS fails.
+
+**Same trade-off**: Architecture changes that improve CI at short horizons destroy distributional fidelity. This is now confirmed across 3 independent mechanisms (factor noise 149a, bias lambda 149b, per-cell scale 149c).
+
+### What Was Learned
+
+1. **h=1 CI IS improvable** (67.9% vs 59.8%) — per-cell noise modulation is the first mechanism to move it in the right direction. This is a genuine finding.
+2. **The KS-CI trade-off appears fundamental** at this model scale. Every mechanism that improves CI also injects excess kurtosis/tail weight that destroys KS.
+3. **RC12 compass exhausted**: all 3 hypotheses (H1: more factors, H2: bias fix, H3: per-cell noise) regressed to 4/9. The "per-cell noise architecture" theme did NOT break the 5/9 ceiling.
+4. **The 146b configuration (5 factors, ar_bias_lambda=0.01) is a local optimum** that has resisted all attempts to improve.
+
+### Decision: VALUABLE FAILURE — RC12 compass exhausted. Need validation + new directions.
+
+---

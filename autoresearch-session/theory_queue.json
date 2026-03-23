@@ -169,9 +169,10 @@
       ]
     },
     "note": "Larger implementation. Consider as Stage 3 after H1 and H2 provide quick signal.",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 2,
-    "status": "active",
-    "experiment_id": "149c"
+    "status": "completed",
+    "experiment_id": "149c",
+    "result": "FALSIFIED. 4/9 (lost Suite 4). CI h=1 +8.1pp (first improvement!). But KS 0/25, kurtosis 3.33. KS-CI trade-off is fundamental."
   }
 ]

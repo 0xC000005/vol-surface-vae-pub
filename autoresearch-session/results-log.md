@@ -147,3 +147,9 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 - **Result**: 4/9 (−1, lost Suite 4: kurtosis 2.03). CI −8.1pp, KS −16, eff_rank −0.28.
 - **KEY FINDING**: Bias regularization too strong. Bias is structural (factor W direction + CLN interaction), not simple decoder offset.
 - **Decision**: VALUABLE FAILURE. H2 falsified at this level. Proceed to H3 (per-cell CLN).
+
+### Iteration 26: Exp 149c — Per-cell noise modulation on 146b (RC12-H3)
+- **Hypothesis**: Per-cell noise output scale breaks rank-1 at output stage.
+- **Result**: 4/9 (−1, lost Suite 4). CI h=1 improved +8.1pp (FIRST TIME). But KS 21→0/25, kurtosis 3.33.
+- **KEY FINDING**: h=1 CI IS improvable via per-cell noise. But KS-CI trade-off is fundamental at this scale.
+- **Decision**: VALUABLE FAILURE. RC12 exhausted. All 3 hypotheses regressed. 146b is a local optimum.
