@@ -39687,3 +39687,33 @@ The 146b architecture is CAPABLE of 7/9 quality. The problem was not architectur
 This reframes the 5/9 ceiling: it's not a fundamental limit of the architecture, but a training dynamics problem where CRPS grad suppresses spread over time. The architecture CAN produce 7/9 output — CRPS just trains it away.
 
 ---
+
+## 2026-03-23: Multi-Seed Validation — 150b's 7/9 is Seed-Specific
+
+### Multi-Seed Verification of 150b Recipe (exact same training command, different seeds)
+
+| Seed | Suites | Pass Pattern | Best Epoch | CI | KS | Kurt | eff_rank |
+|------|--------|-------------|-----------|-----|-----|------|----------|
+| **42** | **7/9** | {1,3,4,5,6,8,9} | **8** | **81.7%** | **24/25** | **1.17** | **2.56** |
+| 43 | 5/9 | {1,3,4,5,6} | 29 | 69.5% | 15/25 | 1.94 | 2.14 |
+| 44 | 4/9 | {1,3,4,5} | 25 | 71.2% | 24/25 | 1.01 | 2.11 |
+
+### Key Findings
+
+1. **7/9 is seed-specific (seed=42 only).** Seeds 43 and 44 produce 4-5/9 with best models at late epochs (25-29). Only seed=42 has best_model at epoch 8 (pre-freeze diversity peak).
+
+2. **The architecture IS capable of 7/9 quality** — proven by seed=42. But the val_loss criterion doesn't reliably select the early diversity peak. With seeds 43/44, val_loss improves monotonically until late epochs where CRPS has collapsed diversity.
+
+3. **Variance is high**: 3/9 to 7/9 range across 3 seeds. This is extreme. The model quality is dominated by WHICH EPOCH the early-stopping selects, not by the training recipe.
+
+4. **Implication**: The next research direction should focus on making the early-epoch diversity peak RELIABLE:
+   - Save best_coverage_model instead of best_val_loss_model
+   - Use a composite metric (val_loss + coverage + eff_rank) for model selection
+   - Reduce post-freeze CRPS collapse via training schedule changes
+   - Warm restart strategies that reliably produce early-epoch diversity
+
+### Correction to Prior Claims
+
+The 150b research log entry stated the improvement was from "fresh optimizer + early stopping." This is PARTIALLY correct — the fresh optimizer produces the diversity, but the early stopping is NOT RELIABLE across seeds. The val_loss criterion happened to select epoch 8 for seed=42 but selects post-collapse epochs for other seeds.
+
+---
