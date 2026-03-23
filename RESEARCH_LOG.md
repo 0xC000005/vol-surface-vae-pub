@@ -39088,3 +39088,124 @@ Every modification at the OUTPUT stage was either collapsed by CRPS or caused fa
 **Strongest candidate: 149c+clamp** (proven mechanism, 1-line fix, directly addresses fat-tail finding)
 
 ---
+
+## 2026-03-23: Research Compass RC13 — "Constrained Noise + Training Dynamics"
+
+### Philosophy Applied
+- **Popper**: Every hypothesis has specific kill condition with numbers
+- **Karpathy**: Each change independently testable, staged checkpoints
+- **Bitter Lesson**: All changes are learned (init, learned scale) not hand-crafted
+- **Hinton**: Independent reasoning (CLN warmup) validated by literature (adaLN-Zero from DiT)
+- **TRIZ**: Resolve KS-CI contradiction by CONSTRAINING scale, not removing it
+
+### Evidence Summary (validated by pre-RC13 audit)
+- KS-CI trade-off is FIXABLE — unbounded softplus scale is the cause
+- 149c's percell_noise_scale was FROZEN at epoch 10 — only 10/30 epochs of training
+- adaLN-Zero (DiT, ICCV 2023) shows zero-init of conditioning is the standard approach
+- K=16 has no literature evidence of helping with afCRPS
+- ES alone hurts per-cell accuracy (GNN paper)
+- Literature claims about biased CRPS warmup were FALSE
+
+### Active Hypotheses (ranked by information value)
+
+#### H1: Clamped per-cell noise + unfrozen scale (HIGHEST PRIORITY)
+
+**Evidence chain**: 149c improved h=1 CI +8.1pp but kurtosis 3.33. Root cause: unbounded softplus (P95=3.89, max=19.92). ADDITIONALLY: percell_noise_scale was frozen at epoch 10, only 10/30 epochs of training. Two fixes: clamp scale + exclude from freeze.
+
+**Principled argument**: The per-cell noise modulation mechanism is PROVEN to work (h=1 CI +8.1pp). The failure was from unconstrained optimization (unbounded scale) and insufficient training time (frozen at epoch 10). Clamping prevents tail inflation. Full 30-epoch training allows the scale to converge to useful values. (TRIZ: constrain the mechanism, don't remove it.)
+
+**The bet**: Train 146b recipe with `--ar_percell_cln` AND:
+1. Add `percell_scale` to freeze keep-list (or set `--freeze_after_epoch 0`)
+2. Clamp softplus output: `scale = F.softplus(x).clamp(0.8, 1.5)`
+
+**Staged checkpoints**:
+1. (30 min) Train with clamp [0.8, 1.5] and percell_noise_scale unfrozen for all 30 epochs
+2. (5 min) If KS ≥ 20/25 and h=1 CI improved: run full 9-suite eval + long-horizon
+3. (30 min) If clamp range too tight: try [0.5, 2.0] and compare
+
+**Falsification**: KS < 15/25 → clamping insufficient. OR h=1 CI doesn't improve → the improvement came from extreme scales, not per-cell independence. OR eff_rank < 2.26 → per-cell modulation hurts factor structure.
+
+**Independence**: Does not depend on H2/H3/H4.
+
+**If it fails**: Per-cell modulation doesn't help at ANY scale → the mechanism was illusory, improvement was noise artifact.
+
+**Effort**: ~10 LOC (clamp + freeze exclusion). 30 min training.
+
+#### H2: CLN adaLN-Zero initialization (NEW)
+
+**Evidence chain**: adaLN-Zero (Peebles & Xie, ICCV 2023) shows zero-init of conditioning output layer is the most important element for stable training of conditional transformers. Our CLN initializes gamma_bias=1.0 (identity). Zero-init means gamma starts near 0 → CLN has no effect early → skip/factor pathway dominates → diversity established before CLN takes over.
+
+**Principled argument**: Currently, CLN starts at identity (gamma=1). This means from epoch 1, the CLN rank-1 modulation dominates. By epoch 10 (freeze), rank-1 is established and frozen. adaLN-Zero reverses this: CLN starts silent, the model first learns without CLN (diverse because noise is unmodulated), then CLN gradually gains influence as training proceeds. The diversity is established BEFORE CLN can collapse it. (Literature: "zero initialization is the single most important element" — DiT paper.)
+
+**The bet**: Change CLN initialization:
+- `nn.init.zeros_(self.noise_to_gamma[2].weight)` (already zero)
+- `nn.init.zeros_(self.noise_to_gamma[2].bias)` (change from ones → zeros)
+This makes `softplus(0) = 0.693` instead of `softplus(1) = 1.31`. Actually for pure zero-init:
+gamma starts at 0 → LN output × 0 = nothing. Need to use the additive form:
+`h_out = (1 + gamma(z)) * LN(h) + beta(z)` where gamma inits to 0 → identity at init.
+
+**Staged checkpoints**:
+1. (30 min) Train 146b recipe with CLN gamma bias init = 0.0 (adaLN-Zero style)
+2. (5 min) Check eff_rank at epoch 5, 10, 20 — does diversity persist?
+3. (30 min) If promising: combine with H1 (clamped per-cell + zero-init CLN)
+
+**Falsification**: eff_rank < 2.26 at epoch 30 → zero-init doesn't help diversity. OR Suite 4 kurtosis > 2.0 → training instability from weak CLN early.
+
+**Independence**: Independent of H1. Can test in parallel.
+
+**If it fails**: CLN rank-1 is not from initialization but from CRPS gradient dynamics during training → the attractor is in the loss landscape, not the init.
+
+**Effort**: 1-line init change. 30 min training.
+
+#### H3: K=16 training (INFORMATION EXPERIMENT)
+
+**Evidence chain**: Literature says afCRPS corrects finite-K bias, so K shouldn't matter. But our model has a rank-1 attractor. K=16 gives 120 pairwise comparisons vs K=8's 28 (4.3× more diversity gradient). If K=16 doesn't help → proves the problem is architectural (CLN structure), not gradient strength.
+
+**Principled argument**: This is primarily an INFORMATION experiment. The expected outcome is negative (literature predicts no effect with afCRPS). But a negative result is highly informative: it definitively rules out gradient strength as a contributing factor and focuses all future work on architecture. (Popper: the most informative experiments are those where failure teaches the most.)
+
+**The bet**: Train 146b recipe with `--n_members 16 --batch_size 8`.
+
+**Staged checkpoints**:
+1. (30 min) Train and evaluate. Compare eff_rank, CI, KS vs 146b.
+
+**Falsification**: Eff_rank doesn't improve AND CI doesn't improve → gradient strength is irrelevant. (This IS the expected outcome based on literature.)
+
+**Independence**: Independent of H1/H2.
+
+**If it fails** (expected): Confirms the bottleneck is purely architectural. All future work must target CLN structure.
+
+**Effort**: Config change only. 30 min.
+
+#### H4: Spread weight 0.5→0.9 on 146b (QUICK PROBE)
+
+**Evidence chain**: spread_weight=0.5 is the standard CRPS balance. With alpha=0.95, the effective loss is `mae - 0.475*spread`. At spread_weight=0.9: `mae - 0.855*spread`. The spread term becomes nearly equal to the accuracy term, potentially preventing CRPS from suppressing diversity. Exp 136a tried spread_weight=0.3 (LESS spread emphasis) and it failed. The OPPOSITE direction (MORE spread emphasis) is untried.
+
+**Principled argument**: The spread_weight controls the diversity gradient strength within CRPS itself. If diversity is gradient-starved (which 4 experiments suggest), increasing spread_weight is the direct fix. This is different from K scheduling — it changes the loss function balance, not the sample count. (Bitter Lesson: learned balance via training, not hand-crafted.)
+
+**The bet**: Train 146b with `--spread_weight 0.9`.
+
+**Staged checkpoints**:
+1. (30 min) Train and evaluate. Compare CI, KS, eff_rank.
+2. (10 min) Check training dynamics: does higher spread_weight maintain spread?
+
+**Falsification**: CI doesn't improve AND KS drops → higher spread_weight distorts distributions without helping coverage. (Same mechanism as cum_cal.)
+
+**Independence**: Independent of H1/H2/H3.
+
+**Effort**: Config change only. 30 min.
+
+### Execution Order
+1. **H1** (30 min) — clamped per-cell + unfrozen. Highest evidence, direct mechanism fix.
+2. **H2** (30 min) — CLN zero-init. Novel, literature-backed, independent.
+3. **H4** (30 min) — spread_weight=0.9. Quick probe, zero code change.
+4. **H3** (30 min) — K=16. Information experiment, expected negative but informative.
+
+### Exhausted Directions
+All prior dead ends + literature-falsified levers (biased CRPS warmup, VS increase, noise_dim increase, progressive rollout).
+
+### Open Questions
+- Does clamped per-cell scale preserve the h=1 CI improvement?
+- Does adaLN-Zero init break the CLN rank-1 attractor?
+- Is the 25pp Suite 2/7 gap achievable at 285K params?
+
+---
