@@ -38101,3 +38101,40 @@ which distorts the SHAPE of daily-change distributions.
 4. **Suite 7** (regime): requires condition-dependent spread ON TOP of P1 fix.
 
 ---
+
+## 2026-03-22: Exp 147a, 147b — Probes: weak cum_cal and factor+cum_cal combo
+
+### Exp 147a: Weak cum_cal (λ=0.1)
+**Based on**: 144b. Training: same recipe + `--lambda_cum_cal 0.1`
+**Result**: 5/9 {1,3,4,5,6}. CI 72.9% (worse than 144b 74.0%). KS daily **4/25** (still broken).
+Even 10x weaker cum_cal destroys distributions. Kurtosis 1.964 (borderline gate).
+**Conclusion**: cum_cal is fundamentally incompatible with distributional fidelity. Not a dosage problem.
+
+### Exp 147b: Factor noise + weak cum_cal combined
+**Based on**: 144b. Training: same recipe + `--ar_factor_noise 5 --lambda_cum_cal 0.1`
+**Result**: **4/9** {1,3,4,5} — LOST Suite 6 (cointegration). CI 75.4%. KS daily **24/25** (preserved!).
+Eff_rank 2.22. Rank ratio 0.442. h=30 CI 80.8%.
+
+| Metric | 144b | 147b | 146b (factor only) |
+|--------|------|------|-------------------|
+| Suites | 5/9 | 4/9 | 5/9 |
+| CI | 74.0% | 75.4% | 77.3% |
+| KS daily | 22/25 | **24/25** | 21/25 |
+| Eff rank | 1.47 | 2.22 | 2.26 |
+| Coint ratio | 2.898 | ? | 1.303 |
+
+**Key insight**: Factor noise + cum_cal λ=0.1 PRESERVES KS (24/25, best of all experiments!)
+but breaks cointegration. The cum_cal component at ANY weight disturbs temporal dynamics
+differently:
+- λ=1.0: breaks KS (daily change distribution shape)
+- λ=0.1: KS recovers but cointegration breaks (IV-EWMA relationship)
+
+cum_cal is a dead end for improving CI without sacrificing temporal fidelity.
+
+**What this means for next experiments**: Factor noise (FactorNoiseSkip) alone (146b) is
+the BEST modification found. It improves eff_rank, CI, ACF, and calibration without
+breaking any existing passing suite. The next improvement should target P1 (spread)
+through a different mechanism than cum_cal — likely **enabling skip bypass on 144b**
+(which is currently disabled!) and/or **level-dependent vol_scale**.
+
+---
