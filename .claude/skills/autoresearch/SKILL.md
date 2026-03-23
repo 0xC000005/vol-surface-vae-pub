@@ -370,28 +370,37 @@ of what worked and what didn't in the exhausted compass. Invoking research-ideat
 on incomplete evidence produces unprincipled directions (proven: 2026-03-23 session
 generated "fix the loss" RC12 when the evidence actually pointed to architecture).
 
-1. **Invoke the validation skill** to audit all experiments from the exhausted compass:
-   ```
-   Skill(skill="validation", args="Validate all experiments from [compass name].
-   Verify claims against disk. Run missing analyses. Collect mechanistic evidence.")
-   ```
-2. **Wait for the audit to complete.** The validation skill will present an audit table
-   with gaps found, verifications run, and corrections to prior claims. Present this
-   to the user.
+1. **Use the Skill tool to load and run the validation skill.** This is a real tool call,
+   not just documentation — you must actually call it:
+
+   Use the Skill tool: skill="validation", args="Validate all experiments from [compass
+   name]. Verify claims against disk. Run missing analyses. Collect mechanistic evidence."
+
+   The validation skill will load its full instructions, scan the research log, audit
+   completeness, and dispatch parallel verification agents. Follow its instructions.
+
+2. **Wait for the validation audit to complete.** The validation skill will present an
+   audit table with gaps found, verifications run, and corrections to prior claims.
+   Present this to the user. Do NOT proceed until the user has seen the audit.
+
 3. **Fill ALL gaps** the validation identifies — especially:
    - DIRTY_FALSIFICATION: confounded experiments that need isolation
    - MISSING_ANALYSIS: long-horizon tests, per-cell breakdowns, factor analysis
    - UNVERIFIED_CLAIM: metrics cited in the log that don't match disk
+
 4. **Run deep investigation agents** for any remaining mechanistic gaps. The goal is
    to answer: "For every experiment in the exhausted compass, can we explain WHY it
    succeeded or failed with specific numbers from diagnostic scripts?"
-5. **Only after the user confirms** the evidence base is complete, invoke research-ideation:
-   ```
-   Skill(skill="research-ideation", args="Generate research compass — [theme].
-   Evidence base validated by [date] audit. [Key findings from validation].")
-   ```
+
+5. **Only after the user confirms** the evidence base is complete, use the Skill tool
+   to load and run research-ideation:
+
+   Use the Skill tool: skill="research-ideation", args="Generate research compass —
+   [theme]. Evidence base validated by [date] audit. [Key findings from validation]."
+
    Include the key findings from validation in the args so research-ideation starts
-   with verified evidence, not stale log entries.
+   with verified evidence, not stale log entries. The research-ideation skill will
+   load its full instructions including its own validation prerequisite check.
 
 The reason this gate exists: research-ideation's Phase 1 (Evidence Synthesis) searches
 the research log — but the log may contain unverified claims, confounded experiments,

@@ -40,11 +40,14 @@ Before synthesizing evidence from the research log, verify that the evidence bas
 trustworthy. Research log entries are snapshots — they may contain unverified claims,
 confounded experiments, or missing analyses that would poison hypothesis generation.
 
-Invoke the validation skill to audit recent experiments:
-```
-Skill(skill="validation", args="Validate experiments from [lookback window].
-Focus on: metric verification, confound isolation, missing analyses.")
-```
+Use the Skill tool to load and run the validation skill — this is an actual tool call
+you must make, not just documentation:
+
+Use the Skill tool: skill="validation", args="Validate experiments from [lookback window].
+Focus on: metric verification, confound isolation, missing analyses."
+
+The validation skill will load its full instructions, scan the research log, build an
+audit table, and dispatch verification agents. Follow its complete workflow.
 
 If the validation reveals:
 - **UNVERIFIED_CLAIM** or **STALE_METRIC**: Do NOT build hypotheses on those numbers.
