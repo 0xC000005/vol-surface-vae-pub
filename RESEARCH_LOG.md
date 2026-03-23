@@ -37900,3 +37900,72 @@ collapse. But didn't reach 3.0 target → decoder/attention also contributes. PA
 regression needs H3 (multi-horizon CRPS) to address. Proceed to H3 from 144b base.
 
 ---
+
+## 2026-03-22: Exp 146c — Multi-horizon cum_cal loss (VALUABLE FAILURE)
+
+### Exp 146c: cum_cal calibration loss at h=1,7,14,30 (RC10-H3)
+**Based on**: 144b (69.28, 5/9 {1,3,4,5,6})
+
+**Hypothesis**: Model never gets direct gradient about calibration at h=30.
+cum_cal loss matches ensemble variance to squared prediction error at 4 horizons,
+providing direct calibration signal without flowing through 30 AR steps.
+
+**Change**: Added `--lambda_cum_cal 1.0` to training command. No code changes.
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_144b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --lambda_cum_cal 1.0 --disable_early_stop \
+    --output_dir models/backfill/afcrps_146c --device cuda
+```
+
+Best epoch: 28 (stable, gap=0.07).
+
+**Results**:
+
+| Metric | 144b | 146c | Change |
+|--------|------|------|--------|
+| Suites | 5/9 | 5/9 | Same {1,3,4,5,6} |
+| CI 90% | 74.0% | **76.2%** | +2.2pp |
+| h=1 CI | 64.7% | **75.1%** | **+10.4pp** |
+| h=30 CI | 74.7% | 75.0% | +0.3pp |
+| **KS daily** | **22/25** | **1/25** | **CATASTROPHIC** |
+| Kurtosis | 1.049 | 1.442 | Higher |
+| ACF | 0.752 | **0.941** | +0.189 |
+| Cal. error | 0.117 | **0.084** | Improved |
+| Eff rank | 1.47 | 1.58 | Slight |
+| **252d coverage** | **53.2%** | **72.8%** | **+19.6pp** |
+
+**WHY**: cum_cal forces ensemble variance to match squared prediction error at
+4 horizons. This improves calibration metrics (CI, ACF, cal error) and even
+long-horizon coverage (252d: 53.2%→72.8%). But it distorts per-cell daily change
+distributions to achieve this — KS daily collapses from 22/25 to 1/25.
+
+**Mechanism**: cum_cal uses log-ratio variance matching. When the model's ensemble
+variance doesn't match GT squared error, cum_cal pushes the noise/spread to
+compensate. This changes the SHAPE of per-cell distributions (making them match
+the variance target but diverge from the actual daily change distribution).
+
+**Falsification**: H3 partially validated — multi-horizon calibration signal DOES
+improve coverage at all horizons. But it's incompatible with Suite 8 (distributional
+fidelity). The CRPS per-frame gradient at h=30 IS sufficient for basic calibration;
+cum_cal adds calibration at the cost of distributional accuracy.
+
+**What was learned**:
+- Multi-horizon calibration loss improves CI and long-horizon coverage significantly
+- But it trades distributional fidelity for calibration (KS 22→1)
+- The 252d coverage improvement (53→73%) is the best long-horizon result so far
+- h=1 CI improved most (64.7→75.1%) — cum_cal directly targets this
+- A WEAKER version (lambda_cum_cal=0.1) might preserve KS while gaining some CI
+
+**Decision**: VALUABLE FAILURE. cum_cal=1.0 is too strong. Proceed to wrap up
+RC10 session. H4 (learned ρ) deprioritized since H3 result is mixed.
+
+---
