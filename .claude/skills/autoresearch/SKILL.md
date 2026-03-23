@@ -363,13 +363,40 @@ as sub-iterations. Follow the Research Compass's execution order (information fl
 
 **If no Research Compass exists OR all compass hypotheses are exhausted:**
 
-Invoke the `research-ideation` skill to generate a new Research Compass:
-```
-Skill(skill="research-ideation", args="Generate research compass — theory queue empty")
-```
-This runs the full 4-phase process: evidence synthesis → independent reasoning →
-framework application → literature search → adversarial critique → ranked hypotheses.
-The research-ideation skill will save the compass to the research log.
+**⚠️ MANDATORY VALIDATION GATE — Do NOT skip this step.**
+
+Before generating new directions, you MUST have complete mechanistic understanding
+of what worked and what didn't in the exhausted compass. Invoking research-ideation
+on incomplete evidence produces unprincipled directions (proven: 2026-03-23 session
+generated "fix the loss" RC12 when the evidence actually pointed to architecture).
+
+1. **Invoke the validation skill** to audit all experiments from the exhausted compass:
+   ```
+   Skill(skill="validation", args="Validate all experiments from [compass name].
+   Verify claims against disk. Run missing analyses. Collect mechanistic evidence.")
+   ```
+2. **Wait for the audit to complete.** The validation skill will present an audit table
+   with gaps found, verifications run, and corrections to prior claims. Present this
+   to the user.
+3. **Fill ALL gaps** the validation identifies — especially:
+   - DIRTY_FALSIFICATION: confounded experiments that need isolation
+   - MISSING_ANALYSIS: long-horizon tests, per-cell breakdowns, factor analysis
+   - UNVERIFIED_CLAIM: metrics cited in the log that don't match disk
+4. **Run deep investigation agents** for any remaining mechanistic gaps. The goal is
+   to answer: "For every experiment in the exhausted compass, can we explain WHY it
+   succeeded or failed with specific numbers from diagnostic scripts?"
+5. **Only after the user confirms** the evidence base is complete, invoke research-ideation:
+   ```
+   Skill(skill="research-ideation", args="Generate research compass — [theme].
+   Evidence base validated by [date] audit. [Key findings from validation].")
+   ```
+   Include the key findings from validation in the args so research-ideation starts
+   with verified evidence, not stale log entries.
+
+The reason this gate exists: research-ideation's Phase 1 (Evidence Synthesis) searches
+the research log — but the log may contain unverified claims, confounded experiments,
+or missing analyses. The validation skill catches these BEFORE they poison hypothesis
+generation. A wrong evidence base produces wrong hypotheses, which waste GPU hours.
 
 **Why use research-ideation instead of ad-hoc synthesis:**
 The 2026-03-17 autoresearch session demonstrated the failure mode: when the theory
@@ -377,6 +404,11 @@ queue ran out, the agent generated directions that were variants of exhausted ap
 (metric chasing, not principled). The research-ideation skill applies Hamming/Popper/TRIZ
 filters, searches literature, and ensures hypotheses are independently testable with
 falsification criteria. This produces principled directions, not ad hoc ideas.
+
+The 2026-03-23 session demonstrated a second failure mode: research-ideation was invoked
+with incomplete evidence (confounded H1, unverified noise_scale claims, missing long-horizon
+tests). It produced "fix the loss" directions when deep investigation later revealed the
+architecture was the bottleneck. The mandatory validation gate prevents this.
 
 **Fallback (if research-ideation skill unavailable):**
 Follow the theory-engine.md reference file for manual synthesis.

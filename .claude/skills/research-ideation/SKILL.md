@@ -34,6 +34,38 @@ These are decision-making tools, not decorations. Apply them explicitly througho
 
 ### Phase 1: Evidence Synthesis (Parallel Agents)
 
+**Step 0: Validation Prerequisite (MANDATORY)**
+
+Before synthesizing evidence from the research log, verify that the evidence base is
+trustworthy. Research log entries are snapshots — they may contain unverified claims,
+confounded experiments, or missing analyses that would poison hypothesis generation.
+
+Invoke the validation skill to audit recent experiments:
+```
+Skill(skill="validation", args="Validate experiments from [lookback window].
+Focus on: metric verification, confound isolation, missing analyses.")
+```
+
+If the validation reveals:
+- **UNVERIFIED_CLAIM** or **STALE_METRIC**: Do NOT build hypotheses on those numbers.
+  Verify them first.
+- **DIRTY_FALSIFICATION**: A hypothesis was "falsified" but confounds exist. The
+  falsification is unreliable — investigate the confound before treating it as settled.
+- **MISSING_ANALYSIS**: Standard follow-up (long-horizon, per-cell, factor analysis)
+  was never run. These may contain the mechanistic insight that changes the direction.
+
+Only proceed to evidence synthesis AFTER the validation audit is complete and gaps are
+filled. If the caller (e.g., autoresearch skill) has already run validation and is
+passing verified evidence in the args, you may skip this step — but note this explicitly.
+
+The reason this matters: the 2026-03-23 session ran research-ideation with a confounded
+H1 experiment, unverified noise_scale claims, and missing long-horizon tests. It produced
+"fix the loss" directions. Post-ideation validation revealed the architecture was the
+actual bottleneck — the AIFS comparison (same loss, per-location noise → no collapse)
+was the decisive evidence, but it was only discovered during validation, not during
+the rushed ideation. Complete evidence → principled directions. Incomplete evidence →
+wasted GPU hours on wrong directions.
+
 Ground yourself in what is KNOWN. Launch 3 parallel agents to cover breadth efficiently:
 
 **Agent 1: "Current state and proven root causes"**
