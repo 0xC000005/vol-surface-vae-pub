@@ -38986,3 +38986,70 @@ d30 CI=99.2% (excellent), d90=96.8%, d180=71.2%, d252=82.8%. But kurtosis 60-115
 The KS-CI trade-off that blocked RC12 is a **clamping problem, not an architecture problem**. A 1-line fix (clamp per-cell scale to [0.8, 1.5]) should preserve CI gains without KS degradation. This is the most principled next experiment — it directly addresses the identified mechanism.
 
 ---
+
+## 2026-03-23: Post-RC12 Evidence Review — Root Cause Map Update + Untried Levers
+
+### GT Regime Signal Discovery (NEW — changes understanding of bottleneck #3)
+
+Analysis of ground truth data revealed:
+- GT turb/calm spread ratio = **1.31×** (model produces 2.1× — OVER-conditioning)
+- History vol-of-vol → future spread: Spearman ρ=0.193 (weak predictive signal)
+- IV level → future spread: Spearman ρ=−0.067 (essentially zero)
+- Partial corr(vov, spread | IV level): r=0.112 (marginal additional signal)
+
+**Bottleneck #3 (encoder = level only) DEMOTED.** The data itself has weak regime
+predictability. The encoder correctly learned that IV level is the dominant signal.
+Suites 2+7 fail because of absolute spread magnitude, not regime differentiation.
+
+### Updated Bottleneck Priority
+
+| # | Bottleneck | Status | Priority |
+|---|-----------|--------|----------|
+| 1 | CLN rank-1 | Partially fixed (factor noise, 2.7% variance) | **HIGHEST** |
+| 6 | CRPS rank collapse | Deeply understood, not solved | **HIGHEST** |
+| 5 | Decoder bias | Worse (flipped +0.18→−0.11) | HIGH |
+| 4 | Constant vol_scale | Partially fixed (per-cell scale) | MEDIUM |
+| 7 | Calm tail vulnerability | Unchanged (59 bad windows) | MEDIUM |
+| 3 | Encoder = level only | **DEMOTED** — GT turb/calm is only 1.3× | LOW |
+| 2 | Skip bypass | Resolved | DONE |
+
+### The Pattern Across 9 Experiments (RC11+RC12)
+
+Every modification at the OUTPUT stage was either collapsed by CRPS or caused fat tails:
+1. More noise amplitude → rank-1 prevents CI improvement
+2. More factor channels → CRPS collapses extras
+3. noise_scale_cond → learns suppression
+4. Per-cell output scale → unbounded → kurtosis blowup
+5. Bias regularization → too blunt, breaks other metrics
+
+**Insight: We've been modifying the OUTPUT STAGE while the problem may be at the TRAINING STAGE.** How CRPS interacts with noise during optimization determines whether diversity is maintained or collapsed.
+
+### 10 Untried Levers (categorized)
+
+**TRAINING PROCEDURE (zero architecture change):**
+
+| Lever | Description | Evidence | Effort |
+|-------|------------|---------|--------|
+| F: Biased CRPS warmup | Large K + biased CRPS for 10 epochs, then afCRPS K=8 | CRPS-LAM + FourCastNet3 production systems | Training loop only |
+| A: Larger K in training | K=8→16 or K=32 for stronger diversity signal | CRPS inter-member term scales with K | B=8 K=16 fits in 8GB |
+| G: Freeze CLN, train skip | After 10 epochs, freeze CLN weights, continue skip/factor training | 148a showed CLN absorbs skip gradient | Config change |
+| B: AR rollout curriculum | 1-step→5-step→30-step progressive rollout | AIFS uses this. Noise matters more per step early. | Training loop |
+| H: Two-phase (accuracy then spread) | afCRPS 30ep, then spread-only loss 10ep with CLN frozen | TRIZ separation in time | Training loop |
+
+**ARCHITECTURE (model changes):**
+
+| Lever | Description | Evidence | Effort |
+|-------|------------|---------|--------|
+| C: Horizon-adaptive rho | rho low at h=1 (more independent), high at h=30 | h=1 gets one correlated noise draw; needs independence | Learned parameter |
+| D: Wider noise pathway | noise_dim 32→128 (keep d_model=64) | More dimensions = harder to collapse to rank-1 | Hyperparameter |
+| E: Multiple mini-decoders | N=5 decoders with independent noise, average output | Structurally prevents rank-1 | ~100 LOC |
+| 149c+clamp: Clamped per-cell scale | Existing 149c with clamp(0.8, 1.5) | Proven: h=1 CI +8pp, kurtosis from unbounded scale | 1-line fix |
+
+**LOSS (loss function changes):**
+
+| Lever | Description | Evidence | Effort |
+|-------|------------|---------|--------|
+| I: ES as primary loss | Replace CRPS with Energy Score (multivariate, rewards diversity) | ES self-spread term explicitly rewards |X-X'| | Config change |
+| J: Increase VS weight | lambda_vs 0.1→0.5 (targets correlation structure) | VS directly targets eff_rank | Config change |
+
+---
