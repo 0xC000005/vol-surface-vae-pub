@@ -435,9 +435,9 @@ class ConditionalLayerNorm(nn.Module):
             nn.SiLU(),
             nn.Linear(d_model, d_model),
         )
-        # Init: gamma ≈ 1 (identity), beta ≈ 0 (no shift)
+        # Init: adaLN-Zero — gamma starts at 0 (CLN has no effect early, noise dominates)
         nn.init.zeros_(self.noise_to_gamma[2].weight)
-        nn.init.ones_(self.noise_to_gamma[2].bias)
+        nn.init.zeros_(self.noise_to_gamma[2].bias)
         nn.init.zeros_(self.noise_to_beta[2].weight)
         nn.init.zeros_(self.noise_to_beta[2].bias)
 
