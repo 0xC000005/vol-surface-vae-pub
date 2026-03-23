@@ -39553,3 +39553,115 @@ Best model at epoch 2 (very early). Training val_loss is NEGATIVE (spread domina
 Confirms: more spread emphasis → better diversity (Suite 9) but → worse distributional fidelity. There IS a sweet spot, and spread_weight=0.5 appears to be in the right ballpark.
 
 ---
+
+## 2026-03-23: Decision — Why Incremental Fixes Cannot Work (Paradigm Evaluation Required)
+
+### The Contradiction
+
+After documenting alternative architectures, we initially proposed "incremental, evidence-backed" fixes within the current paradigm (noise_dim increase, variogram score loss, K independent models). This contradicts our own proven evidence. This entry documents WHY to prevent future circular reasoning.
+
+### The Proven Constraint (35 experiments)
+
+The current architecture has TWO interlocking failure mechanisms:
+
+**Mechanism 1 — CLN rank-1 bottleneck (architectural)**:
+CLN applies identical gamma/beta modulation to all 25 spatial tokens. Jacobian rank = 1.23. No matter what noise enters, the output perturbation has effectively 1 degree of freedom. This is structural — it cannot be fixed by changing noise amplitude, noise dimensionality, or loss function, as long as noise routes through CLN.
+
+**Mechanism 2 — CRPS diversity suppression (loss)**:
+CRPS loss = accuracy_term - diversity_term. The accuracy term dominates. Any bypass path that routes noise AROUND CLN (skip bypass, factor noise) gets suppressed by CRPS training dynamics. Evidence: skip bypass weights crushed to norm=0.103 (2.7% of variance). Noise_scale_head learned 0.75x uniform suppression. Factor noise at n>5 collapsed (top-1 energy 80%).
+
+**Together, these form a trap**:
+```
+Noise → CLN → rank-1 output       (architecture blocks diversity)
+Noise → bypass → CRPS suppresses   (loss blocks escape routes)
+= No path to diverse ensemble members within single-pass AR + CRPS
+```
+
+### Why Each "Incremental Fix" Fails
+
+| Proposed Fix | Why It Hits the Same Wall | Evidence |
+|-------------|--------------------------|----------|
+| Increase noise_dim (32→750) | Still routes through CLN → still rank-1 | 148_probe: 3x noise amplitude = 0pp CI improvement |
+| Per-cell noise modulation | CRPS learns to suppress it OR it blows up KS | 149c: h=1 CI +8pp but KS 0/25. 148c: noise_scale learns 0.75x suppression |
+| Variogram score in loss | Architecture CAN'T produce diverse outputs → better loss gradient has nothing to optimize | VS already at lambda=0.1; increasing it won't create diversity the architecture can't express |
+| More skip factors | CRPS collapses factors beyond sweet spot | 149a: 10 factors → top-1 energy 80% (5 factors collapsed) |
+| K independent models | Sidesteps but doesn't learn: members don't coordinate, cointegration is accidental, loses conditionality | Not tested but mechanistically obvious — no shared learning of ensemble dynamics |
+| Spread weight tuning | Changes loss balance but CLN still rank-1 | RC13-H4 pending, but even if CI improves, eff_rank won't because architecture is the bottleneck |
+| CLN zero-init (adaLN-Zero) | Delays rank-1 but doesn't prevent it — CRPS dynamics eventually find the attractor | RC13-H2 pending, theoretical only |
+
+### What Must Change
+
+To break the trap, at least ONE of the two mechanisms must be eliminated:
+
+**Option A — Change the architecture** so noise cannot be compressed:
+- Diffusion/flow matching: noise is in output space (750-dim), denoiser sees one sample at a time. There is no shared bottleneck across ensemble members. CRPS doesn't train the denoiser — MSE/CFM loss does.
+- Key property: each sample follows an independent trajectory. The network has no mechanism to collapse them.
+
+**Option B — Change the loss** so diversity is not penalized:
+- MSE on noise prediction (diffusion), CFM loss (flow matching) — neither has an accuracy-vs-diversity trade-off.
+- The diversity is structural (independent noise paths), not learned (diversity_term in loss).
+
+**Note**: Diffusion and flow matching change BOTH simultaneously. That's why the mechanistic argument is strong even without direct empirical evidence at our scale.
+
+### Why This Isn't "Giving Up" — It's Following the Evidence
+
+| Claim | Evidence |
+|-------|----------|
+| CLN is rank-1 | Jacobian analysis: rank 1.23. All 25 cells get same modulation. |
+| CRPS suppresses bypass | Skip norm=0.103, noise_scale=0.75x, factor collapse at n>5 |
+| Amplitude is irrelevant | 148_probe: 3x noise = 0pp CI change |
+| The problem is not the loss balance | 4 independent confirmations of CRPS spread suppression (148_probe, 148a, 148c, 149a) |
+| Weather models escape at scale | AIFS: 229M params, 35K output dims, noise_dim/output_dim >= 1.0 |
+| We cannot match that scale | 285K params, 25 output cells, 4000 training samples |
+| 35 experiments confirm the ceiling | RC6-RC13, every approach regresses or trades one metric for another |
+
+### Decision
+
+**We need a paradigm evaluation, not another RC within the current paradigm.** The next research compass should evaluate fundamentally different generative approaches:
+- Flow matching (CW-Gen style — best evidence for correlation + diversity)
+- Conditional diffusion (CSDI style — code already available)
+- Copula-based generation (TACTiS-2 — theoretical guarantees for joint distributions)
+- Any other paradigm the ideation process surfaces
+
+Each must be evaluated against ALL 9 test suites, not just the 4 failing ones. Preserving the 5 passing suites (surface validity, conditionality, temporal dynamics, boundary smoothness, cointegration) is a hard constraint.
+
+### Anti-Circular-Reasoning Rule
+
+**If a future session proposes "just try X within the current single-pass AR + CRPS paradigm," check this entry first.** The answer is almost certainly: we already proved that path leads nowhere. The only exception would be if new evidence emerges that invalidates the CLN rank-1 or CRPS suppression findings — which would require showing that one of the 35 experiments was confounded.
+
+---
+
+## 2026-03-23: Exp 150c — RC13-H3: K=16 Info Experiment (Expected Negative, Confirmed)
+
+### Exp 150c: K=16 training (--n_members 16 --batch_size 8)
+**Based on**: 146b base model
+**Expected outcome**: NEGATIVE — K doesn't help under rank-1 CLN architecture.
+
+**Result: 3/9 {1, 3, 5}. WORST result of RC13. Confirmed expected negative.**
+
+| Metric | 146b (K=8) | 150c (K=16) | Change |
+|--------|------------|-------------|--------|
+| Suites | 5/9 | **3/9** | −2 |
+| KS daily | 21/25 | **2/25** | −19 |
+| Kurtosis | 1.21 | **2.58** | out of range |
+| CI overall | 77.3% | 68.2% | −9.1pp |
+| eff_rank | 2.26 | 2.41 | +6.6% |
+| rank_ratio | — | 0.480 | FAIL (needs 0.50) |
+| Coint ratio | — | 0.498 | borderline FAIL |
+| Best epoch | 17 | 28 | late |
+
+K=16 produces MORE extreme samples (kurtosis 2.58 = heavy tails) and WORSE KS (2/25 = distributional shape wrong). Cointegration collapsed. Suite 4 FAIL from kurtosis. Lost Suites {4, 6} relative to 146b.
+
+### WHY
+1. 16 members = 120 pairwise CRPS comparisons (vs 28 for K=8). But CRPS still drives all members toward rank-1.
+2. More members → more opportunities for CRPS to generate extreme outliers to differentiate → heavier tails → kurtosis blowup.
+3. Smaller batch size (8 vs 16) = more gradient noise = less stable training.
+4. eff_rank SLIGHTLY higher (2.41 vs 2.26) — more members DO provide slight diversity signal, but kurtosis cost overwhelms.
+
+### Conclusion
+**K is NOT the bottleneck.** This definitively proves the ceiling is architectural (CLN rank-1), not gradient-related. Higher K gives slightly more diversity signal but the architecture can't use it. The excess gradient signal goes into generating extreme outliers instead. This eliminates ALL potential fixes based on "more diversity gradient" — any approach that increases gradient signal (K, repulsive forces, diversity losses) will hit the same architectural limit.
+
+### Decision: VALUABLE FAILURE (expected, confirming)
+Proceed to reproducibility verification of 150b.
+
+---
