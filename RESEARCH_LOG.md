@@ -38523,3 +38523,64 @@ However, the key learning is clear: **plain skip without factor structure collap
 Factor noise skip (146b) is the validated fix for P2. Future work should build on 146b recipe.
 
 ---
+
+## 2026-03-23: RC11-H3 — Noise Scale Conditioning on 146b (Exp 148c)
+
+### Exp 148c: Enable noise_scale_cond on 146b
+**Based on**: 146b (69.14, 5/9, factor noise skip) — RC11-H3 from Research Compass
+**Hypothesis**: Enable noise_scale_head to modulate skip pathway noise based on encoder conditioning.
+Tests whether encoder has regime signal for condition-dependent spread (turb wider, calm narrower).
+
+**Training**:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --ar_causal_transformer --ar_causal_cln \
+    --ar_log_space --ar_causal_d_model 64 --lambda_ortho_enc 0.01 \
+    --ar_factor_noise 5 --ar_noise_scale_cond \
+    --unfreeze_encoder --lr_encoder 1e-4 --disable_early_stop \
+    --output_dir models/backfill/afcrps_148c --device cuda
+```
+Best epoch: 25 (stable, gap=0.087). 30 epochs.
+
+**Results**:
+
+| Metric | 144b | 146b (base) | 148c (H3) | Δ 148c-146b |
+|--------|:-:|:-:|:-:|:-:|
+| CI 90% | 74.0% | 77.3% | 68.4% | −8.9pp |
+| CI h=1 | 64.7% | 59.8% | 24.3% | −35.6pp |
+| CI h=30 | 74.7% | 84.9% | 81.1% | −3.8pp |
+| KS daily | 22/25 | 21/25 | **25/25** | +4 |
+| Eff rank | 1.47 | 2.26 | 2.23 | −0.03 |
+| Turb/calm | 2.04 | 2.14 | 1.76 | −0.37 |
+| ACF corr | 0.90 | 0.95 | 0.94 | −0.01 |
+| Kurtosis | 1.05 | 1.21 | 1.47 | +0.26 |
+| Suites | 5/9 | 5/9 | 5/9 | 0 |
+
+### WHY — Mechanistic Analysis
+
+**D1: noise_scale_head learned UNIFORM SUPPRESSION, not regime differentiation**:
+- Baseline scale (softplus of bias): 0.755 ± 0.012 across all cells (CV=1.6%)
+- The head learned to reduce ALL noise to 75.5%, regardless of cell or regime
+- Weight norm IS large (15.57) — head IS condition-dependent, but CRPS optimizes toward less noise everywhere
+
+**Why KS improved**: 25% noise reduction brought daily change distributions closer to GT. Current noise is "over-spread" for distributional fidelity but "under-spread" for coverage. This reveals a fundamental KS-vs-CI trade-off in CRPS: the optimal noise level for distributional match is LOWER than needed for proper coverage.
+
+**Why CI collapsed**: Reducing noise 25% → narrower ensemble → less coverage. h=1 was already worst at 59.8% → collapsed to 24.3%.
+
+**Kill condition partially met**: Turb/calm ratio decreased by 18% (OPPOSITE of prediction). Encoder provides signal but CRPS's optimal strategy is "suppress everywhere" not "differentiate."
+
+### What Was Learned
+
+1. **CRPS spread suppression confirmed from a 4th angle**: noise_scale_head converged to 0.75× uniform suppression. Combined with H0 (amplitude irrelevant), H1 (skip collapsed), and literature (CRPS-LAM 2025).
+2. **KS-CI trade-off is fundamental**: 25/25 KS at 68% CI vs 22/25 KS at 74% CI. These objectives CONFLICT under CRPS.
+3. **Eff rank preserved**: noise_scale_cond didn't break factor structure (2.26→2.23).
+4. **Next direction**: The 5/9 ceiling cannot be broken by modifying the noise pathway WITHIN CRPS. The constraint is the LOSS itself. Consider: (a) spread-encouraged loss, (b) CRPS-LAM's SDL approach (post-inference spread rescaling), or (c) a completely different loss function for the spread pathway.
+
+### Decision: VALUABLE FAILURE — CRPS spread suppression is the root constraint
+
+---

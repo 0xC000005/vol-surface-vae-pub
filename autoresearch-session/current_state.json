@@ -1,13 +1,12 @@
 {
-  "iteration": 22,
-  "experiment_id": "148a",
+  "iteration": 23,
+  "experiment_id": "148c",
   "training_status": "running",
-  "phase": "H1_skip_bypass_training",
-  "hypothesis": "RC11-H1: Enable skip bypass on 144b. ar_noise_skip + ar_skip_bypass_spread. Tests plain Linear skip against CRPS rank collapse.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/afcrps_144b/best_model.pt --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --lambda_cell_var 1.0 --ar_frame --ar_log_space --ar_floor_clamp 0.01 --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 --ar_causal_n_heads 4 --ar_causal_cln --ar_noise_skip --ar_skip_bypass_spread --ar_reflect --ar_bias_lambda 0.01 --unfreeze_encoder --lr_encoder 1e-4 --lambda_ortho_enc 0.01 --disable_early_stop --output_dir models/backfill/afcrps_148a --device cuda",
+  "phase": "H3_noise_scale_cond_training",
+  "hypothesis": "RC11-H3: Enable noise_scale_cond on 146b. Tests whether encoder has regime signal for noise_scale_head to modulate skip pathway spread.",
   "session_best": {"exp": "144b_best", "score": 69.28, "suites": 5},
-  "total_experiments": 24,
-  "compass_position": "RC11-H1",
+  "total_experiments": 25,
+  "compass_position": "RC11-H3",
   "session_date": "2026-03-23",
-  "base_model": "models/backfill/afcrps_144b/best_model.pt"
+  "base_model": "models/backfill/afcrps_146b/best_model.pt"
 }

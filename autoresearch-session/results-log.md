@@ -79,7 +79,7 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 | H0 | Inference noise scaling probe | Inference only, 5 min | **DONE — STRUCTURAL bottleneck confirmed** |
 | H1 | Enable skip bypass on 144b | Zero code change, 30 min | **DONE — CONFOUNDED. Skip collapsed under CRPS (norm=0.103). Eff_rank +15% but CI −2.3pp.** |
 | H2 | Heteroscedastic decoder output | Implementation, 1.5h | Blocked by H1 |
-| H3 | Condition-dependent noise amplitude | Zero code change, 30 min | Blocked by H1 (H0 showed amplitude is not bottleneck) |
+| H3 | Condition-dependent noise amplitude | Zero code change, 30 min | **DONE — noise_scale_head learned 0.75× suppression. KS 25/25 but CI −8.9pp. CRPS spread suppression is root constraint.** |
 
 ### Iteration 21: Exp 148_probe — Inference Noise Scaling (H0)
 - **Hypothesis**: Scale noise z by beta={1.5, 2.0, 3.0} at inference. Tests amplitude vs structure.
@@ -96,3 +96,10 @@ Step 5 (143a): Strip vol_scale, cell_spread, freeze — after 4
 - **KEY FINDING**: CRPS drove skip proj weights to near-zero (norm=0.103). Skip has eff_rank=10.64 capacity but CRPS suppresses amplitude. Factor noise (146b) resists this.
 - **CONFOUND**: Recipe added cell_spread/ES/IS/bias_lambda/reflect that 144b lacked. CI regression likely from recipe, not skip.
 - **Decision**: CONFOUNDED. Cannot isolate skip contribution. 146b recipe validated as principled path. Build H2/H3 on 146b.
+
+### Iteration 23: Exp 148c — Noise Scale Conditioning on 146b (H3)
+- **Hypothesis**: Enable noise_scale_cond on 146b for condition-dependent spread.
+- **Result**: 5/9 (same suites). CI 77.3→68.4% (−8.9pp). KS 21→25/25 (+4, PERFECT!). Eff_rank 2.26→2.23.
+- **KEY FINDING**: noise_scale_head learned 0.75× uniform suppression (CV=1.6%). CRPS optimizes toward less noise everywhere. KS-CI trade-off is fundamental under CRPS.
+- **KILL**: Turb/calm decreased 2.14→1.76 (−18%, opposite of prediction). Encoder signal used for suppression, not differentiation.
+- **Decision**: VALUABLE FAILURE. 4th independent confirmation of CRPS spread suppression. 5/9 ceiling is a LOSS problem, not architecture.

@@ -102,9 +102,10 @@
       ],
       "principled_check": "If it works: is the improvement from noise_scale_head orthogonal to skip bypass (H1)? Run both together and check for interaction."
     },
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "blocked_by_H0",
+    "status": "completed",
+    "result": "PARTIALLY KILLED. Turb/calm decreased 2.14→1.76 (−18%, opposite of prediction). noise_scale_head learned 0.75× uniform suppression (CV=1.6%). KS improved 21→25/25 (best ever) but CI dropped 77→68%. Confirms CRPS spread suppression from 4th angle.",
     "experiment_id": "148c"
   }
 ]
