@@ -1,14 +1,13 @@
 {
-  "iteration": 9,
-  "experiment_id": "152a",
+  "iteration": 10,
+  "experiment_id": "152b",
   "training_status": "training",
-  "phase": "RC14_H2_stage1",
-  "hypothesis": "H2 Stage 1: Unconditional flow matching on 25-dim IV frames. Each sample follows independent ODE trajectory → structural diversity. Proxy: does CFM produce GT-like eff_rank and PC alignment?",
-  "session_best": {"exp": "151c", "metric": "5/9 [1,3,5,8,9] but ARTIFICIAL diversity"},
-  "total_experiments": 9,
-  "compass_position": "RC14-H2 Stage 1",
-  "compass_theme": "Structural Diversity + Calibrated Spread",
+  "phase": "RC14_H2_stage2",
+  "hypothesis": "H2 Stage 2: Conditional AR flow matching. Frozen GRU encoder + ConditionalVelocityMLP. Per-frame CFM loss, 30-step AR rollout with 8-step ODE per frame. Tests whether GT-aligned diversity from Stage 1 transfers to conditional forecasting.",
+  "session_best": {"exp": "152a", "metric": "eff_rank 3.24≈GT, PC1 align 1.0, KS 25/25"},
+  "total_experiments": 10,
+  "compass_position": "RC14-H2 Stage 2",
   "session_date": "2026-03-24",
-  "base_model": "none (trained from scratch on IV frames)",
-  "branch": "autoresearch-session-rc14"
+  "branch": "autoresearch-session-rc14",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_ar_flow.py --encoder_path models/backfill/afcrps_146b/best_model.pt --epochs 100 --batch_size 64 --lr 1e-3 --hidden 256 --n_layers 4 --n_steps 8 --output_dir models/backfill/flow_152b --device cuda"
 }

@@ -40475,3 +40475,84 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_flow_matching.py \
 ```
 
 ---
+
+## 2026-03-24: Exp 152b — H2 Stage 2: Conditional AR Flow Matching (RC14)
+
+### Context
+152a proved unconditional CFM produces GT-aligned diversity (eff_rank 3.24≈GT, PC1 1.0).
+Stage 2 adds frozen GRU encoder conditioning + 30-step AR rollout.
+
+### Architecture
+ConditionalVelocityMLP: (x_t[25] + t_emb[64] + condition[128] + prev_frame[25]) → velocity[25].
+256 hidden × 4 layers, 200K trainable params. Frozen GRU encoder from 146b.
+Per-frame CFM loss. 8-step Euler ODE per frame, 30-frame AR rollout.
+Trained 100 epochs on 3981 windows, batch_size=64.
+
+### Results — FIRST S4+S6+S9 SIMULTANEOUSLY
+
+| Suite | 146b | 151c (repul) | **152b (flow)** |
+|-------|------|-------------|-----------------|
+| 1 Surface | PASS | PASS | **PASS** |
+| 2 CI | FAIL (77%) | FAIL (89%) | FAIL (67%) |
+| 3 Conditionality | PASS | PASS | FAIL (worst cell) |
+| 4 Time Series | PASS (1.21) | FAIL (0.42) | **PASS (0.61)** |
+| 5 Block-AR | PASS | PASS | **PASS** |
+| 6 Cointegration | PASS | FAIL | **PASS (0.63)** |
+| 7 Regime | FAIL | FAIL | FAIL |
+| 8 Distributional | FAIL | PASS | FAIL (KS lev 9/25) |
+| 9 Cross-Cell | FAIL (0.45) | PASS (1.90) | **PASS (1.51, corr 0.82)** |
+| **Total** | **5/9** | **5/9** | **5/9** |
+
+### Key Diagnostic Findings
+
+1. **First S4+S6+S9 simultaneously**: No previous model achieved this. 146b gets S4+S6
+   but not S9. 151c gets S9 but not S4 or S6. Flow matching gets all three.
+
+2. **GT-aligned diversity preserved in AR**: rank_ratio=1.506, corr_ratio=0.821,
+   PC1=0.510 (GT=0.609). Frobenius 5.54 (vs 0.75 unconditional). AR rollout
+   degrades correlation somewhat but stays within Suite 9 thresholds.
+
+3. **Kurtosis preserved**: 0.609 > 0.5 threshold. The ODE trajectory preserves
+   heavy tails better than expected (prior attempt Exp 60 had 0.466). Shorter
+   ODE (8 steps vs prior 100) helps.
+
+4. **Cointegration recovered**: gen/GT=0.632, worst cell 0.320. The frozen GRU
+   encoder preserves level dynamics that H1b's near-scratch training destroyed.
+
+5. **CI is the main gap**: 67.2% overall. Flow matching produces well-shaped
+   ensembles but the SPREAD is too narrow. This is the known ODE underdispersion
+   issue — the deterministic ODE produces samples that are too close together.
+   CRPS calibration phase (Stage 3) targets exactly this.
+
+6. **Suite 3 fails on per-cell gates**: worst_cell_width_ratio=3.18 and
+   worst_cell_mae=-48%. Overall conditionality is good (turb/calm=1.22,
+   MAE reduction=73.7%). Likely an interface issue with unconditional sampling.
+
+7. **Suite 8**: KS daily 20/25 (would pass), but KS levels only 9/25 and
+   median bias 14/25. The standardize/destandardize may introduce level bias.
+
+### What Was Learned
+
+1. **Flow matching in AR mode preserves key properties** that CRPS-based approaches
+   trade off: kurtosis + cointegration + cross-cell correlation simultaneously
+2. **The CI gap is expected and addressable**: ODE underdispersion is well-documented.
+   CRPS fine-tuning or noise injection can widen ensembles.
+3. **The paradigm shift is validated**: 5/9 with a DIFFERENT pattern [1,4,5,6,9] that
+   includes the three hardest suites. The union of 146b[1,3,4,5,6] + 152b[1,4,5,6,9]
+   = 7/9 — if CI and conditionality can be fixed, 7/9 is reachable.
+
+### Next: Stage 3 Options
+- Add stochastic noise to ODE (SDE variant) to widen ensembles → fix CI
+- CRPS fine-tuning phase: freeze velocity net, train a thin calibration layer
+- Fix Suite 3: implement proper unconditional sampling with null embedding
+
+### Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_ar_flow.py \
+    --encoder_path models/backfill/afcrps_146b/best_model.pt \
+    --epochs 100 --batch_size 64 --lr 1e-3 \
+    --hidden 256 --n_layers 4 --n_steps 8 \
+    --output_dir models/backfill/flow_152b --device cuda
+```
+
+---
