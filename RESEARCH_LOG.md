@@ -40779,3 +40779,100 @@ is 5.82 (152b) vs 0.75 (152a unconditional).
 3. The kurtosis 0.609 borderline (and 0.502 at τ=1.3) needs multi-seed confirmation
 
 ---
+
+## 2026-03-24: Literature Search — Flow Matching Underdispersion: Known Problem, Known Fixes (RC14)
+
+### Question
+Is the ODE underdispersion / spread collapse in AR flow matching a FUNDAMENTAL limitation
+(like CRPS-diversity conflict in the old paradigm), or is it fixable?
+
+### Search Scope
+Searched arxiv for flow matching + {underdispersion, ensemble spread, uncertainty,
+autoregressive, multi-step, rollout, long horizon, time series, SDE, stochastic,
+diversity}. Reviewed 30 abstracts, read 1 paper in detail (BSFM 2603.21717). Checked
+5 key papers: BSFM, SFM-NVIDIA (2410.19814), FlowTime (2503.10375), Memory-Conditioned
+FM (2602.06689), Physical Perturbation FM (2508.01101), TSFlow (2410.03024).
+
+### Finding: The Problem Is Well-Known and Has Solutions
+
+#### 1. Deterministic ODE = underdispersion is a KNOWN property
+BSFM (Wu et al. 2026): "state-of-the-art distribution-to-distribution models like flow
+matching are deterministic, producing a single output for each input without capturing
+uncertainty in the transformation process." This is not a bug — it's a structural property
+of deterministic ODEs.
+
+#### 2. Three classes of solutions exist
+
+| Approach | Paper | Mechanism |
+|----------|-------|-----------|
+| Stochastic FM (SFM) | BSFM (2603.21717), SFM-NVIDIA (2410.19814) | Add learnable diffusion σ(x,t)dW to ODE → SDE. Preserves learned marginals. |
+| Physical perturbation | Rout et al. (2508.01101) | Learn perturbations of initial conditions via flow matching. Decouple spread from generation. |
+| Memory-conditioned | Armegioiu (2602.06689) | Mori-Zwanzig theory proves memoryless closures have structural limitation. Add compact memory state. |
+
+#### 3. Memory paper explains our spread collapse theoretically
+Armegioiu (2602.06689): "Autoregressive generative PDE solvers can be accurate one step
+ahead yet drift over long rollouts. Using the Mori-Zwanzig projection formalism, we show
+that eliminating unresolved variables yields an exact resolved evolution with a Markov term,
+a memory term, and an orthogonal forcing, exposing a STRUCTURAL LIMITATION of memoryless
+closures."
+
+Our model is memoryless — each frame generated independently conditioned on (encoder,
+prev_frame). No mechanism to propagate unresolved uncertainty forward. Mori-Zwanzig
+proves this causes spread collapse. It's a structural limitation of our SPECIFIC
+formulation, not of flow matching generally.
+
+#### 4. FlowTime confirms AR flow matching CAN produce calibrated spread
+ElGazzar & van Gerven (2503.10375): Sequential conditional densities via shared flow.
+Claims "well-calibrated uncertainty estimates." AR flow matching is NOT fundamentally
+broken — the issue is HOW we do the rollout.
+
+#### 5. TSFlow: structured priors help
+Kollovieh et al. (2410.03024): GP priors instead of standard Gaussian align the prior
+with temporal structure. Confirms our temperature scaling finding is on the right track
+— the prior distribution matters for spread calibration.
+
+### Answer: NOT a Fundamental Limitation
+
+The old paradigm (single-pass AR + CRPS) has a FUNDAMENTAL limitation: CRPS accuracy
+and ensemble diversity are mathematically incompatible objectives sharing the same
+parameter space. This is unfixable without gradient separation (proven across 35+
+experiments, H1 series).
+
+The flow matching paradigm does NOT have this fundamental conflict. The underdispersion
+comes from two FIXABLE sources:
+
+1. **Deterministic ODE** — velocity field learns mean transport. Spread requires a
+   separate mechanism (SDE diffusion term or structured prior). These don't conflict
+   because the velocity field training and the spread mechanism are ORTHOGONAL — wider
+   spread doesn't degrade velocity accuracy. (Contrast: in CRPS, wider spread directly
+   increases the CRPS loss, creating the conflict.)
+
+2. **Memoryless AR rollout** — each frame is Markov conditioned on prev_frame only.
+   Unresolved uncertainty is lost at each step. Fixed by adding memory state (Mori-Zwanzig)
+   or by propagating perturbations through the rollout (physical perturbation approach).
+
+### Three Principled Options (ranked by simplicity)
+
+**Option A: Learned Physical Perturbations (Rout et al. 2508.01101)**
+Train a small FM model to generate initial-condition perturbations for each ensemble
+member. Each member starts from a different physically-consistent x_0. No retraining
+of velocity net. This is our temperature scaling made principled — instead of uniform τ,
+learn the perturbation structure from data. Estimated effort: 1 day.
+
+**Option B: Stochastic Flow Matching (BSFM 2603.21717, SFM-NVIDIA 2410.19814)**
+Add a learned diffusion coefficient σ(x,t) to the ODE → SDE. Train jointly with
+velocity field. The noise is injected INSIDE the ODE integration, not after. The
+diffusion term captures aleatoric uncertainty while the velocity captures the mean
+transport. Requires retraining. Estimated effort: 2 days.
+
+**Option C: Memory-Conditioned Rollout (Armegioiu 2602.06689)**
+Add compact memory state that propagates across AR frames. Most principled for
+long-horizon spread growth (Mori-Zwanzig guarantees). Most complex. Estimated
+effort: 3-4 days.
+
+### Recommendation
+Start with Option A (learned perturbations) as a proxy. If it shows spread can be
+controlled without degrading GT alignment, proceed to Option B or C for the full
+solution. Option A tests the core hypothesis without architectural changes.
+
+---
