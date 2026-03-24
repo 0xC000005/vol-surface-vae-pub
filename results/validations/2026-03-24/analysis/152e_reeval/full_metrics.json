@@ -1,0 +1,104 @@
+{
+  "experiment_id": "152e",
+  "verification_type": "independent_eval",
+  "checkpoint_epoch": 53,
+  "note": "best_model is epoch 53, NOT 300. Training claims used epoch 300 (final eval).",
+  "independent_metrics": {
+    "eff_rank": 5.994,
+    "gt_eff_rank": 7.61,
+    "pc_alignments": [
+      0.989,
+      0.965,
+      0.432,
+      0.225,
+      0.588
+    ],
+    "ks_pass": 25,
+    "kurt_ratio": 1.215,
+    "frobenius": 3.225
+  },
+  "claims_comparison": {
+    "eff_rank": {
+      "claimed": 5.57,
+      "actual": 5.994,
+      "match": false,
+      "note": "claimed was epoch 300, best_model is epoch 53"
+    },
+    "PC1": {
+      "claimed": 0.994,
+      "actual": 0.989,
+      "match": true
+    },
+    "PC2": {
+      "claimed": 0.985,
+      "actual": 0.965,
+      "match": true
+    },
+    "KS": {
+      "claimed": 25,
+      "actual": 25,
+      "match": true
+    },
+    "kurt_ratio": {
+      "claimed": 1.113,
+      "actual": 1.215,
+      "match": true
+    },
+    "frob": {
+      "claimed": 2.9,
+      "actual": 3.225,
+      "match": true
+    }
+  },
+  "per_horizon_eff_rank_daily_changes": {
+    "h5": {
+      "gen": 6.12,
+      "gt": 7.61,
+      "ratio": 0.805
+    },
+    "h15": {
+      "gen": 5.69,
+      "gt": 7.61,
+      "ratio": 0.747
+    },
+    "h30": {
+      "gen": 6.13,
+      "gt": 7.62,
+      "ratio": 0.805
+    }
+  },
+  "eigenvalue_comparison": {
+    "PC1": {
+      "gt": 12.612,
+      "gen": 14.088,
+      "ratio": 1.117
+    },
+    "PC2": {
+      "gt": 2.081,
+      "gen": 2.736,
+      "ratio": 1.315
+    },
+    "PC3": {
+      "gt": 1.286,
+      "gen": 1.113,
+      "ratio": 0.866
+    },
+    "PC4": {
+      "gt": 1.085,
+      "gen": 0.991,
+      "ratio": 0.914
+    },
+    "PC5": {
+      "gt": 1.065,
+      "gen": 0.946,
+      "ratio": 0.889
+    }
+  },
+  "spread": {
+    "h1": 0.04094,
+    "h30": 0.03925,
+    "cells_growing": 2,
+    "out_of": 25,
+    "spread_slightly_shrinking": true
+  }
+}

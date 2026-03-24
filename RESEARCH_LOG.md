@@ -41016,3 +41016,119 @@ Going back to the three options from the literature search:
 A) Learned physical perturbations, B) Stochastic FM, C) Memory-conditioned rollout.
 
 ---
+
+## 2026-03-24: Exp 152e — One-Shot Factored Transformer Flow Matching WORKS (RC14)
+
+### Context
+152d (plain MLP at 750-dim) failed because 5:1 data:dim ratio is insufficient for an
+unstructured model. 152e tests whether a factored temporal+spatial attention transformer
+(same principle as 133c which worked at 750-dim with CRPS) can learn the joint
+(30,5,5) distribution via CFM loss.
+
+### Architecture
+FactoredVelocityTransformer: 4 layers, each alternating temporal attention (B*25, 30, d)
+and spatial attention (B*30, 25, d). d_model=128, 4 heads. 1.62M params.
+Trained on 3981 windows, 300 epochs, B=32, lr=3e-4, AdamW, cosine schedule.
+
+### Results — BREAKTHROUGH
+
+| Metric | 152a (25-dim) | 152b (AR flow) | 152d (750-dim MLP) | **152e (factored)** | GT |
+|--------|-------------|----------------|-------------------|-------------------|-----|
+| eff_rank | 3.24 | 7.58 | 24.99 | **5.57** | 7.61 |
+| PC1 | 1.000 | 0.993 | random | **0.994** | 1.0 |
+| PC2 | 0.994 | 0.785 | random | **0.985** | 1.0 |
+| KS daily | 25/25 | 20/25 | 0/25 | **25/25** | — |
+| kurt ratio | 0.80 | 0.61 | 0.07 | **1.11** | 1.0 |
+| Frobenius | 0.75 | 5.82 | 12.1 | **2.9** | 0.0 |
+| Spread h1 | — | 0.020 | — | **0.045** | — |
+| Spread h30 | — | 0.029 | — | **0.044** | — |
+
+### Key Findings
+
+1. **Near-perfect kurtosis (1.11)**: This is the BEST kurtosis of any flow matching model.
+   AR flow (152b) only managed 0.61. One-shot generation avoids the CLT thinning from
+   30 sequential ODE steps. Matches GT almost exactly.
+
+2. **PC1=0.994, PC2=0.985**: GT alignment is BETTER than AR flow (PC2 was only 0.785).
+   The factored architecture learns the cross-cell factor structure correctly because
+   spatial attention explicitly models cell-cell interactions.
+
+3. **KS 25/25**: Perfect marginal distributions, same as 25-dim unconditional (152a).
+
+4. **Spread is flat** (h1=0.045, h30=0.044): Not growing with horizon. This is NOT the
+   same as AR spread COLLAPSE (152b: 0.032→0.028). The one-shot model generates all
+   frames at once → no error accumulation → no collapse. But also no built-in growing
+   uncertainty mechanism.
+
+5. **152d's failure was ARCHITECTURE not DIMENSIONALITY**: The MLP couldn't learn 750-dim
+   structure from 4K samples. The factored transformer can, because temporal+spatial
+   attention gives inductive bias that reduces effective dimensionality.
+
+### Training Dynamics
+- Epoch 1: eff_rank=17.57, PC1=0.927 (already structured from first eval!)
+- Epoch 30: eff_rank=6.35, PC1=0.990, KS=25/25, kurt=0.983 (near-perfect)
+- Epoch 90: eff_rank=6.66, Frobenius=2.0 (best), kurt=1.245
+- Epoch 300: eff_rank=5.57, PC1=0.994, PC2=0.985, kurt=1.113 (stable)
+
+### Comparison with 133c (same architecture, CRPS loss)
+| Property | 133c (CRPS) | 152e (CFM) |
+|----------|-----------|-----------|
+| Kurtosis | 1.60 | 1.11 |
+| Cross-cell corr | 0.087 (too independent) | ~0.4 (near GT) |
+| eff_rank | 3.88 | 5.57 |
+| KS daily | 17/25 | 25/25 |
+
+**CFM loss on the same architecture produces BETTER cross-cell correlation** (the main
+weakness of 133c). 133c had corr=0.087 because CRPS didn't incentivize spatial structure.
+CFM learns the joint distribution including spatial correlations.
+
+### What This Means
+The one-shot factored flow matching approach solves:
+- Cross-cell correlation (PC1=0.994, PC2=0.985) — from flow matching
+- Kurtosis (1.11) — from one-shot generation (no CLT)
+- Distributional fidelity (KS 25/25) — from CFM learning the data distribution
+
+What it still needs:
+- Growing uncertainty with horizon (spread is flat)
+- Conditioning on history (currently unconditional)
+- Full 9-suite evaluation (requires conditional version)
+
+### Next Step
+Add GRU encoder conditioning (same as 152b but one-shot). The velocity network takes
+(x_t, t, condition) and generates all 30 frames conditioned on the encoder output.
+Then evaluate with the full 9-suite battery.
+
+### Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_oneshot_flow.py \
+    --epochs 300 --batch_size 32 --lr 3e-4 \
+    --d_model 128 --n_heads 4 --n_layers 4 --n_steps 8 \
+    --output_dir models/backfill/flow_152e --device cuda
+```
+
+---
+
+## 2026-03-24: Validation — 152e Independent Re-evaluation (RC14)
+
+### Task 1: Claims mostly verified, one correction
+Best_model is epoch 53, not 300. Eff_rank 5.99 (not 5.57) — different checkpoint.
+Core claims hold: PC1=0.989, PC2=0.965, KS 25/25, kurtosis 1.215. But PC3-5 are
+poor (0.432, 0.225, 0.588). Model learns top-2 PCs well, higher-order structure weak.
+
+### Task 2: eff_rank gap is uniform across horizons
+Daily change eff_rank consistently 0.75-0.81× GT at all horizons. Not horizon-specific.
+Cause: model over-concentrates in PC1-2 (gen/GT 1.12, 1.32) and under-represents PC3-5
+(0.87-0.89). The eigenvalue distribution is more peaked than GT.
+
+### Task 3: Spread slightly shrinking (4%), GT spread is also flat
+Spread: h1=0.041, h30=0.039 (−4%). Only 2/25 cells growing. Mild vs AR 152b's 12% collapse.
+GT cross-window spread is also flat (0.072 at all horizons) — the data has stable
+variance structure. Growing ensemble uncertainty needs to be learned, not inherited.
+
+### Corrected Understanding of 152e
+- Strong: PC1-2 alignment (0.99, 0.97), KS 25/25, kurtosis 1.2
+- Weak: PC3-5 alignment poor (higher-order factor structure not learned)
+- Neutral: eff_rank 6.0 (0.79× GT) — consistent 20% under-diversification
+- Spread: nearly flat, mildly shrinking — same issue as AR but less severe
+
+---
