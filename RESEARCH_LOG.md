@@ -40967,3 +40967,52 @@ entirely rather than patching it. If 152a's GT alignment transfers to 750-dim, t
 spread collapse is solved by construction.
 
 ---
+
+## 2026-03-24: Exp 152d — One-Shot 750-dim Flow Matching FAILS (RC14)
+
+### Hypothesis
+Can unconditional CFM learn the joint (30,5,5)=750-dim distribution? If yes, eliminates
+AR rollout spread collapse by generating all frames at once.
+
+### Architecture
+VelocityMLP: 750-dim + 64-dim time → 512 hidden × 5 layers → 750-dim. 1.59M params.
+Trained on 3981 windows, 300 epochs, batch=128, lr=5e-4.
+
+### Result: KILL — CFM does NOT converge at 750-dim with 4K samples
+
+| Metric | 152a (25-dim) | 152d (750-dim) |
+|--------|--------------|----------------|
+| eff_rank | 3.24 (GT 3.42) | **24.99** (Gaussian) |
+| PC1 align | 1.000 | 0.08-0.40 (random) |
+| KS pass | 25/25 | **0/25** |
+| kurt ratio | 0.80 | **0.07** (near-zero) |
+| Frobenius | 0.75 | **12.1** (no improvement) |
+
+The model's loss decreased (1.61→1.21) but samples remain structurally Gaussian.
+The velocity field learned SOMETHING but not the data distribution's structure.
+
+### Mechanism: Data-to-Dimension Ratio Too Low
+- 25-dim: 4540/25 = 182:1 → CFM converges perfectly
+- 750-dim: 3981/750 = 5.3:1 → insufficient for unstructured MLP
+
+A simple MLP has no inductive bias for the spatiotemporal structure of IV surfaces.
+It needs to learn 750-dim correlations from 4K samples — a fundamentally underdetermined
+problem for an unstructured function approximator.
+
+### What Would Fix It
+A structured architecture that factorizes the 750-dim space:
+1. **Temporal attention + spatial attention** (like 133c): reduces effective dimensionality
+   by sharing parameters across time and space
+2. **Hierarchical velocity**: predict frame-level velocity conditioned on sequence-level
+3. **The AR approach (152b)**: factorizes the 750-dim problem into 30 conditional 25-dim
+   problems — EACH of which CFM can solve (proven by 152a)
+
+### Implication
+The AR approach (152b) is NOT a bad design choice — it's a necessary factorization
+for 4K samples. The spread collapse is a consequence of this factorization (memoryless
+closure) that needs to be fixed within the AR framework, not by abandoning it.
+
+Going back to the three options from the literature search:
+A) Learned physical perturbations, B) Stochastic FM, C) Memory-conditioned rollout.
+
+---
