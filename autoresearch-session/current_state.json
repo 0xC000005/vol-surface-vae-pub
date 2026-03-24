@@ -1,36 +1,15 @@
 {
-  "iteration": 31,
-  "experiment_id": "rc14_start",
-  "training_status": "idle",
-  "phase": "RC14_H0_pending",
-  "hypothesis": "RC14: Structural Diversity + Calibrated Spread. Start with H0 copula ceiling measurement.",
-  "session_best": {"exp": "150b", "score": "7/9", "suites": 7, "note": "seed=42 only, not robust"},
-  "total_experiments": 33,
-  "compass_position": "RC14-H0 (copula ceiling measurement)",
+  "iteration": 1,
+  "experiment_id": "151a",
+  "training_status": "inference_only",
+  "phase": "RC14_H0_copula_ceiling",
+  "hypothesis": "H0: Gaussian copula ceiling measurement. Reorder 146b ensemble members using GT copula structure estimated from training data. Determines whether correlation structure (H1a/H1b direction) or marginals (H2 direction) are the bottleneck.",
+  "session_best": {"exp": "146b", "score": "5/9", "suites": 5},
+  "total_experiments": 0,
+  "compass_position": "RC14-H0",
   "compass_theme": "Structural Diversity + Calibrated Spread",
   "session_date": "2026-03-23",
   "base_model": "models/backfill/afcrps_146b/best_model.pt",
-  "key_finding": "RC13 exhausted. Architecture produces 7/9 transiently but unstably. Paradigm evaluation complete: need gradient-path separation (H1a/H1b) or full paradigm switch (H2 flow matching). H0 copula ceiling determines direction.",
-  "rc14_compass": "RESEARCH_LOG.md — 'Research Compass RC14'",
-  "rc14_evidence_corrections": [
-    "CRPS rank collapse is V-shaped NOT monotonic (143a 5-epoch trajectory)",
-    "2 independent problems NOT 3 (P1-P3 correlated r=0.50, n=69)",
-    "AIFS noise ratio ~0.058 same as ours ~0.043. Difference is injection GRANULARITY (10944:1)"
-  ],
-  "rc14_execution_order": [
-    "H0: Gaussian copula ceiling (2h) — determines H1 vs H2 direction",
-    "H1a: Detached skip + dual-loss (probe, 10h total staged) — if H0 says correlation is bottleneck",
-    "H1b: Repulsive loss + spread floor (probe, 10h total staged) — parallel with H1a",
-    "H2: Conditional flow matching (paradigm shift, 5 days staged) — if H0 says marginals broken OR H1a/H1b both fail"
-  ],
-  "rc14_decision_gates": {
-    "after_H0": "Suite 9 passes with copula? → H1a/H1b. Still fails? → H2.",
-    "after_H1_stage1": "eff_rank > 2.26? → continue. Both < 2.26? → H2.",
-    "after_H2_stage1": "CFM converges + eff_rank > 3.0? → continue. Fails? → data augmentation needed."
-  },
-  "two_independent_problems": {
-    "P1_spread_regime": {"suites": [2, 7], "current": "CI 77%, calm_h1 51%", "target": "90%", "correlation": "r=0.50"},
-    "P2_rank": {"suites": [9], "current": "rank_ratio 0.45", "target": ">=0.50", "independent": true}
-  },
-  "next_action": "Run H0: Gaussian copula ceiling measurement on 146b. ~50 LOC Python, no GPU. Result determines whether to pursue H1a/H1b (gradient separation) or H2 (flow matching)."
+  "branch": "autoresearch-session-rc14",
+  "next_action": "Write copula ceiling script, run on 146b, evaluate with test_block_ar_requirements_v2.py"
 }
