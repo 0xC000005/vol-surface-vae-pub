@@ -108,6 +108,9 @@ LOOP:
   │      - root causes of current failures                  │
   │      - what approaches showed partial promise            │
   │    If theory queue empty → SYNTHESIZE (see below)        │
+  │    ⚠️  SYNTHESIZE ends with MANDATORY STOP for user       │
+  │    review. New branch + reset iteration. Do NOT auto-     │
+  │    resume. Wait for user to approve new compass.          │
   │    Pick next hypothesis with theoretical justification   │
   │    Write prediction: "Expect X to improve because Y"     │
   │    Write risk: "May regress Z because W"                 │
@@ -421,6 +424,45 @@ architecture was the bottleneck. The mandatory validation gate prevents this.
 
 **Fallback (if research-ideation skill unavailable):**
 Follow the theory-engine.md reference file for manual synthesis.
+
+**⚠️ MANDATORY STOP — User Review Required After Compass Generation**
+
+After research-ideation (or manual synthesis) produces a new Research Compass:
+
+1. **STOP the HEDA loop.** Do NOT automatically begin executing experiments from the
+   new compass. Present the compass to the user and wait for explicit approval.
+
+   The reason: auto-directed ideation quality is low without human review. The
+   2026-03-24 session demonstrated this — the initial RC15 compass proposed FiLM
+   conditioning from engineering intuition. After the user demanded literature review,
+   the design changed to concatenation conditioning (FMAP), residual prediction, and
+   data-dependent paths — a fundamentally different and better-grounded direction.
+   The human caught what the agent missed. Always get human sign-off on new directions.
+
+2. **Create a new experiment branch.** Each Research Compass gets its own branch:
+   ```bash
+   git checkout -b autoresearch-session-{compass_name}
+   # e.g., autoresearch-session-rc15
+   ```
+   This keeps the git history clean — each compass's experiments are on their own
+   branch, reviewable independently. The previous compass's branch should be merged
+   and pushed before creating the new one.
+
+3. **Reset iteration count to 0.** Update `current_state.json` with:
+   - `iteration: 0`
+   - `total_experiments: 0`
+   - The new compass name and baseline
+   Reset `results-log.md` with the new compass header and baseline metrics.
+
+4. **Update `theory_queue.json`** with the new compass's hypotheses, including
+   diagnostic plans and kill conditions from the compass.
+
+5. **Only resume the HEDA loop** when the user explicitly says to proceed (e.g.,
+   by invoking `/autoresearch` again or saying "proceed" / "execute").
+
+This gate exists because research direction decisions have the highest leverage in
+the entire loop. A wrong direction wastes days of GPU time. The agent should propose,
+the human should decide.
 
 ## Bitter Lesson Guard
 
