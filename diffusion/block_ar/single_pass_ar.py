@@ -1818,6 +1818,7 @@ class SinglePassBlockAR(nn.Module):
         lambda_vr: float = 0.0,
         lambda_acf: float = 0.0,
         lambda_rank: float = 0.0,
+        lambda_repul: float = 0.0,
     ) -> dict:
         """Training forward: generate K members, compute afCRPS.
 
@@ -2216,6 +2217,31 @@ class SinglePassBlockAR(nn.Module):
                 entropy = -(p * p.log()).sum(dim=-1)  # (B,)
                 eff_rank_val = entropy.exp().mean()  # scalar
 
+        # RBF kernel repulsion loss (RLSD-inspired): pushes ensemble members apart
+        # Strongest when members are close (complementary to CRPS spread).
+        repul_loss = torch.tensor(0.0, device=device)
+        if lambda_repul > 0:
+            K = iv_samples.shape[1]
+            # Operate on daily changes (what Suite 9 measures)
+            changes = iv_samples[:, :, 1:] - iv_samples[:, :, :-1]  # (B, K, T-1, H, W)
+            T1 = changes.shape[2]
+            flat = changes.reshape(B, K, T1, -1)  # (B, K, T-1, 25)
+            flat_bt = flat.permute(0, 2, 1, 3).reshape(B * T1, K, -1)  # (B*T1, K, 25)
+            # Pairwise L2 distances
+            dists = torch.cdist(flat_bt, flat_bt)  # (B*T1, K, K)
+            # Adaptive bandwidth (median trick)
+            with torch.no_grad():
+                triu_idx = torch.triu_indices(K, K, offset=1)
+                pair_dists = dists[:, triu_idx[0], triu_idx[1]]
+                sigma = pair_dists.median(dim=1).values / max(1.0, (2 * math.log(K + 1)) ** 0.5)
+                sigma = sigma.clamp(min=1e-6)
+            # RBF kernel: high when members are close
+            kernel = torch.exp(-dists ** 2 / (2 * sigma[:, None, None] ** 2 + 1e-8))
+            mask = (1 - torch.eye(K, device=device)).unsqueeze(0)
+            repul_loss = (kernel * mask).sum(dim=(1, 2)) / (K * (K - 1))
+            repul_loss = repul_loss.mean()
+            loss = loss + lambda_repul * repul_loss
+
         kurt_val = torch.tensor(0.0, device=device)
         raw_kurt_mean = torch.tensor(0.0, device=device)
         if lambda_kurt > 0:
@@ -2268,6 +2294,7 @@ class SinglePassBlockAR(nn.Module):
             "acf_mean": acf_mean,
             "rank_loss": rank_loss.detach(),
             "eff_rank": eff_rank_val.detach() if isinstance(eff_rank_val, torch.Tensor) else eff_rank_val,
+            "repul_loss": repul_loss.detach() if isinstance(repul_loss, torch.Tensor) else repul_loss,
         }
 
     @torch.no_grad()

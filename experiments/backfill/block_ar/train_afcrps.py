@@ -120,7 +120,7 @@ def resolve_progressive_frames(epoch: int, epoch_plan: list[dict]) -> int:
     return epoch_plan[-1]["n_frames"]
 
 
-def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, lambda_rank=0.0, n_frames=0, unfreeze_encoder=False, lambda_ortho_enc=0.0):
+def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_clip, n_train_blocks=1, lambda_is=0.0, lambda_cs_reg=0.0, lambda_kurt=0.0, lambda_es=0.0, lambda_cell_var=0.0, lambda_cum_cal=0.0, lambda_vr=0.0, lambda_ortho=0.0, lambda_acf=0.0, lambda_rank=0.0, lambda_repul=0.0, n_frames=0, unfreeze_encoder=False, lambda_ortho_enc=0.0):
     model.train()
     # Keep encoder in eval mode (frozen, no dropout) unless unfrozen
     if not unfreeze_encoder:
@@ -162,6 +162,7 @@ def train_epoch(model, loader, optimizer, device, n_members, lambda_vs, grad_cli
                        lambda_vr=lambda_vr,
                        lambda_acf=lambda_acf,
                        lambda_rank=lambda_rank,
+                       lambda_repul=lambda_repul,
                        n_train_blocks=n_train_blocks,
                        n_frames=n_frames,
                        extra_hist=extra_hist)
@@ -523,6 +524,8 @@ def main():
                         help="Explicit ACF loss on ensemble deltas (Exp 123a)")
     parser.add_argument("--lambda_rank", type=float, default=0.0,
                         help="Log-det covariance penalty for ensemble diversity (H1 diagnostic)")
+    parser.add_argument("--lambda_repul", type=float, default=0.0,
+                        help="RBF kernel repulsion loss (RLSD-inspired, Exp 151c)")
     parser.add_argument("--ar_cln_warmup", type=int, default=0,
                         help="CLN warmup frames: scale modulation by min(1, t/N) (Exp 132b)")
     parser.add_argument("--joint_decoder", action="store_true",
@@ -1057,6 +1060,7 @@ def main():
             lambda_ortho_enc=getattr(args, 'lambda_ortho_enc', 0.0),
             lambda_acf=getattr(args, 'lambda_acf', 0.0),
             lambda_rank=getattr(args, 'lambda_rank', 0.0),
+            lambda_repul=getattr(args, 'lambda_repul', 0.0),
             n_frames=n_frames,
             unfreeze_encoder=args.unfreeze_encoder,
         )
