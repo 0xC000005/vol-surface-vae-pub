@@ -41132,3 +41132,205 @@ variance structure. Growing ensemble uncertainty needs to be learned, not inheri
 - Spread: nearly flat, mildly shrinking — same issue as AR but less severe
 
 ---
+
+## 2026-03-24: Research Compass RC15 — "Conditional One-Shot Flow Matching" (Literature-Informed)
+
+### Literature Reviewed
+1. Lim et al. (2410.03229, TMLR 2025): Probability path design for FM forecasting.
+   Data-dependent paths outperform standard OT. Schrödinger bridge perspective.
+2. Lim & Erichson (2602.08318, 2026): FM = nonparametric trajectory replay with
+   similarity-weighted velocity. Neural network is parametric surrogate.
+3. FMAP (Landry et al., 2504.03463, 2025): Spatial attention transformer + FM for
+   ensemble weather postprocessing. Conditioning via concatenation, residual prediction,
+   lead-time-dependent scaling.
+4. FlowCast (2511.09731): CFM in latent space for precipitation nowcasting.
+5. FlowTime (2503.10375): AR flow matching with well-calibrated uncertainty.
+6. ArchesClimate (2509.15942): AR FM for decadal climate, stable 10-year rollouts.
+
+### Key Theoretical Insights
+
+**1. Conditioning via concatenation, not FiLM (FMAP)**
+FMAP concatenates (condition, flow_state, time) as input tokens to spatial attention.
+This preserves the attention mechanism's ability to learn spatial correlations.
+FiLM/AdaLN modulates globally — could constrain spatial attention and degrade PC alignment.
+→ Use concatenation conditioning for H1, not FiLM.
+
+**2. Residual prediction simplifies transport (FMAP)**
+Predict δ = future - baseline (e.g., last observed frame), not absolute values.
+This reduces the distance the ODE must transport, improving convergence and requiring
+fewer steps. Aligns with our AR 152b design (prev_frame conditioning) but extended to
+one-shot: predict residual from persistence forecast.
+→ Change 152e to predict residual from last history frame.
+
+**3. Lead-time-dependent scaling for growing uncertainty (FMAP)**
+FMAP rescales FM output by typical model error at each lead time. This is a principled
+way to get growing uncertainty without temperature hacking — each horizon position
+gets a learned scale factor based on typical error magnitude.
+→ Add per-horizon scale factors (learned nn.Parameter) to the velocity output.
+
+**4. Data-dependent probability paths (Lim et al.)**
+Standard OT path (noise→data) is suboptimal for temporal data. A path that interpolates
+between the previous observation and the target has lower variance velocity field and
+faster convergence. For one-shot: use persistence forecast as source distribution instead
+of N(0,I).
+→ Source = last_history_frame (repeated 30×), target = future. NOT source = noise.
+
+**5. FM is trajectory replay (Lim & Erichson)**
+The optimal velocity is a similarity-weighted average of historical transitions. With
+4K samples in 750-dim, kernel density is sparse for higher PCs (PC3-5). This is a
+data efficiency issue, not an architectural one.
+→ PC3-5 weakness is expected and may improve with more structured architecture (the
+   factored attention provides implicit dimensionality reduction).
+
+### Revised Hypotheses
+
+#### H1: Conditional One-Shot FM with Literature-Informed Design (PRIORITY)
+
+**Evidence chain**: 152e works at 750-dim (PC1=0.99, kurt=1.2, KS 25/25). FMAP validates
+spatial attention + FM + concatenation conditioning for ensemble generation. Lim et al.
+show data-dependent paths improve convergence.
+
+**Three changes from 152e (each independently testable)**:
+a) Add conditioning via concatenation (FMAP design): encoder output concatenated as
+   additional features per token, not FiLM modulation.
+b) Predict residual from last history frame (FMAP design): source distribution =
+   persistence forecast, target = future. Reduces transport distance.
+c) Per-horizon learned scale (FMAP design): velocity output scaled by learned
+   per-horizon factor for growing uncertainty.
+
+**Staged checkpoints**:
+1. (2h) Conditional with concatenation only. Test if PC alignment holds.
+   Kill: PC1 < 0.95 or kurtosis < 0.5.
+2. (2h) Add residual prediction. Should improve convergence + kurtosis.
+   Kill: KS < 15/25 (residual changes marginal structure).
+3. (2h) Add per-horizon scale. Should give growing uncertainty.
+   Kill: spread ratio h30/h1 < 1.1.
+4. (4h) Full 9-suite evaluation + long-horizon test.
+
+**Falsification**: If concatenation conditioning degrades PC1 below 0.95 at Stage 1,
+the condition-velocity interaction is fundamentally problematic for one-shot FM
+(not just a FiLM issue). Would point toward the "trajectory replay" perspective where
+conditioning must be done at the kernel/similarity level, not the velocity level.
+
+**Effort**: 10h total (staged)
+
+#### H2: Data-Dependent Source Distribution (Lim et al. insight)
+
+**Evidence chain**: Lim et al. prove data-dependent paths have lower variance velocity
+fields. Our current source is N(0,I) (standardized). The persistence forecast
+(last history frame repeated 30×) is a better source because it's CLOSER to the target.
+
+**Implementation**: Change CFM training to interpolate from persistence → future instead
+of noise → future. At inference: start from persistence, not noise.
+
+**Staged checkpoints**:
+1. (1h) Train 152e variant with persistence source. Compare convergence speed and
+   sample quality vs noise source.
+
+**Falsification**: Convergence worse than noise source → data-dependent path doesn't help
+at this scale/dimensionality.
+
+**Note**: H2 can be combined with H1 or tested independently.
+
+**Effort**: 1h (Stage 1 only)
+
+### Execution Order
+
+
+H2 first because it's cheapest and informs the source distribution choice for H1.
+
+### Exhausted / Not Pursuing
+- FiLM/AdaLN conditioning: FMAP literature suggests concatenation is better for
+  spatial attention. FiLM modulates globally, may constrain spatial diversity.
+- Post-hoc noise/temperature: proven insufficient (152b sweep, 152b_percell).
+- AR rollout: proven to cause spread collapse (Mori-Zwanzig) and PC2+ degradation.
+- Plain MLP at 750-dim: insufficient data:dim ratio (152d).
+
+---
+
+## 2026-03-24: Research Compass RC15 — "Conditional One-Shot Flow Matching" (Literature-Informed)
+
+### Literature Reviewed
+1. Lim et al. (2410.03229, TMLR 2025): Probability path design for FM forecasting.
+   Data-dependent paths outperform standard OT. Schrodinger bridge perspective.
+2. Lim & Erichson (2602.08318, 2026): FM = nonparametric trajectory replay with
+   similarity-weighted velocity. Neural network is parametric surrogate.
+3. FMAP (Landry et al., 2504.03463, 2025): Spatial attention transformer + FM for
+   ensemble weather postprocessing. Conditioning via concatenation, residual prediction,
+   lead-time-dependent scaling.
+4. FlowCast (2511.09731): CFM in latent space for precipitation nowcasting.
+5. FlowTime (2503.10375): AR flow matching with well-calibrated uncertainty.
+6. ArchesClimate (2509.15942): AR FM for decadal climate, stable 10-year rollouts.
+
+### Key Theoretical Insights
+
+**1. Conditioning via concatenation, not FiLM (FMAP)**
+FMAP concatenates (condition, flow_state, time) as input tokens to spatial attention.
+This preserves the attention mechanism's ability to learn spatial correlations.
+FiLM/AdaLN modulates globally — could constrain spatial attention and degrade PC alignment.
+Use concatenation conditioning for H1, not FiLM.
+
+**2. Residual prediction simplifies transport (FMAP)**
+Predict delta = future - baseline (e.g., last observed frame), not absolute values.
+This reduces the distance the ODE must transport, improving convergence and requiring
+fewer steps. Change 152e to predict residual from last history frame.
+
+**3. Lead-time-dependent scaling for growing uncertainty (FMAP)**
+FMAP rescales FM output by typical model error at each lead time. This is a principled
+way to get growing uncertainty. Add per-horizon scale factors (learned nn.Parameter)
+to the velocity output.
+
+**4. Data-dependent probability paths (Lim et al.)**
+Standard OT path (noise to data) is suboptimal for temporal data. A path that
+interpolates between previous observation and target has lower variance velocity
+field and faster convergence. Source = last_history_frame (repeated), not N(0,I).
+
+**5. FM is trajectory replay (Lim & Erichson)**
+The optimal velocity is similarity-weighted average of historical transitions. With
+4K samples in 750-dim, kernel density is sparse for higher PCs. PC3-5 weakness is
+expected data efficiency issue, not architectural.
+
+### Revised Hypotheses
+
+#### H1: Conditional One-Shot FM with Literature-Informed Design (PRIORITY)
+
+**Evidence**: 152e works at 750-dim. FMAP validates spatial attention + FM + concatenation
+conditioning. Lim et al. show data-dependent paths improve convergence.
+
+**Three changes from 152e (each independently testable)**:
+a) Conditioning via concatenation: encoder output as additional features per token
+b) Residual prediction: source = persistence forecast, target = future
+c) Per-horizon learned scale: velocity output scaled by learned per-horizon factor
+
+**Staged checkpoints**:
+1. (2h) Conditional with concatenation only. Kill: PC1 < 0.95 or kurtosis < 0.5.
+2. (2h) Add residual prediction. Kill: KS < 15/25.
+3. (2h) Add per-horizon scale. Kill: spread ratio h30/h1 < 1.1.
+4. (4h) Full 9-suite evaluation + long-horizon test.
+
+**Falsification**: If concatenation conditioning degrades PC1 below 0.95, the condition-
+velocity interaction is fundamentally problematic for one-shot FM.
+
+#### H2: Data-Dependent Source Distribution (Lim et al. insight)
+
+**Evidence**: Lim et al. prove data-dependent paths have lower variance velocity fields.
+
+**Implementation**: Train 152e variant with persistence source instead of N(0,I).
+At inference: start from persistence, not noise.
+
+**Staged**: (1h) Train and compare convergence speed and quality vs noise source.
+**Falsification**: Convergence worse than noise source.
+**Note**: Can be combined with H1 or tested independently.
+
+### Execution Order
+
+H2 first (1h, cheapest, informs source distribution for H1).
+Then H1 Stages 1-4 sequentially.
+
+### Not Pursuing
+- FiLM/AdaLN conditioning: FMAP suggests concatenation is better for spatial attention
+- Post-hoc noise/temperature: proven insufficient
+- AR rollout: proven spread collapse (Mori-Zwanzig)
+- Plain MLP at 750-dim: insufficient data:dim ratio
+
+---
