@@ -1,0 +1,324 @@
+{
+  "verification_type": "multi_seed_evaluation",
+  "model": "flow_153a",
+  "model_path": "models/backfill/flow_153a/final_model.pt",
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "n_samples": 50,
+  "n_windows": 160,
+  "timestamp": "2026-03-24T18:58:41",
+  "per_seed_results": {
+    "42": {
+      "pass_count": 4,
+      "total_suites": 9,
+      "suites": {
+        "Surface Validity": false,
+        "CI Coverage": false,
+        "Conditionality": true,
+        "Time Series": true,
+        "Growing Uncertainty": true,
+        "Cointegration": false,
+        "Regime Coverage": false,
+        "Distributional": false,
+        "Cross-Cell Correlation": true
+      },
+      "metrics": {
+        "explosion_rate": 0.0001,
+        "calendar_arb_rate": 0.1683,
+        "butterfly_arb_rate": 0.1909,
+        "ci_horizon_pass": 0,
+        "ci_worst_cell": 0.1098,
+        "ci_cell_pass": 0,
+        "turb_calm_ratio": 1.4558,
+        "mae_reduction": -0.0872,
+        "acf_correlation": 0.9994,
+        "kurt_ratio": 1.5137,
+        "spread_h1": 0.01608,
+        "spread_h30": 0.0188,
+        "monotonic_transitions": 25,
+        "coint_rate": 0.47,
+        "ks_daily_pass": 23,
+        "ks_level_pass": 1,
+        "median_bias": -0.00333,
+        "eff_rank_gen": 4.4244,
+        "eff_rank_gt": 5.2022,
+        "rank_ratio": 0.8505,
+        "corr_ratio": 1.0908,
+        "frobenius": 3.5509,
+        "pc_alignments": [
+          0.9918,
+          0.9143,
+          0.8876,
+          0.2222,
+          0.1812
+        ],
+        "regime_detail": {
+          "turb": 0,
+          "calm": 0
+        }
+      },
+      "seed": 42,
+      "generation_time_s": 45.3
+    },
+    "43": {
+      "pass_count": 5,
+      "total_suites": 9,
+      "suites": {
+        "Surface Validity": false,
+        "CI Coverage": false,
+        "Conditionality": true,
+        "Time Series": true,
+        "Growing Uncertainty": true,
+        "Cointegration": true,
+        "Regime Coverage": false,
+        "Distributional": false,
+        "Cross-Cell Correlation": true
+      },
+      "metrics": {
+        "explosion_rate": 0.0002,
+        "calendar_arb_rate": 0.1684,
+        "butterfly_arb_rate": 0.1912,
+        "ci_horizon_pass": 0,
+        "ci_worst_cell": 0.1079,
+        "ci_cell_pass": 0,
+        "turb_calm_ratio": 1.4692,
+        "mae_reduction": -0.0874,
+        "acf_correlation": 0.9994,
+        "kurt_ratio": 1.5115,
+        "spread_h1": 0.01622,
+        "spread_h30": 0.01867,
+        "monotonic_transitions": 24,
+        "coint_rate": 0.535,
+        "ks_daily_pass": 23,
+        "ks_level_pass": 1,
+        "median_bias": -0.00329,
+        "eff_rank_gen": 4.4757,
+        "eff_rank_gt": 5.2022,
+        "rank_ratio": 0.8603,
+        "corr_ratio": 1.0867,
+        "frobenius": 3.6158,
+        "pc_alignments": [
+          0.9905,
+          0.912,
+          0.8954,
+          0.3848,
+          0.1068
+        ],
+        "regime_detail": {
+          "turb": 0,
+          "calm": 0
+        }
+      },
+      "seed": 43,
+      "generation_time_s": 72.2
+    },
+    "44": {
+      "pass_count": 4,
+      "total_suites": 9,
+      "suites": {
+        "Surface Validity": false,
+        "CI Coverage": false,
+        "Conditionality": true,
+        "Time Series": true,
+        "Growing Uncertainty": true,
+        "Cointegration": false,
+        "Regime Coverage": false,
+        "Distributional": false,
+        "Cross-Cell Correlation": true
+      },
+      "metrics": {
+        "explosion_rate": 0.0001,
+        "calendar_arb_rate": 0.1684,
+        "butterfly_arb_rate": 0.1911,
+        "ci_horizon_pass": 0,
+        "ci_worst_cell": 0.105,
+        "ci_cell_pass": 0,
+        "turb_calm_ratio": 1.4805,
+        "mae_reduction": -0.0874,
+        "acf_correlation": 0.9995,
+        "kurt_ratio": 1.5677,
+        "spread_h1": 0.01594,
+        "spread_h30": 0.01866,
+        "monotonic_transitions": 26,
+        "coint_rate": 0.4917,
+        "ks_daily_pass": 23,
+        "ks_level_pass": 1,
+        "median_bias": -0.00331,
+        "eff_rank_gen": 4.4938,
+        "eff_rank_gt": 5.2022,
+        "rank_ratio": 0.8638,
+        "corr_ratio": 1.0786,
+        "frobenius": 3.545,
+        "pc_alignments": [
+          0.9909,
+          0.9194,
+          0.9369,
+          0.0016,
+          0.4546
+        ],
+        "regime_detail": {
+          "turb": 0,
+          "calm": 0
+        }
+      },
+      "seed": 44,
+      "generation_time_s": 109.6
+    }
+  },
+  "stability": {
+    "stable_pass": [
+      "Conditionality",
+      "Time Series",
+      "Growing Uncertainty",
+      "Cross-Cell Correlation"
+    ],
+    "stable_fail": [
+      "Surface Validity",
+      "CI Coverage",
+      "Regime Coverage",
+      "Distributional"
+    ],
+    "unstable": [
+      [
+        "Cointegration",
+        [
+          false,
+          true,
+          false
+        ]
+      ]
+    ],
+    "pass_count_range": [
+      4,
+      5
+    ],
+    "pass_counts": {
+      "42": 4,
+      "43": 5,
+      "44": 4
+    }
+  },
+  "comparison_table": {
+    "Surface Validity": {
+      "42": false,
+      "43": false,
+      "44": false
+    },
+    "CI Coverage": {
+      "42": false,
+      "43": false,
+      "44": false
+    },
+    "Conditionality": {
+      "42": true,
+      "43": true,
+      "44": true
+    },
+    "Time Series": {
+      "42": true,
+      "43": true,
+      "44": true
+    },
+    "Growing Uncertainty": {
+      "42": true,
+      "43": true,
+      "44": true
+    },
+    "Cointegration": {
+      "42": false,
+      "43": true,
+      "44": false
+    },
+    "Regime Coverage": {
+      "42": false,
+      "43": false,
+      "44": false
+    },
+    "Distributional": {
+      "42": false,
+      "43": false,
+      "44": false
+    },
+    "Cross-Cell Correlation": {
+      "42": true,
+      "43": true,
+      "44": true
+    }
+  },
+  "borderline_metrics": {
+    "calendar_arb_rate": {
+      "42": 0.1683,
+      "43": 0.1684,
+      "44": 0.1684
+    },
+    "coint_rate": {
+      "42": 0.47,
+      "43": 0.535,
+      "44": 0.4917
+    },
+    "ks_daily_pass": {
+      "42": 23,
+      "43": 23,
+      "44": 23
+    },
+    "ks_level_pass": {
+      "42": 1,
+      "43": 1,
+      "44": 1
+    },
+    "ci_worst_cell": {
+      "42": 0.1098,
+      "43": 0.1079,
+      "44": 0.105
+    },
+    "ci_horizon_pass": {
+      "42": 0,
+      "43": 0,
+      "44": 0
+    },
+    "turb_calm_ratio": {
+      "42": 1.4558,
+      "43": 1.4692,
+      "44": 1.4805
+    },
+    "kurt_ratio": {
+      "42": 1.5137,
+      "43": 1.5115,
+      "44": 1.5677
+    },
+    "rank_ratio": {
+      "42": 0.8505,
+      "43": 0.8603,
+      "44": 0.8638
+    },
+    "corr_ratio": {
+      "42": 1.0908,
+      "43": 1.0867,
+      "44": 1.0786
+    },
+    "monotonic_transitions": {
+      "42": 25,
+      "43": 24,
+      "44": 26
+    },
+    "median_bias": {
+      "42": -0.00333,
+      "43": -0.00329,
+      "44": -0.00331
+    },
+    "explosion_rate": {
+      "42": 0.0001,
+      "43": 0.0002,
+      "44": 0.0001
+    },
+    "butterfly_arb_rate": {
+      "42": 0.1909,
+      "43": 0.1912,
+      "44": 0.1911
+    }
+  },
+  "verdict": "153a achieves 4-5/9 across seeds [42, 43, 44]. Stable PASS: 4 suites. Stable FAIL: 4 suites. Unstable: 1 suites."
+}

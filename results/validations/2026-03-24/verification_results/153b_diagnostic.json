@@ -1,0 +1,30 @@
+{
+  "task": "153b_diagnostic_persist",
+  "status": "COMPLETE",
+  "model": "153b (conditional one-shot FM, residual prediction)",
+  "model_path": "models/backfill/flow_153b/final_model.pt",
+  "n_samples": 512,
+  "key_metrics": {
+    "eff_rank": 6.337666894320671,
+    "gt_eff_rank": 7.608082530748254,
+    "eff_rank_ratio": 0.8330176320652193,
+    "pc1": 0.9993253626202901,
+    "pc2": 0.9883200481847718,
+    "frob": 1.317214194427474,
+    "ks_changes_pass": "25/25",
+    "ks_levels_pass": "25/25",
+    "kurt_ratio_all": 1.3703856468200684,
+    "kurt_h1": 1.4293429851531982,
+    "kurt_h15": 1.3848559856414795,
+    "kurt_h30": 1.354200005531311,
+    "spread_h1": 0.07677343487739563,
+    "spread_h30": 0.07506439834833145,
+    "spread_h30_h1_ratio": 0.9777392189164473,
+    "spread_monotonic": false,
+    "mean_abs_bias": 0.0020406455732882023,
+    "max_abs_bias": 0.005482882261276245
+  },
+  "output_files": [
+    "results/validations/2026-03-24/analysis/153b_diagnostic/full_diagnostics.json"
+  ]
+}

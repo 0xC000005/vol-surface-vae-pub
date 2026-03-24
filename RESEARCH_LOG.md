@@ -41935,3 +41935,36 @@ The remaining failures (S2, S7, S8) all relate to per-window calibration, which 
 hybrid approach could address.
 
 ---
+
+## 2026-03-24: Validation Audit — RC15 Session (4 experiments, 7 gaps, all resolved)
+
+### Scope
+Audited RC15 experiments (152f, 153a, 153b) from autoresearch-session-rc15.
+5 parallel verification agents dispatched. All 7 gaps resolved.
+
+### Key Findings
+
+**Long-horizon 252d (153a)**: Stable — no explosion, no NaN. Spread grows 2.4x (0.015 to 0.036).
+Calendar arb 88-98% per chunk — surface validity degrades but doesn't diverge.
+
+**Multi-seed (153a)**: 4-5/9. Stable PASS: S3, S4, S5, S9. Stable FAIL: S1, S2, S7, S8.
+S6 (Cointegration) is unstable: 47% (s42), 53.5% (s43), 49.2% (s44).
+
+**Per-cell breakdown (153a)**: Single root cause for S2/S7/S8 — ODE ensemble is 2.4x too narrow.
+Moneyness gradient: ITM 53.5% CI > ATM 35.2% > OTM 19.8%. Spread-dominated (r=0.57 with CI),
+not bias-dominated (r=0.36). S1 calendar arb is NOT a model failure (gen 39.9% < GT 43.0%).
+
+**Best vs final (153a)**: Early model (ep28) has 2x wider per-window spread (0.030 vs 0.016),
+near-perfect population eff_rank (7.57, GT=7.61), but fails conditionality (turb_calm 1.019).
+Training sharpens the ODE — improves quality but kills diversity.
+
+### Corrections
+- S1 cal arb is a data property, not model failure (gen < GT rate)
+- S6 is seed-dependent (borderline, not stable fail)
+
+### Mechanistic Root Cause
+The velocity field becomes MORE DETERMINISTIC with continued training. All diversity comes from
+the initial N(0,I) draw, but the ODE contracts this into a narrow conditional distribution.
+OTM cells are worst because GT variability is highest there (nonlinear IV dynamics).
+
+---

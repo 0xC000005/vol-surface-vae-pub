@@ -1,0 +1,52 @@
+{
+  "pass_count": 4,
+  "total_suites": 9,
+  "suites": {
+    "Surface Validity": false,
+    "CI Coverage": false,
+    "Conditionality": true,
+    "Time Series": true,
+    "Growing Uncertainty": true,
+    "Cointegration": false,
+    "Regime Coverage": false,
+    "Distributional": false,
+    "Cross-Cell Correlation": true
+  },
+  "metrics": {
+    "explosion_rate": 0.0001,
+    "calendar_arb_rate": 0.1683,
+    "butterfly_arb_rate": 0.1909,
+    "ci_horizon_pass": 0,
+    "ci_worst_cell": 0.1098,
+    "ci_cell_pass": 0,
+    "turb_calm_ratio": 1.4558,
+    "mae_reduction": -0.0872,
+    "acf_correlation": 0.9994,
+    "kurt_ratio": 1.5137,
+    "spread_h1": 0.01608,
+    "spread_h30": 0.0188,
+    "monotonic_transitions": 25,
+    "coint_rate": 0.47,
+    "ks_daily_pass": 23,
+    "ks_level_pass": 1,
+    "median_bias": -0.00333,
+    "eff_rank_gen": 4.4244,
+    "eff_rank_gt": 5.2022,
+    "rank_ratio": 0.8505,
+    "corr_ratio": 1.0908,
+    "frobenius": 3.5509,
+    "pc_alignments": [
+      0.9918,
+      0.9143,
+      0.8876,
+      0.2222,
+      0.1812
+    ],
+    "regime_detail": {
+      "turb": 0,
+      "calm": 0
+    }
+  },
+  "seed": 42,
+  "generation_time_s": 45.3
+}

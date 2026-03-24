@@ -1,0 +1,79 @@
+{
+  "task": "153a best_model (ep28) vs final_model (ep200) comparison",
+  "status": "COMPLETE",
+  "models": {
+    "best": {
+      "path": "models/backfill/flow_153a/best_model.pt",
+      "epoch": 28,
+      "val_loss": 0.3867640824317932
+    },
+    "final": {
+      "path": "models/backfill/flow_153a/final_model.pt",
+      "epoch": 200,
+      "val_loss": 0.7348152751922608
+    }
+  },
+  "key_findings": {
+    "wider_spread_early": true,
+    "best_ci_worst_cell": 0.24395833333333333,
+    "final_ci_worst_cell": 0.10666666666666667,
+    "best_ci_pass": false,
+    "final_ci_pass": false,
+    "best_conditionality_pass": false,
+    "final_conditionality_pass": true,
+    "best_rank_ratio": 1.512169035859737,
+    "final_rank_ratio": 0.8682729245393966
+  },
+  "population_metrics": {
+    "best": {
+      "eff_rank": 7.567233824000263,
+      "gt_eff_rank": 7.608082530748254,
+      "pc1": 0.9985942470195897,
+      "pc2": 0.9783691375172384,
+      "frob": 1.2532269617398386,
+      "ks_pass": 25,
+      "kurt_ratio": 0.9676892161369324,
+      "spread_h1": 0.06918688118457794,
+      "spread_h30": 0.06473150104284286,
+      "mono": false
+    },
+    "final": {
+      "eff_rank": 6.463296846346721,
+      "gt_eff_rank": 7.608082530748254,
+      "pc1": 0.9996412724601222,
+      "pc2": 0.9956060119785379,
+      "frob": 1.1721734798509815,
+      "ks_pass": 25,
+      "kurt_ratio": 1.140846610069275,
+      "spread_h1": 0.0722494125366211,
+      "spread_h30": 0.07133901864290237,
+      "mono": false
+    }
+  },
+  "test_suite_metrics": {
+    "best": {
+      "ci_mean": 0.6725916666666667,
+      "ci_worst_cell": 0.24395833333333333,
+      "turb_calm_ratio": 1.0186878442764282,
+      "ks_daily_pass": 24,
+      "eff_rank_ratio": 1.512169035859737,
+      "corr_ratio": 0.8640077597887145,
+      "calendar_arb_rate": 0.36212666666666665,
+      "coint_pass_rate": 0.36,
+      "spread_h1": 0.029578780755400658,
+      "spread_h30": 0.030173812061548233
+    },
+    "final": {
+      "ci_mean": 0.3194916666666667,
+      "ci_worst_cell": 0.10666666666666667,
+      "turb_calm_ratio": 1.2959543466567993,
+      "ks_daily_pass": 23,
+      "eff_rank_ratio": 0.8682729245393966,
+      "corr_ratio": 1.114472877532609,
+      "calendar_arb_rate": 0.3735366666666667,
+      "coint_pass_rate": 0.4,
+      "spread_h1": 0.016063006594777107,
+      "spread_h30": 0.01867779903113842
+    }
+  }
+}

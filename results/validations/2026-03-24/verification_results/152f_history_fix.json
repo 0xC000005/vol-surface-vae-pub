@@ -1,0 +1,68 @@
+{
+  "task": "152f_training_history_fix",
+  "status": "COMPLETE",
+  "log_file": "/home/max/Documents/vol-surface-vae-pub/models/backfill/flow_152f_training.log",
+  "output_file": "/home/max/Documents/vol-surface-vae-pub/models/backfill/flow_152f/training_history.json",
+  "total_epochs_in_log": 100,
+  "eval_checkpoints": 6,
+  "eval_epoch_numbers": [
+    1,
+    20,
+    40,
+    60,
+    80,
+    100
+  ],
+  "corruption_cause": "numpy float32 not JSON serializable (line 235 of train_oneshot_flow_152f.py)",
+  "corruption_details": "Original script crashed at epoch 100 final save. The json.dump received a dict with numpy.float32 values and failed with TypeError: Object of type float32 is not JSON serializable. Only first partial entry was written before crash.",
+  "reconstruction_method": "Parsed training log (flow_152f_training.log) with regex",
+  "final_metrics": {
+    "epoch": 100,
+    "train_loss": 0.0267,
+    "val_loss": 0.2193,
+    "vel_var_t05": 0.4676,
+    "eff_rank": 9.3,
+    "gt_eff_rank": 7.61,
+    "pc1": 0.929,
+    "pc2": 0.447,
+    "frob": 6.3,
+    "ks_pass": 15,
+    "kurt_ratio": 0.585,
+    "spread_h1": 0.0574,
+    "spread_h30": 0.0575
+  },
+  "all_epochs_summary": {
+    "first_epoch": {
+      "epoch": 1,
+      "train_loss": 0.3435,
+      "val_loss": 0.3091,
+      "vel_var_t05": 0.1279,
+      "eff_rank": 2.77,
+      "gt_eff_rank": 7.61,
+      "pc1": 0.949,
+      "pc2": 0.621,
+      "frob": 10.3,
+      "ks_pass": 0,
+      "kurt_ratio": 1.574,
+      "spread_h1": 0.0601,
+      "spread_h30": 0.0589
+    },
+    "last_epoch": {
+      "epoch": 100,
+      "train_loss": 0.0267,
+      "val_loss": 0.2193,
+      "vel_var_t05": 0.4676,
+      "eff_rank": 9.3,
+      "gt_eff_rank": 7.61,
+      "pc1": 0.929,
+      "pc2": 0.447,
+      "frob": 6.3,
+      "ks_pass": 15,
+      "kurt_ratio": 0.585,
+      "spread_h1": 0.0574,
+      "spread_h30": 0.0575
+    },
+    "best_val_loss": 0.1178,
+    "best_val_epoch": 31
+  }
+}

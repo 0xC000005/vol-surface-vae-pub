@@ -1,0 +1,152 @@
+{
+  "task": "153a_percell_breakdown",
+  "model": "models/backfill/flow_153a/final_model.pt",
+  "status": "COMPLETED",
+  "elapsed_seconds": 137.2,
+  "n_windows": 160,
+  "n_samples": 50,
+  "methodology_notes": {
+    "S1_cal_arb": "Calendar arb computed as total_variance(tenor_t) < total_variance(tenor_{t-1}) for adjacent tenors at each moneyness. My convention: row=moneyness, col=tenor. V2 test uses row=tenor, col=moneyness. Rates are comparable but axis labels differ. Both gen and GT show ~40% raw violation rate because certain tenor pairs (e.g. 6M vs 3M at all moneynesses) are systematically violated in real data.",
+    "S6_coint": "IMPORTANT: My cell-cell cointegration test (Engle-Granger between cell pairs) gives 96.3% — this is NOT the same as v2's Suite 6 which tests IV-vs-EWMA-realized-vol cointegration. The v2 47% is IV-EWMA; my 96.3% is cell-cell. Cell-cell cointegration is actually STRONG — the flow model preserves inter-cell relationships. The IV-EWMA failure is a separate issue: generated IV paths don't track realized volatility.",
+    "S8_ks": "KS levels tested gen samples (50 per window x 160 windows = 8000) vs GT (160 values). The massive sample size asymmetry makes KS very sensitive. All 25 cells fail at p<0.001 level, indicating systematic distributional mismatch, not random noise."
+  },
+  "summary": {
+    "S1_calendar_arb": {
+      "gen_rate": 0.399,
+      "gt_rate": 0.430,
+      "gen_minus_gt": -0.031,
+      "interpretation": "Gen arb rate is actually LOWER than GT (39.9% vs 43.0%). The model slightly reduces calendar arb relative to ground truth. The v2 test's 16.8% used a different threshold/convention. Per-cell shows arb is concentrated in specific tenor transitions: 6M-vs-3M and 9M-vs-6M at all moneynesses show near-100% violation rates — but so does GT. This is a DATA property, not a model failure.",
+      "worst_cells": [
+        {"cell": "(0,2) = 0.90 moneyness, 6M tenor", "gen_rate": 1.0, "gt_rate": 0.995, "note": "6M-vs-3M transition at 0.90 moneyness"},
+        {"cell": "(1,3) = 0.95 moneyness, 9M tenor", "gen_rate": 1.0, "gt_rate": 1.0, "note": "9M-vs-6M at 0.95, both gen and GT are 100%"},
+        {"cell": "(2,3) = 1.00 moneyness, 9M tenor", "gen_rate": 1.0, "gt_rate": 1.0, "note": "Identical to GT"}
+      ],
+      "arb_worsens_with_horizon": false,
+      "arb_by_horizon_range": [0.397, 0.400],
+      "conclusion": "Calendar arb is NOT a model-specific failure. It mirrors GT data patterns. The 16.8% from v2 likely uses different threshold or computation."
+    },
+    "S2_ci_coverage": {
+      "mean_ci_all_horizons": 0.319,
+      "ci_h1": 0.440,
+      "ci_h15": 0.287,
+      "ci_h30": 0.378,
+      "worst_cell_h30": {"cell": "(3,3) = 1.05 moneyness, 9M tenor", "coverage": 0.119},
+      "worst_horizon": {"horizon": 23, "coverage": 0.265},
+      "diagnosis": "SPREAD-dominated failure",
+      "evidence": {
+        "spread_ci_corr": 0.573,
+        "bias_ci_corr": 0.364,
+        "spread_to_gt_range_ratio": 0.418,
+        "interpretation": "Ensemble 90% CI width is only 41.8% of what GT variability requires. The model generates samples that are too tightly clustered — insufficient diversity. Bias exists but is secondary."
+      },
+      "spatial_pattern_ci_h30": {
+        "ITM_row0_mean": 0.535,
+        "ATM_row2_mean": 0.352,
+        "OTM_row4_mean": 0.198,
+        "short_tenor_col0": 0.401,
+        "long_tenor_col4": 0.494,
+        "pattern": "STRONG moneyness gradient: ITM (53.5%) >> ATM (35.2%) >> OTM (19.8%). OTM cells are catastrophically undercovered. Tenor effect is weaker and reversed (long tenor slightly better)."
+      },
+      "bias_pattern_h30": {
+        "mean_abs_bias": 0.013,
+        "ITM_row0_bias": "negative (model underpredicts IV by ~0.03)",
+        "OTM_row4_bias": "positive (model overpredicts IV by ~0.01)",
+        "note": "Bias is small relative to GT range. The core problem is SPREAD, not BIAS."
+      },
+      "spread_pattern_h30": {
+        "ITM_row0_col0_spread": 0.285,
+        "ATM_row2_col2_spread": 0.018,
+        "OTM_row4_col4_spread": 0.015,
+        "gt_range_ITM_row0_col0": 0.637,
+        "gt_range_ATM_row2_col2": 0.057,
+        "gt_range_OTM_row4_col4": 0.042,
+        "pattern": "Spread is 10-20x higher for ITM short-tenor (0.285) vs OTM long-tenor (0.015), but GT range is also 15x higher. The RATIO is relatively constant at 0.35-0.45 across cells, meaning the under-spread problem is UNIFORM, not cell-specific."
+      },
+      "horizon_pattern": {
+        "h1_coverage": 0.440,
+        "h15_coverage": 0.278,
+        "h23_coverage_worst": 0.265,
+        "h30_coverage": 0.378,
+        "pattern": "U-shaped: coverage drops from h1 (44%) to h20-25 (~27%) then rebounds at h30 (38%). The mid-horizon trough suggests the model's uncertainty grows too slowly initially, then catches up."
+      },
+      "worst_5_cells_h30": [
+        {"cell": "(3,3)", "moneyness": "1.05", "tenor": "9M", "coverage": 0.119},
+        {"cell": "(4,2)", "moneyness": "1.10", "tenor": "6M", "coverage": 0.138},
+        {"cell": "(4,4)", "moneyness": "1.10", "tenor": "12M", "coverage": 0.169},
+        {"cell": "(4,3)", "moneyness": "1.10", "tenor": "9M", "coverage": 0.188},
+        {"cell": "(1,2)", "moneyness": "0.95", "tenor": "6M", "coverage": 0.194}
+      ]
+    },
+    "S6_cointegration": {
+      "cell_cell_coint_rate": 0.963,
+      "note": "This measures CELL-CELL cointegration (Engle-Granger between cell pairs on generated median paths). 96.3% of 300 cell pairs are cointegrated. This is actually excellent. The v2 Suite 6 tests IV-vs-EWMA-vol cointegration (47%) which is a DIFFERENT test.",
+      "by_distance": {
+        "1": 0.975,
+        "2": 0.984,
+        "3": 0.956,
+        "4": 0.950,
+        "5": 0.925,
+        "6": 1.0,
+        "7": 1.0,
+        "8": 1.0
+      },
+      "weakest_region": "OTM cells (row 3-4) have slightly lower per-cell rates (87.5-95.8%) vs ITM cells (100%)"
+    },
+    "S8_distributional": {
+      "ks_levels_pass": 0,
+      "ks_levels_total": 25,
+      "ks_changes_pass": 0,
+      "ks_changes_total": 25,
+      "worst_ks_cells": [
+        {"cell": "(3,3)", "ks_stat": 0.650, "mean_shift": 0.010},
+        {"cell": "(4,4)", "ks_stat": 0.622, "mean_shift": 0.013},
+        {"cell": "(4,3)", "ks_stat": 0.554, "mean_shift": 0.011},
+        {"cell": "(4,0)", "ks_stat": 0.551, "mean_shift": 0.018},
+        {"cell": "(2,3)", "ks_stat": 0.542, "mean_shift": 0.005}
+      ],
+      "best_ks_cells": [
+        {"cell": "(3,4)", "ks_stat": 0.132, "mean_shift": -0.001},
+        {"cell": "(3,1)", "ks_stat": 0.154, "mean_shift": 0.001},
+        {"cell": "(2,0)", "ks_stat": 0.168, "mean_shift": -0.002}
+      ],
+      "spatial_pattern": "KS failures are worst in OTM (row 4, stats 0.42-0.62) and moderate-OTM (row 3, stats 0.13-0.65). ITM cells (row 0) have lower KS stats (0.18-0.42). The SAME moneyness gradient as CI coverage.",
+      "diagnosis": "The KS failure is NOT from mean shift (shifts are ~0.01, small). It's from SHAPE mismatch — the generated distribution has wrong variance/skewness relative to GT at each cell. This is consistent with the SPREAD finding in S2: ensemble too narrow means the marginal distribution at each cell is too peaked."
+    },
+    "cross_suite_analysis": {
+      "ci_vs_ks_correlation": -0.691,
+      "interpretation": "Strong negative correlation: cells with LOW CI coverage have HIGH KS statistics. This confirms a SINGLE root cause: insufficient ensemble spread.",
+      "ci_vs_bias_correlation": 0.364,
+      "ci_vs_spread_correlation": 0.573,
+      "bias_vs_mean_shift_correlation": 1.0,
+      "note": "abs_bias and mean_shift are perfectly correlated (r=1.0), confirming they measure the same thing. The spread is the dominant factor (r=0.57 with CI) over bias (r=0.36).",
+      "spatial_pattern": {
+        "corner_ci": 0.380,
+        "center_ci": 0.244,
+        "edge_ci": 0.385,
+        "short_tenor_ci": 0.401,
+        "long_tenor_ci": 0.494,
+        "itm_ci": 0.535,
+        "otm_ci": 0.198,
+        "key_finding": "OTM cells (moneyness 1.10) are catastrophically bad at 19.8% CI coverage. ITM cells (moneyness 0.90) are tolerable at 53.5%. This is a 2.7x difference. The model struggles most with OTM wings where IV dynamics are most volatile and nonlinear."
+      }
+    },
+    "investigation_answers": {
+      "Q1_bias_or_spread": "SPREAD-dominated. The 90% CI ensemble width is only 41.8% of what GT variability demands. Cells with wider spread get better CI coverage (r=0.57). Bias is secondary (r=0.36). FIX NEEDED: increase sample diversity, not shift the mean.",
+      "Q2_same_cells_across_suites": "YES, strong overlap. CI-KS correlation is -0.69: the same cells that fail CI also fail KS. The worst cells are consistently in the OTM region (moneyness >= 1.05). Cell (3,3) = 1.05/9M and cell (4,2) = 1.10/6M appear in both worst-CI and worst-KS lists.",
+      "Q3_spatial_pattern": "STRONG moneyness gradient dominates. OTM (row 4) has 19.8% CI vs ITM (row 0) at 53.5%. Tenor effect is secondary and counterintuitive: long tenors slightly BETTER than short. Center cell (2,2) is particularly bad (24.4% CI) suggesting the model struggles with ATM paths. This pattern likely reflects that OTM wings have higher kurtosis and fat tails in GT that the flow model's Gaussian source cannot capture."
+    },
+    "mechanistic_root_cause": {
+      "primary": "INSUFFICIENT ENSEMBLE DIVERSITY (spread/GT ratio = 0.42). The flow model's 8-step Euler ODE from N(0,I) produces samples that collapse toward the conditional mean. The ODE integration is deterministic given the initial noise — so all diversity comes from the initial N(0,I) draw. But the ODE's velocity field smooths out the initial noise, producing an ensemble that is too narrow by ~2.4x.",
+      "secondary": "OTM MONEYNESS VULNERABILITY. The under-spread problem is roughly uniform in ratio terms (0.35-0.45 across cells), but OTM cells have lower absolute spread AND higher GT variability, making the coverage gap worst there.",
+      "calendar_arb": "NOT a real model failure. Gen arb rates match GT arb rates. The calendar arb violations are intrinsic to the data (certain tenor transitions are always violated).",
+      "implications_for_fix": "Need to increase ensemble diversity WITHOUT introducing bias. Options: (1) stochastic ODE (add noise during integration), (2) multiple ODE solvers with different step schedules, (3) temperature scaling of initial noise, (4) post-hoc perturbation calibrated to GT spread. The current deterministic ODE is fundamentally diversity-limited."
+    }
+  },
+  "output_files": [
+    "results/validations/2026-03-24/analysis/153a_percell/ci_coverage_grid.json",
+    "results/validations/2026-03-24/analysis/153a_percell/bias_vs_spread.json",
+    "results/validations/2026-03-24/analysis/153a_percell/ks_levels_percell.json",
+    "results/validations/2026-03-24/analysis/153a_percell/cal_arb_percell.json",
+    "results/validations/2026-03-24/analysis/153a_percell/coint_percell.json"
+  ]
+}
