@@ -1,14 +1,14 @@
 {
-  "iteration": 3,
-  "experiment_id": "151c",
+  "iteration": 9,
+  "experiment_id": "152a",
   "training_status": "training",
-  "phase": "RC14_H1b_stage1",
-  "hypothesis": "H1b Stage 1: RBF kernel repulsion on daily changes. Strongest push when members are close (complementary to CRPS). Should improve eff_rank without breaking kurtosis/KS since it works WITH CRPS gradient, not against it.",
-  "session_best": {"exp": "151b_v3", "metric": "rank_ratio=0.892, Suite 9 PASS"},
-  "total_experiments": 3,
-  "compass_position": "RC14-H1b Stage 1",
+  "phase": "RC14_H2_stage1",
+  "hypothesis": "H2 Stage 1: Unconditional flow matching on 25-dim IV frames. Each sample follows independent ODE trajectory → structural diversity. Proxy: does CFM produce GT-like eff_rank and PC alignment?",
+  "session_best": {"exp": "151c", "metric": "5/9 [1,3,5,8,9] but ARTIFICIAL diversity"},
+  "total_experiments": 9,
+  "compass_position": "RC14-H2 Stage 1",
   "compass_theme": "Structural Diversity + Calibrated Spread",
-  "session_date": "2026-03-23",
-  "base_model": "models/backfill/afcrps_146b/best_model.pt",
+  "session_date": "2026-03-24",
+  "base_model": "none (trained from scratch on IV frames)",
   "branch": "autoresearch-session-rc14"
 }

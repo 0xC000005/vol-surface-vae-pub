@@ -40396,3 +40396,82 @@ trajectory from noise TO data — the diversity is constrained by the learned da
 not pushed apart by an arbitrary kernel.
 
 ---
+
+## 2026-03-24: Exp 152a — H2 Stage 1: Unconditional Flow Matching (RC14)
+
+### Context
+H1 exhausted at 5/9 with ARTIFICIAL diversity (spread alignment 0.28, near-random).
+H2 tests whether flow matching produces GT-aligned diversity structurally.
+
+### Architecture
+VelocityMLP: 25-dim input + 64-dim sinusoidal time embedding → 256 hidden × 4 layers → 25-dim output.
+161K params. OT-CFM loss (linear interpolation, predict velocity x1-x0).
+8-step Euler ODE sampling. Trained on 4540 standardized IV frames, 200 epochs.
+
+### Results — BREAKTHROUGH
+
+| Metric | H1b best (λ=1.0) | **152a (CFM)** | GT |
+|--------|------------------|----------------|-----|
+| eff_rank | 9.56 | **3.24** | 3.42 |
+| rank_ratio | 1.90 | **0.947** | 1.00 |
+| corr_ratio | 0.61 | **1.006** | 1.00 |
+| Frobenius | 8.11 | **0.75** | 0.00 |
+| PC1 alignment | 0.43 | **1.000** | 1.00 |
+| PC2 alignment | 0.45 | **0.994** | 1.00 |
+| KS marginals | 17/25 | **25/25** | — |
+| PC1 variance | 37.0% | matches GT | 48.4% |
+
+### Key Findings
+
+1. **GT-aligned diversity**: PC1 alignment 1.000, PC2 0.994. The flow matching model
+   learns diversity ALONG the actual data factor structure, not arbitrary directions.
+   This is the opposite of H1b's near-random 0.28 alignment.
+
+2. **Correct eff_rank**: 3.24 vs GT 3.42 (ratio 0.947). NOT over-diversified like H1b
+   (9.56 = 1.9× GT). The model captures the right number of independent dimensions.
+
+3. **Perfect marginals**: 25/25 KS test cells pass (D < 0.15, mean D = 0.074). Each
+   cell's distribution matches GT individually.
+
+4. **Near-zero Frobenius**: 0.75 vs 8.1-15.9 for all H1 models. The cross-cell
+   correlation matrix is nearly identical to GT.
+
+5. **CFM converges with 4.5K samples**: Loss decreased from 1.80 to 0.73. No data
+   insufficiency. Training stable across 200 epochs.
+
+### Training Dynamics
+- Epoch 1: eff_rank=14.74 (too diverse, near-Gaussian noise)
+- Epoch 20: eff_rank=4.05 (converging toward GT structure)
+- Epoch 40: eff_rank=3.11 (close to GT 3.42)
+- Epoch 60-200: eff_rank stable 3.1-3.4 (learned and maintained GT structure)
+
+### What Was Learned
+
+1. **Flow matching produces structurally correct diversity** — each ODE trajectory
+   naturally follows the data manifold, so cross-cell correlations emerge from the
+   learned velocity field, not from noise injection or auxiliary losses.
+
+2. **The single-pass AR + CRPS paradigm cannot achieve this** — CRPS fundamentally
+   cannot produce GT-aligned diversity because it optimizes pointwise accuracy
+   and spread, not the multivariate correlation structure.
+
+3. **161K params on 4.5K samples is sufficient** — no data augmentation needed for
+   unconditional single-frame generation.
+
+### Kill Condition Check
+eff_rank 3.24 > 3.0 threshold → **PASS**. Proceed to Stage 2.
+
+### Next: H2 Stage 2
+Add frozen GRU encoder conditioning. 5-step AR rollout. Train conditional velocity
+field on (condition, frame_t, t) → velocity. This connects the unconditional frame
+generator to history-dependent forecasting.
+
+### Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_flow_matching.py \
+    --epochs 200 --batch_size 256 --lr 1e-3 \
+    --hidden 256 --n_layers 4 --n_steps 8 \
+    --output_dir models/backfill/flow_152a --device cuda
+```
+
+---
