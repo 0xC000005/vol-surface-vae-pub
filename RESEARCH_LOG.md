@@ -41334,3 +41334,231 @@ Then H1 Stages 1-4 sequentially.
 - Plain MLP at 750-dim: insufficient data:dim ratio
 
 ---
+
+## 2026-03-24: Research Compass RC15 v2 — Conditional One-Shot FM (with Diagnostic Plans)
+
+### Supersedes
+RC15 v1 (same date, above). Added explicit diagnostic plans per stage.
+
+### Paradigm Check
+All hypotheses maintain: (1) independent sample trajectories, (2) CFM loss (no diversity
+penalty), (3) factored transformer (no CLN bottleneck), (4) everything learned from data.
+
+### Caveat
+Design choices borrowed heavily from FMAP (weather postprocessing). Our problem differs:
+regular 5x5 grid vs irregular stations, 30-step trajectory vs single lead-time, 4K samples
+vs larger weather datasets. The architectural choices may not transfer. Each stage has
+kill conditions that detect this.
+
+---
+
+### H2: Data-Dependent Source Distribution (1h probe, RUN FIRST)
+
+**Theory**: Lim et al. (2410.03229) prove that for temporal data, using a data-dependent
+source (previous observation) instead of N(0,I) produces velocity fields with lower variance,
+faster convergence, and better sample quality. The ODE transports from a point NEAR the
+target instead of from random noise.
+
+**Implementation**: Train 152e variant where source = standardized persistence forecast
+(last history frame repeated 30 times), target = standardized future. At inference: start
+ODE from persistence, not noise. Diversity comes from the VELOCITY FIELD learned from the
+full training set (each training pair has different persistence-to-future displacement).
+
+**Prediction**: Training converges faster (fewer epochs to reach 152e quality). Sample
+quality equal or better than 152e.
+
+**Risk**: If persistence is too close to target, the velocity field may not learn enough
+spread — samples cluster around persistence forecast with insufficient diversity.
+
+**Kill condition**: After 100 epochs, if eff_rank < 3.0 OR KS < 15/25, the data-dependent
+source doesn't work at our scale. Revert to N(0,I) for H1.
+
+**Diagnostic plan (MANDATORY, run regardless of outcome)**:
+1. Training convergence: plot loss curve vs 152e. At which epoch does quality match 152e?
+2. Sample quality metrics: eff_rank, PC1-5 alignment, KS, kurtosis, Frobenius — full
+   comparison table against 152e (same eval script as 152e validation).
+3. Velocity field variance: compute empirical variance of predicted velocity across
+   training batches at t=0.5. Compare with 152e. Lim et al. predicts LOWER variance.
+4. Spread analysis: is ensemble spread NARROWER than 152e? If yes, the "closer source"
+   hypothesis is confirmed but may hurt CI coverage.
+5. If outcome is UNEXPECTED (either direction), investigate: generate samples at
+   intermediate ODE steps (t=0.25, 0.5, 0.75) and check where quality emerges vs
+   diverges from 152e.
+
+**What we learn regardless**:
+- Success: data-dependent source is better, use for all subsequent H1 stages.
+- Failure with low eff_rank: the diversity mechanism depends on noise-to-data distance;
+  persistence source is too deterministic. This would contradict Lim et al. at our scale.
+- Failure with bad KS: the residual distribution (future - persistence) is harder to model
+  than the absolute distribution. This would inform H1 Stage 2 (residual prediction).
+
+---
+
+### H1 Stage 1: Conditional with Concatenation (2h)
+
+**Theory**: FMAP (2504.03463) validates concatenation conditioning for spatial attention +
+FM ensemble generation. The encoder output (128-dim) is projected and concatenated as
+additional features per spatial-temporal token. This preserves attention's ability to
+learn cross-cell correlations (unlike FiLM which modulates globally).
+
+**Implementation**: Modify FactoredVelocityTransformer. Each input token currently has
+(x_t value [1-dim] + time_embed + pos_embed). Add: encoder_output projected to d_model,
+concatenated to each token. The encoder output is the same for all 750 tokens (it
+summarizes the entire history).
+
+**Source distribution**: use whichever H2 determined is better (persistence or N(0,I)).
+
+**Prediction**: PC1 alignment >= 0.95. Kurtosis >= 0.5. Turb/calm ratio > 1.15
+(conditioning works). Suite 3 should pass since encoder differentiates regimes.
+
+**Risk**: 128-dim condition repeated identically across 750 tokens may not provide
+enough spatial/temporal specificity. The condition says "this is a turbulent period"
+but not "cell (0,3) should be wider than cell (4,0)."
+
+**Kill condition**: PC1 < 0.95 OR kurtosis < 0.5 after 200 epochs.
+
+**Diagnostic plan (MANDATORY)**:
+1. **Full metric comparison table**: eff_rank, PC1-5, KS, kurtosis, Frobenius — vs 152e
+   unconditional. Every number must be reported, not just pass/fail.
+2. **Conditionality check**: Generate samples for 50 turbulent and 50 calm windows.
+   Compute turb/calm width ratio. If < 1.05, the model ignores the condition.
+3. **Condition ablation**: Generate with RANDOM condition vectors (shuffled across batch).
+   If sample quality is identical to real conditions, the model learned to ignore the
+   condition entirely. Report the delta in every metric.
+4. **Per-horizon breakdown**: eff_rank and CI coverage at h=1, h=15, h=30. Does
+   conditioning help more at short or long horizons?
+5. **Encoder output analysis**: Compute variance of encoder output across the test set.
+   If variance is near-zero for certain dimensions, those condition dimensions are unused.
+6. **PC alignment per-horizon**: Compute PC1-5 alignment at each horizon separately.
+   Does conditioning degrade specific horizons or PCs?
+
+**What we learn regardless**:
+- Success: concatenation conditioning preserves one-shot FM properties. Proceed to Stage 2.
+- PC1 degrades but PC2+ holds: the condition constrains the dominant factor (level shift)
+  too much. May need condition dropout during training.
+- Kurtosis degrades: the condition makes the velocity field too deterministic (collapses
+  diversity). May need stochastic conditioning (condition augmentation noise).
+- Conditionality fails (turb/calm < 1.05): 128-dim bottleneck is insufficient for 750-dim
+  target. Need richer conditioning (cross-attention over history frames, not bottleneck).
+
+---
+
+### H1 Stage 2: Residual Prediction (2h)
+
+**Theory**: FMAP predicts delta = future - ensemble_mean. This reduces ODE transport distance,
+improving convergence and requiring fewer ODE steps. For us: predict delta = future -
+persistence_forecast (last history frame repeated).
+
+**Implementation**: Change training target from absolute future to (future - persistence).
+Change inference to add persistence back after ODE integration. The velocity field learns
+the DEVIATION from persistence, not the absolute surface.
+
+**Prerequisite**: H1 Stage 1 must have PC1 >= 0.95 and kurtosis >= 0.5.
+
+**Prediction**: Training converges faster. Kurtosis may IMPROVE because daily changes are
+closer to the residual distribution than the absolute distribution.
+
+**Risk**: Residual distribution has different shape than absolute — heavy tails in changes
+vs smooth levels. KS on daily changes may improve but KS on levels may worsen.
+
+**Kill condition**: KS daily < 15/25 (from 25/25 baseline). This would mean the residual
+transformation fundamentally changes the distribution the model can learn.
+
+**Diagnostic plan (MANDATORY)**:
+1. **Convergence comparison**: Training loss at epoch 50, 100, 200 vs non-residual Stage 1.
+2. **Full metric table**: Same as Stage 1 diagnostics. Report ALL metrics.
+3. **Residual distribution analysis**: Plot histogram of (future - persistence) at h=1 and
+   h=30. Compare with absolute future distribution. Which is easier to model?
+4. **Level bias check**: After adding persistence back, is there systematic bias?
+   Per-cell mean(generated) vs mean(GT). This catches the standardization-destandardization
+   bias issue found in 152b.
+5. **KS on LEVELS vs KS on CHANGES**: Both matter. Report separately.
+
+**What we learn regardless**:
+- Success: residual is easier to model, proceed to Stage 3.
+- KS degrades: residual distribution is HARDER (more peaked? heavier-tailed?). The
+  absolute distribution is better for this data. Revert residual, keep Stage 1.
+- Kurtosis degrades: the residual transformation changes the change-of-change distribution.
+  Unexpected and informative — investigate the per-cell kurtosis grid.
+
+---
+
+### H1 Stage 3: Per-Horizon Learned Scale (2h)
+
+**Theory**: FMAP rescales FM output by lead-time-dependent error scale. For us: the velocity
+network output is multiplied by a learned scale_h for each horizon h=1..30. This allows
+the model to produce wider spread at longer horizons without changing the velocity field
+structure.
+
+**Implementation**: Add nn.Parameter(30) initialized to 1.0. After ODE integration,
+multiply each frame's output by scale_h before destandardizing. Train scale jointly with
+velocity network (the CFM loss backprops through the scale).
+
+**Prerequisite**: H1 Stage 1 (or Stage 2 if residual worked) has kurtosis >= 0.5.
+
+**Prediction**: Spread ratio h30/h1 > 1.1. The scale should increase with horizon,
+producing growing uncertainty.
+
+**Risk**: The learned scale may collapse to uniform (all 1.0) if the CFM loss doesn't
+provide gradient signal for horizon-dependent spread. Or it may grow too large at late
+horizons, breaking kurtosis.
+
+**Kill condition**: After training, if all scale values within [0.95, 1.05], the mechanism
+has no effect. If spread ratio h30/h1 < 1.05, growing uncertainty is not achieved.
+
+**Diagnostic plan (MANDATORY)**:
+1. **Learned scale values**: Plot scale_h vs horizon h. Should increase.
+2. **Spread curve**: Ensemble std vs horizon. Compare with GT and with previous stages.
+3. **Per-horizon eff_rank**: Does the scale change cross-cell correlation structure at
+   different horizons? Compute at h=1, h=15, h=30.
+4. **Kurtosis per-horizon**: Does kurtosis change with the scale? Report at h=1, h=15, h=30.
+5. **Full metric table**: Same as previous stages.
+
+**What we learn regardless**:
+- Scale grows with horizon: mechanism works as designed.
+- Scale is uniform: CFM loss has no horizon-dependent gradient. Need explicit spread
+  loss (e.g., VS or IS per-horizon) — but this reintroduces CRPS-like objectives.
+  Would need careful analysis of whether it conflicts with the paradigm.
+- Scale grows but breaks kurtosis: trade-off between spread and tails exists even in
+  one-shot. Would point toward SDE (stochastic ODE) instead of learned scale.
+
+---
+
+### H1 Stage 4: Full Evaluation (4h)
+
+**Prerequisite**: At least one of Stages 1-3 produced a model with kurtosis >= 0.5
+and PC1 >= 0.95.
+
+**Evaluation battery** (ALL mandatory):
+1. Full 9-suite evaluation (test_block_ar_requirements_v2.py equivalent for one-shot model)
+2. Long-horizon test (252 days) — boss requirement
+3. Multi-seed validation (seeds 42, 43, 44) if any suite is borderline
+4. PCA alignment analysis (PC1-5, same as 152e validation)
+5. Cross-model comparison table: 146b, 151c, 152b, 152b+tau1.3, 152e, new model
+6. H1b realism diagnostic: PC alignment of ensemble spread direction, rank persistence
+
+**Diagnostic plan**:
+- For EVERY failing suite: per-cell breakdown to identify which cells/horizons fail.
+  Do NOT just report "Suite X fails." Report WHY it fails and which component.
+- For EVERY passing suite: stress test. What is the margin? Would a different seed flip it?
+- Per-horizon CI at h=1, h=7, h=14, h=30 — report explicitly.
+- Kurtosis per-cell grid (5x5).
+- Cross-cell correlation matrix heatmap: gen vs GT.
+- Growing uncertainty plot: spread vs horizon for the new model vs all previous models.
+
+---
+
+### Execution Order
+
+```
+H2 (1h) -> diagnostic -> decide source distribution
+H1-S1 (2h) -> diagnostic -> kill gate check
+H1-S2 (2h) -> diagnostic -> kill gate check
+H1-S3 (2h) -> diagnostic -> kill gate check
+H1-S4 (4h) -> comprehensive evaluation
+```
+
+Total: ~13h if all stages proceed. Each stage is independently valuable and produces
+documented evidence regardless of outcome.
+
+---
