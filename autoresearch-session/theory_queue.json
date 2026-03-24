@@ -130,7 +130,8 @@
     ],
     "attempts": 0,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
+    "result": "4/9 suites [S3,S4,S5,S9]. Best distributional quality (PC1=0.999, frob=1.30) but CI fails (spread 0.016). One-shot ODE too deterministic. Temperature scaling destroys quality.",
     "experiment_id": "153d",
     "effort": "4h"
   }
