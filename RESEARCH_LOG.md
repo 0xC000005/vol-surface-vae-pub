@@ -40688,3 +40688,47 @@ calibration), not just training harder with CFM loss.
 ### 152b remains the best flow matching model: 5/9 [1,4,5,6,9]
 
 ---
+
+## 2026-03-24: Exp 152b temperature sweep — Prior scaling preserves GT alignment (RC14)
+
+### Key Discovery: Temperature Scaling vs Post-Hoc Noise
+
+Temperature scaling (x_0 ~ N(0, τ²I)) is fundamentally different from post-hoc noise:
+- Post-hoc noise adds independent noise to ODE OUTPUT → breaks correlation structure
+- Temperature scales the ODE INPUT prior → trajectories diverge more but follow the
+  same learned manifold → correlation structure PRESERVED
+
+### Temperature Sweep Results
+
+| τ | CI_90 | Kurtosis | corr_ratio | rank_ratio | S4 | S9 |
+|---|-------|----------|------------|------------|----|----|
+| 1.0 | 67.2% | 0.609 | 0.821 | 1.506 | P | P |
+| 1.2 | 80.1% | 0.551 | 0.811 | 1.537 | P | P |
+| **1.3** | **85.4%** | **0.502** | **0.811** | 1.550 | **P** | **P** |
+| 1.5 | 92.5% | 0.429 | 0.814 | 1.576 | F | P |
+| 2.0 | 97.7% | 0.270 | 0.826 | 1.652 | F | P |
+
+Critical: corr_ratio is STABLE (0.81-0.83) across ALL temperatures. rank_ratio is
+STABLE (1.51-1.65). The GT-aligned structure is perfectly preserved.
+
+Compare with post-hoc noise σ=0.1: corr_ratio dropped to 0.509, rank_ratio to 2.988.
+
+### τ=1.3 Detail: Nearly Passes Suite 2!
+All per-horizon gates PASS (h=1: 89.1%, h=7: 85.6%, h=14: 85.5%, h=30: 83.9%).
+Fails only on per-cell UPPER gate: cell (4,0) at h=1 = 98.0% > 95%.
+This means 2 cells are over-covered while all others are within band.
+
+### Suite Count: 5/9 [1,4,5,6,9] at all temperatures
+Suite 2 blocked by per-cell upper gate. Suite 3/7/8 unchanged.
+
+### What Was Learned
+1. **Temperature scaling is the correct spread mechanism for flow matching** — it
+   works through the ODE, not around it. The velocity field naturally maps wider
+   noise to wider spread while preserving the learned manifold structure.
+2. **The S4-S9 tradeoff exists at the temperature level too** (kurtosis drops with τ)
+   but the slope is much gentler than post-hoc noise.
+3. **τ=1.3 is the sweet spot**: CI 85.4%, kurtosis 0.502 (barely passes S4).
+4. **S2 per-cell upper gate** is the remaining barrier — a few cells get >95% coverage.
+   This is a per-cell calibration issue, not a fundamental architectural problem.
+
+---
