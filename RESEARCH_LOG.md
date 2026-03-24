@@ -40632,3 +40632,37 @@ The spread must be built into the generation process itself. Stage 3 (CRPS
 fine-tuning of the velocity field) is the correct next step.
 
 ---
+
+## 2026-03-24: Deep Diagnostic — 152b Four Open Questions Resolved (RC14)
+
+### Q1: Suite 3 is an INTERFACE BUG (not real conditionality failure)
+The zero-history encoding is degenerate: variance=0.000000 across batch. All uncond
+samples share identical conditioning → near-identical members → artificially narrow
+uncond spread → inflated cond/uncond ratio. The model's actual conditionality is good
+(turb/calm=1.22). Fix: use encoder null_embedding for uncond generation.
+
+### Q2: CI underdispersion worsens with horizon (ODE error accumulation)
+CI_90 by horizon: h=1=80.8%, h=7=74.1%, h=14=74.0%, h=30=72.1%. The spread grows
+(width 0.061→0.087, ratio 1.40) but not fast enough for GT variance growth. This is
+consistent with deterministic ODE accumulating small errors over 30 AR steps. Best fix:
+noise schedule that grows with horizon, or CRPS fine-tuning per-horizon.
+
+### Q3: Suite 8 level bias is from velocity field, not standardization
+Per-cell KS on levels: 10/25 pass. Systematic negative bias for corner/edge cells
+(gen < GT). Cell (4,0) KS=0.460 (worst). The velocity field has a mean prediction
+bias that the AR rollout amplifies over 30 steps. May need bias correction or longer
+training.
+
+### Q4: Per-cell noise kills kurtosis via noise/GT ratio mechanism
+Cell (1,3): learned sigma → noise/GT daily change std ratio = 4.43×. The noise
+completely Gaussianizes that cell's changes. The optimization correctly identifies
+WHICH cells need wider CI but the required sigma destroys distributional quality
+in those specific cells.
+
+### Implications for Stage 3
+1. Suite 3: Fix with null_embedding — likely passes immediately (~1 LOC)
+2. Suite 2: Need spread that grows with horizon + doesn't add isotropic noise
+3. Suite 8: Velocity field bias → may need longer training or bias regularization
+4. Post-hoc noise is exhausted as an approach
+
+---
