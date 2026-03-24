@@ -1,268 +1,127 @@
 [
   {
-    "name": "RC6 Steps 1-5",
+    "name": "RC6-RC13 (all completed)",
     "status": "completed",
-    "result": "Principled architecture built: 143a ep30 = 66.89 (5/8)."
+    "result": "35 experiments across RC6-RC13. Best: 150b 7/9 (seed=42 ep8, not robust). Paradigm evaluation concludes: single-pass AR + CRPS has unstable diversity. Architecture CAN produce good states but CRPS dynamics make them seed-dependent and epoch-specific. See RESEARCH_LOG.md entries for full details."
   },
   {
-    "name": "RC7 Kurtosis Compass",
-    "status": "completed",
-    "result": "Log-space dynamics solve kurtosis. Student-t falsified. CLT fundamental."
-  },
-  {
-    "name": "RC8v3-H1 through RC9-H3",
-    "status": "completed",
-    "result": "Per-cell scale validated (144b, 69.28). VS/DPP/capacity all falsified. Three independent problems identified."
-  },
-  {
-    "name": "RC10 (all 4 hypotheses + probes)",
-    "status": "completed",
-    "result": "H1 FALSIFIED (cell_var=diversity reward). H2 PARTIAL (eff_rank+54%). H3 FAILS at any \u03bb (cum_cal breaks KS/coint). H4 SKIPPED. 147a/b probes confirm cum_cal dead end. 8 investigation agents \u2192 COMPLETE mechanistic understanding of 7 bottlenecks."
-  },
-  {
-    "name": "RC11-H0: Inference-time noise scaling probe",
-    "theory": "CRPS spread suppression (documented, CRPS-LAM 2025) makes ensemble 3.8x too narrow. If scaling noise z by beta>1 at inference pushes CI toward 90%, the architecture CAN produce correct spread \u2014 CRPS just chose too little. If CI stays low even at beta=3, rank-1 structure prevents coverage regardless of amplitude.",
-    "target": "Determine whether bottleneck is amplitude (fixable by spread encouragement) or structure (requires rank fix).",
-    "falsification": "beta=3.0 gives CI<80% \u2192 rank-1 is binding, amplitude doesn't help.",
-    "implementation": "At inference, multiply noise z by beta before passing to decoder. Test beta={1.5, 2.0, 3.0}. Zero training. ~5 min.",
+    "name": "RC14-H0: Gaussian copula ceiling measurement",
+    "theory": "Take 146b ensemble, reorder members using GT Gaussian copula (ECC). Evaluate all 9 suites. This is a DIAGNOSTIC that determines whether H1a/H1b or H2 is the right direction. If Suite 9 passes with copula reordering, the marginals are fine and only correlation structure needs fixing. If Suite 9 still fails, the problem is deeper than correlation.",
+    "target": "Determine ceiling: how many suites can pass with perfect cross-cell correlation applied post-hoc?",
+    "falsification": "N/A — this is a measurement, not a hypothesis. Any result is informative.",
+    "implementation": "~50 LOC Python script. Estimate 25x25 Gaussian copula from training data. Reorder 146b ensemble members. Run test_block_ar_requirements_v2.py. No GPU for copula estimation, GPU for evaluation.",
     "diagnostic_plan": {
-      "after_inference": [
-        "1. Per-cell coverage grids at each beta \u2014 which cells improve most?",
-        "2. Per-cell KS at each beta \u2014 at what beta does each cell start failing?",
-        "3. Eff_rank at each beta \u2014 scaling shouldn't change rank (same direction, more magnitude)",
-        "4. Threshold beta where KS starts failing \u2014 how much spread headroom exists?",
-        "5. Ensemble std at beta=2 vs GT std per cell \u2014 is spread now matched?"
+      "after_eval": [
+        "1. Suite 9 pass/fail with copula vs without",
+        "2. Suite 2 (CI) change — does correlation reordering affect coverage?",
+        "3. Per-suite comparison: which suites change with copula reordering?",
+        "4. If Suite 9 passes: marginals are sufficient → proceed to H1a/H1b",
+        "5. If Suite 9 fails: marginals are broken → skip H1a/H1b, go to H2"
       ]
     },
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "result": "FALSIFIED \u2014 \u03b2=3.0 CI=73.9% < 80%. Bottleneck is 100% structural (rank-1 CLN), not amplitude. Eff_rank unchanged 1.47\u21921.48. Conditioned width unchanged. h=1 CI worsened 64.7\u219260.9%.",
-    "experiment_id": "148_probe"
-  },
-  {
-    "name": "RC11-H1: Enable skip bypass on 144b",
-    "theory": "144b has ar_noise_skip=False, ar_skip_bypass_spread=False. 100% diversity from CLN (Jacobian rank 1.23). 146b enabled skip+factor \u2192 eff_rank+54%. H1 isolates skip bypass WITHOUT factor structure. AIFS uses per-location noise (analogous). Tests whether plain Linear skip resists CRPS rank collapse.",
-    "target": "Eff_rank > 1.47 and/or CI > 74%. If near 146b levels \u2192 factor structure was bonus, not essential.",
-    "falsification": "Eff_rank stays 1.47 AND CI stays 74% \u2192 plain Linear collapsed by CRPS. Factor structure essential.",
-    "implementation": "Add --ar_noise_skip --ar_skip_bypass_spread to 144b training recipe. Zero code changes. 30 epochs.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Eff_rank comparison: 144b (1.47) vs H1 vs 146b (2.26)",
-        "2. PCA on generated daily changes \u2014 eigenvalue spectrum, PC1-PC5",
-        "3. Noise pathway decomposition: zero skip weights, measure CLN vs skip diversity fraction",
-        "4. Per-cell coverage grids at h=7 and h=30",
-        "5. SVD of skip Linear weight matrix \u2014 if rank-1, CRPS collapsed it",
-        "6. Training dynamics: track spread over epochs. Does skip maintain a spread floor?"
-      ],
-      "principled_check": "If H1 succeeds: is plain skip + CRPS sufficient, or does factor structure (146b) add independent value? Compare H1 vs 146b on all 9 suites."
-    },
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "result": "CONFOUNDED. Eff_rank +15% (1.47\u21921.69) but CI \u22122.3pp, KS \u22127. Skip proj norm=0.103 (near-zero). CRPS collapsed plain skip. Factor noise (146b) provides structural resistance. Recipe differences (added ES/IS/cell_spread) confound the CI regression.",
-    "experiment_id": "148a"
-  },
-  {
-    "name": "RC11-H2: Heteroscedastic decoder output (delta + log_sigma)",
-    "theory": "Cell (0,3) has 6.2x level-dependent volatility. Log-space provides GBM-level scaling but ~2x residual heteroscedasticity remains (Neural SDE literature: Kidger 2021, FuNVol 2023). Constant vol_scale cannot represent this. Decoder already sees prev_frame \u2014 give it output channel for state-dependent noise amplitude.",
-    "target": "Cell (0,3) coverage improves from 47% toward 70%. Learned sigma varies with IV level.",
-    "falsification": "Learned sigma is constant across IV levels \u2192 CRPS doesn't use the capacity.",
-    "implementation": "Widen CausalARTransformerDecoder output 25\u219250. Split: delta_raw, log_sigma. Apply delta = softplus(log_sigma) * delta_raw. ~20 lines of code.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Learned sigma vs IV level: plot for cell (0,3) and 5 other cells. Monotonic?",
-        "2. Cell (0,3) coverage before/after",
-        "3. Sigma stability over AR steps: h=1, h=10, h=30. Growing or constant?",
-        "4. Sigma vs existing vol_scale: correlated (redundant) or different pattern (new info)?",
-        "5. KS per-cell check: does heteroscedastic output change daily-change distributions?",
-        "6. Ablation: freeze sigma at 1.0, train only delta. Same performance \u2192 sigma unused."
-      ],
-      "principled_check": "Does sigma learn the CEV exponent? If sigma \u221d IV^gamma, what is gamma? GT data suggests gamma > 1 (6.2x range across 3x level range \u2192 gamma \u2248 1.5)."
-    },
-    "note": "DEPENDS on H1 \u2014 if noise is rank-1, per-cell sigma scales same direction. Test after skip bypass enabled.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H1",
-    "experiment_id": "148b"
+    "status": "pending",
+    "experiment_id": "151a",
+    "effort": "2h",
+    "gates": "Result determines H1 vs H2 direction"
   },
   {
-    "name": "RC11-H3: Condition-dependent noise amplitude",
-    "theory": "P3 agent proved decoder calm/turb modulation = 1.005x (identical). Window floor: 44% bad windows in calm regime. Encoder calm/turb cosine = 0.9996 but there may be residual signal extractable. ar_noise_scale_cond exists but is disabled.",
-    "target": "Turb/calm spread ratio changes by >5%. Window floor bad rate drops below 7%.",
-    "falsification": "Spread ratio unchanged (<5% change) \u2192 encoder doesn't provide regime signal for noise_scale_head.",
-    "implementation": "Add --ar_noise_scale_cond to training. Existing module, zero new code. 30 epochs.",
+    "name": "RC14-H1a: Detached noise skip + dual-loss training",
+    "theory": "CRPS suppresses skip to norm=0.103 (verified from 148a weights). SimSiam (CVPR 2021) proves stop-gradient is necessary and sufficient to prevent collapse. OrthoFormer (2026) proves removing gradient detachment 'destroys the desired property.' CRPS spread gradient weakens as members converge (positive feedback loop). Stop-gradient breaks this loop by construction. A separate diversity loss (VS + coverage) trains the noise pathway independently.",
+    "target": "Suite 9 PASS (rank_ratio >= 0.50). CI_90 > 85%. Both P1 (spread) and P2 (rank) addressed.",
+    "falsification": "Stage 1: eff_rank < 2.26 with detached skip → noise pathway isn't bottleneck, deterministic decoder is also rank-1. KILL → H2. Stage 2: rank_ratio < 0.50 OR CI < 80% across 2 seeds → dual-loss doesn't converge. KILL → try H1b or H2.",
+    "implementation": "Stage 1 (detach-only): Add .detach() to skip_contribution in forward pass. Train with CRPS only. ~5 LOC. Stage 2 (dual-loss): Add VS + coverage loss on noise pathway with reversed detach. Two backward passes. ~50 LOC. Stage 3: Multi-seed + long-horizon.",
     "diagnostic_plan": {
-      "after_training": [
-        "1. Turb/calm spread ratio before (2.2x) vs after",
-        "2. Noise_scale_head weights: what patterns learned? Correlate with vol-of-vol",
-        "3. Window floor by regime: calm bad rate before (18.4%) vs after",
-        "4. Correlation between learned noise_scale and vol_of_vol per window (r > 0.5 = success)",
-        "5. If fails: confirms encoder limitation. Next step = encoder augmentation."
+      "stage1_after_training": [
+        "1. eff_rank: did detach alone improve diversity? Compare vs 146b (2.26)",
+        "2. CI_90: did removing CRPS from noise change coverage?",
+        "3. Skip proj norm: is it still 0.103 or has it grown (since CRPS can't suppress)?",
+        "4. KS per-cell: did detach break distributional fidelity?",
+        "5. All 9 suites comparison vs 146b"
       ],
-      "principled_check": "If it works: is the improvement from noise_scale_head orthogonal to skip bypass (H1)? Run both together and check for interaction."
-    },
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "result": "PARTIALLY KILLED. Turb/calm decreased 2.14\u21921.76 (\u221218%, opposite of prediction). noise_scale_head learned 0.75\u00d7 uniform suppression (CV=1.6%). KS improved 21\u219225/25 (best ever) but CI dropped 77\u219268%. Confirms CRPS spread suppression from 4th angle.",
-    "experiment_id": "148c"
-  },
-  {
-    "name": "RC12-H1: Increase factor count (5\u219210\u219225)",
-    "theory": "Factor noise resists CRPS collapse via structural inductive bias \u2014 5 independent channels can't be aligned to rank-1 by CRPS (W eff_rank=4.74/5, all active). AIFS uses per-location noise (35K dims). More factors = more independent directions. Suite 9 needs only +11.2% eff_rank (2.26\u21922.51). GT eff_rank=5.03 with PC1=60.9%.",
-    "target": "Suite 9 PASS (eff_rank ratio \u2265 0.50, i.e., gen_eff_rank \u2265 2.51). Secondary: check if more factors help Suite 2 (CI) and Suite 7 (regime).",
-    "falsification": "n_factors=10 gives eff_rank < 2.51 \u2192 diminishing returns from more factors. OR n_factors=10 breaks Suite 8 further (frac_pass < 17/25) \u2192 more factors worsens bias.",
-    "implementation": "Change --ar_factor_noise 5 to --ar_factor_noise 10 in 146b recipe. Single hyperparameter change. Then test 15, 25.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. eff_rank comparison: 5 factors (2.26) vs 10 vs 15 vs 25. Does it scale linearly?",
-        "2. SVD of W loadings: are all 10 factors active? What's the min/max singular value ratio?",
-        "3. Per-cell CI grids at h=1 and h=7: which cells benefit from more factors?",
-        "4. Suite 8 check: does median bias get worse with more factors? Check frac_pass and mag_pass.",
-        "5. Factor interpretability: do the 10 factors correspond to known surface patterns (level, slope, curvature, smile, twist)?",
-        "6. Skip pathway variance fraction: does it increase from 2.7% with more factors?"
+      "stage2_after_training": [
+        "1. rank_ratio: VS trains skip for correlation → does it pass 0.50?",
+        "2. CI_90 per-horizon: coverage loss trains skip for spread → does h=1 improve?",
+        "3. VS loss trajectory: is VS actually decreasing? Or stuck?",
+        "4. Per-cell coverage grids at h=1, h=7, h=30",
+        "5. Cross-suite check: any passing suites broken?",
+        "6. Long-horizon (252d): CI at d30, d60, d120, d180, d252"
       ]
     },
-    "attempts": 1,
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "blocked_by_H0",
+    "experiment_id": "151b",
+    "effort": "10h total (2h + 4h + 4h staged)",
+    "gates": "Only run if H0 shows Suite 9 passes with copula (correlation is bottleneck)"
+  },
+  {
+    "name": "RC14-H1b: Repulsive ensemble loss + spread floor",
+    "theory": "CRPS spread gradient weakens as members converge — positive feedback loop leads to diversity collapse. RLSD (ICLR 2025) uses kernel-based repulsion that is STRONGEST when members are close (complementary to CRPS spread which is WEAKEST when close). Spread floor prevents CI width from collapsing below 90% coverage requirement.",
+    "target": "Suite 9 PASS. CI_90 > 85%. KS >= 20/25.",
+    "falsification": "Stage 1: eff_rank < 2.26 AND KS < 15/25 → repulsion conflicts with distributional accuracy. KILL. Stage 2: No (lambda_repul, lambda_floor) combo passes both Suite 9 and Suite 8 → fundamentally adversarial.",
+    "implementation": "Stage 1 (repulsion only): RBF kernel repulsion loss, adaptive bandwidth. ~30 LOC. Stage 2 (add spread floor): Minimum CI width per horizon, penalize too-narrow intervals. ~20 LOC. Stage 3: Multi-seed + long-horizon.",
+    "diagnostic_plan": {
+      "stage1_after_training": [
+        "1. eff_rank: does repulsion improve diversity? Compare vs 146b",
+        "2. KS per-cell: does repulsion break distributional fidelity?",
+        "3. Pairwise member distance histogram: are members more spread out?",
+        "4. Training dynamics: does repulsion maintain spread over epochs (not V-shaped)?",
+        "5. Suite-by-suite comparison vs 146b"
+      ],
+      "stage2_after_training": [
+        "1. CI per-horizon: does spread floor improve h=1 coverage?",
+        "2. Grid search results: which (lambda_repul, lambda_floor) is best?",
+        "3. Kurtosis: does spread floor affect daily change distribution?",
+        "4. Long-horizon (252d) test"
+      ]
+    },
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "blocked_by_H0",
+    "experiment_id": "151c",
+    "effort": "10h total (2h + 4h + 4h staged)",
+    "gates": "Only run if H0 shows Suite 9 passes with copula (correlation is bottleneck). Run parallel with H1a."
+  },
+  {
+    "name": "RC14-H2: Conditional flow matching (paradigm shift)",
+    "theory": "In flow matching, diversity is structural — each sample follows an independent ODE trajectory from noise to data. No CRPS-diversity conflict. Per-cell per-horizon noise (750-dim) in output space. CFM loss for base training, CRPS fine-tune for calibration, progressive rollout for long-horizon. CW-Gen (ICLR 2026) targets cross-variable covariance explicitly. Warner et al. show flow matching works with 1K-5K constrained samples.",
+    "target": ">=7/9 suites. CI_90 > 85%. rank_ratio > 0.50. 252-day CI > 50%.",
+    "falsification": "Stage 1: CFM loss doesn't converge after 100 epochs → 4K samples insufficient. KILL. Stage 1: eff_rank < 3.0 → flow matching doesn't solve diversity at 25-dim. KILL. Stage 2: turb/calm ratio < 1.15 → conditioning doesn't transfer. Stage 3: <5/9 suites → loses current properties.",
+    "implementation": "Stage 1 (unconditional): Velocity MLP (128-dim, 3-layer) on 25-dim frames. OT interpolation, 8-step ODE. No encoder. 1 day. Stage 2 (conditional): Add frozen GRU encoder conditioning. 5-step AR. 1 day. Stage 3 (full pipeline): 30-step AR + CRPS calibration phase. 2 days. Stage 4 (long-horizon): Progressive rollout 30→60→120. 252-day test. 1 day.",
+    "diagnostic_plan": {
+      "stage1_after_training": [
+        "1. CFM loss convergence curve — does it decrease?",
+        "2. Sample quality: visual inspection of generated 5x5 grids. Do they look like IV surfaces?",
+        "3. eff_rank of generated samples (target > 3.0)",
+        "4. KS test on generated single frames vs GT",
+        "5. Arbitrage check: calendar and butterfly on generated surfaces"
+      ],
+      "stage2_after_training": [
+        "1. Conditionality: turb/calm width ratio > 1.15?",
+        "2. CI at h=1 through h=5",
+        "3. KS on daily changes",
+        "4. Is the GRU encoder output actually used? Ablation: random condition vs real"
+      ],
+      "stage3_after_training": [
+        "1. Full 9-suite evaluation",
+        "2. CRPS calibration effect: CI before and after Phase 2",
+        "3. Per-suite comparison vs 146b and 150b",
+        "4. Factor structure: eff_rank, PC loadings"
+      ],
+      "stage4_after_training": [
+        "1. 252-day CI at d30, d60, d120, d180, d252",
+        "2. Spread monotonicity: does uncertainty grow with horizon?",
+        "3. Kurtosis at long horizons",
+        "4. Cointegration at long horizons"
+      ]
+    },
+    "attempts": 0,
     "max_attempts": 3,
-    "status": "completed",
-    "experiment_id": "149a",
-    "result": "FALSIFIED. eff_rank 2.26\u21922.17 (WORSE). CRPS collapsed 5/10 factors (top-1 energy 80%, active 5/10). KS 21\u21926/25. Sweet spot is 5 factors for this model scale."
-  },
-  {
-    "name": "RC12-H2: Fix median bias regression (146b broke Suite 8)",
-    "theory": "144b passed Suite 8 (frac=24/25, mag=pass). 146b fails (frac=19/25, mag=21/25). Factor noise W learned a level-shift factor (factor 4 loads uniformly negative, cosine=-0.87 with level) that shifts median DOWN. All 25 cells have negative mean_bias. Two possible causes: (A) decoder zero-noise bias (+0.123) interacts with factor structure, or (B) factor loadings direction is anti-correlated with GT mean. ar_bias_lambda=0.01 may be insufficient.",
-    "target": "Suite 8 PASS (frac\u226520/25, mag\u226522/25, window_floor<5%). Without breaking any of Suites {1,3,4,5,6}.",
-    "falsification": "If zero-noise delta in 146b is already < 0.05 \u2192 bias_lambda not the issue (factor direction is). If ar_bias_lambda=0.05 still fails Suite 8 \u2192 need to constrain factor loadings instead.",
-    "implementation": "Stage 1: Compute zero-noise delta for 146b (inference only, 5 min). Stage 2: Train with --ar_bias_lambda 0.05 on 146b base.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Zero-noise delta: what is the decoder output when noise=0? Compare 144b vs 146b vs new model.",
-        "2. Per-cell mean_bias grid: which cells improved? Which got worse?",
-        "3. Suite 8 subtest breakdown: frac_pass, mag_pass, window_floor each.",
-        "4. Factor loadings W direction: compute mean(W, dim=0) \u2014 is the mean loading negative (level-shift bias)?",
-        "5. Cross-suite regression check: did any passing suite break?",
-        "6. If bias_lambda fails: compute factor output mean across ensemble \u2014 is it systematically non-zero?"
-      ]
-    },
-    "attempts": 1,
-    "max_attempts": 2,
-    "status": "completed",
-    "experiment_id": "149b",
-    "result": "FALSIFIED. 4/9 (lost Suite 4). KS 21\u21925/25. Kurtosis 2.03>2.0. Bias is structural not decoder offset."
-  },
-  {
-    "name": "RC12-H3: Per-cell CLN noise injection (AIFS approach)",
-    "theory": "CLN broadcasts same gamma/beta to all 25 cells \u2192 Jacobian rank 1.23. This is 97.3% of variance. AIFS uses per-location noise (each grid point gets independent CLN modulation). Per-cell CLN would give each cell its own gamma/beta computed from [noise_embed, cell_embed_c]. This makes rank-1 collapse architecturally impossible (same mechanism as AIFS). 285K\u2192~290K params (small overhead).",
-    "target": "eff_rank > 3.0 (breakthrough territory). Suite 9 PASS. Secondary: CI improvement from multi-directional CLN diversity.",
-    "falsification": "eff_rank stays < 2.5 despite per-cell CLN \u2192 CRPS collapses even per-cell modulation at 285K param scale. Training diverges \u2192 architecture change is destabilizing.",
-    "implementation": "Modify CLN to accept cell_index, produce per-cell gamma/beta. Add 25 learned cell embeddings (8-dim each). CLN MLP input: [noise_embed(64); cell_embed(8)] \u2192 gamma, beta. ~200 params per CLN layer, ~50 LOC change.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. eff_rank by horizon: h=1, h=7, h=14, h=30. Compare vs 146b at each horizon.",
-        "2. CLN Jacobian analysis: compute Jacobian rank for the new per-cell CLN. Should be >> 1.23.",
-        "3. Per-cell gamma/beta: are they actually different across cells? Compute pairwise cosine similarity.",
-        "4. Cell embedding visualization: PCA on the 25 learned cell embeddings. Do they cluster by moneyness? By tenor?",
-        "5. CI per-cell grids at all horizons. Compare vs 146b.",
-        "6. Training dynamics: does the model converge stably? Track loss components over epochs."
-      ]
-    },
-    "note": "Larger implementation. Consider as Stage 3 after H1 and H2 provide quick signal.",
-    "attempts": 1,
-    "max_attempts": 2,
-    "status": "completed",
-    "experiment_id": "149c",
-    "result": "FALSIFIED. 4/9 (lost Suite 4). CI h=1 +8.1pp (first improvement!). But KS 0/25, kurtosis 3.33. KS-CI trade-off is fundamental."
-  },
-  {
-    "name": "RC13-H1: Clamped per-cell noise + unfrozen scale",
-    "theory": "149c proved per-cell noise modulation improves h=1 CI (+8.1pp) via per-cell independence. Two fixable failure modes: (1) unbounded softplus (P95=3.89, max=19.92) causes fat tails → kurtosis 3.33 → KS 0/25. (2) percell_noise_scale frozen at epoch 10 (inside frame_decoder.*) → only 10/30 epochs of training → extreme scale values from insufficient convergence. Fix both: clamp(0.8, 1.5) + exclude from freeze.",
-    "target": "Suite 9 PASS (eff_rank ≥ 2.51). KS ≥ 20/25 (kurtosis ≤ 2.0). h=1 CI improvement preserved (~+4-5pp). Suite 8 near-miss may also fix.",
-    "falsification": "KS < 15/25 → clamping insufficient, distributional damage persists. OR h=1 CI no improvement → the +8.1pp came from extreme scale values, not per-cell independence. OR eff_rank < 2.26 → per-cell modulation hurts factor structure.",
-    "implementation": "1-line clamp: F.softplus(x).clamp(0.8, 1.5). Add 'percell_noise_scale' to freeze keep-list in train_afcrps.py. Train on 146b base, 30 epochs.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Per-cell scale distribution: compute softplus(MLP(z)).clamp(0.8,1.5) for 10K random z. Report P5/P50/P95 per cell. Compare to 149c unclamped (P95=3.89).",
-        "2. KS per-cell grid comparison: 146b vs RC13-H1. Which cells improved/regressed? Does clamping restore KS to 146b levels?",
-        "3. Kurtosis per-cell comparison: 146b vs RC13-H1. Is kurtosis back in [0.5, 2.0] range? Which cells are still out of range?",
-        "4. h=1 CI per-cell grid: did the +8.1pp improvement survive clamping? Which cells benefited most? Cross-reference with cells that had extreme scale in 149c.",
-        "5. eff_rank by horizon: h=1, h=7, h=14, h=30. Does per-cell modulation improve eff_rank beyond 146b's 2.26?",
-        "6. Training dynamics: plot scale distribution at epoch 5, 10, 15, 20, 30. Does unfreezing change the convergence trajectory? Compare to 149c (frozen at 10).",
-        "7. Daily change distribution shape: overlay 146b vs RC13-H1 vs GT for the 3 worst KS cells. Is the distribution CENTER unchanged (as in 149c) with only tails constrained?",
-        "8. Long-horizon test (252d): does clamping prevent the spread collapse seen in 149c (spread peak at d30 then decay)?",
-        "9. Suite 8 subtest check: frac_pass, mag_pass, window_floor — did clamping fix the bias regression from 146b?"
-      ]
-    },
-    "attempts": 0,
-    "max_attempts": 2,
-    "status": "active",
-    "experiment_id": "150a"
-  },
-  {
-    "name": "RC13-H2: CLN adaLN-Zero initialization",
-    "theory": "CLN gamma initializes at 1.0 (identity). From epoch 1, CLN rank-1 modulation dominates (97.3% of variance). By epoch 10 (freeze), rank-1 is established and permanent. adaLN-Zero (DiT, ICCV 2023) shows zero-init of conditioning output is the standard approach: gamma starts at 0 → CLN has no effect early → noise pathway dominates → diversity established → CLN gradually gains influence. Literature: 'zero initialization is the single most important element' (OpenReview 2024 analysis).",
-    "target": "eff_rank > 2.26 (any improvement over 146b). Secondary: check if diversity established early persists after CLN ramps up.",
-    "falsification": "eff_rank < 2.26 at epoch 30 → zero-init doesn't help. OR Suite 4 kurtosis > 2.0 → training instability from weak CLN. OR Suites {1,3,5,6} break → CLN too weak, accuracy degraded.",
-    "implementation": "Change CLN gamma bias init from 1.0 to 0.0: nn.init.zeros_(self.noise_to_gamma[2].bias) instead of nn.init.ones_. 1-line change. Train on 146b base.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Diversity trajectory: compute eff_rank at checkpoints (epoch 5, 10, 20, 30). Plot eff_rank over training. Does diversity start high (noise dominates early) and gradually decrease as CLN grows? Or does it stay high?",
-        "2. CLN gamma magnitude over training: what's the actual gamma norm at each checkpoint? How fast does it grow from zero? Does it reach the same magnitude as 146b's gamma by epoch 30?",
-        "3. Compare gamma values: 146b gamma norms vs RC13-H2 gamma norms at epoch 30. If similar → CLN caught up. If smaller → CLN permanently weaker (good for diversity, maybe bad for accuracy).",
-        "4. Skip pathway variance fraction: 146b skip = 2.7% of variance. Does adaLN-Zero init increase this? If skip is a larger fraction, the factor noise contributes more diversity.",
-        "5. Per-cell CI grids at h=1 and h=30. Compare vs 146b.",
-        "6. Suite-by-suite comparison vs 146b. Did we gain Suite 9? Did we lose anything?",
-        "7. Cosine similarity of CLN gamma vectors between ensemble members: in 146b, gamma is identical across members (rank-1). In RC13-H2, if gamma grows slowly, there may be a window where noise differences persist through CLN. Measure at h=1.",
-        "8. Long-horizon test: does the diversity trajectory affect 252-day generation?"
-      ]
-    },
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "active",
-    "experiment_id": "150b"
-  },
-  {
-    "name": "RC13-H3: K=16 training (information experiment)",
-    "theory": "Literature says afCRPS corrects finite-K bias so K shouldn't matter. But our model has rank-1 attractor. K=16 gives 120 pairwise comparisons vs K=8's 28 (4.3x more diversity gradient). If K=16 doesn't help → definitively proves bottleneck is architectural (CLN structure), not gradient strength. Expected outcome: NEGATIVE (no improvement).",
-    "target": "Information: does K affect diversity under afCRPS with rank-1 CLN? If positive: eff_rank > 2.26. If negative (expected): confirms architecture is binding.",
-    "falsification": "If BOTH eff_rank unchanged AND CI unchanged → gradient strength is irrelevant (expected). If eff_rank improves → our afCRPS was K-starved (unexpected, changes everything).",
-    "implementation": "Change --n_members 8 --batch_size 16 to --n_members 16 --batch_size 8. Same B*K=128. Zero code change.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. eff_rank comparison: K=8 (146b: 2.26) vs K=16. The key number.",
-        "2. Per-member diversity: compute pairwise cosine similarity of generated trajectories across 16 members. Compare to 146b (8 members). Are the 16 members more diverse than the 8?",
-        "3. Training dynamics: does higher K change the loss trajectory? Plot CRPS, spread term, and accuracy term over epochs for K=16 vs K=8.",
-        "4. Factor noise W loadings: does K=16 change the learned W structure? SVD comparison.",
-        "5. If NEGATIVE (expected): document as definitive proof that gradient strength is not the bottleneck. This is the most valuable outcome — it eliminates an entire class of potential fixes (anything that increases diversity gradient signal).",
-        "6. If POSITIVE (unexpected): this changes everything. Run full analysis: which suites improved? By how much? Is this a new best model?"
-      ]
-    },
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "active",
-    "experiment_id": "150c"
-  },
-  {
-    "name": "RC13-H4: spread_weight=0.9 (quick probe)",
-    "theory": "Current spread_weight=0.5 → effective loss = mae - 0.475*spread. At 0.9 → mae - 0.855*spread. Spread term nearly equals accuracy term. Exp 136a tried spread_weight=0.3 (LESS spread emphasis) and FAILED. The OPPOSITE direction (MORE) is untried. If diversity is gradient-starved under current weighting, doubling the spread gradient may help.",
-    "target": "CI improvement (any amount) without KS regression. Secondary: check if spread_weight=0.9 maintains spread through training instead of collapsing.",
-    "falsification": "CI doesn't improve AND KS drops → higher spread weight distorts distributions (same mechanism as cum_cal). OR kurtosis > 2.0 → spread weight too aggressive.",
-    "implementation": "Add --spread_weight 0.9 to 146b training recipe. Zero code change.",
-    "diagnostic_plan": {
-      "after_training": [
-        "1. Spread trajectory over training: plot ensemble spread at epoch 5, 10, 20, 30. Does spread_weight=0.9 maintain higher spread than 0.5? Or does CRPS still collapse it?",
-        "2. Factor noise W comparison: does the spread emphasis change what the factor loadings learn? SVD comparison vs 146b.",
-        "3. KS per-cell grid: did higher spread weight help or hurt distributional fidelity?",
-        "4. CI per-horizon: where does the CI change? Uniformly or horizon-specific?",
-        "5. eff_rank: does stronger spread gradient improve factor structure?",
-        "6. If FAILS: compare to 136a (spread_weight=0.3 which also failed). Is there a U-shaped relationship? Both extremes bad, 0.5 optimal? Document the shape of the spread_weight → CI curve.",
-        "7. Long-horizon test if results are promising."
-      ]
-    },
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "active",
-    "experiment_id": "150d"
+    "status": "blocked_by_H0",
+    "experiment_id": "152a",
+    "effort": "5 days total (1d + 1d + 2d + 1d staged)",
+    "gates": "Run immediately if H0 shows Suite 9 still fails with copula (marginals are broken). Or run after H1a AND H1b both fail."
   }
 ]

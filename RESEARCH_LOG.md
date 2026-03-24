@@ -39717,3 +39717,205 @@ This reframes the 5/9 ceiling: it's not a fundamental limit of the architecture,
 The 150b research log entry stated the improvement was from "fresh optimizer + early stopping." This is PARTIALLY correct — the fresh optimizer produces the diversity, but the early stopping is NOT RELIABLE across seeds. The val_loss criterion happened to select epoch 8 for seed=42 but selects post-collapse epochs for other seeds.
 
 ---
+
+## 2026-03-23: GPU Validation Audit — Evidence Corrections for Paradigm Decision
+
+### Scope
+Re-validated all 10 paradigm-critical claims with GPU available. 5 parallel agents, all artifacts saved to results/validations/2026-03-23/.
+
+### Critical Corrections (3 claims revised)
+
+#### CORRECTION 1: "CRPS monotonically collapses rank" → WRONG
+**Prior claim**: rank_ratio drops monotonically from 0.518 (ep1) to 0.451 (ep30).
+**Actual trajectory** (143a, 5 checkpoints evaluated):
+
+| Epoch | rank_ratio | CI_90 | Suites | Phase |
+|-------|-----------|-------|--------|-------|
+| 1 | 0.518 | 76.1% | 3/9 | Initial diversity |
+| 10 | **0.356** | **4.7%** | 2/9 | Collapse (CRPS crushes spread AND rank) |
+| 20 | 0.423 | 3.7% | 3/9 | Rank recovering, CI still collapsed |
+| 26 | **0.526** | 66.7% | 1/9 | Peak rank (above ep1!), CI recovering |
+| 30 | 0.451 | 78.1% | 3/9 | Rank trades for CI (final optimization) |
+
+**The dynamics are V-shaped**: rank collapses ep1→ep10, then RECOVERS ep10→ep26, then declines ep26→ep30. Factor structure recovery (ep20) PRECEDES CI recovery (ep26→ep30). The architecture rebuilds diversity mid-training, but CRPS then partially trades it for coverage.
+
+**Impact**: The "inescapable rank-1 attractor" framing was oversimplified. The attractor exists but the model transiently escapes it.
+
+#### CORRECTION 2: "3 independent failure clusters" → 2 CLUSTERS
+**Prior claim**: r(P1,P3)=0.093 (independent). 
+**Actual** (n=69, reproducible script, bootstrap CI):
+- P1-P3 (CI vs regime): Spearman r=0.502, p<0.001, 95% CI [0.285, 0.677]
+- P1-P2 (CI vs rank): r=0.137, p=0.261 (independent)
+- P2-P3 (rank vs regime): r=0.266, p=0.027 (marginal)
+
+**Two problems, not three**: Fixing CI spread also improves regime coverage. Only rank (P2) is truly independent.
+
+#### CORRECTION 3: noise_dim/output_dim ratio narrative → INJECTION GRANULARITY
+**Prior claim**: AIFS ratio ~1.0, ours 0.04.
+**Actual**: AIFS ratio ~0.058, ours ~0.043. Nearly identical.
+**The real difference**: AIFS injects noise at **10,944 independent spatial locations** (4 channels each). We inject at **1 global location** (32 channels). Granularity gap = 10,944:1.
+
+### Confirmed Claims (7 of 10 unchanged)
+1. CLN Jacobian rank 1.229 — REPRODUCED exactly (difference 0.0002)
+3. 148_probe amplitude irrelevance — CONFIRMED
+4. CRPS suppression of bypass paths — CONFIRMED (all 3 sub-claims)
+5. Factor noise paradox (146b) — CONFIRMED  
+8. KS-CI trade-off (148c) — CONFIRMED
+9. Epoch 1 paradox (143a) — CONFIRMED (but now part of V-shaped trajectory)
+10. rho=0.8 unprincipled — CONFIRMED
+
+### RC13 Results (newly validated)
+
+| Model | Suites | CI_90 | rank_ratio | eff_rank | KS | Kurtosis | Epoch |
+|-------|--------|-------|-----------|----------|-----|----------|-------|
+| 150a (clamped percell) | 5/9 | 67.6% | 0.474 | 2.384 | 24/25 | 1.365 | 30 |
+| **150b s42 (zero-init)** | **7/9** | **81.7%** | **0.510** | **2.562** | **24/25** | **1.165** | **8** |
+| 150b s43 | 5/9 | 69.5% | 0.425 | 2.136 | 15/25 | 1.940 | 29 |
+| 150b s44 | 4/9 | 71.2% | 0.419 | 2.105 | 24/25 | 1.007 | 25 |
+| 150c (K=16) | 3/9 | 68.2% | 0.480 | 2.413 | 2/25 | 2.577 | 28 |
+| **150d (spread=0.9)** | 5/9 | **99.0%** | **0.660** | **3.318** | 12/25 | 0.411 | **2** |
+
+Key findings:
+- 150b passes Suite 9 (rank_ratio=0.510, margin only 0.010 above threshold)
+- 150d achieves eff_rank 3.318 (66% of GT) at epoch 2 — BEST EVER factor diversity
+- Both breakthroughs come from early epochs (8 and 2) — diversity exists early
+- Multi-seed: s42=7/9, s43=5/9, s44=4/9 — NOT ROBUST
+
+### Updated Evidence Picture
+
+**What is now PROVEN**:
+- CLN rank-1 bottleneck (Jacobian 1.229, reproduced)
+- CRPS suppresses bypass paths (skip, noise_scale, factor collapse)
+- Amplitude is irrelevant (148_probe)
+- Injection granularity (not ratio) is the AIFS difference (10,944:1 gap)
+- 2 independent problems (spread+regime vs rank), not 3
+- Architecture CAN produce 7/9 and eff_rank 3.318 — TRANSIENTLY at early epochs
+
+**What was WRONG in our prior narrative**:
+- "CRPS monotonically collapses rank" — trajectory is V-shaped
+- "3 independent failure clusters" — actually 2
+- "AIFS noise/output ratio ~1.0" — actually ~0.058, same as ours
+- "Architecture can never produce 7/9" — it can at epoch 8 (150b) and eff_rank 3.318 at epoch 2 (150d)
+
+**The refined question for ideation**: The architecture CAN produce diverse, calibrated ensembles at specific training snapshots. The problem is CRPS training dynamics don't RELIABLY converge to these states. Is the fix:
+(a) Better training dynamics within current paradigm (model selection, diversity preservation)?
+(b) Different generative paradigm where diversity is structural (diffusion/flow matching)?
+(c) Hybrid (current architecture + training dynamics fix)?
+
+### Verification Artifacts
+All scripts and results saved to results/validations/2026-03-23/:
+- scripts/jacobian_reproduce.py — Jacobian reproduction
+- scripts/143a_trajectory.sh — Full epoch trajectory evaluation
+- scripts/p1_p2_p3_independence.py — Reproducible correlation analysis (n=69)
+- analysis/jacobian_reproduce/ — Reproduction results
+- analysis/independence_analysis/ — Correlation matrix with bootstrap CI
+- analysis/aifs_noise_architecture/ — AIFS vs ours comparison
+- verification_results/rc13_results_verification.json — All RC13 experiments
+
+---
+
+## 2026-03-23: Research Compass RC14 — "Structural Diversity + Calibrated Spread"
+
+### Philosophy Applied
+- **TRIZ**: Resolve CRPS-diversity contradiction by separating gradient paths. Resolve spread-rank independence by addressing both with distinct mechanisms.
+- **Popper**: Kill conditions at every stage. H0 (copula ceiling) shapes everything.
+- **Karpathy**: H0 first (2h), then parallel probes (H1a/H1b), then paradigm shift (H2) only if probes fail.
+- **Hinton**: Stop-gradient insight (independent reasoning) validated by SimSiam/OrthoFormer.
+- **Bitter Lesson**: H2 (flow matching) is fully learned. H1a/H1b use learned losses with gradient engineering.
+
+### Evidence Summary (GPU-validated 2026-03-23)
+
+**Proven root causes** (all verified with artifacts on disk):
+- CLN rank-1: Jacobian 1.229, reproduced exactly (results/validations/2026-03-23/analysis/jacobian_reproduce/)
+- CRPS suppresses ALL bypass: skip norm=0.103, noise_scale=0.75x, factor collapse at n>5
+- Amplitude irrelevant: 3x noise = 0pp CI (148_probe)
+- Injection granularity gap: AIFS = 10,944 independent points, ours = 1 global vector. Ratio similar (~0.05 both).
+- V-shaped dynamics: rank 0.518→0.356→0.423→0.526→0.451. NOT monotonic. Good states exist but UNSTABLE.
+- 2 independent problems (n=69, p<0.001): P1 Spread+regime (r=0.50), P2 Rank (independent)
+- Architecture produces 7/9 TRANSIENTLY (150b s42 ep8) and eff_rank 3.318 (150d ep2) — dynamically unstable
+
+**Corrected claims** (from GPU validation audit):
+- "CRPS monotonically collapses rank" → WRONG: V-shaped, non-monotonic
+- "3 independent failure clusters" → WRONG: 2 clusters (P1-P3 correlated r=0.50)
+- "AIFS noise/output ratio ~1.0" → WRONG: AIFS ratio ~0.058, same as ours. Difference is injection GRANULARITY (10,944 vs 1)
+
+**Literature findings**:
+- 1-step CRPS works at scale (AIFS-CRPS 229M, Swift NeurIPS 2025 225M, CRPS-LAM) — same paradigm as ours, failure is scale+granularity
+- Stop-gradient prevents collapse (SimSiam CVPR 2021, OrthoFormer 2026)
+- CRPS spread gradient weakens as members converge — positive feedback loop (RLSD ICLR 2025 fixes with kernel repulsion)
+- Flow matching works with 1K-5K constrained samples (Warner et al.)
+- Gaussian copula (ECC) validated and cheap for 25-dim ensemble post-processing (Lakatos QJRMS 2023)
+- No diffusion/flow matching paper reports CI coverage, eff_rank, or cross-variable correlation for time series
+
+### The Two Independent Problems
+
+| Problem | Suites | Current | Target | Mechanism needed |
+|---------|--------|---------|--------|-----------------|
+| P1: Spread + Regime (r=0.50) | 2, 7 | CI 77%, calm_h1 51% | 90% | Wider, correctly-sized intervals |
+| P2: Rank / Factor diversity | 9 | rank_ratio 0.45 | >=0.50 | Higher-dimensional ensemble covariance |
+
+### Active Hypotheses
+
+#### H0: Gaussian Copula Ceiling Measurement (RUN FIRST — 2h)
+- **Purpose**: Diagnostic, not a fix. Take 146b ensemble, reorder with GT Gaussian copula (ECC), evaluate all 9 suites.
+- **If Suite 9 passes**: Marginals are fine, only correlation needs fixing → H1a/H1b
+- **If Suite 9 fails**: Problem deeper than reordering → H2 (paradigm shift)
+- **Effort**: 2h, ~50 LOC, no GPU needed
+
+#### H1a: Detached Noise Skip + Dual-Loss Training (Probe — P1 AND P2)
+- **Mechanism**: Stop-gradient on skip contribution. CRPS trains deterministic pathway. VS + coverage loss train noise pathway separately.
+- **Key addition vs prior version**: Coverage loss explicitly trains noise for 90% CI width (fixes P1).
+- **Suite preservation**: Suites 1,3,5,6 depend on deterministic pathway (CRPS, unchanged). Suite 4 depends on rho=0.8 (unchanged). Suite 8 depends on KS (deterministic dominates).
+- **Staged**: (1) Detach-only probe 2h, (2) Add VS+coverage 4h, (3) Multi-seed+long-horizon 4h
+- **Kill**: Stage 1 eff_rank < 2.26 → noise isn't bottleneck → H2
+- **Long-horizon**: Coverage loss at every AR step. Progressive rollout if 252d degrades.
+
+#### H1b: Repulsive Ensemble Loss + Spread Floor (Probe — P1 AND P2)
+- **Mechanism**: RBF kernel repulsion (non-diminishing gradient when members converge) + spread floor per horizon.
+- **Key addition**: Spread floor prevents CI collapse (fixes P1). Repulsion fixes rank (P2).
+- **Suite preservation**: Repulsion acts on members, not mean → Suites 1,3,5,6 preserved. Risk: Suite 8 KS.
+- **Staged**: (1) Repulsion-only 2h, (2) Add spread floor+tune 4h, (3) Multi-seed+long-horizon 4h
+- **Kill**: Stage 1 eff_rank < 2.26 AND KS < 15/25 → KILL
+
+#### H2: Conditional Flow Matching (Paradigm Shift — P1, P2, and long-horizon)
+- **Mechanism**: Output-space noise (750-dim per-cell per-horizon). CFM loss for base training. CRPS fine-tune for calibration. Progressive rollout for long-horizon.
+- **Key addition vs prior version**: Phase 2 CRPS calibration (fixes underdispersion). Phase 3 progressive rollout (fixes 252d).
+- **Suite preservation**: Suite 1 from data. Suite 3 from encoder conditioning. Suite 4/6 RISK (no rho, different dynamics). Suite 5 from AR noise.
+- **Staged**: (1) Unconditional 25-dim 1d, (2) Conditional+5-step AR 1d, (3) Full 30-step+calibration 2d, (4) Long-horizon+rollout 1d
+- **Kill**: Stage 1 CFM doesn't converge → 4K insufficient. Stage 1 eff_rank < 3.0 → diversity not solved.
+
+### Execution Plan
+
+```
+Day 0 (2h):     H0 — Copula ceiling
+                  |
+        Suite 9 passes?          Suite 9 fails?
+          |                            |
+Day 1-2:  H1a + H1b parallel    Start H2 Stage 1
+          Stage 1 (2h each)      (unconditional FM)
+          |                            |
+     Either works?               CFM converges?
+     → Stages 2-3               → H2 Stages 2-4
+     BOTH fail?                  CFM fails?
+     → Start H2                 → Data augmentation
+```
+
+### Exhausted Directions (DO NOT REVISIT)
+- All single-pass AR + CRPS noise modifications (35 experiments, RC6-RC13)
+- Noise amplitude scaling (irrelevant when rank-1)
+- More factors beyond 5 (CRPS collapses extras)
+- Loss modifications without gradient separation (all break KS or cointegration)
+- K increase (catastrophic at K=16)
+- See "Decision — Why Incremental Fixes Cannot Work" entry for full evidence table
+
+### Open Questions
+- Does stop-gradient on noise reveal that the DETERMINISTIC pathway is also rank-1?
+- Can flow matching converge with 4K samples on 25-dim?
+- Will flow matching preserve kurtosis (Suite 4) and cointegration (Suite 6) without rho=0.8?
+- Is 252-day generation achievable with progressive rollout flow matching?
+
+### Garbage Can Lists
+**Unsolved problems**: CRPS diversity collapse, injection granularity gap, V-shaped dynamics, 252d degradation, seed dependence
+**Available techniques**: Stop-gradient (SimSiam), kernel repulsion (RLSD), CFM (CW-Gen, TSFlow), ECC copula, consistency models (Swift), composite flow from prior (Kong), LIRF augmentation, progressive rollout
+
+---
