@@ -40876,3 +40876,94 @@ controlled without degrading GT alignment, proceed to Option B or C for the full
 solution. Option A tests the core hypothesis without architectural changes.
 
 ---
+
+## 2026-03-24: Research Log Review — Alternative Paradigms Beyond AR Flow Matching (RC14)
+
+### Question
+Is flow matching the only implementation of the new paradigm (independent trajectories +
+loss without diversity penalty), or are there other approaches in our own research history?
+
+### The Paradigm Requirements (from "Why Incremental Fixes Cannot Work")
+The old paradigm (single-pass AR + CRPS) fails because of two interlocking mechanisms:
+1. CLN rank-1 bottleneck: all 25 cells get same noise modulation → 1 degree of freedom
+2. CRPS diversity suppression: loss penalizes wider spread → crushes any bypass path
+
+Any new paradigm must break BOTH: (a) independent noise pathways (no shared bottleneck),
+(b) loss that doesn't penalize diversity (or diversity is structural, not loss-driven).
+
+### Three Approaches in Our Documentation That Satisfy Both
+
+#### 1. Flow Matching (152a/152b — current)
+- **Independent trajectories**: Each sample follows independent ODE from noise to data
+- **Loss**: CFM (predict velocity per-sample) — no ensemble, no diversity term
+- **Result**: 5/9 [1,4,5,6,9]. PC1=0.993, eff_rank 3.24≈GT. BUT spread collapse in
+  AR rollout (memoryless closure limitation, Mori-Zwanzig)
+- **Weakness**: AR rollout accumulates errors, spread shrinks 12% over 120 steps
+
+#### 2. Joint Transformer with Per-Position Noise (Exp 133b/133c)
+- **Independent pathways**: 750 independent noise vectors (one per position in 30×5×5).
+  No CLN bottleneck. Generates ALL frames at once (no AR rollout).
+- **Loss**: Still afCRPS, but architecture breaks rank-1 trap because noise is
+  per-position not through shared CLN.
+- **Result**: 4/8 {1,3,4,5}. Kurtosis 1.60 (PASSES — best ever), eff_rank 3.88,
+  turb/calm 1.81. BUT cointegration fails (cross-cell corr 0.087, cells independent).
+- **Key advantage**: One-shot generation → NO AR spread collapse. Cumulative delta
+  provides natural growing uncertainty. Kurtosis 1.60 vs our flow model's 0.61.
+- **Key weakness**: Cells too independent (opposite of flow matching problem).
+  133d tried shared factor noise → killed kurtosis. Direction abandoned at RC8.
+
+#### 3. DDPM with Per-Sample Denoising (original POC, Exp 1-69)
+- **Independent pathways**: Each sample denoised independently from noise
+- **Loss**: MSE on noise prediction — no diversity term
+- **Result**: Good kurtosis and conditionality in POC. Never tested with current
+  9-suite v2 battery. Block-AR + afCRPS replaced it for ensemble spread.
+- **Relevance**: Same paradigm properties, but block-AR implementation reintroduced
+  the shared bottleneck. The pure per-sample approach was never fully explored.
+
+### Critical Insight: 133c and Flow Matching Have OPPOSITE Problems
+
+| Property | 133c (one-shot) | 152b (AR flow) |
+|----------|----------------|----------------|
+| Generation | All 30 frames at once | AR, frame-by-frame |
+| Spread growth | Natural (cumulative delta) | Collapses (ODE convergence) |
+| Kurtosis | 1.60 (excellent) | 0.61 (borderline) |
+| Cross-cell corr | 0.087 (too independent) | 0.82 (good, GT-aligned) |
+| Cointegration | FAILS | PASSES |
+| Suite 9 (rank) | 3.88 (would pass) | 1.51 (passes) |
+
+133c's weakness (cells too independent) is exactly what flow matching solves.
+Flow matching's weakness (spread collapse) is exactly what one-shot generation solves.
+
+### Possible Synthesis: One-Shot Flow Matching
+
+A model that generates all 30×5×5 = 750 dimensions at once via flow matching:
+- **From flow matching**: GT-aligned cross-cell correlation (velocity field learns
+  the data manifold, including factor structure)
+- **From one-shot**: No AR rollout → no spread collapse. Natural growing uncertainty
+  from the temporal structure of the velocity field.
+- **From 133c insight**: Cumulative delta mechanism already shown to produce kurtosis 1.60
+
+This would be a velocity network that maps N(0, I_{750}) → (30, 5, 5) conditioned on
+encoder output. The velocity field learns the joint spatiotemporal distribution, not
+frame-by-frame conditionals. Eliminates the memoryless closure problem entirely.
+
+**Risk**: 750-dim flow matching may need more data/parameters than our 25-dim version.
+But 152a showed 4.5K samples is sufficient for 25-dim CFM. Whether it scales to 750-dim
+is an empirical question. 133c (1.09M params) trained successfully on the same data.
+
+### Status of Each Approach
+
+| Approach | Paradigm valid? | Current state | Next step |
+|----------|----------------|---------------|-----------|
+| AR Flow Matching (152b) | YES | 5/9, spread collapse | Fix spread (SFM/memory/perturbation) |
+| One-Shot Flow Matching | UNTESTED | Theoretical | Implement and test (proxy: 25-dim first) |
+| Joint Transformer (133c) | YES | 4/8, abandoned at RC8 | Could revisit with factor noise fix |
+| DDPM per-sample | YES | Abandoned for Block-AR | Not competitive with above |
+
+### Recommendation
+Before committing to fixing AR flow matching's spread collapse (3 options, all complex),
+test whether **one-shot flow matching on 750-dim** works. This eliminates the AR problem
+entirely rather than patching it. If 152a's GT alignment transfers to 750-dim, the
+spread collapse is solved by construction.
+
+---
