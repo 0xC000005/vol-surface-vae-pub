@@ -1,30 +1,25 @@
 {
-  "iteration": 17,
-  "experiment_id": "152e",
+  "iteration": 0,
+  "experiment_id": "baseline",
   "training_status": "idle",
-  "phase": "RC15_ready",
-  "hypothesis": "RC15: Conditional One-Shot FM. H2 (data-dependent source) is next. Literature-informed design from FMAP + Lim et al.",
+  "phase": "RC15_setup",
+  "hypothesis": "RC15: Conditional One-Shot FM. Starting from 152e unconditional baseline.",
   "session_best": {
-    "unconditional": {"exp": "152e", "metric": "PC1=0.989, kurt=1.215, KS 25/25"},
-    "conditional_ar": {"exp": "152b", "metric": "5/9 [1,4,5,6,9], first S4+S6+S9"}
+    "exp": "152e",
+    "metric": "PC1=0.989, kurt=1.215, KS 25/25 (unconditional)"
   },
-  "total_experiments": 17,
-  "compass_position": "RC15-H2 (data-dependent source, pending)",
+  "total_experiments": 0,
+  "compass_position": "RC15-H2 pending",
   "compass_theme": "Conditional One-Shot Flow Matching (Literature-Informed)",
   "session_date": "2026-03-24",
   "base_model": "models/backfill/flow_152e/best_model.pt",
-  "branch": "autoresearch-session-rc14",
+  "branch": "autoresearch-session-rc15",
   "rc15_execution_order": [
-    "H2: Data-dependent source (1h) → determines source distribution for H1",
-    "H1-S1: Conditional with concatenation (2h) → kill gate: PC1 >= 0.95, kurt >= 0.5",
-    "H1-S2: Residual prediction (2h) → kill gate: KS >= 15/25",
-    "H1-S3: Per-horizon scale (2h) → kill gate: spread ratio > 1.05",
-    "H1-S4: Full evaluation (4h) → 9-suite + 252d + multi-seed"
+    "H2: Data-dependent source (1h)",
+    "H1-S1: Conditional with concatenation (2h)",
+    "H1-S2: Residual prediction (2h)",
+    "H1-S3: Per-horizon scale (2h)",
+    "H1-S4: Full evaluation (4h)"
   ],
-  "key_literature": [
-    "FMAP (2504.03463): concatenation conditioning + residual + lead-time scale",
-    "Lim et al. (2410.03229): data-dependent probability paths",
-    "Lim & Erichson (2602.08318): FM = trajectory replay"
-  ],
-  "next_action": "Implement and run RC15-H2: data-dependent source distribution probe on 152e architecture"
+  "next_action": "Run RC15-H2: data-dependent source distribution probe"
 }
