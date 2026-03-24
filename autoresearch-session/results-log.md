@@ -18,4 +18,5 @@
 
 | # | Exp ID | Direction | Metric | Decision |
 |---|--------|-----------|--------|----------|
+| 1 | 152f | RC15-H2: Data-dependent source (persistence) | eff_rank=3.41 (152e=6.04), PC1=0.967, PC2=0.928, KS=17/25, kurt=0.852, frob=8.11 | VALUABLE FAILURE — Lim vel-var prediction confirmed (0.50 vs 0.96) but overfits at 4K scale. Use N(0,I) for H1. |
 

@@ -231,8 +231,22 @@ def main():
                    "source": "persistence"},
     }, f"{args.output_dir}/final_model.pt")
 
+    # Convert numpy types for JSON serialization
+    def make_serializable(obj):
+        if isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        if isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [make_serializable(v) for v in obj]
+        return obj
+
     with open(f"{args.output_dir}/training_history.json", "w") as f:
-        json.dump(history, f, indent=2)
+        json.dump(make_serializable(history), f, indent=2)
     with open(f"{args.output_dir}/velocity_variance.json", "w") as f:
         json.dump(vel_variances_152f, f, indent=2)
     print(f"\nBest val loss: {best_val:.4f}")

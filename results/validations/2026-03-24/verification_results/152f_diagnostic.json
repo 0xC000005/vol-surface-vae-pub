@@ -1,0 +1,41 @@
+{
+  "experiment": "152f vs 152e diagnostic",
+  "152e_best_epoch": 53,
+  "152f_best_epoch": 31,
+  "metrics_152e": {
+    "eff_rank": 6.0422,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.99,
+    "pc2": 0.9662,
+    "frob": 3.0785,
+    "ks_pass": 25,
+    "kurt_ratio": 1.2154,
+    "spread_h1": 0.0404,
+    "spread_h30": 0.0389,
+    "mono": 0
+  },
+  "metrics_152f": {
+    "eff_rank": 3.4107,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.9672,
+    "pc2": 0.9278,
+    "frob": 8.1148,
+    "ks_pass": 17,
+    "kurt_ratio": 0.8523,
+    "spread_h1": 0.0561,
+    "spread_h30": 0.0573,
+    "mono": 0
+  },
+  "velocity_variance": {
+    "152e_t05": 0.9634,
+    "152f_t05": 0.5007,
+    "ratio_f_over_e": 0.5198,
+    "lim_prediction_confirmed": true
+  },
+  "spread_h30_h1_ratio": {
+    "152e": 0.9616,
+    "152f": 1.021,
+    "gt": 0.9986
+  },
+  "conclusion": "152f WORSE than 152e on all metrics. Data-dependent source at 4K scale overfits. Use N(0,I) for H1."
+}

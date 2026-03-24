@@ -41562,3 +41562,94 @@ Total: ~13h if all stages proceed. Each stage is independently valuable and prod
 documented evidence regardless of outcome.
 
 ---
+
+## 2026-03-24: Exp 152f — Data-Dependent Source Distribution (RC15-H2)
+
+### Context
+RC15-H2 probe. Lim et al. (2410.03229) prove that for temporal data, using a data-dependent
+source (previous observation) instead of N(0,I) produces velocity fields with lower variance,
+faster convergence, and better sample quality. Tested by replacing the random noise source in
+152e with persistence forecast (last history frame repeated 30 times).
+
+**Based on**: 152e (one-shot factored transformer, PC1=0.989, kurt=1.215, KS 25/25)
+
+### Architecture
+Same FactoredVelocityTransformer as 152e (1.62M params). Only change: ODE source.
+- 152e: x0 ~ N(0,I) -> ODE -> x1 (future surface)
+- 152f: x0 = standardized persistence forecast -> ODE -> x1 (future surface)
+
+Persistence-to-future distance: 17.28 (vs noise-to-future: 24.15) — 28% shorter transport.
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_oneshot_flow_152f.py \
+    --epochs 100 --batch_size 64 --lr 5e-4 \
+    --output_dir models/backfill/flow_152f --device cuda
+```
+
+### Results — Metric Comparison (best_model)
+
+| Metric | 152e (ep53) | 152f (ep31) | GT | Winner |
+|--------|-------------|-------------|------|--------|
+| eff_rank | 6.04 | 3.41 | 7.61 | 152e |
+| PC1 | 0.990 | 0.967 | 1.000 | 152e |
+| PC2 | 0.966 | 0.928 | 1.000 | 152e |
+| Frobenius | 3.08 | 8.11 | 0.000 | 152e |
+| KS daily | 25/25 | 17/25 | 25 | 152e |
+| kurt_ratio | 1.215 | 0.852 | 1.000 | 152f |
+| spread h1 | 0.040 | 0.056 | 0.072 | 152f |
+| spread h30 | 0.039 | 0.057 | 0.072 | 152f |
+| h30/h1 ratio | 0.962 | 1.021 | 0.999 | 152f |
+
+### Results — Training Trajectory (152f final eval, NOT best_model)
+
+| Epoch | eff_rank | PC1 | PC2 | KS | kurt | vel_var |
+|-------|----------|-----|-----|-----|------|---------|
+| 1 | 2.77 | 0.949 | 0.621 | 0/25 | 1.574 | 0.128 |
+| 20 | 3.83 | 0.972 | 0.779 | 1/25 | 2.379 | 0.366 |
+| 40 | 3.84 | 0.965 | 0.882 | 20/25 | 0.548 | 0.436 |
+| 60 | 5.42 | 0.985 | 0.793 | 11/25 | 0.788 | 0.417 |
+| 80 | 7.14 | 0.972 | 0.614 | 16/25 | 0.543 | 0.415 |
+| 100 | 9.30 | 0.929 | 0.447 | 15/25 | 0.585 | 0.468 |
+
+eff_rank overshoots GT at ep80-100 (9.30 > 7.61) while PC2 collapses — overfitting signature.
+
+### Diagnostic: Velocity Variance at t=0.5
+
+| Model | Velocity variance | Ratio |
+|-------|------------------|-------|
+| 152e (N(0,I)) | 0.963 | 1.000 |
+| 152f (persistence) | 0.501 | 0.520 |
+
+**Lim et al. prediction CONFIRMED**: 48% lower velocity variance with data-dependent source.
+
+### Diagnostic: Intermediate ODE Steps (152f best_model)
+
+| ODE time | eff_rank | PC1 | PC2 | KS | kurt |
+|----------|----------|-----|-----|-----|------|
+| t=0.25 | 3.10 | 0.977 | 0.770 | 0/25 | 0.978 |
+| t=0.50 | 3.22 | 0.978 | 0.769 | 0/25 | 1.217 |
+| t=0.75 | 3.22 | 0.978 | 0.763 | 0/25 | 1.342 |
+| t=1.00 | 3.21 | 0.978 | 0.757 | 6/25 | 1.449 |
+
+### WHY It Failed
+
+1. **Lim theory mechanically correct**: velocity variance IS 48% lower. The math holds.
+2. **At 4K samples in 750-dim, lower variance = overfitting**: model memorizes specific
+   persistence-to-future pairs instead of learning generalizable mapping.
+3. **N(0,I) provides implicit regularization**: random noise starts each sample from a
+   different point, preventing memorization. This is natural data augmentation.
+4. **Scale mismatch**: Lim et al. uses larger datasets (weather/climate). With 4K samples,
+   the "closer source" advantage is outweighed by regularization loss.
+
+### What Was Learned
+- Lim et al. velocity variance prediction holds mechanically at our scale
+- Lower velocity variance does NOT improve sample quality with small datasets
+- N(0,I) source provides critical implicit regularization at 4K scale
+- 152f has better spread and h30/h1 ratio — persistence source captures spread structure,
+  but the tradeoff (losing factor structure) is unacceptable
+
+### Decision: VALUABLE FAILURE
+Use N(0,I) for all H1 stages. Proceed to RC15-H1-S1 (conditional with concatenation).
+
+---
