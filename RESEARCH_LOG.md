@@ -40104,3 +40104,86 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
 ```
 
 ---
+
+## 2026-03-23: Exp 151c — H1b Stage 1: RBF Repulsive Ensemble Loss (RC14)
+
+### Context
+H1a (detach skip) proved Suite 9 is achievable but broke kurtosis. H1b tests whether
+RBF kernel repulsion (RLSD-inspired) can produce diversity while preserving distributional
+quality. Repulsion is strongest when members are close — complementary to CRPS spread
+which weakens when members converge.
+
+### Architecture
+CausalARTransformerDecoder (d_model=64, 4 heads, 4 layers, CLN). FactorNoiseSkip (5 factors).
+Warm-started from 146b (only 9/132 params transferred due to fresh model construction).
+Trained with CRPS + lambda_repul=1.0 RBF kernel repulsion on daily changes.
+
+### Results
+
+| Metric | 146b (baseline) | 151b_v3 (detach) | 151c (repulsion) |
+|--------|-----------------|-------------------|-------------------|
+| Suites | 5/9 [1,3,4,5,6] | 4/9 [1,3,5,9] | **5/9 [1,3,5,8,9]** |
+| rank_ratio | 0.450 | 0.892 | **1.901** |
+| gen_eff_rank | 2.26 | 4.48 | **9.56** (GT: 5.03) |
+| CI_90 | 77.3% | 75.7% | **88.7%** |
+| kurtosis | 1.21 | 0.352 | 0.422 |
+| KS daily | 21/25 | 17/25 | 17/25 |
+| cointegration | PASS (1.07) | FAIL | FAIL (0.518) |
+
+### Key Diagnostic Findings
+
+1. **Massive diversity improvement**: gen_eff_rank 9.56 (1.9× GT). Suite 9 passes
+   with rank_ratio 1.901 — the highest ever.
+
+2. **Suite 8 RECOVERED**: Distributional fidelity PASSES (was failing in 146b).
+   Repulsive loss preserves distributional quality better than detach.
+
+3. **CI nearly passing**: 88.7% overall, close to Suite 2 thresholds. Coverage
+   model achieves 92.8% at epoch 3.
+
+4. **Skip W is NOT the diversity source**: W eff_rank only 3.79 (norm 0.036).
+   The high test-time diversity (9.56) comes from the repulsive loss shaping the
+   ENTIRE generation pipeline, including the deterministic CLN decoder path.
+
+5. **Kurtosis still below threshold**: 0.422 vs 0.5 target. Closer than detach
+   (0.352) but still failing. The repulsion may be too strong — try lower lambda.
+
+6. **Cointegration lost**: Gen/GT ratio 0.518 (barely above 0.50 threshold but
+   worst cell 0.177 fails). Near-scratch training (9 transferred params) means
+   level dynamics differ from 146b.
+
+### Training Dynamics
+- eff_rank: 1.35 → 1.55 → 1.79 → 1.90 (steady improvement, no collapse)
+- cross-cell corr: 0.291 → 0.226 → 0.262 → **0.368** (epoch 20, near GT 0.38!)
+- Best val_loss: epoch 7 (18.19). Coverage peaks epoch 3 (91.3%).
+
+### What Was Learned
+
+1. **Repulsive loss > detach skip** for diversity: produces higher eff_rank (9.56 vs 4.48)
+   while preserving distributional quality (Suite 8 passes).
+2. **Diversity comes from the full pipeline**, not just the skip. Repulsive loss shapes
+   CLN outputs to be diverse.
+3. **Kurtosis 0.42 is tantalizingly close** to 0.5 threshold. Lower lambda_repul may recover it.
+4. **Pattern shift** from [1,3,4,5,6] to [1,3,5,8,9]: gained S8+S9, lost S4+S6.
+
+### Next Steps
+- **151c_v2**: Try lambda_repul=0.3 (reduce repulsion to preserve kurtosis)
+- **Or**: Combine H1a+H1b (detach + repulsion) for maximum effect
+- **Priority**: recover kurtosis and cointegration while preserving S8+S9
+
+### Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --lambda_repul 1.0 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_factor_noise 5 --ar_causal_transformer --ar_causal_cln \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_151c --device cuda
+```
+
+---
