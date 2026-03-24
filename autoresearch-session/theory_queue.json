@@ -42,9 +42,10 @@
       "5. If UNEXPECTED: generate at intermediate ODE steps (t=0.25, 0.5, 0.75)"
     ],
     "learn_from_failure": "Diversity depends on noise-to-data distance. Persistence source too deterministic. Would contradict Lim et al. at our scale.",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
+    "result": "VALUABLE FAILURE. Lim velocity variance confirmed (48% lower) but overfits at 4K scale. All metrics worse than 152e except spread. Use N(0,I) for H1.",
     "experiment_id": "152f",
     "effort": "1h"
   },
@@ -68,7 +69,7 @@
     },
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H2",
+    "status": "pending",
     "experiment_id": "153a",
     "effort": "2h"
   },

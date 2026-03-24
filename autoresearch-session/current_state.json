@@ -1,19 +1,20 @@
 {
-  "iteration": 1,
-  "experiment_id": "152f",
+  "iteration": 2,
+  "experiment_id": "153a",
   "training_status": "running",
-  "phase": "RC15-H2",
-  "hypothesis": "Data-dependent source (persistence) produces lower-variance velocity fields (Lim et al.)",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_oneshot_flow_152f.py --epochs 100 --batch_size 64 --lr 5e-4 --output_dir models/backfill/flow_152f --device cuda",
+  "phase": "RC15-H1-S1",
+  "hypothesis": "FMAP concatenation conditioning preserves one-shot FM properties. Encoder output added to each velocity net token.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_cond_oneshot_flow.py --epochs 200 --batch_size 64 --lr 5e-4 --output_dir models/backfill/flow_153a --device cuda",
   "session_best": {
     "exp": "152e",
     "metric": "PC1=0.989, kurt=1.215, KS 25/25 (unconditional)"
   },
-  "total_experiments": 1,
-  "compass_position": "RC15-H2",
+  "total_experiments": 2,
+  "compass_position": "RC15-H1-S1",
   "compass_theme": "Conditional One-Shot Flow Matching (Literature-Informed)",
   "session_date": "2026-03-24",
   "base_model": "models/backfill/flow_152e/best_model.pt",
   "branch": "autoresearch-session-rc15",
-  "next_action": "Wait for training, then run full diagnostic plan"
+  "h2_result": "VALUABLE FAILURE — use N(0,I), not persistence",
+  "next_action": "Wait for training, then run full diagnostic plan (conditionality check, ablation, per-horizon)"
 }

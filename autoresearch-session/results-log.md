@@ -19,4 +19,5 @@
 | # | Exp ID | Direction | Metric | Decision |
 |---|--------|-----------|--------|----------|
 | 1 | 152f | RC15-H2: Data-dependent source (persistence) | eff_rank=3.41 (152e=6.04), PC1=0.967, PC2=0.928, KS=17/25, kurt=0.852, frob=8.11 | VALUABLE FAILURE — Lim vel-var prediction confirmed (0.50 vs 0.96) but overfits at 4K scale. Use N(0,I) for H1. |
+| 2 | 153a | RC15-H1-S1: Conditional + concatenation | eff_rank=6.36, PC1=0.999, PC2=0.996, KS=25/25, kurt=1.113, frob=1.30, spread=0.070 (GT=0.072) | BUILD ON THIS — every metric improved over 152e. Turb/calm=1.138 (weak). Shuffled cond ≈ real cond — population prior, not window-specific. |
 

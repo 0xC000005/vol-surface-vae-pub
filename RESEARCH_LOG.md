@@ -41653,3 +41653,133 @@ eff_rank overshoots GT at ep80-100 (9.30 > 7.61) while PC2 collapses — overfit
 Use N(0,I) for all H1 stages. Proceed to RC15-H1-S1 (conditional with concatenation).
 
 ---
+
+## 2026-03-24: Exp 153a — Conditional One-Shot FM with Concatenation (RC15-H1-S1)
+
+### Context
+RC15-H1-S1. Add conditioning from pretrained GRU encoder to 152e's factored velocity
+transformer. FMAP (2504.03463) design: encoder output projected and added to each token.
+Source = N(0,I) confirmed by H2.
+
+**Based on**: 152e (unconditional: PC1=0.989, kurt=1.215, KS 25/25, spread 0.040)
+
+### Architecture
+ConditionalFactoredVelocityTransformer (1.68M params). Same factored attention as 152e
++ condition projection (nn.Linear(128, d_model) + SiLU + nn.Linear). Condition is added
+(not concatenated) to all token positions. Frozen GRU encoder from pretrained DDPM checkpoint.
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_cond_oneshot_flow.py \
+    --epochs 200 --batch_size 64 --lr 5e-4 \
+    --encoder_path models/backfill/block_ar_vol_scaled_30ep/best_model.pt \
+    --output_dir models/backfill/flow_153a --device cuda
+```
+
+### Results — Full Metric Comparison (1024 samples, final_model ep200)
+
+| Metric | 152e | 153a | GT | Improvement |
+|--------|------|------|------|-------------|
+| eff_rank | 6.04 | 6.36 | 7.61 | +5% closer to GT |
+| PC1 | 0.990 | 0.999 | 1.000 | +0.009 |
+| PC2 | 0.966 | 0.996 | 1.000 | +0.030 |
+| Frobenius | 3.08 | 1.30 | 0.000 | -58% |
+| KS daily | 25/25 | 25/25 | 25 | maintained |
+| kurt_ratio | 1.215 | 1.113 | 1.000 | closer to GT |
+| spread h1 | 0.040 | 0.070 | 0.072 | 97% of GT (was 56%) |
+| spread h30 | 0.039 | 0.070 | 0.072 | 97% of GT (was 54%) |
+
+**153a improves over 152e on EVERY metric.** The spread improvement is dramatic: from 56%
+of GT to 97% of GT. This means the conditioning provides the model with the right
+information about how much spread to produce.
+
+### Training Trajectory
+
+| Epoch | eff_rank | PC1 | PC2 | KS | kurt | frob | spread_h1 |
+|-------|----------|-----|-----|-----|------|------|-----------|
+| 1 | 18.4 | 0.926 | 0.201 | 11/25 | 0.550 | 7.9 | 0.062 |
+| 40 | 5.9 | 0.997 | 0.981 | 25/25 | 0.993 | 2.4 | 0.062 |
+| 80 | 6.9 | 0.996 | 0.982 | 25/25 | 1.057 | 2.1 | 0.069 |
+| 120 | 6.1 | 0.998 | 0.977 | 25/25 | 1.198 | 2.0 | 0.066 |
+| 160 | 6.5 | 0.999 | 0.993 | 25/25 | 1.092 | 1.2 | 0.066 |
+| 200 | 6.2 | 0.999 | 0.994 | 25/25 | 1.158 | 1.5 | 0.070 |
+
+Best val at ep28, but sample quality improves throughout. Used final_model for diagnostics.
+
+### Diagnostic: Conditionality (Turb/Calm Width Ratio)
+
+- Turb spread: 0.030, Calm spread: 0.026
+- Turb/Calm ratio: 1.138 (target > 1.15 — BARELY FAILS)
+- Conditioning signal is WEAK but present
+
+### Diagnostic: Condition Ablation (KEY FINDING)
+
+| Metric | Real cond | Shuffled | Zero cond |
+|--------|-----------|----------|-----------|
+| eff_rank | 6.36 | 6.59 | 3.64 |
+| PC1 | 0.999 | 1.000 | 0.969 |
+| PC2 | 0.996 | 0.998 | 0.794 |
+| Frobenius | 1.30 | 0.99 | 7.02 |
+| KS | 25/25 | 25/25 | 22/25 |
+| kurt | 1.113 | 1.093 | 0.644 |
+| spread h1 | 0.070 | 0.069 | 0.027 |
+
+**Real vs Shuffled: nearly identical.** The model does NOT use the condition to
+specialize to individual windows. ANY condition from the training distribution works.
+
+**Real vs Zero: massive difference.** Without condition, the model degrades to
+152e-like metrics (low spread, lower PC alignment).
+
+**Interpretation**: The model uses the condition as a POPULATION-LEVEL PRIOR. The
+encoder output tells the velocity field "this is what IV data looks like" (learned
+distribution characteristics), not "this specific window was turbulent." The 128-dim
+bottleneck captures distributional properties that improve the velocity field globally,
+but the bottleneck is too low-dimensional for window-specific information in 750-dim
+output space.
+
+### Diagnostic: Per-Horizon
+
+| Horizon | 152e eff | 153a eff | GT eff | 152e spr | 153a spr | GT spr |
+|---------|----------|----------|--------|----------|----------|--------|
+| h=1 | 4.03 | 2.90 | 3.17 | 0.040 | 0.070 | 0.072 |
+| h=15 | 3.88 | 3.01 | 3.16 | 0.038 | 0.069 | 0.072 |
+| h=30 | 4.11 | 2.96 | 3.16 | 0.039 | 0.070 | 0.072 |
+
+153a per-horizon eff_rank CLOSER to GT at all horizons. Spread improvement uniform.
+
+### Diagnostic: Encoder Output
+- 14/128 dims with variance > 0.01
+- 111/128 dims with variance > 0.001
+- Encoder IS producing varied outputs, but variance is low (mean 0.005)
+
+### WHY It Works
+
+1. **Conditioning provides a learned prior**: the encoder output shifts the velocity field
+   from a generic N(0,I)->data mapping to a data-informed mapping. This reduces the distance
+   the velocity field needs to cover in "parameter space" (not input space like H2).
+
+2. **Why spread improves so dramatically**: Without conditioning, the velocity field must
+   generate a SINGLE velocity that works for ALL possible targets. With conditioning, even
+   though it's population-level, the velocity field knows the general scale/character of the
+   data, allowing it to produce more appropriate spread.
+
+3. **Why PC alignment improves**: The condition provides information about the correlation
+   structure of IV surfaces. Even a population-level bias toward "IV surfaces have high
+   PC1 dominance" helps the velocity field align with the correct factor structure.
+
+4. **Why window-specific conditioning fails**: 128-dim bottleneck is too compressed for
+   750-dim output. The encoder attention-pools 30 frames into 64-dim GRU output, then
+   projects to 128-dim. At this compression ratio (750/128 = 5.9x), only population-level
+   statistics survive, not window-specific details.
+
+### What Was Learned
+- Concatenation conditioning (FMAP design) preserves all one-shot FM properties
+- Even population-level conditioning dramatically improves spread (56% -> 97% of GT)
+- Window-specific conditioning needs richer representations (cross-attention, not bottleneck)
+- Best architecture so far: eff_rank 6.36, PC1 0.999, PC2 0.996, KS 25/25, spread 97% of GT
+- Zero-condition ablation confirms the condition IS used, just not specifically
+
+### Decision: BUILD ON THIS
+153a is the new base for all subsequent stages. Proceed to RC15-H1-S2 (residual prediction).
+
+---

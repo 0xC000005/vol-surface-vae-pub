@@ -1,0 +1,65 @@
+{
+  "experiment": "153a diagnostic (conditional one-shot FM)",
+  "153a_epoch": 200,
+  "152e_epoch": 53,
+  "metrics_152e": {
+    "eff_rank": 6.0422,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.99,
+    "pc2": 0.9662,
+    "frob": 3.0785,
+    "ks_pass": 25,
+    "kurt_ratio": 1.2154,
+    "spread_h1": 0.0404,
+    "spread_h30": 0.0389,
+    "mono": 0
+  },
+  "metrics_153a_real_cond": {
+    "eff_rank": 6.3571,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.9993,
+    "pc2": 0.9959,
+    "frob": 1.3011,
+    "ks_pass": 25,
+    "kurt_ratio": 1.113,
+    "spread_h1": 0.0699,
+    "spread_h30": 0.0696,
+    "mono": 0
+  },
+  "metrics_153a_shuffled": {
+    "eff_rank": 6.5875,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.9998,
+    "pc2": 0.9979,
+    "frob": 0.9927,
+    "ks_pass": 25,
+    "kurt_ratio": 1.0928,
+    "spread_h1": 0.0691,
+    "spread_h30": 0.0686,
+    "mono": 0
+  },
+  "metrics_153a_zero_cond": {
+    "eff_rank": 3.6435,
+    "gt_eff_rank": 7.6081,
+    "pc1": 0.969,
+    "pc2": 0.7938,
+    "frob": 7.0214,
+    "ks_pass": 22,
+    "kurt_ratio": 0.6444,
+    "spread_h1": 0.0267,
+    "spread_h30": 0.0229,
+    "mono": 0
+  },
+  "conditionality": {
+    "turb_spread": 0.03,
+    "calm_spread": 0.02637,
+    "turb_calm_ratio": 1.138,
+    "passes_threshold": false
+  },
+  "encoder_output": {
+    "active_dims_01": 14,
+    "active_dims_001": 111,
+    "mean_variance": 0.0049
+  },
+  "conclusion": "153a IMPROVES on 152e on every metric. Conditioning works."
+}
