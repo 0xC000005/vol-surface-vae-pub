@@ -298,12 +298,20 @@ def main():
         # Evaluate every 30 epochs
         if epoch % 30 == 0 or epoch == 1:
             with torch.no_grad():
-                x = torch.randn(1000, DIM, device=device)
+                # Generate in batches to avoid OOM
+                all_samp = []
+                eval_batch = 64
+                n_eval = 512
                 dt = 1.0 / args.n_steps
-                for step in range(args.n_steps):
-                    tt = torch.full((1000,), step * dt, device=device)
-                    x = x + model(x, tt) * dt
-                samples = x.cpu().numpy() * train_std + train_mean
+                for si in range(0, n_eval, eval_batch):
+                    eb = min(eval_batch, n_eval - si)
+                    x = torch.randn(eb, DIM, device=device)
+                    for step in range(args.n_steps):
+                        tt = torch.full((eb,), step * dt, device=device)
+                        x = x + model(x, tt) * dt
+                    all_samp.append(x.cpu().numpy())
+                samples = np.concatenate(all_samp)
+                samples = samples * train_std + train_mean
                 samples = np.clip(samples, 0, 1)
             m = evaluate_samples(samples, train_data)
             print(f"Ep {epoch:3d}  train={train_loss:.4f}  val={val_loss:.4f}  "
