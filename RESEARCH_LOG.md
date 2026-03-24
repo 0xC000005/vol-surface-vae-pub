@@ -40586,3 +40586,49 @@ ensemble spread while preserving the flow matching correlation structure. Or: le
 per-frame noise schedule inside the flow matching framework.
 
 ---
+
+## 2026-03-24: Exp 152b per-cell noise — learned sigma also breaks kurtosis (RC14)
+
+### Context
+Isotropic noise broke GT alignment. Per-cell learned sigma (25 params optimized via
+interval score on val set) could theoretically preserve structure by adding noise
+only where needed.
+
+### Method
+Freeze flow model. Learn 25 log-sigma params via IS loss (width + 20× overshoot)
+targeting 90% CI. 200 iterations on validation set. Sigma clamped to [0.001, 1.0].
+
+### Learned Sigma Grid
+```
+0.371  0.057  0.095  0.663  0.057
+0.039  0.021  0.064  0.623  0.080
+0.019  0.049  0.035  0.182  0.086
+0.026  0.025  0.033  0.077  0.040
+0.017  0.028  0.024  0.024  0.022
+```
+Cells (0,3)=0.663 and (1,3)=0.623 need huge noise — these are OTM/short-tenor cells
+with widest GT distributions. Most cells need only 0.02-0.05.
+
+### Result: 4/9 [1,5,6,9] — WORSE than no-noise baseline (5/9)
+
+| Config | CI_90 | Kurtosis | corr_ratio | S4 | S9 | Total |
+|--------|-------|----------|------------|----|----|-------|
+| No noise | 67.2% | 0.609 | 0.821 | P | P | 5/9 |
+| Per-cell | 79.0% | 0.462 | 0.609 | F | P | 4/9 |
+
+### Mechanism
+Cells (0,3) and (1,3) get sigma 0.62-0.66 — nearly as large as the data std.
+This creates heavy-tailed outliers in those cells that distort the aggregate kurtosis
+computation. The optimization correctly identifies WHICH cells need wider intervals
+but the MAGNITUDE needed destroys distributional quality.
+
+### Conclusion
+Post-hoc noise (isotropic or per-cell) is fundamentally limited because:
+1. Cells that need wide CI require sigma comparable to data std
+2. Large sigma destroys the temporal correlation and tail structure
+3. The noise operates in the wrong space (output, not velocity/flow)
+
+The spread must be built into the generation process itself. Stage 3 (CRPS
+fine-tuning of the velocity field) is the correct next step.
+
+---
