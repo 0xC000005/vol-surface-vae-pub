@@ -40666,3 +40666,25 @@ in those specific cells.
 4. Post-hoc noise is exhausted as an approach
 
 ---
+
+## 2026-03-24: Exp 152c — Wider velocity net doesn't help CI (RC14)
+
+### Context
+152b has CI 67.2%. Tested whether more capacity (384×5 = 546K params vs 256×4 = 200K)
+and more training (200ep vs 100ep) improves spread.
+
+### Result: 4/9 — WORSE
+CI dropped to 58.6% (from 67.2%). Lost cointegration (0.476 < 0.50). Suite 9 preserved
+(rank 1.23, corr 0.885). Kurtosis 0.621 (slightly better than 152b's 0.609).
+
+### Conclusion
+The CI problem is NOT capacity-limited. The 152b architecture (256×4) is the sweet spot.
+The ODE formulation itself produces too-narrow ensembles. More capacity → more precise
+velocity → NARROWER spread (overfitting to the deterministic interpolation path).
+
+This confirms that addressing CI requires changing the GENERATION mechanism (SDE, CRPS
+calibration), not just training harder with CFM loss.
+
+### 152b remains the best flow matching model: 5/9 [1,4,5,6,9]
+
+---

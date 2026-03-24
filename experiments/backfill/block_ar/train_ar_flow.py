@@ -177,8 +177,12 @@ class ARFlowMatchingModel(nn.Module):
         device = history.device
         dt = 1.0 / self.n_steps
 
-        # Encode
+        # Encode — detect zero history (unconditional) and use null_embedding
+        is_zero = (history.abs().sum(dim=(1, 2, 3)) < 1e-6)  # (B,)
         condition = self.encoder(history)  # (B, 128)
+        if is_zero.any() and hasattr(self.encoder, 'null_embedding'):
+            null_cond = self.encoder.null_embedding.expand(B, -1)
+            condition = torch.where(is_zero.unsqueeze(-1), null_cond, condition)
 
         # Expand for n_samples: (B*S, ...)
         BS = B * n_samples
