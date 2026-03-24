@@ -40319,3 +40319,80 @@ This points toward H2 (flow matching) where diversity is STRUCTURAL (each sample
 follows an independent ODE trajectory) rather than injected through noise.
 
 ---
+
+## 2026-03-24: Deep Diagnostic — H1b Repulsive Loss Produces Artificial Diversity (RC14)
+
+### Motivation
+Before proceeding to H2, need to verify whether H1b's diversity is REALISTIC (along GT
+market factor directions) or ARTIFICIAL (pushing members apart in arbitrary directions).
+
+### Method
+For each model, generated 80 windows × 50 members × 30 timesteps. Computed:
+A) Within-member spatial correlation structure (eigenspectrum, Frobenius to GT)
+B) Between-member spread direction alignment with GT PC1/PC2
+C) Per-cell kurtosis ratios
+D) Temporal rank persistence (lag-1 autocorrelation of member rank across time)
+
+### Results
+
+#### A: Within-member spatial structure
+| Metric | GT | 146b | λ=0.5 | λ=1.0 |
+|--------|-----|------|-------|-------|
+| PC1 var | 48.4% | 86.8% | 30.8% | 37.0% |
+| Eff rank | 8.27 | 1.99 | 10.60 | 9.50 |
+| Frobenius | — | 15.89 | 9.67 | 8.11 |
+
+Repulsion reduces PC1 dominance BELOW GT level. λ=0.5: PC1=30.8% vs GT 48.4%.
+The first factor (market level shift) is underweighted.
+
+#### B: Between-member spread direction
+| Model | GT PC1 align | GT PC2 align |
+|-------|-------------|-------------|
+| 146b | 0.383 | 0.530 |
+| λ=0.5 | **0.275** | 0.351 |
+| λ=1.0 | 0.428 | 0.447 |
+| Random | 0.200 | 0.200 |
+
+**λ=0.5 spread is barely above random (0.275 vs 0.200).** Members are pushed apart
+in directions that DON'T correspond to real market factors. The diversity is ARTIFICIAL.
+
+#### C: Per-cell kurtosis
+0/25 cells pass for 146b (aggregate passes from mixing). 6-7/25 for repulsive models.
+Failures concentrated in long-tenor/OTM cells. Some cells show NEGATIVE kurtosis ratios
+(excess kurtosis locally) while most are thin-tailed. Spatially non-uniform distortion.
+
+#### D: Temporal rank persistence
+| Model | Rank AC |
+|-------|---------|
+| 146b | 0.613 |
+| λ=0.5 | 0.528 |
+| λ=1.0 | 0.560 |
+
+Repulsion erodes rank persistence (members swap positions more). This is the direct
+mechanism behind kurtosis collapse — more rank swapping = thinner tails in daily changes.
+
+### Conclusion: H1b Diversity is Artificial
+
+The repulsive loss "passes" Suite 9 by pushing members apart in arbitrary directions,
+not by learning the actual 5-factor market correlation structure. Evidence:
+
+1. **Spread alignment with GT PC1 is near-random** (0.28 at λ=0.5)
+2. **PC1 underweighted** (31% vs GT 48%) — first factor suppressed
+3. **Rank persistence eroded** (0.53 vs 0.61) — members swap positions unnaturally
+4. **Over-diversified** (eff_rank 10.6 vs GT 8.27)
+
+This means the H1b results (5/9) are NOT a genuine advance — they game the Suite 9
+metric by producing parallel, unrealistic scenarios. The Suite 9 pass is an artifact
+of the metric, not a real improvement in correlation structure.
+
+### Implication for H2
+Any future approach must produce diversity that is:
+- Aligned with GT factor directions (PC1 should be ~48%, not 31%)
+- Temporally persistent (rank AC > 0.6)
+- Correctly weighted across factors (eff_rank near GT, not 2× GT)
+
+Flow matching (H2) may achieve this because each sample follows an independent ODE
+trajectory from noise TO data — the diversity is constrained by the learned data manifold,
+not pushed apart by an arbitrary kernel.
+
+---
