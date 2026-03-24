@@ -13,3 +13,18 @@
 
 ---
 
+| # | Exp ID | Direction | Suites | Decision |
+|---|--------|-----------|--------|----------|
+| 1 | 151a | H0: Gaussian copula ceiling | 4/9 (PASS: 1,3,5,6+9 — FAIL: 2,4,7,8) | INFORMATIVE: Suite 9 fixable, but post-hoc breaks S4/S8. Proceed H1a/H1b. |
+
+### Iteration 1: Exp 151a — H0 Gaussian Copula Ceiling
+- **Hypothesis**: ECC reordering with GT Gaussian copula. Ceiling for Suite 9.
+- **Result**: Suite 9 PASS (rank_ratio 0.45→1.44). But Suite 4 FAIL (kurtosis 1.21→0.38) and Suite 8 FAIL (KS 21→6).
+- **KEY FINDING**: Cross-cell correlation IS the Suite 9 bottleneck (not marginals).
+  Post-hoc reordering breaks temporal coherence → must inject at generation time.
+- **MECHANISM**: Per-timestep independent copula reordering assigns different ranks
+  to member k's cell j at consecutive timesteps, creating artificial jumps in daily
+  changes. This destroys kurtosis (heavy tails) and KS daily (distribution shape).
+- **Decision gate**: Suite 9 passes with copula → **H1a/H1b is the right direction**.
+  Marginals are sufficient. Correlation structure needs fixing at generation time.
+

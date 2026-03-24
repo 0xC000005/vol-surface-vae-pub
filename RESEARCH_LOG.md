@@ -39919,3 +39919,94 @@ Day 1-2:  H1a + H1b parallel    Start H2 Stage 1
 **Available techniques**: Stop-gradient (SimSiam), kernel repulsion (RLSD), CFM (CW-Gen, TSFlow), ECC copula, consistency models (Swift), composite flow from prior (Kong), LIRF augmentation, progressive rollout
 
 ---
+
+## 2026-03-23: Exp 151a — H0 Gaussian Copula Ceiling Measurement (RC14)
+
+### Context
+RC14 starts with H0: a diagnostic ceiling measurement to determine whether cross-cell
+correlation (Suite 9) or marginal quality is the bottleneck. This determines whether
+to pursue H1a/H1b (gradient-path separation within CRPS) or H2 (flow matching paradigm).
+
+Method: Estimate 25×25 Spearman rank correlation from training daily changes (n=4539).
+Generate 50-member ensemble from 146b. Apply ECC (Ensemble Copula Coupling): for each
+(window, timestep), sort K members per cell, draw K templates from N(0, Σ_GT), reorder
+members to match copula rank structure. Evaluate with full 9-suite battery.
+
+### Results
+
+| Suite | 146b (baseline) | 151a (copula) | Change |
+|-------|-----------------|---------------|--------|
+| 1 Surface | PASS | PASS | — |
+| 2 CI Coverage | FAIL (77.3%) | FAIL (77.3%) | — |
+| 3 Conditionality | PASS | PASS | — |
+| 4 Time Series | PASS (kurt 1.21) | **FAIL** (kurt 0.38) | **BROKEN** |
+| 5 Block-AR | PASS | PASS | — |
+| 6 Cointegration | PASS | PASS | — |
+| 7 Regime | FAIL | FAIL | — |
+| 8 Distributional | FAIL (KS 21/25) | **FAIL** (KS 6/25) | **WORSE** |
+| 9 Cross-Cell | FAIL (rank 0.45) | **PASS** (rank 1.44) | **FIXED** |
+
+**Net: 5/9 → 4/9** — copula fixes target but breaks non-targets.
+
+### Key Metrics (Suite 9 before → after)
+- rank_ratio: 0.450 → 1.439 (PASS threshold 0.50)
+- corr_ratio: 1.143 → 0.949 (closer to GT)
+- Frobenius distance: 16.3 → 5.1 (3.2× improvement)
+- gen_eff_rank: 2.26 → 7.23 (GT: 5.03)
+
+### Copula Properties
+- Mean off-diagonal Spearman correlation: 0.548
+- Copula effective rank: 5.80
+- Marginal preservation: max mean diff = 0.000000 (exact)
+
+### Diagnostic: WHY Does Copula Break Suite 4 and 8?
+
+**Mechanism**: Per-timestep independent copula reordering assigns different ranks
+to member k's cell j at consecutive timesteps. At t=5, member 3 might get rank 2
+for cell (0,0), but at t=6, member 3 gets rank 47. This creates artificial jumps
+in the daily change distribution within each member.
+
+**Suite 4 (kurtosis 1.21→0.38)**: Heavy tails in daily changes come from temporal
+persistence of rank ordering — when a member is "high" at t, it tends to stay "high"
+at t+1. Copula reordering destroys this persistence, making daily changes more Gaussian
+(lower kurtosis). ACF barely affected (0.946→0.941) because level autocorrelation is
+preserved (sorted values per cell are similar across timesteps).
+
+**Suite 8 (KS daily 21→6)**: The marginal distribution of daily changes per cell
+changes because the rank assignment at each timestep is independent. Original: all
+cells move together (rank-1), producing correlated jumps. Copula: cells move with
+GT correlation (rank-5), producing different jump patterns. The KS test compares
+individual cell daily change distributions against GT — the reordered distribution
+doesn't match because the test expects the specific heavy-tailed pattern.
+
+### What Was Learned
+
+1. **Suite 9 IS fixable**: The copula ceiling proves cross-cell correlation is the
+   bottleneck, not marginal quality. With perfect copula, rank_ratio reaches 1.44
+   (well above 0.50 threshold).
+
+2. **Post-hoc reordering is destructive**: Per-timestep independent reordering
+   breaks temporal coherence. Any cross-cell correlation fix must be injected at
+   GENERATION TIME, not post-hoc.
+
+3. **CI coverage (Suite 2) is NOT affected by correlation**: 77.3% → 77.3%.
+   This confirms P1 (spread) and P2 (rank) are independent problems (consistent
+   with the r=0.14 independence finding from n=69 analysis).
+
+4. **Regime coverage (Suite 7) is NOT affected by correlation**: Both FAIL with
+   identical patterns. Suite 7 is purely a spread problem.
+
+### Decision Gate
+Suite 9 passes with copula → **H1a/H1b is the correct direction**.
+The marginals are sufficient. The model's noise structure must produce correct
+cross-cell correlation from generation. Proceed to H1a (detached skip + dual-loss).
+
+### Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/copula_ceiling.py \
+    --model_path models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --max_batches 20 --n_samples 50 \
+    --output_dir results/block_ar/151a_copula_30d --device cuda
+```
+
+---
