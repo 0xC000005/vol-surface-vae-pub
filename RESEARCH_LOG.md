@@ -40187,3 +40187,88 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
 ```
 
 ---
+
+## 2026-03-24: Exp 151c_v2/v3 — H1b Lambda Sweep (RC14)
+
+### Context
+151c (lambda_repul=1.0) passed Suites 8+9 but failed S4 (kurtosis 0.42 < 0.5).
+Testing whether lower lambda recovers kurtosis while preserving diversity.
+
+### Results: Lambda Sweep
+
+| λ_repul | Suites | Kurtosis | corr_ratio | rank_ratio | CI_90 | S4 | S8 | S9 |
+|---------|--------|----------|------------|------------|-------|----|----|-----|
+| 0.0 (146b) | 5/9 [1,3,4,5,6] | 1.21 | 1.14 | 0.45 | 77.3% | P | F | F |
+| 0.3 (v2) | 4/9 [1,3,4,5] | 0.53 | 0.34 | 1.82 | 85.4% | P | F | F |
+| 0.5 (v3) | 5/9 [1,3,4,5,8] | **0.61** | 0.40 | 2.18 | 84.1% | P | P | F |
+| 1.0 (v1) | 5/9 [1,3,5,8,9] | 0.42 | **0.61** | 1.90 | 88.7% | F | P | P |
+
+### Key Finding: S4 and S9 are Partially Adversarial
+
+Suite 9 corr_ratio requires >= 0.50. Only lambda=1.0 achieves this (0.61). But
+lambda=1.0 pushes kurtosis below 0.5 (Suite 4 threshold).
+
+The corr_ratio INCREASES monotonically with lambda (0.34 → 0.40 → 0.61), while
+kurtosis DECREASES (0.53 → 0.61 → 0.42). There may be a sweet spot around 0.6-0.8.
+
+### What Was Learned
+
+1. **Repulsive loss produces eff_rank > GT** regardless of lambda (9-11 vs GT 5.03)
+2. **Rank is NOT the binding constraint** — all lambda >= 0.3 pass rank_ratio
+3. **corr_ratio is the binding gate**: the CORRELATION structure (not just rank)
+   requires sufficient repulsion to shape cross-cell dependencies
+4. **lambda=0.5 recovers kurtosis (0.61)** and passes S8, just barely misses S9 (corr=0.40)
+5. **All models lose cointegration**: near-scratch training breaks level dynamics
+
+### Next
+Try lambda=0.7 to find the sweet spot. If corr_ratio >= 0.50 AND kurtosis >= 0.50,
+we get 6/9 [1,3,4,5,8,9] — the first 6/9 result.
+
+---
+
+## 2026-03-24: Exp 151c_v4 — H1b Lambda=0.7 + Full Sweep Conclusion (RC14)
+
+### 151c_v4 Result (lambda_repul=0.7)
+4/9 [1,3,4,5]. corr_ratio=0.477 (below 0.50). kurtosis=0.545 (above 0.50). Suite 8 FAIL (KS levels 16/25).
+
+### Complete Lambda Sweep
+
+| λ_repul | Suites | Pattern | Kurt | corr_ratio | rank_ratio | CI_90 |
+|---------|--------|---------|------|------------|------------|-------|
+| 0.0 | 5/9 | 1,3,4,5,6 | 1.21 | 1.14 | 0.45 | 77.3% |
+| 0.3 | 4/9 | 1,3,4,5 | 0.53 | 0.34 | 1.82 | 85.4% |
+| 0.5 | **5/9** | **1,3,4,5,8** | 0.61 | 0.40 | 2.18 | 84.1% |
+| 0.7 | 4/9 | 1,3,4,5 | 0.55 | 0.48 | 2.13 | 83.5% |
+| 1.0 | **5/9** | **1,3,5,8,9** | 0.42 | 0.61 | 1.90 | 88.7% |
+
+### Conclusion: S4 and S9 Are Partially Adversarial Under Repulsive Loss
+
+The binding constraint for Suite 9 is corr_ratio >= 0.50 (NOT rank_ratio). Only
+lambda=1.0 achieves this. But lambda=1.0 pushes kurtosis below 0.50 (Suite 4 gate).
+
+No single lambda achieves both S4 and S9 simultaneously. The repulsive loss
+changes the cross-cell correlation structure in a way that suppresses heavy tails.
+
+### Best Configurations
+- **Lambda=0.5** (151c_v3): 5/9 [1,3,4,5,8] — best for kurtosis preservation
+- **Lambda=1.0** (151c): 5/9 [1,3,5,8,9] — best for diversity + correlation
+
+Neither achieves 6/9. The H1b approach caps at 5/9 with different suite patterns.
+
+### What Was Learned
+1. **Repulsive loss produces eff_rank 9-11** regardless of lambda (all well above GT 5.03)
+2. **Rank is easy, correlation is hard**: rank_ratio always passes, corr_ratio is the gate
+3. **S4-S9 tradeoff**: kurtosis preservation requires lower repulsion, but correlation
+   fidelity requires higher repulsion
+4. **Suite 8 is sensitive**: passes at lambda=0.5 and 1.0 but fails at 0.3 and 0.7
+5. **Cointegration lost in all variants**: near-scratch training breaks level dynamics
+
+### Decision
+H1b caps at 5/9 (same as baseline, different suites). The S4-S9 adversarial relationship
+under repulsive loss means single-loss approaches cannot simultaneously satisfy both.
+
+**Next direction to consider:**
+- Combine detach (H1a) + repulsion (H1b) — different mechanisms may be complementary
+- Or: H2 (flow matching) where diversity is structural, not loss-driven
+
+---
