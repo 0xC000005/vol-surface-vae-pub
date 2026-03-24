@@ -163,12 +163,13 @@ class ARFlowMatchingModel(nn.Module):
         return F.mse_loss(v_t, u_t_flat)
 
     @torch.no_grad()
-    def sample(self, history, n_samples=50):
+    def sample(self, history, n_samples=50, noise_sigma=0.0):
         """Generate n_samples future paths via AR ODE.
 
         Args:
             history: (B, H, 5, 5) normalized [-1,1]
             n_samples: number of ensemble members
+            noise_sigma: post-ODE noise (in standardized space). 0=deterministic ODE.
         Returns:
             samples: (B, n_samples, T, 5, 5) in [0,1]
         """
@@ -200,6 +201,10 @@ class ARFlowMatchingModel(nn.Module):
                 v = self.velocity_net(x, t, cond, prev_std)
                 x = x + v * dt
 
+            # Add post-ODE noise for ensemble spread (SDE-like)
+            if noise_sigma > 0:
+                x = x + noise_sigma * torch.randn_like(x)
+
             # x is now in standardized space → destandardize → clamp to [0,1]
             frame_iv = self.destandardize(x).clamp(0, 1)  # (BS, 25)
             all_frames.append(frame_iv)
@@ -213,9 +218,9 @@ class ARFlowMatchingModel(nn.Module):
 
         return frames
 
-    def sample_batched(self, history, n_samples=50, **kwargs):
+    def sample_batched(self, history, n_samples=50, noise_sigma=0.0, **kwargs):
         """Compatible with test_block_ar_requirements_v2.py interface."""
-        return self.sample(history, n_samples=n_samples)
+        return self.sample(history, n_samples=n_samples, noise_sigma=noise_sigma)
 
 
 def main():

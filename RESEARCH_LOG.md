@@ -40556,3 +40556,33 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_ar_flow.py \
 ```
 
 ---
+
+## 2026-03-24: Exp 152b noise sigma sweep — Isotropic noise breaks GT-alignment (RC14)
+
+### Context
+152b (no noise) passes S4+S6+S9 but CI=67.2%. Tested post-ODE Gaussian noise to widen
+ensemble spread.
+
+### Results
+
+| σ | CI_90 | Kurtosis | corr_ratio | rank_ratio | S4 | S9 |
+|---|-------|----------|------------|------------|----|----|
+| 0.0 | 67.2% | 0.609 | 0.821 | 1.506 | P | P |
+| 0.05 | 70.3% | 0.586 | 0.695 | 2.093 | P | P |
+| 0.1 | 76.8% | 0.551 | 0.509 | 2.988 | P | P* |
+| 0.3 | 93.7% | 0.333 | 0.215 | 4.316 | F | F |
+
+*rank_ratio=2.988, barely under 3.0 cap.
+
+### Conclusion
+Isotropic noise has the SAME fundamental problem as H1b repulsive loss: it adds
+diversity in arbitrary directions, degrading GT-aligned correlation structure. The CI
+problem requires STRUCTURED spread increase — scaling along the learned flow directions,
+not adding independent noise.
+
+### Next
+CRPS fine-tuning (Stage 3): freeze velocity net, train a thin scaling layer that widens
+ensemble spread while preserving the flow matching correlation structure. Or: learn a
+per-frame noise schedule inside the flow matching framework.
+
+---
