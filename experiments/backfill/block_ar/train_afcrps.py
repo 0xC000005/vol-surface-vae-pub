@@ -471,6 +471,8 @@ def main():
                         help="Per-cell noise skip connection bypassing shared MLP (Exp 99b)")
     parser.add_argument("--ar_skip_bypass_spread", action="store_true",
                         help="Skip connection bypasses cell_spread (Exp 99j)")
+    parser.add_argument("--ar_detach_skip", action="store_true",
+                        help="Detach skip from CRPS gradient (Exp 151b)")
     parser.add_argument("--ar_noise_scale_cond", action="store_true",
                         help="Condition-dependent per-cell noise scale (Exp 102a)")
     parser.add_argument("--ar_noise_scale_min", type=float, default=0.1,
@@ -688,6 +690,7 @@ def main():
         ar_cell_hidden=args.ar_cell_hidden,
         ar_noise_skip=args.ar_noise_skip,
         ar_skip_bypass_spread=args.ar_skip_bypass_spread,
+        ar_detach_skip=args.ar_detach_skip,
         ar_noise_scale_cond=args.ar_noise_scale_cond,
         ar_noise_scale_min=args.ar_noise_scale_min,
         ar_learned_rho=args.ar_learned_rho,

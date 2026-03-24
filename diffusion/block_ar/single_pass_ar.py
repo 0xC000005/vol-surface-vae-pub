@@ -127,6 +127,7 @@ class SinglePassConfig:
     ar_cell_hidden: int = 32             # hidden dim for per-cell MLPs
     ar_noise_skip: bool = False          # per-cell noise skip connection (Exp 99b)
     ar_skip_bypass_spread: bool = False  # skip bypasses cell_spread (Exp 99j)
+    ar_detach_skip: bool = False         # detach skip from CRPS gradient (Exp 151b)
     ar_noise_scale_cond: bool = False    # condition-dependent per-cell noise scale (Exp 102a)
     ar_noise_scale_min: float = 0.1      # lower bound for noise scale (prevents collapse)
     ar_learned_rho: bool = False         # condition-dependent rho (Exp 103a)
@@ -1979,6 +1980,8 @@ class SinglePassBlockAR(nn.Module):
                     noise_scale = self._get_noise_scale(cond_t)
                     if noise_scale is not None:
                         skip_out = skip_out * noise_scale.view(BK, H, W)
+                    if self.config.ar_detach_skip:
+                        skip_out = skip_out.detach()
                     delta = delta + skip_out
                 vs = self._get_ar_frame_vol_scale(cond_t, vol_scale, vol_scale_cell)
                 all_deltas.append(delta)
