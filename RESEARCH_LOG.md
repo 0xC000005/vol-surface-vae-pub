@@ -40010,3 +40010,97 @@ PYTHONPATH=. python experiments/backfill/block_ar/copula_ceiling.py \
 ```
 
 ---
+
+## 2026-03-23: Exp 151b/151b_v3 — H1a Stage 1: Detached Skip (RC14)
+
+### Context
+H0 copula ceiling proved Suite 9 is fixable via correlation injection. H1a tests
+whether detaching the noise skip from CRPS gradient preserves diversity (SimSiam
+stop-gradient hypothesis).
+
+### Bug: 151b used wrong decoder
+The first run (151b) accidentally used FrameDecoder (MLP) instead of
+CausalARTransformerDecoder because `--ar_causal_transformer` was missing from the
+training command. The MLP's skip is a plain `nn.Linear(32, 25)` that zero-initializes
+and never matched the FactorNoiseSkip from 146b's warm-start (W: 25×5, residual_proj:
+25×27). Result: skip stayed at zero with detach → effectively dead. 4/9 (worse than
+146b). **This run is INVALID for testing the detach hypothesis.**
+
+### 151b_v3: Correct architecture (transformer + FactorNoiseSkip)
+With `--ar_causal_transformer --ar_causal_cln --ar_factor_noise 5`, the model uses
+CausalARTransformerDecoder with FactorNoiseSkip. Only 9/132 params transferred from
+146b (shape mismatches) — essentially trained from near-scratch.
+
+### Results
+
+| Metric | 146b (baseline) | 151b_v3 (detach) | Change |
+|--------|-----------------|-------------------|--------|
+| Suites | 5/9 [1,3,4,5,6] | 4/9 [1,3,5,9] | -1 (lost 4,6, gained 9) |
+| rank_ratio | 0.450 | **0.892** | **+98%** |
+| gen_eff_rank | 2.26 | **4.48** | **+98%** |
+| corr_ratio | 1.14 | 0.908 | closer to GT |
+| CI_90 | 77.3% | 75.7% | -1.6pp |
+| kurtosis | 1.21 | 0.352 | **broken** |
+| KS daily | 21/25 | 17/25 | -4 |
+| cointegration | PASS | FAIL | lost |
+| ACF | 0.946 | 0.976 | improved |
+
+### Key Diagnostic Findings
+
+1. **Skip W learned NEW directions**: cos(W_v3, W_146b) = -0.12 (uncorrelated).
+   W_v3 norm=0.245 (7.9× larger than 146b's 0.031). Detach allowed skip to grow
+   without CRPS suppression.
+
+2. **All 5 factors active**: W eff_rank=4.87 (SVs: 0.152, 0.110, 0.100, 0.094, 0.077).
+   No factor collapse even without explicit diversity loss.
+
+3. **residual_proj stayed zero**: Detached, so no gradient. Only the 5-factor W
+   contributed to diversity.
+
+4. **Training dynamics**: eff_rank started at 4.99 (epoch 1, fresh init), collapsed
+   to 1.38 (epoch 5), recovered to 1.86 (epoch 10, pre-freeze), stable at 1.72
+   (epoch 20). The V-shaped trajectory confirms CRPS pressures toward rank-1 but
+   doesn't fully collapse with transformer architecture.
+
+5. **Kurtosis collapse mechanism**: The detached skip adds spatial diversity but not
+   temporal persistence. Kurtosis requires heavy tails in daily changes, which need
+   temporally correlated noise. The skip's contribution is independent each timestep.
+
+6. **Cointegration lost**: Near-scratch training (9 transferred params) means the
+   model's level dynamics are different from 146b. Cointegration requires specific
+   encoder-decoder coupling that wasn't preserved.
+
+### What Was Learned
+
+- **Detached skip WORKS for Suite 9**: rank_ratio 0.45 → 0.89 (1.98× improvement)
+- **Kurtosis is the new bottleneck**: 0.35 < 0.5 threshold, not fixable by diversity alone
+- **Near-scratch training is viable**: Even with only 9 warm-start params, the model
+  achieves 4/9 with very strong Suite 9 performance
+- **Architecture bug lesson**: Always verify decoder type matches base model. The
+  training command must include ALL architecture flags from the base model's config.
+
+### Decision
+H1a Stage 1 partially successful: Suite 9 fixed but kurtosis broken. The kill
+condition (eff_rank < 2.26) is NOT met — eff_rank=4.48 is well above threshold.
+However, kurtosis 0.35 is a serious regression.
+
+**Next: Consider whether kurtosis can be recovered with a diversity-preserving
+approach, or whether H1b (repulsive loss) handles both diversity AND tails.**
+
+### Commands
+```bash
+# 151b_v3 (correct architecture)
+PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \
+    --base_model models/backfill/afcrps_146b/best_model.pt \
+    --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \
+    --lr_decoder 2e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 \
+    --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread \
+    --ar_detach_skip --ar_factor_noise 5 \
+    --ar_causal_transformer --ar_causal_cln \
+    --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 \
+    --lambda_cell_var 1.0 --freeze_after_epoch 10 \
+    --disable_early_stop \
+    --output_dir models/backfill/afcrps_151b_v3 --device cuda
+```
+
+---

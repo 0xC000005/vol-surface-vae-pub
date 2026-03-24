@@ -1,15 +1,15 @@
 {
-  "iteration": 1,
-  "experiment_id": "151a",
-  "training_status": "inference_only",
-  "phase": "RC14_H0_copula_ceiling",
-  "hypothesis": "H0: Gaussian copula ceiling measurement. Reorder 146b ensemble members using GT copula structure estimated from training data. Determines whether correlation structure (H1a/H1b direction) or marginals (H2 direction) are the bottleneck.",
+  "iteration": 2,
+  "experiment_id": "151b",
+  "training_status": "training",
+  "phase": "RC14_H1a_stage1",
+  "hypothesis": "H1a Stage 1: Detach skip from CRPS gradient. Skip weights preserve warm-started factor structure without CRPS suppression. Expect eff_rank to be preserved or improved.",
   "session_best": {"exp": "146b", "score": "5/9", "suites": 5},
-  "total_experiments": 0,
-  "compass_position": "RC14-H0",
+  "total_experiments": 1,
+  "compass_position": "RC14-H1a Stage 1",
   "compass_theme": "Structural Diversity + Calibrated Spread",
   "session_date": "2026-03-23",
   "base_model": "models/backfill/afcrps_146b/best_model.pt",
   "branch": "autoresearch-session-rc14",
-  "next_action": "Write copula ceiling script, run on 146b, evaluate with test_block_ar_requirements_v2.py"
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py --base_model models/backfill/afcrps_146b/best_model.pt --no_ema --epochs 30 --batch_size 32 --noise_dim 32 --n_members 8 --lr_decoder 4e-3 --lambda_vs 0.1 --lambda_es 1.0 --lambda_is 0.5 --ar_frame --ar_cell_spread --ar_noise_skip --ar_skip_bypass_spread --ar_detach_skip --ar_reflect --ar_floor_clamp 0.01 --ar_bias_lambda 0.01 --lambda_cell_var 1.0 --freeze_after_epoch 10 --disable_early_stop --output_dir models/backfill/afcrps_151b --device cuda"
 }

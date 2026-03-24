@@ -16,6 +16,8 @@
 | # | Exp ID | Direction | Suites | Decision |
 |---|--------|-----------|--------|----------|
 | 1 | 151a | H0: Gaussian copula ceiling | 4/9 (PASS: 1,3,5,6+9 — FAIL: 2,4,7,8) | INFORMATIVE: Suite 9 fixable, but post-hoc breaks S4/S8. Proceed H1a/H1b. |
+| 2 | 151b | H1a-S1: Detach skip (MLP decoder, bug) | 4/9 (PASS: 1,3,5,6) | BUG: used MLP decoder not transformer. Skip was zero. Invalid. |
+| 2b | 151b_v3 | H1a-S1: Detach skip (transformer) | 4/9 (PASS: 1,3,5,9) | PARTIAL: Suite 9 PASS (rank 0.89)! But kurtosis 0.35, lost coint. |
 
 ### Iteration 1: Exp 151a — H0 Gaussian Copula Ceiling
 - **Hypothesis**: ECC reordering with GT Gaussian copula. Ceiling for Suite 9.
