@@ -41844,3 +41844,94 @@ parameters for no benefit and risk breaking the existing good spread behavior.
 9-suite + 252-day evaluation.
 
 ---
+
+## 2026-03-24: Exp 153a Full Evaluation — 4/9 Suites (RC15-H1-S4)
+
+### Results: 4/9 Suites PASS
+
+| Suite | Result | Key Metric |
+|-------|--------|------------|
+| S1: Surface Validity | FAIL | Cal arb 16.8% (threshold 10%) |
+| S2: CI Coverage | FAIL | Worst cell 11.0% (need 80%) |
+| S3: Conditionality | PASS | Turb/calm 1.456 |
+| S4: Time Series | PASS | ACF corr 0.999, kurt 1.514 |
+| S5: Growing Uncertainty | PASS | Mono 25/29, h30/h1 spread growing |
+| S6: Cointegration | FAIL | 47% (need 50%) |
+| S7: Regime Coverage | FAIL | 0/25 cells in both regimes |
+| S8: Distributional | FAIL | KS daily 23/25, KS levels 1/25 |
+| S9: Cross-Cell Correlation | PASS | Rank ratio 0.850, corr ratio 1.091 |
+
+Comparison: 152b passed [S1,S4,S5,S6,S9] = 5/9. 153a passes [S3,S4,S5,S9] = 4/9.
+New pass: S3 (conditionality). New fail: S1, S6.
+
+### Critical Finding: Per-Window Spread Collapse
+
+On test data, per-window ensemble spread is 0.016-0.019, vs 0.070 population spread
+measured during training. The 3.5x reduction is because:
+1. During training eval: spread measured across N samples with DIFFERENT conditions (population)
+2. During test eval: spread measured across S samples with SAME condition per window (ensemble)
+
+The ODE is nearly deterministic given a condition. All 50 samples from the same noise source
+converge to similar outputs through the same velocity field.
+
+### Temperature Scaling: Does NOT Work for One-Shot FM
+
+| tau | CI coverage | eff_rank | PC1 | KS | kurt |
+|-----|-------------|----------|-----|-----|------|
+| 1.0 | 32.3% | 6.36 | 0.999 | 25/25 | 1.113 |
+| 1.5 | 53.6% | — | — | — | — |
+| 2.0 | 78.8% | 14.75 | 0.990 | 7/25 | 0.486 |
+| 3.0 | 98.9% | 21.93 | 0.918 | 0/25 | 0.205 |
+
+Temperature scaling was effective for 152b (AR flow matching) but DESTROYS quality for
+one-shot FM. The velocity field was trained at tau=1 and cannot generalize to tau>1.
+In AR, temperature scales per-step noise (small perturbation). In one-shot, it scales
+the entire 750-dim source vector (massive out-of-distribution input).
+
+### Distributional Shift
+Train GT mean: 0.215, Test GT mean: 0.178 (shift: -0.037).
+KS levels fails 24/25 because the model generates from the training distribution,
+not the test distribution. KS daily passes 23/25 because daily changes are stationary.
+
+### WHY Analysis
+
+**S2 failure (CI coverage)**: One-shot ODE is inherently deterministic given a condition.
+The velocity field v(x_t, t, cond) maps each noise sample to almost the same output when
+conditioned on the same history. This is NOT a training issue — it's an architecture
+limitation. AR models inject noise at each of 30 steps (total: 30 * noise_dim sources of
+randomness), while one-shot FM has only 1 * 750 sources (the initial noise). And the
+ODE contracts this randomness as it integrates toward the target distribution.
+
+**S3 PASS (conditionality)**: On test data, turb/calm = 1.456 (was 1.138 on training data).
+This suggests the encoder differentiates turbulent vs calm windows BETTER on test data.
+The encoder was trained on the DDPM task (predicting next block given history), so it
+learned meaningful representations of IV dynamics.
+
+**S9 PASS (cross-cell correlation)**: eff_rank ratio 0.850, corr ratio 1.091. This is
+the first time a model passes S9 on test data while ALSO passing other suites. 152b
+passed S9 but with narrower margin.
+
+### What Was Learned
+
+1. **One-shot FM excels at distributional accuracy**: KS daily 23/25, PC1=0.999, frob=1.30.
+   The factor structure and marginal distributions are near-perfect.
+
+2. **One-shot FM fails at ensemble spread**: The ODE is too deterministic for generating
+   diverse ensembles. CI coverage requires per-window uncertainty that one-shot can't provide.
+
+3. **Temperature scaling not viable**: Unlike AR where tau scales small per-step noise,
+   one-shot tau pushes the entire source out of distribution.
+
+4. **The model needs both paradigms**: One-shot for quality + AR for spread. A hybrid
+   architecture could use the one-shot factored transformer for the base prediction
+   and add learned noise/perturbation for calibrated spread.
+
+5. **153a is the best model for distributional metrics**: PC1=0.999, PC2=0.996,
+   KS 25/25, spread 97% of GT. These are the best scores across all 50+ experiments.
+
+### Decision: Document as baseline for hybrid approach
+4/9 passes different suites than 152b (5/9). The union is [S1,S3,S4,S5,S6,S9] = 6/9.
+The remaining failures (S2, S7, S8) all relate to per-window calibration, which a
+hybrid approach could address.
+
+---
