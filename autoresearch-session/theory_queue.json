@@ -69,7 +69,8 @@
     },
     "attempts": 0,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
+    "result": "BUILD ON THIS. Every metric improved over 152e. PC1=0.999, PC2=0.996, frob=1.30, spread 97% of GT. Shuffled cond = real cond (population prior). Turb/calm 1.138.",
     "experiment_id": "153a",
     "effort": "2h"
   },
@@ -88,7 +89,8 @@
     "learn_from_failure": "Residual distribution harder to model (more peaked or heavier-tailed). Absolute is better for this data.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H1_S1",
+    "status": "completed",
+    "result": "VALUABLE FAILURE. Residual prediction makes kurtosis worse (1.35 vs 1.11). Residual distribution harder (heavier tails). Keep 153a. Level bias low (0.003).",
     "experiment_id": "153b",
     "effort": "2h"
   },
@@ -107,7 +109,8 @@
     "learn_from_failure": "CFM loss has no horizon-dependent gradient. Would need explicit spread loss (VS/IS), raising paradigm conflict question.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H1_S2",
+    "status": "skipped",
+    "result": "SKIPPED. 153a h30/h1 ratio=0.996 (GT=0.999). Spread already correct. Per-horizon scale adds complexity for no benefit.",
     "experiment_id": "153c",
     "effort": "2h"
   },
@@ -127,7 +130,7 @@
     ],
     "attempts": 0,
     "max_attempts": 1,
-    "status": "blocked_by_H1_S3",
+    "status": "pending",
     "experiment_id": "153d",
     "effort": "4h"
   }

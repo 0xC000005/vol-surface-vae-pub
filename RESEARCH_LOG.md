@@ -41783,3 +41783,64 @@ output space.
 153a is the new base for all subsequent stages. Proceed to RC15-H1-S2 (residual prediction).
 
 ---
+
+## 2026-03-24: Exp 153b — Residual Prediction from Persistence (RC15-H1-S2)
+
+### Context
+RC15-H1-S2. FMAP predicts delta = future - baseline to reduce ODE transport distance.
+Applied to 153a architecture: predict future - persistence instead of absolute future.
+
+**Based on**: 153a (conditional one-shot FM, PC1=0.999, PC2=0.996, KS 25/25)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_cond_residual_flow.py \
+    --epochs 200 --batch_size 64 --lr 5e-4 \
+    --output_dir models/backfill/flow_153b --device cuda
+```
+
+### Results — Metric Comparison (final_model, 1024 samples)
+
+| Metric | 153a | 153b | GT | Winner |
+|--------|------|------|------|--------|
+| eff_rank | 6.36 | 6.33 | 7.61 | tie |
+| PC1 | 0.999 | 0.999 | 1.000 | tie |
+| PC2 | 0.996 | 0.993 | 1.000 | 153a |
+| Frobenius | 1.30 | 1.31 | 0.000 | tie |
+| KS daily | 25/25 | 25/25 | 25 | tie |
+| kurt_ratio | 1.113 | 1.348 | 1.000 | 153a |
+| spread h1 | 0.070 | 0.075 | 0.072 | 153a (153b overshoots) |
+| KS levels h30 | — | 25/25 | — | OK |
+| Level bias | — | 0.003 | — | Low (good) |
+
+### Diagnostics
+- **Level bias**: Very low (mean=0.003, max=0.008). Persistence+residual reconstruction OK.
+- **Kurtosis per-horizon**: gen/GT ratio 1.43 at h=1, 1.36 at h=30. Heavier tails at ALL
+  horizons — not horizon-specific, inherent to residual distribution.
+- **Frobenius**: ep160 training eval showed 1.02 but 1024-sample robust eval gives 1.31 —
+  the training eval improvement was sampling noise, not real.
+
+### WHY Residual Didn't Help
+1. Residual (future - persistence) has HEAVIER TAILS than absolute future. Some windows
+   deviate strongly from persistence (regime changes, vol events). These outlier residuals
+   are harder for the velocity field to model accurately.
+2. The absolute distribution (what 153a models) is bounded [0,1] and relatively smooth.
+   The residual distribution is unbounded and has higher kurtosis.
+3. The theory queue predicted this: "Residual distribution harder to model (more peaked
+   or heavier-tailed). Absolute is better for this data."
+4. FMAP works with weather data where persistence is a strong forecast — residuals are
+   small. For IV surfaces, persistence is a WEAK forecast at 30-day horizon.
+
+### Decision: VALUABLE FAILURE
+Keep 153a as base. Residual prediction adds kurtosis penalty without improving other metrics.
+
+### RC15-H1-S3: SKIPPED
+153a already has h30/h1 spread ratio = 0.996 (GT = 0.999). The "growing uncertainty" problem
+S3 targets does not exist — spread is already correct. Adding per-horizon scale would add
+parameters for no benefit and risk breaking the existing good spread behavior.
+
+### Next: RC15-H1-S4 (Full Evaluation)
+153a (conditional one-shot FM, absolute prediction, N(0,I) source) is the model for full
+9-suite + 252-day evaluation.
+
+---
