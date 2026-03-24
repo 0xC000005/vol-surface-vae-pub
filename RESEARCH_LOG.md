@@ -40272,3 +40272,50 @@ under repulsive loss means single-loss approaches cannot simultaneously satisfy 
 - Or: H2 (flow matching) where diversity is structural, not loss-driven
 
 ---
+
+## 2026-03-24: Exp 151d — H1a+H1b Combo: Detach + Repulsion (RC14)
+
+### Result
+4/9 [1,3,5,9]. corr_ratio=0.658 (PASS), rank_ratio=1.011, gen_eff_rank=5.09 (≈GT 5.03).
+But kurtosis=0.361 (FAIL S4), CI=75.2% (FAIL S2), cointegration FAIL, distributional FAIL.
+
+### Interpretation
+Combining detach + repulsion does NOT improve over either alone:
+- Detach alone: 4/9 [1,3,5,9], rank=0.892
+- Repulsion lambda=0.5: 5/9 [1,3,4,5,8], corr=0.40
+- **Combo: 4/9 [1,3,5,9], corr=0.658 but kurt=0.361**
+
+The detach prevents joint optimization of skip with CRPS, so the model can't learn
+how to produce both diverse AND heavy-tailed samples. Repulsion adds diversity pressure
+but without CRPS feedback on the skip, the tail structure is weak.
+
+Notable: gen_eff_rank=5.09 is the closest to GT (5.03) of any model. The combination
+calibrates diversity well but at the cost of temporal properties.
+
+### H1 Series Conclusion (6 experiments)
+
+| Exp | Config | Suites | Key Trade-off |
+|-----|--------|--------|---------------|
+| 151b_v3 | detach only | 4/9 [1,3,5,9] | rank=0.89, kurt=0.35 |
+| 151c | repul=1.0 | **5/9 [1,3,5,8,9]** | rank=1.90, kurt=0.42 |
+| 151c_v2 | repul=0.3 | 4/9 [1,3,4,5] | rank=1.82, corr=0.34 |
+| 151c_v3 | repul=0.5 | **5/9 [1,3,4,5,8]** | kurt=0.61, corr=0.40 |
+| 151c_v4 | repul=0.7 | 4/9 [1,3,4,5] | kurt=0.55, corr=0.48 |
+| 151d | detach+repul=0.5 | 4/9 [1,3,5,9] | eff_rank=5.09≈GT |
+
+**Best: 5/9** (two different patterns, both stuck at ceiling).
+**The S4-S9 adversarial relationship is FUNDAMENTAL** under single-pass AR + CRPS.
+Kurtosis (heavy tails in daily changes) and cross-cell correlation require
+different noise characteristics that a single noise source cannot simultaneously satisfy.
+
+### Decision Gate: H1 Exhausted → Consider H2
+
+Both H1a and H1b cap at 5/9. Neither achieves 6/9. The fundamental constraint:
+- Heavy tails require temporally persistent, rank-1 noise patterns
+- Cross-cell correlation requires spatially structured, high-rank noise patterns
+- These are geometrically incompatible in a single noise pathway
+
+This points toward H2 (flow matching) where diversity is STRUCTURAL (each sample
+follows an independent ODE trajectory) rather than injected through noise.
+
+---
