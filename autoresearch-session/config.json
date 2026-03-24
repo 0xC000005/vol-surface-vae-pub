@@ -1,14 +1,13 @@
 {
-  "goal": "RC14: Structural Diversity + Calibrated Spread. Break the CRPS diversity trap via gradient-path separation (H1a/H1b) or flow matching paradigm shift (H2). H0 copula ceiling determines direction.",
-  "starting_model": "models/backfill/afcrps_146b/best_model.pt",
-  "starting_experiment": "146b",
-  "scope": "Level D — Full architecture + new paradigm: single_pass_ar.py, gru_encoder.py, train_afcrps.py, test scripts. H2 may add new files (flow matching trainer, velocity network).",
+  "goal": "RC15: Conditional One-Shot Flow Matching. Build a conditional forecasting model on the 152e factored transformer architecture, informed by FMAP (spatial attention + FM) and Lim et al. (data-dependent paths) literature.",
+  "starting_model": "models/backfill/flow_152e/best_model.pt",
+  "starting_experiment": "152e",
+  "scope": "Level D — New one-shot FM files + existing encoder. train_oneshot_flow.py, eval scripts, test integration.",
   "scope_files": [
-    "diffusion/block_ar/single_pass_ar.py",
-    "diffusion/block_ar/gru_encoder.py",
-    "experiments/backfill/block_ar/train_afcrps.py",
+    "experiments/backfill/block_ar/train_oneshot_flow.py",
+    "experiments/backfill/block_ar/eval_ar_flow.py",
     "experiments/backfill/block_ar/test_block_ar_requirements_v2.py",
-    "experiments/backfill/block_ar/test_long_horizon.py"
+    "diffusion/block_ar/gru_encoder.py"
   ],
   "constraints": {
     "bitter_lesson": true,
@@ -16,87 +15,56 @@
     "no_domain_heuristics": true,
     "no_post_hoc_corrections": true,
     "must_generalize": "Any conditional scenario generation (IV, rates, FX, credit)",
-    "research_compass": "RC14: Structural Diversity + Calibrated Spread",
-    "investigation_blocking": "Post-experiment diagnostics REQUIRED per theory_queue diagnostic_plan",
-    "post_investigation_required": true,
-    "anti_circular_reasoning": "DO NOT propose incremental fixes within single-pass AR + CRPS without gradient-path separation. See 'Decision — Why Incremental Fixes Cannot Work' in RESEARCH_LOG.md.",
-    "long_horizon_required": "252-day test on ALL promising models (>=5/9 suites)"
+    "research_compass": "RC15: Conditional One-Shot FM (Literature-Informed)",
+    "investigation_blocking": "Post-experiment diagnostics REQUIRED per theory_queue diagnostic_plan — EVERY stage",
+    "paradigm_requirements": [
+      "Independent sample trajectories (each ODE starts from independent source)",
+      "CFM loss (no CRPS diversity penalty)",
+      "Factored transformer (no CLN bottleneck)",
+      "Everything learned from data"
+    ],
+    "long_horizon_required": "252-day test on final model (boss requirement)"
   },
   "metric": "composite",
   "guard": {
     "min_suites": 4,
-    "never_break_all_of": [1, 3, 4, 5],
-    "never_break_suite_6": "cointegration is fragile — monitor explicitly in paradigm shifts",
+    "never_break_all_of": [1, 4, 5],
+    "pc1_alignment_floor": 0.90,
     "individual_regression_ok_if_motivated": true
   },
   "budget": {
-    "probe_epochs": 5,
-    "quick_epochs": 30,
-    "full_epochs": 60,
-    "quick_first": true,
-    "h0_is_inference_only": "H0 copula ceiling needs no training, just sample reordering + eval"
+    "probe_epochs": 100,
+    "quick_epochs": 200,
+    "full_epochs": 300
   },
-  "baseline_model": "146b",
-  "baseline_score": 69.14,
-  "baseline_suites_passed": 5,
-  "baseline_pass_pattern": [1, 3, 4, 5, 6],
-  "baseline_fail_pattern": [2, 7, 8, 9],
+  "baseline_model": "152e (unconditional)",
+  "baseline_metrics": {
+    "eff_rank": 5.99,
+    "pc1": 0.989,
+    "pc2": 0.965,
+    "ks_pass": 25,
+    "kurt_ratio": 1.215,
+    "frobenius": 3.225
+  },
   "reference_models": {
-    "150b_s42": {"suites": 7, "note": "7/9 but seed=42 only, epoch 8, Suite 9 margin 0.0095"},
-    "150d": {"suites": 5, "note": "eff_rank 3.318 BEST EVER at epoch 2, but kurtosis 0.411, KS 12/25"}
+    "146b": {"suites": 5, "pattern": [1,3,4,5,6], "note": "CRPS baseline"},
+    "152b": {"suites": 5, "pattern": [1,4,5,6,9], "note": "AR flow matching"},
+    "152b_tau1.3": {"suites": 5, "pattern": [1,4,5,6,9], "note": "AR flow + temperature, CI 85%"},
+    "152e": {"suites": "N/A (unconditional)", "note": "One-shot factored, PC1=0.99, kurt=1.2"}
   },
-  "two_independent_problems": {
-    "P1_spread_regime": {
-      "suites": [2, 7],
-      "current": "CI 77%, calm_h1 51%",
-      "target": "90%",
-      "correlation_with_P3": 0.50,
-      "mechanism_needed": "Wider, correctly-sized intervals"
-    },
-    "P2_rank": {
-      "suites": [9],
-      "current": "rank_ratio 0.45",
-      "target": ">=0.50",
-      "independent_of_P1": true,
-      "mechanism_needed": "Higher-dimensional ensemble covariance"
-    }
-  },
-  "evidence_corrections": [
-    "V-shaped rank trajectory (NOT monotonic): 0.518→0.356→0.423→0.526→0.451",
-    "2 independent problems NOT 3: P1-P3 correlated r=0.50 (n=69, p<0.001)",
-    "AIFS injection GRANULARITY (10,944:1) not ratio (~0.058 both)",
-    "Architecture produces 7/9 transiently (150b ep8 s42) — unstable, not impossible"
-  ],
-  "proven_root_causes": [
-    "CLN rank-1: Jacobian 1.229, PC1=95.4% (reproduced)",
-    "CRPS suppresses bypass: skip→0.103, noise_scale→0.75x, factors>5 collapse",
-    "Amplitude irrelevant: 3x noise = 0pp CI",
-    "Injection granularity gap: AIFS=10,944 points, ours=1",
-    "Good states are dynamically unstable under CRPS"
-  ],
-  "dead_ends": [
-    "All RC6-RC13 incremental fixes within single-pass AR + CRPS (35 experiments)",
-    "Noise amplitude scaling (zero effect at 3x)",
-    "Plain skip bypass (CRPS collapses to norm=0.10)",
-    "Per-cell noise unbounded (KS collapse)",
-    "More factors >5 (CRPS collapses extras)",
-    "Loss modifications without gradient separation (breaks KS/cointegration)",
-    "K=16 (catastrophic)",
-    "Noise scale conditioning (learns suppression)"
-  ],
   "literature": [
-    "SimSiam (CVPR 2021): stop-gradient prevents collapse — necessary and sufficient",
-    "OrthoFormer (2026): gradient detach preserves desired property",
-    "RLSD (ICLR 2025): kernel repulsion prevents mode collapse",
-    "CW-Gen (ICLR 2026): conditionally whitened flow matching for cross-variable covariance",
-    "Swift (NeurIPS 2025): 1-step consistency model + CRPS, stable 75-day rollouts",
-    "CRPS-LAM (2510.09484): documents same collapse, single-pass CRPS beats diffusion at long leads",
-    "Warner et al.: flow matching works with 1K-5K constrained samples",
-    "ECC (Lakatos QJRMS 2023): Gaussian copula is sufficient for 25-dim ensemble post-processing",
-    "AIFS-CRPS (2412.15832): per-location noise (10,944 points), 229M params → no collapse"
+    "FMAP (Landry et al., 2504.03463): spatial attention + FM + concatenation conditioning + residual + lead-time scale",
+    "Lim et al. (2410.03229, TMLR 2025): data-dependent probability paths for FM forecasting",
+    "Lim & Erichson (2602.08318): FM = trajectory replay, nonparametric memory-augmented ODE",
+    "FlowCast (2511.09731): CFM in latent space for precipitation",
+    "FlowTime (2503.10375): AR flow matching with calibrated uncertainty",
+    "ArchesClimate (2509.15942): AR FM stable 10-year rollouts",
+    "Memory-conditioned FM (2602.06689): Mori-Zwanzig proves memoryless closures structurally limited",
+    "SFM-NVIDIA (2410.19814): stochastic flow matching for physical super-resolution",
+    "BSFM (2603.21717): Bayesian stochastic FM with aleatoric/epistemic decomposition"
   ],
-  "directions": "RC14: H0 (copula ceiling 2h) → H1a+H1b parallel (gradient separation 10h each) → H2 (flow matching 5d) if H1 fails",
-  "created_at": "2026-03-23",
-  "updated_at": "2026-03-23",
+  "directions": "RC15: H2 (data-dependent source 1h) → H1-S1 (conditional 2h) → H1-S2 (residual 2h) → H1-S3 (per-horizon scale 2h) → H1-S4 (full eval 4h)",
+  "created_at": "2026-03-24",
+  "updated_at": "2026-03-24",
   "branch": "autoresearch-session-rc14"
 }

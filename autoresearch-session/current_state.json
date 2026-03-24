@@ -1,13 +1,30 @@
 {
-  "iteration": 10,
-  "experiment_id": "152b",
-  "training_status": "training",
-  "phase": "RC14_H2_stage2",
-  "hypothesis": "H2 Stage 2: Conditional AR flow matching. Frozen GRU encoder + ConditionalVelocityMLP. Per-frame CFM loss, 30-step AR rollout with 8-step ODE per frame. Tests whether GT-aligned diversity from Stage 1 transfers to conditional forecasting.",
-  "session_best": {"exp": "152a", "metric": "eff_rank 3.24≈GT, PC1 align 1.0, KS 25/25"},
-  "total_experiments": 10,
-  "compass_position": "RC14-H2 Stage 2",
+  "iteration": 17,
+  "experiment_id": "152e",
+  "training_status": "idle",
+  "phase": "RC15_ready",
+  "hypothesis": "RC15: Conditional One-Shot FM. H2 (data-dependent source) is next. Literature-informed design from FMAP + Lim et al.",
+  "session_best": {
+    "unconditional": {"exp": "152e", "metric": "PC1=0.989, kurt=1.215, KS 25/25"},
+    "conditional_ar": {"exp": "152b", "metric": "5/9 [1,4,5,6,9], first S4+S6+S9"}
+  },
+  "total_experiments": 17,
+  "compass_position": "RC15-H2 (data-dependent source, pending)",
+  "compass_theme": "Conditional One-Shot Flow Matching (Literature-Informed)",
   "session_date": "2026-03-24",
+  "base_model": "models/backfill/flow_152e/best_model.pt",
   "branch": "autoresearch-session-rc14",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_ar_flow.py --encoder_path models/backfill/afcrps_146b/best_model.pt --epochs 100 --batch_size 64 --lr 1e-3 --hidden 256 --n_layers 4 --n_steps 8 --output_dir models/backfill/flow_152b --device cuda"
+  "rc15_execution_order": [
+    "H2: Data-dependent source (1h) → determines source distribution for H1",
+    "H1-S1: Conditional with concatenation (2h) → kill gate: PC1 >= 0.95, kurt >= 0.5",
+    "H1-S2: Residual prediction (2h) → kill gate: KS >= 15/25",
+    "H1-S3: Per-horizon scale (2h) → kill gate: spread ratio > 1.05",
+    "H1-S4: Full evaluation (4h) → 9-suite + 252d + multi-seed"
+  ],
+  "key_literature": [
+    "FMAP (2504.03463): concatenation conditioning + residual + lead-time scale",
+    "Lim et al. (2410.03229): data-dependent probability paths",
+    "Lim & Erichson (2602.08318): FM = trajectory replay"
+  ],
+  "next_action": "Implement and run RC15-H2: data-dependent source distribution probe on 152e architecture"
 }

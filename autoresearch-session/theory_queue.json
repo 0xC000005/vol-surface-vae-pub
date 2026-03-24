@@ -2,126 +2,132 @@
   {
     "name": "RC6-RC13 (all completed)",
     "status": "completed",
-    "result": "35 experiments across RC6-RC13. Best: 150b 7/9 (seed=42 ep8, not robust). Paradigm evaluation concludes: single-pass AR + CRPS has unstable diversity. Architecture CAN produce good states but CRPS dynamics make them seed-dependent and epoch-specific. See RESEARCH_LOG.md entries for full details."
+    "result": "35 experiments. Single-pass AR + CRPS caps at 5/9. Paradigm broken."
   },
   {
-    "name": "RC14-H0: Gaussian copula ceiling measurement",
-    "theory": "Take 146b ensemble, reorder members using GT Gaussian copula (ECC). Evaluate all 9 suites. This is a DIAGNOSTIC that determines whether H1a/H1b or H2 is the right direction. If Suite 9 passes with copula reordering, the marginals are fine and only correlation structure needs fixing. If Suite 9 still fails, the problem is deeper than correlation.",
-    "target": "Determine ceiling: how many suites can pass with perfect cross-cell correlation applied post-hoc?",
-    "falsification": "N/A — this is a measurement, not a hypothesis. Any result is informative.",
-    "implementation": "~50 LOC Python script. Estimate 25x25 Gaussian copula from training data. Reorder 146b ensemble members. Run test_block_ar_requirements_v2.py. No GPU for copula estimation, GPU for evaluation.",
-    "diagnostic_plan": {
-      "after_eval": [
-        "1. Suite 9 pass/fail with copula vs without",
-        "2. Suite 2 (CI) change — does correlation reordering affect coverage?",
-        "3. Per-suite comparison: which suites change with copula reordering?",
-        "4. If Suite 9 passes: marginals are sufficient → proceed to H1a/H1b",
-        "5. If Suite 9 fails: marginals are broken → skip H1a/H1b, go to H2"
-      ]
-    },
+    "name": "RC14-H0: Copula ceiling",
+    "status": "completed",
+    "result": "Suite 9 fixable via correlation injection. Post-hoc breaks S4/S8."
+  },
+  {
+    "name": "RC14-H1a: Detach skip",
+    "status": "completed",
+    "result": "4/9. Suite 9 PASS (rank 0.89) but kurtosis broken."
+  },
+  {
+    "name": "RC14-H1b: Repulsive loss",
+    "status": "completed",
+    "result": "5/9 max. S4-S9 adversarial. ARTIFICIAL diversity (PC1 align 0.275)."
+  },
+  {
+    "name": "RC14-H2: AR flow matching",
+    "status": "completed",
+    "result": "152b 5/9 [1,4,5,6,9]. First S4+S6+S9. Spread collapse at long horizon. Temperature preserves GT alignment. PC2 degrades in AR (0.785 vs 0.994 unconditional)."
+  },
+  {
+    "name": "RC14: One-shot flow matching exploration",
+    "status": "completed",
+    "result": "152d MLP fails (5:1 ratio). 152e factored transformer works (PC1=0.99, kurt=1.2, KS 25/25). PC3-5 weak. Spread flat. Unconditional only."
+  },
+  {
+    "name": "RC15-H2: Data-dependent source distribution",
+    "theory": "Lim et al. (2410.03229) prove data-dependent paths have lower variance velocity fields. Use persistence forecast (last history frame repeated 30x) as ODE source instead of N(0,I). Each training pair has different persistence-to-future displacement, so diversity comes from the velocity field.",
+    "target": "Faster convergence, equal or better sample quality vs 152e.",
+    "falsification": "After 100 epochs: eff_rank < 3.0 OR KS < 15/25 → data-dependent source doesn't work at our scale.",
+    "diagnostic_plan": [
+      "1. Training convergence: loss curve vs 152e — at which epoch does quality match?",
+      "2. Full metric table vs 152e: eff_rank, PC1-5, KS, kurtosis, Frobenius",
+      "3. Velocity field variance at t=0.5: compare with 152e (Lim predicts LOWER)",
+      "4. Spread analysis: is ensemble spread narrower than 152e?",
+      "5. If UNEXPECTED: generate at intermediate ODE steps (t=0.25, 0.5, 0.75)"
+    ],
+    "learn_from_failure": "Diversity depends on noise-to-data distance. Persistence source too deterministic. Would contradict Lim et al. at our scale.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "pending",
-    "experiment_id": "151a",
-    "effort": "2h",
-    "gates": "Result determines H1 vs H2 direction"
+    "experiment_id": "152f",
+    "effort": "1h"
   },
   {
-    "name": "RC14-H1a: Detached noise skip + dual-loss training",
-    "theory": "CRPS suppresses skip to norm=0.103 (verified from 148a weights). SimSiam (CVPR 2021) proves stop-gradient is necessary and sufficient to prevent collapse. OrthoFormer (2026) proves removing gradient detachment 'destroys the desired property.' CRPS spread gradient weakens as members converge (positive feedback loop). Stop-gradient breaks this loop by construction. A separate diversity loss (VS + coverage) trains the noise pathway independently.",
-    "target": "Suite 9 PASS (rank_ratio >= 0.50). CI_90 > 85%. Both P1 (spread) and P2 (rank) addressed.",
-    "falsification": "Stage 1: eff_rank < 2.26 with detached skip → noise pathway isn't bottleneck, deterministic decoder is also rank-1. KILL → H2. Stage 2: rank_ratio < 0.50 OR CI < 80% across 2 seeds → dual-loss doesn't converge. KILL → try H1b or H2.",
-    "implementation": "Stage 1 (detach-only): Add .detach() to skip_contribution in forward pass. Train with CRPS only. ~5 LOC. Stage 2 (dual-loss): Add VS + coverage loss on noise pathway with reversed detach. Two backward passes. ~50 LOC. Stage 3: Multi-seed + long-horizon.",
-    "diagnostic_plan": {
-      "stage1_after_training": [
-        "1. eff_rank: did detach alone improve diversity? Compare vs 146b (2.26)",
-        "2. CI_90: did removing CRPS from noise change coverage?",
-        "3. Skip proj norm: is it still 0.103 or has it grown (since CRPS can't suppress)?",
-        "4. KS per-cell: did detach break distributional fidelity?",
-        "5. All 9 suites comparison vs 146b"
-      ],
-      "stage2_after_training": [
-        "1. rank_ratio: VS trains skip for correlation → does it pass 0.50?",
-        "2. CI_90 per-horizon: coverage loss trains skip for spread → does h=1 improve?",
-        "3. VS loss trajectory: is VS actually decreasing? Or stuck?",
-        "4. Per-cell coverage grids at h=1, h=7, h=30",
-        "5. Cross-suite check: any passing suites broken?",
-        "6. Long-horizon (252d): CI at d30, d60, d120, d180, d252"
-      ]
+    "name": "RC15-H1-S1: Conditional one-shot FM with concatenation",
+    "theory": "FMAP (2504.03463) validates concatenation conditioning for spatial attention + FM. Encoder output (128-dim) projected and concatenated as additional features per token. Preserves attention's ability to learn cross-cell correlations (unlike FiLM which modulates globally).",
+    "target": "PC1 >= 0.95. Kurtosis >= 0.5. Turb/calm > 1.15. Suite 3 passes.",
+    "falsification": "PC1 < 0.95 OR kurtosis < 0.5 after 200 epochs → conditioning fundamentally problematic for one-shot FM.",
+    "diagnostic_plan": [
+      "1. Full metric table vs 152e: eff_rank, PC1-5, KS, kurtosis, Frobenius",
+      "2. Conditionality: turb/calm width ratio on 50 turb + 50 calm windows",
+      "3. Condition ablation: random vs real condition — delta in every metric",
+      "4. Per-horizon breakdown: eff_rank and CI at h=1, h=15, h=30",
+      "5. Encoder output variance across test set",
+      "6. PC alignment per-horizon"
+    ],
+    "learn_from_failure": {
+      "PC1_degrades": "Condition constrains dominant factor too much. Try condition dropout.",
+      "kurtosis_degrades": "Condition makes velocity too deterministic. Try condition augmentation noise.",
+      "conditionality_fails": "128-dim bottleneck insufficient for 750-dim. Need cross-attention over history."
     },
     "attempts": 0,
-    "max_attempts": 2,
-    "status": "blocked_by_H0",
-    "experiment_id": "151b",
-    "effort": "10h total (2h + 4h + 4h staged)",
-    "gates": "Only run if H0 shows Suite 9 passes with copula (correlation is bottleneck)"
+    "max_attempts": 1,
+    "status": "blocked_by_H2",
+    "experiment_id": "153a",
+    "effort": "2h"
   },
   {
-    "name": "RC14-H1b: Repulsive ensemble loss + spread floor",
-    "theory": "CRPS spread gradient weakens as members converge — positive feedback loop leads to diversity collapse. RLSD (ICLR 2025) uses kernel-based repulsion that is STRONGEST when members are close (complementary to CRPS spread which is WEAKEST when close). Spread floor prevents CI width from collapsing below 90% coverage requirement.",
-    "target": "Suite 9 PASS. CI_90 > 85%. KS >= 20/25.",
-    "falsification": "Stage 1: eff_rank < 2.26 AND KS < 15/25 → repulsion conflicts with distributional accuracy. KILL. Stage 2: No (lambda_repul, lambda_floor) combo passes both Suite 9 and Suite 8 → fundamentally adversarial.",
-    "implementation": "Stage 1 (repulsion only): RBF kernel repulsion loss, adaptive bandwidth. ~30 LOC. Stage 2 (add spread floor): Minimum CI width per horizon, penalize too-narrow intervals. ~20 LOC. Stage 3: Multi-seed + long-horizon.",
-    "diagnostic_plan": {
-      "stage1_after_training": [
-        "1. eff_rank: does repulsion improve diversity? Compare vs 146b",
-        "2. KS per-cell: does repulsion break distributional fidelity?",
-        "3. Pairwise member distance histogram: are members more spread out?",
-        "4. Training dynamics: does repulsion maintain spread over epochs (not V-shaped)?",
-        "5. Suite-by-suite comparison vs 146b"
-      ],
-      "stage2_after_training": [
-        "1. CI per-horizon: does spread floor improve h=1 coverage?",
-        "2. Grid search results: which (lambda_repul, lambda_floor) is best?",
-        "3. Kurtosis: does spread floor affect daily change distribution?",
-        "4. Long-horizon (252d) test"
-      ]
-    },
+    "name": "RC15-H1-S2: Residual prediction from persistence",
+    "theory": "FMAP predicts delta = future - baseline. Reduces ODE transport distance, improves convergence, requires fewer steps. For us: delta = future - persistence (last history frame repeated).",
+    "target": "Faster convergence. KS >= 15/25. Kurtosis may improve.",
+    "falsification": "KS daily < 15/25 → residual transformation changes distribution too much.",
+    "diagnostic_plan": [
+      "1. Convergence comparison: loss at ep50, ep100, ep200 vs Stage 1",
+      "2. Full metric table vs Stage 1",
+      "3. Residual distribution histogram at h=1 and h=30 vs absolute",
+      "4. Level bias check: per-cell mean(gen) vs mean(GT) after adding persistence back",
+      "5. KS on levels AND KS on changes — report both"
+    ],
+    "learn_from_failure": "Residual distribution harder to model (more peaked or heavier-tailed). Absolute is better for this data.",
     "attempts": 0,
-    "max_attempts": 2,
-    "status": "blocked_by_H0",
-    "experiment_id": "151c",
-    "effort": "10h total (2h + 4h + 4h staged)",
-    "gates": "Only run if H0 shows Suite 9 passes with copula (correlation is bottleneck). Run parallel with H1a."
+    "max_attempts": 1,
+    "status": "blocked_by_H1_S1",
+    "experiment_id": "153b",
+    "effort": "2h"
   },
   {
-    "name": "RC14-H2: Conditional flow matching (paradigm shift)",
-    "theory": "In flow matching, diversity is structural — each sample follows an independent ODE trajectory from noise to data. No CRPS-diversity conflict. Per-cell per-horizon noise (750-dim) in output space. CFM loss for base training, CRPS fine-tune for calibration, progressive rollout for long-horizon. CW-Gen (ICLR 2026) targets cross-variable covariance explicitly. Warner et al. show flow matching works with 1K-5K constrained samples.",
-    "target": ">=7/9 suites. CI_90 > 85%. rank_ratio > 0.50. 252-day CI > 50%.",
-    "falsification": "Stage 1: CFM loss doesn't converge after 100 epochs → 4K samples insufficient. KILL. Stage 1: eff_rank < 3.0 → flow matching doesn't solve diversity at 25-dim. KILL. Stage 2: turb/calm ratio < 1.15 → conditioning doesn't transfer. Stage 3: <5/9 suites → loses current properties.",
-    "implementation": "Stage 1 (unconditional): Velocity MLP (128-dim, 3-layer) on 25-dim frames. OT interpolation, 8-step ODE. No encoder. 1 day. Stage 2 (conditional): Add frozen GRU encoder conditioning. 5-step AR. 1 day. Stage 3 (full pipeline): 30-step AR + CRPS calibration phase. 2 days. Stage 4 (long-horizon): Progressive rollout 30→60→120. 252-day test. 1 day.",
-    "diagnostic_plan": {
-      "stage1_after_training": [
-        "1. CFM loss convergence curve — does it decrease?",
-        "2. Sample quality: visual inspection of generated 5x5 grids. Do they look like IV surfaces?",
-        "3. eff_rank of generated samples (target > 3.0)",
-        "4. KS test on generated single frames vs GT",
-        "5. Arbitrage check: calendar and butterfly on generated surfaces"
-      ],
-      "stage2_after_training": [
-        "1. Conditionality: turb/calm width ratio > 1.15?",
-        "2. CI at h=1 through h=5",
-        "3. KS on daily changes",
-        "4. Is the GRU encoder output actually used? Ablation: random condition vs real"
-      ],
-      "stage3_after_training": [
-        "1. Full 9-suite evaluation",
-        "2. CRPS calibration effect: CI before and after Phase 2",
-        "3. Per-suite comparison vs 146b and 150b",
-        "4. Factor structure: eff_rank, PC loadings"
-      ],
-      "stage4_after_training": [
-        "1. 252-day CI at d30, d60, d120, d180, d252",
-        "2. Spread monotonicity: does uncertainty grow with horizon?",
-        "3. Kurtosis at long horizons",
-        "4. Cointegration at long horizons"
-      ]
-    },
+    "name": "RC15-H1-S3: Per-horizon learned scale",
+    "theory": "FMAP rescales FM output by lead-time-dependent error scale. Add nn.Parameter(30) as per-horizon multiplier on velocity output. Trains jointly with velocity network via CFM loss backprop.",
+    "target": "Spread ratio h30/h1 > 1.1. Growing uncertainty with horizon.",
+    "falsification": "All scale values in [0.95, 1.05] → no effect. OR spread ratio < 1.05.",
+    "diagnostic_plan": [
+      "1. Learned scale values: plot scale_h vs horizon h",
+      "2. Spread curve: ensemble std vs horizon, compare GT and previous stages",
+      "3. Per-horizon eff_rank at h=1, h=15, h=30",
+      "4. Per-horizon kurtosis at h=1, h=15, h=30",
+      "5. Full metric table vs previous stages"
+    ],
+    "learn_from_failure": "CFM loss has no horizon-dependent gradient. Would need explicit spread loss (VS/IS), raising paradigm conflict question.",
     "attempts": 0,
-    "max_attempts": 3,
-    "status": "blocked_by_H0",
-    "experiment_id": "152a",
-    "effort": "5 days total (1d + 1d + 2d + 1d staged)",
-    "gates": "Run immediately if H0 shows Suite 9 still fails with copula (marginals are broken). Or run after H1a AND H1b both fail."
+    "max_attempts": 1,
+    "status": "blocked_by_H1_S2",
+    "experiment_id": "153c",
+    "effort": "2h"
+  },
+  {
+    "name": "RC15-H1-S4: Full evaluation",
+    "theory": "Comprehensive evaluation of best model from Stages 1-3.",
+    "target": ">= 6/9 suites.",
+    "diagnostic_plan": [
+      "1. Full 9-suite evaluation",
+      "2. Long-horizon test (252 days) — MANDATORY",
+      "3. Multi-seed (42, 43, 44) if any suite borderline",
+      "4. PCA alignment (PC1-5)",
+      "5. Cross-model table: 146b, 151c, 152b, 152b+tau1.3, 152e, new model",
+      "6. Realism diagnostic: PC alignment of spread direction, rank persistence",
+      "7. Per-cell breakdown for EVERY failing suite",
+      "8. Stress test for EVERY passing suite (margin, seed sensitivity)"
+    ],
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "blocked_by_H1_S3",
+    "experiment_id": "153d",
+    "effort": "4h"
   }
 ]
