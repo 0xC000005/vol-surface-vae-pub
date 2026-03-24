@@ -40732,3 +40732,50 @@ Suite 2 blocked by per-cell upper gate. Suite 3/7/8 unchanged.
    This is a per-cell calibration issue, not a fundamental architectural problem.
 
 ---
+
+## 2026-03-24: Validation Audit — H2 Series (152a-152c + sweeps)
+
+### Scope
+Audited 11 experiment results from RC14 H2 series. Verified all numerical claims
+against disk. Ran 2 new analyses: long-horizon (252d) and PCA alignment.
+
+### Claim Verification: ALL KEY CLAIMS VERIFIED
+- 152a: eff_rank 3.24, KS 25/25, PC1 1.0 — all match disk exactly
+- 152b: 5/9 [1,4,5,6,9], rank 1.506, corr 0.821, kurtosis 0.609 — all verified
+- Temperature corr_ratio stability: range 0.016 across τ=1.0-2.0 — VERIFIED
+- 152c regression: 4/9, CI 58.6% — verified
+- Minor correction: τ=1.3 kurtosis was 0.513, reported as 0.502 in log (0.011 diff)
+
+### NEW FINDING: Long-Horizon Spread Collapse
+Spread DECREASES from d=30 (0.032) to d=120 (0.028) — opposite of physical reality.
+The ODE trajectories converge over long AR rollouts. CI at d=30 is 79.7% (borderline).
+This is a new failure mode specific to flow matching AR: no mechanism for growing
+uncertainty with horizon.
+
+### CORRECTION: PCA Alignment Is Partial, Not Perfect
+Prior claim: "GT-aligned diversity transfers from unconditional to conditional."
+Corrected: PC1 alignment transfers well (0.993), but higher PCs degrade:
+- PC2: 0.785 (was 0.994 in unconditional)
+- PC3: 0.559 (poor)
+- PC5: 0.295 (near-random)
+
+The flow model preserves the dominant market factor (level shift) but scrambles
+fine cross-cell structure during AR rollout. This explains why Frobenius distance
+is 5.82 (152b) vs 0.75 (152a unconditional).
+
+### Gap Status After Audit
+
+| Gap | Status |
+|-----|--------|
+| Long-horizon test | FILLED — spread collapse found |
+| PCA alignment | FILLED — partial transfer, PC1 good, PC2+ degraded |
+| Multi-seed validation | STILL OPEN — kurtosis 0.609 is borderline |
+| Sweep scripts saved | STILL OPEN (low priority) |
+
+### Implications for Stage 3
+1. Spread collapse at long horizons needs a horizon-dependent mechanism (not just τ scaling)
+2. Higher PC degradation suggests the velocity field needs more capacity or training for
+   fine cross-cell structure
+3. The kurtosis 0.609 borderline (and 0.502 at τ=1.3) needs multi-seed confirmation
+
+---

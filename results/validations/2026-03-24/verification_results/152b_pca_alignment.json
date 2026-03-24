@@ -1,0 +1,82 @@
+{
+  "verification": "152b_pca_alignment",
+  "model_path": "models/backfill/flow_152b/best_model.pt",
+  "model_epoch": 40,
+  "model_val_loss": 0.6271,
+  "timestamp": "2026-03-24T12:03:01",
+  "config": {
+    "max_batches": 10,
+    "n_samples": 50,
+    "seed": 42,
+    "device": "cuda",
+    "n_test_windows": 640,
+    "n_generated_changes": 960000,
+    "n_gt_changes": 19200
+  },
+  "eigenvalues": {
+    "gt_top5": [
+      0.03757001907454025,
+      0.010921314905552463,
+      0.0079581943275295,
+      0.0058651051921232555,
+      0.003606729473614449
+    ],
+    "gen_top5": [
+      0.02791054885888165,
+      0.007071581424655802,
+      0.0049910028695874025,
+      0.003090487194276913,
+      0.0018065826095245352
+    ],
+    "gt_var_explained_top5": [
+      0.5353335516256563,
+      0.15561733639825584,
+      0.11339596142953653,
+      0.08357162627274607,
+      0.0513921298531197
+    ],
+    "gen_var_explained_top5": [
+      0.5763263816494848,
+      0.1460214543116975,
+      0.10305947902261209,
+      0.06381563154552203,
+      0.03730421869388772
+    ]
+  },
+  "pc_alignments": {
+    "PC1": 0.9928725882753584,
+    "PC2": 0.7851609155528756,
+    "PC3": 0.5589439717747205,
+    "PC4": 0.7984264033153631,
+    "PC5": 0.2947566273242322
+  },
+  "effective_rank": {
+    "gt": 4.416172639174239,
+    "gen": 4.253834752469651,
+    "ratio": 0.9632401402824363
+  },
+  "correlation": {
+    "gt_mean_offdiag": 0.5095754417218789,
+    "gen_mean_offdiag": 0.4088401465079941,
+    "ratio": 0.8023152472311155,
+    "frobenius_distance": 5.823865769920168,
+    "frobenius_relative": 0.37331756328024474
+  },
+  "comparison": {
+    "h1b_repulsive_pc1": 0.43,
+    "h1b_eff_rank_ratio": 1.9,
+    "flow_152a_uncond_pc1": 1.0,
+    "flow_152a_uncond_pc2": 0.994,
+    "improvement_over_h1b": 0.5628725882753585,
+    "retention_from_152a": 0.9928725882753584
+  },
+  "verdict": {
+    "pc1_gt_0.9": true,
+    "pc2_gt_0.9": false,
+    "eff_rank_ratio_ok": true,
+    "better_than_h1b": true,
+    "overall_pass": true
+  },
+  "claim": "The GT-aligned diversity from Stage 1 (152a) transfers to conditional AR forecasting (152b)",
+  "evidence_summary": "PC1 alignment = 0.9929 (vs H1b = 0.43, 152a uncond = 1.0). PC2 alignment = 0.7852 (partial degradation from 152a=0.994). Eff rank ratio = 0.963. Frobenius relative = 0.3733. Claim SUPPORTED: PC1 near-perfect transfer (0.993 vs 1.000), but PC2 degrades from 0.994 to 0.785 during AR conditioning."
+}

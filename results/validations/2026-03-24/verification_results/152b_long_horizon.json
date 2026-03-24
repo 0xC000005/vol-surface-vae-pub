@@ -1,0 +1,73 @@
+{
+  "verification": "152b_long_horizon",
+  "timestamp": "2026-03-24",
+  "model": {
+    "path": "/home/max/Documents/vol-surface-vae-pub/models/backfill/flow_152b/best_model.pt",
+    "hash": "87969065c1aa",
+    "type": "ARFlowMatchingModel",
+    "original_future_len": 30,
+    "overridden_future_len": 252,
+    "checkpoint_epoch": 40,
+    "checkpoint_val_loss": 0.627
+  },
+  "generation": {
+    "n_windows": 40,
+    "n_samples": 50,
+    "n_horizons": 252,
+    "max_batches": 5,
+    "elapsed_seconds": 1.2,
+    "generation_successful": true,
+    "notes": "252-day generation completed in 1.2s with zero explosions"
+  },
+  "checks": {
+    "generation_successful": { "pass": true, "detail": "Generated (40, 50, 252, 5, 5) samples" },
+    "explosion_rate_ok": { "pass": true, "value": 0.0, "threshold": "<0.05" },
+    "spread_monotonic": {
+      "pass": false,
+      "detail": "Spread DECREASES from d=30 to d=120, then partially recovers. NOT monotonic.",
+      "values": {
+        "d30": 0.0316,
+        "d60": 0.0298,
+        "d120": 0.0279,
+        "d180": 0.0286,
+        "d252": 0.0290
+      }
+    },
+    "ci_30d_adequate": {
+      "pass": false,
+      "value": 0.797,
+      "threshold": ">=0.80",
+      "worst_cell": 0.375,
+      "best_cell": 1.0,
+      "detail": "Mean CI coverage 79.7% (just below 80% threshold). Worst cell at 37.5% is severely undercovered."
+    },
+    "kurtosis_252d_finite": {
+      "pass": true,
+      "value": 2.222,
+      "detail": "Mean kurtosis 2.22 (excess) at d=252. Decreases from 3.37 at d=30. Some cells have high kurtosis (max 11.1)."
+    },
+    "eff_rank_252d_above_1": {
+      "pass": true,
+      "value": 8.719,
+      "detail": "Effective rank 8.72 at d=252 — excellent factor diversity (GT target ~7-9 for 25 cells)"
+    }
+  },
+  "key_findings": {
+    "spread_collapse": "Spread does NOT grow with horizon. It actually shrinks from 0.032 (d=30) to 0.028 (d=120) — a 12% decrease. This is the opposite of the physics: uncertainty should grow with horizon. The flow matching ODE is deterministic (noise_sigma=0), so spread comes only from the prior z~N(0,I). Over many AR steps the model converges toward a fixed point, reducing diversity.",
+    "ci_coverage": "79.7% mean at d=30 (target 90%). Worst cell 37.5%. This is consistent with the 30-day evaluation showing flow matching has calibration issues.",
+    "kurtosis_healthy": "Kurtosis at d=252 is 2.22 (excess), decreasing from 3.37 at d=30. This indicates the model produces slightly leptokurtic daily changes that become more Gaussian at longer horizons — a reasonable behavior.",
+    "correlation_structure_excellent": "Effective rank 8.72 at d=252 with mean off-diagonal correlation 0.35 — rich factor structure maintained across the full 252-day horizon. This is the flow matching model's strongest feature.",
+    "stationarity_good": "ATM 3M rolling std is stable at ~0.0055 across all 252 days. No drift or explosion detected.",
+    "mean_iv_drift": "Some cells show meaningful drift at d=252 vs d=1. E.g., 1M/K=0.70 drops from 0.283 to 0.185, and 3M/K=1.15 drops from 0.078 to 0.026. The model has a slight mean-reverting bias."
+  },
+  "overall_pass": false,
+  "summary": "The 152b flow matching model CAN generate 252-day horizons without explosion (0% blow-up rate), and maintains excellent cross-cell correlation structure (eff_rank 8.72). However, it FAILS on two critical long-horizon requirements: (1) spread does not grow monotonically — it actually shrinks 12% from d=30 to d=120, and (2) CI coverage is only 79.7% at d=30 (below 80% threshold), with worst cell at 37.5%. The deterministic ODE nature of flow matching limits ensemble diversity at long horizons.",
+  "scripts": {
+    "bash_runner": "results/validations/2026-03-24/scripts/152b_long_horizon.sh",
+    "python_script": "results/validations/2026-03-24/scripts/152b_long_horizon_test.py"
+  },
+  "artifacts": {
+    "full_results": "results/validations/2026-03-24/analysis/152b_long_horizon/long_horizon_results.json",
+    "numpy_summary": "results/validations/2026-03-24/analysis/152b_long_horizon/samples_summary.npz"
+  }
+}
