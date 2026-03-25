@@ -42632,3 +42632,62 @@ Wave 2 (informed by Wave 1):
 - If none helps: H3 (hierarchical noise injection in FM)
 
 ---
+
+## 2026-03-25: RC17 Revision — H4 Killed, Rationale Documented
+
+### H4 Kill Rationale
+
+H4 (end-to-end CRPS from scratch, no ODE, no noise injection) was killed because it
+reintroduces the OLD PARADIGM'S failure mode without addressing it.
+
+The old paradigm (RC6-RC13, single-pass AR + CRPS) failed due to TWO interlocking mechanisms:
+1. **CLN rank-1 bottleneck** (architecture) — forced all 25 cells through shared modulation
+2. **CRPS diversity suppression** (loss) — penalizes wider spread → crushes ensemble
+
+H4 removes problem 1 (factored transformer has no CLN) but KEEPS problem 2 (afCRPS is still
+the loss). Without a structural diversity mechanism (noise injection), afCRPS may suppress
+ensemble diversity in the factored transformer just as it did in the CLN architecture.
+
+**Evidence**: 133c (factored transformer + afCRPS + per-position additive noise) achieved
+CI=91.7% and kurtosis=1.60. The per-position noise provided structural diversity that
+afCRPS couldn't suppress. Remove the noise (as H4 proposes) → no guarantee against collapse.
+
+**H5 is the principled version of H4**: Same architecture (factored transformer) + same loss
+(afCRPS) + conditional LayerNorm noise injection (prevents collapse). H5 addresses BOTH
+failure mechanisms. H4 addresses only one.
+
+### RC17 Final Compass (4 Hypotheses)
+
+| H | Approach | Axis | What it tests |
+|---|----------|------|---------------|
+| H1 | afCRPS fine-tune residual FM | Loss (within FM) | Can proper scoring rule calibrate spread through ODE? |
+| H2 | ES+VS composite on residual FM | Loss (within FM) | Is multivariate loss better than per-cell? |
+| H3 | Hierarchical noise injection + afCRPS | Architecture (within FM) | Does noise granularity matter more than loss? |
+| H5 | Factored transformer + CLN noise + afCRPS | Paradigm (no ODE) | Does CLN fix 133c's correlation failure? |
+
+### What Each Hypothesis Teaches Regardless of Outcome
+
+**H1 success**: afCRPS gradients DO propagate through ODE → two-stage FM is viable for calibration.
+**H1 failure**: ODE blocks calibration gradients → two-stage FM is fundamentally limited.
+
+**H2 success**: Multivariate loss preserves cross-cell structure during calibration.
+**H2 failure**: Even multivariate loss can't overcome the ODE's diversity contraction.
+
+**H3 success**: Noise granularity is the key differentiator (validates AIFS-CRPS/SDL finding).
+**H3 failure**: Factored attention smooths injected noise (incompatible with SDL design).
+
+**H5 success**: CLN + factored attention + afCRPS = the complete solution. Validates FGN mechanism.
+**H5 failure**: CLN doesn't work in factored (alternating temporal/spatial) attention — different
+noise propagation than standard full attention. Would need architectural redesign.
+
+### Execution Order (ALL hypotheses run, knowledge from each)
+
+Wave 1 (parallel where GPU allows): H1-S1 + H2-S1 + H5-S1
+- H1/H2 share architecture (same residual FM, different loss) → fastest comparison
+- H5 is independent → can run in parallel on separate GPU time
+
+Wave 2 (all remaining stages):
+- H1-S2/S3, H2-S2/S3, H3-S1/S2, H5-S2/S3 — ALL run regardless of Wave 1 outcomes
+- Each produces independent mechanistic understanding
+
+---
