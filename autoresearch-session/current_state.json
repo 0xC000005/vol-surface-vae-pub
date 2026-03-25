@@ -1,23 +1,16 @@
 {
-  "iteration": 0,
-  "experiment_id": "baseline",
-  "training_status": "idle",
-  "phase": "RC16_setup",
-  "hypothesis": "RC16: Calibrated Ensemble Spread. Starting from 153a conditional one-shot FM baseline.",
+  "iteration": 1,
+  "experiment_id": "154a",
+  "training_status": "running",
+  "phase": "RC16-H1-S1",
+  "hypothesis": "Stochastic interpolant SDE sampler: add tunable diffusion g_s to 153a ODE post-training. Score derived from velocity via Tweedie estimator.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/sde_sampler_probe.py --device cuda",
   "session_best": {
     "exp": "153a",
-    "metric": "4-5/9 [S3,S4,S5,S9]. PC1=0.999, CI worst_cell=0.110, spread=0.016 per-window"
+    "metric": "4-5/9, CI=0.110, spread=0.016"
   },
-  "total_experiments": 0,
-  "compass_position": "RC16 — Wave 1 parallel probes pending",
-  "compass_theme": "Calibrated Ensemble Spread for One-Shot FM",
-  "session_date": "2026-03-24",
-  "base_model": "models/backfill/flow_153a/final_model.pt",
+  "total_experiments": 1,
+  "compass_position": "RC16-H1-S1 (Wave 1)",
   "branch": "autoresearch-session-rc16",
-  "rc16_execution_order": [
-    "Wave 1 (parallel): H1-S1 SDE sampler (2h) + H2-S1 residual characterization (2h) + H3-S1 W2 probe (1h) + H4-S1 GP source (1h)",
-    "Wave 2: Continue best 1-2 directions from Wave 1",
-    "Full eval + 252d on best model"
-  ],
-  "next_action": "Run Wave 1: all 4 Stage 1 probes in parallel"
+  "next_action": "Run SDE probe, sweep g_s, evaluate CI + quality tradeoff"
 }
