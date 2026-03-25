@@ -42870,3 +42870,53 @@ For EVERY experiment (H1, H2, H3, H5), regardless of success or failure, run ALL
 | **H5** | CLN preserves correlation (FGN). Factored attention provides correlation (153a). afCRPS+noise calibrates spread (133c). | Does CLN work in factored (alternating) attention? Does noise propagate through temporal→spatial alternation? | Whether the synthesis of proven components works together. |
 
 ---
+
+## 2026-03-25: RC17 Deep Literature Review — 4 Agents, Critical Revisions
+
+### Agent Results Summary
+
+**H1/H2 (afCRPS/ES through ODE)**: SIGNIFICANT RISK. No published work backpropagates
+CRPS through multi-step flow matching ODE. Every success uses single-pass (AIFS, CRPS-LAM)
+or distills first (Swift). DRaFT shows even moderate ODE depth hurts optimization.
+ES correlation signal ~27x weaker than marginal at D=750 (curse of dimensionality).
+
+**H3 (noise injection)**: CONFIRMED. ConditionalLayerNorm (multiplicative, zero-init) is
+safe in velocity networks. Same noise vector across all ODE steps per member. AIFS exact
+implementation: Linear(4→d_model) for scale and bias, zero-init, (scale+1.0) formulation.
+Noise conditions the NETWORK, not the velocity output — critical distinction.
+
+**H5 (CLN + factored attention)**: STRONGEST. Latte (TMLR 2025) IS the direct precedent:
+interleaved spatial/temporal blocks with independent adaLN per block. Reshape is lossless.
+Each block recomputes CLN from noise. Three theoretical arguments confirm soundness.
+
+### Revised H1/H2: Bypass ODE for Calibration
+
+The literature finding changes H1/H2 fundamentally. Instead of afCRPS through 8-step ODE
+(unprecedented, risky gradient path), the principled approaches are:
+
+**H1-revised**: Make the residual FM a SINGLE-PASS model (no ODE). The residual FM directly
+outputs a 750-dim residual from (noise, condition) in one forward pass. Train with afCRPS
+on (base + residual) vs GT. This is architecturally identical to AIFS-CRPS — a single
+neural network evaluation with noise conditioning, trained with afCRPS. No ODE needed
+because we're predicting RESIDUALS (perturbations around the base), not generating from
+scratch. The base model provides the trajectory; the residual just needs to add calibrated
+noise.
+
+**H2-revised**: Same single-pass residual, but with afCRPS + per-frame VS composite loss.
+VS handles correlation (300 pairs/frame), afCRPS handles marginal calibration.
+
+This revision is MORE principled than the original: it follows the proven AIFS/CRPS-LAM/SDL
+pattern exactly, rather than attempting an unprecedented gradient path.
+
+### Final RC17 Compass (literature-validated)
+
+| H | Approach | Single-pass? | ODE? | Loss | Noise | Literature |
+|---|----------|-------------|------|------|-------|-----------|
+| H1r | Single-pass residual + afCRPS | YES | NO | afCRPS | Input noise | AIFS, CRPS-LAM, Swift |
+| H2r | Single-pass residual + afCRPS + VS | YES | NO | afCRPS+VS | Input noise | Lakatos, STIPP |
+| H3 | CLN in velocity net + afCRPS | Within FM | YES (8-step) | afCRPS | ConditionalLayerNorm | AIFS (exact mechanism) |
+| H5 | Factored transformer + CLN + afCRPS | YES | NO | afCRPS | ConditionalLayerNorm | Latte, FGN, AIFS |
+
+All 4 hypotheses now have DIRECT literature precedent. No unprecedented gradient paths.
+
+---
