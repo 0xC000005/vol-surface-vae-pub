@@ -1,0 +1,183 @@
+{
+  "verification": "154c_risk_gap_analysis",
+  "timestamp": "2026-03-24T23:45:00",
+  "model": "154c (base ODE 153a + conditional residual FM)",
+  "model_path": "models/backfill/flow_154c/best_model.pt",
+  "base_model_path": "models/backfill/flow_153a/final_model.pt",
+  "architecture": "Conditional factored velocity transformer, 1.65M params",
+  "test_config": {
+    "n_windows": 160,
+    "n_samples": 50,
+    "ode_steps": 8,
+    "test_start_index": 4540,
+    "test_observations": 1282,
+    "train_observations": 4540
+  },
+
+  "risk_requirements_assessment": {
+    "priority_1_calibrated_ci": {
+      "status": "NOT_READY",
+      "metric": "ci_worst_cell",
+      "value": 0.470,
+      "target": 0.80,
+      "gap": -0.33,
+      "ci_mean_all_cells": 0.634,
+      "cells_passing_85pct": 1,
+      "cells_passing_90pct": 0,
+      "failure_mode": "SPREAD-dominated (r=-0.47, p=0.019)",
+      "var_underestimation_pct": "35-45%",
+      "practical_minimum": 0.60,
+      "below_practical_minimum": true,
+      "remediation": "Apply 1.7x spread multiplier for VaR, or use 97a+qmap"
+    },
+    "priority_2_tail_behavior": {
+      "status": "PRODUCTION_READY",
+      "metrics": {
+        "kurtosis_ratio": 1.003,
+        "ks_daily_changes_pass": "20/25",
+        "median_bias": -0.014
+      },
+      "assessment": "Best-ever tail behavior. Perfect kurtosis match to GT."
+    },
+    "priority_3_cross_cell_correlations": {
+      "status": "PRODUCTION_READY",
+      "metrics": {
+        "correlation_ratio": 1.001,
+        "eff_rank_ratio": 1.122,
+        "cointegration_rate": 0.538,
+        "pc1_alignment": 0.999
+      },
+      "assessment": "Near-perfect factor structure preservation. Best-ever correlation ratio."
+    },
+    "priority_4_regime_sensitivity": {
+      "status": "NEEDS_REFRAMING",
+      "metrics": {
+        "turb_calm_ratio_154c": 0.92,
+        "turb_calm_ratio_153a_base": 1.46,
+        "gt_turb_calm_test": 0.711,
+        "gt_turb_calm_train": 1.715
+      },
+      "assessment": "S3 threshold unreachable on test split because GT itself is inverted (0.711). Base model passes (1.46). Test metric is invalid for this data period.",
+      "remediation": "Validate on training data or use VIX-conditional spread metric"
+    },
+    "priority_5_long_horizon": {
+      "status": "PRODUCTION_READY",
+      "metrics": {
+        "max_horizon_days": 252,
+        "explosion_rate": 0.0,
+        "nan_rate": 0.0,
+        "spread_grows": true,
+        "spread_ratio_252d": 2.39,
+        "mean_iv_drift_252d": -0.028,
+        "daily_change_corr_vs_gt": "0.437 vs 0.425"
+      },
+      "assessment": "Stable 252-day generation with no explosion, growing uncertainty, and preserved correlations."
+    }
+  },
+
+  "detailed_ci_analysis": {
+    "worst_5_cells": [
+      {"cell": "(2,0)", "moneyness": "ATM", "tenor": "1M", "ci": 0.470, "h30_spread": 0.013, "h30_bias": -0.008},
+      {"cell": "(2,1)", "moneyness": "ATM", "tenor": "3M", "ci": 0.487, "h30_spread": 0.011, "h30_bias": -0.015},
+      {"cell": "(3,3)", "moneyness": "1.05", "tenor": "9M", "ci": 0.511, "h30_spread": 0.008, "h30_bias": -0.002},
+      {"cell": "(0,1)", "moneyness": "0.90 ITM", "tenor": "3M", "ci": 0.560, "h30_spread": 0.028, "h30_bias": -0.032},
+      {"cell": "(1,1)", "moneyness": "0.95", "tenor": "3M", "ci": 0.561, "h30_spread": 0.013, "h30_bias": -0.020}
+    ],
+    "best_5_cells": [
+      {"cell": "(1,3)", "moneyness": "0.95", "tenor": "9M", "ci": 0.900, "h30_spread": 0.041, "h30_bias": -0.006},
+      {"cell": "(0,0)", "moneyness": "0.90 ITM", "tenor": "1M", "ci": 0.822, "h30_spread": 0.174, "h30_bias": -0.020},
+      {"cell": "(0,3)", "moneyness": "0.90 ITM", "tenor": "9M", "ci": 0.822, "h30_spread": 0.063, "h30_bias": 0.008},
+      {"cell": "(2,4)", "moneyness": "ATM", "tenor": "12M", "ci": 0.795, "h30_spread": 0.075, "h30_bias": -0.012},
+      {"cell": "(4,4)", "moneyness": "1.10 OTM", "tenor": "12M", "ci": 0.695, "h30_spread": 0.010, "h30_bias": 0.003}
+    ],
+    "sde_probe_tradeoff": {
+      "description": "SDE probe (154a) shows CI vs quality tradeoff",
+      "g_0.0": {"ci": 0.359, "ks_pass": 25, "kurt_ratio": 1.11},
+      "g_0.3": {"ci": 0.494, "ks_pass": 19, "kurt_ratio": 0.95},
+      "g_0.5": {"ci": 0.674, "ks_pass": 10, "kurt_ratio": 0.77},
+      "g_1.0": {"ci": 0.930, "ks_pass": 3, "kurt_ratio": 0.48},
+      "conclusion": "No g achieves CI >= 0.80 AND KS >= 15/25 simultaneously. Fundamental tradeoff."
+    }
+  },
+
+  "ks_levels_analysis": {
+    "ks_levels_pass": "2/25",
+    "ks_daily_changes_pass": "20/25",
+    "root_cause": "Train-test distribution shift",
+    "evidence": {
+      "train_residual_std_mean": 0.035,
+      "test_residual_std_mean": 0.058,
+      "test_to_train_ratio": 1.65,
+      "description": "Test residuals 65% larger than training, indicating IV level distribution shifted"
+    },
+    "risk_manager_relevance": {
+      "var_reporting": "LOW — VaR depends on changes, not levels",
+      "stress_testing": "MEDIUM — level-conditional stress needs recalibration",
+      "options_pricing": "HIGH — needs correct levels",
+      "scenario_planning": "LOW — model conditions on current levels via encoder"
+    }
+  },
+
+  "production_readiness": {
+    "ready_today": [
+      "Scenario shape generation (tail behavior + correlations)",
+      "Cross-asset hedging analysis",
+      "Long-horizon path generation (252 days)",
+      "Stress scenario generation",
+      "Relative value analysis"
+    ],
+    "needs_one_experiment": [
+      {
+        "gap": "CI coverage documentation",
+        "action": "Full 9-suite eval at g=0.5-0.7 to quantify exact tradeoff",
+        "effort_hours": 4
+      },
+      {
+        "gap": "Turb/calm on training data",
+        "action": "Validate conditionality on train/val split where GT turb/calm > 1.0",
+        "effort_hours": 2
+      },
+      {
+        "gap": "KS levels temporal diagnosis",
+        "action": "Run KS on rolling 2-year windows to confirm temporal shift",
+        "effort_hours": 2
+      }
+    ],
+    "needs_fundamental_research": [
+      {
+        "gap": "CI coverage >= 0.80 without quality loss",
+        "blocker": "ODE contracts source randomness; SDE destroys distributional quality",
+        "effort_weeks": "2-4"
+      },
+      {
+        "gap": "Conditional residual regime awareness",
+        "blocker": "Encoder carries level info not regime info (cosine 0.9996)",
+        "effort_weeks": "2-4"
+      }
+    ],
+    "deployment_recommendation": "Deploy for stress testing and hedging with documented CI limitation. Use 97a+qmap for VaR reporting. Apply 1.7x spread multiplier if 154c must be used for VaR."
+  },
+
+  "comparison_vs_97a_qmap": {
+    "ci_coverage": {"97a_qmap": 0.936, "154c": 0.470, "winner": "97a+qmap"},
+    "kurtosis_ratio": {"97a_qmap": 1.5, "154c": 1.003, "winner": "154c"},
+    "ks_daily_changes": {"97a_qmap": "~15/25", "154c": "20/25", "winner": "154c"},
+    "correlation_ratio": {"97a_qmap": 0.88, "154c": 1.001, "winner": "154c"},
+    "eff_rank_ratio": {"97a_qmap": 0.45, "154c": 1.122, "winner": "154c"},
+    "long_horizon_252d": {"97a_qmap": "limited", "154c": "stable", "winner": "154c"},
+    "summary": "97a+qmap wins on CI (via post-hoc calibration), 154c wins on distributional quality and long-horizon stability. Different models for different applications."
+  },
+
+  "key_findings": [
+    "154c has the best distributional quality metrics ever achieved (kurtosis 1.003, corr_ratio 1.001)",
+    "CI gap (0.47 vs 0.80) is spread-dominated — ensemble is ~2x too narrow",
+    "Fundamental CI-vs-quality tradeoff: no SDE noise level achieves both CI >= 0.80 AND KS >= 15",
+    "KS levels failure (2/25) is train-test distribution shift, not model deficiency",
+    "S3 conditionality threshold is unreachable because GT test data is inverted (turb/calm = 0.711)",
+    "Long-horizon (252d) generation is stable with correct correlations and growing uncertainty",
+    "Model is production-ready for hedging, stress testing, and scenario generation",
+    "Model is NOT production-ready for VaR without spread adjustment"
+  ],
+
+  "analysis_file": "results/validations/2026-03-24/analysis/154c_risk_gap/risk_gap_analysis.md"
+}
