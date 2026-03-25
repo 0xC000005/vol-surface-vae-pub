@@ -42450,3 +42450,120 @@ The CI gap (0.54 < 0.80) remains the single architectural bottleneck. The ODE co
 source randomness, and the residual FM spread is still ~1.5x too narrow.
 
 ---
+
+## 2026-03-25: Research Compass RC17 — Principled CI Calibration via Proper Scoring Rules
+
+### Philosophy Applied
+- **Bitter Lesson**: afCRPS/ES are proper scoring rules — the model LEARNS calibrated spread from data. No post-hoc scaling.
+- **Hamming**: CI is the SINGLE remaining gap for production. Important AND attackable.
+- **Karpathy**: H1 vs H2 tests loss function in isolation. H3 tests architecture. Independent.
+- **Popper**: Each has staged kill conditions. Failure is informative.
+- **TRIZ**: Decouples spread (calibration loss) from quality (pretrained velocity field).
+
+### Evidence Summary (validated 2026-03-24, 10 agents)
+
+**Proven**: ODE contracts randomness. CFM has no spread incentive. Residual FM adds CI
+(0.544) but still 1.5x too narrow. Conditioning fixes SHAPE not SCALE (cell-std kurtosis
+3.01 vs GT 3.59). S3 invalid on test split. Explosion rate >50%.
+
+**Literature convergence**: SDL (afCRPS + hierarchical noise = SSR ~1.0 at <2% cost),
+AIFS-CRPS (10K injection points = over-dispersive), GEM-2 (pure CRPS = matches diffusion),
+Lakatos (ES+VS > CRPS for multivariate). ArchesWeatherGen = our exact problem with no
+principled fix.
+
+**Critical insight**: All calibrated systems use PROPER SCORING RULES + HIGH-GRANULARITY
+NOISE INJECTION. Our CFM loss + single residual FM has neither.
+
+### Hypothesis 1: afCRPS Fine-Tuning of Residual FM
+
+**Evidence**: 154b CI=0.544 with CFM loss. SDL proves afCRPS fine-tuning at <2% cost
+achieves SSR ~1.0. Swift shows K=2 members suffice during training.
+
+**Theory**: afCRPS is a proper scoring rule. Its gradient explicitly pushes ensemble members
+to bracket GT with calibrated spread. CFM's MSE-on-velocity gradient has no such signal.
+
+**Implementation**: Fine-tune 154b residual FM with afCRPS on combined output (base + residual).
+K=4 members. Bounded residual via tanh to fix explosion rate. Freeze base 153a.
+
+**Stages**: S1 (1h): 50 epochs, does CI improve? S2 (2h): Full 200 epochs, sweep K.
+S3 (2h): Full eval + 252d.
+
+**Kill**: S1: CI < 0.55 after 50 epochs. S2: CI > 0.60 but KS < 10/25.
+
+**If fails**: afCRPS gradient doesn't propagate through 8-step ODE effectively.
+Need end-to-end training or different architecture.
+
+### Hypothesis 2: Energy Score + Variogram Score Composite
+
+**Evidence**: ES has built-in inter-member repulsion (-0.5*E||Xi-Xj||). Lakatos proves
+ES+VS > CRPS-only for multivariate calibration. STIPP shows per-cell CRPS produces
+"artificial" samples while multivariate ES preserves physics.
+
+**Theory**: ES operates on full 750-dim vector (sees cross-cell structure). VS explicitly
+targets pairwise dependency. Together they calibrate BOTH spread AND correlation.
+
+**Implementation**: Same setup as H1 but ES + lambda_vs * VS loss instead of afCRPS.
+
+**Stages**: S1 (1h): 50 epochs with ES only. S2 (2h): Add VS, full training.
+S3 (2h): Full eval.
+
+**Kill**: S1: CI < 0.55 (ES gradient insufficient for spread).
+
+**If fails**: Residual FM architecture too small (d=64, 2 layers) for multivariate loss.
+
+### Hypothesis 3: Hierarchical Noise Injection + afCRPS (SDL Design)
+
+**Evidence**: All calibrated systems use multi-scale noise (SDL: 3 scales, AIFS: 10K points).
+Our single residual FM = 1 noise injection point. Literature shows granularity is critical.
+
+**Theory**: Different uncertainty sources operate at different scales: level (global),
+term structure (per-tenor), per-cell. A single residual can't decompose these. Hierarchical
+injection lets each scale be calibrated independently.
+
+**Implementation**: Add 3 noise injection layers to 153a base model:
+- L1: After encoder (128-dim latent modulation, controls level uncertainty)
+- L2: After temporal attention (per-frame noise, controls temporal uncertainty)
+- L3: On output (per-cell noise, controls cell-specific uncertainty)
+Train with afCRPS, K=4 members.
+
+**Stages**: S1 (2h): L3 only (per-cell output noise). S2 (3h): Add L1+L2. S3 (2h): Eval.
+
+**Kill**: S1: CI < 0.55 with output noise only. Injection point has too little influence.
+
+**If fails**: Factored transformer smooths out injected noise. Architecture incompatible
+with noise injection (unlike SDL's U-Net which has skip connections preserving noise).
+
+### Hypothesis 4: End-to-End CRPS (GEM-2 Approach)
+
+**Evidence**: GEM-2 shows single-pass CRPS model matches diffusion quality at 20-100x
+less cost. "Surprising insensitivity to architectural design" — loss matters more than
+architecture. Our factored transformer + CRPS might work end-to-end without FM.
+
+**Theory**: Instead of two-stage (CFM pretrain + CRPS fine-tune), train a SINGLE model
+with CRPS from scratch. The factored transformer with direct noise input (like AIFS-CRPS)
+generates K members per forward pass. No ODE, no flow matching. Simpler.
+
+**Implementation**: Modify 153a architecture: input = (condition, noise_k), output = future
+surface. Train with afCRPS on K=8 members. No ODE integration needed.
+
+**Stages**: S1 (2h): Train from scratch, 100 epochs. S2 (2h): Full training + eval.
+
+**Kill**: S1: Suite count < 3/9 after 100 epochs (architecture can't learn from CRPS alone).
+
+**If fails**: Confirms that CFM pretraining is essential for distributional quality.
+The FM provides a "warm start" that pure CRPS can't match.
+
+### Execution Order
+
+Wave 1 (parallel): H1-S1 (afCRPS) + H2-S1 (ES) — same architecture, different loss.
+Wave 2 (informed): Best of H1/H2 full training, OR H3-S1 if neither helps.
+Wave 3 (if needed): H4 as fallback (full paradigm change).
+
+### Exhausted Directions
+- Post-hoc spread scaling (Bitter Lesson)
+- Temperature scaling on ODE (OOD)
+- GP source (OOD for velocity field)
+- Isotropic SDE noise (destroys S9)
+- Unconditional everything (loses shape calibration)
+
+---
