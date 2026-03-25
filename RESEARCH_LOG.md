@@ -42982,3 +42982,49 @@ All horizons pass 0.80: h1=0.832, h5=0.827, h10=0.840, h15=0.825, h30=0.813. Per
 **VALUABLE FAILURE.** afCRPS is the right loss, MLP is the wrong architecture for maintaining spread. This strongly motivates H3/H5 where ConditionalLayerNorm provides architecture-level noise that can't be collapsed by training. Proceed to H2r (155b) to test whether adding Variogram Score changes the spread dynamics.
 
 ---
+
+## 2026-03-25: Exp 155b — Single-Pass Residual MLP + afCRPS + VS (RC17-H2r)
+
+### Context
+RC17 hypothesis H2r: Same MLP as 155a but adds per-frame Variogram Score (lambda_vs=0.1) to test whether VS provides correlation gradient that changes spread dynamics. Literature: Lakatos 2509.02784 proves VS > ES for correlation at high D.
+
+Training: 200 epochs, B=64, K=8, lr=1e-3, alpha=0.95, lambda_IS=0.5, lambda_VS=0.1.
+
+### Key Findings
+
+**VS pushes CI higher at peak but accelerates collapse:**
+
+| Epoch | 155a CI | 155b CI | 155b KS | 155b Corr | 155b SS |
+|-------|---------|---------|---------|-----------|---------|
+| 1 | 0.104 | 0.123 | 13/25 | 0.742 | 0.468 |
+| 40 | 0.652 | **0.750** | 9/25 | 1.107 | 1.344 |
+| 80 | 0.668 | 0.585 | 10/25 | 1.084 | 0.859 |
+| 120 | 0.653 | 0.428 | 12/25 | 1.103 | 0.752 |
+| 200 | 0.658 | 0.282 | 15/25 | 1.248 | 0.635 |
+
+- CI peaked at 0.750 at ep40 (best in RC17 so far, +38% vs 154b baseline)
+- But CI collapsed to 0.282 by ep200 — WORSE than baseline
+- KS degraded badly (9-15/25 vs 155a's 24/25) — VS hurts distributional quality
+- Correlation good (1.08-1.25) — VS does provide cross-cell gradient
+- Spread-skill peaked at 1.344 (over-dispersive) then crashed to 0.635
+
+**VS dominates loss magnitude:** VS term ~57-101 while afCRPS+IS is ~0.15. VS gradient overwhelms CRPS gradient, pushing spread too wide initially, then accuracy term crushes it down. Lambda_vs=0.1 is too high for this setup.
+
+### Mechanistic Analysis
+
+1. **VS provides genuine correlation gradient:** corr_ratio=1.107 at peak vs 155a's 0.631 — VS is working as intended for spatial structure
+2. **VS causes over-dispersion then collapse:** The MLP is in a tug-of-war between VS (wants wide, correlated spread) and afCRPS accuracy (wants narrow spread). Neither wins — they alternate dominance
+3. **KS degradation:** VS pushes per-cell distributions away from marginal GT because it optimizes pairwise DIFFERENCES not individual margins. This is the known Lakatos tradeoff
+4. **Architectural problem confirmed:** Both 155a and 155b have spread contraction — different losses, same failure mode. The MLP architecture is the binding constraint
+
+### What Was Learned
+
+- **VS + afCRPS composite achieves CI=0.750 (new best)** but only at a specific training epoch
+- **Spread contraction is architectural, not loss-dependent:** Two different loss functions, same MLP, same failure
+- **Lambda_vs=0.1 is too high:** VS magnitude 100x larger than CRPS. Lower lambda or normalized VS needed
+- **Early stopping by CI could work** but quality (KS) is bad at peak CI — can't have both with MLP
+
+### Decision
+**VALUABLE FAILURE.** Confirms the H1r/H2r axis finding: loss function matters (afCRPS > CFM by +23-38%) but MLP architecture can't maintain calibrated spread. The H3/H5 axis (CLN noise injection in attention) is now clearly the priority — it provides architectural resistance to spread collapse.
+
+---
