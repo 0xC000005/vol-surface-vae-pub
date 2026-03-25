@@ -42691,3 +42691,182 @@ Wave 2 (all remaining stages):
 - Each produces independent mechanistic understanding
 
 ---
+
+## 2026-03-25: RC17 Final Audit — Complete Understanding + Mandatory Investigation Plans
+
+### Theoretical Foundation Per Hypothesis
+
+#### H1: afCRPS Fine-Tune Residual FM
+
+**Theory**: afCRPS = 0.95*fCRPS + 0.05*CRPS (Lang et al. 2412.15832). A proper scoring
+rule that is minimized when forecast distribution matches true conditional. The "almost fair"
+formulation avoids fair CRPS degeneracy (one unconstrained member) while correcting
+finite-ensemble bias. The key mechanism: afCRPS gradient pushes ensemble members to bracket
+GT with calibrated width. CFM's MSE-on-velocity has no such signal.
+
+**Literature**: SDL (2512.18815) proves afCRPS fine-tuning at <2% cost achieves SSR ~1.0.
+Swift (2509.25631) shows K=2 members suffice. AIFS-CRPS (2412.15832) operational at ECMWF.
+
+**Known gap**: No paper fine-tunes a CFM-pretrained residual FM with afCRPS through an ODE.
+SDL starts from deterministic model (no ODE). AIFS-CRPS is end-to-end (no two-stage).
+The gradient path: afCRPS → combined output → residual → 8-step ODE → residual FM weights.
+Whether this gradient is informative (not vanishing/exploding through 8 ODE steps) is UNKNOWN.
+
+**Prediction**: CI improves from 0.544 to >0.65 if gradient propagates. KS may degrade
+to 15-20/25 (afCRPS optimizes spread, may sacrifice marginal accuracy). Kurtosis should
+stay good (afCRPS doesn't penalize heavy tails).
+
+**If prediction wrong**: If CI doesn't improve, the ODE blocks calibration gradients.
+If KS degrades below 10, afCRPS destroys the distributional quality CFM built.
+
+#### H2: ES+VS Composite Loss
+
+**Theory**: Energy Score ES = E||X-Y|| - 0.5*E||Xi-Xj||. The second term is explicit
+inter-member repulsion. Unlike afCRPS (univariate, per-cell), ES operates on the full
+750-dim vector — it sees cross-cell relationships. Variogram Score VS targets pairwise
+dependency structure: VS = sum_{pairs} |E|Xi_p - Xi_q|^0.5 - |Y_p - Y_q|^0.5|^2.
+
+**Literature**: Lakatos (2509.02784) proves ES+VS > CRPS-only for multivariate calibration.
+STIPP (2601.02882) shows per-cell CRPS produces "artificial" samples while multivariate ES
+preserves physics. EnScale (2509.26258) proves ES training alone achieves flat rank histograms.
+PNO (2502.12902) proves ES is strictly proper in separable Hilbert spaces.
+
+**Known gap**: Same ODE gradient propagation issue as H1. Additionally, ES is O(K^2) in
+ensemble size — with K=8 and B=64, the pairwise computation may be expensive.
+
+**Prediction**: CI similar to H1 (both are proper scoring rules with spread incentive).
+Cross-cell correlation should be BETTER preserved than H1 (ES is multivariate, afCRPS is
+univariate). The VS component specifically prevents Suite 9 regression.
+
+**If prediction wrong**: If ES gives similar CI but worse correlation than afCRPS, the
+multivariate loss structure is fighting the architecture (the residual FM is too small
+to learn 750-dim joint structure from ES gradients).
+
+#### H3: Hierarchical Noise Injection + afCRPS (SDL Design)
+
+**Theory**: SDL (2512.18815) decomposes uncertainty into 3 scales: latent-driven modulation
+(synoptic, ~800km), per-pixel noise (mesoscale, ~200km), channel scaling. AIFS-CRPS uses
+~10K injection points via conditional layer normalization. FourCastNet 3 uses multi-scale
+spherical diffusion. ALL calibrated weather systems use high-granularity noise.
+
+Our current setup: 1 noise injection point (the residual FM). The literature strongly
+suggests granularity is the key differentiator.
+
+**Literature**: SDL achieves SSR ~1.0 with <2% training cost. AIFS-CRPS achieves
+over-dispersive spread (too MUCH spread — opposite of our problem). FourCastNet 3
+matches IFS-ENS. All use multi-scale noise + proper scoring rule.
+
+**Known gap**: Our architecture is a factored transformer (alternating temporal/spatial
+attention), not a U-Net (SDL) or processor transformer (AIFS). Whether noise injection
+layers are compatible with factored attention is untested. U-Nets have skip connections
+that preserve noise; factored attention may smooth it out.
+
+**Prediction**: Adding per-cell output noise (L3) + afCRPS should improve CI modestly
+(0.544→0.65). Adding encoder-level noise (L1) should improve further. The combination
+(L1+L2+L3) should approach SDL's SSR ~1.0 performance.
+
+**If prediction wrong**: If single-layer noise (L3) doesn't improve CI, the factored
+attention smooths injected noise even at the output level. Would need conditional LayerNorm
+(H5) instead of additive injection.
+
+#### H5: Factored Transformer + Conditional LayerNorm + afCRPS (No ODE)
+
+**Theory**: FGN (2506.10772, WeatherNext 2) proves that 32-dim global noise via conditional
+LayerNorm in ALL transformer layers captures full joint distribution structure from marginal
+CRPS training alone. The mechanism: CLN modifies y = gamma(z)*(x-mu)/std + beta(z) where
+gamma and beta are FUNCTIONS of noise z. This is MULTIPLICATIVE — attention cannot average
+it out (unlike additive noise which attention IS an optimal smoother for, per Collins
+NeurIPS 2024).
+
+**133c connection**: 133c used this architecture (factored transformer) with ADDITIVE
+per-position noise + afCRPS → kurtosis 1.60, CI 91.7%, BUT corr 0.087. The literature
+explains WHY: additive noise → attention smooths it → cells independent. CLN fixes this
+because it modulates the REPRESENTATION GAIN, not the values.
+
+**Literature**: FGN (2506.10772) — 32-dim noise, CLN in all layers, CRPS training = SOTA
+weather. AIFS-CRPS (2412.15832) — CLN in 16 transformer layers, operational. CSU-PCAST
+(2510.20769) — Swin Transformer + CLN + hybrid CRPS/MSE.
+
+**Known gap**: Factored attention (alternating temporal/spatial) has different noise
+propagation than standard full attention. Temporal CLN operates on (B*C, T, d) tensors,
+spatial CLN on (B*T, C, d). Whether CLN noise propagates correctly through this alternation
+is untested. FGN and AIFS use standard (non-factored) attention.
+
+**Prediction**: CLN noise + factored attention + afCRPS achieves CI > 0.80 AND corr > 0.60
+AND kurtosis 0.5-2.0. This would pass 6+/9 suites. The factored attention enforces cross-cell
+correlation through spatial layers while CLN provides calibrated per-member diversity.
+
+**If prediction wrong**: Two possible failure modes:
+(a) CLN noise in temporal layers doesn't propagate to spatial layers (the alternation
+    decorrelates noise across the two attention types)
+(b) afCRPS still suppresses diversity even with CLN (the 133c kurtosis success may have
+    been from additive noise overwhelming CRPS suppression, not from the architecture)
+
+---
+
+### Mandatory Post-Experiment Investigation Plans
+
+For EVERY experiment (H1, H2, H3, H5), regardless of success or failure, run ALL of:
+
+#### Investigation A: Spread Calibration Diagnostic (the PRIMARY metric)
+1. Per-window CI coverage at h=1, h=15, h=30 (all 160 test windows)
+2. Per-cell CI grid (5x5) — does the OTM moneyness gradient persist?
+3. Spread-skill ratio per-horizon: ensemble_spread / RMSE at each of 30 horizons
+4. Is CI failure from BIAS or SPREAD? (bias/spread correlation analysis, r values)
+5. Compare with 154b CI=0.544 — where specifically did CI improve/regress?
+
+#### Investigation B: Quality Preservation Diagnostic
+1. KS daily changes per-cell (25 cells) — which cells degrade from 153a's 23/25?
+2. Kurtosis per-horizon (h=1, h=15, h=30) — does the loss change affect tail behavior?
+3. PC1-PC5 alignment with GT — does factor structure survive the loss change?
+4. Cross-cell correlation matrix: Frobenius distance to GT
+5. Effective rank ratio: gen vs GT
+6. Compare with 153a quality metrics — what EXACTLY was lost?
+
+#### Investigation C: Loss Landscape Analysis (specific to H1/H2/H3)
+1. Training loss curve: does the calibration loss converge?
+2. Gradient magnitude through the ODE: ||d(loss)/d(residual_FM_weights)|| at epoch 1, 50, 200
+3. Does the gradient vanish through ODE steps? Compare gradient norm at step 1 vs step 8.
+4. Loss component breakdown: if composite loss, which component dominates?
+
+#### Investigation D: Noise Propagation Analysis (specific to H3/H5)
+1. For H3: measure noise at injection point vs output. Is injected noise attenuated?
+   Compute: ||output_with_noise - output_without_noise|| / ||injected_noise||
+2. For H5: measure CLN effect. Compare gamma(z)/beta(z) values across layers.
+   Are later layers using the noise or ignoring it?
+3. Cross-cell correlation of NOISE-INDUCED variation: for K=8 members, compute
+   corr(member_i - mean, member_j - mean) across cells. Is variation correlated
+   (good) or independent (bad, like 133c)?
+4. Per-cell spread contributed by noise: std across K members per cell.
+   Is spread uniform or heterogeneous? (GT has OTM > ITM variability)
+
+#### Investigation E: Comparison With Prior Art
+1. Cross-model table: 153a (ODE), 154b (uncond residual), 154c (cond residual),
+   new model — ALL metrics on identical test data
+2. Suite-by-suite comparison: which suites flip? Why?
+3. If suite count improved: stress test the new passes with different seeds (s42/43/44)
+4. Long-horizon 252d test on any model that achieves 5+ suites
+
+#### Investigation F: Mechanistic WHY (the MOST IMPORTANT)
+1. If CI improved: WHY? Is it from wider spread, better calibration, or reduced bias?
+   Decompose the CI improvement into spread contribution vs bias contribution.
+2. If quality degraded: WHY? Which component of quality degraded first during training?
+   At which epoch did the degradation begin? Is it gradual or sudden?
+3. If the hypothesis FAILED: is the failure from the LOSS (wrong objective) or the
+   ARCHITECTURE (can't express the solution) or OPTIMIZATION (gradient issues)?
+   This determines whether to try a different loss, different architecture, or
+   different training procedure.
+4. What is the MOST INTERESTING thing about this result? (Nanda Q3)
+
+---
+
+### Summary: What We Know, What We Don't, What Each Experiment Teaches
+
+| | What we KNOW (literature + our experiments) | What we DON'T know | What the experiment teaches |
+|---|---|---|---|
+| **H1** | afCRPS calibrates spread (SDL, AIFS). Two-stage works for weather. | Does afCRPS gradient survive 8-step ODE? | Whether ODE is a barrier to calibration. |
+| **H2** | ES is multivariate proper scoring rule with repulsion. ES+VS > CRPS for correlation. | Same ODE gradient question + is d=64 residual FM big enough for 750-dim ES? | Whether multivariate loss outperforms per-cell for our problem. |
+| **H3** | All calibrated systems use multi-scale noise. Granularity > loss choice (AIFS evidence). | Does factored attention preserve or smooth additive noise injections? | Whether noise granularity is the missing ingredient. |
+| **H5** | CLN preserves correlation (FGN). Factored attention provides correlation (153a). afCRPS+noise calibrates spread (133c). | Does CLN work in factored (alternating) attention? Does noise propagate through temporal→spatial alternation? | Whether the synthesis of proven components works together. |
+
+---
