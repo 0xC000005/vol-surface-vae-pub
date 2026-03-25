@@ -42241,3 +42241,75 @@ calibrated perturbations from a separately trained model. This avoids the OOD pr
 H3 (W2 regularization) addresses the training phase, not inference — still viable.
 
 ---
+
+## 2026-03-24: Exp 154b — Residual FM on Held-Out Data (RC16-H2-S2)
+
+### Context
+RC16-H2-S2. ArchesWeatherGen design: freeze 153a, train second FM on normalized residuals
+from held-out predictions. Sample = base_prediction + residual_FM_sample.
+
+**Based on**: 153a (CI=0.110), H2-S1 probe (residuals viable, 1.33x wider on held-out)
+
+### Architecture
+Residual FM: FactoredVelocityTransformer (d=64, 2 layers, 212K params — 13% of base).
+Trained on val residuals (4040-4540). Val loss computed on train-tail residuals (3540-4040).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_residual_fm.py \
+    --base_model models/backfill/flow_153a/final_model.pt --epochs 200 \
+    --batch_size 64 --lr 5e-4 --d_model 64 --n_layers 2 \
+    --output_dir models/backfill/flow_154b --device cuda
+```
+
+### Results — Test Data (160 windows, 50 samples)
+
+| Metric | 153a (base ODE) | 154b (base + residual) | Change |
+|--------|-----------------|----------------------|--------|
+| CI worst_cell | 0.110 | 0.527 | +0.417 (4.8x) |
+| Spread h1 | 0.016 | 0.027 | +68% |
+| eff_rank ratio | 0.850 | 1.136 | Near GT |
+| Corr ratio | 1.091 | 1.011 | Near-perfect |
+| KS daily | 23/25 | 11/25 | Degraded |
+| Kurtosis | 1.51 | 0.812 | Improved |
+| Coint | 47% | 64.8% | Improved |
+| Turb/calm | 1.46 | 0.97 | Lost |
+| Monotonic | 25/29 | 29/29 | Perfect |
+
+### Training Dynamics (population metrics on val data)
+
+| Epoch | eff_rank | PC1 | PC2 | KS | kurt | frob |
+|-------|----------|-----|-----|-----|------|------|
+| 80 | 7.01 (GT=6.99!) | 0.985 | 0.946 | 11/25 | 0.664 | 3.5 |
+| 120 | 6.95 | 0.992 | 0.949 | 8/25 | 0.612 | 2.8 |
+| 200 | 6.17 | 0.994 | 0.953 | 13/25 | 0.729 | 2.8 |
+
+### WHY Analysis
+
+1. **CI improvement works**: Residual FM generates perturbations that increase per-window
+   ensemble width from 0.016 to 0.027 (68%). This is because the residual distribution
+   (GT - base_prediction) captures the ACTUAL uncertainty the base model misses.
+
+2. **KS daily degraded**: The residual FM adds noise to daily changes that doesn't match
+   GT daily change distribution. The combined daily changes are: base_change + residual_change,
+   where residual_change has its own distribution not aligned with GT. KS 11/25.
+
+3. **Conditionality lost**: The residual FM is UNCONDITIONAL — it doesn't know the regime.
+   It adds the same perturbation distribution regardless of turbulent vs calm history.
+   Turb/calm drops from 1.46 to 0.97.
+
+4. **eff_rank near-perfect at ep80**: The residual FM at ep80 produces eff_rank 7.01
+   (GT=6.99) — the BEST we've ever seen. The residual distribution naturally captures
+   the right amount of cross-cell variation.
+
+### What Was Learned
+
+- Residual FM approach WORKS for CI (0.110 → 0.527, 4.8x improvement)
+- The residual FM needs to be CONDITIONAL to preserve regime sensitivity
+- KS degradation is from residual noise not matching GT daily change distribution
+- Two clear next steps: (1) make residual FM conditional, (2) tune residual magnitude
+
+### Decision: BUILD ON THIS
+Best CI ever achieved. Proceed with conditional residual FM.
+
+---
