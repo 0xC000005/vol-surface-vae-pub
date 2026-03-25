@@ -1,0 +1,17 @@
+{
+  "experiment_id": "155d",
+  "verification_type": "multi_seed",
+  "timestamp": "2026-03-25T13:56:00.955510",
+  "result_paths": [
+    "results/validations/2026-03-25/analysis/155d_multi_seed/results.json"
+  ],
+  "status": "PASS",
+  "summary": "155d multi-seed (42,43,44): CI_worst range 0.747-0.750, spread 0.003. Highly reproducible.",
+  "metrics": {
+    "ci_range": [
+      0.747,
+      0.75
+    ],
+    "ci_std": 0.001
+  }
+}

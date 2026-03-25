@@ -43253,3 +43253,134 @@ Comparison: 155d (no VS, sw=0.5) had corr=0.895 at ep200. VS pushes corr from 0.
 **BUILD ON.** The mechanism works, just needs parameter tuning. This is a hyperparameter problem, not an architectural one.
 
 ---
+
+## 2026-03-25: RC17 Post-Mortem — Fundamental Tradeoff Analysis
+
+### The CI-Correlation Tradeoff Is a Loss Function Problem, Not Architecture
+
+After 10 experiments mapping the full Pareto frontier, a discussion with the user clarified the fundamental issue.
+
+**What we observed:**
+- sw=0.5: CI=0.745, corr=0.895 — good correlation, insufficient CI
+- sw=0.55: CI=0.810, corr=0.49 — passes CI target, catastrophic correlation
+- No single configuration achieves both CI>0.80 AND corr>0.80
+
+**Initial misdiagnosis:** Capacity problem — 32-dim noise can't encode rank-7 correlation structure through CLN.
+
+**Corrected diagnosis:** The architecture HAS the capacity. At sw=0.5 it produces corr=0.895 (proves it can do correlation). At sw=0.55 it produces CI=0.810 (proves it can do spread). It cannot be TRAINED to do both simultaneously because afCRPS provides no gradient signal for correlation.
+
+### Why afCRPS Creates an Artificial Tradeoff
+
+afCRPS = mae - spread_weight * spread, where both terms average over all 750 dimensions.
+
+Two ensemble members that differ by a correlated +0.01 across all cells contribute identically to the spread term as two members that differ by random +/-0.01 per cell. afCRPS is literally blind to whether spread is correlated or independent.
+
+When spread_weight increases, the model needs to push members further apart. The path of least resistance is independent per-cell noise (maximizes entropy for a given spread magnitude). Correlated spread requires coordinated attention across layers — harder to optimize, same loss reduction.
+
+Result: higher spread_weight → higher CI but lower correlation. Not because the architecture can't do both, but because the loss doesn't reward it.
+
+### The Test Suite Is Not Contradictory
+
+The user raised: "we want both because individual surfaces must preserve term structure."
+
+Correct. The GT data satisfies all suites simultaneously. Suite 2 (CI) and Suite 9 (correlation) are not in conflict — they're both properties of the true joint distribution. The conflict exists only in the loss landscape:
+- afCRPS has a basin where marginals are calibrated but joint is wrong
+- afCRPS has a basin where joint is right but marginals are under-calibrated
+- The true solution (both) exists but afCRPS has no gradient path to it
+
+### What This Means for RC18
+
+RC17 answered: "What architecture?" → CLN + factored attention + no ODE.
+
+RC18 must answer: "What loss function jointly captures multivariate calibration?"
+
+The fix is not in hyperparameter tuning (spread_weight, lambda_vs). That creates competing gradients. The fix is a loss function where correlated, calibrated spread is the SINGLE optimum:
+
+1. **Proper multivariate scoring rule** — full Energy Score at frame level, or kernel-based scoring rule that natively captures both marginals and joint
+2. **Structured noise injection** — noise that already has learned correlation structure, so afCRPS only needs to calibrate magnitudes
+3. **Two-phase training** — VS-heavy for structure, then afCRPS for calibration with frozen correlation params
+
+### Key Insight
+
+"The architecture can produce correlated spread (proven at sw=0.5). The architecture can produce wide spread (proven at sw=0.55). The architecture cannot be trained to produce both simultaneously because the loss doesn't reward it."
+
+This is the single most important finding from RC17. The next research compass must start here.
+
+---
+
+## 2026-03-25: RC18 Design Notes — End-to-End CLN Transformer
+
+### Architecture Decision: End-to-End (156a)
+
+Based on RC17 post-mortem findings, the next experiment removes the frozen two-stage pipeline and trains end-to-end:
+
+```
+History (30x5x5) → Encoder (unfrozen) → condition
+                                            ↓
+                  Noise z ~ N(0,I) → CLN Factored Transformer → Future (30x5x5)
+```
+
+No ODE, no frozen base predictions, no residuals. The model generates the full future surface directly.
+
+### Temporal Position Encoding: Test Both Learned and Sinusoidal
+
+The current CLN transformer uses learned temporal position encodings:
+```python
+self.temporal_pos = nn.Parameter(torch.randn(1, n_frames, 1, d_model) * 0.02)
+```
+
+For the end-to-end model, growing uncertainty with horizon is critical. The temporal embedding tells the model "this is frame 1" vs "this is frame 30" — the loss forces horizon-dependent spread.
+
+**Test both variants:**
+- **156a:** Learned temporal embeddings (current design). More flexible, can encode arbitrary horizon behavior. 30 positions is small enough to avoid overfitting.
+- **156b:** Sinusoidal temporal embeddings. Smooth inductive bias for monotonic horizon effects. Generalizes to unseen positions (important for 252-day long-horizon).
+
+Hypothesis: sinusoidal may help growing uncertainty (Suite 5) by providing a smooth prior that spread increases with horizon, rather than requiring the model to learn this from scratch. But learned may capture non-monotonic patterns (e.g., term structure roll-down effects).
+
+### Two-Phase Training Design
+
+Phase 1 (ep 1-80): VS-heavy (lambda_vs=0.01) — learn correlation structure first.
+Phase 2 (ep 80+): Reduce VS (lambda_vs=0.001), afCRPS calibrates marginals within learned structure.
+
+This sequences the multi-objective optimization rather than letting gradients compete.
+
+---
+
+## 2026-03-25: Validation Audit — RC17 (10 experiments, 7 verifications)
+
+### Scope
+Audited all RC17 experiments (155a through 155e_v2). Ran comprehensive evaluation on 5 models, multi-seed verification on 155d, and 252-day long-horizon test.
+
+### Cross-Model Comparison (val split, 441 windows, 50 samples)
+
+| Model | sw | λ_vs | CI worst | KS | Kurt | Corr | SS | Grow Unc | Suites |
+|-------|----|------|---------|-----|------|------|------|----------|--------|
+| 155a (MLP) | 0.5 | 0 | 0.655 | 22/25 | 0.681 | 0.991 | 0.747 | 0.97 | - |
+| 155b (MLP+VS) | 0.5 | 0.1 | 0.282 | 14/25 | 0.609 | 1.258 | - | - | - |
+| **155d** | **0.5** | **0** | **0.748** | **25/25** | **1.166** | **0.910** | **1.078** | **1.00** | **5/6** |
+| 155d_v5 | 0.55 | 0 | 0.786 | 24/25 | 1.514 | 0.764 | 3.326 | 1.00 | 4/6 |
+| 155e | 0.5 | 0.01 | 0.775 | 25/25 | 1.756 | 1.565 | 1.498 | 1.00 | 4/6 |
+
+### Key Verifications
+
+**Multi-seed (155d, seeds 42/43/44):** CI_worst = 0.747, 0.750, 0.747. Spread = 0.003. Highly reproducible.
+
+**Long-horizon 252d (155d):** Zero explosions across 10 windows × 20 samples. Spread grows 1.82x from h=30 to h=252.
+
+**Growing uncertainty:** ALL CLN models pass with 1.00 monotonicity. Temporal attention with position encodings learns horizon-dependent spread without AR structure.
+
+### Corrections to Prior Claims
+- 155d inline eval CI=0.745 → full val eval CI=0.748 (minor, consistent)
+- 155d inline eval corr=0.895 → full val eval corr=0.910 (slightly better on full data)
+- 155d_v5 inline eval CI=0.796 → full val eval CI=0.786 (slightly worse on full data)
+- All corrections are within 0.02 — inline evals are trustworthy
+
+### Bottleneck Cells
+Column 4 (deep OTM, longest tenor) is consistently worst: cells (3,4), (0,4), (1,4), (4,4). These 4 cells are the binding constraint preventing CI from reaching 0.80.
+
+### Gaps Remaining
+- 155c eval skipped (different architecture, requires ODE, too slow)
+- Full test split (4540+) not run (requires generating base predictions, ~30 min)
+- 155d_v2 ep120 best checkpoint not evaluated separately
+
+---

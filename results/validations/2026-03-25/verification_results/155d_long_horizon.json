@@ -1,0 +1,14 @@
+{
+  "experiment_id": "155d",
+  "verification_type": "long_horizon",
+  "timestamp": "2026-03-25T13:56:00.955510",
+  "result_paths": [
+    "results/validations/2026-03-25/analysis/155d_long_horizon/results.json"
+  ],
+  "status": "PASS",
+  "summary": "155d 252d: zero explosions, spread grows 1.82x from h30 to h252.",
+  "metrics": {
+    "explosion_rate": 0.0,
+    "spread_ratio": 1.82
+  }
+}

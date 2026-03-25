@@ -1,0 +1,19 @@
+{
+  "experiment_id": "155a",
+  "verification_type": "test_suite",
+  "timestamp": "2026-03-25T13:56:00.955510",
+  "script_path": "results/validations/2026-03-25/scripts/155a_val_eval.sh",
+  "result_paths": [
+    "results/block_ar/155a_val_eval/summary.json"
+  ],
+  "status": "PASS",
+  "summary": "155a: CI_worst=0.655, KS=22/25, corr=0.991",
+  "claims_verified": [],
+  "metrics": {
+    "ci": 0.655,
+    "ks": 22,
+    "corr": 0.991,
+    "suites": null,
+    "status": "PASS"
+  }
+}

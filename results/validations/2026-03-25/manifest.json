@@ -1,0 +1,23 @@
+{
+  "date": "2026-03-25",
+  "experiments_audited": [
+    "155a",
+    "155b",
+    "155c",
+    "155d",
+    "155d_v2",
+    "155d_v3",
+    "155d_v4",
+    "155d_v5",
+    "155e",
+    "155e_v2"
+  ],
+  "verifications_run": 7,
+  "verifications_passed": 7,
+  "scripts_written": 3,
+  "gaps_remaining": [
+    "155c val eval (different architecture)",
+    "full test split eval (4540+)",
+    "155d_v2 ep120 checkpoint"
+  ]
+}
