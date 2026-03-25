@@ -1,20 +1,15 @@
 {
-  "iteration": 2,
-  "experiment_id": "154b",
-  "training_status": "implementing",
-  "phase": "RC16-H2-S2",
-  "hypothesis": "Train second FM on normalized held-out residuals (ArchesWeatherGen design). Sample = 153a_prediction + residual_FM_sample. Residuals computed on HELD-OUT data (wider than training).",
+  "iteration": 3,
+  "experiment_id": "154c",
+  "training_status": "running",
+  "phase": "RC16-H2-S2b",
+  "hypothesis": "Conditional residual FM: add encoder condition to 154b to restore regime sensitivity while maintaining CI improvement.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_cond_residual_fm.py --base_model models/backfill/flow_153a/final_model.pt --epochs 200 --batch_size 64 --lr 5e-4 --output_dir models/backfill/flow_154c --device cuda",
   "session_best": {
-    "exp": "153a",
-    "metric": "4-5/9, CI=0.110, spread=0.016"
+    "exp": "154b",
+    "metric": "CI=0.527, but turb/calm=0.97 (lost), KS=11/25"
   },
-  "total_experiments": 2,
-  "compass_position": "RC16-H2-S2 (Wave 2)",
-  "branch": "autoresearch-session-rc16",
-  "wave1_results": {
-    "H1_SDE": "MIXED — g=0.1 safe, g=0.3 CI=49% but KS degrades",
-    "H2_residuals": "VIABLE — std 0.047, 1.33x wider on held-out",
-    "H4_GP": "FAILED — OOD for velocity field (KS 2/25 on full eval)"
-  },
-  "next_action": "Implement and train residual FM"
+  "total_experiments": 3,
+  "compass_position": "RC16-H2-S2b",
+  "branch": "autoresearch-session-rc16"
 }

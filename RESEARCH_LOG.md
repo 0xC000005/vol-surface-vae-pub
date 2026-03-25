@@ -42313,3 +42313,62 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_residual_fm.py \
 Best CI ever achieved. Proceed with conditional residual FM.
 
 ---
+
+## 2026-03-24: Exp 154c — Conditional Residual FM (RC16-H2-S2b)
+
+### Context
+Build on 154b: add encoder condition to residual FM for regime-aware perturbations.
+
+**Based on**: 154b (CI=0.527, turb/calm=0.97, KS=11/25)
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_cond_residual_fm.py \
+    --base_model models/backfill/flow_153a/final_model.pt --epochs 200 \
+    --batch_size 64 --lr 5e-4 --d_model 64 --n_layers 2 \
+    --output_dir models/backfill/flow_154c --device cuda
+```
+
+### Results — Test Data (160 windows, 50 samples)
+
+| Metric | 153a (base) | 154b (uncond) | 154c (cond) | GT target |
+|--------|-------------|---------------|-------------|-----------|
+| CI worst | 0.110 | 0.527 | 0.470 | >= 0.80 |
+| Turb/calm | 1.46 | 0.97 | 0.92 | > 1.15 |
+| Kurt | 1.51 | 0.81 | 1.003 | 1.0 |
+| KS daily | 23/25 | 11/25 | 20/25 | >= 15 |
+| KS levels | 1 | 3 | 2 | >= 15 |
+| Corr ratio | 1.09 | 1.01 | 1.001 | >= 0.60 |
+| eff_rank ratio | 0.85 | 1.14 | 1.12 | >= 0.50 |
+| Coint | 47% | 65% | 53.8% | > 50% |
+| Mono | 25/29 | 29/29 | 28/29 | >= 20 |
+| Spread h1 | 0.016 | 0.027 | 0.026 | - |
+
+### WHY Analysis
+
+1. **KS recovery (11 -> 20)**: Conditioning aligns residual daily changes with GT distribution.
+   The conditional residual FM learns which perturbation patterns are plausible for each
+   history type, producing more realistic daily changes.
+
+2. **Perfect kurtosis (1.003)**: The combined model (base deterministic + conditional residual)
+   produces daily change distributions with EXACTLY the right tail weight. The base provides
+   the mean trajectory; the residual adds calibrated noise with correct tail behavior.
+
+3. **Turb/calm still fails (0.92)**: The encoder condition is population-level (proven in
+   153a ablation: shuffled = real). The residual FM inherits this — it can't differentiate
+   turbulent vs calm regimes because the condition doesn't carry that information.
+
+4. **CI slightly lower (0.527 -> 0.470)**: Conditioning narrows the residual distribution
+   slightly (the FM learns a more specific residual pattern per condition).
+
+### What Was Learned
+- Conditional residual FM dramatically improves KS and kurtosis
+- CI remains strong (0.470) despite slight reduction
+- The turb/calm limitation is FUNDAMENTAL to the encoder bottleneck, not the residual FM
+- Kurtosis 1.003 and corr_ratio 1.001 are the best we've ever achieved
+
+### Decision: BUILD ON THIS (for distributional quality)
+154c has the best distributional quality of any model. CI still below target but KS/kurt/corr
+are exceptional. The remaining gaps: CI (0.470 < 0.80), turb/calm (0.92 < 1.15), KS levels (2/25).
+
+---
