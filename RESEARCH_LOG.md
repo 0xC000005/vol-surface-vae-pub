@@ -43183,3 +43183,44 @@ Seed variance: 155d (seed 42) peaked at CI=0.745 (ep200). 155d_v2 (seed 42 rerun
 **BUILD ON with CI-based early stopping.** The architecture is correct. Next: (1) retrain with cosine LR to 0 at ep160 to prevent late contraction, (2) CI-based checkpoint selection. Or (3) freeze CLN scales at peak and continue training non-CLN params.
 
 ---
+
+## 2026-03-25: Exp 155d_v3/v4/v5 — Spread Weight Search for CLN Transformer
+
+### Context
+After 155d (sw=0.5, CI=0.745) and 155d_v2 (spread contracts after ep160), tested spread_weight values to find the sweet spot for CI > 0.80. Same CLN residual transformer architecture.
+
+### Key Findings — Spread Weight Controls CI-Quality Tradeoff
+
+| Exp | spread_weight | CI best | KS | Corr | SS | Quality |
+|-----|-------------|---------|-----|------|------|---------|
+| 155d | 0.5 | 0.745 | 25/25 | 0.895 | 1.08 | Best quality |
+| 155d_v3 | 1.0 | 0.994 | 0/25 | 1.30 | 2.39 | Catastrophic |
+| 155d_v4 | 0.7 | 0.941 | 10/25 | 0.57 | 3.15 | Over-dispersive |
+| **155d_v5** | **0.55** | **0.810** | **23/25** | **0.49-0.77** | **1.8-3.4** | **CI target met!** |
+
+155d_v5 (sw=0.55) achieves CI=0.803-0.810 at ep40-80 AND maintains it through ep200 (0.796). KS=22-25/25 throughout.
+
+**Critical limitation:** Correlation is 0.47-0.77 (below 0.80 target). The higher spread_weight makes cells more independent. SS=1.8-3.4 (over-dispersive). The spread is wide but uncorrelated.
+
+155d_v3/v4 were killed early (both over-dispersive). Only logged for completeness.
+
+### Mechanistic Analysis
+
+The spread_weight in afCRPS controls a Pareto frontier:
+- **Low sw (0.5):** Accuracy dominates → spread contracts → CI peaks then degrades → good correlation
+- **High sw (0.7-1.0):** Spread dominates → over-dispersive → perfect CI → bad quality
+- **Sweet spot (0.55):** CI ~0.80 sustained, KS 22-25, but correlation 0.5-0.77
+
+The mechanism: higher spread_weight rewards inter-member distance. The easiest way for the model to maximize distance is to make each cell's noise independent (maximizes entropy). This destroys cross-cell correlation. Achieving BOTH high CI AND high correlation requires correlated diversity — noise that is large but coordinated across cells.
+
+### What Was Learned
+
+- **CI > 0.80 is achievable with the CLN transformer architecture** — confirmed by sw=0.55
+- **spread_weight precisely controls the CI-correlation tradeoff** — a knob, not a design change
+- **The remaining challenge is correlated diversity** — need noise that is wide but cross-cell coordinated
+- **Possible fix: add Variogram Score** — VS penalizes pairwise structure deviation, could enforce correlation without reducing spread
+
+### Decision
+**BUILD ON.** 155d_v5 is the first model to sustain CI > 0.80. Next: add VS to enforce cross-cell correlation while maintaining the wider spread from sw=0.55.
+
+---

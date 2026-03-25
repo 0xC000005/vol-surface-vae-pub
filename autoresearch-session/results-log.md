@@ -21,4 +21,6 @@
 | 2 | 155b | H2r: Single-pass residual MLP + afCRPS + VS | CI=0.750 (ep40 peak), corr=1.107, KS=9/25 | VALUABLE FAILURE — VS pushes wider spread but collapses faster. KS degraded. |
 | 3 | 155c | H3: CLN velocity net + afCRPS (within FM) | CI=0.128 (ep40), corr=0.467, CLN_scale=1.15 | VALUABLE FAILURE — ODE contracts CLN diversity. CLN disrupts spatial correlation. |
 | 4 | 155d | H5: CLN transformer + afCRPS (NO ODE) | CI=0.745, KS=25/25, kurt=1.09, corr=0.895, SS=1.08 | **BREAKTHROUGH** — All metrics improve monotonically. No spread contraction. Build on this. |
+| 5 | 155d_v2 | Extended 300 epochs | CI=0.726 (ep120 peak), spread contracts after ep160 | CLN delays but doesn't prevent contraction. Optimal 120-160 epochs. |
+| 6 | 155d_v3 | spread_weight=1.0 | CI=0.994, KS=0/25, SS=2.8 | Over-dispersive. spread_weight too high. Killed early. |
 

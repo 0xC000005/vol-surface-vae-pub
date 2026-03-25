@@ -1,15 +1,10 @@
 {
-  "iteration": 7,
-  "experiment_id": "155d_v3",
+  "iteration": 9,
+  "experiment_id": "155d_v5",
   "training_status": "running",
-  "phase": "RC17_H5_spread_weight",
-  "hypothesis": "Higher spread_weight (1.0 vs 0.5) in afCRPS resists late-epoch spread contraction. The effective accuracy weight drops from 0.975 to 0.95, spread weight rises from 0.475 to 0.95 — near-equal weighting.",
-  "prediction": "CI > 0.75 sustained through ep200. Spread/mae ratio maintained.",
-  "risk": "Over-dispersion — spread too wide, accuracy degrades.",
-  "session_best": {
-    "best_ci": {"exp": "155d", "ci_worst": 0.745, "note": "ep200 seed 42"},
-    "best_ci_v2": {"exp": "155d_v2", "ci_worst": 0.726, "note": "ep120"}
-  },
-  "total_experiments": 5,
+  "phase": "RC17_H5_spread_search",
+  "hypothesis": "spread_weight=0.55 is the sweet spot. sw=0.5→CI=0.745,KS=25/25. sw=0.7→CI=0.94,KS=10/25. sw=0.55 interpolates to CI~0.80,KS~20/25.",
+  "prediction": "CI > 0.80, KS > 18/25",
+  "total_experiments": 7,
   "branch": "autoresearch-session-rc17"
 }
