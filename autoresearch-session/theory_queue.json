@@ -86,6 +86,16 @@
     "theory": "Full 9-suite + 252d evaluation of SDE sampler at best g_s.",
     "target": ">= 6/9 suites. CI worst_cell >= 0.80.",
     "falsification": "< 5/9 suites or KS daily < 15/25.",
+    "diagnostic_plan": [
+      "1. Full 9-suite eval at best g_s from H1-S1",
+      "2. Per-cell CI coverage grid at h=1, h=15, h=30 — compare moneyness gradient with 153a (OTM was 19.8%)",
+      "3. KS daily AND levels per-cell — does SDE fix the KS-levels failure?",
+      "4. Cross-cell correlation: eff_rank, PC1-5 alignment — does SDE noise destroy factor structure?",
+      "5. Multi-seed (s42, s43, s44) if any suite borderline",
+      "6. Long-horizon 252d: does SDE maintain stability? Does spread still grow?",
+      "7. Comparison table: 153a ODE vs 153a SDE vs 152b AR — which suites does each pass?"
+    ],
+    "learn_from_failure": "If SDE passes CI but breaks KS/correlation, the noise destroys distributional quality. Would need score network (BSFM) to correct. If SDE doesn't improve CI enough, the score approximation from velocity is inaccurate — confirms need for separate score training.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "blocked_by_H1_S1",
@@ -95,9 +105,19 @@
   },
   {
     "name": "RC16-H2-S2: Train Residual FM (if H2-S1 shows learnable residuals)",
-    "theory": "Train second FM on normalized held-out residuals. Inference: sample = 153a_prediction + residual_FM_sample.",
+    "theory": "Train second FM on normalized held-out residuals. Inference: sample = 153a_prediction + residual_FM_sample. ArchesWeatherGen design.",
     "target": "CI worst_cell > 0.50. Spread > 0.03 per-window.",
     "falsification": "CI < 30% after training — residual FM doesn't produce enough spread.",
+    "diagnostic_plan": [
+      "1. Train small residual FM (2-layer factored transformer, fewer params than 153a)",
+      "2. Generate: base_prediction + residual_FM_sample. Evaluate spread per-window.",
+      "3. Full 9-suite eval of combined (base + residual) model",
+      "4. Per-cell comparison: does residual FM fix the OTM coverage gap?",
+      "5. Cross-cell correlation of RESIDUALS: does the residual FM learn the joint structure?",
+      "6. Ablation: vary number of residual FM ODE steps (4, 8, 16). More steps = more computation but potentially better residual quality.",
+      "7. Compare with H1 SDE approach if both succeed: which has better quality-spread tradeoff?"
+    ],
+    "learn_from_failure": "If residual FM generates spread but breaks cross-cell correlations: residuals are too complex for independent generation, need condition-dependent perturbation (SDL-style noise injection instead). If residual FM spread is still too narrow: the deterministic base is too good on held-out data — residuals are degenerate even on OOD data.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "blocked_by_H2_S1",
