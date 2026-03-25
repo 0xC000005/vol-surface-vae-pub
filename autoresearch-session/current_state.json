@@ -1,20 +1,15 @@
 {
-  "iteration": 5,
-  "experiment_id": "155d",
-  "training_status": "complete",
-  "phase": "RC17_H5_followup",
-  "hypothesis": "H5 155d is the breakthrough. Next: extended training (300ep) + full 9-suite eval + long-horizon 252d test.",
+  "iteration": 6,
+  "experiment_id": "155d_v2",
+  "training_status": "running",
+  "phase": "RC17_H5_extended",
+  "hypothesis": "155d CI was still rising at ep200. Extend to 300 epochs. Same architecture, same hyperparams.",
+  "training_command": "PYTHONUNBUFFERED=1 PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py --base_model models/backfill/flow_153a/final_model.pt --epochs 300 --batch_size 8 --n_members 8 --noise_dim 32 --d_model 128 --n_layers 4 --lr 1e-3 --lambda_is 0.5 --output_dir models/backfill/flow_155d_v2 --device cuda",
+  "prediction": "CI > 0.77 at ep300. Quality maintained.",
+  "risk": "Overfitting on 441 windows.",
   "session_best": {
-    "best_ci": {"exp": "155d", "ci_worst": 0.745, "note": "ep200, still rising"},
-    "best_quality": {"exp": "155d", "ks": "25/25", "kurt": 1.093, "corr": 0.895, "ss": 1.075}
+    "best_ci": {"exp": "155d", "ci_worst": 0.745, "note": "ep200, still rising"}
   },
   "total_experiments": 4,
-  "branch": "autoresearch-session-rc17",
-  "next_action": "Train 155d for 300 epochs. Run full 9-suite test. Long-horizon 252d. Multi-seed verification.",
-  "rc17_findings": {
-    "loss_axis": "afCRPS > CFM by +23% CI. Loss matters but architecture is binding.",
-    "architecture_axis": "CLN in factored attention prevents spread collapse. ODE contracts all diversity.",
-    "winning_recipe": "CLN + factored attention + afCRPS + no ODE",
-    "each_component_necessary": "Remove any one → regression (155a no CLN, 155c ODE, etc.)"
-  }
+  "branch": "autoresearch-session-rc17"
 }

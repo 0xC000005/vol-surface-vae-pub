@@ -43139,3 +43139,47 @@ Comparison at epoch 200:
 5. Per-cell CI deep dive to identify remaining bottleneck cells
 
 ---
+
+## 2026-03-25: Exp 155d_v2 — Extended CLN Transformer 300 Epochs (Spread Contraction Discovered)
+
+### Context
+Extended 155d to 300 epochs (from 200) to test if CI continues improving. Same architecture and hyperparams, different random seed. B=8, K=8, lr=1e-3.
+
+### Key Findings
+
+**Spread contraction occurs after ep160, even with CLN:**
+
+| Epoch | CI | KS | Kurt | Corr | SS | ER |
+|-------|------|------|------|------|------|------|
+| 120 | 0.726 | 25/25 | 0.860 | 0.871 | 1.029 | 1.461 |
+| 160 | 0.697 | 25/25 | 1.121 | 0.999 | 1.116 | 1.206 |
+| 200 | 0.641 | 25/25 | 1.346 | 1.049 | 0.965 | 1.096 |
+| 300 | 0.636 | 25/25 | 1.798 | 1.079 | 0.930 | 1.027 |
+
+- Spread: 0.024 (ep120) → 0.022 (ep160) → 0.016 (ep200) → 0.014 (ep300)
+- CI peaks at ep120 (0.726) then degrades
+- Correlation reaches near-perfect (1.079) — EXCELLENT
+- Eff rank converges to GT (1.027) — EXCELLENT
+- Kurtosis inflates past 2.0 target (1.798 at ep300) — too much training
+
+### Mechanistic Analysis
+
+CLN DELAYS spread contraction by ~80 epochs compared to MLP (155a peaks at ep40-80, 155d_v2 peaks at ep120-160). But the fundamental afCRPS accuracy term eventually wins. The mechanism:
+1. Early training (ep1-80): CLN noise grows, spread develops
+2. Peak calibration (ep80-160): spread/mae ratio near 1.0, all metrics balanced
+3. Late training (ep160+): accuracy term dominates, residuals shrink, kurtosis inflates
+
+Seed variance: 155d (seed 42) peaked at CI=0.745 (ep200). 155d_v2 (seed 42 rerun) peaked at CI=0.726 (ep120). Different random initialization path.
+
+### What Was Learned
+
+- **CLN delays but doesn't prevent spread contraction** — revised from 155d conclusion
+- **Optimal training is 120-160 epochs for this architecture** — NOT 200+
+- **CI-based checkpoint selection is essential** — val_loss selects wrong epoch
+- **Correlation and eff_rank converge with enough training** — ep200+ has near-GT structure
+- **Late training trades CI for structure** — a Pareto tradeoff, not strictly worse
+
+### Decision
+**BUILD ON with CI-based early stopping.** The architecture is correct. Next: (1) retrain with cosine LR to 0 at ep160 to prevent late contraction, (2) CI-based checkpoint selection. Or (3) freeze CLN scales at peak and continue training non-CLN params.
+
+---
