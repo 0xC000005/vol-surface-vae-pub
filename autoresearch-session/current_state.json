@@ -1,15 +1,22 @@
 {
-  "iteration": 3,
-  "experiment_id": "154c",
-  "training_status": "running",
-  "phase": "RC16-H2-S2b",
-  "hypothesis": "Conditional residual FM: add encoder condition to 154b to restore regime sensitivity while maintaining CI improvement.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_cond_residual_fm.py --base_model models/backfill/flow_153a/final_model.pt --epochs 200 --batch_size 64 --lr 5e-4 --output_dir models/backfill/flow_154c --device cuda",
+  "iteration": 4,
+  "experiment_id": "154c_validated",
+  "training_status": "complete",
+  "phase": "RC16_PAUSE — validation complete, need research-ideation for principled CI fix",
   "session_best": {
-    "exp": "154b",
-    "metric": "CI=0.527, but turb/calm=0.97 (lost), KS=11/25"
+    "best_ci": {"exp": "154b", "ci_worst": 0.544, "ci_mean": 0.760, "note": "uncond residual FM"},
+    "best_quality": {"exp": "154c", "kurt": 0.935, "corr": 1.021, "note": "cond residual FM"},
+    "best_overall": {"exp": "153a", "suites": "4-5/9", "note": "base ODE, excellent distributional"}
   },
-  "total_experiments": 3,
-  "compass_position": "RC16-H2-S2b",
-  "branch": "autoresearch-session-rc16"
+  "total_experiments": 4,
+  "compass_position": "RC16 Wave 2 complete — need RC17 ideation for CI fix",
+  "branch": "autoresearch-session-rc16",
+  "validated_root_causes": {
+    "ci_gap": "ODE contracts source randomness. Residual FM adds spread but CFM loss has no calibration incentive. Best CI = 0.544 (target 0.80).",
+    "s3_invalid": "GT turb/calm = 1.042 on test subset (P(>1.15) = 0.04%). Test is invalid on this split.",
+    "kurtosis_mechanism": "Conditioning fixes within-cell SHAPE not scale. Cell-std kurt: uncond=9.29, cond=3.01, GT=3.59.",
+    "explosion_rate": "Residual FM pushes >50% of samples past clip boundaries. Needs architectural fix.",
+    "154b_beats_154c_for_ci": "Unconditional residual has wider spread (0.544 vs 0.460 CI). Conditioning narrows residuals."
+  },
+  "next_action": "Run /research-ideation for RC17: principled CI calibration. Key input: residual FM works but needs calibrated spread objective (Energy Score, afCRPS, or SDL-style). Post-hoc scaling is NOT principled."
 }
