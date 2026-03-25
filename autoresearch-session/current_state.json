@@ -1,16 +1,16 @@
 {
-  "iteration": 1,
-  "experiment_id": "155a",
+  "iteration": 2,
+  "experiment_id": "155b",
   "training_status": "running",
-  "phase": "RC17_H1r",
-  "hypothesis": "H1r: Single-pass residual MLP + afCRPS. No ODE. Tests whether changing loss from CFM to afCRPS produces calibrated spread.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_155a_residual_afcrps.py --base_model models/backfill/flow_153a/final_model.pt --epochs 200 --batch_size 64 --n_members 8 --noise_dim 32 --lr 1e-3 --lambda_is 0.5 --output_dir models/backfill/flow_155a --device cuda",
-  "prediction": "Expect CI worst_cell > 0.65 (vs 154b baseline 0.544). afCRPS spread gradient should widen ensemble. MLP may not preserve cross-cell correlation (no attention).",
-  "risk": "MLP may produce uncorrelated residuals (like 133c, corr=0.087). Without attention, cells are independent.",
+  "phase": "RC17_H2r",
+  "hypothesis": "H2r: Same MLP as H1r but with per-frame Variogram Score. Tests whether VS prevents spread contraction and provides correlation gradient.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_155b_residual_afcrps_vs.py --base_model models/backfill/flow_153a/final_model.pt --epochs 200 --batch_size 64 --n_members 8 --noise_dim 32 --lr 1e-3 --lambda_is 0.5 --lambda_vs 0.1 --output_dir models/backfill/flow_155b --device cuda",
+  "prediction": "VS should slow spread contraction by penalizing deviation from GT pairwise structure. CI may be similar or slightly better than 155a. Correlation should improve.",
+  "risk": "VS may dominate loss and reduce accuracy. High lambda_vs could slow convergence.",
   "session_best": {
-    "best_ci": {"exp": "154b", "ci_worst": 0.544},
+    "best_ci": {"exp": "155a", "ci_worst": 0.668, "note": "ep80"},
     "best_quality": {"exp": "154c", "kurt": 0.935, "corr": 1.021}
   },
-  "total_experiments": 0,
+  "total_experiments": 1,
   "branch": "autoresearch-session-rc17"
 }
