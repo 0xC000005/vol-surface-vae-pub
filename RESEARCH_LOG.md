@@ -43384,3 +43384,27 @@ Column 4 (deep OTM, longest tenor) is consistently worst: cells (3,4), (0,4), (1
 - 155d_v2 ep120 best checkpoint not evaluated separately
 
 ---
+
+## 2026-03-25: Verification — Architecture CAN Produce Wide + Correlated Spread
+
+### Test
+Take 155d (sw=0.5, corr=0.910, CI=0.748) and scale residuals at inference time (no retraining). If correlation is preserved with wider spread, the architecture has sufficient capacity.
+
+### Results
+
+| Scale | CI worst | Corr | ER ratio | KS | SS |
+|-------|---------|------|----------|-----|------|
+| 1.0 | 0.747 | 0.969 | 1.330 | 25/25 | 1.083 |
+| **1.3** | **0.837** | **0.941** | **1.394** | **25/25** | **1.382** |
+| 1.5 | 0.876 | 0.929 | 1.422 | 25/25 | 1.572 |
+| 1.8 | 0.908 | 0.917 | 1.451 | 24/25 | 1.837 |
+| 2.0 | 0.921 | 0.911 | 1.464 | 23/25 | 2.002 |
+
+At scale=1.3: CI=0.837, corr=0.941, KS=25/25 — **ALL targets met simultaneously.**
+
+### Conclusion
+The architecture's residuals are inherently correlated (corr drops only 0.03 at 1.3x scale). The problem is purely that afCRPS training produces residuals ~1.3x too narrow. This is definitive evidence that the loss function, not the architecture, is the remaining bottleneck. RC18 should focus entirely on the loss/training procedure.
+
+Note: post-hoc scaling is NOT a principled solution (violates Bitter Lesson). But it proves the architecture has the capacity, which validates the RC18 direction of finding a loss that produces the right magnitude.
+
+---
