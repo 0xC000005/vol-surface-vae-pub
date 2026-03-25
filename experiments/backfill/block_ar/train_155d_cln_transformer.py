@@ -167,13 +167,13 @@ class CLNResidualTransformer(nn.Module):
         return residual.reshape(B, T * C)
 
 
-def afcrps_loss(samples, gt, alpha=0.95):
+def afcrps_loss(samples, gt, alpha=0.95, spread_weight=0.5):
     """afCRPS for (B, K, D) tensors."""
     K = samples.shape[1]
     idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
     mae = (samples - gt.unsqueeze(1)).abs().mean()
     spread = (samples[:, idx_i] - samples[:, idx_j]).abs().mean()
-    fcrps = mae - 0.5 * spread
+    fcrps = mae - spread_weight * spread
     loss = alpha * fcrps + (1 - alpha) * mae
     return loss, mae, spread
 
@@ -259,6 +259,8 @@ def main():
     parser.add_argument("--n_members", type=int, default=8)
     parser.add_argument("--lambda_is", type=float, default=0.5)
     parser.add_argument("--alpha", type=float, default=0.95)
+    parser.add_argument("--spread_weight", type=float, default=0.5,
+                        help="Spread term weight in afCRPS (default 0.5, try 1.0)")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -352,7 +354,7 @@ def main():
             combined_4d = combined.reshape(B, K, T, 25)
             gt_4d = gt.reshape(B, T, 25)
 
-            crps, mae, spread = afcrps_loss(combined_4d, gt_4d, alpha=args.alpha)
+            crps, mae, spread = afcrps_loss(combined_4d, gt_4d, alpha=args.alpha, spread_weight=args.spread_weight)
             is_loss = interval_score(combined_4d, gt_4d)
             loss = crps + args.lambda_is * is_loss
 
@@ -379,7 +381,7 @@ def main():
                 cond_K = cd_val[idx].unsqueeze(1).expand(B, K, -1).reshape(B * K, -1)
                 res = model(cond_K, noise).reshape(B, K, DIM)
                 comb = (bp_val[idx].unsqueeze(1) + res).clamp(0, 1).reshape(B, K, T, 25)
-                crps, _, _ = afcrps_loss(comb, gt_val[idx].reshape(B, T, 25), alpha=args.alpha)
+                crps, _, _ = afcrps_loss(comb, gt_val[idx].reshape(B, T, 25), alpha=args.alpha, spread_weight=args.spread_weight)
                 vl += crps.item() * B; nv += B
         val_loss = vl / nv
 
@@ -393,7 +395,7 @@ def main():
                     "n_heads": args.n_heads, "n_layers": args.n_layers,
                     "cond_dim": cond_dim, "noise_dim": args.noise_dim,
                     "n_members": args.n_members, "alpha": args.alpha,
-                    "lambda_is": args.lambda_is,
+                    "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
                     "type": "cln_residual_transformer",
                 },
             }, f"{args.output_dir}/best_model.pt")
@@ -433,7 +435,7 @@ def main():
             "n_heads": args.n_heads, "n_layers": args.n_layers,
             "cond_dim": cond_dim, "noise_dim": args.noise_dim,
             "n_members": args.n_members, "alpha": args.alpha,
-            "lambda_is": args.lambda_is,
+            "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
             "type": "cln_residual_transformer",
         },
     }, f"{args.output_dir}/final_model.pt")

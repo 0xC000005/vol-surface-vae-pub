@@ -1,15 +1,15 @@
 {
-  "iteration": 6,
-  "experiment_id": "155d_v2",
+  "iteration": 7,
+  "experiment_id": "155d_v3",
   "training_status": "running",
-  "phase": "RC17_H5_extended",
-  "hypothesis": "155d CI was still rising at ep200. Extend to 300 epochs. Same architecture, same hyperparams.",
-  "training_command": "PYTHONUNBUFFERED=1 PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py --base_model models/backfill/flow_153a/final_model.pt --epochs 300 --batch_size 8 --n_members 8 --noise_dim 32 --d_model 128 --n_layers 4 --lr 1e-3 --lambda_is 0.5 --output_dir models/backfill/flow_155d_v2 --device cuda",
-  "prediction": "CI > 0.77 at ep300. Quality maintained.",
-  "risk": "Overfitting on 441 windows.",
+  "phase": "RC17_H5_spread_weight",
+  "hypothesis": "Higher spread_weight (1.0 vs 0.5) in afCRPS resists late-epoch spread contraction. The effective accuracy weight drops from 0.975 to 0.95, spread weight rises from 0.475 to 0.95 — near-equal weighting.",
+  "prediction": "CI > 0.75 sustained through ep200. Spread/mae ratio maintained.",
+  "risk": "Over-dispersion — spread too wide, accuracy degrades.",
   "session_best": {
-    "best_ci": {"exp": "155d", "ci_worst": 0.745, "note": "ep200, still rising"}
+    "best_ci": {"exp": "155d", "ci_worst": 0.745, "note": "ep200 seed 42"},
+    "best_ci_v2": {"exp": "155d_v2", "ci_worst": 0.726, "note": "ep120"}
   },
-  "total_experiments": 4,
+  "total_experiments": 5,
   "branch": "autoresearch-session-rc17"
 }
