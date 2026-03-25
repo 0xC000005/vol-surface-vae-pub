@@ -1,0 +1,8 @@
+{
+  "ci_worst_cell": 0.6551020408163265,
+  "ks_daily_pass": 22,
+  "kurtosis_ratio": 0.6812132000923157,
+  "corr_ratio": 0.9913861097397624,
+  "spread_skill_ratio": 0.7469586133956909,
+  "growing_unc_ratio": 0.9655172413793104
+}
