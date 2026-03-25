@@ -1,10 +1,17 @@
-# RC16 Autoresearch Results Log
+# RC17 Autoresearch Results Log
 
-**Session**: RC16 — Calibrated Ensemble Spread for One-Shot FM
-**Branch**: autoresearch-session-rc16
-**Started**: 2026-03-24
-**Baseline**: 153a conditional one-shot FM (4-5/9 [S3,S4,S5,S9], CI worst=0.110, spread=0.016)
-**Target**: CI worst_cell >= 0.80 while PC1 > 0.95 and KS > 15/25
+**Session**: RC17 — Principled CI Calibration via Proper Scoring Rules + CLN Noise
+**Branch**: autoresearch-session-rc17
+**Started**: 2026-03-25
+**Baseline**: 154b (CI worst=0.544, uncond residual FM + CFM loss)
+**Target**: CI worst_cell >= 0.80 while corr_ratio > 0.80 and kurtosis 0.5-2.0
+
+**Key literature backing**:
+- H1r/H2r: AIFS-CRPS (2412.15832), CRPS-LAM (2510.09484), Lakatos (2509.02784)
+- H3: AIFS-CRPS exact implementation (Anemoi source), ConditionalLayerNorm zero-init
+- H5: Latte (2401.03048, TMLR 2025), FGN (2506.10772)
+
+**Mandatory post-experiment investigations**: A (spread), B (quality), C (loss), D (noise), E (comparison), F (WHY)
 
 ---
 

@@ -1,22 +1,25 @@
 {
-  "iteration": 4,
-  "experiment_id": "154c_validated",
-  "training_status": "complete",
-  "phase": "RC16_PAUSE — validation complete, need research-ideation for principled CI fix",
+  "iteration": 0,
+  "experiment_id": "baseline",
+  "training_status": "idle",
+  "phase": "RC17_ready",
+  "hypothesis": "RC17: Principled CI Calibration via Proper Scoring Rules. 4 hypotheses, all literature-validated.",
   "session_best": {
-    "best_ci": {"exp": "154b", "ci_worst": 0.544, "ci_mean": 0.760, "note": "uncond residual FM"},
+    "best_ci": {"exp": "154b", "ci_worst": 0.544, "note": "uncond residual FM, CFM loss"},
     "best_quality": {"exp": "154c", "kurt": 0.935, "corr": 1.021, "note": "cond residual FM"},
-    "best_overall": {"exp": "153a", "suites": "4-5/9", "note": "base ODE, excellent distributional"}
+    "best_distributional": {"exp": "153a", "pc1": 0.999, "pc2": 0.996, "note": "base ODE"}
   },
-  "total_experiments": 4,
-  "compass_position": "RC16 Wave 2 complete — need RC17 ideation for CI fix",
-  "branch": "autoresearch-session-rc16",
-  "validated_root_causes": {
-    "ci_gap": "ODE contracts source randomness. Residual FM adds spread but CFM loss has no calibration incentive. Best CI = 0.544 (target 0.80).",
-    "s3_invalid": "GT turb/calm = 1.042 on test subset (P(>1.15) = 0.04%). Test is invalid on this split.",
-    "kurtosis_mechanism": "Conditioning fixes within-cell SHAPE not scale. Cell-std kurt: uncond=9.29, cond=3.01, GT=3.59.",
-    "explosion_rate": "Residual FM pushes >50% of samples past clip boundaries. Needs architectural fix.",
-    "154b_beats_154c_for_ci": "Unconditional residual has wider spread (0.544 vs 0.460 CI). Conditioning narrows residuals."
+  "total_experiments": 0,
+  "compass_position": "RC17 — Wave 1 (all 4 hypotheses parallel)",
+  "compass_theme": "Principled CI Calibration via Proper Scoring Rules + CLN Noise",
+  "branch": "autoresearch-session-rc17",
+  "rc17_hypotheses": {
+    "H1r": "Single-pass residual MLP + afCRPS (AIFS pattern, no ODE)",
+    "H2r": "Single-pass residual + afCRPS + VS (Lakatos composite)",
+    "H3": "ConditionalLayerNorm in velocity net + afCRPS (within FM)",
+    "H5": "Factored transformer + CLN + afCRPS (no ODE, Latte design)"
   },
-  "next_action": "Run /research-ideation for RC17: principled CI calibration. Key input: residual FM works but needs calibrated spread objective (Energy Score, afCRPS, or SDL-style). Post-hoc scaling is NOT principled."
+  "execution_order": "Wave 1: ALL 4 parallel. Each produces independent knowledge regardless of outcome.",
+  "mandatory_investigations": "A (spread calibration), B (quality preservation), C (loss landscape), D (noise propagation), E (cross-model), F (mechanistic WHY) — for EVERY experiment",
+  "next_action": "Create RC17 branch, implement and run Wave 1"
 }
