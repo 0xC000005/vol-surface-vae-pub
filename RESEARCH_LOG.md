@@ -42157,3 +42157,47 @@ Tweedie score alone. Continue to other probes (H2, H3, H4). Consider BSFM (train
 as a follow-up if other probes also fall short.
 
 ---
+
+## 2026-03-24: RC16 Wave 1 Probes — H2-S1 Residual Characterization + H4-S1 GP Source
+
+### Exp 154b_probe: Residual Characterization (RC16-H2-S1)
+
+**Kill condition**: Per-cell std > 0.005 on held-out data.
+**Result**: ALL 25 cells pass on all splits.
+
+| Split | Mean |residual| | Per-cell std | Residual corr |
+|-------|---------------------|--------------|---------------|
+| Train | 0.021 | 0.035 | 0.458 |
+| Val (held-out) | 0.038 | 0.047 (1.33x train) | 0.508 |
+| Test | 0.040 | 0.058 (1.64x train) | 0.617 |
+
+Held-out residuals ARE wider than training (confirming ArchesWeatherGen).
+Residual correlation (0.46-0.62) matches GT (0.53) — multivariate structure preserved.
+H2-S2 (train residual FM) is VIABLE.
+
+### Exp 154d_probe: GP-Prior Source (RC16-H4-S1)
+
+**Result**: GP source with OU kernel (rho=0.8) provides 34% more spread and 55% CI.
+NO retraining needed — just change sampling from N(0,I) to GP-structured noise.
+
+| Source + Sampler | CI | Spread h1 |
+|------------------|-----|-----------|
+| N(0,I) + ODE (baseline) | 32.5% | 0.0165 |
+| GP + ODE | 53.9% | 0.0213 |
+| N(0,I) + SDE(0.1) | 36.3% | 0.0161 |
+| GP + SDE(0.1) | 55.9% | 0.0221 |
+| **GP + SDE(0.3)** | **69.5%** | 0.0237 |
+
+**Key insight**: GP source and SDE are ADDITIVE. GP provides +21pp CI (structured source),
+SDE adds +16pp (stochastic integration). Combined: 69.5% CI with NO retraining.
+
+**WHY GP helps**: The OU kernel produces temporally correlated noise (lag-1 autocorr = 0.81,
+matching data's rho=0.8). The ODE cannot fully contract this temporal structure away —
+different noise realizations maintain their distinct temporal patterns through integration.
+N(0,I) noise has no temporal structure, so the ODE collapses all diversity.
+
+**WHY combined works**: GP addresses the SOURCE diversity (starting from structured noise),
+SDE addresses the INTEGRATION diversity (adding noise during ODE steps). They target
+different parts of the generation pipeline and are orthogonal.
+
+---

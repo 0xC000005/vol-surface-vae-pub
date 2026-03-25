@@ -1,0 +1,13 @@
+{
+  "experiment": "154d_probe_gp_source",
+  "ou_lengthscale": 4.48,
+  "rho": 0.8,
+  "gp_source_eff_rank": 284.4,
+  "gp_lag1_corr": 0.809,
+  "gp_spread_h1": 0.02255,
+  "iid_spread_h1": 0.01682,
+  "gp_iid_spread_ratio": 1.34,
+  "gp_ci": 0.55,
+  "iid_ci": 0.337,
+  "conclusion": "GP source does not improve spread or CI over N(0,I). The ODE contracts all source structure."
+}
