@@ -1,0 +1,86 @@
+{
+  "experiment": "154a_sde_probe",
+  "model": "models/backfill/flow_153a/final_model.pt",
+  "n_test_windows": 30,
+  "n_samples": 50,
+  "n_steps": 8,
+  "score_method": "tweedie",
+  "baseline_ode": {
+    "ci_coverage": 0.359,
+    "spread_h1": 0.0237
+  },
+  "results_by_g": {
+    "0.1": {
+      "g": 0.1,
+      "ci_coverage": 0.3778,
+      "spread_h1": 0.02438,
+      "eff_rank": 8.23,
+      "pc1": 0.9988,
+      "pc2": 0.9927,
+      "ks_pass": 25,
+      "kurt_ratio": 1.114,
+      "frob": 1.0
+    },
+    "0.3": {
+      "g": 0.3,
+      "ci_coverage": 0.4936,
+      "spread_h1": 0.02659,
+      "eff_rank": 15.43,
+      "pc1": 0.9771,
+      "pc2": 0.9677,
+      "ks_pass": 19,
+      "kurt_ratio": 0.954,
+      "frob": 5.6
+    },
+    "0.5": {
+      "g": 0.5,
+      "ci_coverage": 0.6735,
+      "spread_h1": 0.03091,
+      "eff_rank": 17.9,
+      "pc1": 0.9642,
+      "pc2": 0.9588,
+      "ks_pass": 10,
+      "kurt_ratio": 0.767,
+      "frob": 7.0
+    },
+    "1.0": {
+      "g": 1.0,
+      "ci_coverage": 0.9301,
+      "spread_h1": 0.04574,
+      "eff_rank": 21.46,
+      "pc1": 0.9102,
+      "pc2": 0.894,
+      "ks_pass": 3,
+      "kurt_ratio": 0.48,
+      "frob": 9.3
+    },
+    "1.5": {
+      "g": 1.5,
+      "ci_coverage": 0.9742,
+      "spread_h1": 0.06123,
+      "eff_rank": 20.85,
+      "pc1": 0.9303,
+      "pc2": 0.915,
+      "ks_pass": 0,
+      "kurt_ratio": 0.276,
+      "frob": 8.8
+    },
+    "2.0": {
+      "g": 2.0,
+      "ci_coverage": 0.989,
+      "spread_h1": 0.07692,
+      "eff_rank": 20.59,
+      "pc1": 0.9335,
+      "pc2": 0.8976,
+      "ks_pass": 0,
+      "kurt_ratio": 0.181,
+      "frob": 8.7
+    }
+  },
+  "kill_condition": "No g gives CI > 30%",
+  "pass_condition": "Some g gives CI > 50% without KS < 15/25",
+  "best_g": "0.3",
+  "best_ci_with_quality": 0.4936,
+  "passes_kill": true,
+  "passes_target": false
+}

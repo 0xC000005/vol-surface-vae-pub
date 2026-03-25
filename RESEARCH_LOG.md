@@ -42108,3 +42108,52 @@ from WITHIN integration (H1), not from the source.
 - 2509.25631: Swift consistency model + CRPS (NeurIPS 2025)
 
 ---
+
+## 2026-03-24: Exp 154a — SDE Sampler Probe on 153a (RC16-H1-S1)
+
+### Context
+RC16-H1-S1. Test whether adding diffusion noise to 153a's trained ODE improves CI coverage
+post-training. Based on stochastic interpolant theory (2403.13724). Score approximated via
+Tweedie estimator from velocity field.
+
+**Based on**: 153a (conditional one-shot FM, CI=0.36, KS=25/25, PC1=0.999)
+
+### Method
+Marginal-preserving SDE: dx = [v + 0.5*g^2*score] dt + g*dW. Score approximated as
+(x1_hat - x_t) / (1-t) where x1_hat = x_t + (1-t)*v. Swept g_s in [0.1, 0.3, 0.5, 1.0, 1.5, 2.0].
+No retraining — uses frozen 153a velocity field.
+
+### Results
+
+| g | CI | spread | KS | PC1 | PC2 | eff_rank | kurt | frob |
+|---|-----|--------|-----|------|------|----------|------|------|
+| 0 (ODE) | 0.359 | 0.024 | 25/25 | 0.999 | 0.996 | 6.36 | 1.11 | 1.3 |
+| 0.1 | 0.378 | 0.024 | 25/25 | 0.999 | 0.993 | 8.23 | 1.11 | 1.0 |
+| 0.3 | 0.494 | 0.027 | 19/25 | 0.977 | 0.968 | 15.43 | 0.95 | 5.6 |
+| 0.5 | 0.673 | 0.031 | 10/25 | 0.964 | 0.959 | 17.90 | 0.77 | 7.0 |
+| 1.0 | 0.930 | 0.046 | 3/25 | 0.910 | 0.894 | 21.46 | 0.48 | 9.3 |
+| 2.0 | 0.989 | 0.077 | 0/25 | 0.933 | 0.898 | 20.59 | 0.18 | 8.7 |
+
+### WHY Analysis
+1. **SDE works mechanically**: CI scales smoothly with g (0.36 to 0.99). Spread scales (0.024 to 0.077).
+2. **Tweedie score degrades rapidly**: At g>0.3, eff_rank explodes (15-21 vs GT 7.6), KS collapses.
+   The score approximation (x1_hat - x)/remaining_time is a first-order estimate that becomes
+   inaccurate when noise pushes x_t far from the ODE trajectory.
+3. **g=0.1 is free improvement**: All quality preserved (KS 25/25, PC1 0.999) + eff_rank improves
+   to 8.23 (closer to GT 7.61 than ODE's 6.36). Small noise acts as beneficial regularization.
+4. **g=0.3 is quality-CI tradeoff boundary**: CI=49.4% with KS=19/25. Beyond this, quality
+   degrades faster than CI improves.
+
+### What Was Learned
+- Stochastic interpolant theory confirmed: SDE on trained ODE produces tunable spread
+- Tweedie score approximation has LIMITED accuracy on our velocity field
+- There exists a narrow safe band (g < 0.2) where noise HELPS without degrading quality
+- For full CI coverage (>80%), need proper score network (BSFM) or different approach
+- g=0.1 provides a FREE eff_rank improvement (8.23 vs 6.36) — should use for all future evals
+
+### Decision: MIXED — partially successful
+SDE is confirmed to work. g=0.1 is a free improvement. But CI target not achievable with
+Tweedie score alone. Continue to other probes (H2, H3, H4). Consider BSFM (trained score)
+as a follow-up if other probes also fall short.
+
+---
