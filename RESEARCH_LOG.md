@@ -42567,3 +42567,68 @@ Wave 3 (if needed): H4 as fallback (full paradigm change).
 - Unconditional everything (loses shape calibration)
 
 ---
+
+### Hypothesis 5 (added): Factored Transformer + Conditional LayerNorm Noise + afCRPS
+
+**Evidence chain**: 133c proved per-position noise + afCRPS = excellent kurtosis (1.60) and
+spread (CI 91.7%). BUT cross-cell corr collapsed to 0.087. 153a proved factored attention =
+excellent cross-cell correlation (1.001). Literature (FGN 2506.10772) proves that CONDITIONAL
+LAYER NORMALIZATION preserves correlation while injecting noise, unlike additive noise which
+attention smooths out.
+
+**Principled argument (Bitter Lesson + literature)**: 
+- FGN shows 32-dim global noise via conditional LayerNorm in ALL transformer layers captures
+  full joint structure from marginal CRPS training. Noise is multiplicative (modulates gain/beta
+  of LayerNorm) so attention CANNOT average it out.
+- Our factored attention naturally decomposes: temporal CLN handles temporal uncertainty,
+  spatial CLN handles cross-cell correlation uncertainty. This is architecturally analogous
+  to SDL's hierarchical uncertainty decomposition.
+- afCRPS provides calibrated spread incentive. Conditional LayerNorm preserves correlation.
+  Together they should give BOTH spread AND correlation.
+
+**133c failure explained**: 133c used ADDITIVE per-position noise. Literature proves attention
+is a statistical smoother that averages additive noise (Collins NeurIPS 2024). So spatial
+attention smoothed the per-cell noise → cells became independent. Conditional LayerNorm fixes
+this because it's MULTIPLICATIVE — it modulates the representation scale, not the values.
+
+**The bet**: Replace ALL LayerNorm in 153a's FactoredVelocityTransformer with Conditional
+LayerNorm modulated by a 32-dim noise vector. Remove the ODE entirely — this is a single-pass
+model. Input: (condition, noise_z) → output: future surface. Train with afCRPS on K=8 members.
+No flow matching, no ODE — just direct generation with noise injection.
+
+**Staged checkpoints**:
+1. (2h) Implement ConditionalLayerNorm in factored transformer. Replace 8 LayerNorms
+   (4 layers × 2 attention types) with conditional versions. Train 50 epochs with afCRPS.
+   Does it produce spread > 0 AND corr > 0.5?
+2. (3h) Full 200 epochs. Sweep noise_dim = [16, 32, 64]. Full 9-suite eval.
+3. (2h) Long-horizon 252d + multi-seed.
+
+**Kill condition**: S1: After 50 epochs, CI < 0.40 OR corr < 0.30 (worse than 133c).
+S2: After 200 epochs, fewer than 5/9 suites.
+
+**Independence**: Completely independent from H1-H4. Different architecture (no ODE/FM),
+different loss (afCRPS not CFM), different noise mechanism (conditional LayerNorm not residual).
+
+**If it fails**: The factored attention structure is incompatible with conditional LayerNorm
+noise injection (the alternating temporal/spatial factorization may not propagate noise the
+same way as standard full attention). Would need to test with full (non-factored) attention.
+
+**What makes this distinct from H1-H4**: H1-H4 all keep the flow matching ODE and try to
+add spread through loss changes or noise injection. H5 ABANDONS the ODE entirely and returns
+to direct generation (like 133c) but with the correct noise injection mechanism (conditional
+LayerNorm, not additive) informed by FGN and AIFS-CRPS literature.
+
+**Literature backing**: FGN (2506.10772), AIFS-CRPS (2412.15832), CSU-PCAST (2510.20769)
+all validate conditional LayerNorm + CRPS in transformer architectures.
+
+### Updated Execution Order
+
+Wave 1 (parallel, 1-2h each): H1-S1 (afCRPS on residual) + H2-S1 (ES on residual) + H5-S1
+(conditional LayerNorm + afCRPS, no ODE)
+
+Wave 2 (informed by Wave 1):
+- If H1 or H2 shows CI improvement: continue within two-stage FM
+- If H5 shows CI + corr: this is the new base (abandon two-stage FM)
+- If none helps: H3 (hierarchical noise injection in FM)
+
+---
