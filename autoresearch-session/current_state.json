@@ -1,10 +1,11 @@
 {
-  "iteration": 9,
-  "experiment_id": "155d_v5",
+  "iteration": 10,
+  "experiment_id": "155e",
   "training_status": "running",
-  "phase": "RC17_H5_spread_search",
-  "hypothesis": "spread_weight=0.55 is the sweet spot. sw=0.5→CI=0.745,KS=25/25. sw=0.7→CI=0.94,KS=10/25. sw=0.55 interpolates to CI~0.80,KS~20/25.",
-  "prediction": "CI > 0.80, KS > 18/25",
-  "total_experiments": 7,
+  "phase": "RC17_correlated_spread",
+  "hypothesis": "Add VS (lambda_vs=0.01) to CLN transformer with sw=0.5. VS provides cross-cell correlation gradient to maintain structure while CLN provides spread. sw=0.5 gave corr=0.895 — VS should maintain this while widening spread.",
+  "prediction": "CI > 0.80 AND corr > 0.80. VS prevents independent cell noise.",
+  "risk": "VS may dominate and slow convergence. VS magnitude ~100x CRPS from 155b experience.",
+  "total_experiments": 8,
   "branch": "autoresearch-session-rc17"
 }

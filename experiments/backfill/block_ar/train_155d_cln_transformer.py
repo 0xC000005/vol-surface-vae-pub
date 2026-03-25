@@ -186,6 +186,19 @@ def interval_score(samples, gt, alpha=0.9):
     return (width + (2 / alpha) * (F.relu(lo - gt) + F.relu(gt - hi))).mean()
 
 
+def variogram_score(samples, gt, p=0.5):
+    """Variogram score for cross-cell dependency structure.
+    Args: samples (B, K, T, C), gt (B, T, C). Returns scalar."""
+    B, K, T, C = samples.shape
+    eps = 1e-8
+    s_diff = (samples.unsqueeze(-1) - samples.unsqueeze(-2)).abs().clamp(min=eps).pow(p)
+    g_diff = (gt.unsqueeze(-1) - gt.unsqueeze(-2)).abs().clamp(min=eps).pow(p)
+    s_mean = s_diff.mean(dim=1)
+    loss = (g_diff - s_mean).pow(2)
+    mask = torch.triu(torch.ones(C, C, device=samples.device), diagonal=1).bool()
+    return loss[:, :, mask].sum(dim=(-2, -1)).mean()
+
+
 def evaluate_model(model, base_preds, gt_futures, conditions,
                    n_samples=50, device='cuda'):
     """Full evaluation."""
@@ -261,6 +274,8 @@ def main():
     parser.add_argument("--alpha", type=float, default=0.95)
     parser.add_argument("--spread_weight", type=float, default=0.5,
                         help="Spread term weight in afCRPS (default 0.5, try 1.0)")
+    parser.add_argument("--lambda_vs", type=float, default=0.0,
+                        help="Variogram score weight for cross-cell correlation")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -356,7 +371,9 @@ def main():
 
             crps, mae, spread = afcrps_loss(combined_4d, gt_4d, alpha=args.alpha, spread_weight=args.spread_weight)
             is_loss = interval_score(combined_4d, gt_4d)
-            loss = crps + args.lambda_is * is_loss
+            # VS for cross-cell correlation
+            vs_loss = variogram_score(combined_4d, gt_4d) if args.lambda_vs > 0 else torch.tensor(0.0, device=device)
+            loss = crps + args.lambda_is * is_loss + args.lambda_vs * vs_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -395,7 +412,7 @@ def main():
                     "n_heads": args.n_heads, "n_layers": args.n_layers,
                     "cond_dim": cond_dim, "noise_dim": args.noise_dim,
                     "n_members": args.n_members, "alpha": args.alpha,
-                    "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
+                    "lambda_is": args.lambda_is, "spread_weight": args.spread_weight, "lambda_vs": args.lambda_vs,
                     "type": "cln_residual_transformer",
                 },
             }, f"{args.output_dir}/best_model.pt")
@@ -435,7 +452,7 @@ def main():
             "n_heads": args.n_heads, "n_layers": args.n_layers,
             "cond_dim": cond_dim, "noise_dim": args.noise_dim,
             "n_members": args.n_members, "alpha": args.alpha,
-            "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
+            "lambda_is": args.lambda_is, "spread_weight": args.spread_weight, "lambda_vs": args.lambda_vs,
             "type": "cln_residual_transformer",
         },
     }, f"{args.output_dir}/final_model.pt")
