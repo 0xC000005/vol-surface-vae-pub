@@ -43224,3 +43224,32 @@ The mechanism: higher spread_weight rewards inter-member distance. The easiest w
 **BUILD ON.** 155d_v5 is the first model to sustain CI > 0.80. Next: add VS to enforce cross-cell correlation while maintaining the wider spread from sw=0.55.
 
 ---
+
+## 2026-03-25: Exp 155e — CLN Transformer + afCRPS + VS (RC17 Correlated Spread)
+
+### Context
+Add VS (lambda_vs=0.01) to 155d (sw=0.5) to enforce cross-cell correlation while CLN provides spread. B=8, K=8, lr=1e-3.
+
+### Key Findings
+
+| Epoch | CI | KS | Corr | SS | ER |
+|-------|------|------|------|------|------|
+| 80 | 0.742 | 20/25 | 1.319 | 1.219 | 0.718 |
+| 160 | 0.775 | 25/25 | 1.632 | 1.485 | 0.435 |
+| 200 | 0.775 | 25/25 | 1.593 | 1.494 | 0.455 |
+
+VS over-correlates: corr=1.59 (>1.0 target). ER=0.45 means cells too correlated (rank collapse). CI=0.775 (close but below 0.80). lambda_vs=0.01 is too strong.
+
+Comparison: 155d (no VS, sw=0.5) had corr=0.895 at ep200. VS pushes corr from 0.90 to 1.60 — a 1.8x increase. Need ~0.001-0.003 to get corr ~1.0.
+
+### What Was Learned
+
+- **VS provides real correlation gradient** but is 100x too strong at lambda_vs=0.01
+- **The correlation knob works in both directions**: sw controls CI (and inversely, correlation); VS controls correlation directly
+- **Two-knob system**: sw=0.5 + small lambda_vs could achieve BOTH CI>0.80 AND corr>0.80
+- **Next**: try sw=0.52 + lambda_vs=0.002 to slightly widen spread while gently enforcing correlation
+
+### Decision
+**BUILD ON.** The mechanism works, just needs parameter tuning. This is a hyperparameter problem, not an architectural one.
+
+---
