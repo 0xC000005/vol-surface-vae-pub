@@ -1,138 +1,108 @@
 [
   {
-    "name": "RC6-RC13 (all completed)",
-    "status": "completed",
-    "result": "35 experiments. Single-pass AR + CRPS caps at 5/9. Paradigm broken."
-  },
-  {
-    "name": "RC14-H0: Copula ceiling",
-    "status": "completed",
-    "result": "Suite 9 fixable via correlation injection. Post-hoc breaks S4/S8."
-  },
-  {
-    "name": "RC14-H1a: Detach skip",
-    "status": "completed",
-    "result": "4/9. Suite 9 PASS (rank 0.89) but kurtosis broken."
-  },
-  {
-    "name": "RC14-H1b: Repulsive loss",
-    "status": "completed",
-    "result": "5/9 max. S4-S9 adversarial. ARTIFICIAL diversity (PC1 align 0.275)."
-  },
-  {
-    "name": "RC14-H2: AR flow matching",
-    "status": "completed",
-    "result": "152b 5/9 [1,4,5,6,9]. First S4+S6+S9. Spread collapse at long horizon. Temperature preserves GT alignment. PC2 degrades in AR (0.785 vs 0.994 unconditional)."
-  },
-  {
-    "name": "RC14: One-shot flow matching exploration",
-    "status": "completed",
-    "result": "152d MLP fails (5:1 ratio). 152e factored transformer works (PC1=0.99, kurt=1.2, KS 25/25). PC3-5 weak. Spread flat. Unconditional only."
-  },
-  {
-    "name": "RC15-H2: Data-dependent source distribution",
-    "theory": "Lim et al. (2410.03229) prove data-dependent paths have lower variance velocity fields. Use persistence forecast (last history frame repeated 30x) as ODE source instead of N(0,I). Each training pair has different persistence-to-future displacement, so diversity comes from the velocity field.",
-    "target": "Faster convergence, equal or better sample quality vs 152e.",
-    "falsification": "After 100 epochs: eff_rank < 3.0 OR KS < 15/25 → data-dependent source doesn't work at our scale.",
+    "name": "RC16-H1-S1: Stochastic Interpolant SDE Sampler (POST-TRAINING)",
+    "theory": "Stochastic interpolants (2403.13724) prove score can be derived analytically from trained drift. Diffusion g_s tunable post-training. Follmer process is entropy-regularized optimal transport. SDE: dx = [v + 0.5*g^2*nabla_log_p]dt + g*dW.",
+    "target": "CI worst_cell > 0.50 at some g_s without KS < 15/25.",
+    "falsification": "No g_s in [0.1, 2.0] gives CI > 30% — score derived from velocity is inaccurate.",
     "diagnostic_plan": [
-      "1. Training convergence: loss curve vs 152e — at which epoch does quality match?",
-      "2. Full metric table vs 152e: eff_rank, PC1-5, KS, kurtosis, Frobenius",
-      "3. Velocity field variance at t=0.5: compare with 152e (Lim predicts LOWER)",
-      "4. Spread analysis: is ensemble spread narrower than 152e?",
-      "5. If UNEXPECTED: generate at intermediate ODE steps (t=0.25, 0.5, 0.75)"
+      "1. Implement SDE Euler-Maruyama sampler using 153a velocity field",
+      "2. Derive score analytically per paper formula",
+      "3. Sweep g_s = [0.1, 0.3, 0.5, 1.0, 2.0] on 20 test windows, 50 samples each",
+      "4. For each g_s: measure per-window spread, CI coverage, KS daily, PC1, eff_rank",
+      "5. Plot spread vs CI vs quality tradeoff curve",
+      "6. If promising: full 9-suite eval at best g_s"
     ],
-    "learn_from_failure": "Diversity depends on noise-to-data distance. Persistence source too deterministic. Would contradict Lim et al. at our scale.",
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "result": "VALUABLE FAILURE. Lim velocity variance confirmed (48% lower) but overfits at 4K scale. All metrics worse than 152e except spread. Use N(0,I) for H1.",
-    "experiment_id": "152f",
-    "effort": "1h"
-  },
-  {
-    "name": "RC15-H1-S1: Conditional one-shot FM with concatenation",
-    "theory": "FMAP (2504.03463) validates concatenation conditioning for spatial attention + FM. Encoder output (128-dim) projected and concatenated as additional features per token. Preserves attention's ability to learn cross-cell correlations (unlike FiLM which modulates globally).",
-    "target": "PC1 >= 0.95. Kurtosis >= 0.5. Turb/calm > 1.15. Suite 3 passes.",
-    "falsification": "PC1 < 0.95 OR kurtosis < 0.5 after 200 epochs → conditioning fundamentally problematic for one-shot FM.",
-    "diagnostic_plan": [
-      "1. Full metric table vs 152e: eff_rank, PC1-5, KS, kurtosis, Frobenius",
-      "2. Conditionality: turb/calm width ratio on 50 turb + 50 calm windows",
-      "3. Condition ablation: random vs real condition — delta in every metric",
-      "4. Per-horizon breakdown: eff_rank and CI at h=1, h=15, h=30",
-      "5. Encoder output variance across test set",
-      "6. PC alignment per-horizon"
-    ],
-    "learn_from_failure": {
-      "PC1_degrades": "Condition constrains dominant factor too much. Try condition dropout.",
-      "kurtosis_degrades": "Condition makes velocity too deterministic. Try condition augmentation noise.",
-      "conditionality_fails": "128-dim bottleneck insufficient for 750-dim. Need cross-attention over history."
-    },
+    "learn_from_failure": "Score from velocity is inaccurate at our scale. Need separate score network (BSFM approach) or different stochasticity mechanism.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "completed",
-    "result": "BUILD ON THIS. Every metric improved over 152e. PC1=0.999, PC2=0.996, frob=1.30, spread 97% of GT. Shuffled cond = real cond (population prior). Turb/calm 1.138.",
-    "experiment_id": "153a",
-    "effort": "2h"
+    "status": "pending",
+    "experiment_id": "154a",
+    "effort": "2h",
+    "wave": 1
   },
   {
-    "name": "RC15-H1-S2: Residual prediction from persistence",
-    "theory": "FMAP predicts delta = future - baseline. Reduces ODE transport distance, improves convergence, requires fewer steps. For us: delta = future - persistence (last history frame repeated).",
-    "target": "Faster convergence. KS >= 15/25. Kurtosis may improve.",
-    "falsification": "KS daily < 15/25 → residual transformation changes distribution too much.",
+    "name": "RC16-H2-S1: Residual Distribution Characterization",
+    "theory": "ArchesWeatherGen (2412.12971) trains second FM on normalized residuals computed on HELD-OUT data. Critical: residuals on training data are artificially narrow (base overfit).",
+    "target": "Residual std per-cell > 0.005 on held-out data. Distribution is learnable (not degenerate).",
+    "falsification": "Residual std < 0.005 on held-out data — base predictions too close to GT, no signal for residual FM.",
     "diagnostic_plan": [
-      "1. Convergence comparison: loss at ep50, ep100, ep200 vs Stage 1",
-      "2. Full metric table vs Stage 1",
-      "3. Residual distribution histogram at h=1 and h=30 vs absolute",
-      "4. Level bias check: per-cell mean(gen) vs mean(GT) after adding persistence back",
-      "5. KS on levels AND KS on changes — report both"
+      "1. Generate 153a predictions for ALL validation windows (4040-4540)",
+      "2. Compute residuals = GT - prediction for each window",
+      "3. Characterize: per-cell mean, std, kurtosis, correlation matrix of residuals",
+      "4. Compare residual distribution on TRAINING vs HELD-OUT data (expect held-out wider)",
+      "5. Visualize residual correlation matrix — does it match GT correlation?",
+      "6. If residuals are learnable: train small residual FM in Stage 2"
     ],
-    "learn_from_failure": "Residual distribution harder to model (more peaked or heavier-tailed). Absolute is better for this data.",
+    "learn_from_failure": "If residuals are degenerate, 153a's ODE is too deterministic even for mean prediction. Would need ensemble of velocity fields.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "completed",
-    "result": "VALUABLE FAILURE. Residual prediction makes kurtosis worse (1.35 vs 1.11). Residual distribution harder (heavier tails). Keep 153a. Level bias low (0.003).",
-    "experiment_id": "153b",
-    "effort": "2h"
+    "status": "pending",
+    "experiment_id": "154b_probe",
+    "effort": "2h",
+    "wave": 1
   },
   {
-    "name": "RC15-H1-S3: Per-horizon learned scale",
-    "theory": "FMAP rescales FM output by lead-time-dependent error scale. Add nn.Parameter(30) as per-horizon multiplier on velocity output. Trains jointly with velocity network via CFM loss backprop.",
-    "target": "Spread ratio h30/h1 > 1.1. Growing uncertainty with horizon.",
-    "falsification": "All scale values in [0.95, 1.05] → no effect. OR spread ratio < 1.05.",
+    "name": "RC16-H3-S1: W2 Regularization Probe",
+    "theory": "ORW-CFM-W2 (2502.06061) constrains velocity field deviation from diverse reference via W2 penalty. ep28 has spread 0.030 and eff_rank 7.57 but turb/calm 1.02. W2 penalty preserves ep28 diversity while allowing conditioning improvement.",
+    "target": "After 50 epochs: spread > 0.025 AND turb/calm > 1.10 (improvement from both directions).",
+    "falsification": "All lambda values: either spread stays (lambda too high, no conditioning) OR collapses (lambda too low, same as before). No sweet spot.",
     "diagnostic_plan": [
-      "1. Learned scale values: plot scale_h vs horizon h",
-      "2. Spread curve: ensemble std vs horizon, compare GT and previous stages",
-      "3. Per-horizon eff_rank at h=1, h=15, h=30",
-      "4. Per-horizon kurtosis at h=1, h=15, h=30",
-      "5. Full metric table vs previous stages"
+      "1. Save 153a ep28 checkpoint as v_ref",
+      "2. Implement W2 penalty: lambda * ||v_theta(x_t,t,cond) - v_ref(x_t,t,cond)||^2",
+      "3. Train 50 epochs from ep28 with lambda = [0.1, 0.5, 1.0]",
+      "4. For each lambda: measure per-window spread, turb/calm, PC1, KS",
+      "5. Is there a lambda where BOTH spread and conditioning improve?"
     ],
-    "learn_from_failure": "CFM loss has no horizon-dependent gradient. Would need explicit spread loss (VS/IS), raising paradigm conflict question.",
+    "learn_from_failure": "Quality-diversity tradeoff not addressable by velocity regularization. ODE determinism is fundamental regardless of training.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "skipped",
-    "result": "SKIPPED. 153a h30/h1 ratio=0.996 (GT=0.999). Spread already correct. Per-horizon scale adds complexity for no benefit.",
-    "experiment_id": "153c",
-    "effort": "2h"
+    "status": "pending",
+    "experiment_id": "154c",
+    "effort": "1h",
+    "wave": 1
   },
   {
-    "name": "RC15-H1-S4: Full evaluation",
-    "theory": "Comprehensive evaluation of best model from Stages 1-3.",
-    "target": ">= 6/9 suites.",
+    "name": "RC16-H4-S1: GP-Prior Source Distribution Probe",
+    "theory": "TSFlow (2410.03024) uses GP prior conditioned on history. Fixed OU kernel with lengthscale matching AR(1) rho=0.8. No learned parameters, no overfitting risk. Provides temporally structured diversity.",
+    "target": "GP source produces measurably different per-window starting points. Source variance across conditions > 0.1.",
+    "falsification": "GP source variance near-zero across conditions (kernel too smooth) OR GP samples indistinguishable from N(0,I) in structure.",
     "diagnostic_plan": [
-      "1. Full 9-suite evaluation",
-      "2. Long-horizon test (252 days) — MANDATORY",
-      "3. Multi-seed (42, 43, 44) if any suite borderline",
-      "4. PCA alignment (PC1-5)",
-      "5. Cross-model table: 146b, 151c, 152b, 152b+tau1.3, 152e, new model",
-      "6. Realism diagnostic: PC alignment of spread direction, rank persistence",
-      "7. Per-cell breakdown for EVERY failing suite",
-      "8. Stress test for EVERY passing suite (margin, seed sensitivity)"
+      "1. Implement GP source: K_OU with lengthscale matching rho=0.8",
+      "2. Sample GP noise for 100 different history conditions",
+      "3. Measure: does GP variance differ across conditions? Is temporal structure present?",
+      "4. Compare GP source diversity vs N(0,I) diversity for same velocity field",
+      "5. If promising: train FM with GP source in Stage 2"
     ],
+    "learn_from_failure": "Structured source doesn't help. Stochasticity must come from WITHIN integration (H1), not from source.",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "completed",
-    "result": "4/9 suites [S3,S4,S5,S9]. Best distributional quality (PC1=0.999, frob=1.30) but CI fails (spread 0.016). One-shot ODE too deterministic. Temperature scaling destroys quality.",
-    "experiment_id": "153d",
-    "effort": "4h"
+    "status": "pending",
+    "experiment_id": "154d_probe",
+    "effort": "1h",
+    "wave": 1
+  },
+  {
+    "name": "RC16-H1-S2: Full SDE Evaluation (if H1-S1 succeeds)",
+    "theory": "Full 9-suite + 252d evaluation of SDE sampler at best g_s.",
+    "target": ">= 6/9 suites. CI worst_cell >= 0.80.",
+    "falsification": "< 5/9 suites or KS daily < 15/25.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "blocked_by_H1_S1",
+    "experiment_id": "154a_eval",
+    "effort": "2h",
+    "wave": 2
+  },
+  {
+    "name": "RC16-H2-S2: Train Residual FM (if H2-S1 shows learnable residuals)",
+    "theory": "Train second FM on normalized held-out residuals. Inference: sample = 153a_prediction + residual_FM_sample.",
+    "target": "CI worst_cell > 0.50. Spread > 0.03 per-window.",
+    "falsification": "CI < 30% after training — residual FM doesn't produce enough spread.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "blocked_by_H2_S1",
+    "experiment_id": "154b",
+    "effort": "3h",
+    "wave": 2
   }
 ]
