@@ -1,16 +1,20 @@
 {
-  "iteration": 1,
-  "experiment_id": "154a",
-  "training_status": "running",
-  "phase": "RC16-H1-S1",
-  "hypothesis": "Stochastic interpolant SDE sampler: add tunable diffusion g_s to 153a ODE post-training. Score derived from velocity via Tweedie estimator.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/sde_sampler_probe.py --device cuda",
+  "iteration": 2,
+  "experiment_id": "154b",
+  "training_status": "implementing",
+  "phase": "RC16-H2-S2",
+  "hypothesis": "Train second FM on normalized held-out residuals (ArchesWeatherGen design). Sample = 153a_prediction + residual_FM_sample. Residuals computed on HELD-OUT data (wider than training).",
   "session_best": {
     "exp": "153a",
     "metric": "4-5/9, CI=0.110, spread=0.016"
   },
-  "total_experiments": 1,
-  "compass_position": "RC16-H1-S1 (Wave 1)",
+  "total_experiments": 2,
+  "compass_position": "RC16-H2-S2 (Wave 2)",
   "branch": "autoresearch-session-rc16",
-  "next_action": "Run SDE probe, sweep g_s, evaluate CI + quality tradeoff"
+  "wave1_results": {
+    "H1_SDE": "MIXED — g=0.1 safe, g=0.3 CI=49% but KS degrades",
+    "H2_residuals": "VIABLE — std 0.047, 1.33x wider on held-out",
+    "H4_GP": "FAILED — OOD for velocity field (KS 2/25 on full eval)"
+  },
+  "next_action": "Implement and train residual FM"
 }

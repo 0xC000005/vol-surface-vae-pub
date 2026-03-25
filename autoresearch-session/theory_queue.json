@@ -3,7 +3,7 @@
     "name": "RC16-H1-S1: Stochastic Interpolant SDE Sampler (POST-TRAINING)",
     "theory": "Stochastic interpolants (2403.13724) prove score can be derived analytically from trained drift. Diffusion g_s tunable post-training. Follmer process is entropy-regularized optimal transport. SDE: dx = [v + 0.5*g^2*nabla_log_p]dt + g*dW.",
     "target": "CI worst_cell > 0.50 at some g_s without KS < 15/25.",
-    "falsification": "No g_s in [0.1, 2.0] gives CI > 30% — score derived from velocity is inaccurate.",
+    "falsification": "No g_s in [0.1, 2.0] gives CI > 30% \u2014 score derived from velocity is inaccurate.",
     "diagnostic_plan": [
       "1. Implement SDE Euler-Maruyama sampler using 153a velocity field",
       "2. Derive score analytically per paper formula",
@@ -13,33 +13,35 @@
       "6. If promising: full 9-suite eval at best g_s"
     ],
     "learn_from_failure": "Score from velocity is inaccurate at our scale. Need separate score network (BSFM approach) or different stochasticity mechanism.",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
     "experiment_id": "154a",
     "effort": "2h",
-    "wave": 1
+    "wave": 1,
+    "result": "MIXED. g=0.1 free eff_rank improvement. g=0.3 CI=49% KS=19. Tweedie score limited. GP source is OOD. SDE kills S9."
   },
   {
     "name": "RC16-H2-S1: Residual Distribution Characterization",
     "theory": "ArchesWeatherGen (2412.12971) trains second FM on normalized residuals computed on HELD-OUT data. Critical: residuals on training data are artificially narrow (base overfit).",
     "target": "Residual std per-cell > 0.005 on held-out data. Distribution is learnable (not degenerate).",
-    "falsification": "Residual std < 0.005 on held-out data — base predictions too close to GT, no signal for residual FM.",
+    "falsification": "Residual std < 0.005 on held-out data \u2014 base predictions too close to GT, no signal for residual FM.",
     "diagnostic_plan": [
       "1. Generate 153a predictions for ALL validation windows (4040-4540)",
       "2. Compute residuals = GT - prediction for each window",
       "3. Characterize: per-cell mean, std, kurtosis, correlation matrix of residuals",
       "4. Compare residual distribution on TRAINING vs HELD-OUT data (expect held-out wider)",
-      "5. Visualize residual correlation matrix — does it match GT correlation?",
+      "5. Visualize residual correlation matrix \u2014 does it match GT correlation?",
       "6. If residuals are learnable: train small residual FM in Stage 2"
     ],
     "learn_from_failure": "If residuals are degenerate, 153a's ODE is too deterministic even for mean prediction. Would need ensemble of velocity fields.",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
     "experiment_id": "154b_probe",
     "effort": "2h",
-    "wave": 1
+    "wave": 1,
+    "result": "VIABLE. All 25 cells pass kill. Val residuals 1.33x wider. Correlation 0.508."
   },
   {
     "name": "RC16-H3-S1: W2 Regularization Probe",
@@ -74,12 +76,13 @@
       "5. If promising: train FM with GP source in Stage 2"
     ],
     "learn_from_failure": "Structured source doesn't help. Stochasticity must come from WITHIN integration (H1), not from source.",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "pending",
+    "status": "completed",
     "experiment_id": "154d_probe",
     "effort": "1h",
-    "wave": 1
+    "wave": 1,
+    "result": "FAILED on full eval. GP source OOD for trained velocity (KS 2/25). Quick probe misleading."
   },
   {
     "name": "RC16-H1-S2: Full SDE Evaluation (if H1-S1 succeeds)",
@@ -88,26 +91,27 @@
     "falsification": "< 5/9 suites or KS daily < 15/25.",
     "diagnostic_plan": [
       "1. Full 9-suite eval at best g_s from H1-S1",
-      "2. Per-cell CI coverage grid at h=1, h=15, h=30 — compare moneyness gradient with 153a (OTM was 19.8%)",
-      "3. KS daily AND levels per-cell — does SDE fix the KS-levels failure?",
-      "4. Cross-cell correlation: eff_rank, PC1-5 alignment — does SDE noise destroy factor structure?",
+      "2. Per-cell CI coverage grid at h=1, h=15, h=30 \u2014 compare moneyness gradient with 153a (OTM was 19.8%)",
+      "3. KS daily AND levels per-cell \u2014 does SDE fix the KS-levels failure?",
+      "4. Cross-cell correlation: eff_rank, PC1-5 alignment \u2014 does SDE noise destroy factor structure?",
       "5. Multi-seed (s42, s43, s44) if any suite borderline",
       "6. Long-horizon 252d: does SDE maintain stability? Does spread still grow?",
-      "7. Comparison table: 153a ODE vs 153a SDE vs 152b AR — which suites does each pass?"
+      "7. Comparison table: 153a ODE vs 153a SDE vs 152b AR \u2014 which suites does each pass?"
     ],
-    "learn_from_failure": "If SDE passes CI but breaks KS/correlation, the noise destroys distributional quality. Would need score network (BSFM) to correct. If SDE doesn't improve CI enough, the score approximation from velocity is inaccurate — confirms need for separate score training.",
-    "attempts": 0,
+    "learn_from_failure": "If SDE passes CI but breaks KS/correlation, the noise destroys distributional quality. Would need score network (BSFM) to correct. If SDE doesn't improve CI enough, the score approximation from velocity is inaccurate \u2014 confirms need for separate score training.",
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "blocked_by_H1_S1",
+    "status": "completed",
     "experiment_id": "154a_eval",
     "effort": "2h",
-    "wave": 2
+    "wave": 2,
+    "result": "MIXED. g=0.1 free eff_rank improvement. g=0.3 CI=49% KS=19. Tweedie score limited. GP source is OOD. SDE kills S9."
   },
   {
     "name": "RC16-H2-S2: Train Residual FM (if H2-S1 shows learnable residuals)",
     "theory": "Train second FM on normalized held-out residuals. Inference: sample = 153a_prediction + residual_FM_sample. ArchesWeatherGen design.",
     "target": "CI worst_cell > 0.50. Spread > 0.03 per-window.",
-    "falsification": "CI < 30% after training — residual FM doesn't produce enough spread.",
+    "falsification": "CI < 30% after training \u2014 residual FM doesn't produce enough spread.",
     "diagnostic_plan": [
       "1. Train small residual FM (2-layer factored transformer, fewer params than 153a)",
       "2. Generate: base_prediction + residual_FM_sample. Evaluate spread per-window.",
@@ -117,12 +121,13 @@
       "6. Ablation: vary number of residual FM ODE steps (4, 8, 16). More steps = more computation but potentially better residual quality.",
       "7. Compare with H1 SDE approach if both succeed: which has better quality-spread tradeoff?"
     ],
-    "learn_from_failure": "If residual FM generates spread but breaks cross-cell correlations: residuals are too complex for independent generation, need condition-dependent perturbation (SDL-style noise injection instead). If residual FM spread is still too narrow: the deterministic base is too good on held-out data — residuals are degenerate even on OOD data.",
-    "attempts": 0,
+    "learn_from_failure": "If residual FM generates spread but breaks cross-cell correlations: residuals are too complex for independent generation, need condition-dependent perturbation (SDL-style noise injection instead). If residual FM spread is still too narrow: the deterministic base is too good on held-out data \u2014 residuals are degenerate even on OOD data.",
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "blocked_by_H2_S1",
+    "status": "completed",
     "experiment_id": "154b",
     "effort": "3h",
-    "wave": 2
+    "wave": 2,
+    "result": "VIABLE. All 25 cells pass kill. Val residuals 1.33x wider. Correlation 0.508."
   }
 ]
