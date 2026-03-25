@@ -43028,3 +43028,50 @@ Training: 200 epochs, B=64, K=8, lr=1e-3, alpha=0.95, lambda_IS=0.5, lambda_VS=0
 **VALUABLE FAILURE.** Confirms the H1r/H2r axis finding: loss function matters (afCRPS > CFM by +23-38%) but MLP architecture can't maintain calibrated spread. The H3/H5 axis (CLN noise injection in attention) is now clearly the priority — it provides architectural resistance to spread collapse.
 
 ---
+
+## 2026-03-25: Exp 155c — CLN Velocity Transformer + afCRPS (RC17-H3)
+
+### Context
+RC17 hypothesis H3: Add ConditionalLayerNorm to 153a's factored velocity transformer. CLN: y=(scale(z)+1)*LN(x)+bias(z), zero-init. Same noise z across all ODE steps per member. Train with afCRPS. Tests whether CLN noise propagates through factored attention within FM ODE.
+
+Quick 40-epoch probe (200 too slow: 24s/epoch with gradient checkpointing through 4-step ODE). B=4, K=4, lr=5e-4.
+
+### Key Findings
+
+**CLN in velocity net is nearly useless for CI:**
+
+| Metric | 155a (ep40) | 155c (ep40) |
+|--------|------------|------------|
+| CI worst | 0.652 | 0.128 |
+| KS | 24/25 | 21/25 |
+| Kurtosis | 0.620 | 1.218 |
+| Correlation | 0.631 | 0.467 |
+| Spread-skill | 0.885 | 0.541 |
+| CLN scale norm | N/A | 1.152 |
+
+- CI barely improved from 153a baseline (0.098→0.128 in 40 epochs)
+- CLN scales grew to 1.15 — model IS using the noise pathway
+- But spread still contracts: mae 0.034→0.017, spread 0.031→0.015
+- Correlation DROPPED to 0.467 — CLN disrupts spatial attention
+
+### Mechanistic Analysis
+
+1. **ODE contracts CLN diversity:** The velocity field integrator acts as a low-pass filter. Different noise vectors z produce different velocity fields, but after 4 ODE steps of integration from the SAME initial noise x_0, the trajectories converge. The ODE's contractive mapping overwhelms CLN modulation.
+
+2. **CLN is too global for spatial attention:** CLN uses a single noise vector z that modulates ALL tokens identically via learned scale/bias. This destroys the per-cell spatial structure that attention learns, reducing correlation from 0.629→0.467. The Latte design uses INDEPENDENT adaLN per block — but that's for a generative model, not a velocity predictor.
+
+3. **Spread contraction matches 155a pattern:** Despite CLN being architecturally harder to suppress (it's multiplicative, not additive), the afCRPS accuracy term still drives spread down. The ODE provides an additional smoothing mechanism that the MLP-based 155a doesn't have.
+
+4. **Training is 480x slower than 155a:** 24s/epoch (155c) vs 0.05s/epoch (155a). ODE backprop with gradient checkpointing is impractical on consumer GPU for exploration.
+
+### What Was Learned
+
+- **ODE is the enemy of ensemble spread** — confirmed across two different mechanisms (additive residuals in 154b/155a vs CLN modulation in 155c)
+- **CLN in velocity net doesn't produce useful diversity** — the learn_from_failure prediction was correct
+- **Global CLN disrupts spatial correlation** — per-position or per-block CLN needed
+- **No-ODE architectures are the clear path forward** — H5 (factored transformer + CLN, direct generation) eliminates the ODE bottleneck
+
+### Decision
+**VALUABLE FAILURE confirming architectural hypothesis.** ODE must be eliminated. Proceed to H5 (155d) immediately — it combines factored attention (for correlation) with CLN (for diversity) in a single-pass architecture (no ODE contraction).
+
+---
