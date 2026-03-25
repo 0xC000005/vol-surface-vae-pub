@@ -41968,3 +41968,143 @@ the initial N(0,I) draw, but the ODE contracts this into a narrow conditional di
 OTM cells are worst because GT variability is highest there (nonlinear IV dynamics).
 
 ---
+
+## 2026-03-24: Research Compass RC16 — Calibrated Ensemble Spread for One-Shot FM
+
+### Philosophy Applied
+- **Hamming**: Calibrated spread is the SINGLE remaining bottleneck (all other requirements met by 153a)
+- **Popper**: Each hypothesis has staged kill conditions — fail fast, learn from failure
+- **Karpathy**: 4 independent hypotheses, testable in parallel with Stage 1 probes
+- **Bitter Lesson**: All approaches learn from data. No per-cell constants, no post-hoc scaling.
+- **Hinton**: Independent reasoning (ODE is too deterministic) confirmed by literature (stochastic interpolants, SFM, BSFM)
+
+### Evidence Summary
+
+**Proven root cause**: Deterministic ODE contracts N(0,I) diversity. Per-window spread = 42% of GT.
+Training sharpens velocity field (ep28: spread 0.030, ep200: spread 0.016). Spread-CI correlation
+r=0.57 (dominant), bias-CI r=0.36 (secondary). Single mechanism explains S2/S7/S8 failures.
+
+**What works (153a)**: PC1=0.999, PC2=0.996, KS 25/25, kurtosis 1.11, Frobenius 1.30,
+spread 97% of GT (population), turb/calm 1.46 (test), stable 252d. Passes S3/S4/S5/S9.
+
+**Exhausted**: Temperature scaling (OOD), data-dependent source (overfits at 4K),
+residual prediction (heavier tails), CRPS (rank-1 attractor), repulsive loss (artificial diversity).
+
+**Key literature (from 4 parallel search agents, 30+ papers)**:
+- Stochastic Interpolants + Follmer (2403.13724, ICML 2024): score derived analytically from drift, g_s tunable post-training
+- SFM-NVIDIA (2410.19814): adaptive sigma = RMSE of deterministic prediction
+- BSFM (2603.21717): marginal-preserving SDE, joint v+score training
+- ArchesWeatherGen (2412.12971): two-stage residual FM, residuals on HELD-OUT data critical
+- SDL (2512.18815): learned noise injection layers, <2% training cost, latent rescaling dial
+- ORW-CFM-W2 (2502.06061): Wasserstein regularization prevents diversity collapse
+- TSFlow (2410.03024): GP prior source (fixed kernel, no overfitting)
+- CPFM (2502.09611): learned conditional prior for FM
+- CW-Gen (2509.20928): conditional whitening separates mean from covariance
+
+### Hypothesis 1: Stochastic Interpolant with Follmer Process (POST-TRAINING)
+
+**Evidence**: 153a has excellent velocity field. Paper 2403.13724 proves score can be derived
+analytically from trained drift. Diffusion g_s tunable post-training without retraining.
+
+**Theory**: The Follmer process is the entropy-regularized optimal transport solution. It
+provably minimizes error propagation from imperfect drift estimation. The marginal-preserving
+SDE is: dx = [v(x,t) + 0.5*g_t^2 * nabla_log_p_t(x)] dt + g_t * dW_t.
+
+**Implementation**: Take 153a velocity field. Derive score analytically per paper formula.
+Sample via SDE with tunable g_s. Sweep g_s to find spread giving 90% CI.
+
+**Staged checkpoints**:
+1. (2h) Implement SDE sampler for 153a. Sweep g_s=[0.1, 0.5, 1.0, 2.0]. If ANY g_s gives
+   CI > 50% without KS < 15/25: proceed.
+2. (2h) Full 9-suite eval at best g_s.
+3. (4h) If quality degrades, retrain with stochastic interpolant loss (sigma_s > 0).
+
+**Kill**: Stage 1: No g_s gives CI > 30%. Stage 2: KS < 15/25 at g_s achieving CI > 80%.
+
+**If fails**: Score derived from velocity is inaccurate. Need separate score network (→ BSFM).
+
+### Hypothesis 2: Two-Stage Residual FM (ArchesWeatherGen Design)
+
+**Evidence**: 153a generates excellent means but narrow ensembles. ArchesWeatherGen solves
+this by training second FM on normalized residuals on held-out data.
+
+**Theory**: Separates quality (base) from diversity (perturbation). Residuals on held-out
+data are wider than on training data (base has overfit to training). FM on residuals learns
+joint distribution including cross-cell correlations.
+
+**Implementation**: Freeze 153a. Generate predictions for validation windows. Compute
+residuals = GT - prediction on HELD-OUT data. Normalize per-cell. Train second FM.
+
+**Staged checkpoints**:
+1. (2h) Generate 153a predictions for validation set. Characterize residual distribution.
+   Is std per-cell > 0.005? Is residual distribution learnable?
+2. (3h) Train small residual FM. Does base + residual recover GT spread? CI coverage?
+3. (2h) Full 9-suite eval.
+
+**Kill**: Stage 1: Residual std < 0.005 (base too close to GT on validation). Stage 2: CI < 50%.
+
+**If fails**: Residual distribution too complex for small FM. Need condition-dependent perturbation.
+
+### Hypothesis 3: W2-Regularized Training (Diversity Preservation)
+
+**Evidence**: ep28 has near-perfect population eff_rank (7.57) and 2x wider spread. Training
+sharpens velocity field. ORW-CFM-W2 (2502.06061) prevents this with W2 penalty.
+
+**Theory**: W2 distance between velocity fields constrains how much generation distribution
+can narrow during training. Allows quality improvement (conditioning) while preventing
+spread collapse. Tractable for flow matching.
+
+**Implementation**: Save ep28 as reference. Resume training with CFM loss + lambda * ||v_theta - v_ref||^2.
+
+**Staged checkpoints**:
+1. (1h) Implement W2 penalty. Train 50 epochs with lambda=[0.1, 0.5, 1.0]. Does spread
+   stay > 0.025 while turb/calm improves from 1.02?
+2. (4h) Full 200 epochs at best lambda. 9-suite eval.
+
+**Kill**: No lambda gives both spread > 0.025 AND turb/calm > 1.15.
+
+**If fails**: Quality-diversity tradeoff is not addressable by velocity regularization.
+ODE determinism is the fundamental limit regardless of training.
+
+### Hypothesis 4: GP-Prior Source Distribution (TSFlow Design)
+
+**Evidence**: Fixed N(0,I) gives uniform per-window spread. TSFlow (2410.03024) uses GP
+prior conditioned on history — temporally structured noise, no learned parameters (no
+overfitting risk). Unlike 152f (persistence, overfits) or CPFM (learned mapper, may overfit).
+
+**Theory**: GP source provides structure (temporal autocorrelation matching data's rho=0.8)
+without memorizing training data. Fixed kernel, analytically computed mean and covariance.
+
+**Implementation**: Source = GP(mu_GP(history), K_OU) where K_OU uses lengthscale matching
+AR(1) rho=0.8. Train FM with x_0 ~ GP instead of N(0,I).
+
+**Staged checkpoints**:
+1. (1h) Implement GP source sampling. Verify: does GP source produce per-window diversity?
+   Compare source variance across conditions vs N(0,I).
+2. (3h) Train full FM with GP source. Compare per-window spread and CI with 153a.
+
+**Kill**: Stage 1: GP source variance is near-zero across conditions (kernel too smooth).
+Stage 2: Per-window spread < 0.02.
+
+**If fails**: Structured source doesn't help at our scale. Confirms stochasticity must come
+from WITHIN integration (H1), not from the source.
+
+### Execution Order
+
+**Wave 1 (parallel, 2h each)**: H1-S1, H2-S1, H3-S1, H4-S1 — all Stage 1 probes.
+**Wave 2 (informed by Wave 1)**: Continue 1-2 directions that showed signal. Kill rest.
+
+### Literature References
+- 2403.13724: Stochastic Interpolants + Follmer Processes (ICML 2024)
+- 2410.19814: SFM-NVIDIA stochastic flow matching
+- 2603.21717: BSFM Bayesian stochastic flow matching
+- 2412.12971: ArchesWeatherGen two-stage residual FM
+- 2512.18815: SDL stochastic decomposition layers
+- 2502.06061: ORW-CFM-W2 Wasserstein regularization
+- 2410.03024: TSFlow GP prior for time series FM
+- 2502.09611: CPFM conditional prior flow matching
+- 2509.20928: CW-Gen conditional whitening (ICLR 2026)
+- 2602.17211: MGD moment guided diffusion (financial time series)
+- 2509.25631: Swift consistency model + CRPS (NeurIPS 2025)
+
+---
