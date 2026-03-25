@@ -42201,3 +42201,43 @@ SDE addresses the INTEGRATION diversity (adding noise during ODE steps). They ta
 different parts of the generation pipeline and are orthogonal.
 
 ---
+
+## 2026-03-24: RC16 Wave 1 Full Eval — GP Source is OOD, SDE Kills Correlation
+
+### CORRECTION to earlier GP+SDE probe results
+
+The 10-window quick probe showed GP+SDE(0.3) CI=69.5%. Full 160-window eval reveals:
+- GP+ODE: 3/9 (KS daily drops to 2/25 — CATASTROPHIC)
+- GP+SDE(0.3): 4/9 but S9 FAILS (eff_rank 21.57), KS=11/25
+
+**Root cause**: The velocity field was trained on N(0,I) source. GP-structured noise is
+OUT OF DISTRIBUTION for the trained velocity field. The velocity learned v(x_t, t) where
+x_t = (1-t)*N(0,I) + t*x_1. With GP source, x_t = (1-t)*GP + t*x_1 — different distribution
+at intermediate t, causing the velocity to produce wrong outputs.
+
+This is the SAME mechanism as temperature scaling failure (tau>1 pushes source OOD).
+Any modification to the source distribution that differs from training is invalid.
+
+### Full comparison table (160 windows, 50 samples)
+
+| Config | Suites | CI worst | KS daily | S9 rank | Key failure |
+|--------|--------|----------|----------|---------|-------------|
+| IID+ODE | 4/9 [3,4,5,9] | 0.110 | 23/25 | 0.85 | CI too narrow |
+| GP+ODE | 3/9 [3,5,9] | 0.219 | 2/25 | 0.91 | KS destroyed (OOD) |
+| GP+SDE(0.3) | 4/9 [3,4,5,6] | 0.417 | 11/25 | 4.15 | S9 destroyed (isotropic noise) |
+
+### Revised understanding
+
+Post-training sampling modifications have STRICT limits:
+1. Source must match training distribution (N(0,I)) — GP/tau violate this
+2. SDE noise must be structured (correlated across cells) to preserve S9
+3. Only g < 0.2 is safe for isotropic SDE noise (from H1-S1 sweep)
+
+### Implication for remaining hypotheses
+
+H2-S2 (residual FM) is the most viable path — it keeps 153a's ODE intact and adds
+calibrated perturbations from a separately trained model. This avoids the OOD problem.
+
+H3 (W2 regularization) addresses the training phase, not inference — still viable.
+
+---
