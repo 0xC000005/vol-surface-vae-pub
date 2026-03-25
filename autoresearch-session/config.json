@@ -1,74 +1,40 @@
 {
-  "goal": "RC16: Calibrated Ensemble Spread for One-Shot FM. Add principled stochasticity to 153a's deterministic ODE to achieve per-window CI coverage >= 80% while preserving distributional quality (PC1 > 0.95, KS > 15/25).",
+  "goal": "RC17: Principled CI Calibration via Proper Scoring Rules + CLN Noise. Achieve CI worst_cell >= 0.80 while preserving correlation and kurtosis.",
   "starting_model": "models/backfill/flow_153a/final_model.pt",
-  "starting_experiment": "153a",
-  "scope": "Level D — New SDE sampler, residual FM, W2 training, GP source. Existing velocity net + encoder unchanged.",
-  "scope_files": [
-    "experiments/backfill/block_ar/train_cond_oneshot_flow.py",
-    "experiments/backfill/block_ar/eval_cond_oneshot_flow.py",
-    "experiments/backfill/block_ar/train_oneshot_flow.py"
-  ],
+  "starting_experiment": "154b (CI=0.544, uncond residual FM)",
+  "scope": "Level D — New architectures (MLP, CLN transformer), new losses (afCRPS, VS), single-pass and within-FM approaches.",
   "constraints": {
     "bitter_lesson": true,
     "no_per_cell_constants": true,
     "no_domain_heuristics": true,
     "no_post_hoc_corrections": true,
     "must_generalize": "Any conditional scenario generation (IV, rates, FX, credit)",
-    "research_compass": "RC16: Calibrated Ensemble Spread for One-Shot FM",
-    "investigation_blocking": "Post-experiment diagnostics REQUIRED — EVERY stage",
-    "paradigm_requirements": [
-      "Independent sample trajectories",
-      "CFM loss (velocity matching)",
-      "Factored transformer velocity net",
-      "Everything learned from data",
-      "Per-window CI coverage is the PRIMARY metric"
-    ],
+    "research_compass": "RC17: Principled CI Calibration via Proper Scoring Rules + CLN Noise",
+    "investigation_blocking": "Post-experiment diagnostics REQUIRED — ALL 6 categories (A-F)",
     "long_horizon_required": "252-day test on final model (boss requirement)"
   },
-  "metric": "composite (CI coverage primary, distributional quality guard)",
+  "metric": "CI worst_cell (primary), corr_ratio > 0.80, kurtosis 0.5-2.0",
   "guard": {
-    "pc1_floor": 0.95,
-    "ks_daily_floor": 15,
-    "kurt_range": [0.5, 2.0],
     "ci_target": 0.80,
-    "spread_target_ratio": 0.80
+    "corr_floor": 0.80,
+    "kurt_range": [0.5, 2.0]
   },
   "budget": {
-    "probe_epochs": 100,
     "quick_epochs": 200,
     "full_epochs": 300
   },
-  "baseline_model": "153a (conditional one-shot FM)",
   "baseline_metrics": {
-    "suites": "4-5/9 [S3,S4,S5,S9,(S6)]",
-    "pc1": 0.999,
-    "pc2": 0.996,
-    "ks_daily": 25,
-    "kurt_ratio": 1.113,
-    "frobenius": 1.30,
-    "ci_worst_cell": 0.110,
-    "per_window_spread_h1": 0.016,
-    "population_spread_h1": 0.070,
-    "spread_deficit": "2.4x (42% of GT)"
+    "154b_ci_worst": 0.544,
+    "154c_kurtosis": 0.935,
+    "153a_corr": 1.001,
+    "153a_pc1": 0.999
   },
-  "reference_models": {
-    "152b": {"suites": 5, "pattern": [1,4,5,6,9], "note": "AR flow matching"},
-    "153a": {"suites": "4-5", "pattern": [3,4,5,9], "note": "Conditional one-shot FM"},
-    "union": {"suites": 6, "pattern": [1,3,4,5,6,9], "note": "Complementary paradigms"}
+  "hypotheses": {
+    "H1r": {"exp": "155a", "desc": "Single-pass residual MLP + afCRPS"},
+    "H2r": {"exp": "155b", "desc": "Single-pass residual + afCRPS + VS"},
+    "H3": {"exp": "155c", "desc": "CLN in velocity net + afCRPS (within FM)"},
+    "H5": {"exp": "155d", "desc": "Factored transformer + CLN + afCRPS (no ODE)"}
   },
-  "literature": [
-    "Stochastic Interpolants + Follmer (2403.13724, ICML 2024): score from drift, post-training g_s tuning",
-    "SFM-NVIDIA (2410.19814): adaptive sigma = RMSE of deterministic prediction",
-    "BSFM (2603.21717): marginal-preserving SDE, aleatoric/epistemic decomposition",
-    "ArchesWeatherGen (2412.12971): two-stage residual FM, OOD residuals critical",
-    "SDL (2512.18815): learned noise injection, <2% training cost, latent rescaling",
-    "ORW-CFM-W2 (2502.06061): Wasserstein regularization prevents diversity collapse",
-    "TSFlow (2410.03024): GP prior source, fixed kernel, no overfitting",
-    "CPFM (2502.09611): learned conditional prior for FM",
-    "CW-Gen (2509.20928, ICLR 2026): conditional whitening"
-  ],
-  "directions": "Wave 1 parallel: H1-S1 (SDE sampler 2h) + H2-S1 (residual characterization 2h) + H3-S1 (W2 probe 1h) + H4-S1 (GP source 1h). Wave 2: continue best 1-2.",
-  "created_at": "2026-03-24",
-  "updated_at": "2026-03-24",
-  "branch": "autoresearch-session-rc16"
+  "created_at": "2026-03-25",
+  "branch": "autoresearch-session-rc17"
 }

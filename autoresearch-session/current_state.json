@@ -1,25 +1,16 @@
 {
-  "iteration": 0,
-  "experiment_id": "baseline",
-  "training_status": "idle",
-  "phase": "RC17_ready",
-  "hypothesis": "RC17: Principled CI Calibration via Proper Scoring Rules. 4 hypotheses, all literature-validated.",
+  "iteration": 1,
+  "experiment_id": "155a",
+  "training_status": "running",
+  "phase": "RC17_H1r",
+  "hypothesis": "H1r: Single-pass residual MLP + afCRPS. No ODE. Tests whether changing loss from CFM to afCRPS produces calibrated spread.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_155a_residual_afcrps.py --base_model models/backfill/flow_153a/final_model.pt --epochs 200 --batch_size 64 --n_members 8 --noise_dim 32 --lr 1e-3 --lambda_is 0.5 --output_dir models/backfill/flow_155a --device cuda",
+  "prediction": "Expect CI worst_cell > 0.65 (vs 154b baseline 0.544). afCRPS spread gradient should widen ensemble. MLP may not preserve cross-cell correlation (no attention).",
+  "risk": "MLP may produce uncorrelated residuals (like 133c, corr=0.087). Without attention, cells are independent.",
   "session_best": {
-    "best_ci": {"exp": "154b", "ci_worst": 0.544, "note": "uncond residual FM, CFM loss"},
-    "best_quality": {"exp": "154c", "kurt": 0.935, "corr": 1.021, "note": "cond residual FM"},
-    "best_distributional": {"exp": "153a", "pc1": 0.999, "pc2": 0.996, "note": "base ODE"}
+    "best_ci": {"exp": "154b", "ci_worst": 0.544},
+    "best_quality": {"exp": "154c", "kurt": 0.935, "corr": 1.021}
   },
   "total_experiments": 0,
-  "compass_position": "RC17 — Wave 1 (all 4 hypotheses parallel)",
-  "compass_theme": "Principled CI Calibration via Proper Scoring Rules + CLN Noise",
-  "branch": "autoresearch-session-rc17",
-  "rc17_hypotheses": {
-    "H1r": "Single-pass residual MLP + afCRPS (AIFS pattern, no ODE)",
-    "H2r": "Single-pass residual + afCRPS + VS (Lakatos composite)",
-    "H3": "ConditionalLayerNorm in velocity net + afCRPS (within FM)",
-    "H5": "Factored transformer + CLN + afCRPS (no ODE, Latte design)"
-  },
-  "execution_order": "Wave 1: ALL 4 parallel. Each produces independent knowledge regardless of outcome.",
-  "mandatory_investigations": "A (spread calibration), B (quality preservation), C (loss landscape), D (noise propagation), E (cross-model), F (mechanistic WHY) — for EVERY experiment",
-  "next_action": "Create RC17 branch, implement and run Wave 1"
+  "branch": "autoresearch-session-rc17"
 }
