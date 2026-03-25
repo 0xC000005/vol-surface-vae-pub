@@ -17,4 +17,5 @@
 
 | # | Exp ID | Direction | Metric | Decision |
 |---|--------|-----------|--------|----------|
+| 1 | 155a | H1r: Single-pass residual MLP + afCRPS | CI=0.668 (ep80), corr=1.010 (ep200), KS=24/25 | VALUABLE FAILURE — afCRPS improves CI +23% vs CFM but MLP can't resist spread contraction. Turb/calm=1.0 (no conditioning). Per-cell spread heterogeneous. |
 

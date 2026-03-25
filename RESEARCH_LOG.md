@@ -42920,3 +42920,65 @@ pattern exactly, rather than attempting an unprecedented gradient path.
 All 4 hypotheses now have DIRECT literature precedent. No unprecedented gradient paths.
 
 ---
+
+## 2026-03-25: Exp 155a — Single-Pass Residual MLP + afCRPS (RC17-H1r)
+
+### Context
+RC17 hypothesis H1r: Does changing the loss from CFM (velocity matching) to afCRPS (proper scoring rule) on a single-pass residual MLP produce calibrated ensemble spread? No ODE — direct (noise 32-dim, condition 128-dim) → residual (750-dim) via 3-layer MLP (512 hidden, SiLU). K=8 members, zero-init output. Based on AIFS-CRPS pattern. Baseline: 154b CI=0.544 (uncond residual FM with CFM loss).
+
+Training: 200 epochs, B=64, lr=1e-3, alpha=0.95, lambda_IS=0.5. ~0.05s/epoch (992K params). Trained on val_preds from 153a base predictions (cached).
+
+### Key Findings
+
+**CI improved but spread contracts during training:**
+
+| Epoch | Train Loss | MAE | Spread | IS | CI worst | Spread-Skill | Corr |
+|-------|-----------|-----|--------|-----|----------|-------------|------|
+| 1 | 0.0696 | 0.0344 | 0.005 | 0.075 | 0.104 | 0.430 | 1.153 |
+| 40 | 0.0514 | 0.0329 | 0.026 | 0.062 | 0.652 | 0.885 | 0.631 |
+| 80 | 0.0480 | 0.0306 | 0.024 | 0.058 | 0.668 | 0.837 | 0.768 |
+| 120 | 0.0455 | 0.0286 | 0.022 | 0.054 | 0.653 | 0.792 | 0.842 |
+| 200 | 0.0438 | 0.0268 | 0.019 | 0.052 | 0.658 | 0.749 | 1.010 |
+
+**Peak CI = 0.668 at ep80** (+23% vs 154b baseline 0.544). afCRPS provides genuine spread calibration gradient.
+
+**Per-horizon CI from best_model (ep24, selected by val_loss):**
+All horizons pass 0.80: h1=0.832, h5=0.827, h10=0.840, h15=0.825, h30=0.813. Per-CELL CI is the bottleneck.
+
+**Per-cell CI worst 5:** cell(2,4)=0.634, cell(0,0)=0.670, cell(1,4)=0.701, cell(1,3)=0.717, cell(0,4)=0.717. Best: cell(4,1)=0.912.
+
+**Residual magnitude heterogeneous across cells (D1):** Cell (0,0) mean |res|=0.105 vs cell (4,1)=0.012 — 10x range. MLP learns per-cell-specific residual magnitudes but these don't match calibration needs.
+
+**Spread contraction mechanism (C2):** spread/mae ratio drops monotonically: 0.758 (ep20) → 0.710 (ep200). The afCRPS accuracy term (weight 0.975 = alpha + (1-alpha)) dominates the spread term (weight 0.475 = alpha*0.5). MLP minimizes loss by reducing residual magnitude.
+
+**Cross-cell correlation:** Training eval shows corr=1.010 at ep200 (excellent). But diagnostic on ep24 best_model shows residual cross-cell corr=0.153 vs GT 0.430. Interpretation: the MLP residuals themselves are weakly correlated, but when added to the base prediction (which has strong correlation from 153a), the combined output inherits correlation structure.
+
+**Turb/calm ratio = 0.997:** MLP does NOT condition on regime. Spread is identical for turbulent and calm windows despite receiving the encoder condition. The condition is not being used for spread modulation.
+
+**KS = 24-25/25:** Excellent distributional quality preserved. Kurtosis 0.62-0.69 (in range).
+
+### Mechanistic Analysis
+
+1. **afCRPS works for CI but can't prevent spread collapse:** The loss provides genuine calibration gradient (CI jumped from 0.104→0.652 in 40 epochs). But continued training collapses spread because mae dominates (effective weight 0.975 vs 0.475 for spread). The MLP finds it easier to reduce mae by shrinking residuals than to maintain calibrated spread.
+
+2. **Val_loss selects wrong checkpoint:** Best val_loss is at ep24, but peak CI is at ep40-80. Val_loss measures accuracy, not calibration. Need CI-based checkpoint selection.
+
+3. **Per-cell spread is heterogeneous and uncalibrated:** The MLP learns cell-specific residual magnitudes (10x range) but these don't match what's needed for per-cell calibration. Deep OTM cells (row 0) get large residuals, ATM cells (row 4) get small ones — this follows the data distribution, not the calibration deficit.
+
+4. **No conditionality:** Turb/calm=0.997 means the MLP ignores the condition vector for spread purposes. It may use condition for bias correction but not for spread modulation. This makes sense — the condition enters as a simple concatenation with noise, and the MLP has no architectural incentive to use it for spread.
+
+5. **Architecture vs loss:** afCRPS is the RIGHT loss (proven by CI improvement). But the MLP architecture can't maintain calibrated spread under training pressure. The architecture needs explicit mechanisms to prevent spread collapse — either noise injection that's harder to suppress (CLN per H3/H5) or explicit spread-preserving regularization.
+
+### What Was Learned
+
+- **afCRPS > CFM for CI by +23%** — loss function matters, confirming the RC17 hypothesis axis
+- **Spread contraction is the binding constraint** — not the loss function, but the architecture's response to the loss
+- **Per-cell CI is harder than per-horizon CI** — horizons average across cells, hiding cell-level miscalibration
+- **Correlation is inherited from base prediction** — the MLP doesn't need to produce correlated residuals because 153a's base already has corr=1.001
+- **MLP ignores condition for spread** — architectural inductive bias needed for regime-dependent spread
+- **Checkpoint selection by val_loss is wrong** — need CI-based selection for ensemble models
+
+### Decision
+**VALUABLE FAILURE.** afCRPS is the right loss, MLP is the wrong architecture for maintaining spread. This strongly motivates H3/H5 where ConditionalLayerNorm provides architecture-level noise that can't be collapsed by training. Proceed to H2r (155b) to test whether adding Variogram Score changes the spread dynamics.
+
+---
