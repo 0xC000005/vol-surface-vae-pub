@@ -42372,3 +42372,81 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_cond_residual_fm.py \
 are exceptional. The remaining gaps: CI (0.470 < 0.80), turb/calm (0.92 < 1.15), KS levels (2/25).
 
 ---
+
+## 2026-03-24: Validation Audit RC16 — 154c verified, GT cond inverted, risk gap analysis
+
+### Scope
+5 parallel agents auditing RC16 experiments (154a, 154b, 154c). Focused on mechanistic
+understanding, GT conditionality, per-cell breakdown, and risk manager production assessment.
+
+### Critical Corrections
+
+1. **S3 conditionality is INVALID on test split with max_batches=20**: GT turb/calm = 1.042
+   on the 320-window subset (bootstrap P(>1.15) = 0.04%). On full test (1223 windows),
+   GT ratio = 1.194 (marginally above threshold). Train ratio = 1.492. The first 320 test
+   windows are the weakest sub-period for this relationship.
+
+2. **154c kurtosis varies with sampling**: Inline eval gave 1.003, cross-model agent gave
+   0.935 (same seed, identical data for all models). True value is approximately 0.94-1.00.
+   Still excellent but not "perfect."
+
+3. **154b (unconditional) has BETTER CI than 154c (conditional)**: Cross-model agent on
+   identical data: 154b CI worst = 0.544 vs 154c CI worst = 0.460. Conditioning narrows
+   the residual distribution, reducing spread and CI.
+
+### Cross-Model Comparison (identical test, from agent)
+
+| Metric | 152b (AR) | 153a (ODE) | 154b (uncond res) | 154c (cond res) |
+|--------|-----------|------------|-------------------|-----------------|
+| Suites | 5/9 | 4/9 | 4/9 | 4/9 |
+| CI worst | 0.447 | 0.105 | **0.544** | 0.460 |
+| CI mean | 0.672 | 0.320 | **0.760** | 0.636 |
+| Turb/calm | 1.223 | **1.465** | 0.964 | 0.919 |
+| Kurt | 0.609 | 1.439 | 0.840 | **0.935** |
+| KS daily | 20 | **23** | 18 | 19 |
+| eff_rank ratio | 1.506 | 0.849 | 1.286 | **1.109** |
+| Corr ratio | 0.821 | 1.094 | 0.928 | **1.021** |
+| Coint | 0.584 | 0.440 | **0.662** | 0.555 |
+| Explosion | 0.000 | 0.000 | 0.515 | 0.569 |
+
+### Key Finding: Explosion Rate in 154b/154c
+
+The residual FM pushes samples outside [0.001, 0.99] boundaries (>50% explosion rate).
+This is because residuals added to base predictions create values near 0 or 1 that clip
+creates discontinuities. 153a is clean (0.02%).
+
+### Per-Cell CI Breakdown (154c)
+
+CI failure is SPREAD-dominated (bias/spread ratio r=0.579, p=0.002). Spread is 29x
+heterogeneous: ITM 1M has spread 0.174, OTM 9M has spread 0.006. The worst cell is
+ATM 1M (0.470 CI). Best cell is 0.95 x 9M (0.900 CI).
+
+### Kurtosis Mechanism
+
+Conditional residual FM produces raw residuals with kurtosis 39.8 (vs unconditional 47.1,
+GT 30.7). The condition modulates perturbation SCALE — different history types get
+different noise magnitudes, producing the right mix of large/small perturbations.
+
+### Risk Manager Assessment
+
+| Requirement | Status |
+|---|---|
+| Tail behavior (stress testing) | PRODUCTION READY (kurt 0.94, KS 19/25) |
+| Cross-cell correlation (hedging) | PRODUCTION READY (corr 1.02, eff_rank 1.11) |
+| Long-horizon (capital planning) | PRODUCTION READY (252d stable) |
+| Calibrated CI (VaR) | NOT READY (0.46 < 0.80, architectural limit) |
+| Regime sensitivity | TEST INVALID on this split (GT inverted) |
+
+### Revised Best Model Recommendation
+
+**154b (unconditional residual FM)** has the best CI (0.544 worst, 0.760 mean) of any model.
+154c's conditioning doesn't help CI and introduces explosion rate issues. For CI-focused
+applications, 154b is preferred. For distributional quality, 154c has better kurtosis (0.935
+vs 0.840) and correlation (1.021 vs 0.928).
+
+### Outstanding
+
+The CI gap (0.54 < 0.80) remains the single architectural bottleneck. The ODE contracts
+source randomness, and the residual FM spread is still ~1.5x too narrow.
+
+---
