@@ -1,11 +1,14 @@
 {
-  "iteration": 0,
-  "experiment_id": null,
-  "training_status": "ready",
-  "phase": "RC18_ready",
-  "total_experiments": 0,
+  "iteration": 1,
+  "current_hypothesis": "H1-S1: Noise bottleneck (noise_dim=4). FGN mechanism: when dim(z) << dim(cells), CLN shared spatial weights force CRPS-optimality to require inter-cell correlation.",
+  "experiment_id": "156a",
+  "training_status": "running",
+  "training_command": "PYTHONPATH=. PYTHONUNBUFFERED=1 python experiments/backfill/block_ar/train_155d_cln_transformer.py --epochs 200 --batch_size 8 --n_members 8 --noise_dim 4 --spread_weight 0.5 --lr 1e-3 --output_dir models/backfill/flow_156a --device cuda",
+  "base_commit": "c410493",
+  "started_at": "2026-03-26T00:00:00",
+  "prediction": "noise_dim=4 will force correlation through CLN bottleneck, achieving corr>0.80 AND CI>0.70 at sw=0.5. Expect: wider spread than 155d because model cannot express independent per-cell noise.",
+  "risk": "FGN mechanism may not transfer from D=87M to D=750. Residuals may need more noise dimensions than 4.",
+  "total_experiments": 1,
   "branch": "autoresearch-session-rc18",
-  "compass": "RC18: Noise Bottleneck + Multivariate Loss",
-  "baseline": "155d (CI=0.748, corr=0.910, 5/6 suites)",
-  "next_action": "Wave 1: H1 stage 1 (noise_dim=4) then H4 stage 1 (per-frame ES lambda=0.1)"
+  "compass": "RC18: Noise Bottleneck + Multivariate Loss"
 }

@@ -43628,3 +43628,93 @@ The old conclusion was correct for the old architecture. The new insight applies
 Literature finding: AR models get growing uncertainty emergently. One-shot models use sinusoidal. Since 155d already passes growing uncertainty (1.00 monotonicity), and both learned and sinusoidal approaches are untested on our architecture, defer this to a follow-up experiment after H1/H2/H4 resolve the primary CI-correlation question. NOT included as a primary RC18 hypothesis — it's a refinement, not a bottleneck.
 
 ---
+
+## 2026-03-26: Exp 156a — Noise Bottleneck noise_dim=4 (RC18-H1-S1)
+
+### Context
+RC18 Wave 1, Hypothesis 1 Stage 1. FGN (2506.10772) showed that when dim(z) << dim(output), CRPS-optimality requires learning inter-dependencies. Our 155d baseline uses noise_dim=32 for 25 cells (ratio 1.28:1, no bottleneck). Reducing to noise_dim=4 creates ratio 1:6.25, forcing CLN to share noise structure across cells.
+
+**Based on**: 155d (CLN transformer, sw=0.5, CI=0.748, corr=0.910)
+**Prediction**: noise_dim=4 will force correlation, achieving corr>0.80 AND CI>0.70 simultaneously
+**Risk**: FGN mechanism may not transfer from D=87M to D=750 residuals
+
+### Architecture & Training
+Same CLNResidualTransformer as 155d. ONLY change: noise_dim 32→4.
+- Parameters: 1,648,261 (vs 1,770,000 for 155d)
+- CLN projections: Linear(4, 128) instead of Linear(32, 128)
+
+Training command:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py     --epochs 200 --batch_size 8 --n_members 8 --noise_dim 4     --spread_weight 0.5 --lr 1e-3 --output_dir models/backfill/flow_156a --device cuda
+```
+
+### Results
+
+| Metric | 155d (baseline) | 156a (noise_dim=4) | Target |
+|--------|----------------|-------------------|--------|
+| CI worst_cell | 0.748 | 0.664 | >0.80 |
+| CI mean | ~0.85 | 0.747 | — |
+| Corr ratio | 0.910 | 1.168 | ~1.0 |
+| KS daily | 25/25 | 25/25 | >20 |
+| Kurtosis | 1.166 | 1.580 | 0.5-2.0 |
+| Eff rank ratio | ~1.0 | 0.869 | ~1.0 |
+| Spread-skill | 1.078 | 0.969 | ~1.0 |
+| Growing unc | 29/29 | 29/29 | >24 |
+| Spread h1→h30 | — | 1.02x | >1.5x |
+
+Training trajectory (eval every 40ep):
+
+| Epoch | CI | KS | corr | ER | spread |
+|-------|------|------|------|------|--------|
+| 1 | 0.057 | 7 | 1.371 | 0.598 | 0.003 |
+| 40 | 0.542 | 19 | 0.952 | 1.243 | 0.024 |
+| 80 | 0.593 | 20 | 1.104 | 0.982 | 0.022 |
+| 120 | 0.648 | 24 | 1.102 | 1.003 | 0.018 |
+| 160 | 0.658 | 25 | 1.148 | 0.898 | 0.016 |
+| 200 | 0.663 | 25 | 1.167 | 0.875 | 0.015 |
+
+### Diagnostics (A-F)
+
+**A. Per-cell CI**: Worst cells at grid corners: (4,4)=0.664, (0,4)=0.671, (1,4)=0.670, (4,0)=0.671. Interior cells near 0.80: (3,2)=0.808, (2,2)=0.793. The 5-tenor column (shortest tenor) is uniformly worst.
+
+**B. Correlation**: Over-correlated (ratio=1.168). Eff rank 6.08 vs GT 6.99 — bottleneck constrains factor space. Top eigenvalue 14.2 vs GT 12.8 (first PC too dominant, 57% vs 51% variance explained).
+
+**C. Spread**: Peak 0.0286 at epoch 22, final 0.0153 — **1.87x contraction**. Same contraction pattern as MLP experiments but less severe. CLN scales saturated at ~2.515 from ep120.
+
+**D. CLN scales**: Saturated at 2.515 uniformly across layers [2.42, 2.51, 2.41, 2.72]. Model fully utilized noise capacity — no room to grow.
+
+**E. 1.3x scaling test**: CI WORSENS from 0.664→0.515 (opposite of 155d where 0.748→0.837). This is CRITICAL: 156a is already at spread-skill optimum (SS=0.969). Scaling distorts residuals because they are highly structured (not just noise). 1.5x→0.427, 2.0x→0.292.
+
+**F. Per-horizon**: Spread nearly flat (0.0148→0.0152, 1.02x growth). CI ranges 0.701-0.760 across horizons. No per-horizon CI passes 0.85 threshold (CI_h=0/30).
+
+### WHY Analysis
+
+**Why does noise_dim=4 preserve correlation but reduce CI?**
+
+The bottleneck IS working as FGN predicts — 4 noise dims for 25 cells forces the CLN to project noise into a low-rank subspace. The model cannot express independent per-cell noise (would require rank 25, only has rank 4). This forces correlation.
+
+But the bottleneck is TOO tight: GT has eff_rank=6.99 (~7 effective factors). With 4 noise dims, the model can only represent 4 independent factors. It over-correlates (ratio=1.168) because it can't capture enough independent variation. The first PC absorbs too much variance (57% vs GT 51%).
+
+**Why does 1.3x scaling hurt (opposite of 155d)?**
+In 155d (noise_dim=32), residuals are mostly noise with low structure — scaling preserves correlation while widening spread. In 156a (noise_dim=4), residuals are highly structured signal — they encode correlated patterns, not just random perturbations. Scaling distorts the learned structure, worsening CI.
+
+**Why does spread contract?**
+CLN scales saturate at 2.515 from ep120 — the model has exhausted its noise capacity. With only 4 dims projected through Linear(4,128), there's a hard ceiling on how much diversity the CLN can inject. As training continues, the mae keeps improving (0.039→0.019) but spread can't grow to match, causing SS to approach 1.0 from below.
+
+### What Was Learned
+
+1. **FGN bottleneck mechanism CONFIRMED on our scale**: Reducing noise_dim from 32→4 shifts corr from 0.910→1.168 (over-correlated). The mechanism transfers from FGN (87M dims) to our problem (750 dims).
+
+2. **noise_dim should approximate GT eff_rank**: GT has ~7 effective factors. noise_dim=4 < 7 → over-correlation. noise_dim=32 >> 7 → under-correlation. The sweet spot is noise_dim ≈ 7-8.
+
+3. **Spread contraction is a CAPACITY problem, not loss problem**: With noise_dim=4, CLN saturates and spread contracts. This is different from 155d where spread contraction was a loss problem (afCRPS blind to correlation). Here it's a genuine capacity ceiling.
+
+4. **1.3x scaling test distinguishes regimes**: When scaling helps (155d), the model has right structure but wrong magnitude → loss problem. When scaling hurts (156a), the model has wrong structure → capacity problem.
+
+### Decision
+**VALUABLE FAILURE** — CI regressed (0.748→0.664) but mechanism confirmed. Proceed to H1-S2 (noise_dim=8) which should match GT eff_rank (~7).
+
+### Next
+H1-S2: noise_dim=8 to test if matching GT eff_rank achieves both corr>0.80 AND CI>0.70. Then H4-S1 (per-frame ES) regardless, to test the orthogonal loss axis.
+
+---
