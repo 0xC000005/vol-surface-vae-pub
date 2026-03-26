@@ -22,3 +22,4 @@
 
 | # | Exp ID | Direction | Metric | Decision |
 |---|--------|-----------|--------|----------|
+| 1 | 156a | H1-S1: noise_dim=4 | CI=0.664, corr=1.168, KS=25/25 | VALUABLE FAILURE — bottleneck too tight |

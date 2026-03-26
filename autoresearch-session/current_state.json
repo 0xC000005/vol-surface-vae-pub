@@ -1,14 +1,14 @@
 {
-  "iteration": 1,
-  "current_hypothesis": "H1-S1: Noise bottleneck (noise_dim=4). FGN mechanism: when dim(z) << dim(cells), CLN shared spatial weights force CRPS-optimality to require inter-cell correlation.",
-  "experiment_id": "156a",
+  "iteration": 2,
+  "current_hypothesis": "H1-S2: Noise bottleneck (noise_dim=8). 156a showed noise_dim=4 over-correlates (corr=1.168, ER=0.869). GT eff_rank=6.99, so noise_dim=8 should match the factor space while maintaining bottleneck (8 << 25).",
+  "experiment_id": "156b",
   "training_status": "running",
-  "training_command": "PYTHONPATH=. PYTHONUNBUFFERED=1 python experiments/backfill/block_ar/train_155d_cln_transformer.py --epochs 200 --batch_size 8 --n_members 8 --noise_dim 4 --spread_weight 0.5 --lr 1e-3 --output_dir models/backfill/flow_156a --device cuda",
-  "base_commit": "c410493",
-  "started_at": "2026-03-26T00:00:00",
-  "prediction": "noise_dim=4 will force correlation through CLN bottleneck, achieving corr>0.80 AND CI>0.70 at sw=0.5. Expect: wider spread than 155d because model cannot express independent per-cell noise.",
-  "risk": "FGN mechanism may not transfer from D=87M to D=750. Residuals may need more noise dimensions than 4.",
-  "total_experiments": 1,
+  "training_command": "PYTHONPATH=. PYTHONUNBUFFERED=1 python experiments/backfill/block_ar/train_155d_cln_transformer.py --epochs 200 --batch_size 8 --n_members 8 --noise_dim 8 --spread_weight 0.5 --lr 1e-3 --output_dir models/backfill/flow_156b --device cuda",
+  "base_commit": "7a8246a",
+  "started_at": "2026-03-26T00:30:00",
+  "prediction": "noise_dim=8 (≈GT eff_rank 7) gives corr 0.85-1.05 AND CI>0.70. Better than 156a (over-correlated) and 155d (under-correlated).",
+  "risk": "8 dims may still be slightly too few OR too many — the sweet spot may be narrower than expected.",
+  "total_experiments": 2,
   "branch": "autoresearch-session-rc18",
   "compass": "RC18: Noise Bottleneck + Multivariate Loss"
 }

@@ -43718,3 +43718,109 @@ CLN scales saturate at 2.515 from ep120 — the model has exhausted its noise ca
 H1-S2: noise_dim=8 to test if matching GT eff_rank achieves both corr>0.80 AND CI>0.70. Then H4-S1 (per-frame ES) regardless, to test the orthogonal loss axis.
 
 ---
+
+## 2026-03-26: Exp 156b — Noise Bottleneck noise_dim=8 (RC18-H1-S2)
+
+### Context
+RC18 H1 Stage 2. 156a (noise_dim=4) showed FGN bottleneck forces correlation (1.168, over-correlated) but restricts CI (0.664). GT eff_rank=6.99, so noise_dim=8 should better match the factor space.
+
+**Based on**: 156a (noise_dim=4 → over-correlated, CI too low)
+**Prediction**: noise_dim=8 gives corr 0.85-1.05 AND CI>0.70, better balance
+**Risk**: 8 dims may still trade off CI for correlation
+
+### Architecture & Training
+Same as 156a/155d. ONLY change: noise_dim=8. Parameters: 1,665,673.
+
+Training command:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py     --epochs 200 --batch_size 8 --n_members 8 --noise_dim 8     --spread_weight 0.5 --lr 1e-3 --output_dir models/backfill/flow_156b --device cuda
+```
+
+### Results
+
+Training trajectory:
+
+| Epoch | CI | corr | KS | ER | SS | spread |
+|-------|------|------|------|------|------|--------|
+| 40 | 0.702 | 0.743 | 21 | 1.815 | 1.119 | 0.025 |
+| 80 | 0.676 | 0.766 | 23 | 1.707 | 1.054 | 0.024 |
+| **120** | **0.718** | **0.903** | **25** | 1.310 | 1.066 | 0.021 |
+| 160 | 0.644 | 0.948 | 25 | 1.289 | 0.990 | 0.017 |
+| 200 | 0.642 | 1.023 | 25 | 1.086 | 0.995 | 0.016 |
+
+**CI peaked at ep120** (0.718, corr=0.903) then declined as model over-correlated. No checkpoint saved at the sweet spot.
+
+Final (ep200) comparison:
+
+| Metric | 156a (dim=4) | 156b (dim=8) | 155d (dim=32) | Target |
+|--------|-------------|-------------|---------------|--------|
+| CI worst | 0.664 | 0.639 | 0.748 | >0.80 |
+| CI mean | 0.747 | 0.763 | ~0.85 | — |
+| Corr | 1.168 | 0.984 | 0.910 | ~1.0 |
+| KS | 25/25 | 25/25 | 25/25 | >20 |
+| Eff rank | 6.08 | 8.23 | ~7.0 | ~7.0 |
+| SS | 0.969 | 0.995 | 1.078 | ~1.0 |
+
+### Diagnostics (A-F)
+
+**A. Per-cell CI**: Worst (1,4)=0.639. Mean=0.763. Row 3-4 best (0.792-0.840). Column 4 (short tenor) worst.
+
+**B. Correlation**: corr=0.984 — NEAR PERFECT, best of all noise_dims. eff_rank 8.23 vs GT 6.99 (ratio=1.177, slightly over-factored). Top eigenvalue 12.12 vs GT 12.80 — first PC slightly under-represented.
+
+**C. Spread**: Peak 0.0295 at ep24, final 0.0164. **1.80x contraction** (similar to 156a's 1.87x). Spread contraction persists regardless of noise_dim.
+
+**D. CLN scales**: 3.215 (higher than 156a's 2.515 — more noise capacity used). Per-layer [3.02, 3.06, 3.34, 3.44] — later layers modulate noise more.
+
+**E. 1.3x scaling**: CI WORSENS from 0.639→0.601 (same pattern as 156a). Model at spread-skill optimum — scaling destroys it. Fundamentally different from 155d where scaling helped.
+
+**F. Per-horizon**: Growing unc 29/29 ✓. Spread ratio h1→h30: 1.12x (better than 156a's 1.02x). CI per-horizon: 0.688-0.776.
+
+### WHY Analysis
+
+**Why does CI peak mid-training then decline?**
+The training dynamics reveal a 3-phase pattern:
+1. **Early (ep1-40)**: Under-correlated (corr=0.743), high spread (0.025), good CI (0.702). Model generates diverse but independent samples.
+2. **Sweet spot (ep80-120)**: Correlation developing (0.903), spread adequate (0.021), peak CI (0.718). Model learns correlation structure from data.
+3. **Over-training (ep120-200)**: Over-correlated (1.023), spread contracted (0.016), CI declining (0.642). afCRPS keeps pushing spread down because it doesn't penalize correlation loss.
+
+The SAME 3-phase pattern occurs for ALL noise_dims, just at different rates and levels.
+
+**Why does noise_dim=8 give better correlation but worse CI than dim=32?**
+With 8 dims, the CLN can only inject diversity along 8 independent directions. The attention layers map these 8 directions to 25 cells, creating correlated outputs (corr=0.984). But the total diversity is limited — the spread ceiling is lower, so CI suffers.
+
+With 32 dims, the CLN can inject 32 independent directions (more than the 25 cells). The model CAN express independent noise but takes the "path of least resistance" — generating moderately correlated samples. More total diversity but less structure.
+
+**What does the noise_dim sweep tell us?**
+noise_dim controls WHERE along the CI-corr Pareto frontier the model converges to:
+- dim=4: over-correlated (1.168), low CI (0.664) — below the frontier
+- dim=8: near-GT correlation (0.984), moderate CI (0.639) — on the frontier
+- dim=32: under-correlated (0.910), highest CI (0.748) — on the frontier
+
+The frontier itself has negative slope: more corr = less CI. **No noise_dim breaks this tradeoff.**
+
+### What Was Learned
+
+1. **Noise bottleneck shifts Pareto frontier position, not shape**: Lower noise_dim → more correlation, less CI. The CI-corr tradeoff is structural to afCRPS, not noise design.
+
+2. **noise_dim=8 gives best correlation quality** (0.984, near-GT) but doesn't achieve CI>0.80. 155d (dim=32) remains best for CI alone.
+
+3. **The sweet spot at ep120 (CI=0.718, corr=0.903) met BOTH H1 targets** but the model over-trained past it. This proves the architecture CAN produce what we want — the loss doesn't converge there.
+
+4. **Spread contraction (1.80-1.87x) is universal** across noise_dims. Not a noise capacity problem — it's the afCRPS loss contracting spread indefinitely.
+
+5. **1.3x scaling test distinguishes noise regimes**: dim=32 → scaling helps (structural noise, right direction); dim=4,8 → scaling hurts (highly structured residuals, already at optimum).
+
+6. **H1 COMPLETE**: noise_dim sweep {4, 8, 32} maps the full Pareto frontier. No point testing dim=2 (would be even more restrictive than dim=4). The bottleneck is a positioning tool, not a solution.
+
+### Decision
+**VALUABLE FAILURE** — H1 series complete. Noise bottleneck confirmed as mechanism (corr shifts monotonically with noise_dim) but doesn't solve the fundamental problem (afCRPS spread contraction).
+
+**H1 kill condition evaluation**: "No noise_dim in {2,4,8} achieves corr>0.80 AND CI>0.70 at sw=0.5"
+- 156b at ep120: CI=0.718>0.70 ✓, corr=0.903>0.80 ✓ → Kill NOT triggered (met at peak)
+- 156b at ep200: CI=0.642<0.70 ✗ → Kill triggered at convergence
+- **Verdict**: The model PASSES through the target but doesn't CONVERGE there. Loss must be fixed.
+
+### Next
+**H4-S1 (per-frame ES)** is now the critical experiment. ES provides a direct gradient on correlation structure. If ES prevents spread contraction, the model could converge at the ep120 sweet spot. Also plan: H4+H1 combination (ES + noise_dim=8) as a follow-up if H4 shows promise.
+
+---
