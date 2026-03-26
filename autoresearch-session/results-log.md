@@ -1,26 +1,24 @@
-# RC17 Autoresearch Results Log
+# RC18 Autoresearch Results Log
 
-**Session**: RC17 — Principled CI Calibration via Proper Scoring Rules + CLN Noise
-**Branch**: autoresearch-session-rc17
-**Started**: 2026-03-25
-**Baseline**: 154b (CI worst=0.544, uncond residual FM + CFM loss)
-**Target**: CI worst_cell >= 0.80 while corr_ratio > 0.80 and kurtosis 0.5-2.0
+**Session**: RC18 — Noise Bottleneck + Multivariate Loss
+**Branch**: autoresearch-session-rc18
+**Started**: 2026-03-26
+**Baseline**: 155d (CI=0.748, corr=0.910, KS=25/25, 5/6 suites)
 
-**Key literature backing**:
-- H1r/H2r: AIFS-CRPS (2412.15832), CRPS-LAM (2510.09484), Lakatos (2509.02784)
-- H3: AIFS-CRPS exact implementation (Anemoi source), ConditionalLayerNorm zero-init
-- H5: Latte (2401.03048, TMLR 2025), FGN (2506.10772)
+## Baseline Metrics (155d, validated 2026-03-25)
 
-**Mandatory post-experiment investigations**: A (spread), B (quality), C (loss), D (noise), E (comparison), F (WHY)
+| Metric | Value | Target |
+|--------|-------|--------|
+| CI worst_cell | 0.748 | >0.80 |
+| Corr ratio | 0.910 | >0.80 |
+| KS daily | 25/25 | >20/25 |
+| Kurtosis | 1.166 | 0.5-2.0 |
+| Spread-skill | 1.078 | ~1.0 |
+| Growing unc | 1.00 | >0.80 |
+| 252d explosion | 0.000 | <0.01 |
+| Suites | 5/6 | 6/6 |
 
----
+## Iterations
 
 | # | Exp ID | Direction | Metric | Decision |
 |---|--------|-----------|--------|----------|
-| 1 | 155a | H1r: Single-pass residual MLP + afCRPS | CI=0.668 (ep80), corr=1.010 (ep200), KS=24/25 | VALUABLE FAILURE — afCRPS improves CI +23% vs CFM but MLP can't resist spread contraction. |
-| 2 | 155b | H2r: Single-pass residual MLP + afCRPS + VS | CI=0.750 (ep40 peak), corr=1.107, KS=9/25 | VALUABLE FAILURE — VS pushes wider spread but collapses faster. KS degraded. |
-| 3 | 155c | H3: CLN velocity net + afCRPS (within FM) | CI=0.128 (ep40), corr=0.467, CLN_scale=1.15 | VALUABLE FAILURE — ODE contracts CLN diversity. CLN disrupts spatial correlation. |
-| 4 | 155d | H5: CLN transformer + afCRPS (NO ODE) | CI=0.745, KS=25/25, kurt=1.09, corr=0.895, SS=1.08 | **BREAKTHROUGH** — All metrics improve monotonically. No spread contraction. Build on this. |
-| 5 | 155d_v2 | Extended 300 epochs | CI=0.726 (ep120 peak), spread contracts after ep160 | CLN delays but doesn't prevent contraction. Optimal 120-160 epochs. |
-| 6 | 155d_v3 | spread_weight=1.0 | CI=0.994, KS=0/25, SS=2.8 | Over-dispersive. spread_weight too high. Killed early. |
-
