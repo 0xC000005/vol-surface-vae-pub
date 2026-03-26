@@ -43408,3 +43408,223 @@ The architecture's residuals are inherently correlated (corr drops only 0.03 at 
 Note: post-hoc scaling is NOT a principled solution (violates Bitter Lesson). But it proves the architecture has the capacity, which validates the RC18 direction of finding a loss that produces the right magnitude.
 
 ---
+
+## 2026-03-26: RC18 Research Ideation — Literature Synthesis + Noise Dimensionality Insight
+
+### Context
+After RC17 validation (155d passes 5/6 suites, CI=0.748, architecture confirmed), launched 4-agent parallel literature search to find principled solutions to the CI-correlation tradeoff. The post-mortem identified afCRPS as marginal-blind to correlation. The question: what loss function or architectural change resolves this?
+
+### Literature Search Results (4 agents, 15+ papers read)
+
+**Agent 1 (Evidence Synthesis):** Compiled 8 proven root causes, 5 exhausted directions, 6 open questions from RC17. Key: the 1.3x scaling test proves architecture has capacity.
+
+**Agent 2 (Multivariate Scoring Rules):** Found 6 candidate loss functions:
+- Conditional CRPS (CCRPS, Roordink 2024): chain-rule decomposition, strictly proper, O(1) correlation gradient (not O(1/D) like ES). But requires parametric Gaussian output.
+- MVG-CRPS (Zheng 2024): whitening transformation + per-component CRPS. Strictly proper, closed-form. Also requires parametric output.
+- ES+VS composite (Lakatos 2025): works with sample-based ensembles, sweet spot at VS weight 0.1-0.3.
+- Signature Kernel SR (Dodson 2025): path-based strictly proper rule for spatio-temporal data. Computationally heavy.
+- Per-frame ES (STIPP, Landry 2026): ES at D=25 per frame, not D=750 globally. Feasible and effective.
+
+**Agent 3 (Structured Noise Injection):** THE CRITICAL FINDING.
+FGN (DeepMind, 2506.10772), CRPS-LAM (2510.09484), AIFS-CRPS (2412.15832) all achieve joint distributions from marginal CRPS alone. No multivariate loss needed. The mechanism: low-dimensional global noise through CLN with spatially-shared weights forces the model to learn correlations as the path of least resistance.
+
+FGN key quote: "The source of all stochasticity in the full 87M-dimensional output is a single 32-dim vector passed into CLN layers... under such heavy distributional constraints, the easiest way to jointly optimize all marginals is to model their inter-dependencies."
+
+**Agent 4 (End-to-End Training):** All leading systems (AIFS-CRPS, FGN, CRPS-LAM, GenCast) train end-to-end from scratch. No frozen encoders, no residual pipelines. No system uses two-phase training (VS then CRPS). Growing uncertainty comes from AR rollout, not temporal embeddings. Sinusoidal embeddings used only in one-shot diffusion models.
+
+### The Noise Dimensionality Insight
+
+The field's answer to "CRPS is marginal-blind" is NOT a new loss function — it's noise dimensionality relative to output dimensionality.
+
+| System | noise_dim | output_dim | ratio | Joint from CRPS alone? |
+|--------|-----------|-----------|-------|----------------------|
+| FGN | 32 | 87,000,000 | 1:2.7M | Yes |
+| CRPS-LAM | 32 | ~100,000 | 1:3,000 | Yes |
+| Our 155d | 32 | 750 | 1:23 | No (corr=0.49 at sw=0.55) |
+
+With 32 noise dims and 25 cells, our model has MORE noise dimensions than cells. It CAN express independent per-cell noise — there's no bottleneck forcing correlated solutions. FGN works because 32 dims for millions of outputs is an extreme constraint.
+
+**The fix: reduce noise to 4-8 dims so dim(z) << 25 cells.** This forces CRPS to produce correlation as the path of least resistance.
+
+### Reconciliation with Prior noise_dim Conclusions
+
+The research log previously concluded "noise_dim=32 is the right scale" (Exp 129a, 2026-03-19) after testing 64 on the MLP architecture. The 16→32 increase (Exp 99j→99j_v2) improved per-cell calibration because the MLP skip needed dim(z) >= dim(cells) for independent per-cell noise.
+
+This is NOT contradicted by the FGN insight. The optimal noise_dim depends on the architecture:
+- **MLP skip (old architecture):** needs dim(z) >= dim(cells) for per-cell calibration. 32 > 16 was correct.
+- **CLN transformer (current architecture):** needs dim(z) << dim(cells) to force correlation through shared weights. 4-8 < 25 is the FGN design.
+
+The old conclusion was correct for the old architecture. The new insight applies to the CLN transformer where weight-sharing across spatial attention creates a fundamentally different optimization landscape.
+
+### RC18 Hypotheses (from literature + independent reasoning)
+
+**H1: Reduce noise_dim to 4-8 (PRIMARY)**
+- Evidence: FGN mechanism — low-dim global noise + CLN + CRPS marginals → joint structure
+- Change: noise_dim from 32 to 4 (or 8). Same architecture, same loss. One hyperparameter change.
+- Prediction: corr > 0.80 AND CI > 0.80 simultaneously with sw=0.5
+- Kill condition: if corr < 0.80 at noise_dim=4 with sw=0.5, the FGN mechanism doesn't apply at our scale
+
+**H2: End-to-end training (no frozen base)**
+- Evidence: ALL leading systems train end-to-end. No residual pipelines.
+- Change: unfreeze encoder, remove 153a base predictions, generate full surface directly
+- Prediction: conditionality in spread (turb/calm > 1.15), growing uncertainty from learned dynamics
+- Kill condition: if CI < 0.60 after 200 epochs (model can't learn mean prediction from scratch)
+
+**H3: Per-frame Energy Score as auxiliary loss**
+- Evidence: STIPP found ES at D=25 per frame gives better temporal coherence than CRPS alone. At D=25, ES signal is not drowned (unlike D=750).
+- Change: add per-frame ES to afCRPS. ES provides multivariate gradient that afCRPS lacks.
+- Kill condition: if ES term dominates and destroys marginal calibration (CI < 0.70)
+
+**H4: Learned vs sinusoidal temporal embeddings**
+- Evidence: AR models use emergent growing uncertainty. One-shot models use sinusoidal.
+- Tests both for the one-shot CLN transformer architecture.
+
+### Key Papers for RC18
+
+| Paper | ID | Relevance |
+|-------|-----|-----------|
+| FGN (DeepMind 2025) | 2506.10772 | PRIMARY — proves low-dim noise + CRPS marginals → joint structure |
+| CRPS-LAM (NeurIPS 2025) | 2510.09484 | Confirms FGN mechanism, documents collapse fix |
+| AIFS-CRPS (ECMWF 2024) | 2412.15832 | CLN implementation reference, afCRPS training procedure |
+| MVG-CRPS (2024) | 2410.09133 | Alternative: parametric multivariate CRPS via whitening |
+| STIPP (2026) | 2601.02882 | Per-frame ES recommendation, ES vs CRPS comparison |
+| Lakatos Composite (2025) | 2509.02784 | ES+VS composite loss, sweet spot analysis |
+| CCRPS (2024) | 2409.14456 | Conditional CRPS — strongest correlation gradient signal |
+
+---
+
+## 2026-03-26: Research Compass RC18 — Noise Bottleneck + Multivariate Loss
+
+### Philosophy Applied
+- **Karpathy (Incremental Complexity)**: Each hypothesis is independently testable. H1 changes one hyperparameter. H4 adds one loss term. No stacked dependencies.
+- **Bitter Lesson**: H2 (end-to-end) is the most principled — removes frozen engineering choices, lets the model learn everything. H4 uses mathematical scoring rules, not domain heuristics.
+- **Popper (Falsificationism)**: Each hypothesis has specific kill conditions at each stage.
+- **Hinton (Independent Reasoning)**: Our independent reasoning pointed to loss functions. Literature pointed to noise bottleneck. The gap IS the insight — we were over-focused on loss, under-focused on noise design.
+- **Cross-pollination (Schulman)**: FGN from weather forecasting, applied to financial vol surfaces. Per-frame ES from STIPP meteorological post-processing.
+
+### Evidence Summary
+- **Proven**: CLN + factored attention + no ODE is correct architecture (RC17, 10 experiments)
+- **Proven**: Architecture CAN produce CI=0.837 + corr=0.941 + KS=25/25 simultaneously (1.3x scaling test)
+- **Proven**: afCRPS is marginal-blind to correlation (spread_weight Pareto frontier)
+- **Proven**: 155d passes 5/6 suites, CI=0.748 (3-seed verified, 252d stable)
+- **New from literature**: FGN achieves joint distributions from marginal CRPS alone via low-dim noise bottleneck
+- **New from literature**: noise_dim/output_dim ratio determines whether CRPS forces correlation learning
+- **New from literature**: All leading systems train end-to-end, no frozen pipelines
+
+### Active Hypotheses
+
+## H1: Noise Bottleneck (noise_dim=4 on residual architecture)
+
+**Evidence chain**: FGN (2506.10772) uses 32-dim noise for 87M outputs → joint structure emerges from CRPS alone. Our 155d uses 32-dim for 750 outputs → no bottleneck → independent cells. Reducing to 4-dim makes dim(z) << 25 cells.
+
+**Principled argument**: When dim(z) << dim(output) with spatially-shared weights, the model CANNOT express per-cell independent noise. The only way to minimize marginal CRPS for all cells simultaneously is to model their inter-dependencies through the shared CLN pathway. (Bitter Lesson: the architecture learns correlation, not the loss.)
+
+**The bet**: Change noise_dim from 32 to 4 in train_155d_cln_transformer.py. Same architecture, same loss (afCRPS sw=0.5), same training procedure.
+
+**Staged checkpoints**:
+1. (30 min) noise_dim=4, 200 epochs, eval CI + corr at ep40/80/120/160/200
+2. (30 min) noise_dim=8, same — tests whether 4 is too constrained
+3. (30 min) noise_dim=2, same — tests the extreme bottleneck
+
+**Falsification test**:
+- Stage 1: If corr < 0.80 at sw=0.5 with noise_dim=4, the FGN mechanism doesn't transfer to D=750. Kill.
+- Stage 2: If no noise_dim in {2,4,8} achieves corr > 0.80 AND CI > 0.70, the bottleneck hypothesis is dead for residual architectures.
+
+**Post-experiment analysis (MANDATORY)**:
+- A: Per-cell CI breakdown — which cells improve/degrade vs 155d (noise_dim=32)?
+- B: Cross-cell correlation matrix — compare gen vs GT correlation structure
+- C: Effective rank trajectory over training — does rank stay higher than 155d?
+- D: CLN scale analysis — do scales grow differently with fewer noise dims?
+- E: Spread-skill ratio over training — does the contraction pattern change?
+- F: If successful: 1.3x scaling test on the new model to verify residual correlation structure
+
+**Independence**: Does NOT depend on H2 or H4. Tests architecture axis only.
+
+**If it fails**: We learn the FGN mechanism is scale-dependent (works at 87M, not at 750). Redirects to loss-based solutions (H4) or end-to-end (H2).
+
+**Effort**: Stage 1: 30min. Stage 2: 30min. Stage 3: 30min. Total: 1.5h.
+
+## H2: End-to-End Training (no frozen base, noise_dim=32)
+
+**Evidence chain**: ALL leading systems (AIFS-CRPS, FGN, CRPS-LAM, GenCast) train end-to-end. Our frozen two-stage pipeline limits conditionality (turb/calm=0.90) and ties spread to residual structure. 155d generates residuals that are 1.3x too narrow — end-to-end removes this constraint.
+
+**Principled argument**: The Bitter Lesson says general methods that learn dominate hand-engineered pipelines. A frozen encoder + frozen base + learned residual is 3 engineering decisions that constrain the optimization landscape. End-to-end lets the model find its own factorization of the conditional distribution.
+
+**The bet**: New training script (156a). Unfreeze encoder. CLN transformer generates full future surface directly from (condition, noise). No 153a, no base_predictions.npz. Same architecture dimensions (d_model=128, n_layers=4, noise_dim=32).
+
+**Staged checkpoints**:
+1. (1h) Quick 80-epoch probe — does the model learn a reasonable mean prediction? Monitor mae vs 153a baseline.
+2. (2h) Full 200-epoch training with afCRPS (sw=0.5). Compare CI, corr, KS against 155d.
+3. (1h) If CI < 155d: try with noise_dim=4 (combines H1 insight with H2).
+
+**Falsification test**:
+- Stage 1: If mae > 2x 153a's mae at ep80, the model can't learn mean prediction from 441 windows. Kill.
+- Stage 2: If CI < 0.60 at ep200, end-to-end doesn't help on small data. Kill.
+
+**Post-experiment analysis (MANDATORY)**:
+- A: Turb/calm spread ratio — does end-to-end learn regime-dependent spread?
+- B: Growing uncertainty profile — spread per horizon h=1 through h=30
+- C: Mean prediction quality comparison vs 153a (mae, per-cell bias)
+- D: Training dynamics — loss convergence speed vs residual training
+- E: Encoder weight analysis — does unfreezing change the condition representation?
+- F: If CI > 0.70: run full eval (eval_cln_transformer.py) + 252d long-horizon
+
+**Independence**: Does NOT depend on H1 or H4. Tests pipeline axis only.
+
+**If it fails**: We learn 441 windows is insufficient for end-to-end. Redirects to: (a) data augmentation, (b) curriculum learning (pretrain encoder, then unfreeze), (c) stay with residual approach + H1/H4 fixes.
+
+**Effort**: Stage 1: 1h. Stage 2: 2h. Stage 3: 1h. Total: 4h.
+
+## H4: Per-Frame Energy Score (D=25 per frame)
+
+**Evidence chain**: STIPP (2601.02882) found ES at D=25 gives better temporal coherence than CRPS alone. At D=25, ES correlation signal is ~1/25 (4%) of total — weak but detectable, unlike D=750 where it's 0.13%. Lakatos (2509.02784) found ES+VS composite at weight 0.1-0.3 improves BOTH marginals and correlation.
+
+**Principled argument**: ES is a proper multivariate scoring rule. Applied per-frame (D=25), it provides gradient signal for the 300 pairwise cell relationships that afCRPS ignores. Unlike VS which conflicts with afCRPS (competing gradients), ES subsumes marginal calibration — it penalizes both marginal errors AND correlation errors in a single term.
+
+**The bet**: Add per-frame ES to the loss: L = afCRPS + lambda_es * mean_over_frames(ES_per_frame). lambda_es in {0.1, 0.5, 1.0}. Same 155d architecture, noise_dim=32, sw=0.5.
+
+**Staged checkpoints**:
+1. (30 min) lambda_es=0.1, 200 epochs. Compare corr vs 155d.
+2. (30 min) lambda_es=0.5, same. Find the sweet spot.
+3. (30 min) lambda_es=1.0 (ES-dominated). Does pure ES at D=25 work?
+
+**Falsification test**:
+- Stage 1: If corr < 0.85 at all lambda_es values in {0.1, 0.5, 1.0}, per-frame ES doesn't provide sufficient correlation gradient at D=25. Kill.
+- Stage 2: If CI < 0.70 at any lambda_es, ES hurts marginal calibration. Need different balance.
+
+**Post-experiment analysis (MANDATORY)**:
+- A: Correlation ratio trajectory over training — does ES prevent the late-epoch correlation loss?
+- B: Per-cell CI breakdown — does ES change which cells are worst?
+- C: ES gradient magnitude vs afCRPS gradient magnitude — is ES signal detectable?
+- D: Spread contraction analysis — does ES change the spread dynamics?
+- E: Compare with 155e (VS) — is ES better than VS for correlation at D=25?
+- F: If successful: run with noise_dim=4 to test H1+H4 combination
+
+**Independence**: Does NOT depend on H1 or H2. Tests loss axis only.
+
+**If it fails**: We learn D=25 is still too high for ES correlation signal. Redirects to: (a) per-frame VS (already tested, over-correlates), (b) MVG-CRPS (parametric approach), (c) architectural solution (H1 noise bottleneck).
+
+**Effort**: Stage 1: 30min. Stage 2: 30min. Stage 3: 30min. Total: 1.5h.
+
+### Execution Order (Information Flow)
+
+1. **Wave 1 (parallel)**: H1 stage 1 (noise_dim=4) + H4 stage 1 (per-frame ES lambda=0.1). Both 30 min, orthogonal axes, run sequentially on GPU.
+2. **Wave 1 analysis**: Post-experiment diagnostics for both. Update understanding.
+3. **Wave 2**: Based on Wave 1 results:
+   - If H1 works: H1 stages 2-3 (noise_dim sweep)
+   - If H4 works: H4 stages 2-3 (lambda_es sweep)
+   - If neither works: H2 (end-to-end, longer but necessary)
+   - If both work: combine (noise_dim=4 + per-frame ES)
+4. **Wave 3**: H2 (end-to-end) regardless of H1/H4 outcome — Bitter Lesson demands it
+
+### Exhausted Directions (from RC17)
+- MLP-based residual architectures (spread contraction is architectural)
+- ODE-based flow matching for ensembles (ODE contracts diversity)
+- spread_weight / lambda_vs hyperparameter search within afCRPS (Pareto frontier mapped)
+- Two-phase training (VS then CRPS) — literature shows no one does this
+- Global CLN in velocity networks (ODE + CLN incompatible)
+
+### Temporal Embedding Decision
+Literature finding: AR models get growing uncertainty emergently. One-shot models use sinusoidal. Since 155d already passes growing uncertainty (1.00 monotonicity), and both learned and sinusoidal approaches are untested on our architecture, defer this to a follow-up experiment after H1/H2/H4 resolve the primary CI-correlation question. NOT included as a primary RC18 hypothesis — it's a refinement, not a bottleneck.
+
+---
