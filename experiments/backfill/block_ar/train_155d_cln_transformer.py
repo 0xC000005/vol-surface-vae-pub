@@ -199,6 +199,31 @@ def variogram_score(samples, gt, p=0.5):
     return loss[:, :, mask].sum(dim=(-2, -1)).mean()
 
 
+def per_frame_energy_score(samples, gt):
+    """Per-frame Energy Score at D=25 (proper multivariate scoring rule).
+
+    ES_t = E[||X_t - y_t||_2] - 0.5 * E[||X_t - X'_t||_2]
+
+    Computed per frame (D=25 cells), then averaged over frames and batch.
+    This provides a direct gradient on cross-cell correlation structure.
+
+    Args: samples (B, K, T, C), gt (B, T, C). Returns scalar.
+    """
+    B, K, T, C = samples.shape
+    # mae term: mean over K of L2 norm per frame
+    # samples: (B, K, T, C), gt: (B, 1, T, C)
+    diff = samples - gt.unsqueeze(1)  # (B, K, T, C)
+    mae_term = diff.norm(dim=-1).mean(dim=1)  # (B, T) — L2 over C, mean over K
+
+    # spread term: mean over K pairs of L2 norm per frame
+    idx_i, idx_j = torch.triu_indices(K, K, offset=1, device=samples.device)
+    pair_diff = samples[:, idx_i] - samples[:, idx_j]  # (B, n_pairs, T, C)
+    spread_term = pair_diff.norm(dim=-1).mean(dim=1)  # (B, T)
+
+    es = mae_term - 0.5 * spread_term  # (B, T)
+    return es.mean()
+
+
 def evaluate_model(model, base_preds, gt_futures, conditions,
                    n_samples=50, device='cuda'):
     """Full evaluation."""
@@ -276,6 +301,8 @@ def main():
                         help="Spread term weight in afCRPS (default 0.5, try 1.0)")
     parser.add_argument("--lambda_vs", type=float, default=0.0,
                         help="Variogram score weight for cross-cell correlation")
+    parser.add_argument("--lambda_es", type=float, default=0.0,
+                        help="Per-frame Energy Score weight (D=25 multivariate scoring rule)")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -373,7 +400,9 @@ def main():
             is_loss = interval_score(combined_4d, gt_4d)
             # VS for cross-cell correlation
             vs_loss = variogram_score(combined_4d, gt_4d) if args.lambda_vs > 0 else torch.tensor(0.0, device=device)
-            loss = crps + args.lambda_is * is_loss + args.lambda_vs * vs_loss
+            # Per-frame Energy Score for multivariate structure
+            es_loss = per_frame_energy_score(combined_4d, gt_4d) if args.lambda_es > 0 else torch.tensor(0.0, device=device)
+            loss = crps + args.lambda_is * is_loss + args.lambda_vs * vs_loss + args.lambda_es * es_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -412,7 +441,8 @@ def main():
                     "n_heads": args.n_heads, "n_layers": args.n_layers,
                     "cond_dim": cond_dim, "noise_dim": args.noise_dim,
                     "n_members": args.n_members, "alpha": args.alpha,
-                    "lambda_is": args.lambda_is, "spread_weight": args.spread_weight, "lambda_vs": args.lambda_vs,
+                    "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
+                    "lambda_vs": args.lambda_vs, "lambda_es": args.lambda_es,
                     "type": "cln_residual_transformer",
                 },
             }, f"{args.output_dir}/best_model.pt")
@@ -452,7 +482,8 @@ def main():
             "n_heads": args.n_heads, "n_layers": args.n_layers,
             "cond_dim": cond_dim, "noise_dim": args.noise_dim,
             "n_members": args.n_members, "alpha": args.alpha,
-            "lambda_is": args.lambda_is, "spread_weight": args.spread_weight, "lambda_vs": args.lambda_vs,
+            "lambda_is": args.lambda_is, "spread_weight": args.spread_weight,
+            "lambda_vs": args.lambda_vs, "lambda_es": args.lambda_es,
             "type": "cln_residual_transformer",
         },
     }, f"{args.output_dir}/final_model.pt")
