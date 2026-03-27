@@ -19,3 +19,4 @@
 
 | # | Exp ID | Direction | Key Metrics | Decision |
 |---|--------|-----------|-------------|----------|
+| 1 | 159a | H2a-S1: No-LN CLN (FCN3) | val turb/calm: peak 1.164@ep20 → 0.921@ep80. Test: CI=0.241, turb/calm=0.940, 4/6 suites. | VALUABLE FAILURE: Mechanism works transiently but afCRPS erases it. No-LN necessary but not sufficient. |

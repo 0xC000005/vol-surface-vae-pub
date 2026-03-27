@@ -1,11 +1,16 @@
 {
-  "iteration": 0,
-  "experiment_id": null,
-  "training_status": "ready",
-  "phase": "RC19_ready",
-  "total_experiments": 0,
+  "iteration": 1,
+  "experiment_id": "159a",
+  "hypothesis": "H2a-S1: Remove LayerNorm from CLN (FCN3 pattern). LN erases condition magnitude → turb/calm < 1.0. Without LN, magnitude survives → regime-dependent spread.",
+  "training_status": "running",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_159a_no_ln_cln.py --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --output_dir models/backfill/flow_159a --device cuda",
+  "training_pid": 177679,
+  "phase": "H2a-S1",
+  "total_experiments": 1,
   "branch": "autoresearch-session-rc19",
   "compass": "RC19: AR + No-Norm + VS (Literature-Grounded, Post Deep-Read)",
-  "baseline": "158a (E2E, test CI=0.442) + 155d (residual, test CI=0.330)",
-  "next_action": "Wave 1: H2a-S1 (no-LN, 2h) → H1-S1 (AR, 4h) → H3-S1 (VS, 4h) → H4-S1 (direct, 4h)"
+  "baseline": "155d (residual, test CI=0.330, turb/calm=0.90)",
+  "prediction": "turb/calm > 1.05 (LN removal lets magnitude signal survive)",
+  "risk": "Training instability without normalization. He init + LayerScale mitigate.",
+  "kill_condition": "turb/calm < 1.0 at 80ep"
 }

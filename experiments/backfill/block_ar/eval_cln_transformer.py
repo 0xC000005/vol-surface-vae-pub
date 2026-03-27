@@ -38,14 +38,26 @@ from experiments.backfill.block_ar.train_155d_cln_transformer import (
 
 
 def load_cln_model(model_path, device):
-    """Load CLN transformer model."""
+    """Load CLN transformer model (supports 155d and 159a variants)."""
     ckpt = torch.load(model_path, weights_only=False, map_location=device)
     cfg = ckpt['config']
-    model = CLNResidualTransformer(
-        n_frames=cfg['n_frames'], n_cells=cfg['n_cells'],
-        d_model=cfg['d_model'], n_heads=cfg['n_heads'], n_layers=cfg['n_layers'],
-        cond_dim=cfg['cond_dim'], noise_dim=cfg['noise_dim'],
-    )
+    model_type = cfg.get('type', 'cln_residual_transformer')
+
+    if model_type == 'no_ln_cln_residual_transformer':
+        from experiments.backfill.block_ar.train_159a_no_ln_cln import (
+            NoLNCLNResidualTransformer
+        )
+        model = NoLNCLNResidualTransformer(
+            n_frames=cfg['n_frames'], n_cells=cfg['n_cells'],
+            d_model=cfg['d_model'], n_heads=cfg['n_heads'], n_layers=cfg['n_layers'],
+            cond_dim=cfg['cond_dim'], noise_dim=cfg['noise_dim'],
+        )
+    else:
+        model = CLNResidualTransformer(
+            n_frames=cfg['n_frames'], n_cells=cfg['n_cells'],
+            d_model=cfg['d_model'], n_heads=cfg['n_heads'], n_layers=cfg['n_layers'],
+            cond_dim=cfg['cond_dim'], noise_dim=cfg['noise_dim'],
+        )
     model.load_state_dict(ckpt['model_state_dict'])
     model.to(device).eval()
     return model, cfg, ckpt
