@@ -44247,3 +44247,98 @@ The model hasn't trained long enough to learn the correct distributional shape. 
 **BUILD ON THIS** — proceed to H2-S2 (200 epochs). The generalization finding is the most important result of RC18. Test CI=0.537 at 80ep leaves significant room for improvement.
 
 ---
+
+## 2026-03-27: CRITICAL DIAGNOSTIC — Val Split is Anomalously Calm, RC18 "Overfitting" Narrative is Wrong
+
+### Context
+After RC18 showed all noise_dim=8 and ES models "overfitting" (val CI 0.64-0.80, test CI 0.14-0.34), we assumed regime-specific overfitting. User pushed back: "is this a premature assessment?" — demanded mechanistic investigation instead of narrative explanation. Ran parallel diagnostic agents: (1) split property analysis, (2) per-cell test breakdown.
+
+### Key Findings
+
+**1. The Val Split is an Anomalously Calm Period**
+
+| Property | Train (4040d) | Val (500d) | Test (1282d) |
+|----------|--------------|------------|--------------|
+| Turbulent days (\|ret\|>0.01) | 29.9% | **8.4%** | 31.6% |
+| Return std | 0.0127 | **0.0060** | 0.0138 |
+| Return kurtosis | 7.95 | **4.99** | 12.74 |
+| Mean IV level | 0.215 | **0.180** | 0.227 |
+| Eff rank (correlation) | 7.63 | 6.82 | **5.02** |
+| 30d cumulative change std | baseline | 0.5-0.7x train | **2-4x val** |
+
+Val has HALF the volatility, ONE-QUARTER the turbulent days, and 2-4x smaller prediction targets than test. The val period is the outlier — test is more similar to train.
+
+**2. Val-to-Test Frobenius Distance (7.69) > Train-to-Test (5.74).** Val is MORE different from test than train is.
+
+**3. Per-Cell KS Tests Confirm Universal Shift:**
+- Val→Test: 19/25 cells significant (p<0.05)
+- Train→Test: 19/25 cells significant
+- Train→Val: 21/25 cells significant (val is the most different from train!)
+
+Worst cells by val→test KS: (2,4) KS=0.197, (2,2) KS=0.162, (0,3) KS=0.162. Interior cells (rows 1-3, cols 1-2) degrade most on test.
+
+**4. The "Overfitting" Narrative is WRONG.** RC18 models aren't memorizing training data. They're calibrating spread to match the calm val period. More expressive models (dim=8, ES) are BETTER at fitting val's calm dynamics — which makes them WORSE on test. This is evaluation bias, not overfitting.
+
+**5. CRITICAL GAP: 155d Has Never Been Evaluated on Test Split.** The "val=test=0.748, zero gap" claim was comparing val-training vs val-eval metrics. Both on val split. 155d has NEVER been run on the 1223-window held-out test split.
+
+**6. Regime Composition Explains the Mechanism:**
+- Val: 0.4% turbulent days (train P80 threshold) vs 20% train, 22.7% test
+- Noise bottleneck (dim=8): learns 8 calm-regime factor directions → too narrow for turbulent test
+- Per-frame ES: optimizes cross-cell dependencies of calm period → wrong for test
+- 155d (dim=32, no ES): learns unconditional spread → neither tuned to calm nor turbulent
+
+**7. Test Has Different Correlation Structure:** Eff rank train=7.63, val=6.82, test=5.02. Test has more concentrated factor structure (mean |corr|=0.53 vs 0.44).
+
+### What Was Learned
+
+1. Our evaluation methodology has a fundamental flaw: the val split is non-representative
+2. "Simpler model generalizes better" (RC18 Bitter Lesson claim) may be wrong — 155d might just be equally mediocre on both splits
+3. Any improvement measured on val is suspect until confirmed on test
+4. 30-day prediction targets are 2-4x larger in test vs val — CI coverage mechanically drops when intervals calibrated to calm val face turbulent test
+
+### Immediate Action Required
+
+Run 155d on test split (eval_cln_transformer.py --eval_split test) — the most important single measurement in the project. This determines whether 0.748 is real or a val-split artifact.
+
+### What This Suggests Next
+
+If eval methodology is the bottleneck:
+1. Change val split to include turbulent periods (stratified split)
+2. Use time-series cross-validation instead of single chronological split
+3. Evaluate on test periodically during training
+4. Train on full dataset excluding test, with proper CV for hyperparameter selection
+
+### Diagnostic Scripts
+- /tmp/diagnose_splits2.py — split comparison (levels, daily changes, KS, regimes)
+- /tmp/diagnose_splits.py — extended (vol-of-vol, 30d cumulative changes, correlation matrices)
+
+---
+
+## 2026-03-27: Validation Audit — 158a full test eval + regime analysis
+
+### Scope
+Post-H2-S1 validation: full test-split eval on 158a (1252 windows), reproducible scripts, regime analysis persisted.
+
+### Verification Results
+
+| Task | Status | Key Finding |
+|------|--------|-------------|
+| 158a full test eval | PASS | 2/6 suites. CI=0.442, kurt=3.56, KS=5/25. Much worse than 155d (5/6) |
+| 158a scripts | PASS | Train + eval scripts saved |
+| Regime analysis | PASS | 19/25 cells show distributional shift. eff_rank drops 7.63→5.55 |
+
+### 158a Test Results (1252 windows)
+
+| Suite | Status | Value | Threshold |
+|-------|--------|-------|-----------|
+| S1 Surface | PASS | explosion=0.000 | <0.01 |
+| S2 CI | FAIL | worst_cell=0.442 | >=0.80 |
+| S4 Timeseries | FAIL | kurtosis=3.560 | 0.5-2.0 |
+| S5 Growing Unc | PASS | ratio=1.00 | >=0.80 |
+| S8 Distributional | FAIL | KS=5/25 daily | >=20 |
+| S9 Correlation | FAIL | eff_rank=1.525 | <=1.40 |
+
+### Assessment
+158a at 80ep is undertrained. The end-to-end approach shows no val-test gap (generalization solved) but absolute quality is far below 155d. Key issues: underdispersed (SS=0.59), heavy tails (kurt=3.56), no conditionality (turb/calm=0.988). H2-S2 (200ep) needed to determine if these improve with more training, or if the MeanPredictor architecture is fundamentally weaker than frozen 153a.
+
+---
