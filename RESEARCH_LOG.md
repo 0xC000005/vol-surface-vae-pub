@@ -44866,3 +44866,116 @@ Each tests ONE variable independently. Results determine Wave 2.
 **Available techniques**: AR-CLN (H1), no-norm (H2), VS loss (H3), spectral CRPS, structured noise fields, noise centering (FCN3), multi-step AR fine-tuning
 
 ---
+
+## 2026-03-27: RC19 Amendment — H4 (Direct Output) + Mandatory Diagnostic Protocol
+
+### H4: Direct Output, No Mean/Residual Split (Priority 2, parallel with H2)
+
+**Evidence chain**: FGN (SOTA) has no explicit mean/residual split — model internally learns decomposition via theta = theta* + Delta*epsilon. FCN3 (2507.12144) explicitly argues AGAINST residual prediction: "fundamentally limits the model to explicit Euler time steps" and "enables artifacts to be passed on and amplified in AR rollouts." Our frozen 153a base was trained with MSE, creating loss conflict with afCRPS. 158a used MeanPredictor (mae=0.027) but this scaffold is architecturally unnecessary per FGN design.
+
+**Principled argument** (Bitter Lesson + FCN3): Let the model learn its own internal factorization of mean and spread. Residual prediction is an engineering assumption that constrains the optimization landscape. FGN proves a single model can learn both mean prediction (theta*) and spread (Delta*epsilon) from CRPS alone. Removing the split eliminates the MSE/afCRPS loss conflict and the Euler-step limitation. (Bitter Lesson: no imposed decomposition — the model discovers its own.)
+
+**The bet**: Remove MeanPredictor from 158a. CLN transformer outputs the full surface directly: (encoder_cond, noise_z) → CLN transformer → output surface in [0,1]. Last-frame skip connection for initialization: output = last_frame + f(cond, z), where f has zero-init output layer so initial prediction = repeat last frame. Single afCRPS loss, end-to-end, K=2.
+
+**Staged checkpoints**:
+1. **80ep probe** (~4h): Direct output + end-to-end + K=2. Compare mean prediction quality against 158a (mae=0.027). Key question: can the model learn the mean without scaffold?
+2. **200ep full** (~10h): If mae < 0.04 at 80ep
+3. **Warm-up variant** (~4h): If mean quality is poor, try Nix & Weigend warm-up: freeze noise for first 20ep (train mean only via deterministic forward pass), then unfreeze (Stirn 2023 validated this approach)
+
+**Falsification**: Stage 1: mae > 0.06 at 80ep → model cannot learn mean without scaffold at this data scale. The MeanPredictor is necessary.
+
+**Independence**: Tests mean/residual split as single variable. Uses one-shot generation (same as 158a) to isolate from H1 (AR). Uses standard CLN with LayerNorm to isolate from H2 (no-LN). Uses afCRPS only to isolate from H3 (VS).
+
+**If it fails**: FGN's "no split" requires more data/capacity than we have (~4000 windows, 2M params vs FGN's millions of samples, 180M params). The MeanPredictor scaffold is necessary at our scale. Would keep the split but ensure end-to-end training (158a approach).
+
+**Effort**: Stage 1: 4h. Stage 2: 10h. Stage 3: 4h.
+
+---
+
+### Mandatory Diagnostic Protocol (ALL RC19 experiments)
+
+Every experiment MUST run ALL of the following diagnostics before the DECIDE step. Results saved to results/block_ar/{exp_id}_diag/. No narrative-only explanations — every claim needs a NUMBER.
+
+#### A. Conditionality Analysis (answers Q1)
+```python
+# Compute turb/calm spread ratio
+# turb windows: |ret| > 0.015 in recent 30d history
+# calm windows: |ret| < 0.005
+# Report: turb_spread / calm_spread per cell, aggregate ratio
+# Target: > 1.15
+```
+Measure on BOTH val and test splits. Report per-cell turb/calm breakdown (5x5 grid). If turb/calm < 1.05, the experiment FAILS on conditionality regardless of other metrics.
+
+#### B. Generalization Analysis (answers all Qs)
+```python
+# Evaluate on BOTH val (441 windows) and test (1252 windows)
+# Report: CI_worst, CI_mean, KS, corr, eff_rank, SS for each split
+# Compute val-test gap for each metric
+# Target: |val-test gap| < 0.15 for CI
+```
+
+#### C. Per-Regime Spread Breakdown (answers Q1 definitively)
+```python
+# Split test windows into quintiles by recent volatility
+# For each quintile: compute CI, spread, mae, SS
+# Report as table: regime vs metrics
+# Key question: does spread INCREASE with volatility?
+```
+
+#### D. Correlation and Factor Structure (answers Q3)
+```python
+# Correlation matrix of generated daily changes vs GT
+# Effective rank of generated vs GT correlation matrix
+# Per-cell-pair correlation comparison (25x25 matrix)
+# Target: corr_ratio in [0.80, 1.20], eff_rank_ratio in [0.70, 1.40]
+```
+
+#### E. Training Dynamics (answers stability)
+```python
+# From training history: loss, mae, spread, CLN scale per epoch
+# Is spread contracting? (spread_ep1 / spread_final)
+# Is the model ignoring noise? (mode collapse check: spread < 0.005)
+# When does val loss plateau?
+```
+
+#### F. Mean Prediction Quality (answers Q2, especially for H4)
+```python
+# MAE of ensemble mean vs GT, per cell, per horizon
+# Compare against 153a base predictions and 158a MeanPredictor
+# Key question: is the mean getting worse over training? (mean degradation)
+```
+
+#### Summary Template (saved as {exp_id}_diag/summary.json)
+```json
+{
+  "conditionality": {"turb_calm_ratio": X, "per_cell": [...], "pass": bool},
+  "generalization": {"val_ci": X, "test_ci": X, "gap": X, "pass": bool},
+  "regime_spread": {"q1_spread": X, ..., "q5_spread": X, "monotonic": bool},
+  "correlation": {"corr_ratio": X, "eff_rank_ratio": X, "pass": bool},
+  "training": {"spread_contraction": X, "mode_collapse": bool},
+  "mean_quality": {"mae": X, "vs_153a": X, "vs_158a": X}
+}
+```
+
+### Updated Execution Order
+
+**Wave 1** (sequential, ~14h total):
+- H1-S1: AR + CLN + end-to-end + K=2, 80ep (4h)
+- H2-S1: Remove LN from CLN, 80ep (2h)
+- H3-S1: VS lambda=0.1 on 158a, 80ep (4h)
+- H4-S1: Direct output + end-to-end + K=2, 80ep (4h)
+
+Each gets FULL diagnostic protocol (A-F).
+
+**Wave 2**: Combine winning hypotheses.
+
+### How the 4 Open Questions Map to Diagnostics
+
+| Question | Primary Hypothesis | Primary Diagnostic | Definitive if... |
+|----------|-------------------|-------------------|------------------|
+| Q1: Conditionality | H1 (AR) + H2 (no-LN) | A (turb/calm) + C (regime breakdown) | turb/calm > 1.15 in any H |
+| Q2: Direct vs residual | H4 (direct output) | F (mean quality) + B (generalization) | mae < 0.04 AND test CI > 0.40 |
+| Q3: Loss function | H3 (VS) | D (correlation) + B (generalization) | corr > 0.85 with VS, not without |
+| Q4: AR vs one-shot | H1 (AR) vs 158a (one-shot) | A (turb/calm) + E (training dynamics) | turb/calm difference > 0.15 between H1 and 158a |
+
+---
