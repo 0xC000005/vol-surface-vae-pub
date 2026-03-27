@@ -44024,3 +44024,68 @@ The dose-response is monotonic: higher ES → more spread → higher CI but lowe
 **VALUABLE FAILURE** — confirms ES=0.1 is approximately optimal for dim=8. The remaining CI gap (0.720→0.80) requires a different lever. Try spread_weight=0.55 + dim=8 + ES=0.1.
 
 ---
+
+## 2026-03-26: Exp 157b_v3 — BREAKTHROUGH: sw=0.55 + dim=8 + ES=0.1 (RC18)
+
+### Context
+Combination of all three validated mechanisms: spread_weight=0.55 (from RC17, pushes CI), noise_dim=8 (bottleneck forces correlation), per-frame ES lambda=0.1 (prevents spread collapse). This is the synthesis of all RC18 findings.
+
+**Based on**: 157b (dim=8+ES=0.1, CI=0.720, corr=0.868) + RC17 observation (sw=0.55 gives CI=0.810)
+**Prediction**: CI>0.75 AND corr>0.80
+
+Training:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py     --epochs 200 --batch_size 8 --n_members 8 --noise_dim 8     --spread_weight 0.55 --lambda_es 0.1 --lr 1e-3     --output_dir models/backfill/flow_157b_v3 --device cuda
+```
+
+### Results — BREAKTHROUGH
+
+| Epoch | CI | CI_h | KS | kurt | corr | SS | ER | spread |
+|-------|------|------|------|------|------|------|------|--------|
+| 40 | 0.696 | 19/30 | 21 | 0.629 | 0.375 | 2.155 | 2.597 | 0.044 |
+| 80 | 0.663 | 0/30 | 25 | 1.182 | 0.574 | 1.838 | 1.788 | 0.042 |
+| **120** | **0.821** | **25/30** | **25** | 0.906 | **0.829** | 2.823 | 1.198 | 0.052 |
+| **160** | **0.812** | **27/30** | **25** | 1.098 | 0.765 | 2.920 | 1.591 | 0.053 |
+| **200** | **0.803** | **27/30** | **25** | 1.134 | **0.823** | 2.924 | 1.496 | 0.047 |
+
+**FIRST MODEL TO ACHIEVE CI>0.80 AND corr>0.80 SIMULTANEOUSLY AT CONVERGENCE.**
+
+Per-cell CI grid (diagnostic, n_samples=50):
+
+```
+  0.903  0.847  0.840  0.892  0.833
+  0.845  0.815  0.836  0.871  0.812
+  0.838  0.899  0.877  0.887  0.828
+  0.904  0.903  0.902  0.917  0.827
+  0.882  0.916  0.924  0.917  0.798
+```
+- **24/25 cells above 0.80**, worst (4,4)=0.798
+- Mean CI = 0.868
+- Corr (diagnostic) = 1.043 (near-GT)
+
+### WHY This Worked
+
+The three mechanisms are COMPLEMENTARY and non-redundant:
+
+1. **spread_weight=0.55** (vs 0.5): Increases the afCRPS spread incentive. In isolation (RC17), this gives CI=0.810 but destroys correlation (corr=0.49 at sw=0.55 with dim=32).
+
+2. **noise_dim=8** (vs 32): Constrains noise to 8 directions. With sw=0.55 pushing for more spread, the model must allocate spread across only 8 noise dimensions. Since 8 is close to the GT effective rank (7), this forces correlated spread patterns.
+
+3. **lambda_es=0.1**: Prevents spread collapse during training. Without ES, spread contracts 1.80x (156b). With ES, spread stabilizes (0.052 at peak, 0.047 at ep200, contraction only 1.1x).
+
+The KEY insight: sw=0.55 creates the PRESSURE for spread. dim=8 constrains the DIRECTION of spread to be correlated. ES prevents the DECAY of spread. All three are necessary — remove any one and the system fails:
+- Without sw=0.55: CI=0.720 (157b) — not enough spread pressure
+- Without dim=8: corr=0.710 (157a-like) — independent spread
+- Without ES: CI=0.639, spread collapses (156b-like)
+
+### Remaining Concerns
+
+1. **SS=2.924**: Very over-dispersive. Intervals are ~3x wider than optimal. This may cause other test suites to fail (KS on levels, distributional quality).
+2. **Sampling noise**: CI worst in training eval (0.803) vs diagnostic (0.798). Right at the boundary — needs multi-seed verification.
+3. **ER=1.496**: Elevated effective rank. More independent factors than GT.
+4. **Correlation instability**: 0.829 (ep120) → 0.765 (ep160) → 0.823 (ep200). Oscillating, not stable.
+
+### Decision
+**BREAKTHROUGH — BUILD ON THIS.** Run full test suite (v2) for definitive suite count. Run 252d long-horizon test. Multi-seed verification needed (CI at boundary).
+
+---
