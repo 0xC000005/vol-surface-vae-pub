@@ -44342,3 +44342,527 @@ Post-H2-S1 validation: full test-split eval on 158a (1252 windows), reproducible
 158a at 80ep is undertrained. The end-to-end approach shows no val-test gap (generalization solved) but absolute quality is far below 155d. Key issues: underdispersed (SS=0.59), heavy tails (kurt=3.56), no conditionality (turb/calm=0.988). H2-S2 (200ep) needed to determine if these improve with more training, or if the MeanPredictor architecture is fundamentally weaker than frozen 153a.
 
 ---
+
+## 2026-03-27: DEVASTATING — 155d Gets 5.4% CI on Test Split, Base Prediction is Broken
+
+### Context
+After discovering the val split is anomalously calm (previous entry), ran 155d on the actual held-out test split (1223 windows, indices 4540+). This is the first time 155d has been evaluated on test. The "val=test=0.748" claim was never real — both numbers were from the val split.
+
+### Test-Split Results (153 sampled windows)
+
+| Metric | Val (147 windows) | Test (153 windows) | Ratio |
+|--------|------------------|-------------------|-------|
+| CI coverage | 0.655 | **0.054** | 0.08x |
+| Worst cell CI | 0.122 | 0.000 | — |
+| MAE | 0.034 | **0.259** | 7.6x |
+| Spread (ensemble std) | 0.027 | 0.017 | 0.63x |
+| Width (90% interval) | 0.086 | 0.047 | 0.55x |
+| Width / Future Vol | 3.32 | 1.99 | 0.60x |
+
+155d is **catastrophically broken on test**. 5.4% CI coverage (target: 90%). ALL RC18 "overfitting" analysis was comparing models against a baseline that itself doesn't work.
+
+### Three Smoking Guns
+
+**1. MAE = 0.259 on test (7.6x worse than val).** The frozen base model (153a) predicts completely wrong IV levels for the test period. This is a mean prediction failure, not a spread problem. Even infinitely wide intervals centered 0.26 off-target can't achieve CI coverage.
+
+**2. Spread is NOT regime-adaptive.** 
+- Val: turb/calm spread ratio = 0.86 (BACKWARDS — narrower for turbulent)
+- corr(future_vol, spread) = 0.006 on val, -0.084 on test (essentially zero)
+- The model produces fixed-width spread regardless of conditioning regime
+
+**3. On test, spread is 40% NARROWER despite harder data.**
+- Val spread: 0.027, Test spread: 0.017
+- Val future vol: 0.026, Test future vol: 0.024
+- The spread contracts on out-of-distribution data rather than expanding
+
+### Quintile Analysis (spread by future volatility)
+
+Val:
+| Q | FutVol | Spread | Width | CI | W/FV |
+|---|--------|--------|-------|----|------|
+| Q1 (calm) | 0.017 | 0.029 | 0.094 | 0.695 | 5.54 |
+| Q5 (turb) | 0.034 | 0.029 | 0.089 | 0.635 | 2.60 |
+
+Test:
+| Q | FutVol | Spread | Width | CI | W/FV |
+|---|--------|--------|-------|----|------|
+| Q1 (calm) | 0.015 | 0.019 | 0.055 | 0.058 | 3.74 |
+| Q5 (turb) | 0.037 | 0.016 | 0.044 | 0.051 | 1.18 |
+
+On val, Q1→Q5 spread is flat (0.029→0.029). On test, spread actually DECREASES for harder windows (0.019→0.016). The model has zero regime adaptivity.
+
+### Root Cause Analysis
+
+The frozen two-stage pipeline (153a base → 155d residual) has TWO fatal flaws:
+
+**A. Base prediction (153a) doesn't generalize.** 153a was trained on early data and produces mean predictions calibrated to that period's IV levels. Test-period IV levels are systematically different (mean IV: val 0.180, test 0.227). The 0.047 level shift becomes a ~0.26 MAE because the base model's entire prediction is anchored to the wrong regime.
+
+**B. Residual model has no regime adaptivity.** 155d generates fixed-magnitude residuals regardless of conditioning. The CLN + attention architecture learns a single spread pattern from the val-period data. It doesn't adapt spread to the conditioning history's regime signal. corr(turb_frac, spread) = -0.25 on val (backwards!) and 0.19 on test (weak, wrong mechanism).
+
+### What Was Learned
+
+1. **155d was NEVER a good model.** The 0.748 CI on val was an artifact of (a) calm val period and (b) never testing on the actual test split. On test: 5.4% CI. Every conclusion built on "155d is the best generalizing model" is invalidated.
+
+2. **ALL RC18 comparisons are invalidated.** We compared dim=8, ES, etc. models against 155d on test, concluding they "overfit." But 155d itself gets 5.4% on test. The other models' test CI of 0.14-0.34 is actually BETTER than 155d on some metrics (not a high bar).
+
+3. **The frozen pipeline is the fundamental bottleneck.** A frozen base model that can't predict test-period IV levels makes all downstream residual modeling irrelevant. This is not fixable by better noise injection, loss functions, or training procedures.
+
+4. **Regime adaptivity is absent.** The model should produce wider intervals when conditioning history shows turbulence. It doesn't. corr(regime, spread) ≈ 0 everywhere. This is an architecture/training problem — the conditioning signal isn't reaching the spread mechanism.
+
+5. **End-to-end training (158a) was the right direction.** It removes the frozen 153a bottleneck. Its poor val numbers (CI=0.29) may simply reflect the broken val metric, not actual model quality. Need to evaluate 158a on test to know.
+
+### Immediate Actions
+
+1. Run 158a on test split — it bypasses the frozen 153a entirely, so MAE should be different
+2. Check 153a's predictions: are they systematically biased on test-period data?
+3. Re-evaluate the entire RC18 conclusion: "noise bottleneck overfits" may be wrong if the baseline was broken
+4. Consider whether the val metric is usable at all for model selection
+
+### What This Changes
+
+The research direction is fundamentally different now:
+- The frozen pipeline is dead. End-to-end or bust.
+- The val split is unreliable for calibration metrics (CI, spread-skill).
+- Every previous experiment's val-based conclusions need re-examination.
+- 158a (end-to-end) evaluation on test is now the single most important measurement.
+
+### Diagnostic Script
+- /tmp/regime_adaptive_spread3.py — 155d on val+test with regime breakdown
+
+---
+
+## 2026-03-27: ROOT CAUSE — Conditionality Failure is the Binding Bottleneck, Not Noise Design or Loss
+
+### Context
+After RC18 (6 experiments on noise bottleneck + ES) and discovering all models fail equally on test (including 155d: test CI=0.330), traced the actual root cause. The "overfitting" narrative was wrong — the real problem is that NO model modulates spread based on regime.
+
+### Correction: 155d Also Fails on Test
+The "155d val=test=0.748, zero gap" claim was **wrong**. 155d had only been evaluated on the val split (441 windows, eval_split=val). When evaluated on the actual test split (1252 windows):
+
+| Model | Val CI | Test CI | Gap |
+|-------|--------|---------|-----|
+| 155d (dim=32, no ES) | 0.748 | **0.330** | 0.418 |
+| 157b_v3 (dim=8+ES+sw55) | 0.803 | 0.336 | 0.467 |
+
+155d's gap (0.418) is virtually the same as other models (0.40-0.47). **There was no special generalization.** The "Bitter Lesson" conclusion from earlier in RC18 was based on a false comparison (val-vs-test for RC18 models vs val-vs-val for 155d).
+
+### The Actual Root Cause: CLN Architecture Erases Regime Signal
+
+**The encoder IS regime-aware** (verified experimentally):
+- Turbulent condition norm: 1.600, Calm condition norm: 0.979 (1.6x ratio)
+- Linear probe accuracy: 100% (perfectly separable)
+- Cosine similarity turb vs calm: -0.24 (different directions)
+
+**But CLN discards the magnitude signal:**
+```
+Encoder: "turbulent!" → condition norm = 1.6
+         "calm"       → condition norm = 1.0
+
+cond_proj(condition) → h (larger for turbulent)
+LayerNorm(h) → unit scale    ← MAGNITUDE ERASED
+CLN: (scale(z) + 1) * LN(h) + bias(z)
+       ↑                           ↑
+  from z only                 from z only
+  (condition-independent)     (condition-independent)
+```
+
+The CLN scale and bias projections take ONLY z (noise) as input — not the condition. LayerNorm normalizes the condition-dependent features to unit scale before noise modulation. The noise amplitude is identical for turbulent and calm regimes.
+
+### Conditionality Across All Models (turb/calm ratio, target >1.15)
+
+| Model | Architecture | turb/calm |
+|-------|-------------|-----------|
+| Old afCRPS (99j) | Block-AR MLP + skip | **1.46** ✓ |
+| 154b (residual FM) | Residual + FM | 0.97 ✗ |
+| 155a (residual MLP) | Residual + MLP | 0.997 ✗ |
+| 155d (CLN transformer) | Residual + CLN | 0.90 ✗ |
+| 158a (end-to-end CLN) | E2E + CLN | 0.988 ✗ |
+
+**Every model since the residual architecture (RC16+) has turb/calm < 1.0.** The old Block-AR models (99j series) HAD conditionality because their skip-connection architecture allowed noise-condition interaction. The CLN transformer broke this pathway.
+
+### Why This Matters for Test Performance
+- Val period: anomalously calm (8.4% turbulent days, return std 0.006)
+- Test period: normal volatility (31.6% turbulent days, return std 0.014)
+- Models calibrate spread for the calm training/val regime
+- Test has 2-4x larger prediction targets → spread is mechanically too narrow → CI collapses
+
+If the model could widen spread during turbulent periods (turb/calm > 1.15), the test CI would improve because the intervals would adapt to the larger moves.
+
+### The Fix
+Make noise amplitude condition-dependent. Options:
+1. **Condition-dependent noise scaling**: `z_scaled = z * sigma(condition)` where sigma is learned
+2. **Condition-aware CLN**: `scale_proj(concat(z, cond))` instead of `scale_proj(z)`
+3. **Condition-modulated noise dim**: `noise_embed = noise_mlp(z, cond)` before CLN
+
+All are Bitter-Lesson compatible (learned from data, no domain heuristics). The old Block-AR models achieved this implicitly through skip connections. The principled version is explicit condition-dependent noise amplitude.
+
+### What Was Learned
+1. The "overfitting" narrative was wrong — ALL models fail equally on test, including 155d
+2. The encoder perfectly encodes regime (100% linear probe accuracy)
+3. CLN's LayerNorm erases the magnitude signal before noise modulation
+4. The noise scale/bias projections take z only, not (z, cond) — this is the architectural gap
+5. This explains why turb/calm < 1.0 for ALL CLN models
+6. The fix is architecturally simple: condition-dependent noise amplitude
+
+### Impact on Research Direction
+This is NOT a noise_dim problem (H1), NOT a loss function problem (H4), and NOT a training data problem (H2). It's an **architectural gap** in the noise-condition interaction. The next research compass should target condition-dependent spread modulation.
+
+---
+
+## 2026-03-27: Architectural Discussion — Mean+Residual Split vs Direct Output
+
+### Context
+User questioned whether the mean+residual decomposition is principled. This led to re-examining the full architecture design from first principles.
+
+### Why We Used Mean+Residual
+1. Practical shortcut: 153a flow model already provided decent mean predictions
+2. Residual learning is easier — model starts from good baseline, only learns spread
+3. Faster convergence
+
+This was an engineering choice, NOT a principled one.
+
+### What Leading Systems Do
+FGN, GenCast, AIFS all output predictions directly — no mean+residual split. No frozen base. The entire system is one end-to-end pipeline trained against the target.
+
+### The Principled Alternative: Direct Output
+```
+History → Encoder → condition
+condition + noise → CLN transformer → output surface directly
+```
+No MeanPredictor. No residual. Let the model learn its own internal decomposition of mean vs spread. afCRPS loss trains both simultaneously.
+
+### Potential Loss Conflict in Mean+Residual
+User raised a critical question: could the mean and residual components require fundamentally different loss functions that conflict?
+
+This connects to a known finding from the project history. The frozen 153a base was trained with **MSE loss** (minimize prediction error). The residual CLN is trained with **afCRPS** (calibrate ensemble spread). These objectives can conflict:
+- MSE pushes the base toward the conditional mean (point estimate)
+- afCRPS pushes the residual toward calibrated intervals (distributional estimate)
+- The residual must compensate for whatever the MSE-trained base gets wrong
+- But the residual's loss gradient can't flow back to fix the base (frozen)
+
+In a two-stage pipeline, the first stage optimizes for accuracy (MSE), the second for calibration (afCRPS). If the accuracy-optimal base prediction isn't the calibration-optimal center, the residual model must waste capacity correcting the base's centering before it can even start on spread.
+
+Previous findings support this:
+- RC16 (154b): residual FM lost conditionality (turb/calm dropped from 1.46 to 0.97) — the residual adds UNCONDITIONAL perturbations because the frozen base already handles the conditional mean
+- The base prediction residuals have heterogeneous magnitude across cells (10x range) — the residual model must learn cell-specific corrections before addressing spread
+- The "spread contraction" pattern (spread peaks early then declines) could be the afCRPS accuracy term overwhelming the spread term, partly because the model wastes capacity on mean corrections
+
+### Direct Output Eliminates the Conflict
+With direct output and a single afCRPS loss, there's no conflict. The model jointly optimizes:
+- WHERE to center the ensemble (implicit mean)
+- HOW WIDE to make it (spread)  
+- WHAT SHAPE it should have (distributional quality)
+
+All from one loss function, one gradient, one optimization landscape.
+
+### Risk
+Direct output is harder to train — the model must learn the mean prediction from scratch. With only 4010 windows (end-to-end) this may be insufficient. The MeanPredictor in 158a achieved mae=0.027, which is reasonable but worse than 153a. Removing even this scaffold may make training harder.
+
+### Decision
+This architectural question should be addressed in the next Research Compass alongside the conditionality fix. The three questions for RC19:
+1. **Conditionality**: How should condition modulate noise amplitude? (literature-grounded)
+2. **Direct output vs mean+residual**: Does removing the split improve training or hurt it?
+3. **Are they coupled?**: A direct-output model with condition-dependent noise may naturally develop conditionality because there's no frozen base absorbing the regime signal.
+
+Needs research ideation with literature grounding before committing to a direction.
+
+---
+
+## 2026-03-27: RC18 Post-Mortem — Four Open Questions for RC19
+
+### Context
+After RC18 (8 experiments), validation audits, and deep mechanistic discussion, we have identified the actual bottlenecks. The RC18 compass focused on noise dimensionality and loss terms — but the binding constraints turned out to be more fundamental: conditionality, architecture decomposition, loss propriety, and generation strategy.
+
+### Corrections to Prior Beliefs
+1. **"155d generalizes, others don't"** → WRONG. 155d test CI=0.330 (same as others). All models fail equally on test.
+2. **"Noise bottleneck causes overfitting"** → WRONG. Universal test failure from lack of conditionality, not regime-specific noise patterns.
+3. **"afCRPS + dim=32 is the principled loss+noise combo"** → INCOMPLETE. afCRPS is not proper for multivariate distributions. Energy Score IS, but has weak gradient signal at high D.
+4. **"Mean+residual is a reasonable architecture"** → QUESTIONABLE. The MSE-trained frozen base conflicts with afCRPS residual training. Leading systems output directly.
+
+### The Four Open Questions
+
+**Q1: Conditionality — How should condition modulate noise amplitude?**
+
+The encoder perfectly encodes regime (100% linear probe accuracy, 1.6x norm ratio for turb vs calm). But CLN's LayerNorm erases the magnitude signal before noise modulation, and scale/bias projections take only z (not condition). All CLN models have turb/calm < 1.0.
+
+Options: z * sigma(cond), scale_proj(cat(z, cond)), condition-modulated noise embedding. Need literature grounding — how do AIFS, FGN, GenCast handle conditional spread?
+
+**Q2: Architecture — Direct output vs mean+residual?**
+
+Mean+residual was a practical shortcut (leverage frozen 153a). But it introduces loss conflict (MSE base vs afCRPS residual), wastes residual capacity on mean corrections, and the frozen base absorbs regime signal that the residual never sees. Leading systems (FGN, GenCast, AIFS) output directly. The principled choice is direct output, but the risk is harder training with limited data.
+
+**Q3: Loss — What proper multivariate scoring rule should we use?**
+
+afCRPS is proper only for univariate marginals — it's blind to joint/correlation structure. Energy Score IS proper for multivariate distributions (mathematical guarantee: converges to true conditional distribution). But ES gradient for correlation is weak: ~4% of total signal at D=25, ~0.7% at D=750.
+
+Current setup (afCRPS primary + ES auxiliary) is backwards. Theory says ES should be primary (it's the one with the convergence guarantee). afCRPS can help as auxiliary for faster marginal convergence. The practical question: is per-frame ES at D=25 sufficient gradient for the model to learn correlation structure in reasonable training time?
+
+**Why ES correlation signal is weak at high D**: L2 norm at D dims scales as sqrt(D). The correlation signal is a ratio difference (sqrt(mean_corr) vs 1.0) that stays constant while the total norm grows. Relative signal ~ 1/sqrt(D). At D=25: ~4%. At D=750: ~0.7%.
+
+**Q4: Generation — One-shot (D=750) vs AR (D=25) vs hybrid?**
+
+One-shot generates all 30x25=750 dims in one forward pass. Fast, but the loss operates on high-D output where correlation signal is weak. Frame-by-frame AR generates at D=25 per step — stronger correlation signal per step, but 30x slower and error accumulation risk.
+
+Note: old Block-AR models used frame-by-frame AR and HAD conditionality (turb/calm=1.46). The CLN transformer moved to one-shot and LOST conditionality. This may not be coincidence — at D=25 per step, the loss can actually shape cross-cell structure.
+
+Hybrid option: one-shot generation + per-frame loss (current approach with per-frame ES). Gets D=25 loss signal without AR generation overhead. 158a used this but was undertrained. Needs more investigation.
+
+### How These Questions Interact
+
+The four questions are NOT independent:
+- Direct output (Q2) + ES-primary (Q3) + condition-dependent noise (Q1) is the maximally principled combination
+- AR generation (Q4) provides stronger per-step loss signal, which may make ES sufficient without needing noise bottleneck tricks
+- If ES at D=25 per frame is sufficient (Q3), then one-shot + per-frame loss (Q4) avoids AR complications
+- Condition-dependent noise (Q1) may be less critical if the loss itself can shape regime-dependent spread (Q3)
+
+### What We Need Before RC19
+A proper research ideation session with:
+1. Literature review: how do AIFS/FGN/GenCast handle conditional spread modulation?
+2. Mathematical analysis: is per-frame ES at D=25 sufficient for correlation learning?
+3. Empirical check: was the old Block-AR's conditionality from AR generation or noise-condition interaction?
+4. Architecture survey: what do leading conditional generative models use for direct output?
+
+### Standing Validated Knowledge (still holds)
+- CLN + factored attention + no ODE = good architecture for correlation + diversity
+- Encoder encodes regime information (100% probe accuracy)
+- afCRPS provides fast marginal convergence
+- End-to-end training generalizes better than residual (158a negative val-test gap)
+- noise_dim=32 is flexible enough for any factor structure
+- The model CAN produce calibrated spread — the loss and architecture work for the val regime
+
+---
+
+## 2026-03-27: Literature Review — Paper Equations for RC19 (8 papers, LaTeX source)
+
+### Context
+Deep literature review using arxiv-latex MCP tools to read actual equations from 8 key papers. Four parallel agents read methods sections of FGN, AIFS-CRPS, dualGNN/STIPP/multi-scale-CRPS, and CRPS-LAM/FourCastNet3. All findings below are from the papers' LaTeX source, not training knowledge.
+
+### 1. FGN (2506.10772) — SOTA Probabilistic Weather
+
+**Architecture**: AR generation, 2nd-order Markov: p(X^{1:T}|X^0,X^{-1}) = prod_t p(X^t|X^{t-2:t-1})
+
+**Noise injection**: Global z ~ N(0,1)^32 → single linear → CLN in all layers. Reparameterization: theta = theta* + Delta * epsilon. Noise is SHARED across all spatial dimensions — forces globally coherent perturbations.
+
+**Loss**: Fair CRPS only, marginals only, NO multivariate loss:
+fCRPS = (1/M) sum|x_n - y| - 1/(2M(M-1)) sum|x_n - x_n'|
+
+**Key insight**: "Under heavy distributional constraints and with FGN's architecture, the easiest way to jointly optimize all marginals is to model their inter-dependencies."
+
+**Training**: N=2 members (minimum for fair CRPS). AR fine-tuning up to 8 rollout steps in final stage.
+
+**Joint structure mechanism**: 32-dim noise for 87M output dims → extreme bottleneck. Spatial weight sharing. AR rollout. All three force coherent perturbations.
+
+### 2. AIFS-CRPS (2412.15832) — ECMWF
+
+**afCRPS equation (exact)**: afCRPS_alpha = (1/M) sum|x_j - y| - (1-epsilon)/(2M(M-1)) sum|x_j - x_k| where epsilon = (1-alpha)/M, alpha=0.95
+
+**Numerically stable form**: Each pairwise term (|x_j-y| + |x_k-y| - (1-epsilon)|x_j-x_k|) is non-negative by triangle inequality — avoids float16 issues.
+
+**Noise**: Spatially-structured (per grid point × noise channels), NOT global like FGN. Processed through 2-layer MLP + LayerNorm → CLN in all 16 transformer layers.
+
+**Training**: K=2 or K=4 during training, 50 members at inference. 3-phase: single-step → 2-step AR → multi-step AR (up to 12 steps). 229M params, 64 H100 GPUs.
+
+**No multivariate loss**: Pure marginal afCRPS. Joint structure from CLN + transformer attention + weight sharing.
+
+### 3. Scoring Rules at D=25 (dualGNN 2509.02784, STIPP 2601.02882, Multi-scale 2506.10868)
+
+**Variogram Score (exact equation)**: VS_p = sum_{i,j} w_ij * (|y_i - y_j|^p - (1/K) sum_k |x_k^i - x_k^j|^p)^2, with p=0.5
+
+**Energy Score**: ES = (1/M) sum||x_i - y|| - 1/(2M(M-1)) sum||x_i - x_j||
+
+**dualGNN composite loss (D=18 and D=30)**: L = w1*ES + w2*VS, normalized by ratio mean(ES)/mean(VS). Optimal weights:
+- D=18 stations: 90% ES + 10% VS
+- D=30 stations: 30% ES + 70% VS
+
+**KEY FINDING**: At D=25, composite ES+VS consistently outperformed CRPS-only, ES-only, and two-step copula methods on all multivariate metrics. Adding VS did NOT hurt marginal calibration.
+
+**When CRPS alone works**: Only with massive architectural constraint (FGN's 32-dim for 87M outputs) OR when using structured noise + AR. At D=25, architectural constraint alone is insufficient.
+
+**Multi-scale CRPS (Lang 2506.10868)**: Apply afCRPS at multiple spatial resolutions. Prevents spurious high-frequency noise. Orthogonal to VS (addresses spatial frequency, not correlation). Limited applicability at D=25 (grid too coarse for multi-scale).
+
+### 4. FourCastNet 3 (2507.12144) — NO Normalization, NO Residual
+
+**Removes ALL normalization**: "We deliberately omit layer normalization, motivated by the importance of absolute magnitudes in physical processes." Replaces with He initialization + LayerScale for stability.
+
+**Removes residual prediction**: "Residual prediction fundamentally limits the model to explicit Euler time steps" and "enables artifacts to be passed on and amplified in AR rollouts." Predicts next state DIRECTLY, not delta.
+
+**Structured noise fields**: 8 spherical diffusion processes with different spatial/temporal scales:
+z_n = phi * z_{n-1} + sum_l sigma_l * eta_l * Y^m_l(x)
+k_T values span 5 orders of magnitude. Noise has built-in spatial correlation at multiple scales.
+
+**Noise as input channels**: Concatenated with atmospheric state, NOT injected via normalization. Network learns arbitrary nonlinear noise-state interactions.
+
+**Spectral CRPS**: CRPS on spherical harmonic coefficients — addresses marginal-blindness to spatial correlation. "CRPS can be minimized in a point-wise manner by an unphysical ensemble" — spectral CRPS prevents this.
+
+**Training**: Start with biased CRPS (K=16), switch to fair CRPS (K=2) for AR fine-tuning. Noise centering: odd members use -1 * even members' noise.
+
+### 5. CRPS-LAM (2510.09484) — AR Prevents Mode Collapse
+
+**Mode collapse warning**: "We sometimes observe instability where the model collapses into producing near-deterministic forecasts, effectively minimizing the MAE while neglecting the latent variable."
+
+**AR training fixes it**: "Artifacts in a small subset of ensemble members at longer lead times disappeared once the model was trained with autoregressive forecasting steps."
+
+**Architecture**: 32-dim noise → single linear → conditional normalization in U-Net blocks. Fair CRPS only, same mechanism as FGN.
+
+### Key Implications for Our Project
+
+| Finding | Source | Impact |
+|---------|--------|--------|
+| Remove normalization to preserve magnitude | FCN3 | Explains our conditionality failure — LN erases regime signal |
+| Remove residual prediction | FCN3 | Our base+residual limits to Euler steps, amplifies artifacts |
+| AR training prevents mode collapse | CRPS-LAM | Our one-shot may suffer from mode collapse |
+| N=2 is sufficient for training | FGN, AIFS | We use K=8, wasting 4x compute |
+| At D=25, need VS not just CRPS | dualGNN | CRPS alone insufficient at our scale |
+| Spectral CRPS addresses correlation | FCN3 | Alternative to VS: CRPS on PCA components |
+| AR + fresh noise per step | FGN, AIFS | Both SOTA systems use AR, not one-shot |
+| Spatially shared noise → coherent perturbations | FGN | Our 32-dim noise with shared CLN weights already does this |
+
+### Contradictions with Our Previous Assumptions
+
+1. **We assumed CLN needed condition input for conditionality** → Literature says NO, all SOTA use noise-only CLN. But FCN3 shows removing normalization entirely may be better.
+
+2. **We assumed ES was the right multivariate loss** → VS is better at D=25. ES has weak correlation signal; VS directly targets pairwise dependencies.
+
+3. **We assumed one-shot generation was principled** → Both FGN and AIFS use AR. AR prevents mode collapse and naturally propagates regime info.
+
+4. **We assumed mean+residual was a reasonable scaffold** → FCN3 explicitly argues against it: limits to Euler steps, amplifies artifacts.
+
+5. **We used K=8 members** → FGN proves K=2 is sufficient with fair CRPS.
+
+---
+
+## 2026-03-27: Research Compass RC19 — AR + No-Norm + VS (Literature-Grounded)
+
+### Philosophy Applied
+- **Bitter Lesson**: All components learned from data. No per-cell constants, no domain heuristics.
+- **Karpathy**: Each hypothesis independently testable. No stacked dependencies.
+- **Popper**: Each has a kill condition. Failure is informative.
+- **Hinton**: Our independent reasoning (conditionality is the bottleneck) validated by literature (FCN3 removes LN for same reason). Gap: we thought explicit condition→noise was needed; literature shows implicit mechanism through magnitude-preserving architecture.
+
+### Evidence Summary
+
+**Proven root causes (verified on disk)**:
+1. ALL models fail on test (~0.33 CI, ~0.42 gap) including 155d — universal, not model-specific
+2. turb/calm < 1.0 for ALL CLN models — no conditionality
+3. Encoder encodes regime (100% probe, 1.6x norm) but CLN LayerNorm erases magnitude
+4. afCRPS is marginal-only — insufficient at D=25 for correlation (dualGNN proof)
+5. End-to-end (158a) shows negative val-test gap — generalization solved by more data
+
+**Exhausted (with mechanistic WHY)**:
+- noise_dim reduction (RC18 H1): overfits because learned factor structure is regime-specific on small data
+- Per-frame ES alone (RC18 H4): insufficient correlation signal, doesn't help conditionality
+- Mean+residual with frozen base: creates MSE/afCRPS loss conflict, limits to Euler steps (FCN3)
+
+**Literature consensus (from LaTeX source of 8 papers)**:
+- FGN/AIFS: AR + CLN + marginal CRPS + K=2 → SOTA
+- FCN3: Remove ALL normalization + remove residual prediction + spectral CRPS
+- dualGNN: At D=25, composite ES+VS (30:70) outperforms CRPS-only
+- CRPS-LAM: AR training prevents mode collapse (model ignoring noise)
+
+### Active Hypotheses (ranked by information value)
+
+---
+
+## H1: AR Frame Generation with CLN (Priority 1 — highest information value)
+
+**Evidence chain**: Old Block-AR (99j) had turb/calm=1.46 using AR. CLN one-shot (155d+) has turb/calm<1.0. FGN and AIFS both use AR with fresh noise per step. CRPS-LAM shows AR prevents mode collapse. Literature confirms AR propagates regime info step-by-step.
+
+**Principled argument**: AR generation at D=25 per frame provides (1) natural regime propagation through the sequential chain, (2) stronger per-step loss signal for correlation (4% at D=25 vs 0.7% at D=750), (3) implicit consistency pressure — inappropriate spread at step t produces poor inputs for step t+1, which the loss penalizes. FGN proves this works with CLN noise injection. (Bitter Lesson: architecture learns the dynamics, no handcrafted temporal structure.)
+
+**The bet**: Implement AR frame loop within the CLN transformer. Each step: (encoder_cond, prev_frame, noise_z_t) → CLN transformer block → next_frame. Fresh noise z_t ~ N(0,1)^32 per step. End-to-end training on full dataset (~4010 windows). Per-frame afCRPS loss. K=2 members (FGN/AIFS validated).
+
+**Staged checkpoints**:
+1. **80ep probe** (~4h): AR-CLN + end-to-end + K=2. Measure turb/calm AND test CI. Does AR restore conditionality?
+2. **200ep full** (~10h): If turb/calm > 1.05 at 80ep
+3. **+ AR fine-tuning** (~4h): Train single-step first, then extend to multi-step rollout (AIFS protocol)
+
+**Falsification**: Stage 1: turb/calm < 1.05 at 80ep → AR alone doesn't restore conditionality in CLN. Stage 2: test CI < 0.40 at 200ep → architecture converges but doesn't calibrate.
+
+**Independence**: Does NOT depend on H2 (remove LN) or H3 (VS loss). Tests AR vs one-shot as the single variable, keeping CLN and afCRPS unchanged.
+
+**If it fails**: AR doesn't help → conditionality came from the old Block-AR's skip-connection noise pathway, not from AR generation. Would redirect to H2 (normalization removal).
+
+**Effort**: Stage 1: 4h. Stage 2: 10h. Stage 3: 4h.
+
+---
+
+## H2: Remove LayerNorm, Preserve Magnitude (Priority 2)
+
+**Evidence chain**: FCN3 (2507.12144) removes ALL normalization because "absolute magnitudes carry regime information." Our encoder produces 1.6x larger condition vectors for turbulent periods, but CLN's LayerNorm normalizes to unit variance before noise modulation. FCN3 replaces normalization with He initialization + LayerScale.
+
+**Principled argument**: LayerNorm is the specific component that erases the regime signal. The encoder does its job (100% regime classification). The CLN mechanism is sound (FGN validates it). The failure point is between them: LN(h) squashes magnitude before noise modulation. Removing LN lets the condition's magnitude survive to the output, enabling regime-dependent spread amplitude. (Bitter Lesson: no domain heuristic — just removing an architectural bottleneck so the model can learn magnitude-dependent behavior.)
+
+**The bet**: Replace LayerNorm in CLN with either (a) no normalization + He init + LayerScale, or (b) RMSNorm (preserves relative magnitude, normalizes only scale). Keep everything else unchanged (one-shot, afCRPS, noise_dim=32).
+
+**Staged checkpoints**:
+1. **Quick probe** (~2h): Remove LN from CLN on the existing 155d architecture (residual, val-only eval). Does turb/calm improve from 0.90?
+2. **End-to-end** (~4h): If turb/calm > 1.05, combine with end-to-end training (158a baseline)
+3. **+ AR** (~4h): If both work, combine H1+H2
+
+**Falsification**: Stage 1: turb/calm < 1.0 after 80ep → magnitude erasure is NOT the cause of conditionality loss. The condition vector's magnitude doesn't actually drive spread.
+
+**Independence**: Tests normalization removal as single variable. Does NOT depend on H1 (AR) or H3 (VS).
+
+**If it fails**: Magnitude preservation alone doesn't restore conditionality → the implicit mechanism (FGN/AIFS) requires more depth (16+ layers) or more data (millions of samples) to develop regime-dependent spread. Our 4-layer transformer at D=25 is too shallow for implicit conditioning.
+
+**Effort**: Stage 1: 2h. Stage 2: 4h. Stage 3: 4h.
+
+---
+
+## H3: Variogram Score Loss at D=25 (Priority 3)
+
+**Evidence chain**: dualGNN (2509.02784) proved at D=18 and D=30 that composite ES+VS outperforms CRPS-only on all multivariate metrics. Optimal at D=30: 30% ES + 70% VS. VS directly targets pairwise correlation structure — the exact metric we fail on. FGN's "marginals only" works at D=87M but dualGNN shows it fails at D<30.
+
+**Principled argument**: afCRPS is a proper univariate scoring rule — it converges to correct marginals. VS targets pairwise dependencies — it converges to correct correlation structure. Together: correct marginals + correct correlations = correct joint distribution (up to higher-order dependencies). At D=25, the architectural constraint alone (noise_dim=32, weight sharing) is insufficient to force joint structure — explicit multivariate supervision is needed. (Bitter Lesson: VS is a mathematical scoring rule, not a domain heuristic.)
+
+**The bet**: Add VS_0.5 to end-to-end training (158a baseline). Loss = afCRPS + lambda_VS * VS_0.5. Normalize VS by ratio mean(afCRPS)/mean(VS) over first epoch. Sweep lambda_VS in {0.1, 0.3, 0.5}.
+
+**Staged checkpoints**:
+1. **lambda=0.1, 80ep** (~4h): Does VS improve test corr without hurting CI?
+2. **lambda=0.3, 80ep** (~4h): Dose response (dualGNN found 70% VS optimal at D=30)
+3. **Best lambda, 200ep** (~10h): Full training if corr improves
+
+**Falsification**: No lambda gives test corr > 0.85 with test CI > 0.35 → VS doesn't help at our scale/data regime.
+
+**Independence**: Tests on 158a (end-to-end, one-shot) as baseline. Does NOT depend on H1 or H2.
+
+**If it fails**: At D=25 with ~4000 windows, no loss function overcomes the data-regime mismatch. The correlation structure shifts too much between train and test for any loss to learn a transferable pattern.
+
+**Effort**: Stage 1: 4h. Stage 2: 4h. Stage 3: 10h.
+
+---
+
+### Execution Order (information flow)
+
+**Wave 1** (sequential, ~10h total):
+- H1-S1: AR + CLN + end-to-end + K=2, 80ep → does AR restore conditionality?
+- H2-S1: Remove LN from CLN, 80ep → does magnitude preservation restore conditionality?
+- H3-S1: VS lambda=0.1 on 158a, 80ep → does VS improve test correlation?
+
+Each tests ONE variable independently. Results determine Wave 2.
+
+**Wave 2** (based on Wave 1):
+- If H1 works: 200ep full training
+- If H2 works: combine H2 + end-to-end
+- If H3 works: sweep lambda, then combine with best of H1/H2
+- If H1+H2 both work: combine AR + no-LN (the maximally principled architecture)
+
+**Kill the compass if**: All three Stage 1 probes fail on both conditionality AND test CI → the problem is fundamental data non-stationarity that no architecture/loss can address at this scale. Accept current ceiling and use conformal post-processing for production.
+
+### Exhausted Directions (do NOT revisit)
+- noise_dim < 32 on residual models (regime-specific factor structure on small data)
+- Per-frame ES alone (insufficient signal, doesn't help conditionality)
+- Frozen 153a base + residual (MSE/afCRPS conflict, Euler step limitation)
+- Val-only evaluation (val is anomalously calm, must always check test split)
+
+### Open Questions
+1. Does our 4-layer transformer have enough depth for implicit regime conditioning? (FGN: 24 layers, AIFS: 16 layers)
+2. Is spectral CRPS (FCN3) applicable at D=25? (PCA on 5x5 grid may not have meaningful spectral structure)
+3. Should noise have temporal autocorrelation (our rho=0.8, FCN3's phi) or be i.i.d. per step (FGN, AIFS)?
+4. Is K=2 sufficient with our small dataset? (FGN/AIFS have millions of samples)
+
+### Garbage Can Lists
+**Unsolved problems**: Conditionality (turb/calm<1.0), test CI (~0.33), correlation at D=25
+**Available techniques**: AR-CLN (H1), no-norm (H2), VS loss (H3), spectral CRPS, structured noise fields, noise centering (FCN3), multi-step AR fine-tuning
+
+---
