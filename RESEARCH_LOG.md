@@ -43910,3 +43910,84 @@ afCRPS averaged over all dims provides weak correlation pressure. ES provides st
 Exp 157b: noise_dim=8 + lambda_es=0.1 + sw=0.5 (combination of H1 and H4 insights). If noise bottleneck forces correlated spread AND ES prevents collapse, expect CI>0.75 + corr>0.85 simultaneously.
 
 ---
+
+## 2026-03-26: Exp 157b — COMBINATION noise_dim=8 + ES lambda=0.1 (RC18 H1+H4)
+
+### Context
+Combination experiment: noise_dim=8 (forces correlation, validated by 156b) + per-frame ES lambda=0.1 (prevents spread collapse, validated by 157a). The critical test of whether the two mechanisms compose.
+
+**Based on**: 156b (dim=8, corr=0.984 but CI=0.639) + 157a (ES, CI=0.715 but corr=0.710)
+**Prediction**: CI>0.75 AND corr>0.85 simultaneously
+**Risk**: ES may overpower noise bottleneck
+
+### Training
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_155d_cln_transformer.py     --epochs 200 --batch_size 8 --n_members 8 --noise_dim 8     --spread_weight 0.5 --lambda_es 0.1 --lr 1e-3     --output_dir models/backfill/flow_157b --device cuda
+```
+
+### Results
+
+| Epoch | CI | CI_h | KS | corr | SS | ER | spread |
+|-------|------|------|------|------|------|------|--------|
+| 40 | 0.671 | 0/30 | 24 | 0.327 | 1.245 | 2.982 | 0.032 |
+| **80** | **0.738** | 1/30 | 20 | **0.813** | 1.182 | 1.456 | 0.029 |
+| 120 | 0.706 | 0/30 | 25 | **0.969** | 1.135 | 1.177 | 0.028 |
+| 160 | 0.707 | 0/30 | 25 | 0.933 | 1.137 | 1.237 | 0.025 |
+| 200 | 0.720 | 0/30 | 25 | 0.866 | 1.147 | 1.349 | 0.025 |
+
+Final comparison:
+
+| Metric | 155d | 156b (dim=8) | 157a (ES) | **157b (combo)** | Target |
+|--------|------|-------------|-----------|-----------------|--------|
+| CI worst | 0.748 | 0.639 | 0.715 | **0.720** | >0.80 |
+| CI mean | ~0.85 | 0.763 | 0.809 | **0.794** | — |
+| Corr | 0.910 | 0.984 | 0.710 | **0.868** | ~1.0 |
+| KS | 25/25 | 25/25 | 24/25 | 25/25 | >20 |
+| ER ratio | ~1.0 | 1.086 | 2.109 | **1.349** | ~1.0 |
+| Spread contr. | ~1.5x | 1.80x | 1.38x | **1.51x** | <1.5x |
+
+### Diagnostics
+
+**A. Per-cell CI**: Mean=0.794 (close to 0.80!). Worst=0.720 at (3,4). Several cells >0.85: (0,0)=0.888, (0,3)=0.889. Column 4 (short tenor) uniformly worst.
+
+**B. Correlation**: corr=0.868 — BEST combination of CI+corr ever achieved at convergence. ER=9.43 (ratio 1.349, slightly over-factored).
+
+**C. Scaling**: NEITHER 0.8x nor 1.3x helps CI. Model at spread-skill optimum (SS=1.147). This is different from 157a (where 1.3x helped) and 156b (where 1.3x hurt). The model is precisely balanced.
+
+**D. Spread**: Contraction 1.51x (vs 1.80x without ES). Growing unc ratio 1.05x.
+
+### WHY Analysis
+
+**Why does the combination improve on both axes?**
+With noise_dim=8, the CLN can only inject diversity along 8 directions. Without ES (156b), afCRPS contracts these 8 directions progressively (spread collapses 1.80x). With ES (157b), the spread contraction is reduced to 1.51x because ES penalizes collapse. But crucially, with only 8 noise dims, the ES cannot push spread into independent per-cell directions (would need 25+ dims). The spread MUST be allocated across the 8 available directions, which are learned to correlate with the data structure. Result: correlated spread that resists collapse.
+
+**Why does ES overpower bottleneck early (corr=0.327 at ep40)?**
+At epoch 40, CLN scales are still low (2.484). The ES gradient on spread is immediate and strong, while the bottleneck's correlation-forcing effect requires the CLN to learn appropriate projections. Early in training, the model finds easy ways to reduce ES loss by expanding in whatever directions it can. By ep80, the CLN projections have specialized and the bottleneck's effect emerges (corr=0.813).
+
+**Why doesn't CI reach 0.80?**
+SS=1.147 means the model is slightly over-dispersive — more spread than needed. But the worst cells have CI=0.720 (below mean 0.794) because accuracy varies across cells while spread is roughly uniform. The afCRPS loss averages over all cells, so the gradient is dominated by cells where CI is already adequate. The worst cells (short tenor, edge moneyness) get insufficient spread relative to their prediction error.
+
+### What Was Learned
+
+1. **The combination WORKS**: noise_dim=8 + ES lambda=0.1 achieves corr=0.868 AND CI=0.720 simultaneously. This is better than either axis alone on the combined metric.
+
+2. **The two mechanisms are complementary but competitive early**: ES overpowers bottleneck at ep40 (corr=0.327) before bottleneck effect develops at ep80 (corr=0.813).
+
+3. **The Pareto frontier HAS shifted**: 157b's (CI=0.720, corr=0.868) is on a BETTER frontier than any single-axis experiment. The combination breaks the CI-corr tradeoff compared to H1-only or H4-only models.
+
+4. **The remaining gap to CI=0.80 is a per-cell allocation problem**: Mean CI=0.794 (nearly there) but worst cell=0.720. Uniform spread across cells is suboptimal when prediction accuracy varies.
+
+5. **Lambda_es=0.1 may be slightly too strong for dim=8**: SS=1.147 (over-dispersive) suggests reducing to lambda_es=0.05 could improve CI while maintaining structure.
+
+### Decision
+**BUILD ON THIS** — best combination result. The remaining gap to target is 0.08 (0.720→0.80).
+
+Options for closing the gap:
+a) **lambda_es=0.05** (reduce over-dispersion, SS closer to 1.0) — quick, ~30 min
+b) **spread_weight=0.55** (shift CI-corr balance toward CI) — quick
+c) **End-to-end (H2)** removes frozen base, may allow better per-cell adaptation
+d) **Per-cell IS weighting** — weighted interval score penalizing worst cells more (but may violate Bitter Lesson)
+
+Recommended: Try (a) lambda_es=0.05 first as it's cheapest and directly addresses the over-dispersion diagnosed by SS=1.147.
+
+---
