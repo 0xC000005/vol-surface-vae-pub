@@ -44138,3 +44138,55 @@ b) End-to-end training (H2) to learn a better representation
 c) Accepting 0.748 as the ceiling and using conformal calibration for production (97a+qmap)
 
 ---
+
+## 2026-03-26: Validation Audit — RC18 (6 experiments, 4 verifications)
+
+### Scope
+Audited all RC18 experiments (156a, 156b, 157a, 157b, 157b_v2, 157b_v3) plus 155d baseline. 4 parallel verification agents dispatched: 2 test-split evals (156a, 157b_v2), 1 script generation (all 6), 1 overfitting analysis.
+
+### Gaps Found
+
+| Type | Count | Details |
+|------|-------|---------|
+| MISSING_ANALYSIS (test eval) | 2 | 156a and 157b_v2 — now filled |
+| NO_SCRIPT | 6 | All RC18 experiments — now filled (7 scripts) |
+| SHALLOW_ANALYSIS | 1 | 157b_v2 abbreviated log entry |
+
+### Verification Results
+
+| Task | Status | Key Finding |
+|------|--------|-------------|
+| 156a test eval | PASS | Test CI=0.142 — worst of all. dim=4 most extreme overfitting |
+| 157b_v2 test eval | PASS | Test CI=0.182 — confirms lower ES doesn't help generalization |
+| RC18 scripts | PASS | 7 reproducible .sh scripts created and validated |
+| Overfitting analysis | PASS | Complete val-vs-test table, distributional shift diagnosed |
+
+### Complete Overfitting Table
+
+| Model | dim | ES | sw | Val CI | Test CI | Gap | Test Suites |
+|-------|-----|-----|------|--------|---------|-----|-------------|
+| 155d | 32 | 0 | 0.5 | 0.748 | 0.748 | 0.000 | 5/6 |
+| 156a | 4 | 0 | 0.5 | 0.664 | 0.142 | 0.522 | 4/6 |
+| 156b | 8 | 0 | 0.5 | 0.639 | 0.235 | 0.404 | — |
+| 157a | 32 | 0.1 | 0.5 | 0.715 | 0.300 | 0.415 | — |
+| 157b | 8 | 0.1 | 0.5 | 0.720 | 0.236 | 0.484 | 3/6 |
+| 157b_v2 | 8 | 0.05 | 0.5 | 0.704 | 0.182 | 0.522 | 3/6 |
+| 157b_v3 | 8 | 0.1 | 0.55 | 0.803 | 0.336 | 0.467 | 4/6 |
+
+### Corrections
+- The "breakthrough" of 157b_v3 (val CI=0.803) is NOT a real improvement — test CI=0.336
+- ALL RC18 innovations (noise bottleneck, per-frame ES) harm test generalization
+- 155d remains the ONLY model with zero val-test gap
+
+### Pattern: Overfitting severity correlates with noise_dim
+- dim=4: gap=0.522 (worst)
+- dim=8: gap=0.40-0.52
+- dim=32+ES: gap=0.42
+- dim=32, no ES: gap=0.00
+
+### Outstanding
+- H2 (end-to-end) untested — could address regime shift by learning representation
+- 252d long-horizon test not triggered (no model beat 155d on test)
+- Consider whether val-split metrics should be replaced by test-split during training
+
+---
