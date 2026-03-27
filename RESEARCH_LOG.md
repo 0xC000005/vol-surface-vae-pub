@@ -44979,3 +44979,59 @@ Each gets FULL diagnostic protocol (A-F).
 | Q4: AR vs one-shot | H1 (AR) vs 158a (one-shot) | A (turb/calm) + E (training dynamics) | turb/calm difference > 0.15 between H1 and 158a |
 
 ---
+
+## 2026-03-27: Deep Research — Financial Domain Literature Changes RC19
+
+### Context
+Full-mode deep research focused on FINANCIAL time series generative models (not weather). Read 12 papers from LaTeX source. Key finding: the IV surface domain has its own literature that changes our approach.
+
+### Key Findings That Change RC19
+
+**1. FiLM replaces "remove LayerNorm" (H2 update)**
+Jin & Agarwal (2511.07571) built a conditional DDPM for IV surface forecasting (9x9 grid) and chose FiLM (Feature-wise Linear Modulation) for conditioning. FiLM: gamma*F + beta where gamma, beta come from condition MLP. Applied AFTER feature computation — no normalization intervenes. This preserves magnitude by design.
+
+FiLM is a BETTER solution than our H2 "remove LayerNorm":
+- Removes LN risks training instability (FCN3 needed careful He init + LayerScale)
+- FiLM replaces CLN with a simpler mechanism that naturally preserves magnitude
+- FiLM is proven in our exact domain (IV surfaces)
+
+**2. VARNN error-aware noise (new hypothesis)**
+Gharwi et al. (2510.08944) proposes feeding prediction RESIDUALS back into the noise path. h_tau = rho(W_h*h_{tau-1} + W_r*e_tau + b_r). The error memory modulates predictions based on recent variability. This is GARCH's volatility clustering as a learned neural mechanism. Directly addresses regime-dependent spread.
+
+**3. Wells Fargo: simple > complex at N~4000 (2401.10370)**
+"Historical Simulation outperforms all neural models" at their sample sizes (~2000-5000). GARCH consistently beats pure neural approaches. "At our sample size, simple models with right inductive bias beat complex models." Confirms our finding that 155d generalizes while complex models overfit.
+
+**4. Nobody has solved regime-dependent spread at N~4000**
+All successful financial generative models use N>5000 days. Jin & Agarwal: ~5500 training days. We're at the frontier — no proven approach exists at our scale.
+
+**5. GBM-diffusion: scale noise by signal level (2507.19003)**
+Instead of uniform noise across surface, scale by local IV level. Higher IV = more noise = wider spread. Natural heteroscedasticity.
+
+### RC19 Compass Updates
+
+**H2 REVISED: FiLM conditioning instead of removing LayerNorm**
+- Replace CLN with FiLM: condition MLP → (gamma, beta) → gamma*features + beta
+- No LayerNorm to erase magnitude. Condition directly scales output.
+- Proven in IV surface domain (2511.07571)
+- Simpler and more stable than removing normalization entirely
+
+**H5 NEW: Error-aware noise injection (VARNN-inspired)**
+- Feed recent prediction errors back into noise path
+- Noise amplitude ~ f(recent_errors). High recent errors → high spread
+- Financial domain equivalent of GARCH volatility clustering
+- Bitter Lesson compatible: learned from data, no domain constants
+
+**H3 UPDATED: afCRPS + VS weighting**
+- Original: start at lambda_VS=0.1. Updated: start at 50% afCRPS + 50% VS
+- dualGNN evidence at D=25 suggests higher VS weight than we planned
+
+**No change to H1 (AR) and H4 (direct output)** — still valid and independently testable.
+
+### Updated Priority Order
+1. H2-revised (FiLM): Directly fixes the diagnosed magnitude-erasure problem. Simplest change. Domain-proven.
+2. H3 (VS loss): Directly fixes correlation blindness. Strong dualGNN evidence at D=25.
+3. H1 (AR): May restore conditionality through regime propagation.
+4. H4 (direct output): FGN/FCN3 argue for it but risky at N~4000.
+5. H5 (error-aware noise): Novel, principled, but unproven.
+
+---
