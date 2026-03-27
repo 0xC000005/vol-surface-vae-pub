@@ -44089,3 +44089,52 @@ The KEY insight: sw=0.55 creates the PRESSURE for spread. dim=8 constrains the D
 **BREAKTHROUGH — BUILD ON THIS.** Run full test suite (v2) for definitive suite count. Run 252d long-horizon test. Multi-seed verification needed (CI at boundary).
 
 ---
+
+## 2026-03-26: CRITICAL — RC18 Noise Bottleneck + ES Overfit on Test Split
+
+### Context
+After the "breakthrough" of 157b_v3 (val CI=0.803), ran formal test-split evaluation using eval_cln_transformer.py on 1223 held-out test windows. ALL RC18 models catastrophically overfit.
+
+### Test-Split Results (1223 windows, held-out time period)
+
+| Model | noise_dim | ES | sw | Val CI | Test CI | Overfits? |
+|-------|-----------|-----|------|--------|---------|-----------|
+| 155d (baseline) | 32 | 0 | 0.5 | 0.748 | **0.748** | **NO** |
+| 156b (H1) | 8 | 0 | 0.5 | 0.639 | 0.235 | YES |
+| 157a (H4) | 32 | 0.1 | 0.5 | 0.715 | 0.300 | YES |
+| 157b (H1+H4) | 8 | 0.1 | 0.5 | 0.720 | 0.236 | YES |
+| 157b_v3 | 8 | 0.1 | 0.55 | 0.803 | 0.336 | YES |
+
+155d is the ONLY model that generalizes. All RC18 innovations overfit.
+
+### Root Cause Analysis
+
+**Why noise_dim=8 overfits**: The bottleneck forces the model to learn 8 specific factor directions from training data (~400 windows). These 8 directions capture the training period's correlation structure but don't transfer to the test period's different regime. With dim=32 (>25 cells), the model has enough capacity to generate spread in ANY direction without specializing — this flexibility enables generalization.
+
+**Why per-frame ES overfits**: ES at D=25 provides gradient based on the training data's cross-cell dependency structure. The model learns a spread pattern optimized for training-period dependencies. On the test period (different market regime), these patterns are wrong. Without ES, afCRPS provides only marginal gradient, which is regime-independent (it just matches per-cell marginals).
+
+**Why 155d generalizes**: dim=32 (no bottleneck) + no ES = spread generation is regime-independent. The CLN generates flexible, non-specialized noise. afCRPS provides marginal-only gradient. The model's spread naturally adapts to different regimes because it's not constrained to specific patterns.
+
+**Key insight**: On small datasets (~400 windows), constraints that improve in-distribution performance (bottleneck, ES) HARM out-of-distribution generalization. The SIMPLEST model (afCRPS only, dim=32) generalizes best because it makes fewer assumptions about the data structure.
+
+### What Was Learned
+
+1. **FGN bottleneck requires large-scale data**: FGN had 87M outputs and massive training data. Our 400 windows with 25 cells cannot support learned factor structure transfer. The noise dim should be >= output dim for small datasets.
+
+2. **Per-frame ES is a regime-dependent loss**: ES penalizes specific cross-cell patterns. These patterns are time-varying in financial data. A loss term that's correct for one regime may be wrong for another.
+
+3. **155d's CI=0.748 is the fundamental ceiling for this architecture+data**: The val-test consistency (both 0.748) means this is a true measure of model quality, not overfitting artifact.
+
+4. **Validation during training is misleading**: The val split used during training overlaps with the training distribution. Future work must validate on the test split early, not just at the end.
+
+5. **Bitter Lesson confirmed empirically**: Simpler model (155d, fewer constraints) beats complex model (157b_v3, more constraints) on the true metric (test performance).
+
+### Decision
+RC18 H1 (noise bottleneck) and H4 (per-frame ES) are FALSIFIED for generalization on small datasets. The remaining option is H2 (end-to-end training), which changes the data representation rather than adding constraints.
+
+155d remains the best generalizing model. The gap to CI>0.80 on test may require:
+a) More training data (not available)
+b) End-to-end training (H2) to learn a better representation
+c) Accepting 0.748 as the ceiling and using conformal calibration for production (97a+qmap)
+
+---
