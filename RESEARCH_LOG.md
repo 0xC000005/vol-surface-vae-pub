@@ -45071,3 +45071,44 @@ Both are 2h probes. Running both in Wave 1 adds 2h but doubles the information v
 - H4: Direct output, 80ep (4h)
 
 ---
+
+## 2026-03-27: Literature Corrections — Deep Reads Falsify 3 Claims
+
+### Context
+Deep-read 3 financial domain papers (Jin & Agarwal, VARNN, CoFinDiff) from LaTeX source to verify claims made in the initial literature review. All 3 claims were wrong or misleading.
+
+### Corrections
+
+**1. Jin & Agarwal (2511.07571) FiLM on IV surfaces**
+- Claimed: "Proven for regime-dependent spread on IV surfaces"
+- Reality: FiLM conditions on diffusion timestep + market EWMAs + VIX. They NEVER measure turb/calm spread ratio. Loss is MSE, not CRPS. CI calibration (~10% breach) may be incidental from diffusion stochasticity.
+- Status: FiLM is a valid conditioning mechanism but UNPROVEN for regime-dependent spread.
+
+**2. VARNN (2510.08944) error-aware noise**
+- Claimed: "Error-aware noise injection for regime-dependent spread"
+- Reality: Univariate point predictor. MSE loss. No ensemble, no spread, no variance output. The residual memory conditions the MEAN prediction, not the spread.
+- Status: Conceptual insight (feed residuals back) is valid but requires original engineering for ensemble generation. No paper does this.
+
+**3. CoFinDiff (2503.04164) cross-attention conditioning**
+- Claimed: "Cross-attention on realized volatility produces regime-dependent spread"
+- Reality: Conditions on USER-SPECIFIED scalars (trend, RV), not learned from history. This is controllable synthesis, not conditional forecasting. Different problem.
+- Status: Cross-attention is architecturally valid but the paradigm doesn't match our task.
+
+### Impact on RC19 Compass
+
+| Hypothesis | Before | After |
+|-----------|--------|-------|
+| H1 (AR) | Strongly grounded | **Unchanged** — FGN/AIFS/CRPS-LAM all confirmed |
+| H2a (no-LN) | Strongly grounded | **Unchanged** — FCN3 confirmed |
+| H2b (FiLM) | "Proven on IV surfaces" | **Weakened** — valid mechanism but unproven for spread |
+| H3 (VS) | Strongly grounded | **Unchanged** — dualGNN at D=25 confirmed |
+| H4 (direct output) | Strongly grounded | **Unchanged** — FGN/FCN3 confirmed |
+| H5 (error-aware) | Literature-backed | **Demoted** — novel hypothesis, no literature support |
+
+### Honest Assessment of RC19 Grounding
+
+3 of 6 hypotheses have strong literature grounding (H1, H2a, H3) from weather ML papers confirmed by LaTeX source. H4 has solid support from FGN/FCN3 architecture choices. H2b (FiLM) and H5 (error-aware noise) are reasonable but ORIGINAL research hypotheses — they lack direct precedent for our specific problem (regime-dependent ensemble spread on small financial data).
+
+**Nobody has solved regime-dependent spread in ensemble generation with N~4000 on financial data.** We are at the frontier. The weather papers (FGN, AIFS) solve it implicitly with massive scale (180M+ params, millions of samples). Whether their mechanisms (AR+CLN+marginal CRPS) transfer to our scale (2M params, 4000 samples) is an open empirical question.
+
+---
