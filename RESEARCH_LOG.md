@@ -45035,3 +45035,39 @@ Instead of uniform noise across surface, scale by local IV level. Higher IV = mo
 5. H5 (error-aware noise): Novel, principled, but unproven.
 
 ---
+
+## 2026-03-27: RC19 Amendment — H2 Split into H2a (no-LN CLN) and H2b (FiLM)
+
+### Rationale
+User correctly pointed out both approaches have independent literature support. Testing only one doesn't isolate the mechanism. Split H2 into two independent experiments:
+
+**H2a: Remove LayerNorm from CLN (FCN3 pattern)**
+- Keep CLN mechanism (noise-only scale/bias)
+- Remove the LayerNorm step: output = scale(z) * x + bias(z) instead of scale(z) * LN(x) + bias(z)
+- Replace with He init + LayerScale for stability
+- Tests: does magnitude preservation in CLN restore conditionality?
+- Literature: FCN3 (2507.12144)
+
+**H2b: Replace CLN with FiLM (condition-modulated)**
+- Replace noise-only CLN with condition-driven FiLM: gamma(cond)*features + beta(cond)
+- Noise enters separately (e.g., as input concatenation or additive)
+- Tests: does condition-driven modulation restore conditionality?
+- Literature: Jin & Agarwal (2511.07571) on IV surfaces
+
+**What we learn from the 2x2:**
+
+| Result | H2a works | H2a fails |
+|--------|-----------|-----------|
+| **H2b works** | Both work → LN erasure was the problem, either fix is valid | FiLM wins → the conditioning mechanism matters, not just normalization |
+| **H2b fails** | No-LN wins → magnitude preservation is key, FiLM insufficient | Neither works → problem is deeper than conditioning mechanism |
+
+Both are 2h probes. Running both in Wave 1 adds 2h but doubles the information value.
+
+### Updated Wave 1 (sequential, ~16h)
+- H2a: No-LN CLN, 80ep (2h)
+- H2b: FiLM conditioning, 80ep (2h)
+- H1: AR + CLN + end-to-end + K=2, 80ep (4h)
+- H3: VS lambda=0.5 on 158a, 80ep (4h)
+- H4: Direct output, 80ep (4h)
+
+---
