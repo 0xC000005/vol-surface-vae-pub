@@ -1,48 +1,62 @@
 [
   {
-    "name": "H1: Noise bottleneck (noise_dim=4)",
-    "theory": "When dim(z) << dim(cells), CLN with shared spatial weights forces CRPS-optimality to require inter-cell correlation. 4 dims for 25 cells creates a binding bottleneck.",
-    "target": "CI>0.80 AND corr>0.80 simultaneously at sw=0.5",
-    "risk": "FGN mechanism may not transfer from D=87M to D=750. Residuals may need higher noise dim than full generation.",
+    "name": "H2a: Remove LayerNorm from CLN (FCN3 pattern)",
+    "theory": "LayerNorm erases condition magnitude (verified: encoder 1.6x norm ratio for turb vs calm, but LN normalizes to unit scale). Removing LN lets magnitude survive to output. FCN3 removes ALL normalization for same reason.",
+    "target": "turb/calm > 1.05 on residual architecture",
+    "risk": "Training instability without normalization. Need He init + LayerScale.",
     "stages": [
-      {"id": "H1-S1", "desc": "noise_dim=4, sw=0.5, 200ep", "effort_h": 0.5},
-      {"id": "H1-S2", "desc": "noise_dim=8, sw=0.5, 200ep", "effort_h": 0.5},
-      {"id": "H1-S3", "desc": "noise_dim=2, sw=0.5, 200ep (extreme)", "effort_h": 0.5}
+      {"id": "H2a-S1", "desc": "No-LN CLN, residual arch, noise_dim=32, 80ep", "effort_h": 2},
+      {"id": "H2a-S2", "desc": "No-LN CLN + E2E (4010 windows), 80ep", "effort_h": 4}
     ],
-    "diagnostics": ["per-cell CI", "correlation matrix", "eff_rank trajectory", "CLN scale analysis", "spread-skill dynamics", "1.3x scaling test"],
-    "kill_condition": "No noise_dim in {2,4,8} achieves corr>0.80 AND CI>0.70 at sw=0.5",
+    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
+    "kill_condition": "turb/calm < 1.0 at 80ep",
+    "attempts": 0,
+    "max_attempts": 2,
+    "status": "active"
+  },
+  {
+    "name": "H1: AR Frame Generation + CLN + E2E + K=2 (FGN/AIFS pattern)",
+    "theory": "AR propagates regime step-by-step. Fresh noise per frame. Per-frame loss at D=25 has stronger correlation signal. Old Block-AR had turb/calm=1.46 with AR. FGN/AIFS both use AR.",
+    "target": "turb/calm > 1.05 AND test CI > 0.40",
+    "risk": "Error accumulation over 30 AR steps. Slower training (30 forward passes per sample).",
+    "stages": [
+      {"id": "H1-S1", "desc": "AR-CLN + E2E + K=2, noise_dim=32, 80ep", "effort_h": 4},
+      {"id": "H1-S2", "desc": "200ep full if S1 promising", "effort_h": 10},
+      {"id": "H1-S3", "desc": "Multi-step AR fine-tune (1-step → 4-step rollout)", "effort_h": 4}
+    ],
+    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
+    "kill_condition": "turb/calm < 1.05 at 80ep AND test CI < 0.40",
     "attempts": 0,
     "max_attempts": 3,
     "status": "active"
   },
   {
-    "name": "H4: Per-frame Energy Score (D=25)",
-    "theory": "ES at D=25 per frame provides 4% correlation gradient signal (vs 0.13% at D=750). Combined with afCRPS, provides both marginal and joint gradient in single training run.",
-    "target": "corr>0.85 while maintaining CI>0.70",
-    "risk": "ES may still be too weak at D=25. May conflict with afCRPS like VS did.",
+    "name": "H3: Variogram Score at D=25 (dualGNN pattern)",
+    "theory": "afCRPS is marginal-only, blind to correlation. VS directly penalizes pairwise dependency errors. At D=25, dualGNN proved composite outperforms CRPS-only (D=18: 90/10, D=30: 30/70 ES/VS).",
+    "target": "test corr > 0.85 with test CI > 0.35",
+    "risk": "VS may overfit pairwise structure to training regime (same as ES in RC18). Need test-split validation.",
     "stages": [
-      {"id": "H4-S1", "desc": "lambda_es=0.1, noise_dim=32, 200ep", "effort_h": 0.5},
-      {"id": "H4-S2", "desc": "lambda_es=0.5, noise_dim=32, 200ep", "effort_h": 0.5},
-      {"id": "H4-S3", "desc": "lambda_es=1.0 (ES-dominated), 200ep", "effort_h": 0.5}
+      {"id": "H3-S1", "desc": "afCRPS + VS lambda=0.5 on 158a baseline, 80ep", "effort_h": 4},
+      {"id": "H3-S2", "desc": "lambda=0.3 and 0.7 sweep, 80ep each", "effort_h": 8},
+      {"id": "H3-S3", "desc": "Best lambda, 200ep", "effort_h": 10}
     ],
-    "diagnostics": ["correlation trajectory", "per-cell CI", "ES vs afCRPS gradient magnitude", "spread dynamics", "compare with 155e (VS)", "noise_dim=4 combination if successful"],
-    "kill_condition": "No lambda_es achieves corr>0.85 with CI>0.70",
+    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
+    "kill_condition": "No lambda gives test corr > 0.85 with test CI > 0.35",
     "attempts": 0,
     "max_attempts": 3,
     "status": "active"
   },
   {
-    "name": "H2: End-to-end training (no frozen base)",
-    "theory": "Frozen pipeline constrains optimization landscape. End-to-end lets model find own factorization of conditional distribution. All leading systems (AIFS, FGN, GenCast) train end-to-end.",
-    "target": "CI>0.80, conditionality turb/calm>1.15, growing uncertainty",
-    "risk": "441 windows may be insufficient for end-to-end. Slower convergence without warm start.",
+    "name": "H4: Direct Output, No Mean/Residual Split (FGN/FCN3 pattern)",
+    "theory": "FGN has no explicit mean/residual split. FCN3 argues residual limits to Euler steps. Removing split eliminates MSE/afCRPS loss conflict. But Wells Fargo cautions: simple > complex at N~4000.",
+    "target": "mae < 0.04 AND test CI > 0.35",
+    "risk": "Model may not learn mean at N~4000 without scaffold. Need warm-up (Stirn 2023).",
     "stages": [
-      {"id": "H2-S1", "desc": "End-to-end, noise_dim=32, 80ep probe", "effort_h": 1.0},
-      {"id": "H2-S2", "desc": "Full 200ep if S1 shows reasonable mae", "effort_h": 2.0},
-      {"id": "H2-S3", "desc": "End-to-end + noise_dim=4 (H1 combination)", "effort_h": 1.0}
+      {"id": "H4-S1", "desc": "Direct output + E2E + warm-up (20ep freeze noise), 80ep", "effort_h": 4},
+      {"id": "H4-S2", "desc": "200ep if mae reasonable", "effort_h": 10}
     ],
-    "diagnostics": ["turb/calm ratio", "growing uncertainty profile", "mean prediction vs 153a", "training dynamics", "encoder weight analysis", "full eval + 252d"],
-    "kill_condition": "mae > 2x 153a at ep80 (can't learn mean) OR CI < 0.60 at ep200",
+    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
+    "kill_condition": "mae > 0.06 at 80ep",
     "attempts": 0,
     "max_attempts": 2,
     "status": "active"

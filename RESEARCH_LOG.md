@@ -45112,3 +45112,164 @@ Deep-read 3 financial domain papers (Jin & Agarwal, VARNN, CoFinDiff) from LaTeX
 **Nobody has solved regime-dependent spread in ensemble generation with N~4000 on financial data.** We are at the frontier. The weather papers (FGN, AIFS) solve it implicitly with massive scale (180M+ params, millions of samples). Whether their mechanisms (AR+CLN+marginal CRPS) transfer to our scale (2M params, 4000 samples) is an open empirical question.
 
 ---
+
+## 2026-03-27: Research Compass RC19 — FINAL (Post Deep-Read Corrections)
+
+### Philosophy Applied
+- **Popper**: Every claim verified against LaTeX source. 3 claims falsified and corrected before execution.
+- **Karpathy**: Each hypothesis independently testable. No stacked dependencies.
+- **Bitter Lesson**: All components learned from data. Wells Fargo caution at N~4000: simple > complex.
+- **Hinton**: Independent reasoning (conditionality is bottleneck) partially validated by literature (FCN3 removes LN, FGN uses AR). Gap: no one has solved regime-dependent spread at N~4000.
+
+### Evidence Summary (all verified from LaTeX source or disk)
+
+**Proven root causes**:
+1. ALL models (including 155d) fail on test: CI~0.33, gap~0.42 (verified on disk)
+2. turb/calm < 1.0 for ALL CLN models (verified: encoder has 100% regime probe, LN erases magnitude)
+3. afCRPS is marginal-only — insufficient at D=25 for correlation (dualGNN D=18-30 proven)
+4. One-shot generation doesn't propagate regime info (old Block-AR had turb/calm=1.46 with AR)
+5. Residual architecture limits to Euler steps, amplifies artifacts (FCN3 argument)
+
+**Literature consensus (LaTeX-verified)**:
+- FGN/AIFS: AR + CLN + marginal CRPS + K=2 → SOTA weather
+- FCN3: Remove LN + remove residual + spectral CRPS + structured noise
+- dualGNN: At D=25, composite afCRPS+VS outperforms CRPS-only
+- CRPS-LAM: AR training prevents mode collapse
+- Wells Fargo: At N~4000, simple models beat complex ones
+
+### Active Hypotheses (ranked by confidence + information value)
+
+---
+
+#### H1: AR Frame Generation + CLN + End-to-End + K=2 (PRIORITY 1, HIGH confidence)
+
+**Evidence**: FGN (2506.10772), AIFS (2412.15832), CRPS-LAM (2510.09484) — all LaTeX-verified.
+**Mechanism**: AR propagates regime step-by-step. Fresh noise per step. K=2 sufficient (FGN proven).
+**Baseline**: Compare against 158a (one-shot E2E, 80ep, test CI=0.442).
+**Data**: End-to-end, 4010 windows.
+
+**Implementation**:
+- AR frame loop: each step generates 1 frame (D=25) from (encoder_cond, prev_frame, z_t)
+- Fresh z_t ~ N(0,1)^32 per step (FGN pattern, no temporal correlation)
+- CLN noise injection in transformer layers (same as current but per-frame)
+- K=2 members during training (FGN: fair CRPS unbiased at K=2)
+- Per-frame afCRPS loss
+
+**Staged checkpoints**:
+1. 80ep probe (~4h): Measure turb/calm + test CI
+2. 200ep full (~10h): If turb/calm > 1.05
+3. Multi-step AR fine-tune (~4h): Train 1-step → extend to 4-step rollout (AIFS protocol)
+
+**Kill**: turb/calm < 1.05 at 80ep AND test CI < 0.40
+**If fails**: AR doesn't restore conditionality → problem is deeper than generation strategy
+
+---
+
+#### H2a: Remove LayerNorm from CLN (PRIORITY 2, HIGH confidence)
+
+**Evidence**: FCN3 (2507.12144) — LaTeX-verified: "absolute magnitudes carry regime information."
+**Mechanism**: LN erases condition magnitude. Remove LN → magnitude survives → regime-dependent spread.
+**Baseline**: Compare against 155d (same architecture but with LN, val turb/calm=0.90).
+**Data**: Residual architecture (441 windows) for quick probe. Then E2E if it works.
+
+**Implementation**:
+- Replace CLN formula: was (scale(z)+1)*LN(x)+bias(z) → now (scale(z)+1)*x+bias(z)
+- Add He initialization for stability (FCN3 approach)
+- Add LayerScale (learnable per-channel scaling of residual, FCN3)
+- Keep noise_dim=32, sw=0.5, afCRPS
+
+**Staged checkpoints**:
+1. Quick probe on residual arch (~2h): Does turb/calm improve from 0.90?
+2. End-to-end probe (~4h): If turb/calm > 1.05, combine with E2E (4010 windows)
+
+**Kill**: turb/calm < 1.0 at 80ep
+**If fails**: Magnitude preservation alone doesn't help → the implicit mechanism needs more depth/data
+
+---
+
+#### H3: Variogram Score Loss at D=25 (PRIORITY 3, HIGH confidence)
+
+**Evidence**: dualGNN (2509.02784) — LaTeX-verified at D=18 and D=30. VS outperforms ES for correlation.
+**Mechanism**: VS directly penalizes pairwise dependency errors. At D=25, ~300 pairs provide strong signal.
+**Baseline**: Compare against 158a (E2E, afCRPS only, test corr=0.888).
+**Data**: End-to-end, 4010 windows (158a baseline).
+
+**Implementation**:
+- VS_0.5 = sum_{i<j} w_ij * (|y_i-y_j|^0.5 - (1/K)*sum_k|x_k^i-x_k^j|^0.5)^2
+- Normalize VS: compute ratio mean(afCRPS)/mean(VS) over first epoch, use as scaling factor
+- Loss = afCRPS + lambda_VS * normalized_VS
+- Sweep lambda_VS in {0.3, 0.5, 0.7} (dualGNN: 70% VS optimal at D=30)
+
+**Staged checkpoints**:
+1. lambda=0.5, 80ep (~4h): Does test corr improve without hurting CI?
+2. lambda=0.3 and 0.7, 80ep each (~8h): Dose response
+3. Best lambda, 200ep (~10h): If corr improves
+
+**Kill**: No lambda gives test corr > 0.85 with test CI > 0.35
+**If fails**: At D=25 with N~4000, loss alone can't overcome data non-stationarity
+
+---
+
+#### H4: Direct Output, No Mean/Residual Split (PRIORITY 4, MEDIUM confidence)
+
+**Evidence**: FGN (2506.10772) no split, FCN3 (2507.12144) argues against residual. But Wells Fargo cautions simple > complex at N~4000.
+**Mechanism**: Removes MSE/afCRPS loss conflict. Model learns own mean/spread decomposition.
+**Baseline**: Compare against 158a (E2E with MeanPredictor, mae=0.027).
+**Data**: End-to-end, 4010 windows.
+
+**Implementation**:
+- Remove MeanPredictor. CLN transformer outputs full surface directly.
+- Last-frame skip: output = last_frame + f(cond, z), zero-init f → initial pred = repeat last frame
+- Warm-up: freeze noise for first 20ep (train mean only), then unfreeze (Stirn 2023)
+
+**Staged checkpoints**:
+1. 80ep probe with warm-up (~4h): Can model learn mean? (mae < 0.04?)
+2. 200ep full (~10h): If mae reasonable
+
+**Kill**: mae > 0.06 at 80ep → can't learn mean at N~4000 without scaffold
+**If fails**: FGN's "no split" needs more data/capacity. Keep MeanPredictor.
+
+---
+
+### Demoted Hypotheses (Wave 2 only if Wave 1 partially succeeds)
+
+**H2b (FiLM)**: Valid mechanism but unproven for regime spread. Test only if H2a fails and we need alternative conditioning.
+
+**H5 (Error-aware noise)**: Novel concept, no literature precedent for ensemble generation. Test only if H1-H4 all partially work and we need to combine mechanisms.
+
+### Mandatory Diagnostic Protocol (A-F, ALL experiments)
+
+Every experiment MUST run ALL diagnostics. Results saved to results/block_ar/{exp_id}_diag/.
+
+**A. Conditionality** (turb/calm ratio, per-cell, BOTH splits)
+**B. Generalization** (val CI, test CI, gap, BOTH splits)
+**C. Per-Regime Spread** (quintiles by recent volatility, spread vs regime)
+**D. Correlation** (corr matrix vs GT, eff_rank, per-cell-pair)
+**E. Training Dynamics** (spread contraction, mode collapse check, loss curves)
+**F. Mean Quality** (mae vs 153a and 158a, per-cell, per-horizon)
+
+### Execution Order
+
+**Wave 1** (sequential on single GPU, ~14h):
+1. H2a-S1: No-LN CLN, residual, 80ep (2h) — cheapest, fastest signal
+2. H1-S1: AR + CLN + E2E + K=2, 80ep (4h) — highest info value
+3. H3-S1: VS lambda=0.5, E2E, 80ep (4h) — addresses loss directly
+4. H4-S1: Direct output + E2E + warm-up, 80ep (4h) — tests architecture
+
+Each gets FULL diagnostic protocol (A-F). Each evaluated on BOTH val and test.
+
+**Wave 2**: Combine winning hypotheses from Wave 1.
+
+**Kill the compass if**: All four Stage 1 probes fail → data non-stationarity at N~4000 is fundamental. Use conformal calibration (97a+qmap) for production.
+
+### Baseline Comparison Table (what we compare against)
+
+| Metric | 155d (residual, val) | 155d (residual, test) | 158a (E2E, test) |
+|--------|---------------------|----------------------|-------------------|
+| CI worst | 0.748 | 0.330 | 0.442 |
+| turb/calm | 0.90 | — | 0.988 |
+| corr | 0.910 | 0.820 | 0.888 |
+| KS | 25/25 | 13/25 | 2/25 |
+| suites | 5/6 (val) | 4/6 (test) | 2/6 (test) |
+
+---

@@ -1,25 +1,21 @@
-# RC18 Autoresearch Results Log
+# RC19 Autoresearch Results Log
 
-**Session**: RC18 — Noise Bottleneck + Multivariate Loss
-**Branch**: autoresearch-session-rc18
-**Started**: 2026-03-26
-**Baseline**: 155d (CI=0.748, corr=0.910, KS=25/25, 5/6 suites)
+**Session**: RC19 — AR + No-Norm + VS (Literature-Grounded)
+**Branch**: autoresearch-session-rc19
+**Started**: 2026-03-27
+**Baselines**: 155d (test CI=0.330, turb/calm=0.90) + 158a (test CI=0.442, turb/calm=0.988)
 
-## Baseline Metrics (155d, validated 2026-03-25)
+## Baseline Metrics
 
-| Metric | Value | Target |
-|--------|-------|--------|
-| CI worst_cell | 0.748 | >0.80 |
-| Corr ratio | 0.910 | >0.80 |
-| KS daily | 25/25 | >20/25 |
-| Kurtosis | 1.166 | 0.5-2.0 |
-| Spread-skill | 1.078 | ~1.0 |
-| Growing unc | 1.00 | >0.80 |
-| 252d explosion | 0.000 | <0.01 |
-| Suites | 5/6 | 6/6 |
+| Metric | 155d (residual, test) | 158a (E2E, test) | Target |
+|--------|----------------------|-------------------|--------|
+| CI worst | 0.330 | 0.442 | >0.40 |
+| turb/calm | 0.90 | 0.988 | >1.15 |
+| Corr ratio | 0.820 | 0.888 | >0.80 |
+| KS daily | 13/25 | 2/25 | >10 |
+| Suites | 4/6 | 2/6 | 5+/6 |
 
 ## Iterations
 
-| # | Exp ID | Direction | Metric | Decision |
-|---|--------|-----------|--------|----------|
-| 1 | 156a | H1-S1: noise_dim=4 | CI=0.664, corr=1.168, KS=25/25 | VALUABLE FAILURE — bottleneck too tight |
+| # | Exp ID | Direction | Key Metrics | Decision |
+|---|--------|-----------|-------------|----------|
