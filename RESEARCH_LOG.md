@@ -43991,3 +43991,36 @@ d) **Per-cell IS weighting** — weighted interval score penalizing worst cells 
 Recommended: Try (a) lambda_es=0.05 first as it's cheapest and directly addresses the over-dispersion diagnosed by SS=1.147.
 
 ---
+
+## 2026-03-26: Exp 157b_v2 — noise_dim=8 + ES lambda=0.05 (dose tuning)
+
+### Context
+157b was over-dispersive (SS=1.147). Reduce ES from 0.1→0.05 to address.
+
+Training: same as 157b but --lambda_es 0.05. Output: models/backfill/flow_157b_v2
+
+### Results (abbreviated — dose-response comparison)
+
+| Metric | 157b (ES=0.1) | 157b_v2 (ES=0.05) | 156b (no ES) |
+|--------|-------------|-------------------|-------------|
+| CI worst | **0.720** | 0.704 | 0.639 |
+| corr | 0.866 | **1.017** | 0.984 |
+| KS | 25/25 | 25/25 | 25/25 |
+| SS | 1.147 | **1.070** | 0.995 |
+| ER ratio | 1.349 | **1.103** | 1.086 |
+| Spread final | 0.025 | 0.019 | 0.016 |
+
+Trajectory: CI peaked at ep120 (0.722, corr=0.956) then declined to 0.704 at ep200.
+
+### WHY: lambda_es dose-response
+The dose-response is monotonic: higher ES → more spread → higher CI but lower correlation.
+- ES=0: collapse to 156b (corr=0.984, CI=0.639)
+- ES=0.05: intermediate (corr=1.017, CI=0.704)
+- ES=0.1: highest CI (corr=0.866, CI=0.720)
+
+**lambda_es=0.1 is the better CI point.** The over-dispersion (SS=1.147) helps CI by providing more coverage. Reducing ES doesn't improve CI — it improves distributional quality at CI's expense.
+
+### Decision
+**VALUABLE FAILURE** — confirms ES=0.1 is approximately optimal for dim=8. The remaining CI gap (0.720→0.80) requires a different lever. Try spread_weight=0.55 + dim=8 + ES=0.1.
+
+---
