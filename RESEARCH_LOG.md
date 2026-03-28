@@ -45944,3 +45944,57 @@ The optimal point appears to be lambda=0.5 with early stopping (ep50), not a low
 **INFORMATIVE.** The dose-response confirms lambda=0.5 is better than 0.3 for conditionality. Running lambda=0.7 next to complete the sweep. The optimal strategy may be lambda=0.5 + conditionality-aware early stopping.
 
 ---
+
+## 2026-03-28: Exp 161c — VS Lambda=0.7 + Complete Dose-Response (RC19-H3-S2b)
+
+### Context
+Completes the VS lambda dose-response: 0.3 (161b) → 0.5 (161a) → 0.7 (161c).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_161a_vs.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --lambda_vs 0.7 \
+    --output_dir models/backfill/flow_161c --device cuda
+```
+
+### Key Findings
+
+**1. Complete dose-response (test, ep80, 100-window in-training eval)**
+
+| Lambda | CI worst | Corr | turb/calm | KS | MAE | Best epoch |
+|--------|----------|------|-----------|-----|-----|------------|
+| 0.3 (161b) | 0.624 | **1.058** | 1.031 | 10/25 | 0.035 | 63 |
+| 0.5 (161a) | 0.598 | 1.413 | 0.919 | 10/25 | 0.034 | 50 |
+| 0.7 (161c) | 0.526 | 1.157 | **1.090** | **15/25** | 0.035 | 38 |
+
+**Dose-response is NON-MONOTONIC:**
+- CI: decreases with lambda (VS dominates marginals)
+- Corr: U-shaped — λ=0.5 worst (1.413), λ=0.3 best (1.058), λ=0.7 moderate (1.157)
+- turb/calm: λ=0.7 best at ep80 (1.090) — stronger VS sustains conditionality longer
+- KS: increases with lambda (15 > 10 > 10) — VS helps distributional shape
+
+**2. Lambda=0.7 ep20 has CI=0.843 (highest ever) but mae=0.132 (garbage mean)**
+
+At high lambda, VS dominates early training: spread is wide (regime-dependent) but mean prediction is poor. As afCRPS catches up, mean improves but VS effect fades. This explains the training dynamics — VS and afCRPS compete on different timescales.
+
+**3. Best model epochs decrease with lambda: 63 → 50 → 38**
+
+Higher VS creates regime signal faster (ep38 vs ep63) but also creates more instability. The optimal point in training comes earlier with stronger VS.
+
+### Analysis: WHY corr is non-monotonic
+
+At ep80:
+- λ=0.3: Weak VS → model mostly follows afCRPS → corr=1.058 (close to afCRPS baseline ~0.89)
+- λ=0.5: VS and afCRPS compete → unstable → over-corrects past optimal (1.413)
+- λ=0.7: Strong VS stabilizes pairwise structure early → even when afCRPS erodes it later, the learned structure persists better (1.157)
+
+The non-monotonicity in corr at ep80 is a TIMING effect: λ=0.5 creates maximum interference between VS and afCRPS gradients, while λ=0.7 forces VS dominance early, establishing stable factor structure.
+
+**IMPORTANT CAVEAT:** These are 100-window in-training eval numbers. The validation audit showed formal eval of 161a (full test split) gives very different absolute numbers (turb/calm=1.462 at ep50 vs 0.919 shown here). Formal eval of ALL three models is needed for reliable comparison.
+
+### Decision
+**INFORMATIVE + NEEDS FORMAL EVAL.** The dose-response reveals non-monotonic dynamics, not just a simple linear tradeoff. Optimal strategy depends on which checkpoint is selected and how formal eval differs from in-training eval.
+
+Proceed to H2a-S2 (no-LN + E2E) as planned. Formal eval of dose-response should happen as part of Wave 3 refinement.
+
+---
