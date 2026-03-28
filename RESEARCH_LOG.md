@@ -45998,3 +45998,45 @@ The non-monotonicity in corr at ep80 is a TIMING effect: λ=0.5 creates maximum 
 Proceed to H2a-S2 (no-LN + E2E) as planned. Formal eval of dose-response should happen as part of Wave 3 refinement.
 
 ---
+
+## 2026-03-28: Exp 159b — No-LN CLN + E2E (RC19-H2a-S2)
+
+### Context
+Wave 2: test no-LN mechanism with E2E (4010 windows). 159a had turb/calm=1.164 transiently on residual (441 windows). Does more data sustain it?
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_159b_no_ln_e2e.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --lambda_vs 0 \
+    --output_dir models/backfill/flow_159b --device cuda
+```
+
+### Key Findings
+
+| Epoch | Test CI | Test turb/calm | Test corr | Test KS | Test MAE |
+|-------|---------|----------------|-----------|---------|----------|
+| 1 | 0.247 | 1.017 | 0.587 | 0/25 | 0.034 |
+| 20 | 0.423 | 0.812 | 0.552 | 0/25 | 0.031 |
+| 40 | 0.710 | 0.963 | 0.592 | 0/25 | 0.029 |
+| 80 | 0.593 | 0.937 | 0.870 | 0/25 | 0.028 |
+
+Best model: epoch 35, val_loss=0.0210.
+
+**No-LN + E2E is WORSE than No-LN + residual (159a):**
+- 159a turb/calm peaked at 1.164 (val ep20)
+- 159b turb/calm peaked at only 1.027 (val ep20), never > 1.05
+
+**KS = 0/25 throughout** — catastrophic distributional quality, worse than 159a (7/25).
+
+### Analysis
+
+The jointly-trained E2E encoder compensates for the lack of LN. Without LN, the residual transformer's activations have unconstrained magnitude. When the encoder is frozen (159a), the magnitude reflects the pretrained regime signal. When jointly trained (159b), the encoder learns to produce normalized-scale outputs despite no LN — effectively re-introducing normalization at the encoder level.
+
+This explains why no-LN was stronger in the residual architecture: the **frozen encoder preserved regime-dependent magnitude** that the jointly-trained encoder erases.
+
+### Decision
+**VALUABLE FAILURE.** No-LN + E2E doesn't help. The no-LN mechanism requires a frozen encoder to preserve regime magnitude. With E2E, the encoder adapts to compensate.
+
+Proceed to H2a+H3 (no-LN + VS combination) — the final Wave 2 experiment.
+
+---
