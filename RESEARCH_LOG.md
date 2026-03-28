@@ -45273,3 +45273,126 @@ Each gets FULL diagnostic protocol (A-F). Each evaluated on BOTH val and test.
 | suites | 5/6 (val) | 4/6 (test) | 2/6 (test) |
 
 ---
+
+## 2026-03-27: Mathematical Analysis — Why afCRPS Erases Regime-Dependent Spread
+
+### Context
+Follow-up to Exp 159a. No-LN CLN produced turb/calm=1.164 transiently (ep 20) but afCRPS training erased it by ep 80. User asked: is this mathematically inevitable?
+
+### Key Findings
+
+**1. CRPS is proper — but only asymptotically**
+
+CRPS converges to the TRUE conditional distribution F(y|x) given:
+- Infinite training data (N → ∞)
+- Infinite ensemble members (K → ∞)
+- Infinite model capacity
+- Infinite training time
+
+At N=441, K=8, the optimizer finds a simpler local minimum.
+
+**2. Three factors erase regime-dependent spread in practice**
+
+| Factor | Mechanism | Effect |
+|--------|-----------|--------|
+| Gradient asymmetry | ∂spread/∂σ ∝ σ (small early) | Model learns mean first, then adds uniform spread |
+| Regime imbalance | Val: 8.4% turbulent (~37 windows) | Turb signal drowned by calm majority in minibatches |
+| Architecture bottleneck | No direct path: condition → noise amplification | Must learn spread modulation through shared weights |
+
+**3. The spread term is regime-agnostic by construction**
+
+afCRPS = MAE - α·sw·spread = MAE - 0.475·spread
+
+The 0.475 coefficient is CONSTANT — same gradient weight for turb and calm windows. The loss doesn't explicitly reward spread(turb) > spread(calm). The proper scoring rule property guarantees convergence to the truth, but the convergence RATE for regime-specific spread is much slower than for the mean or overall spread.
+
+**4. Calibration vs Sharpness tradeoff**
+
+A perfectly calibrated ensemble has regime-dependent spread. But a sharper (more uniform) ensemble can achieve lower expected CRPS by:
+- Sacrificing calibration (wrong regime-specific spread)
+- Gaining sharpness (tighter intervals everywhere)
+
+At N=441, the calibration benefit is smaller than the sharpness benefit, so the optimizer chooses uniform spread.
+
+### Decision
+This confirms: loss function is the binding constraint, not architecture. To preserve regime-dependent spread, need either:
+1. **Explicit regime-aware loss** (VS penalizes pairwise structure, which differs by regime)
+2. **Much more data** (E2E gives 4010 windows vs 441 — may help)
+3. **AR generation** (per-frame at D=25, CRPS signal is stronger than D=750)
+
+All three are addressed by H1-S1 (AR + E2E) and H3-S1 (VS loss).
+
+---
+
+## 2026-03-27: Exp 160a — AR Frame Generation + E2E (RC19-H1-S1)
+
+### Context
+RC19 Wave 1, second experiment. Hypothesis: AR propagates regime step-by-step, fresh noise per frame provides stronger per-frame gradient (D=25 vs D=750), K=2 sufficient.
+
+Evidence: FGN/AIFS/CRPS-LAM all use AR+CLN. Old Block-AR had turb/calm=1.46 with AR.
+
+### Architecture
+- **AR Frame Decoder**: MLP (185→128→128→25), zero-init output
+- **AR loop**: 30 steps, fresh z_t~N(0,1)^32 per step, detach between steps (no BPTT)
+- **E2E**: Encoder unfrozen (lr=1e-4), decoder lr=1e-3
+- **K=2** during training, K=50 for evaluation
+- **Per-frame afCRPS**: Loss at D=25 per frame, averaged over 30 frames
+- Decoder params: 43,545 (very lightweight)
+- Training on 4010 windows
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_160a_ar_frame.py \
+    --epochs 80 --batch_size 8 --n_members 2 --noise_dim 32 --hidden 128 \
+    --output_dir models/backfill/flow_160a --device cuda
+```
+
+### Key Findings
+
+**1. turb/calm NEVER exceeds 1.05 — AR generation does NOT restore conditionality**
+
+| Epoch | Val CI | Test CI | Val turb/calm | Test turb/calm | Val corr | Test corr | Val KS | Test KS |
+|-------|--------|---------|---------------|----------------|----------|-----------|--------|---------|
+| 1 | 0.179 | 0.310 | 1.016 | 0.994 | 0.892 | 0.900 | 13/25 | 7/25 |
+| 20 | 0.100 | 0.225 | 0.995 | 0.999 | 0.805 | 0.793 | 17/25 | 13/25 |
+| 40 | 0.108 | 0.271 | 0.987 | 0.992 | 0.767 | 0.767 | 15/25 | 12/25 |
+| 80 | 0.077 | 0.194 | 0.913 | 0.974 | 0.887 | 0.948 | 8/25 | 1/25 |
+
+Best model: epoch 17, val_loss=0.0216
+
+**2. CI degrades over training (opposite of expected)**
+
+Test CI drops from 0.310 (ep 1) to 0.194 (ep 80). The model learns tighter predictions (MAE improves: 0.035→0.027) but spread contracts (0.019→0.013), causing CI collapse.
+
+**3. KS daily degrades catastrophically**: 7→1 on test. The AR MLP produces overly smooth day-to-day changes.
+
+### Analysis: WHY AR doesn't restore conditionality
+
+**Root cause: The noise pathway (input concatenation) is too weak.**
+
+The old Block-AR that had turb/calm=1.46 used:
+- AdaGN noise conditioning (multiplicative, not additive)
+- Skip bypass (noise directly added to output)
+- cell_spread (learned per-cell noise scaling)
+- Frozen encoder (preserved regime information perfectly)
+
+In 160a:
+- Noise enters via simple concatenation: MLP([cond, prev_frame, noise])
+- No multiplicative noise pathway, no skip bypass
+- E2E encoder training changes the encoder's regime encoding
+
+**AR generation is necessary but not sufficient.** It provides the step-by-step framework, but conditionality requires a NOISE ARCHITECTURE that can amplify/attenuate diversity based on regime. Simple concatenation doesn't provide this.
+
+**The spread contraction (0.019→0.013)**: afCRPS at D=25 is still marginal-only. Even per-frame, it doesn't reward regime-dependent spread. With K=2, the spread gradient is very noisy.
+
+### What Was Learned
+
+1. **AR loop alone does NOT create regime-dependent spread** — turb/calm ≈ 1.0 throughout
+2. **The old Block-AR's conditionality came from its noise architecture (AdaGN + skip), not from AR per se**
+3. **K=2 is insufficient for stable spread learning** — spread contracts monotonically
+4. **Per-frame afCRPS at D=25 has the same marginal-blind issue** as D=750
+5. **CI and KS degrade over training** — the model overfits to mean quality at the expense of spread
+
+### Decision
+**VALUABLE FAILURE.** Kill conditions met (turb/calm < 1.05, test CI < 0.40). AR generation itself is not the solution — the noise pathway architecture matters more. This narrows the search: the binding constraint is loss + noise architecture, not generation strategy.
+
+---
