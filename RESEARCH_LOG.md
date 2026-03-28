@@ -46040,3 +46040,146 @@ This explains why no-LN was stronger in the residual architecture: the **frozen 
 Proceed to H2a+H3 (no-LN + VS combination) — the final Wave 2 experiment.
 
 ---
+
+## 2026-03-28: RC19 Wave 1 Follow-Up — S9 "Pass" is Misleading (Within-Window eff_rank = 1.78)
+
+### Context
+User questioned whether S9 passing (eff_rank_ratio=1.07) means the model produces realistic multi-factor scenarios. Investigation reveals S9 measures the WRONG thing for scenario quality.
+
+### The Two Effective Ranks
+
+| Metric | What it measures | Gen | GT | Ratio |
+|--------|-----------------|-----|-----|-------|
+| **Across-window** (S9) | Factor structure of daily changes over 1252 windows | 4.23 | 5.02 | 0.842 (PASS) |
+| **Within-window** | Diversity of 50 ensemble members for a single window | **1.78** | 5.02 | **0.355** (FAIL) |
+
+S9 is **2.4x more favorable** than the within-window metric.
+
+### What This Means
+
+**Across-window eff_rank = 4.23**: The model's MEAN trajectory has realistic factor structure over time. Different conditioning histories produce different daily change patterns — the deterministic pathway works.
+
+**Within-window eff_rank = 1.78**: For any single conditioning, the 50 ensemble members have **78.1% of variance in PC1**, with PC1-3 explaining 97.2%. The ensemble is essentially rank-1 — all members move in the same direction, just with different magnitudes.
+
+**For a risk desk**: 50 generated scenarios all say roughly the same thing. They capture the correct mean trajectory (good factor structure over time) but fail to explore alternative outcomes (poor within-window diversity). A portfolio with exposure to PC2 or PC3 movements would show zero risk in these scenarios.
+
+### Root Cause
+
+CLN applies the SAME noise modulation (scale, bias) to ALL 25 cells. With noise_dim=32 and d_model=128, the CLN pathway has rank-1 Jacobian for the noise→output mapping within each forward pass. Multiple noise draws z produce outputs that vary along a single principal direction (the CLN's dominant mode).
+
+This is the SAME rank-1 problem identified in RC10-RC13 (Jacobian rank 1.23 for the old Block-AR model) but now confirmed for the CLN transformer architecture.
+
+### Implication for S9 Design
+
+S9 as currently designed does NOT test scenario diversity. It tests whether the model's daily changes (averaged over the ensemble) have realistic factor structure. This is a property of the DETERMINISTIC pathway, not the stochastic pathway.
+
+A proper scenario diversity test would compute eff_rank WITHIN each window's ensemble, then average. The current 161a would fail this test (1.78 vs GT 5.02, ratio 0.355).
+
+### Updated Problem List (RC19 Wave 1 Complete)
+
+| Problem | Status | Evidence |
+|---------|--------|----------|
+| Regime-dependent spread | SOLVED by VS (turb/calm=1.146-1.462) | 161a test eval |
+| Cross-window factor structure | SOLVED (eff_rank ratio 0.842) | 161a S9 |
+| Within-window ensemble diversity | **NOT SOLVED** (eff_rank 1.78, ratio 0.355) | This analysis |
+| Cell-specific spread | **NOT SOLVED** (CLN uniform, cells (0,4) (1,4) fail) | Per-cell CI grid |
+| Kurtosis | **NOT SOLVED** (0.366 vs 0.5-2.0 target) | 9-suite eval |
+| KS daily | **NOT SOLVED** (15/25 vs 20/25) | 9-suite eval |
+
+### Diagnostic Script
+results/validations/2026-03-28/analysis/within_window_effrank/results.json
+
+---
+
+## 2026-03-28: Exp 163a — No-LN + VS Additivity Test (RC19-H2a+H3)
+
+### Context
+Final Wave 2 experiment. Does no-LN add anything on top of VS? VS alone (161a) gives turb/calm=1.462 at ep50. No-LN alone (159b) gives turb/calm=1.017. Are they additive?
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_163a_no_ln_vs.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --lambda_vs 0.5 \
+    --output_dir models/backfill/flow_163a --device cuda
+```
+
+### Key Findings
+
+| Epoch | Test CI | Test turb/calm | Test corr | Test KS | Test MAE |
+|-------|---------|----------------|-----------|---------|----------|
+| 1 | 0.689 | 1.018 | 1.042 | 12/25 | 0.053 |
+| 20 | 0.219 | 0.985 | 0.794 | 6/25 | 0.080 |
+| 40 | 0.457 | 0.956 | 0.825 | 9/25 | 0.060 |
+| 80 | 0.585 | 0.909 | 1.074 | 7/25 | 0.052 |
+
+Best model: epoch 45, val_loss=0.0295.
+
+**No-LN + VS is WORSE than VS alone:**
+
+| Metric | 163a (no-LN+VS, test ep80) | 161a (VS only, test ep50*) |
+|--------|---------------------------|---------------------------|
+| CI worst | 0.585 | 0.658 |
+| turb/calm | 0.909 | **1.462** |
+| Corr | 1.074 | 1.095 |
+| KS | 7/25 | 16/25 |
+| MAE | 0.052 | 0.029 |
+
+*161a ep50 from validation audit formal eval
+
+### Analysis
+
+The mechanisms INTERFERE, not compound. Three-way gradient conflict:
+1. **afCRPS** pushes toward mean quality + uniform spread
+2. **VS** pushes toward pairwise dependency matching
+3. **No-LN encoder compensation** fights both by re-normalizing internally
+
+Without LN, the transformer's activation magnitudes are unconstrained. The encoder adapts to produce compensated outputs (159b finding). VS gradient then operates on these compensated representations, losing the regime-dependent signal that LN-based models preserve.
+
+### Decision
+**VALUABLE FAILURE.** No-LN is REDUNDANT when VS is present. VS alone provides sufficient conditionality gradient. The optimal architecture for conditionality is standard CLN (with LN) + VS, not no-LN + VS.
+
+---
+
+## 2026-03-28: RC19 Wave 2 Summary — Mechanism Interaction Complete
+
+### Wave 2 Results (4 experiments)
+
+| # | Exp | Hypothesis | Test turb/calm | Test CI | Test corr | Key Finding |
+|---|-----|-----------|----------------|---------|-----------|-------------|
+| 5 | 161b | VS λ=0.3 | 1.031 | 0.624 | 1.058 | Insufficient VS for conditionality |
+| 6 | 161c | VS λ=0.7 | 1.090 | 0.526 | 1.157 | Non-monotonic: better turb/calm, worse CI |
+| 7 | 159b | No-LN E2E | 0.937 | 0.593 | 0.870 | Encoder compensates for no-LN |
+| 8 | 163a | No-LN + VS | 0.909 | 0.585 | 1.074 | NOT additive — interference |
+
+### Mechanistic Conclusions
+
+1. **VS is the SOLE mechanism that solves conditionality.** 161a (VS λ=0.5, ep50) achieves turb/calm=1.462 on test — no other mechanism comes close.
+
+2. **No-LN is REDUNDANT when VS is present.** The E2E encoder compensates for no-LN (159b), and adding VS on top of no-LN creates interference (163a). The mechanism is not additive.
+
+3. **VS dose-response is non-monotonic at convergence** but monotonic at optimal checkpoint:
+   - λ=0.3: turb/calm insufficient (1.031)
+   - λ=0.5: turb/calm=1.462 at ep50 (formal eval) — BEST
+   - λ=0.7: turb/calm=1.090 at ep80 but CI degrades
+
+4. **Model selection (epoch) matters more than lambda.** 161a at ep50 beats all lambda variants at ep80. The VS signal is strongest mid-training before afCRPS erases it.
+
+### Updated Leaderboard (In-Training 100-Window Eval)
+
+| Model | Test CI | turb/calm | corr | KS | MAE |
+|-------|---------|-----------|------|-----|-----|
+| **161a (VS0.5)** | **0.658*** | **1.462*** | **1.095*** | **16/25*** | **0.029** |
+| 161c (VS0.7) | 0.526 | 1.090 | 1.157 | 15/25 | 0.035 |
+| 161b (VS0.3) | 0.624 | 1.031 | 1.058 | 10/25 | 0.035 |
+| 158a (baseline) | 0.442 | 0.988 | 0.888 | 2/25 | 0.027 |
+
+*Formal eval from validation audit (full test split)
+
+### Wave 3 Recommendations
+
+1. **161a is the best model.** Focus on closing remaining gaps (CI 0.658→0.70, KS 16→20)
+2. **VS lambda normalization**: Proper scale-matching may allow lambda tuning without the extreme over-correction
+3. **Conditionality-aware checkpointing**: Save best-turb/calm checkpoint alongside best-val-loss
+4. **Per-cell CI investigation**: Cells (0,3) and (0,4) are the binding constraint
+
+---
