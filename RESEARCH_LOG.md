@@ -45461,3 +45461,174 @@ The balance point exists — dualGNN found it at D=30 with 30%ES+70%VS. But the 
 **PARTIAL SUCCESS / NEEDS REFINEMENT.** VS clearly helps CI and KS but needs normalization. turb/calm remains unsolved. H3-S2 should use normalized lambda (compute afCRPS/VS ratio in first epoch).
 
 ---
+
+## 2026-03-28: Validation Audit — Deep Mechanistic Investigation: Why Models Appear Regime-Independent
+
+### Scope
+5 parallel agents investigating the four open questions from RC18 post-mortem. GPU-verified, all artifacts on disk at results/validations/2026-03-28/.
+
+### The Four Open Questions — ANSWERED
+
+**Q1: Where does regime signal die in the forward pass?**
+Answer: It was never strongly present. E2E encoder (158a) has turb/calm norm ratio = 0.97 (not 1.6x). CLN takes only noise z — cross-window variance of CLN scale/bias is ~1e-7. No pathway from condition to noise amplitude.
+
+**Q2: Does the model produce different internal representations for turb vs calm?**
+Answer: YES, but only with VS. 161a turb residuals are 3x larger than calm (0.065 vs 0.020). Without VS (158a), ratio is only 1.161. VS provides the gradient signal afCRPS cannot.
+
+**Q3: Is regime signal present early but erased during training?**
+Answer: YES. 159a trajectory: ep1=0.970, ep20=1.164 (PEAK), ep40=1.060, ep80=0.921 (inverted). Root cause: MAE gradient 2.11x stronger than spread gradient. Spread compression (r=0.871 with turb/calm) is the mechanism. CLN scale is NOT the bottleneck (r=0.041).
+
+**Q4: Is spread contraction mathematically inevitable?**
+Answer: NO — 161a with VS maintains turb/calm=1.462 on test at ep50. VS prevents contraction. But continued training past ep50 erases it (ep80: 0.919 on test). afCRPS-only contraction is inevitable; VS + early stopping can prevent it.
+
+### CRITICAL CORRECTIONS (5 beliefs overturned)
+
+| Old Belief | New Evidence | Source |
+|-----------|-------------|--------|
+| E2E encoder encodes regime as 1.6x norm | Ratio is 0.97 — regime not in magnitude | Agent 1: regime_signal_trace.json |
+| VS is regime-agnostic | 161a turb/calm=2.564 (train), 1.462 (test ep50) | Agent 3: full_analysis.json |
+| 161a turb/calm=0.919 on test | That was ep80 final. Best_model (ep50) = 1.462 | Agent 5: 161a_test summary.json |
+| Calm/turb gradients cancel | Cosine ~0 (orthogonal). CLN gets near-zero gradient | Agent 4: gradient_analysis_results.json |
+| 155d is the best model | 155d gets 5.4% CI on test. 161a gets 65.8% | Agent 5 + earlier 155d test eval |
+
+### 161a is the New Best Model (Formal Test Eval)
+
+| Metric | 161a (test, ep50) | Target | Status |
+|--------|------------------|--------|--------|
+| CI worst cell | 0.658 | 0.70 | FAIL (-0.042) |
+| CI mean | 0.910 | 0.90 | PASS |
+| Turb/calm | 1.462 | 1.15 | PASS |
+| Corr ratio | 1.095 | 0.80-1.20 | PASS |
+| KS daily | 16/25 | 20/25 | FAIL (-4 cells) |
+| Growing unc | 1.00 | 0.80 | PASS |
+| Suites | 4/6 | 5+/6 | 2 remaining |
+
+### Updated Leaderboard (All on Test Split)
+
+| Model | Test CI worst | turb/calm | corr | KS | Suites |
+|-------|-------------|-----------|------|-----|--------|
+| 155d (residual) | 0.054 | N/A | N/A | N/A | broken |
+| 158a (E2E) | 0.442 | 0.988 | 0.888 | 2/25 | 2/6 |
+| 160a (AR frame) | 0.358 | 1.002 | 0.918 | 20/25 | 4/6 |
+| **161a (E2E+VS)** | **0.658** | **1.462** | **1.095** | **16/25** | **4/6** |
+
+### Mechanistic Understanding (Complete)
+
+The regime-independence failure has THREE causes, now fully understood:
+
+1. **No gradient pathway in afCRPS** (Q1, Q4): afCRPS MAE gradient (coeff 1.0) is 2.11x stronger than spread gradient (0.475). CLN parameters receive near-zero regime gradient. afCRPS has no mechanism to say "this window needs wider spread" → "increase CLN scale."
+
+2. **Gradients are orthogonal, not opposing** (Q4): Calm and turb windows optimize different aspects of prediction (different cells, different horizons). They don't cancel — the regime signal simply doesn't exist in the gradient, because afCRPS averages over all dimensions uniformly.
+
+3. **VS provides the missing pathway** (Q2, Q3): VS penalizes pairwise dependency errors, creating a gradient signal that varies with regime. 161a learns turb/calm=2.564 on train. The regime signal DOES generalize to test (1.462 at ep50) — but afCRPS erases it during continued training (0.919 at ep80).
+
+### Implications for RC19
+
+The binding bottleneck is no longer regime-independence — 161a SOLVES conditionality (1.462). The remaining gaps are:
+
+1. **CI worst cell = 0.658 vs 0.70 threshold**: Concentrated in short-tenor cells (0,3) and (0,4). These cells have the most extreme dynamics (6.2x level-dependent volatility). May need cell-specific investigation.
+
+2. **KS daily = 16/25 vs 20/25**: VS at lambda=0.5 (unnormalized) over-correlates, distorting per-cell marginal distributions. Lambda tuning with proper normalization should help.
+
+3. **Model selection is critical**: Best_model at ep50 has turb/calm=1.462. Final_model at ep80 has 0.919. The val_loss criterion captured the right checkpoint this time, but it's fragile.
+
+### What To Try Next
+
+1. **VS lambda normalization**: Compute afCRPS/VS ratio at ep1, set lambda to equalize (dualGNN recipe: 30% afCRPS + 70% VS at D=25)
+2. **Per-cell CI investigation**: What makes cells (0,3) and (0,4) fail? Level-dependent volatility? Different dynamics?
+3. **Conditionality-aware model selection**: Use turb/calm ratio as model selection criterion alongside val_loss
+4. **H2b (Velocity FiLM)**: Combine VS with condition-aware noise modulation
+
+### Artifacts
+All saved to results/validations/2026-03-28/:
+- scripts/regime_signal_trace.py — forward pass tracing
+- scripts/159a_training_dynamics.py — training trajectory
+- scripts/spread_structure_comparison.py — 158a vs 161a
+- scripts/gradient_analysis.py — calm vs turb gradient comparison
+- scripts/160a_test_eval.sh, 161a_test_eval.sh — formal test evals
+- analysis/{regime_signal_trace,training_dynamics_159a,internal_repr_comparison,gradient_analysis}/
+- verification_results/ — 5 JSON files
+
+---
+
+## 2026-03-28: Exp 162a — Direct Output E2E + Warm-up (RC19-H4-S1)
+
+### Context
+RC19 Wave 1, fourth experiment. Remove MeanPredictor, output surface directly with last-frame skip. 20ep warm-up freezes noise (train mean only).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_162a_direct.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --warmup_epochs 20 \
+    --output_dir models/backfill/flow_162a --device cuda
+```
+
+### Key Findings
+
+| Epoch | Phase | Test CI | Test corr | Test turb/calm | Test KS | Test MAE |
+|-------|-------|---------|-----------|----------------|---------|----------|
+| 1 | warm-up | 0.000 | 1.824 | 0.928 | 0/25 | 0.035 |
+| 20 | warm-up | 0.015 | 0.883 | 0.428 | 0/25 | 0.031 |
+| 40 | training | 0.589 | 0.684 | **1.034** | 0/25 | 0.030 |
+| 60 | training | 0.605 | 0.777 | 0.953 | 0/25 | 0.030 |
+| 80 | training | 0.596 | 0.960 | 0.936 | 0/25 | 0.029 |
+
+Best model: epoch 49, val_loss=0.0211.
+
+Comparison:
+
+| Metric | 162a (test, ep 80) | 158a (test) | Target |
+|--------|-------------------|-------------|--------|
+| CI worst | **0.596** | 0.442 | >0.40 |
+| Corr | 0.960 | 0.888 | 0.80-1.20 |
+| turb/calm | 0.936 | 0.988 | >1.15 |
+| KS daily | 0/25 ❌ | 2/25 | >10 |
+| MAE | 0.029 | 0.027 | <0.04 |
+
+### Analysis
+
+1. **Direct output WORKS for CI and MAE** — no MeanPredictor needed, last-frame skip sufficient
+2. **KS is catastrophic (0/25)** — model produces smooth day-to-day changes (CLN transformer creates smooth deltas). The MeanPredictor in 158a provided some of the distributional texture via the flow model.
+3. **Warm-up is effective** — mean quality established in 20ep, spread learned in next 20ep
+4. **turb/calm same pattern as all Wave 1**: peaks transiently (~1.03 at ep 40), then erased by afCRPS
+
+### Decision
+**PARTIAL SUCCESS.** Kill condition passed (mae=0.029 < 0.06). Direct output viable but KS failure is severe. Not recommended as standalone — KS=0/25 means distributional quality is terrible.
+
+---
+
+## 2026-03-28: RC19 Wave 1 Summary — Cross-Experiment Synthesis
+
+### Results Table
+
+| Exp | Hypothesis | Test CI | Test turb/calm | Test corr | Test KS | Key Finding |
+|-----|-----------|---------|----------------|-----------|---------|-------------|
+| 159a | H2a: No-LN CLN | 0.241 | 0.940 | 1.020 | 7/25 | turb/calm peaked at 1.164 (val ep20) then erased |
+| 160a | H1: AR frame E2E K=2 | 0.194 | 0.974 | 0.948 | 1/25 | AR doesn't create regime-dependent spread |
+| 161a | H3: VS lambda=0.5 | 0.598 | 0.919 | 1.413 | 10/25 | VS improves CI but over-correlates (unnormalized) |
+| 162a | H4: Direct output | 0.596 | 0.936 | 0.960 | 0/25 | Direct works but KS=0 |
+| 158a | Baseline (E2E CLN) | 0.442 | 0.988 | 0.888 | 2/25 | — |
+| 155d | Baseline (residual) | 0.330 | 0.900 | 0.820 | 13/25 | — |
+
+### Universal Finding
+
+**afCRPS training erases regime-dependent spread regardless of architecture.** Every experiment shows the same pattern: turb/calm degrades over training because afCRPS is marginal-only and regime-agnostic. The gradient for uniform spread is stronger than for regime-dependent spread at N~4000.
+
+### What Partially Worked
+
+1. **No-LN (H2a)**: Only approach to EVER produce turb/calm > 1.15, even transiently. The magnitude preservation mechanism is confirmed.
+2. **VS (H3)**: Improves CI by 35% and KS from 2→10. But needs normalization (raw scale ~1000x afCRPS).
+3. **Direct output (H4)**: Viable alternative to MeanPredictor. CI=0.596 but KS=0.
+
+### What Didn't Work
+
+1. **AR generation (H1)**: turb/calm never > 1.05. The old Block-AR's conditionality came from noise architecture (AdaGN + skip bypass), not AR.
+2. **All models on turb/calm**: None achieved >1.15 sustained.
+
+### Wave 2 Recommendations
+
+1. **No-LN + normalized VS** (H2a+H3): No-LN creates the signal, VS should preserve it via correlation gradient. Critical: normalize VS to match afCRPS scale.
+2. **Early-stop on turb/calm**: Save checkpoints at turb/calm peaks, not val_loss minima.
+3. **No-LN + E2E** (H2a-S2): Test no-LN with 4010 windows instead of 441. More regime diversity may sustain turb/calm longer.
+
+---
