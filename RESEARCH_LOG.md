@@ -45632,3 +45632,267 @@ Comparison:
 3. **No-LN + E2E** (H2a-S2): Test no-LN with 4010 windows instead of 441. More regime diversity may sustain turb/calm longer.
 
 ---
+
+## 2026-03-28: Complete Validation Synthesis — 161a Deep Analysis (3 Agents, 8 Analyses)
+
+### Context
+Following the mechanistic investigation (5 agents answering 4 open questions), ran 3 additional agents: (1) encoder comparison (frozen vs E2E), (2) 161a full 9-suite eval + per-cell diagnostics + noise probes, (3) 161a generalization analysis (train/val/test consistency, embedding coverage, sensitivity, worst-case).
+
+### CRITICAL CORRECTION: The "1.6x Encoder Norm Ratio" Was IV Level, Not Regime
+
+| Encoder | Linear Probe Acc | Norm Ratio (turb/calm) | corr(norm, IV level) | Partial corr(norm, regime \| IV level) |
+|---------|-----------------|----------------------|---------------------|--------------------------------------|
+| Frozen | 100% | 0.886 | 0.566 | -0.009 |
+| E2E 158a | 99.5% | 1.299 | 0.406 | 0.215 |
+| E2E 161a | 99.8% | 1.148 | 0.227 | 0.122 |
+
+The frozen encoder norm correlates with IV level (r=0.57), not regime. After controlling for IV level, norm has ZERO partial correlation with regime (r=-0.009). The "1.6x norm ratio" was a confound: turbulent periods have higher IV.
+
+ALL three encoders encode regime in DIRECTION, not magnitude:
+- Linear probe accuracy stays 99.5-100% after normalizing vectors to unit norm
+- Frozen encoder: Cohen's d up to 8.9 per dimension, 119/128 dims discriminative
+- E2E encoders: compressed to d=3.1-3.4, but 82-88/128 dims still discriminative
+- CKA(frozen, E2E) = 0.40-0.46 (substantial drift). CKA(E2E_158a, E2E_161a) = 0.949 (converge similarly)
+
+Implication: The encoder perfectly encodes regime (in direction). The decoder has access to this. The problem is downstream: CLN receives only noise z, and afCRPS provides no gradient to translate directional regime info into spread magnitude.
+
+### 161a Full 9-Suite Evaluation (1252 test windows, 50 samples)
+
+| Suite | Result | Key Metric | Gap to Pass |
+|-------|--------|-----------|-------------|
+| S1 Surface Validity | PASS | explosion=0.000 | — |
+| S2 CI Coverage | FAIL | worst_cell=0.660 | -0.040 |
+| S3 Conditionality | FAIL | turb/calm=1.146 | -0.004 |
+| S4 Time Series | FAIL | kurtosis=0.366 | -0.134 |
+| S5 Growing Uncertainty | PASS | monotonicity=1.00 | — |
+| S6 Cointegration | FAIL (info) | gen/GT=0.423 | -0.077 |
+| S7 Regime Coverage | FAIL | L2: 0/8 pass | structural |
+| S8 Distributional | FAIL | KS=15/25 | -5 cells |
+| S9 Correlation | PASS | corr=1.095, eff_rank=1.070 | — |
+
+3/8 pass (excluding informational S6). Previous 6-suite eval reported 4/6 — the discrepancy is from S3 turb/calm being stochastic (1.146 vs 1.462 between runs) and 3 newly tested suites all failing.
+
+### Per-Cell CI Grid (the binding constraint)
+
+
+
+Cells (0,4) and (1,4) — deep OTM puts, longest tenor — have highest GT volatility but same spread as every other cell. CLN applies near-uniform residuals. Noise scaling 1.3x WORSENS these cells (-0.015) while helping middle cells. The problem is structural: cell-specific spread differentiation is absent.
+
+Cell (0,4) spread_ratio=2.35 (spread/GT_change). Most cells have ratio 15-50x. The failing cells get 6-10x less relative spread than they need.
+
+### Noise Probes (inference-only, no retraining)
+
+| Probe | CI worst | CI mean | Corr | KS | Conclusion |
+|-------|----------|---------|------|-----|------------|
+| Baseline (50 samples) | 0.585 | 0.857 | — | 15/25 | — |
+| Noise 1.3x | 0.611 | 0.869 | 1.288 | 15/25 | Helps middle, hurts worst |
+| 200 samples | 0.603 | 0.874 | — | — | +0.018 from stochastic coverage |
+
+Neither probe closes the gap. The problem is structural, not amplitude.
+
+### 161a Generalization (Train/Val/Test Consistency)
+
+| Metric | Train | Val | Test | Train-Test Gap |
+|--------|-------|-----|------|----------------|
+| CI worst cell | 0.643 | 0.588 | 0.629 | +0.014 |
+| CI mean | 0.869 | 0.871 | 0.901 | -0.032 (test better) |
+| Turb/calm | 1.714 | 1.232 | 1.608 | — |
+| Corr ratio | 1.357 | 1.525 | 1.040 | — |
+| KS pass | 13/25 | 13/25 | 16/25 | -3 (test better) |
+
+Near-zero train-test gap (0.014). Test is actually the BEST split for CI mean (0.901) and corr ratio (1.040). The model genuinely generalizes.
+
+### Embedding Space Coverage
+
+98.0% of test condition vectors fall within the convex hull of training conditions (2D PCA). Only 25/1252 test windows are out-of-hull. Out-of-hull windows show degraded CI (0.591 vs 0.699 in-hull) but this affects only 2% of windows.
+
+### Sensitivity Analysis (ALL PASS)
+
+1. Noise perturbation: larger input noise produces larger spread change (monotonic). PASS.
+2. Vol scaling: 1.5x history vol increases spread, 0.5x decreases. PASS.
+3. Mean shift: +/-0.05 shift in history causes model output to track. PASS.
+
+The model responds continuously and correctly to conditioning perturbations — not a lookup table.
+
+### Worst-Case Windows
+
+20 worst test windows (CI 0.38-0.73) share a pattern: low-vol history followed by unexpectedly large moves. These are fundamentally hard for any conditional model — the conditioning says "calm" but the future has a surprise. Windows are temporally clustered (market events).
+
+### Production Readiness Assessment
+
+| Criterion | Status | Detail |
+|-----------|--------|--------|
+| Generalization | PASS | Train-test gap = 0.014 |
+| Regime conditioning | MARGINAL | turb/calm 1.146 (stochastic, sometimes passes) |
+| Sensitivity | PASS | Continuous correct response to perturbations |
+| Embedding coverage | PASS | 98% of test within training support |
+| Overall calibration | PASS | CI mean = 0.901 on test |
+| Cell-specific calibration | FAIL | 2 cells severely underspread |
+| Distributional realism | FAIL | kurtosis 0.366, KS 15/25 |
+| Worst-case robustness | MODERATE | 5th percentile window CI = 0.664 |
+
+### Three Remaining Problems (Ranked by Difficulty)
+
+**1. S3 conditionality (miss by 0.004)**: Stochastic — different random seeds produce turb/calm 1.14-1.46. May pass with VS lambda tuning or longer training window.
+
+**2. Cell-specific spread (S2, S7)**: Cells (0,4) and (1,4) need 6-10x more relative spread. CLN architecture modulates ALL cells identically with same noise. This is the same architectural limitation from RC10-RC13 but now isolated to 2 specific cells. Possible fixes:
+- Per-cell learned spread scale (excluded from afCRPS gradient, trained with coverage loss)
+- Heteroscedastic output head (predict per-cell variance from condition)
+- Cell-aware CLN (condition CLN on cell embedding, not just noise)
+
+**3. Kurtosis and KS (S4, S8)**: kurtosis=0.366 suggests VS over-smooths the ensemble. The model under-produces tail events. Without rho=0.8 AR autocorrelation (used in old Block-AR models), temporal kurtosis is purely from the attention + CLN dynamics, which produce too-Gaussian outputs. Possible fixes:
+- VS lambda reduction (less smoothing)
+- Heavy-tailed noise prior (Student-t instead of Gaussian)
+- Kurtosis-aware loss component
+
+### What Changed Our Understanding
+
+| Topic | Before This Analysis | After |
+|-------|---------------------|-------|
+| Encoder regime encoding | "1.6x norm = regime" | Norm encodes IV level, not regime. Regime is in direction (99.8% accurate) |
+| E2E encoder | "Destroyed regime encoding" | Preserved regime perfectly (99.5%), just reorganized representation |
+| VS regime-awareness | "Regime-agnostic" | Strongly regime-aware (turb/calm=2.564 on train, 1.462-1.608 on test) |
+| 161a test quality | "4/6 suites, good" | 3/8 suites on full framework. Good generalization, narrow gaps |
+| Cell-specific spread | Assumed uniform | Confirmed: CLN applies identical modulation to all 25 cells |
+| Generalization | Uncertain | Confirmed: 0.014 train-test gap, 98% embedding coverage |
+| Noise scaling as fix | Potential | Ruled out: worsens worst cells while helping middle |
+
+### Diagnostic Scripts and Artifacts
+
+All saved to results/validations/2026-03-28/:
+- scripts/encoder_comparison.py — frozen vs E2E encoder analysis
+- scripts/161a_full_analysis.py — 9-suite eval + per-cell + noise probes
+- scripts/161a_generalization.py — train/val/test + embedding + sensitivity + worst-case
+- analysis/encoder_comparison/ — comparison results + 5 PNGs
+- analysis/161a_full_eval/ — 9-suite results + per-cell grids
+- analysis/161a_generalization/ — generalization results + PCA projections
+
+---
+
+## 2026-03-28: Complete Validation Synthesis — 161a Deep Analysis (3 Agents, 8 Analyses)
+
+### Context
+Following the mechanistic investigation (5 agents answering 4 open questions), ran 3 additional agents: (1) encoder comparison (frozen vs E2E), (2) 161a full 9-suite eval + per-cell diagnostics + noise probes, (3) 161a generalization analysis (train/val/test consistency, embedding coverage, sensitivity, worst-case).
+
+### CRITICAL CORRECTION: The "1.6x Encoder Norm Ratio" Was IV Level, Not Regime
+
+| Encoder | Linear Probe Acc | Norm Ratio (turb/calm) | corr(norm, IV level) | Partial corr(norm, regime given IV level) |
+|---------|-----------------|----------------------|---------------------|--------------------------------------|
+| Frozen | 100% | 0.886 | 0.566 | -0.009 |
+| E2E 158a | 99.5% | 1.299 | 0.406 | 0.215 |
+| E2E 161a | 99.8% | 1.148 | 0.227 | 0.122 |
+
+The frozen encoder norm correlates with IV level (r=0.57), not regime. After controlling for IV level, norm has ZERO partial correlation with regime (r=-0.009). The "1.6x norm ratio" was a confound: turbulent periods have higher IV.
+
+ALL three encoders encode regime in DIRECTION, not magnitude. Linear probe accuracy stays 99.5-100% after normalizing to unit norm. E2E training reorganizes (CKA=0.40-0.46) but preserves regime perfectly.
+
+### 161a Full 9-Suite Evaluation (1252 test windows, 50 samples)
+
+| Suite | Result | Key Metric | Gap to Pass |
+|-------|--------|-----------|-------------|
+| S1 Surface Validity | PASS | explosion=0.000 | passed |
+| S2 CI Coverage | FAIL | worst_cell=0.660 | -0.040 |
+| S3 Conditionality | FAIL | turb/calm=1.146 | -0.004 |
+| S4 Time Series | FAIL | kurtosis=0.366 | -0.134 |
+| S5 Growing Uncertainty | PASS | monotonicity=1.00 | passed |
+| S6 Cointegration | FAIL (info) | gen/GT=0.423 | -0.077 |
+| S7 Regime Coverage | FAIL | L2: 0/8 pass | structural |
+| S8 Distributional | FAIL | KS=15/25 | -5 cells |
+| S9 Correlation | PASS | corr=1.095, eff_rank=1.070 | passed |
+
+3/8 pass (excluding informational S6). S3 misses by 0.004. S2 misses by 0.040. S4 and S8 are real gaps.
+
+### Per-Cell CI Grid
+
+Cells (0,4) and (1,4) — deep OTM puts, longest tenor — have highest GT volatility but same spread as every other cell. CLN applies near-uniform residuals. Noise scaling 1.3x WORSENS these cells. The problem is structural: cell-specific spread differentiation is absent. Cell (0,4) spread_ratio=2.35 vs most cells at 15-50x.
+
+### 161a Generalization (confirmed)
+
+| Metric | Train | Val | Test | Train-Test Gap |
+|--------|-------|-----|------|----------------|
+| CI worst cell | 0.643 | 0.588 | 0.629 | +0.014 |
+| CI mean | 0.869 | 0.871 | 0.901 | -0.032 (test better) |
+| Turb/calm | 1.714 | 1.232 | 1.608 | generalizes |
+| Corr ratio | 1.357 | 1.525 | 1.040 | generalizes |
+
+Near-zero train-test gap (0.014). 98.0% of test embeddings within training convex hull. Sensitivity tests ALL PASS (monotonic noise response, vol scaling, mean tracking). Model responds continuously to conditioning — not a lookup table.
+
+### Three Remaining Problems
+
+1. S3 conditionality (miss by 0.004): Stochastic. VS lambda tuning may fix.
+2. Cell-specific spread (S2, S7): Cells (0,4)/(1,4) need 6-10x more relative spread. CLN modulates all cells identically. Needs per-cell mechanism.
+3. Kurtosis and KS (S4, S8): kurtosis=0.366, VS over-smooths. Needs lambda reduction or heavy-tailed noise.
+
+### Production Readiness
+
+| Criterion | Status |
+|-----------|--------|
+| Generalization | PASS (gap=0.014) |
+| Regime conditioning | MARGINAL (turb/calm 1.146, stochastic) |
+| Sensitivity | PASS (continuous correct response) |
+| Embedding coverage | PASS (98% in-hull) |
+| Overall calibration | PASS (CI mean=0.901) |
+| Cell-specific calibration | FAIL (2 cells underspread) |
+| Distributional realism | FAIL (kurtosis 0.366, KS 15/25) |
+
+### Artifacts
+All at results/validations/2026-03-28/: encoder_comparison.py, 161a_full_analysis.py, 161a_generalization.py + analysis directories with JSONs, PNGs, NPZ files.
+
+---
+
+## 2026-03-28: Wave 2 Direction Review — Information Gain vs Performance Chasing
+
+### Context
+After completing Wave 1 (4 experiments: 159a, 160a, 161a, 162a) and reviewing the validation audit (which overturned 5 beliefs), we needed to decide whether to modify the original Wave 2 plan or stick with it.
+
+### Wave 1 Validation Audit — 5 Corrections to My Analysis
+
+The validation audit (run on the validation branch) corrected several conclusions from my Wave 1 synthesis:
+
+| My Wave 1 Claim | Corrected by Audit | Impact |
+|-----------------|-------------------|--------|
+| 161a turb/calm=0.919 on test | That was ep80 final. Best_model (ep50) = **1.462** | VS SOLVES conditionality |
+| VS is regime-agnostic (my synthesis) | 161a turb/calm=2.564 (train), 1.462 (test ep50) | VS provides the missing gradient |
+| E2E encoder encodes regime as 1.6x norm | Ratio is 0.97 — regime not in magnitude | H2a premise was wrong |
+| 160a turb/calm ~1.0, KS 1/25 | Formal eval: KS=20/25, 4/6 suites | My 100-window eval was misleading |
+| 155d is a valid baseline (CI=0.330) | 155d gets 5.4% CI on test — broken | Base predictions are broken |
+
+**Root cause of my errors**: I evaluated 161a at ep80 (final) instead of ep50 (best_model), and used 100-window subsets for in-training eval instead of full test split.
+
+### Proposed Wave 2 Update (Performance-Focused)
+
+After seeing that 161a solves conditionality (turb/calm=1.462) with only CI worst cell (0.658 vs 0.70) and KS (16/25 vs 20/25) remaining, I initially proposed a performance-focused Wave 2:
+
+1. VS lambda normalization — equalize afCRPS/VS scale
+2. Per-cell CI investigation — why do cells (0,3) and (0,4) fail?
+3. Conditionality-aware model selection — turb/calm as criterion
+4. Combined no-LN + normalized VS
+
+### Why We Decided to Keep the Original Wave 2
+
+The user correctly identified that the proposed update was **performance chasing**, not information maximization. The original Wave 2 was designed to answer the four open questions through mechanism isolation:
+
+**Original Wave 2 experiments and their information value:**
+
+| Experiment | Question Answered | Why Still Valuable After Audit |
+|-----------|-------------------|-------------------------------|
+| H2a-S2: No-LN + E2E (4010 windows) | Does no-LN help with more data? | Audit showed encoder norm ratio is 0.97 (not 1.6x). Yet 159a DID produce turb/calm=1.164 transiently. The mechanism is real but unexplained — more data may reveal whether it's sustainable |
+| H3-S2: VS lambda sweep (0.3, 0.7) | Dose-response for VS | Critical now that VS is confirmed as the solution. What lambda gives best CI+corr+KS balance? |
+| H2a+H3: No-LN + VS combination | Are mechanisms additive? | VS already solves turb/calm (1.462). Does no-LN add anything ON TOP? If yes → compounding mechanisms. If no → VS is sufficient alone |
+| H1-S2/S3: Extended AR / multi-step | Does AR help with more training? | 160a got 20/25 KS — best KS of all models. AR may complement VS for distributional quality |
+
+**The rationale**: Each original Wave 2 experiment isolates a different mechanism interaction. The performance items (lambda normalization, per-cell investigation) are refinement — useful but lower information value per GPU-hour. They can be Wave 3.
+
+**Key principle**: Understanding mechanistic costs of each approach (where does it help, where does it hurt, are mechanisms additive or redundant) provides durable knowledge. Optimizing lambda by 0.1 provides a number. The compass was designed for information gain — we should trust the design.
+
+### Decision
+
+**Stick with the original Wave 2 execution order.** Add performance items (lambda normalization, per-cell investigation, conditionality-aware selection) as Wave 3 refinement after Wave 2 provides mechanistic understanding.
+
+Updated execution priority:
+1. H3-S2: VS lambda sweep (0.3, 0.7) — dose-response on the winning mechanism
+2. H2a-S2: No-LN + E2E — test unexplained no-LN mechanism with corrected understanding
+3. H2a+H3: No-LN + VS — additivity test
+4. Performance refinement (Wave 3): lambda normalization, per-cell, model selection
+
+---
