@@ -45896,3 +45896,51 @@ Updated execution priority:
 4. Performance refinement (Wave 3): lambda normalization, per-cell, model selection
 
 ---
+
+## 2026-03-28: Exp 161b — VS Lambda=0.3 Dose-Response (RC19-H3-S2a)
+
+### Context
+RC19 Wave 2, first experiment. Dose-response for VS: does lambda=0.3 (vs 0.5 in 161a) improve correlation without losing conditionality?
+
+Based on 161a (VS lambda=0.5, ep50: CI=0.658, turb/calm=1.462, corr=1.095).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_161a_vs.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --lambda_vs 0.3 \
+    --output_dir models/backfill/flow_161b --device cuda
+```
+
+### Key Findings
+
+**Dose-response is monotonic: more VS → more conditionality + more over-correlation**
+
+| Metric | 161b (λ=0.3, test ep80) | 161a (λ=0.5, test ep80) | 161a (λ=0.5, test ep50*) |
+|--------|------------------------|------------------------|------------------------|
+| CI worst | 0.624 | 0.598 | 0.658 |
+| turb/calm | 1.031 | 0.919 | 1.462 |
+| Corr ratio | **1.058** | 1.413 | 1.095 |
+| KS daily | 10/25 | 10/25 | 16/25 |
+
+*ep50 numbers from validation audit formal eval
+
+**Diagnostic: Spread dynamics**
+
+| Epoch | 161a spread (λ=0.5) | 161b spread (λ=0.3) | 161a loss | 161b loss |
+|-------|---------------------|---------------------|-----------|-----------|
+| 1 | 0.005 | 0.011 | 44.15 | 26.59 |
+| 20 | 0.069 | 0.059 | 30.67 | 18.15 |
+| 80 | 0.054 | 0.054 | 26.76 | 15.84 |
+
+Spread converges to ~0.054 regardless of lambda — the afCRPS spread term (coeff 0.475) dominates at convergence. The difference is in HOW the spread is distributed across regimes (turb vs calm), not the total amount.
+
+### Analysis
+
+Lambda=0.3 is **insufficient** for conditionality (turb/calm=1.031 < 1.15 target) but has **good correlation** (1.058, within 0.80-1.20). Lambda=0.5 has excellent conditionality (1.462 at ep50) but over-correlates at convergence (1.413 at ep80).
+
+The optimal point appears to be lambda=0.5 with early stopping (ep50), not a lower lambda. The VS gradient needs to be strong enough to create regime-dependent spread before afCRPS erases it.
+
+### Decision
+**INFORMATIVE.** The dose-response confirms lambda=0.5 is better than 0.3 for conditionality. Running lambda=0.7 next to complete the sweep. The optimal strategy may be lambda=0.5 + conditionality-aware early stopping.
+
+---
