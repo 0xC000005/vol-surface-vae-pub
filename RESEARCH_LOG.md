@@ -45396,3 +45396,68 @@ In 160a:
 **VALUABLE FAILURE.** Kill conditions met (turb/calm < 1.05, test CI < 0.40). AR generation itself is not the solution — the noise pathway architecture matters more. This narrows the search: the binding constraint is loss + noise architecture, not generation strategy.
 
 ---
+
+## 2026-03-27: Exp 161a — E2E CLN + Variogram Score lambda=0.5 (RC19-H3-S1)
+
+### Context
+RC19 Wave 1, third experiment. Hypothesis: VS directly penalizes pairwise dependency structure, providing gradient signal that afCRPS (marginal-only) lacks. dualGNN proved VS outperforms ES at D=25.
+
+Based on 158a (E2E CLN, test CI=0.442, turb/calm=0.988, corr=0.888).
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_161a_vs.py \
+    --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --lambda_vs 0.5 \
+    --output_dir models/backfill/flow_161a --device cuda
+```
+
+### Key Findings
+
+**1. VS improves CI but OVER-correlates**
+
+| Epoch | Test CI | Test corr | Test turb/calm | Test KS | Train loss |
+|-------|---------|-----------|----------------|---------|------------|
+| 1 | 0.019 | 0.347 | 0.965 | 9/25 | 44.15 |
+| 20 | 0.682 | 1.215 | 0.976 | 13/25 | 30.67 |
+| 40 | 0.591 | 1.218 | 0.960 | 13/25 | 28.81 |
+| 80 | 0.598 | 1.413 | 0.919 | 10/25 | 26.76 |
+
+Best model: epoch 50, val_loss=0.0239.
+
+Comparison with 158a baseline:
+
+| Metric | 161a (test, ep 80) | 158a (test) | Target |
+|--------|-------------------|-------------|--------|
+| CI worst | **0.598** | 0.442 | >0.40 |
+| Corr ratio | 1.413 ❌ | 0.888 | 0.80-1.20 |
+| turb/calm | 0.919 | 0.988 | >1.15 |
+| KS daily | 10/25 | 2/25 | >10 |
+
+**2. VS dominates the loss — unnormalized lambda is too strong**
+
+Train loss = 44 → 27 (dominated by VS which is ~1000x larger than afCRPS ~0.05). The model optimizes VS at the expense of marginal quality. Normalized lambda would fix this — compute mean(afCRPS)/mean(VS) ratio in first epoch, use as scaling factor.
+
+**3. turb/calm still degrades — VS is also regime-agnostic**
+
+VS penalizes pairwise dependency structure but doesn't distinguish between regimes. Like afCRPS, it matches the TRAINING distribution average, not regime-specific structure. Over 80 epochs, turb/calm degrades from 0.976 to 0.919 (same pattern as 159a).
+
+### Analysis: WHY VS over-correlates
+
+VS_0.5 = sum w_ij * (|y_i-y_j|^0.5 - (1/K)*sum|x_k^i-x_k^j|^0.5)^2
+
+The loss penalizes DIFFERENCES between sample pairwise variograms and GT pairwise variograms. When lambda_vs is too large, the model over-fits to matching the pairwise structure, producing samples with STRONGER correlation than GT. This is the mirror image of afCRPS (which under-correlates).
+
+The balance point exists — dualGNN found it at D=30 with 30%ES+70%VS. But the ABSOLUTE scale of VS (~1000x afCRPS) means lambda_vs=0.5 is effectively lambda_vs=500x after normalization.
+
+### What Was Learned
+
+1. **VS DOES improve CI** — 0.598 vs 0.442 (35% improvement). The correlation gradient helps spread.
+2. **VS over-correlates without normalization** — corr=1.41 vs target 0.80-1.20
+3. **VS does NOT improve turb/calm** — regime-dependent spread requires regime-aware loss
+4. **Lambda normalization is critical** — raw VS is ~1000x larger than afCRPS
+5. **KS improved** — 10/25 vs 2/25. The correlation gradient implicitly helps distributional quality.
+
+### Decision
+**PARTIAL SUCCESS / NEEDS REFINEMENT.** VS clearly helps CI and KS but needs normalization. turb/calm remains unsolved. H3-S2 should use normalized lambda (compute afCRPS/VS ratio in first epoch).
+
+---
