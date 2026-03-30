@@ -46590,3 +46590,98 @@ ALL experiments evaluated on the v2 test suite (9 suites) via the CLN wrapper. A
 | Q4: One-shot vs AR | ANSWERED | AR mandatory for cointegration (ablation: -29% without GRU feedback). Long-horizon requires dynamic regime adaptation. |
 
 ---
+
+## 2026-03-30: Validation — 161a Mechanism Transfer Tests + Complete Audit of Principled Model Assumptions
+
+### Context
+Before finalizing RC20, ran 3 targeted tests on the principled model (161a/163a) and conducted a comprehensive audit of all assumptions accumulated since RC17. The goal: verify whether mechanisms from the old MLP architecture transfer to the CLN transformer before building on them.
+
+### Test Results
+
+#### T1: Does adding vol_scale to 161a fix kurtosis? — UNSUPPORTED
+
+| Metric | 161a Baseline | 161a + vol_scale | Target |
+|--------|-------------|-----------------|--------|
+| Kurtosis ratio | 0.229 | 0.327 | 0.5-2.0 |
+| CI worst | 0.620 | 0.827 | >0.80 |
+| turb/calm | 1.074 | 1.128 | >1.15 |
+
+Vol_scale improves kurtosis by 43% relative but still far below threshold (0.327 vs 0.5). 70.6% of test windows hit the upper clamp (2.0) — vol_scale is a near-constant multiplier, not data-adaptive, because the calibration constant (0.0187) is too small for the CLN architecture's output scale. The mechanism that works on MLP (99m_v2: kurtosis 0.905→0.514 without it) does NOT transfer to CLN transformer.
+
+**Root cause**: CLN transformer output is fundamentally smooth. Multiplying by a constant scales spread but doesn't create heavy tails. Kurtosis requires occasional large deviations, which smooth attention outputs don't produce.
+
+#### T2: WHY does 163a have kurtosis=1.498 while 161a has 0.448? — Mechanism WRONG
+
+**The "magnitude preservation" hypothesis is incorrect.** Turb/calm hidden state magnitude ratio is ~0.97-0.99 for BOTH models — nearly identical. No-LN does NOT preserve regime-dependent magnitudes.
+
+The actual mechanism: LN compresses the representation to a narrow dynamic range (post-CLN magnitudes: 161a=64-66, 163a=16.3-16.5). Without LN, occasional large activations survive → extreme deltas → heavy tails. But this is NOT clean:
+- 163a: only 1/25 cells in kurtosis target range [0.5, 2.0]
+- Most cells overshoot massively (e.g., cell 8: 59x GT kurtosis)
+- Aggregate kurtosis=1.6 is an averaging artifact over per-cell chaos
+
+No-LN produces sporadic outlier generation, not uniformly heavier tails.
+
+#### T3: 163a on v2 Test Suite — 4/9 (different 4 than 161a)
+
+| Suite | 161a | 163a |
+|-------|------|------|
+| 3. Conditionality | PASS (1.209) | FAIL (1.120, misses by 0.03) |
+| 4. Kurtosis | FAIL (0.448) | **PASS** (1.596) |
+| 7. Regime Coverage | PASS | FAIL |
+
+No model passes both kurtosis AND conditionality. 163a and 161a have complementary strengths.
+
+### Comprehensive Audit: Confounds, Contradictions, and Broken Assumptions
+
+#### Confounds (6 found)
+
+**C1: Encoder norm ratio 1.6x vs 0.97 — conflated across encoders.** The "LN erases magnitude" narrative (line 44452) measured 1.6x on the FROZEN pretrained encoder. The validation audit found 0.97 for the E2E encoder. The RC19 compass was designed around the 1.6x claim, which only applies to frozen encoders. The no-LN hypothesis (H2a) was based on a premise that doesn't hold for E2E models.
+
+**C2: "LN prevents conditionality" contradicted by 161a.** Root cause entry claimed LN is THE cause. But 161a has LN and gets turb/calm=1.462 (with VS). LN does NOT prevent conditionality if the loss provides the right gradient. The root cause was the LOSS, not the architecture.
+
+**C3: turb/calm metric unreliable at small sample sizes.** Same model (161a): 0.913 on 200 windows vs 1.462 on 1252 windows. Many Wave 1 conclusions used 100-window in-training eval.
+
+**C4: No-LN effect confounded by frozen vs E2E encoder.** 159a (frozen, no-LN): turb/calm=1.164. 159b (E2E, no-LN): 1.007. 163a (E2E, no-LN+VS): 1.166. Three-way interaction (encoder×LN×VS) never isolated.
+
+**C5: "Cell_spread = conditionality" was REFUTED by ablation** but was part of RC19 compass rationale.
+
+**C6: Two eval frameworks gave incompatible suite counts.** "4/6" custom vs "4/9" v2 — different suites tested.
+
+#### Broken Assumptions in RC20 Plan (4 found)
+
+**A1: "Vol_scale will fix CLN kurtosis"** — BROKEN by T1. Vol_scale helps MLP kurtosis but not CLN. Mechanisms don't transfer across architectures.
+
+**A2: "No-LN produces clean heavy tails"** — BROKEN by T2. It produces chaotic per-cell outliers (1/25 cells in range). Not a viable kurtosis solution.
+
+**A3: "AR will fix cointegration for CLN transformer"** — UNTESTED. Verified only for old MLP decoder (99m_v2 ablation). 160a (AR + simple MLP + E2E, no VS) also failed cointegration. Extrapolation to CLN transformer is unverified.
+
+**A4: Within-window eff_rank=1.78 (rank-1 ensemble) is UNADDRESSED in RC20.** If all 50 members say the same thing, the model is useless for multi-scenario risk regardless of suite pass count.
+
+### The Fundamental Architectural Issue
+
+The CLN transformer produces smooth outputs by construction:
+- Attention averages over positions
+- LayerNorm normalizes to unit scale
+- GELU is smooth (unlike tanh which saturates → heavy tails)
+
+These are architectural properties, not training artifacts. Vol_scale, no-LN, and other post-hoc fixes can't overcome smoothness. The old MLP's kurtosis comes from tanh saturation + vol_scale + no normalization — mechanisms architecturally incompatible with the transformer.
+
+### The Open Question for RC20
+
+What principled decoder architecture produces non-smooth, heavy-tailed outputs while maintaining cross-cell structure?
+
+Options discussed:
+1. **Old MLP + VS**: Proven decoder + proven loss. But old MLP is not principled (100 hyperparams, black-box interactions).
+2. **CLN transformer + ???**: Principled but smooth. No known fix for kurtosis.
+3. **New principled architecture**: Needs research — what produces non-smooth outputs from principled components?
+
+### Artifacts
+All at results/validations/2026-03-30/:
+- scripts/161a_vol_scale_ablation.py
+- scripts/163a_kurtosis_diagnostic.py
+- scripts/163a_v2_test.sh
+- analysis/{161a_vol_scale_ablation,163a_kurtosis_diagnostic}/
+- verification_results/{161a_vol_scale_ablation,163a_kurtosis_diagnostic,163a_v2_test}.json
+- results/block_ar/163a_v2_test/summary.json
+
+---
