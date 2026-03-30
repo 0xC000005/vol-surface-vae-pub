@@ -46826,3 +46826,103 @@ For RC20, implement reflecting boundary but track the HIT RATE:
 3. The OOD concern was overblown — focus on 30-day quality, long-horizon follows for free
 
 ---
+
+## 2026-03-30: Research Compass RC20 — DRAFT (Principled AR + No-LN Spatial Transformer)
+
+### Philosophy
+- **Bitter Lesson**: Everything learned from data. No pretrained weights from different objectives. No domain heuristics.
+- **Karpathy**: One change at a time. Start simplest, add complexity only when measured evidence demands it.
+- **Popper**: Every component has a falsification test. If it doesn't help, remove it.
+
+### The Principled Model (Exp 164a)
+
+```
+Encoder: GRU with attention pooling (RANDOM INIT, trained E2E)
+         Updated per frame via AR loop (sees rolling ~30 frames)
+         No pretrained weights — eliminates confound C1
+
+Decoder: Spatial transformer (attention over 25 cells per frame)
+         No LayerNorm (principled: preserves natural scale differences)
+         tanh output bounding (safety net — track hit rate as diagnostic)
+         ONE noise path: CLN modulation (gamma/beta from noise z)
+         No FactorNoiseSkip, no skip bypass — start simplest
+
+Generation: AR frame-by-frame
+            z_t ~ N(0,1)^32 per frame (fresh noise)
+            condition_t = Encoder(last ~30 frames including generated)
+            delta_raw = SpatialTransformer(condition_t, prev_frame, z_t)
+            delta = tanh(delta_raw)
+            frame_t = prev_frame + delta
+
+Loss: afCRPS + VS (lambda=0.5), per-frame at D=25
+
+Training: E2E from scratch, no frozen components, no staged freeze
+```
+
+### Evidence for Each Component
+
+| Component | Evidence | Source |
+|-----------|----------|--------|
+| AR generation | Cointegration requires GRU feedback (ablation: -29%) | 99m_v2 GRU ablation |
+| GRU feedback | Reuses encoder's mean-reversion knowledge for generated frames | Principled argument (documented) |
+| Random init encoder | Pretrained DDPM encoder has wrong objective bias | Principled argument — MSE ≠ afCRPS+VS |
+| No LayerNorm | LN compresses dynamic range → thin tails + low eff_rank. No-LN gives eff_rank 2.68 vs 1.78 | 163a vs 161a comparison |
+| tanh output | No-LN without bounding produces catastrophic outliers (p99.9 = 3.28x GT). tanh bounds extremes, linear for bulk | 163a outlier diagnostic |
+| Single noise path (CLN) | Start simplest. 163a (no-LN, single CLN path) already has eff_rank=2.68 | Karpathy principle |
+| VS lambda=0.5 | Dose-response complete. lambda=0.5 optimal for conditionality | 161a/161b/161c sweep |
+| Per-frame loss at D=25 | VS pairwise gradient is stronger at lower D | dualGNN literature (verified) |
+
+### What This Model Should Fix (vs 161a)
+
+| Problem | 161a | Expected 164a | Mechanism |
+|---------|------|--------------|-----------|
+| Cointegration | 0.431 (FAIL) | PASS | AR + GRU feedback |
+| Kurtosis | 0.448 (FAIL) | 0.5-2.0 | No-LN + tanh (163a-like tails, bounded) |
+| Long-horizon 252d | CI=0.06 (FAIL) | PASS | AR is self-correcting (rolling window) |
+| Within-window eff_rank | 1.78 | >2.5 | No-LN preserves per-cell magnitude |
+| Non-causal attention | Yes (INVALID) | No | AR is causal by construction |
+| Conditionality | 1.462 (PASS) | PASS | VS preserved |
+
+### Staged Checkpoints
+
+**Stage 1 (2h): Quick probe at 40ep**
+- Does it train stably without LN? (loss doesn't diverge)
+- Does within-window eff_rank > 2.0?
+- Does kurtosis ratio enter [0.5, 2.0]?
+- Kill if: training diverges OR eff_rank < 1.5
+
+**Stage 2 (4h): Full 80ep + v2 suite**
+- Run v2 test suite (9 suites), compare to 99m_v2 (5/8) and 161a (4/9)
+- Target: 5+/9
+- Measure turb/calm, CI, KS, kurtosis, cointegration
+
+**Stage 3 (2h): 252-day long-horizon**
+- Does CI maintain at long horizon? (target: CI > 0.5 at 252d)
+- Track boundary hit rate as quality diagnostic
+
+### Follow-Up Experiments (only if 164a reveals specific gaps)
+
+| Exp | Trigger | What it tests |
+|-----|---------|--------------|
+| 164b | eff_rank < 2.0 | Add FactorNoiseSkip (5 factors) as skip bypass |
+| 164c | kurtosis still < 0.5 | Add Student-t noise (df=4) instead of Gaussian |
+| 164d | training unstable | Add LayerScale (init 0.1) for stability without LN |
+| 164e | conditionality < 1.15 | Increase VS lambda or add data-adaptive vol_scale |
+
+Each follow-up adds ONE component to diagnose ONE specific failure. No stacking.
+
+### Evaluation Protocol
+
+1. v2 test suite (9 suites) — apples-to-apples with 99m_v2 and 161a
+2. 252-day long-horizon test
+3. Within-window eff_rank (50 members per window, 200 windows)
+4. Boundary hit rate (fraction of frame_t values that hit tanh bounds)
+5. Training dynamics: loss curves, spread trajectory, eff_rank trajectory
+
+### Kill Conditions
+
+- Training diverges at <20ep → no-LN is not trainable for this architecture, abort
+- v2 suite < 3/9 at 80ep → the full stack doesn't work, decompose and test components individually
+- Cointegration doesn't improve over 161a → AR + GRU feedback doesn't help the spatial transformer (falsifies the mechanism transfer from MLP)
+
+---
