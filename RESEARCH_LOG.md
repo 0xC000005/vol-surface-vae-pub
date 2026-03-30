@@ -47033,3 +47033,60 @@ The CLN transformer applies shared (gamma, beta) noise modulation to all 25 cell
 - Results: results/validations/2026-03-30/analysis/cell04_diagnostic/cell04_diagnostic.json
 
 ---
+
+## 2026-03-30: RC20 FINAL — Complete Post-Experiment Analysis Protocol
+
+### Context
+Reviewed RC20 draft for completeness of post-experiment analysis. Found 5 missing diagnostics from lessons learned this session (inline eval unreliability, per-cell chaos, uniform spread, turb/calm sample sensitivity).
+
+### RC20 Post-Experiment Protocol (MANDATORY for 164a and 164b)
+
+#### Stage 1: During Training (every 20 epochs)
+- Loss curves (afCRPS + VS components separately)
+- Spread trajectory (is it contracting like 161a?)
+- Quick eff_rank check (50 members, 50 windows)
+- **Kill check**: training diverging? eff_rank < 1.5? loss NaN?
+- NO conclusions from training metrics — wait for Stage 2
+
+#### Stage 2: After Training (BEFORE claiming ANY result)
+- Run v2 test suite: `test_block_ar_requirements_v2.py --max_batches 20 --n_samples 50`
+- This is the ONLY authoritative evaluation
+- NO inline eval, NO 100-window subset, NO custom 6-suite eval
+- Record all 9 suite pass/fail + key metrics
+
+#### Stage 3: Post-v2 Diagnostics (run regardless of pass/fail)
+
+| Diagnostic | What It Measures | Why Needed | Evidence |
+|-----------|-----------------|------------|----------|
+| **Per-cell spread ratio grid (5x5)** | ensemble_std / GT_std per cell | Detect uniform spread problem (current: 0.48-3.03 range) | Cell (0,4) diagnostic |
+| **Per-cell kurtosis grid (5x5)** | gen_kurtosis / GT_kurtosis per cell | Detect chaotic outliers (163a: 1/25 in range) | T2 diagnostic |
+| **Within-window eff_rank** | Diversity of 50 members per window (200 windows) | Detect rank-1 ensemble (161a: 1.78, GT: 5.0) | S9 misleading finding |
+| **Boundary hit rate** | Fraction of tanh-saturated deltas | Quality metric: <0.1% = model learned bounds, >5% = masking failure | Principled argument |
+| **turb/calm from v2** | From full 1252-window v2 output, NOT subsets | Metric unreliable at 100-200 windows (0.913 vs 1.462 discrepancy) | Confound C3 |
+| **Cointegration per-cell** | Which cells fail cointegration and why | Worst cell drives suite failure | 99m_v2 ablation |
+
+#### Stage 4: If 5+ Suites Pass
+- 252-day long-horizon test (CI, spread growth, boundary hits at d252)
+- Cross-model comparison table (164a vs 164b vs 161a vs 99m_v2 on v2 suite)
+
+#### Stage 5: If <5 Suites Pass — Failure Diagnosis
+- Map each failed suite to the specific diagnostic from Stage 3
+- Determine which follow-up (164c-g) is triggered:
+
+| Failed Suite | Diagnostic to Check | Follow-up |
+|-------------|--------------------|-----------| 
+| Suite 4 (kurtosis) | Per-cell kurtosis grid | 164d: Student-t noise |
+| Suite 6 (cointegration) | Per-cell cointegration | Fundamental: spatial transformer incompatible? |
+| Suite 2 (CI per-cell) | Spread ratio grid | 164g: per-cell CLN |
+| Suite 9 (eff_rank) | Within-window eff_rank | 164c: FactorNoiseSkip |
+| Suite 3 (conditionality) | turb/calm from v2 | 164f: increase VS lambda |
+| Suite 4 (kurtosis) + training unstable | Loss curves | 164e: LayerScale |
+
+### Standing Rules for RC20 Execution
+1. NEVER draw conclusions from inline eval — wait for v2 suite
+2. ALWAYS evaluate on full test split (1252 windows) for turb/calm
+3. ALWAYS compute per-cell grids (spread ratio + kurtosis) — aggregate metrics hide problems
+4. ALWAYS run Stage 3 diagnostics even if suites pass — understanding WHY it works is as important as THAT it works
+5. Document in research log BEFORE starting next experiment (HEDA blocking gate)
+
+---
