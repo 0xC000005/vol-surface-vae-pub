@@ -1,64 +1,41 @@
 [
   {
-    "name": "H2a: Remove LayerNorm from CLN (FCN3 pattern)",
-    "theory": "LayerNorm erases condition magnitude (verified: encoder 1.6x norm ratio for turb vs calm, but LN normalizes to unit scale). Removing LN lets magnitude survive to output. FCN3 removes ALL normalization for same reason.",
-    "target": "turb/calm > 1.05 on residual architecture",
-    "risk": "Training instability without normalization. Need He init + LayerScale.",
-    "stages": [
-      {"id": "H2a-S1", "desc": "No-LN CLN, residual arch, noise_dim=32, 80ep", "effort_h": 2},
-      {"id": "H2a-S2", "desc": "No-LN CLN + E2E (4010 windows), 80ep", "effort_h": 4}
-    ],
-    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
-    "kill_condition": "turb/calm < 1.0 at 80ep",
+    "name": "164a: AR + no-LN Spatial Transformer + VS + Direct Output",
+    "theory": "AR with GRU feedback fixes cointegration (ablation: -29% without). No-LN preserves per-cell magnitude (eff_rank 2.68 vs 1.78). tanh bounds extremes (163a diagnostic). VS provides conditionality gradient (turb/calm=1.462). Direct output: model learns mean and spread together.",
+    "target": "v2 suite >= 5/9. Kurtosis 0.5-2.0. Cointegration PASS.",
+    "architecture": {
+      "encoder": "GRU + attention pool, random init, E2E",
+      "decoder": "Spatial transformer (25 cells/frame), no-LN, tanh, LayerScale 0.1",
+      "generation": "AR frame-by-frame, GRU feedback per frame",
+      "loss": "afCRPS + VS lambda=0.5, per-frame at D=25",
+      "output": "frame_t = prev_frame + tanh(delta)",
+      "boundary": "Reflecting [0.01, 1.0]"
+    },
+    "eval_protocol": "5-stage: training monitor → v2 suite → 7 diagnostics → long-horizon → failure mapping",
+    "kill_condition": "Training diverges at <20ep OR v2 suite < 3/9 at 80ep OR cointegration no improvement over 161a",
+    "follow_ups": {
+      "164c": "eff_rank < 2.0 → FactorNoiseSkip",
+      "164d": "kurtosis < 0.5 → Student-t noise",
+      "164e": "training unstable → AGC lambda=0.04",
+      "164f": "turb/calm < 1.15 → increase VS lambda",
+      "164g": "spread ratio > 3x → per-cell CLN",
+      "164h": "tanh hit rate > 5% → remove tanh, try AGC"
+    },
     "attempts": 0,
-    "max_attempts": 2,
-    "status": "active"
+    "max_attempts": 1,
+    "status": "pending"
   },
   {
-    "name": "H1: AR Frame Generation + CLN + E2E + K=2 (FGN/AIFS pattern)",
-    "theory": "AR propagates regime step-by-step. Fresh noise per frame. Per-frame loss at D=25 has stronger correlation signal. Old Block-AR had turb/calm=1.46 with AR. FGN/AIFS both use AR.",
-    "target": "turb/calm > 1.05 AND test CI > 0.40",
-    "risk": "Error accumulation over 30 AR steps. Slower training (30 forward passes per sample).",
-    "stages": [
-      {"id": "H1-S1", "desc": "AR-CLN + E2E + K=2, noise_dim=32, 80ep", "effort_h": 4},
-      {"id": "H1-S2", "desc": "200ep full if S1 promising", "effort_h": 10},
-      {"id": "H1-S3", "desc": "Multi-step AR fine-tune (1-step → 4-step rollout)", "effort_h": 4}
-    ],
-    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
-    "kill_condition": "turb/calm < 1.05 at 80ep AND test CI < 0.40",
+    "name": "164b: AR + no-LN Spatial Transformer + VS + Mean+Residual",
+    "theory": "Same as 164a but with MeanPredictor. Separates mean trajectory (deterministic) from stochastic residual. Tests Q2: does MeanPredictor help under AR? Old AR model effectively direct (KS=20/25), 161a residual (KS=16/25). Under AR, MeanPredictor may be redundant.",
+    "target": "Same as 164a. Compare KS, CI, kurtosis against 164a.",
+    "architecture": {
+      "same_as": "164a except output",
+      "output": "frame_t = prev_frame + MeanPred(cond) + tanh(delta)"
+    },
+    "kill_condition": "Same as 164a",
     "attempts": 0,
-    "max_attempts": 3,
-    "status": "active"
-  },
-  {
-    "name": "H3: Variogram Score at D=25 (dualGNN pattern)",
-    "theory": "afCRPS is marginal-only, blind to correlation. VS directly penalizes pairwise dependency errors. At D=25, dualGNN proved composite outperforms CRPS-only (D=18: 90/10, D=30: 30/70 ES/VS).",
-    "target": "test corr > 0.85 with test CI > 0.35",
-    "risk": "VS may overfit pairwise structure to training regime (same as ES in RC18). Need test-split validation.",
-    "stages": [
-      {"id": "H3-S1", "desc": "afCRPS + VS lambda=0.5 on 158a baseline, 80ep", "effort_h": 4},
-      {"id": "H3-S2", "desc": "lambda=0.3 and 0.7 sweep, 80ep each", "effort_h": 8},
-      {"id": "H3-S3", "desc": "Best lambda, 200ep", "effort_h": 10}
-    ],
-    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
-    "kill_condition": "No lambda gives test corr > 0.85 with test CI > 0.35",
-    "attempts": 0,
-    "max_attempts": 3,
-    "status": "active"
-  },
-  {
-    "name": "H4: Direct Output, No Mean/Residual Split (FGN/FCN3 pattern)",
-    "theory": "FGN has no explicit mean/residual split. FCN3 argues residual limits to Euler steps. Removing split eliminates MSE/afCRPS loss conflict. But Wells Fargo cautions: simple > complex at N~4000.",
-    "target": "mae < 0.04 AND test CI > 0.35",
-    "risk": "Model may not learn mean at N~4000 without scaffold. Need warm-up (Stirn 2023).",
-    "stages": [
-      {"id": "H4-S1", "desc": "Direct output + E2E + warm-up (20ep freeze noise), 80ep", "effort_h": 4},
-      {"id": "H4-S2", "desc": "200ep if mae reasonable", "effort_h": 10}
-    ],
-    "diagnostics": ["A:turb/calm", "B:val+test CI", "C:per-regime spread", "D:correlation", "E:training dynamics", "F:mean quality"],
-    "kill_condition": "mae > 0.06 at 80ep",
-    "attempts": 0,
-    "max_attempts": 2,
-    "status": "active"
+    "max_attempts": 1,
+    "status": "pending"
   }
 ]

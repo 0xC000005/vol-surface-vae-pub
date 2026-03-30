@@ -1,16 +1,22 @@
 {
   "iteration": 1,
-  "experiment_id": "159a",
-  "hypothesis": "H2a-S1: Remove LayerNorm from CLN (FCN3 pattern). LN erases condition magnitude → turb/calm < 1.0. Without LN, magnitude survives → regime-dependent spread.",
+  "experiment_id": "164a",
   "training_status": "running",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_159a_no_ln_cln.py --epochs 80 --batch_size 8 --n_members 8 --noise_dim 32 --output_dir models/backfill/flow_159a --device cuda",
-  "training_pid": 177679,
-  "phase": "H2a-S1",
-  "total_experiments": 1,
-  "branch": "autoresearch-session-rc19",
-  "compass": "RC19: AR + No-Norm + VS (Literature-Grounded, Post Deep-Read)",
-  "baseline": "155d (residual, test CI=0.330, turb/calm=0.90)",
-  "prediction": "turb/calm > 1.05 (LN removal lets magnitude signal survive)",
-  "risk": "Training instability without normalization. He init + LayerScale mitigate.",
-  "kill_condition": "turb/calm < 1.0 at 80ep"
+  "phase": "HEDA_experiment",
+  "hypothesis": "AR + no-LN spatial transformer + VS + direct output. All components literature-validated. GRU random init E2E. frame_t = prev_frame + tanh(delta).",
+  "session_best": {
+    "old_best": {"exp": "99m_v2", "suites": "5/8", "note": "old SinglePassBlockAR, black-box"},
+    "principled_best": {"exp": "161a", "suites": "4/9", "note": "E2E CLN+VS, one-shot (non-causal)"}
+  },
+  "total_experiments": 0,
+  "compass_position": "RC20 — Wave 1 (164a direct, 164b residual)",
+  "compass_theme": "Principled AR + no-LN Spatial Transformer + VS",
+  "branch": "autoresearch-session-rc20",
+  "experiments": {
+    "164a": "AR + no-LN spatial transformer + VS + direct output",
+    "164b": "AR + no-LN spatial transformer + VS + mean+residual"
+  },
+  "execution_order": "164a first, 164b second. Both get full 5-stage eval protocol.",
+  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_164a_ar_spatial.py --epochs 80 --batch_size 32 --n_members 8 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.5 --output_dir models/backfill/afcrps_164a --device cuda",
+  "next_action": "Wait for training to complete, then run v2 test suite"
 }

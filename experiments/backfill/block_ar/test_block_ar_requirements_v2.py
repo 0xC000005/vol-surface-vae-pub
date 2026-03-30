@@ -2682,18 +2682,19 @@ def main():
         "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
     )
-    is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e
+    is_ar_spatial = model_type in ("ar_spatial_transformer_164a",)
+    is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
     # Support both BlockARConfig instance and dict
-    if is_single_pass or is_cln_e2e:
+    if is_single_pass or is_cln_e2e or is_ar_spatial:
         model_config = None  # will be handled by specific loaders below
     elif isinstance(raw_config, dict):
         model_config = BlockARConfig(**raw_config)
     else:
         model_config = raw_config
 
-    # DDPM-specific config overrides (skip for SinglePassBlockAR and CLN E2E)
-    if not is_single_pass and not is_cln_e2e:
+    # DDPM-specific config overrides (skip for SinglePassBlockAR, CLN E2E, AR spatial)
+    if not is_single_pass and not is_cln_e2e and not is_ar_spatial:
         if args.sampling_mode is not None:
             model_config.sampling_mode = args.sampling_mode
             print(f"  Sampling mode override: {args.sampling_mode}")
@@ -2730,7 +2731,20 @@ def main():
             model_config.crps_boost_only = True
             print("  CRPS boost-only mode")
 
-    if is_cln_e2e:
+    if is_ar_spatial:
+        # ── AR Spatial Transformer (164a etc.) ──
+        from experiments.backfill.block_ar.train_164a_ar_spatial import (
+            ARSpatialTransformerModel,
+        )
+        from diffusion.block_ar.gru_encoder import EncoderConfig
+        enc_cfg = EncoderConfig(**raw_config["encoder"])
+        dec_cfg = raw_config["decoder"]
+        model = ARSpatialTransformerModel(enc_cfg, dec_cfg)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"  Model type: AR Spatial Transformer ({model_type})")
+        print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
+        model_config = BlockARConfig()
+    elif is_cln_e2e:
         # ── CLN E2E model (161a, 163a, 159b etc.) ──
         # Load as a wrapper that implements sample_batched() interface
         from experiments.backfill.block_ar._cln_e2e_wrapper import CLNEndToEndWrapper
@@ -2771,7 +2785,7 @@ def main():
         print("  GRU state frozen: using initial condition for all frames")
 
     print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
-    if is_cln_e2e:
+    if is_cln_e2e or is_ar_spatial:
         pass  # Already printed above
     elif is_single_pass:
         print(f"  Block size: {sp_config.block_size}, Future len: {sp_config.future_len}")
