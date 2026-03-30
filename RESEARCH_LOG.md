@@ -46926,3 +46926,60 @@ Each follow-up adds ONE component to diagnose ONE specific failure. No stacking.
 - Cointegration doesn't improve over 161a → AR + GRU feedback doesn't help the spatial transformer (falsifies the mechanism transfer from MLP)
 
 ---
+
+## 2026-03-30: RC20 Amendment — Add Mean+Residual Variant (Q2 Resolution)
+
+### Context
+Review of RC20 draft against outstanding questions revealed Q2 (direct vs mean+residual) is still open. 164a uses direct output only. To make an informed decision about Q2, we need both variants tested under the same AR+VS stack.
+
+### Updated Experimental Plan
+
+**Exp 164a: Direct output** (unchanged)
+```
+delta = tanh(SpatialTransformer(condition_t, prev_frame, z_t))
+frame_t = prev_frame + delta
+```
+No MeanPredictor. Last-frame skip. Model learns mean AND spread together.
+
+**Exp 164b: Mean + residual** (NEW — fills Q2 gap)
+```
+mean_delta = MeanPredictor(condition_t)
+residual = tanh(SpatialTransformer(condition_t, prev_frame, z_t))
+frame_t = prev_frame + mean_delta + residual
+```
+MeanPredictor handles the deterministic mean trajectory. Spatial transformer handles stochastic residual. Separate responsibilities.
+
+**Same stack otherwise**: AR + GRU feedback + no-LN + tanh + VS + random init encoder + E2E.
+
+### Why Both Are Needed
+
+| Direct output (164a) | Mean + residual (164b) |
+|----------------------|----------------------|
+| Simpler (one component) | Separates mean and spread learning |
+| Model must learn mean AND diversity | MeanPredictor specializes on mean quality |
+| If mean is wrong, diversity can't compensate | Mean quality guaranteed, diversity is independent |
+| 162a (one-shot direct): KS=0/25 | 161a (one-shot residual): KS=16/25 |
+| Old AR model: effectively direct, KS=20/25 | Untested under AR |
+
+The key confound in our prior testing: we blamed "direct output destroys KS" (162a) but that was one-shot. The old AR model is effectively direct (delta from prev_frame) and has KS=20/25. Under AR, direct output might be fine.
+
+But we DON'T KNOW. Running both gives us a clean comparison and resolves Q2 definitively.
+
+### Execution Order
+
+1. **164a** (direct): Run first, full evaluation
+2. **164b** (residual): Run second, same evaluation
+3. Compare on v2 suite — the metric differences directly answer Q2
+
+### Updated Follow-Up Table
+
+| Exp | Trigger | Tests |
+|-----|---------|-------|
+| 164a | Primary | Direct output + full principled stack |
+| 164b | Primary | Mean+residual + full principled stack (Q2) |
+| 164c | eff_rank < 2.0 in both a+b | Add FactorNoiseSkip |
+| 164d | kurtosis < 0.5 in both a+b | Add Student-t noise |
+| 164e | training unstable | Add LayerScale |
+| 164f | conditionality < 1.15 | Increase VS lambda or add vol_scale |
+
+---
