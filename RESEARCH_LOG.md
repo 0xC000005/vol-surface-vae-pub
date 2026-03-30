@@ -46723,3 +46723,60 @@ AR fixes 3 of 7 problems definitively, with the remaining 4 requiring decoder so
 Proceed with AR + GRU feedback as the generation strategy. The decoder architecture (kurtosis, rank-1 ensemble) is the separate open question for research ideation.
 
 ---
+
+## 2026-03-30: 163a Outlier Diagnostic — No-LN Kurtosis Overshoot is Fixable
+
+### Context
+Before finalizing RC20, needed to understand WHY 163a (no-LN) has per-cell kurtosis overshoot (1/25 cells in range despite aggregate 1.6). Is it fundamental or fixable?
+
+### Key Findings
+
+**The bulk distribution matches GT excellently — only the extreme tail diverges.**
+
+| Quantile | Gen/GT ratio | Status |
+|----------|-------------|--------|
+| p50-p95 | 0.94-1.10 | Excellent match |
+| p99 | ~1.27 | Fine |
+| p99.9 | **3.28x** | Diverges |
+| max | **4.9x** (worst: 11.5x at cell (1,3)) | Catastrophic |
+
+- Only ~0.1% of steps produce catastrophic deltas (10-12x GT max)
+- 183/300 windows produce at least one outlier — dispersed, not turbulence-specific
+- Universal across cells (not localized), worst in 6M tenor column
+- Within-window kurtosis is actually sub-Gaussian (-0.04 vs GT 0.37) — the outliers come from rare extreme activations, not from heavy-tailed ensemble diversity
+
+**Root cause**: The no-LN transformer residual output is UNBOUNDED. Rare noise+condition combinations trigger extreme activations through the network without LN to constrain them. This is NOT a training convergence issue — it's an architectural missing bound.
+
+**Clamping is NOT viable**: Threshold needed (0.005) destroys legitimate spread. The fix must be architectural.
+
+**The principled fix: tanh output bounding.**
+- tanh(x) ≈ x for small x (bulk distribution passes through unchanged)
+- tanh(x) → ±1 for large x (catastrophic deltas are bounded)
+- The old MLP used tanh for exactly this reason — it's a proven mechanism
+- Physically principled: IV surface daily changes SHOULD be bounded
+
+With tanh on the output:
+- Bulk distribution (p50-p99): unchanged (tanh is linear for small values)
+- Extreme tail (p99.9+): bounded to ±1 instead of ±0.32 (11.5x GT)
+- Per-cell kurtosis should collapse from 10-67x to near target range
+
+### Implications for RC20
+
+No-LN is viable IF combined with tanh output bounding. The architecture becomes:
+```
+delta_raw = NoLN_SpatialTransformer(condition, prev_frame, z)
+delta = tanh(delta_raw)         ← bounds extreme values
+frame_t = prev_frame + delta    ← or with vol_scale if needed
+```
+
+This gives:
+- Higher eff_rank (2.68 vs 1.78 with LN) — no-LN preserves per-cell magnitude variation
+- Bounded kurtosis — tanh prevents catastrophic outliers
+- Natural heavy tails — tanh saturation creates moderate kurtosis (same mechanism as old MLP)
+
+### Artifacts
+- Script: results/validations/2026-03-30/scripts/163a_outlier_diagnostic.py
+- Results: results/validations/2026-03-30/analysis/163a_outlier_diagnostic/results.json
+- Raw data: results/validations/2026-03-30/analysis/163a_outlier_diagnostic/raw_data.npz
+
+---
