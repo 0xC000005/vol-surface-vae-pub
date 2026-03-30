@@ -46685,3 +46685,41 @@ All at results/validations/2026-03-30/:
 - results/block_ar/163a_v2_test/summary.json
 
 ---
+
+## 2026-03-30: Why AR, Not One-Shot — Principled Argument for Causal Generation
+
+### Context
+During RC20 formalization, challenged the assumption that one-shot is invalid. The non-causal temporal attention in 161a IS a problem (frame t sees frame 30), but even a causal one-shot transformer could theoretically learn mean-reversion implicitly. The question: why is AR better?
+
+### The Argument
+
+**One-shot (causal or non-causal)** must learn trajectory-specific mean-reversion INSIDE a single forward pass. Given noise z and condition, the decoder must implicitly simulate: "z will push frame 15 high → therefore frames 16-30 need negative correction." This is asking the decoder to learn the AR process as an implicit computation within its layers. Theoretically possible (transformers are universal), but requires learning a hard function from N=4000 windows.
+
+**AR with GRU feedback** reuses an already-learned capability. The pretrained GRU encoder already understands IV dynamics from MSE pretraining on real sequences — it knows "if recent frames are high, next frame should be lower." The AR loop feeds each generated frame back through this encoder as if it were real data. The GRU doesn't know the difference between real and generated frames — it just sees a sequence of (5,5) surfaces.
+
+**The key insight**: Mean-reversion capability already exists in the pretrained encoder. AR makes it available for generated trajectories by feeding them back. One-shot has to learn this capability from scratch inside the decoder, which is a harder optimization problem.
+
+This is NOT about one-shot being invalid — it's about data efficiency. With N=4000 windows, AR reuses existing encoder knowledge. One-shot must learn the same thing independently in the decoder. Evidence: 161a (one-shot) has cointegration ratio 0.431 (fails). The old AR model (99m_v2) has cointegration that passes. GRU ablation confirmed: removing per-frame feedback drops cointegration by 29%.
+
+### Additional Argument: Non-Causal Attention IS Invalid
+
+Separate from the AR vs one-shot question: 161a uses NON-CAUSAL temporal attention (frame t attends to ALL frames, including future). This is architecturally invalid for forecasting — it generates the future while looking at the future. Even if one-shot is acceptable in principle (with causal masking), non-causal one-shot is not.
+
+### Problem Scorecard for AR + Spatial CLN + VS
+
+| Problem | Root Cause | AR Fixes? | Evidence |
+|---------|-----------|-----------|----------|
+| Cointegration (0.431) | Fixed condition, no trajectory correction | **YES** | GRU ablation: -29% |
+| Long-horizon (CI=0.06@252d) | One-shot 30-frame, spread doesn't grow | **YES** | AR extends to any horizon |
+| Non-causal generation | 161a sees future frames | **YES** | AR is causal by construction |
+| Kurtosis (0.448) | CLN transformer smooth outputs | **NO** | Decoder problem, not generation |
+| Rank-1 ensemble (ER=1.78) | CLN uniform noise modulation | **NO** | Decoder problem |
+| KS daily (16/25) | Daily change shape wrong | **MAYBE** | 160a AR got 20/25 but different decoder |
+| CI worst cell (0.658) | Per-cell calibration | **NO** | Not a generation issue |
+
+AR fixes 3 of 7 problems definitively, with the remaining 4 requiring decoder solutions.
+
+### Decision
+Proceed with AR + GRU feedback as the generation strategy. The decoder architecture (kurtosis, rank-1 ensemble) is the separate open question for research ideation.
+
+---
