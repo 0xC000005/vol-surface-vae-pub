@@ -342,12 +342,14 @@ def main():
             cond_K = cond.unsqueeze(1).expand(B, K, -1).reshape(B * K, -1)
             noise_z = torch.randn(B * K, args.noise_dim, device=device)
 
-            # ODE integration: same noise_z for all steps
+            # ODE integration with gradient checkpointing
             x = torch.randn(B * K, DIM, device=device)
             for step in range(args.n_steps):
                 t_step = torch.full((B * K,), step * dt, device=device)
-                v = model(x, t_step, cond=cond_K, noise_z=noise_z)
-                x = x + v * dt
+                def ode_step(x_in, t_in, c_in, z_in):
+                    return x_in + model(x_in, t_in, cond=c_in, noise_z=z_in) * dt
+                x = torch.utils.checkpoint.checkpoint(
+                    ode_step, x, t_step, cond_K, noise_z, use_reentrant=False)
 
             # Denormalize
             predictions = (x * train_std + train_mean).clamp(0, 1)  # (B*K, 750)
