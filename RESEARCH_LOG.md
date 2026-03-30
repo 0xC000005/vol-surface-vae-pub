@@ -46502,3 +46502,91 @@ All saved to results/validations/2026-03-30/:
 - verification_results/99m_v2_ablation_{vol_scale,gru_freeze,cell_spread,freeze_epoch}.json
 
 ---
+
+## 2026-03-30: RC20 Architecture Decision — Principled AR + CLN + VS
+
+### Context
+After RC19 (8 experiments) + ablation validation (4 verified mechanisms) + apples-to-apples comparison (161a 4/9 vs old 99m_v2 5/8), we discussed the path forward. The principled model (CLN transformer + VS) has complete mechanistic understanding but underperforms the old black-box model. We now have verified knowledge of WHY the old model works and can incorporate those principles.
+
+### What the Principled Model Fails At (and Why)
+
+| Failure | 161a (principled) | 99m_v2 (old) | Verified Root Cause |
+|---------|------------------|-------------|-------------------|
+| Kurtosis (Suite 4) | 0.448 | 0.859 | No data-adaptive vol_scale. CLN uses learned per-cell constant (same for all windows). Old model computes vol_scale from history std per window → heavy tails from regime mixing. |
+| Cointegration (Suite 6) | 0.431 | 0.650 | One-shot generation with fixed condition. No GRU per-frame feedback. Old model feeds generated frames back through GRU → soft mean-reversion. |
+
+### Key Discussion Points That Shaped the Architecture
+
+**1. Cointegration is non-negotiable.** A scenario generator without mean-reversion produces drifting trajectories — useless for risk. This makes AR with encoder feedback mandatory.
+
+**2. Direct output vs residual is UNTESTED under AR.** We blamed direct output for KS=0/25 (Exp 162a), but that was under one-shot. The old model uses AR + effectively direct output (delta from prev_frame) and gets KS=20/25. AR may be what provides distributional texture, not MeanPredictor. The 2x2 matrix has a gap:
+
+| | One-shot | AR |
+|---|---------|-----|
+| Mean+residual | 158a/161a (tested) | Old 99m_v2 (tested) |
+| Direct output | 162a (tested, KS=0) | NOT TESTED |
+
+**3. vol_scale is a static computation, not rolling.** The old model computes vol_scale once from the 30-day history and applies it to ALL 30 generated frames equally. It does NOT update with generated frames. For long-horizon generation (252 days — boss requirement), static vol_scale becomes stale. At day 200, the regime could be completely different from day 1.
+
+**4. Under AR + GRU feedback + VS, vol_scale may be redundant.** The GRU condition updates per frame (reflects current regime), and VS provides the conditionality gradient (proven: turb/calm=1.462). Together, the model should dynamically adapt output magnitude as the trajectory evolves — no static shortcut needed. But this is UNVERIFIED and must be tested.
+
+**5. VS creates conditionality because it's inherently regime-dependent.** VS penalizes pairwise cell distances. In turbulent markets, cells co-move more (larger pairwise distances). In calm markets, less. The VS TARGET differs by regime, so the gradient is regime-dependent. afCRPS is per-cell and regime-blind. This is the verified mechanism (validation audit: 161a turb residuals 3x larger than calm).
+
+### The Principled Model Architecture (RC20)
+
+```
+Encoder: GRU (pretrained, unfrozen for E2E)
+         Attention-pooled over ALL frames (history + generated)
+         128-dim condition vector, updated per generated frame
+
+Generation: AR frame-by-frame
+            for t = 1..T:
+                z_t ~ noise process (fresh or AR-correlated)
+                condition_t = Encoder(history + frames_1..t-1)  ← GRU feedback
+                delta_t = CLNTransformer(condition_t, prev_frame_t, z_t)
+                frame_t = prev_frame_t + delta_t  (or direct, TBD)
+
+Decoder: CLN transformer (factored temporal+spatial attention)
+         Per-frame at D=25 (not D=750 one-shot)
+         Principled: attention captures cross-cell structure from data
+
+Loss: afCRPS + VS (lambda=0.5)
+      Per-frame at D=25
+      VS provides conditionality gradient (verified)
+      afCRPS provides marginal calibration
+
+No vol_scale: Let AR + GRU feedback + VS handle regime adaptation dynamically
+              (If kurtosis fails → add vol_scale as diagnostic, not default)
+```
+
+### RC20 Experimental Plan
+
+**Exp A: AR + CLN + GRU feedback + VS + direct output**
+- frame_t = prev_frame + CLN_delta (zero-init, last-frame skip)
+- No MeanPredictor, no vol_scale
+- Tests: does AR + VS provide kurtosis AND cointegration without shortcuts?
+- Fills the untested cell in the 2x2 matrix
+
+**Exp B: AR + CLN + GRU feedback + VS + mean+residual**
+- MeanPredictor(condition) + CLN_residual, same as 161a but AR
+- No vol_scale
+- Tests: does MeanPredictor still help under AR, or is it redundant?
+
+**If both A and B fail kurtosis:**
+**Exp C: Best of A/B + static vol_scale**
+- Add vol_scale = clamp(std(history_changes) / 0.0187, 0.5, 2.0)
+- Tests: is the data-adaptive shortcut necessary even with VS + GRU?
+
+### Evaluation
+ALL experiments evaluated on the v2 test suite (9 suites) via the CLN wrapper. Apples-to-apples with 99m_v2 (5/8). Target: match or exceed 5/9, specifically passing Suites 4 (kurtosis) and 6 (cointegration) that 161a fails.
+
+### Four Fundamental Questions — Final Status
+
+| Question | Status | Evidence |
+|----------|--------|----------|
+| Q1: Condition → noise modulation | ANSWERED | vol_scale (ablation verified) + VS (RC19 verified). RC20 tests if VS alone suffices under AR. |
+| Q2: Direct vs mean+residual | OPEN (1 cell untested) | RC20 Exp A vs B fills the gap. |
+| Q3: What scoring rule | ANSWERED | VS lambda=0.5 + afCRPS. Dose-response complete. |
+| Q4: One-shot vs AR | ANSWERED | AR mandatory for cointegration (ablation: -29% without GRU feedback). Long-horizon requires dynamic regime adaptation. |
+
+---
