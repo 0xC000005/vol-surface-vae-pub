@@ -46780,3 +46780,49 @@ This gives:
 - Raw data: results/validations/2026-03-30/analysis/163a_outlier_diagnostic/raw_data.npz
 
 ---
+
+## 2026-03-30: Key Realization — AR + GRU Feedback is Self-Correcting for Long Horizon
+
+### Context
+While reviewing RC20 design choices, challenged three assumptions: (1) is tanh principled, (2) is reflecting boundary principled, (3) is OOD drift a real problem at 252 days.
+
+### Finding 1: Bounding Functions are Safety Nets, Not Principles
+
+tanh, clamp, and reflecting boundaries are all safety nets for model failure. A well-trained model should learn that IV near 0 means "deltas should be positive" — naturally staying in bounds. If the model frequently hits boundaries, the boundary is masking a deficiency, not solving it.
+
+The principled statement is: "output deltas should be bounded to a physically reasonable range." The specific function (tanh vs clamp vs reflect) is an implementation choice. For RC20: use tanh (differentiable, proven) but treat boundary hits as a diagnostic metric, not a feature.
+
+Reflecting boundary has NOT been tested on the principled model — all CLN models use clamp(0,1). This is an untested assumption.
+
+### Finding 2: OOD Drift is Self-Correcting Under AR + GRU Feedback
+
+The concern: over 252 days of AR generation, trajectories drift away from the training distribution. The encoder sees surfaces it was never trained on. By day 100, representations may be meaningless.
+
+**This concern is overblown.** The key insight (from user):
+
+The GRU encoder uses a rolling context window. At any step t, it sees the most recent ~30 frames. If those frames are realistic IV surfaces (which they should be — the model is trained to produce realistic 30-day trajectories), then the encoder condition is IN-DISTRIBUTION regardless of how many total days have been generated.
+
+The 252-day generation reduces to a sequence of 1-day generation tasks, each conditioned on the last ~30 days. As long as:
+
+1. **Each 30-day window looks realistic** — this is exactly what the model is trained for
+2. **The encoder treats generated data same as real data** — GRU doesn't distinguish, it just sees (5,5) surfaces
+3. **No systematic bias accumulates** — mean-reversion (from GRU feedback) prevents drift
+
+Then there is NO separate long-horizon problem. The model stays in-distribution because the rolling window is always fresh.
+
+**This is a fundamental advantage of AR + GRU feedback over one-shot**: One-shot MUST generate all 252 days from a single fixed condition (which becomes stale). AR + GRU continuously refreshes the condition from the generated trajectory — the encoder always sees "the last 30 days" regardless of total horizon.
+
+### Finding 3: Reflecting Boundary as Diagnostic
+
+For RC20, implement reflecting boundary but track the HIT RATE:
+- If <0.1% of generated IV values hit the boundary → model has learned bounds, boundary is unused
+- If >5% hit the boundary → model is failing, boundary is masking deficiency
+- The hit rate itself is a model quality metric
+
+### Impact on RC20
+
+1. Long-horizon (252d) is NOT a separate problem — it's the same as 30-day quality under AR + GRU
+2. Boundary function is a safety net, not architecture — use tanh + reflect, measure hit rate
+3. The OOD concern was overblown — focus on 30-day quality, long-horizon follows for free
+
+---
