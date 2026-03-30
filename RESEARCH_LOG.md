@@ -47090,3 +47090,118 @@ Reviewed RC20 draft for completeness of post-experiment analysis. Found 5 missin
 5. Document in research log BEFORE starting next experiment (HEDA blocking gate)
 
 ---
+
+## 2026-03-30: Literature Review — RC20 Validation + Encoder Design Space
+
+### Context
+Ran 4 parallel literature agents (arxiv-latex MCP, actual paper equations) to validate RC20's mathematical foundations. Also explored the encoder temporal context design space.
+
+### Finding 1: VS + afCRPS is Proper but NOT Strictly Proper (Agent 1)
+
+**Papers read**: Waghmare & Ziegel (2504.01781), Pic et al. (2407.00650), AIFS-CRPS (2412.15832), dualGNN (2509.02784)
+
+The combination afCRPS + 0.5*VS is:
+- **Proper** (Pic et al. Proposition 2: non-negative combination of proper scores is proper)
+- **NOT strictly proper** for the joint distribution at D=25
+- Converges to a distribution matching (1) true marginals and (2) true pairwise variogram
+- **Blind to trivariate+ dependencies**: cannot distinguish distributions with identical marginals and pairwise structure but different 3-way interactions (e.g., smile curvature conditional on level+slope)
+- dualGNN results are purely empirical — no theorem about VS convergence
+
+**Implication**: The loss is mathematically safe (proper → gradient points in useful direction). The blindness to higher-order interactions may not matter for IV surfaces where dominant structure is pairwise (PC1-PC2 capture ~75%). This is a known limitation, not a bug.
+
+### Finding 2: No-LN is Viable with AGC — Remove tanh (Agents 2 + 4)
+
+**Papers read**: FCN3 (2507.12144), LayerScale (2103.17239), Fixup (1901.09321), NFNet (2102.06171), DeepNet (2203.00555), RMSNorm (1910.07467)
+
+**FCN3 CONFIRMED removes ALL LayerNorm**: "We deliberately omit layer normalization, motivated by the importance of absolute magnitudes in physical processes." Uses LayerScale + He init instead.
+
+**RMSNorm is NOT an alternative**: It erases scale just like LN.
+
+**The literature unanimously says: DON'T bound outputs with tanh.** FGN, AIFS, GenCast, NeuralGCM, FCN3 — none use tanh/sigmoid for output bounding. All use unbounded residual prediction. FCN3 uses softclamp ONLY for physically non-negative quantities (humidity).
+
+**The correct stability mechanism is AGC (Adaptive Gradient Clipping)** from NFNet:
+- Clips per-unit gradient by lambda * ||W|| / ||G||, lambda ≈ 0.04
+- Prevents rare inputs from causing gradient explosions
+- Addresses the ROOT CAUSE (gradient stability) not the SYMPTOM (output magnitude)
+
+**At 4 layers, D=128**: DeepNet theory says stability risk is minimal. Variance amplification through residuals is (1.01)^4 ≈ 1.04 with LayerScale(0.1). 163a trained successfully — the outlier problem is gradient-caused, not architecture-caused.
+
+**RC20 revision**: Remove tanh. Add AGC (lambda=0.04). Use unbounded residual prediction like the weather models.
+
+### Finding 3: Weather Models Use Markov Feedback, Not GRU — Our GRU Finding is Novel (Agent 3)
+
+**Papers read**: FGN (2506.10772), AIFS-CRPS (2412.15832), GraphCast (2212.12794), TimeGrad (2101.12072), CSDI (2107.03502)
+
+| Model | Feedback Type | Memory |
+|-------|-------------|--------|
+| FGN | Markov (last 2 states) | 2 frames |
+| AIFS-CRPS | Markov (last 1 state + downsampled ref) | 1 frame |
+| GraphCast | Markov (last 2 states) | 2 frames |
+| TimeGrad | GRU hidden state | All history |
+| Our 99m_v2 | GRU hidden state | All history |
+
+**Our GRU feedback → cointegration finding is NOVEL.** No paper has shown RNN feedback specifically controls cointegration in generative models. TimeGrad uses the same GRU pattern but never tested cointegration.
+
+**No formal theory exists** for "GRU feedback creates mean-reversion." The closest analogy is VECM error correction from econometrics. Our 99m_v2 ablation (-29% cointegration without GRU feedback) is the strongest empirical evidence for this mechanism.
+
+### Finding 4: tanh Doesn't Break Propriety but Literature Says Don't Use It (Agent 4)
+
+**Papers read**: Gneiting & Raftery (2007 JASA), Bucher et al. (2511.11067)
+
+CRPS propriety is a property of the scoring rule, not the model class. Over a restricted model family, CRPS still selects the best approximation within that class. tanh doesn't break convergence guarantees.
+
+BUT: in our AR architecture, tanh bounds per-frame DELTA, not the output distribution. Over 30 frames, accumulation reaches any displacement. So tanh is both unnecessary (doesn't protect the output) and harmful (gradient saturation, implicit Lipschitz constraint).
+
+### Encoder Design Space Discussion
+
+The user identified 4 points about temporal context:
+1. Markets are clearly non-Markovian (volatility clustering, regime persistence)
+2. Markets don't attend to infinitely distant history
+3. Rolling window Markov (N frames, not just 2) is an option
+4. Mamba (selective state space) could replace GRU for infinite efficient context
+
+Design space:
+
+| Approach | Context | Compute | When to use |
+|----------|---------|---------|-------------|
+| Markov (2 frames) | 2 days | Cheapest | Weather (short memory) |
+| Rolling window (30 frames) | 30 days | O(N^2) attention | Explicit context control |
+| GRU + attention pool | All history (compressed) | O(N) per step | Current default |
+| Mamba (SSM) | All history (selective) | O(N) per step | Long-horizon scaling |
+
+**Conclusion**: The current GRU encoder with attention pooling already handles this well:
+- Not Markov (hidden state accumulates)
+- Not infinite memory (attention pooling focuses on relevant frames)
+- Rolling by construction (during AR, each new frame extends the sequence)
+- Variable-length capable
+
+**Decision**: Keep GRU encoder for RC20. The architecture doesn't need to change — just train from scratch (random init) and feed generated frames back during AR. The encoder design space (rolling window, Mamba) is documented for future exploration if GRU proves insufficient at long horizons.
+
+### Updated RC20 Architecture (Post-Literature-Review)
+
+```
+Encoder: GRU with attention pooling (random init, E2E)
+         Fed generated frames during AR (existing capability)
+
+Decoder: Spatial transformer (attention over 25 cells per frame)
+         No LayerNorm (FCN3 validated)
+         NO tanh (literature consensus: unbounded residual)
+         LayerScale 0.1 (FCN3 + Touvron validated)
+         AGC lambda=0.04 (NFNet, addresses gradient stability)
+         He initialization + zero-init output projection
+
+Generation: AR frame-by-frame with GRU feedback
+            frame_t = prev_frame + delta (unbounded residual, like FGN/AIFS)
+
+Loss: afCRPS + VS (lambda=0.5)
+      Per-frame at D=25
+      Proper but not strictly proper — blind to trivariate+ (acceptable)
+```
+
+Changes from RC20 draft:
+- REMOVED tanh (literature says don't bound outputs)
+- ADDED AGC lambda=0.04 (literature says control gradients instead)
+- CONFIRMED GRU encoder is sufficient (no architecture change needed)
+- DOCUMENTED VS propriety limitation (trivariate blindness — acceptable for IV)
+
+---
