@@ -47359,3 +47359,180 @@ Match or exceed 99m_v2 (5/8 on v2 suite). Specifically pass kurtosis (Suite 4) a
 | Markov (2 frames, FGN pattern) | 2 days only | If simplicity beats memory |
 
 ---
+
+## 2026-03-30: Multi-Factor Data Collection + NLP Conditioning Roadmap
+
+### Context
+
+The project's stated goal is a **general multi-factor conditional scenario generator** that
+generalizes beyond IV surfaces to rates, FX, commodities, and credit. CLAUDE.md constraint:
+"Must generalize to any conditional scenario generation problem (IV, rates, FX, etc.)."
+
+Additionally, a risk manager interface via natural language conditioning was designed in the
+March 7-12 sessions. This entry documents both the multi-factor data pipeline and the full
+NLP conditioning roadmap, including dependency ordering.
+
+### Phase 1: Multi-Factor Data (COMPLETED 2026-03-30)
+
+Downloaded 13 cross-asset factors aligned to the existing IV surface dates (5825 trading days,
+2000-01-03 to 2023-02-27). Saved to `data/multi_factor_data.npz`.
+
+| # | Asset | Type | Source | Coverage |
+|---|-------|------|--------|----------|
+| 1 | SPX | Equity | yfinance ^GSPC | 100% |
+| 2 | Nikkei 225 | Equity (TOPIX proxy) | yfinance ^N225 | 99.96% |
+| 3 | USDCAD | FX | FRED DEXCAUS | 99.1% |
+| 4 | USDJPY | FX | FRED DEXJPUS | 99.1% |
+| 5 | DXY | FX | yfinance DX-Y.NYB | 100% |
+| 6 | Gold | Commodity | yfinance GC=F | 97.1% |
+| 7 | Copper | Commodity | yfinance HG=F | 97.1% |
+| 8 | Wheat | Commodity | yfinance ZW=F | 97.6% |
+| 9 | Crude Oil | Commodity | FRED DCOILWTICO | 99.6% |
+| 10 | US 2Y yield | Rate | FRED DGS2 | 99.3% |
+| 11 | US 10Y yield | Rate | FRED DGS10 | 99.3% |
+| 12 | AAA OAS | Credit | FRED BAMLC0A1CAAA | 99.97% |
+| 13 | BBB OAS | Credit | FRED BAMLC0A4CBBB | 99.97% |
+
+Returns computed as log-returns for prices, first-differences for rates/spreads.
+Script: `scripts/download_multi_factor_data.py`.
+
+#### Cross-Asset Correlation Analysis
+
+**Factor-IV correlations are near zero** (max |corr| = 0.11 for SPX, most < 0.04).
+Confirms prior finding: next-day factor returns don't predict next-day IV changes.
+The leverage effect is concurrent, not predictive.
+
+**Factor-factor correlations are rich** — the structure a joint model must learn:
+- US 2Y ↔ US 10Y: +0.757 (yield curve co-movement)
+- USDCAD ↔ DXY: +0.480 (dollar bloc)
+- DXY ↔ Gold: -0.408 (classic inverse)
+- USDCAD ↔ Copper: -0.378 (CAD = commodity currency)
+- SPX ↔ US 10Y: +0.328 (risk-on/risk-off)
+- SPX ↔ BBB spread: -0.270 (risk-on/risk-off)
+- Gold ↔ Copper: +0.318 (real asset co-movement)
+- USDJPY ↔ US 10Y: +0.329 (carry trade)
+
+### Phase 2: Multi-Factor Joint Generator (D=25 → D=38)
+
+**Decision: Option C — full joint scenario generator.**
+
+The model generates (B, K, 30, 38) — 25 IV cells + 13 factor values jointly per time step.
+Not 13 separate models. One model that learns cross-asset correlation structure from data.
+
+**Key insight: no architecture change needed.** If the RC20 architecture (spatial transformer +
+AR + VS) only works for D=25 and breaks at D=38, it was never general. The Bitter Lesson
+demands that D is a config parameter, not an architectural assumption. The change is:
+1. New data loader (IV + factors, D=38)
+2. Set D=38 in config
+3. Retrain with same loss (afCRPS + VS)
+4. New evaluation suites for factor returns
+
+**Blocked on:** RC20 working at D=25 first (164a/164b).
+
+### Phase 3: NLP Conditioning — Natural Language Scenario Interface
+
+**Use case:** Risk managers want to say "what if rates spike and geopolitical risk is significant"
+and get back a calibrated distribution over joint scenarios. They think in narratives and
+analogies, not numerical parameter vectors.
+
+#### Architecture
+
+```
+Risk manager: "oil spike, trade stress, rates elevated"
+    ↓
+[Ollama qwen2.5:7b] — structured extraction (NOT free-text embedding)
+    ↓
+{
+  "rate_direction": +1,
+  "commodity_stress": +1,
+  "equity_stress": +1,
+  "vol_level": "elevated",
+  "term_structure": "inverted",    ← inferred (not stated)
+  "inference_confidence": "high"
+}
+    ↓
+[Sentence encoder: BAAI/bge-small-en-v1.5, FROZEN, 384-dim]
+    ↓
+[Projection MLP: Linear(384,256) → GELU → Linear(256, cond_dim), TRAINABLE ~130K params]
+    ↓
+cond_vec → [FROZEN multi-factor decoder] → (B, K, 30, 38) joint scenarios
+```
+
+**Why structured extraction, not raw text embedding:** Sentence embeddings are blind to
+direction — "rates go up" and "rates go down" have ~0.96 cosine similarity. The LLM
+extractor resolves direction explicitly before encoding.
+
+**Why Freeze-Align paradigm:** Based on LiT/LLaVA/Freeze-Align (CVPR 2025). Freeze both
+the sentence encoder and the decoder. Train only the projection MLP (~1% of total params).
+Works with 20x less data and 65x less compute than end-to-end training.
+
+#### Training Data Generation
+
+- 4,000 windows × 5 style paraphrases × 4 specificity levels = up to 80,000 pairs
+- Minimum viable: 4,000 × 5 styles = 20,000 (text, surface+factors) pairs
+- Styles: terse trader, formal risk manager, historical analogy, forward concern, factor decomposition
+- Specificity: high (numbers), medium (qualitative), low (one phrase), analogy-only
+- Window-level features (30-day summary), not daily
+- Generation: Ollama qwen2.5:7b locally (free, ~14 hours for 20K) or gpt-4o-mini (~$1.56)
+- Can run in parallel with RC20 and Phase 2 (just data prep)
+
+#### Training: Two-Stage
+
+1. **Contrastive pretraining (SupCon):** Paraphrases of same day = positives, different days = negatives.
+   Teaches paraphrase invariance — "vol spike" and "IV surged" map to same region.
+
+2. **CRPS fine-tune:** Projector only, frozen everything else, existing afCRPS+VS loss.
+   Aligns the projection to actually produce correct conditional distributions.
+
+#### OOD Protection (conditioning vector leaves training manifold)
+
+| Solution | When | Mechanism |
+|----------|------|-----------|
+| Soft regularization | Training | MSE(c_text, c_numerical) pulls projector toward known manifold |
+| Convex hull snapping | Inference | Snap to k-nearest training vectors, report analogues |
+| Density gate | Inference | GMM on training vectors, reject if log-density too low |
+
+Convex hull snapping has a bonus: "your scenario is anchored to these k historical windows" —
+exactly the auditability risk managers need.
+
+#### Partial Specification Handling
+
+When the risk manager doesn't specify all dimensions (e.g., says "rates spike" but nothing
+about skew), the LLM extractor marks unspecified fields as `inferred`. Inferred fields get
+higher uncertainty in the conditioning vector → decoder produces wider ensemble for those
+dimensions. This is correct behavior: less information in = more uncertainty out.
+
+#### Novelty Claim
+
+No existing paper combines ALL of:
+1. Calibrated probabilistic distribution (not point forecast, not uncalibrated samples)
+2. Over multivariate spatial+factor object (25 IV cells + 13 macro factors)
+3. Conditioned on natural language scenario description
+4. With structured extraction preserving financial direction/magnitude
+5. Evaluated against formal statistical test battery
+
+Each exists in isolation. The combination is unoccupied (as of March 2026 literature search).
+Closest: controllable IVS VAE (2025, numerical features only), LLM Processes (2024, LLM as
+generator not calibrated model), CAPTime (2025, general domains not IV).
+
+### Dependency Chain (Execution Order)
+
+```
+RC20 (D=25 IV)          ← CURRENT: 164a/164b
+    ↓ architecture works
+Multi-factor (D=38)     ← config change + retrain + new eval suites
+    ↓ joint model works
+NLP descriptions        ← can generate in parallel with above (data prep)
+    ↓ training data ready
+NLP projector training  ← SupCon pretrain → CRPS fine-tune
+    ↓ projector works
+Full system             ← text → structured extraction → projection → joint scenarios
+```
+
+### Artifacts
+
+- Data: `data/multi_factor_data.npz`, `data/multi_factor_levels.parquet`, `data/multi_factor_returns.parquet`
+- Script: `scripts/download_multi_factor_data.py`
+- Memory: `memory/project_nlp_conditioning.md`
+
+---
