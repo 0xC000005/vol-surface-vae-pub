@@ -2676,19 +2676,24 @@ def main():
     checkpoint = torch.load(str(model_path), map_location=device, weights_only=False)
     raw_config = checkpoint["config"]
 
-    # Detect SinglePassBlockAR by checking for 'noise_dim' in config
-    is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config
+    # Detect model type from config
+    model_type = raw_config.get("type", "") if isinstance(raw_config, dict) else ""
+    is_cln_e2e = model_type in (
+        "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
+        "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
+    )
+    is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e
 
     # Support both BlockARConfig instance and dict
-    if is_single_pass:
-        model_config = None  # will be handled by SinglePassConfig below
+    if is_single_pass or is_cln_e2e:
+        model_config = None  # will be handled by specific loaders below
     elif isinstance(raw_config, dict):
         model_config = BlockARConfig(**raw_config)
     else:
         model_config = raw_config
 
-    # DDPM-specific config overrides (skip for SinglePassBlockAR)
-    if not is_single_pass:
+    # DDPM-specific config overrides (skip for SinglePassBlockAR and CLN E2E)
+    if not is_single_pass and not is_cln_e2e:
         if args.sampling_mode is not None:
             model_config.sampling_mode = args.sampling_mode
             print(f"  Sampling mode override: {args.sampling_mode}")
@@ -2725,7 +2730,16 @@ def main():
             model_config.crps_boost_only = True
             print("  CRPS boost-only mode")
 
-    if is_single_pass:
+    if is_cln_e2e:
+        # ── CLN E2E model (161a, 163a, 159b etc.) ──
+        # Load as a wrapper that implements sample_batched() interface
+        from experiments.backfill.block_ar._cln_e2e_wrapper import CLNEndToEndWrapper
+        model = CLNEndToEndWrapper.from_checkpoint(checkpoint, device)
+        print(f"  Model type: CLN E2E ({model_type})")
+        print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
+        # Use minimal BlockARConfig for test infrastructure
+        model_config = BlockARConfig()
+    elif is_single_pass:
         from diffusion.block_ar.single_pass_ar import SinglePassBlockAR, SinglePassConfig
         sp_cfg = {k: v for k, v in checkpoint["config"].items()
                   if k in SinglePassConfig.__dataclass_fields__}
@@ -2735,8 +2749,6 @@ def main():
         model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     else:
         model = ConditionalBlockARDDPM(model_config)
-        # Load EMA params if available (and not disabled), otherwise regular state dict
-        # strict=False allows loading when config adds new buffers (e.g. fixed_cell_scale)
         if "ema_params" in checkpoint and not args.no_ema:
             print("  Loading EMA parameters...")
             state_dict = model.state_dict()
@@ -2759,9 +2771,10 @@ def main():
         print("  GRU state frozen: using initial condition for all frames")
 
     print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
-    if is_single_pass:
+    if is_cln_e2e:
+        pass  # Already printed above
+    elif is_single_pass:
         print(f"  Block size: {sp_config.block_size}, Future len: {sp_config.future_len}")
-        # Use a minimal BlockARConfig for test infrastructure (data paths, split indices)
         model_config = BlockARConfig()
     else:
         print(f"  Block size: {model_config.block_size}, "

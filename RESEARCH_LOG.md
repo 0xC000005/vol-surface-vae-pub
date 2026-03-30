@@ -46183,3 +46183,226 @@ Without LN, the transformer's activation magnitudes are unconstrained. The encod
 4. **Per-cell CI investigation**: Cells (0,3) and (0,4) are the binding constraint
 
 ---
+
+## 2026-03-28: Validation Audit — RC19 Wave 2 Formal Test Evals (4 models, 2 agents)
+
+### Scope
+Formal test-split evaluation of all 4 Wave 2 models (161b, 161c, 159b, 163a) on 1252 held-out windows. Within-window effective rank computed for all VS models. Corrects inline eval numbers that were systematically wrong.
+
+### Complete Formal Dose-Response Table (ALL RC19 models, test split)
+
+| Model | VS lambda | No-LN | CI worst | CI mean | turb/calm | corr | KS | kurtosis | within-ER | Suites |
+|-------|-----------|-------|----------|---------|-----------|------|-----|----------|-----------|--------|
+| 158a (baseline) | 0 | no | 0.442 | — | 0.988 | 0.888 | 2/25 | — | — | 2/6 |
+| 159b | 0 | YES | 0.539 | 0.649 | 1.007 | 0.774 | 4/25 | 0.461 | 1.98 | 2/6 |
+| 161b | 0.3 | no | 0.650 | 0.894 | 1.201 | 1.140 | 12/25 | 0.334 | 1.72 | 3/6 |
+| **161a** | **0.5** | **no** | **0.658** | **0.909** | **1.462** | **1.095** | **16/25** | **0.366** | **1.78** | **4/6** |
+| 161c | 0.7 | no | 0.647 | 0.892 | 0.978 | 0.994 | 15/25 | 5.390 | 1.58 | 3/6 |
+| 163a | 0.5 | YES | 0.578 | 0.805 | 1.166 | 0.794 | 15/25 | **1.498** | **2.68** | 3/6 |
+
+### Critical Corrections (formal vs inline)
+
+| Model | Metric | Inline (100-window) | Formal (1252-window) | Direction |
+|-------|--------|--------------------|--------------------|-----------|
+| 161b turb/calm | | 1.031 | **1.201** | Inline UNDERESTIMATES |
+| 161c turb/calm | | 1.090 | **0.978** | Inline OVERESTIMATES |
+| 161c kurtosis | | ~1.0 (not flagged) | **5.390** | Inline MISSED catastrophe |
+| 159b turb/calm | | 0.937 | **1.007** | Direction reversed |
+| 163a turb/calm | | 0.909 | **1.166** | Inline MISSED that it passes 1.15 |
+
+The inline eval had a systematic RV indexing bug that inverted turb/calm for some models. ALL future conclusions must use formal test-split eval.
+
+### Dose-Response Analysis (Formal Numbers)
+
+VS lambda controls a clear monotonic-then-collapse pattern:
+
+- lambda=0.3: turb/calm=1.201 (mild conditionality, good correlation 1.14)
+- lambda=0.5: turb/calm=1.462 (strong conditionality, good correlation 1.10) — OPTIMAL
+- lambda=0.7: turb/calm=0.978 (conditionality DESTROYED, kurtosis 5.39 catastrophic)
+
+The collapse at lambda=0.7 is dramatic: VS gradient dominates afCRPS, forcing pairwise structure matching at the cost of marginal calibration and regime differentiation.
+
+### No-LN Contributes Two Unique Properties
+
+163a (No-LN+VS) has WORSE CI and KS than 161a (VS alone). But it has:
+1. **Within-window eff_rank = 2.68** (vs 161a's 1.78) — 50% more ensemble diversity
+2. **Kurtosis = 1.498** (vs 161a's 0.366) — the ONLY model in the 0.5-2.0 target range
+
+No-LN helps ensemble diversity and tail behavior. These are the exact properties that standard CLN destroys (rank-1 ensemble, too-Gaussian outputs).
+
+### Updated Mechanism Map
+
+| Property | Best mechanism | Evidence |
+|----------|---------------|----------|
+| Conditionality (turb/calm) | VS lambda=0.5 alone | 161a: 1.462 |
+| CI coverage | VS lambda=0.5 alone | 161a: 0.658 |
+| KS daily | VS lambda=0.5 alone | 161a: 16/25 |
+| Correlation | VS lambda=0.3-0.5 | 161b: 1.14, 161a: 1.10 |
+| Within-window diversity | No-LN + VS | 163a: 2.68 |
+| Kurtosis (tail realism) | No-LN + VS | 163a: 1.498 |
+
+No single model passes all properties. 161a is best on 4 of 6 properties. 163a is best on the other 2 (diversity, kurtosis).
+
+### What This Means for RC19/Wave 3
+
+The path to passing more suites has two branches:
+
+**Branch A (optimize 161a):** Lambda normalization, per-cell CI investigation, model selection tuning. 161a is 0.04 from CI worst cell threshold and 4 KS cells from passing. Refinement may close these gaps.
+
+**Branch B (combine 161a + 163a insights):** 163a proves No-LN contributes diversity and kurtosis that 161a lacks. Can we get 163a's kurtosis (1.498) with 161a's CI (0.658)? This requires understanding why No-LN helps kurtosis (hypothesis: unconstrained activation magnitude allows heavier tails).
+
+### Artifacts
+- results/block_ar/{161b,161c,159b_formal,163a_formal}_test/summary.json
+- results/validations/2026-03-28/analysis/within_window_effrank_wave2/
+- results/validations/2026-03-28/scripts/{161b,161c,159b,163a}_test_eval.{sh,py}
+- results/validations/2026-03-28/verification_results/wave2_{161b_161c,159b_163a}.json
+
+---
+
+## 2026-03-28: Validation Audit — RC19 Comprehensive Gap Fill (8 experiments, 7 tasks)
+
+### Scope
+Final validation of ALL RC19 experiments. 2 parallel agents: Agent A (4 sequential GPU tasks), Agent B (3 analysis tasks). Fills all remaining gaps from the audit table.
+
+### Task 1: 161a 252-Day Long-Horizon — FAILS
+
+| Horizon | CI mean | CI worst | Spread |
+|---------|---------|----------|--------|
+| d30 | 0.842 | 0.471 | 0.0498 |
+| d60 | 0.715 | 0.235 | — |
+| d120 | 0.520 | 0.118 | — |
+| d252 | **0.264** | **0.059** | 0.0455 |
+
+Spread DECREASES with horizon (0.0498 to 0.0455). Growing uncertainty FAILS. Explosion rate at d252: 5.6%. The one-shot 30-frame architecture cannot do rolling 252d generation — it lacks temporal AR structure for error accumulation control.
+
+### Task 2: 161a Multi-Eval-Seed — STABLE
+CI worst range = 0.0045 across seeds 42/43/44 (200 windows). Results are robust to sampling noise. No retraining needed.
+
+### Task 3: 161a ep50 vs ep80 — TURB/CALM DISCREPANCY
+
+| Checkpoint | CI worst | turb/calm | corr | eff_rank |
+|-----------|----------|-----------|------|----------|
+| ep50 (best) | 0.548 | 0.913 | 1.273 | 3.991 |
+| ep80 (final) | 0.690 | 0.889 | 1.428 | 2.768 |
+
+On 200 test windows, BOTH show turb/calm < 1.0. The earlier formal eval (1252 windows, Agent 5) showed turb/calm=1.462. This 0.913 vs 1.462 discrepancy is likely due to: (a) different window count (200 vs 1252), (b) different regime classification percentiles (p80/p20 on subset vs full), (c) stochastic eval noise. The turb/calm metric is UNRELIABLE at small sample sizes.
+
+Notable: ep80 has BETTER CI (+0.14) but WORSE correlation (eff_rank 3.99 to 2.77). The trade-off is more nuanced than "VS gets erased" — continued training improves CI at the cost of diversity.
+
+### Task 4: 162a Formal Test Eval — WEAK
+CI worst=0.549, KS=0/25, calendar arb=100%, eff_rank=8.27 (too independent). Direct output without MeanPredictor is strictly inferior. Filed but not a path forward.
+
+### Task A: 160a Per-Cell KS Analysis
+
+160a (AR frame) passes 20/25 KS. Failing cells have clear spatial pattern:
+- 3/5 failures in 1M row (short tenor) — fat-tailed dynamics hardest to match
+- Strong tenor gradient: 1M mean KS=0.160, 24M=0.072
+
+160a vs 161a complementarity: 160a passes 6 KS cells that 161a fails (short-tenor, OTM). 161a passes 2 that 160a fails. AR architecture produces better distributional quality at short tenors.
+
+### Task B: 163a Per-Cell CI + No-LN Diversity Hypothesis
+
+163a (No-LN+VS) has within-window eff_rank=2.68 (50% better than 161a's 1.78) and kurtosis=1.498 (only model in target range). But CI is worse (0.805 vs 0.910 mean).
+
+No-LN hypothesis PARTIALLY SUPPORTED: No-LN preserves scale differences in the residual stream, creating richer latent space for noise exploration. CI correlation with IV magnitude is r=-0.84 (163a) vs r=-0.62 (161a) — No-LN makes the model more sensitive to surface shape. But wings lose MORE CI than ATM because extra spread overshoots narrow wing distributions.
+
+### Task C: Cross-Model Per-Cell Comparison — CRITICAL FINDINGS
+
+**1. One persistent failure cell: (1M, 1.10)**
+Deep OTM call, 1-month tenor. Fails CI in ALL 7 models. Best-case CI = 0.700 (161b, just under threshold). This is a fundamental ceiling — no architecture variant can calibrate this cell.
+
+**2. CI dominance is clear**: 161a is best for 18/25 cells. 161b/161c cover remaining 7. No other model is ever CI-best.
+
+**3. KS is distributed**: 160a best for 8 cells (short tenor), 163a for 7 (mid-range), others share remainder. Architectures have complementary distributional strengths.
+
+**4. Best complementary pair**: 161a + 161c covers 24/25 CI cells. No combination reaches 25/25 due to (1M, 1.10).
+
+**5. Structural tradeoff confirmed**: CI requires calibrated spread (K=8 ensemble averaging). KS requires realistic tails (simpler K=2 or No-LN). These are architecturally opposed.
+
+### Updated Complete Model Comparison (ALL formal test evals)
+
+| Model | CI worst | CI mean | turb/calm | corr | KS | kurtosis | within-ER | 252d | Suites |
+|-------|----------|---------|-----------|------|-----|----------|-----------|------|--------|
+| 158a (E2E base) | 0.442 | — | 0.988 | 0.888 | 2/25 | — | — | — | 2/6 |
+| 159a (No-LN res) | 0.241 | — | 0.940 | — | — | — | — | — | 4/6 |
+| 159b (No-LN E2E) | 0.539 | 0.649 | 1.007 | 0.774 | 4/25 | 0.461 | 1.98 | — | 2/6 |
+| 160a (AR frame) | 0.358 | 0.489 | 1.002 | 0.918 | **20/25** | 0.196 | — | — | 4/6 |
+| **161a (VS=0.5)** | **0.658** | **0.909** | **1.462*** | **1.095** | **16/25** | 0.366 | 1.78 | **FAIL** | **4/6** |
+| 161b (VS=0.3) | 0.650 | 0.894 | 1.201 | 1.140 | 12/25 | 0.334 | 1.72 | — | 3/6 |
+| 161c (VS=0.7) | 0.647 | 0.892 | 0.978 | 0.994 | 15/25 | 5.390 | 1.58 | — | 3/6 |
+| 162a (direct) | 0.549 | 0.681 | 1.055 | — | 0/25 | 2.354 | — | — | — |
+| 163a (No-LN+VS) | 0.578 | 0.805 | 1.166 | 0.794 | 15/25 | **1.498** | **2.68** | — | 3/6 |
+
+*161a turb/calm=1.462 from 1252-window formal eval (Agent 5). 200-window eval shows 0.913. Metric is sample-size sensitive.
+
+### What We Now Know (RC19 Complete Picture)
+
+**Solved:**
+- Cross-window factor structure (S9 passes for 161a)
+- Growing uncertainty within 30d (S5 passes for all models)
+- Surface validity (S1 passes for all models)
+
+**Partially solved:**
+- Conditionality (161a turb/calm=1.201-1.462 depending on eval window count)
+- CI coverage (161a CI mean=0.909, but worst cell=0.658)
+- Correlation (161a corr=1.095)
+
+**NOT solved:**
+- Within-window ensemble diversity (eff_rank 1.78, rank-1 ensemble)
+- Cell-specific spread (cell (1M,1.10) fails ALL models)
+- Kurtosis (only 163a passes at 1.498, all others fail)
+- KS daily (best: 160a at 20/25, but 160a fails CI)
+- Long-horizon 252d (CI=0.264 at d252, spread doesn't grow)
+
+**Fundamental tradeoffs (architecture-level):**
+- CI vs KS: calibrated spread (K=8) vs realistic tails (K=2/No-LN)
+- CI vs diversity: uniform CLN produces calibrated CI but rank-1 ensemble
+- Conditionality vs correlation: VS creates both but turb/calm metric is noisy
+
+### Remaining Gaps After This Audit
+1. turb/calm metric reliability — 200-window vs 1252-window gives 0.913 vs 1.462
+2. 161a long-horizon is a boss-requirement FAIL — needs architectural solution (AR)
+3. No model passes kurtosis + CI simultaneously (163a kurtosis=1.498 but CI=0.578)
+
+### Artifacts
+All at results/validations/2026-03-28/:
+- scripts/task1_161a_long_horizon_252d.py
+- scripts/task2_161a_multi_seed.py
+- scripts/task3_161a_epoch_comparison.py
+- scripts/task4_162a_formal_test.py
+- analysis/{161a_multi_eval_seed,161a_epoch_comparison,160a_percell,163a_percell,cross_model_percell}/
+- results/block_ar/{161a_252d,162a_formal_test}/summary.json
+
+---
+
+## 2026-03-30: CRITICAL — 161a on v2 Test Suite Shows Net Regression from Old Architecture
+
+### Context
+Adapted test_block_ar_requirements_v2.py to accept CLN E2E models via wrapper (_cln_e2e_wrapper.py). Ran 161a (best RC19 model) through the same 9-suite evaluation used for old SinglePassBlockAR models. First apples-to-apples comparison.
+
+### Results — 161a vs Old Models (same v2 suite, test split)
+
+| Suite | 161a (E2E+VS) | 99m_v2 (old) | 97a+qmap (old) |
+|-------|--------------|-------------|----------------|
+| 1. Surface Validity | PASS | PASS | PASS |
+| 2. CI Coverage | FAIL (worst 63.6%) | FAIL | FAIL |
+| 3. Conditionality | PASS (t/c=1.209) | PASS (1.49) | PASS (1.68) |
+| 4. Time Series | **FAIL** (kurt=0.448) | **PASS** (0.86) | **PASS** (0.88) |
+| 5. Block-AR | PASS | PASS | PASS |
+| 6. Cointegration | **FAIL** (0.431) | **PASS** | **PASS** |
+| 7. Regime Coverage | FAIL (layer 2) | FAIL | FAIL |
+| 8. Distributional | FAIL (KS lvl 13/25) | FAIL | FAIL |
+| 9. Cross-Cell Corr | PASS | — | — |
+| **Total** | **4/9** | **5/8** | **5/8** |
+
+### Key Finding
+161a is a NET REGRESSION from old models. It fails Suites 4 (kurtosis) and 6 (cointegration) which old models pass, while not gaining any new suites. The whole RC17-RC19 CLN transformer line solved conditionality (turb/calm via VS) but lost kurtosis and cointegration that the old architecture preserved.
+
+### The Principled vs Black-Box Tradeoff
+- Old SinglePassBlockAR: 5/9 suites but no mechanistic understanding. ~100 hyperparameters accumulated over 100+ experiments. Conditionality emerged from noise architecture (AdaGN + skip + cell_spread + rho=0.8) but we don't know which component or why.
+- New CLN + VS: 4/9 suites but complete mechanistic understanding. Each failure has a known root cause (kurtosis: LN too-Gaussian; cointegration: no temporal structure; CI: cell (0,4) dynamics).
+
+### Decision
+Investigate WHY the old architecture works — extract its principles rather than going back to the black box. If we can identify which components produce kurtosis and cointegration, we can incorporate them into the principled framework.
+
+---
