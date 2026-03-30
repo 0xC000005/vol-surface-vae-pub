@@ -47205,3 +47205,157 @@ Changes from RC20 draft:
 - DOCUMENTED VS propriety limitation (trivariate blindness — acceptable for IV)
 
 ---
+
+## 2026-03-30: Research Compass RC20 — FINAL (Literature-Validated, Post-Review)
+
+### Philosophy
+- **Bitter Lesson**: No pretrained weights, no domain heuristics. Everything E2E from scratch.
+- **Karpathy**: One change at a time. Follow-ups triggered by specific measured failures.
+- **Popper**: Every component has a kill condition. Every failure is informative.
+- **FCN3/FGN/AIFS**: Architecture validated against operational weather models (LaTeX source).
+
+### Evidence Base (all verified this session)
+
+| Evidence | Source | Status |
+|----------|--------|--------|
+| vol_scale → kurtosis + conditionality in MLP | 99m_v2 ablation (T1) | VERIFIED |
+| vol_scale does NOT transfer to CLN transformer | 161a ablation (T1) | VERIFIED |
+| GRU feedback → cointegration | 99m_v2 ablation (T2) | VERIFIED |
+| No-LN gives eff_rank 2.68 (vs 1.78 with LN) | 163a vs 161a | VERIFIED |
+| No-LN outliers are from unbounded activations | 163a diagnostic | VERIFIED |
+| tanh bounds extremes, linear for bulk | 163a quantile analysis | VERIFIED |
+| VS solves conditionality (turb/calm=1.462) | 161a formal eval | VERIFIED |
+| VS+afCRPS is proper but not strictly proper | Pic et al. (2407.00650) | LITERATURE |
+| No-LN viable with LayerScale + He init | FCN3 (2507.12144) | LITERATURE |
+| Weather models use unbounded residual | FGN/AIFS/GenCast/FCN3 | LITERATURE |
+| GRU→cointegration is novel finding | No prior work found | LITERATURE GAP |
+
+### Architecture
+
+```
+Encoder: GRU + attention pool
+         Random init (no pretrained weights)
+         E2E training
+         Updated per frame during AR (generated frames fed back)
+
+Decoder: Spatial transformer (attention over 25 cells per frame)
+         No LayerNorm (FCN3 pattern — preserves magnitude)
+         tanh output bounding (proven in old model, bounds extremes)
+         LayerScale 0.1 + He init + zero-init output
+         Standard grad clip (norm=1.0)
+
+Generation: AR frame-by-frame
+            frame_t = prev_frame + tanh(delta)
+            Reflecting boundary on IV [0.01, 1.0] (physical constraint)
+
+Loss: afCRPS + VS (lambda=0.5), per-frame at D=25
+      Proper but not strictly proper (blind to trivariate+ — acceptable for IV)
+
+Training: E2E from scratch, no frozen components
+```
+
+### 4 Big Design Questions — Coverage
+
+| Question | RC20 Answer | How Tested |
+|----------|------------|-----------|
+| Q1: Condition → noise? | CLN + no-LN + VS | Both 164a and 164b |
+| Q2: Direct vs residual? | Both tested | 164a (direct) vs 164b (residual) |
+| Q3: Scoring rule? | afCRPS + VS lambda=0.5 | Settled (RC19 dose-response) |
+| Q4: One-shot vs AR? | AR + GRU feedback | Settled (ablation + principled argument) |
+
+### 7 Known Problems — Coverage
+
+| Problem | Addressed? | Mechanism | If Fails → Follow-up |
+|---------|-----------|-----------|---------------------|
+| Cointegration (0.431) | YES | AR + GRU feedback | Fundamental: spatial transformer incompatible |
+| Kurtosis (0.448) | YES | no-LN + tanh | 164d: Student-t noise |
+| Long-horizon (CI=0.06) | YES | AR self-correcting (rolling window) | Fundamental: AR OOD |
+| Rank-1 ensemble (ER=1.78) | MAYBE | no-LN (163a got 2.68) | 164c: FactorNoiseSkip |
+| KS daily (16/25) | MAYBE | AR (old model got 20/25) | Investigate decoder |
+| CI worst cell (0.658) | MAYBE | no-LN per-cell variation | 164g: per-cell CLN |
+| Non-causal attention | YES | AR is causal by construction | Solved |
+
+### Experiments
+
+**Primary (both run):**
+
+| Exp | Description | Answers |
+|-----|------------|---------|
+| **164a** | Direct: frame_t = prev_frame + tanh(delta) | Full stack + Q2 (direct) |
+| **164b** | Residual: frame_t = prev_frame + MeanPred(cond) + tanh(delta) | Q2 (residual) |
+
+**Conditional follow-ups (one at a time, triggered by measured failure):**
+
+| Exp | Trigger | What It Tests | Mechanism |
+|-----|---------|--------------|-----------|
+| 164c | within-window eff_rank < 2.0 | FactorNoiseSkip (5 factors) | Adds rank-5 skip bypass to output |
+| 164d | kurtosis ratio < 0.5 | Student-t noise (df=4) | Heavier-tailed noise input |
+| 164e | training diverges | AGC lambda=0.04 | Gradient stability without LN |
+| 164f | turb/calm < 1.15 | Increase VS lambda or add vol_scale | Stronger conditionality signal |
+| 164g | per-cell spread ratio > 3x range | Per-cell CLN (percell=True) | Independent (gamma_i, beta_i) per cell from shared z |
+| 164h | tanh hit rate > 5% | Remove tanh, try AGC only | If model constantly hits tanh, bounding is too tight |
+
+### Evaluation Protocol (MANDATORY for 164a and 164b)
+
+#### Stage 1: During Training (every 20 epochs)
+- afCRPS and VS loss components separately
+- Spread trajectory (contracting? stable?)
+- Quick eff_rank (50 members, 50 windows)
+- **Kill check**: loss diverging? eff_rank < 1.5? NaN?
+- NO conclusions from training metrics
+
+#### Stage 2: After Training
+- v2 test suite (9 suites, 20 batches, 50 samples)
+- This is the ONLY authoritative evaluation
+- NO inline eval, NO subsets, NO custom eval scripts
+
+#### Stage 3: Post-v2 Diagnostics (run ALWAYS, pass or fail)
+
+| Diagnostic | What | Why | Threshold |
+|-----------|------|-----|-----------|
+| Per-cell spread ratio grid (5x5) | ensemble_std / GT_std per cell | Detect uniform spread (current: 0.48-3.03) | Range < 3x = good |
+| Per-cell kurtosis grid (5x5) | gen_kurtosis / GT_kurtosis per cell | Detect chaotic outliers (163a: 1/25 in range) | >15/25 in [0.5, 2.0] = good |
+| Within-window eff_rank | 50 members, 200 windows | Detect rank-1 ensemble | >2.5 = good |
+| tanh hit rate | Fraction of deltas at tanh saturation | Safety net quality metric | <0.1% = model learned bounds |
+| Reflecting boundary hit rate | Fraction of IV values bounced | Physical constraint metric | <0.1% = model learned IV range |
+| turb/calm from v2 | Full 1252 windows, NOT subsets | Conditionality (unreliable at small N) | >1.15 = PASS |
+| Per-cell cointegration | Which cells fail and why | Worst cell drives suite failure | Gen/GT ratio > 0.50 |
+
+#### Stage 4: If 5+ Suites Pass
+- 252-day long-horizon test (CI at d30/d60/d120/d252)
+- Spread growth profile (must be monotonically increasing)
+- Boundary hit rate at d252
+
+#### Stage 5: If < 5 Suites Pass — Mechanistic Failure Diagnosis
+
+| Failed Suite | Check This Diagnostic | Conclusion | Follow-up |
+|-------------|----------------------|------------|-----------|
+| Suite 4 (kurtosis) | Per-cell kurtosis grid | Chaotic vs uniform? | 164d (Student-t) or 164h (remove tanh) |
+| Suite 6 (cointegration) | Per-cell cointegration | GRU feedback helps CLN? | FUNDAMENTAL — may need different decoder |
+| Suite 2 (CI per-cell) | Per-cell spread ratio | Uniform spread? Which cells? | 164g (per-cell CLN) |
+| Suite 3 (conditionality) | turb/calm + spread per regime | VS working under AR? | 164f (increase VS lambda) |
+| Suite 9 (correlation) | Within-window eff_rank | Rank-1 ensemble? | 164c (FactorNoiseSkip) |
+| Suite 8 (KS) | Per-cell KS breakdown | Which cells fail? Short tenor? | Investigate decoder vs data |
+| Training diverges | Loss curves | Where does it blow up? | 164e (AGC) |
+
+### Standing Rules
+1. NEVER conclude from inline eval — v2 suite only
+2. ALWAYS full test split (1252 windows) for turb/calm
+3. ALWAYS per-cell grids — aggregates hide problems
+4. ALWAYS run Stage 3 diagnostics even if all suites pass
+5. Understand WHY before moving to next experiment (HEDA gate)
+6. Document in research log before next experiment
+
+### Target
+Match or exceed 99m_v2 (5/8 on v2 suite). Specifically pass kurtosis (Suite 4) and cointegration (Suite 6) that 161a fails.
+
+### Encoder Design Space (documented for future, not tested in RC20)
+
+| Approach | Context | When to explore |
+|----------|---------|----------------|
+| GRU + attention pool (RC20 default) | All history, compressed | Current |
+| Rolling window (N=30 frames as input) | Explicit N-day context | If GRU compression loses info |
+| Mamba (selective state space) | All history, efficient | If GRU is too slow at long horizon |
+| Markov (2 frames, FGN pattern) | 2 days only | If simplicity beats memory |
+
+---
