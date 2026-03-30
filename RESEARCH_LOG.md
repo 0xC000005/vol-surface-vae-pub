@@ -46983,3 +46983,53 @@ But we DON'T KNOW. Running both gives us a clean comparison and resolves Q2 defi
 | 164f | conditionality < 1.15 | Increase VS lambda or add vol_scale |
 
 ---
+
+## 2026-03-30: Cell (0,4) CI Failure — Root Cause is Uniform Spread (Architectural)
+
+### Context
+Cell (0,4) — deep OTM call, 1-month tenor — fails CI in ALL models (7+ tested). Best CI = 63.6% (161a). Ran three diagnostic tests to determine if the cause is data, model, or loss.
+
+### Results
+
+**Test 1 (Data): Cell (0,4) IS harder but NOT impossible.**
+- Daily change std: rank 3/25 (3.2x more volatile than average)
+- CV of IV levels: rank 4/25 (2.1x more variable relative to level)
+- Kurtosis: rank 24/25 (lightest tails — volatile but not fat-tailed)
+- The entire row 0 (short tenor) and column 4 (deep OTM) are the most volatile cells
+
+**Test 2 (Model): THE SMOKING GUN — uniform spread across non-uniform data.**
+
+Spread ratio (ensemble_std / GT_std) across 25 cells:
+```
+Row 0:  0.52  0.58  0.61  0.61  0.55   under-spread ~45%
+Row 1:  0.71  0.93  0.78  0.67  0.48   col 4 worst
+Row 2:  1.04  1.22  1.02  0.92  0.79
+Row 3:  1.57  2.02  1.46  1.18  1.50   over-spread
+Row 4:  2.50  3.03  2.69  1.98  1.45   massively over-spread 3x
+```
+
+Range: 0.48 to 3.03 (6.3x imbalance). The model produces roughly uniform noise scale but GT volatility is highly non-uniform (row 0 std is 10-15x row 4 std). Short-tenor OTM cells need MORE spread, long-tenor ATM cells need LESS. The model compromises: over-spreads quiet cells, under-spreads volatile ones.
+
+**Test 3 (Loss): Loss is NOT the bottleneck.**
+- Cell (0,4) contributes 9.4% of total CRPS (4.77x median cell)
+- Cell (0,0) dominates at 22.4%
+- The loss over-weights volatile cells — the gradient signal is strong
+- Despite strong gradient, the model's architecture constrains it to uniform spread
+
+### Root Cause
+
+The CLN transformer applies shared (gamma, beta) noise modulation to all 25 cells. Even though different cells have different hidden states (from attention), the noise perturbation is approximately uniform in magnitude. This produces one-size-fits-all spread that cannot match the 6.3x volatility variation across the IV surface.
+
+### Implications for RC20
+
+1. **No-LN should help**: Without LN, per-cell hidden state magnitudes are preserved (not normalized to unit scale). Cells with naturally larger activations (volatile cells) should produce larger deltas → larger spread. 163a's eff_rank=2.68 (vs 1.78) suggests more per-cell variation.
+
+2. **If no-LN doesn't fix it**: The per-cell CLN mechanism already exists in the codebase (ConditionalLayerNorm with percell=True, Exp 149c). This computes per-cell (gamma_i, beta_i) from noise, giving each cell independent noise modulation. Would be follow-up 164g.
+
+3. **Add per-cell spread ratio to RC20 evaluation protocol**: After training 164a/b, compute the 5x5 spread ratio grid. If the gradient from row 0 to row 4 is still >3x, per-cell noise is needed.
+
+### Artifacts
+- Script: results/validations/2026-03-30/scripts/cell04_diagnostic.py
+- Results: results/validations/2026-03-30/analysis/cell04_diagnostic/cell04_diagnostic.json
+
+---
