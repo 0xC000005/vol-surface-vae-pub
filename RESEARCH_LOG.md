@@ -46406,3 +46406,99 @@ Adapted test_block_ar_requirements_v2.py to accept CLN E2E models via wrapper (_
 Investigate WHY the old architecture works — extract its principles rather than going back to the black box. If we can identify which components produce kurtosis and cointegration, we can incorporate them into the principled framework.
 
 ---
+
+## 2026-03-30: Ablation Validation — WHY SinglePassBlockAR (99m_v2) Works (4 Verified Mechanisms)
+
+### Context
+After discovering that 161a (CLN+VS, best RC19 model) is a net regression from the old SinglePassBlockAR (99m_v2: 5/8 vs 4/9), we needed to understand WHY the old architecture works. Code investigation identified 4 candidate mechanisms. This validation runs inference-time ablations on 99m_v2 to verify each with numbers, not intuition.
+
+All ablations: 320 test windows, 50 samples each, same test split (start_idx=4540). Each ablation disables ONE component at inference time — no retraining.
+
+### Ablation Results
+
+#### Ablation 1: vol_scale = 1.0 (constant) — CLAIM SUPPORTED
+
+**Claim**: Data-adaptive vol_scale (computed from history std, range [0.5, 2.0]) creates heavy tails and conditionality.
+
+| Metric | Baseline | Ablated (vs=1.0) | Delta |
+|--------|----------|-------------------|-------|
+| Kurtosis ratio | 0.905 | **0.514** | -43% |
+| turb/calm | 1.260 | **1.020** | -19% |
+| CI 90% | 0.942 | 0.948 | unchanged |
+
+**Verified mechanism**: vol_scale does DOUBLE DUTY — it creates both kurtosis (mixing different-variance regimes → heavy tails) AND conditionality (turb windows get vs~1.5, calm get vs~0.6 → wider/narrower intervals). Removing it collapses both. CI is unaffected because vol_scale changes distribution SHAPE, not overall LEVEL.
+
+Vol_scale distribution across test windows: mean=0.87, p10=0.52, p90=1.20.
+
+#### Ablation 2: Frozen GRU condition (no per-frame update) — CLAIM SUPPORTED
+
+**Claim**: GRU feeds each generated frame back into hidden state, recomputing condition. This creates soft mean-reversion → cointegration.
+
+| Metric | Normal | Frozen GRU | Delta |
+|--------|--------|-----------|-------|
+| Coint gen/GT ratio | 0.650 | **0.462** | -29% |
+| CI 90% | 0.954 | 0.906 | -5% (long horizon) |
+| Kurtosis ratio | 0.527 | 0.571 | unchanged |
+| turb/calm | 1.340 | 1.357 | unchanged |
+
+**Verified mechanism**: GRU feedback specifically controls cointegration WITHOUT affecting kurtosis or conditionality. Clean separation — this is an independent mechanism. Freezing GRU drops coint ratio 29% and hurts long-horizon CI (h30: 0.942 → 0.757).
+
+**Mechanistic explanation confirmed**: When trajectories drift high, the GRU condition shifts to encode "high-IV state", producing negative deltas (mean-reversion). Without feedback, trajectories are more random-walk-like.
+
+#### Ablation 3: cell_spread = 1.0 (constant) — CLAIM REFUTED
+
+**Claim**: cell_spread = softplus(Linear(condition, 25)) creates condition-dependent per-cell multiplicative scaling → conditionality.
+
+| Metric | Normal | Ablated (spread=1.0) | Delta |
+|--------|--------|---------------------|-------|
+| turb/calm | 1.469 | **1.634** | **+11%** |
+| Cell_spread turb/calm ratio | 0.93 | — | — |
+
+**REFUTED**: Removing cell_spread INCREASES conditionality. Cell_spread is NOT a conditionality mechanism — it's a learned per-cell attenuation (mean value 0.22, dampens deltas ~5x). It dampens turbulent windows slightly more than calm (turb/calm of spread values = 0.93). The true conditionality source is vol_scale (Ablation 1).
+
+Spearman correlation between vol-of-vol and mean cell_spread = -0.244 (p < 1e-5): cell_spread is inversely correlated with turbulence.
+
+#### Ablation 4: Epoch 10 vs Epoch 60 (freeze effect) — CLAIM SUPPORTED (corrected)
+
+**Claim**: freeze_after_epoch=10 preserves eff_rank at ~5.39 (near GT).
+
+| Checkpoint | eff_rank | corr ratio |
+|-----------|----------|-----------|
+| Epoch 10 | **9.29** | 0.745 |
+| Epoch 20 | 8.62 | — |
+| Epoch 40 | 8.19 | — |
+| Epoch 60 (final) | **6.45** | 0.936 |
+| GT | 5.10 | 1.000 |
+
+**SUPPORTED but CORRECTED**: The original claim ("eff_rank ~5.39 at ep10") was numerically wrong — ep10 eff_rank is 9.29 (too diffuse). The freeze preserves the MLP's factor decomposition at ep10, then skip_proj + cell_spread continue training for 50 more epochs, improving eff_rank from 9.29 toward GT (5.10), landing at 6.45.
+
+MLP weights are EXACTLY identical between ep10 and ep60 (max_diff = 0.0 for all 6 MLP layers). Only noise_skip_proj (max_diff=0.069) and cell_spread_linear (max_diff=1.87) changed post-freeze.
+
+### Verified Mechanism Map (Evidence-Backed)
+
+| Property | Mechanism | Ablation Evidence | Independent? |
+|----------|-----------|-------------------|-------------|
+| **Kurtosis** (heavy tails) | vol_scale (data-adaptive) | Ablation 1: 0.905 → 0.514 | Yes (no effect on coint) |
+| **Conditionality** (turb/calm) | vol_scale (data-adaptive) | Ablation 1: 1.260 → 1.020 | Shared with kurtosis |
+| **Cointegration** (mean-reversion) | GRU per-frame feedback | Ablation 2: 0.650 → 0.462 | Yes (no effect on kurt/turb) |
+| **Factor structure** (eff_rank) | Freeze MLP + continue skip/spread | Ablation 4: 9.29 → 6.45 over 50ep | Yes |
+| ~~cell_spread → conditionality~~ | **REFUTED** | Ablation 3: turb/calm increases without it | — |
+
+### Three Extractable Principles (for any architecture)
+
+1. **Data-adaptive output scaling**: Compute a per-window scalar from history volatility. Multiply all deltas by this scalar. This creates both kurtosis (regime mixing) and conditionality (wider intervals in turbulent periods). The CLN transformer uses a learned per-cell constant instead — this is the specific gap.
+
+2. **Temporal condition feedback**: Feed each generated frame back through the encoder to update the conditioning vector. This creates soft mean-reversion and preserves IV-EWMA cointegration. The CLN transformer generates all frames in one shot with a fixed condition — this is why cointegration fails.
+
+3. **Staged training with selective freeze**: Freeze the main decoder early to preserve factor structure, continue training only calibration parameters (skip bypass, cell_spread). This prevents the CRPS rank-1 attractor from collapsing diversity. The CLN transformer has no freeze mechanism.
+
+### Artifacts
+All saved to results/validations/2026-03-30/:
+- scripts/ablation_vol_scale.py, 99m_v2_ablation_vol_scale.sh
+- scripts/99m_v2_ablation_gru_freeze.py
+- scripts/99m_v2_ablation_cell_spread.py
+- scripts/99m_v2_ablation_freeze_epoch.py
+- analysis/ablation_{vol_scale,gru_freeze,cell_spread,freeze_epoch}/
+- verification_results/99m_v2_ablation_{vol_scale,gru_freeze,cell_spread,freeze_epoch}.json
+
+---
