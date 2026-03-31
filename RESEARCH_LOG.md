@@ -48404,3 +48404,72 @@ The spatial attention (4 layers over 25 tokens) is not strong enough to enforce 
    - Reduce noise_dim per cell to limit freedom
 
 ---
+
+## 2026-03-31: RC20.2 H2a Validation — Per-Cell CLN Explosion is Edge Effect, CI Gap is Multi-Step
+
+### Explosion Root Cause: Per-Window Metric Amplifies Tiny Edge Effect
+
+The 38.7% explosion rate is NOT catastrophic model failure. Comprehensive diagnosis:
+
+| Metric | Value |
+|--------|-------|
+| Per-value OOB rate | **0.17%** (only slightly above v3 0.035%) |
+| Explosion per-window rate | 38.7% (any-of-37500-values metric) |
+| Which cells explode | Only 3: (0,0), (0,3), (2,4) — high-variance corners |
+| Direction | All below 0, none above 1 |
+| OOB growth over steps | Flat: 0.15% at step 1, 0.19% at step 30 — NOT accumulating |
+| Mean-reversion at OOD | CORRECT: prev=-0.1 produces delta=+0.067 (pushes back) |
+| Spatial smoothness | neighbor/overall=0.33, identical to v3 |
+
+The test suite uses .any(axis=(1,2,3)) — if ANY of 37,500 values per window goes below 0, the window fails. With 0.17% per-value rate and 37,500 values, most windows hit at least one slightly negative value.
+
+### CI Coverage Gap: Single-Step vs Multi-Step Calibration
+
+**Contradiction discovered:** Spr/GT = 1.00 (perfect single-step calibration) but 90% CI = 59.7% (worse than v3 69.8%).
+
+| Metric | percell | v3 |
+|--------|---------|-----|
+| Single-step Spr/GT mean | **1.00** | 2.00 |
+| 90% CI overall | 59.7% | **69.8%** |
+| CI h=1 | 65.3% | 70.5% |
+| CI h=30 | 56.8% | 64.5% |
+| Calibration error | 0.215 | 0.164 |
+
+**Explanation:** Spr/GT was measured at single-step (delta std at step 1). CI is measured at h=30 (cumulative over 30 AR steps). Per-cell CLN produces correct single-step spread but the spread does not accumulate appropriately over 30 steps. v3 had excess single-step spread (Spr/GT=2.00) that coincidentally HELPED cumulative CI by overcompensating.
+
+This confirms the fundamental multi-step spread problem identified earlier: the model optimizes each step independently (prev = frame_t.detach()) with no multi-step gradient pressure for spread to grow with horizon. Fixing per-cell noise structure (rank, calibration) does not fix the multi-step accumulation dynamics.
+
+### Distributional Metrics (Best Ever)
+
+| Metric | percell | v3 | vs5 |
+|--------|---------|-----|-----|
+| KS daily | **16/25 (PASS)** | 13/25 | 10/25 |
+| KS level | **14/25** | 13/25 | 7/25 |
+
+Per-cell CLN achieves the best distributional performance of any model. KS daily passes the 15/25 threshold. KS level is 1 cell away from passing.
+
+### Revised Understanding of Remaining Problems
+
+The per-cell CLN model has the best internal quality:
+- Single-step calibration: Spr/GT = 1.00 (perfect)
+- Factor structure: eff_rank = 2.94 (good)
+- Cross-cell correlation: PASS (rank_ratio = 2.21)
+- Distributional: KS daily 16/25 (PASS)
+- Cointegration: 0.51 (PASS)
+- Mean-reversion: works even for OOD inputs
+
+**Two remaining problems:**
+
+1. **Multi-step spread growth**: Single-step is calibrated but 30-step spread is too narrow (CI 59.7% vs target 90%). This is the detach training problem — no gradient flows across AR steps to teach spread accumulation. All models share this issue but v3 masked it with excess single-step spread.
+
+2. **Edge OOB**: 0.17% of values go slightly negative (min = -0.05). Affects only 3 high-variance cells. Not a spatial coherence problem (smoothness preserved). Could potentially be addressed by the model learning slightly more conservative deltas for low-IV cells near the boundary.
+
+### What Was Learned
+
+1. Per-cell CLN fixes the noise structure (rank-1, per-cell calibration) as hypothesized by Codex
+2. The explosion metric (38.7%) was misleading — per-value rate is only 0.17%
+3. Single-step calibration (Spr/GT=1.00) does NOT guarantee multi-step CI coverage
+4. The multi-step spread growth problem is now the PRIMARY remaining bottleneck
+5. This problem is training-related (detach prevents multi-step gradient) not architectural
+
+---
