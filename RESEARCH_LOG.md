@@ -48473,3 +48473,77 @@ The per-cell CLN model has the best internal quality:
 5. This problem is training-related (detach prevents multi-step gradient) not architectural
 
 ---
+
+## 2026-03-31: CORRECTION — Codex Independent Verification Falsifies Multiple Claims
+
+### Context
+After multiple incorrect claims during this session, user requested independent Codex verification of 7 key claims about the per-cell CLN model. Codex loaded the actual checkpoints, generated fresh samples on the real test split, and recomputed all metrics independently.
+
+### Verdict: PARTIAL — 4 of 7 claims do not hold as stated
+
+### Claims Verified as Correct
+- Claim 6: KS daily 16/25 — confirmed from summary.json
+- Per-cell CLN code has no implementation bugs
+- OOD drift direction is correct (prev=-0.1 produces positive delta)
+
+### Claims Falsified or Corrected
+
+**Claim 1: Spr/GT = 0.81 at h=1**
+- Codex recomputation on 200 windows: **0.632** (daily-change) or **0.486** (level-spread)
+- The 0.81 came from a different aggregation or subset. Earlier claim of 1.00 was even more wrong.
+
+**Claim 2: Spread grows 1.84x matching GT 1.95x**
+- Codex found GT level-spread growth on actual test split: **1.03x** (barely grows)
+- Model level-spread growth: 1.83x
+- The GT 1.95x number was not reproduced. The model grows FASTER than GT on this metric.
+- Daily-change spread growth: model 1.08x, GT 1.02x (both near flat)
+
+**Claim 4: 38.7% explosion is per-window artifact, per-value OOB only 0.17%**
+- Codex found: the test suite reshapes (N, K, T, H, W) to (N*K, T, H, W) before computing explosions
+- 38.7% is per-TRAJECTORY rate, not per-window
+- Per-original-window OOB (across all 50 members): **100%** — every window has at least one trajectory with OOB
+- Per-value OOB: 0.11% (close to Claudes 0.17% but measured on different split)
+- Claudes claim that this is a measurement artifact was wrong — 38.7% of individual trajectories explode
+
+**Claim 3: Uniform underdispersion at 62-66%**
+- Codex found: cell ratios range from **0.283 to 1.024** at h=1, and **0.352 to 0.810** at h=30
+- This is NOT uniform — some cells are near-calibrated, others severely underdispersed
+- The 63% is only a rough average that hides large cellwise variation
+
+**Claim 5: Model correctly mean-reverts from OOD**
+- Codex: only a local restoring drift bias, not calibrated recovery
+- Overstated as mean-reversion. Defensible statement: decoder has a local restoring drift
+
+**Claim 7: Remaining problem is uniform underdispersion, just increase spread**
+- Codex: the percell model has heterogeneous cellwise underdispersion, heavy lower-tail OOB, and actually LOWER average daily-change spread than v3
+- v3 daily-change ratio h=1: 0.756 vs percell: 0.632
+- Per-cell CLN redistributed spread (better rank) but reduced total spread
+- A single global multiplier likely cannot fix this
+
+### Additional Codex Findings
+1. Test split starts at 4540 (config_block_ar.py:211), not 4511 as Claude used throughout
+2. sample_batched docstring claims output in [0,1] but the AR path is unclamped — misleading
+3. v3 has HIGHER daily-change spread than percell despite worse rank structure
+
+### Codex Recommended Next Experiment
+Freeze percell checkpoint, sweep global spread multiplier at eval (0.9, 1.0, 1.1, 1.2, 1.3). Recompute CI, OOB, KS per multiplier. This directly tests whether the uniform underdispersion hypothesis holds. If a single multiplier cannot improve CI without worsening calibrated cells and OOB, the diagnosis is falsified.
+
+### Updated Understanding
+The per-cell CLN model:
+- Fixed rank-1 (eff_rank improved, Suite 9 PASS, KS daily 16/25 best ever)
+- But reduced total spread compared to v3 (0.632 vs 0.756 at h=1)
+- Has heterogeneous calibration (cell ratios 0.28-1.02), not uniform underdispersion
+- Has real per-trajectory explosions (38.7%), not just a metric artifact
+- The remaining problem is structural: heterogeneous marginal miscalibration + lower-tail instability
+
+### Meta-Learning: Session Error Pattern
+This session produced 7+ incorrect claims that were later corrected. The pattern:
+1. Run a diagnostic on a small subset
+2. Form a narrative from the numbers
+3. Present the narrative confidently
+4. User challenges or Codex falsifies
+5. Discover the measurement was on wrong subset, wrong metric, or wrong interpretation
+
+The lesson: ALWAYS verify on the full test split with the same methodology the test suite uses. Small-subset diagnostics are for hypothesis generation, not for conclusions.
+
+---
