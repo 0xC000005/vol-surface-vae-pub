@@ -48749,3 +48749,62 @@ Claude measured bias at a stale ep12 checkpoint. Current best is ep20. Bias has 
 Continue current run to ep80. Monitor bias every 5 epochs. If worst cells still >0.005 bias at ep40, next experiment: lambda_is=0 ablation.
 
 ---
+
+## 2026-03-31: Design Note — Partial BPTT Through AR Steps (Next Major Experiment)
+
+### Motivation
+All models in RC20 use detached AR: prev = frame_t.detach() at each step. This means no gradient flows from step t+1 back to step t. Each step optimizes locally. Small per-step bias compounds over 30 steps with no gradient to correct it at the source.
+
+Codex verified: ALL models (v3, percell, IS-fix) accumulate drift with detached AR. v3 drifts negative, IS-fix drifts positive. The direction depends on the loss configuration, but drift itself is structural to detached AR.
+
+### Evidence That BPTT Would Help
+- Weather models ALL use partial BPTT during AR training:
+  - FGN (DeepMind): up to 8 steps with gradient
+  - AIFS (ECMWF): up to 12 steps with gradient
+  - FCN3 (NVIDIA): up to 8 steps with gradient
+  - None use full 30-step BPTT (vanishing gradients, memory)
+- Our model is architecturally expressive (per-cell CLN, spatial transformer, GRU encoder). The bottleneck is not capacity but training signal.
+- The decoder CAN correct drift reactively (GRU feedback provides information). But learning proactive drift prevention requires gradient through the AR chain.
+- Cell (3,3) bias at h=30 is +0.008 with detached AR. With BPTT through even 3 steps, the loss at step t+3 would directly penalize bias at step t.
+
+### Design: Partial BPTT (3-5 Step Rollout)
+Instead of detaching every step, accumulate gradient through N consecutive steps before detaching:
+
+Current (detach every step):
+  for t in range(30):
+      frame_t = prev + tanh(delta)
+      loss_t.backward()
+      prev = frame_t.detach()  # cut gradient every step
+
+Partial BPTT (N=3 rollout):
+  for t in range(30):
+      frame_t = prev + tanh(delta)
+      if t % N == N-1 or t == 29:
+          accumulated_loss.backward()
+          prev = frame_t.detach()  # cut gradient every N steps
+      else:
+          prev = frame_t  # keep gradient flowing
+
+This gives each step gradient signal from N steps ahead. Step t knows "my output will affect steps t+1 through t+N." Enough to learn drift correction without the memory cost of full 30-step BPTT.
+
+### Memory and Compute Cost
+- Current detached: ~1 step of activations in memory (50s/epoch)
+- Partial BPTT N=3: ~3 steps of activations (~3x memory, ~1.5x compute)
+- Partial BPTT N=5: ~5 steps of activations (~5x memory, ~2x compute)
+- Full BPTT N=30: ~30 steps (OOM on 8GB GPU)
+
+At B=16, K=16 with per-cell CLN (2.5M params), N=3 should fit in 8GB. N=5 may need B=8.
+
+### GRU Feedback Under BPTT
+Currently GRU update is under no_grad. With partial BPTT, the GRU update should also have gradient for the N-step window:
+- Within the N-step window: GRU update WITH gradient (condition evolves with gradient)
+- At the detach boundary: detach GRU state
+This lets the encoder learn how to update its condition based on generated frames — currently it cannot learn this.
+
+### Relationship to Current Experiment
+The IS-fix K=16 model is still training (ep20+). Let it finish to ep80 first. If it achieves 5+/9 without BPTT, the drift is manageable. If it stays at 4/9 or worse due to bias, partial BPTT is the principled next step.
+
+### Bitter Lesson Compatibility
+BPTT is a training procedure, not a domain heuristic. It provides the optimizer with more complete gradient information. The model still learns everything from data. This is analogous to increasing batch size or training epochs — better optimization, not human-designed structure.
+
+---
