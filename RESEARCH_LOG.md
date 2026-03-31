@@ -48636,3 +48636,41 @@ The training was killed at epoch 52 with visible instability (loss oscillating).
 Rerun with full 80 epochs. Consider reducing lambda_is from 0.5 to 0.1-0.2 to balance the corrected IS against afCRPS. The IS fix is confirmed correct — the question is finding the right weight.
 
 ---
+
+## 2026-03-31: Codex Verification — IS Fix Regressions Are Structural, Not Just Lambda
+
+### Context
+Codex independently analyzed why the IS-fixed percell model (alpha=0.1) regressed from 4/9 to 2/9 despite CI improving from 59.7% to 85.2%.
+
+### Codex Key Findings
+
+**1. Different objective, not just rescaled coefficient.**
+With K=8, old alpha=0.9 used central order stats (x_(3), x_(4) — members 3-4 of 8). New alpha=0.1 uses boundary order stats (x_(0), x_(1) and x_(6), x_(7) — members 0-1 and 6-7). These are fundamentally different training signals.
+
+**2. Empirical 90% IS with K=8 is structurally noisy.**
+quantile(0.05) with 8 members routes gradient through only 1-2 extreme members. High variance, easy to satisfy by outliers rather than calibrated diversity.
+
+**3. Model bought CI by going below zero.**
+explosion_low_rate=75.8%, explosion_high_rate=0.02%. Cheapest path: push lower tail below zero. No boundary penalty prevents this.
+
+**4. IS dominated training at 77% of loss.**
+Raw IS term rose from 0.057 to 0.219. At lambda_is=0.5, IS was 77% of total loss. CRPS and VS became irrelevant. The model optimized for IS only.
+
+**5. Common-mode widening destroyed rank structure.**
+The model found a cheap shared-factor widening mode (PC1 variance: 0.41 to 0.92, mean corr: 0.36 to 0.91). Per-cell CLN capacity was not used because IS gradient favored common-mode widening.
+
+**6. Provenance broken.** The restarted training overwrote best_model.pt (now ep2, not the ep51 that produced summary.json).
+
+### Codex Recommended Fix
+- lambda_is = 0.05 (not 0.5)
+- Warmup: linearly from 0 to 0.05 over first 10 epochs
+- Log raw afCRPS, IS, VS separately
+- If this still collapses rank: stop using ensemble-quantile IS at K=8 entirely (structural limit)
+
+### What Was Learned
+1. Changing IS alpha from 0.9 to 0.1 is NOT a simple bug fix — it changes which ensemble members get gradient
+2. lambda_is must be reduced proportionally to avoid IS dominating the loss
+3. K=8 may be fundamentally too small for empirical 90% quantile IS training
+4. The IS fix confirms spread was suppressed (CI 59.7% to 85.2%) but the dosage was wrong
+
+---
