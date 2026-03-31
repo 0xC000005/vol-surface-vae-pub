@@ -47696,3 +47696,40 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v2_no_boundary.py -
 164a_v2 proves the boundary was the output scale problem. But 4/9 is the same count with different failures. The root issues (conditionality, cointegration, eff_rank) are architectural, not related to boundary or scaling.
 
 ---
+
+## 2026-03-30: CORRECTION — 164a_v2 Conditionality Finding Was Wrong
+
+### What Was Claimed
+164a_v2 turb/calm = 0.85 (inverse conditionality). Attributed to IID noise accumulation.
+
+### What Was Actually Wrong
+Two errors compounded:
+1. **Wrong regime classifier**: Diagnostic used SPX returns for regime classification. The v2 test suite uses vol-of-vol (std of daily mean-IV changes in history). These produce different regime assignments.
+2. **Small sample noise**: Subset of 400 windows showed turb/calm=1.03 with GRU feedback. Full 1252 windows shows 1.16.
+
+### Corrected Results (full 1252 test windows, correct VoV classifier)
+
+| Mode | Calm spread | Turb spread | turb/calm |
+|------|------------|------------|-----------|
+| No GRU feedback (matches training) | 0.0223 | 0.0277 | **1.242** |
+| With GRU feedback (matches test suite) | 0.0248 | 0.0288 | **1.160** |
+
+Both pass the 1.15 threshold. **The model HAS learned correct conditionality.**
+
+### GRU Feedback Train-Test Mismatch
+GRU feedback compresses the ratio (1.24 to 1.16) because the model was trained with fixed condition but tested with GRU-updated condition. The feedback inflates calm spread (+11%) more than turb spread (+4%). Fix: train with GRU feedback so the model learns to use updated conditions.
+
+### Architectural Gap: No Temporal Encoding
+The decoder has spatial positional encoding (25 cells) but no temporal step encoding. The decoder does not know whether it is generating step 1 or step 30. The only temporal signal is implicit through prev_frame drift and condition (fixed during training).
+
+### True Remaining Issues (after correction)
+The conditionality issue was largely a diagnostic error. The actual failures that need fixing:
+- CI coverage (55.3%) — spread is too narrow overall
+- Cointegration (0.37 on v2) — temporal coherence insufficient
+- Per-cell kurtosis (3/25 in range) — excess kurtosis in many cells
+- Train-test mismatch from GRU feedback
+
+### Decision: Exp 164a_v3
+Train with GRU feedback during training (detached frames fed to GRU at each step, condition recomputed). This eliminates the train-test mismatch and gives the model temporal awareness through the evolving condition vector.
+
+---
