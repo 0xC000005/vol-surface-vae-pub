@@ -394,7 +394,10 @@ def main():
     parser.add_argument("--spread_weight", type=float, default=0.5)
     parser.add_argument("--lambda_vs", type=float, default=0.5,
                         help="Variogram score weight (RC20: 0.5)")
-    parser.add_argument("--lambda_is", type=float, default=0.5)
+    parser.add_argument("--lambda_is", type=float, default=0.05,
+                        help="IS weight (Codex: 0.05 with corrected alpha=0.1)")
+    parser.add_argument("--is_warmup_epochs", type=int, default=10,
+                        help="Linear warmup epochs for IS (0→lambda_is)")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -495,7 +498,13 @@ def main():
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
         model.train()
-        ep_loss = 0; ep_mae = 0; ep_spread = 0; ep_vs = 0; nb = 0
+        ep_loss = 0; ep_mae = 0; ep_spread = 0; ep_vs = 0; ep_is = 0; nb = 0
+
+        # IS warmup: linear ramp from 0 to lambda_is over warmup epochs
+        if args.is_warmup_epochs > 0 and epoch <= args.is_warmup_epochs:
+            lambda_is_eff = args.lambda_is * epoch / args.is_warmup_epochs
+        else:
+            lambda_is_eff = args.lambda_is
 
         for hist, gt_frames, last_frame in train_loader:
             B = hist.shape[0]
@@ -548,13 +557,14 @@ def main():
                 is_t = interval_score(frame_BK, gt_t)
                 vs_t = variogram_score_per_frame(frame_BK, gt_t) if args.lambda_vs > 0 else torch.tensor(0.0, device=device)
 
-                step_loss = (loss_t + args.lambda_is * is_t + args.lambda_vs * vs_t) / T
+                step_loss = (loss_t + lambda_is_eff * is_t + args.lambda_vs * vs_t) / T
                 step_loss.backward(retain_graph=(t < T - 1))
 
                 total_loss_val += step_loss.item()
                 total_mae += mae_t.item()
                 total_spread += spread_t.item()
                 total_vs += vs_t.item() if args.lambda_vs > 0 else 0
+                ep_is += is_t.item()
 
                 # Detach frame and feed to GRU (no grad through AR chain)
                 prev = frame_t.detach()
@@ -573,7 +583,7 @@ def main():
             nb += 1
 
         scheduler.step()
-        tl = ep_loss / nb; tm = ep_mae / nb; ts = ep_spread / nb; tvs = ep_vs / nb
+        tl = ep_loss / nb; tm = ep_mae / nb; ts = ep_spread / nb; tvs = ep_vs / nb; tis = ep_is / nb
         elapsed = time.time() - t0
 
         # ── Validation ──
@@ -634,7 +644,8 @@ def main():
 
         # ── Logging ──
         print(f"Ep {epoch:3d}  loss={tl:.4f}  val={val_loss:.4f}  "
-              f"mae={tm:.4f}  spread={ts:.4f}  vs={tvs:.6f}  ({elapsed:.1f}s)"
+              f"mae={tm:.4f}  spread={ts:.4f}  vs={tvs:.6f}  is={tis:.4f}  "
+              f"λis={lambda_is_eff:.3f}  ({elapsed:.1f}s)"
               + (f"  *best" if val_loss <= best_val else ""))
 
         history.append({
