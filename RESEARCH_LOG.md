@@ -48219,3 +48219,71 @@ H1 first (cheapest, tests loss sufficiency). H2 only if H1 fails (tests architec
 - Removing noise_proj bottleneck (network re-learns compression)
 
 ---
+
+## 2026-03-31: Research Compass RC20.2 — Per-Cell Noise Injection (Codex-Verified)
+
+### Context
+After RC20.1 H1 (VS lambda=5.0) showed eff_rank improvement (1.77 to 3.10) but worsened per-cell calibration, and after being wrong about the mechanism three times, we ran independent verification via Codex. Codex confirmed the root cause and recommended per-cell noise injection.
+
+### Codex Verification Summary
+- Rank-1 is NOT architecturally inevitable. Jacobian d(delta)/d(z) has numerical rank 7/8, but PC1=99.6%. The architecture CAN produce higher rank but strongly PREFERS rank-1.
+- The CRPS voting conflict framing was slightly wrong: per-cell CRPS then average is already what the code does. The real issue is conflicting gradients summed onto shared broadcast parameters.
+- VS under rank-1 collapses to a spatial-template loss, not a diversity loss (confirmed).
+- Root cause: mismatch between stochastic architecture (broadcast noise) and training signal (marginal loss). Rank-1 is the optimizers easiest stable solution.
+- Recommended fix: per-cell noise injection (breaks broadcast bottleneck).
+- Do NOT reduce noise_dim (backwards: tightens rank ceiling).
+
+### Evidence Base
+- Per-location noise is standard in weather models: FCN3 (8 multi-scale channels), AIFS (per-location CLN), NeuralGCM (learned-correlation random fields)
+- Broadcast noise is our outlier design choice, not the standard
+- The spatial attention (4 layers, 25 tokens) provides spatial coherence — this role should NOT be delegated to noise sharing
+
+### Hypothesis H2a: Per-Cell CLN (Minimal Change)
+
+**Change:** ConditionalNorm scale/bias projections produce per-cell outputs instead of broadcast.
+- Current: Linear(32, 128) -> (B, 1, 128) broadcast to all cells
+- New: Linear(32, 25*128) -> (B, 25, 128) different per cell
+
+**Risk:** 25x parameter increase in scale/bias projections. With 4010 training windows, possible overfitting. Mitigated by stochastic noise (different z every step) and zero-init output.
+
+**Kill condition:** Suite 1 (surface validity) regresses OR training diverges.
+
+**Effort:** ~30 min implementation + 65 min training = ~95 min
+
+### Hypothesis H2b: Noise Tokens in Attention (Codex Suggestion)
+
+**Change:** Instead of CLN modulation, add learned noise tokens to the attention. Project z into noise token embeddings, concatenate with 25 cell tokens, let cells attend to noise tokens differently.
+- z (32-dim) -> noise_token_proj -> (B, N_noise, d_model) where N_noise ~ 5-8
+- Attention operates on 25 + N_noise tokens
+- Output only from the 25 cell tokens
+
+**Advantage:** More principled — the model learns HOW to use noise per cell through attention. No prescribed per-cell projection. Fully learned.
+
+**Risk:** Adds N_noise tokens to attention (30-33 tokens instead of 25). Slightly more compute. The model might ignore noise tokens if CRPS doesnt incentivize using them.
+
+**Kill condition:** Same as H2a.
+
+**Effort:** ~45 min implementation + 65 min training = ~110 min
+
+### Execution Order
+H2a first (simpler, tests the core hypothesis: does per-cell noise break rank-1?). H2b if H2a works (tests cleaner architecture). Both use lambda_vs=0.5 (original, not 5.0) to isolate the architecture change.
+
+### All Hypotheses (Complete List)
+
+| ID | Description | Status |
+|----|------------|--------|
+| 164a | Full RC20 architecture | Completed: 4/9 (boundary exploit) |
+| 164a_v2 | Remove reflecting boundary | Completed: 4/9 (correct scale, GRU mismatch) |
+| 164a_v3 | Add GRU feedback during training | Completed: 5/9 (best principled model) |
+| 164b | Mean+Residual variant | Deferred (rank-1 issue takes priority) |
+| RC20.1 H1 | VS lambda=5.0 | Running (ep~35). eff_rank 3.10 but calibration worse |
+| RC20.2 H2a | Per-cell CLN | Next (breaks broadcast bottleneck) |
+| RC20.2 H2b | Noise tokens in attention | After H2a (cleaner architecture) |
+| 164c | FactorNoiseSkip | Deferred (bypass approach, try per-cell first) |
+| 164d | Student-t noise | Deferred (kurtosis may be consequence of rank-1) |
+| 164e | AGC | Not triggered (training stable) |
+| 164f | Increase VS lambda | Subsumed by RC20.1 H1 |
+| 164g | Per-cell CLN | Subsumed by RC20.2 H2a |
+| 164h | Remove tanh | Not triggered (tanh hit rate 0%) |
+
+---
