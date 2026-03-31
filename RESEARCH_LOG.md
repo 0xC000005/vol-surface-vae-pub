@@ -48349,3 +48349,58 @@ H1 confirmed that rank-1 CAN be broken (eff_rank 3.16 sustained). H1 also confir
 Next experiment: per-cell ConditionalNorm (already implemented in train_164a_v3_percell_cln.py). Use lambda_vs=0.5 (original) to isolate the architecture change.
 
 ---
+
+## 2026-03-31: RC20.2 H2a Results — Per-Cell CLN Improves Calibration but Causes Explosions
+
+### Training
+Best val at epoch 59 (val_loss=0.0202). 80 epochs, 50s/epoch (2.5M params vs v3 0.9M). lambda_vs=0.5 (same as v3).
+
+### v2 Test Suite: 4/9 (regression from v3 5/9)
+
+| Suite | v3 (5/9) | vs5 (5/9) | percell (4/9) |
+|-------|---------|---------|--------------|
+| 1. Surface | PASS | PASS | **FAIL (expl=38.7%)** |
+| 2. CI Coverage | FAIL (cal=0.16) | FAIL (cal=0.20) | FAIL (cal=0.22) |
+| 3. Conditionality | PASS (1.23) | PASS (1.32) | **FAIL (1.21, worst_cell)** |
+| 4. Time Series | PASS | PASS | PASS |
+| 5. Block-AR | PASS | PASS | PASS |
+| 6. Cointegration | PASS (0.52) | FAIL (0.43) | PASS (0.51) |
+| 7. Regime | FAIL | FAIL | FAIL |
+| 8. Distributional | FAIL | FAIL | FAIL |
+| 9. Cross-cell corr | FAIL (0.50) | PASS (1.10) | **PASS (2.21)** |
+| Total | 5/9 | 5/9 | 4/9 |
+
+### What Improved (the hypothesis was partially correct)
+- **Per-cell calibration dramatically better**: Spr/GT range [0.40, 2.37] vs v3 [0.36, 3.73]. Mean 1.23 vs 2.00. 20/25 cells in [0.5, 2.0] vs ~10/25.
+- **Cross-cell correlation best ever**: rank_ratio=2.21 (PASS). eff_rank=2.94 at lambda_vs=0.5.
+- **Cointegration preserved**: 0.51 (PASS), unlike vs5 which lost it.
+
+### What Broke
+- **Explosions: 38.7%** of generated IV values outside [0, 1]. Min IV = -0.55, max = 1.49. The per-cell noise gives cells too much independent freedom. Without broadcast noise enforcing coherence, individual cells can diverge to unrealistic values over 30 AR steps.
+- **Conditionality worst-cell**: width_ratio=2.29 (need <1.20), MAE reduction=-12.7% (need >-10%). Some cells have regime-inverted behavior.
+
+### Root Cause: Per-Cell Noise Breaks Spatial Coherence
+With broadcast noise, all cells are forced to move together — this prevented explosions but caused rank-1. With per-cell noise, cells can move independently — this breaks rank-1 but allows individual cells to diverge.
+
+The spatial attention (4 layers over 25 tokens) is not strong enough to enforce coherence when each cell has its own noise modulation. In weather models (FGN, AIFS), the GNN architecture provides much stronger spatial constraints. Our spatial transformer has weaker inductive bias.
+
+### Key Metrics Comparison
+
+| Metric | v3 | vs5 | percell | What it means |
+|--------|-----|-----|---------|---------------|
+| eff_rank | 1.23 | 3.16 | 2.94 | percell breaks rank-1 without VS lambda |
+| Spr/GT mean | 2.00 | 2.03 | **1.23** | percell fixes calibration |
+| Explosion rate | 0% | 0% | **38.7%** | percell breaks spatial coherence |
+| Cointegration | 0.52 | 0.43 | 0.51 | percell preserves temporal structure |
+
+### What Was Learned
+1. Per-cell noise DOES fix calibration (Spr/GT 2.00 to 1.23) and rank-1 (eff_rank 2.94 at vs=0.5). The broadcast bottleneck hypothesis was correct.
+2. But per-cell noise destroys spatial coherence — cells diverge independently over 30 AR steps causing 38.7% explosion rate.
+3. The spatial transformer attention is NOT sufficient inductive bias to maintain surface validity with per-cell noise. Weather models (FGN, AIFS) use GNN which provides stronger spatial constraint.
+4. We need a MIDDLE GROUND between broadcast (too constrained, rank-1) and per-cell (too free, explosions). Some options:
+   - Factor noise: 5-8 learned spatial factors (not 1, not 25)
+   - Noise tokens in attention (H2b): cells attend to noise selectively
+   - Per-cell noise + soft spatial regularization (e.g., smoothness penalty on scale/bias across cells)
+   - Reduce noise_dim per cell to limit freedom
+
+---

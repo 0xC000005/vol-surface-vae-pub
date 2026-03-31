@@ -2733,9 +2733,15 @@ def main():
 
     if is_ar_spatial:
         # ── AR Spatial Transformer (164a etc.) ──
-        from experiments.backfill.block_ar.train_164a_ar_spatial import (
-            ARSpatialTransformerModel,
-        )
+        is_percell = "percell" in model_type
+        if is_percell:
+            from experiments.backfill.block_ar.train_164a_v3_percell_cln import (
+                ARSpatialTransformerModel,
+            )
+        else:
+            from experiments.backfill.block_ar.train_164a_ar_spatial import (
+                ARSpatialTransformerModel,
+            )
         from diffusion.block_ar.gru_encoder import EncoderConfig
         enc_cfg = EncoderConfig(**raw_config["encoder"])
         dec_cfg = raw_config["decoder"]
