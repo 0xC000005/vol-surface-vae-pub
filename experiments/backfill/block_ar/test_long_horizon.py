@@ -60,11 +60,42 @@ HORIZONS = [30, 60, 90, 180, 252]
 def load_model(model_path, device, no_ema=True):
     ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
     cfg = ckpt["config"]
+
+    # Detect AR spatial transformer models (164a, 164a_v2, 164a_v3)
+    model_type = cfg.get("type", "") if isinstance(cfg, dict) else ""
+    is_ar_spatial = model_type.startswith("ar_spatial_transformer")
+
+    if is_ar_spatial:
+        from diffusion.block_ar.gru_encoder import EncoderConfig
+        enc_cfg = EncoderConfig(**cfg["encoder"])
+        dec_cfg = cfg["decoder"]
+        # Choose the right training module based on model type
+        if "v3" in model_type:
+            from experiments.backfill.block_ar.train_164a_v3_gru_feedback import (
+                ARSpatialTransformerModel,
+            )
+        elif "v2" in model_type:
+            from experiments.backfill.block_ar.train_164a_v2_no_boundary import (
+                ARSpatialTransformerModel,
+            )
+        else:
+            from experiments.backfill.block_ar.train_164a_ar_spatial import (
+                ARSpatialTransformerModel,
+            )
+        model = ARSpatialTransformerModel(enc_cfg, dec_cfg)
+        key = "ema_state_dict" if not no_ema and "ema_state_dict" in ckpt else "model_state_dict"
+        model.load_state_dict(ckpt[key])
+        model._is_ar_spatial = True
+        model.eval().to(device)
+        print(f"  Model type: AR Spatial Transformer ({model_type})")
+        return model, ckpt
+
     if isinstance(cfg, dict):
         cfg = SinglePassConfig(**cfg)
     model = SinglePassBlockAR(cfg)
     key = "ema_state_dict" if not no_ema and "ema_state_dict" in ckpt else "model_state_dict"
     model.load_state_dict(ckpt[key])
+    model._is_ar_spatial = False
     model.eval().to(device)
     return model, ckpt
 
@@ -80,7 +111,9 @@ def _hash_file(path: str | None) -> str | None:
     return digest.hexdigest()[:12]
 
 
-def _config_to_dict(config: SinglePassConfig) -> dict:
+def _config_to_dict(config) -> dict:
+    if isinstance(config, dict):
+        return config
     return dataclasses.asdict(config) if dataclasses.is_dataclass(config) else dict(config)
 
 
@@ -94,6 +127,48 @@ def _hash_jsonable(payload: dict) -> str:
 def sample_long_horizon(model, history, n_samples, n_frames, pos_mode="native",
                         extra_hist=None):
     """Generate long-horizon samples through the model's native AR-frame sampler."""
+    if getattr(model, '_is_ar_spatial', False):
+        # AR Spatial Transformer: use ar_generate with variable n_steps
+        B = history.shape[0]
+        device = history.device
+        CHUNK = 10  # avoid OOM
+
+        last_frame = denormalize_iv(history[:, -1]).reshape(B, 25)
+
+        # Run GRU on history to get hidden states
+        hist_flat = history.reshape(B, history.shape[1], -1)  # (B, T_hist, 25)
+        gru_outputs_base, h_last_base = model.encoder.gru(hist_flat)
+
+        all_samples = []
+        for start in range(0, n_samples, CHUNK):
+            k = min(CHUNK, n_samples - start)
+
+            # Expand for k samples
+            last_k = last_frame.unsqueeze(1).expand(B, k, -1).reshape(B * k, 25)
+            gru_out_k = gru_outputs_base.unsqueeze(1).expand(
+                B, k, -1, -1).reshape(B * k, -1, model.encoder_config.gru_hidden_dim)
+            h_last_k = h_last_base.unsqueeze(2).expand(
+                1, B, k, -1).reshape(1, B * k, -1)
+
+            # Initial condition from attention pool
+            attn_logits = model.encoder.attn_proj(gru_out_k).squeeze(-1)
+            import torch.nn.functional as F
+            attn_weights = F.softmax(attn_logits, dim=1)
+            h_pooled = (attn_weights.unsqueeze(-1) * gru_out_k).sum(dim=1)
+            cond_init = model.encoder.bottleneck(h_pooled)
+
+            frames = model.ar_generate(
+                cond_init, last_k, n_steps=n_frames,
+                gru_state=h_last_k.contiguous(),
+                gru_outputs=gru_out_k,
+            )  # (B*k, T, 25)
+
+            frames = frames.reshape(B, k, n_frames, 5, 5)
+            all_samples.append(frames)
+
+        samples = torch.cat(all_samples, dim=1)  # (B, n_samples, n_frames, 5, 5)
+        return samples
+
     if not model.config.ar_frame:
         raise ValueError("Long-horizon generation is only implemented for ar_frame models")
     return model.sample(
@@ -614,16 +689,24 @@ def main():
 
     # Load model
     model, ckpt = load_model(args.model_path, device, no_ema=args.no_ema)
-    print(f"  Model loaded: ar_frame={model.config.ar_frame}, "
-          f"future_len={model.config.future_len}")
+    is_ar_spatial = getattr(model, '_is_ar_spatial', False)
+    if is_ar_spatial:
+        print(f"  Model loaded: AR Spatial Transformer (ar_frame=True, future_len=30)")
+    else:
+        print(f"  Model loaded: ar_frame={model.config.ar_frame}, "
+              f"future_len={model.config.future_len}")
 
     # Load data — use test split
     data = np.load("data/vol_surface_with_ret.npz")
     surfaces = data["surface"]
     returns = data["ret"]
     history_len = 30
-    extra_features = getattr(model.config, "extra_features", 0)
-    return_scale = getattr(model.config, "return_scale", 0.05)
+    if is_ar_spatial:
+        extra_features = 0
+        return_scale = 0.05
+    else:
+        extra_features = getattr(model.config, "extra_features", 0)
+        return_scale = getattr(model.config, "return_scale", 0.05)
     use_returns = extra_features > 0
     if use_returns:
         print(f"  Returns enabled: extra_features={extra_features}, scale={return_scale}")
@@ -664,7 +747,10 @@ def main():
     history_np = denormalize_iv(history_t).cpu().numpy()  # (N, 30, 5, 5) in [0, 1]
     gt_future_np = denormalize_iv(future_t).numpy()  # (N, gt_future_len, 5, 5) in [0, 1]
 
-    model_config = _config_to_dict(model.config)
+    if is_ar_spatial:
+        model_config = ckpt["config"]  # already a dict
+    else:
+        model_config = _config_to_dict(model.config)
     model_config_hash = _hash_jsonable(model_config)
     eval_args = vars(args).copy()
     modes = ["raw", "cyclic"] if args.pos_mode == "compare" else [args.pos_mode]

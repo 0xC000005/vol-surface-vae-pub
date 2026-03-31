@@ -47898,3 +47898,61 @@ Per RC20 compass follow-up mapping:
 - Suite 8 (KS): follows from Suite 2 (narrow spread causes wrong distribution shape)
 
 ---
+
+## 2026-03-31: Validation Audit — 164a_v3 Complete Analysis (5 Tasks)
+
+### Scope
+Full validation of 164a_v3 (5/9 suites, best principled model). 5 tasks executed: long-horizon 252d, final_model v2 test, 7 diagnostics, cross-cell correlation deep dive, delta verification.
+
+### Task 1: Long-Horizon 252-day Test
+
+| Horizon | CI Coverage | Spread (std) |
+|---------|------------|-------------|
+| d30 | 78.0% | 0.0245 |
+| d60 | 77.4% | 0.0257 |
+| d90 | 64.2% | 0.0256 |
+| d180 | 62.4% | 0.0246 |
+| d252 | 69.0% | 0.0248 |
+
+**CRITICAL: Spread is FLAT.** Does not grow with horizon. 0.0245 at d30, 0.0248 at d252. The model generates stable, non-exploding 252-day paths (0% explosion, stationarity ratio 0.95), but uncertainty bands stop widening after d30.
+
+No IV-EWMA tracking: gen corr = -0.17 vs GT = 0.84. Kurtosis extremely high (300+ at d0-d30).
+
+### Task 2: final_model (ep80) vs best_model (ep11)
+
+| Suite | best(ep11) | final(ep80) |
+|-------|-----------|------------|
+| 3. Conditionality | PASS(1.23) | FAIL(worst-cell) |
+| 6. Cointegration | PASS(0.52) | FAIL(0.49) |
+| 9. Cross-cell | FAIL(0.25) | PASS(1.23) |
+| Total | 5/9 | 4/9 |
+
+Cointegration-correlation tradeoff: early training favors cointegration, late training favors cross-cell correlation structure.
+
+### Task 3: 7 Diagnostics (best_model)
+- D5 Boundary hit rate: 0.035% (model learned correct bounds)
+- D6 turb/calm: 1.216 (conditionality confirmed, matches v2 test)
+- D7 Cointegration: 25/25 cells
+- D2 Kurtosis: 3/25 in range (excess kurtosis persists)
+
+### Task 4: Cross-Cell Correlation Root Cause
+**Single-step eff_rank = 1.77, PC1 = 83.7%.** The decoder itself produces rank-1 outputs. This is NOT from AR accumulation — it is architectural. The ConditionalNorm with shared noise z creates identical modulation across all 25 cells: (scale(z)+1)*x + bias(z) applies the same scale and bias to every cell.
+
+Multi-step eff_rank = 2.14 (slightly better due to noise accumulation adding minor diversity).
+
+### Task 5: Delta Verification
+tanh(delta) std = 0.019, mean = -0.001, OOB = 0.04%. Model learned correct output scale.
+
+### Three Independent Remaining Problems
+
+1. **Flat spread at long horizon**: Spread plateaus at d30, does not grow to d252. This causes CI under-coverage (62-78% vs 90% target). The model learns mean-reversion so strongly that it constrains spread from widening. Need a mechanism for uncertainty to grow with horizon.
+
+2. **Rank-1 cross-cell correlation**: Single-step eff_rank = 1.77. The spatial transformer with shared ConditionalNorm(z) produces a single dominant factor. All 25 cells move together. Need per-cell or factor-structured noise (164c FactorNoiseSkip or 164g per-cell CLN).
+
+3. **Excess per-cell kurtosis**: 3/25 in [0.5, 2.0] range. Many cells at 10-50x GT kurtosis. Likely related to rank-1 correlation — when the single factor has a large draw, ALL cells spike simultaneously, creating fat tails per cell.
+
+### Outstanding
+- Problems 2 and 3 may be linked (rank-1 creates kurtosis)
+- Problem 1 (flat spread) is independent and fundamental for long-horizon use case
+
+---
