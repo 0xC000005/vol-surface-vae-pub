@@ -47956,3 +47956,97 @@ tanh(delta) std = 0.019, mean = -0.001, OOB = 0.04%. Model learned correct outpu
 - Problem 1 (flat spread) is independent and fundamental for long-horizon use case
 
 ---
+
+## 2026-03-31: 164a_v3 Deep Analysis — Spread Calibration, Rank-1 Root Cause, Literature Review
+
+### Context
+After 164a_v3 achieved 5/9 suites, deep investigation into the remaining failures (CI coverage, distributional, cross-cell correlation) with GT verification and targeted literature review.
+
+### Part 1: Conditional vs Unconditional Spread Analysis
+
+Investigated whether the models flat spread (0.025 at all horizons) reflects correct mean-reversion or insufficient ensemble diversity.
+
+**GT conditional spread (within-bin, controlling for starting IV level):**
+
+| Horizon | Q1 (low IV) | Q3 (mid IV) | Q5 (high IV) |
+|---------|------------|------------|-------------|
+| d1 | 0.021 | 0.025 | 0.033 |
+| d30 | 0.038 | 0.045 | 0.048 |
+| d90 | 0.054 | 0.064 | 0.062 |
+| d252 | 0.073 | 0.078 | 0.073 |
+
+GT conditional spread grows 2.2-3.5x from d1 to d252, then plateaus. Mean-reversion half-life approximately 91 days (from OU fit to IV level autocorrelation). Spread approaches unconditional std (0.070) around d90-d120. This is consistent with a mean-reverting process where Var(t) = Var_ss * (1 - exp(-2t/tau)).
+
+**Model vs GT comparison:**
+
+| Metric | Model | GT | Ratio |
+|--------|-------|----|-------|
+| Within-window ensemble std (K=50) | 0.025 | 0.070 (unconditional) | 36% |
+| Cross-window std (1 member, 500 windows) | 0.028 | 0.037 | 76% |
+
+The model produces different predictions for different starting conditions (cross-window 76% of GT). But for any single window, the K ensemble members are too similar (within-window only 36% of GT). The model learned the conditional mean well but not the conditional variance.
+
+**Conclusion:** The flat spread is NOT correct mean-reversion behavior. GT conditional spread grows from d1 through d90 then plateaus. The model stays flat at the d1 level. This is a spread magnitude issue, not a mean-reversion speed issue. The afCRPS sharpness bias causes the model to concentrate all K members around the conditional mean.
+
+### Part 2: Rank-1 Root Cause Investigation
+
+Tested three hypotheses for why the decoder produces rank-1 outputs (single-step eff_rank=1.77, PC1=84.5%).
+
+**Hypothesis 1 (rejected): Multiplicative ConditionalNorm preserves ratios.**
+Initial claim: scale(z) multiplies all hidden states by the same factor, preserving relative relationships between cells. Tested by checking cross-cell correlation of outputs across z draws. Mean |corr| = 0.74, not 1.0. Some cells have corr as low as 0.19. The multiplicative explanation was incomplete.
+
+**Hypothesis 2 (rejected): noise_proj bottleneck compresses noise to rank-1.**
+Discovered that noise_proj (32->128->32) learned an eff_rank=1.79 mapping. Proposed removing noise_proj as a fix. User correctly challenged: if afCRPS doesnt incentivize multi-factor spread, removing the bottleneck just moves the compression to scale_proj. The network will learn rank-1 wherever it can because the loss doesnt penalize it.
+
+**Hypothesis 3 (confirmed by literature): afCRPS provides zero gradient on cross-cell covariance.**
+The rank-1 pattern exists because the loss function has no incentive for multi-factor diversity. CRPS is marginal-blind (Pic et al. 2025). A rank-1 ensemble where all cells move together satisfies per-cell CRPS just as well as a rank-5 ensemble. The network takes the lazy path: one factor for all spread.
+
+### Part 3: Targeted Literature Review (3 Parallel Agents)
+
+Searched arxiv for: (1) CRPS rank-1 collapse, (2) weather model ensemble design, (3) variogram score effectiveness.
+
+**Key papers found and read:**
+
+| Paper | Finding |
+|-------|---------|
+| Pic et al. (2407.00650) | Univariate scoring rules CANNOT discriminate dependence structure. CRPS provides zero gradient on cross-cell covariance. |
+| Pinson and Tastu (2013) | Energy score changes only 5-7% for large correlation misspecification. Nearly flat sensitivity. |
+| Scheuerer and Hamill (2015) | Variogram score has 5x better correlation sensitivity than ES, but is NOT strictly proper. |
+| Alet et al. (2506.10772, FGN) | 32-dim noise for 87M outputs — GNN spatial inductive bias forces coherent multi-factor structure from marginal-only CRPS. Explicitly acknowledges: marginal CRPS alone cannot guarantee good joint distributions. |
+| Lang et al. (2412.15832, AIFS-CRPS) | afCRPS with alpha=0.95 avoids fair CRPS degeneracy. Per-location CLN noise injection. |
+| Lang et al. (2506.10868) | **Multi-scale CRPS**: partition outputs into spatial scales, apply CRPS to each scale. Provides implicit covariance supervision. |
+| FCN3 (2507.12144) | **Spectral CRPS**: CRPS on spherical harmonic coefficients alongside spatial CRPS. Explicit 8-factor noise structure at different spatial scales. No LayerNorm. |
+| Roordink and Hess (2409.14456) | **Conditional CRPS**: CRPS(P(Y_i|Y_j=y_j), y_i). Strictly proper, directly correlation-sensitive. Clear U-shaped sensitivity to correlation, unlike flat ES. |
+| Zheng and Sun (2410.09133) | **MVG-CRPS**: CRPS in whitened space using Cholesky factor. Direct gradient on full covariance matrix. |
+
+**Why FGN works with marginal-only CRPS but we dont:**
+FGN has 32 noise dims for 87M output dims — the noise bottleneck is extreme, forcing the network to learn coherent structure through the GNNs spatial inductive bias. Our model has 32 noise dims for 25 output dims — underdetermined, so rank-1 is the lazy satisfying solution. The spatial transformer has weaker spatial inductive bias than a GNN on a sphere.
+
+**Why VS at lambda=0.5 is insufficient:**
+VS is proper but NOT strictly proper. It penalizes forecast-vs-observation pairwise variograms but does NOT penalize inter-member correlation. A rank-1 ensemble with correct pairwise relationships scores well on VS. This is a fundamental limitation, not a lambda issue.
+
+### Part 4: Literature-Recommended Solutions
+
+**Solution 1: Aggregated/Multi-scale CRPS (most promising for our architecture)**
+Apply CRPS not just per-cell but on linear projections of the 25 cells:
+- Per-cell CRPS (existing): optimizes 25 marginals
+- Row-mean CRPS (new): optimizes 5 row aggregates
+- Column-mean CRPS (new): optimizes 5 column aggregates
+- PCA CRPS (new): optimizes PC1-5 projections
+
+If ensemble is rank-1, CRPS on PC2-5 projections shows zero spread, giving direct gradient. No architectural change needed. Bitter Lesson compatible (proper scoring rule, not heuristic).
+
+Source: Lang et al. (2506.10868), FCN3 spectral CRPS (2507.12144)
+
+**Solution 2: Conditional CRPS**
+CRPS(P(cell_i | cell_j = y_j), y_i) — strictly proper, correlation-sensitive. More complex to implement.
+Source: Roordink and Hess (2409.14456)
+
+**Solution 3: Multi-scale noise (FCN3 pattern)**
+8 noise channels at different spatial scales, each independently sampled. Provides explicit factor structure architecturally.
+Source: FCN3 (2507.12144)
+
+### Decision
+Aggregated CRPS on PCA projections is the next experiment. It addresses the rank-1 issue at the loss level (where the literature says the problem originates), requires no architectural changes, and is supported by multiple operational weather models.
+
+---
