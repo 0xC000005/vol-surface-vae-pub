@@ -48287,3 +48287,65 @@ H2a first (simpler, tests the core hypothesis: does per-cell noise break rank-1?
 | 164h | Remove tanh | Not triggered (tanh hit rate 0%) |
 
 ---
+
+## 2026-03-31: RC20.1 H1 Results — VS Lambda=5.0 Breaks Rank-1 but Not Calibration
+
+### Training
+Best val at epoch 35 (val_loss=0.0206). 80 epochs, 48s/epoch. Identical to 164a_v3 except lambda_vs=0.5 to 5.0.
+
+### v2 Test Suite
+
+| Suite | v3 (vs=0.5) | vs5 (vs=5.0) | Change |
+|-------|------------|-------------|--------|
+| 1. Surface | PASS | PASS | = |
+| 2. CI Coverage | FAIL (cal=0.16) | FAIL (cal=0.20) | Slightly worse |
+| 3. Conditionality | PASS (1.23) | PASS (1.32) | Improved |
+| 4. Time Series | PASS | PASS | = |
+| 5. Block-AR | PASS | PASS | = |
+| 6. Cointegration | PASS (0.52) | FAIL (0.43) | **Regressed** |
+| 7. Regime | FAIL | FAIL | = |
+| 8. Distributional | FAIL | FAIL | = |
+| 9. Cross-cell corr | FAIL (rank=0.50) | **PASS (rank=1.10)** | **Fixed** |
+| **Total** | **5/9** | **5/9** | Different composition |
+
+### Diagnostic Comparison (vs5 vs v3)
+
+| Metric | v3 (vs=0.5) | vs5 (vs=5.0) |
+|--------|------------|-------------|
+| Single-step eff_rank | 1.23 | **3.16** |
+| Scale_proj eff_rank | 1.93 | **3.14** |
+| Per-cell Spr/GT range | [0.36, 3.73] | [0.51, 3.73] |
+| Per-cell Spr/GT mean | 2.00 | 2.03 |
+| Mean CI (h=30) | 73% | 66% |
+
+### What Worked
+- VS lambda=5.0 broke rank-1: eff_rank 1.23 to 3.16 (sustained to best model at ep35)
+- Suite 9 (cross-cell correlation) flipped from FAIL to PASS (rank_ratio=1.10)
+- The scale_proj itself became multi-factor (1.93 to 3.14)
+- This was NOT the 99k collapse pattern — the factor structure sustained through training
+
+### What Did Not Work
+- Per-cell calibration unchanged: mean Spr/GT stayed at 2.0 (range [0.51, 3.73])
+- Cointegration regressed from PASS (0.52) to FAIL (0.43)
+- CI coverage slightly worse (73% to 66%)
+- Large cells (0,0 GT_std=0.22) still underspread (0.51 of GT)
+- Small cells (4,3 GT_std=0.003) still overspread (3.71 of GT)
+
+### Root Cause Analysis
+The noise is still SHARED (same z for all cells). VS lambda=5.0 forced the noise_proj to learn a multi-factor mapping (scale_proj eff_rank 1.93 to 3.14). But the shared z means:
+- Different z draws produce different spatial PATTERNS (multi-factor) good
+- But all cells still share the SAME z draw bad for per-cell calibration
+- CRPS gradients for different cells still land on the same shared parameters
+- The voting conflict persists: 19 cells want less spread, 3 want more
+
+VS broke the rank of the noise projection but did not break the broadcast bottleneck. The projection is multi-factor (rank 3.1) but still uniform across cells (same scale/bias for all 25 cells).
+
+### Codex Analysis Confirmed
+Codex predicted: per-cell noise injection is needed, not just higher VS lambda. The broadcast CLN bottleneck is the root cause. This experiment confirms: VS helps eff_rank but cannot fix per-cell calibration because the noise is architecturally shared.
+
+### Decision: Proceed to RC20.2 H2a (Per-Cell CLN)
+H1 confirmed that rank-1 CAN be broken (eff_rank 3.16 sustained). H1 also confirmed that breaking rank-1 alone does not fix calibration. The broadcast bottleneck must be broken architecturally.
+
+Next experiment: per-cell ConditionalNorm (already implemented in train_164a_v3_percell_cln.py). Use lambda_vs=0.5 (original) to isolate the architecture change.
+
+---
