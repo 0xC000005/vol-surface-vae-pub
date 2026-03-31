@@ -47834,3 +47834,67 @@ History-future VoV correlation is very weak (0.033), making this a hard signal t
 Add GRU feedback during training. At each step, feed detached generated frames through GRU, recompute condition from attention pool. This eliminates the train-test mismatch. The model learns to use evolving conditions, gaining temporal awareness and mean-reversion capability for long-horizon generation.
 
 ---
+
+## 2026-03-31: Exp 164a_v3 Results — GRU Feedback During Training Achieves 5/9
+
+### Context
+Single change from 164a_v2: add GRU feedback during training. At each AR step, detached generated frame is fed through GRU, condition recomputed from updated attention pool. Eliminates the train-test mismatch that degraded conditionality.
+
+### Training
+- Best val at epoch 11 (val_loss=0.0211), val gap to final = 0.0025
+- Spread stable at 0.025-0.027 throughout (higher than v2s 0.020-0.025)
+- Training command: same as v2 but uses train_164a_v3_gru_feedback.py
+- 80 epochs, 48s/epoch, B=32 K=8
+
+### v2 Test Suite Results
+
+| Suite | 164a(ep17) | 164a_v2(ep33) | **164a_v3(ep11)** | 99m_v2 |
+|-------|-----------|--------------|-------------------|--------|
+| 1. Surface | PASS | PASS | **PASS** | PASS |
+| 2. CI Coverage | FAIL(55%) | FAIL(cal=0.25) | FAIL(cal=0.16) | FAIL |
+| 3. Conditionality | FAIL(1.11) | FAIL(1.13) | **PASS(1.23)** | PASS(1.49) |
+| 4. Time Series | FAIL(0.34) | PASS | **PASS(kurt=0.61)** | PASS(0.86) |
+| 5. Block-AR | PASS | PASS | **PASS** | N/A |
+| 6. Cointegration | PASS(0.70) | FAIL(0.37) | **PASS(0.52)** | PASS |
+| 7. Regime | FAIL | FAIL | FAIL | FAIL |
+| 8. Distributional | FAIL | FAIL | FAIL | PASS |
+| 9. Cross-cell corr | PASS(0.81) | PASS(0.72) | FAIL(0.50/0.25) | N/A |
+| **Total** | **4/9** | **4/9** | **5/9** | **5/8** |
+
+### What GRU Feedback Fixed
+- **Conditionality**: turb/calm = 1.23 (PASS). v2 had 1.13 (FAIL). The mismatch between training (fixed condition) and inference (updated condition) was compressing conditionality. Training with feedback eliminates this.
+- **CI coverage improved**: Calibration error dropped from 0.250 to 0.164. Overall CI at 69.8% (close to passing). Worst cell still 48% but much better than v2s 33%.
+- **Cointegration maintained**: 0.52 (PASS). v2 had 0.37 (FAIL). GRU feedback provides temporal coherence during training.
+
+### Remaining Failures — Investigated
+
+**Suite 2 (CI Coverage)**: CI at 69.8% overall, worst cell (0,3) at 48%. Delta std = 0.021 vs GT std = 0.063 — the model produces deltas that are 3x too small. The ensemble spread is insufficient for proper coverage.
+
+**Suite 8 (Distributional)**: KS pass 6/25. Daily change distributions dont match GT. Worst cells: (0,3) KS=0.30, (2,4) KS=0.25. The model produces narrower-than-GT daily changes.
+
+**Suite 9 (Cross-cell correlation)**: eff_rank ratio = 0.25 (need 0.5-2.0). Gen mean |corr| = 0.89 vs GT 0.41. The model produces highly correlated cells — near rank-1 ensemble where all cells move together. This is the opposite of v2s high eff_rank (quasi-random).
+
+**Suite 7 (Regime)**: Per-regime per-cell CI still too narrow.
+
+### Root Cause Analysis
+
+The remaining failures cluster around two issues:
+
+1. **Spread too narrow** (Suites 2, 7, 8): Delta std = 0.021 vs GT 0.063. The model learned correct DIRECTION (mean, conditionality) but insufficient MAGNITUDE. The ensemble doesnt spread enough to cover GT uncertainty. This is the afCRPS familiar failure: CRPS incentivizes accurate mean more than calibrated spread.
+
+2. **Rank-1 cross-cell correlation** (Suite 9): eff_rank = 1.59, mean |corr| = 0.89. All cells move together within each ensemble member. The spatial transformer produces a single dominant factor instead of the 5-6 independent factors in GT. This is the no-LN rank collapse seen in 161a (eff_rank 1.78) — the spatial transformer without LayerNorm tends toward a single dominant mode.
+
+### What Was Learned
+
+1. **GRU feedback during training is essential** for conditionality and cointegration. The train-test mismatch from v2 was the primary cause of those failures.
+2. **5/9 matches the old model** (99m_v2 at 5/8). The principled architecture achieves parity without pretrained encoder, vol_scale, or domain heuristics.
+3. **The spread-accuracy tradeoff remains**: afCRPS rewards tight ensembles (low MAE) at the expense of calibrated spread (CI coverage).
+4. **Rank-1 correlation is an architectural issue**: the spatial transformer with no-LN produces correlated outputs. This was also seen in 161a. May need FactorNoiseSkip (164c) or per-cell CLN (164g).
+
+### Next Steps
+Per RC20 compass follow-up mapping:
+- Suite 9 (rank-1): 164c FactorNoiseSkip — adds rank-5 skip bypass
+- Suite 2 (CI): spread too narrow — may need stronger spread incentive or different loss weighting
+- Suite 8 (KS): follows from Suite 2 (narrow spread causes wrong distribution shape)
+
+---
