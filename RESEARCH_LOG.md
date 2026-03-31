@@ -48050,3 +48050,97 @@ Source: FCN3 (2507.12144)
 Aggregated CRPS on PCA projections is the next experiment. It addresses the rank-1 issue at the loss level (where the literature says the problem originates), requires no architectural changes, and is supported by multiple operational weather models.
 
 ---
+
+## 2026-03-31: Rank-1 Fix Investigation — Loss vs Architecture, VS Lambda, CRPS Voting Problem
+
+### Context
+After identifying rank-1 cross-cell correlation as the key remaining problem (single-step eff_rank=1.77, PC1=84.5%), investigated multiple fix approaches through systematic testing and literature review. This entry documents the full investigation chain including dead ends.
+
+### Approach 1 TESTED: Random-Projection CRPS (Cramer-Wold)
+**Theory:** Apply CRPS on random 1D projections of the 25-cell output. By the Cramer-Wold theorem, if you use ALL projections, this is a strictly proper score for the full multivariate distribution.
+
+**Result: Does not work in practice.**
+
+| K | RP-CRPS sensitivity (rank-1 vs full-rank) |
+|---|------------------------------------------|
+| 2 | -22% (WRONG direction — prefers rank-1!) |
+| 4 | -14% (still wrong) |
+| 8 | +2% (barely detects) |
+| 16 | +10% (starts working) |
+| 64 | +13% |
+
+At K=8 (our training K), RP-CRPS has only 2% sensitivity — cannot distinguish rank structure. The Cramer-Wold guarantee requires ALL projections; with finite projections and small K, the signal is negligible. This is consistent with Pinson and Tastu (2013) showing energy score has only 5% correlation sensitivity.
+
+**Conclusion:** Loss-based rank-1 fix via random projections is a dead end for small ensembles.
+
+### Approach 2 TESTED: Increase K
+Weather models train with K=2 (FGN, FCN3). They dont rely on the loss to enforce factor structure — they rely on architecture.
+
+Tested RP-CRPS sensitivity at K=2 through K=128. Sensitivity plateaus at ~11% even at K=128. This is not a sample size issue — it is fundamental to how scoring rules measure correlation in small dimensions.
+
+**Conclusion:** Increasing K alone does not solve the problem. No practical K makes the loss sufficiently sensitive to rank structure.
+
+### Approach 3: Increase VS Lambda
+**VS has 41% sensitivity** to rank structure (vs CRPS at 4% and RP-CRPS at 2%). This is 10x more discriminative than any CRPS variant.
+
+Combined loss CRPS + lambda_vs * VS preference test:
+
+| lambda_vs | Prefers |
+|-----------|---------|
+| 0.5 (current) | Rank-1 |
+| 5.0 | Rank-1 (barely) |
+| 10.0 | **Rank-5** |
+| 20.0 | Rank-5 |
+
+**The crossover is at lambda_vs ~ 10.** Below that, CRPS dominates and rank-1 is preferred. Above that, VS dominates and multi-factor is preferred.
+
+User challenged: increasing VS lambda risks degrading per-cell marginal calibration (trade-off). This led to a deeper investigation.
+
+### Critical Discovery: CRPS Is NOT Calibrating Marginals (Despite Dominating)
+
+Per-cell analysis of 164a_v3 best_model:
+
+| Region | GT daily std | Model spread | Ratio | CRPS wants |
+|--------|-------------|-------------|-------|------------|
+| (0,0) short-tenor ATM | 0.230 | 0.074 | 0.32 | MORE spread |
+| (2,4) long-tenor deep OTM | 0.086 | 0.032 | 0.37 | MORE spread |
+| (4,2) long-tenor mid | 0.003 | 0.011 | 4.12 | LESS spread |
+| (3,3) long-tenor OTM | 0.004 | 0.011 | 3.17 | LESS spread |
+
+GT daily change std ranges from 0.003 to 0.230 (85x variation). Model spread ranges from 0.011 to 0.074 (7x variation). The model has NOT learned per-cell spread despite CRPS dominating the loss.
+
+**Root cause: CRPS gradient voting conflict under rank-1 constraint.**
+
+19/25 cells want LESS spread (interior cells where model gives 2-4x too much). Only 3/25 cells want MORE spread (corners with large GT variance). All cells pull on the SAME shared noise scale (rank-1 constraint). The majority (19 small-variance cells) wins, keeping the global scale low. The minority (3 large-variance cells) loses.
+
+**This is why CRPS fails despite dominating:** it is not that CRPS cannot calibrate marginals. It is that rank-1 noise turns CRPS into a voting problem where conflicting per-cell gradients cancel out at the shared scale. The optimizer finds a compromise that satisfies neither extreme.
+
+### Key Insight: Factor Structure and Calibration Are the Same Problem
+
+Earlier analysis claimed rank-1 (Suite 9) and CI coverage (Suite 2) were independent problems. This is wrong. They are causally linked:
+
+1. Rank-1 noise → all cells share one scale
+2. CRPS gradients conflict across cells (19 want less, 3 want more)
+3. Majority wins → scale too low for high-variance cells, too high for low-variance cells
+4. Per-cell calibration is impossible under rank-1 constraint
+
+**Breaking rank-1 eliminates the voting conflict.** With multi-factor noise, each cell group can have its own spread. CRPS gradients for cell (0,0) adjust factor 1 (short-tenor). CRPS gradients for cell (4,2) adjust factor 5 (long-tenor). No conflict, no compromise.
+
+Verified with simulation: rank-1 ensemble has worst-cell CI of 18%. Rank-5 ensemble with same total spread has worst-cell CI of 91%. The factor structure directly fixes the worst-cell gate that Suite 2 tests on.
+
+### Decision: Increase VS Lambda
+
+The fix order should be: break rank-1 first (via VS lambda), then CRPS naturally calibrates each cell.
+
+VS lambda ~10 is the crossover point where multi-factor becomes preferred over rank-1 in the combined loss landscape. Test lambda_vs = 5.0 as a conservative first step.
+
+This is Bitter Lesson compatible — lambda is a hyperparameter (same category as learning rate, hidden dimension). We are not telling the model WHAT the factor structure should be, only HOW MUCH to weight the multivariate signal vs the marginal signal.
+
+### Risks of High VS Lambda
+1. VS is not strictly proper — invariant to constant shifts. Very high lambda could allow level bias.
+2. VS focuses on pairwise differences, not per-cell accuracy. Extreme lambda could sacrifice mean prediction.
+3. 99k experiment (ES lambda=1.0) showed factor structure at epoch 10 that CRPS pulled back by epoch 40. Higher lambda may prevent the pullback but may also prevent CRPS from converging.
+
+These risks are testable. A 30-epoch quick run at lambda_vs=5.0 followed by eff_rank + CI check will reveal whether VS can break rank-1 without destroying what v3 already achieves.
+
+---
