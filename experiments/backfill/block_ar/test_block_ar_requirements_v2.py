@@ -2682,7 +2682,7 @@ def main():
         "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
     )
-    is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell")
+    is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix")
     is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
     # Support both BlockARConfig instance and dict

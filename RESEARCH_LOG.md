@@ -48547,3 +48547,32 @@ This session produced 7+ incorrect claims that were later corrected. The pattern
 The lesson: ALWAYS verify on the full test split with the same methodology the test suite uses. Small-subset diagnostics are for hypothesis generation, not for conclusions.
 
 ---
+
+
+## 2026-03-31: CRITICAL BUG — Interval Score Targets 10% CI, Not 90%
+
+### Discovery
+Codex independent brainstorming session identified a critical bug in the interval score loss component. Found by reading the actual code, not narrative reasoning.
+
+### The Bug
+In interval_score(samples, gt, alpha=0.9): lo = samples.quantile(alpha/2) = quantile(0.45), hi = samples.quantile(1-alpha/2) = quantile(0.55). This is a central 10% interval, not 90%. The IS loss penalizes the model for NOT having a narrow 10% band around the median — actively suppressing ensemble spread.
+
+Correct setting for 90% CI: alpha=0.1 (quantiles at 0.05 and 0.95).
+
+Affects ALL 164a variants (train_164a_ar_spatial.py:235, train_164a_v3_gru_feedback.py:235, train_164a_v3_percell_cln.py:238).
+
+### Impact
+The IS term (lambda_is=0.5) has been actively working AGAINST spread in ALL experiments this session. The model has been trained with a loss that rewards narrow ensembles while we investigated why spread was too small.
+
+### Codex Additional Findings
+
+**Loss is flat in spread direction:** Training loss at spread multipliers m=1.0 to m=1.5 varies only 0.05965 to 0.05983. But KS changes from 2/25 to 20/25. The objective cannot distinguish operating points that the test suite considers very different.
+
+**tanh is NOT the limit:** Cap is +/-1.0 per step, far larger than 0.09-0.22 daily std needed.
+
+**Do not switch paradigms yet:** IS bug contaminates all evidence about loss limitations.
+
+### Decision
+Fix alpha=0.9 to alpha=0.1 in interval_score. Rerun percell with corrected IS. Everything else held fixed. Most informative experiment: if spread improves, the deficit was self-inflicted. If unchanged, loss ceiling is deeper.
+
+---
