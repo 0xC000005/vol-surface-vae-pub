@@ -48674,3 +48674,60 @@ The model found a cheap shared-factor widening mode (PC1 variance: 0.41 to 0.92,
 4. The IS fix confirms spread was suppressed (CI 59.7% to 85.2%) but the dosage was wrong
 
 ---
+
+## 2026-03-31: Drift Accumulation Diagnosis — Detached AR Training Cannot Correct Multi-Step Bias
+
+### Context
+While training the IS-fix + K=16 model (ep12 checkpoint), found systematic positive bias in interior/long-tenor cells at h=30 causing CI as low as 3-4%. Investigated the mechanism.
+
+### Findings
+
+**Bias accumulates super-linearly over AR steps:**
+
+| Step | Cell (3,3) bias | Cell (4,3) bias | Cell (1,2) bias |
+|------|----------------|----------------|----------------|
+| h=1 | +0.0003 | +0.0012 | -0.0002 |
+| h=10 | +0.0044 | — | — |
+| h=20 | +0.0118 | — | — |
+| h=30 | +0.0184 (70x h=1) | +0.0261 (21x h=1) | +0.0284 (sign flip) |
+
+Cell (3,3): GT range [0.090, 0.115], model predicts [0.120, 0.180]. 95% of GT values fall BELOW model 5th percentile. The entire ensemble is shifted +0.036 above GT.
+
+**The worst cells share a pattern: large positive bias + excessive spread (3-7x GT).**
+
+| Cell | CI | Bias | Spr/GT | GT daily std |
+|------|-----|------|--------|-------------|
+| (3,3) | 4% | +0.036 | 7.04 | 0.003 |
+| (2,3) | 12% | +0.038 | 6.17 | 0.004 |
+| (4,3) | 30% | +0.026 | 7.26 | 0.002 |
+| (0,2) | 38% | +0.034 | 3.40 | 0.009 |
+
+All are interior cells (column 2-3) with tiny GT daily std (0.002-0.009). The model overpredicts their level at h=30.
+
+### Root Cause: Detached AR Cannot Correct Drift
+
+The training loop detaches prev_frame and runs GRU update under no_grad:
+- prev = frame_t.detach()
+- GRU update: torch.no_grad()
+- Condition recomputed from GRU (no grad)
+
+At step t, gradient flows ONLY through: loss_t -> frame_t -> delta_t -> decoder params.
+No gradient flows back through prev or condition to earlier steps.
+
+This means: if the model produces a slightly biased frame at step 10, step 11 receives the biased frame but has NO gradient signal to correct the bias from step 10. Each step optimizes locally ("given this prev, produce the best delta") but no step can fix accumulated drift.
+
+The GRU feedback gives the decoder INFORMATION about the drift (it knows frames have drifted high via updated hidden state). But the decoder at ep12 has not learned to interpret this signal as "I need to correct downward." That is a harder learning problem that may require more epochs or may require multi-step gradient (BPTT through the AR chain).
+
+### KS Analysis
+
+KS daily pass: 8/25. Failures concentrated in rows 3-4 (long tenor):
+- Row 0-1: mostly pass (KS 0.06-0.15)
+- Row 3-4: all fail (KS 0.18-0.29)
+- Pattern matches the bias pattern: biased cells have wrong daily change distribution
+
+### Open Question
+Is detached AR training sufficient for the model to learn drift correction (given enough epochs), or is multi-step gradient (BPTT) necessary? The v3 model (5/9) trained with the same detached AR and did NOT have this bias pattern, suggesting the bias may be from the IS fix or per-cell CLN interactions, not fundamental to detached AR.
+
+This needs monitoring as training continues to ep80. If bias persists at ep80, it points to the training procedure. If it resolves, it was an early-convergence artifact.
+
+---
