@@ -48731,3 +48731,21 @@ Is detached AR training sufficient for the model to learn drift correction (give
 This needs monitoring as training continues to ep80. If bias persists at ep80, it points to the training procedure. If it resolves, it was an early-convergence artifact.
 
 ---
+
+## 2026-03-31: CORRECTION — Codex Shows Bias Less Severe Than Reported (ep20 vs ep12)
+
+### What Was Wrong
+Claude measured bias at a stale ep12 checkpoint. Current best is ep20. Bias has already halved:
+- Cell (3,3): h30 bias +0.0184 (ep12) -> +0.0076 (ep20), CI 4% -> 48%
+- Bias pattern: rises quickly h1-h15, then plateaus (not super-linear to h30)
+
+### New Findings from Codex
+1. ALL models accumulate bias with detached AR (v3 also drifts, just negative direction)
+2. Corrected IS flipped bias direction: v3 drifts low, IS-fix drifts high
+3. GRU feedback IS working (condition changes 9.5% from step 1 to 30)
+4. Bias plateaus around h15-20, does not grow forever
+
+### Decision
+Continue current run to ep80. Monitor bias every 5 epochs. If worst cells still >0.005 bias at ep40, next experiment: lambda_is=0 ablation.
+
+---
