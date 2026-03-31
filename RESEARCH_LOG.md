@@ -47733,3 +47733,104 @@ The conditionality issue was largely a diagnostic error. The actual failures tha
 Train with GRU feedback during training (detached frames fed to GRU at each step, condition recomputed). This eliminates the train-test mismatch and gives the model temporal awareness through the evolving condition vector.
 
 ---
+
+## 2026-03-30: 164a_v2 Deep Mechanism Analysis — What the Model Actually Learns
+
+### Context
+After correcting the regime classifier error, ran 5 comprehensive diagnostics to understand precisely what the 164a_v2 model does well and where it fails. Also investigated and rejected the rho=0.8 AR noise hypothesis.
+
+### Diagnostic Results (164a_v2 best_model, ep33)
+
+**DIAG 1: Encoder regime separation**
+- Regime classification accuracy (logistic regression, 5-fold CV): 84.2%
+- Turb condition norm: 0.447, Calm: 0.382 (ratio 1.17)
+- The encoder successfully encodes regime information.
+
+**DIAG 2: Decoder single-step conditionality**
+- Calm single-step spread: 0.0156, Turb: 0.0233
+- turb/calm at step 1: **1.50** (strong conditionality!)
+- The decoder produces regime-appropriate deltas when given different conditions.
+
+**DIAG 3: Input sensitivity**
+- prev_frame: 81.6% of decoder output variation
+- condition: 14.7%
+- noise: 3.7%
+- The decoder is primarily a next-frame predictor driven by prev_frame, with condition and noise as modulations.
+
+**DIAG 4: Ensemble structure (50 members, 1 window, 30 steps)**
+- Cross-member correlation at h=30: 0.865 (members move together)
+- Gen cross-cell corr: 0.607 vs GT: 0.407 (cells too correlated)
+- PC1 variance explained: 16.8%, eff_rank: 22.5
+- Spread grows h1=0.016 to h10=0.032, then contracts h30=0.027
+
+**DIAG 5: Trajectory quality**
+- Ensemble mean MAE: 0.029 (16% better than naive repeat-last-frame at 0.035)
+- Slight negative bias: -0.011
+
+### Per-Step turb/calm Ratio Over AR Rollout
+Tested whether conditionality degrades over 30 AR steps (without GRU feedback):
+
+| Step | Calm spread | Turb spread | Ratio |
+|------|------------|------------|-------|
+| 1 | 0.0132 | 0.0210 | 1.59 |
+| 5 | 0.0203 | 0.0257 | 1.27 |
+| 15 | 0.0217 | 0.0257 | 1.19 |
+| 30 | 0.0205 | 0.0261 | 1.27 |
+
+Conditionality is maintained at every step. Does NOT degrade to 1.0. The IID noise hypothesis was wrong.
+
+### The rho=0.8 AR Noise Hypothesis — Investigated and Rejected
+Initial hypothesis: IID noise per step causes random walks that wash out conditionality over 30 steps. Proposed fix: AR(1) noise with rho=0.8 (from old model).
+
+User correctly challenged this:
+1. Each AR step generates a plausible next frame given (cond, prev_frame, z)
+2. IID noise does not make trajectories random walks — the decoder sees prev_frame and adjusts
+3. The per-step analysis confirmed conditionality is maintained at all steps
+
+The rho=0.8 parameter is a manually chosen constant, not learned from data (violates Bitter Lesson). The root cause was elsewhere.
+
+### Actual Root Cause: GRU Feedback Train-Test Mismatch
+Discovered by comparing sample generation WITH vs WITHOUT GRU feedback:
+
+| Mode | Calm spread | Turb spread | turb/calm |
+|------|------------|------------|-----------|
+| No GRU feedback (matches training) | 0.0223 | 0.0277 | **1.242** |
+| With GRU feedback (matches test suite) | 0.0248 | 0.0288 | **1.160** |
+
+During training: condition computed ONCE from history, used for all 30 steps. No GRU feedback.
+During inference (sample_batched): condition RECOMPUTED per step from GRU-updated hidden state.
+
+The model never saw GRU-updated conditions during training. At inference, GRU feedback inflates calm spread (+11%) more than turb spread (+4%), compressing the ratio from 1.24 to 1.16.
+
+Both modes pass the 1.15 threshold on the full 1252-window test set. The earlier diagnostic showing 0.85 was on a smaller subset with the wrong classifier.
+
+### Condition Ablation
+Zeroing the condition vector:
+- Step 1: 1.84% change in output (small)
+- Step 30: 19.23% change (large — cumulative divergence)
+- The condition DOES matter, and its effect compounds over AR steps.
+
+### GT Conditionality Verification (Correct VoV Classifier)
+Using the test suites actual classifier (std of daily mean-IV changes in history):
+
+| GT Metric | Calm | Turb | Ratio |
+|-----------|------|------|-------|
+| Future daily change std (test) | 0.044 | 0.049 | **1.10** |
+| Future IV level range (test) | 0.090 | 0.123 | **1.38** |
+| Future daily change std (train) | 0.045 | 0.057 | **1.29** |
+
+GT confirms turbulent windows SHOULD have wider spread. The 1.15 test threshold is valid.
+
+History-future VoV correlation is very weak (0.033), making this a hard signal to learn.
+
+### What Was Learned
+1. The model HAS learned correct conditionality (turb/calm=1.24 without feedback)
+2. IID noise is NOT the problem — each AR step maintains conditionality
+3. GRU feedback train-test mismatch was the real issue degrading inference results
+4. The decoder is 82% driven by prev_frame — it is primarily a next-frame predictor
+5. The earlier inverse conditionality finding (turb/calm=0.85) was a diagnostic error (wrong classifier + small sample)
+
+### Decision: Exp 164a_v3
+Add GRU feedback during training. At each step, feed detached generated frames through GRU, recompute condition from attention pool. This eliminates the train-test mismatch. The model learns to use evolving conditions, gaining temporal awareness and mean-reversion capability for long-horizon generation.
+
+---
