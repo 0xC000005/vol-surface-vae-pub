@@ -48576,3 +48576,63 @@ The IS term (lambda_is=0.5) has been actively working AGAINST spread in ALL expe
 Fix alpha=0.9 to alpha=0.1 in interval_score. Rerun percell with corrected IS. Everything else held fixed. Most informative experiment: if spread improves, the deficit was self-inflicted. If unchanged, loss ceiling is deeper.
 
 ---
+
+## 2026-03-31: Exp 164a_v3_percell_is_fix — Corrected IS (alpha=0.1) Confirms Spread Deficit Was Self-Inflicted
+
+### Context
+Fixed critical bug: interval_score alpha=0.9 was targeting 10% CI (quantiles 0.45/0.55), not 90% CI. Changed to alpha=0.1 (quantiles 0.05/0.95). Reran per-cell CLN model with corrected IS. Training killed at epoch 52 (accidental termination), best model at epoch 51.
+
+### Training Dynamics (52 epochs before kill)
+
+| Metric | percell (old IS) ep80 | is_fix ep50 | Change |
+|--------|----------------------|-------------|--------|
+| Spread | 0.0255 | **0.0633** | **2.5x increase** |
+| MAE | 0.0316 | 0.0590 | Higher (wider ensemble) |
+| VS | 0.006239 | 0.008085 | Higher |
+| Loss | 0.0513 | 0.1427 | Much higher (IS now penalizes narrow CI) |
+
+Training was unstable — loss oscillated between 0.135 and 0.180 from ep39-49, then recovered to 0.138 at ep51. The corrected IS creates a much more dynamic optimization landscape.
+
+### v2 Test Suite: 2/9 (regression, but key insight)
+
+| Suite | percell (old IS, 4/9) | **is_fix (2/9)** | v3 (5/9) |
+|-------|----------------------|-----------------|----------|
+| 1. Surface | FAIL (38.7%) | FAIL (**75.8%**) | PASS |
+| 2. CI Coverage | FAIL (cal=0.215) | FAIL (cal=**0.139**) | FAIL (cal=0.164) |
+| 3. Conditionality | FAIL | FAIL (worst_mae=-84%) | PASS |
+| 4. Time Series | PASS | **FAIL (kurt=0.191)** | PASS |
+| 5. Block-AR | PASS | PASS | PASS |
+| 6. Cointegration | PASS (0.51) | PASS (**2.91**) | PASS (0.52) |
+| 7. Regime | FAIL | FAIL | FAIL |
+| 8. Distributional | FAIL (KS 16/25) | FAIL (**KS 1/25**) | FAIL (KS 13/25) |
+| 9. Cross-cell corr | PASS (rank=2.21) | **FAIL (rank=0.317)** | FAIL (rank=0.50) |
+
+### The IS Fix Proves the Spread Deficit Was Real
+
+**CI 90% coverage: 59.7% to 85.2%** — approaching the 90% target. Calibration error dropped from 0.215 to 0.139 (best ever). This confirms Codex diagnosis: the old IS was actively suppressing spread, and fixing it immediately improves CI.
+
+### But Training Is Unstable and Over-Correcting
+
+The model now produces too much spread:
+- Explosions jumped to 75.8% (from 38.7%)
+- Kurtosis collapsed to 0.191 (excess spread creates thin tails)
+- KS daily went from 16/25 to 1/25 (distribution shape distorted)
+- Cross-cell eff_rank collapsed to 0.317 (spread is unstructured)
+- Cointegration over-passes at 2.91 (should be near 1.0)
+
+The training was killed at epoch 52 with visible instability (loss oscillating). The model likely needs:
+1. Lower lambda_is (0.5 may be too aggressive with corrected alpha)
+2. More epochs to stabilize
+3. IS warmup (start with lambda_is=0 and ramp up)
+
+### What Was Learned
+
+1. **The IS bug was real and impactful.** CI jumped from 59.7% to 85.2% with the fix. The spread deficit was at least partly self-inflicted by training with a loss that penalized wide ensembles.
+2. **But lambda_is=0.5 with corrected alpha=0.1 is too aggressive.** The model over-corrects, producing excessive spread that breaks other metrics.
+3. **The training was incomplete** (52/80 epochs, unstable). Full training with appropriate lambda_is tuning is needed.
+4. **The IS fix should be applied to ALL future experiments** — the bug affected every 164a variant.
+
+### Decision
+Rerun with full 80 epochs. Consider reducing lambda_is from 0.5 to 0.1-0.2 to balance the corrected IS against afCRPS. The IS fix is confirmed correct — the question is finding the right weight.
+
+---
