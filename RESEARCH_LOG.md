@@ -48144,3 +48144,78 @@ This is Bitter Lesson compatible — lambda is a hyperparameter (same category a
 These risks are testable. A 30-epoch quick run at lambda_vs=5.0 followed by eff_rank + CI check will reveal whether VS can break rank-1 without destroying what v3 already achieves.
 
 ---
+
+## 2026-03-31: Research Compass RC20.1 — Break Rank-1 via Loss then Architecture
+
+### Philosophy Applied
+- **Karpathy**: Test loss (cheapest) before architecture (more complex). One variable at a time.
+- **TRIZ**: The contradiction is CRPS needs per-cell control but noise is shared. Per-cell noise resolves without trade-off.
+- **Popper**: Each hypothesis has specific kill conditions at each stage.
+- **Bitter Lesson**: VS lambda is a hyperparameter (like LR). Per-cell noise is learned. Neither imposes human knowledge of factor structure.
+- **Hamming**: Both hypotheses target the single bottleneck (rank-1) that causes 4/9 suite failures.
+
+### Evidence Summary
+
+**Proven this session (164a series):**
+1. Reflecting boundary creates degenerate fixed point — removing it lets model learn correct O(0.01) output scale
+2. GRU feedback train-test mismatch degrades conditionality — training with feedback achieves 5/9 (164a_v3)
+3. Rank-1 noise from shared ConditionalNorm: single-step eff_rank=1.77, PC1=84.5%
+4. CRPS voting conflict: 19/25 cells want less spread, 3/25 want more — rank-1 forces compromise
+5. Factor structure and calibration are the SAME problem, not independent
+6. CRPS is marginal-blind (Pic et al. 2025), ES has 5% sensitivity, VS has 41% sensitivity
+7. RP-CRPS dead end (2% at K=8), increasing K plateaus at 11%
+
+**From literature:**
+- FGN: 32-dim noise for 87M outputs works because GNN provides strong spatial inductive bias
+- FCN3: 8 multi-scale noise channels provide explicit factor structure
+- Weather models solve rank-1 architecturally, not through loss
+- VS crossover at lambda~10 where multi-factor becomes preferred
+
+### Hypothesis 1: Increase VS Lambda (Exp 164a_v3 with lambda_vs=5.0)
+
+**Evidence chain:** VS has 41% sensitivity (verified). Crossover at lambda~10 (verified). 99k showed ES breaks rank-1 at ep10 but CRPS pulls it back at lambda=1.0. Higher lambda should sustain.
+
+**The bet:** 164a_v3 architecture unchanged. Only change lambda_vs from 0.5 to 5.0.
+
+**Staged checkpoints:**
+1. 30ep quick run: check eff_rank at ep10 and ep30
+2. Full 80ep if eff_rank > 2.5 at any checkpoint
+
+**Kill conditions:**
+- Stage 1: eff_rank stays below 2.0 at all epochs -> VS lambda alone insufficient
+- Stage 2: eff_rank peaks then collapses (99k pattern) -> loss approach fundamentally limited
+
+**If fails:** Confirms loss-based approach is insufficient. Proceed to H2 (architecture).
+
+**Effort:** ~85 min total
+
+### Hypothesis 2: Per-Cell Noise in ConditionalNorm (Only if H1 fails)
+
+**Evidence chain:** Rank-1 from shared z -> ConditionalNorm applies same modulation to all cells. Per-cell noise structurally prevents this. TRIZ resolution of CRPS voting conflict.
+
+**The bet:** Modify ConditionalNorm to accept per-cell noise z_c for each cell. Sample independently. Decoder unchanged otherwise.
+
+**Staged checkpoints:**
+1. Smoke test: compile + 2ep, verify memory
+2. 30ep: check single-step eff_rank and per-cell spread variation
+3. Full 80ep if checkpoint 2 shows improvement
+
+**Kill conditions:**
+- Stage 2: eff_rank doesnt improve -> ConditionalNorm multiplicative structure itself is bottleneck
+- Stage 3: eff_rank improves but CRPS cant calibrate -> deeper decoder issue
+
+**If fails:** Points to FactorNoiseSkip or fundamentally different noise injection.
+
+**Effort:** ~105 min total
+
+### Execution Order
+H1 first (cheapest, tests loss sufficiency). H2 only if H1 fails (tests architecture). Sequential, not parallel — H1 result informs whether H2 is needed.
+
+### Exhausted Directions (Do Not Retry)
+- Reflecting boundary (creates degenerate fixed point)
+- Fixed condition during training (train-test mismatch)
+- RP-CRPS for rank-1 fix (2% sensitivity at K=8)
+- Increasing K alone (plateaus at 11% even at K=128)
+- Removing noise_proj bottleneck (network re-learns compression)
+
+---

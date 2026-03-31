@@ -21,9 +21,10 @@
       "164g": "spread ratio > 3x → per-cell CLN",
       "164h": "tanh hit rate > 5% → remove tanh, try AGC"
     },
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "pending"
+    "attempts": 3,
+    "max_attempts": 3,
+    "status": "completed",
+    "result": "164a: 4/9 (boundary exploit), 164a_v2: 4/9 (correct scale, train-test mismatch), 164a_v3: 5/9 (GRU feedback fixes conditionality+cointegration). Rank-1 identified as remaining bottleneck."
   },
   {
     "name": "164b: AR + no-LN Spatial Transformer + VS + Mean+Residual",
@@ -36,6 +37,30 @@
     "kill_condition": "Same as 164a",
     "attempts": 0,
     "max_attempts": 1,
-    "status": "pending"
+    "status": "deferred",
+    "reason": "Rank-1 fix is higher priority. 164b would have same rank-1 issue. Revisit after rank-1 is resolved."
+  },
+  {
+    "name": "H1: Increase VS lambda to break rank-1 (lambda_vs=5.0)",
+    "theory": "VS has 41% sensitivity to rank structure (verified). At lambda=0.5, VS is 20x too weak relative to CRPS — crossover at lambda~10 where multi-factor becomes preferred. 99k showed ES broke rank-1 at ep10 but CRPS pulled it back at lambda=1.0. Higher VS lambda should sustain the factor structure.",
+    "target": "eff_rank > 2.5 sustained through training. Cross-cell correlation ratio in [0.5, 2.0]. Per-cell spread variation matching GT (85x range).",
+    "architecture": "Identical to 164a_v3. Only change: lambda_vs=0.5 → 5.0.",
+    "kill_condition": "Stage 1 (30ep): eff_rank stays below 2.0. Stage 2 (80ep): eff_rank peaks then collapses (99k pattern).",
+    "if_fails": "Confirms loss-based rank-1 fix is fundamentally insufficient. Proceed to H2.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "active"
+  },
+  {
+    "name": "H2: Per-cell noise in ConditionalNorm (only if H1 fails)",
+    "theory": "TRIZ resolution: CRPS voting conflict (19 cells vs 3) exists because shared z forces all cells to share one scale. Per-cell noise z_c decouples cells. FCN3 uses 8 multi-scale noise channels (analogous). FGN uses spatially-shared noise but has GNN inductive bias we lack.",
+    "target": "Same as H1.",
+    "architecture": "Modify ConditionalNorm to accept per-cell noise z_c ~ N(0, I_d) independently per cell.",
+    "kill_condition": "Stage 2 (30ep): eff_rank doesn't improve. Stage 3: CRPS still can't calibrate.",
+    "if_fails": "Points to FactorNoiseSkip bypass or different decoder architecture.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "pending",
+    "blocked_by": "H1 must be tested first"
   }
 ]

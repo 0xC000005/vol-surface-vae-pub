@@ -1,22 +1,10 @@
 {
-  "iteration": 1,
-  "experiment_id": "164a",
-  "training_status": "running",
-  "phase": "HEDA_experiment",
-  "hypothesis": "AR + no-LN spatial transformer + VS + direct output. All components literature-validated. GRU random init E2E. frame_t = prev_frame + tanh(delta).",
-  "session_best": {
-    "old_best": {"exp": "99m_v2", "suites": "5/8", "note": "old SinglePassBlockAR, black-box"},
-    "principled_best": {"exp": "161a", "suites": "4/9", "note": "E2E CLN+VS, one-shot (non-causal)"}
-  },
-  "total_experiments": 0,
-  "compass_position": "RC20 — Wave 1 (164a direct, 164b residual)",
-  "compass_theme": "Principled AR + no-LN Spatial Transformer + VS",
-  "branch": "autoresearch-session-rc20",
-  "experiments": {
-    "164a": "AR + no-LN spatial transformer + VS + direct output",
-    "164b": "AR + no-LN spatial transformer + VS + mean+residual"
-  },
-  "execution_order": "164a first, 164b second. Both get full 5-stage eval protocol.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_164a_ar_spatial.py --epochs 80 --batch_size 32 --n_members 8 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.5 --output_dir models/backfill/afcrps_164a --device cuda",
-  "next_action": "Wait for training to complete, then run v2 test suite"
+  "compass": "RC20.1",
+  "iteration": 4,
+  "experiment_id": "164a_v3_vs5",
+  "training_status": "pending",
+  "phase": "HEDA_hypothesize",
+  "hypothesis": "H1: Increase VS lambda from 0.5 to 5.0 to break rank-1 ensemble collapse. VS has 41% sensitivity to rank structure. Same 164a_v3 architecture, one-line change.",
+  "training_command": "PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_gru_feedback.py --epochs 80 --batch_size 32 --n_members 8 --noise_dim 32 --lambda_vs 5.0 --lambda_is 0.5 --output_dir models/backfill/afcrps_164a_v3_vs5 --device cuda",
+  "next_action": "Run H1 training (lambda_vs=5.0), evaluate with v2 suite + eff_rank diagnostic"
 }
