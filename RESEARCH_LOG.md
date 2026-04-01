@@ -49271,3 +49271,69 @@ Codex also noted a credible loss-only fix: add a small penalty for frame_t < 0 d
 - Per-cell CLN is not broken (good cells work fine — selective miscalibration)
 
 ---
+
+## 2026-03-30: Exp 164a — AR + No-LN Spatial Transformer + VS + Direct Output (RC20 First Experiment)
+
+### Architecture
+- Encoder: GRU + attention pool (random init, E2E, 25,985 params)
+- Decoder: SpatialTransformerDecoder (25 cells/frame, 4 layers, d_model=128, no-LN, LayerScale 0.1, 904,609 params)
+- Output: frame_t = prev_frame + tanh(delta), reflecting boundary [0.01, 1.0]
+- Loss: afCRPS + VS(0.5) + IS(0.5), per-frame at D=25
+- Training: B=32, K=8, 80 epochs, 49s/epoch, per-step backward
+
+### Training Command
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_ar_spatial.py --epochs 80 --batch_size 32 --n_members 8 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.5 --output_dir models/backfill/afcrps_164a --device cuda
+
+### v2 Test Suite: 4/9 (best ep17, final ep80 also 4/9)
+
+| Suite | best (ep17) | Target |
+|-------|-----------|--------|
+| 1. Surface | PASS | |
+| 2. CI Coverage | FAIL (55.3%) | >70% worst cell |
+| 3. Conditionality | FAIL (tc=1.11) | tc>1.15 |
+| 4. Time Series | FAIL (kurt=0.34) | 0.5-2.0 |
+| 5. Block-AR | PASS | |
+| 6. Cointegration | PASS (0.70) | >0.50 |
+| 7. Regime | FAIL | |
+| 8. Distributional | FAIL | |
+| 9. Cross-cell corr | PASS (er=0.81) | |
+
+### Key Finding
+Reflecting boundary created a degenerate fixed point. Model learned -0.34 systematic bias exploiting boundary reflection as a no-op. 99.4% of outputs hit the boundary. Verified: tanh(delta) mean = -0.336, prev_frame mean = 0.179, frame_raw mean = -0.157.
+
+---
+
+## 2026-03-31: Literature Review — CRPS Rank-1 Collapse, Weather Model Ensemble Design, VS Effectiveness
+
+### Scope
+3 parallel research agents searched arxiv and read papers on: (1) why CRPS produces rank-1 ensembles, (2) how weather models handle ensemble diversity, (3) whether VS can break rank-1.
+
+### Key Papers Found and Read
+
+**On CRPS and Rank-1:**
+- Pic et al. (2407.00650): Univariate scoring rules CANNOT discriminate dependence structure. CRPS provides zero gradient on cross-cell covariance. VS can be rewritten as aggregation-transformation scoring rule.
+- Pinson and Tastu (2013): Energy score changes only 5-7% for large correlation misspecification. Nearly flat sensitivity.
+- Roordink and Hess (2409.14456): Conditional CRPS — strictly proper, proven U-shaped correlation sensitivity. Requires conditioning.
+- Zheng and Sun (2410.09133): MVG-CRPS via Cholesky whitening. Direct covariance gradient.
+- Lang et al. (2506.10868): Multi-scale CRPS — partition fields into spatial scales. Implicit covariance supervision.
+
+**On Weather Model Ensemble Design:**
+- FGN (2506.10772, DeepMind): 32-dim noise for 87M outputs via conditional LayerNorm. Strong GNN inductive bias forces structure from marginal-only CRPS. K=2 training, K=56 inference.
+- AIFS-CRPS (2412.15832, ECMWF): Per-location CLN. afCRPS alpha=0.95 avoids fair CRPS degeneracy. 4-stage training.
+- FCN3 (2507.12144, NVIDIA): 8 multi-scale noise channels + spectral CRPS. No LayerNorm. Staged ensemble size (16 then 2 then 4). Noise centering.
+- GenCast (2312.15796, DeepMind): Full diffusion, not CRPS-trained. MSE denoising objective.
+
+**On VS Effectiveness:**
+- Scheuerer and Hamill (2015): VS has 5x better correlation sensitivity than ES. Proper but NOT strictly proper. Invariant to constant shifts and sign flips.
+- Alexander et al. (2021, 2101.12693): VS p=0.5 consistently lowest error rate. ES poorest discrimination.
+- Lakatos (2025, 2509.02784): ES+VS composite loss. VS orders of magnitude larger than ES (requires normalization). dualGNN best performance.
+
+### Key Conclusions
+1. CRPS is provably marginal-blind — zero gradient on cross-cell covariance
+2. VS has 41% sensitivity to rank structure but is not strictly proper
+3. Weather models solve rank-1 ARCHITECTURALLY (GNN bias, multi-scale noise), not through loss
+4. FGN succeeds with 32-dim noise because 87M output dims force structure. Our 25 outputs are underdetermined.
+5. Random-projection CRPS has only 2% sensitivity at K=8 (tested and confirmed dead end)
+6. No scoring rule at K=8 has strong sensitivity to correlation — the fix must be architectural or K must increase
+
+---
