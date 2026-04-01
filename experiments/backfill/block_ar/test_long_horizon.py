@@ -70,7 +70,11 @@ def load_model(model_path, device, no_ema=True):
         enc_cfg = EncoderConfig(**cfg["encoder"])
         dec_cfg = cfg["decoder"]
         # Choose the right training module based on model type
-        if "percell_bptt" in model_type:
+        if "bptt_gate" in model_type:
+            from experiments.backfill.block_ar.train_164a_v3_percell_bptt_gate import (
+                ARSpatialTransformerModel,
+            )
+        elif "percell_bptt" in model_type:
             from experiments.backfill.block_ar.train_164a_v3_percell_bptt import (
                 ARSpatialTransformerModel,
             )
