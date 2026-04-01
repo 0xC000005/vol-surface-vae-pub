@@ -49161,3 +49161,66 @@ The BPTT model (5/9, best internals ever) has two precisely identified remaining
 Both issues are CONDITIONAL — they affect specific cells/windows, not the aggregate model quality. The 93.6% of normal windows are well-calibrated at ~89% CI.
 
 ---
+
+## 2026-04-01: ROOT CAUSE IDENTIFIED — Explosion Is Noise Amplitude vs Floor Distance (Codex-Verified)
+
+### Context
+Claude changed the explosion explanation 3 times. User demanded Codex verification. Codex loaded the actual models, ran fresh measurements, and identified the simple explanation.
+
+### The Simple Explanation (Codex-Verified)
+
+1. The deterministic mean path (z=0) is fine — stays positive, never approaches zero
+2. The per-cell CLN learned a too-large stochastic gain for 3 cells: (2,4), (0,3), (0,0)
+3. Those 3 cells often start close to zero (p5 of starting IV: 0.025-0.034)
+4. Over ~15 steps, normal spread growth makes negative crossing likely
+5. It is NOT cumulative drift, NOT spatial coherence loss, NOT single oversized deltas
+
+### The Key Evidence (Codex-measured)
+
+At prev=0.02 for cell (2,4):
+
+| Model | Mean correction | Noise std | Ratio (corr/noise) |
+|-------|----------------|----------|-------------------|
+| BPTT bad cell | +0.072 | **0.110** | 0.65 (noise wins) |
+| v3 bad cell | +0.018 | 0.027 | 0.67 (similar ratio) |
+| BPTT good cell (2,2) | +0.043 | 0.023 | **1.87** (correction wins) |
+
+The failure mode: when correction/noise < 1.0, the model cannot reliably prevent floor crossing. The good cells have ratio > 1.0 (correction dominates). The bad cells have ratio < 1.0 (noise dominates near the floor).
+
+### Why v3 Does Not Explode
+
+v3 broadcast CLN forces one shared noise scale for all cells. This keeps the bad cells noise small (std=0.027 vs BPTT 0.110). But it also keeps good cells noise too small (the rank-1 issue). v3 is safer not because it solved the problem but because it under-expresses it.
+
+### Per-Cell CLN Is NOT Fundamentally Incompatible
+
+The same BPTT model has good low-vol cells that stay safe (correction/noise = 1.87). The issue is selective miscalibration on 3 cells, not a fundamental architectural limitation.
+
+### Why Claude Kept Getting It Wrong
+
+Claude formed narratives before checking the data:
+1. "Cumulative drift from detached AR" — refuted by z=0 rollout staying positive
+2. "Spatial coherence lost" — refuted by spatial smoothness being identical to v3
+3. "Oversized single deltas" — partially right but missed the key: its the ratio of correction to noise near the floor that matters, not the absolute delta size
+
+The simple explanation was always: noise amplitude > mean-reversion correction near the data floor. Codex found this by directly measuring the correction and noise at low prev values.
+
+### Codex Recommended Fix
+
+Make stochastic amplitude STATE-DEPENDENT: noise scale should be a learned function of (cond, prev), not just a fixed per-cell gain. When prev is near the floor, the model should automatically reduce noise.
+
+Split decoder output into:
+- Deterministic mean correction (depends on cond + prev)
+- Stochastic scale (depends on cond + prev, reduces near floor)
+
+This targets the actual failure: std > correction near floor. Preserves per-cell structure. No hard clamp or boundary needed.
+
+### Previous Wrong Explanations (for future reference)
+- "Reflecting boundary exploitation" — was real for 164a, not relevant to BPTT
+- "IID noise random walk" — refuted by per-step conditionality analysis
+- "noise_proj bottleneck" — refuted (network re-learns compression)
+- "VS targets diversity" — refuted (VS is spatial template loss)
+- "Uniform underdispersion at 63%" — refuted by Codex (heterogeneous)
+- "Cumulative drift from detached AR" — refuted (z=0 path stays positive)
+- "Spatial coherence lost" — refuted (smoothness ratio identical to v3)
+
+---
