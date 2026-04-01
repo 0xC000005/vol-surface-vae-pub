@@ -49421,3 +49421,66 @@ Same 5/9 as BPTT but explosions worse. Root cause identified: CRPS gradient trai
 Directly penalize frame_t < 0 in the loss. This gives the correct gradient: "crossing zero is bad." Cannot be hijacked by CRPS because it's additive penalty with explicit floor signal. Already in theory_queue.json as fallback.
 
 ---
+
+## 2026-04-01: RC20.5 CORRECTION — Validation Audit Findings
+
+### What Was Wrong
+
+The RC20.5 research log entry compared gate best_model (ep49) against BPTT final_model
+(ep80) — an unfair comparison. Additionally, the "3 cells cause explosions" claim was
+from BPTT final only; BPTT best (ep12) has 9 affected cells, same as the gate.
+
+### Corrected Comparison Table
+
+| Model | Epoch | Suites | Traj Explosion | Worst Cell | Affected Cells |
+|-------|-------|--------|----------------|------------|----------------|
+| BPTT best | ep12 | 4/9 | 66.5% | (0,0) 41.8% | 9/25 |
+| BPTT final | ep80 | 5/9 | 41.8% | (0,0) 14.6% | 9/25 |
+| Gate best | ep49 | 5/9 | 63.5% | (0,0) 34.6% | 8/25 |
+| Gate final | ep80 | 4/9 | 60.4% | ? | ? |
+
+### Per-Cell Floor Explosion Rates (4000 trajectories, seed=42)
+
+| Cell | BPTT best (ep12) | BPTT final (ep80) | Gate best (ep49) |
+|------|------------------|-------------------|------------------|
+| (0,0) | 41.8% | 14.6% | 34.6% |
+| (0,3) | 12.7% | 10.2% | 13.1% |
+| (0,4) | 3.1% | 2.6% | 2.5% |
+| (1,0) | 1.8% | 0.7% | 4.2% |
+| (1,3) | 0.8% | 0.1% | 2.0% |
+| (1,4) | 16.8% | 8.8% | 11.8% |
+| (2,4) | 12.5% | 9.6% | 26.9% |
+| (4,0) | 0.5% | 0.1% | 0.7% |
+
+### Corrected Findings
+
+1. **"3 cells cause explosions" was wrong.** Both BPTT and gate have 8-9 affected cells.
+   The 3-cell narrative came from BPTT final where most cells dropped below observation
+   threshold — but they were always there.
+
+2. **Best-vs-best: gate is comparable to BPTT.** Trajectory-level: 63.5% vs 66.5%.
+   Gate slightly better overall but worse on cell (2,4) specifically (26.9% vs 12.5%).
+
+3. **Final-vs-final: BPTT clearly better.** 41.8% vs 60.4%. BPTT learns to reduce
+   explosions from ep12→ep80 much more effectively than the gate model.
+
+4. **B=48 LR=3e-3 confound is unresolved.** Gate used 3x batch and 3x LR vs BPTT.
+   Cannot isolate gate effect from hyperparameter change.
+
+5. **BPTT ep12→ep80 shows 66.5%→41.8% explosion reduction.** The model CAN learn
+   to reduce explosions through training — the per-step loss signal exists but is
+   weak and slow. Cell (0,0) went from 41.8%→14.6% in 68 more epochs.
+
+6. **Gate direction analysis remains valid.** Gate weights show monotonically decreasing
+   activation with IV level. This is a property of the learned parameters, independent
+   of the B/LR confound.
+
+### What This Changes
+
+- The "CRPS hijacks gate" narrative is still plausible but NOT proven. The confound
+  means the increased explosion on (2,4) could be from LR=3e-3 vs 1e-3.
+- The floor penalty (RC20.6) is still the right next step — it addresses explosions
+  directly regardless of whether the gate was hijacked or not.
+- Codex independent verification requested for mechanistic root cause.
+
+---
