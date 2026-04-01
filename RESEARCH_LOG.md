@@ -49056,3 +49056,77 @@ PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt.
 4. Suite 8 is tantalizingly close — all sub-tests pass except window_floor at 6.7% vs 5% threshold
 
 ---
+
+## 2026-04-01: Comprehensive Validation — BPTT Model Deep Analysis (5 Parallel Agents)
+
+### Scope
+Deep analysis of the BPTT final model (ep80, 5/9 suites). 5 agents dispatched: long-horizon, per-cell analysis, window floor investigation, explosion breakdown, gradient verification.
+
+### Agent 1: Long-Horizon 252-Day Test
+
+| Horizon | CI 90% | Spread | Explosion |
+|---------|--------|--------|-----------|
+| d30 | 61.2% | 0.037 | **0%** |
+| d60 | 65.1% | 0.042 | **0%** |
+| d90 | 72.2% | 0.045 | **0%** |
+| d180 | **83.5%** | 0.048 | **0%** |
+| d252 | 65.4% | 0.049 | **0%** |
+
+**Zero explosions at 252 days.** Perfect stationarity (ratio 1.03). Spread grows monotonically but saturates — only 1.32x from d30 to d252. CI peaks at d180 (83.5%) then drops at d252 because GT keeps diverging while model spread flattens.
+
+Cointegration weak at long horizon: gen 42.1% vs GT 98.4%. IV-EWMA correlation: gen 0.30 vs GT 0.84.
+
+### Agent 2: Per-Cell Analysis (200 windows, K=50)
+
+Mean CI at h=30: 69.6%. 3 problem cells (bias>0.01 AND CI<60%):
+1. (1.05, 9M): CI=38.5%, bias=+0.013, spread_ratio=0.68
+2. (1.10, 9M): CI=42.5%, bias=+0.013, spread_ratio=0.91
+3. (1.10, 3M): CI=56.0%, bias=+0.015, spread_ratio=1.64
+
+8 cells below 60% CI. 6M tenor column systematically bad (52-58% across 4 moneyness points). Bias is systematically positive (22/25 cells at h=30). Spread heterogeneity extreme: 16x range.
+
+### Agent 3: Window Floor Investigation (KEY FINDING)
+
+**Root cause: conditional under-dispersion in stress regimes.**
+
+78/1223 windows (6.4%) below 50% coverage. Gate requires <5% (1.4pp gap).
+
+7 findings:
+1. Future realized vol is strongest predictor of bad coverage (r=-0.43)
+2. Bad windows have 2.4x future rvol, 3.2x IV change magnitude vs good windows
+3. Model widens CIs by only 1.16x when it should widen 3x for stress
+4. 21.1% of P90-P100 VoV windows are bad vs 2.3% in P50-P75 (9x concentration)
+5. Temporally clustered: 78 bad windows form 26 consecutive runs (market events)
+6. Cell (3,3) has 17% coverage in bad windows vs 81% in good
+7. Bad windows: coverage drops from 69% at h1 to 24% at h20 (steep decay)
+
+**Critical insight:** Increasing global spread would damage the 760 good windows (89% coverage). The fix must be CONDITIONAL — wider CIs specifically when encoder detects high-vol history. The GRU may lack capacity to encode regime severity finely enough.
+
+### Agent 4: Gradient Verification
+
+**BPTT gradient confirmed working through all 5 steps.**
+- All 85 decoder params have non-zero gradient from step 5 loss
+- Gradient does NOT attenuate — actually grows 3x from step 1 to step 5 (residual connection prev + tanh(delta) prevents vanishing gradients)
+- Numerical verification confirms causal influence: perturbing step 1 output by 0.01 changes step 5 loss by 12.1%
+- Detaching step 1 reduces gradient by 22% — confirming multi-step credit assignment works
+
+**Note from agent:** The actual trained model used bptt_steps=3 (argparse default in the script), not 5. The docstring says N=3. Need to verify which was actually used in training.
+
+### Overall Assessment
+
+**What makes this model good:**
+- Zero explosions at 252 days (unique among all percell models)
+- KS daily 25/25 (perfect distributional match)
+- Calibration error 0.064 (2.5x better than v3)
+- Cointegration 0.810 (56% better than v3)
+- BPTT gradient is strong and non-vanishing
+
+**What still fails and why:**
+- Suite 1 (Surface): 42.2% per-trajectory explosion at 30d (per-cell CLN low-side OOB)
+- Suite 2 (Coverage): worst cell 38.5% CI (9M OTM cells, underspread)
+- Suite 7 (Regime): per-regime per-cell CI too narrow in stress
+- Suite 8 (Distributional): window floor 6.4% (stress windows, 1.4pp from passing)
+
+**The remaining bottleneck is CONDITIONAL SPREAD IN STRESS REGIMES.** The model produces good spread for 93.6% of windows but fails to widen enough for the 6.4% stress windows. This is not a global spread issue (good windows are well-calibrated at 89%) — it's a regime-dependent calibration issue.
+
+---
