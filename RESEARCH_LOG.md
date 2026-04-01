@@ -48868,3 +48868,53 @@ Same suite composition. Cal error 0.073 (even better). turb/calm 1.154 (right at
 - Consider: would combining v3 (5/9, no explosions) with IS-fix K=16 (best internals) give best of both?
 
 ---
+
+## 2026-03-31: Data Investigation — Train-Test Distribution Shift on Problem Cells
+
+### Context
+Cell (2,4) is the common bottleneck across suites 2, 3, and 8. Investigated whether the persistent failures are from model limitations or data characteristics.
+
+### Finding: ALL 25 cells have significant train-test distribution shift (p<0.01)
+
+But the magnitude varies dramatically:
+
+| Cell | Train mean | Test mean | Shift | KS stat | Type |
+|------|-----------|----------|-------|---------|------|
+| (0,0) | 0.279 | 0.360 | +0.081 | 0.299 | PROBLEM — massive upward shift |
+| (1,4) | 0.218 | 0.291 | +0.073 | 0.272 | PROBLEM — large shift |
+| (2,4) | 0.164 | 0.199 | +0.035 | 0.296 | PROBLEM — high KS |
+| (2,2) | 0.188 | 0.192 | +0.004 | 0.092 | Good cell — small shift |
+| (3,2) | 0.195 | 0.196 | +0.001 | 0.083 | Good cell — minimal shift |
+
+The problem cells have 8-20x larger distribution shifts than the good cells.
+
+### Cell (2,4) Specific Characteristics
+- Deep OTM, mid-tenor. Mean IV = 0.173.
+- Test daily change std = 0.075 vs train = 0.060 (**24% more volatile** in test)
+- Test IV range extends to 0.948 (train max = 0.651) — test has extreme values unseen in training
+- Cross-cell correlation: max 0.08 — **nearly independent of all other cells**. Spatial attention has weak signal to constrain it.
+- h=30 deviation from start: mean=-0.002, std=0.124, range [-0.698, +0.581] — **extremely wide swings**
+
+### Cell (0,0) Specific Characteristics
+- Deep ITM, short tenor. Mean IV = 0.297.
+- Largest shift: train mean 0.279 vs test mean 0.360 (+0.081)
+- This is the cell with GT daily std = 0.185 — by far the most volatile cell
+- Test std = 0.179 vs train std = 0.204 — actually LESS volatile in test but at higher level
+
+### Implications
+
+1. **The problem cells are harder in test than in training.** Higher IV levels, more extreme values, wider swings. The model is evaluated on OOD conditions for these specific cells.
+
+2. **Cell (2,4) is nearly independent of other cells** (max correlation 0.08). The spatial transformer attention cannot use cross-cell information to help predict this cell. It must rely entirely on the condition + prev_frame + noise for this cell's dynamics.
+
+3. **This explains why aggregate metrics are excellent but worst-cell metrics fail.** The model generalizes well for 20+ cells where train-test shift is small, but fails on the 3-5 cells with large shifts.
+
+4. **This is NOT a model bug — it's a real-world generalization challenge.** The question is whether the model can learn to extrapolate to higher IV levels and wider swings than seen in training.
+
+### Does This Change Our Strategy?
+- Partial BPTT may help because it teaches the model to correct drift — which is more important for cells with extreme swings
+- The IS fix already improved CI from 59.7% to 78.2% by widening spread — this helps cover the shifted test distribution
+- Cell (2,4)'s independence means per-cell CLN is essential (broadcast noise can't help a cell that doesn't correlate with others)
+- The remaining gap may require more training data diversity or augmentation, not just architectural fixes
+
+---
