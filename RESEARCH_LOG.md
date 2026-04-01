@@ -48808,3 +48808,63 @@ The IS-fix K=16 model is still training (ep20+). Let it finish to ep80 first. If
 BPTT is a training procedure, not a domain heuristic. It provides the optimizer with more complete gradient information. The model still learns everything from data. This is analogous to increasing batch size or training epochs — better optimization, not human-designed structure.
 
 ---
+
+## 2026-03-31: Exp 164a_v3_percell_is_fix_k16 — Best Internal Metrics, 4/9 Suites
+
+### Training
+Per-cell CLN + corrected IS (alpha=0.1, lambda_is=0.05, warmup 10ep) + K=16, B=16. 80 epochs, 100s/epoch. Best at ep57 (val=0.0220). Training stable throughout.
+
+### Training Command
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_is_fix.py --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --output_dir models/backfill/afcrps_164a_v3_percell_is_fix --device cuda
+
+### v2 Test Suite: 4/9 — Best Internal Metrics Ever
+
+| Metric | v3 (5/9) | percell (4/9) | **IS-fix K=16 (4/9)** | Improvement |
+|--------|----------|--------------|----------------------|-------------|
+| Cal error | 0.164 | 0.215 | **0.079** | 2x better than v3 |
+| CI 90% | 69.8% | 59.7% | **78.2%** | +8% over v3 |
+| KS daily | 13/25 | 16/25 | **24/25** | Near-perfect |
+| Cointegration | 0.518 | 0.507 | **0.822** | +59% over v3 |
+| Eff rank ratio | 0.497 | 2.213 | **1.063** | Near-perfect (gen=5.35, GT=5.03) |
+| Kurtosis | 0.611 | 1.808 | **0.784** | PASS |
+| Explosion | 0.0% | 38.7% | **37.6%** | Per-cell CLN issue |
+| turb/calm | 1.230 | 1.212 | **1.186** | Close to threshold |
+
+### Suite Breakdown
+
+| Suite | Status | Blocking sub-test | How close |
+|-------|--------|------------------|-----------|
+| 1. Surface | FAIL | Explosion 37.6% (all low-side, per-value 0.11%) | Calendar+Butterfly both PASS |
+| 2. Coverage | FAIL | Worst cell (2,4) at 62.8% h=7 | Overall CI 78.2% excellent |
+| 3. Conditionality | FAIL | Worst cell WR=2.32, MAE=-29.8% | turb/calm 1.186 PASSES |
+| 4. Time Series | PASS | | |
+| 5. Block-AR | PASS | | |
+| 6. Cointegration | PASS (0.822) | | |
+| 7. Regime | FAIL | | |
+| 8. Distributional | FAIL | KS level 14/25, median bias | KS daily 24/25 PASSES |
+| 9. Cross-cell corr | PASS (1.063) | | |
+
+### Common Problem Cell: (2,4)
+Cell (2,4) — deep OTM, mid-tenor (GT daily std=0.086) — is the worst cell in:
+- Suite 2: worst CI at h=7 (62.8%) and h=14 (63.5%)
+- Suite 3: worst width ratio (2.316)
+- Suite 8: worst KS level (0.400)
+
+This is one of 3 high-variance corner cells that also cause the explosion issue.
+
+### Final Model (ep80): 4/9
+Same suite composition. Cal error 0.073 (even better). turb/calm 1.154 (right at boundary).
+
+### What Was Learned
+1. Corrected IS + low lambda + warmup + K=16 produces the best overall model quality
+2. The model has near-perfect aggregate metrics (KS 24/25, cal_err 0.079, eff_rank 1.06)
+3. Suite failures are driven by worst-case cells, not aggregate quality
+4. Cell (2,4) is the single biggest bottleneck — fixing it could flip suites 2, 3, and 8
+5. The explosion issue (per-cell CLN low-side OOB) persists but is a metric amplification
+
+### Next Steps
+- Partial BPTT (documented in design note) to address drift accumulation
+- Investigate cell (2,4) specifically: why does this cell have 2.3x width ratio and 0.40 KS?
+- Consider: would combining v3 (5/9, no explosions) with IS-fix K=16 (best internals) give best of both?
+
+---
