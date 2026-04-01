@@ -48976,3 +48976,83 @@ Problem cells have 8-20x larger shifts than good cells:
 - B=16, K=16 at N=3 should fit in 8GB
 
 ---
+
+## 2026-03-31: Exp BPTT N=5 Results — 5/9 Final, Best Distributional Metrics Ever
+
+### Training
+Per-cell CLN + corrected IS (alpha=0.1, lambda_is=0.05, warmup 10ep) + partial BPTT (N=5) + K=16, B=16. 80 epochs, 98s/epoch. Best at ep12 (val=0.0209).
+
+### Training Command
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt.py --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5 --output_dir models/backfill/afcrps_164a_v3_percell_bptt --device cuda
+
+### Two Interesting Checkpoints
+
+**Best model (ep12): 4/9 — best calibration ever (0.024)**
+- Cal error 0.024 (v3: 0.164, IS-fix: 0.079 — 7x better than v3)
+- KS daily 23/25, KS level 19/25
+- Window floor PASSES
+- But conditionality fails (tc=1.204, worst-cell gates fail)
+- Explosion 65.7%
+
+**Final model (ep80): 5/9 — best distributional metrics ever**
+- KS daily 25/25 (PERFECT)
+- KS level 21/25 (best ever)
+- Cal error 0.064
+- Conditionality PASSES (tc=1.225)
+- Cointegration 0.810, Cross-cell rank 1.116
+
+### Complete Comparison
+
+| Metric | BPTT best | BPTT final | IS-fix K16 | v3 |
+|--------|----------|-----------|------------|-----|
+| Suites | 4/9 | **5/9** | 4/9 | 5/9 |
+| Cal error | **0.024** | 0.064 | 0.079 | 0.164 |
+| KS daily | 23/25 | **25/25** | 24/25 | 13/25 |
+| KS level | 19/25 | **21/25** | 14/25 | 13/25 |
+| Kurtosis | 0.929 | 0.772 | 0.784 | 0.611 |
+| turb/calm | 1.204 | 1.225 | 1.186 | 1.230 |
+| Cointegration | 0.843 | 0.810 | 0.822 | 0.518 |
+| Rank ratio | 0.809 | 1.116 | 1.063 | 0.497 |
+| Explosion | 65.7% | 42.2% | 37.6% | 0.0% |
+| Window floor | PASS | FAIL | FAIL | FAIL |
+| Median bias | FAIL | PASS | FAIL | FAIL |
+
+### Suite Breakdown (final model ep80)
+
+| Suite | Status | Details |
+|-------|--------|---------|
+| 1. Surface | FAIL | Explosion 42.2% (per-cell CLN low-side OOB) |
+| 2. Coverage | FAIL | Cal=0.064 (best), but worst_cell_pass=False |
+| 3. Conditionality | **PASS** | tc=1.225 |
+| 4. Time Series | **PASS** | kurt=0.772 |
+| 5. Block-AR | **PASS** | |
+| 6. Cointegration | **PASS** | 0.810 |
+| 7. Regime | FAIL | |
+| 8. Distributional | FAIL | KS daily 25/25 PASS, KS level 21/25 PASS, Median bias PASS. Only window_floor FAILS (6.7% windows <50% cov, target <5%) |
+| 9. Cross-cell | **PASS** | rank=1.116 |
+
+### What BPTT Fixed
+1. **CI worst cell: 25% (IS-fix) to 54% (BPTT best)** — multi-step credit assignment corrects drift at source
+2. **ALL 25 cells above 50% coverage** — no catastrophic cells (IS-fix had cells at 25%)
+3. **KS daily: 24/25 to 25/25** — perfect distributional match
+4. **KS level: 14/25 to 21/25** — level distribution dramatically improved
+5. **Cell (1,4) bias: +0.068 to +0.007** — 10x reduction from BPTT
+
+### What BPTT Did NOT Fix
+1. **Explosion: 37.6% to 42.2%** — slightly worse. Per-cell CLN OOB persists.
+2. **Suite 8 window floor** — 82 windows (6.7%) still have <50% coverage. Only 1.7pp above 5% threshold.
+3. **Suite 2 worst cell** — still fails the per-cell gate despite dramatic improvement
+
+### Remaining Gaps to 6+/9
+- Suite 1: explosion (per-cell CLN inherent issue)
+- Suite 2: worst cell CI gate (improved but not enough)
+- Suite 7: regime-level per-cell CI
+- Suite 8: window floor (1.7pp from passing)
+
+### What Was Learned
+1. Partial BPTT works exactly as predicted — multi-step credit assignment reduces drift and improves worst-cell coverage
+2. The BPTT model has the best overall quality metrics of any model in this project
+3. The remaining failures are dominated by two issues: (a) per-cell CLN low-side OOB, (b) train-test distribution shift on a few cells
+4. Suite 8 is tantalizingly close — all sub-tests pass except window_floor at 6.7% vs 5% threshold
+
+---
