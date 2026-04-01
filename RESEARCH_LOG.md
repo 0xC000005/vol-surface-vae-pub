@@ -48918,3 +48918,61 @@ The problem cells have 8-20x larger distribution shifts than the good cells.
 - The remaining gap may require more training data diversity or augmentation, not just architectural fixes
 
 ---
+
+## 2026-03-31: RC20.4 — Partial BPTT Design + Pre-Implementation Analysis
+
+### Current Best Model: IS-fix K=16 (4/9, best internals ever)
+Cal error 0.079, KS daily 24/25, cointegration 0.822, eff_rank 1.063. Fails on explosion (37.6%), worst-cell CI/conditionality, KS level (14/25), median bias.
+
+### What Passes and What Fails
+
+**Strong (PASS or near-PASS):**
+- Suite 4 (Time Series): kurtosis 0.784, skewness 1.964 — correct tail behavior
+- Suite 5 (Block-AR): smoothness + growing uncertainty — AR structure sound
+- Suite 6 (Cointegration): 0.822 — best ever, strong temporal coherence
+- Suite 9 (Cross-cell): eff_rank 5.35 vs GT 5.03 — near-perfect factor structure
+- KS daily 24/25, turb/calm 1.186, MAE reduction 79.3%, CI90 78.2%
+
+**Blocking failures:**
+- Suite 1 (Explosion): 37.6% per-trajectory (0.11% per-value). Per-cell CLN allows slight negative values.
+- Suite 2 (CI worst cell): cell (2,4) at 62.8% h=7. Train-test shift +0.035 in IV level.
+- Suite 3 (Worst cell): WR=2.316 cell (2,4), MAE=-29.8% cell (1,4). Conditioning worsens shifted cells.
+- Suite 7 (Regime): Layer 2 only 2/8. Per-regime per-cell CI too narrow.
+- Suite 8: KS level 14/25 (1 away), median bias FAIL, window floor FAIL.
+
+### Cell (2,4) Deep Investigation
+- NOT a spread problem: Spr/GT = 0.93 at h=30 (nearly calibrated)
+- CRPS says LESS spread (spread already exceeds MAE)
+- The issue is MEAN BIAS: model predicts +0.021 too high at step 1, compounds to +0.035 at h=30
+- Per-cell CLN gives cell (2,4) the strongest noise modulation (scale norm 8.2 vs 5.2 for others)
+- Train-test shift: mean IV +0.035, daily std +24% larger in test
+
+### Train-Test Distribution Shift (ALL 25 cells, p<0.01)
+Problem cells have 8-20x larger shifts than good cells:
+- (0,0): +0.081 shift, KS=0.299
+- (1,4): +0.073 shift, KS=0.272
+- (2,4): +0.035 shift, KS=0.296
+- Good cells (2,2), (3,2): shift < 0.005
+
+### Partial BPTT Expected Impact
+
+| Suite | Expected Effect | Reasoning |
+|-------|----------------|-----------|
+| 1. Explosion | LIKELY IMPROVE | Gradient teaches model OOB at step t compounds at t+3 |
+| 2. CI overall | LIKELY IMPROVE | Multi-step gradient teaches spread growth over steps |
+| 2. Worst cell | MAYBE | Helps if bias compounds, not if from distribution shift |
+| 3. Conditionality | NEUTRAL | Already passing on aggregate |
+| 4. Time Series | LOW RISK | Noise structure, not AR dynamics |
+| 5. Block-AR | LIKELY IMPROVE | Directly optimizes multi-step smoothness |
+| 6. Cointegration | LIKELY IMPROVE | Multi-step temporal coherence by design |
+| 7. Regime | MAYBE | Follows from CI improvement |
+| 8. Distributional | MAYBE | Level bias from accumulated drift — BPTT addresses |
+| 9. Cross-cell | LOW RISK | Factor structure from per-cell CLN, not AR |
+
+### Design: Partial BPTT (N=3 steps)
+- Within N-step window: keep gradient flowing (no detach on prev, GRU update with gradient)
+- At window boundary: detach prev and GRU state
+- Memory: ~3x current (3 steps of activations)
+- B=16, K=16 at N=3 should fit in 8GB
+
+---
