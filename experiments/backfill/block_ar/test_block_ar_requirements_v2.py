@@ -2682,7 +2682,7 @@ def main():
         "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
     )
-    is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix", "ar_spatial_transformer_164a_v3_percell_bptt", "ar_spatial_transformer_164a_v3_percell_bptt_gate")
+    is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix", "ar_spatial_transformer_164a_v3_percell_bptt", "ar_spatial_transformer_164a_v3_percell_bptt_gate", "ar_spatial_transformer_164a_v3_percell_bptt_local_gate")
     is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
     # Support both BlockARConfig instance and dict
@@ -2734,8 +2734,13 @@ def main():
     if is_ar_spatial:
         # ── AR Spatial Transformer (164a etc.) ──
         is_percell = "percell" in model_type
-        is_gate = "gate" in model_type
-        if is_gate:
+        is_local_gate = "local_gate" in model_type
+        is_gate = "gate" in model_type and not is_local_gate
+        if is_local_gate:
+            from experiments.backfill.block_ar.train_164a_v3_percell_bptt_local_gate import (
+                ARSpatialTransformerModel,
+            )
+        elif is_gate:
             from experiments.backfill.block_ar.train_164a_v3_percell_bptt_gate import (
                 ARSpatialTransformerModel,
             )
