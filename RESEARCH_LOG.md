@@ -49224,3 +49224,50 @@ This targets the actual failure: std > correction near floor. Preserves per-cell
 - "Spatial coherence lost" — refuted (smoothness ratio identical to v3)
 
 ---
+
+## 2026-04-01: RC20.5 — State-Dependent CLN Noise Gate (Codex-Verified Design)
+
+### Problem
+3 cells cause 42% per-trajectory explosion because their learned noise amplitude exceeds mean-reversion correction near the data floor. At prev=0.02 for cell (2,4): correction=+0.072 but noise std=0.110 (ratio 0.65). Good cells have ratio > 1.5.
+
+### Proposal B Rejected (Codex)
+Claude proposed: frame_t = prev + scale(prev) * tanh(delta). Codex rejected: this scales BOTH correction AND noise together. At prev=0.02, we want correction to stay strong but noise to shrink. Proposal B would weaken recovery exactly when needed.
+
+### Accepted Design: Minimal CLN Noise Gate
+Gate the noise modulation inside ConditionalNorm based on prev_frame. Only the noise path is dampened, not the deterministic correction.
+
+Current ConditionalNorm:
+  scale = scale_proj(z).view(B, C, d_model)
+  bias = bias_proj(z).view(B, C, d_model)
+  output = (scale + 1) * x + bias
+
+With noise gate:
+  noise_gate = sigmoid(gate_proj(prev_frame))  # (B, 25) in [0, 1]
+  scale = scale * noise_gate.unsqueeze(-1)     # dampen per cell
+  bias = bias * noise_gate.unsqueeze(-1)
+  output = (scale + 1) * x + bias
+
+gate_proj = Linear(25, 25) — 625 parameters. Each cell gated by its own prev value. When prev is near zero, gate learns to output small value, reducing that cells noise. When prev is normal, gate is approximately 1.0.
+
+### Why This Design
+- Targets ONLY the noise path (preserves mean-reversion correction)
+- Minimal parameters (625 vs 2.5M model)
+- Learned from data (not a hard-coded rule — sigmoid(linear(prev)) is trained)
+- Bitter Lesson compatible (generic heteroscedastic modeling)
+- Per-cell (each cells gate depends on its own prev value)
+
+### Risks
+1. Gate might collapse to 0 everywhere (kills all noise). CRPS spread penalty should prevent.
+2. Training data rarely has prev near 0 (p5=0.03). Gate may not learn floor behavior from few examples.
+3. The 25x25 linear allows cross-cell interaction. Could use per-cell Linear(1,1) for pure independence (25 params).
+
+### Alternative: One-Sided Rollout Penalty
+Codex also noted a credible loss-only fix: add a small penalty for frame_t < 0 during training. This tells the optimizer directly that crossing zero is bad. Could be combined with the noise gate.
+
+### Codex Assessment
+- Longer training will not fix this (explosion persisted through 80 epochs)
+- More BPTT steps will not fix this (local calibration issue, not long-horizon)
+- Weather model analogies are weak (they dont have hard floor constraints)
+- Per-cell CLN is not broken (good cells work fine — selective miscalibration)
+
+---
