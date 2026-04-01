@@ -49484,3 +49484,76 @@ from BPTT final only; BPTT best (ep12) has 9 affected cells, same as the gate.
 - Codex independent verification requested for mechanistic root cause.
 
 ---
+
+## 2026-04-01: RC20.5 Codex Verification — Architecture-Loss Mismatch
+
+### Codex Verdict: PARTIAL — Claude's analysis overconfident, methodology flawed
+
+### What Codex Found Wrong
+
+1. **"Gate learned wrong direction" was a flawed diagnostic.** The constant-all-cells
+   probe (prev=0.02 for all 25 cells) measures global surface response, not per-cell
+   floor behavior. Real explosions have 1-2 cells near floor while others are normal.
+   The monotonic decrease (gate(0.02)=0.83 > gate(0.30)=0.62) is an artifact of this
+   unrealistic probe, not evidence of CRPS pathology.
+
+2. **Linear(25,25) is NOT a local floor gate.** Cell (2,4) gate in deep layers:
+   self-weight = -0.0053, but cross-cell weights are huge: (1,3)=-2.276, (0,3)=-1.706,
+   (2,3)=-1.589. The gate ignores cell (2,4)'s own value and responds to other cells.
+   This is a dense context gate, not the local floor damper the hypothesis intended.
+
+3. **"CRPS wants spread at floor" is unsupported.** Training data shows genuinely higher
+   volatility at the floor. Cell (2,4) at lowest prev decile: E|delta|=0.082,
+   std(delta)=0.094. Mid bins: E|delta|=0.011-0.019, std=0.026-0.037. More spread
+   near the floor may be the DATA-CORRECT response, not loss pathology.
+
+4. **Correct framing: architecture-loss MISMATCH, not "loss-level problem."**
+   The architecture gave the model a context gate. The loss gave no reason to make
+   that context gate act as a local safety mechanism. Neither is solely at fault.
+
+### What Codex Confirmed
+
+- The comparison was unfair (best vs final mismatch) — confirmed on disk
+- B/LR confound is real (B=48 LR=3e-3 vs B=16 LR=1e-3)
+- Val-loss checkpointing misaligned with explosion safety for both models
+- BPTT final improvement mostly from cell (0,0): 46.7%→7.8%. Cell (0,3) WORSENED: 13.5%→23.6%
+
+### Mechanistic Probes (Codex-run, independent)
+
+Same-window same-noise rollout on cell (2,4), prev=0.02:
+| Model | tanh_mean (correction) | tanh_std (noise) | ratio |
+|-------|----------------------|------------------|-------|
+| BPTT best | 0.079 | 0.117 | 0.674 |
+| BPTT final | 0.079 | 0.117 | 0.674 |
+| Gate best | — | — | 0.534 |
+| Gate final | 0.065 | 0.105 | 0.619 |
+
+Gate reduced both correction AND noise, worsening the ratio (0.674→0.619).
+
+Same-window comparison (window 4511, member 5, cell (2,4)):
+- BPTT final min = 0.0266 (stays positive)
+- Gate final min = -0.0169 (crosses floor)
+
+### Conclusion
+
+**RC20.5 did not test the intended hypothesis.** "Reduce noise when this cell is near
+zero" requires a local gate. Linear(25,25) implemented "modulate noise based on global
+surface context" — a different experiment entirely.
+
+### What Was Learned
+
+1. Dense cross-cell gates (Linear(25,25)) learn context responses, not local safety.
+2. Training data has legitimately higher volatility at the floor — not all floor noise is pathological.
+3. The BPTT model's ep12→ep80 improvement is cell-specific, not a general floor solution.
+4. Val-loss checkpoint selection is misaligned with explosion safety for ALL models tested.
+
+### Recommended Next: Local Diagonal Gate (RC20.5b)
+
+Codex recommends (agreed):
+- Replace Linear(25,25) with per-cell local gate: g_i = sigmoid(a_i * prev_i + b_i)
+- 50 params (2 per cell) instead of 650
+- Match BPTT hyperparameters exactly: B=16, K=16, LR=1e-3
+- Evaluate BOTH best and final checkpoints
+- This actually tests whether local floor-dependent damping helps
+
+---
