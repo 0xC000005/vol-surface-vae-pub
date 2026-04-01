@@ -49130,3 +49130,34 @@ Mean CI at h=30: 69.6%. 3 problem cells (bias>0.01 AND CI<60%):
 **The remaining bottleneck is CONDITIONAL SPREAD IN STRESS REGIMES.** The model produces good spread for 93.6% of windows but fails to widen enough for the 6.4% stress windows. This is not a global spread issue (good windows are well-calibrated at 89%) — it's a regime-dependent calibration issue.
 
 ---
+
+## 2026-04-01: Agent 5 (Explosion) — 3 Cells Cause 100% of Explosions
+
+### Findings
+Only 3 cells ever go below zero:
+
+| Cell | Physical | % of explosions | OOB rate h=30 | Min IV |
+|------|----------|----------------|---------------|--------|
+| (2,4) | 6M/K=1.30 | 50.5% | 1.49% | -0.075 |
+| (0,3) | 1M/K=1.15 | 45.1% | 1.43% | -0.107 |
+| (0,0) | 1M/K=0.70 | 18.8% | 0.36% | -0.067 |
+
+Per-value OOB: 0.12%. Amplification to per-trajectory: 389x (0.12% to 46.6%).
+
+Counterfactual: excluding (2,4) alone drops explosion from 46.6% to 30.9%. Excluding all 3 would near-eliminate explosions.
+
+Median first-trigger horizon: step 16. This is cumulative drift, not single-step blowup.
+
+All 3 cells are low-mean-IV cells near the data floor (data min ~0.01). Negative deltas accumulate over 30 steps and push below zero.
+
+### Complete Validation Summary (5 Agents)
+
+The BPTT model (5/9, best internals ever) has two precisely identified remaining issues:
+
+1. **Explosion (Suite 1)**: 3 cells near data floor drift below zero over 30 steps. Per-value 0.12%, amplified 389x to per-trajectory 46.6%. Architectural (no lower bound on these low-IV cells).
+
+2. **Stress under-dispersion (Suites 2, 7, 8)**: 78 stress windows (6.4%) have <50% coverage. Model widens CIs by 1.16x in stress vs needed 3x. Temporally clustered in market events.
+
+Both issues are CONDITIONAL — they affect specific cells/windows, not the aggregate model quality. The 93.6% of normal windows are well-calibrated at ~89% CI.
+
+---
