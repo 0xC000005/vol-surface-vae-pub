@@ -49337,3 +49337,87 @@ Reflecting boundary created a degenerate fixed point. Model learned -0.34 system
 6. No scoring rule at K=8 has strong sensitivity to correlation — the fix must be architectural or K must increase
 
 ---
+
+## 2026-04-01: RC20.5 Result — CLN Noise Gate VALUABLE FAILURE
+
+### Exp 164a_v3_percell_bptt_gate
+**Based on**: 164a_v3_percell_bptt (5/9, KS 25/25, 42% explosion)
+**Hypothesis**: State-dependent noise gate sigmoid(Linear(25,25)) on prev_frame dampens CLN noise path near data floor. Targets Codex-verified root cause: noise std (0.110) > correction (+0.072) at prev=0.02 for 3 cells.
+**Prediction**: Explosion rate drops from 42% to <5% while maintaining 5/9+ suites.
+
+### Architecture Change
+ConditionalNorm gains gate_proj = Linear(25, 25) with bias init +2.0 (sigmoid=0.88).
+forward(x, z, prev_frame): noise_gate = sigmoid(gate_proj(prev_frame)), then
+scale = scale_proj(z) * noise_gate, bias = bias_proj(z) * noise_gate.
+Only noise path gated — identity (+1) preserved for mean-reversion.
+625 extra params per CLN (8 CLN layers total = 5,200 gate params).
+
+### Training
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_gate.py     --epochs 80 --batch_size 48 --n_members 16 --noise_dim 32     --lr_encoder 3e-3 --lr_decoder 3e-3     --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5     --output_dir models/backfill/afcrps_164a_v3_percell_bptt_gate --device cuda
+```
+Best val: 0.0211 at epoch 49 (BPTT best was 0.0222). B=48 K=16 (LR 3x scaled from B=16). 90s/epoch.
+
+### Results (v2 test suite, best_model ep49)
+
+| Suite | BPTT (5/9) | Gate | Delta |
+|-------|-----------|------|-------|
+| S1 Surface | FAIL (42.2% expl) | FAIL (63.5% expl) | WORSE +21pp |
+| S2 CI Coverage | FAIL | FAIL | Same |
+| S3 Conditionality | PASS (tc=1.225) | PASS (tc=1.243) | Better |
+| S4 Time Series | PASS (kurt=0.772) | PASS (kurt=0.796) | Better |
+| S5 Block-AR | PASS | PASS | Same |
+| S6 Cointegration | PASS (0.810) | PASS (0.875) | Better |
+| S7 Regime | FAIL | FAIL | Same |
+| S8 Distributional | FAIL (KS 25/25) | FAIL (KS 23/25) | Worse |
+| S9 Cross-Cell | PASS (1.116) | PASS (corr 1.248, rank 0.953) | Better |
+| **Total** | **5/9** | **5/9** | Same suites |
+
+### Per-cell explosion (floor < 0.0, 4000 trajectories):
+| Cell | BPTT | Gate |
+|------|------|------|
+| (0,0) | ~35% | 34.6% |
+| (0,3) | ~13% | 13.1% |
+| (2,4) | ~27% | 26.9% |
+| (1,4) | new | 11.8% |
+| (1,0) | new | 4.2% |
+| + 3 more | 0 | 0.7-2.5% |
+| **Total cells** | **3** | **8** |
+
+Explosions SPREAD from 3 to 8 cells. Gate gave CRPS more freedom to push noise to the floor.
+
+### Investigation: Gate Learned WRONG Direction
+
+Gate values (layer 0 CLN, mean across cells):
+| prev_frame | gate value | meaning |
+|------------|-----------|---------|
+| 0.02 (floor) | 0.830 | OPEN — passes 83% of noise |
+| 0.15 | 0.744 | partially closed |
+| 0.30 | 0.624 | more closed |
+| 0.50 | 0.484 | nearly half-closed |
+
+Deeper layers more extreme: L3.ff_cln gate(0.02)=0.759, gate(0.50)=0.083.
+
+The gate is monotonically DECREASING with IV level — MORE noise at floor, LESS at mid-range. This is the OPPOSITE of the intended behavior.
+
+**Root cause**: Per-step CRPS gradient drives this. At the floor, CRPS wants more spread → wants noise → gate stays OPEN. At mid-range, enough spread exists → gate closes to trade spread for MAE. The gate became a tool for CRPS to selectively INCREASE noise at the floor.
+
+Problem cells not differentiated: at prev=0.02 (uniform), all 25 cells get gates 0.79-0.87. The 25x25 weight matrix provides cross-cell interaction but insufficient to single out specific cells when all inputs are uniform.
+
+### What Was Learned
+
+1. **Architecture changes optimized by CRPS will be hijacked against our goal.** Any learnable gate/scale that CRPS can influence will be trained to increase noise at the floor (where CRPS wants spread). This is fundamental — not a hyperparameter issue.
+
+2. **Per-step losses cannot prevent multi-step explosions.** CRPS sees one step at a time. The cumulative floor-crossing effect over 30 steps is invisible to it. This is a loss horizon mismatch.
+
+3. **The explosion is a training signal problem, not an architecture problem.** The gate mechanism works (it learns, it modulates), but CRPS provides the wrong gradient. Fix must be at the loss level.
+
+4. **Gate improved non-explosion metrics.** Val loss better (0.0211 vs 0.0222), conditionality better (1.243 vs 1.225), cointegration better (0.875 vs 0.810). The gate is useful for the decoder — it just can't fix explosions via CRPS alone.
+
+### Decision: VALUABLE FAILURE
+Same 5/9 as BPTT but explosions worse. Root cause identified: CRPS gradient trains gate in wrong direction.
+
+### Next: One-sided rollout penalty
+Directly penalize frame_t < 0 in the loss. This gives the correct gradient: "crossing zero is bad." Cannot be hijacked by CRPS because it's additive penalty with explicit floor signal. Already in theory_queue.json as fallback.
+
+---
