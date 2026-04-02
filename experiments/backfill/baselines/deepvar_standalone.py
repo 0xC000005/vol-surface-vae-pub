@@ -1,11 +1,8 @@
 """
-Standalone DeepVAR (GPVar) implementation for IV surface scenario generation.
+Standalone DeepVAR implementation for IV surface scenario generation.
 
-Reimplements the multivariate extension of DeepAR from Salinas et al. (NeurIPS 2019),
-"High-Dimensional Multivariate Forecasting with Low-Rank Gaussian Copula Processes".
-
-Simplified to low-rank multivariate Gaussian output (without the copula transformation),
-which is the most common variant used in benchmarks.
+Reimplements the core of Salinas et al. (NeurIPS 2019), "High-Dimensional
+Multivariate Forecasting with Low-Rank Gaussian Copula Processes".
 
 Architecture:
   LSTM encoder processes history → hidden state h_0
@@ -14,8 +11,16 @@ Architecture:
     2. Sample x_t ~ N(μ, Σ)
     3. Update h_{t+1} = LSTM(x_t, h_t)
 
-Reference: "High-Dimensional Multivariate Forecasting with Low-Rank
-Gaussian Copula Processes" (Salinas et al., NeurIPS 2019)
+Differences from full GluonTS DeepVAREstimator:
+  - No copula transformation (we use the low-rank Gaussian variant directly,
+    which is the most commonly benchmarked version in the time series literature)
+  - No lag features or time features (IV surfaces lack calendar effects like
+    day-of-week or holidays that these features target)
+  - No input scaling (z-score normalization applied externally in the adapter)
+  - Standalone PyTorch (GluonTS requires MXNet, incompatible with Python 3.13)
+  - rank=5 matches GluonTS default for LowrankMultivariateGaussianOutput
+
+Reference: Salinas et al., NeurIPS 2019 (arXiv:1910.03002)
 """
 
 import numpy as np

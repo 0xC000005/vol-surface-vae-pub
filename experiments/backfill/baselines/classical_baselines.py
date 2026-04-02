@@ -291,14 +291,16 @@ class PCAVARBaseline(BaselineModel):
 # =============================================================================
 
 class GARCHCCCBaseline(BaselineModel):
-    """GARCH(1,1) per cell + Constant Conditional Correlation + Student-t.
+    """GARCH(1,1) per cell + Constant Conditional Correlation + multivariate Student-t.
 
     Industry standard for multivariate volatility modeling (Bollerslev 1990).
     Uses the `arch` package for proper GARCH(1,1) MLE fitting per cell:
         σ²_t = ω + α * ε²_{t-1} + β * σ²_{t-1}
 
     Cross-cell correlation from standardized residuals (CCC).
-    Student-t innovations with per-cell estimated degrees of freedom.
+    Proper multivariate Student-t via scale mixture: z = L @ g / sqrt(w/df),
+    where g ~ N(0,I), w ~ chi2(df). This preserves both the correlation
+    structure AND the per-marginal Student-t tails (Demarta & McNeil 2005).
     """
 
     def __init__(
@@ -392,10 +394,13 @@ class GARCHCCCBaseline(BaselineModel):
                 var = cond_var.copy()
 
                 for t in range(self.future_len):
-                    # Correlated Student-t innovations
-                    z_iid = np.random.standard_t(self.pooled_df, size=25)
-                    z_iid = z_iid / np.sqrt(self.pooled_df / (self.pooled_df - 2))
-                    z_corr = self.cholesky_L @ z_iid
+                    # Proper multivariate Student-t via scale mixture
+                    # (Demarta & McNeil 2005): X = L @ Z / sqrt(W/df)
+                    # where Z ~ N(0,I), W ~ chi2(df)
+                    # This gives X ~ multivariate-t with correlation R and df degrees
+                    g = np.random.standard_normal(25)
+                    w = np.random.chisquare(self.pooled_df)
+                    z_corr = self.cholesky_L @ g / np.sqrt(w / self.pooled_df)
                     z_grid = z_corr.reshape(5, 5)
 
                     std = np.sqrt(var)
@@ -420,13 +425,13 @@ class GARCHCCCBaseline(BaselineModel):
 # =============================================================================
 
 class FilteredHistoricalSimulation(BaselineModel):
-    """EWMA variance filter + bootstrap of standardized residuals + CCC.
+    """GARCH(1,1)-Filtered Historical Simulation (Barone-Adesi et al. 1999).
 
-    The gold standard in financial risk management (Barone-Adesi et al. 1999):
-    1. Fit EWMA(λ=0.94) per cell on training data → standardized residuals
-    2. At inference: initialize EWMA from history window
+    Reference-faithful implementation:
+    1. Fit GARCH(1,1) per cell on training data → standardized residuals
+    2. At inference: roll GARCH through history to initialize conditional variance
     3. Draw standardized residuals from the training-set pool (with replacement)
-    4. Re-scale by current conditional std → preserves fat tails AND vol clustering
+    4. Re-scale by current GARCH conditional std → preserves fat tails AND vol clustering
 
     Cross-cell correlation is preserved automatically because each draw is a
     full 25-dim standardized residual vector from the same training day.
@@ -436,10 +441,10 @@ class FilteredHistoricalSimulation(BaselineModel):
         self,
         surfaces: np.ndarray,
         future_len: int = 30,
-        ewma_lambda: float = 0.94,
     ):
+        from arch import arch_model
+
         self.future_len = future_len
-        self.ewma_lambda = ewma_lambda
 
         daily_changes = np.diff(surfaces, axis=0)  # (N-1, 5, 5)
         N = daily_changes.shape[0]
@@ -447,29 +452,49 @@ class FilteredHistoricalSimulation(BaselineModel):
         self.cell_mean = daily_changes.mean(axis=0)
         residuals = daily_changes - self.cell_mean
 
-        # Compute EWMA variance series
-        lam = ewma_lambda
+        # Fit GARCH(1,1) per cell for variance filtering
+        self.omega = np.zeros((5, 5))
+        self.alpha = np.zeros((5, 5))
+        self.beta = np.zeros((5, 5))
+
         var_series = np.zeros((N, 5, 5), dtype=np.float64)
-        var_series[0] = residuals[0] ** 2
-        for t in range(1, N):
-            var_series[t] = lam * var_series[t - 1] + (1 - lam) * residuals[t - 1] ** 2
-        var_series = np.maximum(var_series, 1e-12)
+
+        print(f"    Fitting 25 GARCH(1,1) models for FHS...", end="", flush=True)
+        for i in range(5):
+            for j in range(5):
+                series = (daily_changes[:, i, j] - self.cell_mean[i, j]) * 100
+                am = arch_model(
+                    series, vol="GARCH", p=1, q=1,
+                    dist="Normal", mean="Zero", rescale=False,
+                )
+                res = am.fit(disp="off", show_warning=False)
+
+                self.omega[i, j] = res.params["omega"] / 1e4
+                self.alpha[i, j] = res.params["alpha[1]"]
+                self.beta[i, j] = res.params["beta[1]"]
+
+                cond_vol = res.conditional_volatility / 100
+                var_series[:, i, j] = np.maximum(cond_vol ** 2, 1e-12)
+
+        print(" done")
 
         # Store standardized residuals for bootstrapping
         std_series = np.sqrt(var_series)
         self.std_residuals = (residuals / std_series).astype(np.float32)  # (N, 5, 5)
 
-    def _ewma_from_history(self, history_denorm: np.ndarray) -> np.ndarray:
-        """Compute EWMA conditional variance from history window."""
+        # Store unconditional variance for initialization
+        self.uncond_var = daily_changes.var(axis=0)
+
+    def _garch_var_from_history(self, history_denorm: np.ndarray) -> np.ndarray:
+        """Roll GARCH(1,1) forward through history to get conditional variance."""
         changes = np.diff(history_denorm, axis=0)
         residuals = changes - self.cell_mean
-        lam = self.ewma_lambda
 
-        var = residuals[0] ** 2
-        for t in range(1, len(residuals)):
-            var = lam * var + (1 - lam) * residuals[t - 1] ** 2
-        var = lam * var + (1 - lam) * residuals[-1] ** 2
-        return np.maximum(var, 1e-12)
+        var = self.uncond_var.copy()
+        for t in range(len(residuals)):
+            var = self.omega + self.alpha * residuals[t] ** 2 + self.beta * var
+            var = np.maximum(var, 1e-12)
+        return var
 
     def sample(
         self, history: torch.Tensor, n_samples: int = 50, **kwargs
@@ -484,7 +509,7 @@ class FilteredHistoricalSimulation(BaselineModel):
 
         for b in range(B):
             last_surface = history_denorm[b, -1]
-            cond_var = self._ewma_from_history(history_denorm[b])
+            cond_var = self._garch_var_from_history(history_denorm[b])
 
             for s in range(n_samples):
                 surface = last_surface.copy()
@@ -495,14 +520,14 @@ class FilteredHistoricalSimulation(BaselineModel):
                     idx = np.random.randint(0, n_resid)
                     z = self.std_residuals[idx]  # (5, 5)
 
-                    # Re-scale by current conditional std
+                    # Re-scale by current GARCH conditional std
                     std = np.sqrt(var)
                     change = self.cell_mean + std * z
                     surface = surface + change
 
-                    # Update EWMA
+                    # GARCH variance update
                     resid = change - self.cell_mean
-                    var = self.ewma_lambda * var + (1 - self.ewma_lambda) * resid ** 2
+                    var = self.omega + self.alpha * resid ** 2 + self.beta * var
                     var = np.maximum(var, 1e-12)
 
                     all_samples[b, s, t] = surface

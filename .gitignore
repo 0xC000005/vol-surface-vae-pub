@@ -240,7 +240,9 @@ conversation_with_claude_web_latest/
 quantile_map.npz
 .claude/backup_artifacts.sh
 .claude/guard_protected_paths.sh
-.claude/skills/autoresearch-workspace/
+.claude/skills/
 autoresearch-session/
 external/csdi
 .agents/
+.gemini/
+scripts/
