@@ -50009,3 +50009,73 @@ First S1 pass in RC20. Explosion solved. S8 regression is the remaining challeng
 Next investigation: can the S8 regression be addressed without losing S1?
 
 ---
+
+## 2026-04-01: RC20.6 S8 Regression Investigation — Global Negative Bias
+
+### Investigation: Why did S8 regress in the softplus model?
+
+Per-cell analysis on 200 test windows, 20 samples each. Compared BPTT final vs
+softplus best at day 30.
+
+### Key Finding: Systematic Negative Bias, NOT Spread Compression
+
+Bias change grid (softplus - BPTT, per cell, pred-GT at d30):
+```
+-0.061  -0.025  -0.016  +0.009  -0.027
+-0.030  -0.025  -0.019  -0.012  -0.002
+-0.013  -0.013  -0.005  -0.013  +0.009
+-0.015  -0.014  -0.012  -0.014  -0.010
+-0.017  -0.013  -0.016  -0.012  -0.007
+```
+
+23/25 cells shifted NEGATIVE. Only 2 cells shifted positive: (0,3) and (2,4) —
+the exact cells that had floor explosions. The barrier pushed problem cells UP
+(correct) but the optimizer compensated by shifting ALL other cells DOWN.
+
+Spread change is small (±0.005 for most cells). The regression is NOT from compressed
+spread — it's from a systematic level shift.
+
+### Mechanism
+
+The softplus barrier adds a one-directional (upward) force to the loss landscape.
+The optimizer finds a new equilibrium where total loss is minimized — but with a
+global downward bias to offset the barrier's upward push on floor cells.
+
+Evidence: cell (0,0) bias went from -0.041 to -0.102 (6.1 IV pts more negative).
+This is a HIGH-IV cell (mean ~0.44) — the barrier shouldn't directly affect it.
+But the optimizer traded global bias for floor safety.
+
+### Impact on S8 Sub-metrics
+
+| Sub-metric | BPTT final | Softplus best | Cause |
+|------------|-----------|---------------|-------|
+| KS daily | 25/25 | 24/25 | Minor — daily changes OK |
+| KS levels | 21/25 | 12/25 | Level distribution shifted by bias |
+| Median bias frac | 23/25 | 16/25 | Systematic negative bias |
+| Median bias mag | 22/25 | 20/25 | Bias magnitude increased |
+| Window floor | 6.7% | 7.4% | Minor |
+| Explosion | PASS | PASS | Both pass (softplus much better) |
+
+### What Was Learned
+
+1. **Floor barrier creates global negative bias as side effect.** The optimizer
+   compensates for the upward floor push by shifting all cells downward.
+
+2. **The bias is a lambda calibration issue, not a fundamental limitation.** If
+   lambda=2.5 causes -0.01 to -0.06 bias, a smaller lambda might reduce bias while
+   still fixing explosions. The barrier reduced floor violations 42x (from 0.003426
+   to 0.000082) — there's headroom to reduce lambda.
+
+3. **KS-daily (24/25) is fine — distributional SHAPE is preserved.** Only the LEVEL
+   distribution shifted. This means the model's dynamics are correct, just the
+   mean is off. A simpler fix than if the dynamics were wrong.
+
+### Possible Next Steps
+
+- **Reduce lambda_floor** from 2.5 to ~1.0-1.5 — less bias while still reducing
+  explosions (there's 42x headroom in floor barrier reduction)
+- **Add centering term** to the loss to counteract the global bias
+- **Use checkpoint at a later epoch** where the barrier has been absorbed — but
+  ep80 already shows 5.9% explosion (S1 fails), so this doesn't work
+
+---
