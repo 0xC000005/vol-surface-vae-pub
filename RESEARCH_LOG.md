@@ -49637,3 +49637,68 @@ This provides explicit gradient: "going below zero is bad." Unlike gates, this s
 is unambiguous and cannot be co-opted by CRPS. Per theory queue.
 
 ---
+
+## 2026-04-01: RC20.5b Gradient Investigation — Gate in Gradient Dead Zone
+
+### Investigation: Why Can't the Gate Learn Floor Sensitivity?
+
+Ran gradient decomposition on local gate model (final, ep80). One forward pass on
+16 test windows, B=16 K=16. Computed per-component gradients on gate_a (slope) and
+gate_b (bias) of ConditionalNorm.
+
+### Key Finding: Vanishing Gradient Through Multiplicative Chain
+
+Gate_a gradient magnitude vs main noise parameter:
+| Parameter | Grad norm | Relative |
+|-----------|-----------|----------|
+| gate_a (slope) | 0.000062 | 1x |
+| gate_b (bias) | 0.000273 | 4.4x |
+| scale_proj.weight | 0.001061 | **17x** |
+| bias_proj.weight | 0.002771 | **45x** |
+
+Gate_a gradient is 17x smaller than scale_proj. The gate is in a gradient dead zone.
+
+### Per-Component Gradient on gate_a (L0.cln)
+
+| Component | Mean | Std | Max |
+|-----------|------|-----|-----|
+| CRPS | -0.000001 | 0.000006 | 0.000028 |
+| VS | 0.000000 | 0.000005 | 0.000017 |
+| IS | -0.000006 | 0.000112 | 0.000364 |
+
+No gradient conflict — ALL components provide near-zero gradient. IS is largest but
+still negligible. The problem is gradient starvation, not direction.
+
+### Root Cause: Multiplicative Coupling with Zero-Init
+
+The gate modulates scale/bias: output = (gate * scale + 1) * x + gate * bias.
+Chain rule: d(loss)/d(gate_a) = d(loss)/d(output) * d(output)/d(scale) * scale * prev.
+Since scale starts at zero (zero-init CLN) and remains small, the entire product is
+tiny. The gate is coupled to a near-zero signal path.
+
+### Secondary Factor: Floor States Rare in Training
+
+Prev frame statistics on test batch:
+- Cell (0,0): mean=0.437, min=0.058
+- Cell (0,3): mean=0.070, min=0.048
+- Cell (2,4): mean=0.171, min=0.132
+- Overall <0.05 fraction: 0.25%
+
+Only 0.25% of cell values are below 0.05. The gate has almost no floor examples to
+learn from. Even with non-vanishing gradients, the signal would be dominated by
+normal-state gradients.
+
+### Implications for Next Steps
+
+1. **Any gate on the noise scale/bias path will fail.** The multiplicative coupling
+   with zero-init parameters creates a fundamental gradient dead zone. This applies
+   to dense gates, local gates, or any architecture that modulates through scale/bias.
+
+2. **RC20.6 floor penalty (ReLU(-frame_t)) bypasses this.** The penalty gradient flows
+   directly: d(penalty)/d(frame_t) = -1 when frame_t < 0. No multiplicative coupling,
+   no scale factor, no dead zone. This is the principled next step.
+
+3. **Alternative: non-zero init on scale/bias** would give the gate gradient signal,
+   but breaks the "start as identity" property that makes training stable.
+
+---
