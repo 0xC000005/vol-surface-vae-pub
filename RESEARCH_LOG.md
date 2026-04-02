@@ -50678,3 +50678,95 @@ head at the next step. Members feed back through their own prev_k.
 - S2 coverage doesn't improve from baseline 81.3% → centering via MSE is not the bottleneck
 
 ---
+
+## 2026-04-02: Exp 165a_v2 — Additive Innovation Decomposition (RC21 H1v2)
+
+### Hypothesis
+Fix 165a's fatal flaw (hard centering kills persistence) by using additive innovation:
+`frame_k = prev_k + mean_delta + innov_k`. Preserves baseline `prev_k + delta` recurrence,
+adds shared mean_delta with MSE centering signal. Targets S2 CI coverage.
+
+### Architecture
+```
+mean_delta = mean_head(cond_t, prev_mean)       # shared centering signal (B, C)
+innov_k = tanh(decoder(cond_K, prev_k, z_k))    # per-member innovation (B*K, C)
+frame_k = prev_k + mean_delta + innov_k          # additive carry preserved
+```
+Same as 165a but WITHOUT zero-mean centering. Reflecting boundary at inference only.
+
+### Training
+Same as 165a: B=16, K=16, 80 epochs, Phase 1 (ep1-10) decoder frozen, Phase 2 (ep11-80) joint.
+Phase 2 val includes lambda_mean * MSE + CRPS (Codex fix). flush=True logging.
+
+### Results
+
+| Metric | Baseline (6/9) | 165a (4/9) | v2 best | v2 final (6/9) |
+|--------|----------------|------------|---------|----------------|
+| S1 surface | PASS | PASS | PASS | PASS |
+| **S2 coverage** | **FAIL** | FAIL | FAIL | **PASS (FIRST EVER)** |
+| S3 conditionality | PASS | FAIL | FAIL | **FAIL** |
+| S4 kurtosis_ratio | 0.974 | 0.263 | **0.815** | **0.859** |
+| S5 block_ar | PASS | PASS | PASS | PASS |
+| S6 cointegration | PASS | PASS | PASS | PASS |
+| S7 regime | FAIL | FAIL | FAIL | FAIL |
+| S8 distributional | FAIL | FAIL | FAIL | FAIL |
+| S9 cross_cell | PASS | PASS | PASS | PASS |
+| S3 turb/calm | 1.185 | 1.283 | 1.246 | 1.280 |
+| S3 worst_cell_mae_red | -4.3% | -32.9% | -45.0% | -18.4% |
+| S8 KS daily | — | 13/25 | **25/25** | **25/25** |
+
+### Key Outcomes
+1. **S2 PASSES for the first time.** Mean head MSE centering signal works. worst_cell_pass = True.
+   Calibration error: baseline 0.046 → v2 final 0.039.
+2. **S4 kurtosis FIXED.** Additive innovation preserves member persistence (0.859 vs 165a's 0.263).
+3. **S8 KS daily perfect** (25/25). S8 overall still fails on median_bias_magnitude (21/25).
+4. **S3 REGRESSED.** worst_cell_mae_reduction = -18.4% (baseline: -4.3%).
+
+### S3 Regression Root Cause (diagnostic agent investigation)
+
+Two components:
+
+**1. Mean head damage (2-26 pp per cell):**
+The mean head introduces shared drift applied to BOTH conditioned and unconditioned paths.
+Since it runs on shuffled-condition windows too, it reduces the gap between cond/uncond MAE.
+The mean head has systematic downward bias for OTM puts (worst cell (0,4): cumulative -0.077
+over 30 steps). SNR < 1.0 for most cells — essentially predicting noise.
+
+Zeroing mean_head at inference improves worst cell from 8.8% → 11.1% (+2.4pp), confirming damage.
+
+**2. Decoder capacity displacement (~remaining gap):**
+Training alongside the mean head taught the decoder NOT to predict the conditional mean.
+Even zeroing mean_head at inference can't recover the decoder's lost capability (11.1% vs
+baseline 16.7%). The decoder's own conditional signal weakened.
+
+**Regime concentration:** Regression is concentrated in **calm windows**. At worst cell (0,4):
+calm MAE reduction 0.4% (vs baseline 16.9%), turbulent still 15.2% (vs baseline 17.6%).
+The model loses conditional signal specifically in calm regimes.
+
+### Mean Head Identifiability
+- mh_wnorm stabilized at 12.86 (not dead, not growing)
+- val_mean_mse stable at 0.004 throughout Phase 2
+- Decoder partially stole centering job (weight norm shrank 18.6 → 12.6 in Phase 2)
+- Mean head is active but hurts S3 — it adds noise to the conditional prediction
+
+### What Was Learned
+1. **Additive innovation preserves persistence** — kurtosis fixed, confirming the diagnosis
+2. **MSE on mean_pred DOES fix S2 centering** — first S2 pass ever, hypothesis confirmed
+3. **But the mean head DAMAGES S3** — it applies the same (noisy) drift to cond AND uncond,
+   narrowing the gap. The shared drift is architectural: mean_delta doesn't depend on z, so
+   it's identical for shuffled vs correct conditions. The problem is that the mean head's
+   predictions are too noisy (SNR < 1) — they add bias without adding useful conditional signal.
+4. **Decoder capacity displacement is real** — even removing mean_head at inference doesn't
+   fully recover baseline conditionality. Joint training corrupted the decoder's learned signal.
+5. **S2 and S3 are in tension under this architecture** — mean head improves centering (S2) but
+   damages conditionality (S3) because it applies unconditionally.
+
+### Decision
+**PARTIAL SUCCESS / BUILD ON THIS.** First S2 pass ever (hypothesis confirmed). S3 regression
+understood (mean head applies noise unconditionally, decoder capacity displaced). 6/9 matches
+baseline count but with different composition (gained S2, lost S3).
+
+Next: investigate whether the S3 regression is fixable within the additive framework (e.g.,
+condition-dependent mean_delta that zeros out for unconditioned paths), or whether to move to H2.
+
+---
