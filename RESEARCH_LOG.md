@@ -49756,3 +49756,102 @@ Floor penalty is still the right next step, but reframed:
 - If RC20.6 fails, next target should be MEAN CORRECTION near floor, not noise
 
 ---
+
+## 2026-04-01: RC20.6 Design — Floor Penalty Debate (3 Codex Verifications)
+
+### Context
+
+After RC20.5 (dense gate) and RC20.5b (local gate) both failed to reduce explosions,
+the next step is a loss-level intervention. Three proposals debated across Codex
+verifications:
+
+### Proposal A: Margin Penalty (Codex #2 original)
+```python
+floor_penalty = lambda_floor * torch.relu(0.02 - frame_t).pow(2).mean()
+```
+- Gives gradient before zero crossing (at prev < 0.02)
+- Squared for smooth gradient
+- **Rejected**: User identified reflecting boundary analogy — margin creates artificial
+  energy well above zero. Cell (0,3) has p05=0.025, so m=0.02 is near its lower tail.
+  Could bias legitimate low-positive states upward.
+
+### Proposal B: Bare ReLU (Claude revision)
+```python
+floor_penalty = lambda_floor * torch.relu(-frame_t).mean()
+```
+- Only penalizes actual negatives (IV < 0 is mathematically impossible)
+- No artificial margin, no exploitation surface
+- **Problem**: Too sparse — negatives are only 0.17% of generated values.
+  Gradient fires late and rarely.
+
+### Proposal C: Softplus Barrier (Codex #3 recommendation — SELECTED)
+```python
+floor_penalty = tau * F.softplus(-frame_t / tau).mean()
+```
+- tau = 0.005 (controls transition width)
+- Gives gradient before zero (like A) but without explicit margin band (unlike A)
+- At x=0: penalty = tau * ln(2) = 0.0035, gradient = -0.5
+- At x=0.01: gradient ≈ -0.12 (exponentially decaying for positive values)
+- At x=-0.01: gradient ≈ -0.88 (approaches -1 for large negatives, like bare ReLU)
+- Encodes ONLY the support boundary at zero — nothing else
+- Generic: reusable for any non-negative bounded variable (rates, FX vol, etc.)
+
+### Why Reflecting Boundary Analogy is Mechanically False (Codex #3 verified)
+
+| Property | Reflecting Boundary (164a) | Loss Penalty (RC20.6) |
+|----------|---------------------------|----------------------|
+| Changes forward pass? | YES — transforms output | NO — only provides gradient |
+| Can model "lean on" it? | YES — outputs negative, boundary reflects positive | NO — negative output stays negative in AR chain |
+| Creates hidden optimum? | YES — model found -0.34 bias fixed point | NO — loss term is additive, no output transformation |
+| Exploitation mechanism | Forward-pass transform masks invalid outputs | Impossible — invalid outputs propagate to next step |
+
+The user's concern is valid as a WEAK warning (large lambda_floor could bias low cells
+upward) but NOT as a strong structural analogy. The 164a exploit requires output
+transformation; a loss term cannot reproduce it.
+
+### RC20.6 Final Design
+
+```python
+# In training loop, after frame_t = prev + torch.tanh(delta):
+floor_penalty = tau * F.softplus(-frame_t / tau).mean()
+step_loss = (loss_t + lambda_is_eff * is_t + lambda_vs * vs_t + lambda_floor * floor_penalty) / T
+```
+
+Parameters:
+- tau = 0.005 (fixed)
+- lambda_floor sweep: {1, 3, 10}
+- warmup: 5-10 epochs (linear 0 → lambda_floor)
+- Base: plain BPTT (train_164a_v3_percell_bptt.py), NOT gate model
+- B=16, K=16, LR=1e-3 (matched controls)
+- Evaluate BOTH best and final checkpoints
+
+Kill conditions:
+- KS daily < 15/25
+- Kurtosis < 0.5
+- turb/calm < 1.15
+- Mean bias on problem cells > 5 IV points
+
+Monitor:
+1. Per-trajectory explosion rate (primary target: < 30%)
+2. Per-value negative fraction
+3. Fraction below 0.02 (watch for upward bias)
+4. Mean bias on (0,0), (0,3), (2,4)
+5. KS daily, eff rank, cointegration
+6. Both best and final checkpoints
+
+### What Was Learned from the Design Debate
+
+1. **Forward-pass constraints and loss penalties are fundamentally different.**
+   Forward-pass transforms (reflecting boundary, clamping) can be exploited because
+   they mask invalid outputs. Loss penalties cannot — invalid outputs propagate
+   through the AR chain and affect subsequent steps.
+
+2. **Margin penalties are NOT the same as support constraints.** m=0.02 is an
+   arbitrary interior buffer that biases legitimate states. m=0 (the support boundary)
+   is a mathematical fact. Softplus at zero encodes only the support.
+
+3. **Softplus is the principled barrier function.** Smooth, generic, encodes only
+   the boundary. tau controls transition width. Used in interior point methods,
+   constrained optimization. Not domain-specific.
+
+---
