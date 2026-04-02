@@ -499,6 +499,22 @@ def main():
     best_val = float("inf")
     history = []
 
+    config_dict = {
+        "type": "ar_spatial_transformer_165a_mean_residual",
+        "encoder": {
+            "input_dim": 25, "gru_hidden_dim": 64,
+            "bottleneck_dim": 128, "dropout": 0.1,
+        },
+        "decoder": decoder_config,
+        "mean_head": mean_head_config,
+        "n_members": args.n_members,
+        "alpha": args.alpha, "spread_weight": args.spread_weight,
+        "lambda_vs": args.lambda_vs, "lambda_is": args.lambda_is,
+        "lambda_mean": args.lambda_mean,
+        "n_frames": T, "n_cells": C,
+        "train_windows": len(train_indices),
+    }
+
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
         model.train()
@@ -509,7 +525,15 @@ def main():
             model.decoder.requires_grad_(False)
         elif epoch == args.mean_warmup_epochs + 1:
             model.decoder.requires_grad_(True)
-            print(f"\n>>> Phase 2: decoder UNFROZEN at epoch {epoch}")
+            # Save Phase 1 checkpoint before Phase 2 overwrites best_model
+            torch.save({
+                "model_state_dict": model.state_dict(),
+                "epoch": epoch - 1, "val_loss": best_val,
+                "config": config_dict,
+                "phase": "phase1_final",
+            }, f"{args.output_dir}/phase1_model.pt")
+            best_val = float("inf")  # Reset: Phase 1 uses MSE, Phase 2 uses CRPS
+            print(f"\n>>> Phase 2: decoder UNFROZEN at epoch {epoch}, best_val reset")
 
         ep_loss = 0; ep_mae = 0; ep_spread = 0; ep_vs = 0; ep_is = 0
         ep_floor = 0; ep_mean_mse = 0; nb = 0
@@ -734,21 +758,6 @@ def main():
         val_mean_mse = v_mean / max(nv, 1)
 
         # ---- Save best model ----
-        config_dict = {
-            "type": "ar_spatial_transformer_165a_mean_residual",
-            "encoder": {
-                "input_dim": 25, "gru_hidden_dim": 64,
-                "bottleneck_dim": 128, "dropout": 0.1,
-            },
-            "decoder": decoder_config,
-            "mean_head": mean_head_config,
-            "n_members": args.n_members,
-            "alpha": args.alpha, "spread_weight": args.spread_weight,
-            "lambda_vs": args.lambda_vs, "lambda_is": args.lambda_is,
-            "lambda_mean": args.lambda_mean,
-            "n_frames": T, "n_cells": C,
-            "train_windows": len(train_indices),
-        }
         if val_loss < best_val:
             best_val = val_loss
             torch.save({
