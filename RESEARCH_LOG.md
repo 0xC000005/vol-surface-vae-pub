@@ -50079,3 +50079,127 @@ But the optimizer traded global bias for floor safety.
   ep80 already shows 5.9% explosion (S1 fails), so this doesn't work
 
 ---
+
+## 2026-04-02: RC20.6 Deep Analysis — Failing Suites, Floor Learning, Parameterization (6 Codex Verifications)
+
+### Current State: 6/9 suites (softplus best ep11), 5/9 (softplus final ep80)
+
+Best model passes S1, S3, S4, S5, S6, S9. Fails S2, S7, S8.
+
+### Remaining Failures — Per-Cell Marginal Quality
+
+All three failures trace to per-cell marginal distributions being wrong:
+
+**S2 CI Coverage (FAIL)**: 90% CI coverage = 81.3%, worst cell at d30 = 65.2%.
+Intervals too narrow for worst cells. Directly linked to negative bias — shifted
+CI misses GT above.
+
+**S7 Regime Coverage (FAIL)**: Layer 2 (regime x cell) = 0/8. Model produces
+"one-size-fits-all" regime response — all cells widen by similar amount in turbulent
+regimes. Per-cell conditional diversity problem, related to CLN rank structure.
+Layer 3 catastrophic = 5.9% (just above 5% threshold).
+
+**S8 Distributional (FAIL)**: KS-daily 24/25 PASS (dynamics correct), but:
+- KS-levels 13/25 FAIL — systematic negative bias shifts level distribution
+- Median bias 9/25 FAIL — left two columns and column 4 all biased low
+- Window floor 7.4% — too many windows with poor coverage
+
+### Codex Verification #5: Why Model Doesn't Learn Floor Avoidance
+
+Claude claimed "sparse gradient" — only 0.14% of values cross zero. Codex corrected:
+
+1. **Barrier gradient is NOT sparse by violation count.** 28.1% of low-state samples
+   have barrier grad > 0.01. The barrier fires before zero (it's softplus, not ReLU).
+   But it IS exponentially local and weak — meaningful force only very near zero.
+
+2. **"Only positive deltas near floor" is WRONG.** GT data has 40.1% negative changes
+   when prev < 0.05. Small negatives are valid. The problem isn't sign asymmetry —
+   it's left-tail truncation.
+
+3. **The model IS learning floor-aware behavior.** Both models produce positively
+   skewed distributions near floor (skew +3.8 to +4.5). Variance is reduced near
+   floor. The model IS conditioning on state.
+
+4. **What it fails to learn is exact left-tail truncation.** The deterministic
+   correction near floor is tiny (+0.001) vs stochastic std (0.036). Signal-to-noise
+   ratio is terrible near the floor. CLN noise is not floor-truncated — it creates
+   a bell that leaks below zero.
+
+5. **Training longer does NOT fix this.** ep11→ep80: sign asymmetry unchanged
+   (44.4%→44.5%), crossings WORSENED (0.137%→0.425%) as spread widened.
+
+Root cause (Codex-verified): **afCRPS is support-unaware.** It treats a member at
+-0.01 the same as +0.01. The model must learn "negatives larger than prev are
+illegal" — a support constraint, not a mean-direction constraint. No amount of
+per-step loss engineering can teach exact support truncation through an unbounded
+output parameterization.
+
+### Codex Verification #6: Checkpoint Comparison (S8 Regression)
+
+Claude claimed CLN noise reduction (35-50%) caused S8 regression. Codex corrected:
+
+1. **The CLN norm collapse is a training-stage artifact, not barrier-specific.**
+   BPTT best (ep12) shows the same collapse (0.626x). Both early checkpoints have
+   compressed noise-path norms.
+
+2. **Softplus final (ep80) recovers CLN norms to ~1.0x of BPTT final.** Bias
+   mostly resolved. KS-levels improves to 17/25 (from 12/25 at ep11).
+
+3. **The S8 regression at ep11 was largely from unfair checkpoint comparison**
+   (underfit ep11 vs converged ep80). Not a fundamental barrier tradeoff.
+
+4. **Softplus ep80 is the key result**: 5.9% explosion, 17/25 KS-levels, 19/25
+   median-bias. Much closer to passing S8 than ep11. But S1 barely fails (5.9%).
+
+### Codex Verification #7: Output Parameterization Options
+
+Considered log-space multiplicative: frame_t = prev * exp(delta). Codex found
+three fatal flaws:
+
+1. **Gradient collapses at low prev.** d(frame)/d(delta) = prev. At prev=0.02,
+   gradient is 50x smaller. The hardest cells get the worst gradients.
+
+2. **Range insufficient.** With tanh-bounded delta, multiplier range [0.37, 2.72].
+   But 21.5% of real next-steps from prev<0.05 need ratio > 2.72. Cell (0,3)
+   at prev<0.02: 42.1% need ratio > 2.72.
+
+3. **Already tried and failed.** Exp 91a: log-space AR got 4/8, KS daily 6/25,
+   90% floor rate at h=30. "Log-space is wrong for this architecture."
+
+**Codex recommendation**: If pursuing support-by-construction, use softplus(level_head)
+— direct positive level prediction. No gradient scaling by prev, no absorbing regime.
+But this is a full retuning exercise, not a 1-line change.
+
+### What Was Learned (Session Summary)
+
+1. **Softplus floor barrier WORKS for explosions** — 2.5% at ep11, 5.9% at ep80 (from
+   42-66% without barrier). The barrier is a principled, gradient-matched loss correction.
+
+2. **The S8 regression is mostly a checkpoint maturity issue**, not a fundamental
+   barrier tradeoff. Softplus ep80 has 17/25 KS-levels vs 12/25 at ep11.
+
+3. **The model learns floor-aware behavior** (skew, reduced variance) but cannot learn
+   exact left-tail truncation. afCRPS is support-unaware — this is fundamental.
+
+4. **Log-space multiplicative residual has fatal flaws** — gradient collapse at low prev,
+   insufficient range, prior failure in this repo.
+
+5. **All three remaining failures (S2, S7, S8) are per-cell marginal quality issues.**
+   S2 and S8 are linked through negative bias. S7 is per-cell conditional diversity.
+
+6. **The "wasting capacity" argument for residual form is weak.** 2.5M params can predict
+   absolute levels. Residual provides training stability (zero-init identity), not
+   fundamental capacity advantage.
+
+### Open Questions for Next Session
+
+- Can intermediate checkpoint selection (ep20-40) find a sweet spot where both S1
+  and S8 pass simultaneously?
+- Is the per-cell marginal issue (S2/S7/S8) solvable within the current architecture,
+  or does it require output parameterization change?
+- What specifically causes S7 (regime x cell) to fail — is it related to the CLN
+  noise structure or the conditioning pathway?
+- If softplus(level_head) is the right direction, what initialization and loss recipe
+  would be needed?
+
+---
