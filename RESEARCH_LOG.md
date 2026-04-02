@@ -50475,3 +50475,167 @@ Probe 0 results (Claude + Codex independent, consistent). Softplus final ep80:
 Findings integrated into consolidated RC21 compass above.
 
 ---
+
+## 2026-04-02: Exp 165a — Mean+Residual Decomposition (RC21 H1, VALUABLE FAILURE)
+
+### Hypothesis
+Separate conditional mean prediction (MSE-trained) from stochastic residual (CRPS-trained).
+Oracle debiasing proved spread is adequate but centering is wrong — S2 CI fails because the
+ensemble center is biased per-window, not because spread is insufficient.
+
+**What H1 is solving:** The 90% CI test fails because the ensemble is centered in the wrong place
+for many windows. The decoder outputs a generic center for most windows because CRPS provides
+near-zero gradient for per-window centering (1 GT per window → generic ensemble scores nearly as
+well as tailored one). A mean head with MSE loss gives direct per-window signal: "your center
+for THIS window should be HERE."
+
+### Architecture (165a)
+```
+mean_delta = mean_head(cond, prev_mean)           # deterministic expected change
+mean_pred = prev_mean + mean_delta                # conditional mean path
+resid_k = tanh(decoder(cond_K, prev_K, z_k))     # per-member residual
+resid_centered = resid_k - resid_k.mean(dim=K)   # HARD zero-mean centering
+frame_k = mean_pred + resid_centered              # ensemble member
+```
+- MeanHead: 3-layer MLP (153→128→128→25), 39K params, zero-init output
+- Two-phase training: Phase 1 (ep1-10) decoder frozen, MSE only; Phase 2 (ep11-80) joint
+- Warm-started from softplus model (164a_v3_percell_bptt_softplus best_model.pt)
+- Training: B=16, K=16, LR=1e-3, 80 epochs, softplus barrier tau=0.005 lambda=2.5
+
+### Training Command
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_165a_mean_residual.py \
+    --base_model models/backfill/afcrps_164a_v3_percell_bptt_softplus/best_model.pt \
+    --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 \
+    --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5 \
+    --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 \
+    --lambda_mean 1.0 --mean_warmup_epochs 10 \
+    --output_dir models/backfill/afcrps_165a --device cuda
+```
+
+### Results
+
+| Metric | Baseline (softplus ep11) | 165a best (ep50) | 165a final (ep80) |
+|--------|-------------------------|------------------|-------------------|
+| Suites | **6/9** | **4/9** | **4/9** |
+| S1 surface | PASS | PASS | PASS |
+| S2 coverage | FAIL | FAIL | FAIL |
+| S3 conditionality | PASS | **FAIL** | **FAIL** |
+| S4 time_series | PASS | **FAIL** | **FAIL** |
+| S5 block_ar | PASS | PASS | PASS |
+| S6 cointegration | PASS | PASS | PASS |
+| S7 regime | FAIL | FAIL | FAIL |
+| S8 distributional | FAIL | FAIL | FAIL |
+| S9 cross_cell | PASS | PASS | PASS |
+| S4 gen_kurtosis | 75.1 (GT=77) | **20.3** | **27.0** |
+| S4 kurtosis_ratio | 0.974 | **0.263** | **0.350** |
+| S3 worst_cell_mae_red | -4.3% | **-32.9%** | -24.5% |
+| S3 turb/calm | 1.185 | 1.283 | 1.300 |
+
+Phase 1 mean head: weight norm 1.35 (learned from zero-init), 8.8% better MSE than naive random walk.
+
+### Root Cause Analysis (Codex-verified)
+
+**S4 kurtosis collapse — member persistence break:**
+The hard zero-mean centering (`resid_k - resid_k.mean(K)`) forces `mean(frame_k across K) = mean_pred`
+at every AR step. This prevents member deviations from accumulating across the 30-step chain.
+
+Diagnostic (shuffle test):
+| Variant | Kurtosis | vs Baseline |
+|---------|----------|-------------|
+| Baseline | 76.8 | — |
+| Post-hoc centering only | 61.6 | -20% (only 27% of total drop) |
+| Shuffle member indices per step | 16.3 | -79% (matches 165a) |
+| 165a actual | 20.3 | -74% |
+
+Member lag-1 autocorrelation: baseline 0.686, 165a 0.515. Breaking persistence is the mechanism.
+
+**Codex independent diagnosis confirmed and extended:** The problem is broader than hard centering.
+The entire recurrence changed from additive innovation (`frame_k = prev_k + delta_k`) to absolute
+residual (`frame_k = mean_pred + resid_k`). Members are re-anchored to mean_pred at every step
+instead of accumulating their own drift through `prev_k`. Even without centering, the re-anchoring
+prevents deviation accumulation.
+
+Three-step trace (Codex):
+```
+Baseline: x1 = x0+e1,  x2 = x0+e1+e2,  x3 = x0+e1+e2+e3     (additive carry)
+165a:     x1 = m1+d1,  x2 = m2+d2(x1),  x3 = m3+d3(x2)        (re-anchored each step)
+```
+
+### Additional Issues Found (Codex)
+- Phase 2 checkpoint selection uses CRPS only, but training optimizes MSE+CRPS+IS+VS+floor
+- reflecting_boundary() in sampling but not training (train/eval mismatch)
+- Without soft coupling, decoder can steal centering job from mean head
+
+### What Was Learned
+1. **Hard zero-mean centering is incompatible with fat tails** — it kills member persistence
+2. **Re-anchoring to mean_pred (instead of additive prev_k) is the deeper issue** — even without
+   centering, `frame = mean_pred + resid` prevents deviation accumulation
+3. **The correct H1 implementation is additive innovation decomposition:**
+   `frame_k = prev_k + mean_delta + innov_k` — preserves baseline recurrence, adds centering signal
+4. **Phase 1 evidence was positive** — mean head learned useful signal in 10 epochs (8.8% over naive)
+5. **H1 diagnosis is correct, implementation was wrong** — proceed with additive version (165a_v2)
+
+### Decision
+**VALUABLE FAILURE.** Implementation wrong, hypothesis still sound. Proceed to 165a_v2
+with additive innovation decomposition:
+```python
+mean_delta = mean_head(cond_t, prev_mean)              # shared centering signal
+innov_k = tanh(decoder(cond_K, prev_k, z_k))           # per-member innovation
+frame_k = prev_k + mean_delta + innov_k                 # additive, preserves member drift
+```
+No soft coupling in v2 — test if MSE alone keeps mean head active. If mean head stays dead,
+add coupling in v3.
+
+---
+
+## 2026-04-02: Condition Vector Analysis (Codex-verified, corrected framing)
+
+### Context
+Investigation into why shuffle-condition has no effect (+0.7% MAE) while zero-condition is
+catastrophic (+173% MAE) on the softplus model. Initial framing was "encoder collapse" — Codex
+corrected this to "dominant shared component + small discriminative residual."
+
+### Findings (Codex independent verification on 1223 test windows)
+
+**Not collapse. Dominant shared component + small but structured residual.**
+
+| Metric | Value |
+|--------|-------|
+| Raw cosine similarity (all pairs) | 0.996 |
+| Centered cosine similarity (after mean subtraction) | **0.004** (diverse!) |
+| Within-quintile vs between-quintile (raw) | diff = 0.000241 |
+| Within-quintile vs between-quintile (centered) | **diff = 0.062** (25x larger) |
+| Energy in shared component after cond_proj | 98.55% |
+| Residual energy after cond_proj | 1.45% |
+| VoV linear probe R² (centered residual) | **0.87** |
+| History mean IV R² (centered residual) | **0.999** |
+| 5-class regime probe accuracy | **65%** |
+| Zero-cond MAE increase | +173% |
+| Shuffle-cond MAE change | -0.25% (effectively zero) |
+| Mean-cond vs correct-cond | Mean is 1.46% better |
+
+### Interpretation
+The encoder IS encoding useful per-window information (VoV R²=0.87, probe accuracy 65%).
+The problem is NOT encoder capacity — it's decoder under-exploitation. The decoder uses the
+condition as a ~constant offset needed for correct operating point (zeroing = catastrophic)
+but ignores the small discriminative residual (shuffling = no effect).
+
+**Root cause of 98/2 split:** Chicken-and-egg during joint CRPS training. Early training learns
+the shared offset (easy, big CRPS improvement). Once established, gradient for "also encode
+what's unique about this window" is tiny relative to "keep the shared offset stable." CRPS
+barely penalizes the generic solution (1 GT per window → can't tell conditional from unconditional).
+
+**The 98/2 split is not ideal** — 126 of 128 dims encoding a constant is wasteful. But the 2%
+residual carries strong signal. H1 (MSE on mean_pred) tests whether a downstream head can exploit
+the 2%. H2 (contrastive loss) would fix the encoder to produce more like 80/20. These are
+independent, tested in order. H2 is deferred until H1_v2 results are in.
+
+### Decision
+- Corrected framing from "collapse" to "dominant shared component + discriminative residual"
+- The 98/2 split is a real problem but not necessarily the blocking problem for S2
+- H1_v2 tests if MSE on mean_pred can exploit the existing 2% for per-window centering
+- If H1_v2 fails (mean head can't improve centering), H2 becomes necessary
+- If H1_v2 succeeds, the 98/2 split was never the bottleneck — the loss function was
+
+---
