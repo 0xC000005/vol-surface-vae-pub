@@ -50203,3 +50203,89 @@ But this is a full retuning exercise, not a 1-line change.
   would be needed?
 
 ---
+
+## 2026-04-02: RC20.6 Final Analysis — Barrier is Solved, 3 Independent Remaining Problems
+
+### Context
+
+Comprehensive investigation of remaining S2/S7/S8 failures using 3 parallel agents,
+7 Codex verifications, and 1 Gemini verification across this session. Multiple earlier
+explanations were proposed and retracted. This entry records the final corrected
+understanding.
+
+### CORRECTION: Earlier Claims Retracted
+
+1. **"S2 is downstream of S8" — FALSE.** Per-cell coverage vs KS-levels correlation
+   r=-0.021, p=0.92. Statistically zero. They are independent phenomena.
+
+2. **"Barrier causes 35-50% CLN noise collapse" — MOSTLY FALSE.** Codex #5 showed
+   BPTT best (ep12) has the same CLN norm collapse (0.626x). It's an early-training
+   artifact, not barrier-specific. At ep80, CLN norms recover to ~1.0x.
+
+3. **"Barrier causes global negative bias" — OVERSTATED.** Statistical test shows
+   global mean bias difference is NOT significant (t=-0.72). The model is just underfit
+   at ep11. By ep80, bias mostly resolves.
+
+4. **"Barrier interference through shared weights" — WRONG FRAMING.** The model with
+   shared weights reconciles both objectives by ep80 (17/25 vs 19/25 baseline KS-levels).
+   The 4-cell gap is minor and may close with more training. "Decoupling weights" is
+   just clamping with extra steps — already rejected.
+
+### The Barrier is a Solved Problem
+
+The softplus floor barrier (tau=0.005, lambda=2.5) works:
+- Explosion: 65.7% -> 2.5% (ep11), 5.9% (ep80)
+- S1 Surface: PASSES at ep11 (first time in RC20)
+- By ep80, KS-levels recovers to 17/25 (from 12/25 at ep11, baseline 19/25)
+- The model reconciles floor avoidance with distributional quality given enough training
+
+### Three Independent Remaining Problems
+
+All three are PRE-EXISTING — they exist with or without the barrier:
+
+**S2 CI Coverage (FAIL): Conditional bias**
+- Oracle per-window debiasing gives 100% coverage on ALL cells at ALL horizons
+- Spread is MORE than adequate everywhere — not a spread problem
+- Global mean debiasing does NOT work (makes 4 cells fail, up from 3)
+- The bias is conditional: varies by market regime (cell (3,3) bias r=-0.879 with GT level)
+- In low-vol windows, coverage collapses to 0.48
+- Root cause: encoder regime signal too weak (SNR 0.30) for accurate conditional mean
+
+**S7 Regime Coverage (FAIL): Weak encoder regime signal**
+- Never passed in ANY RC20 model (L2 = 0-1/8 across all experiments)
+- Encoder cosine similarity calm/turb = 0.917 (nearly identical conditions)
+- Encoder regime SNR = 0.30 (between-regime variance only 30% of within-regime)
+- Per-cell spread ratio turb/calm: mean 1.035, range 0.38-1.58 (noisy, inconsistent)
+- Root cause: same as S2 — encoder doesn't differentiate regimes well enough
+
+**S8 Distributional (FAIL): Per-cell level distribution shape**
+- Even BPTT final (no barrier) only gets 19/25 KS-levels — 6 cells fail regardless
+- Barrier adds 2 more failures at ep80 (17/25). Minor, not fundamental.
+- Codex: dominant difference is scale/tail compression, not mean shift
+- Failing cells are high-IV wing columns (KS correlates with mean IV at r=0.70)
+- Shape mismatch accounts for 56% of KS statistic — the model doesn't reproduce
+  the right distributional shape for edge cells
+- KS-levels test uses only 5 samples pooled — threshold-sensitive on borderline cells
+
+### Common Root Cause: Conditional Prediction Quality
+
+S2 and S7 share the same root cause: the encoder doesn't capture market regime
+well enough for the decoder to produce accurate per-cell conditional predictions.
+S8 is partially independent (distributional shape) but also relates to conditional
+quality for the 6 pre-existing failing cells.
+
+The next research direction should target **encoder conditioning** — making the
+encoder produce condition vectors that better differentiate market regimes, so the
+decoder can produce more accurate per-cell conditional means and per-cell regime-
+dependent spread.
+
+### Session Summary (RC20.5-RC20.6)
+
+| Experiment | Suites | Key Finding |
+|-----------|--------|-------------|
+| RC20.5 dense gate | 5/9 | Inconclusive — wrong architecture (context gate not floor gate) |
+| RC20.5b local gate | 5/9 | Definitively falsified — gate is no-op, wrong actuator |
+| RC20.6 softplus barrier | **6/9** | **BREAKTHROUGH** — S1 passes (2.5% explosion). Barrier works. |
+| Investigation (7 Codex + 3 agents) | — | S2/S7/S8 are pre-existing conditional prediction failures |
+
+---
