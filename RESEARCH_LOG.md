@@ -49702,3 +49702,57 @@ normal-state gradients.
    but breaks the "start as identity" property that makes training stable.
 
 ---
+
+## 2026-04-01: RC20.5b Codex Verification #2 — Gradient Dead Zone Partially Wrong
+
+### Codex Verdict: PARTIAL
+
+### What Was Wrong in Claude's Analysis
+
+1. **"Scale stays near zero" is FALSE.** Codex loaded the actual checkpoints:
+   L0.cln scale_abs_mean=0.5845 at ep80, weight norm=31.10. Already 0.51 at ep20.
+   The zero-init argument for gradient death is invalid — scale grew large.
+
+2. **"Floor states 0.25% of data" was measured on TEST batch, not train split.**
+   Actual train split: 2.29% overall, cell (0,3)=18%, (2,4)=7.18%, (0,0)=5.91%.
+   Not negligible — especially (0,3) with 18% floor fraction.
+
+3. **"Any noise-path gate fundamentally can't work" is too strong.** gate_a grew
+   from 0 to mean |a|=0.24. The gate is learning, just not enough. Weakly
+   identified, not fundamentally blocked.
+
+4. **"Floor penalty bypasses multiplicative chain" is wrong.** Same parameter graph.
+   Floor penalty gradient on gate_a = 1.51e-6, actually SMALLER than CRPS (3.63e-5)
+   because negatives are only 0.17% of generated values.
+
+### What Codex Found Instead
+
+**The gate targets the WRONG CONTROL KNOB.** BPTT's natural ep12→ep80 improvement
+comes from better MEAN CORRECTION on bad cells, not noise dampening:
+- Cell (0,0), prev=0.02: mean push 0.102→0.115 (correction grew, noise unchanged)
+- Cell (0,3), prev=0.02: mean push 0.001→0.010 (10x improvement in correction)
+- Cell (2,4), prev=0.02: mean push 0.063→0.081
+
+The noise gate can only modulate stochastic scale/bias. It cannot improve
+deterministic mean correction. So even with perfect floor sensitivity, the gate
+is the wrong tool for the problem.
+
+### Corrected Root Cause (two compounding issues):
+
+1. **Signal dilution**: gate_a gradient is real (~16x smaller than scale_proj)
+   but not zero. Averaged across all cells/steps, the floor-specific signal is
+   too dilute to drive meaningful learning.
+
+2. **Wrong actuator**: The gate modulates noise amplitude, but the actual
+   explosion-reduction mechanism (observed in BPTT ep12→ep80) is stronger
+   deterministic mean correction near the floor.
+
+### Impact on RC20.6
+
+Floor penalty is still the right next step, but reframed:
+- NOT a "chain bypass" — same parameter graph, and raw gradients are smaller
+- IS targeted rare-event reweighting: explicit loss on the 0.17% of values < 0
+- Apply to PLAIN BPTT (not gate model)
+- If RC20.6 fails, next target should be MEAN CORRECTION near floor, not noise
+
+---
