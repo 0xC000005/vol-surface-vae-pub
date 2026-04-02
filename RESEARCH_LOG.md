@@ -50488,3 +50488,80 @@ Remaining failures (S2, S7, S8) are pre-existing conditional prediction issues.
 RC21 compass ready with 5 literature-grounded hypotheses.
 
 ---
+
+## 2026-04-02: Probe 0 — Condition Ablation (Claude + Codex Independent)
+
+### Context
+Codex review of RC21 identified inconsistency: research log says encoder has 84.2%
+probe accuracy and turb/calm 1.50 at step 1 (line 47744), but RC21 claims "encoder
+is weak" (SNR 0.30). Probe 0 resolves: is the problem upstream (encoder) or downstream
+(decoder misusing cond)?
+
+### Results (both Claude and Codex ran independently, consistent)
+
+**Softplus final ep80, 200-240 test windows:**
+
+| Mode | MAE | Spread | turb/calm | Bias |
+|------|-----|--------|-----------|------|
+| Normal | 0.028-0.030 | 0.032 | 1.17 | -0.011 |
+| Zero cond | 0.052-0.078 | 0.042-0.108 | 1.09 | -0.040 |
+| Shuffle cond | 0.028-0.028 | 0.034 | 1.12 | -0.009 |
+
+**Zeroing cond causes massive degradation**: MAE +73-177%, bias triples. The decoder
+IS using cond heavily for level prediction.
+
+**Shuffling cond barely changes global MAE** (+0.7%). But regime structure shifts:
+calm median-above-GT 0.493->0.603 (Codex), turb/calm drops 1.166->1.118 (Claude).
+
+**Codex ep80 additional finding**: Zero cond makes model "duller and wider" — coverage
+RISES 0.771->0.808 because width jumps. Condition is used to SHARPEN predictions,
+but sharpening is misallocated across regimes.
+
+### Interpretation (Codex-validated)
+
+The condition vector encodes useful information for LEVEL prediction (zeroing destroys
+MAE). But it doesn't encode enough WINDOW-SPECIFIC information (shuffling barely hurts).
+All condition vectors are too similar to produce differentiated regime responses.
+
+Best framing (Codex): **"conditioned centering/sharpness is misallocated"** — not
+"encoder is weak" or "decoder ignores cond."
+
+The encoder DOES encode regime (84.2% probe accuracy). The decoder DOES use cond
+(zeroing destroys performance). But the regime signal is insufficient for correct
+per-window centering — the conditions are nearly interchangeable.
+
+### Impact on RC21
+
+- **H1 (Mean head): STRENGTHENED.** Dedicated centering path with direct MSE gives the
+  mean prediction its own gradient, not shared with noise modulation.
+- **H2 (Contrastive): STRENGTHENED.** Conditions need to be MORE window-specific.
+  Shuffle probe proves they're nearly interchangeable — contrastive loss pushes apart.
+- **H3 (FiLM): WEAKENED.** Decoder IS using cond. Injection method isn't the bottleneck;
+  the condition itself is too homogeneous.
+- **H4 (Spatial encoder): NEUTRAL.** May still help but Probe 0 doesn't point to it.
+
+### Updated RC21 Execution Order
+
+```
+H1 (Mean+Residual, 2h probe) -> is centering the bottleneck?
+H2 (Contrastive, 1h probe) -> make conditions more window-specific
+H4 (Spatial encoder, if H2 stalls) -> is it inductive bias?
+H3 (FiLM) -> DEPRIORITIZED, run only if H1+H2 insufficient
+H5 (Quantile head) -> for S8 only, if S2/S7 improve
+```
+
+### Codex Protocol Recommendations (adopted)
+
+1. **H1 must use proper decomposition** (Codex): zero-mean residual construction
+   frame_k = mean_pred + (resid_k - resid_mean), plus coupling term
+   ||sample_mean - mean_pred||^2 to prevent residual branch from stealing mean job.
+
+2. **H1 stage-1 kill condition softened** (Codex): frozen-decoder mean head probe is
+   evidence, not an abort gate. Can fail for optimization reasons.
+
+3. **H2 probes must be quantitative** (Codex): linear probe accuracy, VoV-bucket
+   retrieval, not t-SNE.
+
+4. **Composite checkpoint selection is non-optional** (both agree).
+
+---
