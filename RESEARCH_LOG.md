@@ -50309,8 +50309,9 @@ Replaces earlier stale RC21 section and Probe 0 appendix.)
 3. S8 baseline is 19/25 KS-levels without barrier (6 pre-existing failures)
 4. Barrier is solved: softplus tau=0.005 lambda=2.5 gives 2.5% explosion (S1 passes)
 5. **Probe 0 finding**: Encoder condition IS used by decoder (zeroing -> MAE +73%).
-   But conditions are nearly interchangeable (shuffling -> MAE +0.7%). The encoder
-   encodes useful level information but not enough window-specific regime signal.
+   But conditions are weakly discriminative for per-window centering (shuffling ->
+   MAE +0.7%, though regime/bias structure does shift). The encoder encodes useful
+   level information but insufficient window-specific regime signal.
 6. Best framing (Codex): "conditioned centering/sharpness is misallocated" — not
    "encoder is weak" or "decoder ignores cond."
 
@@ -50378,8 +50379,8 @@ negatives = different quintile. lambda_contrast = 0.1.
    shuffle-cond MAE increase (should get worse if conditions become more specific).
 3. (4h) V2 test suite. Does S7 L2 improve from 0-1/8 to 3+/8?
 
-**Kill condition**: Stage 2: linear probe accuracy doesn't improve. Stage 3: S7 L2 stays
-at 0-1/8.
+**Kill condition**: Stage 2: linear probe accuracy doesn't improve AND shuffle-cond MAE
+doesn't increase (conditions still interchangeable). Stage 3: S7 L2 stays at 0-1/8.
 
 **If fails**: Encoder architecture (GRU 64 -> bottleneck 128) doesn't have capacity.
 Move to H4.
