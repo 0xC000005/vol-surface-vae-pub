@@ -50459,3 +50459,32 @@ H5 (Quantile head, if S8 stuck) -> is shape a supervision problem?
 - Post-hoc corrections — Bitter Lesson violation
 
 ---
+
+## 2026-04-02: RC20 Cleanup — Inference Clamp Test + Theory Queue Disposition
+
+### Quick Test: Inference-Only Clamp on Softplus ep80
+
+Ran softplus final (ep80) with --floor_clamp 0.01. Result: still 5/9, explosion 5.94%.
+The clamp flag targets SinglePassBlockAR config, not the AR spatial transformer model —
+it likely had no effect. Regardless, confirms no free wins in existing checkpoints.
+
+### RC20 Theory Queue Disposition
+
+| Hypothesis | Status | Disposition |
+|-----------|--------|-------------|
+| 164b: Mean+Residual | Deferred | **Promoted to RC21 H1** — exactly what RC21 proposes |
+| Mean correction near floor | Deferred | **Absorbed into RC21 H1** — same idea |
+| Asymmetric CRPS | Deferred | **Closed** — barrier solved explosions, not needed |
+| Inference-only clamp | Deferred | **Tested, no effect** — flag doesn't apply to this model class |
+| 164c: FactorNoiseSkip | Deferred | **Closed** — per-cell CLN solved rank-1 |
+| 164d: Student-t noise | Deferred | **Closed** — kurtosis 0.796 (passing) |
+| 164e: AGC | Not triggered | **Closed** — training stable |
+| 164h: Remove tanh | Not triggered | **Deferred to RC21 H1** — relevant if mean head handles centering |
+
+### RC20 Session Final Score
+
+Best model: softplus best ep11 = **6/9** (S1, S3, S4, S5, S6, S9).
+Remaining failures (S2, S7, S8) are pre-existing conditional prediction issues.
+RC21 compass ready with 5 literature-grounded hypotheses.
+
+---
