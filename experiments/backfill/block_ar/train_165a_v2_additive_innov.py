@@ -329,6 +329,7 @@ class ARMeanResidualModel(nn.Module):
                     # Additive innovation: prev_k + mean_delta + innov_k
                     mean_delta_t = mean_deltas[t].unsqueeze(1).expand(B, k, -1).reshape(Bk, C)
                     frame_flat = prev_k + mean_delta_t + innov  # additive carry
+                    frame_flat = reflecting_boundary(frame_flat)
 
                     chunk_frames.append(frame_flat.reshape(B, k, C))
 
