@@ -50290,7 +50290,10 @@ dependent spread.
 
 ---
 
-## 2026-04-02: Research Compass RC21 — Conditional Prediction Quality (Merged Claude + Codex)
+## 2026-04-02: Research Compass RC21 — Conditional Prediction Quality (CONSOLIDATED)
+
+(Merged Claude + Codex ideation, updated with Probe 0 findings + Codex review.
+Replaces earlier stale RC21 section and Probe 0 appendix.)
 
 ### Philosophy Applied
 - Hamming: S2/S7 are important (blocking 7+/9) AND attackable (clear mechanisms)
@@ -50298,158 +50301,130 @@ dependent spread.
 - Bitter Lesson: all proposals are learned end-to-end
 - Popper: each has specific kill condition at each stage
 
-### Evidence Summary (validated by 7 Codex + 3 agents this session)
+### Evidence Summary (validated by 7 Codex + 3 agents + Probe 0)
 
 **Proven root causes:**
-1. Encoder regime signal SNR = 0.30 (cosine sim calm/turb 0.917)
-2. S2 conditional bias is per-window not global (oracle debiasing -> 100% coverage)
-3. S7 never passed in 11 RC20 experiments (L2 = 0-1/8)
-4. S8 baseline is 19/25 KS-levels without barrier (6 pre-existing failures)
-5. Barrier is solved: softplus tau=0.005 lambda=2.5 gives 2.5% explosion (S1 passes)
+1. S2 conditional bias is per-window not global (oracle debiasing -> 100% coverage)
+2. S7 never passed in 11 RC20 experiments (L2 = 0-1/8)
+3. S8 baseline is 19/25 KS-levels without barrier (6 pre-existing failures)
+4. Barrier is solved: softplus tau=0.005 lambda=2.5 gives 2.5% explosion (S1 passes)
+5. **Probe 0 finding**: Encoder condition IS used by decoder (zeroing -> MAE +73%).
+   But conditions are nearly interchangeable (shuffling -> MAE +0.7%). The encoder
+   encodes useful level information but not enough window-specific regime signal.
+6. Best framing (Codex): "conditioned centering/sharpness is misallocated" — not
+   "encoder is weak" or "decoder ignores cond."
 
-**Literature grounding:**
-- CorrDiff/CoST: mean+residual decomposition improves calibration (arXiv:2309.15214, 2502.11013)
+**Literature grounding (directional support, not exact precedent):**
+- CorrDiff/CoST: mean+residual decomposition in spatiotemporal forecasting (arXiv:2309.15214, 2502.11013)
 - CCDM: contrastive conditioning improves CRPS on 83% benchmarks (arXiv:2410.02168)
-- Rasp/Lerch: cell embeddings fix per-location bias (arXiv:1805.09091)
-- FiLM: multiplicative conditioning more expressive than additive (arXiv:1709.07871)
+- Rasp/Lerch: cell/station embeddings fix per-location bias (arXiv:1805.09091)
 - Wessel et al.: MCB regularization improves tail calibration 60%+ (arXiv:2506.13687)
-- DeepAR: separate mean/variance heads standard in distributional forecasting (arXiv:1704.04110)
+- DeepAR: separate mean/variance heads in distributional forecasting (arXiv:1704.04110)
 
 ### H1: Mean+Residual Decomposition (Priority 1 — targets S2)
 
-Both Claude and Codex agree this is highest priority.
-
 **Evidence**: Oracle per-window debiasing gives 100% CI coverage. The centering is wrong,
-not the spread. Current decoder conflates mean prediction with noise modulation.
+not the spread. Probe 0 confirms decoder uses cond for level prediction but all conds
+are too similar for per-window centering. Current decoder conflates mean prediction
+with noise modulation through shared weights.
 
-**Theory**: Separate the conditional mean (MSE-trained) from stochastic residual (CRPS-trained).
-Dense deterministic gradients go to the mean path on every sample. The stochastic branch
-spends capacity on uncertainty/shape instead of also carrying the center.
+**Theory**: Separate the conditional mean (MSE-trained) from stochastic residual
+(CRPS-trained). Dense deterministic gradients go to the mean path. The stochastic
+branch spends capacity on uncertainty/shape.
 
-**Implementation**:
+**Implementation** (Codex-reviewed, zero-mean residual construction):
 ```python
 mean_delta = mean_head(cond, prev)          # deterministic expected change
 mean_pred = prev + mean_delta               # conditional mean
-stochastic_delta = decoder(cond, prev, z)   # noise-dependent residual
-frame_t = mean_pred + tanh(stochastic_delta)  # ensemble member
-# Loss: MSE on mean_pred vs GT + CRPS on full ensemble
+resid_k = decoder(cond, prev, z_k)          # noise-dependent residual per member
+resid_centered = resid_k - resid_k.mean(dim=1, keepdim=True)  # zero-mean
+frame_k = mean_pred + resid_centered        # ensemble member
+
+# Loss: MSE/Huber on mean_pred vs GT
+#      + CRPS on frame_k ensemble
+#      + optional coupling: lambda * ||sample_mean - mean_pred||^2
 ```
+The zero-mean construction prevents the residual branch from relearning the mean.
 
 **Staged checkpoints**:
-1. (2h) Freeze decoder, train mean head only with MSE. Does it predict GT better than
-   current ensemble mean? If mean_head MSE >= ensemble_mean MSE -> abort.
-2. (4h) Joint training: mean head (MSE) + decoder (CRPS on residuals). V2 test suite.
-3. (8h) Full tuning with softplus barrier on residual path.
+1. (2h) Freeze decoder, train mean head only with MSE. Measure: does mean head MSE
+   beat current ensemble mean MSE? (Evidence, not a hard abort — can fail for
+   optimization reasons while joint training still works.)
+2. (4h) Joint training: mean head (Huber) + decoder (CRPS on zero-mean residuals).
+   V2 test suite.
+3. (8h) Full tuning with softplus barrier on frame_k.
 
-**Kill condition**: Stage 1: mean head MSE >= ensemble mean MSE. Stage 2: S2 coverage
-doesn't improve from 81.3%.
+**Kill condition**: Stage 2: S2 coverage doesn't improve from 81.3%. Stage 3: no suite
+count improvement.
 
-**If fails**: Conditional mean prediction is not the bottleneck — the encoder condition
-vector itself lacks the information. Move to H2.
+**If fails**: Conditional mean prediction is not the bottleneck. Move to H2.
 
 ### H2: Contrastive Regime Loss on Encoder (Priority 2 — targets S7)
 
-Both Claude and Codex agree on second priority.
-
-**Evidence**: Encoder SNR = 0.30. CCDM (arXiv:2410.02168) shows contrastive loss on
-conditions improves CRPS on 83% of benchmarks. TS2Vec and contrastive forecasting
-literature confirm auxiliary representation objectives improve forecast-relevant structure.
+**Evidence**: Probe 0 shows conditions are nearly interchangeable (shuffle barely hurts
+global MAE). CCDM (arXiv:2410.02168) shows contrastive loss pushes conditions apart.
+Encoder has 84.2% probe accuracy (from earlier diagnostic) — regime info IS present
+but insufficiently discriminative for per-window centering.
 
 **Theory**: CRPS only gives indirect pressure for regime separation. InfoNCE directly
-maximizes I(condition; regime), pushing calm/turb conditions apart.
+maximizes I(condition; regime), making conditions more window-specific.
 
-**Implementation**: Add InfoNCE where positives = same VoV quintile windows, negatives =
-different quintile windows. lambda_contrast = 0.1.
+**Implementation**: InfoNCE on encoder bottleneck. Positives = same VoV quintile,
+negatives = different quintile. lambda_contrast = 0.1.
 
-**Staged checkpoints**:
-1. (1h) t-SNE of current conditions colored by VoV quintile. If already clustered, abort.
-2. (3h) Train with contrastive loss 80 epochs. Does encoder SNR increase above 0.50?
+**Staged checkpoints** (quantitative probes only, no t-SNE):
+1. (1h) Baseline: linear probe accuracy on VoV quintiles, VoV-bucket retrieval precision.
+2. (3h) Train with contrastive loss 80 epochs. Measure: linear probe accuracy improvement,
+   shuffle-cond MAE increase (should get worse if conditions become more specific).
 3. (4h) V2 test suite. Does S7 L2 improve from 0-1/8 to 3+/8?
 
-**Kill condition**: Stage 2: SNR stays below 0.50. Stage 3: S7 L2 stays at 0-1/8.
+**Kill condition**: Stage 2: linear probe accuracy doesn't improve. Stage 3: S7 L2 stays
+at 0-1/8.
 
-**If fails**: Encoder ARCHITECTURE (GRU 64 -> bottleneck 128) doesn't have capacity.
+**If fails**: Encoder architecture (GRU 64 -> bottleneck 128) doesn't have capacity.
 Move to H4.
 
-### H3: FiLM Conditioning (Priority 3 — quick probe)
+### H3: FiLM Conditioning (Priority 4 — DEPRIORITIZED by Probe 0)
 
-Claude proposed, Codex did not include (went straight to spatial encoder).
+Probe 0 showed the decoder IS using cond (zeroing -> MAE +73%). The injection method
+(additive vs multiplicative) is unlikely the bottleneck. Run only if H1+H2 insufficient.
 
-**Evidence**: Decoder uses additive conditioning: h = h + cond_proj(cond). FiLM uses
-h = gamma * h + beta. Strictly more expressive (Perez et al. 2017).
-
-**Theory**: Multiplicative modulation can scale features based on condition — enabling
-regime-dependent amplification/suppression of specific aspects.
-
-**Implementation**: Replace cond_proj additive injection with FiLM (gamma, beta) projection.
-~10 lines of code.
-
-**Staged checkpoints**:
-1. (1h) Implement FiLM, train 30 epochs. Does turb/calm ratio improve from 1.18?
-2. (4h) Full 80 epochs + barrier. V2 test suite.
-
+**Implementation**: Replace additive injection with FiLM (gamma*h + beta). ~10 lines.
 **Kill condition**: turb/calm doesn't improve. S7 L2 stays at 0-1/8.
 
-**If fails**: Condition injection method isn't the bottleneck. The condition vector
-itself lacks regime information (upstream problem).
+### H4: Spatial Inductive Bias in Encoder (Priority 3 — if H2 stalls)
 
-### H4: Spatial Inductive Bias in Encoder (Priority 4 — if H2 stalls)
+**Framing** (Codex-corrected): NOT "encoder destroys spatial info." IS "encoder lacks
+spatial inductive bias for sample-efficient regime extraction with only 4010 windows."
 
-Codex proposed and refined. NOT "encoder destroys spatial info" (it doesn't — fixed cell
-indices are consistent). IS "encoder lacks spatial inductive bias for sample-efficient
-regime extraction."
+**Implementation**: Start with existing CausalConv3dEncoder at
+diffusion/block_ar/gru_encoder.py:112 before inventing new hybrids. Also test bigger
+GRU at matched param count for clean capacity-vs-inductive-bias ablation.
 
-**Evidence**: GRU sees each day as undifferentiated 25-vector. Regime information may be
-a spatial pattern (wing vs ATM behavior) that is statistically harder to extract without
-spatial structure. With 4010 windows, inductive bias matters.
-
-**Theory**: Conv2d stem before GRU gives the encoder structural hint that nearby cells on
-the moneyness-tenor grid are related. Should improve regime extraction sample efficiency.
-
-**Implementation**: Hybrid Conv2d stem -> GRU -> attention pool -> bottleneck. Match
-parameter count to current encoder for clean comparison.
-
-**Clean ablation** (Codex-recommended):
-1. Bigger GRU only (matched params) — tests capacity alone
-2. Spatial/hybrid encoder (matched params) — tests inductive bias
-3. Compare encoder SNR, S2, S7
-
-**Kill condition**: Neither bigger GRU nor spatial encoder improves SNR above 0.50.
-
-**If fails**: The encoder has enough information; the problem is downstream.
+**Kill condition**: Neither bigger GRU nor spatial encoder improves linear probe accuracy.
 
 ### H5: Per-cell Quantile Auxiliary Head (Priority 5 — targets S8 specifically)
 
-Codex proposed. Only if S2/S7 improve but KS-levels stays stuck.
+Only if S2/S7 improve but KS-levels stays stuck. Pinball loss on q05/q50/q95 per cell.
+Training-only auxiliary, does not change inference.
 
-**Evidence**: S8 shape accounts for 56% of KS statistic. afCRPS + VS + IS don't directly
-supervise the pooled level CDF that KS-levels tests.
-
-**Theory**: A small auxiliary head predicting q05/q50/q95 per cell with pinball loss gives
-direct gradients on per-cell tails and asymmetry.
-
-**Implementation**: Linear head from cond + prev predicting 3 quantiles per cell. Pinball
-loss as auxiliary. Does not change inference — training-only.
-
-**Kill condition**: Auxiliary loss improves but KS-levels doesn't. Then S8 is not primarily
-a marginal-shape supervision problem.
+**Kill condition**: Auxiliary loss improves but KS-levels doesn't.
 
 ### Non-Optional Protocol Change: Composite Checkpoint Selection
 
-Val loss is proven unreliable for test suite quality (best val at ep11-12, best suites at
-different epochs). For RC21, select checkpoints using a proxy panel on validation split:
+Val loss is proven unreliable. For RC21, select checkpoints using a proxy panel:
 - Regime-conditioned mean bias
-- Encoder SNR / calm-turb cosine separation
+- Encoder linear probe accuracy / calm-turb separation
 - Pooled KS-levels with "first 5 samples" rule matching test suite
 
-### Execution Order
+### Execution Order (updated after Probe 0)
 
 ```
-H3 (FiLM, 1h probe) -> quick signal on conditioning pathway
-H1 (Mean+Residual, 2h probe) -> is mean prediction the bottleneck?
-H2 (Contrastive, 1h probe) -> does encoder need better regime signal?
-H4 (Spatial encoder, if H2 stalls) -> is it capacity or inductive bias?
-H5 (Quantile head, if S8 stuck) -> is shape a supervision problem?
+H1 (Mean+Residual, 2h probe) -> is centering the bottleneck?
+H2 (Contrastive, 1h probe) -> make conditions more window-specific
+H4 (Spatial encoder, if H2 stalls) -> is it inductive bias or capacity?
+H3 (FiLM, deprioritized) -> only if H1+H2 insufficient
+H5 (Quantile head) -> for S8 only, if S2/S7 improve
 ```
 
 ### Exhausted Directions (do not revisit)
@@ -50489,79 +50464,13 @@ RC21 compass ready with 5 literature-grounded hypotheses.
 
 ---
 
-## 2026-04-02: Probe 0 — Condition Ablation (Claude + Codex Independent)
+## 2026-04-02: Probe 0 — Condition Ablation Results (Reference Data)
 
-### Context
-Codex review of RC21 identified inconsistency: research log says encoder has 84.2%
-probe accuracy and turb/calm 1.50 at step 1 (line 47744), but RC21 claims "encoder
-is weak" (SNR 0.30). Probe 0 resolves: is the problem upstream (encoder) or downstream
-(decoder misusing cond)?
-
-### Results (both Claude and Codex ran independently, consistent)
-
-**Softplus final ep80, 200-240 test windows:**
-
-| Mode | MAE | Spread | turb/calm | Bias |
-|------|-----|--------|-----------|------|
-| Normal | 0.028-0.030 | 0.032 | 1.17 | -0.011 |
-| Zero cond | 0.052-0.078 | 0.042-0.108 | 1.09 | -0.040 |
-| Shuffle cond | 0.028-0.028 | 0.034 | 1.12 | -0.009 |
-
-**Zeroing cond causes massive degradation**: MAE +73-177%, bias triples. The decoder
-IS using cond heavily for level prediction.
-
-**Shuffling cond barely changes global MAE** (+0.7%). But regime structure shifts:
-calm median-above-GT 0.493->0.603 (Codex), turb/calm drops 1.166->1.118 (Claude).
-
-**Codex ep80 additional finding**: Zero cond makes model "duller and wider" — coverage
-RISES 0.771->0.808 because width jumps. Condition is used to SHARPEN predictions,
-but sharpening is misallocated across regimes.
-
-### Interpretation (Codex-validated)
-
-The condition vector encodes useful information for LEVEL prediction (zeroing destroys
-MAE). But it doesn't encode enough WINDOW-SPECIFIC information (shuffling barely hurts).
-All condition vectors are too similar to produce differentiated regime responses.
-
-Best framing (Codex): **"conditioned centering/sharpness is misallocated"** — not
-"encoder is weak" or "decoder ignores cond."
-
-The encoder DOES encode regime (84.2% probe accuracy). The decoder DOES use cond
-(zeroing destroys performance). But the regime signal is insufficient for correct
-per-window centering — the conditions are nearly interchangeable.
-
-### Impact on RC21
-
-- **H1 (Mean head): STRENGTHENED.** Dedicated centering path with direct MSE gives the
-  mean prediction its own gradient, not shared with noise modulation.
-- **H2 (Contrastive): STRENGTHENED.** Conditions need to be MORE window-specific.
-  Shuffle probe proves they're nearly interchangeable — contrastive loss pushes apart.
-- **H3 (FiLM): WEAKENED.** Decoder IS using cond. Injection method isn't the bottleneck;
-  the condition itself is too homogeneous.
-- **H4 (Spatial encoder): NEUTRAL.** May still help but Probe 0 doesn't point to it.
-
-### Updated RC21 Execution Order
-
-```
-H1 (Mean+Residual, 2h probe) -> is centering the bottleneck?
-H2 (Contrastive, 1h probe) -> make conditions more window-specific
-H4 (Spatial encoder, if H2 stalls) -> is it inductive bias?
-H3 (FiLM) -> DEPRIORITIZED, run only if H1+H2 insufficient
-H5 (Quantile head) -> for S8 only, if S2/S7 improve
-```
-
-### Codex Protocol Recommendations (adopted)
-
-1. **H1 must use proper decomposition** (Codex): zero-mean residual construction
-   frame_k = mean_pred + (resid_k - resid_mean), plus coupling term
-   ||sample_mean - mean_pred||^2 to prevent residual branch from stealing mean job.
-
-2. **H1 stage-1 kill condition softened** (Codex): frozen-decoder mean head probe is
-   evidence, not an abort gate. Can fail for optimization reasons.
-
-3. **H2 probes must be quantitative** (Codex): linear probe accuracy, VoV-bucket
-   retrieval, not t-SNE.
-
-4. **Composite checkpoint selection is non-optional** (both agree).
+Probe 0 results (Claude + Codex independent, consistent). Softplus final ep80:
+- Zero cond: MAE +73-177%, bias triples. Decoder IS using cond.
+- Shuffle cond: MAE +0.7%. Conditions nearly interchangeable.
+- Codex: zeroing makes model "duller and wider" — coverage RISES as width jumps.
+- Framing: "conditioned centering/sharpness is misallocated."
+Findings integrated into consolidated RC21 compass above.
 
 ---
