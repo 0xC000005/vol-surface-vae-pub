@@ -49855,3 +49855,60 @@ Monitor:
    constrained optimization. Not domain-specific.
 
 ---
+
+## 2026-04-01: RC20.6 Lambda Calibration — Codex #4 (Gradient-Matched)
+
+### Question: How to set lambda_floor without sweeping?
+
+Three options debated:
+1. **Blind sweep {1,3,10}** — user rejected as unprincipled
+2. **Adaptive Lagrange (dual ascent)** — rejected: adds 4 hyperparameters (eta, eps,
+   ema_alpha, lambda_max). Barrier mean is 1.6e-5 with batch noise 4e-6, making
+   eps/eta delicate. Replaces 1 tuning problem with 4.
+3. **Gradient-matched fixed lambda** — SELECTED
+
+### Codex #4 Gradient Measurement (on saved BPTT-final model)
+
+Codex loaded models/backfill/afcrps_164a_v3_percell_bptt/final_model.pt and ran
+real 30-step partial-BPTT gradient replay with softplus barrier (tau=0.005):
+
+| Parameter group | Base loss grad norm | Floor barrier grad norm | Ratio |
+|----------------|--------------------|-----------------------|-------|
+| decoder.output_proj | 0.2384 | 0.00982 | 24.3x |
+| All decoder params | similar | similar | ~24.2x |
+
+At 10% gradient budget: lambda_floor = 0.10 * 24.3 = **2.43 ≈ 2.5**
+
+### Why 10% Budget (not 5%)
+
+Codex: "The failure mode is severe enough that a 5% perturbation may be too weak."
+- 5% → lambda=1.2 (may be insufficient for 42% explosion rate)
+- 10% → lambda=2.5 (stronger but still minority of total gradient)
+
+### What Was Rejected
+
+- **lambda=100**: Would make floor term 4.1x STRONGER than base gradient. Not
+  "negligible except near zero" — it would dominate training.
+- **Dual ascent**: More elegant on paper but adds complexity for a quantity (barrier
+  mean) that is 1.6e-5 with 4e-6 batch noise.
+- **Training longer (>80 epochs)**: No evidence explosion was still decreasing at
+  ep80 — only train/val loss logged, and val loss is flat.
+- **Calibration-free loss**: Would require support-respecting parameterization
+  (e.g., modeling log-IV). That's a larger model change, not RC20.6.
+
+### Final RC20.6 Specification (4 Codex verifications)
+
+```python
+tau = 0.005
+lambda_floor = 2.5  # gradient-matched at 10% budget
+floor_barrier = tau * F.softplus(-frame_t / tau).mean()
+step_loss = (loss_t + lambda_is_eff * is_t + lambda_vs * vs_t + lambda_floor * floor_barrier) / T
+```
+
+- Warmup: linear over 10 epochs (0 → 2.5)
+- Base: plain BPTT (train_164a_v3_percell_bptt.py)
+- Controls: B=16, K=16, LR=1e-3 (matched exactly)
+- Eval: BOTH best and final checkpoints
+- One experiment, zero sweep, one calibrated weight
+
+---
