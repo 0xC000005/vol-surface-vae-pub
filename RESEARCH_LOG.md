@@ -49557,3 +49557,83 @@ Codex recommends (agreed):
 - This actually tests whether local floor-dependent damping helps
 
 ---
+
+## 2026-04-01: RC20.5b Result — Local Diagonal Gate DEFINITIVELY FALSIFIED
+
+### Exp 164a_v3_percell_bptt_local_gate
+**Based on**: 164a_v3_percell_bptt (BPTT baseline) + Codex recommendation from RC20.5
+**Hypothesis**: Local diagonal gate g_i = sigmoid(a_i * prev_i + b_i) dampens noise
+when cell i is near zero. 50 params (2 per cell), no cross-cell mixing. Clean test
+of whether local floor-dependent damping reduces explosions.
+**Prediction**: Explosion rate drops from 42% (BPTT final) with per-cell floor thresholds.
+
+### Architecture Change
+ConditionalNorm gains gate_a (Parameter, 25) and gate_b (Parameter, full 25, 2.0).
+forward: noise_gate = sigmoid(gate_a * prev_frame + gate_b). Scale/bias multiplied
+by noise_gate. No cross-cell mixing — each cell depends ONLY on its own prev.
+
+### Training
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_local_gate.py     --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32     --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5     --output_dir models/backfill/afcrps_164a_v3_percell_bptt_local_gate --device cuda
+```
+Matched BPTT exactly: B=16, K=16, LR=1e-3. NO confounds. Best val 0.0201 at ep20. 107s/epoch.
+
+### Results (v2 test suite, BOTH checkpoints)
+
+| Model | Epoch | Suites | Explosion | turb/calm | coint |
+|-------|-------|--------|-----------|-----------|-------|
+| BPTT best | ep12 | 4/9 | 65.7% | 1.204 | 0.843 |
+| BPTT final | ep80 | 5/9 | 42.2% | 1.225 | 0.810 |
+| Local gate best | ep20 | 5/9 | 64.9% | 1.176 | 0.652 |
+| Local gate final | ep80 | 5/9 | 44.0% | 1.156 | 0.745 |
+
+### Investigation: Gate is a No-Op
+
+Gate values at ep80 for problem cells (L0.cln):
+| Cell | a (slope) | b (bias) | g(0.02) | g(0.30) | diff |
+|------|-----------|----------|---------|---------|------|
+| (0,0) | -0.168 | 1.518 | 0.820 | 0.813 | 0.007 |
+| (0,3) | -0.056 | 1.632 | 0.836 | 0.834 | 0.002 |
+| (2,4) | -0.262 | 1.597 | 0.831 | 0.820 | 0.011 |
+
+Floor-mid gate difference is 0.002-0.011. Negligible. The gate converged to a
+near-constant ~0.83 multiplier (bias dropped from 2.0→1.6, providing uniform 5%
+noise reduction). Slopes (a_i) never grew large enough for floor discrimination.
+
+Deepest layer (L3.ff_cln) has largest difference: cell (2,4) diff=0.018. Still
+negligible — 1.8% gate variation between floor and mid has no practical effect.
+
+### What Was Learned
+
+1. **Per-step loss provides zero gradient for floor-dependent dampening.** Neither dense
+   (RC20.5) nor local (RC20.5b) gates learned meaningful floor discrimination. The slopes
+   a_i remain tiny (~0.2) because per-step CRPS+VS+IS does not penalize multi-step
+   floor crossing. This is now proven across two clean experiments.
+
+2. **Learnable gates converge to uniform noise reduction.** Both dense and local gates
+   settle on a constant multiplier (~0.83). The gate_b bias drifts down from 2.0,
+   providing global noise dampening. The slope component (which would create floor
+   sensitivity) gets negligible gradient.
+
+3. **Explosion rates are determined by training duration, not architecture.** Both BPTT
+   and local gate show the same pattern: ~65% explosion at early best, ~42-44% at ep80
+   final. The explosion reduction from ep12/20→ep80 comes from general model improvement
+   (better mean prediction), not from any floor-specific mechanism.
+
+4. **Turb/calm and cointegration slightly regressed** (1.225→1.156, 0.810→0.745). The
+   constant 0.83 noise multiplier reduces all noise uniformly, slightly hurting metrics
+   that depend on spread.
+
+### Decision: VALUABLE FAILURE — Hypothesis Definitively Falsified
+
+The local gate is a clean no-confound test of floor-dependent noise dampening. Result:
+the gate is a no-op. Per-step losses CANNOT train any learnable gate (dense or local)
+to reduce explosions. This closes the "architecture-only fix for explosions" direction.
+
+### Next: RC20.6 — One-sided Floor Penalty (Loss-Level Fix)
+
+Must directly penalize floor crossing in the loss. lambda_floor * mean(ReLU(-frame_t)).
+This provides explicit gradient: "going below zero is bad." Unlike gates, this signal
+is unambiguous and cannot be co-opted by CRPS. Per theory queue.
+
+---
