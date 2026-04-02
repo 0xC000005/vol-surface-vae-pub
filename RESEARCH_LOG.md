@@ -49912,3 +49912,100 @@ step_loss = (loss_t + lambda_is_eff * is_t + lambda_vs * vs_t + lambda_floor * f
 - One experiment, zero sweep, one calibrated weight
 
 ---
+
+## 2026-04-01: RC20.6 Result — Softplus Floor Barrier BREAKTHROUGH (6/9, S1 PASSES)
+
+### Exp 164a_v3_percell_bptt_softplus
+**Based on**: 164a_v3_percell_bptt (BPTT baseline, 5/9 final)
+**Hypothesis**: Softplus floor barrier tau*softplus(-frame_t/tau) with tau=0.005 and
+gradient-matched lambda=2.5 (10% budget) reduces explosions by directly pricing floor
+crossing. Targeted rare-event reweighting — test suite prices explosions but current
+loss doesn't.
+**Prediction**: Explosion rate drops from 42% (BPTT final) to <30%. Maintain 5/9+.
+
+### Architecture Change
+NO architecture change. Loss-only modification:
+```python
+floor_barrier = 0.005 * F.softplus(-frame_t / 0.005).mean()
+step_loss = (loss_t + lambda_is_eff * is_t + lambda_vs * vs_t + lambda_floor * floor_barrier) / T
+```
+lambda_floor=2.5 (gradient-matched: base grad 0.2384, floor grad 0.00982, ratio 24.3x,
+10% budget → 2.43 ≈ 2.5). Warmup linear 0→2.5 over 10 epochs.
+
+### Training
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py     --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32     --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5     --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10     --output_dir models/backfill/afcrps_164a_v3_percell_bptt_softplus --device cuda
+```
+Best val 0.0203 at ep11. Floor barrier: 0.003426 (ep1) → 0.000082 (ep80), 42x reduction.
+99s/epoch at B=16 K=16 LR=1e-3.
+
+### Results (v2 test suite, BOTH checkpoints)
+
+| Model | Epoch | Suites | Explosion | turb/calm | coint | S1 | S8 |
+|-------|-------|--------|-----------|-----------|-------|----|----|
+| BPTT best | ep12 | 4/9 | 65.7% | 1.204 | 0.843 | FAIL | FAIL |
+| BPTT final | ep80 | 5/9 | 42.2% | 1.225 | 0.810 | FAIL | FAIL |
+| **Softplus best** | **ep11** | **6/9** | **2.5%** | **1.185** | **0.656** | **PASS** | FAIL |
+| Softplus final | ep80 | 5/9 | 5.9% | 1.162 | 0.743 | FAIL | FAIL |
+
+### Suite-by-Suite Comparison (Softplus best vs BPTT final)
+
+| Suite | BPTT final | Softplus best | Delta |
+|-------|-----------|---------------|-------|
+| S1 Surface | FAIL (42.2% expl) | **PASS (2.5%)** | **NEW PASS — 17x reduction** |
+| S2 CI Coverage | FAIL | FAIL (cal 0.046) | Improved but not passing |
+| S3 Conditionality | PASS (1.225) | PASS (1.185) | Slightly weaker |
+| S4 Time Series | PASS | PASS | Same |
+| S5 Block-AR | PASS | PASS | Same |
+| S6 Cointegration | PASS (0.810) | PASS (0.656) | Weaker but passing |
+| S7 Regime | FAIL | FAIL (L3 catastrophic 5.9%) | Similar |
+| S8 Distributional | FAIL | FAIL (KS-lvl 12/25, win 7.4%) | Worse |
+| S9 Cross-Cell | PASS | PASS (1.300) | Good |
+
+### S8 Distributional Breakdown (Softplus best)
+- KS daily changes: 24/25 PASS
+- KS IV levels: 12/25 FAIL (was ~17/25 for BPTT)
+- Median bias fraction: 16/25 FAIL
+- Median bias magnitude: 20/25 FAIL
+- Window coverage floor: 7.4% FAIL (was 3.2% for BPTT — barrier compressed low-IV spread)
+- Sample explosion: PASS (0.01% floor, 0.00% ceiling)
+- Per-cell MAE: 24/25 PASS
+
+### Training Dynamics
+Floor barrier decreased 42x during training (0.003426 → 0.000082), meaning the model
+actively learned to avoid negative values. The barrier was most effective early (ep11
+has 2.5% explosion) and partially "unwound" by ep80 (5.9% explosion). This suggests
+the barrier shapes the early learning trajectory more than it acts as a persistent
+constraint.
+
+Best/final pattern is REVERSED compared to BPTT: softplus best (ep11) is better than
+final (ep80) — 6/9 vs 5/9, 2.5% vs 5.9%. The val-loss minimum (ep11) now aligns with
+test suite quality, unlike BPTT where it was misaligned.
+
+### What Was Learned
+
+1. **Softplus floor barrier WORKS.** Explosion rate dropped from 65.7% (BPTT best) to
+   2.5% (softplus best) — a 26x reduction. S1 Surface passes for the FIRST TIME in
+   RC20. This confirms the explosion was a loss objective mismatch, not an architecture
+   limitation.
+
+2. **The tradeoff is S8 distributional quality.** KS-levels dropped from ~17/25 to 12/25,
+   window floor worsened from 3.2% to 7.4%. The barrier compresses spread near the floor,
+   biasing low-IV distributions upward. Expected from Codex analysis.
+
+3. **Cointegration weakened** (0.810 → 0.656) but still passes. The barrier changes the
+   dynamics near the floor which affects long-run co-movement properties.
+
+4. **Early checkpoint is better** — barrier shapes learning trajectory. The model's best
+   explosion rate is at ep11, before the other loss terms (CRPS/VS) have had 70 more
+   epochs to partially erode the floor constraint.
+
+5. **Lambda=2.5 is well-calibrated.** The gradient matching worked: strong enough to
+   eliminate explosions (2.5%), not so strong as to destroy other metrics (still 6/9).
+
+### Decision: BUILD ON THIS — New record 6/9
+
+First S1 pass in RC20. Explosion solved. S8 regression is the remaining challenge.
+Next investigation: can the S8 regression be addressed without losing S1?
+
+---
