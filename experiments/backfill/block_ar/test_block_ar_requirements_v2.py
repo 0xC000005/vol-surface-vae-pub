@@ -2682,7 +2682,7 @@ def main():
         "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
     )
-    is_mean_residual = model_type == "ar_spatial_transformer_165a_mean_residual"
+    is_mean_residual = model_type in ("ar_spatial_transformer_165a_mean_residual", "ar_spatial_transformer_165a_v2_additive_innov")
     is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix", "ar_spatial_transformer_164a_v3_percell_bptt", "ar_spatial_transformer_164a_v3_percell_bptt_gate", "ar_spatial_transformer_164a_v3_percell_bptt_local_gate", "ar_spatial_transformer_164a_v3_percell_bptt_softplus") or is_mean_residual
     is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
@@ -2735,9 +2735,14 @@ def main():
     if is_ar_spatial:
         # ── AR Spatial Transformer (164a etc.) ──
         if is_mean_residual:
-            from experiments.backfill.block_ar.train_165a_mean_residual import (
-                ARMeanResidualModel,
-            )
+            if "v2" in model_type:
+                from experiments.backfill.block_ar.train_165a_v2_additive_innov import (
+                    ARMeanResidualModel,
+                )
+            else:
+                from experiments.backfill.block_ar.train_165a_mean_residual import (
+                    ARMeanResidualModel,
+                )
             from diffusion.block_ar.gru_encoder import EncoderConfig
             enc_cfg = EncoderConfig(**raw_config["encoder"])
             dec_cfg = raw_config["decoder"]
