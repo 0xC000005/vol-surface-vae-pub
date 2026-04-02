@@ -50639,3 +50639,42 @@ independent, tested in order. H2 is deferred until H1_v2 results are in.
 - If H1_v2 succeeds, the 98/2 split was never the bottleneck — the loss function was
 
 ---
+
+## 2026-04-02: H1v2 Design — Additive Innovation Decomposition (replaces stale H1 in RC21 compass)
+
+### Why H1 (zero-mean centering) failed
+The original H1 used `frame_k = mean_pred + (resid_k - resid_mean)`, which re-anchors members
+to mean_pred at every step. This prevents deviation accumulation across the 30-step AR chain,
+destroying fat tails (kurtosis 75→20). See Exp 165a entry above for full analysis.
+
+### H1v2: Additive Innovation Decomposition
+```python
+mean_delta = mean_head(cond_t, prev_mean)              # shared centering signal (B, C)
+innov_k = tanh(decoder(cond_K, prev_k, z_k))           # per-member innovation (B*K, C)
+frame_k = prev_k + mean_delta + innov_k                 # additive carry preserved
+```
+
+**Why this works:** Same recurrence as baseline (`prev_k + delta`), just splitting delta into
+shared mean_delta (gets MSE) + per-member innov_k (gets CRPS). Members accumulate their own
+drift through prev_k. Fat tails preserved. Mean head gets direct per-window centering gradient.
+
+**prev_mean is a separate deterministic path:** `prev_mean = prev_mean + mean_delta` tracks
+the mean head's prediction. It is NOT the sample mean of members. It feeds back into the mean
+head at the next step. Members feed back through their own prev_k.
+
+### Protocol (Codex-reviewed)
+1. No soft coupling in v2 — this is an **identifiability test**. If the decoder steals the
+   centering job (innov_k develops nonzero mean, mean_head stays dead), add coupling in v3.
+2. Phase-2 val loss MUST include lambda_mean * val_mean_mse + CRPS (not CRPS only).
+3. Train/eval boundary handling must be consistent (no reflecting_boundary in sampling only).
+4. **Success checks per epoch:**
+   - mean_head weight norm (should grow from zero-init)
+   - ||innov_BK.mean(dim=K)|| (if stays near zero → natural separation working)
+   - val_mean_mse trajectory (should improve independently of CRPS)
+
+### Kill Conditions
+- Mean head stays dead (weights near zero-init after 20+ epochs) → coupling needed (v3)
+- S4 kurtosis regresses below 0.5 → additive carry is somehow broken (investigate)
+- S2 coverage doesn't improve from baseline 81.3% → centering via MSE is not the bottleneck
+
+---
