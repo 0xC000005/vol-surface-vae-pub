@@ -51722,3 +51722,71 @@ of training that would have been wasted. H2 (K reduction) remains viable — it 
 gradient balance, not the noise structure. New direction needed for the rank compression issue.
 
 ---
+
+## 2026-04-02: RC22 Update — Loss Rebalancing (IS fix + VS boost)
+
+### New Evidence
+
+**Gradient budget is completely broken:**
+| Component | Current (lambda) | Current Budget | Fixed Budget |
+|-----------|-----------------|---------------|--------------|
+| CRPS | 1.0 | 29% | **63%** |
+| VS | 0.5 | 5% | **23%** (lambda=1.0) |
+| IS | 0.05 | **66%** | 14% (lambda=0.005) |
+
+IS has been the dominant training signal all along (66%). VS, the only loss enforcing
+cross-cell structure, gets just 5% — far too weak to prevent the attention layers from
+collapsing noise to rank-1.
+
+**Noise rank diagnostic confirmed:** Decoder receives 27 effective noise dims, compresses
+to PC1=74% (level shift) + PC2=14% (tilt). Reducing noise_dim doesn't help (bottleneck
+is decoder attention, not noise input). H1 (noise_dim reduction) falsified.
+
+**GT factor structure IS achievable:** Exp 105a_v2 hit GT-level factor structure at epoch 10
+(corr=0.389≈GT 0.38, eff_rank=2.35≈GT 2.61). Then CRPS destroyed it by epoch 40 (corr=0.756,
+eff_rank=1.41). The decoder CAN learn 5-factor structure. CRPS actively erases it because
+rank-1 is more efficient for per-cell marginals.
+
+### Updated RC22 H1: Loss Rebalancing (replaces noise_dim reduction)
+
+**Hypothesis:** Boosting VS from 5% to 23% of gradient budget provides enough cross-cell
+structure signal to PRESERVE the multi-factor structure that the decoder naturally learns
+early in training. Correcting IS from 66% to 14% gives CRPS back its budget.
+
+**Changes:** `--lambda_is 0.005 --lambda_vs 1.0` (from 0.05 and 0.5). Two numbers.
+No architecture change. Same baseline softplus model.
+
+**Expected gradient budget:** CRPS 63%, VS 23%, IS 14%.
+
+**Mechanism:** VS penalizes pairwise cell dependency mismatches (625 pairs). At 23% budget,
+it should counterbalance CRPS's rank-1 attractor during epochs 10-40 when factor structure
+is being erased. The decoder keeps the multi-factor structure it naturally discovers early.
+
+**Falsification test:**
+- Measure noise effective rank at epoch 10 and epoch 80. If rank doesn't increase vs baseline
+  (PC1 still >70%), VS boost is insufficient.
+- S9 (cross-cell correlation) must not regress.
+- If S4 kurtosis drops below 0.5, VS is disrupting temporal dynamics.
+
+**Kill condition:** Noise effective rank at epoch 80 is same as baseline (~2 factors).
+
+**Training command (Exp 166a):**
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py \
+    --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 \
+    --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5 \
+    --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 \
+    --output_dir models/backfill/afcrps_166a --device cuda
+```
+
+### RC22 Hypothesis Queue (updated)
+
+| Priority | Hypothesis | Status |
+|----------|-----------|--------|
+| 1 | **Loss rebalancing: IS=0.005, VS=1.0** | ACTIVE (Exp 166a) |
+| 2 | K reduction: K=8, B=32 | Queued (independent) |
+| 3 | Factored condition-noise FiLM | Queued (if H1+H2 fail) |
+| 4 | Encoder 98/2 fix (contrastive) | Queued (independent) |
+| ~~X~~ | ~~noise_dim reduction~~ | ~~FALSIFIED (decoder compresses regardless)~~ |
+
+---
