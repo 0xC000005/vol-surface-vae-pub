@@ -50770,3 +50770,66 @@ Next: investigate whether the S3 regression is fixable within the additive frame
 condition-dependent mean_delta that zeros out for unconditioned paths), or whether to move to H2.
 
 ---
+
+## 2026-04-02: Exp 165a_v3 — Spatial Transformer Mean Head (RC21 H1v3, FAILURE)
+
+### Hypothesis
+Replace MLP mean head (39K params) with 2-layer spatial transformer (81K params) with
+cross-cell attention. Targets S3 worst_cell_mae regression from v2 — hypothesis was that
+per-cell precision is limited by the MLP's lack of spatial interaction between cells.
+
+### Architecture Change (mean head only)
+```
+v2 MLP:    Linear(153,128) → SiLU → Linear(128,128) → SiLU → Linear(128,25)
+v3 spatial: input_proj(1→64) + cond_proj(128→64) + spatial_pos → 2×[LN+MHA+LN+FF] → output(64→1)
+```
+25 cell tokens with cross-cell attention, LayerNorm (unlike the No-LN decoder), 4 heads.
+Everything else identical to v2 (additive innovation, same training recipe).
+
+### Results
+
+| Metric | Baseline (6/9) | v2 final (6/9) | v3 best (5/9) | v3 final (5/9) |
+|--------|----------------|----------------|---------------|----------------|
+| S2 coverage | FAIL | **PASS** | FAIL | FAIL |
+| S3 conditionality | PASS | FAIL | FAIL | FAIL |
+| S4 kurtosis_ratio | 0.974 | 0.859 | 0.560 | 0.742 |
+| S8 KS daily | — | 25/25 | 9/25 | 23/25 |
+| S8 window_cov_floor | — | 2.7% | **15.5%** | **13.1%** |
+| val_mean_mse | — | 0.0041 | — | **0.0055** |
+| mh_wnorm (final) | — | 12.86 | — | 124.2 |
+
+### Root Cause
+The spatial transformer mean head **overfits**. With 81K params on ~4000 training windows,
+it learns training-specific patterns that don't generalize:
+- val_mean_mse 0.0055 vs v2's 0.0041 (35% worse generalization)
+- 15.5% windows below 50% coverage (vs 2.7% in v2) — severely miscalibrated on many windows
+- Lost S2 (the key v2 gain) without improving S3
+- S4 kurtosis degraded (0.560 best vs 0.815 in v2) — stronger mean head disrupts dynamics more
+
+### What Was Learned
+1. **Per-cell precision is a DATA limitation, not capacity** — bigger mean head overfits, doesn't help
+2. **Simple MLP mean head (v2) is the right size** — 39K params on 4000 windows, good bias-variance
+3. **The S3 regression from v2 cannot be fixed by better mean head architecture**
+4. **val_mean_mse is a reliable proxy** — 0.0055 > 0.0041 correctly predicted worse test performance
+
+### Decision
+**FAILURE.** v2 (MLP, 6/9) remains the best H1 result. The S2/S3 tradeoff appears fundamental
+to the mean head approach with this data size, not fixable by architecture changes.
+
+### H1 Series Summary (165a → 165a_v2 → 165a_v3)
+
+| Exp | Architecture | Suites | S2 | S3 | S4 kurt | Key Finding |
+|-----|-------------|--------|----|----|---------|-------------|
+| 165a | hard centering | 4/9 | FAIL | FAIL | 0.263 | Centering kills persistence |
+| 165a_v2 | MLP + additive innov | **6/9** | **PASS** | FAIL | 0.859 | **Best H1. S2 first pass.** |
+| 165a_v3 | spatial xfmr + additive | 5/9 | FAIL | FAIL | 0.742 | Overfits, worse than MLP |
+
+**H1 conclusion:** Additive innovation + MLP mean head achieves 6/9 with first-ever S2 PASS.
+S3 regression is fundamental: mean head adds shared drift that narrows cond/uncond gap.
+Per-cell precision limited by data (4000 windows), not model capacity.
+
+**Verification finding (corrected):** The encoder's 98/2 discriminative split is NOT the
+bottleneck — the mean head uses the discriminative signal (83.5% window-specific output,
+r=0.36-0.55 with GT). The bottleneck is per-cell SNR with limited data.
+
+---
