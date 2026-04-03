@@ -2754,7 +2754,7 @@ def main():
             model = ARMeanResidualModel(enc_cfg, dec_cfg, mean_cfg)
             model.load_state_dict(checkpoint["model_state_dict"])
         else:
-            is_percell = "percell" in model_type
+            is_percell = "percell" in model_type or "165b" in model_type
             is_local_gate = "local_gate" in model_type
             is_gate = "gate" in model_type and not is_local_gate
             if is_local_gate:

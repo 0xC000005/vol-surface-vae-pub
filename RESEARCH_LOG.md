@@ -51013,3 +51013,64 @@ over-weighting centering at expense of spread.
 - Total suites ≥ 7/9
 
 ---
+
+## 2026-04-02: Exp 165b — Direct Ensemble Mean MSE (RC21 H1v4, VALUABLE FAILURE)
+
+### Hypothesis
+Add MSE(ensemble_mean, GT) to baseline softplus loss. No architecture change. Lambda=0.464
+from gradient matching (CRPS/MSE ratio 4.64, 10% budget). Tests if CRPS drift-blindness is
+the real bottleneck.
+
+### Results
+
+| Metric | Baseline (6/9) | 165b best (5/9) | 165b final (5/9) |
+|--------|----------------|-----------------|------------------|
+| S1 surface | PASS | **FAIL** (16.6% explosion) | **FAIL** (8.6%) |
+| S2 coverage | FAIL (0.046) | **FAIL (0.062)** | **FAIL (0.069)** |
+| S3 conditionality | PASS (-4.3%) | **PASS (+12.4%)** | **PASS (+4.6%)** |
+| S4 kurtosis | 0.974 | 0.924 | 0.857 |
+| S5-S6 | PASS | PASS | PASS |
+| S7 regime | FAIL | FAIL | FAIL |
+| S8 distributional | FAIL | FAIL | FAIL |
+| S9 cross_cell | PASS | PASS | PASS |
+
+### Root Cause: Shared-Parameter Spread Compression
+
+The center loss fixes S3 (drift tracking +17pp) but WORSENS S2 (calibration_error 0.046→0.062).
+The contradiction: better centering should improve calibration, not worsen it.
+
+**Investigation found:** MSE(ensemble_mean, GT) gives all K members the same gradient, which
+reinforces the decoder's shared-mode output (independent of noise z) and dilutes the stochastic
+mode. Through shared decoder parameters, capacity reallocates from spread-generating to
+mean-tracking. Effect accumulates over 30 AR steps: CI width +6.8% at h=1 but -5.1% at h=30.
+
+Spread compression: -3.3% average, worst cells -22%. Coverage drops: 8/25 → 4/25 cells ≥85%.
+Despite only 5.7% gradient budget, the shared-mode reinforcement effect is amplified across
+30 AR steps.
+
+**This is NOT a fundamental impossibility.** A perfectly calibrated forecast has both correct
+mean and correct spread. The tradeoff is a practical issue: shared decoder parameters can't
+independently optimize mean and spread when the centering gradient reinforces the shared mode.
+
+### What Was Learned
+1. Ensemble mean MSE fixes drift tracking (S3 +17pp) — the gradient signal works
+2. BUT it compresses spread through shared parameters — S2 worsens
+3. The S2/S3 tradeoff is a **shared-parameter capacity allocation** issue, not fundamental
+4. Separating mean and spread into different parameters (mean head approach) avoids this
+5. Lambda=0.464 may be too aggressive — lower lambda or warmup-then-fade could help
+
+### Implication for Next Experiment
+The mean head approach (165a_v2) separates parameters: mean_head handles centering (MSE),
+decoder handles spread (CRPS). The S3 regression in v2 was caused by the mean head being
+noisy (per-cell SNR 0.014), NOT by shared-parameter compression. Combining the mean head
+with the ensemble mean MSE on the mean_pred (not on frame_BK) avoids the shared-parameter
+issue while keeping the centering signal on the correct target.
+
+Key insight: the MSE loss should target the mean_head's output (mean_pred), not the
+ensemble output (frame_BK.mean(K)). This keeps the centering gradient isolated to the
+mean head parameters, leaving the decoder's stochastic capacity untouched.
+
+This is what 165a_v2 already does. The next step is to understand why v2's S2 pass didn't
+also improve S8, and whether combining v2 + 165b insights yields 7+/9.
+
+---
