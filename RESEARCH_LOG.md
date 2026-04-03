@@ -51074,3 +51074,118 @@ This is what 165a_v2 already does. The next step is to understand why v2's S2 pa
 also improve S8, and whether combining v2 + 165b insights yields 7+/9.
 
 ---
+
+## 2026-04-02: Gradient Decomposition — Why the Decoder Can't Center and Spread Simultaneously
+
+### Context
+After 5 experiments (165a→v2→v3→165b), we still can't get both S2 (CI coverage) and S3
+(conditionality) to pass. Every centering fix either compresses spread or displaces the
+decoder's own centering. Before proposing more experiments, we decomposed the gradient flow
+to understand the mechanistic cause.
+
+### Investigation: 4 Parallel Gradient Analyses on Baseline Softplus Model
+
+#### Finding 1: IS Is Already DOMINANT (not weak as assumed)
+
+| Loss | Gradient Share | Raw Grad Norm |
+|------|---------------|---------------|
+| CRPS | 44.4% | 0.198 |
+| **IS (lambda=0.05)** | **50.8%** | 0.227 |
+| VS | 4.8% | 0.021 |
+
+IS gradient is **22.9x stronger per unit loss** than CRPS. At lambda_is=0.05, IS is already
+the dominant training signal. This was unintended — we assumed IS was a minor auxiliary.
+
+Correct lambda values for target gradient share:
+- 10% share: lambda_is = 0.0054
+- 20% share: lambda_is = 0.012
+- 30% share: lambda_is = 0.021
+
+IS only affects **4 of 16 members per cell** (the 2 bracketing members at each quantile
+boundary). The remaining 12 members per cell get zero IS gradient. 70% of IS loss comes from
+the overshoot penalty (GT outside CI), only 30% from width.
+
+#### Finding 2: CRPS Spread Gradient Overpowers Centering (2.9x)
+
+| Pathway | MAE Grad | Spread Grad | MAE/Spread Ratio |
+|---------|----------|-------------|------------------|
+| Deterministic | 0.49 | 1.41 | 0.35 (spread 2.9x) |
+| Stochastic | 0.007 | 0.015 | 0.48 (spread 2.1x) |
+| Encoder | 0.001 | 0.003 | 0.42 (spread 2.4x) |
+
+**The decoder gets 2-3x more gradient to diversify than to center.** This is the mechanistic
+answer to "why doesn't the decoder center better?" The spread gradient overpowers centering
+in BOTH pathways. Neither pathway specializes — both get a similar centering/spread mix.
+
+MAE and spread gradients have **cosine similarity -0.64** (strongly opposing). They literally
+fight each other. At late horizons (t=25-29), MAE/spread ratio increases to 2.88 (MAE wins
+more), but by then the damage is done — centering was under-trained at early/mid horizons.
+
+Of the MAE gradient, **38% is centering** (same direction for all K members) and **62% is
+per-member adjustment**. So only ~13% of total CRPS gradient (38% of 35%) goes to centering.
+
+#### Finding 3: 66% of Decoder Parameters Are INERT
+
+| Pathway | Params | Gradient Share | Params/Gradient Ratio |
+|---------|--------|---------------|----------------------|
+| Deterministic | 829K (32.5%) | **99.9%** | 0.33x (efficient) |
+| **Stochastic (CLN)** | **1,698K (66.5%)** | **2.7%** | **25x (wasted)** |
+| Encoder | 26K (1.0%) | 0.2% | 5x |
+
+The ConditionalNorm pathway (noise_proj + 8 CLN modules, 1.7M params) starts from zero-init
+(identity transform: (0+1)*x + 0 = x) and never escapes. The gradient it receives (2.7%) is
+too weak to break from near-identity. Two-thirds of the decoder is essentially unused.
+
+Freezing the stochastic pathway has **exactly 0% effect** on deterministic pathway gradients.
+The pathways are mathematically independent in the backward pass.
+
+#### Finding 4: GT Outside Ensemble Range 90% of the Time, From Step 0
+
+| Horizon | GT Outside [min,max] | Bias/Spread Ratio |
+|---------|---------------------|-------------------|
+| t=0 | **89.6%** | 1.235 |
+| t=14 | 93.8% | 0.771 (best) |
+| t=29 | 95.8% | 0.913 |
+
+With K=16, the ensemble is too narrow to bracket GT even at the first step. This is NOT an
+AR compounding issue — it's a calibration problem from the start.
+
+Gradient norm follows a bathtub pattern: strong at t=0-5, **trough at t=15-17** (6x weaker),
+strong again at t=25-29. The model is disproportionately optimized for early and late horizons,
+with mid-horizon undertrained.
+
+### What Was Learned
+
+1. **IS dominance was invisible.** At nominal lambda=0.05, IS provides 51% of gradient. The
+   "small auxiliary" framing was completely wrong. IS has been the dominant loss all along.
+
+2. **CRPS's centering gradient is structurally weak.** The spread reward (2.9x centering) means
+   the decoder gets 3x more pressure to diversify than to center. Only ~13% of CRPS gradient
+   goes to centering. This explains the 50% under-reversion — it's not a bug, it's the gradient
+   equilibrium.
+
+3. **66% of decoder capacity is wasted.** The stochastic pathway (ConditionalNorm) receives
+   only 2.7% of gradient despite holding 66.5% of parameters. Zero-init + weak gradient = inert.
+   This is massive unused capacity that could be redirected.
+
+4. **K=16 is too few for coverage.** 90% of windows have GT outside the ensemble range from t=0.
+   The ensemble is fundamentally too sparse to bracket GT.
+
+5. **The pathways are independent.** Freezing the stochastic pathway doesn't affect deterministic
+   gradients. The "shared parameter compression" explanation from 165b needs refinement — it's
+   not about pathway interference, it's about the optimizer reallocating the deterministic
+   pathway's capacity when centering gradient is added.
+
+### Implications for Next Steps
+
+The gradient decomposition reveals three independent issues:
+- **IS miscalibration**: lambda=0.05 is ~10x too high. Correct to ~0.005 for 10% budget.
+- **Centering gradient too weak in CRPS**: only 13% of gradient goes to centering. Need either
+  (a) a centering-specific auxiliary loss that doesn't compress spread, or (b) a different
+  proper scoring rule with natural centering emphasis (e.g., DSS, LogScore).
+- **Stochastic pathway dormant**: 1.7M params doing nothing. Activating them could provide
+  the missing capacity for conditional spread without interfering with centering.
+
+These are three independent levers that could be tested separately or combined.
+
+---
