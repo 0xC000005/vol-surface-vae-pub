@@ -51648,3 +51648,77 @@ S9 correlation PASS. If any guard fails, investigate before proceeding.
 - Stop-gradient on spread pathway (beta-NLL adaptation)
 
 ---
+
+## 2026-04-02: Noise Rank Diagnostic — H1 (noise_dim reduction) Falsified Before Experiment
+
+### Context
+Before running Exp 166a (noise_dim=32→4), user challenged: if the decoder already maps
+all noise to rank-1 output (all cells together), reducing noise_dim changes nothing. Ran
+diagnostic to check the noise-to-output mapping structure.
+
+### Diagnostic Results (50 test windows, 100 noise draws each)
+
+**Noise-to-output delta PCA:**
+
+| Component | Variance Explained |
+|-----------|-------------------|
+| PC1 | **74.3%** (weighted level shift — all cells same sign, short-end heavier) |
+| PC2 | **14.4%** (tilt factor) |
+| PC3 | 5.0% |
+| PC4 | 2.6% |
+| PC5 | 1.4% |
+| PC1+PC2 | **88.7%** |
+| Effective rank (Shannon) | 8.45 |
+
+**Information flow and where rank compresses:**
+```
+z (32-dim, full rank)
+  → noise_proj (eff_rank 27 — NO bottleneck, preserves diversity)
+    → CLN scale/bias (eff_rank 9-17 — partial compression)
+      → Spatial attention + FF layers
+        → output delta (eff_rank ~2, PC1=74%)
+```
+
+The noise_proj preserves full rank (27 effective dims). The compression to rank ~2 happens
+in the **decoder's spatial attention layers**, not the noise input. Attention layers converge
+diverse CLN modulations back toward a dominant shared mode.
+
+**Calm vs turbulent:**
+- Calm: PC1 = 70.2%, eff_rank 8.88
+- Turbulent: PC1 = 79.0%, eff_rank 8.22
+The model IS condition-dependent: turbulence compresses factor structure further (more rank-1).
+
+**PC1 loading pattern (5x5):** All cells same sign with strong gradient — short-dated deep-ITM
+cells load ~15x more than long-dated OTM cells. This is a scaled parallel shift weighted
+toward the volatile end of the surface.
+
+### What This Means for H1 (noise_dim reduction)
+
+**H1 is FALSIFIED before running.** Reducing noise_dim from 32 to 4 would NOT help because:
+1. The bottleneck is NOT in the noise input — noise_proj already produces 27 effective dims
+2. The decoder receives rich, multi-dimensional noise and compresses it to ~2 effective factors
+3. Giving 4 dims instead of 32 removes headroom without changing the decoder's rank compression
+4. The compression happens in the attention layers, driven by CRPS (which is cross-cell agnostic)
+
+### What This Means for RC22
+
+The noise-to-output mapping is "1 dominant factor (level shift) + 1 secondary factor (tilt)."
+This is NOT the 5-factor structure of GT IV surface variation. The decoder learned the
+minimum structure that satisfies CRPS — a shared shift + tilt that covers most of the
+per-cell marginal variation.
+
+The bottleneck is the **decoder's attention layers collapsing multi-dimensional noise to
+rank-1+**, driven by CRPS having no cross-cell gradient (RC17 finding). The fix needs to
+target the decoder's internal rank compression, not the noise input dimensionality.
+
+This shifts RC22 focus from noise compression to: how do we prevent the decoder's attention
+layers from collapsing noise diversity? The variogram score (VS) is supposed to do this,
+but it's only 11% of gradient (and VS itself operates on pairwise cell differences, not
+full factor structure).
+
+### Decision
+H1 (noise_dim reduction) removed from RC22 active hypotheses. The diagnostic saved ~4 hours
+of training that would have been wasted. H2 (K reduction) remains viable — it changes the
+gradient balance, not the noise structure. New direction needed for the rank compression issue.
+
+---
