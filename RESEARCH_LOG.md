@@ -51251,3 +51251,63 @@ fundamental ratio. A supplementary centering loss is needed to address the remai
   bottleneck is CRPS's internal centering/spread ratio (1:2.9)
 
 ---
+
+## 2026-04-02: Exp 165b_v2 — Corrected IS + Ensemble Mean MSE (RC21 H1v5, FAILURE)
+
+### Hypothesis
+Fix two independent issues: (1) IS lambda 0.05→0.005 (was 42% gradient, corrected to ~16%),
+(2) ensemble mean MSE lambda=0.55 (9% gradient budget). Gradient budget: CRPS 75%, IS 16%, Center 9%.
+
+### Results: 4/9 — WORST of H1 series
+
+| Suite | Baseline (6/9) | V2+mh (6/9) | 165b (5/9) | 165b_v2 (4/9) |
+|-------|---------------|-------------|-----------|---------------|
+| S1 | PASS | PASS | FAIL | **FAIL** |
+| S2 | FAIL | **PASS** | FAIL | FAIL |
+| S3 | PASS | FAIL | **PASS** | **FAIL** |
+| S4 | PASS | PASS | PASS | PASS |
+| S5 | PASS | PASS | PASS | PASS |
+| S6 | PASS | PASS | PASS | PASS |
+| S7 | FAIL | FAIL | FAIL | FAIL |
+| S8 | FAIL | FAIL | FAIL | FAIL |
+| S9 | PASS | PASS | PASS | PASS |
+
+Key metrics: explosion 16.7%, worst_cell_mae_red -31.0%, KS_levels 14/25, median_bias 14/25.
+
+### Root Cause
+Correcting IS removed the overshoot penalty that was actually helping spread. Combined with
+centering MSE compressing spread through shared params, the net effect is WORSE than either
+fix alone. The two "fixes" reinforced each other's negative effects.
+
+### H1 Series Complete Summary (7 experiments)
+
+| # | Exp | Change | Suites | S2 | S3 | Key Finding |
+|---|-----|--------|--------|----|----|-------------|
+| 1 | 165a | Hard centering | 4/9 | FAIL | FAIL | Centering kills persistence |
+| 2 | 165a_v2 | MLP mean head + additive | **6/9** | **PASS** | FAIL | **Best H1. First S2 pass.** |
+| 3 | 165a_v3 | Spatial mean head | 5/9 | FAIL | FAIL | Overfits |
+| 4 | 165b | Ensemble mean MSE | 5/9 | FAIL | **PASS** | Centering works but compresses spread |
+| 5 | 165b_v2 | Corrected IS + MSE | 4/9 | FAIL | FAIL | Combined fix is worse |
+
+Plus gradient decomposition + 3 parallel investigations (K sensitivity, stochastic pathway, IS).
+
+### What Was Learned Across All H1 Experiments
+
+1. **S2 IS fixable** — V2 (mean head) passes S2 for the first time ever
+2. **S2 and S3 trade off through shared decoder params** — every centering approach helps
+   one and hurts the other
+3. **CRPS allocates 2.9x more gradient to spread than centering** — structural, not tunable
+4. **afCRPS is the right loss** (literature-confirmed) — alternatives require parametric assumptions
+5. **IS at lambda=0.05 was 42% of gradient** (10x too strong) but correcting it doesn't help
+6. **The decoder under-reverts at 50% GT speed** — centering is the binding constraint
+7. **Stochastic pathway is alive** (sole diversity source), not dormant
+8. **K=100 at inference gives 82.7% coverage** — distribution is reasonable but narrow
+9. **The noise pathway receives only 2.7% of gradient** but is functionally adequate
+10. **Per-cell centering precision is data-limited** (4000 windows, SNR 0.014 per cell)
+
+### Decision
+**H1 EXHAUSTED.** Best result: 165a_v2 (6/9, S2 PASS, same count as baseline but different
+composition). The S2/S3 tradeoff through shared params is the binding constraint for centering
+approaches. Proceed to research ideation with full evidence base.
+
+---
