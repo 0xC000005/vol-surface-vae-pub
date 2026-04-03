@@ -51433,3 +51433,55 @@ BUT — this is what we already have (pretrained DDPM encoder). The question is 
 retraining the DECODER with MSE first would help.
 
 ---
+
+## 2026-04-02: RC22 Direction — Condition-Dependent Noise Modulation
+
+### The Problem (refined from H1 series + gradient decomposition + literature)
+
+Two interconnected architectural issues prevent proper conditional calibration:
+
+1. **Encoder 98/2 split**: Condition embedding is 98% shared constant, 2% discriminative.
+   Even condition-dependent components downstream see a nearly-constant signal.
+
+2. **Noise is condition-independent**: ConditionalNorm uses `scale(z)` not `scale(z, cond)`.
+   The noise amplitude doesn't adapt to uncertainty level. Same spread for turbulent and calm.
+
+These compound: weak encoder → weak condition signal → condition-dependent noise has nothing
+to condition on → constant spread regardless of regime.
+
+### Why We Can't Copy Weather Models' K=2 Approach
+
+Weather models (FGN K=2, AIFS-CRPS K=4) work because:
+- 87M output dims: noise IS structurally necessary (32 noise dims can't memorize 87M outputs)
+- CRPS spread over 87M dims gives clean gradient (law of large numbers)
+- Noise enters the processor where condition is already present → natural interaction
+
+Our model (25 output cells per step):
+- Noise is "optional" — deterministic pathway handles 25 cells fine alone
+- CRPS spread over 25 dims is noisy (3.5M× noisier than weather models)
+- Noise enters through separate CLN pathway — no natural condition interaction
+
+**K=2 risks ensemble collapse at our scale.** The decoder can produce two nearly-identical
+realistic scenarios and score well on CRPS because the spread signal is too weak at K=2.
+
+### The Architectural Direction
+
+The condition and noise need to be COUPLED at the architectural level:
+- Encoder must produce discriminative conditions (fix the 98/2 split)
+- Noise amplitude must depend on the condition (crisis → wide, calm → narrow)
+- This coupling must be done WITHOUT risking posterior collapse (noise must remain necessary)
+
+**Posterior collapse risk**: If condition and noise enter through the same pathway
+(e.g., `noise_proj(cat(z, cond))`), the model may learn to ignore z entirely and rely
+only on cond — the classic VAE posterior collapse / KL vanishing problem.
+
+### Next Step
+Research ideation focused specifically on:
+1. How to couple condition and noise without posterior collapse
+2. How to fix the encoder 98/2 split
+3. What K to train with given our 25-cell output dimensionality
+4. Literature on preventing posterior collapse in conditional generative models
+
+This is a new research compass (RC22), not a continuation of H1.
+
+---
