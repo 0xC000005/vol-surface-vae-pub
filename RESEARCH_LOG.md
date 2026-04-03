@@ -51311,3 +51311,125 @@ composition). The S2/S3 tradeoff through shared params is the binding constraint
 approaches. Proceed to research ideation with full evidence base.
 
 ---
+
+## 2026-04-02: Philosophical Reframing — Individual Authenticity vs Population Statistics
+
+### The Insight
+The H1 series (7 experiments) was wrong in APPROACH, not just implementation. We treated
+conditional centering as a separate objective needing its own loss/architecture. But the
+conditional mean should be an EMERGENT PROPERTY of individually authentic scenarios, not
+something engineered via auxiliary losses on population statistics.
+
+**Two levels of quality in ensemble scenario generation:**
+1. **Individual scenario authenticity**: Each scenario must be a plausible realization of
+   the conditional distribution. Valid surface, spatial properties, temporal dynamics,
+   mean-reversion behavior — all baked into each member independently.
+2. **Population-level coverage**: The collection of scenarios must span the range of
+   possible outcomes, with GT falling somewhere within (not necessarily near the center).
+
+We were conflating these: forcing population statistics (ensemble mean) to match GT,
+which fights individual scenario quality (spread compression, capacity displacement).
+
+**The conditional distribution has the trend, not just the mean.** If IV starts at 0.15
+(below long-run average 0.25), the TRUE conditional distribution of paths mostly goes up.
+Not because the mean goes up — because MOST individual realizations go up. A scenario that
+stays flat at 0.15 is simply not a realistic conditional realization. The trend should be
+baked into each scenario by the decoder learning "what does a plausible future look like
+given this history?" — not by a separate head predicting the expected drift.
+
+**Connection to K during training:** At K=16, each scenario doesn't need to individually
+track the conditional trend. The population average tracks GT through cancellation (some
+up, some flat, some down → average drifts up). Individual scenarios are mediocre but the
+ensemble "works." At K=2, each scenario is directly compared to GT via MAE — both must
+individually exhibit the correct conditional behavior. The trend is learned per-member.
+
+**GT is just one realization.** We should NOT force ensemble median = GT. We should ensure
+GT falls within the population (coverage), each scenario is realistic (authenticity), and
+the unconditional marginals match (integrating over all conditions recovers the marginal).
+
+### Implication
+Stop adding centering losses. Train with small K (K=2 as FGN does, or K=4 as AIFS-CRPS)
+so CRPS forces individual scenario authenticity. The conditional mean emerges naturally.
+
+---
+
+## 2026-04-02: Research Ideation — Literature Findings (3 Parallel Agents)
+
+### Agent 1: Centering/Spread Tradeoff in Literature
+
+**CRITICAL FINDING: SOTA systems train with K=2 to K=4, not K=16.**
+
+| System | Training K | Inference K | CRPS Variant |
+|--------|-----------|------------|--------------|
+| FGN (DeepMind, SOTA) | **2** | 56 | fair CRPS |
+| AIFS-CRPS (ECMWF) | **4** | 50+ | afCRPS (alpha=0.95) |
+| FourCastNet 3 (NVIDIA) | **16→2→4** (staged) | 50 | biased→fair |
+| FuXi-ENS | 8 | 48 | CRPS + KL |
+
+FGN trains with K=2 (minimum for fair CRPS). No auxiliary centering loss. Pure CRPS.
+The centering problem doesn't appear to be an issue for them — spread-skill ratio ~1.0.
+
+AIFS-CRPS: 86% of their CRPS improvement comes from bias reduction (mean), <0.1% from
+spread changes. Their architecture naturally balances centering and spread.
+
+FCN3: Uses K=16 only in stage 1 with BIASED CRPS (not fair). Drops to K=2-4 with fair
+CRPS in later stages. Explicit rationale: "the fair CRPS occasionally leads to instabilities
+during training" at K=2. Solution: biased CRPS with large K for stability, then fair with small K.
+
+**No system uses afCRPS with K=16.** Our setup is unique and possibly counterproductive.
+
+**The gradient math explains why:** At K=2, there are 1 pairwise spread term vs 2 MAE terms.
+At K=16, there are 120 pairwise spread terms vs 16 MAE terms. Spread gradient dominates at
+high K. At K=2, centering gradient dominates — the model learns individual scenario authenticity.
+
+### Agent 2: K Scheduling
+
+No system uses K scheduling for centering. FCN3's K scheduling is about training stability
+(avoiding fair CRPS degeneracy at K=2), not centering. The field simply uses small K.
+
+Key insight: fair CRPS is unbiased at any K (Ferro 2014). Larger K reduces variance but
+doesn't change expectation. The practical benefit of small K is that centering gradient
+dominates, forcing individual scenarios to be realistic.
+
+CRPS-LAM reports ensemble collapse (model ignores noise, produces deterministic output)
+during early training. AIFS-CRPS solves this with alpha=0.95. FCN3 solves it with biased
+CRPS at large K initially.
+
+### Agent 3: Cross-Domain Mean-Variance Separation
+
+**Universal finding: some form of separation exists in EVERY working solution across all domains.**
+
+Key papers:
+- **beta-NLL (Seitzer 2022, ICLR)**: Stop-gradient on variance path. Mean gets clean gradient.
+  Proves that without separation, variance optimization corrupts mean prediction.
+- **Stirn 2023 (AISTATS)**: Proves heteroscedastic networks' mean is LESS accurate than
+  mean-only networks without explicit separation. Two stop-gradient modifications fix it.
+- **Wong-Toi 2024 (UAI)**: Field theory showing PHASE TRANSITION — models either fit data
+  perfectly or overfit noise with constant mean. No stable middle ground without regularization.
+
+BUT — this is about EXPLICIT mean/variance parameterization (Gaussian NLL). Our setup
+(sample-based CRPS) is different. CRPS doesn't separately parameterize mean and variance.
+The FGN/AIFS-CRPS results show that with the right K and architecture, CRPS alone works.
+
+The AIFS-CRPS finding (86% improvement from mean) suggests their architecture naturally
+separates mean and spread through the noise injection design, without explicit loss separation.
+
+### Synthesis: Three Viable Directions
+
+**Direction A: Train with K=2 or K=4 (strongest evidence)**
+FGN and AIFS-CRPS both do this. Changes gradient balance so centering dominates.
+No loss change, no architecture change. Just B=32, K=2 (or B=16, K=4).
+1 line change. Directly tests the K hypothesis.
+
+**Direction B: Stop-gradient on CRPS spread component**
+Inspired by beta-NLL. Prevent spread gradient from flowing through the deterministic
+pathway. Only centering gradient trains the shared decoder; spread gradient only trains
+the ConditionalNorm (noise pathway). Architectural intervention, not loss change.
+
+**Direction C: Two-phase curriculum (MSE pre-train → CRPS fine-tune)**
+FCN3 and SDL do this. Train deterministic model first (centering learned via MSE),
+then add noise and fine-tune with CRPS (spread learned). Separates learning temporally.
+BUT — this is what we already have (pretrained DDPM encoder). The question is whether
+retraining the DECODER with MSE first would help.
+
+---
