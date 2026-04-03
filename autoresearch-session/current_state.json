@@ -1,12 +1,12 @@
 {
   "compass": "RC21",
-  "iteration": 3,
-  "experiment_id": "165a_v3",
+  "iteration": 5,
+  "experiment_id": "165b",
   "training_status": "complete",
   "phase": "documented",
-  "hypothesis": "H1 series complete (165a→v2→v3). Moving to H1v4: direct ensemble mean MSE (loss-only fix, no mean head)",
-  "result": "H1 exhausted. v2 best (6/9, S2 PASS). Deeper issue: CRPS drift-blind, decoder under-reverts at 50% GT speed.",
+  "hypothesis": "H1v4 exhausted (165b: S3 fixed but S2 worsened). Gradient decomposition revealed IS miscalibration + CRPS structural under-centering. Moving to H1v5: corrected IS + ensemble mean MSE.",
+  "result": "165b: 5/9. Ensemble mean MSE fixes drift (+17pp S3) but compresses spread through shared params. IS at lambda=0.05 is 42% of gradient (10x too strong). CRPS centering is only 13% of gradient.",
   "baseline": "softplus best ep11 = 6/9 (S1,S3,S4,S5,S6,S9)",
   "branch": "autoresearch-session-rc21",
-  "next_action": "Implement 165b: gradient-matched ensemble mean MSE on baseline softplus model. No mean head."
+  "next_action": "Implement 165b_v2: baseline softplus + lambda_is=0.005 (corrected) + ensemble mean MSE (gradient-matched). Two loss-function changes, no architecture change."
 }

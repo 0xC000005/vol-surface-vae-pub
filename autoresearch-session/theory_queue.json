@@ -10,11 +10,21 @@
   },
   {
     "name": "RC21 H1v4: Direct Ensemble Mean MSE (loss-only fix)",
-    "theory": "CRPS is drift-blind — doesn't penalize under-reversion with 1 GT per window. Add MSE on ensemble mean directly to the loss. No mean head, no architecture change. Decoder learns centering through direct gradient on its output. Gradient-matched lambda (10% budget) prevents over-weighting centering at expense of spread.",
+    "theory": "CRPS is drift-blind. Add MSE on ensemble mean directly to loss.",
     "target": "S2 PASS + S3 still PASS + total >= 7/9",
-    "implementation": "Add to baseline softplus training loop: ensemble_mean = frame_BK.mean(dim=1); loss_center = MSE(ensemble_mean, gt_t). Lambda via gradient matching on pretrained model.",
-    "kill_condition": "S3/S5/S9 regress (variance damaged) OR S2 doesn't improve from baseline.",
-    "if_fails": "Centering loss alone insufficient. Try DSS (Option 2) or combined approach.",
+    "attempts": 1,
+    "max_attempts": 2,
+    "status": "exhausted",
+    "result": "165b: S3 improved (+17pp) but S2 WORSENED (0.046→0.062). Ensemble mean MSE compresses spread through shared decoder params — centering and spread compete. Not a fundamental impossibility, but a shared-parameter capacity allocation issue."
+  },
+  {
+    "name": "RC21 H1v5: Corrected IS + Ensemble Mean MSE (combined loss fix)",
+    "theory": "Gradient decomposition revealed TWO independent issues: (1) IS at lambda=0.05 consumes 42% of gradient (should be ~10%), starving CRPS. (2) CRPS itself allocates only 13% of gradient to centering (spread 2.9x dominant). Fix both simultaneously: correct IS to lambda=0.005 (10% budget) AND add ensemble mean MSE for centering. Two loss-function changes on the baseline architecture, no mean head.",
+    "target": "S2 PASS + S3 PASS + S4/S5/S9 preserved + total >= 7/9",
+    "implementation": "Baseline softplus training script with: (1) lambda_is=0.005 (from 0.05), (2) lambda_center via gradient matching at 10% budget on the corrected-IS model. No architecture change.",
+    "kill_condition": "S3/S5/S9 regress (spread damaged) OR no improvement over baseline 6/9.",
+    "if_fails": "CRPS centering/spread ratio (1:2.9) is the structural bottleneck. Need a different scoring rule (DSS, LogScore) or architecture separation.",
+    "evidence": "Gradient decomposition: CRPS spread 2.9x centering, IS 42% of gradient at lambda=0.05, stochastic pathway alive (sole diversity source), K=16 under-samples distribution (K=100 → 82.7% coverage vs 75.8%). 165b showed centering MSE fixes S3 but compresses spread. Correcting IS first gives CRPS more budget, then centering MSE adds the missing signal.",
     "attempts": 0,
     "max_attempts": 2,
     "status": "active"

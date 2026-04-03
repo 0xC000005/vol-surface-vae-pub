@@ -51189,3 +51189,65 @@ The gradient decomposition reveals three independent issues:
 These are three independent levers that could be tested separately or combined.
 
 ---
+
+## 2026-04-02: Three Parallel Investigations — K Sensitivity, Stochastic Pathway, IS Miscalibration
+
+### Investigation 1: K Sensitivity (K=16 vs 50 vs 100)
+**The model HAS learned a reasonable distribution — K=16 under-samples it.**
+
+| K | Mean 90% CI Coverage | Improvement |
+|---|---------------------|-------------|
+| 16 | 75.8% | baseline |
+| 50 | 81.5% | +5.7pp |
+| 100 | 82.7% | +6.9pp |
+
+Spread barely changes (K=100/K=16 std ratio = 1.05x). More members fill the existing
+distribution, not wider tails. But even K=100 only reaches 82.7% (target 90%) — the
+distribution itself is still too narrow/biased. K is a contributor, not the sole cause.
+
+### Investigation 2: Stochastic Pathway (ConditionalNorm)
+**Fully alive. Earlier "inert" claim was WRONG.**
+
+- CLN weights are large (14-23 norm, far from zero-init)
+- z is the SOLE source of ensemble diversity — z=fixed gives exactly 0 spread
+- Pathway is responsive: spread scales 17.6x when noise amplified 5x
+- The 2.7% gradient share is because 1.7M params dilute per-parameter gradient
+
+Correction: the stochastic pathway is not dormant. It IS the diversity engine.
+
+### Investigation 3: IS Miscalibration
+**IS at lambda=0.05 consumes 42% of gradient (intended ~10%).**
+
+| Component | Loss Share | Gradient Share |
+|-----------|-----------|---------------|
+| CRPS | 58.9% | 47.3% |
+| **IS** | **29.2%** | **41.9%** |
+| VS | 11.8% | 10.8% |
+
+IS gradient is 22.9x stronger per unit loss than CRPS. At lambda=0.05, IS is dominant.
+IS only affects 4 of 16 boundary members per cell. 70% of IS is overshoot penalty.
+
+K=16 quantile estimation is biased -14.5% (estimated CI systematically too narrow).
+IS width penalty eats 26% of CRPS spread reward.
+
+With corrected lambda_is=0.005: CRPS 76%, IS 7%, VS 17%.
+
+### Combined Analysis: Why Centering Is Structurally Weak
+
+CRPS internally allocates very little to centering:
+- CRPS gradient: 35% goes to MAE, 65% to spread (spread 2.9x dominant)
+- Of the 35% MAE gradient: only 38% is centering (same for all K members)
+- Net: **~13% of CRPS gradient goes to centering**, even at 100% CRPS budget
+- With IS at 42%: CRPS has only 47% budget → centering drops to ~6% of total
+
+**This is the structural bottleneck.** CRPS by design gives 2.9x more gradient to spread
+than to centering. Fixing IS lambda improves from 6% → 10% but doesn't change the
+fundamental ratio. A supplementary centering loss is needed to address the remaining gap.
+
+### Corrected Findings (from this session)
+- ~~Stochastic pathway dormant (1.7M params inert)~~ → ALIVE, sole diversity source
+- ~~IS too weak at lambda=0.05~~ → IS too STRONG, 42% of gradient
+- ~~IS "smoking gun" for compression~~ → IS diverts budget from CRPS, but the real
+  bottleneck is CRPS's internal centering/spread ratio (1:2.9)
+
+---

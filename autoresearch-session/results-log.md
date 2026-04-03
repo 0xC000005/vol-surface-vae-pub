@@ -29,10 +29,14 @@
 | 1 | 165a | Mean+Residual (hard centering) | 4/9 (kurtosis 20.3, lost S3+S4) | VALUABLE FAILURE — centering kills persistence |
 | 2 | 165a_v2 | Additive Innovation (MLP mean head) | **6/9** S2 PASS, S3 FAIL (worst_cell -18.4%) | PARTIAL SUCCESS — S2 first pass, S3 tension |
 | 3 | 165a_v3 | Spatial Transformer mean head | 5/9 (overfits, lost S2) | FAILURE — bigger head makes it worse |
-| — | 165b | Direct ensemble mean MSE (no mean head) | Target: S2+S3 PASS, ≥7/9 | NEXT EXPERIMENT |
+| 4 | 165b | Direct ensemble mean MSE (no mean head) | 5/9 S3 PASS(+17pp) S2 FAIL(0.062) | VALUABLE FAILURE — centering works but compresses spread |
+| — | 165b_v2 | Corrected IS (0.005) + ensemble mean MSE | Target: S2+S3 PASS, ≥7/9 | NEXT EXPERIMENT |
 
-## Key Finding (H1 series)
+## Key Findings (H1 series + gradient decomposition)
 - Mean head approach has S2/S3 tension (shared drift damages conditionality)
-- Deeper root cause: CRPS drift-blindness → decoder under-reverts at 50% GT speed
-- Fix: direct MSE on ensemble mean (decoder output), no mean head architecture
-- Gradient-matched lambda (10% budget) prevents over-weighting centering vs spread
+- Ensemble mean MSE fixes S3 (+17pp) but compresses spread (S2 worsens)
+- Root cause: CRPS allocates only 13% of gradient to centering (spread 2.9x dominant)
+- IS at lambda=0.05 is 42% of gradient (10x too strong), starving CRPS
+- Stochastic pathway (ConditionalNorm) is ALIVE — sole diversity source, not dormant
+- K=16 under-samples: K=100 gets 82.7% coverage (vs 75.8%), but distribution itself still narrow
+- Combined fix: correct IS (0.005) + add centering MSE with gradient matching
