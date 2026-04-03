@@ -50945,3 +50945,71 @@ Document and move to next experiment. The H1 series (165a, 165a_v2, 165a_v3) pro
 4. Next experiment should test Option 1 on the baseline (no mean head, just CRPS + ensemble MSE)
 
 ---
+
+## 2026-04-02: H1v4 Design — Direct Ensemble Mean MSE (no mean head, loss-only fix)
+
+### Motivation
+H1 series (165a→v2→v3) proved:
+1. S2 is fixable by adding MSE centering signal (v2: first S2 PASS ever)
+2. The mean head approach has fundamental S2/S3 tension (shared drift damages conditionality)
+3. The deeper issue is CRPS drift-blindness: decoder under-reverts at 50% of GT speed
+
+The mean head was a roundabout solution — separate architecture to add centering gradient.
+The direct approach: add MSE on the ensemble mean to the existing loss. No new architecture.
+
+### Why This Works (verified analysis)
+
+**The problem is purely conditional mean.** All variance metrics pass (S3 turb/calm, S5
+growing uncertainty, S9 cross-cell correlation). Oracle debiasing (per-window center shift)
+→ 100% CI coverage on ALL cells. The spread is correct; only the center is wrong.
+
+**Ensemble mean MSE doesn't hurt variance.** The gradient for each member k is:
+```
+∂MSE_center/∂frame_k = 2(ensemble_mean - GT) / K
+```
+Identical for all K members — pure translation. Shifts the pack without compressing it.
+With K=16, per-member gradient is λ/16 ≈ 6% of CRPS gradient. CRPS spread term resists
+any indirect compression through shared parameters.
+
+**No mean head avoids the S3 tension.** The S3 regression in v2 was caused by the mean head
+adding shared drift to both conditioned and unconditioned paths. Without a mean head, there's
+no shared drift — the decoder itself learns to center correctly through the ensemble mean MSE.
+
+### Design (Exp 165b — new direction, not a 165a variant)
+
+Apply to the baseline softplus model (train_164a_v3_percell_bptt_softplus.py). One change:
+```python
+# In the training loop, after computing frame_BK:
+ensemble_mean = frame_BK.mean(dim=1)  # (B, C)
+loss_center = F.mse_loss(ensemble_mean, gt_t)
+
+step_loss = (loss_crps + lambda_is_eff * is_t + args.lambda_vs * vs_t
+             + lambda_floor_eff * floor_barrier
+             + lambda_center_eff * loss_center) / T
+```
+
+**Lambda via gradient matching** (same principled approach as softplus barrier, Codex #4):
+Measure CRPS gradient magnitude vs ensemble mean MSE gradient magnitude on the pretrained
+softplus model. Set lambda_center so MSE is ~10% of total gradient budget. Prevents
+over-weighting centering at expense of spread.
+
+### Protocol
+1. Measure gradient ratio on pretrained softplus model (1 batch, no training)
+2. Compute lambda_center = 0.10 × (CRPS_grad / MSE_grad)
+3. Train 80 epochs on baseline softplus architecture (no mean head, no architectural change)
+4. Eval both best and final on V2 test suite
+5. Monitor S3/S5/S9 for variance regression — if any regress, lambda is too high
+
+### Kill Conditions
+- S3 turb/calm drops below 1.10 (variance regression)
+- S5 growing uncertainty fails (temporal structure damaged)
+- S9 cross-cell correlation fails (factor structure damaged)
+- S2 doesn't improve from baseline (centering loss not working)
+
+### Success Criteria
+- S2 PASS (CI coverage)
+- S3 still PASS (no conditionality regression)
+- S4 kurtosis preserved (>0.5)
+- Total suites ≥ 7/9
+
+---

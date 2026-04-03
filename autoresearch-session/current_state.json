@@ -1,10 +1,12 @@
 {
-  "compass": "RC20.5",
-  "iteration": 9,
-  "experiment_id": "164a_v3_percell_bptt_gate",
-  "training_status": "smoke_test",
-  "phase": "HEDA_experiment",
-  "hypothesis": "RC20.5: Add state-dependent noise gate to CLN. sigmoid(Linear(25,25)) on prev_frame gates noise scale/bias. Targets verified root cause: noise > correction near floor for 3 cells.",
-  "training_command": "PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_gate.py --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5 --output_dir models/backfill/afcrps_164a_v3_percell_bptt_gate --device cuda",
-  "next_action": "Smoke test 2 epochs, then full 80 epoch training"
+  "compass": "RC21",
+  "iteration": 3,
+  "experiment_id": "165a_v3",
+  "training_status": "complete",
+  "phase": "documented",
+  "hypothesis": "H1 series complete (165a→v2→v3). Moving to H1v4: direct ensemble mean MSE (loss-only fix, no mean head)",
+  "result": "H1 exhausted. v2 best (6/9, S2 PASS). Deeper issue: CRPS drift-blind, decoder under-reverts at 50% GT speed.",
+  "baseline": "softplus best ep11 = 6/9 (S1,S3,S4,S5,S6,S9)",
+  "branch": "autoresearch-session-rc21",
+  "next_action": "Implement 165b: gradient-matched ensemble mean MSE on baseline softplus model. No mean head."
 }

@@ -1,51 +1,30 @@
 {
-  "goal": "RC20: Principled AR + no-LN spatial transformer + VS. Match or exceed 99m_v2 (5/8 on v2 suite). Specifically pass kurtosis (Suite 4) and cointegration (Suite 6) that 161a fails.",
-  "starting_model": "None — train from scratch (random init encoder, no pretrained weights)",
-  "starting_experiment": "99m_v2 (old best, 5/8 v2) + 161a (principled best, 4/9 v2)",
-  "scope": "Level D — New AR generation loop with spatial transformer decoder. Full implementation.",
+  "goal": "RC21: Improve conditional prediction quality to pass S2/S7/S8. Target 7+/9 suites.",
+  "starting_model": "models/backfill/afcrps_164a_v3_percell_bptt_softplus/best_model.pt (6/9, ep11)",
+  "starting_experiment": "RC20.6 softplus barrier (6/9 best, 5/9 final)",
+  "scope": "Level C — Mean head addition, encoder loss modifications, conditioning changes. Keep base decoder + barrier.",
   "constraints": {
     "bitter_lesson": true,
-    "no_pretrained_encoder": "Train from scratch — DDPM pretrain is wrong objective",
     "no_domain_heuristics": true,
     "no_post_hoc_corrections": true,
     "must_generalize": "Any conditional scenario generation (IV, rates, FX, credit)",
-    "research_compass": "RC20: Principled AR + no-LN Spatial Transformer + VS (Literature-Validated)",
-    "eval_v2_only": "ONLY use test_block_ar_requirements_v2.py for evaluation. No custom evals.",
-    "full_test_split": "1252 windows for turb/calm. NO 100-window subsets.",
-    "per_cell_grids": "ALWAYS compute per-cell spread ratio + kurtosis grids",
-    "long_horizon_required": "252-day test if 5+ suites pass"
+    "research_compass": "RC21: Conditional Prediction Quality (CONSOLIDATED)",
+    "eval_v2_only": "ONLY use test_block_ar_requirements_v2.py",
+    "full_test_split": "Test split starts at 4540",
+    "eval_both_checkpoints": "ALWAYS evaluate BOTH best and final — val loss is unreliable",
+    "composite_checkpoint_selection": "Track regime-conditioned mean bias, encoder linear probe accuracy, pooled KS-levels"
   },
-  "architecture": {
-    "encoder": "GRU + attention pool (random init, E2E)",
-    "decoder": "Spatial transformer (25 cells/frame), no-LN, tanh, LayerScale 0.1",
-    "generation": "AR frame-by-frame with GRU feedback",
-    "loss": "afCRPS + VS (lambda=0.5), per-frame at D=25",
-    "stability": "He init + zero-init output + standard grad clip (norm=1.0)",
-    "boundary": "Reflecting boundary on IV [0.01, 1.0]"
-  },
-  "metric": "v2 suite >= 5/9 AND kurtosis 0.5-2.0 AND cointegration PASS",
+  "metric": "v2 suite >= 7/9 AND S2 worst_cell_coverage > 0.70 AND S7 L2 >= 6/8",
   "guard": {
     "turb_calm_target": 1.15,
-    "test_ci_floor": 0.40,
-    "kurtosis_range": [0.5, 2.0],
-    "coint_ratio_floor": 0.50
+    "explosion_rate_max": 0.05,
+    "ks_daily_min": 20,
+    "kurtosis_range": [0.5, 2.0]
   },
   "budget": {
     "quick_epochs": 40,
     "full_epochs": 80
   },
-  "experiments": {
-    "164a": "Direct output: frame_t = prev_frame + tanh(delta)",
-    "164b": "Mean+residual: frame_t = prev_frame + MeanPred(cond) + tanh(delta)"
-  },
-  "follow_ups": {
-    "164c": {"trigger": "eff_rank < 2.0", "tests": "FactorNoiseSkip (5 factors)"},
-    "164d": {"trigger": "kurtosis < 0.5", "tests": "Student-t noise (df=4)"},
-    "164e": {"trigger": "training diverges", "tests": "AGC lambda=0.04"},
-    "164f": {"trigger": "turb/calm < 1.15", "tests": "Increase VS lambda"},
-    "164g": {"trigger": "spread ratio > 3x range", "tests": "Per-cell CLN"},
-    "164h": {"trigger": "tanh hit rate > 5%", "tests": "Remove tanh, AGC only"}
-  },
-  "created_at": "2026-03-30",
-  "branch": "autoresearch-session-rc20"
+  "created_at": "2026-04-02",
+  "branch": "autoresearch-session-rc21"
 }
