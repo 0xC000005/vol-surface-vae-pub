@@ -50833,3 +50833,115 @@ bottleneck — the mean head uses the discriminative signal (83.5% window-specif
 r=0.36-0.55 with GT). The bottleneck is per-cell SNR with limited data.
 
 ---
+
+## 2026-04-02: Systematic Bias Root Cause — Decoder Under-Reversion (Codex-level investigation)
+
+### Context
+After H1v2 (165a_v2) achieved 6/9 with S2 PASS, we investigated why S8 (distributional)
+still fails despite the mean head fixing centering. This led to discovering a deeper
+structural issue: systematic downward bias in ALL models (baseline and V2 alike).
+
+### The V2/V3 Distributional Investigation
+
+**V2 passes S2 but fails S8 — why?** S2 asks "is GT inside the 90% CI?" (lenient — wide CIs
+pass). S8 asks "is the sample median within 3 IV pts of GT per cell?" (strict — needs
+precision). V2's mean head adds a noisy correction (SNR 0.2, noise 4x signal) that WIDENS
+the CI (+0.69 IV pts average width) rather than precisely re-centering it. Wide enough CI →
+S2 passes. Median still off → S8 fails. V2 fails S8 by exactly 1 cell (21/25, gate 22/25).
+
+**V3 fails even S2 — why?** The spatial transformer mean head (81K params) overfits on 4000
+training windows. Systematic negative bias: above_frac = 32.5% (should be 50%). 31% higher
+MAE than V2, 12% narrower CI, 13 cells below 70% coverage. Per-cell precision is a data
+limitation, not capacity — bigger model makes it worse.
+
+### The Mean Head's Limitation (verified)
+
+The mean head IS using the encoder's discriminative signal (83.5% of output is window-specific,
+overall correlation r=0.36-0.55 with GT drift). The encoder's 98/2 split is NOT the bottleneck.
+The bottleneck is per-cell SNR: median per-cell SNR = 0.014, mean R² = 0.046. The mean head
+captures drift DIRECTION well but cannot predict per-cell MAGNITUDES.
+
+### Systematic Downward Bias: Root Cause
+
+**The decoder under-reverts.** This is the fundamental cause of S8 failure in ALL models.
+
+Mechanism (verified with diagnostic scripts on 300+ test windows):
+
+1. Test data IV starts below training mean by 0.035 on average
+2. GT shows mean-reversion back up: regression slope -0.443 per unit anchor distance
+3. Decoder also mean-reverts but at **50% of GT speed**: slope -0.221
+4. This under-reversion accounts for **76.3% of the per-step bias** (-0.0016/step)
+5. Remaining 23.7%: unconditional negative drift intercept
+
+| Property | Value |
+|----------|-------|
+| Decoder sensitivity to GT one-step change | 16.2% (should be ~100%) |
+| Decoder mean-reversion slope | -0.221 (GT: -0.443) |
+| Bias at t=1 | Present (not just AR accumulation) |
+| Bias growth | Rapid t=1→5, plateaus t=5→30 at -0.008 to -0.010 |
+| Worst cells | (0,0) bias=-0.087, (2,4) bias=-0.046 |
+
+**Eliminated hypotheses** (all verified with numbers):
+- tanh saturation: Jensen gap = 0.000008, negligible (raw delta std=0.018, linear regime)
+- Softplus floor barrier: completely inactive at inference (gradient ~1e-18)
+- Reflecting boundary: baseline has none; applying one changes bias by exactly 0
+- CRPS spread asymmetry: upper/lower spread ratio 1.55-1.70x, pulls mean UP not down
+- Data distribution shift: contributes (test IV below training mean) but model should adapt
+
+### Why CRPS Doesn't Penalize Under-Reversion
+
+afCRPS (alpha=0.95) sees K ensemble members vs 1 GT per window. A model that predicts
+"stay roughly where you are" (weak mean-reversion) scores almost as well as one that
+predicts "drift back to the mean" (correct mean-reversion). The gradient signal for
+"mean-revert harder" is the difference between two small errors — drowned by the much
+larger and more consistent "get the spread right" signal.
+
+This is the RC17 finding (CRPS marginal-blind to correlation) extended: **CRPS is also
+drift-blind** — it doesn't strongly reward tracking conditional trends because with 1 GT
+per window, conditional and unconditional predictions score similarly.
+
+### Why the Mean Head Doesn't Fully Fix It
+
+The mean head (MSE/Huber trained) adds +0.001 correction per step toward the correct drift.
+But the decoder simultaneously learned to NOT drift (-0.0016 per step of under-reversion).
+They're in tension. The mean head partially compensates but can't overcome the decoder's
+trained behavior. This is why V2 improves centering (S2 passes) but doesn't eliminate
+bias (S8 still fails).
+
+### Proposed Fix: Direct Ensemble Mean Loss
+
+The principled fix is to add a loss that DIRECTLY penalizes the ensemble center being wrong,
+applied to the actual output (not a side head):
+
+**Option 1 (simplest, no architecture change):**
+```python
+ensemble_mean = frame_BK.mean(dim=1)  # (B, C) — actual output center
+loss = CRPS(frame_BK, GT) + lambda_center * MSE(ensemble_mean, GT)
+```
+The decoder gets gradient from BOTH losses. It can't hide from centering because the
+constraint is on its actual output, not a separate head. CRPS handles spread, MSE handles
+drift. No mean head needed — just one extra loss term on the baseline.
+
+**Option 2 (theoretically elegant — Dawid-Sebastiani Score):**
+```python
+DSS = log(var) + (GT - mu)² / var
+```
+Explicitly penalizes bias relative to variance. A model with small variance and large bias
+scores terribly. Naturally balances conditional mean and conditional variance in one score.
+
+**Option 3 (H1v2 + ensemble constraint):**
+Keep mean head + add `lambda * MSE(frame_BK.mean(1), GT)` to force the actual output center
+to match GT. Prevents decoder from fighting the mean head.
+
+All options are Bitter Lesson compliant — loss function design is mathematics, not domain
+heuristics. Option 1 is recommended as the cleanest test of "is drift-blindness the real
+bottleneck?"
+
+### Decision
+Document and move to next experiment. The H1 series (165a, 165a_v2, 165a_v3) proved:
+1. S2 is fixable (mean head works for centering)
+2. The deeper issue is CRPS drift-blindness causing decoder under-reversion
+3. The principled fix is direct ensemble mean loss, not architectural changes
+4. Next experiment should test Option 1 on the baseline (no mean head, just CRPS + ensemble MSE)
+
+---
