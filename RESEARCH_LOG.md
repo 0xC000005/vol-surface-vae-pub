@@ -51485,3 +51485,166 @@ Research ideation focused specifically on:
 This is a new research compass (RC22), not a continuation of H1.
 
 ---
+
+## 2026-04-02: Research Compass RC22 — Noise Compression & Training K (CONSOLIDATED)
+
+### Philosophy Applied
+- **Hinton**: Independent reasoning before literature → noise_dim oversized insight came from
+  comparing our 1.28:1 ratio to FGN's 1:2.7M before reading papers
+- **Bitter Lesson**: All proposals are hyperparameter/architecture changes, not domain heuristics
+- **Karpathy**: H1 (noise_dim) and H2 (K) are independently testable
+- **Popper**: Each hypothesis has specific kill conditions
+
+### Evidence Summary
+
+**Proven root causes (from RC21 H1 series, 7 experiments + gradient decomposition):**
+1. CRPS gives 2.9x more gradient to spread than centering through shared decoder params
+2. Every auxiliary centering loss either compresses spread (165b) or causes capacity displacement (V2)
+3. afCRPS is the right loss — no better alternative exists (literature-confirmed)
+4. The conditional mean should EMERGE from individual scenario authenticity, not be engineered
+5. Stochastic pathway (ConditionalNorm) is alive and sole diversity source
+
+**Exhausted directions:**
+- Separate mean head: S2/S3 tradeoff through capacity displacement (V2: 6/9 best, S3 fails)
+- Ensemble mean MSE: compresses spread through shared params (165b: 5/9, S2 worse)
+- IS recalibration: removing overshoot penalty that was helping makes things worse (165b_v2: 4/9)
+- Larger mean head: overfits on 4000 windows (V3: 5/9)
+
+**Critical new findings (literature search, 3 parallel agents):**
+
+1. **noise_dim=32 is massively oversized for 25 output cells**
+   - FGN: 32 noise → 87M output (1:2.7M compression). Forces structured patterns.
+   - Us: 32 noise → 25 output (1.28:1). Noise is REDUNDANT — each cell gets independent perturbation.
+   - IV effective rank is 2-3. Literature proves superfluous latent dims actively hurt
+     (Ichikawa 2023: overfitting background noise, degraded convergence).
+   - Reducing to 4 would force noise to encode cross-cell factor structure.
+
+2. **K=16 is too high for 25-cell output**
+   - AIFS-CRPS uses K=4, FGN uses K=2. No SOTA system uses K=16 with afCRPS.
+   - Biased CRPS centering/spread ratio: K=8 → 1.14, K=16 → 1.07. K=8 is more centering-dominant.
+   - Roberts (2026): K=2-3 risky for shared-parameter models. K=8 is safe.
+   - CLAUDE.md already recommends K=8 B=32 but RC21 experiments all used K=16 B=16.
+
+3. **Condition-dependent spread already works via implicit interaction (AIFS-CRPS)**
+   - AIFS-CRPS uses homoscedastic noise input, achieves heteroscedastic output spread.
+   - The network learns condition-dependent RESPONSE to fixed noise through ConditionalNorm.
+   - Our architecture already supports this — we need noise to be more STRUCTURED (fewer dims)
+     so the condition-noise interaction via h is more meaningful.
+
+4. **Posterior collapse prevention without KL**
+   - delta-VAE principle: structural floor on noise utilization (sigma_min)
+   - Our ConditionalNorm with non-zero weights provides this naturally
+   - Reducing noise_dim makes collapse LESS likely (fewer dims to collapse, each is necessary)
+
+### Active Hypotheses (ranked by information value)
+
+#### H1: Reduce noise_dim from 32 to 4 (PRIORITY 1)
+
+**Evidence chain**: noise_dim=32 for 25 cells (ratio 1.28:1) vs FGN 32 for 87M (ratio 1:2.7M).
+IV effective rank 2-3. Superfluous dims proven harmful. Current noise adds unstructured per-cell
+perturbations; reduced dims force structured cross-cell patterns matching factor structure.
+
+**Principled argument**: Information bottleneck. With noise_dim=4 < output_dim=25, the decoder
+MUST learn a structured mapping from noise to output (like weather models). Each noise dimension
+encodes a meaningful cross-cell pattern (parallel shift, slope, curvature, twist). Individual
+scenarios become structured, authentic realizations — not per-cell jitter.
+
+**The bet**: Change `--noise_dim 32` to `--noise_dim 4`. One hyperparameter. Same architecture,
+same loss. The ConditionalNorm's scale_proj goes from Linear(4, 25*128) — extreme compression.
+
+**Staged checkpoints**:
+1. (10 min) Diagnostic: PCA on current noise_proj output. How many effective dims does the model use?
+2. (2h) Train baseline softplus with noise_dim=4, K=8 (combined with H2). Full V2 test suite.
+3. (2h) If promising, sweep noise_dim={2, 8} to find sweet spot.
+
+**Falsification test**: S4 kurtosis < 0.5 (noise too constrained) OR S9 correlation breaks OR
+ensemble std drops >50% from baseline (insufficient diversity from 4 dims).
+
+**Independence**: Stands alone. Can be combined with H2 (K reduction) in one run.
+
+**If it fails**: noise_dim is not the bottleneck. The decoder's response function (ConditionalNorm
+architecture) needs changing, not the noise dimensionality.
+
+**Effort**: Stage 1: 10min, Stage 2: 2h, Stage 3: 2h
+
+#### H2: Reduce K from 16 to 8 (PRIORITY 2, independent)
+
+**Evidence chain**: AIFS-CRPS K=4, FGN K=2. Biased CRPS centering/spread ratio: K=8 → 1.14
+(centering dominant), K=16 → 1.07 (balanced). CLAUDE.md already recommends K=8 B=32.
+
+**Principled argument**: At K=8, each scenario gets stronger individual MAE gradient relative
+to spread. Forces individual scenario authenticity over population statistics. Matches the
+philosophical insight: conditional mean emerges from realistic individual scenarios.
+
+**The bet**: `--n_members 8 --batch_size 32` (same B×K=256 VRAM). One line change.
+
+**Falsification test**: S5 growing uncertainty fails OR spread collapses (std < 50% baseline).
+
+**Independence**: Fully independent of H1. Can be combined in one experiment.
+
+**If it fails**: K is not the bottleneck at our scale. The problem is the noise/condition interaction.
+
+**Effort**: 0 additional (combined with H1 in same training run)
+
+#### H3: Factored Condition-Noise FiLM (PRIORITY 3, conditional on H1)
+
+**Evidence chain**: CLN uses scale(z) not scale(z,cond). Weather models get condition-dependent
+spread through implicit h interaction. FiLM-Ensemble (NeurIPS 2022): factored modulation
+gamma_cond * gamma_noise ensures neither can override the other.
+
+**Only try if H1+H2 don't produce condition-dependent spread.** If noise_dim=4 forces structured
+patterns and K=8 improves centering, the implicit condition-noise interaction through h may suffice.
+
+**The bet**: Replace `scale = scale_proj(z)` with `scale = scale_proj_cond(cond) * scale_proj_noise(z)`.
+Multiplicative factoring. ~20 lines of code.
+
+**Falsification test**: Turb/calm width ratio doesn't improve from baseline 1.185.
+
+**Effort**: Stage 1: 1h implementation, Stage 2: 2h training
+
+#### H4: Fix Encoder 98/2 Split (PRIORITY 4, independent, from RC21 H2)
+
+Original RC21 H2 (contrastive regime loss). Still valid if H1-H3 don't produce enough
+condition-dependent behavior. Weakened rationale: encoder signal IS used (R²=0.87), but
+the 98% shared component limits downstream condition-dependent components.
+
+**Only try if H1-H3 fail to improve conditional calibration.**
+
+### Execution Plan
+
+**First experiment (Exp 166a)**: noise_dim=4, K=8 on baseline softplus architecture.
+No loss change, no architecture change. Two hyperparameters. B=32, K=8 (B×K=256).
+Training command:
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py \
+    --epochs 80 --batch_size 32 --n_members 8 --noise_dim 4 \
+    --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5 \
+    --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 \
+    --output_dir models/backfill/afcrps_166a --device cuda
+```
+
+**Guard metrics**: S3 turb/calm > 1.10, S4 kurtosis 0.5-2.0, S5 growing uncertainty PASS,
+S9 correlation PASS. If any guard fails, investigate before proceeding.
+
+**Success criteria**: Total suites ≥ 7/9. S2 improvement from baseline.
+
+### Open Questions
+1. At noise_dim=4, does the AR(1) rho=0.8 process have enough temporal diversity?
+2. Does the IS lambda=0.05 need recalibration for K=8? (gradient ratios change with K)
+3. Will the ConditionalNorm scale_proj learn meaningful 4-dim → 3200-dim mappings?
+
+### Garbage Can Lists
+
+**Unsolved problems**:
+- S7 regime coverage (never passed, 0-1/8 across all experiments)
+- Per-cell centering precision (SNR 0.014, data-limited)
+- Encoder 98/2 discriminative split
+
+**Available techniques**:
+- Factored FiLM conditioning
+- VQ-VAE discrete noise bottleneck
+- Multi-scale noise injection (SDL pattern)
+- Natural gradient for CRPS (NGBoost)
+- Stop-gradient on spread pathway (beta-NLL adaptation)
+
+---
