@@ -52695,3 +52695,42 @@ Next priority: H5 (K=4 probe) addresses the CENTERING blocker directly, which is
 orthogonal to factorization. Factor structure improvements (S9) are preserved regardless.
 
 ---
+
+## 2026-04-04: 167d S3 Root Cause — CLN/L Gradient Competition at Edge Cells
+
+### Addendum to 167d Investigation
+
+The S3 worst-cell agent found the definitive mechanism for 167d's S3 failure.
+
+**Root cause**: When CLN is active, it captures the diversity gradient at edge cells.
+CLN develops disproportionately strong parameters at edge cells (scale norm 4.03,
+1.63x average at worst cell). L@eps, starved of gradient at those cells, learns
+INVERTED regime-loading patterns.
+
+**Smoking gun**: Cell (1,0) turb/calm width ratio = 0.562 (should be >1.15).
+The model produces WIDER spread during calm and NARROWER during turbulence — inverted.
+
+**FiLM is NOT the problem**: gamma = -0.76 → (1+gamma) = 0.24. FiLM attenuates to
+24% of trunk features. This is global (not per-cell). Rules out FiLM amplification.
+
+**NOT double-diversity**: CLN-L interaction variance near zero. They don't multiply.
+It's gradient competition: CLN wins at edge cells, L gets inverted signal.
+
+**NOT training duration**: 167b had 20 epochs too and passes S3. The difference is
+CLN active vs frozen, not training budget.
+
+### Implication
+
+This is a genuine obstacle to end-to-end factorization with CLN coexistence. When
+both CLN and L@eps compete for the same diversity gradient, edge cells develop
+pathological behavior. The fix options are:
+1. Longer training (80ep) — may not help since mechanism is competition-based
+2. Separate gradient routing for CLN vs L@eps (H6 stop-gradient)
+3. Remove CLN entirely but solve centering differently (K reduction for centering)
+4. Per-cell gradient balancing between CLN and L@eps (complex, may be unprincipled)
+
+The cleanest test: H5 (K=4 on baseline, no factorization) addresses the centering
+blocker directly without the CLN/L competition issue. If K=4 improves S2, then
+combine K=4 with factorization (without CLN) for the best of both worlds.
+
+---
