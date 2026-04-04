@@ -51790,3 +51790,93 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_164a_v3_percell_bptt_sof
 | ~~X~~ | ~~noise_dim reduction~~ | ~~FALSIFIED (decoder compresses regardless)~~ |
 
 ---
+
+## 2026-04-03: Exp 166a — Loss Rebalancing IS=0.005 VS=1.0 (RC22 H1)
+
+### Hypothesis
+Rebalance gradient budget from CRPS 29%/VS 5%/IS 66% to CRPS 63%/VS 23%/IS 14%.
+VS boost should preserve multi-factor structure that decoder learns early, prevent
+CRPS rank-1 attractor from erasing it.
+
+### Training
+Same baseline softplus architecture. Two hyperparameter changes only:
+```bash
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py \
+    --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 \
+    --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5 \
+    --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 \
+    --output_dir models/backfill/afcrps_166a --device cuda
+```
+
+### Results
+
+| Metric | Baseline (6/9) | 166a best (5/9) | 166a final (4/9) |
+|--------|---------------|-----------------|------------------|
+| S1 surface | PASS (2.5%) | **FAIL (24.4%)** | **FAIL (7.8%)** |
+| S2 coverage | FAIL | FAIL | FAIL |
+| S3 conditionality | PASS (-4.3%) | **PASS (+6.9%)** | FAIL (-36.5%) |
+| S4 kurtosis | 0.974 | **1.000 (perfect)** | **1.060** |
+| S5 block_ar | PASS | PASS | PASS |
+| S6 cointegration | PASS | PASS | PASS |
+| S7 regime | FAIL | FAIL | FAIL |
+| S8 distributional | FAIL | FAIL | FAIL |
+| S9 cross_cell | PASS | PASS | PASS |
+| S8 median_bias_frac | ~16/25 | **20/25** | **23/25 PASS** |
+| S8 median_bias_mag | ~21/25 | **22/25 PASS** | **22/25 PASS** |
+| S8 KS daily | — | **25/25** | **25/25** |
+| S8 KS levels | ~12/25 | 11/25 | **19/25** |
+| S8 window_cov_floor | — | 17.0% FAIL | 11.0% FAIL |
+
+### Mechanistic Analysis (diagnostic agent)
+
+**Primary driver: IS reduction (10x), not VS boost (2x).**
+In baseline, IS was 103x stronger than VS in effective gradient — drowning VS entirely.
+Reducing IS let VS actually function.
+
+**Why kurtosis improved to 1.000:** IS was artificially inflating tails by pushing boundary
+members outward for coverage. Without IS dominance, the natural AR(1) noise process produces
+GT-matched kurtosis.
+
+**Why median bias improved (71% reduction):** IS inflates spread asymmetrically, pulling the
+median away from the true conditional center. Without IS dominance, median clusters tighter
+around the correct value.
+
+**Why S3 improved on best (+6.9%):** With IS reduced, the model's conditioned predictions
+are more precise (not inflated). The gap between conditioned and unconditioned MAE widens
+because the unconditioned predictions lose their IS-inflation benefit.
+
+**Why S3 regressed on final (-36.5%):** VS compresses spread continuously without IS
+counterbalancing. By epoch 80, unconditioned spread drops below conditioned spread — inverting
+the S3 metric. Spread drops 7.1% from ep40→80 vs only 2.9% from ep1→40.
+
+**Noise effective rank:** Baseline 3.02 → 166a best 3.33 (PC1: 69%→66%). Modest improvement.
+Rank grows over AR horizon (3.09 at t=0 → 3.54 at t=29). 166a final: 2.85 (re-compressed).
+
+**Spread:** Uniformly tighter (90% of baseline at best, 87% at final). Interior cells compress
+most (up to 41% tighter at ATM mid-tenor). This is why S2 still fails.
+
+### What Was Learned
+
+1. **IS was the dominant distortion, not a minor auxiliary.** Reducing IS 10x improved kurtosis,
+   median bias, KS levels, and conditionality. The baseline's metrics were shaped more by IS
+   at 66% than by CRPS at 29%.
+
+2. **VS boost has modest effect on noise rank** (3.02→3.33). Not the dramatic 2→5 factor
+   improvement hoped for. The attention layers' rank compression is resistant to VS.
+
+3. **The IS-VS tradeoff is real:** IS keeps intervals wide (S2), VS shapes structure (S8/S9).
+   Removing IS entirely costs S2. The sweet spot may be IS=0.01-0.02 (intermediate).
+
+4. **Best checkpoint at ep~14 is the sweet spot** — before VS-driven spread compression
+   accumulates. Same "freeze-at-peak" pattern as Exp 105a_v2.
+
+5. **S1 explosion is the reflecting boundary issue** — fixable independently, same as V2.
+
+### Decision
+**PARTIAL SUCCESS.** IS miscalibration was a major distortion — fixing it dramatically
+improves distributional quality (S8) and kurtosis (S4). But S2 regresses from tighter spread.
+The path forward is either: (a) intermediate IS lambda (0.01-0.02) to balance S2 and S8,
+(b) use best checkpoint + reflecting boundary (which gives S3+S4+S5+S6+S9 = 5/9 + fixable S1),
+or (c) combine with K=8 (RC22 H2) to change the centering/spread gradient balance.
+
+---
