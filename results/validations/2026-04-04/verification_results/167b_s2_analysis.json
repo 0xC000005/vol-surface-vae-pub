@@ -1,0 +1,21 @@
+{
+  "experiment": "167b S2 deep-dive",
+  "model": "models/backfill/afcrps_167b/best_model.pt",
+  "model_epoch": 19,
+  "n_test_windows": 200,
+  "n_samples_per_window": "N/A (single-sample for reversion, summary.json for coverage)",
+  "s2_status": "FAIL",
+  "s2_reason": "worst_cell_pass=False",
+  "overall_90ci": 0.8107647860452439,
+  "worst_cell_coverage": 0.60670482420278,
+  "worst_cell_location": "h=30, cell=(0,3)",
+  "gap_to_pass": 0.09329517579721991,
+  "primary_mechanism": "systematic negative bias in short-tenor OTM put cells",
+  "mean_reversion_ratio": 0.11794626661555356,
+  "key_findings": [
+    "Worst cell (0,3) has coverage 60.7%, needs 70%",
+    "Gap = 9.3%",
+    "Mean model reversion ratio: 0.118x GT",
+    "Same worst cells as 164a: True"
+  ]
+}

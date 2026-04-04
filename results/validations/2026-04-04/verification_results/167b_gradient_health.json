@@ -1,0 +1,33 @@
+{
+  "experiment": "167b_clean_isolation",
+  "analysis": "gradient_health_followup",
+  "timestamp": "2026-04-04 10:26:54",
+  "key_metrics": {
+    "load_head_grad_norm_167b": 0.06002762969535533,
+    "load_head_grad_norm_167a": 0.0391,
+    "load_head_grad_improvement": 1.5352334960056289,
+    "base_to_load_ratio_167b": 0.9919476559577268,
+    "base_to_load_ratio_167a": 6.84,
+    "L_norm_167b_ep20": 0.1232144832611084,
+    "L_norm_167a_ep20": 0.0255,
+    "L_norm_improvement": 4.831940519853979,
+    "L_eff_rank": 3.464874505996704,
+    "film_gamma_abs_mean": 0.15614891052246094,
+    "film_gradient_meaningful": true,
+    "hypothetical_wd_would_dominate": false
+  },
+  "verdict": {
+    "load_head_alive": true,
+    "load_head_growing": true,
+    "gradient_balanced": true,
+    "film_active": true,
+    "primary_fix": "fix2_wd_removed",
+    "all_fix_impacts": {
+      "fix1_cln_frozen": "MINOR",
+      "fix2_wd_removed": "MODERATE",
+      "fix3_film_identity": "MINOR",
+      "fix4_simple_linear": "MODERATE"
+    },
+    "summary": "load_head is ALIVE: L_norm 0.1232 vs 167a's 0.0255 (4.8x) | L_norm GROWING over training: 0.0738 \u2192 0.1221 | Gradient balance: base/load = 0.99 (167a was 6.84) | Primary driver: fix2_wd_removed"
+  }
+}
