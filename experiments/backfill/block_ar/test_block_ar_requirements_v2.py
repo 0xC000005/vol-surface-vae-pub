@@ -2683,7 +2683,7 @@ def main():
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
     )
     is_mean_residual = model_type in ("ar_spatial_transformer_165a_mean_residual", "ar_spatial_transformer_165a_v2_additive_innov", "ar_spatial_transformer_165a_v3_spatial_mean")
-    is_factorized = model_type in ("ar_spatial_transformer_167a_factorized", "ar_spatial_transformer_167b_clean_isolation")
+    is_factorized = model_type in ("ar_spatial_transformer_167a_factorized", "ar_spatial_transformer_167b_clean_isolation", "ar_spatial_transformer_167d_e2e_factorized")
     is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix", "ar_spatial_transformer_164a_v3_percell_bptt", "ar_spatial_transformer_164a_v3_percell_bptt_gate", "ar_spatial_transformer_164a_v3_percell_bptt_local_gate", "ar_spatial_transformer_164a_v3_percell_bptt_softplus", "ar_spatial_transformer_165b_ensemble_mean_mse", "ar_spatial_transformer_165b_v2_corrected_is") or is_mean_residual or is_factorized
     is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
@@ -2736,7 +2736,7 @@ def main():
     if is_ar_spatial:
         # ── AR Spatial Transformer (164a etc.) ──
         if is_factorized:
-            if "167b" in model_type:
+            if "167b" in model_type or "167d" in model_type:
                 from experiments.backfill.block_ar.train_167b_clean_isolation import (
                     ARFactorizedCleanModel,
                 )
