@@ -53074,3 +53074,66 @@ S1 explosions solvable via: (1) reflecting_boundary in ar_generate, (2) higher l
 Awaiting Codex independent verification before committing.
 
 ---
+
+## 2026-04-04: Codex #8 — 167b Explosion Fix is reflecting_boundary (Code Difference)
+
+### Critical Code Finding
+Codex read the actual sampling code and found: 167b/167d have reflecting_boundary(frame_t)
+in sample_batched() (train_167b_clean_isolation.py:287). The baseline script does NOT
+(train_164a_v3_percell_bptt_softplus.py:313). This explains 167b's 0% explosion — it's a
+code-level boundary, not learned floor control. Evidence: 167b min_iv=0.01000007 (clamped).
+
+### Next Experiment: 168d (K=4, old loss weights)
+Codex #8 recommended: K=4 B=16 with OLD loss (IS=0.05, VS=0.5) to cleanly separate K
+effect from loss-weight effect. Also: add reflecting_boundary to baseline sample_batched.
+
+---
+
+## 2026-04-04: Reflecting Boundary Fix + 168d (K=4, Old Loss) = Best S2 Ever
+
+### Reflecting Boundary Fix
+Added reflecting_boundary(frame_t) to ar_generate in train_164a_v3_percell_cln.py:315.
+This was already present in 167b/167d factorized scripts but MISSING from baseline family.
+Codex #8 identified this code-level difference as the cause of 167b's 0% explosion.
+
+Effect: ALL models now pass S1 with 0% explosion when RB is active.
+
+### 168d: K=4, Old Loss (IS=0.05, VS=0.5), B=16, 20 Epochs
+
+```bash
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py     --epochs 20 --batch_size 16 --n_members 4 --noise_dim 32     --lambda_vs 0.5 --lambda_is 0.05 --is_warmup_epochs 10 --bptt_steps 5     --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10     --output_dir models/backfill/afcrps_168d --device cuda
+```
+
+### Results: BEST S2 CI EVER (82.4%)
+
+| Model | K | Loss | RB | Suites | S2 CI | S3 t/c | S9 rank |
+|-------|---|------|:--:|:------:|:-----:|:------:|:-------:|
+| 164a baseline | 16 | old | No | 6/9 | 81.3% | 1.185 | 0.855 |
+| 166a+RB | 16 | corrected | Yes | 6/9 | 72.0% | 1.250 | 1.413 |
+| 168c+RB | 4 | corrected | Yes | 5/9 | 77.5% | **1.312** | 0.507 |
+| **168d** | **4** | **old** | **Yes** | **5/9** | **82.4%** | 1.253 | FAIL (0.463) |
+
+168d achieves 82.4% S2 CI — the highest of any model ever tested. S1 PASS (0% with RB).
+S3 PASS. S4 PASS (0.770). S6 PASS. But S9 FAIL (rank 0.463, gate 0.5).
+
+### The S9 Gap (0.463 vs 0.500 gate)
+
+168d S9 rank_ratio = 0.463, gate floor = 0.500. Gap of 0.037.
+This is with old loss (VS=0.5) at 20 epochs. Options:
+- Higher VS (168c used VS=1.0 and got S9 rank 0.507 — passes)
+- More training (80 epochs)
+- Intermediate VS (e.g., VS=0.75) to balance S2 and S9
+
+### What Was Learned
+
+1. **reflecting_boundary in ar_generate is MANDATORY** — trivial fix, eliminates ALL floor
+   explosions. Should be standard in every model going forward.
+2. **K=4 with old loss gives BEST S2 ever** (82.4% vs baseline 81.3%). The IS=0.05 at K=4
+   provides strong centering. This is the first model to beat baseline on S2.
+3. **The S2/S9 tradeoff is real but narrow**: K=4 old-loss misses S9 by 0.037. K=4
+   corrected-loss passes S9 (0.507) but loses S2 (77.5%). Somewhere between VS=0.5
+   and VS=1.0 there may be a sweet spot that passes BOTH.
+4. **7/9 is now plausible**: If we can find a VS value where S2 and S9 both pass,
+   we'd have S1+S2+S3+S4+S5+S6+S9 = 7/9. Only S7 and S8 remain.
+
+---

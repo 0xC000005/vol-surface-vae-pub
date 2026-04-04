@@ -313,6 +313,7 @@ class ARSpatialTransformerModel(nn.Module):
 
             delta = self.decoder(cond_t, prev, z_t)
             frame_t = prev + torch.tanh(delta)
+            frame_t = reflecting_boundary(frame_t)
             frames.append(frame_t)
 
             # GRU feedback: feed generated frame back
