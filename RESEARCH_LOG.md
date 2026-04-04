@@ -52241,3 +52241,95 @@ Next: H2 (K reduction) is queued. Also consider whether a rank-aware loss term i
 before continuing with architectural changes.
 
 ---
+
+## 2026-04-04: 167a Follow-Up Investigation — WHY the Factor Path Died
+
+### Context
+After 167a's VALUABLE FAILURE (5/9, factor path L_norm 0.08→0.009), we ran three
+parallel investigations to verify the mechanistic explanation with hard numbers.
+All results saved to results/validations/2026-04-04/.
+
+### Investigation 1: Gradient Analysis (ep20 and ep60)
+
+Weight decay dominates gradient signal to load_head at every layer:
+
+| Component | Grad norm (ep20) | WD/grad ratio (ep20) | WD/grad ratio (ep60) |
+|-----------|-----------------|---------------------|---------------------|
+| base_head final | 0.0176 | healthy | healthy |
+| load_head final | 0.0026 | **27x** | **21x** |
+| load_head first | 0.0006 | **35,444x** | **29,550x** |
+| cond_resid_film | 0.0018 | inert | inert |
+
+Base-to-load gradient ratio: 6.8x (ep20) → 12.6x (ep60). The gradient to load_head
+is real but tiny. AdamW weight decay at 0.01 removes orders of magnitude more per step
+than gradient adds. This is the primary kill mechanism.
+
+### Investigation 2: Noise Rank Evolution (ep10-ep80, 8 checkpoints)
+
+L never developed multi-factor structure. L_eff_rank stayed ~2 throughout:
+
+| Epoch | L_norm | L_eff_rank | L_sv_explained | Factor/CLN spread |
+|-------|--------|------------|----------------|-------------------|
+| 10 | 0.057 | 2.16 | [0.77, 0.23, 0.0003] | 62.4% |
+| 20 | 0.050 | 2.08 | [0.81, 0.19, 0.0003] | 54.7% |
+| 40 | 0.035 | 2.27 | [0.70, 0.30, 0.001] | 39.4% |
+| 60 | 0.014 | 1.76 | [0.97, 0.03, 0.0003] | 20.1% |
+| 80 | 0.010 | 2.06 | [0.94, 0.06, 0.001] | 14.0% |
+
+L started as rank-2, briefly reached rank-2.7 at ep30, then collapsed toward rank-1
+by ep60. It never used more than 2 of its 5 output dimensions.
+
+Full model eff_rank (CLN+factor combined) was actually 8.5-9.4 — the CLN pathway
+carried diversity. Our earlier diagnostic reporting eff_rank=2.28 was measuring
+L's rank, not the full model's rank.
+
+### Investigation 3: CLN Ablation (ep20 checkpoint)
+
+| Ablation | eff_rank | PC1 | Spread |
+|----------|---------|-----|--------|
+| Both pathways | 12.2 | 56% | 0.033 |
+| CLN only (eps=0) | 11.0 | 64% | 0.023 |
+| Factor only (z=0) | **3.1** | **86%** | 0.013 |
+| Neither | 1.0 | 100% | 0.000 |
+
+**Key finding**: Even without CLN competition, the factor path alone produces eff_rank=3.1
+with PC1=86%. The problem is in L itself — it produces near-rank-1 output intrinsically.
+CLN is NOT suppressing the factor path through competition.
+
+Subspace alignment between CLN and factor PCs: 0.34 (partial overlap — they produce
+diversity along partially similar directions, explaining the mild superadditivity).
+
+### Root Cause Chain (verified with numbers)
+
+1. load_head MLP (128→128→5) first layer: He-init norm=4.7, gets gradient 35,444x
+   weaker than weight decay removes → first layer decays toward zero
+2. load_head last layer: random init norm=0.18, gets gradient 27x weaker than WD
+3. L projects to rank-2 subspace from epoch 1 (never achieves 5 factors)
+4. L magnitude shrinks monotonically: 0.057→0.010 over 80 epochs
+5. FiLM conditioning pathway (cond_resid_film) is essentially inert (grad norm 0.002)
+6. Factor path dies, CLN carries all diversity (CLN eff_rank 7→9 over training)
+
+### Correction to Prior Narrative
+
+Our earlier claim "CRPS destroys factor structure" is WRONG for this experiment.
+The correct statement: "L never developed factor structure in the first place."
+The load_head received insufficient gradient to overcome weight decay, and its
+learned projection was always rank-2. This is a gradient flow / optimizer issue,
+not a loss function issue per se.
+
+### Implications for Next Steps
+
+Three concrete fixes identified:
+1. **wd=0 for load_head**: Remove weight decay on load_head parameters (separate
+   optimizer group). This removes the 27x kill mechanism.
+2. **Larger init for load_head**: std=0.01 was too small. With first layer at
+   He-init (norm=4.7) and last at 0.01, the output L starts tiny.
+3. **Remove CLN, force factor path**: If CLN is removed, ALL diversity must come
+   from L@eps. This would provide strong gradient signal to load_head. But risks
+   destroying existing 6/9 behavior.
+
+### Decision
+Findings documented. Waiting for Codex independent verification before committing
+to next experiment. All validation artifacts saved to results/validations/2026-04-04/.
+
+---

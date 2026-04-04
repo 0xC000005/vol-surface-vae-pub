@@ -1,0 +1,54 @@
+{
+  "experiment": "167a_factorized",
+  "claim": "CRPS doesn't provide enough gradient signal to load_head, causing L_norm to die over training",
+  "verified": true,
+  "mechanism": "Weight decay dominance (removal > gradient addition)",
+  "evidence": {
+    "gradient_starvation": false,
+    "weight_decay_kills": true,
+    "base_to_load_ratio_ep20": 6.84469015600254,
+    "base_to_load_ratio_ep60": 12.634642484377546,
+    "L_norm_ep20": 0.025499630719423294,
+    "L_norm_ep60": 0.005142068490386009,
+    "L_norm_decay_ratio": 0.20165266497248724
+  },
+  "weight_decay_detail": {
+    "load_head_final_ep20": {
+      "param_norm": 0.1773160696029663,
+      "grad_norm": 0.0025686551816761494,
+      "grad_abs_mean": 6.502362521132454e-05,
+      "wd_removal_per_step": 1.7731606960296633e-06,
+      "grad_addition_rough": 6.502362521132455e-08,
+      "wd_dominates": true,
+      "wd_to_grad_ratio": 27.269483826331612
+    },
+    "load_head_final_ep60": {
+      "param_norm": 0.11252230405807495,
+      "grad_norm": 0.0020103787537664175,
+      "grad_abs_mean": 5.332471846486442e-05,
+      "wd_removal_per_step": 1.1252230405807497e-06,
+      "grad_addition_rough": 5.332471846486442e-08,
+      "wd_dominates": true,
+      "wd_to_grad_ratio": 21.101340484753944
+    },
+    "load_head_first_ep20": {
+      "param_norm": 4.686305046081543,
+      "grad_norm": 0.0006179133197292686,
+      "grad_abs_mean": 1.322160528616223e-06,
+      "wd_removal_per_step": 4.686305046081543e-05,
+      "grad_addition_rough": 1.322160528616223e-09,
+      "wd_dominates": true,
+      "wd_to_grad_ratio": 35444.297002166924
+    },
+    "load_head_first_ep60": {
+      "param_norm": 3.075416088104248,
+      "grad_norm": 0.000376485608285293,
+      "grad_abs_mean": 1.0407358104203013e-06,
+      "wd_removal_per_step": 3.075416088104248e-05,
+      "grad_addition_rough": 1.0407358104203012e-09,
+      "wd_dominates": true,
+      "wd_to_grad_ratio": 29550.401334438957
+    }
+  },
+  "timestamp": "2026-04-04 09:17:30"
+}

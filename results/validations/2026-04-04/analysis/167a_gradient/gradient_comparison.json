@@ -1,0 +1,658 @@
+{
+  "metadata": {
+    "script": "167a_gradient_analysis.py",
+    "timestamp": "2026-04-04 09:17:30",
+    "device": "cuda",
+    "batch_size": 16,
+    "n_members": 16,
+    "noise_dim": 32,
+    "n_factors": 5,
+    "loss_config": {
+      "lambda_vs": 1.0,
+      "lambda_is": 0.005,
+      "lambda_floor": 2.5,
+      "floor_tau": 0.005,
+      "bptt_steps": 5
+    }
+  },
+  "checkpoints": {
+    "epoch_20": {
+      "checkpoint": "/home/max/Documents/vol-surface-vae-pub/models/backfill/afcrps_167a/checkpoint_epoch_20.pt",
+      "epoch": 20,
+      "val_loss": 0.023098809429453526,
+      "L_norm_before_step": 0.025499630719423294,
+      "L_std_before_step": 0.008907976560294628,
+      "L_fro_per_sample": 0.09175919741392136,
+      "gradients": {
+        "base_head.weight": {
+          "name": "base_head.weight",
+          "grad_norm": 0.12779143452644348,
+          "grad_mean": 0.0010201428085565567,
+          "grad_std": 0.011293312534689903,
+          "grad_abs_mean": 0.007074987981468439,
+          "grad_max": 0.0734037533402443,
+          "param_norm": 0.0159457940608263,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 8.01411544881205
+        },
+        "base_head.bias": {
+          "name": "base_head.bias",
+          "grad_norm": 0.23515382409095764,
+          "grad_mean": -0.23515382409095764,
+          "grad_std": NaN,
+          "grad_abs_mean": 0.23515382409095764,
+          "grad_max": 0.23515382409095764,
+          "param_norm": 0.00035612849751487374,
+          "param_numel": 1,
+          "has_grad": true,
+          "grad_to_param_ratio": 660.3061134728102
+        },
+        "load_head[-1].weight": {
+          "name": "load_head[-1].weight",
+          "grad_norm": 0.0025686551816761494,
+          "grad_mean": 2.0616384972527158e-06,
+          "grad_std": 0.00010159348312299699,
+          "grad_abs_mean": 6.502362521132454e-05,
+          "grad_max": 0.0006299010128714144,
+          "param_norm": 0.1773160696029663,
+          "param_numel": 640,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.01448630791009355
+        },
+        "load_head[-1].bias": {
+          "name": "load_head[-1].bias",
+          "grad_norm": 0.03893852233886719,
+          "grad_mean": 0.014003089629113674,
+          "grad_std": 0.011573418974876404,
+          "grad_abs_mean": 0.014003089629113674,
+          "grad_max": 0.03215586394071579,
+          "param_norm": 0.005348465871065855,
+          "param_numel": 5,
+          "has_grad": true,
+          "grad_to_param_ratio": 7.28031612756789
+        },
+        "load_head[0].weight": {
+          "name": "load_head[0].weight",
+          "grad_norm": 0.0006179133197292686,
+          "grad_mean": -2.0722408677897874e-08,
+          "grad_std": 4.827550583286211e-06,
+          "grad_abs_mean": 1.322160528616223e-06,
+          "grad_max": 0.00023415380564983934,
+          "param_norm": 4.686305046081543,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.00013185512117823767
+        },
+        "load_head[0].bias": {
+          "name": "load_head[0].bias",
+          "grad_norm": 0.0023869522847235203,
+          "grad_mean": 2.3279335437109694e-05,
+          "grad_std": 0.00021051446674391627,
+          "grad_abs_mean": 9.625346137909219e-05,
+          "grad_max": 0.0012767984298989177,
+          "param_norm": 0.11197666078805923,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.02131651603043744
+        },
+        "cond_resid_film[-1].weight": {
+          "name": "cond_resid_film[-1].weight",
+          "grad_norm": 0.0005052591441199183,
+          "grad_mean": 5.736764396857552e-09,
+          "grad_std": 2.79122559732059e-06,
+          "grad_abs_mean": 6.636447551500169e-07,
+          "grad_max": 0.00016238426906056702,
+          "param_norm": 9.66512680053711,
+          "param_numel": 32768,
+          "has_grad": true,
+          "grad_to_param_ratio": 5.227651478838748e-05
+        },
+        "cond_resid_film[-1].bias": {
+          "name": "cond_resid_film[-1].bias",
+          "grad_norm": 0.0016726854955777526,
+          "grad_mean": -1.346105591437663e-06,
+          "grad_std": 0.00010473894508322701,
+          "grad_abs_mean": 4.205800360068679e-05,
+          "grad_max": 0.0008137892000377178,
+          "param_norm": 0.9509031772613525,
+          "param_numel": 256,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0017590492234920998
+        },
+        "cond_resid_film[0].weight": {
+          "name": "cond_resid_film[0].weight",
+          "grad_norm": 0.00042619978194124997,
+          "grad_mean": 4.062243430524859e-09,
+          "grad_std": 3.3297849313385086e-06,
+          "grad_abs_mean": 1.8125683709513396e-06,
+          "grad_max": 7.085689139785245e-05,
+          "param_norm": 6.388045787811279,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 6.671833548132375e-05
+        },
+        "cond_resid_film[0].bias": {
+          "name": "cond_resid_film[0].bias",
+          "grad_norm": 0.00030018106917850673,
+          "grad_mean": -1.542378981866932e-06,
+          "grad_std": 2.6591718778945506e-05,
+          "grad_abs_mean": 2.0132090867264196e-05,
+          "grad_max": 0.0001011483182082884,
+          "param_norm": 0.4458885192871094,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.000673220000502455
+        },
+        "output_proj.weight": {
+          "name": "output_proj.weight",
+          "grad_norm": null,
+          "grad_mean": null,
+          "grad_std": null,
+          "grad_abs_mean": null,
+          "param_norm": 0.0,
+          "param_numel": 128,
+          "has_grad": false
+        },
+        "output_proj.bias": {
+          "name": "output_proj.bias",
+          "grad_norm": null,
+          "grad_mean": null,
+          "grad_std": null,
+          "grad_abs_mean": null,
+          "param_norm": 0.0,
+          "param_numel": 1,
+          "has_grad": false
+        },
+        "layers[0].cln.scale_proj.weight": {
+          "name": "layers[0].cln.scale_proj.weight",
+          "grad_norm": 0.0007781462045386434,
+          "grad_mean": 1.755918255241795e-08,
+          "grad_std": 2.4316555027326103e-06,
+          "grad_abs_mean": 5.992405931465328e-07,
+          "grad_max": 9.257601050194353e-05,
+          "param_norm": 25.52090835571289,
+          "param_numel": 102400,
+          "has_grad": true,
+          "grad_to_param_ratio": 3.0490537158504168e-05
+        },
+        "layers[0].cln.scale_proj.bias": {
+          "name": "layers[0].cln.scale_proj.bias",
+          "grad_norm": 0.00027337134815752506,
+          "grad_mean": 5.725061669181741e-07,
+          "grad_std": 4.799287125933915e-06,
+          "grad_abs_mean": 1.2905725270684343e-06,
+          "grad_max": 7.906207611085847e-05,
+          "param_norm": 5.292325019836426,
+          "param_numel": 3200,
+          "has_grad": true,
+          "grad_to_param_ratio": 5.165430073415528e-05
+        },
+        "layers[3].cln.scale_proj.weight": {
+          "name": "layers[3].cln.scale_proj.weight",
+          "grad_norm": 0.00020270409004297107,
+          "grad_mean": 9.117533394942257e-10,
+          "grad_std": 6.334527142826119e-07,
+          "grad_abs_mean": 1.6236961641880043e-07,
+          "grad_max": 3.197338810423389e-05,
+          "param_norm": 21.274913787841797,
+          "param_numel": 102400,
+          "has_grad": true,
+          "grad_to_param_ratio": 9.527845426984176e-06
+        },
+        "input_proj.weight": {
+          "name": "input_proj.weight",
+          "grad_norm": 0.0012406581081449986,
+          "grad_mean": 2.3314369173021987e-05,
+          "grad_std": 0.00010757369454950094,
+          "grad_abs_mean": 8.105127199087292e-05,
+          "grad_max": 0.0005587943596765399,
+          "param_norm": 15.82361125946045,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 7.840549719036148e-05
+        },
+        "cond_proj[0].weight": {
+          "name": "cond_proj[0].weight",
+          "grad_norm": 0.004385100677609444,
+          "grad_mean": -7.736066720553936e-08,
+          "grad_std": 3.425955947022885e-05,
+          "grad_abs_mean": 1.5103139048733283e-05,
+          "grad_max": 0.0008907070150598884,
+          "param_norm": 14.352768898010254,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.00030552297670015133
+        },
+        "noise_proj[0].weight": {
+          "name": "noise_proj[0].weight",
+          "grad_norm": 0.002699704375118017,
+          "grad_mean": -1.7006585721901502e-06,
+          "grad_std": 4.215372973703779e-05,
+          "grad_abs_mean": 3.075654967688024e-05,
+          "grad_max": 0.0002406295097898692,
+          "param_norm": 13.840011596679688,
+          "param_numel": 4096,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0001950651815758373
+        }
+      },
+      "group_norms": {
+        "base_head_total": 0.26763402571968936,
+        "load_head_total": 0.039100970185623994,
+        "cond_resid_film_total": 0.001823435904618779,
+        "trunk_cln_total": 0.00420468862102292,
+        "trunk_attn_total": 0.0023950868754529157,
+        "trunk_ff_total": 0.002873413420697057
+      },
+      "weight_decay_analysis": {
+        "load_head[-1].weight": {
+          "param_norm": 0.1773160696029663,
+          "grad_norm": 0.0025686551816761494,
+          "grad_abs_mean": 6.502362521132454e-05,
+          "wd_removal_per_step": 1.7731606960296633e-06,
+          "grad_addition_rough": 6.502362521132455e-08,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 27.269483826331612
+        },
+        "load_head[-1].bias": {
+          "param_norm": 0.005348465871065855,
+          "grad_norm": 0.03893852233886719,
+          "grad_abs_mean": 0.014003089629113674,
+          "wd_removal_per_step": 5.3484658710658554e-08,
+          "grad_addition_rough": 1.4003089629113674e-05,
+          "wd_dominates": false,
+          "wd_to_grad_ratio": 0.0038194898502584155
+        },
+        "load_head[0].weight": {
+          "param_norm": 4.686305046081543,
+          "grad_norm": 0.0006179133197292686,
+          "grad_abs_mean": 1.322160528616223e-06,
+          "wd_removal_per_step": 4.686305046081543e-05,
+          "grad_addition_rough": 1.322160528616223e-09,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 35444.297002166924
+        },
+        "load_head[0].bias": {
+          "param_norm": 0.11197666078805923,
+          "grad_norm": 0.0023869522847235203,
+          "grad_abs_mean": 9.625346137909219e-05,
+          "wd_removal_per_step": 1.1197666078805923e-06,
+          "grad_addition_rough": 9.625346137909219e-08,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 11.633520414091038
+        }
+      }
+    },
+    "epoch_60": {
+      "checkpoint": "/home/max/Documents/vol-surface-vae-pub/models/backfill/afcrps_167a/checkpoint_epoch_60.pt",
+      "epoch": 60,
+      "val_loss": 0.022697874624493308,
+      "L_norm_before_step": 0.005142068490386009,
+      "L_std_before_step": 0.0018359639216214418,
+      "L_fro_per_sample": 0.0193189550191164,
+      "gradients": {
+        "base_head.weight": {
+          "name": "base_head.weight",
+          "grad_norm": 0.1558387279510498,
+          "grad_mean": 0.0010833507403731346,
+          "grad_std": 0.013785614632070065,
+          "grad_abs_mean": 0.008579086512327194,
+          "grad_max": 0.069980189204216,
+          "param_norm": 0.022502578794956207,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 6.925371948302208
+        },
+        "base_head.bias": {
+          "name": "base_head.bias",
+          "grad_norm": 1.1470004320144653,
+          "grad_mean": -1.1470004320144653,
+          "grad_std": NaN,
+          "grad_abs_mean": 1.1470004320144653,
+          "grad_max": 1.1470004320144653,
+          "param_norm": 0.0004877098253928125,
+          "param_numel": 1,
+          "has_grad": true,
+          "grad_to_param_ratio": 2351.809154327874
+        },
+        "load_head[-1].weight": {
+          "name": "load_head[-1].weight",
+          "grad_norm": 0.0020103787537664175,
+          "grad_mean": 4.032259312225506e-06,
+          "grad_std": 7.942691445350647e-05,
+          "grad_abs_mean": 5.332471846486442e-05,
+          "grad_max": 0.0006106758955866098,
+          "param_norm": 0.11252230405807495,
+          "param_numel": 640,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.017866491186750155
+        },
+        "load_head[-1].bias": {
+          "name": "load_head[-1].bias",
+          "grad_norm": 0.09152986109256744,
+          "grad_mean": -0.007114063482731581,
+          "grad_std": 0.045068465173244476,
+          "grad_abs_mean": 0.037380069494247437,
+          "grad_max": 0.06231040507555008,
+          "param_norm": 0.001909067970700562,
+          "param_numel": 5,
+          "has_grad": true,
+          "grad_to_param_ratio": 47.944789026542175
+        },
+        "load_head[0].weight": {
+          "name": "load_head[0].weight",
+          "grad_norm": 0.000376485608285293,
+          "grad_mean": 5.1934179623458476e-08,
+          "grad_std": 2.940925242000958e-06,
+          "grad_abs_mean": 1.0407358104203013e-06,
+          "grad_max": 0.00010469146945979446,
+          "param_norm": 3.075416088104248,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.000122417779415782
+        },
+        "load_head[0].bias": {
+          "name": "load_head[0].bias",
+          "grad_norm": 0.003411671845242381,
+          "grad_mean": -6.118947931099683e-05,
+          "grad_std": 0.00029643886955454946,
+          "grad_abs_mean": 0.00015410599007736892,
+          "grad_max": 0.0019792024977505207,
+          "param_norm": 0.031596969813108444,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.10797465280442814
+        },
+        "cond_resid_film[-1].weight": {
+          "name": "cond_resid_film[-1].weight",
+          "grad_norm": 0.0005073617794550955,
+          "grad_mean": -5.79547387857815e-09,
+          "grad_std": 2.8028409815306077e-06,
+          "grad_abs_mean": 6.11733298683248e-07,
+          "grad_max": 0.000174507760675624,
+          "param_norm": 10.103737831115723,
+          "param_numel": 32768,
+          "has_grad": true,
+          "grad_to_param_ratio": 5.0215255773225976e-05
+        },
+        "cond_resid_film[-1].bias": {
+          "name": "cond_resid_film[-1].bias",
+          "grad_norm": 0.0019145312253385782,
+          "grad_mean": -2.314200628461549e-06,
+          "grad_std": 0.00011987017205683514,
+          "grad_abs_mean": 4.036937389173545e-05,
+          "grad_max": 0.0012201230274513364,
+          "param_norm": 0.945000946521759,
+          "param_numel": 256,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0020259569393928597
+        },
+        "cond_resid_film[0].weight": {
+          "name": "cond_resid_film[0].weight",
+          "grad_norm": 0.0001826316147344187,
+          "grad_mean": 1.8968252746276448e-08,
+          "grad_std": 1.4267269534684601e-06,
+          "grad_abs_mean": 9.450286597711965e-07,
+          "grad_max": 8.940791303757578e-06,
+          "param_norm": 5.867627143859863,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 3.112529311367922e-05
+        },
+        "cond_resid_film[0].bias": {
+          "name": "cond_resid_film[0].bias",
+          "grad_norm": 0.00012077586870873347,
+          "grad_mean": 1.477529281146417e-06,
+          "grad_std": 1.0613976883178111e-05,
+          "grad_abs_mean": 8.668137525091879e-06,
+          "grad_max": 2.4391032638959587e-05,
+          "param_norm": 0.40101951360702515,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0003011720492661275
+        },
+        "output_proj.weight": {
+          "name": "output_proj.weight",
+          "grad_norm": null,
+          "grad_mean": null,
+          "grad_std": null,
+          "grad_abs_mean": null,
+          "param_norm": 0.0,
+          "param_numel": 128,
+          "has_grad": false
+        },
+        "output_proj.bias": {
+          "name": "output_proj.bias",
+          "grad_norm": null,
+          "grad_mean": null,
+          "grad_std": null,
+          "grad_abs_mean": null,
+          "param_norm": 0.0,
+          "param_numel": 1,
+          "has_grad": false
+        },
+        "layers[0].cln.scale_proj.weight": {
+          "name": "layers[0].cln.scale_proj.weight",
+          "grad_norm": 0.0012499071890488267,
+          "grad_mean": 4.6375209450388866e-08,
+          "grad_std": 3.9057040339685045e-06,
+          "grad_abs_mean": 1.2061074130542693e-06,
+          "grad_max": 0.0001538451761007309,
+          "param_norm": 32.11851119995117,
+          "param_numel": 102400,
+          "has_grad": true,
+          "grad_to_param_ratio": 3.8915477161056174e-05
+        },
+        "layers[0].cln.scale_proj.bias": {
+          "name": "layers[0].cln.scale_proj.bias",
+          "grad_norm": 0.0003780993865802884,
+          "grad_mean": 1.0634495311023784e-06,
+          "grad_std": 6.5998051468341146e-06,
+          "grad_abs_mean": 2.1486173409357434e-06,
+          "grad_max": 0.00012823639553971589,
+          "param_norm": 7.4376540184021,
+          "param_numel": 3200,
+          "has_grad": true,
+          "grad_to_param_ratio": 5.083583958662264e-05
+        },
+        "layers[3].cln.scale_proj.weight": {
+          "name": "layers[3].cln.scale_proj.weight",
+          "grad_norm": 0.0008797320770099759,
+          "grad_mean": -1.3633655093769903e-08,
+          "grad_std": 2.749142367974855e-06,
+          "grad_abs_mean": 9.157117233371537e-07,
+          "grad_max": 0.0001206525121233426,
+          "param_norm": 30.623764038085938,
+          "param_numel": 102400,
+          "has_grad": true,
+          "grad_to_param_ratio": 2.8727104738525193e-05
+        },
+        "input_proj.weight": {
+          "name": "input_proj.weight",
+          "grad_norm": 0.0021430356428027153,
+          "grad_mean": 2.1311598175088875e-05,
+          "grad_std": 0.0001889562263386324,
+          "grad_abs_mean": 0.00013166152348276228,
+          "grad_max": 0.0010231069754809141,
+          "param_norm": 15.372502326965332,
+          "param_numel": 128,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0001394070787710051
+        },
+        "cond_proj[0].weight": {
+          "name": "cond_proj[0].weight",
+          "grad_norm": 0.007204565219581127,
+          "grad_mean": 1.6867450085555902e-06,
+          "grad_std": 5.626210258924402e-05,
+          "grad_abs_mean": 3.235083204344846e-05,
+          "grad_max": 0.000520713219884783,
+          "param_norm": 13.336426734924316,
+          "param_numel": 16384,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0005402170583455024
+        },
+        "noise_proj[0].weight": {
+          "name": "noise_proj[0].weight",
+          "grad_norm": 0.006857134401798248,
+          "grad_mean": -2.246080157419783e-07,
+          "grad_std": 0.00010715557436924428,
+          "grad_abs_mean": 8.101385901682079e-05,
+          "grad_max": 0.00048438317026011646,
+          "param_norm": 12.245223045349121,
+          "param_numel": 4096,
+          "has_grad": true,
+          "grad_to_param_ratio": 0.0005599844426192521
+        }
+      },
+      "group_norms": {
+        "base_head_total": 1.157538638737719,
+        "load_head_total": 0.09161625587498734,
+        "cond_resid_film_total": 0.001992683342935131,
+        "trunk_cln_total": 0.008953323095803439,
+        "trunk_attn_total": 0.006308364132069767,
+        "trunk_ff_total": 0.007653123335840081
+      },
+      "weight_decay_analysis": {
+        "load_head[-1].weight": {
+          "param_norm": 0.11252230405807495,
+          "grad_norm": 0.0020103787537664175,
+          "grad_abs_mean": 5.332471846486442e-05,
+          "wd_removal_per_step": 1.1252230405807497e-06,
+          "grad_addition_rough": 5.332471846486442e-08,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 21.101340484753944
+        },
+        "load_head[-1].bias": {
+          "param_norm": 0.001909067970700562,
+          "grad_norm": 0.09152986109256744,
+          "grad_abs_mean": 0.037380069494247437,
+          "wd_removal_per_step": 1.9090679707005622e-08,
+          "grad_addition_rough": 3.738006949424744e-05,
+          "wd_dominates": false,
+          "wd_to_grad_ratio": 0.0005107181437943437
+        },
+        "load_head[0].weight": {
+          "param_norm": 3.075416088104248,
+          "grad_norm": 0.000376485608285293,
+          "grad_abs_mean": 1.0407358104203013e-06,
+          "wd_removal_per_step": 3.075416088104248e-05,
+          "grad_addition_rough": 1.0407358104203012e-09,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 29550.401334438957
+        },
+        "load_head[0].bias": {
+          "param_norm": 0.031596969813108444,
+          "grad_norm": 0.003411671845242381,
+          "grad_abs_mean": 0.00015410599007736892,
+          "wd_removal_per_step": 3.1596969813108444e-07,
+          "grad_addition_rough": 1.5410599007736892e-07,
+          "wd_dominates": true,
+          "wd_to_grad_ratio": 2.0503401455871497
+        }
+      }
+    }
+  },
+  "comparison": {
+    "base_head.weight": {
+      "ep20_grad": 0.12779143452644348,
+      "ep60_grad": 0.1558387279510498,
+      "ratio_60_over_20": 1.2194770997644806,
+      "ep20_param": 0.0159457940608263,
+      "ep60_param": 0.022502578794956207
+    },
+    "base_head.bias": {
+      "ep20_grad": 0.23515382409095764,
+      "ep60_grad": 1.1470004320144653,
+      "ratio_60_over_20": 4.877660129272679,
+      "ep20_param": 0.00035612849751487374,
+      "ep60_param": 0.0004877098253928125
+    },
+    "load_head[-1].weight": {
+      "ep20_grad": 0.0025686551816761494,
+      "ep60_grad": 0.0020103787537664175,
+      "ratio_60_over_20": 0.7826580882119669,
+      "ep20_param": 0.1773160696029663,
+      "ep60_param": 0.11252230405807495
+    },
+    "load_head[-1].bias": {
+      "ep20_grad": 0.03893852233886719,
+      "ep60_grad": 0.09152986109256744,
+      "ratio_60_over_20": 2.35062492346314,
+      "ep20_param": 0.005348465871065855,
+      "ep60_param": 0.001909067970700562
+    },
+    "load_head[0].weight": {
+      "ep20_grad": 0.0006179133197292686,
+      "ep60_grad": 0.000376485608285293,
+      "ratio_60_over_20": 0.6092854713833418,
+      "ep20_param": 4.686305046081543,
+      "ep60_param": 3.075416088104248
+    },
+    "load_head[0].bias": {
+      "ep20_grad": 0.0023869522847235203,
+      "ep60_grad": 0.003411671845242381,
+      "ratio_60_over_20": 1.429300395771235,
+      "ep20_param": 0.11197666078805923,
+      "ep60_param": 0.031596969813108444
+    },
+    "cond_resid_film[-1].weight": {
+      "ep20_grad": 0.0005052591441199183,
+      "ep60_grad": 0.0005073617794550955,
+      "ratio_60_over_20": 1.0041614988261907,
+      "ep20_param": 9.66512680053711,
+      "ep60_param": 10.103737831115723
+    },
+    "layers[0].cln.scale_proj.weight": {
+      "ep20_grad": 0.0007781462045386434,
+      "ep60_grad": 0.0012499071890488267,
+      "ratio_60_over_20": 1.6062626557304698,
+      "ep20_param": 25.52090835571289,
+      "ep60_param": 32.11851119995117
+    }
+  },
+  "group_comparison": {
+    "base_head_total": {
+      "ep20": 0.26763402571968936,
+      "ep60": 1.157538638737719,
+      "ratio": 4.3250802495123875
+    },
+    "load_head_total": {
+      "ep20": 0.039100970185623994,
+      "ep60": 0.09161625587498734,
+      "ratio": 2.3430686103198357
+    },
+    "cond_resid_film_total": {
+      "ep20": 0.001823435904618779,
+      "ep60": 0.001992683342935131,
+      "ratio": 1.0928178708599776
+    },
+    "trunk_cln_total": {
+      "ep20": 0.00420468862102292,
+      "ep60": 0.008953323095803439,
+      "ratio": 2.1293665007767606
+    },
+    "trunk_attn_total": {
+      "ep20": 0.0023950868754529157,
+      "ep60": 0.006308364132069767,
+      "ratio": 2.6338769573345195
+    },
+    "trunk_ff_total": {
+      "ep20": 0.002873413420697057,
+      "ep60": 0.007653123335840081,
+      "ratio": 2.663425764185204
+    }
+  },
+  "verdict": {
+    "claim": "CRPS doesn't provide enough gradient signal to load_head, causing L_norm to die",
+    "gradient_starvation": false,
+    "weight_decay_kills": true,
+    "base_to_load_ratio_ep20": 6.84469015600254,
+    "base_to_load_ratio_ep60": 12.634642484377546,
+    "L_norm_ep20": 0.025499630719423294,
+    "L_norm_ep60": 0.005142068490386009,
+    "L_norm_decay_ratio": 0.20165266497248724,
+    "mechanism": "Weight decay dominance (removal > gradient addition)",
+    "verified": true
+  }
+}

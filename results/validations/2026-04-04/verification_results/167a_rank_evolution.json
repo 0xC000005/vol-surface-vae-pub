@@ -1,0 +1,78 @@
+{
+  "experiment": "167a_rank_evolution",
+  "status": "COMPLETE",
+  "timestamp": "2026-04-04 09:16:37",
+  "summary": {
+    "epochs_evaluated": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80
+    ],
+    "eff_rank_trajectory": {
+      "10": 8.533,
+      "20": 8.262,
+      "30": 9.351,
+      "40": 8.387,
+      "50": 9.175,
+      "60": 9.07,
+      "70": 9.329,
+      "80": 9.408
+    },
+    "L_norm_trajectory": {
+      "10": 0.056645,
+      "20": 0.04984,
+      "30": 0.035366,
+      "40": 0.035156,
+      "50": 0.021604,
+      "60": 0.013567,
+      "70": 0.011773,
+      "80": 0.009862
+    },
+    "spread_factor_trajectory": {
+      "10": 0.009781,
+      "20": 0.008119,
+      "30": 0.007464,
+      "40": 0.005683,
+      "50": 0.004116,
+      "60": 0.003295,
+      "70": 0.00245,
+      "80": 0.002266
+    },
+    "pc1_trajectory": {
+      "10": 76.6,
+      "20": 79.9,
+      "30": 80.8,
+      "40": 81.4,
+      "50": 77.8,
+      "60": 78.6,
+      "70": 79.9,
+      "80": 78.9
+    }
+  },
+  "findings": [
+    {
+      "name": "factor_path_death",
+      "L_norm_ep10": 0.056645,
+      "L_norm_ep80": 0.009862,
+      "L_norm_ratio": 0.1741,
+      "confirmed": true
+    },
+    {
+      "name": "crps_destroys_factor_structure",
+      "eff_rank_ep10": 8.533,
+      "eff_rank_ep80": 9.408,
+      "confirmed": false
+    },
+    {
+      "name": "factor_pathway_contribution",
+      "spread_ratio_ep10": 0.6238,
+      "spread_ratio_ep80": 0.1397,
+      "factor_became_negligible": false
+    }
+  ]
+}

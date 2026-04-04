@@ -1,0 +1,37 @@
+{
+  "experiment": "167a_cln_ablation",
+  "checkpoint": "models/backfill/afcrps_167a/checkpoint_epoch_20.pt",
+  "epoch": 20,
+  "n_windows": 30,
+  "n_samples": 100,
+  "test_split_start": 4540,
+  "timestamp": "2026-04-04 09:17:53",
+  "elapsed_seconds": 44.93018960952759,
+  "key_finding": "NO: Factor path itself produces low-rank output (problem is in L itself)",
+  "spread_decomposition": {
+    "both_spread": 0.032786196718613304,
+    "cln_only_spread": 0.02321241864313682,
+    "factor_only_spread": 0.012952240463346244,
+    "neither_spread": 0.0,
+    "cln_contribution_pct": 70.79936343808781,
+    "factor_contribution_pct": 39.50516290438733,
+    "interaction_pct": -10.304526342475143
+  },
+  "effective_ranks": {
+    "both": 12.164787226782902,
+    "cln_only": 10.956826126310562,
+    "factor_only": 3.1476482199298013,
+    "neither": 1.0
+  },
+  "pc1_dominance": {
+    "both": 0.5616207767526309,
+    "cln_only": 0.6435340396894349,
+    "factor_only": 0.8625207036071354,
+    "neither": 1.0
+  },
+  "subspace_alignment": {
+    "pc1_max_align": 0.49155599971612296,
+    "avg_max_align": 0.4659410079320272,
+    "overlap": 0.3359388679265976
+  }
+}
