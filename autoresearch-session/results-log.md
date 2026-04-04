@@ -30,7 +30,8 @@
 |---|--------|-----------|-------------|----------|
 | 1 | 166a | Loss rebalance: IS=0.005 VS=1.0 | 5/9 best (S4=1.000, S8 bias PASS) S2 FAIL | EXHAUSTED — loss tuning ceiling reached |
 | 2 | 167a | Factorized decoder + split conditioning | 5/9 best, 5/9 final. L_eff_rank=2 (never developed 5 factors). L_norm: 0.08→0.01. S3 FAIL. | VALUABLE FAILURE — 4 confounded issues found (Codex x2) |
-| — | 167b | Clean isolation: freeze CLN, wd=0, fix FiLM, simple head | Target: L_eff_rank>3, factor PC1<0.8 | NEXT (20ep diagnostic, ~35 min) |
+| 3 | 167b | Clean isolation: freeze CLN, wd=0, fix FiLM, simple head | 6/9 (20ep). L alive (norm 0.12). GT alignment: PC1=0.93, r=0.979. MR collapsed 12% GT. | COMPLETED — L works, but CLN freeze kills centering. Not e2e viable. |
+| — | 167d | End-to-end factorized: CLN active + fixes 2-4 | Target: L survives, MR near baseline (-0.22) | NEXT (20ep, ~35 min). Highest info-gain. |
 
 ## RC22 v2 Key Finding (from 166a + 3 Codex reviews)
 - The architecture traces a Pareto frontier (baseline/V2/166a all 6/9 different compositions)
@@ -49,3 +50,15 @@
 - Factor-only output is intrinsically low-rank (PC1=86%, eff_rank=3.1) even without CLN
 - Full model eff_rank was actually 8.5-9.4 (CLN-dominated), not 2.55 as initially reported
 - Codex consensus: one clean retry (167b), then abandon if L stays rank-2
+
+## RC22 v4 Key Finding (from 167b + 3 follow-ups + Codex x4)
+- 167b VALIDATED factorization: L alive, GT-aligned (PC1: 0.93), per-cell spread r=0.979
+- BUT: mean reversion collapsed (12% GT) because CLN freeze removes centering
+- 167b didn't move practical frontier: CI 0.811 vs baseline 0.813
+- Factor diversity is ORTHOGONAL to suite frontier: S9 already passes, S2 is centering
+- End-to-end hard constraint: warm-start/freeze recipes are diagnostic-only, not publishable
+- Codex review #4: "just keep engineering architecture" no longer supported by evidence
+- Priority pivot: 167d (e2e factorized) > K=4 probe > 167c (diagnostic) > loss-routing
+- The REAL remaining blocker is centering (afCRPS 2.9x spread bias), not factor rank
+- wd=0 and simple Linear head are standard, publishable optimizer choices
+- CLN freeze is the ONLY unprincipled fix — 167d tests whether it's needed

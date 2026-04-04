@@ -1,13 +1,14 @@
 {
-  "compass": "RC22 v3",
-  "iteration": 3,
-  "experiment_id": "167b",
+  "compass": "RC22 v4",
+  "iteration": 4,
+  "experiment_id": "167d",
   "training_status": "ready",
   "phase": "implementation",
-  "hypothesis": "RC22 H1 (v3): Clean isolation test for factorized decoder. Remove 4 confounds from 167a: (1) freeze CLN, (2) wd=0 for load_head+FiLM, (3) fix FiLM to (1+gamma)*h+beta, (4) simplify load_head to Linear(d_model, n_factors). Binary answer: can L@eps work?",
-  "prediction": "If confounds were the issue: L_eff_rank >3, factor-only PC1 <0.8, factor spread grows. If fundamental: L stays rank-2.",
-  "risk": "Freezing CLN may destroy existing 6/9 behavior. But this is a 20-epoch diagnostic, not a production run.",
-  "baseline": "167a: L_eff_rank=2, factor-only PC1=86%, L_norm died 0.08→0.01",
+  "hypothesis": "RC22 H1 (v4): End-to-end factorized decoder. Same as 167b but CLN is ACTIVE (not frozen). Keeps fixes 2-4: wd=0 for load_head+FiLM, simple Linear load_head, (1+gamma) FiLM. Train from scratch 20 epochs. Binary answer: can L@eps survive end-to-end with CLN competition?",
+  "prediction": "If CLN competition is minor (as gradient attribution suggested): L_norm stable, MR near baseline (-0.22), 6/9. If CLN competition is dominant: L dies like 167a.",
+  "risk": "L may die from CLN competition despite wd=0. Or L may survive but MR still collapses without CLN centering contribution.",
+  "baseline": "167b: 6/9, L alive but MR=12% GT. Baseline: 6/9, MR=50% GT.",
   "branch": "autoresearch-session-rc22",
-  "next_action": "Implement train_167b_clean_isolation.py with 4 fixes, train 20 epochs"
+  "next_action": "Implement train_167d_e2e_factorized.py — 167b code with CLN unfrozen",
+  "hard_constraint": "End-to-end trainable from scratch. No warm-start. No freeze/unfreeze phases."
 }

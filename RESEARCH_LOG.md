@@ -52491,3 +52491,76 @@ Next: Exp 167c warm-start from baseline + add factor head. Two-phase training.
 H1v3 status: PASSED (L wakes up when confounds removed). Moving to H1v4 (warm-start).
 
 ---
+
+## 2026-04-04: End-to-End Concern + Codex Review #4 — Strategic Pivot to 167d
+
+### The End-to-End Problem
+
+User raised a fundamental concern: 167c (warm-start factorized decoder) is NOT
+end-to-end trainable. It requires multi-stage pipeline (pre-train baseline -> copy
+weights -> freeze/unfreeze phases -> different LR/WD per group). If trained from
+scratch, the factor path dies (167a proved). This violates the Bitter Lesson and
+is not publishable as a general method.
+
+The factorization dilemma summarized:
+
+| Setup | L alive? | MR (vs GT) | End-to-end? |
+|-------|----------|------------|-------------|
+| Baseline (no factorization) | N/A | 50% | YES |
+| 167a (factorized, standard) | NO (died) | 22% | YES but broken |
+| 167b (factorized, 4 fixes) | YES | 12% | YES but no centering |
+| 167c (warm-start, proposed) | YES (expected) | 50% (inherited) | **NO** |
+
+Fix 1 (CLN freeze) is what kills centering. Fixes 2-4 are standard optimizer/arch choices.
+The question: can L survive with CLN active if we keep only the acceptable fixes (2-4)?
+
+### Codex Review #4: PARTIAL — Agrees with Concern, Redirects Plan
+
+**Key corrections from Codex:**
+1. 167c is not publishable under user's hard end-to-end constraint
+2. 167b didn't move the practical frontier (baseline CI=0.813, 167b CI=0.811)
+3. Factor diversity is partly orthogonal to suite frontier — S9 already passes,
+   S2 is about centering/reversion, not factor rank
+4. "Just keep engineering architecture" is no longer supported by evidence
+5. per-group wd=0 is standard optimizer choice (not methodological sin)
+
+**Codex's recommended priority:**
+1. **167d first** (167b minus CLN freeze) — highest info-gain, end-to-end, 20ep
+2. K=2/K=4 probe — changes centering/spread gradient balance within CRPS
+3. 167c only as upper-bound diagnostic if 167d fails
+4. Loss-routing research (stop-gradient on spread through base path)
+
+**Codex's key insight:** 167d is the RIGHT next experiment because it directly answers
+"can factorization work end-to-end?" with only standard, publishable optimizer choices.
+If 167d fails (L dies with CLN active), factorization is dead as a publication path.
+
+### Individual Authenticity Discussion
+
+User concern: "Individual scenarios must be valid. Our mean reversion was already bad
+(50% GT). The clean isolation made it worse (12% GT)."
+
+The honest assessment:
+- Baseline scenarios under-revert at 50% GT speed (unrealistically sticky)
+- 167b made this worse (12% GT) by removing CLN which provides centering
+- This is a loss problem, not architecture: afCRPS gives 2.9x more gradient to spread
+  than centering (fundamental to the proper scoring rule)
+- Individual authenticity is the GOAL but current scenarios are not fully authentic
+  due to under-reversion
+
+Possible loss-level approaches that maintain individual authenticity philosophy:
+- Lower K (K=2/K=4): changes gradient ratio toward centering within same CRPS
+- Stop-gradient on spread through base path: routing change, not auxiliary loss
+- Curriculum (centering first, then spread): still CRPS, different schedule
+
+### Decision
+
+167c DEMOTED from priority 1 to diagnostic-only. New priority list (additive):
+1. **167d**: 167b minus CLN freeze (end-to-end, 20ep, ~35 min)
+2. K=4 probe: baseline + low K (end-to-end, ~35 min)
+3. 167c: warm-start (diagnostic/upper-bound only)
+4. Loss-routing research (stop-grad on spread path)
+
+Hard constraint: all mainline experiments must be end-to-end trainable from scratch.
+Warm-start/freeze recipes are acceptable only for debugging and mechanistic understanding.
+
+---
