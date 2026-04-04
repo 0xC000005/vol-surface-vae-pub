@@ -1,0 +1,68 @@
+{
+  "test": "168bc_explosion_analysis",
+  "date": "2026-04-04",
+  "models": {
+    "168c_K4": {
+      "K": 4,
+      "explosion_rate_total": 0.194,
+      "explosion_rate_hi": 0.0,
+      "explosion_rate_lo": 0.194,
+      "max_iv": 0.792,
+      "min_iv": -0.145,
+      "mean_abs_delta": 0.00949
+    },
+    "168b_K8": {
+      "K": 8,
+      "explosion_rate_total": 0.0432,
+      "explosion_rate_hi": 0.0004,
+      "explosion_rate_lo": 0.0432,
+      "max_iv": 1.198,
+      "min_iv": -0.098,
+      "mean_abs_delta": 0.01185
+    },
+    "baseline_K16": {
+      "K": 16,
+      "explosion_rate_total": 0.0272,
+      "explosion_rate_hi": 0.0004,
+      "explosion_rate_lo": 0.0272,
+      "max_iv": 1.014,
+      "min_iv": -0.251,
+      "mean_abs_delta": 0.01174
+    }
+  },
+  "mechanism": {
+    "summary": "K=4 fails S1 due to a floor-draining cascade, not large deltas. With fewer ensemble members, CRPS gradient signal pushes cell 0 into [0, 0.05] 370x more often than K=16. Once near the floor, K=4 has 6.1x higher probability of going negative (8.35% vs 1.37%). The root cause is a normal-to-floor transition rate 365x higher for K=4 (1.2% vs 0.003%).",
+    "evidence": {
+      "floor_draining_not_delta_magnitude": "K=4 mean |delta|=0.0095 is SMALLER than K=16 (0.0117). Tanh saturation is zero for all models. Explosions are not from large steps.",
+      "exclusively_floor_explosions": "All three models: >99% of explosions are floor (IV<0), not ceiling (IV>1). K=4 has zero ceiling explosions.",
+      "normal_to_floor_transition": "K=4: 1.2% of steps from normal range [0.15-0.30] jump to <0.05. K=16: 0.003%. This 365x difference is the primary driver.",
+      "floor_stickiness": "Both models are sticky near floor (46-55% stay rate). But K=4 reaches floor 7.3x more often (9647 vs 1318 near-floor entries).",
+      "floor_to_negative": "Given prev<0.05: K=4 goes negative 8.35% of steps vs K=16 1.37% (6.1x). K=4's floor bounce-back is weaker.",
+      "cell_0_dominates": "Cell 0 (deep_ITM_1M, GT mean=0.297) accounts for >70% of floor violations. This cell has GT std=0.202, making it most vulnerable.",
+      "band_occupancy": "K=4 spends 6.5% of time in [0, 0.05] vs K=16 at 0.7%. This 9.3x difference amplifies floor explosion rate.",
+      "horizon_onset": "Floor explosions start at h~14 on average for all models -- mid-sequence, not early or late. This confirms AR error accumulation."
+    },
+    "root_cause_hypothesis": "With K=4, the CRPS loss has fewer members to estimate the quantile function, producing noisier gradients. This leads to worse learning of the floor boundary constraint: the model produces delta distributions with fatter left tails for cell 0. The softplus floor barrier during training cannot fully compensate because it only sees K=4 samples per gradient step (vs K=16), giving it 4x less signal about tail behavior."
+  },
+  "key_findings": [
+    "Floor explosions dominate: K4 lo_rate=0.194 vs K16=0.027 (7.1x)",
+    "NOT a delta magnitude issue: K4 has SMALLER deltas (0.0095 vs 0.0117)",
+    "Root cause: Normal-to-floor transition rate 365x higher for K4 (1.2% vs 0.003%)",
+    "Floor bounce-back: K4 goes negative 8.35% from near-floor vs K16 1.37% (6.1x)",
+    "K4 spends 9.3x more time in danger zone [0, 0.05] for cell 0",
+    "All explosions are FLOOR (IV→negative), zero ceiling explosions for K4",
+    "Cell 0 (deep_ITM, 1M tenor) is primary offender -- GT std=0.202 makes it most vulnerable",
+    "Training floor barrier converges similarly for all K -- the issue is learned delta distribution, not barrier"
+  ],
+  "s1_from_summary": {
+    "168c_K4": {"explosion_hi": 0.00249, "explosion_lo": 0.11097, "total": 0.11346, "pass": false},
+    "168b_K8": {"explosion_hi": 0.00361, "explosion_lo": 0.06342, "total": 0.06700, "pass": false},
+    "baseline_K16": {"explosion_hi": 0.00128, "explosion_lo": 0.02350, "total": 0.02473, "pass": true}
+  },
+  "training_floor_comparison": {
+    "168c_K4": {"ep1": 0.002696, "ep10": 0.000174, "ep20": 0.000116},
+    "168b_K8": {"ep1": 0.003087, "ep10": 0.000149, "ep20": 0.000111},
+    "note": "Floor barrier converges to similar levels regardless of K -- the loss converges but the learned model still has worse floor behavior with low K"
+  },
+  "implication_for_K_reduction": "K reduction to 8 or 4 requires compensating for the degraded CRPS tail estimation. Options: (1) increase lambda_floor (e.g., 5.0 or 10.0 for K=4), (2) add explicit reflecting boundary at inference time (not Bitter Lesson violation since it's a physical constraint), (3) train longer to allow floor barrier more iterations."
+}

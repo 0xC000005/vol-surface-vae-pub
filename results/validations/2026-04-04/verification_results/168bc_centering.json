@@ -1,0 +1,32 @@
+{
+  "key_question": "Does K reduction improve centering vs same-loss K=16 (166a)?",
+  "control": "166a (K=16, IS=0.005, VS=1.0) \u2014 CORRECT same-loss control",
+  "previous_error": "168a was compared to 164a (wrong control, different IS/VS weights)",
+  "results": {
+    "centering_spread_ratio": {
+      "166a_K16": 0.3624133765697479,
+      "168b_K8": 0.2911706566810608,
+      "168c_K4": 0.2723792791366577,
+      "K8_vs_K16_change_pct": -19.65786157315752,
+      "K4_vs_K16_change_pct": -24.842928891109178
+    },
+    "mc_mean_slope": {
+      "166a_K16": -0.17846379938228238,
+      "168b_K8": -0.16465804972509665,
+      "168c_K4": -0.12534565095803107,
+      "K8_vs_K16_change": 0.013805749657185729,
+      "K4_vs_K16_change": 0.053118148424251305
+    },
+    "spread": {
+      "166a_K16": 0.01755896769464016,
+      "168b_K8": 0.01787666603922844,
+      "168c_K4": 0.013917207717895508,
+      "K8_vs_K16_change_pct": 1.80932245057468,
+      "K4_vs_K16_change_pct": -20.740171290686366
+    }
+  },
+  "interpretation": {
+    "lower_ratio_is_better": "centering/spread ratio < 1 means spread dominates bias; lower = better centering relative to spread",
+    "more_negative_slope_is_better": "more negative slope = stronger mean-reversion centering"
+  }
+}

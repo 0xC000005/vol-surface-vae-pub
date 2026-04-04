@@ -53030,3 +53030,47 @@ run to make definitive conclusion about K reduction. 168c (K=4) is most promisin
 (best S2, S9 passes). Mark H5 as needs-full-run, not exhausted.
 
 ---
+
+## 2026-04-04: 168b/168c Follow-Up + Loss Weight Explosion Discovery
+
+### Three Parallel Investigations
+
+**1. Explosion Analysis**: Floor-draining cascade, not large deltas.
+K=4 delta magnitudes are SMALLER than K=16 (0.0095 vs 0.0117). The mechanism:
+- K=4 has 365x higher probability of jumping from normal to danger zone (<0.05)
+- Once in danger zone, ~50% stay rate (floor stickiness)
+- Cell 0 (deep ITM, 1M) causes >70% of violations
+- Fewer members → noisier CRPS tail gradient → fatter left tails
+
+**2. Centering Protocol vs Fair Control (166a)**:
+| Metric | 166a K=16 | 168b K=8 | 168c K=4 |
+|--------|:---:|:---:|:---:|
+| Sampled MR slope | -0.179 | -0.165 | -0.125 |
+| Centering/spread ratio | 0.362 | 0.291 | 0.272 |
+
+K reduction DOES improve centering/spread ratio vs fair control (corrects the earlier
+claim of "ratio unchanged" which was against wrong control). Mechanism: bias drops
+faster than spread.
+
+**3. Cross-Model Comparison — CRITICAL FINDING**:
+166a (K=16, IS=0.005, VS=1.0, 80ep) has **24.4% explosion rate** — WORSE than
+168b (6.7%) and 168c (11.3%). The S1 explosion problem is from the LOSS WEIGHTS,
+not K reduction. K reduction actually REDUCES explosions vs same-loss K=16 control.
+
+164a baseline passes S1 due to OLD loss weights (IS=0.05, VS=0.5), not K=16.
+
+### No Single Model Dominates (Pareto Frontier)
+Best per metric: 167b wins 5/14 metrics, 166a wins 4/14, 164a wins 2/14, 168c wins 2/14.
+168c has best conditionality of all 8 models (turb/calm 1.311, worst-cell MAE 41.8%).
+
+### 167b Zero-Explosion Puzzle
+167b (factorized, CLN frozen) has 0.0% explosion with corrected loss. All other
+corrected-loss models explode. Likely because reflecting_boundary is in 167b's
+sample_batched (via ar_generate) but NOT in baseline's sample_batched. Need verification.
+
+### Decision
+S1 explosions solvable via: (1) reflecting_boundary in ar_generate, (2) higher lambda_floor,
+(3) longer training. 168c (K=4) is most promising for full 80-epoch run with fix.
+Awaiting Codex independent verification before committing.
+
+---
