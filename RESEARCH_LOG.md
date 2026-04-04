@@ -51880,3 +51880,254 @@ The path forward is either: (a) intermediate IS lambda (0.01-0.02) to balance S2
 or (c) combine with K=8 (RC22 H2) to change the centering/spread gradient balance.
 
 ---
+
+## 2026-04-03: Codex Review #1 — Factorized Decoder Proposal (RC22)
+
+### Codex's Independent Diagnosis
+Codex read all RC21/RC22 experiments and diagnostics on disk. Key conclusions:
+
+1. **Root cause is deeper than "centering through shared params."** The decoder uses one
+   shared attention trunk for both conditional drift AND stochastic factor structure. This
+   architectural conflation is what makes every centering fix create tradeoffs.
+
+2. **The model traces a Pareto frontier, not a missed lambda:** baseline 6/9 (S2 side),
+   165a_v2 6/9 (S3 side), 166a 6/9 (S4/S8 side). Three different 6/9 compositions from
+   the same architecture. More tuning won't escape this frontier.
+
+3. **Loss tuning has reached its ceiling.** The evidence supports a structural decoder change.
+
+### Codex's Original Proposal: Factorized Additive Innovation
+```python
+h_t = trunk(cond_t, prev_t)
+mu_t = mu_head(h_t)                    # explicit conditional mean
+L_t = load_head(h_t).view(B*K, 25, r)  # factor loading matrix (r≈5)
+eps_k = torch.randn(B*K, r)
+delta_k = mu_t + L_t @ eps_k
+frame_k = prev_k + torch.tanh(delta_k)
+```
+Rationale: centering gradient → mu_head, spread gradient → load_head. Post-attention
+noise injection prevents attention from collapsing factor structure. CRPS only, no MSE.
+
+### Additional Codex Findings
+- Gradient decomposition numbers are inconsistent across artifacts (2.9x vs 1.81x) —
+  qualitative conclusion survives, exact percentages overclaimed
+- 165a_v2's 6/9 is checkpoint-sensitive (raw best is 4/9, needs final+RB for 6/9)
+- "Spread is adequate" should be "centering is the dominant fixable issue" (finite-K matters)
+- Low-rank factorized outputs are standard at similar scale (DeepVAR rank=5, GPVar)
+
+---
+
+## 2026-04-03: Individual Authenticity Philosophy — Challenge to Factorized Decoder
+
+### The Philosophical Concern
+The user challenged whether mu_head violates the "individual authenticity" principle
+developed during RC21:
+
+**"We are not predicting the conditional mean. The conditional mean should be something
+that is baked into individual scenarios."**
+
+Key arguments:
+1. We only observe one GT realization per window — can't directly learn P(future|history)
+2. Each scenario must be INDIVIDUALLY realistic (valid surface, correct dynamics, mean-reversion)
+3. The conditional mean should EMERGE from the population of authentic scenarios
+4. Every H1 experiment that ENGINEERED the conditional mean via auxiliary losses created tradeoffs
+5. mu_head explicitly parameterizes the conditional mean (E[delta_k] = mu_t since E[L@eps]=0)
+6. This is structurally similar to V2's mean head — same conceptual problem
+
+### Codex's Revised Position (Review #2)
+Codex agreed the mu_head framing violates the principle. Revised proposal:
+
+```python
+h_k = trunk(cond_k, prev_k)
+delta_base = base_head(h_k)                     # shared innovation (NOT "conditional mean")
+L = load_head(h_k).view(B*K, 25, r)
+eps = torch.randn(B*K, r)
+delta = delta_base + torch.einsum("bcr,br->bc", L, eps)
+frame = prev_k + torch.tanh(delta)
+```
+
+Key changes: renamed mu_head → base_head (not conceptually "the conditional mean"),
+CRPS-only training (no auxiliary centering loss), noise enters post-attention so trunk
+can't collapse it to rank-1.
+
+**Why this survives the philosophy challenge:**
+- No separate mean target, no MSE on population statistics
+- Each member is scored only as part of the scenario-generating law under CRPS
+- The "center" is just the shared part of the same scenario generator
+- Noise added after attention trunk prevents rank compression
+
+**Caveats Codex acknowledged:**
+- No proof this makes S2/S3 tradeoff impossible (it's an inductive bias, not a guarantee)
+- The trunk could still learn rank-1 h_t → rank-1 L_t
+- The difference from V2 is real (no separate MSE objective) but not absolute
+
+---
+
+## 2026-04-03: Codex Review #3 — Encoder 98/2 Split and Execution Order
+
+### Question
+Does the encoder's 98/2 discriminative split need fixing before or after the decoder change?
+
+### Codex's Assessment
+
+**The 98/2 split IS a real problem but NOT the first problem to solve.**
+
+Evidence: the 2% residual carries sufficient signal (VoV R²=0.87, mean head could exploit
+it with correlation 0.36-0.55). The problem is how the decoder RECEIVES the condition,
+not the encoder itself.
+
+**Critical insight: load_head will inherit the 98/2 problem** if it receives the raw condition
+through the same broadcast-add pathway. The shared component dominates → L_t is nearly
+constant across windows → unconditional spread regardless of regime.
+
+### Codex's Solution: Split Conditioning Pathways
+
+```python
+cond_shared = cond                           # full condition (operating point)
+cond_resid = cond - cond_ref                 # centered residual (discriminative only)
+
+h_base = trunk_base(prev_k, cond_shared)     # base innovation: full condition
+h_load = trunk_load(prev_k, cond_resid)      # factor loadings: discriminative signal only
+
+delta_base = base_head(h_base)
+L = load_head(h_load).view(B*K, 25, r)
+eps = torch.randn(B*K, r)
+delta = delta_base + torch.einsum("bcr,br->bc", L, eps)
+frame = prev_k + torch.tanh(delta)
+```
+
+**Why split conditioning:**
+- base_head needs the full condition (including shared offset) for correct operating point
+- load_head needs ONLY the discriminative residual — the 98% shared component is noise for
+  factor structure decisions
+- Subtracting cond_ref (running mean or learned reference) removes the shared component
+- FiLM-style (multiplicative) injection for cond_resid into load_head preferred over broadcast-add
+
+### Recommended Execution Order (Codex)
+1. **Decoder output geometry + split conditioning pathway** (this experiment)
+2. **Evaluate:** does L_t vary across windows? Does shuffle-cond now hurt?
+3. **Only if L_t is constant → add encoder contrastive loss (H2)**
+
+### Kill Checks
+- Variance of L across windows (should be high)
+- Shuffle-condition impact > 0% (currently ~0%)
+- Turb/calm width ratio improves from 1.185
+- If all fail → encoder needs fixing
+
+---
+
+## 2026-04-03: Research Compass RC22 v2 — Factorized Decoder with Split Conditioning (Codex-reviewed)
+
+### Philosophy Applied
+- **Individual Authenticity**: No separate conditional mean target. Each scenario is independently
+  realistic. The conditional mean emerges from the population.
+- **Bitter Lesson**: All components learned from data. Factor rank r is a hyperparameter like hidden_dim.
+- **Karpathy**: Factorized decoder is independently testable from encoder changes.
+- **Popper**: Kill conditions at epoch 10-20 prevent wasted GPU time.
+
+### Evidence Summary
+
+**Proven root causes (from RC21 H1 series + RC22 166a + 3 Codex reviews):**
+1. The decoder's attention trunk conflates conditional drift and stochastic factor structure
+2. Noise enters through CLN BEFORE attention → attention collapses it to rank-1+
+3. IS at lambda=0.05 was 66% of gradient — fixing to 0.005 improved S4/S8 dramatically
+4. CRPS allocates 2.9x more gradient to spread than centering (qualitatively robust, exact % varies)
+5. The model achieves GT factor structure at epoch 10, then CRPS destroys it by epoch 40
+6. Encoder 98/2 split: NOT collapse, but decoder under-exploits the 2% discriminative residual
+7. Oracle debiasing → 100% coverage on ALL models (spread always adequate, centering always wrong)
+8. The architecture traces a Pareto frontier: baseline 6/9 (S2 side), V2 6/9 (S3 side),
+   166a 6/9 (S4/S8 side). More tuning won't escape this frontier.
+
+**Exhausted directions:**
+- Separate mean head + MSE: capacity displacement, S2/S3 tradeoff (V2: 7 experiments)
+- Ensemble mean MSE on shared decoder: spread compression (165b, 165b_v2)
+- IS/VS loss rebalancing: improves distributional quality but doesn't solve centering (166a)
+- noise_dim reduction: bottleneck is decoder attention, not noise input (falsified pre-experiment)
+
+### Active Hypotheses
+
+#### H1: Factorized Decoder with Split Conditioning (PRIORITY 1, Codex-reviewed x3)
+
+**Evidence chain**: Current decoder uses one shared trunk for drift AND factor structure.
+Attention compresses 27 noise dims to rank-1+. Every centering fix through shared params
+creates tradeoffs. The Pareto frontier confirms this is architectural, not tunable.
+
+**Principled argument**: Post-attention noise injection prevents rank compression. Split
+conditioning ensures load_head sees ONLY discriminative signal (not the 98% shared offset).
+Low-rank factorized outputs are standard at similar scale (DeepVAR rank=5, GPVar).
+
+**The bet**: Replace current decoder output with factorized innovation:
+```python
+# Split conditioning
+cond_shared = cond                           # full condition (operating point)
+cond_resid = cond - cond_ref                 # discriminative residual only
+# cond_ref = running mean across training windows (precomputed, not learned)
+
+# Shared trunk (existing attention stack, slightly modified)
+h_base = trunk(prev_k, cond_shared)          # existing decoder minus output_proj
+
+# Factorized output heads
+delta_base = base_head(h_base)               # (B*K, 25) — shared innovation
+L = load_head(h_base, cond_resid)            # (B*K, 25, r) — condition-dependent loadings
+# load_head uses FiLM-style injection of cond_resid (multiplicative, not additive)
+
+# Per-member stochastic innovation
+eps = torch.randn(B*K, r, device=device)     # r ≈ 5 factors
+delta = delta_base + torch.einsum("bcr,br->bc", L, eps)
+frame = prev_k + torch.tanh(delta)           # additive AR carry preserved
+```
+
+**Training**: CRPS only. No MSE on base_head, no auxiliary centering loss. Use 166a loss
+weights (IS=0.005, VS=1.0). The center emerges from individual scenario authenticity.
+
+**Staged checkpoints**:
+1. (1h) Implement factorized decoder. Smoke test. Verify shapes and gradients flow.
+2. (2h) Train 40 epochs. Check at epoch 10: noise eff_rank, L variance across windows,
+   shuffle-cond sensitivity. If eff_rank < 3 and L variance near zero → STOP.
+3. (2h) Full 80 epochs if stage 2 passes. V2 test suite on both best and final.
+
+**Falsification test**:
+- Stage 2: noise eff_rank stays at baseline (~2-3) → factorization didn't help
+- Stage 2: L_t variance across windows is near zero → split conditioning didn't help
+- Stage 3: S2 doesn't improve from baseline → the architecture wasn't the bottleneck
+- Stage 3: S3/S4/S5/S9 regress → the factorization broke something
+
+**Independence**: Does NOT depend on encoder changes. Tests whether existing 2% discriminative
+signal is sufficient when properly delivered to load_head.
+
+**If it fails**: The 2% discriminative signal is genuinely insufficient. Proceed to H2
+(encoder contrastive loss) to increase it.
+
+**Effort**: Stage 1: 1h, Stage 2: 2h, Stage 3: 2h
+
+#### H2: K Reduction (K=8, B=32) (PRIORITY 2, independent)
+
+Same as before. SOTA uses K=2-4. Our K=16 has centering/spread ratio 1.07. K=8 gives 1.14.
+Can be tested independently on either the baseline or the factorized decoder.
+
+**Effort**: 0 implementation, 2h training
+
+#### H3: Encoder Contrastive Loss (PRIORITY 3, conditional on H1 result)
+
+RC21 H2 (InfoNCE on encoder bottleneck). Only run if H1's load_head produces constant L
+across windows (meaning the 2% discriminative signal is insufficient). If H1 shows L varies
+meaningfully, encoder is fine as-is.
+
+**Effort**: 1h implementation, 2h training
+
+#### H4: Intermediate Epoch Selection (PRIORITY 4, no-cost follow-up)
+
+The model achieves GT factor structure at epoch 10. Save checkpoints every 5 epochs.
+Evaluate epochs 10, 15, 20, 25, 30 on the test suite. The sweet spot may be epoch 20-30
+where factor structure is partially preserved but CRPS hasn't fully compressed it.
+
+Applies to ANY new training run. Zero additional cost — just save more checkpoints.
+
+### Open Questions
+1. Will the shared trunk learn a degenerate h_t that makes L_t rank-1 anyway?
+2. Is cond_ref (running mean) the right reference, or should it be a learned parameter?
+3. Should load_head use FiLM(cond_resid) or concatenation? Literature suggests FiLM.
+4. What is the right r? Start with r=5 (GT factor count). Try r=3 and r=8 as ablations.
+5. Does the factorized decoder need the CLN noise pathway too, or does L@eps replace it?
+
+---
