@@ -52564,3 +52564,76 @@ Hard constraint: all mainline experiments must be end-to-end trainable from scra
 Warm-start/freeze recipes are acceptable only for debugging and mechanistic understanding.
 
 ---
+
+## 2026-04-04: Exp 167d — End-to-End Factorized Decoder (CLN Active)
+
+### Context
+167b proved L can survive with 4 fixes but CLN frozen (not end-to-end). Codex review
+#4 recommended 167d: same as 167b but CLN active. Only standard/publishable fixes
+kept: wd=0 for load_head+FiLM, simple Linear head, (1+gamma) FiLM. Train from scratch.
+
+**Hypothesis**: L can survive end-to-end with CLN competition if wd=0 prevents death spiral.
+**Prediction**: L_norm stable, MR near baseline (-0.22), 6/9.
+
+### Training
+```bash
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_167d_e2e_factorized.py     --epochs 20 --batch_size 16 --n_members 16 --noise_dim 32 --n_factors 5     --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5     --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10     --output_dir models/backfill/afcrps_167d --device cuda
+```
+
+### Results: 5/9 (L survived but S3 worst-cell FAIL)
+
+| Suite | Baseline (6/9) | 167b (6/9, CLN frozen) | **167d (5/9, e2e)** |
+|-------|:-:|:-:|:-:|
+| S1 | PASS | PASS | PASS |
+| S2 | FAIL | FAIL | FAIL (CI=75.5%) |
+| S3 | PASS | PASS | **FAIL** (worst cell -51.5%) |
+| S4 | PASS | PASS | PASS (1.200) |
+| S5 | PASS | PASS | PASS |
+| S6 | PASS | PASS | PASS |
+| S7 | FAIL | FAIL | FAIL |
+| S8 | FAIL | FAIL | FAIL |
+| S9 | PASS | PASS | PASS |
+
+S3 failure: turb/calm ratio 1.291 (PASS), MAE reduction 77.9% (PASS), but
+worst_cell_mae_reduction = -51.5% (FAIL) and worst_cell_width_ratio = 2.001 (FAIL).
+Same per-cell conditionality pattern as 167a.
+
+### L Trajectory (key diagnostic)
+
+| Epoch | L_norm | L_rank | Notes |
+|-------|--------|--------|-------|
+| 1 | 0.065 | 4.31 | Similar to 167b start |
+| 7 | 0.096 | 2.89 | Growing with CLN active |
+| 11 | 0.123 | 2.50 | Peak norm |
+| 14 | 0.145 | 3.11 | Still growing |
+| 20 | 0.077 | 3.38 | Oscillating, stable |
+
+L_norm oscillated 0.07-0.14 throughout — ALIVE and stable. Never died like 167a.
+The wd=0 fix is SUFFICIENT to keep L alive even with CLN competition.
+
+### What Was Learned
+
+1. **L survives end-to-end with wd=0**: The critical finding. CLN competition alone
+   does NOT kill L when weight decay is removed. This means wd=0 + simple Linear head
+   + (1+gamma) FiLM is a viable, publishable, end-to-end method.
+
+2. **But 5/9, not 6/9**: The factorized head introduces per-cell conditionality issues
+   (worst cell MAE -51.5%). The FiLM pathway modulates some cells excessively,
+   creating outlier behavior. This is the same S3 failure pattern as 167a.
+
+3. **Only 20 epochs**: Baseline was trained for 80 epochs. The 5/9 may improve with
+   longer training. However, the S3 worst-cell pattern appeared in 167a at 80 epochs
+   too, so this may be structural.
+
+4. **The Pareto frontier persists**: Every factorized variant either loses S3 (167a,
+   167d) or loses centering (167b). The architecture adds capability but doesn't
+   break the frontier at 20 epochs.
+
+### Decision
+
+VALUABLE RESULT — L survives e2e (the binary question is answered YES). But 5/9
+doesn't beat baseline. Two directions worth pursuing:
+- Full 80-epoch run of 167d to see if S3 improves with more training
+- H5 (K=4 probe) to address the centering blocker directly
+
+---
