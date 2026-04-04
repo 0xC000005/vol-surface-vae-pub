@@ -1,0 +1,30 @@
+{
+  "test": "167d_gradient_competition",
+  "model": "models/backfill/afcrps_167d/best_model.pt",
+  "verdict": "COOPERATION",
+  "cln_competition": false,
+  "L_competition": false,
+  "cln_ratio_L_detached": 0.7014198828225621,
+  "L_ratio_CLN_zeroed": 0.7046114185708209,
+  "per_cell_correlation": 0.7758403295291146,
+  "multi_batch_cln_ratio_mean": 0.7879613438983583,
+  "multi_batch_load_ratio_mean": 0.9472967301118629,
+  "multi_batch_cln_ratio_std": 0.06616695189923569,
+  "multi_batch_load_ratio_std": 0.18220980497398426,
+  "worst_s3_cell_1_4": {
+    "cell_idx": 9,
+    "cln_grad": 0.00409468449652195,
+    "L_grad": 0.00026099110255017877,
+    "cln_over_L_ratio": 15.688981056213379,
+    "dominance": "CLN"
+  },
+  "worst_s3_cell_1_0": {
+    "cell_idx": 5,
+    "cln_grad": 0.00879574939608574,
+    "L_grad": 0.0003609459672588855,
+    "cln_over_L_ratio": 24.36860466003418,
+    "dominance": "CLN"
+  },
+  "cln_edge_over_center": 1.953099250793457,
+  "L_edge_over_center": 1.1284528970718384
+}

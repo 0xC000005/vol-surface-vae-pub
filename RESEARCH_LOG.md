@@ -52734,3 +52734,57 @@ blocker directly without the CLN/L competition issue. If K=4 improves S2, then
 combine K=4 with factorization (without CLN) for the best of both worlds.
 
 ---
+
+## 2026-04-04: CORRECTION — Gradient Competition Refuted + Consistent MR Established
+
+### Gradient Vector Measurement: COOPERATION, Not Competition
+
+Direct ablation tests on 167d refute the "CLN/L gradient competition" hypothesis:
+
+| Ablation | Effect | Prediction if competition | Actual |
+|----------|--------|--------------------------|--------|
+| Detach L → CLN grad | Should INCREASE | **DECREASED to 70%** |
+| Zero CLN → L grad | Should INCREASE | **DECREASED to 70%** |
+
+Both pathways receive LESS gradient when the other is removed. Per-cell gradient
+correlation = 0.776 (positively correlated). Verdict: **COOPERATION**.
+
+The real issue is **gradient asymmetry**, not competition:
+- CLN/L gradient ratio at edge cells: 15-24x (CLN dominates)
+- CLN edge/center ratio: 1.95x (non-uniform)
+- L edge/center ratio: 1.13x (nearly uniform)
+- CLN has ~1.7M params vs L's 645 params
+
+L is effectively BLIND at edge cells where CLN dominates 24x. The inverted regime
+loading at cell (1,0) is likely from L being undertrained there (insufficient gradient
+signal), not from competition.
+
+### Consistent Mean Reversion (Apples-to-Apples)
+
+CORRECTS all prior MR numbers. Same methodology: 200 test windows, first AR step,
+regression delta vs prev_frame.
+
+| Model | Slope | MR/GT | Prior claim | Correction |
+|-------|-------|-------|-------------|------------|
+| GT | -0.207 | 100% | -0.44 | Different methodology |
+| Baseline | -0.072 | 34.7% | "50%" | Overstated |
+| 167b (CLN frozen) | -0.162 | **78.4%** | "11.8%" | MASSIVELY understated |
+| 167d (CLN active) | -0.120 | 58.2% | "147.7%" | Overstated |
+
+167b has the BEST centering because base_head is forced to learn ALL centering when
+CLN is frozen. When CLN is active (167d), it absorbs spatial variation, so base_head
+develops weaker centering. This is functional redistribution, not competition.
+
+L@eps contribution to centering: negligible (+/-0.005 on slopes). L is diversity-only.
+
+### Implications
+
+1. "Gradient competition" narrative was WRONG — corrected to "gradient asymmetry"
+2. All prior MR percentages were misleading due to inconsistent methodologies
+3. 167b actually has the best centering (78.4% GT), not worst as previously claimed
+4. The factorization Pareto frontier is real but the mechanism is asymmetry + 
+   functional redistribution, not competition
+5. K=4 baseline remains the right next experiment — it addresses centering without
+   the CLN/L interaction issue entirely
+
+---
