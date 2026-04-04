@@ -1,41 +1,37 @@
 [
   {
-    "name": "RC22 H1: Loss Rebalancing (IS=0.005, VS=1.0)",
-    "theory": "IS at lambda=0.05 was 66% of gradient (intended ~10%), starving CRPS and VS. VS at 5% is too weak to prevent attention layers from collapsing noise to rank-1. Rebalanced: CRPS 63%, VS 23%, IS 14%. VS boost should preserve the multi-factor structure the decoder naturally learns at epoch 10 (GT-matched: corr=0.389, eff_rank=2.35) but CRPS destroys by epoch 40.",
-    "target": "Noise effective rank increases from ~2 to 3+. S2 improves. S9 preserved. Total >= 7/9.",
-    "implementation": "Two hyperparameter changes on baseline softplus: --lambda_is 0.005 --lambda_vs 1.0. No architecture change.",
-    "kill_condition": "Noise effective rank at epoch 80 unchanged from baseline (~2 factors). Or S4 kurtosis < 0.5.",
-    "if_fails": "VS alone cannot counterbalance CRPS rank-1 attractor. Need architectural change (factored FiLM) or freeze-at-peak.",
+    "name": "RC22 H1 (old): Loss Rebalancing (IS=0.005, VS=1.0)",
+    "theory": "Fix gradient budget: IS 66%→14%, VS 5%→23%.",
+    "attempts": 1,
+    "max_attempts": 2,
+    "status": "exhausted",
+    "result": "166a: 5/9 best, 4/9 final. S4 perfect (1.000), S8 median_bias PASS. But S2 still FAIL (spread tighter). IS reduction was the primary driver. Loss tuning reached its ceiling — architecture is the bottleneck."
+  },
+  {
+    "name": "RC22 H1 (v2): Factorized Decoder with Split Conditioning",
+    "theory": "The decoder's attention trunk conflates conditional drift and stochastic factor structure. Noise enters via CLN before attention → attention compresses to rank-1. Fix: factorized output heads (base_head + load_head) with post-attention noise injection via L@eps. Split conditioning: load_head receives cond_resid (discriminative residual) via FiLM, not the 98% shared component. CRPS only, no MSE. Individual scenario authenticity.",
+    "target": "Noise eff_rank > 3. S2 PASS. S3/S4/S5/S9 preserved. Total >= 7/9.",
+    "implementation": "New decoder class FactorizedSpatialTransformerDecoder. base_head(h)→delta_base. load_head(FiLM(h, cond_resid))→L(25×5). eps~N(0,I_5). delta=delta_base+L@eps. frame=prev+tanh(delta). cond_ref=detached EMA. load_head small random init (std=0.01). 166a loss weights (IS=0.005, VS=1.0).",
+    "kill_condition": "Stage 2 (ep20): eff_rank<3, L variance near zero, S3 regresses, delta_base under-reversion ≈ -0.22.",
+    "if_fails": "Encoder 2% discriminative signal insufficient → H3 contrastive loss. Or: trunk learns degenerate h_t → need deeper architectural change.",
     "attempts": 0,
     "max_attempts": 2,
     "status": "active"
   },
   {
     "name": "RC22 H2: K Reduction (K=8, B=32)",
-    "theory": "SOTA uses K=2-4. Our K=16 has centering/spread ratio 1.07 (balanced). K=8 gives 1.14 (centering dominant). Each scenario gets stronger individual MAE gradient. B=32 K=8 gives same B*K=256 VRAM.",
-    "target": "S2 centering improves. Individual scenario quality increases.",
+    "theory": "SOTA uses K=2-4. Our K=16 has centering/spread ratio 1.07. K=8 gives 1.14.",
+    "target": "S2 centering improves.",
     "kill_condition": "Spread collapses (std < 50% baseline).",
-    "if_fails": "K is not the bottleneck at our scale.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "queued"
   },
   {
-    "name": "RC22 H3: Factored Condition-Noise FiLM",
-    "theory": "CLN uses scale(z) not scale(z,cond). Condition doesn't modulate noise amplitude. Factored FiLM: gamma = gamma_cond(cond) * gamma_noise(z). Condition controls amplitude, noise controls pattern.",
-    "target": "Turb/calm width ratio increases. Condition-dependent spread.",
-    "kill_condition": "Turb/calm ratio doesn't improve from 1.185.",
-    "if_fails": "The implicit condition-noise interaction through h is sufficient.",
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "queued"
-  },
-  {
-    "name": "RC22 H4: Encoder 98/2 Fix (Contrastive, from RC21 H2)",
-    "theory": "Encoder condition is 98% shared constant. Contrastive loss (InfoNCE) pushes conditions from different regimes apart. More discriminative conditions help all downstream components.",
-    "target": "Encoder probe accuracy improvement. S7 L2 improvement.",
+    "name": "RC22 H3: Encoder Contrastive Loss (conditional on H1 v2)",
+    "theory": "Encoder condition 98% shared. InfoNCE pushes regimes apart. Only run if H1 v2's load_head produces constant L across windows (meaning 2% discriminative signal insufficient).",
+    "target": "Encoder probe accuracy improvement. L variance across windows increases.",
     "kill_condition": "Probe accuracy doesn't improve.",
-    "if_fails": "Encoder has enough info. Problem is fully downstream.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "queued"

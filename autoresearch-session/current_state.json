@@ -1,11 +1,14 @@
 {
-  "compass": "RC22",
-  "iteration": 0,
-  "experiment_id": null,
+  "compass": "RC22 v2",
+  "iteration": 2,
+  "experiment_id": "167a",
   "training_status": "ready",
-  "phase": "setup",
-  "hypothesis": "RC22 H1: Loss rebalancing — IS=0.005 (from 0.05), VS=1.0 (from 0.5). Fix gradient budget: CRPS 63%, VS 23%, IS 14% (was CRPS 29%, VS 5%, IS 66%).",
-  "baseline": "softplus best ep11 = 6/9 (S1,S3,S4,S5,S6,S9). Trained with IS=0.05 VS=0.5.",
+  "phase": "implementation",
+  "hypothesis": "RC22 H1 (v2): Factorized decoder with split conditioning. Post-attention noise injection via L@eps prevents rank compression. Split conditioning: load_head sees cond_resid (discriminative only) via FiLM. CRPS only, no MSE.",
+  "prediction": "Noise eff_rank increases from ~2 to 3+. S2 improves. S3/S4/S5/S9 preserved. Total >= 7/9.",
+  "risk": "load_head may not activate (zero-gradient trap mitigated by small random init). Trunk may still learn degenerate h_t. Under-reversion may persist.",
+  "baseline": "softplus best ep11 = 6/9. 166a best+RB = 6/9 (S4 perfect, S8 improved).",
   "branch": "autoresearch-session-rc22",
-  "next_action": "Run Exp 166a: baseline softplus with lambda_is=0.005 lambda_vs=1.0"
+  "plan_file": ".claude/plans/curious-soaring-mitten.md",
+  "next_action": "Implement train_167a_factorized.py per approved plan"
 }
