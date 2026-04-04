@@ -29,20 +29,21 @@
     "target": "L_norm stable (not dying). L_eff_rank >2.5. MR slope near baseline (-0.22). S3 PASS. Total >= 6/9.",
     "kill_condition": "L_norm declines like 167a. base/load grad ratio returns >3. L_eff_rank stays ~2.",
     "if_fails": "Factorization is dead as publication path under end-to-end constraint. Pivot to loss-level research (H5 K reduction, H6 stop-gradient routing).",
-    "attempts": 0,
+    "attempts": 1,
     "max_attempts": 1,
-    "status": "active",
-    "budget": "20 epochs (~35 min)"
+    "status": "completed",
+    "budget": "20 epochs (~35 min)",
+    "result": "167d: 5/9 (S3 worst-cell FAIL). L survived e2e (L_norm 0.07-0.14 stable). BUT doesn't beat baseline. Gradient asymmetry (not competition): CLN dominates 15-24x at edge cells. Sampled MR=67% GT. Factorization solves trainability, not the frontier."
   },
   {
     "name": "RC22 H5: K Reduction (K=4, end-to-end centering probe)",
-    "theory": "Low K increases centering/spread gradient ratio within CRPS. K=16 centering/spread=1.07. K=4 should give ~1.5x. SOTA uses K=2-4 (FGN, AIFS-CRPS). End-to-end, philosophy-consistent, directly targets S2 centering which is the real frontier blocker. Codex-recommended.",
-    "target": "S2 centering improves. MR slope closer to GT (-0.44). Individual scenarios more authentic.",
-    "kill_condition": "Spread collapses (std < 50% baseline). Or kurtosis destroyed.",
-    "note": "Can run in parallel with or after H1v4. Does not depend on factorization outcome. Addresses the REAL blocker (centering) not factor rank. Codex review #4: 'much more relevant to S2 than 167c'.",
+    "theory": "Low K increases centering/spread gradient ratio within CRPS. K=16 centering/spread=1.07. K=4 should give ~1.5x. SOTA uses K=2-4 (FGN, AIFS-CRPS). End-to-end, philosophy-consistent, directly targets S2 centering which is the real frontier blocker. Confirmed by 6 Codex reviews.",
+    "target": "S2 centering improves. Sampled MR slope closer to GT. Individual scenarios more authentic.",
+    "kill_condition": "Spread collapses (std < 50% baseline). Or S4 kurtosis destroyed. Or S9 correlation breaks.",
+    "note": "Highest priority. Directly targets the REAL blocker (centering, baseline ~56% GT). Does not depend on factorization. Centering protocol: measure BOTH deterministic + sampled mean slopes.",
     "attempts": 0,
     "max_attempts": 2,
-    "status": "queued"
+    "status": "active"
   },
   {
     "name": "RC22 H2: K Reduction (K=8, B=32) — original",

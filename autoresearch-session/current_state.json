@@ -1,14 +1,13 @@
 {
   "compass": "RC22 v4",
-  "iteration": 4,
-  "experiment_id": "167d",
+  "iteration": 5,
+  "experiment_id": "168a",
   "training_status": "ready",
   "phase": "implementation",
-  "hypothesis": "RC22 H1 (v4): End-to-end factorized decoder. Same as 167b but CLN is ACTIVE (not frozen). Keeps fixes 2-4: wd=0 for load_head+FiLM, simple Linear load_head, (1+gamma) FiLM. Train from scratch 20 epochs. Binary answer: can L@eps survive end-to-end with CLN competition?",
-  "prediction": "If CLN competition is minor (as gradient attribution suggested): L_norm stable, MR near baseline (-0.22), 6/9. If CLN competition is dominant: L dies like 167a.",
-  "risk": "L may die from CLN competition despite wd=0. Or L may survive but MR still collapses without CLN centering contribution.",
-  "baseline": "167b: 6/9, L alive but MR=12% GT. Baseline: 6/9, MR=50% GT.",
+  "hypothesis": "RC22 H5: K=4 baseline. Reduce ensemble size from K=16 to K=4 to increase centering/spread gradient ratio within afCRPS. End-to-end, no factorization. SOTA uses K=2-4 (FGN K=2, AIFS-CRPS K=4). Directly targets S2 centering blocker.",
+  "prediction": "S2 CI coverage improves (centering gradient ratio increases). S3/S4/S5 preserved. Risk: S4 kurtosis or S9 correlation may degrade with fewer members.",
+  "baseline": "164a_v3 softplus best: 6/9 (K=16). Sampled MR: ~56% GT.",
   "branch": "autoresearch-session-rc22",
-  "next_action": "Implement train_167d_e2e_factorized.py — 167b code with CLN unfrozen",
-  "hard_constraint": "End-to-end trainable from scratch. No warm-start. No freeze/unfreeze phases."
+  "next_action": "Implement train_168a_k4.py based on baseline 164a_v3 with K=4, B=32. Include centering protocol.",
+  "centering_protocol": "BOTH deterministic-path slope AND sampled first-step mean slope, 200 windows, 50+ MC draws"
 }
