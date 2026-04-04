@@ -52333,3 +52333,43 @@ Findings documented. Waiting for Codex independent verification before committin
 to next experiment. All validation artifacts saved to results/validations/2026-04-04/.
 
 ---
+
+## 2026-04-04: Codex Review x2 — 167a Failure Diagnosis & 167b Design
+
+### Context
+Two independent Codex verifications of the 167a failure mechanism and proposed next step.
+Both reviews had access to all investigation artifacts on disk.
+
+### Codex Verdict: PARTIAL (both reviews)
+
+Both reviews agree our interpretation was directionally correct but imprecise:
+
+**Confirmed**: Factor path died, weight decay dominates gradient, L never developed
+5-factor structure, tanh saturation is NOT the cause.
+
+**Corrected**:
+1. "eff_rank=2.55" was L's rank, not full model rank (full model was 8.3-9.4)
+2. "CRPS doesn't incentivize rank" made precise: d(spread)/d(L) is proportional to
+   ||l_c|| (row norm). CRPS rewards amplitude, NOT orthogonality or rank.
+3. S3 regression is NOT from FiLM interfering with trunk (base_head uses raw h)
+4. Root cause framing: not "architecture can't solve rank" but "optimizer won't choose
+   new path while old one is cheaper and decay shrinks the new one"
+
+**Novel issues found by Codex**:
+1. FiLM BUG: code uses gamma*h+beta instead of (1+gamma)*h+beta. Suppresses h at init.
+2. load_head 128->128->5 hidden layer creates massive WD surface (35,444x ratio on first
+   layer) — simplify to Linear(d_model, n_factors)
+3. "Not gradient starvation, but redundancy" — L is optional while CLN works
+
+### Decision: Exp 167b (Clean Isolation Test, Codex-designed)
+
+Four simultaneous fixes to isolate whether factorized L@eps can work at all:
+1. Freeze CLN to zero (remove competing diversity path)
+2. wd=0 for load_head + cond_resid_film (remove 27x kill mechanism)
+3. Fix FiLM: (1+gamma)*h+beta (identity at init)
+4. Simplify load_head: Linear(d_model, n_factors) (remove 35,444x WD first layer)
+
+Kill conditions (from Codex): L_eff_rank stays ~2, factor-only PC1 >0.8, spread shrinks.
+Budget: 20 epochs (~35 min). This is ONE clean retry — if it fails, abandon factorized L@eps.
+
+---

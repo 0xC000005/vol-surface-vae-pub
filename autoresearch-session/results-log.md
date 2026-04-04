@@ -29,7 +29,8 @@
 | # | Exp ID | Direction | Key Metrics | Decision |
 |---|--------|-----------|-------------|----------|
 | 1 | 166a | Loss rebalance: IS=0.005 VS=1.0 | 5/9 best (S4=1.000, S8 bias PASS) S2 FAIL | EXHAUSTED — loss tuning ceiling reached |
-| 2 | 167a | Factorized decoder + split conditioning | 5/9 best, 5/9 final. eff_rank=2.55. L_norm: 0.08→0.01. S3 FAIL. | VALUABLE FAILURE — arch capacity without loss incentive doesn't work |
+| 2 | 167a | Factorized decoder + split conditioning | 5/9 best, 5/9 final. L_eff_rank=2 (never developed 5 factors). L_norm: 0.08→0.01. S3 FAIL. | VALUABLE FAILURE — 4 confounded issues found (Codex x2) |
+| — | 167b | Clean isolation: freeze CLN, wd=0, fix FiLM, simple head | Target: L_eff_rank>3, factor PC1<0.8 | NEXT (20ep diagnostic, ~35 min) |
 
 ## RC22 v2 Key Finding (from 166a + 3 Codex reviews)
 - The architecture traces a Pareto frontier (baseline/V2/166a all 6/9 different compositions)
@@ -37,3 +38,14 @@
 - Factorized output (base_head + load_head) separates drift from factor structure post-attention
 - Split conditioning (cond_resid via FiLM for load_head) addresses 98/2 encoder dominance
 - Codex corrections: small random init for load_head, detached EMA for cond_ref, under-reversion kill check
+
+## RC22 v3 Key Finding (from 167a investigation + Codex x2)
+- 167a failed due to 4 confounded issues, NOT "architecture alone can't work"
+- afCRPS gradient to L: d(spread)/d(L) proportional to ||l_c|| (row norm), NOT rank
+- Weight decay removed 27x more from load_head than gradient added (confirmed)
+- FiLM bug: gamma*h+beta suppresses input at init (should be (1+gamma)*h+beta)
+- load_head 128→128→5 hidden layer had 35,444x WD/grad on first layer
+- L was always rank-2 (never used more than 2 of 5 output dimensions)
+- Factor-only output is intrinsically low-rank (PC1=86%, eff_rank=3.1) even without CLN
+- Full model eff_rank was actually 8.5-9.4 (CLN-dominated), not 2.55 as initially reported
+- Codex consensus: one clean retry (167b), then abandon if L stays rank-2

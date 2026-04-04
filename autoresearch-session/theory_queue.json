@@ -5,33 +5,55 @@
     "attempts": 1,
     "max_attempts": 2,
     "status": "exhausted",
-    "result": "166a: 5/9 best, 4/9 final. S4 perfect (1.000), S8 median_bias PASS. But S2 still FAIL (spread tighter). IS reduction was the primary driver. Loss tuning reached its ceiling — architecture is the bottleneck."
+    "result": "166a: 5/9 best, 4/9 final. S4 perfect (1.000), S8 median_bias PASS. But S2 still FAIL. IS reduction was the primary driver."
   },
   {
     "name": "RC22 H1 (v2): Factorized Decoder with Split Conditioning",
-    "theory": "The decoder's attention trunk conflates conditional drift and stochastic factor structure. Post-attention noise injection via L@eps prevents rank compression. Split conditioning via FiLM.",
+    "theory": "Post-attention noise injection via L@eps prevents rank compression. Split conditioning via FiLM.",
     "attempts": 1,
     "max_attempts": 2,
     "status": "exhausted",
-    "result": "167a: 5/9 best (S3 regression), 5/9 final. eff_rank=2.55 (no improvement from baseline ~2). L_norm declined from 0.08 (ep10) to 0.01 (ep80) — factor path effectively died. CRPS satisfies itself with CLN rank-1 diversity. Architecture provides capacity but loss doesn't incentivize rank diversity. Key learning: architecture alone cannot solve rank compression without a rank-aware loss."
+    "result": "167a: 5/9 (S3 regression). L_norm 0.08->0.01. Factor path died from: (1) CLN pathway competition, (2) weight decay 27x > gradient, (3) FiLM bug gamma*h+beta suppresses init, (4) oversized hidden layer 35,444x WD/grad ratio. L never developed 5-factor structure (always rank-2). Codex-verified x2."
+  },
+  {
+    "name": "RC22 H1 (v3): Clean Isolation Test — Factorized Without Confounds (Codex-designed)",
+    "theory": "167a had 4 confounded failure modes. This isolates whether L@eps can work by removing all 4: (1) freeze CLN to zero (remove competing path), (2) wd=0 for load_head+FiLM (remove kill mechanism), (3) fix FiLM to (1+gamma)*h+beta (identity at init), (4) simplify load_head to Linear(d_model, n_factors) (remove 35,444x WD first layer). If L wakes up → 167a was fixable. If L stays rank-2 → abandon factorized L@eps.",
+    "target": "L_eff_rank > 3. Factor-only PC1 < 0.8. Factor-only spread grows over training.",
+    "kill_condition": "L_eff_rank stays ~2. Factor-only PC1 > 0.8. Factor-only spread shrinks. S3 doesn't improve.",
+    "if_fails": "Abandon factorized L@eps entirely. Move to explicit structure loss (-logdet(L^T L + εI)) or different approach.",
+    "attempts": 0,
+    "max_attempts": 1,
+    "status": "active",
+    "budget": "20 epochs (~35 min)"
   },
   {
     "name": "RC22 H2: K Reduction (K=8, B=32)",
     "theory": "SOTA uses K=2-4. Our K=16 has centering/spread ratio 1.07. K=8 gives 1.14.",
     "target": "S2 centering improves.",
     "kill_condition": "Spread collapses (std < 50% baseline).",
+    "note": "Neither Codex review recommends this as next. Does not address factor path failure mode. Keep queued for after H1v3 resolution.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "queued"
   },
   {
-    "name": "RC22 H3: Encoder Contrastive Loss (conditional on H1 v2)",
-    "theory": "Encoder condition 98% shared. InfoNCE pushes regimes apart. Only run if H1 v2's load_head produces constant L across windows (meaning 2% discriminative signal insufficient).",
+    "name": "RC22 H3: Encoder Contrastive Loss",
+    "theory": "Encoder condition 98% shared. InfoNCE pushes regimes apart.",
     "target": "Encoder probe accuracy improvement. L variance across windows increases.",
     "kill_condition": "Probe accuracy doesn't improve.",
-    "note": "H1 v2 showed L varied across windows (L_var=0.000046, not zero) but L magnitude was too small to matter. The issue was not encoder discrimination but loss incentive for rank diversity.",
+    "note": "H1v2 showed L varied across windows (L_var=0.000046). Issue was not encoder discrimination. Codex: skip this, does not address factor path failure. Keep queued.",
     "attempts": 0,
     "max_attempts": 1,
+    "status": "queued"
+  },
+  {
+    "name": "RC22 H4: Structure Loss on Factor Loadings (conditional on H1v3 failure)",
+    "theory": "If L@eps cannot develop rank even without confounds, add explicit rank incentive: -logdet(L^T L + εI) or singular-value floor on L. afCRPS only rewards ||l_c|| (row norm), not orthogonality. A structure loss directly incentivizes L to span multiple factors. Codex-suggested.",
+    "target": "L_eff_rank > 3. S2 PASS. Total >= 7/9.",
+    "kill_condition": "Structure loss conflicts with CRPS (L grows rank but samples become unrealistic).",
+    "note": "Only run if H1v3 fails. If H1v3 succeeds, we know the architecture works and just need the optimizer fixes.",
+    "attempts": 0,
+    "max_attempts": 2,
     "status": "queued"
   }
 ]

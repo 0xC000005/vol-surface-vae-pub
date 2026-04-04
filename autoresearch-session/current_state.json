@@ -1,14 +1,13 @@
 {
-  "compass": "RC22 v2",
-  "iteration": 2,
-  "experiment_id": "167a",
-  "training_status": "complete",
-  "phase": "documentation",
-  "hypothesis": "RC22 H1 (v2): Factorized decoder with split conditioning. Post-attention noise injection via L@eps prevents rank compression. Split conditioning: load_head sees cond_resid (discriminative only) via FiLM. CRPS only, no MSE.",
-  "result": "VALUABLE FAILURE. 5/9 (lost S3). Factor path died: L_norm 0.08→0.01 over training. CRPS satisfies itself with CLN rank-1 diversity. Architecture provides capacity but loss doesn't incentivize rank.",
-  "prediction": "Noise eff_rank increases from ~2 to 3+. S2 improves. S3/S4/S5/S9 preserved. Total >= 7/9.",
-  "actual": "eff_rank 2.55 (no improvement). S2 FAIL. S3 FAIL (regression). 5/9 total.",
-  "baseline": "softplus best ep11 = 6/9. 166a best+RB = 6/9 (S4 perfect, S8 improved).",
+  "compass": "RC22 v3",
+  "iteration": 3,
+  "experiment_id": "167b",
+  "training_status": "ready",
+  "phase": "implementation",
+  "hypothesis": "RC22 H1 (v3): Clean isolation test for factorized decoder. Remove 4 confounds from 167a: (1) freeze CLN, (2) wd=0 for load_head+FiLM, (3) fix FiLM to (1+gamma)*h+beta, (4) simplify load_head to Linear(d_model, n_factors). Binary answer: can L@eps work?",
+  "prediction": "If confounds were the issue: L_eff_rank >3, factor-only PC1 <0.8, factor spread grows. If fundamental: L stays rank-2.",
+  "risk": "Freezing CLN may destroy existing 6/9 behavior. But this is a 20-epoch diagnostic, not a production run.",
+  "baseline": "167a: L_eff_rank=2, factor-only PC1=86%, L_norm died 0.08→0.01",
   "branch": "autoresearch-session-rc22",
-  "next_action": "Document in RESEARCH_LOG.md, then decide next direction"
+  "next_action": "Implement train_167b_clean_isolation.py with 4 fixes, train 20 epochs"
 }
