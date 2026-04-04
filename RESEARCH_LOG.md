@@ -52788,3 +52788,94 @@ L@eps contribution to centering: negligible (+/-0.005 on slopes). L is diversity
    the CLN/L interaction issue entirely
 
 ---
+
+## 2026-04-04: Final Corrections (Codex #6) + Centering Protocol + RC22 Session Summary
+
+### Codex Review #6: Final Audit
+
+Codex independently probed all checkpoints with MC sampling. Two remaining corrections:
+
+**Correction 2b**: MR table should include sampled mean, not just deterministic path.
+Baseline noise contributes to centering via CLN even at step 0, so deterministic-path
+understates baseline centering.
+
+| Model | Deterministic MR/GT | Sampled Mean MR/GT | Suites |
+|-------|:---:|:---:|:---:|
+| GT | 100% | 100% | — |
+| 167b (CLN frozen) | 78.4% | ~78% | 6/9 |
+| 167d (CLN active) | 58.2% | ~67% | 5/9 |
+| Baseline | 34.7% | **~56%** | 6/9 |
+
+Ordering preserved (167b > 167d > baseline). Magnitudes closer with sampled mean.
+
+**Correction 1b**: "Cooperation" overstated. Multi-batch check is asymmetric
+(CLN ratio 0.788 vs L ratio 0.947, multi_batch_stable=false). Correct description:
+**asymmetric coupling / functional redistribution** — not competition, not cooperation.
+
+**Additional Codex findings:**
+- S9 improvement is mixed: corr ratio improves but rank ratio worsens
+- 167d not on a "train longer" path: val loss bottoms ep18, L_norm rolls off
+- S3 gate: turb_calm_pass AND mae_pass AND worst_cell_mae_pass (width ratio is informational)
+- 167b factor structure uses final_model, suite uses best_model (checkpoint mismatch)
+
+### NEW STANDING RULE: Centering Protocol
+
+All future experiments MUST measure centering two ways on 200 test windows (start 4540),
+first AR step:
+
+1. **Deterministic-path slope**: noise=zeros (baseline) or delta_base only (factorized).
+   Regress delta vs prev_frame. Reports the learned centering STRUCTURE.
+
+2. **Sampled first-step mean slope**: Average delta over 50-200 MC noise draws per window.
+   Regress mean_delta vs prev_frame. Reports the ACTUAL model centering behavior including
+   noise contributions.
+
+Both must be reported for every model. The sampled mean is the more meaningful number
+for understanding real model behavior. The deterministic path isolates the learned
+centering mechanism.
+
+### RC22 Session Summary (2026-04-04)
+
+**Experiments**: 167a, 167b, 167d (4 if counting 166a from prior session)
+**Investigation agents**: 14 total
+**Codex reviews**: 6 total
+**Research log entries**: 10 this session
+**Major corrections**: 3 (gradient competition, MR methodology, MR sampled mean)
+
+**What we proved:**
+1. Factorized L@eps can survive end-to-end with wd=0 + simple Linear + (1+gamma) FiLM
+2. L learns GT-aligned factor directions (PC cosine 0.93, per-cell spread r=0.979)
+3. Factorization improves cross-cell structure (S9 corr 0.953 vs baseline 1.300)
+4. CLN and L have asymmetric coupling (not competition, not cooperation)
+5. CLN dominates 15-24x at edge cells; L is nearly uniform
+6. The Pareto frontier persists: factorization trades S2/S3 for S9/S8
+
+**What we learned about centering:**
+- Baseline actual sampled centering: ~56% GT (not 34.7% deterministic)
+- CLN contributes to centering even at step 0 (via noise modulation)
+- 167b (CLN frozen) has best centering (78%) because base_head is sole actuator
+- The S2 blocker is centering: afCRPS gives 2.9x more gradient to spread
+
+**What didn't work:**
+- Factorization alone doesn't break the 6/9 frontier
+- CLN freeze is not end-to-end (diagnostic only)
+- "Gradient competition" was wrong (proved by ablation)
+- Inconsistent MR methodologies led to multiple wrong conclusions
+
+**Single most important learning** (Codex #6): "You solved factor-path trainability,
+not the suite frontier."
+
+### Decision: H5 (K=4 Baseline) — Confirmed by 6 Codex Reviews
+
+Priority list (additive, unchanged):
+1. H5: K=4 baseline (end-to-end, ~35 min diagnostic)
+2. K=4 full 80ep if diagnostic positive
+3. 167c warm-start (diagnostic only)
+4. H6 stop-gradient routing (if K=4 insufficient)
+
+Hard constraints for all future experiments:
+- End-to-end trainable from scratch
+- Centering protocol: BOTH deterministic + sampled mean slopes
+- Individual scenario authenticity
+
+---
