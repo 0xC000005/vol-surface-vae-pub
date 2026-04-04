@@ -1,7 +1,7 @@
 [
   {
     "name": "RC22 H1 (old): Loss Rebalancing (IS=0.005, VS=1.0)",
-    "theory": "Fix gradient budget: IS 66%→14%, VS 5%→23%.",
+    "theory": "Fix gradient budget: IS 66%->14%, VS 5%->23%.",
     "attempts": 1,
     "max_attempts": 2,
     "status": "exhausted",
@@ -9,14 +9,11 @@
   },
   {
     "name": "RC22 H1 (v2): Factorized Decoder with Split Conditioning",
-    "theory": "The decoder's attention trunk conflates conditional drift and stochastic factor structure. Noise enters via CLN before attention → attention compresses to rank-1. Fix: factorized output heads (base_head + load_head) with post-attention noise injection via L@eps. Split conditioning: load_head receives cond_resid (discriminative residual) via FiLM, not the 98% shared component. CRPS only, no MSE. Individual scenario authenticity.",
-    "target": "Noise eff_rank > 3. S2 PASS. S3/S4/S5/S9 preserved. Total >= 7/9.",
-    "implementation": "New decoder class FactorizedSpatialTransformerDecoder. base_head(h)→delta_base. load_head(FiLM(h, cond_resid))→L(25×5). eps~N(0,I_5). delta=delta_base+L@eps. frame=prev+tanh(delta). cond_ref=detached EMA. load_head small random init (std=0.01). 166a loss weights (IS=0.005, VS=1.0).",
-    "kill_condition": "Stage 2 (ep20): eff_rank<3, L variance near zero, S3 regresses, delta_base under-reversion ≈ -0.22.",
-    "if_fails": "Encoder 2% discriminative signal insufficient → H3 contrastive loss. Or: trunk learns degenerate h_t → need deeper architectural change.",
-    "attempts": 0,
+    "theory": "The decoder's attention trunk conflates conditional drift and stochastic factor structure. Post-attention noise injection via L@eps prevents rank compression. Split conditioning via FiLM.",
+    "attempts": 1,
     "max_attempts": 2,
-    "status": "active"
+    "status": "exhausted",
+    "result": "167a: 5/9 best (S3 regression), 5/9 final. eff_rank=2.55 (no improvement from baseline ~2). L_norm declined from 0.08 (ep10) to 0.01 (ep80) — factor path effectively died. CRPS satisfies itself with CLN rank-1 diversity. Architecture provides capacity but loss doesn't incentivize rank diversity. Key learning: architecture alone cannot solve rank compression without a rank-aware loss."
   },
   {
     "name": "RC22 H2: K Reduction (K=8, B=32)",
@@ -32,6 +29,7 @@
     "theory": "Encoder condition 98% shared. InfoNCE pushes regimes apart. Only run if H1 v2's load_head produces constant L across windows (meaning 2% discriminative signal insufficient).",
     "target": "Encoder probe accuracy improvement. L variance across windows increases.",
     "kill_condition": "Probe accuracy doesn't improve.",
+    "note": "H1 v2 showed L varied across windows (L_var=0.000046, not zero) but L magnitude was too small to matter. The issue was not encoder discrimination but loss incentive for rank diversity.",
     "attempts": 0,
     "max_attempts": 1,
     "status": "queued"

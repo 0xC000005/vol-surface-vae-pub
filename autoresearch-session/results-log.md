@@ -29,7 +29,7 @@
 | # | Exp ID | Direction | Key Metrics | Decision |
 |---|--------|-----------|-------------|----------|
 | 1 | 166a | Loss rebalance: IS=0.005 VS=1.0 | 5/9 best (S4=1.000, S8 bias PASS) S2 FAIL | EXHAUSTED — loss tuning ceiling reached |
-| — | 167a | Factorized decoder + split conditioning | Target: eff_rank>3, S2 PASS, ≥7/9 | NEXT EXPERIMENT |
+| 2 | 167a | Factorized decoder + split conditioning | 5/9 best, 5/9 final. eff_rank=2.55. L_norm: 0.08→0.01. S3 FAIL. | VALUABLE FAILURE — arch capacity without loss incentive doesn't work |
 
 ## RC22 v2 Key Finding (from 166a + 3 Codex reviews)
 - The architecture traces a Pareto frontier (baseline/V2/166a all 6/9 different compositions)

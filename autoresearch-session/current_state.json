@@ -2,13 +2,13 @@
   "compass": "RC22 v2",
   "iteration": 2,
   "experiment_id": "167a",
-  "training_status": "ready",
-  "phase": "implementation",
+  "training_status": "complete",
+  "phase": "documentation",
   "hypothesis": "RC22 H1 (v2): Factorized decoder with split conditioning. Post-attention noise injection via L@eps prevents rank compression. Split conditioning: load_head sees cond_resid (discriminative only) via FiLM. CRPS only, no MSE.",
+  "result": "VALUABLE FAILURE. 5/9 (lost S3). Factor path died: L_norm 0.08→0.01 over training. CRPS satisfies itself with CLN rank-1 diversity. Architecture provides capacity but loss doesn't incentivize rank.",
   "prediction": "Noise eff_rank increases from ~2 to 3+. S2 improves. S3/S4/S5/S9 preserved. Total >= 7/9.",
-  "risk": "load_head may not activate (zero-gradient trap mitigated by small random init). Trunk may still learn degenerate h_t. Under-reversion may persist.",
+  "actual": "eff_rank 2.55 (no improvement). S2 FAIL. S3 FAIL (regression). 5/9 total.",
   "baseline": "softplus best ep11 = 6/9. 166a best+RB = 6/9 (S4 perfect, S8 improved).",
   "branch": "autoresearch-session-rc22",
-  "plan_file": ".claude/plans/curious-soaring-mitten.md",
-  "next_action": "Implement train_167a_factorized.py per approved plan"
+  "next_action": "Document in RESEARCH_LOG.md, then decide next direction"
 }

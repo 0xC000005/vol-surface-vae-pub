@@ -52131,3 +52131,113 @@ Applies to ANY new training run. Zero additional cost — just save more checkpo
 5. Does the factorized decoder need the CLN noise pathway too, or does L@eps replace it?
 
 ---
+
+## 2026-04-04: Exp 167a — Factorized Decoder with Split Conditioning (RC22 H1 v2)
+
+### Context
+After 166a proved loss rebalancing couldn't break the Pareto frontier (6/9 three ways),
+we hypothesized the bottleneck is architectural: the decoder attention trunk conflates
+conditional drift and stochastic factor structure. Noise enters via CLN BEFORE attention,
+so attention compresses 27 effective noise dims to PC1=74% (GT: 52%, 5 factors).
+
+**Hypothesis**: Post-attention noise injection via factorized output heads (base_head +
+load_head with L@eps) prevents rank compression. Split conditioning: load_head sees
+cond_resid (discriminative only) via FiLM. CRPS only, no MSE. Individual authenticity.
+
+**Prediction**: eff_rank >3, S2 PASS, S3/S4/S5/S9 preserved, total >=7/9.
+
+### Architecture Change
+- base_head: nn.Linear(d_model, 1) → delta_base (B, 25). Zero-init.
+- load_head: nn.Sequential(Linear→SiLU→Linear) → L (B, 25, 5). Small random init (std=0.01).
+- FiLM modulation: cond_resid = cond - cond_ref (EMA). gamma*h + beta → h_modulated for load_head.
+- Output: delta = delta_base + einsum("bcr,br->bc", L, eps), eps ~ N(0, I_5).
+- Trunk (4-layer spatial transformer with CLN) kept intact.
+
+### Training
+```bash
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_167a_factorized.py     --epochs 80 --batch_size 16 --n_members 16 --noise_dim 32 --n_factors 5     --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5     --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10     --output_dir models/backfill/afcrps_167a --device cuda
+```
+~105s/epoch, total ~2.3 hours. Best val at epoch 31 (0.0217).
+
+### Results
+
+| Suite | Baseline (6/9) | 166a best (6/9) | 167a best (5/9) | 167a final (5/9) |
+|-------|:-:|:-:|:-:|:-:|
+| S1 Surface | PASS | PASS | PASS | PASS |
+| S2 CI | FAIL | FAIL | FAIL (69.5%) | FAIL (70.7%) |
+| S3 Cond | PASS | PASS | **FAIL** (worst -38.1%) | **FAIL** (1.144<1.15) |
+| S4 TimeSeries | PASS | PASS (1.000) | PASS (0.884) | PASS (1.128) |
+| S5 BlockAR | PASS | PASS | PASS | PASS |
+| S6 Coint | PASS | PASS | PASS | PASS |
+| S7 Regime | FAIL | FAIL | FAIL | FAIL |
+| S8 Distrib | FAIL | FAIL | FAIL | FAIL (but 18/25 KS, 24/25 bias) |
+| S9 CrossCell | PASS | PASS | PASS | PASS |
+
+### Noise Rank Diagnostics
+
+| Metric | Ep20 | Ep80 (final) | Baseline | GT |
+|--------|------|--------------|----------|----|
+| eff_rank | 2.28 | 2.55 | ~2 | ~5 |
+| PC1 dominance | 78.2% | 75.4% | 74% | 52% |
+| L_norm | 0.079 | 0.013 | — | — |
+
+**L_norm trajectory**: 0.06 (ep10) → 0.08 (ep20) → 0.04 (ep40) → 0.01 (ep60) → 0.009 (ep80).
+The factor path declined monotonically. The model actively suppressed L over training.
+
+**Pathway attribution (ep20)**:
+- Spread (both pathways): 0.019
+- Spread (CLN only, eps=0): 0.015 (79% of total)
+- Spread (factor only, z=0): 0.009 (47% of total)
+
+**Mean reversion slope (ep20)**: -0.098 (worse than baseline -0.22, GT -0.44).
+
+### WHY: Mechanistic Analysis
+
+The factorized architecture provides the CAPACITY for multi-factor output but the loss
+(afCRPS) doesn't INCENTIVIZE rank diversity. Here's the mechanism:
+
+1. **CRPS rewards any spread equally**. Whether diversity is rank-1 (all members move
+   together, different magnitude) or rank-5 (members explore different directions), CRPS
+   gives the same gradient signal as long as total spread matches.
+
+2. **CLN-through-attention is the cheapest path to spread**. The trunk's CLN modulates
+   all cells with a single z draw → rank-1 diversity → satisfies CRPS spread term.
+
+3. **No marginal return for L**. Adding L@eps on top of CLN diversity provides
+   diminishing marginal improvement in CRPS. The gradient to load_head is weak.
+
+4. **Weight decay + gradient competition → L dies**. With weak gradient signal and
+   weight decay=0.01, the load_head weights decay faster than they grow. By epoch 80,
+   L_norm is 0.009 (effectively zero).
+
+5. **S3 regression**: The FiLM conditioning pathway (cond_resid → gamma*h + beta)
+   interfered with the trunk's native condition pathway (broadcast-add). The model
+   effectively learned two competing conditioning paths, degrading conditionality.
+
+### What Was Learned
+
+**Critical insight**: Architecture alone cannot solve rank compression without a
+rank-aware loss. The factorized output provides the PATHWAY for diversity, but CRPS
+doesn't provide the GRADIENT SIGNAL to use it. This is analogous to how adding skip
+connections doesn't help if the loss doesn't reward using them.
+
+**What would work**: A loss term that specifically rewards higher effective rank of the
+ensemble output. Options:
+- VS already partially does this (penalizes wrong pairwise cell structure), but VS
+  at lambda=1.0 wasn't enough to incentivize L growth.
+- Direct rank regularization: penalize low effective rank of output deltas.
+- Repulsive term on the factor loadings L (encourage L to span multiple directions).
+- Reduce CLN diversity (remove or freeze CLN) to FORCE the model to use L@eps.
+
+**What this tells us about the Pareto frontier**: The frontier is not purely architectural —
+it's a loss-architecture interaction. Architecture provides capacity; loss determines what
+capacity is used. Both must align to break the frontier.
+
+### Decision
+**VALUABLE FAILURE**. The code stays committed, experiment documented. H1 v2 is exhausted
+after 1 attempt (mechanism clearly understood, additional attempts won't change the outcome).
+
+Next: H2 (K reduction) is queued. Also consider whether a rank-aware loss term is needed
+before continuing with architectural changes.
+
+---

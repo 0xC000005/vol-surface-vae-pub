@@ -554,6 +554,7 @@ def main():
             model.decoder.cond_ref.copy_(
                 decay * model.decoder.cond_ref + (1 - decay) * cond_ref_new
             )
+            model.train()  # restore after compute_cond_ref sets eval mode
 
         # Track cond_ref stats for diagnostics
         cond_ref_norm = model.decoder.cond_ref.norm().item()
