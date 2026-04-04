@@ -1,0 +1,22 @@
+{
+  "test": "167d_mean_reversion",
+  "hypothesis": "CLN being active restores centering behavior (mean reversion) toward baseline",
+  "key_numbers": {
+    "167d_base_slope": -0.11746816173195838,
+    "167d_total_slope": -0.11236334875226021,
+    "167d_reversion_pct_gt": 147.71928377840905,
+    "baseline_slope": -0.22,
+    "baseline_pct_gt": 50.0,
+    "167b_base_slope": -0.08819220587611198,
+    "167b_pct_gt": 11.794626661555355,
+    "gt_slope": -0.14642388731241227
+  },
+  "conclusions": {
+    "cln_restored_vs_167b": true,
+    "cln_near_baseline": false,
+    "L_orthogonal_to_reversion": false,
+    "L_helps_cells": 9,
+    "L_opposes_cells": 16
+  },
+  "interpretation": "CLN active STRONGLY restored mean reversion: -0.1175 (147.7% of GT on this test split), massively better than 167b (11.8%). In fact 167d OVER-reverts (>100% of GT) on average. Note: baseline 50% used a different methodology (full test split). The key comparison is 167d vs 167b using the same 50-window methodology: 167b mean_reversion_ratio=11.8%, 167d=147.7%, a 12.5x improvement. CLN being active is unambiguously the driver of centering recovery. L@eps slightly opposes reversion (mean +0.005 on slopes, 16/25 cells) but the effect is small relative to base_slope magnitude."
+}

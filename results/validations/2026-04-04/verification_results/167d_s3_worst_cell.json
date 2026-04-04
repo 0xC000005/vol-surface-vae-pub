@@ -1,0 +1,41 @@
+{
+  "experiment": "167d_s3_worst_cell_diagnostic",
+  "timestamp": "2026-04-04 11:45:05",
+  "model_path": "models/backfill/afcrps_167d/best_model.pt",
+  "n_windows_analyzed": 200,
+  "n_windows_generated": 200,
+  "worst_mae_cell": [1, 4],
+  "worst_mae_value": -51.45506136206468,
+  "worst_wr_cell": [1, 0],
+  "worst_wr_value": 2.0005740645476613,
+  "key_findings": {
+    "film_is_global": true,
+    "film_gamma_mean": -0.761,
+    "film_effective_scale": 0.239,
+    "L_norm_worst_vs_avg": 1.97,
+    "cln_scale_worst_vs_avg": 1.63,
+    "Leps_variance_fraction_worst": 0.612,
+    "Leps_variance_fraction_avg": 0.824,
+    "cell_1_0_inverted_regime_response": true,
+    "cell_1_0_L_turb_over_calm": 0.578,
+    "cell_1_4_L_turb_over_calm": 1.334,
+    "avg_cell_L_turb_over_calm": 1.337
+  },
+  "root_cause_analysis": {
+    "primary_cause": "CLN_EDGE_CELL_AMPLIFICATION_PLUS_INVERTED_REGIME_LOADING",
+    "mechanism": "Three interacting failures on grid edge cells (row 0-1, cols 0 and 4): (1) CLN active develops per-cell noise modulation that is 1.6x stronger at edges than center; (2) Edge cells already have 2-5x larger L@eps loadings due to higher IV variance at grid edges; (3) Cell (1,0) specifically develops INVERTED regime response -- L norm turb/calm = 0.58 vs 1.34 average -- producing wider spread in calm than turbulent, causing width_ratio > 2.0",
+    "why_167b_passes": "With CLN frozen (zero), all per-cell diversity comes through L@eps alone. The load_head learns regime-appropriate loadings because it is the ONLY diversity channel. When CLN is active, CLN competes with L@eps for diversity contribution -- CLN handles bulk diversity (via trunk h variance), while L@eps develops regime-inappropriate edge-cell specialization",
+    "why_not_double_diversity": "Interaction variance is near zero (0.000033 at worst cell). CLN and L@eps are NOT multiplicatively reinforcing. The problem is COMPETITION for the diversity gradient signal, not additive interaction",
+    "hypothesis_verdicts": {
+      "a_film_amplification": "REJECTED - FiLM is global (broadcast), gamma=-0.76 means FiLM ATTENUATES to 24% not amplifies. Cannot cause per-cell divergence.",
+      "b_L_too_large": "PARTIALLY SUPPORTED - L norm at worst cells is 2x average, but this alone does not explain regime inversion at (1,0)",
+      "c_double_diversity": "REJECTED as stated (interaction term near zero), but REFORMULATED as gradient competition: CLN captures bulk diversity, L@eps develops aberrant edge-cell patterns",
+      "d_insufficient_epochs": "REJECTED - 167b also trains 20 epochs with CLN frozen and passes S3"
+    },
+    "specific_cell_failures": {
+      "cell_1_4": "MAE reduction -51.5%. L norm 1.97x avg. CLN scale 4.03 (highest of all 25 cells). Cell is deep OTM put + 2nd shortest tenor. Conditional mean is wrong direction -- model predicts more spread conditionally than unconditionally but in wrong regime mapping.",
+      "cell_1_0": "Width ratio 2.001 (>1.20 threshold). L turb/calm = 0.578 (INVERTED -- less loading during turbulence). This means calm windows get more factor noise than turb windows, widening calm CI relative to turb. The test measures turb_width/calm_width, and this cell shows calm_width=0.268 > turb_width=0.150.",
+      "cell_2_4": "Width ratio 2.001. Similar edge cell. L norm 0.028 (2.3x avg). Huge Leps fraction (0.955) -- almost all variance comes from L@eps, minimal CLN contribution, but L itself is regime-insensitive for this cell."
+    }
+  }
+}

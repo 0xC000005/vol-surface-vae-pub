@@ -1,0 +1,64 @@
+{
+  "comparison": "167d_vs_164a_v3_softplus_best",
+  "date": "2026-04-04",
+  "167d_total_pass": 5,
+  "baseline_total_pass": 6,
+  "suites_gained": [],
+  "suites_lost": [
+    "S3"
+  ],
+  "pass_fail_grid": {
+    "S1": {
+      "167d": "PASS",
+      "baseline": "PASS"
+    },
+    "S2": {
+      "167d": "FAIL",
+      "baseline": "FAIL"
+    },
+    "S3": {
+      "167d": "FAIL",
+      "baseline": "PASS"
+    },
+    "S4": {
+      "167d": "PASS",
+      "baseline": "PASS"
+    },
+    "S5": {
+      "167d": "PASS",
+      "baseline": "PASS"
+    },
+    "S6": {
+      "167d": "PASS",
+      "baseline": "PASS"
+    },
+    "S7": {
+      "167d": "FAIL",
+      "baseline": "FAIL"
+    },
+    "S8": {
+      "167d": "FAIL",
+      "baseline": "FAIL"
+    },
+    "S9": {
+      "167d": "PASS",
+      "baseline": "PASS"
+    }
+  },
+  "key_findings": {
+    "s2_coverage_delta": -0.05823276097029162,
+    "s2_167d_under_coverage": true,
+    "s2_worst_cell_h30_delta": -0.07358953393295176,
+    "s3_conditionality_lost": true,
+    "s3_width_ratio_167d": 1.0158778613095847,
+    "s3_width_ratio_base": 0.7018135104048738,
+    "s8_ks_level_167d": 15,
+    "s8_ks_level_base": 12,
+    "s9_corr_ratio_167d": 0.9527262278244165,
+    "s9_corr_ratio_base": 1.2998494423273153,
+    "s9_rank_ratio_167d": 1.3574355175112294,
+    "s9_rank_ratio_base": 0.8552799352026144,
+    "s9_167d_closer_to_gt_corr": true,
+    "s9_167d_closer_to_gt_rank": false
+  }
+}

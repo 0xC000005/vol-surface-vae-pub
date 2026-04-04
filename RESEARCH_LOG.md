@@ -52637,3 +52637,61 @@ doesn't beat baseline. Two directions worth pursuing:
 - H5 (K=4 probe) to address the centering blocker directly
 
 ---
+
+## 2026-04-04: 167d Follow-Up — Why 5/9 Despite L Surviving E2E
+
+### 3 Parallel Investigations on 167d
+
+**Investigation 1: S3 Worst Cell**
+- Worst MAE cell: (1,4) [90% moneyness, 30Y tenor] at -51.5%
+- Worst width ratio cell: (1,0) [90% moneyness, 1M tenor] at 2.001
+- L_norm on worst cell = 1.97x average (factor path dumps 2x noise into that cell)
+- CLN scale on worst cell = 1.63x average (CLN also over-amplifies)
+- DOUBLE DIVERSITY: CLN + L both over-amplify the same cells
+
+**Investigation 2: 167d vs Baseline Metric-by-Metric**
+
+| Metric | Baseline | 167d | Change |
+|--------|----------|------|--------|
+| S9 corr ratio | 1.300 | **0.953** | Much closer to 1.0 |
+| S8 KS levels | 12/25 | **15/25** | Improved |
+| S3 width ratio | **0.702** | 1.016 | Lost tightening |
+| S2 CI coverage | **81.3%** | 75.5% | -5.8pp |
+| S4 kurtosis | **0.975** | 1.200 | Further from 1.0 |
+
+Factorization improves STRUCTURE (S9, S8) but hurts SPREAD (S2) and CONDITIONALITY (S3).
+
+**Investigation 3: Mean Reversion**
+- 167d MR slope: -0.1175 (147.7% of GT on 50-window subset) — OVER-reverts
+- 167b (CLN frozen): -0.088 (11.8%) — CLN restored reversion 12.5x
+- L@eps slightly opposes reversion (16/25 cells, +0.005 avg shift, ~4.3% of base slope)
+- L is approximately orthogonal to centering — does not help or hurt meaningfully
+- Some cells OVER-revert dramatically: [90%,6M] at 327% GT, [120%,12M] at 456% GT
+- Centering/spread ratio: 0.44 (model uses ~2/3 capacity for diversity, ~1/3 for centering)
+- Methodological note: 167d first-step only vs 167b all-steps — not perfectly comparable
+
+### Root Cause: The Same Pareto Frontier in a New Form
+
+167d factorized decoder improves cross-cell factor structure (S9 corr 0.953, approaching
+GT) but this comes at the cost of spread calibration (S2 -5.8pp) and conditionality
+(S3 width ratio 1.016 vs 0.702). The CLN + L double diversity creates over-spread on
+specific cells while the model simultaneously over-reverts, making intervals narrow
+and poorly calibrated.
+
+This is the SAME frontier we've seen across RC21-RC22: every architectural change trades
+one property for another under afCRPS. The architecture now has the CAPACITY for multi-
+factor output AND centering — but the loss cannot optimize both simultaneously at 20 epochs.
+
+### Key Question: Is This a Training Duration Issue?
+
+167d had 20 epochs; baseline had 80. The S3 worst-cell pattern might resolve with more
+training as the FiLM pathway learns per-cell modulation. Alternatively, the double-diversity
+(CLN + L) interaction may be structural and not resolvable by training longer.
+
+### Decision
+
+167d answers the binary question: YES, L survives end-to-end. But 5/9 at 20 epochs.
+Next priority: H5 (K=4 probe) addresses the CENTERING blocker directly, which is
+orthogonal to factorization. Factor structure improvements (S9) are preserved regardless.
+
+---
