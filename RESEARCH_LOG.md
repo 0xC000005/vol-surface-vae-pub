@@ -52958,3 +52958,75 @@ But given that 5 experiments have now failed to break the 6/9 frontier, this may
 for research ideation to generate principled new directions.
 
 ---
+
+## 2026-04-04: CORRECTION — 168a Was Confounded (Codex #7)
+
+### Confound
+168a (K=4, B=64) had 4x fewer gradient steps (1,240 vs 5,000) than baseline (B=16).
+LR not scaled. Compared to wrong control (164a, not 166a). "H5 refuted" was premature.
+
+Against the FAIR comparator (166a, same loss weights): 168a S2 is actually BETTER
+(73.4% vs 72.1%). The K=4 result is confounded, not definitive.
+
+### Clean Re-Run: 168b (K=8) and 168c (K=4), Both B=16
+
+Keep B=16, LR=1e-3 fixed. Only change K. Same 250 steps/epoch as baseline.
+Use 166a loss weights (IS=0.005, VS=1.0). 20-epoch diagnostic, parallel.
+
+---
+
+## 2026-04-04: Exp 168b/168c — Clean K Ablation (K=8 and K=4, B=16)
+
+### Context
+168a was confounded (B=64 → 4x fewer gradient steps, wrong comparator). Codex #7
+identified the confound. Clean re-run: B=16 for both, same 250 steps/epoch as baseline.
+Loss weights: IS=0.005, VS=1.0 (same as 166a). 20-epoch diagnostic, run in parallel.
+
+### Training
+```bash
+# 168b: K=8
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py     --epochs 20 --batch_size 16 --n_members 8 --noise_dim 32     --lambda_vs 1.0 --lambda_is 0.005 ... --output_dir models/backfill/afcrps_168b
+# 168c: K=4
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py     --epochs 20 --batch_size 16 --n_members 4 --noise_dim 32     --lambda_vs 1.0 --lambda_is 0.005 ... --output_dir models/backfill/afcrps_168c
+```
+
+### Results
+
+| Model | K | B | Suites | S1 | S2 CI | S3 | S4 kurt | S9 rank |
+|-------|---|---|:------:|:---:|:---:|:---:|:---:|:---:|
+| Baseline | 16 | 16 | 6/9 | PASS (2.5%) | FAIL (81.3%) | PASS | PASS (0.97) | PASS (0.86) |
+| 168a (confounded) | 4 | 64 | 5/9 | PASS (4.5%) | FAIL (73.4%) | PASS | PASS (0.66) | FAIL (0.40) |
+| **168b (clean)** | **8** | **16** | **4/9** | **FAIL** | FAIL (73.9%) | **FAIL** | PASS (0.99) | PASS (0.69) |
+| **168c (clean)** | **4** | **16** | **4/9** | **FAIL** | FAIL (77.5%) | PASS | PASS (0.94) | PASS (0.51) |
+
+### KEY CORRECTION: 168a's S9 Failure Was From Batch Size Confound
+
+168a (K=4, B=64): S9 rank = 0.401 (FAIL). Codex #7 flagged batch size confound.
+168c (K=4, B=16): S9 rank = 0.507 (PASS). Clean ablation. Codex was right.
+
+The S9 failure was from insufficient gradient steps (1,240 vs 5,000), NOT K=4 itself.
+K=4 CAN maintain rank structure with proper training protocol.
+
+### New Finding: Lower K Causes Explosions (S1 FAIL)
+
+Both clean K=8 and K=4 FAIL S1 (surface validity). With fewer ensemble members, the
+model produces more unstable/exploding samples. This is likely because:
+1. Fewer members → less spread gradient → model doesn't learn soft floor constraint well
+2. The softplus floor barrier receives less effective gradient with K=4/K=8
+3. 20 epochs may be insufficient — baseline was 80 epochs for S1 to stabilize
+
+### What Was Learned
+
+1. **168a confound confirmed**: Batch size change caused S9 failure, not K reduction
+2. **K=4 CAN maintain rank** with proper training (S9 rank 0.507)
+3. **K=4 has BEST S2** of K-reduction experiments (77.5%) — centering may improve with K
+4. **Lower K causes explosions** at 20 epochs — needs more training or reflecting boundary
+5. **H5 is NOT refuted** — the clean results show K reduction has promise but needs 80 epochs
+
+### Decision
+Both K ablations are 4/9 at 20 epochs due to S1 explosions. This is an undertaining
+issue (baseline was also unstable early and stabilized by ep80). Need 80-epoch clean
+run to make definitive conclusion about K reduction. 168c (K=4) is most promising
+(best S2, S9 passes). Mark H5 as needs-full-run, not exhausted.
+
+---
