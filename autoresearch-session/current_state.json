@@ -2,12 +2,12 @@
   "compass": "RC22 v4",
   "iteration": 5,
   "experiment_id": "168a",
-  "training_status": "ready",
-  "phase": "implementation",
-  "hypothesis": "RC22 H5: K=4 baseline. Reduce ensemble size from K=16 to K=4 to increase centering/spread gradient ratio within afCRPS. End-to-end, no factorization. SOTA uses K=2-4 (FGN K=2, AIFS-CRPS K=4). Directly targets S2 centering blocker.",
-  "prediction": "S2 CI coverage improves (centering gradient ratio increases). S3/S4/S5 preserved. Risk: S4 kurtosis or S9 correlation may degrade with fewer members.",
+  "training_status": "running",
+  "phase": "training",
+  "hypothesis": "RC22 H5: K=4 baseline. Reduce ensemble from K=16 to K=4 to increase centering/spread gradient ratio. SOTA uses K=2-4. End-to-end, same architecture as baseline.",
+  "prediction": "S2 CI improves (centering gradient stronger). S3/S4/S5 preserved. Risk: S4 kurtosis, S9 correlation may degrade.",
   "baseline": "164a_v3 softplus best: 6/9 (K=16). Sampled MR: ~56% GT.",
   "branch": "autoresearch-session-rc22",
-  "next_action": "Implement train_168a_k4.py based on baseline 164a_v3 with K=4, B=32. Include centering protocol.",
+  "training_command": "PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py --epochs 20 --batch_size 64 --n_members 4 --noise_dim 32 --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5 --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 --output_dir models/backfill/afcrps_168a --device cuda",
   "centering_protocol": "BOTH deterministic-path slope AND sampled first-step mean slope, 200 windows, 50+ MC draws"
 }

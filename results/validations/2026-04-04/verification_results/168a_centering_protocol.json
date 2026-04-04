@@ -1,0 +1,24 @@
+{
+  "test": "centering_protocol",
+  "date": "2026-04-04",
+  "hypothesis": "K=4 improves centering/spread gradient ratio",
+  "result": "REFUTED: K=4 has worse centering (further from GT slope)",
+  "key_metrics": {
+    "168a_K4": {
+      "det_slope": -0.042199154637073695,
+      "mc_slope": -0.07516545284067236,
+      "slope_ratio_vs_gt_det": 0.2703669002651947,
+      "slope_ratio_vs_gt_mc": 0.48157956400643925,
+      "spread": 0.011904190508640505,
+      "centering_ratio": 0.2586502951517391
+    },
+    "baseline_K16": {
+      "det_slope": -0.06388224669637146,
+      "mc_slope": -0.11397628164568036,
+      "slope_ratio_vs_gt_det": 0.4092888867043933,
+      "slope_ratio_vs_gt_mc": 0.7302377082507429,
+      "spread": 0.017383483896077828,
+      "centering_ratio": 0.25978912297109175
+    }
+  }
+}

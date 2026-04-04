@@ -1,0 +1,19 @@
+{
+  "experiment": "168a S9 rank collapse investigation",
+  "question": "Why does K=4 destroy cross-cell correlation rank structure?",
+  "k4_rank_ratio": 0.3601006396913297,
+  "k16_rank_ratio": 0.7750471277212253,
+  "k4_pc1_pct": 77.7953046645417,
+  "k16_pc1_pct": 74.97295043792735,
+  "gt_pc1_pct": 78.40911460140892,
+  "k4_member_cosine": 0.038065750151872635,
+  "k16_member_cosine": 0.019483687356114388,
+  "cln_overall_eff_rank": 1.9633136455128994,
+  "inference_scaling_helps": false,
+  "conclusion": "STRUCTURAL: INFERENCE scaling does NOT help -- problem is in the LEARNED weights",
+  "root_causes": [
+    "INFERENCE scaling does NOT help -- problem is in the LEARNED weights"
+  ],
+  "is_structural": true,
+  "elapsed_seconds": 6.395390748977661
+}

@@ -52879,3 +52879,82 @@ Hard constraints for all future experiments:
 - Individual scenario authenticity
 
 ---
+
+## 2026-04-04: Exp 168a — K=4 Baseline (H5 REFUTED)
+
+### Context
+H5: reduce K from 16 to 4 to increase centering/spread gradient ratio in afCRPS.
+Confirmed as highest priority by 6 Codex reviews. SOTA uses K=2-4 (FGN, AIFS-CRPS).
+
+### Training
+```bash
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py     --epochs 20 --batch_size 64 --n_members 4 --noise_dim 32     --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5     --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10     --output_dir models/backfill/afcrps_168a --device cuda
+```
+26s/epoch (4x faster than K=16). Best val at ep11.
+
+### Result: 5/9 — STRICTLY WORSE than baseline
+
+| Suite | Baseline K=16 (6/9) | 168a K=4 (5/9) |
+|-------|:-:|:-:|
+| S1 | PASS (2.5%) | PASS (4.5% borderline) |
+| S2 | FAIL (81.3%) | FAIL (73.4%, **worse**) |
+| S3 | PASS (1.185) | PASS (1.250) |
+| S4 | PASS (0.974) | PASS (0.661) |
+| S5 | PASS | PASS |
+| S6 | PASS | PASS |
+| S7 | FAIL | FAIL |
+| S8 | FAIL | FAIL (worse) |
+| S9 | PASS (rank 0.855) | **FAIL** (rank 0.401) |
+
+### Investigation: 3 Parallel Agents
+
+**Centering Protocol (NEW STANDARD)**:
+| Metric | Baseline K=16 | 168a K=4 |
+|--------|:---:|:---:|
+| Sampled MR/GT | **73.0%** | 48.2% |
+| Deterministic MR/GT | 40.9% | 27.0% |
+| Spread | 0.0174 | 0.0119 (-31%) |
+| Centering/spread ratio | **0.260** | **0.259** |
+
+**H5 REFUTED**: centering/spread ratio is IDENTICAL (0.260 vs 0.259). K=4 did NOT
+rebalance gradients. It just made both centering and spread proportionally weaker.
+The model is overall weaker with fewer members, not differently balanced.
+
+**S9 Rank Collapse**: STRUCTURAL problem, not training.
+- K=4 eff_rank: 2.02 vs baseline 4.30 (GT: ~5)
+- CLN overall eff_rank with K=4: 1.96 — rank-1 output
+- Inference scaling to K=50 at test time does NOT help (weights are wrong)
+- K=4 training gives CLN insufficient gradient signal to learn multi-factor structure
+- Member cosine sim: 0.038 (K=4) vs 0.019 (K=16) — K=4 members more correlated
+
+**Full Comparison**: K=4 is strictly worse on every non-tied metric. Even S3 turb/calm
+(1.250 vs 1.185) is the only improvement, but S4 kurtosis degraded (0.661 vs 0.974).
+
+### WHY K=4 Failed (Mechanism)
+
+1. With K=4, afCRPS spread term has only C(4,2)=6 pairs vs C(16,2)=120 pairs.
+   Less gradient signal for diversity → CLN learns rank-1 output (eff_rank 1.96)
+2. VS loss also has fewer pairs → less cross-cell structure learning
+3. The centering/spread RATIO in afCRPS is a property of the scoring rule, not K.
+   Changing K changes the MAGNITUDE of both gradients proportionally, not their ratio.
+4. This is why SOTA (FGN K=2, AIFS-CRPS K=4) uses different architectures — they
+   have explicit factor structure, not relying on CLN through attention
+
+### What Was Learned
+
+1. **K reduction does NOT change centering/spread ratio** — this is mathematically
+   determined by afCRPS alpha and spread_weight, not K
+2. **K=4 is too few for this architecture** — CLN needs K=16 gradient pairs to learn
+   multi-factor structure through attention
+3. **The centering problem cannot be solved by changing K** — need loss modification
+4. **SOTA low-K works because they have factor structure architecturally** (FGN, AIFS),
+   not because low K fixes centering
+
+### Decision
+
+H5 REFUTED after 1 attempt. K=4 is dead for this architecture.
+Mark H5 exhausted. Next: the queue has H6 (stop-gradient routing) and H4 (structure loss).
+But given that 5 experiments have now failed to break the 6/9 frontier, this may be time
+for research ideation to generate principled new directions.
+
+---

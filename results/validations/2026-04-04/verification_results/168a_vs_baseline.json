@@ -1,0 +1,99 @@
+{
+  "comparison": "168a (K=4) vs 164a_v3 baseline (K=16)",
+  "date": "2026-04-04",
+  "168a_model": "models/backfill/afcrps_168a/best_model.pt",
+  "baseline_model": "models/backfill/afcrps_164a_v3_percell_bptt_softplus/best_model.pt",
+  "168a_results": "results/block_ar/168a_best_30d/summary.json",
+  "baseline_results": "results/block_ar/164a_v3_percell_bptt_softplus_best_30d/summary.json",
+  "168a_K": 4,
+  "baseline_K": 16,
+  "168a_epochs_trained": 20,
+  "baseline_epochs_trained": 80,
+  "168a_best_epoch": 11,
+  "baseline_best_epoch": 11,
+  "168a_pass_count": 5,
+  "baseline_pass_count": 6,
+  "suite_results": {
+    "S1 Surface Validity": {
+      "168a_K4": "PASS",
+      "baseline_K16": "PASS",
+      "delta": "SAME"
+    },
+    "S2 CI Coverage": {
+      "168a_K4": "FAIL",
+      "baseline_K16": "FAIL",
+      "delta": "SAME"
+    },
+    "S3 Conditionality": {
+      "168a_K4": "PASS",
+      "baseline_K16": "PASS",
+      "delta": "SAME"
+    },
+    "S4 Time Series": {
+      "168a_K4": "PASS",
+      "baseline_K16": "PASS",
+      "delta": "SAME"
+    },
+    "S5 Block-AR Boundary": {
+      "168a_K4": "PASS",
+      "baseline_K16": "PASS",
+      "delta": "SAME"
+    },
+    "S6 Cointegration": {
+      "168a_K4": "PASS",
+      "baseline_K16": "PASS",
+      "delta": "SAME"
+    },
+    "S7 Regime Coverage": {
+      "168a_K4": "FAIL",
+      "baseline_K16": "FAIL",
+      "delta": "SAME"
+    },
+    "S8 Distributional": {
+      "168a_K4": "FAIL",
+      "baseline_K16": "FAIL",
+      "delta": "SAME"
+    },
+    "S9 Cross-Cell Correlation": {
+      "168a_K4": "FAIL",
+      "baseline_K16": "PASS",
+      "delta": "REGRESSION"
+    }
+  },
+  "key_metrics": {
+    "s1_explosion_rate": {
+      "168a": 0.0455,
+      "baseline": 0.0247
+    },
+    "s2_90_coverage": {
+      "168a": 0.734,
+      "baseline": 0.813
+    },
+    "s2_calibration_error": {
+      "168a": 0.109,
+      "baseline": 0.046
+    },
+    "s3_turb_calm": {
+      "168a": 1.25,
+      "baseline": 1.185
+    },
+    "s4_kurtosis_ratio": {
+      "168a": 0.661,
+      "baseline": 0.974
+    },
+    "s8_pct_bad_windows": {
+      "168a": 0.142,
+      "baseline": 0.074
+    },
+    "s9_rank_ratio": {
+      "168a": 0.401,
+      "baseline": 0.855
+    },
+    "s9_eff_rank": {
+      "168a": 2.016,
+      "baseline": 4.301
+    }
+  },
+  "verdict": "K=4 is strictly worse than K=16. Loses S9 (rank collapse), degrades S2/S4/S1/S8. The 4-member ensemble lacks sufficient diversity to represent the 5-factor GT correlation structure.",
+  "training_still_improving": true
+}
