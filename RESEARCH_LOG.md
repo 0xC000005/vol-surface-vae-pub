@@ -4,6 +4,259 @@ This document tracks the chronological research progress, findings, code changes
 
 ---
 
+## 2026-04-05 - Benchmark Strengthening for Realism Claims
+
+To address the benchmark blind spots identified in the independent
+verification pass, I strengthened the frozen v2 harness in
+`experiments/backfill/block_ar/test_block_ar_requirements_v2.py`.
+
+Changes made:
+- Strengthened `S4` with a gated per-cell tail-scale check using
+  `q99(|ΔIV|)` ratios, so aggregate kurtosis is no longer the only tail
+  realism guard.
+- Extended `S10` from a one-step sampled-mean reversion check to a
+  full-horizon mean-reversion profile at horizons `1/7/14/30`, with
+  aggregate slope-ratio, active-cell pass rate, and active-cell slope
+  correlation gates.
+- Added `S11 Pathwise Jump Realism`, covering:
+  - distribution of pathwise max `|ΔIV|`
+  - per-cell `q99(|ΔIV|)` jump scale
+  - extreme-jump window incidence
+
+Re-ran the current `178d` anchor under the stricter harness:
+- result: `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
+- pass profile: `S1, S4, S5, S6, S9, S10, S11`
+- fail profile: `S2, S3, S7, S8`
+
+Key conclusions:
+- `178d` still looks strong on broad structural realism, including the new
+  full-horizon mean-reversion and pathwise jump suites.
+- The remaining realism gap is still local conditional risk allocation:
+  worst-cell conditional width, regime-cell coverage, and window-floor
+  failures.
+- The benchmark is materially better than before, but it still does not
+  fully certify pathwise realism in the strict risk-manager sense.
+
+Remaining suite blind spots after this strengthening:
+- no explicit pathwise turning-point / overshoot / recovery test
+- no gated per-cell tail-shape test beyond `q99(|ΔIV|)` scale
+- no direct pathwise conditional-likelihood or rank-histogram style scenario
+  realism test
+- no dedicated long-horizon drift-shape test beyond the selected
+  `1/7/14/30` mean-reversion profile
+
+Bottom line:
+
+**The strengthened benchmark now closes the two most obvious realism gaps
+that were previously missing (full-horizon mean reversion and pathwise jump
+realism), and `178d` still survives those additions. The remaining failures
+are therefore more likely to be genuine model limitations rather than a
+benchmark artifact.**
+
+---
+
+## 2026-04-05 - Current problems, benchmark additions, and 178e ideation
+
+This entry freezes three things:
+
+1. the current problem statement after the strengthened benchmark
+2. the benchmark additions themselves
+3. the full design conclusion for the next branch
+
+### A. Existing problems after the stronger realism benchmark
+
+Current anchor:
+- `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
+
+Current pass profile:
+- pass: `S1, S4, S5, S6, S9, S10, S11`
+- fail: `S2, S3, S7, S8`
+
+Interpretation:
+- the model is now broadly realistic on:
+  - support validity
+  - broad time-series behavior
+  - block continuity
+  - cross-cell dependence
+  - full-horizon mean reversion
+  - pathwise jump realism
+- the remaining realism gap is now much narrower:
+  - local conditional uncertainty allocation on hard `regime x horizon x cell`
+    slices, especially turbulent late-horizon central/right cells
+
+This means the current failures are mostly one core issue viewed through
+different suites:
+- `S2` = local per-cell coverage misallocation
+- `S3` = worst-cell conditional-width realism failure
+- `S7` = regime-by-cell local calibration failure
+- `S8` = bad-window local collapse
+
+### B. New benchmark suites / benchmark strengthening added
+
+All implemented in:
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+Changes:
+- strengthened `S4` with gated per-cell tail-scale realism via `q99(|ΔIV|)`
+  ratios
+- extended `S10` from first-step mean reversion to full-horizon mean-reversion
+  profile at horizons `1/7/14/30`
+- added `S11 Pathwise Jump Realism` with:
+  - pathwise max `|ΔIV|` distribution
+  - per-cell extreme-jump scale
+  - extreme-jump window incidence
+
+Why these were needed:
+- earlier versions of the suite could miss realistic-path gaps even if the
+  broad score looked good
+- mean reversion was one concrete example of such a blind spot
+- pathwise jump realism and per-cell tail scale were the next obvious realism
+  blind spots
+
+### C. Remaining benchmark blind spots
+
+Even after the current strengthening, the suite still does not fully certify
+strict risk-grade path realism.
+
+Remaining blind spots:
+- no scenario-level turning-point / overshoot / recovery realism suite
+- no explicit co-jump / joint tail-dependence gate across cells
+- no direct pathwise conditional-likelihood or pathwise discriminator-style
+  realism score
+- no gated full-path scenario-level mean-reversion score beyond the
+  ensemble-profile `S10`
+
+These are worth adding later, but they are no longer the main blocker for the
+current branch.
+
+### D. Full 178e ideation conclusion
+
+Full memo:
+- `results/validations/2026-04-05/analysis/178_design/178e_full_ideation_memo.md`
+
+Main conclusion:
+- do **not** spend more time on router regularization, hand-engineered
+  condition routing, or another whole-model rewrite
+- the repo evidence now says the remaining bottleneck is the **uncertainty
+  expert family itself**
+
+Chosen next branch:
+
+`178e = support-aware exact block mixture of conditionally whitened
+residual-flow experts on top of the 177a/178d mean-reverting backbone`
+
+Why:
+- `178d` already has a working realism backbone
+- the router is alive
+- covariance templates are distinct
+- but even the best forced covariance template still misses the worst turbulent
+  slices
+- so the next move must enrich the local conditional-law experts themselves,
+  not the router
+
+What `178e` should keep:
+- support-aware transforms
+- explicit mean-reverting shared backbone
+- exact latent block mixture semantics
+- structured shared covariance backbone
+
+What `178e` should change:
+- replace covariance-only experts with **whitened residual-flow experts**
+- allow experts to model non-elliptical local residual laws
+- keep the design generic beyond Student-t and beyond IV surfaces
+
+One-sentence summary:
+
+**The benchmark is now materially stronger, the remaining failures are mostly
+one narrow local-uncertainty problem rather than a collection of unrelated
+issues, and the next principled move is `178e`: richer uncertainty experts on
+top of the already-working mean-reverting realism backbone.**
+
+---
+
+## 2026-04-05 - 178e_v0 exact block flow-expert branch
+
+Artifacts:
+- training script:
+  `experiments/backfill/block_ar/train_178e_exact_block_flow_expert_mean_reverting_residual_flow.py`
+- checkpoint:
+  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/best_model.pt`
+- training trace:
+  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/training_history.json`
+- full strengthened benchmark:
+  `results/block_ar/178e_best_v2_s3mrj_full_30d/summary.json`
+
+What changed relative to `178d`:
+- kept the `177a/178d` shared mean-reverting backbone
+- kept exact block latent-mixture semantics
+- replaced covariance-only uncertainty experts with **blockwise whitened
+  residual-flow experts**
+- warm-started from `178d` and froze the shared backbone for the first 3 epochs
+
+Result:
+- `178e_v0` is a clean negative overall
+- under the strengthened `S3 + S10 + S11` harness it finishes at `6/11`
+
+Pass:
+- `S1`
+- `S4`
+- `S5`
+- `S6`
+- `S8`
+- `S9`
+- `S11`
+
+Fail:
+- `S2`
+- `S3`
+- `S7`
+- `S10`
+
+Key numbers from the best checkpoint:
+- `S2` overall 90% coverage: `82.7%`
+- `S2` h30 worst/best cell: `66.3% / 98.4%`
+- `S3` turb/calm: `1.075`
+- `S7` Layer 2: `0/8`
+- `S7` Layer 3 catastrophic: `5.3%`
+- `S8` window-floor failures: `4.1%` PASS
+- `S10` overall slope ratio: `1.060`, but active cells only `6/9`, active-cell
+  corr `0.651`, and full-horizon profile fails at `h=14/30`
+- `S11` pathwise jump realism: PASS
+
+Interpretation:
+- the richer expert family did help some broad distributional behavior:
+  - `S8` passes cleanly
+  - pathwise jump realism stays good
+  - broad temporal structure remains good
+- but it did **not** solve the core local uncertainty-allocation problem
+- and worse, it **gave back part of the mean-reversion realism** that the
+  `177a/178d` backbone had solved
+
+Most important conclusion:
+- `178e_v0` validates that moving to richer uncertainty experts is a real
+  research direction
+- but this first blockwise residual-flow-expert realization is **not** the
+  right stable formulation
+- in this form, the expert family is too unstable and trades away the
+  mean-reverting realism backbone rather than improving on it
+
+What this means:
+- do **not** promote `178e_v0` as the new anchor
+- keep `178d` as the current strongest broad-realism / mean-reversion anchor
+- if continuing the `178e` line, the next step is **not** another blind larger
+  flow expert
+- the next step would require a focused design/debug pass on why the expert
+  branch destabilized `S10` while only marginally helping `S8`
+
+One-sentence summary:
+
+**`178e_v0` showed that blockwise whitened residual-flow experts can preserve
+ broad realism and improve window-floor behavior, but in the first
+ implementation they do not fix the local uncertainty-allocation failures and
+ they destabilize full-horizon mean reversion, so `178d` remains the anchor.**
+
+---
+
 ## 2026-01-20: Multi-Horizon IV Surface Diffusion Research Synthesis
 
 ### Context
@@ -53135,5 +53388,10334 @@ This is with old loss (VS=0.5) at 20 epochs. Options:
    and VS=1.0 there may be a sweet spot that passes BOTH.
 4. **7/9 is now plausible**: If we can find a VS value where S2 and S9 both pass,
    we'd have S1+S2+S3+S4+S5+S6+S9 = 7/9. Only S7 and S8 remain.
+
+---
+
+## 2026-04-04: Methodology Clarification — Current Scoring-Rule Line is Principled, But May Under-Identify the Target Law
+
+### Context
+After the 168d discussion, the user challenged the framing that the current
+afCRPS/VS/IS line was "no longer principled" and asked whether support-aware
+conditional density modeling is genuinely more principled or just a new idea.
+
+### Clarification (Codex, literature-backed)
+
+**The current approach is STILL principled.** The issue is not that CRPS-based
+training is fake or ad hoc. The issue is that, in this repo, the current score
+combination appears to be an under-identifying surrogate for the scientific
+target: the full conditional law of future IV surfaces.
+
+#### What the literature actually supports
+
+1. **CRPS is a strictly proper scoring rule** for univariate probabilistic
+   forecasts (finite first moment). It incentivizes honest predictive
+   distributions on the target variable.
+
+2. **Log score / conditional likelihood is also strictly proper.** Maximum
+   likelihood is a special case of optimum score estimation based on a strictly
+   proper scoring rule.
+
+3. **Interval score is proper** for central prediction intervals. So adding IS
+   is not unprincipled by itself.
+
+4. **Variogram score is proper but NOT strictly proper.** It constrains aspects
+   of cross-component dependence, but it does not uniquely identify the full
+   multivariate joint law. This matters because S9/S8/S7 failures are exactly
+   about the parts of the law not fully pinned down by marginal calibration
+   plus weak dependence penalties.
+
+References:
+- Gneiting & Raftery (2007, JASA): proper scoring rules, CRPS, interval score,
+  log score / optimum score estimation
+- Scheuerer & Hamill (2015, MWR): variogram score is proper but never strictly
+  proper; improved correlation sensitivity vs energy score, but still not a
+  full-law identifier
+
+### Why the Current Frontier Keeps Appearing
+
+The repeated S2/S3/S8/S9 tradeoffs across RC21/RC22 do NOT imply the current
+loss is unprincipled. They imply:
+
+1. The present objective rewards several important projections of the target
+   law (marginal centering, spread, some dependence structure),
+2. but does **not directly identify the full conditional distribution** we care
+   about,
+3. so the optimizer keeps finding partially-correct solutions along a Pareto
+   frontier instead of one model that gets all aspects right simultaneously.
+
+This is consistent with the experiment record:
+- 164a baseline: good structure + plausible scenarios, but fails S2/S7/S8
+- factorized runs: can improve structure or conditionality, but not the full law
+- K-reduction runs: can improve centering, but hurt rank / distributional shape
+
+### Why Support-Aware Conditional Density Modeling is Also Principled
+
+If the scientific target is:
+> "each scenario should be a draw from the correct conditional law,"
+
+then the cleanest objective is to model that conditional density directly.
+
+Support-aware conditional density modeling means:
+
+1. **Respect the support by parameterization**, not by inference-time repair.
+   For IV on a bounded interval, transform to an unconstrained space and use
+   change-of-variables. This is standard for bounded data.
+
+2. **Model the full conditional law**, not just moments or interval summaries.
+   Examples: transformed-space multivariate Student-t, low-rank Gaussian /
+   Student-t innovations, or conditional normalizing flows.
+
+3. **Train by conditional log-likelihood (log score)**, which is strictly proper
+   for the full forecast distribution.
+
+This direction is not "more principled because CRPS is bad." It is more direct
+for the stated authenticity goal because it targets the full conditional law on
+the correct support.
+
+Reference:
+- Scrucca (2019): transformation-based density estimation for bounded data
+
+### Relationship to the Bitter Lesson
+
+This clarification is IMPORTANT:
+
+- **Support-aware conditional density modeling DOES satisfy the Bitter Lesson**
+  if the support handling is part of the parameterization and trained end-to-end.
+- **Inference-time reflecting_boundary does NOT satisfy the same standard** as a
+  scientific answer. It is a hard support projection / guardrail, not learned
+  support control.
+
+So the correct hierarchy is:
+
+1. **Best current scientific baseline**: 164a-style no-RB scoring-rule model
+   (end-to-end, from scratch, 6/9)
+2. **Useful engineering guardrail**: reflecting_boundary at inference
+3. **Best principled next modeling direction if frontier persists**:
+   support-aware conditional density model trained by log score
+
+### Decision
+
+1. **Do NOT describe the current afCRPS/VS/IS line as unprincipled.**
+   That statement is too strong and incorrect.
+
+2. **Do describe it as likely under-identifying the full target law** in this
+   small-data multivariate AR setting.
+
+3. If the current 6/9 frontier persists after clean ablations, the next
+   genuinely new scientific direction should be:
+   - bounded-support transform
+   - conditional multivariate innovation law
+   - end-to-end likelihood training
+
+4. Keep reflecting_boundary out of the main scientific claim unless train/eval
+   handling is made consistent and the method is explicitly defined to include
+   hard support projection.
+
+### One-Sentence Summary
+
+**afCRPS + VS + IS is principled, but likely too indirect for the goal "each
+scenario is a draw from the true conditional law." A support-aware conditional
+density model trained by log score is the most direct principled alternative.**
+
+---
+
+## 2026-04-04: Research Compass Amendment — Add Support-Aware Conditional Density Branch (DO NOT REMOVE EXISTING HYPOTHESES)
+
+### Context
+After the RC22/168x sequence, the user asked for the most principled direction
+if the true scientific goal is:
+
+> each generated scenario should be a draw from the correct conditional law
+
+This is NOT a rejection of the existing afCRPS/VS/IS research line. It is an
+ADDITIONAL branch in the compass. Existing hypotheses (H5/H6, factorization,
+K/VS tuning, structure-loss ideas) remain documented and valid as the current
+scoring-rule branch.
+
+### Why Add This Branch
+
+The current line remains principled but appears to under-identify the target law:
+- centering can improve while rank worsens
+- rank can improve while S2/S8 regress
+- conditionality can look good while regime coverage and marginals fail
+
+This suggests the current score stack rewards important projections of the law
+without directly identifying the full conditional distribution.
+
+### New Branch: Support-Aware Conditional Density Modeling
+
+#### H7: Bounded-Support Conditional Density Model (NEW, orthogonal branch)
+
+**Core idea**: replace ensemble-score training with direct conditional density
+modeling on a support-respecting transform of IV.
+
+#### Proposed parameterization
+
+1. **Transform IV from bounded support to unconstrained space**
+   - IV is on `(0.01, 1.0)` for our purposes
+   - Use a logit-style transform:
+     ```python
+     u = log((iv - lo) / (hi - iv))
+     ```
+   - Then model `u_t` in unconstrained space
+   - This removes the need for `reflecting_boundary`, floor hacks, or post-hoc
+     support repair
+
+2. **Model a conditional multivariate innovation law at each AR step**
+   ```python
+   u_t = mu_t(history, prev_u) + innovation_t
+   ```
+
+3. **Parameterize innovation_t with structured covariance**
+   - minimum: low-rank + diagonal
+   - example:
+     ```python
+     innovation_t ~ StudentT_nu(mu=0, scale = L_t L_t^T + diag(s_t^2))
+     ```
+   - `mu_t` handles centering
+   - `L_t` handles shared factors / cross-cell law
+   - `diag_t` handles idiosyncratic spread
+   - `nu_t` handles tail thickness
+
+4. **Train by conditional log-likelihood**
+   - objective: NLL / log score
+   - no CRPS, VS, IS in the core prototype
+   - this is still fully end-to-end and literature-grounded
+
+### Why This is Principled
+
+- **Support** is enforced by parameterization, not inference-time clipping
+- **Centering** comes from the learned conditional mean
+- **Spread** comes from the learned conditional covariance / scale
+- **Tails** come from Student-t or flow residual law
+- **Joint law** comes from covariance / low-rank structure / flow coupling
+- **Training objective** is the log score, which is strictly proper for the full
+  forecast distribution
+
+This is more direct for the authenticity goal than trying to make the ensemble
+scores recover all aspects of the law indirectly.
+
+### Minimal Real Test: Exp 169a (FAST PROBE)
+
+Do NOT jump straight to a full 30-step conditional flow. Start with the
+smallest real falsifiable prototype.
+
+#### 169a: One-Step Teacher-Forced Transformed-Space Student-t
+
+**Architecture**
+- Reuse current GRU encoder
+- Reuse AR recurrence idea / conditioning pathway
+- Replace ensemble decoder head with outputs:
+  - `mu_t` : `(B, 25)`
+  - `L_t`  : `(B, 25, r)` with `r in {3,5}`
+  - `diag_t` : `(B, 25)` via softplus
+  - `nu_t` : scalar or small-vector tail parameter, constrained `> 2`
+
+**Training setup**
+- One-step prediction first (teacher-forced, no rollout)
+- 10-20 epochs diagnostic only
+- No reflecting boundary
+- No CRPS/VS/IS in the core loss
+- Optimize transformed-space multivariate Student-t NLL
+
+**Why one-step first**
+- isolates whether the density direction is numerically stable
+- tests whether the model can learn mean / scale / tails / covariance at all
+- much cheaper than full AR rollout
+- avoids conflating density-model failure with long-horizon compounding
+
+### Success Criteria for 169a
+
+1. Finite, stable NLL training (no singular covariance, no exploding scales)
+2. Samples mapped back to IV space obey support by construction
+3. One-step calibration improves over the current baseline
+4. Sampled covariance / effective rank does not collapse
+5. Worst-cell centering and conditional spread are at least competitive with the
+   current best afCRPS baseline
+
+### Kill Conditions for 169a
+
+- numerical instability despite standard safeguards (jitter, softplus scales,
+  bounded `nu`)
+- covariance collapses to near-diagonal or rank-1 immediately
+- one-step calibration is no better than afCRPS baseline
+- transformed-space modeling introduces obvious bias at the support edges
+
+If 169a fails, we learn quickly that the density branch is not immediately paying
+off at our data scale.
+
+### If 169a Succeeds
+
+Then extend in this order:
+
+1. **169b**: multi-step AR rollout with the same Student-t head
+2. **169c**: per-step low-rank + diagonal with condition-dependent `nu_t`
+3. **169d**: conditional normalizing-flow residual if Student-t underfits tails
+   or dependence structure
+
+### Relationship to Existing RC22 Queue
+
+This branch does **NOT** replace:
+- H5 / K-reduction style centering probes
+- H6 stop-gradient routing
+- factorized decoder / structure-loss ideas
+- VS / IS tuning within afCRPS
+
+Those remain the active path **within the current scoring-rule paradigm**.
+
+H7 is a **new paradigm branch** to test if the frontier itself is caused by the
+indirectness of the afCRPS/VS/IS objective.
+
+### Decision
+
+1. Keep the existing RC22 hypotheses on the board.
+2. Add **H7: Support-aware conditional density modeling** as a new, orthogonal
+   branch.
+3. The first concrete experiment in this branch is:
+   **169a = one-step teacher-forced transformed-space low-rank Student-t NLL**
+4. Do not treat 169a as a large rewrite. It is a cheap falsifiable probe.
+
+### One-Sentence Summary
+
+**Add a new compass branch: instead of asking how to tune afCRPS to recover the
+full law, test whether a transformed-space conditional Student-t model can learn
+centering, spread, tails, and joint structure under one strictly proper objective.**
+
+---
+
+## 2026-04-04: Exp 169a Implemented — One-Step Transformed-Space Student-t Probe
+
+### Implementation
+
+Implemented a minimal H7 prototype:
+
+- Script: `experiments/backfill/block_ar/train_169a_transformed_student_t.py`
+- Reuses current GRU encoder (`diffusion/block_ar/gru_encoder.py`)
+- Keeps AR setup in the minimal sense:
+  - encode 30-step history
+  - condition on previous frame
+  - predict next-frame law
+- Support-aware transform:
+  - `IV in (0.01, 1.0)` → unconstrained via logit-style transform
+  - map back via sigmoid
+  - no reflecting boundary or clipping in the learned path
+- Decoder head outputs:
+  - `mu_t` : next-frame mean in transformed space
+  - `L_t` : low-rank factor `(25 x r)`
+  - `diag_t` : diagonal scale
+  - `nu_t` : scalar Student-t df per item
+- Objective:
+  - dense multivariate Student-t NLL
+  - covariance = `L L^T + diag(diag^2)`
+- Included compatibility helper:
+  - `sample_batched()` for later Block-AR-style rollouts
+
+### First Real Run
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_169a_transformed_student_t.py \
+    --epochs 20 --batch_size 16 --rank 5 \
+    --device cuda \
+    --output_dir models/backfill/student_t_169a
+```
+
+Best checkpoint:
+
+- best epoch: `13`
+- best val NLL: `-46.2421`
+
+Best saved diagnostics (`models/backfill/student_t_169a/best_model.pt`):
+
+- `coverage_90 = 0.9714`
+- `val_mae = 0.01734`
+- `pred_eff_rank = 3.18`
+- `sample_eff_rank = 2.51`
+- `support_violation_rate = 0.0`
+- `nu_mean = 2.19`
+- `diag_mean = 0.2238`
+
+### What 169a Proves
+
+1. **H7 is numerically viable**
+   - training is stable for 20 epochs
+   - no singular-covariance blow-up
+   - finite NLL throughout
+
+2. **Support-aware modeling works mechanically**
+   - zero support violations by construction
+   - no need for reflecting boundary in the learned model
+
+3. **The model does learn nontrivial covariance**
+   - predicted effective rank stays around `3.1`
+   - sampled effective rank around `2.5`
+   - not fully diagonal / collapsed, but not reaching 5-factor structure either
+
+### What 169a Does NOT Solve Yet
+
+1. **Calibration is too wide**
+   - nominal 90% interval coverage is about `97%`
+   - current Student-t fit is over-dispersed / over-heavy-tailed
+
+2. **Tail parameter collapses toward the floor**
+   - `nu_mean ≈ 2.19`
+   - model is choosing extremely heavy tails as an easy way to improve NLL
+
+3. **Sampled rank is still modest**
+   - sample effective rank `~2.5`
+   - better than trivial collapse, but not yet a full-law solution
+
+### Interpretation
+
+This is a useful positive result.
+
+The density-model branch is **not dead on arrival**. We now have a real,
+end-to-end, support-aware likelihood model that trains cleanly and produces
+valid bounded samples without post-hoc fixes.
+
+But the first prototype is not yet a frontier-breaking answer. The immediate
+failure mode is different from afCRPS:
+
+- under afCRPS, the problem was under-identified tradeoffs
+- under 169a, the first problem is **over-heavy-tailed overcoverage**
+
+### Updated H7 Status
+
+- **H7 survives first contact with reality**
+- the right next refinement is **not** to discard the branch
+- the right next questions are:
+  1. should `nu` be constrained or regularized away from the floor?
+  2. should covariance scale be parameterized more tightly?
+  3. does multi-step AR rollout preserve the one-step stability?
+
+### One-Sentence Summary
+
+**169a successfully demonstrates a trainable, support-aware conditional density
+model, but its first learned solution is too heavy-tailed and too wide, so H7
+is viable but not yet sufficient.**
+
+---
+
+## 2026-04-04: 169a Follow-Up — Fixed-nu Ablation Identifies the Main Failure Mode
+
+### Question
+
+After 169a, the obvious question was:
+
+> Is the bad one-step calibration coming from covariance learning,
+> or from the learned Student-t tail head collapsing `nu` to the floor?
+
+To isolate that, patched `169a` to support a fixed-`nu` mode without changing
+the encoder, trunk, covariance head, support transform, optimizer, or data split.
+
+### Implementation
+
+Patched:
+- `experiments/backfill/block_ar/train_169a_transformed_student_t.py`
+
+New flag:
+
+```bash
+--fixed_nu 8.0
+```
+
+Behavior:
+- disables learned `nu_head`
+- uses constant Student-t df for all items
+- keeps everything else identical
+
+### Run
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_169a_transformed_student_t.py \
+    --epochs 20 --batch_size 16 --rank 5 \
+    --fixed_nu 8.0 \
+    --device cuda \
+    --output_dir models/backfill/student_t_169a_fixed_nu8
+```
+
+Best checkpoint:
+
+- best epoch: `15`
+- best val NLL: `-46.1074`
+
+Best metrics:
+
+- `coverage_90 = 0.9105`
+- `width_90 = 0.0996`
+- `val_mae = 0.01730`
+- `pred_eff_rank = 3.13`
+- `sample_eff_rank = 2.91`
+- `support_violation_rate = 0.0`
+- `nu_mean = 8.0`
+- `diag_mean = 0.1974`
+
+### Direct Comparison vs Original 169a
+
+Original learned-`nu` best (`models/backfill/student_t_169a/best_model.pt`):
+
+- `val_nll = -46.2421`
+- `coverage_90 = 0.9714`
+- `width_90 = 0.1477`
+- `sample_eff_rank = 2.51`
+- `nu_mean = 2.19`
+
+Fixed-`nu=8` best:
+
+- `val_nll = -46.1074`
+- `coverage_90 = 0.9105`
+- `width_90 = 0.0996`
+- `sample_eff_rank = 2.91`
+- `nu_mean = 8.0`
+
+### Interpretation
+
+This is a strong mechanistic result.
+
+The learned `nu` head was the **primary driver** of the pathological over-wide,
+over-heavy-tailed solution.
+
+Fixing `nu` to a moderate value:
+
+1. **nearly preserves NLL**
+   - `-46.24` → `-46.11` (small degradation only)
+
+2. **fixes calibration substantially**
+   - 90% coverage moves from `97.1%` to `91.0%`
+
+3. **reduces interval width materially**
+   - `0.1477` → `0.0996`
+
+4. **improves sampled rank**
+   - `2.51` → `2.91`
+
+So the first H7 failure mode is now much clearer:
+
+- not "Student-t density modeling is too wide by nature"
+- rather: **letting `nu` learn freely in this small-data setting causes the
+  optimizer to abuse tail thickness as an easy NLL improvement**
+
+### Updated H7 Takeaway
+
+The support-aware density branch got materially stronger from this ablation.
+
+Right now the most defensible H7 recipe is:
+
+- transformed-space conditional density
+- low-rank + diagonal covariance
+- **fixed moderate `nu`**, at least for the first generation of models
+
+### Immediate Consequence
+
+Do **not** spend time trying to improve the learned `nu` head yet.
+
+The next principled move is to carry the better-behaved fixed-`nu` version
+forward into multi-step AR testing, rather than adding more one-step tail
+complexity.
+
+### One-Sentence Summary
+
+**The 169a fixed-`nu` ablation shows that H7's main problem was not the density
+idea itself, but an over-flexible tail parameter; fixing `nu` yields near-equal
+NLL with much better calibration and higher sample rank.**
+
+---
+
+## 2026-04-04: 169b Quick Rollout Test — One-Step Fixed-nu Recipe Does Not Fully Survive AR Rollout
+
+### Purpose
+
+After the fixed-`nu` one-step result improved calibration materially, the next
+question was not "can we optimize one-step NLL further?" but:
+
+> does the fixed-`nu` density recipe survive **free multi-step rollout**?
+
+This is the right next diagnostic before building a full multi-step training
+variant.
+
+### Infrastructure
+
+Patched the standard v2 validation harness to load Student-t density checkpoints:
+
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+Added support for checkpoint type:
+
+- `one_step_student_t_169a`
+
+This lets the existing rollout test suite evaluate the density model through the
+same `sample_batched()` interface used by the rest of the Block-AR repo.
+
+### Rollout Diagnostic Run
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
+    --model_path models/backfill/student_t_169a_fixed_nu8/best_model.pt \
+    --device cuda \
+    --n_samples 20 \
+    --max_batches 10 \
+    --output_dir results/block_ar/169b_rollout_fixed_nu8_quick \
+    --num_workers 0
+```
+
+Important caveat:
+
+- this is a **quick rollout diagnostic**, not a full 30-batch / 50-sample
+  benchmark
+- use it to judge mechanism / survival under rollout, not to declare a final
+  frontier result
+
+### Headline Result
+
+Quick rollout result is effectively **5/9**:
+
+- PASS: surface validity
+- FAIL: CI coverage
+- FAIL: conditionality
+- PASS: time series
+- PASS: block-AR specifics
+- PASS: cointegration
+- FAIL: regime coverage
+- FAIL: distributional fidelity
+- PASS: cross-cell correlation
+
+Saved summary:
+
+- `results/block_ar/169b_rollout_fixed_nu8_quick/summary.json`
+
+### Key Metrics
+
+Coverage:
+
+- overall 90% CI coverage: `81.2%`
+- calibration error: `0.045`
+- all four horizon-level aggregate gates pass
+- but per-cell gate fails at longer horizons
+  - worst-cell coverage at `h=30`: `41.2%`
+
+Conditionality:
+
+- MAE reduction: `77.8%` (good)
+- turb/calm width ratio: `1.001` (fails regime differentiation)
+- worst-cell width ratio: `4.29` (fails badly)
+
+Regime coverage:
+
+- layer 1 passes
+- layer 2 fails
+- catastrophic rate: `5.5%` (just above 5% gate)
+
+Distributional fidelity:
+
+- daily-change KS: `21/25` cells pass
+- IV-level KS: `7/25` cells pass
+- median-bias fraction: `9/25` cells pass
+- median-bias magnitude: `17/25` cells pass
+
+Cross-cell structure:
+
+- corr ratio: `0.591` PASS
+- rank ratio: `1.941` PASS
+
+### Interpretation
+
+This is a useful and fairly sharp answer.
+
+The fixed-`nu` one-step density recipe **does survive rollout partially**:
+
+- support remains valid
+- broad coverage is reasonable
+- temporal structure survives
+- cross-cell structure survives
+
+But it does **not** survive in the places that matter most for conditional
+authenticity:
+
+- long-horizon per-cell calibration degrades
+- regime differentiation collapses (`turb/calm ~ 1.00`)
+- IV-level marginal fidelity remains biased
+
+So the problem has shifted again:
+
+- 169a one-step fixed-`nu` solved the tail-collapse issue
+- but free rollout exposes a **training / exposure-bias mismatch**
+
+The one-step model can price the next step reasonably.
+It is not yet learning a self-consistent 30-step conditional law.
+
+### Decision
+
+Do **not** spend the next cycle tuning fixed-`nu` further inside one-step 169a.
+
+The next principled density-branch move, if continuing H7, is:
+
+- build a true **multi-step rollout-trained Student-t model**
+  - teacher-forced multi-step NLL at minimum
+  - rollout-aware training if needed
+
+### One-Sentence Summary
+
+**169b quick rollout testing shows that the fixed-`nu` support-aware density
+model is stable and structurally plausible under rollout, but it still fails
+regime differentiation and long-horizon per-cell calibration, so H7 now needs
+multi-step training rather than more one-step tail tuning.**
+
+---
+
+## 2026-04-04: 169b Multi-Step Student-t Density Model — Rollout Improves Materially But Frontier Still 5/9
+
+### Motivation
+
+The one-step `169a` density model with fixed `nu=8` was mechanically stable and
+well-calibrated under teacher forcing, but quick AR rollout testing exposed a
+clear train / rollout mismatch:
+
+- overall coverage was only `81.2%`
+- turb/calm regime differentiation collapsed to `1.001`
+- worst-cell width ratio blew out to `4.29`
+
+That strongly suggested exposure bias rather than a fundamental failure of the
+support-aware density idea.
+
+So the next safe step was to keep the exact same architecture and fixed-`nu`
+head, and change only the training objective from one-step NLL to full
+teacher-forced multi-step NLL.
+
+### Implementation
+
+Added new experiment:
+
+- `experiments/backfill/block_ar/train_169b_multistep_student_t.py`
+
+Design:
+
+- same GRU encoder as `169a`
+- same support transform from IV space to unconstrained space
+- same low-rank + diagonal multivariate Student-t head
+- same fixed scalar `nu=8`
+- same `sample_batched()` rollout interface
+
+Only the training objective changed:
+
+- loss = average Student-t NLL over the full 30-step future
+- during training, each next-step density is scored against the true next frame
+- teacher forcing is used inside the training recurrence
+- free rollout is used only for validation probes / test evaluation
+
+This is the cleanest first rollout-aware version because it adds multi-step
+supervision without introducing scheduled sampling, clipping, or extra
+auxiliary losses.
+
+### Training Run
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_169b_multistep_student_t.py \
+    --epochs 20 \
+    --batch_size 16 \
+    --rank 5 \
+    --fixed_nu 8.0 \
+    --device cuda \
+    --output_dir models/backfill/student_t_169b
+```
+
+Artifacts:
+
+- model dir: `models/backfill/student_t_169b`
+- checkpoint: `models/backfill/student_t_169b/best_model.pt`
+- history: `models/backfill/student_t_169b/training_history.json`
+
+Best validation checkpoint was **epoch 5**.
+
+Best teacher-forced validation metrics:
+
+- `val_multistep_nll = -41.737`
+- `val_multistep_mae = 0.0160`
+- `val_pred_eff_rank = 3.08`
+- `val_diag_mean = 0.153`
+- `val_nu_mean = 8.0`
+
+At that same best checkpoint, the small free-rollout validation probe already
+looked materially better than the one-step recipe:
+
+- `rollout_cov90 = 0.823`
+- `rollout_width90 = 0.141`
+- `rollout_mae = 0.0329`
+- `rollout_support_violation_rate = 0.0`
+- `rollout_turb_calm_ratio = 1.214`
+
+Training dynamics were informative:
+
+- train NLL kept improving through all 20 epochs
+- validation NLL peaked early at epoch 5 and then degraded steadily
+- rollout metrics also peaked early and then became noisier
+
+So this branch currently wants **early stopping**, not long training.
+
+### Quick Rollout Evaluation
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
+    --model_path models/backfill/student_t_169b/best_model.pt \
+    --device cuda \
+    --n_samples 20 \
+    --max_batches 10 \
+    --output_dir results/block_ar/169b_quick_30d \
+    --num_workers 0
+```
+
+Saved summary:
+
+- `results/block_ar/169b_quick_30d/summary.json`
+
+Important caveat:
+
+- this is still a **quick diagnostic suite** (`10` batches, `20` samples), not a
+  final benchmark
+
+### Headline Result
+
+Quick suite result remains effectively **5/9**, but it is a materially better
+`5/9` than the one-step rollout test.
+
+Passes:
+
+- surface validity
+- time-series realism
+- block-AR specifics
+- cointegration
+- cross-cell correlation
+
+Fails:
+
+- CI coverage
+- conditionality
+- regime coverage
+- distributional fidelity
+
+### What Improved Versus One-Step Rollout
+
+Compared with `results/block_ar/169b_rollout_fixed_nu8_quick/summary.json`,
+multi-step training improved almost every important rollout metric:
+
+- overall 90% coverage: `81.2% -> 85.6%`
+- calibration error: `0.045 -> 0.017`
+- turb/calm ratio: `1.001 -> 1.095`
+- worst-cell width ratio: `4.29 -> 2.97`
+- catastrophic regime rate: `5.5% -> 3.5%`
+- daily KS pass count: `21/25 -> 24/25`
+- median-bias fraction pass count: `9/25 -> 14/25`
+- median-bias magnitude pass count: `17/25 -> 19/25`
+- corr ratio: `0.591 -> 0.744`
+- rank ratio: `1.941 -> 1.572`
+
+This is strong evidence that the main failure in one-step 169a rollout was
+indeed train / rollout mismatch.
+
+### Remaining Failure Modes
+
+Coverage:
+
+- overall 90% coverage is now `85.6%`
+- all aggregate horizon-level coverage gates pass
+- but worst-cell per-horizon coverage still fails
+  - worst `h=30` cell coverage is `63.4%`
+- best cells are now clearly over-covered at longer horizons
+  - best `h=30` cell coverage is `97.97%`
+
+So the coverage problem is no longer global under-dispersion.
+It is now **misallocated per-cell long-horizon uncertainty**.
+
+Conditionality:
+
+- width ratio `0.594` PASS
+- MAE reduction `83.6%` PASS
+- turb/calm ratio `1.095` FAIL (close, but below `1.15`)
+- worst-cell MAE reduction `13.2%` PASS
+- worst-cell width ratio `2.97` FAIL
+
+So the model now reacts conditionally, but regime-dependent width scaling is
+still too weak and still unstable in the hardest cells.
+
+Regime coverage:
+
+- layer 1 passes
+- catastrophic rate `3.5%` passes
+- layer 2 still fails badly (`1/8`)
+
+Distributional fidelity:
+
+- daily-change KS now nearly passes completely (`24/25`)
+- IV-level KS still fails (`9/25`)
+- median-bias fraction still fails (`14/25`)
+- median-bias magnitude still fails (`19/25`)
+
+This means the density model is learning temporal changes much better than
+absolute IV level calibration.
+
+Cross-cell structure:
+
+- corr ratio `0.744` PASS
+- rank ratio `1.572` PASS
+
+This remains one of the strongest aspects of the density branch.
+
+### Interpretation
+
+This is a meaningful result.
+
+The density branch is no longer just a theoretical alternative to afCRPS.
+It now has a concrete, end-to-end, support-respecting, proper-likelihood
+training recipe that:
+
+- trains stably
+- respects support by construction
+- survives free rollout without collapse
+- preserves nontrivial cross-cell structure
+- improves rollout calibration materially when moved from one-step to
+  multi-step NLL
+
+But it has **not** broken the frontier yet.
+
+The current H7 bottleneck is now much clearer:
+
+- not support handling
+- not tail collapse
+- not total rollout failure
+
+It is:
+
+- long-horizon per-cell uncertainty allocation
+- regime-sensitive width scaling
+- absolute IV-level bias / marginal calibration
+
+### Decision
+
+Do **not** return to `K / IS / VS / RB` tuning as the mainline scientific path.
+
+Do **not** spend time re-opening learned-`nu`.
+
+The density branch has now passed the threshold for being a serious new
+mainline research direction.
+
+Most likely next density-branch move:
+
+- keep `169b` architecture fixed
+- target the remaining rollout calibration problem directly
+- likely through training or parameterization changes that improve
+  horizon-dependent / cell-dependent scale allocation
+
+### One-Sentence Summary
+
+**169b shows that multi-step NLL substantially improves the support-aware
+Student-t rollout model, validating H7 as a real alternative to afCRPS, but
+the remaining blocker is now misallocated long-horizon per-cell uncertainty
+rather than basic trainability or structural collapse.**
+
+---
+
+## 2026-04-04: Full-Budget v2 Anchor Check — 164a Still 6/9, 169b Still 5/9 Under Matched Evaluation
+
+### Why This Was Needed
+
+After the quick `169b` rollout diagnostics, the main open question was whether
+`test_block_ar_requirements_v2.py` was a valid benchmark harness or whether
+suite drift was making the new density-branch numbers incomparable to the old
+baseline.
+
+So the right next step was:
+
+1. fix the known Suite 7 reporting bug in v2
+2. run the old baseline through **full-budget v2**
+3. run `169b` through the **same full-budget v2**
+
+This gives a clean anchor inside the same harness.
+
+### v2 Harness Fix
+
+Patched summary reporting in:
+
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+Specifically:
+
+- Suite 7 Layer 2 already gated on **all** regime×horizon combinations passing
+- summary print was incorrectly saying `gate >= 6`
+- this is now corrected to `gate: all`
+
+### Evaluation Commands
+
+Baseline anchor:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
+    --model_path models/backfill/afcrps_164a_v3_percell_bptt_softplus/best_model.pt \
+    --device cuda \
+    --n_samples 50 \
+    --max_batches 30 \
+    --num_workers 0 \
+    --seed 42 \
+    --output_dir results/block_ar/164a_v2_full_30d
+```
+
+Density branch:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
+    --model_path models/backfill/student_t_169b/best_model.pt \
+    --device cuda \
+    --n_samples 50 \
+    --max_batches 30 \
+    --num_workers 0 \
+    --seed 42 \
+    --output_dir results/block_ar/169b_v2_full_30d
+```
+
+Artifacts:
+
+- `results/block_ar/164a_v2_full_30d/summary.json`
+- `results/block_ar/169b_v2_full_30d/summary.json`
+
+### Important Evaluation Notes
+
+- `max_batches=30` is an upper bound; the test loader only contains ~20 batches
+  at the configured batch size, so generation naturally stops there
+- conditionality is explicitly capped at `min(max_batches, 15)` inside v2
+- both models were evaluated under the same effective v2 budget
+
+So the comparison below is fair **within v2**.
+
+### Full-Budget v2 Result: Baseline 164a
+
+Baseline remains effectively **6/9** under v2:
+
+Pass:
+
+- S1 surface validity
+- S3 conditionality
+- S4 time series
+- S5 block-AR
+- S6 cointegration (informational)
+- S9 cross-cell correlation
+
+Fail:
+
+- S2 coverage
+- S7 regime coverage
+- S8 distributional fidelity
+
+Key metrics:
+
+- S2 overall 90% coverage: `81.3%`
+- S3 turb/calm ratio: `1.185`
+- S7 catastrophic rate: `5.9%`
+- S8 IV-level KS pass count: `12/25`
+- S9 corr ratio: `1.300`
+- S9 rank ratio: `0.855`
+
+### Full-Budget v2 Result: Density Branch 169b
+
+`169b` remains effectively **5/9** under the same v2 harness:
+
+Pass:
+
+- S1 surface validity
+- S4 time series
+- S5 block-AR
+- S6 cointegration (informational)
+- S9 cross-cell correlation
+
+Fail:
+
+- S2 coverage
+- S3 conditionality
+- S7 regime coverage
+- S8 distributional fidelity
+
+Key metrics:
+
+- S2 overall 90% coverage: `91.6%`
+- S3 turb/calm ratio: `1.048`
+- S7 catastrophic rate: `1.7%`
+- S8 IV-level KS pass count: `15/25`
+- S9 corr ratio: `0.770`
+- S9 rank ratio: `1.504`
+
+### Side-by-Side Interpretation
+
+The matched v2 anchor makes the picture much clearer.
+
+What `169b` is better at than baseline:
+
+- stronger global coverage (`91.6%` vs `81.3%`)
+- much better catastrophic regime coverage (`1.7%` vs `5.9%`)
+- better IV-level KS (`15/25` vs `12/25`)
+- cleaner cross-cell correlation distance profile while still passing S9
+
+What `169b` is worse at than baseline:
+
+- over-covers heavily in best cells, so S2 still fails
+- loses regime differentiation (`turb/calm 1.048` vs `1.185`)
+- still fails median-bias distributional subtests
+- remains stuck at `5/9`, not `6/9`
+
+So H7 is now clearly **not** a fake quick-suite artifact.
+The density branch survives full-budget matched evaluation and has real strengths.
+But it still has not beaten the baseline frontier.
+
+### Most Important Conclusion
+
+Within a common v2 harness:
+
+- `164a` remains the strongest overall model today
+- `169b` is a real and credible alternative branch, not a measurement illusion
+- the density branch trades stronger coverage / structural realism for weaker
+  regime-sensitive width modulation
+
+This is a meaningful research result even though it does not yet improve the
+headline frontier.
+
+### One-Sentence Summary
+
+**Full-budget v2 anchoring confirms that baseline 164a is still 6/9 and 169b
+is still 5/9 under matched evaluation, so the density branch is real but not
+yet dominant: it improves global coverage and some structure metrics, while
+still failing regime-sensitive conditionality and per-cell calibration.**
+
+---
+
+## 2026-04-04: Next Density-Branch Ablation Chosen — 169c Shape/Scale-Separated Covariance
+
+### Decision Context
+
+After matched full-budget v2 evaluation, the density branch now has a very
+specific failure profile:
+
+- `169b` over-covers in best cells while still passing worst-cell lower bounds
+- S3 fails because regime-sensitive width scaling is too weak (`turb/calm < 1.15`)
+- S7 fails because regime×cell coverage is misallocated, not because of total
+  catastrophic collapse
+- S9 already passes
+
+So the bottleneck is no longer:
+
+- support handling
+- tail collapse
+- rollout instability
+- or cross-cell structure collapse
+
+It is **uncertainty allocation**.
+
+### Most Principled Next Move
+
+Chosen next experiment:
+
+- **169c = multistep Student-t density model with covariance shape/scale split**
+
+Keep fixed:
+
+- support-aware transform
+- multistep teacher-forced NLL
+- fixed scalar `nu=8`
+- GRU encoder
+- AR rollout interface
+- low-rank + diagonal covariance family
+
+Change only:
+
+- separate covariance **shape** from total **scale**
+
+Concretely:
+
+- raw shape covariance: `Q_t = L_t L_t^T + diag(d_t^2)`
+- normalize `Q_t` to unit average variance / unit trace-per-dimension
+- predict separate positive scalar `s_t`
+- final covariance: `Sigma_t = s_t^2 * Q_t_normalized`
+
+### Rationale
+
+This is a clean mechanistic ablation, not a sweep.
+
+It directly targets the observed 169b failure:
+
+- current decoder can get covariance geometry roughly right
+- but total width and cell-level allocation are entangled in the same head
+- that makes it easy to over-cover some cells while under-expressing
+  regime-dependent width response
+
+The shape/scale split should make the model do two separable jobs:
+
+- `Q_t_normalized`: which cells / factors should receive uncertainty
+- `s_t`: how much uncertainty the whole step should have
+
+This is the narrowest architectural change that addresses S2/S3/S7 without
+abandoning the H7 likelihood branch.
+
+### Success Criteria
+
+For 169c to justify continuing the density branch, it should improve at least
+two of these without losing S9:
+
+- reduce S2 best-cell overcoverage below the `95%` ceiling gate
+- push S3 turb/calm width ratio above `1.15`
+- improve S7 Layer 2 regime×cell coverage
+- preserve S9 pass
+
+### Kill Condition
+
+If 169c still fails in the same way as 169b after a matched run, then the next
+issue is no longer covariance parameterization.
+At that point the branch would likely need a different training signal or a
+richer conditional scale model, not another small reparameterization.
+
+---
+
+## 2026-04-04: 169c Result — Shape/Scale Split Improves Calibration Allocation But Does Not Break 5/9 Frontier
+
+### Implementation
+
+Added new experiment:
+
+- `experiments/backfill/block_ar/train_169c_shape_scale_student_t.py`
+
+Model change relative to 169b:
+
+- same support-aware transform
+- same multistep teacher-forced Student-t NLL
+- same fixed scalar `nu=8`
+- same GRU encoder and AR rollout interface
+
+Only covariance parameterization changed:
+
+- raw shape covariance: `Q_t = L_t L_t^T + diag(d_t^2)`
+- normalize to unit average variance
+- predict separate scalar scale `s_t`
+- final covariance: `Sigma_t = s_t^2 * Q_t_norm`
+
+Also updated the v2 suite loader to recognize:
+
+- `multi_step_student_t_169c`
+
+### Training Run
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/train_169c_shape_scale_student_t.py \
+    --epochs 20 \
+    --batch_size 16 \
+    --rank 5 \
+    --fixed_nu 8.0 \
+    --device cuda \
+    --output_dir models/backfill/student_t_169c
+```
+
+Artifacts:
+
+- model dir: `models/backfill/student_t_169c`
+- best checkpoint: `models/backfill/student_t_169c/best_model.pt`
+- history: `models/backfill/student_t_169c/training_history.json`
+
+Best checkpoint was **epoch 6**.
+
+Best teacher-forced validation metrics:
+
+- `val_multistep_nll = -42.662`
+- `val_pred_eff_rank = 3.21`
+- `val_scale_mean = 0.394`
+- `val_shape_avg_var = 3.562`
+
+Small rollout probe at best epoch:
+
+- `rollout_cov90 = 0.683`
+- `rollout_turb_calm_ratio = 1.017`
+- support violations: `0.0`
+
+Training dynamics:
+
+- early epochs showed brief improvement in rollout sensitivity (`roll_tc` peaked
+  at `1.200` on epoch 4)
+- best teacher-forced NLL was epoch 6
+- after that, val NLL degraded steadily while rollout metrics oscillated
+
+So 169c still wants **early stopping**, but even its best checkpoint was not
+clearly better than 169b on the training-side rollout probe.
+
+### Full-Budget v2 Evaluation
+
+Command:
+
+```bash
+PYTHONPATH=. python experiments/backfill/block_ar/test_block_ar_requirements_v2.py \
+    --model_path models/backfill/student_t_169c/best_model.pt \
+    --device cuda \
+    --n_samples 50 \
+    --max_batches 30 \
+    --num_workers 0 \
+    --seed 42 \
+    --output_dir results/block_ar/169c_v2_full_30d
+```
+
+Saved summary:
+
+- `results/block_ar/169c_v2_full_30d/summary.json`
+
+### Headline Result
+
+169c remains effectively **5/9** under the frozen v2 benchmark.
+
+Pass:
+
+- S1 surface validity
+- S4 time series
+- S5 block-AR
+- S6 cointegration (informational)
+- S9 cross-cell correlation
+
+Fail:
+
+- S2 coverage
+- S3 conditionality
+- S7 regime coverage
+- S8 distributional fidelity
+
+### What Improved Versus 169b
+
+169c did achieve the intended directional change on calibration / allocation.
+
+Compared with `results/block_ar/169b_v2_full_30d/summary.json`:
+
+- S2 overall 90% coverage: `91.6% -> 86.0%`
+- S2 calibration error: `0.049 -> 0.025`
+- S2 best-cell overcoverage improved:
+  - worst best-cell value at `h=30`: `99.7% -> 98.1%`
+- S7 Layer 2 improved:
+  - `0/8 -> 1/8`
+- S8 daily-change KS: stayed strong (`23/25`)
+- S8 IV-level KS: improved slightly (`15/25 -> 16/25`)
+- S9 stayed pass with a cleaner-looking balance:
+  - corr ratio `0.770 -> 0.868`
+  - rank ratio `1.504 -> 1.306`
+
+This means the shape/scale split was **not useless**.
+It did improve the specific failure mode it was designed to target.
+
+### What Did Not Improve Enough
+
+The experiment still missed all formal frontier criteria.
+
+Coverage:
+
+- S2 still fails because per-cell long-horizon coverage is misallocated
+- worst `h=30` cell is only `59.4%`
+- best `h=30` cell is still `98.1%`
+
+Conditionality:
+
+- turb/calm ratio improved from `1.048` to `1.131`
+- but still misses the `1.15` gate
+- worst-cell width ratio remains far too high (`2.466`)
+
+Regime coverage:
+
+- Layer 1 passes
+- Layer 3 passes (`4.3%` catastrophic, below the `5%` gate)
+- but Layer 2 remains the blocker (`1/8`)
+
+Distributional fidelity:
+
+- daily-change KS passes
+- IV-level KS passes
+- but median-bias fraction and bias magnitude still fail
+
+So the branch improved **allocation**, but not enough to break the suite
+frontier.
+
+### Interpretation
+
+169c gives a useful negative result.
+
+The shape/scale covariance split is a valid and somewhat helpful
+reparameterization, but it does **not** solve the main density-branch problem.
+
+That means the remaining H7 bottleneck is probably **not**:
+
+- support parameterization
+- tail parameterization
+- covariance factor rank
+- or total-vs-shape entanglement alone
+
+It is more likely:
+
+- insufficiently expressive regime-conditional scale dynamics
+- or a training-signal mismatch between teacher-forced NLL and free-rollout
+  regime-sensitive calibration
+
+### Decision
+
+Do **not** keep iterating on tiny covariance reparameterizations as the main H7
+strategy.
+
+169c was the right principled ablation to run, and it answered the question:
+
+- yes, shape/scale separation helps somewhat
+- no, it is not enough
+
+So the density branch now has a clear status:
+
+- scientifically real
+- methodologically principled
+- still below the 164a baseline frontier
+
+### One-Sentence Summary
+
+**169c confirms that separating covariance shape from total scale improves
+calibration allocation and regime coverage modestly versus 169b, but it still
+lands at 5/9, so the density branch’s remaining blocker is no longer simple
+covariance parameterization.**
+
+---
+
+## 2026-04-04: Focused Literature Sprint After 169c — Three Literature-Backed Directions for H7 Follow-Up
+
+### Why Pause Local Ablations Here
+
+After matched v2 evaluation of:
+
+- `164a_v2_full_30d` (baseline, 6/9)
+- `169b_v2_full_30d` (density branch, 5/9)
+- `169c_v2_full_30d` (shape/scale split, 5/9)
+
+the local pattern is now stable:
+
+- baseline still wins overall
+- the density branch is real and principled
+- small covariance-head reparameterizations help, but do not break the frontier
+- the remaining blocker is regime-sensitive calibration / uncertainty allocation,
+  not support handling or basic trainability
+
+At this point, continuing local micro-ablation without new theory would mostly
+be blind search.
+
+So the correct next move is a **short literature sprint** focused only on
+directions that explicitly target:
+
+- joint multi-step dependence
+- mean/covariance-informed generative modeling
+- calibrated joint uncertainty regions
+
+### Framing Reference
+
+Proper scoring rule foundation:
+
+- Gneiting & Raftery (2007), *Strictly Proper Scoring Rules, Prediction, and
+  Estimation*
+  - source: `https://sites.stat.washington.edu/people/raftery/Research/PDF/Gneiting2007jasa.pdf`
+
+Why this matters:
+
+- the current afCRPS/VS/IS line is still principled
+- the density branch is also principled because conditional likelihood / log
+  score is strictly proper for the full forecast law
+- the research question is not "which objective is principled?"
+- it is "which principled objective / model class actually identifies the
+  conditional law we care about under our data regime?"
+
+### Literature Direction 1 — Joint Multi-Step Conditional Flows
+
+Primary source:
+
+- Jamgochian et al. (2022), *Conditional Approximate Normalizing Flows for Joint
+  Multi-Step Probabilistic Forecasting with Application to Electricity Demand*
+  - arXiv:2201.02753
+  - source: `https://arxiv.org/abs/2201.02753`
+
+What the paper explicitly says:
+
+- many problems require probabilistic forecasts "over multiple steps at once"
+- standard methods may fail to capture long-horizon correlations as errors
+  accumulate
+- CANF is introduced to perform **joint probabilistic multi-step forecasting**
+  when long-horizon correlations matter
+
+Why it is relevant here:
+
+- our current 169b/169c density models are still autoregressive
+- that leaves a teacher-forced / rollout mismatch
+- the paper’s joint multi-step framing directly addresses that class of failure
+
+My inference from the source:
+
+- a transformed-space joint future flow would be the cleanest way to test
+  whether our remaining failures are caused by autoregressive rollout mismatch
+  rather than by the density family itself
+
+Concrete proposal:
+
+- **170a = transformed-space joint future conditional flow**
+  - input: 30-step history
+  - output: one joint 30x25 future law
+  - no AR rollout during generation
+
+Main risk:
+
+- may be data-hungry relative to our `~4000` windows
+
+### Literature Direction 2 — Conditionally Whitened Generative Models
+
+Primary source:
+
+- Yang et al. (2025/2026), *Conditionally Whitened Generative Models for
+  Probabilistic Time Series Forecasting*
+  - arXiv:2509.20928
+  - source: `https://arxiv.org/abs/2509.20928`
+
+What the paper explicitly says:
+
+- recent diffusion / flow models often ignore informative priors such as
+  conditional means and covariances
+- CW-Gen incorporates prior information through **conditional whitening**
+- they introduce a Joint Mean-Covariance Estimator (JMCE)
+- experiments show improved performance, better inter-variable correlation
+  capture, and mitigation of distribution shift
+
+Why it is relevant here:
+
+- our density branch already showed that support-aware likelihood modeling is
+  viable
+- baseline still beats it partly because centering / coverage allocation remain
+  better learned there
+- CW-Gen is the first paper in this sprint that directly says:
+  *learn conditional mean and covariance first, then generate in whitened space*
+
+This is especially close to our failure profile:
+
+- S2/S7 failures are about where uncertainty is placed
+- not about whether uncertainty exists at all
+
+Concrete proposal:
+
+- **170b = conditional-whitening version of H7**
+  - learn conditional mean + covariance estimator first
+  - whiten future residuals
+  - fit a simpler generative residual model in whitened space
+
+Main risk:
+
+- added estimator/generator decomposition may complicate end-to-end purity if
+  implemented carelessly
+
+### Literature Direction 3 — Conformalised Conditional Flows for Joint Regions
+
+Primary source:
+
+- English & Lippert (2024), *Conformalised Conditional Normalising Flows for
+  Joint Prediction Regions in time series*
+  - arXiv:2411.17042
+  - source: `https://arxiv.org/abs/2411.17042`
+
+What the paper explicitly says:
+
+- conformal prediction gives finite-sample validity guarantees
+- applying it to probabilistic generative models such as normalizing flows is
+  nontrivial
+- the paper proposes conformalised conditional flows for **joint multi-step
+  prediction regions**
+- the method can produce potentially disjoint regions for multimodal forecasts
+
+Why it is relevant here:
+
+- 169b and 169c are now close enough on some calibration metrics that a
+  calibration layer is scientifically plausible
+- this direction would not replace generative modeling
+- it would turn a near-miss density model into a region-valid forecasting system
+
+Important limitation:
+
+- this is best viewed as a **calibration wrapper**, not the core generative
+  answer
+- it helps if the density model is already decent
+- it does not solve poor regime-sensitive width learning by itself
+
+Concrete proposal:
+
+- **170c = conformalised joint regions on top of the best future flow / density
+  model**
+
+Main risk:
+
+- more suitable as the last step after a stronger core density model exists
+
+### Ranking After Sprint
+
+Ranked by expected information gain per engineering week:
+
+1. **170b: Conditional whitening / JMCE-style density model**
+2. **170a: Joint multi-step conditional flow**
+3. **170c: Conformalised joint regions on top of the strongest density model**
+
+Why this ranking:
+
+- `170b` is closest to the exact failure pattern we see today
+- `170a` is the cleanest fix for AR rollout mismatch, but probably more work
+- `170c` is valuable only if the underlying density model is already strong
+
+### Most Important Sprint Conclusion
+
+There is now a literature-backed reason to stop iterating on local covariance
+heads and to move one level up.
+
+The best next density-branch move is probably **not**:
+
+- another `169x` covariance tweak
+- more `nu` tuning
+- more afCRPS hyperparameter search
+
+It is one of:
+
+- **replace AR rollout with a joint future model** (`170a`)
+- or **move generation into conditionally whitened residual space** (`170b`)
+
+### Current Recommendation
+
+Recommended next mainline research prototype:
+
+- **170b: conditionally whitened support-aware density model**
+
+Reason:
+
+- it directly targets the centering + covariance allocation failures we still
+  see after 169c
+- it is literature-backed by a recent multivariate TS generative paper
+- it preserves the H7 philosophy instead of discarding it
+
+Recommended fallback if 170b looks too invasive:
+
+- **170a: joint future conditional flow in transformed IV space**
+
+### One-Sentence Summary
+
+**The focused literature sprint says the next principled move is to stop
+micro-tuning H7 and instead test either conditionally whitened generative
+modeling or a joint multi-step future flow, with conformalised joint regions as
+the calibration layer only after a stronger core density model exists.**
+
+---
+
+## 2026-04-04 170b — conditionally whitened support-aware density model
+
+Implemented the first literature-guided `170b` prototype rather than doing more
+local `169x` head tweaks.
+
+### Objective
+
+Test the most principled post-`169c` direction from the literature sprint:
+
+- keep the support-aware transformed-space density modeling philosophy
+- keep end-to-end training from scratch
+- explicitly estimate conditional mean/covariance
+- whiten residuals
+- fit a more flexible residual law in whitened space
+
+This is the CW-Gen / JMCE-style branch from the literature sprint, not an
+afCRPS/VS/IS extension.
+
+### Implementation
+
+New script:
+
+- `experiments/backfill/block_ar/train_170b_whitened_flow.py`
+
+Core design:
+
+- same history encoder / AR framing as `169b/169c`
+- IV support transform to unconstrained space
+- decoder predicts:
+  - conditional mean `mu_t`
+  - low-rank + diagonal covariance shape
+  - separate positive scale
+  - residual-flow conditioning context
+- residuals are whitened using the predicted covariance
+- whitened residual law is modeled with a small conditional affine-coupling flow
+- trained with multistep teacher-forced NLL over the full 30-step future
+- no reflecting boundary, no CRPS, no auxiliary calibration losses
+
+Also updated the v2 harness loader to evaluate checkpoint type:
+
+- `whitened_flow_170b`
+
+### Smoke Checks
+
+Passed:
+
+- python compile check
+- 1-epoch CPU training smoke
+- v2 loader / evaluation smoke
+
+So the branch is mechanically viable.
+
+### Real Training Run
+
+Run:
+
+- `models/backfill/whitened_flow_170b`
+
+Training was numerically stable but generalization was poor.
+
+Best epoch was **epoch 1**.
+
+Training trajectory:
+
+- train multistep NLL: `-29.94 -> -67.04`
+- val multistep NLL: `21.34 -> 3053.57`
+- rollout support violations: always `0`
+
+Interpretation:
+
+- the model can optimize the training objective
+- but the whitened-flow residual model overfits or misgeneralizes almost
+  immediately under the current data regime / capacity / objective pairing
+
+This is not a support or numerical-stability failure.
+It is a **generalization failure**.
+
+### Full v2 Evaluation
+
+Artifact:
+
+- `results/block_ar/170b_v2_full_30d/summary.json`
+
+Overall:
+
+- `170b` = **4/9** on the frozen v2 suite
+- passes `S1, S4, S5, S6`
+- fails `S2, S3, S7, S8, S9`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `81.1%`
+- `S2` calibration error: `0.056`
+- `S2` worst cell @ h30: `43.4%`
+- `S2` best cell @ h30: `98.0%`
+- `S3` turb/calm ratio: `0.976` FAIL
+- `S3` worst-cell width ratio: `5.661` FAIL
+- `S7` Layer 2 regime-cell coverage: `0/8`
+- `S7` catastrophic rate: `6.3%` FAIL
+- `S8` daily-change KS: `25/25` PASS
+- `S8` IV-level KS: `15/25` PASS
+- `S8` median-bias fraction: `14/25` FAIL
+- `S8` median-bias magnitude: `18/25` FAIL
+- `S9` corr ratio: `0.484` FAIL
+- `S9` rank ratio: `2.392` PASS
+
+### Comparison vs 169c and Baseline
+
+Anchors:
+
+- `results/block_ar/164a_v2_full_30d/summary.json`
+- `results/block_ar/169c_v2_full_30d/summary.json`
+
+`170b` vs `169c`:
+
+- `S2` regressed
+  - coverage `86.0% -> 81.1%`
+  - calibration error `0.025 -> 0.056`
+  - worst h30 cell `59.4% -> 43.4%`
+- `S3` regressed
+  - turb/calm `1.131 -> 0.976`
+  - worst-cell width `2.467 -> 5.661`
+- `S7` regressed
+  - Layer 2 `1/8 -> 0/8`
+  - catastrophic `4.3% -> 6.3%`
+- `S8` regressed
+  - median-bias fraction `17/25 -> 14/25`
+  - median-bias magnitude `21/25 -> 18/25`
+- `S9` lost entirely
+  - corr ratio `0.868 -> 0.484`
+  - rank ratio `1.306 -> 2.392`
+
+`170b` vs baseline:
+
+- still materially worse overall
+- baseline remains `6/9`
+- `170b` does not beat baseline on the frontier that matters
+
+### Mechanistic Interpretation
+
+What `170b` seems to have learned:
+
+- physical support very well
+- daily-change distributions reasonably well
+- smooth AR rollout mechanics
+- high-rank variation
+
+What it seems to have failed to learn:
+
+- correct allocation of uncertainty across cells/horizons
+- regime-sensitive width scaling
+- correct cross-cell correlation magnitude
+- median bias control at IV level
+
+The specific failure pattern matters:
+
+- `S9` rank is not collapsed
+- instead, correlation is too weak while effective rank is too high
+- this looks like **over-whitened / over-decorrelated residual generation**
+  rather than low-rank collapse
+- regime response is also wrong: turb widths are not wider than calm widths
+
+So the first `170b` result does **not** say:
+
+- whitening is impossible
+
+It says:
+
+- the naive end-to-end whitening + residual flow prototype is not the current
+  frontier-breaker
+- under this implementation, the residual model destroys too much conditional
+  structure
+
+### Conclusion
+
+`170b` was the correct next experiment to run.
+It answered a real question.
+It did **not** beat `169c`, and it clearly did not beat the frozen baseline.
+
+Updated branch view:
+
+- `169c` remains the best H7 density-branch result so far
+- `170b` is not the new mainline
+- the literature-backed whitening idea was informative, but in current form it
+  is not the way through the frontier
+
+Most important conclusion:
+
+- if H7 continues, the next meaningful jump should probably be **170a (joint
+  multi-step future flow)** rather than more local tuning of this first
+  whitening-flow implementation
+
+What I am **not** concluding:
+
+- that conditional density modeling is dead
+- that whitening is useless in principle
+
+What I **am** concluding:
+
+- the first full `170b` implementation under the present architecture/data
+  regime is a regression, not an advance
+
+---
+
+## 2026-04-04 H7 mechanistic study — 169c vs 170b
+
+Ran a focused mechanistic comparison on the frozen v2 test split to decide
+whether the next step should be more density-branch engineering or a cleaner
+architectural jump.
+
+Artifact:
+
+- `results/validations/2026-04-04/analysis/h7_mechanistic/mechanistic_summary.json`
+
+Script:
+
+- `experiments/backfill/block_ar/analyze_h7_mechanisms.py`
+
+Scope of the study:
+
+1. teacher-forced vs free-rollout error growth by horizon / cell
+2. mean-vs-variance decomposition of S2 / S7 failures
+3. predicted covariance vs empirical residual covariance by regime
+4. whitened-residual diagnostics for `170b`
+5. cross-cell spectrum by horizon
+
+Used the full frozen v2 test split:
+
+- `1223` windows
+- `32` one-step predictive samples for teacher-forced diagnostics
+- `32` rollout samples for free-running diagnostics
+
+### Main Result
+
+The density branch has now separated cleanly into two different failure modes:
+
+- `169c` is **mostly a rollout / exposure-bias problem**
+- `170b` is **already wrong in teacher forcing**
+
+This is the important distinction.
+
+### 169c — conditional law looks decent, rollout drifts
+
+Teacher-forced diagnostics are fairly strong:
+
+- coverage is stable around `88.7% - 88.9%` at horizons `1, 7, 14, 30`
+- mean abs z-score is only `~0.75 - 0.77`
+- predicted covariance matches empirical residual covariance surprisingly well:
+  - mean corr `~0.482 - 0.485` predicted vs `~0.502 - 0.509` empirical
+  - effective rank `~5.13 - 5.17` predicted vs `~5.08 - 5.14` empirical
+
+So the one-step conditional law in `169c` is not the main problem.
+
+What goes wrong is rollout:
+
+- rollout MAE grows from `0.0169` at `h=1` to `0.0406` at `h=30`
+- rollout 90% coverage falls from `88.6%` at `h=1` to `79.7%` at `h=30`
+- lower misses dominate at long horizon:
+  - at `h=30`, lower miss `14.9%` vs upper miss `5.5%`
+- regime response weakens with horizon:
+  - teacher-forced turb/calm std ratio: `1.136 -> 0.959`
+  - rollout turb/calm std ratio: `1.154 -> 1.059`
+
+The worst h30 undercoverage is concentrated, not global:
+
+- worst undercovered h30 cell: `(3,3)`
+  - coverage `58.1%`
+  - lower miss `38.5%`
+  - signed error `-0.021`
+  - signed z `-0.85`
+
+Interpretation:
+
+- `169c` still learns a reasonable local conditional distribution
+- the main failure is that the AR rollout drifts into undercoverage /
+  regime-insensitive width allocation as horizon increases
+
+This pushes the argument toward a joint future model (`170a`) more than toward
+another local one-step covariance tweak.
+
+### 170b — teacher-forced miscalibration plus over-whitening
+
+`170b` does not fail mainly because of rollout.
+It already fails at the one-step teacher-forced level.
+
+Teacher-forced diagnostics:
+
+- coverage is only `~79.1% - 79.8%` at all horizons
+- mean abs z-score is `~1.00 - 1.04`
+- signed z-score is consistently positive `~0.12`
+- upper misses exceed lower misses in teacher forcing
+
+Interpretation:
+
+- even before rollout, `170b` is biased low and/or too narrow on the upside
+- this is not just exposure bias
+
+Its local covariance estimate is also structurally wrong:
+
+- predicted mean corr `~0.315 - 0.329`
+- empirical residual mean corr `~0.504 - 0.506`
+- predicted eff-rank `~3.50 - 3.58`
+- empirical residual eff-rank `~5.20 - 5.28`
+
+So the mean/covariance estimator inside `170b` is underestimating correlation
+and using too-low local rank before the flow even acts.
+
+Then rollout makes the regime problem worse:
+
+- rollout turb/calm std ratio:
+  - `1.086` at `h=1`
+  - `0.979` at `h=7`
+  - `0.953` at `h=14`
+  - `0.886` at `h=30`
+
+So the regime-sensitive width signal actually **inverts** under rollout.
+
+The worst h30 undercoverage is also mechanistically different from `169c`:
+
+- worst undercovered h30 cell: `(1,1)`
+  - coverage `42.0%`
+  - upper miss `58.0%`
+  - lower miss `0.0%`
+  - signed error `+0.056`
+  - signed z `+1.90`
+
+Interpretation:
+
+- `170b` is badly low on that cell and far too narrow
+- this is a direct mean / scale allocation failure, not a subtle tail issue
+
+### Whitened-residual diagnostics for 170b
+
+This was the most useful new diagnostic.
+
+Raw whitened residuals are not close to a clean standardized law:
+
+- white residual std `~4.4`
+- mean off-diagonal corr `~0.30`
+- effective rank `~6.05`
+- very high kurtosis
+
+So the covariance estimator is **not** truly whitening the realized residuals.
+
+The flow latent `z` then does decorrelate very strongly:
+
+- mean off-diagonal corr `~0.036`
+- effective rank `~16.5`
+
+But `z` is still not standard normal:
+
+- std `~1.30`
+- heavy tails remain
+
+Interpretation:
+
+- the flow is flattening / decorrelating the residual structure aggressively
+- but the underlying covariance model was already wrong
+- net result: the branch loses too much conditional correlation structure and
+  ends up over-decorrelated in generation
+
+This explains the observed S9 pattern:
+
+- low correlation magnitude
+- inflated effective rank
+
+### Cross-cell spectrum by horizon
+
+`169c`:
+
+- correlation ratio stays in a healthy range: `0.86 - 0.92`
+- rank ratio stays moderate: `1.25 - 1.34`
+
+`170b`:
+
+- correlation ratio degrades with horizon:
+  - `0.64` at `h=1`
+  - `0.54` at `h=7`
+  - `0.49` at `h=14`
+  - `0.42` at `h=30`
+- rank ratio inflates sharply:
+  - `1.87` at `h=1`
+  - `2.14` at `h=7`
+  - `2.33` at `h=14`
+  - `2.75` at `h=30`
+
+So `170b` is not just weak on S9 in aggregate.
+It gets progressively more decorrelated and higher-rank as horizon grows.
+
+### What this means for the next step
+
+We now know enough to stop guessing.
+
+What should **not** happen next:
+
+- no more `170b` micro-tuning
+- no more small covariance-head tweaks to H7
+- no more return to `K / IS / VS / RB`
+
+What the mechanistic study supports:
+
+- `169c` is still the best density-branch result
+- its failure mode points toward **joint future modeling** rather than more
+  one-step local-distribution engineering
+- `170b` was worth running because it falsified the naive whitening-flow idea
+
+### Updated Recommendation
+
+If H7 continues, the next principled step should be:
+
+- **170a: transformed-space joint multi-step future model / conditional flow**
+
+Reason:
+
+- `169c` shows the one-step conditional law is not the main blocker
+- the blocker is rollout drift and horizon-wise regime allocation
+- `170b` shows that simply making the one-step residual model more flexible does
+  not solve this and can destroy structure
+
+One-sentence conclusion:
+
+**169c says "the local law is decent but AR rollout is the problem"; 170b says
+"naive whitening+flow breaks the local law itself." That makes a joint future
+model the cleanest next H7 step.**
+
+---
+
+## 2026-04-04 170a — joint future support-aware Student-t
+
+Implemented the first non-AR H7 prototype to test the mechanistic conclusion
+from the focused H7 study.
+
+New script:
+
+- `experiments/backfill/block_ar/train_170a_joint_future_student_t.py`
+
+Also added loader support in:
+
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+### Objective
+
+Test the cleanest possible version of the `169c` hypothesis:
+
+- if the local conditional law is already decent
+- and the main problem is AR rollout drift
+- then a **joint future** support-aware density model should help more than
+  another one-step local model tweak
+
+Implementation choice:
+
+- I did **not** jump straight to a full conditional flow here
+- instead I used a joint future transformed-space Student-t density
+- reason: this isolates the AR-vs-joint question while keeping a proper
+  likelihood objective and avoiding another hard-to-interpret flow failure mode
+
+### Model
+
+`170a` predicts the full `30 x 25 = 750` future block jointly:
+
+- same GRU history encoder
+- support transform: logit on `(0.01, 1.0)`
+- joint future decoder with factored temporal + spatial attention
+- low-rank + diagonal joint covariance over the full future block
+- fixed scalar `nu=8`
+- direct joint Student-t NLL
+- generation is one-shot future sampling, **no AR rollout**
+
+### Training
+
+Run:
+
+- `models/backfill/joint_future_student_t_170a`
+
+Training was stable.
+
+Best checkpoint:
+
+- epoch `10`
+
+Best validation diagnostics:
+
+- val joint NLL: `-729.66`
+- val joint MAE: `0.0279`
+- val first-frame effective rank: `4.42`
+- subset joint 90% coverage: `0.921`
+- subset joint turb/calm ratio: `1.010`
+- support violations: `0`
+
+So unlike `170b`, the joint model does **not** immediately destabilize.
+
+### Full v2 Result
+
+Artifact:
+
+- `results/block_ar/170a_v2_full_30d/summary.json`
+
+Overall:
+
+- `170a` = **3/9**
+- passes `S1, S5, S6`
+- fails `S2, S3, S4, S7, S8, S9`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `97.8%`
+- `S2` calibration error: `0.220`
+- per-cell coverage fails because the whole model is massively overcovered
+- `S3` turb/calm ratio: `1.080` FAIL
+- `S3` worst-cell width ratio: `1.699` FAIL
+- `S4` kurtosis ratio: `0.371` FAIL
+- `S7` Layer 1: PASS
+- `S7` Layer 3 catastrophic rate: `0.4%` PASS
+- `S7` Layer 2 regime-cell coverage: `0/8` FAIL
+- `S8` daily-change KS: `15/25` PASS
+- `S8` IV-level KS: `10/25` FAIL
+- `S8` median-bias fraction: `18/25` FAIL
+- `S8` median-bias magnitude: `20/25` FAIL
+- `S9` corr ratio: `0.176` FAIL
+- `S9` rank ratio: `4.415` FAIL
+
+### Interpretation
+
+`170a` did solve one piece of the `169c` problem:
+
+- catastrophic regime coverage is now tiny (`0.4%`)
+- support is exact
+- no AR rollout pathologies
+- block-boundary issues are trivially clean
+
+But it introduced a different, stronger failure mode:
+
+- uncertainty is **too large everywhere**
+- the future block becomes too weakly correlated across cells
+- the generated law is too smooth / too high-rank / too decorrelated
+
+This is visible in the suite pattern:
+
+- `S2` massively overcovers
+- `S7` Layer 1 and catastrophic pass, but Layer 2 still fails because every
+  cell is too wide rather than properly calibrated
+- `S9` collapses hard on correlation magnitude and rank
+- `S4` fails because daily changes are not heavy-tailed enough
+
+So the joint model did remove the AR catastrophe issue, but in current form it
+did so by becoming too diffuse and too decorrelated.
+
+### Comparison to 169c
+
+`169c`:
+
+- stronger structure
+- better daily-change realism
+- better S9
+- main issue = rollout drift
+
+`170a`:
+
+- better catastrophic safety
+- worse joint law realism
+- far too much coverage
+- much weaker cross-cell structure
+
+This means:
+
+- the mechanistic conclusion from the H7 study was still useful
+- AR rollout *was* a real problem
+- but simply switching to a joint future block model is **not sufficient**
+  unless the joint covariance / dependence model is much better
+
+### Branch Conclusion
+
+`170a` is informative but not a frontier break.
+
+What it proves:
+
+- joint future modeling is trainable end-to-end from scratch
+- removing AR rollout does help with catastrophic coverage failure
+
+What it does **not** prove:
+
+- that joint future density modeling in this naive low-rank Student-t form is
+  the right answer
+
+Updated position:
+
+- `170a` falsifies the simplest "just remove AR rollout" story
+- `170b` falsified naive whitening+flow
+- `169c` remains the strongest H7 result so far
+
+The remaining design question is now narrower:
+
+- how to get the **joint future dependence model** right without reverting to
+  AR rollout drift or over-decorrelated global uncertainty
+
+---
+
+## 2026-04-04 Post-170a branch update — next principled step
+
+After `170a`, the next H7 step is no longer ambiguous.
+
+What `170a` showed:
+
+- removing AR rollout helps with catastrophic regime failure
+- but a naive flat joint `750`-dim covariance is too diffuse and too
+  decorrelated
+
+So the next experiment should **not** be:
+
+- more `170a` tuning
+- more `169c`
+- more `170b`
+- or any return to `K / IS / VS / RB`
+
+The next principled experiment is:
+
+- **170d = joint future support-aware density model with structured
+  spatiotemporal covariance**
+
+What that means:
+
+- same support transform
+- same GRU encoder
+- one-shot future block generation, no AR rollout
+- fixed `nu=8`
+- proper joint NLL
+- but with a covariance model that is explicitly structured across
+  time and cells, e.g. separable / Kronecker-style or equivalent
+  low-rank temporal + low-rank spatial construction
+
+Why this is the right next move:
+
+- `169c` says the local law is decent but rollout drifts
+- `170a` says removing rollout alone is not enough if the joint covariance is
+  too unconstrained / too decorrelated
+- therefore the next question is not "AR or joint?"
+- it is "can a **better-structured joint dependence model** keep the non-AR
+  stability while restoring realistic cross-cell / cross-horizon structure?"
+
+This remains fully aligned with the H7 philosophy:
+
+- end-to-end
+- train from scratch
+- support-aware
+- proper likelihood objective
+- no post-hoc correction
+- no hand-balanced ensemble proxy losses
+
+Success criteria for `170d`:
+
+- keep `170a`'s low catastrophic regime failure
+- recover `S9` correlation magnitude into gate range
+- reduce the `S2` overcoverage problem materially
+- improve `S3 / S7` regime-sensitive width allocation
+
+One-sentence summary:
+
+**170d is the minimal principled follow-up because 170a proved that joint
+future modeling helps with AR failure, but also proved that the joint
+dependence model itself must be much more structured.**
+
+---
+
+## 2026-04-04 170d Results - Structured joint covariance partially works
+
+Implemented and ran `170d`:
+
+- script: `experiments/backfill/block_ar/train_170d_structured_joint_student_t.py`
+- checkpoint: `models/backfill/structured_joint_student_t_170d/best_model.pt`
+- eval: `results/block_ar/170d_v2_full_30d/summary.json`
+
+Core design:
+
+- same support-aware transformed-space density modeling
+- same one-shot future block generation as `170a`
+- fixed `nu=8`
+- proper joint Student-t NLL
+- **new** separable structured covariance:
+  - `Sigma = scale^2 * (Sigma_time kron Sigma_cell)`
+  - `Sigma_time`: low-rank + diagonal
+  - `Sigma_cell`: low-rank + diagonal
+
+Training outcome:
+
+- stable end-to-end training on GPU
+- best checkpoint at epoch `13`
+- best validation joint NLL: `-1169.53`
+- no support violations during training diagnostics
+
+Full frozen-v2 result:
+
+- `170d = 6/9`
+- passes:
+  - `S1` surface validity
+  - `S4` time series
+  - `S5` block-AR specifics
+  - `S6` cointegration
+  - `S8` distributional fidelity
+  - `S9` cross-cell correlation
+- fails:
+  - `S2` coverage
+  - `S3` conditionality
+  - `S7` regime coverage
+
+Key metrics:
+
+- `S2` overall 90% coverage: `83.8%`
+- `S2` calibration error: `0.025`
+- `S2` still fails because per-cell allocation remains wrong:
+  - `h=30` worst cell = `66.0%`
+  - `h=30` best cell = `97.6%`
+- `S3` turb/calm width ratio: `1.093` (gate `>1.15`) FAIL
+- `S3` worst cell width ratio: `5.723` FAIL
+- `S7` Layer 1: PASS
+- `S7` Layer 2: `0/8` FAIL
+- `S7` Layer 3 catastrophic rate: `4.4%` PASS
+- `S8` daily-change KS: `21/25` PASS
+- `S8` IV-level KS: `22/25` PASS
+- `S8` window coverage floor: `4.5%` PASS
+- `S9` corr ratio: `0.925` PASS
+- `S9` rank ratio: `1.192` PASS
+
+Comparison to prior H7 models:
+
+- vs `169c`:
+  - improves from `5/9 -> 6/9`
+  - keeps strong `S9`
+  - upgrades `S8` from FAIL to PASS
+  - keeps `S2` calibration error essentially unchanged (`~0.025`)
+  - improves catastrophic regime coverage:
+    - `169c` `S7` Layer 3 FAIL
+    - `170d` `S7` Layer 3 PASS at `4.4%`
+  - but worsens conditionality:
+    - `169c` turb/calm `1.131`
+    - `170d` turb/calm `1.093`
+- vs `170a`:
+  - major recovery in structure and realism
+  - `170a` was too diffuse / decorrelated
+  - `170d` restores realistic `S4`, `S8`, and `S9`
+
+Comparison to v2 baseline `164a`:
+
+- `164a = 6/9`
+- `170d = 6/9`
+- but the pattern is different:
+  - `164a` passes `S3` and fails `S8`
+  - `170d` passes `S8` and fails `S3`
+
+Mechanistic interpretation:
+
+- the structured joint covariance fix **worked** for:
+  - global dependence realism
+  - time-series realism
+  - distributional fidelity
+  - catastrophic regime safety
+- it did **not** solve the remaining bottleneck:
+  - regime-sensitive width allocation at the cell level
+  - specifically, uncertainty is globally plausible but still misallocated
+    across regime x cell combinations
+
+Updated H7 position:
+
+- `170d` is now the strongest density-branch result so far
+- it ties the baseline frontier at `6/9`
+- this is the first H7 model to match the baseline under frozen v2
+- but it is **not** yet a frontier break because the remaining failures are
+  still exactly the metrics tied to conditional uncertainty allocation:
+  - `S2`
+  - `S3`
+  - `S7`
+
+One-sentence summary:
+
+**170d validates the H7 branch as scientifically real: a structured joint
+future density model can match the baseline frontier without CRPS/VS/IS tuning,
+but the remaining unsolved problem is regime-cell uncertainty allocation, not
+basic density modeling or support handling.**
+
+---
+
+## 2026-04-04 Post-170d branch update - next principled step
+
+`170d` changed the H7 decision point again.
+
+What is now clear:
+
+- the density branch is no longer speculative
+- joint future support-aware likelihood modeling can match the baseline
+  frontier under frozen v2
+- the remaining failure is no longer global fit
+- the remaining failure is **local uncertainty allocation**
+
+Specifically, `170d` already gets the global law mostly right:
+
+- `S8` PASS
+- `S9` PASS
+- `S4` PASS
+- `S7` Layer 3 PASS
+- `S2` calibration error low (`0.025`)
+
+But it still fails exactly where the covariance must adapt locally:
+
+- `S2` per-cell coverage allocation
+- `S3` regime-sensitive width response
+- `S7` Layer 2 regime x cell coverage
+
+So the next experiment should **not** change the branch again.
+
+It should keep everything that now works in `170d`:
+
+- support transform
+- one-shot future block modeling
+- fixed `nu=8`
+- proper joint Student-t NLL
+- structured `time x cell` base covariance
+
+And change only one thing:
+
+- add a positive history-conditioned `time x cell` variance modulation field
+  on top of the structured covariance
+
+Target form:
+
+- `Sigma = D_tc (Sigma_time kron Sigma_cell) D_tc`
+- where `D_tc` is a positive diagonal scale field over time x cell
+- implemented as a low-rank history-conditioned modulation, not a free
+  unconstrained covariance
+
+Rationale:
+
+- `170d` proves the base structured covariance is already good enough for
+  global realism
+- the remaining misses imply the model still cannot reallocate uncertainty
+  sharply enough across specific regime / horizon / cell combinations
+- therefore the minimal principled next step is to augment **local variance
+  allocation**, not to replace the density family or revisit CRPS tuning
+
+Next experiment:
+
+- **170e = structured joint Student-t with local variance modulation**
+
+Success criteria:
+
+- preserve `S8` and `S9` PASS
+- improve `S3` turb/calm above `1.15`
+- materially improve `S7` Layer 2 from `0/8`
+- bring `S2` per-cell coverage closer to gate at long horizon
+
+One-sentence summary:
+
+**170e is the minimal follow-up because 170d already solved global structure;
+the remaining problem is local uncertainty allocation, so the next change
+should be local variance modulation and nothing broader.**
+
+---
+
+## 2026-04-04 170e Results - local variance modulation is not the fix
+
+Implemented and ran `170e`:
+
+- script:
+  `experiments/backfill/block_ar/train_170e_local_scale_structured_joint_student_t.py`
+- checkpoint:
+  `models/backfill/local_scale_structured_joint_student_t_170e/best_model.pt`
+- eval:
+  `results/block_ar/170e_v2_full_30d/summary.json`
+
+Core design:
+
+- same support-aware transformed-space density modeling as `170d`
+- same one-shot future block generation
+- same fixed `nu=8`
+- same proper joint Student-t NLL
+- same structured base covariance:
+  - `Sigma_time`
+  - `Sigma_cell`
+- **new** local positive scale field:
+  - `Sigma = D_tc (Sigma_time kron Sigma_cell) D_tc`
+  - `D_tc` predicted from history as a low-rank time x cell modulation
+
+Training outcome:
+
+- stable end-to-end training on GPU
+- best checkpoint at epoch `10`
+- best validation joint NLL: `-1101.12`
+- no support violations during training diagnostics
+
+Full frozen-v2 result:
+
+- `170e = 5/9`
+- passes:
+  - `S1` surface validity
+  - `S5` block-AR specifics
+  - `S6` cointegration
+  - `S8` distributional fidelity
+  - `S9` cross-cell correlation
+- fails:
+  - `S2` coverage
+  - `S3` conditionality
+  - `S4` time series
+  - `S7` regime coverage
+
+Key metrics:
+
+- `S2` overall 90% coverage: `87.9%`
+- `S2` calibration error: `0.037`
+- `S2` worst h=30 cell improved vs `170d`:
+  - `170d`: `66.0%`
+  - `170e`: `75.6%`
+- but best h=30 cell got even worse:
+  - `170d`: `97.6%`
+  - `170e`: `99.0%`
+- `S3` turb/calm width ratio: `1.100` FAIL
+- `S3` worst cell width ratio: `2.353` FAIL
+- `S4` kurtosis ratio: `0.492` FAIL
+- `S7` Layer 1: PASS
+- `S7` Layer 2: `0/8` FAIL
+- `S7` Layer 3 catastrophic rate: `3.0%` PASS
+- `S8` remains PASS
+- `S9` remains PASS:
+  - corr ratio `0.917`
+  - rank ratio `1.201`
+
+Comparison to `170d`:
+
+- `170d = 6/9`
+- `170e = 5/9`
+
+What improved:
+
+- worst-cell long-horizon coverage
+- catastrophic regime failure rate
+- overall window coverage floor
+
+What regressed:
+
+- overall calibration got more overdispersed
+- `S3` still fails
+- `S4` fell back below gate
+- total pass count regressed
+
+Mechanistic interpretation:
+
+- the local scale field does help where `170d` was too narrow
+- but it does so mainly by pushing more variance into the system globally
+- that improves worst-cell coverage but worsens overcoverage at already-wide
+  cells and slightly degrades time-series realism
+- in other words:
+  - **local variance modulation alone is too blunt**
+  - it does not solve regime-cell allocation cleanly
+
+Updated H7 position after `170e`:
+
+- `170d` remains the strongest H7 result
+- `170e` falsifies the simplest "just add local variance scaling" story
+- the remaining frontier blocker is not just missing local variance amplitude
+- it is likely the interaction of:
+  - local mean dynamics
+  - local covariance shape
+  - regime-conditioned uncertainty routing
+
+Branch conclusion:
+
+- do **not** make `170e` the new mainline
+- do **not** continue with more local-scale tuning as the next step
+- `170d` remains the best density anchor
+
+One-sentence summary:
+
+**170e shows that adding a local scale field can help the narrowest cells, but
+it is not the right mechanism to break the frontier because it trades that gain
+for broader overcoverage and still fails regime-cell allocation.**
+
+---
+
+## 2026-04-04 170d Mechanistic Analysis - failures are misallocation, not collapse
+
+Ran a focused post-170e mechanistic decomposition on `170d`:
+
+- script: `experiments/backfill/block_ar/analyze_170d_mechanisms.py`
+- artifact:
+  `results/validations/2026-04-04/analysis/170d_mechanistic/mechanistic_summary.json`
+
+Goal:
+
+- understand the remaining `S2 / S3 / S7` failures before any `171a`
+
+Main finding:
+
+- `170d` is **not** failing because the whole uncertainty law is collapsed
+- it is failing because uncertainty is **misallocated across regime x horizon x
+  cell slices**
+
+The evidence is much sharper than the suite summary alone.
+
+### 1. Slice-level failing cells are mostly underwide, not purely biased
+
+Failure class counts across `regime x horizon x cell` slices:
+
+- `pass`: `229`
+- `overwide`: `46`
+- `underwide_dominant`: `17`
+- `bias_plus_underwide`: `3`
+- `high_coverage_mixed`: `4`
+- `overwide_plus_bias`: `1`
+
+Important point:
+
+- there were effectively **no pure bias-dominant failing slices**
+- the undercovered slices are overwhelmingly **underwide**
+- the overcovered slices are overwhelmingly **overwide**
+
+So the core failure is not "the mean is wrong everywhere."
+It is:
+
+- some cells are much too wide
+- some cells are much too narrow
+- and the model cannot allocate uncertainty cleanly across those slices
+
+### 2. Undercoverage concentrates in turbulent / long-horizon slices
+
+Worst undercovered slices:
+
+- `(3,3)` turb `h=14`: coverage `0.600`, `z_std=2.55`
+- `(1,3)` turb `h=30`: coverage `0.624`, `z_std=1.49`
+- `(2,2)` turb `h=14`: coverage `0.629`, `z_std=2.73`
+- `(3,3)` turb `h=30`: coverage `0.629`, `z_mean=-0.65`, `z_std=1.93`
+- `(4,3)` calm `h=30`: coverage `0.637`, `z_std=2.05`
+- `(0,2)` turb `h=14`: coverage `0.641`, `z_std=2.54`
+- `(1,2)` turb `h=14`: coverage `0.641`, `z_std=2.88`
+
+Interpretation:
+
+- these are mostly not large-mean-bias slices
+- they are **variance-too-small** slices
+- the most persistent failures live in turbulent and later horizons
+
+### 3. Overcoverage concentrates in a different calm-cell family
+
+Worst overcovered slices:
+
+- `(1,4)` calm `h=1`: coverage `0.996`, `z_std=0.47`
+- `(1,4)` calm `h=7`: coverage `0.996`, `z_std=0.47`
+- `(1,4)` calm `h=14`: coverage `0.988`, `z_std=0.54`
+- `(1,4)` calm `h=30`: coverage `0.992`, `z_std=0.48`
+- `(1,3)` calm `h=1`: coverage `0.988`, `z_std=0.59`
+- `(2,3)` calm `h=1`: coverage `0.984`, `z_std=0.65`
+- `(4,2)` calm `h=1`: coverage `0.984`, `z_std=0.65`
+
+Interpretation:
+
+- `170d` is too wide on a persistent calm-cell cluster
+- especially around the right-side / upper-right area of the grid
+- this is why a global or low-rank local scale fix (`170e`) fails:
+  it cannot narrow these cells while widening the turbulent problem cells
+
+### 4. Regime routing through scale is weak
+
+Regime-horizon averages:
+
+- predicted std turb/calm ratio:
+  - `h=1`: `1.118`
+  - `h=7`: `1.133`
+  - `h=14`: `1.122`
+  - `h=30`: `1.120`
+- realized RMSE turb/calm ratio:
+  - `h=1`: `1.263`
+  - `h=7`: `1.340`
+  - `h=14`: `1.460`
+  - `h=30`: `1.162`
+- abs-bias turb/calm ratio:
+  - `h=1`: `1.527`
+  - `h=7`: `1.618`
+  - `h=14`: `1.639`
+  - `h=30`: `1.296`
+
+Interpretation:
+
+- the model does widen in turbulent regimes, but **not enough**
+- the turbulent increase in predictive scale is smaller than the increase in
+  actual error, especially at `h=7` and `h=14`
+- turbulent mean error is also larger than calm
+
+So the remaining failure is mixed:
+
+- some mean-routing issue
+- but even more clearly a **regime-conditioned scale allocation issue**
+
+### 5. Shape routing exists, but is still under-responsive
+
+Predicted cell-correlation shape by regime is different:
+
+- calm predicted mean offdiag corr:
+  - `0.469, 0.476, 0.483, 0.482`
+- turb predicted mean offdiag corr:
+  - `0.530, 0.523, 0.524, 0.519`
+
+So shape routing is **not absent**.
+
+But empirical residual correlation gap is larger:
+
+- calm empirical mean offdiag corr:
+  - `0.498, 0.469, 0.443, 0.524`
+- turb empirical mean offdiag corr:
+  - `0.592, 0.588, 0.629, 0.597`
+
+Interpretation:
+
+- `170d` already learns some regime-specific covariance shape
+- but it still under-routes the turbulent covariance response
+- especially at later horizons
+
+### 6. Global scalar scale is not the regime solution
+
+Average predicted global scale:
+
+- calm: `0.479`
+- turb: `0.462`
+
+This is crucial:
+
+- the model does **not** use the global scale head as the main regime lever
+- the modest regime widening seen in output intervals is coming from the rest of
+  the structured covariance / transform interaction, not from a strong scalar
+  volatility switch
+
+That explains why `170e` failed:
+
+- adding a stronger local scale field mostly inflated variance
+- but did not create the right regime-cell routing pattern
+
+### 7. Updated conclusion
+
+What `170d` still gets right:
+
+- support handling
+- global distributional realism
+- cross-cell structure
+- catastrophic regime safety
+
+What it still gets wrong:
+
+- uncertainty is not routed sharply enough into the correct turbulent cells
+- and is too wide in a separate calm-cell cluster
+
+This is **not** a simple "more variance" problem.
+It is also **not** a simple "fix the mean" problem.
+
+It is a **routing / mixture** problem:
+
+- one unimodal structured joint law is being asked to cover slices that want
+  different mean + covariance behavior
+
+### 8. Implication for 171a
+
+The next principled model should be:
+
+- **171a = regime-conditioned mixture of structured joint Student-t components**
+
+Not:
+
+- more local-scale tuning
+- more global-scale tuning
+- more CRPS / VS / IS work
+
+Why mixture is now justified:
+
+- `170d` already has the correct base global structure
+- `170e` proved scalar local scaling is too blunt
+- the failures split into:
+  - calm cells that are too wide
+  - turbulent / later-horizon cells that are too narrow
+- that is exactly the pattern where a mixture can help:
+  - separate mean routing
+  - separate covariance scale
+  - separate covariance shape
+  - combined by history-conditioned gating
+
+One-sentence summary:
+
+**The 170d failure decomposition says the next model should not just be "more
+variance"; it should be a regime-conditioned mixture over structured joint
+components, because the remaining errors are about routing different local laws
+to different slices of the state space.**
+
+---
+
+## 2026-04-04 171a Proposal - regime-conditioned mixture over structured joint components
+
+`170d` + the mechanistic decomposition now justify a very specific next model.
+
+What the evidence says:
+
+- `170d` already has the right global family:
+  - support-aware
+  - one-shot future block
+  - proper joint NLL
+  - structured time/cell covariance
+- `170e` proved that adding more local scale freedom is too blunt
+- the remaining failures are split across different slices:
+  - calm cells that are too wide
+  - turbulent / later-horizon cells that are too narrow
+
+That is the signature of a **routing problem**, not a pure scale problem.
+
+So the next principled model is:
+
+- **171a = regime-conditioned mixture of structured joint Student-t components**
+
+Minimal design:
+
+- keep the `170d` family
+- keep support transform
+- keep fixed `nu=8`
+- keep structured `time x cell` covariance per component
+- add `K=2` mixture components
+- add a history-conditioned gating network over components
+- train with exact mixture log-likelihood
+
+Why `K=2` first:
+
+- enough capacity to separate the currently observed split
+  - overwide calm-style law
+  - underwide turbulent-style law
+- still small enough that success or failure is interpretable
+- avoids turning this into an unconstrained search
+
+What `171a` is testing:
+
+- can the model route different structured joint laws to different state slices
+  without destroying the global realism already achieved by `170d`?
+
+Success criteria:
+
+- keep `S8` and `S9` PASS
+- keep `S7` Layer 3 PASS
+- improve `S3` turb/calm above `1.15`
+- materially improve `S7` Layer 2 from `0/8`
+- avoid the overcoverage blow-up seen in `170e`
+
+One-sentence summary:
+
+**171a is the most principled next model because 170d already solved global
+structure, and the mechanistic evidence says the remaining failure is a
+history-conditioned routing problem between multiple local laws.**
+
+---
+
+## 2026-04-04 171a Result - simple mixture routing does not break the frontier
+
+`171a` was implemented and run as planned:
+
+- script:
+  `experiments/backfill/block_ar/train_171a_mixture_structured_joint_student_t.py`
+- model:
+  `models/backfill/mixture_structured_joint_student_t_171a/best_model.pt`
+- eval:
+  `results/block_ar/171a_v2_full_30d/summary.json`
+
+Model summary:
+
+- support-aware joint future density model
+- `K=2` mixture components
+- structured `time x cell` covariance per component
+- fixed `nu=8`
+- exact mixture log-likelihood
+
+Training summary:
+
+- stable training after fixing a sampling gather bug in the mixture rollout path
+- best checkpoint at epoch `8`
+- best validation joint NLL: `-1167.74`
+- validation subset diagnostics at best epoch:
+  - `joint_cov90 = 0.694`
+  - `joint_width90 = 0.129`
+  - `joint_turb_calm = 0.969`
+  - `joint_sample_eff_rank = 5.67`
+  - `joint_gate_entropy = 0.588`
+  - `joint_support_violation_rate = 0`
+
+Frozen-v2 result:
+
+- `171a = 5/9`
+- PASS:
+  - `S1`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S4`
+  - `S7`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `84.9%`
+- `S2` calibration error: `0.0219`
+- `S2` still fails per-cell long-horizon coverage:
+  - worst `h=30` cell: `64.1%`
+  - best `h=30` cell: `98.2%`
+- `S3` turb/calm: `1.034` FAIL
+- `S3` worst-cell width ratio: `2.57` FAIL
+- `S4` kurtosis ratio: `0.454` FAIL
+- `S7` Layer 1: PASS
+- `S7` Layer 2: `0/8` FAIL
+- `S7` Layer 3 catastrophic: PASS
+- `S8`: PASS
+- `S9`: PASS with:
+  - `corr_ratio = 0.873`
+  - `rank_ratio = 1.295`
+
+Interpretation:
+
+- the simple 2-component mixture does improve the global density story:
+  - good calibration error
+  - good IV-level distributional fidelity
+  - good cross-cell structure
+- but it does **not** solve the actual frontier blocker
+- the failure is still regime-cell uncertainty allocation:
+  - later-horizon turbulent slices remain too narrow
+  - calm overwide slices still exist
+- it also regresses tail realism enough to lose `S4`
+
+Conclusion:
+
+- `171a` is a real negative result
+- simple regime-conditioned mixture routing is **not** enough to beat `170d`
+- `170d` remains the best H7 density anchor at `6/9`
+- do **not** make `171a` the new mainline
+
+One-sentence summary:
+
+**171a confirms that the remaining problem is not just "route between two local
+laws"; the model still needs a better way to allocate regime-conditioned
+uncertainty without destroying temporal tail realism.**
+
+---
+
+## 2026-04-04 171b Proposal - route covariance, keep mean shared
+
+`171a` was too blunt.
+
+What `171a` taught us:
+
+- full-law mixture routing keeps the global density story strong
+- but it still misses the regime-cell uncertainty allocation problem
+- and it regresses temporal tail realism enough to lose `S4`
+
+That suggests the remaining failure is narrower than "use multiple local laws."
+
+So the next principled model is:
+
+- **171b = 170d + covariance routing, with the mean path left shared**
+
+Minimal design:
+
+- start from `170d`
+- keep:
+  - support transform
+  - one-shot future block generation
+  - fixed `nu=8`
+  - structured `time x cell` covariance
+  - proper joint NLL
+- change only:
+  - replace single covariance with a 2-component covariance mixture
+  - keep a single shared conditional mean head
+  - use history-conditioned gating only for covariance selection
+
+Why this is the right follow-up:
+
+- `170d` already has a good global law
+- `171a` says full mixture routing adds too much freedom in the wrong place
+- the remaining error looks like conditional variance allocation, not mean modeling
+
+Success criteria:
+
+- improve `S3` turb/calm above `1.15`
+- materially improve `S7` Layer 2 from `0/8`
+- keep `S8` and `S9` PASS
+- avoid another `S4` regression
+
+One-sentence summary:
+
+**171b is the narrowest plausible follow-up to 170d because it tests whether
+the remaining frontier blocker is covariance routing specifically, without
+re-opening mean-path flexibility.**
+
+---
+
+## 2026-04-04 171b Result - covariance routing improves coverage but still misses the frontier
+
+`171b` was implemented and run:
+
+- script:
+  `experiments/backfill/block_ar/train_171b_covariance_routed_structured_joint_student_t.py`
+- model:
+  `models/backfill/covariance_routed_structured_joint_student_t_171b/best_model.pt`
+- eval:
+  `results/block_ar/171b_v2_full_30d/summary.json`
+
+Model summary:
+
+- support-aware joint future density model
+- shared conditional mean
+- `K=2` covariance mixture
+- structured `time x cell` covariance per component
+- fixed `nu=8`
+- exact covariance-mixture log-likelihood
+
+Training summary:
+
+- best checkpoint at epoch `8`
+- best validation joint NLL: `-1162.74`
+- best validation subset diagnostics:
+  - `joint_cov90 = 0.754`
+  - `joint_width90 = 0.151`
+  - `joint_turb_calm = 1.020`
+  - `joint_sample_eff_rank = 7.45`
+  - `joint_gate_entropy = 0.644`
+  - `joint_support_violation_rate = 0`
+
+Frozen-v2 result:
+
+- `171b = 5/9`
+- PASS:
+  - `S1`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S4`
+  - `S7`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `86.6%`
+- `S2` calibration error: `0.0231`
+- `S2` best/worst `h=30` cells:
+  - worst: `73.9%`
+  - best: `98.4%`
+- `S3` turb/calm: `1.119` FAIL
+- `S3` worst-cell width ratio: `2.65` FAIL
+- `S4` kurtosis ratio: `0.460` FAIL
+- `S7` Layer 1: PASS
+- `S7` Layer 2: `0/8` FAIL
+- `S7` Layer 3 catastrophic: `3.5%` PASS
+- `S8`: PASS
+- `S9`: PASS with:
+  - `corr_ratio = 0.851`
+  - `rank_ratio = 1.306`
+
+Interpretation:
+
+- `171b` does improve one important part of the failure:
+  - the severe undercoverage on the worst long-horizon cells is largely fixed
+  - catastrophic regime failures are also back under the `5%` gate
+- but it fails for the opposite reason:
+  - easy cells become too overcovered
+  - regime-sensitive width scaling is still too weak
+- it also still under-reproduces temporal tails enough to fail `S4`
+
+Comparison to `170d`:
+
+- better:
+  - overall coverage
+  - worst-cell long-horizon coverage
+  - Layer 3 catastrophic rate
+  - `S8` remains PASS
+- not good enough:
+  - still `0/8` on `S7` Layer 2
+  - `S3` still below the turb/calm gate
+  - `S4` still fails
+- net:
+  - no frontier break
+  - still worse overall than `170d` as a mainline anchor
+
+Conclusion:
+
+- covariance routing alone is **not** enough to solve the remaining frontier blocker
+- `171b` confirms the model can trade undercoverage for overcoverage, but it still
+  cannot allocate uncertainty correctly across `regime x horizon x cell`
+- `170d` remains the best H7 density anchor at `6/9`
+
+One-sentence summary:
+
+**171b shows that the remaining problem is not simply "route more covariance";
+the model still lacks a sharper mechanism for regime-conditioned local
+uncertainty allocation without sacrificing temporal tail realism.**
+
+---
+
+## 2026-04-04 172a Proposal - conditional residual flow on top of the 170d base
+
+After `171a` and `171b`, the remaining question is no longer whether the model
+needs more routing inside the same Student-t family.
+
+What the evidence now says:
+
+- `170d` is still the best density anchor
+- `171a` showed that full-law mixture routing is too blunt
+- `171b` showed that covariance-only routing fixes some undercoverage, but mainly
+  trades it for overcoverage while still failing `S3/S7`
+- both still fail `S4`, which means the remaining miss is not just width
+  allocation; it is also residual shape over time
+
+That suggests the next capacity should not go into another mean/covariance hack.
+It should go into the **residual law itself**.
+
+So the next principled model is:
+
+- **172a = 170d + conditional residual flow in whitened residual space**
+
+Minimal design:
+
+- keep the `170d` global structure:
+  - support-aware transform
+  - one-shot future block
+  - structured `time x cell` covariance
+  - fixed `nu=8`
+  - proper likelihood
+- whiten residuals by the predicted `170d` mean/covariance
+- apply a small conditional affine-coupling flow to the flattened whitened block
+- use an i.i.d. heavy-tailed base distribution in flow space
+- train end-to-end by exact likelihood
+
+Why this is the right next step:
+
+- `170d` already models the global joint law well enough to pass `S8/S9`
+- the remaining failures look local, conditional, and non-elliptical
+- a residual flow adds flexibility in exactly that part of the model without
+  throwing away the structured base that already works
+
+What `172a` is testing:
+
+- whether the remaining frontier blocker is the residual family rather than the
+  mean/covariance backbone
+
+Success criteria:
+
+- keep `S8` and `S9` PASS
+- keep `S7` Layer 3 PASS
+- improve `S3` turb/calm above `1.15`
+- improve `S7` Layer 2 materially from `0/8`
+- avoid another `S4` tail-shape regression
+
+Stop rule:
+
+- if `172a` still misses the same `S2/S3/S4/S7` cluster, stop H7 model
+  development and keep `170d` as the density anchor
+
+One-sentence summary:
+
+**172a is the first H7 follow-up that changes the residual family instead of
+the mean/covariance parameterization, which is the most principled next move
+once 171a and 171b have falsified the simpler routing stories.**
+
+---
+
+## 2026-04-04 172a Result - residual flow fixes tails but still does not break the frontier
+
+`172a` was implemented and run:
+
+- script:
+  `experiments/backfill/block_ar/train_172a_residual_flow_structured_joint_student_t.py`
+- model:
+  `models/backfill/residual_flow_structured_joint_student_t_172a/best_model.pt`
+- eval:
+  `results/block_ar/172a_v2_full_30d/summary.json`
+
+Model summary:
+
+- support-aware joint future density model
+- `170d`-style structured `time x cell` covariance base
+- conditional affine-coupling flow on whitened residuals
+- i.i.d. Student-t base in flow space with `nu=8`
+- exact joint likelihood
+
+Training summary:
+
+- best checkpoint at epoch `5`
+- best validation joint NLL: `-998.91`
+- best validation subset diagnostics:
+  - `joint_cov90 = 0.679`
+  - `joint_width90 = 0.109`
+  - `joint_turb_calm = 0.908`
+  - `joint_sample_eff_rank = 4.90`
+  - `joint_support_violation_rate = 0`
+- artifact note:
+  - the run saved the best checkpoint cleanly
+  - `training_history.json` did not persist, so the checkpoint and frozen-v2
+    summary are the canonical artifacts
+
+Frozen-v2 result:
+
+- `172a = 6/9`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `82.4%`
+- `S2` calibration error: `0.027`
+- `S2` best/worst `h=30` cells:
+  - worst: `64.9%`
+  - best: `95.3%`
+- `S3` turb/calm: `1.096` FAIL
+- `S3` worst-cell width ratio: `1.73` FAIL
+- `S4` kurtosis ratio: `0.647` PASS
+- `S7` Layer 1: PASS
+- `S7` Layer 2: `0/8` FAIL
+- `S7` Layer 3 catastrophic: `5.3%` FAIL
+- `S8`: PASS
+- `S9`: PASS with:
+  - `corr_ratio = 0.933`
+  - `rank_ratio = 1.255`
+
+Interpretation:
+
+- this is the first H7 follow-up after `170d` that clearly fixes the tail-shape
+  problem without losing the global density story
+- the residual flow does what it was supposed to do for `S4`, `S8`, and `S9`
+- but it still does **not** solve the frontier blocker
+- the remaining miss is still regime-conditioned local uncertainty allocation:
+  - some cells remain undercovered at later horizons
+  - turbulence-sensitive width scaling is still too weak
+  - catastrophic regime-cell failures remain just above gate
+
+Comparison to `170d`:
+
+- `172a` ties `170d` at `6/9`
+- `172a` keeps the same pass set pattern as the best density anchor
+- it does not create a new break in the benchmark frontier
+- the residual flow changes the shape of the residual law, but not enough to fix
+  the `S2/S3/S7` cluster
+
+Conclusion:
+
+- `172a` is a real positive result for the H7 direction, but not a frontier break
+- the density branch can now match the baseline frontier with multiple distinct
+  mechanisms, which strengthens the paradigm
+- however, the current H7 line still lacks a mechanism that allocates local
+  uncertainty correctly across `regime x horizon x cell`
+
+One-sentence summary:
+
+**172a shows that fixing the residual family is not enough by itself: the H7
+branch now has strong global realism and acceptable tails, but the remaining
+benchmark blocker is still local regime-conditioned uncertainty allocation.**
+
+---
+
+## 2026-04-04 172a Mechanistic Diagnosis - why S2/S3/S7 still fail
+
+To avoid hand-waving, a focused `172a` failure diagnostic was run:
+
+- script:
+  `experiments/backfill/block_ar/analyze_172a_failures.py`
+- output:
+  `results/validations/2026-04-04/analysis/172a_mechanistic/mechanistic_summary.json`
+
+Top-line result:
+
+- the failure is still **local variance misallocation**, not a general mean-law failure
+- both undercovered and overcovered cells coexist in the same regime/horizon slices
+- Layer 3 is driven by recurring bad-cell clusters, not uniform random misses
+- regime width routing is still underresponsive
+
+Most important findings:
+
+- failure class counts:
+  - `underwide_dominant = 28`
+  - `overwide = 28`
+  - mixed/bias variants are much smaller
+- at `h=30`, the model still shows the classic split:
+  - calm `30d`: `4` low cells and `3` high cells
+  - turb `30d`: `8` low cells and `1` high cell
+- this is why Layer 2 stays `0/8`:
+  - the same slice contains both under-spread and over-spread cells
+  - no single global rescaling can fix it
+
+Why `S3` still fails:
+
+- the model does not widen enough in turbulence where it matters
+- mean predicted turb/calm std ratio by horizon:
+  - `h=1: 1.24`
+  - `h=7: 1.22`
+  - `h=14: 1.20`
+  - `h=30: 1.16`
+- realized RMSE ratios are much larger early:
+  - `h=1: 3.15`
+  - `h=7: 2.76`
+  - `h=14: 2.50`
+  - `h=30: 1.35`
+- so the model is directionally correct but materially under-responsive
+
+Worst under-routed cells at `h=30` include:
+
+- `(4,3)` gap `0.76`
+- `(1,4)` gap `0.73`
+- `(1,0)` gap `0.59`
+- `(1,3)` gap `0.45`
+
+Why Layer 3 is still hard:
+
+- catastrophic rate is concentrated, not diffuse
+- overall catastrophic rate from the diagnostic is about `5.0%`
+- by regime:
+  - calm: `3.1%`
+  - turb: `10.6%`
+- top catastrophic cells are a stable cluster:
+  - `(1,2)`, `(0,3)`, `(2,2)`, `(2,3)`, `(1,3)`, `(0,2)`, `(3,3)`
+- those cells are exactly the same turbulent / later-horizon weak-width cluster
+
+Interpretation:
+
+- `172a` fixed the residual family enough to pass `S4`
+- but it did not add a sharper local routing mechanism for uncertainty
+- the model still spreads uncertainty too globally and too smoothly
+- therefore:
+  - some easy cells remain overwide
+  - some hard turbulent cells remain underwide
+  - and the catastrophic failures come from those same recurring cells in hard windows
+
+One-sentence summary:
+
+**172a is no longer failing because the global density family is wrong; it is
+failing because uncertainty is still routed too coarsely across
+`regime x horizon x cell`, especially in a persistent turbulent-cell cluster.**
+
+---
+
+## 2026-04-04 Next Step Proposal - 173a local log-variance correction on top of 172a
+
+After the `172a` mechanistic diagnosis, the remaining problem is much narrower.
+
+What is already solved:
+
+- support handling
+- temporal tails (`S4`)
+- distributional fidelity (`S8`)
+- cross-cell structure (`S9`)
+- basic joint future density modeling
+
+What is still not solved:
+
+- local uncertainty allocation across `regime x horizon x cell`
+- especially:
+  - turbulent later-horizon undercoverage in a recurring bad-cell cluster
+  - simultaneous calm/easy-cell overcoverage in the same slices
+
+So the next principled move is **not** another new paradigm and **not** another
+global routing model.
+
+The next model should be:
+
+- **173a = 172a + regularized local log-variance correction field**
+
+Minimal design:
+
+- start from `172a`
+- keep:
+  - support-aware transform
+  - one-shot future block generation
+  - structured global covariance base
+  - residual flow
+  - exact likelihood
+- add:
+  - a small history-conditioned `30 x 25` log-variance residual head
+  - apply it multiplicatively as a diagonal correction in future-block space
+  - parameterize it as a residual around zero:
+    - `delta_logvar(t,c | history)`
+    - `D_tc = exp(0.5 * delta_logvar)`
+    - `Sigma' = D_tc Sigma D_tc`
+- constrain it:
+  - zero-mean across the block
+  - variance penalty / shrinkage toward zero
+  - optional low-rank or separable decomposition if the full `30 x 25` field is unstable
+
+Why this is different from `170e`:
+
+- `170e` added broader local scale flexibility before the residual-family problem
+  was solved
+- `172a` has already fixed the tail-shape issue and preserved the global law
+- the new diagnosis now isolates the remaining miss to **local variance
+  allocation specifically**
+- so a small residual variance field is now a targeted fix, not another blind
+  scale experiment
+
+What `173a` is testing:
+
+- whether the remaining benchmark blocker can be fixed by reallocating
+  uncertainty locally, without changing the global mean/covariance family or
+  residual law
+
+Pre-registered success criteria:
+
+- keep `S4`, `S8`, `S9` PASS
+- improve `S3` turb/calm above `1.15`
+- reduce `S7` Layer 2 failure by materially shrinking both:
+  - low cells in turbulent late horizons
+  - high cells in calm/easy slices
+- bring `S7` Layer 3 back below `5%`
+
+Stop rule:
+
+- if `173a` does not beat `172a` on the `S2/S3/S7` cluster while preserving
+  `S4/S8/S9`, stop H7 model iteration and keep `170d`/`172a` as the density
+  anchors
+
+One-sentence summary:
+
+**The next principled experiment is not a bigger model; it is a sharper one:
+keep the 172a global law and add only the local variance correction mechanism
+that the mechanistic diagnosis says is still missing.**
+
+---
+
+## 2026-04-04 173a Result - local variance correction improves S3 and Layer 2, but does not break the frontier
+
+`173a` was implemented and run:
+
+- training script:
+  `experiments/backfill/block_ar/train_173a_local_var_residual_flow_structured_joint_student_t.py`
+- checkpoint:
+  `models/backfill/local_var_residual_flow_structured_joint_student_t_173a/best_model.pt`
+- training trace:
+  `models/backfill/local_var_residual_flow_structured_joint_student_t_173a/training_history.json`
+- frozen v2 result:
+  `results/block_ar/173a_v2_full_30d/summary.json`
+
+Model summary:
+
+- start from `172a`
+- keep:
+  - support-aware transformed-space joint density model
+  - structured separable time/cell covariance
+  - residual flow on whitened residuals
+  - fixed `nu=8`
+- add:
+  - history-conditioned `30 x 25` log-variance residual field
+  - zero-mean centering across the future block
+  - explicit quadratic shrinkage toward zero in the objective
+
+Training result:
+
+- stable throughout 20 epochs
+- best checkpoint at epoch `9`
+- best validation total loss: `-1156.44`
+- local correction remained active but bounded:
+  - validation local-delta RMS around `0.23`
+  - validation local-scale range about `[0.88, 1.22]`
+
+Frozen v2 outcome:
+
+- `173a = 6/9`
+- PASS:
+  - `S1` surface validity
+  - `S3` conditionality
+  - `S4` time-series properties
+  - `S5` block-AR specifics
+  - `S6` cointegration
+  - `S9` cross-cell correlation
+- FAIL:
+  - `S2` coverage
+  - `S7` regime coverage
+  - `S8` distributional fidelity
+
+Key metrics:
+
+- `S2` overall 90% coverage: `77.7%`
+- `S2` per-cell gate:
+  - `h=1`: PASS
+  - `h=7`: PASS
+  - `h=14`: FAIL, worst cell `66.6%`
+  - `h=30`: FAIL, worst cell `67.2%`
+- `S3` turb/calm ratio: `1.160` PASS
+- `S3` worst-cell width ratio: `2.219` FAIL on the per-cell conditionality subcheck, but suite overall PASS because the gate is still dominated by turb/calm + MAE reduction
+- `S4` kurtosis ratio: `0.812` PASS
+- `S7` Layer 2: `3/8`
+- `S7` Layer 3 catastrophic rate: `6.3%`
+- `S8` daily-change KS: `23/25` PASS
+- `S8` IV-level KS: `24/25` PASS
+- `S8` median bias fraction: `25/25` PASS
+- `S8` median bias magnitude: `25/25` PASS
+- `S8` window coverage floor: `7.1%` FAIL
+- `S9` corr ratio: `1.011` PASS
+- `S9` rank ratio: `1.088` PASS
+
+What improved vs `172a`:
+
+- `S3` now passes:
+  - turb/calm `1.096 -> 1.160`
+- `S7` Layer 2 improved materially:
+  - `0/8 -> 3/8`
+- late-horizon worst-cell coverage improved:
+  - `h=30 worst cell 64.9% -> 67.2%`
+- global structure stayed intact:
+  - `S4` PASS
+  - `S9` PASS
+
+What did not improve enough:
+
+- `S2` still fails because local coverage is still too weak in a small late-horizon hard-cell cluster
+- `S7` still fails:
+  - Layer 2 is better but still not close enough to all-pass
+  - Layer 3 worsened from `5.3%` in `172a` to `6.3%`
+- `S8` changed failure mode rather than disappearing:
+  - distributional shape metrics now pass
+  - but window-level coverage floor still fails at `7.1%`
+
+Interpretation:
+
+- the mechanistic diagnosis was directionally right:
+  - local variance correction does help local uncertainty allocation
+  - it is enough to move `S3` over the line
+  - it is enough to partially repair `S7` Layer 2
+- but it is not enough to clear the full `S2/S7` cluster
+- the remaining hard windows still produce concentrated undercoverage in a recurrent late-horizon cell cluster
+- this means the problem is no longer “no local variance mechanism”; it is now “local variance correction alone is still insufficient to fully solve the hard-window routing problem”
+
+Pre-registered stop-rule decision:
+
+- `173a` did **not** beat `172a` on the full `S2/S3/S7` cluster while preserving `S4/S8/S9`
+- so `173a` does **not** justify continuing blind H7 iteration
+- current density anchors remain:
+  - `170d` as the clean structured joint Student-t anchor
+  - `172a` as the best residual-flow anchor
+  - `173a` as evidence that local variance correction helps but is not sufficient
+
+One-sentence summary:
+
+**173a confirms that local variance allocation was part of the remaining problem,
+but it also shows that fixing that mechanism alone is not enough to break the
+6/9 frontier.**
+
+---
+
+## 2026-04-04 173a Mechanistic Diagnosis - the local variance head helps, but mostly as a near-static map
+
+To understand why `173a` still misses `S2/S7/S8`, a focused follow-up analysis
+was run:
+
+- analysis script:
+  `experiments/backfill/block_ar/analyze_173a_failures.py`
+- output artifact:
+  `results/validations/2026-04-04/analysis/173a_mechanistic/mechanistic_summary.json`
+
+Important note:
+
+- the benchmark summary for `173a` was generated with `20` rollout samples
+- this mechanistic diagnostic uses `100` samples for smoother local-statistics
+  estimates
+- so exact failure rates differ slightly from the frozen-v2 benchmark, but the
+  pattern is the point here
+
+What clearly improved vs `172a`:
+
+- failure-class counts shifted materially in the right direction:
+  - `pass: 229 -> 264`
+  - `overwide: 28 -> 8`
+  - `underwide_dominant: 28 -> 21`
+  - mixed bias+width failure counts also shrank
+- `S3` was repaired at the suite level
+- `S7 Layer 2` improved from `0/8` to `3/8`
+- the calm-side low-coverage problem mostly disappeared:
+  - calm low cells:
+    - `h=1: 0`
+    - `h=7: 0`
+    - `h=14: 0`
+    - `h=30: 1`
+- the remaining Layer-2 lows are now overwhelmingly a turbulent later-horizon
+  phenomenon:
+  - turb low cells:
+    - `h=1: 0`
+    - `h=7: 6`
+    - `h=14: 10`
+    - `h=30: 8`
+
+What still fails:
+
+- the same hard turbulent cluster remains the main undercoverage region
+- top undercovered slices are still concentrated in cells:
+  - `(1,3)`, `(3,3)`, `(2,3)`, `(2,2)`, `(1,2)`, `(0,2)`, `(0,3)`
+- those slices are still mostly classified as `underwide_dominant`, not pure
+  mean-bias failures
+- one easy cell remains systematically overwide:
+  - `(0,0)` is still high-coverage in turbulent `h=7 / h=14 / h=30`
+- `S8` window-floor failure is still driven by hard windows with clustered bad
+  cells rather than diffuse mild error
+
+The critical new finding:
+
+- the local-variance head is **not strongly regime-conditional**
+- the average local-scale ratio `turb / calm` is essentially `1.0` at every
+  horizon:
+  - `h=1: 1.004`
+  - `h=7: 1.002`
+  - `h=14: 1.000`
+  - `h=30: 0.998`
+- that means the new local field is mostly learning a near-static
+  `cell x horizon` reweighting map, not a true regime-aware correction
+
+Evidence for that:
+
+- the top boosted `h=30` cells are almost identical in calm and turbulence:
+  - boosted:
+    - `(0,4)`, `(1,4)`, `(0,0)`, `(0,3)`, `(1,0)`, `(2,4)`
+  - suppressed:
+    - `(4,2)`, `(4,1)`, `(4,3)`, `(3,1)`, `(3,2)`, `(3,3)`
+- the map shape barely changes between calm and turbulent subsets
+
+Why that matters:
+
+- `173a` successfully learned a better **static local reallocation**
+- but it did not learn the thing the remaining failures actually require:
+  - **extra local widening in hard turbulent later-horizon slices**
+  - without also widening the easy cells that are already overcovered
+
+Regime-response evidence:
+
+- predicted turb/calm width response did improve over `172a`, but still
+  under-responds in the hardest cells
+- diagnostic calm/turb response gap:
+  - `h=30 predicted ratio mean: 1.266`
+  - `h=30 realized ratio mean: 1.412`
+- worst under-routed late-horizon cells remain:
+  - `(1,4)`, `(4,3)`, `(3,4)`, `(1,0)`, `(1,3)`
+- importantly, the local-scale ratio on those cells is still near `1.0`
+  instead of showing strong turbulence-specific widening
+
+Layer-3 behavior:
+
+- under the smoother `100`-sample diagnostic, catastrophic rate is about
+  `4.56%`, slightly below the formal `5%` gate
+- but the failures remain clearly clustered in hard windows
+- top catastrophic cells are still concentrated, led by:
+  - `(1,2)`, `(2,3)`, `(3,3)`, `(2,2)`, `(1,3)`, `(4,4)`, `(4,2)`, `(4,3)`
+- so the benchmark failure is still not random noise; it is a recurring hard
+  window/cell cluster problem
+
+Interpretation:
+
+- `173a` does not falsify the local-allocation story
+- it actually strengthens it:
+  - local variance correction helps
+  - but a generic history-conditioned correction field mostly collapses to a
+    near-static map
+- the remaining miss is now narrower:
+  - **the model needs regime-conditioned local variance routing, not just local
+    variance freedom**
+
+Most principled next experiment implied by this diagnostic:
+
+- **173b = 172a/173a base + regime-conditioned local variance templates**
+
+Minimal design:
+
+- keep everything from `172a` / `173a`
+- replace the single free local log-variance field with:
+  - a shared static local correction map
+  - plus a small number of history-conditioned local variance templates
+  - or one turbulence-activated residual template
+- in other words:
+  - `delta_logvar = delta_static + sum_k gate_k(history) * template_k(t, c)`
+- regularize the template contribution heavily so it only activates when the
+  hidden state really implies a hard turbulent slice
+
+Why this is more principled than another generic head tweak:
+
+- `171a / 171b` already showed broad mixture/routing over the whole law is too
+  blunt
+- `173a` showed local variance freedom helps, but mostly in a static way
+- so the next missing mechanism is specifically:
+  - **state-dependent local width routing**
+  - not more global flexibility
+  - not more residual-family flexibility
+
+One-sentence summary:
+
+**173a improved the model by learning a better static local width map, but the
+remaining benchmark blocker is still missing a regime-conditioned local routing
+mechanism for the hard turbulent later-horizon cell cluster.**
+
+---
+
+## 2026-04-04 173b Proposal and Result - regime-conditioned local variance templates do not beat 173a
+
+Given the `173a` diagnostic, the next narrow follow-up was:
+
+- **173b = 172a/173a base + regime-conditioned local variance templates**
+
+Design:
+
+- keep:
+  - support-aware transformed-space joint density model
+  - structured separable covariance base
+  - residual flow
+  - fixed `nu=8`
+- replace the generic local variance head with:
+  - one shared static local map
+  - a small gated template bank
+  - history-conditioned template gates
+- regularize:
+  - final local variance magnitude
+  - template magnitude
+  - gate magnitude
+
+Implemented artifacts:
+
+- training script:
+  `experiments/backfill/block_ar/train_173b_regime_template_local_var_residual_flow_structured_joint_student_t.py`
+- checkpoint:
+  `models/backfill/regime_template_local_var_residual_flow_structured_joint_student_t_173b/best_model.pt`
+- training trace:
+  `models/backfill/regime_template_local_var_residual_flow_structured_joint_student_t_173b/training_history.json`
+- frozen v2 result:
+  `results/block_ar/173b_v2_full_30d/summary.json`
+
+Training behavior:
+
+- training was stable
+- gates saturated early near the clip limit, then relaxed later in training
+- best checkpoint by validation loss was epoch `8`
+- later epochs had somewhat better validation turb/calm diagnostics, but not
+  better likelihood
+
+Frozen v2 outcome:
+
+- `173b = 6/9`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key metrics:
+
+- `S2` overall 90% coverage: `77.7%`
+- `S2` per-cell gate:
+  - `h=1`: PASS
+  - `h=7`: PASS
+  - `h=14`: FAIL, worst cell `65.8%`
+  - `h=30`: FAIL, worst cell `64.7%`
+- `S3` turb/calm ratio: `1.133` FAIL
+- `S4` kurtosis ratio: `0.832` PASS
+- `S7` Layer 2: `1/8`
+- `S7` Layer 3 catastrophic rate: `6.2%`
+- `S8` daily-change KS: `24/25` PASS
+- `S8` IV-level KS: `24/25` PASS
+- `S8` window coverage floor: `7.6%` FAIL
+- `S9` corr ratio: `1.067` PASS
+- `S9` rank ratio: `0.997` PASS
+
+Comparison vs `173a`:
+
+- no improvement on the target cluster
+- `S2` is essentially tied
+- `S3` got worse:
+  - `173a: 1.160 PASS`
+  - `173b: 1.133 FAIL`
+- `S7` got worse:
+  - `173a Layer 2: 3/8`
+  - `173b Layer 2: 1/8`
+  - `173a Layer 3: 6.3%`
+  - `173b Layer 3: 6.2%`
+- `S8` stays the same broad story:
+  - strong distributional-shape metrics
+  - still failing window-floor coverage
+
+Interpretation:
+
+- the regime-template idea did **not** deliver the intended state-dependent local
+  width routing on the saved best checkpoint
+- it preserved the strong global-law behavior
+- but it did not outperform the simpler `173a` local-map correction
+- so the evidence now says:
+  - static local reallocation helps
+  - naive regime-template routing does not add enough on top of it
+
+Decision:
+
+- `173b` is a clean negative result
+- it does not justify continuing this exact H7 sub-line
+- current H7 anchors remain:
+  - `170d` as the clean structured joint Student-t anchor
+  - `172a` as the strongest residual-flow anchor
+  - `173a` as evidence that local variance correction helps
+
+One-sentence summary:
+
+**173b shows that simply adding a small gated template bank on top of 173a does
+not solve the remaining regime-conditioned uncertainty-allocation problem.**
+
+---
+
+## 2026-04-04 Focused H7 Checkpoint Audit - selection is misaligned, but not the full blocker
+
+After `173b`, the next question was whether H7 was still being limited by model
+capacity or by the checkpoint-selection rule itself.
+
+What was checked:
+
+- training traces:
+  - `models/backfill/structured_joint_student_t_170d/training_history.json`
+  - `models/backfill/residual_flow_structured_joint_student_t_172a/training_history.json`
+  - `models/backfill/local_var_residual_flow_structured_joint_student_t_173a/training_history.json`
+  - `models/backfill/regime_template_local_var_residual_flow_structured_joint_student_t_173b/training_history.json`
+- saved best-checkpoint benchmarks:
+  - `results/block_ar/173a_v2_full_30d/summary.json`
+  - `results/block_ar/173b_v2_full_30d/summary.json`
+- new final-checkpoint benchmarks:
+  - `results/block_ar/173a_final_v2_full_30d/summary.json`
+  - `results/block_ar/173b_final_v2_full_30d/summary.json`
+
+Training-trace finding:
+
+- the saved `best_model.pt` checkpoints are selected by validation likelihood
+  (`val_joint_nll` / `val_total_loss`)
+- that quantity is only weakly aligned with the validation proxies that matter
+  for the remaining suite cluster, especially `joint_turb_calm_ratio`
+- examples:
+  - `173a`:
+    - best validation-loss epoch: `9`
+    - best validation turb/calm epoch: `13`
+  - `173b`:
+    - best validation-loss epoch: `8`
+    - best validation turb/calm epoch: `19`
+
+This means checkpoint selection is now a real methodological confound inside H7.
+
+However, the saved-final evaluations show that this is **not** the whole story.
+
+`173a` best vs final:
+
+- best (`results/block_ar/173a_v2_full_30d/summary.json`):
+  - `S3` PASS with turb/calm `1.160`
+  - `S2` FAIL with h30 worst cell `67.2%`
+  - `S7` FAIL with Layer 2 `3/8`, Layer 3 `6.3%`
+  - `S8` FAIL with window-floor bad rate `7.1%`
+- final (`results/block_ar/173a_final_v2_full_30d/summary.json`):
+  - still `6/9`
+  - `S3` remains PASS and even improves to turb/calm `1.187`
+  - but `S2` worsens: h30 worst cell `63.9%`, calibration error `0.077`
+  - `S7` worsens: Layer 1 FAIL, Layer 2 `1/8`, Layer 3 `7.1%`
+  - `S8` worsens: window-floor bad rate `8.2%`
+
+`173b` best vs final:
+
+- best (`results/block_ar/173b_v2_full_30d/summary.json`):
+  - `S3` FAIL with turb/calm `1.133`
+  - `S2` FAIL with h30 worst cell `64.7%`
+  - `S7` FAIL with Layer 2 `1/8`, Layer 3 `6.2%`
+  - `S8` FAIL with window-floor bad rate `7.6%`
+- final (`results/block_ar/173b_final_v2_full_30d/summary.json`):
+  - still `6/9`
+  - `S3` flips to PASS with turb/calm `1.214`
+  - `S2` improves a bit: h30 worst cell `67.9%`
+  - `S7` stays FAIL: Layer 2 `1/8`, Layer 3 `6.3%`
+  - `S8` still FAILS: window-floor bad rate `8.0%`
+
+Interpretation:
+
+- checkpoint selection is definitely misaligned with the failure cluster
+- later checkpoints can recover regime-width response
+- but they do so by trading away local calibration / catastrophic-window behavior
+- so the current H7 line is **not** just being capped by the wrong saved epoch
+
+Decision:
+
+- do **not** keep blindly iterating architectures
+- do **not** assume a better checkpoint rule alone will break the frontier
+- the next principled step should be a narrow study of **selection criteria and
+  training objectives**, not another capacity tweak
+
+One-sentence summary:
+
+**H7 is now partially selection-limited, but the best-vs-final audit shows it is
+still fundamentally bottlenecked by the same local regime-conditioned
+uncertainty-allocation tradeoff.**
+
+---
+
+## 2026-04-04 174a Result - checkpoint-selection study does not beat NLL selection on full test
+
+To test whether H7 was now mostly limited by checkpoint selection rather than
+model capacity, a dedicated study was run on the `173a` backbone:
+
+- training script:
+  `experiments/backfill/block_ar/train_174a_selection_study.py`
+- output dir:
+  `models/backfill/selection_study_174a`
+- saved artifacts:
+  - `best_model.pt` (best validation likelihood)
+  - `best_proxy_model.pt` (best validation proxy composite)
+  - `final_model.pt`
+  - `training_history.json`
+  - `epoch_checkpoints/epoch_XXX.pt`
+
+Design:
+
+- keep the `173a` model and loss unchanged
+- save every epoch
+- evaluate a fixed small validation subset every epoch
+- build a predeclared proxy from the remaining failure cluster:
+  - S2 horizon coverage and per-cell worst/best coverage
+  - S3 turb/calm width ratio
+  - S7 Layer 1 / Layer 2 / Layer 3
+  - S8 window-floor coverage
+- select proxy checkpoints lexicographically by:
+  - higher proxy gate-units
+  - lower normalized proxy violation
+  - lower validation total loss
+
+Training result:
+
+- best NLL epoch: `9`
+- best proxy epoch: `12`
+
+Per-study validation metrics:
+
+- epoch `9`:
+  - `val_total_loss = -1156.44`
+  - `proxy_gate_units = 12`
+  - `proxy_violation = 4.415`
+- epoch `12`:
+  - `val_total_loss = -1053.02`
+  - `proxy_gate_units = 13`
+  - `proxy_violation = 3.284`
+
+So the study *did* produce a meaningfully different checkpoint choice.
+
+Full frozen-v2 benchmark:
+
+- NLL-selected checkpoint:
+  `results/block_ar/174a_best_nll_v2_full_30d/summary.json`
+- proxy-selected checkpoint:
+  `results/block_ar/174a_best_proxy_v2_full_30d/summary.json`
+
+NLL-selected (`epoch 9`):
+
+- still `6/9`
+- PASS:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S7`
+  - `S8`
+- key numbers:
+  - `S2` overall 90% = `77.7%`
+  - `S2` h30 worst cell = `67.2%`
+  - `S3` turb/calm = `1.160`
+  - `S7` Layer 2 = `3/8`
+  - `S7` Layer 3 = `6.3%`
+  - `S8` window-floor bad rate = `7.1%`
+
+Proxy-selected (`epoch 12`):
+
+- also `6/9`
+- same pass/fail pattern
+- but **worse** on the target cluster:
+  - `S2` overall 90% = `76.6%`
+  - `S2` h30 worst cell = `65.6%`
+  - `S3` turb/calm = `1.157`
+  - `S7` Layer 2 = `2/8`
+  - `S7` Layer 3 = `6.9%`
+  - `S8` window-floor bad rate = `8.5%`
+
+Interpretation:
+
+- checkpoint selection is indeed part of the H7 story
+- but a small fixed validation proxy can overfit or mis-rank checkpoints
+- the proxy-selected checkpoint looked better on the reduced validation slice,
+  yet degraded on the full frozen-v2 benchmark
+- therefore the current blocker is now threefold:
+  - model limitation
+  - selection misalignment
+  - proxy/validation mismatch
+
+Decision:
+
+- do **not** assume that better checkpoint selection alone will break the
+  frontier
+- do **not** continue adding ad hoc proxy selectors on the current validation
+  slice
+- if H7 continues, the next study should be about **validation design** and
+  not another architecture tweak:
+  - larger fixed validation slice
+  - repeated proxy seeds / repeated sample budgets
+  - or a true held-out model-selection split separate from the current val set
+
+One-sentence summary:
+
+**174a confirms that H7 is partially selection-limited, but the first
+proxy-selection study did not improve test performance; the current validation
+proxy is itself not reliable enough to select a better frontier checkpoint.**
+
+---
+
+## 2026-04-05 174b Proposal - true held-out selection split with repeated proxy seeds
+
+After `174a`, the next principled step is **not** another architecture change.
+
+Rationale:
+
+- the current best realism-first H7 checkpoint already passes:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- the remaining failures are still:
+  - `S2`
+  - `S7`
+  - `S8`
+- `174a` showed that checkpoint selection matters
+- but the first proxy selector overfit a small fixed validation slice and did
+  not improve frozen-v2 test performance
+
+So the next fix should target **validation design**, not model capacity.
+
+Design for `174b`:
+
+- keep the `173a` backbone and loss unchanged
+- carve a **true held-out selection split** from the tail of the pre-existing
+  training slice
+- keep the original validation split for NLL monitoring
+- save every epoch
+- score each epoch on the held-out selection split using:
+  - repeated proxy seeds
+  - repeated sample draws
+  - the same S2/S3/S7/S8-aligned proxy family as `174a`
+- select checkpoints by averaged proxy quality and stability, not by a single
+  noisy proxy pass
+
+Pre-registered question:
+
+- does a cleaner selection protocol produce a better frozen-v2 test checkpoint
+  without changing the model class?
+
+Decision rule:
+
+- if `174b` still does not beat the NLL-selected checkpoint on full frozen-v2
+  test, stop treating checkpoint selection as the main remaining lever
+- at that point, H7 should be considered mostly architecture/objective limited
+  again
+
+One-sentence summary:
+
+**174b is the first truly principled selection study for H7: separate model
+selection from likelihood monitoring, average over proxy noise, and test whether
+the current realism-first branch is still being capped by validation design.**
+
+---
+
+## 2026-04-05 174b Result - held-out selection split does not improve the realism-first frontier
+
+`174b` was implemented and run:
+
+- training script:
+  `experiments/backfill/block_ar/train_174b_selection_split_study.py`
+- study dir:
+  `models/backfill/selection_split_study_174b`
+- frozen-v2 evals:
+  - `results/block_ar/174b_best_nll_v2_full_30d/summary.json`
+  - `results/block_ar/174b_best_select_v2_full_30d/summary.json`
+
+Protocol:
+
+- keep the `173a` backbone unchanged
+- carve a true held-out selection split from the tail of the training slice
+- keep the original validation split for NLL monitoring
+- average proxy metrics over repeated seeds:
+  - `20260404`
+  - `20260405`
+- select checkpoints by:
+  - higher mean gate-units
+  - lower mean violation
+  - lower violation std
+  - lower Layer 3 / window-floor rates
+  - lower validation loss as final tie-break
+
+Training outcome:
+
+- train windows: `3754`
+- selection windows: `256`
+- val windows: `441`
+- best NLL epoch: `7`
+- best held-out select epoch: `1`
+
+This already showed the held-out split was telling a very different story than
+the old in-val proxy: later checkpoints improved some conditionality proxies but
+looked worse on held-out local-calibration realism.
+
+Frozen-v2 test comparison:
+
+NLL-selected (`epoch 7`):
+
+- `results/block_ar/174b_best_nll_v2_full_30d/summary.json`
+- `6/9`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+- key numbers:
+  - `S2` overall 90% = `78.4%`
+  - `S2` h30 worst cell = `61.7%`
+  - `S3` turb/calm = `1.135` FAIL
+  - `S7` Layer 2 = `1/8`
+  - `S7` Layer 3 = `6.3%`
+  - `S8` window-floor bad rate = `6.6%`
+
+Held-out selection checkpoint (`epoch 1`):
+
+- `results/block_ar/174b_best_select_v2_full_30d/summary.json`
+- also `6/9`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S7`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S8`
+- key numbers:
+  - `S2` overall 90% = `82.5%`
+  - `S2` h30 worst cell = `55.6%`
+  - `S3` turb/calm = `1.038` FAIL
+  - `S7` Layer 3 = `4.8%` PASS
+  - `S8` window-floor bad rate = `3.8%` PASS
+  - but daily-change KS collapses to `5/25` FAIL
+
+Interpretation:
+
+- the held-out selector did **not** beat the realism-first frontier
+- instead, it chose a much earlier checkpoint that is:
+  - wider
+  - safer on catastrophic windows
+  - better on calibration-like aggregate metrics
+  - but materially worse on conditional realism and daily-change realism
+- this is exactly the trade that matters for the current research priority:
+  **individually realistic scenarios first**
+
+Decision:
+
+- stop treating checkpoint selection as the main next lever
+- the held-out selection study was worth doing, but it did not reveal a hidden
+  better frontier checkpoint
+- the remaining problem is again primarily model/objective limited:
+  the H7 branch still cannot simultaneously preserve:
+  - local hard-cell coverage
+  - turbulent conditional widening
+  - and realistic per-step pathwise change distributions
+
+Current realism-first anchor:
+
+- keep `173a / 174a_best_nll` as the main H7 realism-first checkpoint
+- treat the held-out-selected `epoch 1` model as evidence of the trade:
+  stronger safety/calibration can be bought, but at the cost of individual path
+  realism
+
+One-sentence summary:
+
+**174b shows that a cleaner held-out selection protocol does not uncover a
+better realism-first checkpoint; the current frontier is no longer mainly a
+selection problem.**
+
+---
+
+## 2026-04-05 175a Proposal - weak local calibration regularizer on the 173a backbone
+
+Question:
+
+- if the realism-first `173a` model is now mainly failing on local
+  `regime x horizon x cell` uncertainty allocation, can we improve that without
+  another architecture change?
+
+Motivation:
+
+- `173a` already passes the suites closest to individual path realism:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- `174b` showed that cleaner checkpoint selection does not reveal a hidden
+  better realism-first frontier checkpoint
+- the mechanistic analyses for `172a` and `173a` keep pointing to the same
+  remaining issue:
+  - local variance misallocation
+  - especially turbulent late-horizon hard-cell slices
+
+Hypothesis:
+
+- the current `173a` density family is close enough that a **small
+  objective-level calibration term** may improve local uncertainty allocation
+  without sacrificing individual path realism
+
+Experiment:
+
+- `175a = 173a + weak teacher-forced local calibration regularizer`
+- keep the model unchanged:
+  - support-aware joint density
+  - residual flow
+  - structured covariance
+  - local variance correction field
+- change only the objective:
+  - keep exact joint NLL as the main term
+  - add a small penalty on teacher-forced transformed residuals, grouped by:
+    - regime (`calm`, `turb`)
+    - horizon bucket (`early`, `mid`, `late`)
+    - cell
+  - encourage:
+    - standardized second moment near the base Student-t target
+    - exceedance rate near the nominal central-90% target
+
+Why this is principled:
+
+- no post-hoc calibration
+- no architecture churn
+- still end-to-end and likelihood-first
+- targets exactly the diagnosed miss while preserving the realism-first
+  successes of `173a`
+
+Success criteria:
+
+- preserve `S1`, `S4`, `S5`, `S6`, `S9`
+- keep `S3` pass
+- improve the `S2/S7` cluster materially
+- avoid a worse `S8` path-realism trade than `173a`
+
+Stop rule:
+
+- if `175a` does not beat `173a` on the local-allocation cluster without
+  sacrificing the realism-first suites, stop H7 iteration and keep `173a` as
+  the realism-first anchor
+
+---
+
+## 2026-04-05 175a Result - weak local calibration regularization improves S2 but breaks realism-first conditionality
+
+Artifacts:
+
+- training script:
+  `experiments/backfill/block_ar/train_175a_local_calibrated_residual_flow.py`
+- checkpoint dir:
+  `models/backfill/local_calibrated_residual_flow_structured_joint_student_t_175a`
+- frozen-v2 eval:
+  `results/block_ar/175a_v2_full_30d/summary.json`
+
+Protocol:
+
+- keep the full `173a` architecture fixed
+- keep:
+  - support-aware joint density
+  - structured covariance
+  - residual flow
+  - local variance field
+- add only a weak teacher-forced local calibration term in transformed residual
+  space:
+  - grouped by calm / turbulent regimes
+  - grouped by early / mid / late horizons
+  - per cell
+  - encourage:
+    - correct second moment
+    - correct central-90% exceedance frequency
+
+Training outcome:
+
+- stable after robustifying the auxiliary term
+- best validation-loss checkpoint: epoch `6`
+- best small-val diagnostics at that checkpoint:
+  - `joint_cov90 = 0.712`
+  - `joint_turb_calm_ratio = 1.037`
+  - `val_calibration_penalty = 0.335`
+
+Frozen-v2 result:
+
+- `results/block_ar/175a_v2_full_30d/summary.json`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+
+Key numbers:
+
+- `S2` overall 90% coverage:
+  - `79.4%`
+- `S2` h30 worst / best cell:
+  - `69.7% / 94.6%`
+- `S2` calibration error:
+  - `0.046`
+- `S3` turb/calm:
+  - `1.111` FAIL
+- `S7` Layer 2:
+  - `1/8`
+- `S7` Layer 3 catastrophic:
+  - `5.8%`
+- `S8` daily-change KS:
+  - `22/25`
+- `S8` IV-level KS:
+  - `23/25`
+- `S8` window-floor bad rate:
+  - `7.0%`
+- `S9` corr / rank:
+  - `0.978 / 1.145`
+
+Comparison to `173a`:
+
+- improved:
+  - `S2` overall 90% coverage:
+    - `77.7% -> 79.4%`
+  - `S2` h30 worst cell:
+    - `67.2% -> 69.7%`
+  - `S2` calibration error:
+    - `0.061 -> 0.046`
+  - `S7` Layer 3 catastrophic:
+    - `6.3% -> 5.8%`
+- regressed:
+  - `S3` turb/calm:
+    - `1.160 -> 1.111`
+  - `S7` Layer 2:
+    - `3/8 -> 1/8`
+  - `S8` daily-change KS:
+    - `23/25 -> 22/25`
+  - `S8` IV-level KS:
+    - `24/25 -> 23/25`
+
+Interpretation:
+
+- the objective-level calibration term does what it was designed to do:
+  - it improves aggregate and worst-cell coverage
+  - it reduces catastrophic-window frequency somewhat
+- but it does **not** preserve the realism-first conditionality win of `173a`
+- this is the key result:
+  - even without architecture changes, pushing harder on local calibration moves
+    the model toward safer / wider uncertainty allocation
+  - but that comes at the expense of state-sensitive conditional widening and
+    per-step realism proxies
+
+Decision:
+
+- `175a` is **not** a better realism-first model than `173a`
+- keep `173a` as the realism-first H7 anchor
+- stop treating weak calibration regularization as the main next lever
+- the remaining bottleneck is still:
+  - local regime-conditioned uncertainty allocation
+  - without sacrificing conditional realism
+
+One-sentence summary:
+
+**175a confirms that the remaining frontier is a real trade: objective-level
+local calibration pressure can improve `S2`, but in this simple form it erodes
+the individual-realism-side conditionality that matters more.**
+
+---
+
+## 2026-04-05 Final Write-Up - freeze anchors and stop H7 iteration
+
+Final anchor models:
+
+- classic baseline anchor:
+  - `results/block_ar/164a_v2_full_30d/summary.json`
+  - passes:
+    - `S1`
+    - `S3`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S9`
+- best density overall anchor:
+  - `results/block_ar/170d_v2_full_30d/summary.json`
+  - passes:
+    - `S1`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S8`
+    - `S9`
+- realism-first H7 anchor:
+  - `results/block_ar/173a_v2_full_30d/summary.json`
+  - passes:
+    - `S1`
+    - `S3`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S9`
+
+Final conclusion:
+
+- the H7 branch succeeded in producing a support-aware, likelihood-trained model
+  family that can match the baseline frontier and produce individually
+  realistic scenarios in the minimal meaningful sense
+- the best realism-first checkpoint is `173a`, not `170d`, `174b`, or `175a`
+- the remaining failure is no longer broad realism:
+  - not support
+  - not temporal tail shape
+  - not Block-AR smoothness
+  - not cross-cell structure
+- the remaining failure is specifically:
+  - local regime-conditioned uncertainty allocation
+  - especially hard turbulent late-horizon cell clusters
+
+What was falsified:
+
+- checkpoint selection as the main frontier lever:
+  - `174a`
+  - `174b`
+- simple local scale / routing fixes:
+  - `170e`
+  - `171a`
+  - `171b`
+  - `173b`
+- weak objective-level local calibration as the main lever:
+  - `175a`
+
+What the repo evidence now supports:
+
+- stronger calibration pressure can improve:
+  - aggregate coverage
+  - worst-cell coverage
+  - catastrophic-window rates
+- but in this branch it does so by giving up some of the conditional realism
+  that matters more for the research priority of individually realistic paths
+
+Decision:
+
+- stop H7 model iteration here
+- freeze `173a` as the realism-first anchor
+- freeze `170d` as the best density-overall anchor
+- freeze `164a` as the classical baseline anchor
+- do not continue with more small architecture / loss / selection tweaks in
+  this branch
+
+Practical interpretation:
+
+- the project can now honestly claim:
+  - individually realistic scenarios are achievable in this framework
+- the project cannot yet claim:
+  - correct local regime-conditioned uncertainty allocation
+  - or full probabilistic realism across all hard slices
+
+Next research phase:
+
+- if the work continues, it should be treated as a new phase rather than a
+  continuation of the current tweak loop
+- that new phase should target:
+  - genuinely richer state-dependent local conditional laws
+  - not more marginal tuning of the current H7 family
+
+One-sentence summary:
+
+**Freeze `173a` as the realism-first result and stop the current H7 iteration:
+the remaining gap is a real model-class limitation in local regime-conditioned
+uncertainty allocation, not something that another small tweak is likely to
+solve.**
+
+---
+
+## 2026-04-05 Phase 2 Ideation - attack local regime-conditioned uncertainty allocation as a new research phase
+
+Standalone memo:
+
+- `results/validations/2026-04-05/analysis/phase2_local_uncertainty_ideation/phase2_research_memo.md`
+
+Why a new phase is justified:
+
+- the current branch is no longer limited mainly by:
+  - checkpoint selection
+  - scalar scale freedom
+  - weak calibration penalties
+  - small covariance routing tweaks
+- the remaining failure is narrower and more structural:
+  - local regime-conditioned uncertainty allocation
+  - especially turbulent late-horizon hard-cell clusters
+
+Literature-backed ideation outcome:
+
+- dynamic mixture models with full covariance support the move from one smooth
+  residual law to context-dependent residual components
+- latent regime state-space models support explicit discrete regime variables
+  when one stationary variance law is too weak under regime change
+- conditional whitening still supports keeping a mean/covariance-first backbone
+  rather than abandoning the support-aware density framing
+- joint conditional flows remain relevant only as a second-stage decoder on top
+  of a better regime-conditioned local-law model
+
+Next-phase recommendation:
+
+- mainline research job:
+  - `176a = latent regime-conditioned structured residual model`
+- keep:
+  - support transform
+  - shared realism backbone
+  - likelihood training
+- change:
+  - replace the single smooth residual law with a small number of latent
+    residual regimes
+  - each regime gets its own structured spatiotemporal local uncertainty law
+
+Decision:
+
+- do **not** continue the old tweak loop as `176a`
+- treat `176a` as the first experiment of a new phase with a new design goal:
+  explicit state-dependent local conditional laws
+
+One-sentence summary:
+
+**The next serious research job should be a latent regime-conditioned residual
+model, because the repo evidence now says the remaining miss is not generic
+calibration but the inability of one smooth law to allocate uncertainty
+correctly across regime, horizon, and cell.**
+
+---
+
+## 2026-04-05 176a Proposal - shared-mean latent regime-conditioned structured residual model
+
+Goal:
+
+- start Phase 2 with a real model-class change aimed directly at local
+  regime-conditioned uncertainty allocation
+
+Design choice:
+
+- keep the `173a` realism-first backbone logic
+- keep support-aware transformed-space likelihood training
+- keep a shared mean path to preserve individual path realism
+- replace the single smooth residual law with a small number of latent residual
+  regimes
+
+Concrete first implementation:
+
+- `176a = shared-mean latent residual mixture`
+- history encoder predicts:
+  - shared conditional mean path
+  - mixture weights over latent residual regimes
+  - regime-specific structured residual covariance
+  - regime-specific local variance field
+  - regime-specific residual-flow context
+- train by exact mixture likelihood:
+  - no post-hoc calibration
+  - no conformal layer
+  - no auxiliary realism selector
+
+Why this is the right first Phase 2 step:
+
+- it is the cleanest implementation of the Phase 2 memo
+- it directly tests whether the remaining miss is from forcing one smooth
+  residual law to explain distinct local states
+- it preserves the realism-first shared mean path instead of relearning the
+  whole generator from scratch
+
+Planned benchmark:
+
+- frozen v2 benchmark only
+- compare against:
+  - `173a`
+  - `170d`
+  - `164a`
+
+Success criteria:
+
+- preserve:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- improve:
+  - `S2` h30 worst cell above `70%`
+  - `S7` Layer 2 beyond `3/8`
+  - `S7` Layer 3 below `5%`
+- avoid a worse `S8` realism trade than `173a`
+
+---
+
+## 2026-04-05 176a Result - latent residual regimes preserve realism-side structure but sharply worsen local coverage
+
+Artifacts:
+
+- training script:
+  `experiments/backfill/block_ar/train_176a_latent_regime_structured_residual.py`
+- checkpoint dir:
+  `models/backfill/latent_regime_structured_residual_student_t_176a`
+- frozen-v2 eval:
+  `results/block_ar/176a_v2_full_30d/summary.json`
+
+Model actually run:
+
+- shared mean path from the realism-first backbone
+- `K=3` latent residual regimes
+- regime-specific:
+  - structured time covariance
+  - structured cell covariance
+  - local variance field
+  - residual-flow context
+- exact mixture likelihood
+- small batch-level gate-usage regularizer to prevent trivial one-component
+  collapse
+
+Training outcome:
+
+- the anti-collapse fix was necessary; without it the gate collapsed to one
+  component immediately
+- with the fix, the gate prior stayed diffuse:
+  - best checkpoint `epoch 8`
+  - `val_prior_entropy = 1.072`
+  - `val_gate_max_prob = 0.445`
+- but the posterior assignments were effectively hard:
+  - `val_post_entropy = 0.000`
+
+Interpretation of the training signal:
+
+- the model did not learn a strong history-dependent regime prior
+- instead, it behaved like a weakly identified latent mixture:
+  - prior nearly uniform
+  - likelihood makes hard component assignments after the fact
+
+Frozen-v2 result:
+
+- `results/block_ar/176a_v2_full_30d/summary.json`
+- PASS:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S7`
+  - `S8`
+
+Key numbers:
+
+- `S2` overall 90% coverage:
+  - `71.5%`
+- `S2` h30 worst cell:
+  - `52.8%`
+- `S2` calibration error:
+  - `0.137`
+- `S3` turb/calm:
+  - `1.151` PASS
+- `S7` Layer 1:
+  - FAIL
+- `S7` Layer 2:
+  - `0/8`
+- `S7` Layer 3 catastrophic:
+  - `9.5%`
+- `S8` daily-change KS:
+  - `23/25`
+- `S8` IV-level KS:
+  - `25/25`
+- `S8` window-floor bad rate:
+  - `11.5%`
+- `S9` corr / rank:
+  - `1.113 / 0.906`
+
+Comparison to `173a`:
+
+- preserved:
+  - `S1`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- but sharply worsened the local uncertainty-allocation cluster:
+  - `S2` overall 90%:
+    - `77.7% -> 71.5%`
+  - `S2` h30 worst cell:
+    - `67.2% -> 52.8%`
+  - `S2` calibration error:
+    - `0.061 -> 0.137`
+  - `S7` Layer 1:
+    - `PASS -> FAIL`
+  - `S7` Layer 2:
+    - `3/8 -> 0/8`
+  - `S7` Layer 3:
+    - `6.3% -> 9.5%`
+  - `S8` window-floor bad rate:
+    - `7.1% -> 11.5%`
+
+What this means:
+
+- explicit latent residual regimes by themselves are **not enough**
+- in this first formulation, the mixture sharpened conditional scenarios and
+  preserved realism-side structure, but it did not widen hard local slices
+  correctly
+- the fact that the prior remained near-uniform while the posterior assignments
+  were hard suggests the latent regimes were not learned as meaningful
+  condition-responsive states
+
+Decision:
+
+- `176a` is a useful Phase 2 negative result
+- it does **not** replace `173a` as the realism-first anchor
+- if Phase 2 continues, the next model must do more than add a latent mixture:
+  it must make regime identity itself more strongly condition-responsive
+
+One-sentence summary:
+
+**176a shows that adding latent residual regimes preserves individual-realism
+structure but, in this first exact-mixture form, makes the local
+uncertainty-allocation problem worse rather than better.**
+
+---
+
+## 2026-04-05 176a Mechanistic Follow-Up - the problem was not a dead prior, it was dead experts
+
+Artifacts:
+
+- Mechanistic analysis:
+  - `results/validations/2026-04-05/analysis/176a_mechanistic/mechanistic_summary.json`
+- Analysis script:
+  - `experiments/backfill/block_ar/analyze_176a_mechanisms.py`
+
+Focused question:
+
+- Did `176a` fail because the gate prior never became condition-responsive,
+  or because the extra experts never became viable local laws?
+
+Key findings:
+
+- The original quick read, "prior nearly uniform so the gate is dead", was too
+  crude.
+- There is some correlation between prior weights and vol-of-vol:
+  - `component_0_vs_vov = +0.425`
+  - `component_1_vs_vov = -0.370`
+  - `component_2_vs_vov = -0.260`
+- But this is not meaningful expert usage:
+  - prior regime averages are almost identical in calm vs turbulent windows
+  - posterior assignments are completely collapsed:
+    - `component_0 = 1223 / 1223`
+    - `component_1 = 0`
+    - `component_2 = 0`
+
+Forced single-component counterfactuals make the real issue obvious:
+
+- `component_0`:
+  - overall 90% coverage `0.824`
+  - h30 worst-cell coverage `0.720`
+- `component_1`:
+  - overall 90% coverage `0.630`
+  - h30 worst-cell coverage `0.217`
+- `component_2`:
+  - overall 90% coverage `0.588`
+  - h30 worst-cell coverage `0.114`
+
+Interpretation:
+
+- `176a` did not learn three alternative useful local laws.
+- It learned:
+  - one viable expert
+  - two narrow, effectively unusable experts
+- So the next issue was not "sharpen the prior".
+- The next issue was "redesign the factorization so the latent variable only
+  routes the part of the law that is still missing".
+
+Decision:
+
+- Do **not** build `176b` as a sharper version of full latent residual experts.
+- Build `176b` as:
+  - shared mean
+  - shared covariance
+  - shared residual flow
+  - latent routing only over small local variance templates
+
+One-sentence summary:
+
+**The 176a postmortem showed that the mixture failure came from bad unused
+experts, not mainly from a dead gate prior, so the next principled move was to
+share the global law and let the latent state route only local uncertainty
+corrections.**
+
+---
+
+## 2026-04-05 176b Proposal - shared-law latent routing over local uncertainty templates
+
+Rationale from `176a`:
+
+- `173a` already had the best realism-first shared law.
+- `176a` showed that giving each latent component its own full residual law was
+  too much freedom:
+  - one expert stayed good
+  - two experts became bad
+- The remaining bottleneck was still local regime / horizon / cell uncertainty
+  allocation.
+
+So the most principled next move was a smaller latent model:
+
+- keep the proven `173a` backbone:
+  - support-aware transformed-space density
+  - shared mean
+  - shared structured covariance
+  - shared residual flow
+- add only:
+  - `K=3` additive local log-variance templates
+  - exact mixture over those templates
+  - batch-level gate-usage regularization
+
+Design goal:
+
+- make every expert a viable version of the same good global law
+- let the latent state route **where** local uncertainty goes
+- avoid recreating the dead-expert pathology of `176a`
+
+Artifact:
+
+- Training script:
+  - `experiments/backfill/block_ar/train_176b_shared_local_template_mixture.py`
+
+---
+
+## 2026-04-05 176b Result - first real frontier break for the density branch
+
+Artifacts:
+
+- Best checkpoint:
+  - `models/backfill/shared_local_template_mixture_residual_flow_structured_joint_student_t_176b/best_model.pt`
+- Final checkpoint:
+  - `models/backfill/shared_local_template_mixture_residual_flow_structured_joint_student_t_176b/final_model.pt`
+- Training trace:
+  - `models/backfill/shared_local_template_mixture_residual_flow_structured_joint_student_t_176b/training_history.json`
+- Frozen-v2 best:
+  - `results/block_ar/176b_v2_full_30d/summary.json`
+- Frozen-v2 final:
+  - `results/block_ar/176b_final_v2_full_30d/summary.json`
+
+Training behavior:
+
+- Unlike `176a`, the mixture stayed alive:
+  - early prior entropy stayed near uniform:
+    - `~1.09`
+  - posterior entropy stayed nonzero instead of collapsing to `0`
+- So the new factorization did what it was supposed to do:
+  - experts stayed viable
+  - the model did not degenerate into a one-expert mixture
+
+Best-checkpoint frozen-v2 result:
+
+- PASS:
+  - `S1`
+  - `S2`
+  - `S3`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+- FAIL:
+  - `S7`
+
+Headline:
+
+- `176b` is `8/9`
+
+Key numbers vs prior anchors:
+
+- vs `173a`:
+  - pass count:
+    - `6/9 -> 8/9`
+  - `S2` overall 90%:
+    - `77.7% -> 83.3%`
+  - `S2` h30 worst cell:
+    - `67.2% -> 73.7%`
+  - `S2` calibration error:
+    - `0.061 -> 0.025`
+  - `S7` Layer 2:
+    - `3/8 -> 2/8`
+  - `S7` Layer 3 catastrophic:
+    - `6.3% -> 4.1%`
+  - `S8` window-floor bad rate:
+    - `7.1% -> 3.9%`
+- vs `170d`:
+  - pass count:
+    - `6/9 -> 8/9`
+  - `S3` turb/calm:
+    - `1.093 -> 1.165`
+  - `S2` h30 worst cell:
+    - `66.0% -> 73.7%`
+  - `S8` window-floor bad rate:
+    - `4.5% -> 3.9%`
+
+What remained broken:
+
+- `S7 Layer 2` still failed:
+  - `2 / 8`
+- The remaining miss is now much narrower:
+  - regime-conditioned per-cell coverage still breaks in specific turbulent
+    slices
+  - but the broader `S2 / S8` cluster is no longer the main blocker
+
+Checkpoint selection note:
+
+- We also ran the final checkpoint:
+  - `results/block_ar/176b_final_v2_full_30d/summary.json`
+- `final_model.pt` is worse than the saved best checkpoint:
+  - pass count:
+    - `8/9 -> 7/9`
+  - `S2` per-cell gate falls back to FAIL
+  - `S7` catastrophic rate worsens to `5.0%`
+- So the saved best checkpoint is the correct anchor for `176b`.
+
+Interpretation:
+
+- The new factorization matters.
+- The improvement did **not** come from "more capacity" in the abstract.
+- It came from giving the latent variable the right job:
+  - route small local uncertainty templates
+  - keep the proven global law shared
+
+Decision:
+
+- `176b` is now the best density-branch result.
+- It supersedes:
+  - `170d` as the best overall density anchor
+  - `173a` as the best realism-first density anchor
+- The remaining problem is now sharply localized to `S7`, not the old broad
+  `S2/S7/S8` cluster.
+
+One-sentence summary:
+
+**176b is the first density-branch model to break the old 6/9 frontier,
+showing that latent routing works when it is restricted to local uncertainty
+allocation on top of a shared realistic global law.**
+
+---
+
+## 2026-04-05 Harness Fix - Suite 3 overall pass must include its printed worst-cell width failure
+
+Reason for fix:
+
+- In `test_block_ar_requirements_v2.py`, Suite 3 printed
+  `worst_cell_wr_pass` as `PASS/FAIL`.
+- But `overall_pass` did not include that subtest.
+- That made the suite score internally inconsistent: a model could visibly fail
+  a printed Suite 3 subtest and still receive an overall Suite 3 pass.
+
+Code change:
+
+- Updated `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- New rule:
+  - `overall_pass = turb_calm_pass and mae_pass and worst_cell_mae_pass and worst_cell_wr_pass`
+
+Interpretation:
+
+- This is the stricter and more principled option.
+- If a subtest is printed as a real `FAIL`, it must count against the suite.
+
+---
+
+## 2026-04-05 Corrected Anchor Rerun - 176b remains best, but the headline is 7/9 not 8/9
+
+Fresh corrected-harness reruns:
+
+- `results/block_ar/164a_v2_s3fixed_full_30d/summary.json`
+- `results/block_ar/173a_v2_s3fixed_full_30d/summary.json`
+- `results/block_ar/176b_v2_s3fixed_full_30d/summary.json`
+
+Corrected pass counts:
+
+- `164a`:
+  - `5/9`
+  - PASS:
+    - `S1`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S9`
+  - FAIL:
+    - `S2`
+    - `S3`
+    - `S7`
+    - `S8`
+- `173a`:
+  - `6/9`
+  - PASS:
+    - `S1`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S8`
+    - `S9`
+  - FAIL:
+    - `S2`
+    - `S3`
+    - `S7`
+- `176b`:
+  - `7/9`
+  - PASS:
+    - `S1`
+    - `S2`
+    - `S4`
+    - `S5`
+    - `S6`
+    - `S8`
+    - `S9`
+  - FAIL:
+    - `S3`
+    - `S7`
+
+What changed:
+
+- all three anchors lose the old Suite 3 pass
+- `176b` no longer has a clean `8/9` headline
+- but it still remains the best corrected-harness result
+
+Why `176b` still matters under the corrected score:
+
+- it is still the only corrected anchor that passes `S2`
+- it still keeps `S8` and `S9` passing
+- it still materially improves local coverage and window-floor failures over
+  `173a`
+
+Revised conclusion:
+
+- `176b` is still the best current density-branch model
+- but the honest headline after fixing Suite 3 is:
+  - `176b = 7/9`, not `8/9`
+- the remaining blockers are now:
+  - `S3` worst-cell conditional width control
+  - `S7` regime-conditioned per-cell coverage
+
+One-sentence summary:
+
+**After correcting the Suite 3 aggregation bug, 176b remains the best anchor at
+7/9 and still clearly outperforms the corrected 164a (5/9) and 173a (6/9)
+anchors.**
+
+---
+
+## 2026-04-05 Focused Failure Decomposition - 176b corrected-harness failures are now narrow and mostly capacity-limited
+
+Ran a dedicated corrected-harness failure analysis:
+
+- code:
+  - `experiments/backfill/block_ar/analyze_176b_failures.py`
+- artifact:
+  - `results/validations/2026-04-05/analysis/176b_failures/mechanistic_summary.json`
+
+Method:
+
+- matched the corrected v2 harness definitions for:
+  - `S3` per-cell conditional-vs-unconditional width ratio
+  - `S7` layer-2 per-regime per-cell coverage
+- used the same first `20` test batches and `50` samples
+- reset seed to `42` so the decomposition aligns with the saved benchmark
+- added forced single-template counterfactuals to answer:
+  - is the remaining failure mainly bad routing?
+  - or are the current local templates themselves too weak?
+
+Main findings:
+
+- `S3` failure is real and concentrated in a tiny overwide cluster:
+  - worst cell remains `(2,4)` with conditional/unconditional width ratio `2.220`
+  - second cell `(1,4)` is still just above gate at `1.217`
+- no template fixes the `S3` offender:
+  - `(2,4)` forced ratios:
+    - comp0 `2.215`
+    - comp1 `2.224`
+    - comp2 `2.220`
+  - `(1,4)` forced ratios:
+    - comp0 `1.247`
+    - comp1 `1.248`
+    - comp2 `1.223`
+
+- `S7` failure is now concentrated in a turbulent late-horizon undercoverage cluster:
+  - calm:
+    - `h=1`: `0 low / 1 high`
+    - `h=7`: `0 low / 1 high`
+    - `h=14`: `0 low / 0 high`
+    - `h=30`: `0 low / 0 high`
+  - turb:
+    - `h=1`: `0 low / 1 high`
+    - `h=7`: `4 low / 1 high`
+    - `h=14`: `9 low / 1 high`
+    - `h=30`: `5 low / 1 high`
+
+- the dominant turbulent failures are still cells in the central/right cluster:
+  - `(3,3)`, `(2,3)`, `(1,2)`, `(0,2)`, `(2,2)`, `(1,3)`
+  - typical coverage there is only `0.59-0.64`
+  - failure class is mostly `underwide_dominant` or `bias_plus_underwide`
+  - predicted local std remains too small in these slices
+
+- forced single-template counterfactuals say the remaining problem is mostly not routing:
+  - recoverable undercovered slices: `1 / 18`
+  - recoverable overcovered slices: `1 / 6`
+  - example hard slice:
+    - turb `h=14`, cell `(3,3)` mixture coverage `0.592`
+    - best forced component only reaches `0.624`
+  - example hard slice:
+    - turb `h=14`, cell `(0,2)` mixture coverage `0.616`
+    - best forced component only reaches `0.637`
+
+- routing is alive but not enough:
+  - prior by regime:
+    - calm: `[0.445, 0.257, 0.298]`
+    - turb: `[0.533, 0.209, 0.258]`
+  - so the gate does move toward component 0 in turbulence
+  - but that movement does not solve the hard slices because the current template family
+    does not contain a strong enough local law for them
+
+- layer-3 catastrophic failures are now below gate globally, but still clustered in
+  turbulent windows:
+  - catastrophic rate: `4.06%`
+  - worst windows still show large bad-cell clusters in the same `(0:3, 1:4)` region
+
+Interpretation:
+
+- `176b` is no longer broadly wrong
+- the remaining failures are narrow and structurally consistent:
+  - one small `S3` overwide cluster
+  - one turbulent late-horizon `S7` underwide cluster
+- the key mechanistic result is:
+  - **the current local variance template family is too weak**
+  - not just badly routed
+
+This is stronger than the earlier `176b` review because it tests the actual
+failure slices with forced template counterfactuals.
+
+Most principled implication:
+
+- do **not** jump to a pure routing tweak next
+- if we continue beyond `176b`, the next model should increase the expressive power
+  of the local conditional law on top of the shared global law
+- likely direction:
+  - `176c = shared global law + latent routing over small covariance residual templates`
+  - not just local variance templates
+
+One-sentence summary:
+
+**176b’s remaining corrected-harness failures are now narrow, real, and mostly
+capacity-limited rather than routing-limited: the model needs a richer local
+conditional law, not just a smarter gate.**
+
+---
+
+## 2026-04-05 Minimal Causal Ablation - 176b with n_components=1 drops back to 5/9
+
+Ran the minimal causal ablation requested before any richer `176c` model:
+
+- training:
+  - `experiments/backfill/block_ar/train_176b_shared_local_template_mixture.py --n_components 1`
+- checkpoint:
+  - `models/backfill/shared_local_template_mixture_residual_flow_structured_joint_student_t_176b_ablate1/best_model.pt`
+- training trace:
+  - `models/backfill/shared_local_template_mixture_residual_flow_structured_joint_student_t_176b_ablate1/training_history.json`
+- corrected full v2 eval:
+  - `results/block_ar/176b_ablate1_v2_s3fixed_full_30d/summary.json`
+
+Matched setup:
+
+- same `176b` codepath
+- same penalties
+- same training budget (`20` epochs)
+- same corrected `S3` harness
+- only change:
+  - `n_components: 3 -> 1`
+
+Training result:
+
+- best checkpoint is epoch `6`
+- best val total loss: `-1174.1440`
+
+Corrected benchmark result:
+
+- `176b_ablate1 = 5/9`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+
+Direct comparison vs full corrected `176b`:
+
+- full `176b`:
+  - `7/9`
+  - passes `S2` and `S8`
+- `n_components=1` ablation:
+  - `5/9`
+  - loses both `S2` and `S8`
+
+Key metric changes:
+
+- `S2` overall 90% coverage:
+  - `176b`: `83.27%`
+  - ablation: `81.15%`
+- `S2` h30 90% coverage:
+  - `176b`: `81.52%`
+  - ablation: `80.64%`
+- `S3` turb/calm:
+  - `176b`: still fail, but `1.141`
+  - ablation: worse at `1.094`
+- `S7` layer2:
+  - `176b`: `2/8`
+  - ablation: `1/8`
+- `S7` layer3 catastrophic:
+  - `176b`: `4.06%`
+  - ablation: `5.19%`
+- `S8` window-floor bad rate:
+  - `176b`: `3.92%` PASS
+  - ablation: `5.07%` FAIL
+- `S9` stays solid:
+  - corr/rank `0.975 / 1.141`
+
+Interpretation:
+
+- this is the cleanest causal evidence so far that the latent local-template branch
+  is buying real performance
+- the gain is not just “shared-law retraining” or “better regularization”
+- removing the mixture collapses the model back to roughly pre-`176b` behavior:
+  - broad coverage weakens
+  - catastrophic windows increase
+  - window-floor realism degrades
+
+What this does and does not prove:
+
+- it **does** justify keeping a latent local-law branch in the next model
+- it does **not** overturn the earlier failure decomposition:
+  - the current local variance template family is still too weak for the remaining
+    `S3/S7` slices
+
+Revised next-step logic:
+
+- mixture / latent local-law structure is now justified
+- pure shared-law simplification is not
+- if we continue, the next principled move is:
+  - keep the latent branch
+  - enrich the local conditional-law family beyond scalar local variance templates
+
+One-sentence summary:
+
+**The `n_components=1` ablation drops from corrected `176b`’s `7/9` to `5/9`,
+which is strong evidence that latent local templates are doing real work; the
+next model should keep the latent branch and make that local law richer, not
+remove it.**
+
+---
+
+## 2026-04-05  Mean-Reversion Suite Added To Frozen v2 Harness
+
+Decision:
+
+- add an explicit mean-reversion test to the main Block-AR validation harness
+- the realism standard is not just “surface looks plausible” and not just
+  “marginals / coverage look good”
+- per-cell mean-reversion speed is part of individual scenario realism and was
+  a known blind spot in the current suite
+
+Implementation:
+
+- updated [experiments/backfill/block_ar/test_block_ar_requirements_v2.py] to
+  add `Test Suite 10: Mean Reversion`
+- methodology:
+  - sampled first-step mean, not deterministic path only
+  - regress `delta = x_{t+1} - x_t` on current level per cell
+  - compare generated slope vs GT slope
+  - gate on:
+    - aggregate slope ratio in `[0.70, 1.30]`
+    - active-cell pass rate `>= 70%`
+    - active-cell slope correlation `>= 0.70`
+
+Rerun anchors under corrected `S3` + new `S10` harness:
+
+- [results/block_ar/164a_v2_s3mr_full_30d/summary.json]
+  - effective `5/10`
+  - PASS: `S1, S4, S5, S6, S9`
+  - FAIL: `S2, S3, S7, S8, S10`
+- [results/block_ar/173a_v2_s3mr_full_30d/summary.json]
+  - effective `6/10`
+  - PASS: `S1, S4, S5, S6, S8, S9`
+  - FAIL: `S2, S3, S7, S10`
+- [results/block_ar/176b_v2_s3mr_full_30d/summary.json]
+  - effective `7/10`
+  - PASS: `S1, S2, S4, S5, S6, S8, S9`
+  - FAIL: `S3, S7, S10`
+
+Mean-reversion results:
+
+- GT aggregate slope on the shared eval slice: `-0.1128`
+- `164a` generated slope: `-0.0911`
+  - ratio `0.807`
+  - active cells `7/9`
+  - active-cell slope corr `0.659`
+  - `S10` still FAIL, but closest to passing
+- `173a` generated slope: `-0.0576`
+  - ratio `0.511`
+  - active cells `4/9`
+  - active-cell slope corr `0.757`
+- `176b` generated slope: `-0.0632`
+  - ratio `0.560`
+  - active cells `4/9`
+  - active-cell slope corr `0.494`
+
+Interpretation:
+
+- the new suite is exposing a real realism gap, not a cosmetic one
+- `176b` remains the strongest overall corrected-harness model
+- but the current H7 line still under-reverts materially relative to GT
+- importantly, the old baseline `164a` has better mean-reversion speed than the
+  H7 models, so H7’s realism gain is not uniform across all realism axes
+
+Updated benchmark conclusion:
+
+- `176b` is still the best overall model under the expanded honest harness
+- the remaining realism-critical failures are now:
+  - `S3` conditional width on the worst cell cluster
+  - `S7` regime-by-cell local coverage
+  - `S10` per-cell mean-reversion speed
+
+One-sentence summary:
+
+**Mean reversion is now part of the main benchmark, and it reveals that
+`176b` is still the best overall model but remains materially too slow to
+revert relative to ground truth, with `164a` actually stronger on this
+specific realism axis.**
+
+---
+
+## 2026-04-05  176b Mean-Reversion Diagnosis And 177a Drift-Law Follow-Up
+
+Question:
+
+- after adding `S10`, should the next move be another uncertainty-law tweak or
+  an explicit mean-law change?
+
+Focused diagnosis:
+
+- added [experiments/backfill/block_ar/analyze_176b_mean_reversion.py]
+- saved artifact:
+  - [results/validations/2026-04-05/analysis/176b_mean_reversion_mechanistic/mechanistic_summary.json]
+
+Main diagnosis result:
+
+- `176b` under-reversion is already present in the deterministic mean path
+- aggregate all-window first-step slope ratios:
+  - deterministic: `0.562`
+  - sampled mean: `0.549`
+- so sampling does **not** rescue a decent mean law; the mean path itself is too
+  weakly mean-reverting
+
+Cell/regime pattern:
+
+- worst active cells are mostly:
+  - `(4,3)`, `(2,4)`, `(1,4)`, `(0,3)`, `(0,0)`
+- turbulent regime is especially bad:
+  - deterministic active-cell pass: `13/24`
+  - sampled active-cell pass: `9/24`
+- this justified a mean-law change rather than another covariance/template tweak
+
+Next principled move:
+
+- build `177a = 176b backbone + explicit history-anchored, level-dependent
+  drift toward a learned equilibrium surface`
+- keep:
+  - support-aware transform
+  - shared global covariance / residual flow
+  - latent local variance template branch
+- change only the mean path
+
+Implementation:
+
+- added [experiments/backfill/block_ar/train_177a_mean_reverting_local_template_mixture.py]
+- updated loader support in
+  [experiments/backfill/block_ar/test_block_ar_requirements_v2.py]
+- trained to:
+  - [models/backfill/mean_reverting_shared_local_template_mixture_residual_flow_structured_joint_student_t_177a/best_model.pt]
+  - [models/backfill/mean_reverting_shared_local_template_mixture_residual_flow_structured_joint_student_t_177a/training_history.json]
+- best checkpoint:
+  - epoch `7`
+  - held-out subset diagnostics:
+    - `joint_det_mr_ratio = 0.801`
+    - `joint_sample_mr_ratio = 0.888`
+
+Full benchmark result:
+
+- [results/block_ar/177a_v2_s3mr_full_30d/summary.json]
+- effective `7/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Most important numbers:
+
+- `S10` mean reversion:
+  - GT slope: `-0.113`
+  - gen slope: `-0.108`
+  - ratio: `0.953` PASS
+  - active cells: `8/9` PASS
+  - active-cell corr: `0.920` PASS
+- `S2`:
+  - overall 90% coverage: `85.2%`
+  - calibration error: `0.015`
+  - but per-cell gate fails due to mild best-cell overcoverage
+    - `h=1 best (2,4) = 96.2%`
+    - `h=30 best (0,0) = 95.8%`
+- `S3`:
+  - turb/calm `1.141` FAIL
+  - worst-cell width ratio `2.511` FAIL
+- `S7`:
+  - Layer 2 `3/8` FAIL
+  - Layer 3 catastrophic `3.9%` PASS
+
+Interpretation:
+
+- `177a` successfully fixes the newly exposed realism-critical mean-reversion
+  gap
+- the cost is a return of mild `S2` per-cell overcoverage, while the remaining
+  `S3/S7` local-allocation failures persist
+- so the mean-law problem and the local-uncertainty-allocation problem are now
+  separated much more cleanly than before
+
+Updated benchmark picture:
+
+- `176b` is still the best broad coverage/distribution model under the expanded
+  harness
+- `177a` is the first H7 model to pass explicit mean reversion under the main
+  suite
+- if realism-first now includes mean reversion as a hard requirement, `177a`
+  becomes the stronger realism-side anchor despite losing `S2`
+
+One-sentence summary:
+
+**`177a` shows that explicit level-dependent drift can fix mean reversion
+without breaking the shared H7 backbone, but it trades that gain for renewed
+per-cell overcoverage, leaving the next open problem as joint control of mean
+reversion and local uncertainty allocation.**
+
+---
+
+## 2026-04-05  177b: Tiny Shared Local Width Correction On Top Of 177a
+
+Goal:
+
+- recover `177a`'s mild `S2` overcoverage problem
+- preserve the new `S10` mean-reversion pass
+- avoid changing the drift law again
+
+Design:
+
+- keep `177a` exactly on the mean side
+- add only a tiny shared local log-variance correction map on top of the
+  existing local-template mixture
+- heavily regularize it so the test is:
+  - can a very small local width reallocation recover `S2` without hurting
+    `S10`?
+
+Implementation:
+
+- added [experiments/backfill/block_ar/train_177b_mean_reverting_calibrated_local_template_mixture.py]
+- updated loader support in
+  [experiments/backfill/block_ar/test_block_ar_requirements_v2.py]
+- trained to:
+  - [models/backfill/mean_reverting_calibrated_local_template_mixture_residual_flow_structured_joint_student_t_177b/best_model.pt]
+  - [models/backfill/mean_reverting_calibrated_local_template_mixture_residual_flow_structured_joint_student_t_177b/training_history.json]
+- best checkpoint:
+  - epoch `7`
+  - shared calibration RMS remained tiny at about `0.006`
+
+Held-out proxy behavior:
+
+- the correction map stayed small, so the experiment really was narrow
+- but the best validation checkpoint did not improve the joint proxy frontier:
+  - `joint_cov90 = 0.673`
+  - `joint_turb_calm_ratio = 0.994`
+  - `joint_sample_mr_ratio = 0.728`
+- compared to `177a`, that is already weaker on both `S2`-like and `S10`-like
+  validation diagnostics
+
+Full benchmark result:
+
+- [results/block_ar/177b_v2_s3mr_full_30d/summary.json]
+- effective `7/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key comparison vs `177a`:
+
+- `S10` stays fixed:
+  - `177a`: ratio `0.953`
+  - `177b`: ratio `0.962`
+- `S2` is **not** recovered:
+  - `177a`: fails by mild best-cell overcoverage
+  - `177b`: fails by h30 worst-cell undercoverage (`67.8%`)
+- `S7` gets worse:
+  - `177a`: Layer 2 `3/8`, Layer 3 `3.9%`
+  - `177b`: Layer 2 `1/8`, Layer 3 `5.0%` FAIL
+- `S3` remains fail and does not improve:
+  - `177a`: turb/calm `1.141`
+  - `177b`: turb/calm `1.097`
+
+Interpretation:
+
+- the tiny local correction map was too weak to solve the remaining
+  uncertainty-allocation problem
+- more importantly, it did **not** even move the trade in the right direction:
+  it preserved mean reversion but degraded the local-allocation suites
+- so the remaining bottleneck is not “just add a tiny local width correction”
+
+Updated conclusion:
+
+- `177a` remains the stronger realism-side anchor if `S10` is a hard
+  requirement
+- `177b` is a clean negative result
+- the next step should not be another tiny local-scale tweak; it must address
+  the joint interaction between drift and local uncertainty allocation more
+  directly
+
+One-sentence summary:
+
+**`177b` shows that a very small post-drift local width correction is too weak
+to recover `S2` and actually worsens `S7`, so the next improvement will need a
+more coupled treatment of drift and local uncertainty rather than another tiny
+variance-side patch.**
+
+---
+
+## 2026-04-05 178 design pass: new-phase architecture choice
+
+Goal:
+
+- start the next research phase after `176b -> 177a -> 177b`
+- optimize for a **general** conditional scenario-generation framework rather
+  than another local benchmark tweak
+- preserve the realism-first requirement that **individual scenarios must look
+  real**, with **mean reversion** treated as a core realism property
+
+What motivated the new phase:
+
+- `176b` improved broad uncertainty allocation but failed explicit mean
+  reversion
+- `177a` fixed mean reversion by adding explicit level-dependent drift, but
+  gave back mild `S2`
+- `177b` showed a tiny post-drift local width correction is too weak and
+  worsens `S7`
+
+Conclusion:
+
+- the remaining bottleneck is the **joint modeling of mean dynamics and local
+  state-dependent uncertainty**
+- the next move should not be another tiny scale/routing tweak
+- it should be a model class that couples:
+  - persistent latent regimes
+  - regime-dependent mean-reverting drift
+  - regime-dependent local covariance / heteroskedasticity
+  - support-aware conditional generation
+
+Short external ideation pass completed:
+
+- DS^3M: https://arxiv.org/abs/2106.02329
+- Switching Recurrent Kalman Networks: https://arxiv.org/abs/2111.08291
+- Dynamic Mixture Model with Full Covariance: https://arxiv.org/abs/2212.06653
+- Conditional Approximate Normalizing Flows: https://arxiv.org/abs/2201.02753
+- Conditionally Whitened Generative Models: https://arxiv.org/abs/2509.20928
+- Markovian Variance Switching: https://arxiv.org/abs/2402.14684
+- Margin-Closed Regime-Switching Multivariate Models:
+  https://arxiv.org/abs/2312.10706
+- ProFITi / Conditional Flows for Irregular Time Series:
+  https://arxiv.org/abs/2402.06293
+
+Chosen direction:
+
+- `178a = support-aware, sticky latent-regime, mean-reverting, structured
+  conditional flow state-space model`
+
+Why this is the most principled next branch:
+
+- it is designed to generalize beyond Student-t by treating Student-t as an
+  initial base residual law, not the framework endpoint
+- it is designed to generalize beyond IV surfaces by separating support
+  transforms and factor metadata from the latent dynamical law
+- it directly targets the now-known coupled issue: **drift + local uncertainty
+  must be modeled together**
+- it is the first branch explicitly designed to extend from `30d` toward
+  longer-horizon conditional scenario generation
+
+Primary artifact:
+
+- [results/validations/2026-04-05/analysis/178_design/178_design_memo.md]
+
+One-sentence summary:
+
+**The next research phase should move from “better local corrections” to a
+general support-aware regime-coupled state-space generator that jointly models
+mean reversion and local conditional uncertainty, with Student-t treated only
+as a first-stage base law rather than the endpoint of the framework.**
+
+---
+
+## 2026-04-05 178a concrete implementation spec
+
+Purpose:
+
+- turn the `178` design memo into a buildable first implementation target
+- freeze the first coding pass before writing new model code
+
+Primary artifact:
+
+- [results/validations/2026-04-05/analysis/178_design/178a_implementation_spec.md]
+
+Chosen v0 implementation:
+
+- `178a = support-aware sticky-regime mean-reverting state-space generator with
+  structured observation law`
+
+Concrete scope for the first build:
+
+- support-aware transformed observation layer
+- sticky blockwise latent regimes (`5` blocks x `6` days for `30d`)
+- deterministic continuous latent state with explicit mean-reverting drift
+- structured transformed-space observation law with:
+  - shared global covariance backbone
+  - regime-conditioned low-rank covariance residuals
+  - local heteroskedastic scale
+- residual-law interface that defaults to Student-t in v0 but is designed to
+  swap to conditional flow later
+
+Module/file plan:
+
+- `experiments/backfill/block_ar/support_transforms.py`
+- `experiments/backfill/block_ar/regime_state_space_modules.py`
+- `experiments/backfill/block_ar/train_178a_regime_coupled_state_space.py`
+- follow-up analysis:
+  - `experiments/backfill/block_ar/analyze_178a_regimes.py`
+  - `experiments/backfill/block_ar/analyze_178a_mean_reversion.py`
+
+Important implementation choice:
+
+- v0 should **not** start with a fully stochastic latent SSM
+- start with deterministic latent transitions plus stochastic observation law
+- this is the smallest coupled-drift-and-uncertainty state-space build that is
+  still tractable inside the current codebase
+
+Selection/evaluation rule frozen in the spec:
+
+- do not select by NLL alone
+- held-out checkpoint selection should prioritize:
+  - `S10`-style mean-reversion proxy
+  - `S2/S7`-style local coverage proxy
+  - `S3`-style turb/calm width proxy
+  - NLL only as tie-breaker
+
+Success target:
+
+- beat `177a` on the corrected `S3 + S10` harness
+- preserve mean-reversion realism while recovering uncertainty allocation
+
+One-sentence summary:
+
+**`178a` is now frozen as a concrete state-space implementation plan: persistent
+block regimes, explicit mean-reverting latent drift, regime-conditioned local
+covariance residuals, and a residual-law interface that starts with Student-t
+but is designed to extend beyond it.**
+
+---
+
+## 2026-04-05 178a initial implementation
+
+Implemented the first runnable `178a` branch.
+
+New files:
+
+- [experiments/backfill/block_ar/support_transforms.py]
+- [experiments/backfill/block_ar/regime_state_space_modules.py]
+- [experiments/backfill/block_ar/train_178a_regime_coupled_state_space.py]
+
+Integration:
+
+- added loader support for
+  `regime_coupled_state_space_student_t_178a` in
+  [experiments/backfill/block_ar/test_block_ar_requirements_v2.py]
+
+What the first code version includes:
+
+- reusable support-transform layer
+- sticky blockwise latent regime prior / posterior
+- explicit mean-reverting latent transition
+- regime-conditioned structured observation law with:
+  - shared covariance backbone
+  - regime-conditioned covariance residual templates
+  - local heteroskedastic scale
+- Student-t residual law interface
+- held-out checkpoint selection using:
+  - mean-reversion proxy first
+  - local coverage proxy second
+  - turb/calm proxy third
+  - NLL only as tie-breaker
+
+Smoke validation:
+
+- ran:
+  `python experiments/backfill/block_ar/train_178a_regime_coupled_state_space.py
+  --epochs 1 --batch_size 4 --max_train_windows 32 --max_select_windows 8
+  --max_val_windows 8 --joint_select_samples 4 --joint_select_limit 8
+  --device cpu --output_dir /tmp/178a_smoke`
+- result: training loop, checkpoint save, held-out selection, and sampling all
+  executed successfully
+
+Interpretation:
+
+- this is a **code-complete first implementation**, not a validated benchmark
+  result
+- the tiny CPU smoke metrics are poor, as expected
+- the point of this step was to make `178a` real and runnable before a proper
+  training/evaluation pass
+
+One-sentence summary:
+
+**`178a` now exists as a runnable branch in the repo: support-aware,
+sticky-regime, mean-reverting, and locally heteroskedastic, with harness loader
+support already wired for the first real experiment.**
+
+---
+
+## 2026-04-05 178a first real training run and benchmark
+
+Training run:
+
+- command:
+  `python experiments/backfill/block_ar/train_178a_regime_coupled_state_space.py
+  --epochs 20 --batch_size 16 --device cuda --output_dir
+  models/backfill/regime_coupled_state_space_student_t_178a`
+- artifacts:
+  - [models/backfill/regime_coupled_state_space_student_t_178a/best_model.pt]
+  - [models/backfill/regime_coupled_state_space_student_t_178a/final_model.pt]
+  - [models/backfill/regime_coupled_state_space_student_t_178a/training_history.json]
+
+Training behavior:
+
+- held-out selection chose epoch `17`
+- selection metrics improved late, but only to:
+  - `joint_cov90 = 0.566`
+  - `joint_turb_calm_ratio = 1.086`
+  - `joint_det_mr_ratio = 1.335`
+  - `joint_sample_mr_ratio = 1.249`
+- compared to the realism-side anchors, that was already visibly weak before
+  running the full benchmark
+
+Full corrected benchmark:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/regime_coupled_state_space_student_t_178a/best_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178a_v2_s3mr_full_30d`
+- result artifact:
+  - [results/block_ar/178a_v2_s3mr_full_30d/summary.json]
+
+Outcome:
+
+- `178a` is a clear negative first result
+- effective score under the corrected `S3 + S10` harness: `4/10`
+- PASS:
+  - `S1`
+  - `S5`
+  - `S6`
+  - `S9`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S4`
+  - `S7`
+  - `S8`
+  - `S10`
+
+Key failure numbers:
+
+- `S2` overall 90% coverage: `73.2%`
+- `S2` h30 worst cell: `46.2%`
+- `S3` turb/calm: `1.074`
+- `S4` kurtosis ratio: `0.266`
+- `S7` Layer 2: `0/8`
+- `S7` catastrophic rate: `10.1%`
+- `S8` daily-change KS: `2/25`
+- `S10` mean-reversion ratio: `1.803`
+
+Interpretation:
+
+- the basic `178a` hypothesis is still plausible, but this first implementation
+  is not yet close
+- the branch currently over-reverts while still under-covering hard cells
+- so v0 did **not** solve the coupled drift/uncertainty problem; it introduced
+  an unstable interaction between the new drift law and the observation law
+
+Updated conclusion:
+
+- `178a` is now a real runnable branch with a real full-benchmark result
+- but the first implementation should be treated as a **failed v0**, not as a
+  new frontier model
+- `176b` and `177a` remain the practical anchors while `178a` becomes a new
+  research branch that needs targeted debugging before another full run
+
+One-sentence summary:
+
+**The first real `178a` run validates the new code path but fails badly on the
+benchmark, over-reverting while still under-covering hard cells, so the
+regime-coupled state-space idea remains alive only as a new research branch,
+not as a usable model yet.**
+
+---
+
+## 2026-04-05 178a mechanistic diagnosis - the latent SSM v0 failed by collapse, overshoot, and near-static uncertainty
+
+Focused investigation:
+
+- added:
+  - [experiments/backfill/block_ar/analyze_178a_mechanistic.py]
+- result artifact:
+  - [results/validations/2026-04-05/analysis/178a_mechanistic/mechanistic_summary.json]
+
+Question:
+
+- after the failed first `178a` run, do we already know the next move, or do we
+  need a narrow mechanistic diagnosis first?
+
+Answer:
+
+- yes, a focused diagnosis was necessary
+- the branch changed too many mechanisms at once:
+  - latent persistent regimes
+  - explicit mean-reverting latent transition
+  - regime-conditioned covariance residuals
+  - new observation law / training coupling
+- so the next principled action depended on which part actually broke
+
+Main findings from the saved diagnosis:
+
+- latent regimes are effectively dead:
+  - prior usage mean: `[0.0023, 0.0023, 0.9954]`
+  - posterior usage mean: `[0.0000024, 0.0000030, 0.9999946]`
+  - hard posterior usage: `[0.0, 0.0, 1.0]`
+  - posterior persistence: `1.0`
+- so the model is not learning meaningful regime switching at all; it is
+  collapsing entirely to one regime
+
+- the new drift law overshoots badly:
+  - deterministic aggregate mean-reversion ratio: `1.87`
+  - sampled-mean aggregate mean-reversion ratio: `1.82`
+  - calm deterministic ratio: `1.51`
+  - turbulent deterministic ratio: `3.05`
+- that means the explicit mean-reverting transition is too aggressive even
+  before sampling noise is added
+
+- the uncertainty branch is nearly static:
+  - local scale stays in a narrow band around `0.91 -> 1.09`
+  - regime-conditioned uncertainty is barely moving
+- so the model is simultaneously:
+  - over-correcting in the mean
+  - under-expressing local conditional uncertainty
+
+- the hard `S2/S7` failures are still mainly underwidth on the difficult cells:
+  - worst h30 subset cell is `(3,3)` with coverage `0.379`
+  - worst slices have error/std ratios well above `1`
+
+Interpretation:
+
+- the issue is **not** “178a needs one more training run”
+- the issue is also **not** “the whole 178 direction is dead”
+- the v0 implementation failed for three concrete reasons:
+  - latent regimes collapsed completely
+  - the drift law became too strong
+  - the uncertainty side lost the residual-flow realism backbone that had been
+    carrying `S4/S8`
+
+Most principled action selected from this diagnosis:
+
+- do **not** build `178b` as an even larger latent state-space revision
+- instead:
+  - keep the proven `177a` mean-reverting residual-flow backbone
+  - preserve the realistic `S4/S8/S10` behavior already learned there
+  - add only the intended new ingredient from `178a`:
+    persistent blockwise routing in the uncertainty branch
+- in other words:
+  - recover the stable realism backbone first
+  - then test persistent uncertainty routing in isolation
+
+One-sentence summary:
+
+**The `178a` diagnosis showed a dead latent-regime model, an over-aggressive
+drift law, and near-static uncertainty, so the next principled move was to keep
+the proven `177a` backbone and test persistent routing only in the uncertainty
+branch instead of doubling down on the full latent SSM rewrite.**
+
+---
+
+## 2026-04-05 178b - block-routed mean-reverting residual-flow follow-up
+
+Implemented the focused follow-up chosen by the `178a` diagnosis.
+
+New file:
+
+- [experiments/backfill/block_ar/train_178b_block_routed_mean_reverting_residual_flow.py]
+
+Integration:
+
+- added loader support for
+  `block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b`
+  in [experiments/backfill/block_ar/test_block_ar_requirements_v2.py]
+
+Design intent:
+
+- keep the `177a` realism-side backbone:
+  - explicit mean-reverting drift
+  - structured joint covariance
+  - residual flow
+- replace only the uncertainty-routing mechanism with:
+  - persistent blockwise routing
+  - `5 x 6` horizon blocks
+  - blockwise local uncertainty templates
+- avoid the failed latent posterior / KL machinery from `178a`
+
+Smoke validation:
+
+- ran:
+  `python experiments/backfill/block_ar/train_178b_block_routed_mean_reverting_residual_flow.py
+  --epochs 1 --batch_size 4 --max_train_windows 32 --max_select_windows 8
+  --max_val_windows 8 --joint_select_samples 4 --joint_select_limit 8
+  --device cpu --output_dir /tmp/178b_smoke`
+- result: training, checkpoint save, held-out selection, and rollout sampling
+  all executed successfully
+
+Real training run:
+
+- command:
+  `python experiments/backfill/block_ar/train_178b_block_routed_mean_reverting_residual_flow.py
+  --epochs 20 --batch_size 16 --device cuda --output_dir
+  models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b`
+- artifacts:
+  - [models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b/best_model.pt]
+  - [models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b/final_model.pt]
+  - [models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b/training_history.json]
+
+Training behavior:
+
+- held-out best checkpoint was epoch `7`
+- the new block gate collapsed immediately:
+  - epoch 1 `val_block_gate_entropy = 0.000021`
+  - epoch 1 `val_block_gate_max = 0.999999`
+  - epoch 7 `val_block_gate_entropy = 0.000017`
+  - epoch 7 `val_block_gate_max = 0.999999`
+- so the persistent router itself is still effectively dead
+- however, the restored backbone remained stable:
+  - epoch 7 `val_joint_det_mr_ratio = 1.175`
+  - local scale range stayed moderate around `0.888 -> 1.160`
+
+Full corrected benchmark on the saved best checkpoint:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b/best_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178b_best_v2_s3mr_full_30d`
+- result artifact:
+  - [results/block_ar/178b_best_v2_s3mr_full_30d/summary.json]
+
+Best-checkpoint outcome:
+
+- effective score under corrected `S3 + S10` harness: `7/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key best-checkpoint numbers:
+
+- `S2` overall 90% coverage: `81.1%`
+- `S2` h30 worst cell: `70.0%`
+- `S2` h30 best cell: `93.0%`
+- `S2` calibration error: `0.0437`
+- `S3` turb/calm: `1.153` (passes)
+- `S3` worst-cell width ratio: `2.989` (fails, so `S3` still fails overall)
+- `S7` Layer 2: `3/8`
+- `S7` catastrophic rate: `5.15%`
+- `S8` daily-change KS: `23/25`
+- `S8` IV-level KS: `24/25`
+- `S8` window-floor bad rate: `4.99%` (pass)
+- `S10` mean-reversion ratio: `0.849`
+- `S10` active-cell pass count: `8/9`
+- `S10` active-cell slope correlation: `0.909`
+
+Full corrected benchmark on the final checkpoint:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b/final_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178b_final_v2_s3mr_full_30d`
+- result artifact:
+  - [results/block_ar/178b_final_v2_s3mr_full_30d/summary.json]
+
+Final-checkpoint outcome:
+
+- also `7/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key final-checkpoint numbers:
+
+- `S2` overall 90% coverage: `80.5%`
+- `S2` h30 worst cell: `68.3%`
+- `S2` h30 best cell: `91.6%`
+- `S3` turb/calm: `1.220`
+- `S3` worst-cell width ratio: `2.697`
+- `S7` Layer 2: `3/8`
+- `S7` catastrophic rate: `5.34%`
+- `S8` daily-change KS: `24/25`
+- `S8` IV-level KS: `25/25`
+- `S10` mean-reversion ratio: `0.968`
+- `S10` active-cell pass count: `8/9`
+- `S10` active-cell slope correlation: `0.899`
+
+Interpretation:
+
+- `178b` is a real recovery from the failed `178a` branch
+- the diagnosis was directionally correct:
+  - preserving the `177a` drift / residual-flow backbone restored
+    `S4/S8/S10`
+- however, the intended new mechanism still did **not** learn:
+  - the blockwise router is effectively collapsed from the start
+- so the current gains come from the safer realism backbone, not from a
+  successful persistent uncertainty-routing mechanism
+
+Updated conclusion:
+
+- `178b` is now the strongest `S10`-passing branch to continue from
+- but it does **not** validate blockwise persistent routing yet, because the
+  gate is dead
+- the remaining failures are again narrow:
+  - `S2` late-horizon per-cell allocation
+  - `S3` worst-cell conditional width
+  - `S7` regime-by-cell local coverage
+- so the next principled step after `178b` is **not** another broad rewrite:
+  - it is a focused diagnosis/fix of the dead uncertainty router, or a more
+    directly supervised / condition-tied routing mechanism
+
+One-sentence summary:
+
+**`178b` recovers the realism-side strengths lost by `178a` and becomes a new
+`S10`-passing anchor, but the new blockwise uncertainty router is still dead,
+so the remaining problem is no longer the backbone; it is learning an actually
+active local-routing mechanism for the last `S2/S3/S7` failure cluster.**
+
+---
+
+## 2026-04-05 Minimal causal ablation - 178b with one uncertainty template
+
+Question:
+
+- after the `178a` diagnosis and the `178b` recovery, is the multi-template
+  uncertainty branch actually doing real work, or is `178b` effectively just a
+  one-template backbone with a dead router?
+
+Experiment:
+
+- keep the exact `178b` codepath
+- change only the uncertainty-template count:
+  - `n_templates = 1`
+- same corrected `S3 + S10` benchmark harness
+
+Training run:
+
+- command:
+  `python experiments/backfill/block_ar/train_178b_block_routed_mean_reverting_residual_flow.py
+  --epochs 20 --batch_size 16 --device cuda --n_templates 1 --output_dir
+  models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b_ablate1`
+- artifacts:
+  - [models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b_ablate1/best_model.pt]
+  - [models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b_ablate1/training_history.json]
+
+Training note:
+
+- this run saved a valid best checkpoint at epoch `9`
+- the saved history contains `10` epochs rather than the full `20`
+- that is enough for the causal question because the benchmark uses the saved
+  best checkpoint directly
+
+Benchmark run:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b_ablate1/best_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178b_ablate1_v2_s3mr_full_30d`
+- result artifact:
+  - [results/block_ar/178b_ablate1_v2_s3mr_full_30d/summary.json]
+
+Outcome:
+
+- full `178b`: `7/10`
+- `178b_ablate1`: `6/10`
+
+`178b_ablate1` pass profile:
+
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+
+Direct comparison vs full best `178b`:
+
+- `S2` overall 90% coverage:
+  - full `178b`: `81.1%`
+  - `178b_ablate1`: `81.2%`
+- `S2` h30 worst cell:
+  - full `178b`: `70.0%`
+  - `178b_ablate1`: `69.8%`
+- `S3` turb/calm:
+  - full `178b`: `1.153`
+  - `178b_ablate1`: `1.144`
+- `S7` Layer 2:
+  - full `178b`: `3/8`
+  - `178b_ablate1`: `4/8`
+- `S7` catastrophic rate:
+  - full `178b`: `5.15%`
+  - `178b_ablate1`: `5.35%`
+- `S8` daily-change KS:
+  - full `178b`: `23/25`
+  - `178b_ablate1`: `23/25`
+- `S8` IV-level KS:
+  - full `178b`: `24/25`
+  - `178b_ablate1`: `23/25`
+- `S8` window-floor bad rate:
+  - full `178b`: `4.99%` PASS
+  - `178b_ablate1`: `5.1%` FAIL
+- `S10` mean-reversion ratio:
+  - full `178b`: `0.849`
+  - `178b_ablate1`: `0.975`
+
+Interpretation:
+
+- the one-template ablation does **not** collapse all the way back to the old
+  pre-`178b` behavior
+- but it does lose one full suite:
+  - `S8` flips from pass to fail because the window-floor error rate rises just
+    above the gate
+- taken together, this is meaningful causal evidence that the multi-template
+  uncertainty branch is doing real work
+
+What this does and does not prove:
+
+- it **does** show that the multi-template branch contributes to performance
+- it **does not** show that the current blockwise router is healthy
+- the gate is still effectively collapsed in the saved training history
+- so the likely situation is:
+  - the richer local-law family helps
+  - but the present routing mechanism still is not learning in the intended
+    persistent, condition-responsive way
+
+Updated conclusion:
+
+- simplifying `178b` down to one uncertainty template is **not** the right next
+  move
+- the next principled step, if we continue, is to keep the multi-template
+  branch and fix the router learning mechanism directly:
+  - observable / condition-tied routing
+  - or stronger balance / entropy / supervision on the router
+- the causal question is now answered well enough to justify that direction
+
+One-sentence summary:
+
+**The `n_templates=1` ablation drops `178b` from `7/10` to `6/10`, which means
+the multi-template uncertainty family is doing real work; the remaining issue is
+not that templates are unnecessary, but that the current blockwise router is
+still dead and needs a more directly learnable conditioning mechanism.**
+
+---
+
+## 2026-04-05 Architecture review after 178b - prefer a true latent block mixture, not explicit hand-engineered routing
+
+Question:
+
+- after seeing the dead `178b` router, should the next move be an explicit
+  condition-tied router, or would that over-engineer the model toward the IV
+  surface problem and weaken generalizability?
+
+Review of the current architecture:
+
+- `177a` provides the right realism-side backbone:
+  - explicit mean-reverting drift in the shared mean path
+  - structured covariance backbone
+  - conditional residual flow
+  - this is the branch that restored `S10` while preserving `S4/S8`
+
+- `176b` worked because the uncertainty branch was a **true mixture**:
+  - component-specific local laws existed separately in the likelihood
+  - routing was regularized toward non-collapsed usage
+  - the model had a real probabilistic reason to keep multiple uncertainty
+    templates alive
+
+- `178b` changed that semantic meaning:
+  - block routing is now a soft weighted average over templates before the
+    likelihood
+  - the loss only penalizes template size and gate smoothness
+  - there is no balance, entropy, or mixture-likelihood term encouraging the
+    router to keep distinct blockwise uncertainty modes alive
+
+Interpretation:
+
+- the current problem is **not** that we failed to inject explicit turbulence
+  buckets or other hand-designed conditions
+- the current problem is that `178b` is no longer a true latent mixture in the
+  uncertainty branch
+- so the dead router is best understood as a **generic latent-variable learning
+  problem**, not as evidence that we need a more domain-specific engineered
+  router
+
+Why explicit condition-tied routing is not the best next move:
+
+- it would likely improve the benchmark faster
+- but it would also risk tying the method too tightly to the current IV-surface
+  diagnostics
+- that is exactly the wrong direction if the long-term goal is:
+  - arbitrary financial factors
+  - arbitrary future horizons
+  - general conditional law learning rather than bespoke regime rules
+
+Most principled next step:
+
+- build `178c` as:
+  - the `177a/178b` shared realism backbone
+  - plus a **true latent blockwise mixture over uncertainty templates**
+- this means:
+  - one latent template index per horizon block
+  - exact or tractable mixture semantics in the likelihood
+  - mild anti-collapse regularization
+  - optional sticky transitions between neighboring blocks
+- importantly:
+  - no hand-coded turbulence buckets
+  - no manually engineered observable regimes
+  - no IV-surface-specific routing rules
+
+Why this remains generalizable:
+
+- the abstraction is not “route by volatility-of-volatility”
+- the abstraction is “learn persistent latent uncertainty states over future
+  blocks”
+- that idea applies cleanly to:
+  - arbitrary financial factors
+  - arbitrary supports through the support-transform layer
+  - arbitrary residual families beyond Student-t
+  - longer horizons through more blocks or hierarchical blocks
+
+Decision:
+
+- do **not** add explicit hand-crafted condition routing next
+- do **not** abandon the multi-template uncertainty family
+- build `178c` as the smallest principled restoration of real latent-mixture
+  semantics in the blockwise uncertainty branch
+
+One-sentence summary:
+
+**The next principled move is not a more engineered condition router; it is to
+restore true latent-mixture semantics to the blockwise uncertainty branch so the
+model learns persistent uncertainty states in a general way rather than through
+IV-specific rules.**
+
+---
+
+## 2026-04-05 178c - exact blockwise latent uncertainty mixture
+
+Implemented the next principled uncertainty-branch follow-up.
+
+New file:
+
+- [experiments/backfill/block_ar/train_178c_exact_block_mixture_mean_reverting_residual_flow.py]
+
+Integration:
+
+- added loader support for
+  `exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c`
+  in [experiments/backfill/block_ar/test_block_ar_requirements_v2.py]
+
+Design:
+
+- keep the `177a/178b` shared realism backbone:
+  - explicit mean-reverting drift
+  - support-aware transform
+  - structured covariance
+  - residual flow
+- replace `178b`'s soft blockwise template averaging with:
+  - a true latent mixture over block template assignments
+  - exact mixture semantics across `n_templates ^ n_blocks` block assignments
+  - mild anti-collapse usage regularization
+  - persistent horizon-block structure without hand-crafted observable routing
+
+Why this was the right next move:
+
+- `178b` showed the backbone was good
+- `178b_ablate1` showed the multi-template uncertainty family was doing real
+  work
+- but `178b`'s router was still dead because it no longer had true
+  latent-mixture semantics
+
+Smoke validation:
+
+- ran:
+  `python experiments/backfill/block_ar/train_178c_exact_block_mixture_mean_reverting_residual_flow.py
+  --epochs 1 --batch_size 2 --max_train_windows 8 --max_val_windows 4
+  --joint_val_samples 2 --joint_eval_limit 4 --device cpu --output_dir
+  /tmp/178c_smoke`
+- result:
+  - training / checkpoint / selection / sampling all executed successfully
+  - crucially, the gate did **not** collapse immediately:
+    - `gateH = 1.097`
+    - `gateMax = 0.360`
+
+Real training run:
+
+- command:
+  `python experiments/backfill/block_ar/train_178c_exact_block_mixture_mean_reverting_residual_flow.py
+  --epochs 20 --batch_size 8 --device cuda --output_dir
+  models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c`
+- artifacts:
+  - [models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c/best_model.pt]
+  - [models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c/final_model.pt]
+  - [models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c/training_history.json]
+
+Training behavior:
+
+- the main architectural success is real:
+  - unlike `178b`, the block router stayed alive throughout training
+  - gate entropy stayed around `1.07 -> 1.09`
+  - gate max probability stayed around `0.36 -> 0.43`
+- so the exact latent-mixture fix succeeded at the *router-learning* level
+
+- held-out best loss was epoch `5`
+- later epochs improved some realism proxies but worsened validation loss:
+  - epoch `14` turb/calm proxy reached `1.153`
+  - final epoch `20` had:
+    - `joint_det_mr_ratio = 0.980`
+    - `joint_turb_calm_ratio = 1.149`
+  - but these came with worse loss / coverage-floor tradeoffs
+
+Best-checkpoint full corrected benchmark:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c/best_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178c_best_v2_s3mr_full_30d`
+- artifact:
+  - [results/block_ar/178c_best_v2_s3mr_full_30d/summary.json]
+
+Best-checkpoint outcome:
+
+- effective score: `7/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S8`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+
+Key best-checkpoint numbers:
+
+- `S2` overall 90% coverage: `83.1%`
+- `S2` h30 worst cell: `70.8%`
+- `S2` calibration error: `0.025`
+- `S2` failure mode:
+  - hard cells are now above the floor
+  - easy cells become overcovered (`96%+`) and break the per-cell gate
+- `S3` turb/calm: `1.066` FAIL
+- `S3` worst-cell width ratio: `3.628` FAIL
+- `S7` Layer 2: `0/8`
+- `S7` catastrophic rate: `4.6%` PASS
+- `S8` window-floor bad rate: `4.7%` PASS
+- `S10` mean-reversion ratio: `0.945` PASS
+- `S10` active cells: `9/9`
+- `S10` active-cell slope corr: `0.975`
+
+Final-checkpoint full corrected benchmark:
+
+- command:
+  `python experiments/backfill/block_ar/test_block_ar_requirements_v2.py
+  --model_path
+  models/backfill/exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c/final_model.pt
+  --device cuda --n_samples 50 --max_batches 30 --output_dir
+  results/block_ar/178c_final_v2_s3mr_full_30d`
+- artifact:
+  - [results/block_ar/178c_final_v2_s3mr_full_30d/summary.json]
+
+Final-checkpoint outcome:
+
+- effective score: `6/10`
+- PASS:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+  - `S10`
+- FAIL:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+
+Key final-checkpoint numbers:
+
+- `S2` overall 90% coverage: `80.5%`
+- `S2` h30 worst cell: `70.3%`
+- `S3` turb/calm: `1.143` (closer, still fail)
+- `S7` Layer 2: `4/8`
+- `S7` catastrophic rate: `5.6%` FAIL
+- `S8` window-floor bad rate: `6.1%` FAIL
+- `S10` mean-reversion ratio: `1.017` PASS
+
+Interpretation:
+
+- `178c` achieved the intended architectural fix:
+  - the blockwise latent uncertainty router is finally alive
+- but it did **not** produce a benchmark breakthrough
+- best-checkpoint `178c` is still `7/10`, matching `178b`, but with a
+  different trade:
+  - better `S2` aggregate calibration and mean reversion
+  - worse `S3` / `S7` local regime-conditioned width behavior
+- final-checkpoint `178c` confirms selection still matters, but does not beat
+  the branch frontier
+
+Most important conclusion:
+
+- the previous diagnosis was right:
+  - `178b` failed partly because the router was dead
+- but keeping the router alive is **not** enough by itself
+- the remaining problem is now sharper:
+  - how to allocate uncertainty states so that hard turbulent slices widen
+    enough without simply overcovering easy cells
+
+Updated branch status:
+
+- `178c` is a successful architectural sanity fix, not a frontier break
+- it proves that a true latent block mixture can be trained without collapse
+- it does **not** yet beat the practical anchors
+- if we continue from here, the next step should be a focused specialization /
+  failure analysis of the now-active `178c` templates before any `178d`
+
+One-sentence summary:
+
+**`178c` fixes the dead-router problem and keeps the realism backbone intact,
+but it still lands at `7/10`: the model now learns persistent latent
+uncertainty states, yet it still spends too much width on easy cells and too
+little on the hard turbulent local slices that drive `S3/S7`.**
+
+---
+
+## 2026-04-05 Focused 178c template / assignment analysis
+
+Focused follow-up:
+
+- added:
+  - [experiments/backfill/block_ar/analyze_178c_templates.py]
+- result artifact:
+  - [results/validations/2026-04-05/analysis/178c_mechanistic/mechanistic_summary.json]
+
+Question:
+
+- after `178c`, is the remaining failure still mainly a routing problem, or are
+  the now-active templates themselves still too weak / misaligned with the hard
+  turbulent slices?
+
+Main findings:
+
+- the `178c` router is genuinely alive now:
+  - prior / posterior argmax agreement by block is only `0.29 -> 0.38`
+  - posterior assignment patterns are diverse
+  - prior assignment patterns are almost degenerate:
+    - top prior pattern: `1-1-1-0-0` on `98.6%` of windows
+  - posterior patterns are spread across many different block assignments
+- so `178c` is **not** failing because the router is dead the way `178b` was
+
+- the prior is still weakly condition-responsive:
+  - for turbulent windows, prior block usage shifts gradually across blocks
+  - but it remains smooth and fairly concentrated around one dominant pattern
+- the posterior is much sharper and much more regime-specific:
+  - posterior entropy drops strongly block-by-block in turbulence
+  - later blocks in turbulence often prefer a different template than the prior
+
+- the learned templates are globally distinct:
+  - pairwise block-template L2 distances are meaningful
+  - each block has different boosted / suppressed cell patterns
+- so the template bank itself is not collapsed or trivial
+
+Most important diagnosis:
+
+- on the exact hard turbulent slices that still drive `S3/S7`, the *helpful*
+  template usually only changes local scale by a few percent:
+  - typical helpful scale multipliers are only `1.00 -> 1.04`
+  - even when the posterior shifts toward a different template, that template
+    often does not widen the failing cell enough to change the outcome
+- the hard-slice records are therefore consistently classified as:
+  - `template_family_too_weak`
+- examples:
+  - turb `h=30`, cell `(1,3)`:
+    - helpful template multiplier `1.00`
+    - diagnosis `template_family_too_weak`
+  - turb `h=14`, cell `(3,3)`:
+    - helpful template multiplier `1.04`
+    - diagnosis `template_family_too_weak`
+  - turb `h=7`, cell `(3,3)`:
+    - helpful template multiplier `1.03`
+    - diagnosis `template_family_too_weak`
+
+Interpretation:
+
+- the remaining failure is **not mainly “prior uses the wrong live template”**
+- the remaining failure is that the current blockwise template family is still
+  too weak / too scalar on the exact cells and horizons that need more
+  uncertainty reallocation
+- said differently:
+  - `178c` solved the router-collapse problem
+  - but it exposed the next bottleneck cleanly:
+    the latent states are alive, yet the uncertainty states themselves do not
+    differ enough where it matters most
+
+What this implies for the next model:
+
+- do **not** go back to more router regularization first
+- do **not** add hand-engineered condition buckets
+- the next principled move is to keep:
+  - the `177a/178c` realism backbone
+  - the now-live exact blockwise latent mixture
+- and upgrade only the uncertainty-state family:
+  - from scalar local log-variance templates
+  - to **blockwise covariance residual templates** or another richer local law
+
+Why this is still the generalizable move:
+
+- it does not hard-code IV-surface regimes
+- it improves the expressive power of latent uncertainty states in a generic
+  way
+- the abstraction remains:
+  - support-aware conditional density
+  - explicit mean reversion
+  - persistent latent uncertainty states over future blocks
+
+Updated conclusion:
+
+- `178c` answered the router question cleanly
+- the next branch should not be `178c` plus more routing penalties
+- the next branch should be:
+  - `178d = 178c backbone + exact blockwise latent mixture over covariance
+    residual templates`
+
+One-sentence summary:
+
+**The focused `178c` analysis shows the router is alive and the template bank is
+globally distinct, but on the exact hard turbulent slices the available
+templates only change local width by a few percent, so the remaining bottleneck
+is template expressiveness, not router collapse.**
+
+---
+
+## 2026-04-05 178d: Exact blockwise covariance-residual mixture
+
+Implemented:
+- [train_178d_exact_block_covariance_mixture_mean_reverting_residual_flow.py](experiments/backfill/block_ar/train_178d_exact_block_covariance_mixture_mean_reverting_residual_flow.py)
+- harness support in
+  [test_block_ar_requirements_v2.py](experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Goal:
+- keep the `177a/178c` realism backbone
+- keep exact latent blockwise mixture semantics
+- replace scalar local-width templates with blockwise cell-covariance residual
+  templates so latent uncertainty states can change local correlation geometry,
+  not only local width
+
+Artifacts:
+- best checkpoint:
+  [best_model.pt](models/backfill/exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d/best_model.pt)
+- final checkpoint:
+  [final_model.pt](models/backfill/exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d/final_model.pt)
+- history:
+  [training_history.json](models/backfill/exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d/training_history.json)
+- corrected full benchmark:
+  [178d best summary](results/block_ar/178d_best_v2_s3mr_full_30d/summary.json)
+  [178d final summary](results/block_ar/178d_final_v2_s3mr_full_30d/summary.json)
+
+Training behavior:
+- unlike `178b`, the router stayed alive through training
+- gate entropy rose from the near-collapsed start to a stable midrange regime
+- best val-loss checkpoint was epoch `9`
+- later epochs improved `S3`-style turbulence response a bit, but not enough to
+  create a better overall checkpoint
+
+Best checkpoint result (`178d_best`):
+- effective `7/10`
+- passes:
+  - `S1, S4, S5, S6, S9, S10`
+- fails:
+  - `S2, S3, S7, S8`
+
+Key numbers (`178d_best`):
+- `S2` overall 90% coverage: `81.8%`
+- `S2` h30 worst/best cell: `69.1% / 95.3%`
+- `S3` turb/calm: `1.168` PASS, but worst-cell width ratio `3.106` FAIL
+- `S7` Layer 2: `4/8` (better than `178c`)
+- `S7` Layer 3 catastrophic: `5.2%` FAIL
+- `S8` window-floor failures: `6.0%` FAIL
+- `S10` mean-reversion ratio: `1.032` PASS
+
+Final checkpoint result (`178d_final`):
+- also `6/10` to `7/10` quality depending on emphasis, but not better than the
+  saved best-loss checkpoint for the realism-first benchmark
+- it improves `S3` turb/calm a bit further (`1.214`) but worsens `S7/S8`
+
+Interpretation:
+- `178d` is a real architectural step beyond `178c`
+- the richer covariance-residual templates did help the hard regime-cell layer:
+  `S7` Layer 2 improved materially from `178c`
+- but the branch still does not clear the remaining frontier because:
+  - easy cells become slightly overcovered
+  - the worst conditional-width cell is still badly misallocated
+  - the window-floor failure rate in `S8` remains above gate
+
+Bottom line:
+- `178d` validates the direction that richer latent uncertainty states help
+- but it is not yet a frontier break over the corrected-harness anchors
+- the remaining problem is now narrower:
+  - not dead routing
+  - not dead templates
+  - but still incorrect assignment / expressiveness on the exact worst
+    conditional-width cluster
+
+One-sentence summary:
+
+**`178d` shows that moving from scalar latent width templates to latent
+covariance-residual templates materially improves regime-cell coverage structure,
+while keeping mean reversion realistic, but it still fails on the narrow
+worst-cell conditional-width and window-floor calibration cluster.**
+
+---
+
+## 2026-04-05 Focused 178d template / assignment analysis
+
+Artifacts:
+- analysis script:
+  [analyze_178d_templates.py](experiments/backfill/block_ar/analyze_178d_templates.py)
+- result:
+  [mechanistic_summary.json](results/validations/2026-04-05/analysis/178d_mechanistic/mechanistic_summary.json)
+
+Question:
+- after `178d`, are the remaining failures still a routing problem, or has the
+  bottleneck moved again to the latent uncertainty-state family itself?
+
+Main findings:
+
+1. The router is alive, but the prior is still highly collapsed.
+- prior argmax pattern is literally `2-2-2-2-2` for `512/512` windows
+- posterior is much more informative and diverse:
+  - prior/posterior argmax agreement by block is only
+    `[0.768, 0.719, 0.541, 0.646, 0.504]`
+  - in turbulence, posterior entropy collapses to roughly `0.13-0.18` while
+    prior entropy stays much larger
+
+2. The covariance templates are genuinely distinct.
+- per-block pairwise covariance-template Frobenius distances are material
+- template `2` is systematically lower-variance than templates `0/1`
+- off-diagonal RMS is nontrivial for every template, so this is a real
+  covariance-family upgrade over `178c`
+
+3. The remaining hard slices are still mostly turbulent late-horizon cells.
+- worst undercovered slices include:
+  - turb `h=30`, cells `(2,2)`, `(3,3)`, `(1,3)`, `(1,2)`
+  - turb `h=14`, cell `(1,3)`
+- overcoverage is much smaller and mostly a tiny calm-cell cluster
+
+4. Most important result: the hard slices are still overwhelmingly
+   `template_family_too_weak`, not `routing_failed`.
+- for all top undercovered slices, the best forced-template counterfactual still
+  fails to recover the slice to the `[70%, 95%]` gate
+- examples:
+  - turb `h=30`, cell `(2,2)`:
+    - current coverage `0.408`
+    - best forced-template coverage `0.469`
+    - diagnosis `template_family_too_weak`
+  - turb `h=30`, cell `(1,3)`:
+    - current coverage `0.427`
+    - best forced-template coverage `0.458`
+    - diagnosis `template_family_too_weak`
+  - turb `h=14`, cell `(1,3)`:
+    - current coverage `0.466`
+    - best forced-template coverage `0.521`
+    - diagnosis `template_family_too_weak`
+
+Interpretation:
+- `178d` solved the earlier `178b` dead-router issue and went beyond `178c`
+  scalar templates
+- but the exact remaining bad slices still cannot be fixed by choosing among
+  the currently available latent uncertainty states
+- so the bottleneck is no longer “make the router more alive”
+- it is now “the current latent uncertainty states are still not expressive
+  enough on the worst conditional-width cluster”
+
+What this means for the next phase:
+- do **not** spend time on more gate regularization or condition-engineered
+  routing rules
+- do **not** revisit `170a/170c`
+- if continuing, the next principled branch should enrich the uncertainty-state
+  family again, not the router
+
+Current best inference:
+- the next model should keep:
+  - the `177a/178d` mean-reverting realism backbone
+  - exact latent block mixture semantics
+- and move from blockwise covariance-residual templates toward a richer local
+  conditional-law family, likely one of:
+  - blockwise low-rank covariance residual + local scale residual
+  - or blockwise conditional residual-flow experts
+
+One-sentence summary:
+
+**The focused `178d` analysis shows the posterior routing is active and the
+covariance templates are genuinely different, but on the exact worst turbulent
+slices even the best forced template still misses badly, so the remaining
+bottleneck is template-family expressiveness, not router collapse.**
+
+---
+
+## 2026-04-05 178e_v0 Thorough Mechanistic Postmortem
+
+Artifacts:
+- code:
+  [analyze_178e_mechanism.py](experiments/backfill/block_ar/analyze_178e_mechanism.py)
+- result:
+  [mechanistic_summary.json](results/validations/2026-04-05/analysis/178e_mechanistic/mechanistic_summary.json)
+
+Question:
+- `178e_v0` was the most principled next step after `178d`, so why did it still
+  fail materially?
+
+Main findings:
+
+1. The failure is real, but it is **not** evidence that the `178e` design logic
+   was wrong.
+- the targeted `178d` diagnosis correctly said the remaining bottleneck was the
+  uncertainty-expert family, not the router
+- `178e_v0` tested exactly that by replacing covariance-only experts with
+  richer flow experts
+- the branch failed because the new expert family introduced a **new mechanism**
+  that the `178d` diagnosis did not constrain: conditional mean leakage through
+  the residual experts
+
+2. The shared mean-reverting backbone did not survive unchanged once the flow
+   experts were sampled.
+- on the held-out mechanistic subset:
+  - deterministic first-step mean-reversion ratio is `1.151`
+  - sampled first-step mean-reversion ratio drops to `0.804`
+- on the strengthened benchmark:
+  - sampled full-horizon ratios are `1.060, 0.794, 0.641, 0.539` at
+    `h = 1, 7, 14, 30`
+- deterministic long-horizon ratios are materially better:
+  - approximately `1.151, 1.147, 0.942, 0.806`
+- interpretation:
+  - the shared drift law is not perfect, but it is much less broken than the
+    sampled law
+  - the new uncertainty experts are pulling the sampled mean path away from the
+    deterministic mean-reverting backbone
+
+3. The flow experts are not zero-centered in whitened space.
+- expert probes on the learned inverse flows show non-zero signed means in the
+  whitened block residuals
+- this gets larger at later blocks
+- examples:
+  - calm, block 5:
+    - template `0` routed signed mean `+0.0417`
+    - template `1` routed signed mean `-0.0200`
+    - template `2` routed signed mean `+0.0239`
+  - turb, block 5:
+    - template `0` routed signed mean `+0.0399`
+    - template `1` routed signed mean `-0.0258`
+    - template `2` routed signed mean `+0.0253`
+- so the experts are not only changing residual shape/scale; they are also
+  shifting the center of the residual law
+
+4. That mean leakage is visible directly in sampled paths.
+- average sampled-minus-deterministic shift is positive at every selected
+  horizon
+- it grows with horizon:
+  - overall signed shift:
+    - `h=1`: `+0.0099`
+    - `h=7`: `+0.0166`
+    - `h=14`: `+0.0216`
+    - `h=30`: `+0.0237`
+- the biggest upward-drift cells are not random; they form a stable cluster:
+  - especially cell `(2,4)`
+  - then `(0,0)`, `(0,4)`, `(0,3)`
+- this explains why broad distributional metrics can improve while
+  mean-reversion realism degrades
+
+5. The router/prior is still not the main problem.
+- prior argmax pattern is `2-2-2-2-2` on `512/512` windows
+- posterior is informative but still heavily concentrated on template `2`
+- prior/posterior argmax agreement is high by block:
+  `[0.971, 0.895, 0.865, 0.814, 0.707]`
+- so unlike `178c`, `178e` did not unlock a richer, actively used routing
+  structure in practice
+
+6. The remaining `S2/S3/S7` failures are still mostly expert-family failures,
+   not routing failures.
+- all top undercovered slices are diagnosed `expert_family_too_weak`
+- examples:
+  - turb `h=14`, cell `(2,2)`:
+    - current coverage `0.396`
+    - best forced-template coverage `0.333`
+  - turb `h=30`, cell `(2,2)`:
+    - current coverage `0.354`
+    - best forced-template coverage `0.396`
+  - turb `h=30`, cell `(3,3)`:
+    - current coverage `0.354`
+    - best forced-template coverage `0.354`
+- even on the overcovered slices, most diagnoses are still
+  `expert_family_too_weak`
+
+7. `178e_v0` improved the easier part of the problem and regressed on the
+   harder coupled part.
+- it improved broad window realism enough to recover `S8`
+- but it did that partly by broadening easy slices and by letting the residual
+  experts carry non-zero conditional mean
+- it did **not** solve the hard turbulent local-allocation cluster
+- and it destabilized full-horizon mean reversion
+
+Why the “most principled next step” still failed:
+- because the theory was directionally right but under-specified
+- `178d` said “covariance-only experts are too weak”
+- `178e_v0` answered by making experts more flexible
+- but without a structural constraint that keeps the residual experts centered,
+  the extra flexibility was used for:
+  - local mean shifting
+  - broad easy-cell widening
+  - only limited improvement on the truly hard slices
+
+Interpretation:
+- the next branch, if there is one, should **not** merely say “use richer flow
+  experts”
+- it must say “use richer experts while preserving a centered residual law and
+  protecting the shared mean-reverting drift backbone”
+
+Current best inference:
+- the failure mode is now understood well enough that another blind expert
+  upgrade would be unprincipled
+- future expert-family work would need an explicit structural separation between:
+  - drift / mean reversion
+  - centered uncertainty residual law
+
+One-sentence summary:
+
+**`178e_v0` failed not because the `178d -> richer experts` step was a bad idea,
+but because the new flow experts were free to absorb conditional mean and broad
+easy-cell variance; that improved some broad realism metrics while breaking the
+shared mean-reverting path and still leaving the hardest turbulent slices
+under-modeled.**
+
+---
+
+## 2026-04-05 Full 179a Ideation / Design Pass
+
+Artifacts:
+- memo:
+  [179a_full_ideation_memo.md](results/validations/2026-04-05/analysis/179_design/179a_full_ideation_memo.md)
+
+Question:
+- after `178e_v0`, what is the most principled, elegant, and generalized next
+  move?
+
+Main conclusion:
+
+- the next branch should **not** continue the “more experts” path
+- `178e_v0` showed that richer uncertainty experts without structural
+  constraints are free to absorb conditional mean and destabilize the
+  mean-reverting backbone
+- the right abstraction is now:
+  - explicit mean dynamics
+  - explicit covariance dynamics
+  - centered residual transport
+
+Chosen next branch:
+
+- `179a = support-aware mean-reverting conditional state-space model with shared centered residual transport`
+
+Why this is the most principled move:
+
+- preserves the validated `177a/178d` realism backbone
+- directly addresses the actual `178e` failure mode
+- is more elegant and general than stacking more expert variants
+- stays compatible with:
+  - arbitrary support transforms
+  - arbitrary factor collections
+  - heavier-tailed or non-Student residual laws
+  - longer horizons
+
+Key design rule:
+
+> The residual branch must remain a **centered residual law** in whitened
+> space, so it can enrich higher-order uncertainty shape without being allowed
+> to rewrite the mean path.
+
+Interpretation:
+
+- no more blind expert expansion
+- no more router engineering as the mainline answer
+- the next branch, if implemented, should be a cleaner separation-of-roles
+  model, not a more complicated expert stack
+
+One-sentence summary:
+
+**The full `179a` ideation pass concludes that the elegant generalized fix is
+not “more experts,” but a cleaner model class: keep explicit mean reversion and
+structured covariance, and move the remaining flexibility into a shared centered
+residual transport law.**
+
+---
+
+## 2026-04-05 179a_v0 Implementation Spec + Runnable Branch
+
+Artifacts:
+- implementation spec:
+  [179a_implementation_spec.md](results/validations/2026-04-05/analysis/179_design/179a_implementation_spec.md)
+- training script:
+  [train_179a_centered_residual_transport_mean_reverting_covariance_mixture.py](experiments/backfill/block_ar/train_179a_centered_residual_transport_mean_reverting_covariance_mixture.py)
+- harness support:
+  [test_block_ar_requirements_v2.py](experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+What was implemented:
+
+- kept the `177a/178d` mean-reverting covariance-mixture backbone
+- removed the residual expert stack
+- added a shared **centered residual transport**:
+  - scale-only conditional coupling
+  - no translation term
+  - scale nets depend only on squared masked inputs plus context
+  - alternating masks and fixed permutations
+- added a simple warm-start path that loads non-flow weights from `178d`
+- added checkpoint selection that prioritizes:
+  - sampled mean reversion
+  - then broad coverage
+  - then turb/calm width response
+  - then teacher-forced loss
+
+Why this matters:
+
+- this is the first implementation that directly encodes the `178e`
+  postmortem lesson
+- the residual branch is no longer allowed to freely absorb conditional mean
+
+Validation status:
+
+- Python syntax/import checks pass
+- smoke training run completed successfully
+- benchmark harness loads the new checkpoint type correctly
+
+Smoke artifacts:
+- output dir:
+  `models/backfill/centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a_smoke`
+
+Smoke notes:
+
+- the 1-epoch smoke run is only a code-path validation
+- its quick benchmark output is not scientifically meaningful
+- the important result is that:
+  - training
+  - checkpoint saving
+  - warm-start loading
+  - sampling
+  - benchmark loading
+  all work end to end
+
+Current state:
+
+- `179a_v0` is ready for a real training run
+- no full benchmark claim should be made until that run is completed
+
+One-sentence summary:
+
+**`179a_v0` is now implemented as a runnable branch that keeps the validated
+mean-reverting covariance backbone but replaces the expert stack with a shared
+centered residual transport, giving the first concrete implementation of the
+new cleaner design principle.**
+
+---
+
+## 2026-04-05 179a_v0 First Real Run + Strengthened Benchmark
+
+Artifacts:
+- checkpoint:
+  [best_model.pt](models/backfill/centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a/best_model.pt)
+- training trace:
+  [training_history.json](models/backfill/centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a/training_history.json)
+- benchmark:
+  [summary.json](results/block_ar/179a_best_v2_s3mrj_full_30d/summary.json)
+
+What was run:
+
+- first real `179a_v0` training run with warm start from `178d`
+- selection used the new lexicographic rule:
+  - sampled mean reversion
+  - then broad coverage
+  - then turb/calm width response
+  - then teacher-forced loss
+
+Training note:
+
+- the best checkpoint remained epoch `1`
+- later epochs degraded the selection metrics, so the long run was stopped
+  rather than letting a clearly non-improving trajectory continue
+
+Result under the strengthened `S3 + S10 + S11` harness:
+
+- `179a_v0` is effectively `6/11`
+- pass:
+  - `S1`
+  - `S4`
+  - `S5`
+  - `S6`
+  - `S9`
+  - partial first-step mean-reversion aspects inside `S10`, but full `S10`
+    still fails
+- fail:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S8`
+  - `S10`
+  - `S11`
+
+Important benchmark details:
+
+- `S1` passes cleanly:
+  - calendar arbitrage `7.8%`
+  - butterfly arbitrage `24.8%`
+- `S2` has strong aggregate coverage but still fails per-cell realism:
+  - overall 90% coverage `88.7%`
+  - h30 worst/best cell `72.0% / 96.6%`
+- `S3` still fails:
+  - turb/calm `1.087`
+  - worst cell width ratio `2.304`
+- `S7` improves Layer 3 but not Layer 2:
+  - Layer 3 catastrophic `2.4%` PASS
+  - Layer 2 `0/8` FAIL
+- `S8` is mixed:
+  - IV-level KS passes
+  - median bias passes
+  - window-floor passes
+  - daily-change KS still fails (`13/25`)
+- `S10` first-step mean reversion is good:
+  - ratio `1.079`
+  - active cells `8/9`
+  - slope corr `0.840`
+  - but the full-horizon profile still fails at `h=30`
+- `S11` still fails on pathwise max-jump KS:
+  - KS `0.242`
+  - per-cell q99 jump scale itself passes `25/25`
+
+Interpretation:
+
+- `179a_v0` does what it was designed to do in one important respect:
+  - it avoids the specific `178e` failure mode where richer experts rewrote the
+    mean path
+- but the centered transport is too weak as a residual family in v0
+- it preserves broad structural realism while giving back:
+  - daily-change distribution quality
+  - long-horizon mean-reversion profile
+  - pathwise jump realism
+- and it still does not solve the local conditional-width problem
+
+What this means:
+
+- the structural idea is still elegant and generalizable
+- but this particular v0 transport family is underpowered
+- so `179a` as a direction is not falsified
+- `179a_v0` specifically is a negative result
+
+One-sentence summary:
+
+**`179a_v0` successfully implemented the cleaner “centered residual transport”
+principle and avoided `178e`’s mean-leakage pathology, but the v0 transport was
+too weak: it preserved broad structure while still failing the hard local
+uncertainty cluster and regressing on full-horizon mean reversion and pathwise
+jump realism.**
+
+---
+
+## 2026-04-05: Dual-principle targeted review of 179a
+
+Added a focused realism review for `179a`:
+
+- script:
+  - `experiments/backfill/block_ar/analyze_179a_dual_principle_review.py`
+- artifact:
+  - `results/validations/2026-04-05/analysis/179a_dual_principle_review/mechanistic_summary.json`
+
+Goal of the review:
+
+- check whether `179a` still produces individually plausible scenarios from
+  both a spatial and temporal perspective
+- verify whether the centered transport is actually preserving the drift
+  backbone in sampled paths
+- check whether the benchmark is still missing an obvious pathwise realism gap
+
+Main findings:
+
+- the centered transport is doing what it was supposed to do in one important
+  sense:
+  - sampled-minus-deterministic mean shift is tiny in both unconstrained and
+    IV space
+  - mean signed IV shift is only about `+0.0009 / +0.0012 / +0.0019 / +0.0018`
+    at `h=1/7/14/30`
+- so `179a` is **not** failing because the residual branch is obviously leaking
+  conditional mean the way `178e_v0` did
+
+- spatially, `179a` is only partially realistic:
+  - benchmark still passes `S1` and `S9`
+  - but pathwise surface roughness is much too high at every checked horizon
+  - roughness mean ratio is:
+    - `1.48` at `h=1`
+    - `1.56` at `h=7`
+    - `1.67` at `h=14`
+    - `1.77` at `h=30`
+  - roughness KS is also large (`0.37 -> 0.54`)
+  - this is an important spatial realism gap that the current suite does not
+    gate directly
+
+- temporally, `179a` is not individually realistic enough:
+  - scenario-level mean-reversion slope distributions are too weak at every
+    selected horizon
+  - mean slope ratios are only:
+    - `0.636` at `h=1`
+    - `0.645` at `h=7`
+    - `0.594` at `h=14`
+    - `0.634` at `h=30`
+  - path total variation is far too high:
+    - mean ratio `1.58`
+    - q90 ratio `1.55`
+    - KS `0.73`
+  - pathwise max-jump distribution also still mismatches:
+    - mean ratio `1.19`
+    - KS `0.42`
+
+Interpretation:
+
+- `179a` preserves broad structure and does avoid the obvious mean-leakage
+  failure mode
+- but the v0 centered transport injects too much high-frequency residual
+  variation
+- that is why it can still look structurally valid in aggregate while failing
+  stronger pathwise spatial and temporal realism checks
+
+Bottom line:
+
+- `179a` does **not** yet produce fully individually realistic scenarios
+  in the strict risk-manager sense
+- spatial realism is only partially there
+- temporal realism is still materially insufficient
+
+---
+
+## 2026-04-05: 179b design decision after the dual-principle review
+
+Documented the next branch design in:
+
+- `results/validations/2026-04-05/analysis/179_design/179b_geometry_aware_residual_transport_memo.md`
+
+Why this branch is the next principled move:
+
+- the `179a` review showed that the residual branch is no longer mainly failing
+  by leaking mean
+- instead, it is injecting too much high-frequency spatial and temporal
+  variation
+- so the next clean fix is **not** more experts or more routing
+- it is to make the residual transport itself geometry-aware
+
+Benchmark implication:
+
+- a geometry-aware spatial roughness gate should eventually be added, because
+  `179a` exposed a real pathwise spatial realism gap that the current suite does
+  not gate directly
+- that benchmark change is a measurement fix, not the whole model answer
+
+Chosen next model concept:
+
+- `179b = mean-preserving residual transport in a smooth spatial-temporal basis`
+
+Core idea:
+
+- keep explicit mean-reverting mean dynamics
+- keep structured covariance and latent covariance-mixture semantics
+- project whitened residuals into an orthonormal spatial-temporal basis
+- let the residual transport act there, where low- and high-frequency modes are
+  separated
+- constrain the transport to remain centered and avoid excessive
+  high-frequency-energy inflation
+
+Why this is more elegant and generalizable:
+
+- it is not an IV-specific hack
+- for IV surfaces it uses grid geometry
+- for arbitrary financial factors it becomes graph-geometry-aware residual
+  transport
+- it respects the clean separation:
+  - mean branch owns drift / mean reversion
+  - covariance branch owns second-order structure
+  - residual branch owns higher-order shape
+
+The memo freezes the concrete `179b_v0` direction. The next step, if we
+continue, is implementation rather than more design.
+
+---
+
+## 2026-04-05: 179b_v0 implementation and first result
+
+Implemented the branch in:
+
+- `experiments/backfill/block_ar/basis_geometry.py`
+- `experiments/backfill/block_ar/train_179b_basis_centered_residual_transport.py`
+- loader support in
+  `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+Main design:
+
+- keep the `177a/178d` mean-reverting covariance-mixture backbone
+- keep centered residual transport
+- move the residual transport into a DCT-style spatial-temporal basis
+- give lower-frequency coefficients more scale freedom than higher-frequency
+  coefficients
+- add a small penalty against high-frequency inverse-expansion pressure
+
+Warm start:
+
+- loaded non-flow weights from
+  `models/backfill/exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d/best_model.pt`
+
+Smoke run:
+
+- completed successfully
+- harness load/sampling path also worked
+
+Real training run:
+
+- output:
+  `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b`
+- the best checkpoint was epoch `2`
+- later epochs did not improve the selection objective, so the run was stopped
+  after enough signal was gathered
+
+Saved artifacts:
+
+- checkpoint:
+  `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b/best_model.pt`
+- history:
+  `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b/training_history.json`
+- full strengthened benchmark:
+  `results/block_ar/179b_best_v2_s3mrj_full_30d/summary.json`
+
+Result:
+
+- `179b_v0` is **not** a frontier break
+- it is effectively `6/11`
+
+Pass:
+
+- `S1`
+- `S5`
+- `S6`
+- `S8`
+- `S9`
+- `S10`
+
+Fail:
+
+- `S2`
+- `S3`
+- `S4`
+- `S7`
+- `S11`
+
+Important numbers:
+
+- `S2` overall 90% coverage: `85.2%`
+- `S2` h30 worst/best cell: `67.0% / 98.9%`
+- `S3` turb/calm: `1.031`
+- `S4` kurtosis ratio: `0.473`
+- `S7` Layer 2: `0/8`, Layer 3 catastrophic `3.8%`
+- `S8` now passes cleanly:
+  - daily-change KS `21/25`
+  - IV-level KS `21/25`
+  - median bias fraction `25/25`
+  - window-floor `3.3%`
+- `S10` passes strongly:
+  - first-step ratio `1.166`
+  - full-horizon ratios stay within gate through `h=30`
+- `S11` still fails on pathwise max-jump KS: `0.376`
+
+Interpretation:
+
+- `179b_v0` is directionally meaningful
+- the geometry-aware basis transport helped broad distributional realism and
+  preserved mean reversion
+- but it still did not solve:
+  - worst-cell conditional width realism
+  - regime-by-cell local calibration
+  - pathwise jump realism
+
+Trade versus the current anchors:
+
+- better than `179a_v0` on:
+  - `S8`
+  - `S10`
+- worse than `178d` on:
+  - `S4`
+  - `S11`
+- same core bottleneck remains:
+  - `S2/S3/S7`
+
+Bottom line:
+
+- moving the centered transport into a smooth basis is a coherent and
+  generalizable idea
+- but `179b_v0` in this first form is still not producing fully realistic
+  individual scenarios
+- it improves broad realism while leaving the local conditional uncertainty
+  problem unresolved
+
+---
+
+## 2026-04-05 - 179b clean rerun, final-checkpoint benchmark, and tail/jump review
+
+Question:
+
+- was benchmarking only the saved best-loss checkpoint for `179b` premature?
+- and what is the actual tail/jump failure mechanism behind the `S4` / `S11`
+  misses?
+
+Actions:
+
+- reran `179b` cleanly for 5 epochs to produce both:
+  - `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b_rerun5/best_model.pt`
+  - `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b_rerun5/final_model.pt`
+- benchmarked both under the strengthened `S3 + S10 + S11` harness:
+  - `results/block_ar/179b_rerun5_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/179b_rerun5_final_v2_s3mrj_full_30d/summary.json`
+- added the focused review script:
+  - `experiments/backfill/block_ar/analyze_179b_tail_jump_mechanism.py`
+- saved the mechanism review:
+  - `results/validations/2026-04-05/analysis/179b_tail_jump_mechanistic/mechanistic_summary.json`
+
+Checkpoint comparison:
+
+- yes, benchmarking only epoch `2` was premature
+- rerun best-loss checkpoint (`epoch 2`) is only `5/11`
+- rerun final checkpoint (`epoch 5`) improves to `6/11`
+- the key difference is mean reversion:
+  - epoch `2`: first-step ratio `1.184`, but full-horizon `S10` still fails
+  - epoch `5`: first-step ratio `1.231`, and full-horizon `S10` passes
+
+So the correct `179b` anchor is now:
+
+- `results/block_ar/179b_rerun5_final_v2_s3mrj_full_30d/summary.json`
+
+Focused mechanism result:
+
+- `179b` does **not** fail because the tails are simply too thin everywhere
+- it also does **not** fail because the benchmark is only looking at the
+  wrong checkpoint
+- the actual failure is more specific:
+  - broad marginal tests pass because the bulk / central daily-change
+    distribution is already close enough
+  - but pathwise jump shape is wrong because the model generates
+    **too many medium-to-large jumps**, especially in the higher-frequency
+    basis band
+
+Evidence from the review:
+
+- pooled `|ΔIV|` daily changes are broadly *larger* than GT across central and
+  high quantiles:
+  - median ratio `1.66`
+  - q90 ratio `1.69`
+  - q99 ratio `1.49`
+- yet pooled kurtosis ratio is only `0.59`
+- pathwise max-jump quantiles are near GT in the extreme tail:
+  - q90 ratio `0.95`
+  - q99 ratio `1.06`
+- but pathwise max-jump KS is still huge at `0.49`
+- the reason is distribution shape:
+  - median pathwise max jump is already `1.25x` GT
+  - pathwise count of GT-q99 exceedances is about `2.0x` GT at the median
+  - so the model produces too many jump-heavy paths, even though the most
+    extreme jump sizes are near the right scale
+
+Band decomposition:
+
+- high-frequency band energy share is *higher* than GT, not lower:
+  - energy ratio `1.26x`
+- high-frequency pathwise max-jump distribution is the worst mismatch:
+  - KS `0.557`
+  - median max-jump ratio `1.78x`
+- mid band is also elevated, though less severely
+- low band is comparatively close
+
+Interpretation:
+
+- the geometry-aware basis transport helped broad realism and preserved
+  mean reversion
+- but in this `v0` form it did **not** properly control high-frequency
+  pathwise jump behavior
+- so the `S4` / `S11` failure is not “tails too small”
+- it is:
+  - too many medium/high-frequency jumps
+  - wrong pathwise jump distribution shape
+  - despite acceptable bulk marginals and acceptable q99 per-cell jump scale
+
+Branch conclusion:
+
+- `179b` remains informative but not sufficient
+- the next principled branch must treat **pathwise jump-shape control** as a
+  first-class target, not assume that broad marginals or q99 scale are enough
+
+---
+
+## 2026-04-05 - Full post-179b design pass for the next clean branch (`180a`)
+
+Question:
+
+- after the `179b` rerun and tail/jump review, do we already know the next
+  principled move well enough to build it directly, or do we need a full design
+  pass first?
+
+Decision:
+
+- a **full ideation pass** was required
+- not because the repo diagnosis was unclear
+- but because the next step is now a **model-class choice**, not a small local
+  tweak
+
+Design artifact:
+
+- `results/validations/2026-04-05/analysis/180_design/180a_full_ideation_memo.md`
+
+What is now documented there:
+
+- the current anchor state after the strengthened benchmark
+- why `179b` rerun final is the correct anchor
+- why `S8` can pass while `S4` and `S11` still fail
+- why the current failure is no longer "just more experts" or "just more
+  routing"
+- the literature-backed option set for the next branch
+
+Main conclusion:
+
+- the next principled branch is **`180a`**
+- `180a` should keep:
+  - support-aware transforms
+  - explicit mean-reverting mean branch
+  - structured covariance branch
+  - centered residual modeling
+- and change only the residual-law family:
+  - from a single geometry-aware smooth transport
+  - to a **centered smooth-plus-jump residual law**
+
+Why this is the chosen direction:
+
+- `179b` showed that broad multiscale smoothing alone is not enough
+- the tail/jump review showed the remaining miss is specifically:
+  - wrong pathwise jump-shape
+  - too many medium/high-frequency jumps
+- the elegant general solution is therefore:
+  - smooth residual structure handled in a geometry-aware basis
+  - abrupt jumps handled by an explicit centered jump module
+  - both sitting on top of the current mean/covariance backbone
+
+Why this is still generalized, not a special-case patch:
+
+- it preserves the same core abstraction for arbitrary factor domains
+- grid geometry for IV surfaces becomes graph geometry for general factor sets
+- Student-t remains only one possible residual base, not the endpoint
+- longer horizons benefit naturally from smooth-vs-jump decomposition
+
+What this rules out:
+
+- more unconstrained residual experts
+- more router engineering
+- blind penalty tuning as the mainline path
+
+Branch decision:
+
+- proceed next to `180a` implementation spec if continuing
+
+---
+
+## 2026-04-05 - `180a` implementation spec frozen
+
+Action:
+
+- turned the `180a` ideation memo into a concrete build spec:
+  - `results/validations/2026-04-05/analysis/180_design/180a_implementation_spec.md`
+
+What is now frozen:
+
+- keep the current explicit mean-reverting mean branch
+- keep the current structured covariance branch
+- replace the single residual transport with:
+  - a centered smooth residual transport
+  - plus an explicit centered jump residual module
+
+Why this is the right next build:
+
+- it directly targets the now-identified `179b` failure:
+  - too many medium/high-frequency jumps
+  - wrong pathwise jump-shape
+- it preserves the structural separation learned from `178e`
+- it avoids returning to expert proliferation
+
+Design decisions now fixed:
+
+- jump behavior becomes a first-class residual object
+- jump module remains centered, so it cannot rewrite the mean law
+- `179b` rerun final is the warm-start anchor
+- checkpoint selection should prioritize:
+  - `S10`
+  - then `S11`
+  - then `S4`
+  - then `S2/S3/S7`
+
+Immediate next step if continuing:
+
+- implement `180a_v0` from the spec
+
+---
+
+## 2026-04-05 - `180a_v0` implemented, trained, and benchmarked
+
+Action:
+
+- implemented the first `180a_v0` branch:
+  - `experiments/backfill/block_ar/jump_atoms.py`
+  - `experiments/backfill/block_ar/train_180a_centered_smooth_jump_residual.py`
+- added loader support in:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- warm-started from:
+  - `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b_rerun5/final_model.pt`
+
+Artifacts:
+
+- checkpoint dir:
+  - `models/backfill/centered_smooth_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180a`
+- benchmark results:
+  - `results/block_ar/180a_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/180a_final_v2_s3mrj_full_30d/summary.json`
+
+Implementation summary:
+
+- kept the current explicit mean-reverting mean branch
+- kept the current structured covariance branch
+- replaced the single residual transport with:
+  - a centered geometry-aware smooth transport in basis space
+  - plus an explicit centered discrete jump residual module over fixed basis-band atoms
+- benchmarked both:
+  - saved best checkpoint (`epoch 1`)
+  - final checkpoint (`epoch 5`)
+
+Result:
+
+- `180a_v0` is a negative result relative to the current anchor
+- both `best` and `final` checkpoints finish at `5/11`
+- pass profile:
+  - `S1, S5, S6, S8, S9`
+- fail profile:
+  - `S2, S3, S4, S7, S10, S11`
+
+Best checkpoint (`epoch 1`) highlights:
+
+- `S2` overall 90% coverage: `90.5%`, but fails per-cell gate via easy-cell overcoverage
+- `S3` turb/calm: `1.094` fail
+- `S4` kurtosis ratio: `0.407` fail
+- `S7` Layer 2: `0/8`
+- `S8` passes
+- `S10` mean-reversion ratio: `1.390` fail
+- `S11` pathwise max-jump KS: `0.424` fail
+
+Final checkpoint (`epoch 5`) highlights:
+
+- `S2` overall 90% coverage: `89.1%`, still fails per-cell gate
+- `S3` turb/calm: `1.094` fail
+- `S4` kurtosis ratio: `0.486` fail
+- `S7` Layer 2: `0/8`
+- `S8` still passes
+- `S10` mean-reversion ratio: `1.333` fail
+- `S11` pathwise max-jump KS: `0.364` fail
+
+Interpretation:
+
+- the centered smooth-plus-jump residual law is trainable and does preserve broad distributional fidelity
+- but this `v0` still does not solve the core conditional-width allocation problem
+- and the current jump module does not yet produce the right pathwise jump law
+- relative to `179b_rerun5_final`, this branch preserves broad marginals but loses the stronger mean-reversion / broad-realism balance
+
+Current conclusion:
+
+- `180a_v0` is informative but not a new anchor
+- the practical anchor remains the current `179b` rerun-final line while `180a` stays a research branch
+
+Immediate next step if continuing:
+
+- do a focused `180a` jump-mechanism review before any `180b`
+- specifically test whether the fixed one-jump atom family is too coarse, or whether the smooth branch and jump branch are still fighting over the same residual mass
+
+---
+
+## 2026-04-05 - Focused `180a` jump-mechanism review
+
+Action:
+
+- ran the targeted jump review:
+  - `experiments/backfill/block_ar/analyze_180a_jump_mechanism.py`
+- saved artifact:
+  - `results/validations/2026-04-05/analysis/180a_jump_mechanistic/mechanistic_summary.json`
+
+Question:
+
+- is `180a` actually failing because the jump-atom family is too coarse,
+  or because the jump branch is effectively not participating at all?
+
+Result:
+
+- the jump branch is effectively **dead**
+- this is not a subtle “weak contribution” result
+- on the `180a` final checkpoint:
+  - mean jump zero-probability is `0.999993`
+  - mean jump nonzero probability is only `6.5e-06`
+  - mean jump scale is only `0.01349`
+  - realized nonzero jump rate in sampled paths on the review subset is `0.0`
+
+Key mechanistic evidence:
+
+- default sampling and jump-disabled sampling are numerically identical on the review subset:
+  - mean absolute IV shift from removing jumps: `0.0`
+  - max absolute IV shift from removing jumps: `0.0`
+  - jump L2 norm: `0.0`
+- forcing nonzero jumps also changes almost nothing at the benchmark-statistic level in this v0 setup
+- the nonzero mass is spread almost perfectly uniformly across all 15 atoms, so there is no learned block/band specialization
+- turbulence does **not** activate the jump branch:
+  - nonzero probability is actually slightly lower in turbulent windows than calm windows in the review subset
+
+Counterfactual implication:
+
+- `180a` is not yet a real smooth-plus-jump model in practice
+- it is behaving like a smooth-only model with a dormant jump head attached
+- the observed `S10 / S11 / S4` failures are therefore still coming from the smooth residual branch, not from an active but badly shaped jump process
+
+Interpretation:
+
+- the current initialization + usage penalty + fixed one-jump atom parameterization over-constrained the jump branch
+- so this branch did **not** actually test the intended scientific idea
+- in repo terms: `180a_v0` is closer to “179b with an unused jump module” than to a true smooth-plus-jump residual law
+
+Conclusion:
+
+- the feeling that recent experiments are not making progress is partly correct here:
+  - `180a_v0` did not open a real new modeling regime
+  - it mostly collapsed back to the smooth branch
+- the right next move is **not** to keep tuning this dead jump head
+- if continuing, the next branch should either:
+  - redesign the jump mechanism so it can actually turn on,
+  - or stop the `180x` jump line and reconsider the model class
+
+---
+
+## 2026-04-05 - `180b` sparse centered jump residual spec frozen
+
+Action:
+
+- documented the next branch as:
+  - `results/validations/2026-04-05/analysis/180_design/180b_sparse_centered_jump_residual_spec.md`
+
+Why this is the chosen next step:
+
+- `180a_v0` showed that the residual jump idea itself is not falsified
+- but the `v0` jump mechanism was over-constrained and effectively dead
+- the right generalized correction is therefore not more routing or more expert
+  proliferation
+- it is a cleaner residual-law redesign:
+  - keep the current best backbone
+  - add a sparse centered jump residual process in whitened basis space
+  - train it in stages so it cannot destroy the already-good mean/covariance behavior
+
+What is now frozen:
+
+- `180b` should remain:
+  - support-aware
+  - mean-preserving
+  - covariance-preserving in the broad second-order sense
+  - geometry-aware
+- `180b` should enlarge expressiveness only in the missing residual event law
+- `180b` is explicitly intended to be generalizable beyond IV surfaces:
+  - grid basis now
+  - factor-graph basis later
+
+Immediate next step if continuing:
+
+- implement `180b_v0` from the spec
+
+---
+
+## 2026-04-05 - `180d` sparse centered jump residual adapter implemented and benchmarked
+
+Action:
+
+- implemented the staged sparse-jump branch as:
+  - `experiments/backfill/block_ar/train_180d_sparse_centered_jump_residual.py`
+- added checkpoint loading support in:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- trained from the `179b_rerun5` final backbone:
+  - warm start: `models/backfill/basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b_rerun5/final_model.pt`
+- produced artifacts:
+  - `models/backfill/sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d/best_model.pt`
+  - `models/backfill/sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d/final_model.pt`
+  - `models/backfill/sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d/training_history.json`
+- benchmarked both saved checkpoints:
+  - `results/block_ar/180d_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/180d_final_v2_s3mrj_full_30d/summary.json`
+
+Training result:
+
+- unlike `180a`, the new sparse jump branch is **alive**
+- validation predicted active rate stayed in the `22%–33%` range across training instead of collapsing to zero
+- validation predicted jump scale mean stayed around `0.26–0.35`
+- best checkpoint by the staged selection rule was epoch `7`
+- final checkpoint was epoch `8`
+
+Strengthened benchmark result:
+
+- both the epoch `7` best checkpoint and epoch `8` final checkpoint land at effectively the same suite outcome: `6/11`
+- passes:
+  - `S1` surface validity
+  - `S5` block behavior
+  - `S6` cointegration
+  - `S8` distributional fidelity
+  - `S9` cross-cell structure
+  - `S10` full-horizon mean reversion
+- fails:
+  - `S2` per-cell coverage gate
+  - `S3` conditional width / turb-calm response
+  - `S4` kurtosis ratio
+  - `S7` regime-by-cell local coverage
+  - `S11` pathwise jump realism
+
+High-signal best-checkpoint numbers:
+
+- `S2` overall 90% coverage: `89.0%`
+- `S2` h30 worst/best cell coverage: `75.2% / 98.1%`
+- `S3` turb/calm width ratio: `1.106`
+- `S3` worst-cell width ratio: `4.247`
+- `S4` kurtosis ratio: `0.484`
+- `S7` Layer 2: `0/8`
+- `S7` Layer 3 catastrophic rate: `2.8%`
+- `S8` pass with:
+  - daily-change KS `21/25`
+  - IV-level KS `21/25`
+  - window-floor bad rate `2.4%`
+- `S10` pass with aggregate MR ratio `1.246`, and full-horizon profile ratios `1.246 / 0.954 / 0.830 / 0.732`
+- `S11` pathwise max-jump KS: `0.368`
+
+Interpretation:
+
+- `180d` is a real step forward relative to `180a` in one narrow but important sense:
+  - the jump residual process is no longer dormant
+- however, activating the sparse jump branch still does **not** solve the main failure cluster
+- the model remains strong on:
+  - broad marginals
+  - mean reversion
+  - support / structure
+- but still misses:
+  - local conditional uncertainty allocation
+  - correct worst-cell conditional width behavior
+  - pathwise tail/jump-shape realism
+
+Conclusion:
+
+- `180d` is informative but not a frontier break
+- it validates that the sparse jump idea can be trained without immediate collapse
+- it does **not** validate that sparse jump residuals alone fix the remaining risk-critical realism gap
+- the main unresolved bottleneck remains the same coupled tail/local-law problem seen through `S2/S3/S4/S7/S11`
+
+---
+
+## 2026-04-05 - Narrow `180d` activation-overlap confirmation
+
+Action:
+
+- added the targeted review:
+  - `experiments/backfill/block_ar/analyze_180d_activation_overlap.py`
+- saved the result to:
+  - `results/validations/2026-04-05/analysis/180d_activation_overlap/mechanistic_summary.json`
+
+Question tested:
+
+- does the now-live `180d` sparse jump branch actually activate on the remaining hard `S2/S3/S7` slices?
+
+Answer:
+
+- **no**
+
+Strongest evidence:
+
+- derived hard slices on the 512-window review subset are still the expected turbulent late-horizon central/right cluster
+- but jump activation is lower on those bad turbulent windows than on clean turbulent windows:
+  - total expected jump strength:
+    - bad turb windows: `0.460`
+    - clean turb windows: `1.842`
+  - jump active rate:
+    - bad turb windows: `0.111`
+    - clean turb windows: `0.455`
+  - jump L2:
+    - bad turb windows: `0.310`
+    - clean turb windows: `0.946`
+- within turbulent windows, hard-miss count and total expected jump strength are negatively correlated:
+  - corr = `-0.523`
+
+Counterfactual evidence:
+
+- removing jumps barely changes the hard slices:
+  - hard-slice mean width delta, default minus zero-jump: `+1.3e-06`
+  - hard-slice coverage delta: `+0.0013`
+- removing jumps also barely changes pathwise jump realism:
+  - default max-jump KS vs GT: `0.433`
+  - zero-jump max-jump KS vs GT: `0.432`
+
+Interpretation:
+
+- `180d` solved the “dead jump branch” problem from `180a`
+- but the active jump branch is still **anti-aligned** with the true bad windows
+- separate jump and width corrections are therefore the wrong abstraction
+
+Conclusion:
+
+- no more diagnostics are needed on the current bolt-on jump path
+- the right next move is a **unified residual-state model**
+- the residual state must jointly control:
+  - local width
+  - tail heaviness
+  - co-jump behavior
+
+---
+
+## 2026-04-05 - `181a` unified residual-state direction frozen
+
+Action:
+
+- documented the next branch in:
+  - `results/validations/2026-04-05/analysis/181_design/181a_unified_residual_state_memo.md`
+
+Why this is now the principled move:
+
+- `180d` showed that activating a separate sparse jump branch is not enough
+- the jump branch turns on most where the model is already relatively clean, not where the hard failures live
+- this means the remaining problem is not “need a better jump head”
+- it is “need one residual state that couples width and events”
+
+What `181a` changes conceptually:
+
+- keep the current good backbone:
+  - mean reversion
+  - structured covariance
+  - support handling
+- replace separate smooth/jump fixes with:
+  - one blockwise latent residual state
+  - one state-conditioned residual generator in whitened basis space
+  - that jointly controls:
+    - local covariance residual / width
+    - tail heaviness
+    - sparse event intensity and amplitude
+
+Bottom line:
+
+- the path is still valid
+- what is exhausted is the sub-path of separate residual patches
+- the next elegant step is to unify those corrections into one residual-state conditional law
+
+---
+
+## 2026-04-05 - `181a_v0` implemented and benchmarked
+
+Action:
+
+- implemented the unified residual-state branch in:
+  - `experiments/backfill/block_ar/train_181a_unified_residual_state.py`
+- added harness loader support in:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- trained from the `179b_rerun5` final backbone with the new residual-state and jump modules staged on top of the frozen mean/covariance backbone
+- saved artifacts to:
+  - `models/backfill/unified_residual_state_mean_reverting_covariance_mixture_structured_joint_student_t_181a/`
+- benchmarked:
+  - `results/block_ar/181a_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/181a_final_v2_s3mrj_full_30d/summary.json`
+
+Implementation summary:
+
+- `181a` keeps the current good backbone:
+  - explicit mean-reverting mean branch
+  - structured covariance branch
+  - geometry-aware basis residual transport
+- adds a blockwise latent residual state that conditions both:
+  - the smooth residual context
+  - the sparse jump context
+- warm-starts the backbone and trains the residual-state/jump additions first so the existing broad realism properties are not immediately destroyed
+
+Result:
+
+- `181a_v0` is a clean negative
+- best and final checkpoints are effectively identical on the strengthened benchmark
+- both are `6/11`
+- pass:
+  - `S1`, `S5`, `S6`, `S8`, `S9`, `S10`
+- fail:
+  - `S2`, `S3`, `S4`, `S7`, `S11`
+
+Best/final metrics were nearly the same:
+
+- `S2` overall 90% coverage: `88.9%`
+- `S2` h30 worst/best cell: `75.1% / 98.2%`
+- `S3` turb/calm width ratio: `1.104`
+- `S3` worst-cell width ratio: `4.23`
+- `S4` kurtosis ratio: `0.484`
+- `S7` Layer 2: `0/8`
+- `S7` catastrophic rate: `2.8%`
+- `S8` still passes:
+  - daily-change KS `21/25`
+  - IV-level KS `21/25`
+  - bad-window rate `2.4%`
+- `S10` still passes:
+  - aggregate mean-reversion ratio `1.245`
+  - full-horizon ratios `1.245 / 0.953 / 0.830 / 0.732`
+- `S11` pathwise max-jump KS: `0.369`
+
+Interpretation:
+
+- `181a_v0` did not blow up
+- it preserved the current backbone's broad strengths:
+  - marginals
+  - support
+  - cross-cell structure
+  - full-horizon mean reversion
+- but the unified residual-state mechanism did not move the frontier on the real remaining problem:
+  - local conditional-width allocation
+  - pathwise tail/jump realism
+
+Conclusion:
+
+- the idea of coupling width and events through one residual state was principled
+- but this `v0` implementation behaved too much like the existing backbone
+- so `181a_v0` is informative, but not a frontier break
+
+---
+
+## 2026-04-05 - Plateau declared for the residual-patch family
+
+Decision:
+
+- stop the `178x-181x` experiment loop as an active model-improvement family
+- do not keep patching the current backbone with separate width, covariance, jump, or residual-state add-ons
+
+Why this is now justified:
+
+- the family repeatedly preserved the same broad wins:
+  - support validity
+  - broad temporal structure
+  - cross-cell structure
+  - broad marginals
+  - mean reversion
+- but repeated model additions did not clear the same core coupled failure cluster:
+  - `S2`
+  - `S3`
+  - `S7`
+  - `S11`
+- `181a_v0` was the cleanest final check on this path:
+  - principled
+  - stable
+  - not collapsed
+  - still not a frontier break
+
+Conclusion:
+
+- the backbone path was scientifically useful
+- the residual-patch subfamily is plateaued
+- this is now a model-class limitation, not a missing small fix
+
+---
+
+## 2026-04-05 - New research phase opened: `182a` pathwise residual-law model
+
+Action:
+
+- opened a new-phase design memo at:
+  - `results/validations/2026-04-05/analysis/182_design/182a_pathwise_residual_law_memo.md`
+
+New-phase objective:
+
+- move from patching residual behavior to directly learning the **full conditional residual path law**
+
+Main branch decision:
+
+- recommended next branch:
+  - `182a = support-aware, conditionally whitened, geometry-aware pathwise residual-law model with a structured jump-diffusion prior`
+
+Why this is the right phase reset:
+
+- the mean/covariance backbone is not the main remaining problem
+- the residual law still misses:
+  - local conditional width on hard slices
+  - regime-cell calibration
+  - pathwise tail/jump realism
+- these are best viewed as one missing object:
+  - the joint conditional residual path law
+
+What changes in the new phase:
+
+- keep:
+  - support handling
+  - explicit mean dynamics
+  - explicit covariance dynamics
+- replace:
+  - separate residual patches
+with:
+  - one conditional pathwise residual generator in whitened space
+  - trained over the full future path
+  - with a structured smooth-plus-jump prior
+
+Bottom line:
+
+- we are no longer trying to repair the old family
+- the next valid research move is a genuine model-class reset
+
+---
+
+## 2026-04-05 - `182a_v0` implemented, trained, and benchmarked
+
+Artifacts:
+
+- design memo:
+  - `results/validations/2026-04-05/analysis/182_design/182a_pathwise_residual_law_memo.md`
+- implementation spec:
+  - `results/validations/2026-04-05/analysis/182_design/182a_implementation_spec.md`
+- training code:
+  - `experiments/backfill/block_ar/train_182a_pathwise_residual_law.py`
+- checkpoint loader support:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- model artifacts:
+  - `models/backfill/pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a/best_model.pt`
+  - `models/backfill/pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a/final_model.pt`
+  - `models/backfill/pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a/training_history.json`
+- full strengthened benchmark:
+  - `results/block_ar/182a_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/182a_final_v2_s3mrj_full_30d/summary.json`
+
+Implementation summary:
+
+- `182a_v0` keeps the explicit mean-reverting mean branch and structured covariance branch from the current backbone.
+- The new object is a conditional pathwise residual-law generator in whitened basis space:
+  - structured smooth-plus-jump prior
+  - flow-matching transport over the full future residual path
+  - transformer-style path mixer inside the residual transport only
+- `v0` is trained as a frozen-backbone phase:
+  - mean branch frozen
+  - covariance branch frozen
+  - only the new path-transport, context adapter, and prior are trained
+
+Training result:
+
+- the run completed cleanly for `12` epochs
+- the saved `best_model.pt` checkpoint was epoch `4` under the current proxy
+- but the proxy was misaligned with the full benchmark:
+  - `best_model.pt` is materially weaker than `final_model.pt`
+
+Checkpoint-selection diagnosis:
+
+- saved best epoch `4` selection key:
+  - `mr_gap=0.0019`
+  - `jump_ks=0.7188`
+  - `kurt_gap=0.0000`
+  - `cov_gap=0.2689`
+  - `tc_gap=0.1315`
+  - `val_flow_match_loss=1.8944`
+- final epoch `12` key:
+  - `mr_gap=0.1347`
+  - `jump_ks=0.7344`
+  - `kurt_gap=0.0000`
+  - `cov_gap=0.2364`
+  - `tc_gap=0.0959`
+  - `val_flow_match_loss=1.5006`
+- full benchmark says the final checkpoint is the relevant anchor, not the saved best checkpoint
+
+Benchmark result - saved best checkpoint:
+
+- `182a_best` is effectively `4/11`
+- pass:
+  - `S1`, `S5`, `S6`, `S9`
+- fail:
+  - `S2`, `S3`, `S4`, `S7`, `S8`, `S10`, `S11`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `80.3%`
+- `S2` h30 worst/best cell: `60.3% / 96.7%`
+- `S3` turb/calm width ratio: `1.075`
+- `S3` worst-cell width ratio: `6.09`
+- `S4` kurtosis ratio: `0.477`
+- `S7` Layer 2: `0/8`
+- `S7` catastrophic rate: `6.45%`
+- `S8` bad-window rate: `5.64%`
+- `S10` aggregate MR ratio: `1.672`
+- `S10` full-horizon mean active pass rate: below threshold
+- `S11` pathwise max-jump KS: `0.210`
+
+Benchmark result - final checkpoint:
+
+- `182a_final` is effectively `7/11`
+- pass:
+  - `S1`, `S2`, `S5`, `S6`, `S8`, `S9`, `S11`
+- fail:
+  - `S3`, `S4`, `S7`, `S10`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `82.6%`
+- `S2` h30 worst/best cell: `74.8% / 93.4%`
+- `S2` calibration error: `0.027`
+- `S3` turb/calm width ratio: `1.102`
+- `S3` worst-cell width ratio: `5.40`
+- `S4` kurtosis ratio: `0.486`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `5.20%`
+- `S8` daily-change KS: `23/25`
+- `S8` IV-level KS: `23/25`
+- `S8` bad-window rate: `4.91%`
+- `S10` aggregate MR ratio: `1.195`
+- `S10` full-horizon profile aggregate ratios:
+  - `h=1`: `1.195`
+  - `h=7`: `0.936`
+  - `h=14`: `0.814`
+  - `h=30`: `0.728`
+- `S10` mean active pass rate: `0.694` (borderline fail)
+- `S11` pathwise max-jump KS: `0.132`
+
+Interpretation:
+
+- `182a_v0` is not a clean failure.
+- The saved proxy-selected best checkpoint is poor, but the final checkpoint is a real directional positive for the new phase.
+- Relative to the plateau family, `182a_final` recovers:
+  - `S2`
+  - `S8`
+  - `S11`
+- What still remains unsolved is the actual frontier cluster:
+  - `S3` local conditional width
+  - `S4` tail shape / kurtosis
+  - `S7` regime-cell calibration
+  - and `S10` narrowly on the strengthened active-mean profile
+
+Conclusion:
+
+- the `182a` direction is scientifically more promising than the late `178x-181x` patch line
+- but `182a_v0` is not ready as an anchor yet
+- the immediate lesson is:
+  - keep the new pathwise residual-law direction
+  - stop trusting the current proxy selector
+  - and evaluate future `182x` variants on both saved-best and final checkpoints until selection is fixed
+
+---
+
+## 2026-04-05 - Focused `182a_final` mechanism review
+
+Artifacts:
+
+- analysis script:
+  - `experiments/backfill/block_ar/analyze_182a_final_mechanism.py`
+- analysis output:
+  - `results/validations/2026-04-05/analysis/182a_final_mechanistic/mechanistic_summary.json`
+
+Question:
+
+- why does the meaningful `182a_final` checkpoint still fail `S3`, `S4`, `S7`, and narrowly `S10` even though it recovers `S2`, `S8`, and `S11`?
+
+Main result:
+
+- `182a_final` is directionally right, but it is still allocating uncertainty to the wrong cells and shaping residual tails the wrong way.
+
+`S3 / S7` diagnosis:
+
+- the remaining width failures are still concentrated in **turbulent late-horizon cells**
+- the hard cluster is mainly around:
+  - `(3,3)`
+  - `(2,2)`
+  - `(3,2)`
+  - `(1,2)`
+  - `(1,3)`
+- top examples:
+  - turb `h=14`, cell `(3,3)`:
+    - 90% coverage `41.7%`
+    - generated std only `23.8%` of GT residual std
+    - classification: `underwide_dominant`
+  - turb `h=30`, cell `(2,2)`:
+    - 90% coverage `43.7%`
+    - generated std only `39.1%` of GT residual std
+    - classification: `bias_plus_underwide`
+- the overwide side of the same miss is also clear:
+  - turb `h=14`, cell `(2,4)`:
+    - 90% coverage `98.1%`
+    - generated std is `3.02x` GT residual std
+  - turb `h=7`, cell `(2,4)`:
+    - 90% coverage `96.1%`
+    - generated std is `2.73x` GT residual std
+
+Interpretation:
+
+- this is not a generic “all widths are too small” failure
+- `182a_final` is still **misallocating width across cells**
+- it is starving the hard turbulent central/right cells while overspending width on easier edge cells like `(2,4)` and `(1,0)`
+
+`S4` vs `S11` diagnosis:
+
+- the contradiction is now clear:
+  - `S11` passes because pathwise max-jump size is close enough
+  - `S4` fails because the **shape** of the residual tail law is still wrong
+- evidence:
+  - pooled `|ΔIV|` quantile ratios are slightly too large:
+    - median `1.15x`
+    - q90 `1.12x`
+    - q99 `1.03x`
+  - but pooled kurtosis ratio is still only `0.66`
+  - GT-q99 exceedance count per path is slightly too high:
+    - median ratio `1.08x`
+  - high-band basis energy is too high:
+    - median ratio `1.21x`
+  - mid-band basis energy is too low:
+    - median ratio `0.95x`
+
+Interpretation:
+
+- `182a_final` is **not missing jumps**
+- it is redistributing residual mass incorrectly:
+  - too much high-band energy
+  - too many moderate-to-large moves
+  - but lighter overall tail concentration than GT
+- that is why:
+  - pathwise max-jump realism can pass
+  - while aggregate kurtosis still fails
+
+`S10` borderline diagnosis:
+
+- the `S10` miss is now clearly narrower than before
+- full-horizon aggregate ratios are:
+  - `h=1`: `1.195`
+  - `h=7`: `0.936`
+  - `h=14`: `0.814`
+  - `h=30`: `0.728`
+- aggregate profile still passes
+- the failure is only in the strengthened active-cell profile:
+  - mean active pass rate `0.694` vs `0.700` required
+- sampled minus deterministic mean shift is small but positive and grows with horizon:
+  - `h=1`: mean `+0.0018`
+  - `h=7`: mean `+0.0059`
+  - `h=14`: mean `+0.0083`
+  - `h=30`: mean `+0.0107`
+- importantly, the worst active mean-reversion cells do **not** materially overlap with the hard `S3/S7` width cells
+
+Interpretation:
+
+- the remaining `S10` miss is a mild late-horizon residual-drift issue
+- it is **not** the same failure as the main local-width cluster
+
+Conclusion:
+
+- `182a_final` confirms the new-phase direction is valid
+- the backbone no longer needs to change
+- the pathwise residual-law object now needs two targeted fixes:
+  - better **cellwise width allocation** on hard turbulent slices
+  - better **tail-shape control**, especially high-vs-mid band residual mass
+
+Implication for the next step:
+
+- do **not** leave the `182x` family
+- do **not** go back to patch heads
+- design `182b` directly on top of `182a_final`, with:
+  - corrected checkpoint selection
+  - explicit control of bandwise residual mass
+  - and a mechanism that reallocates width toward the hard turbulent cells instead of widening easy cells further
+
+---
+
+## 2026-04-05 - `182b` design direction fixed from the `182a_final` review
+
+Artifact:
+
+- `results/validations/2026-04-05/analysis/182_design/182b_width_tail_control_memo.md`
+
+Decision:
+
+- `182b` should keep the full `182a_final` backbone
+- it should not introduce a new generator, router, or jump head
+- it should add **factorized residual amplitude control**:
+  - a local width allocator over `horizon x cell`
+  - a bandwise radial tail controller over `low / mid / high` basis bands
+
+Why this is the right next step:
+
+- the `182a_final` review says the remaining miss is no longer missing path structure
+- it is mostly:
+  - wrong cellwise width allocation
+  - wrong bandwise residual energy / tail concentration
+- so `182b` should correct residual amplitude geometry directly while keeping:
+  - the mean branch
+  - the covariance branch
+  - the path transport
+
+Bottom line:
+
+- the next valid move is still inside the `182x` family
+- but it is now a **narrow amplitude-control correction**, not another architecture reset
+
+---
+
+## 2026-04-05 - `182b_v0` implemented, trained, and benchmarked
+
+Artifacts:
+
+- training code:
+  - `experiments/backfill/block_ar/train_182b_width_tail_control.py`
+- loader support:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- model artifacts:
+  - `models/backfill/width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b/best_model.pt`
+  - `models/backfill/width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b/final_model.pt`
+  - `models/backfill/width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b/training_history.json`
+- full strengthened benchmark:
+  - `results/block_ar/182b_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/182b_final_v2_s3mrj_full_30d/summary.json`
+
+Implementation summary:
+
+- `182b_v0` keeps the full `182a` backbone:
+  - mean branch
+  - covariance branch
+  - path transport
+  - structured prior
+- it adds only:
+  - a low-rank local width allocator over `horizon x cell`
+  - a bandwise radial tail controller over `low / mid / high` basis bands
+- training is staged:
+  - stage 1: amplitude controllers only
+  - stage 2: amplitude controllers + light path-transport fine-tune
+
+Training behavior:
+
+- the first implementation had a dead width allocator because both low-rank heads were zero-initialized
+- after fixing that, the amplitude modules were active:
+  - `val_pred_local_abs_mean` rose to about `0.089`
+  - `val_pred_band_high_mean` stabilized around `-0.27`
+- so `182b_v0` is a real amplitude-control experiment, not another dead-head negative
+
+Checkpoint-selection result:
+
+- saved best checkpoint: epoch `8`
+- final checkpoint: epoch `12`
+- the selector is still not reliable:
+  - best checkpoint benchmarks at `5/11`
+  - final checkpoint benchmarks at `6/11`
+
+Benchmark result - saved best checkpoint:
+
+- pass:
+  - `S1`, `S5`, `S6`, `S9`, `S11`
+- fail:
+  - `S2`, `S3`, `S4`, `S7`, `S8`, `S10`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `79.1%`
+- `S2` h30 worst/best cell: `70.0% / 90.7%`
+- `S3` turb/calm width ratio: `1.098`
+- `S3` worst-cell width ratio: `4.57`
+- `S4` kurtosis ratio: `0.459`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `6.7%`
+- `S8` bad-window rate: `7.3%`
+- `S10` aggregate MR ratio: `1.322`
+- `S11` pathwise max-jump KS: `0.139`
+
+Benchmark result - final checkpoint:
+
+- pass:
+  - `S1`, `S5`, `S6`, `S9`, `S10`, `S11`
+- fail:
+  - `S2`, `S3`, `S4`, `S7`, `S8`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `76.6%`
+- `S2` h30 worst/best cell: `66.3% / 89.4%`
+- `S2` calibration error: `0.078`
+- `S3` turb/calm width ratio: `1.117`
+- `S3` worst-cell width ratio: `4.53`
+- `S4` kurtosis ratio: `0.468`
+- `S7` Layer 2: `0/8`
+- `S7` catastrophic rate: `8.0%`
+- `S8` bad-window rate: `9.3%`
+- `S10` aggregate MR ratio: `1.142`
+- `S10` full-horizon active mean pass rate: `77.2%`
+- `S11` pathwise max-jump KS: `0.172`
+
+Interpretation:
+
+- `182b_v0` did **not** break the frontier
+- the new amplitude controllers are active, but they do not solve the remaining problem
+- compared with `182a_final`, `182b_v0`:
+  - preserves jump realism
+  - preserves or improves mean reversion
+  - but gives back `S2` and `S8`
+  - and does not fix `S3 / S4 / S7`
+
+Conclusion:
+
+- the `182x` pathwise residual-law direction is still the right new phase
+- but the narrow amplitude-control correction in `182b_v0` is not sufficient
+- this is evidence against the hypothesis that the remaining frontier is mostly a simple amplitude-geometry issue on top of `182a`
+
+Immediate implication:
+
+- do not build `182c` blind as “more amplitude control”
+- the next move, if continuing, should be another focused mechanism review of `182b` first, or a broader `183x` rethink inside the new phase
+
+---
+
+## 2026-04-05 - Narrow `182a_final` vs `182b_final` review, then `183a_v0`
+
+Artifacts:
+
+- comparison script:
+  - `experiments/backfill/block_ar/analyze_182a_182b_comparison.py`
+- comparison output:
+  - `results/validations/2026-04-05/analysis/182_comparison/182a_vs_182b_final_mechanistic.json`
+- design memo:
+  - `results/validations/2026-04-05/analysis/183_design/183a_integrated_width_tail_transport_memo.md`
+- implementation:
+  - `experiments/backfill/block_ar/train_183a_integrated_width_tail_transport.py`
+- harness update:
+  - `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- model artifacts:
+  - `models/backfill/integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a/best_model.pt`
+  - `models/backfill/integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a/final_model.pt`
+  - `models/backfill/integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a/training_history.json`
+- benchmark outputs:
+  - `results/block_ar/183a_best_v2_s3mrj_full_30d/summary.json`
+  - `results/block_ar/183a_final_v2_s3mrj_full_30d/summary.json`
+
+Narrow comparative review conclusion:
+
+- `182b` did not fail because the width/tail targets were useless.
+- It failed because the amplitude controller lived *outside* the path law.
+- Relative to `182a_final`, `182b_final`:
+  - reduced some obviously overwide easy cells
+  - but shrank width almost everywhere
+  - made the hard turbulent late-horizon slices even narrower
+  - worsened `S2`, `S7`, and `S8`
+  - did not improve jump-shape enough to justify the regression
+- The comparison file shows the pattern directly:
+  - `S2` cov90: `82.6% -> 76.6%`
+  - `S8` bad-window rate: `4.9% -> 9.3%`
+  - most hard-slice std ratios fell further under `182b`
+  - high-band energy dropped, but broad coverage and jump-shape still worsened
+
+Decision:
+
+- keep the `182a` backbone
+- keep the width/tail-control idea
+- move width/tail control *inside the transport vector field*
+- do not rescale finished samples afterward
+
+`183a_v0` design:
+
+- warm start backbone from `182a_final`
+- warm start width/tail heads from `182b_final`
+- initialize effective control strengths near zero
+- Stage 1:
+  - freeze backbone transport
+  - train only integrated control heads/strengths against flow-matching + width/band targets
+- Stage 2:
+  - lightly unfreeze path transport/context
+  - keep mean branch, covariance branch, and prior frozen
+
+Training behavior:
+
+- training was stable end to end
+- integrated control strengths stayed small:
+  - local strength about `0.052 -> 0.057`
+  - band strength about `0.043 -> 0.038`
+- that is the intended regime:
+  - `183a` stays close to the `182a` anchor
+  - but the controls are active inside the transport dynamics
+
+Benchmark result - saved best checkpoint (epoch `4`):
+
+- pass:
+  - `S1`, `S2`, `S5`, `S6`, `S8`, `S9`, `S10`, `S11`
+- fail:
+  - `S3`, `S4`, `S7`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `82.3%`
+- `S3` turb/calm: `1.102`
+- `S3` worst-cell width ratio: `5.386`
+- `S4` kurtosis ratio: `0.484`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `5.3%`
+- `S8` bad-window rate: `5.0%`
+- `S10` aggregate MR ratio: `1.194`
+- `S11` pathwise max-jump KS: `0.133`
+
+Benchmark result - final checkpoint (epoch `12`):
+
+- pass:
+  - `S1`, `S2`, `S5`, `S6`, `S8`, `S9`, `S10`, `S11`
+- fail:
+  - `S3`, `S4`, `S7`
+
+High-signal metrics:
+
+- `S2` overall 90% coverage: `82.7%`
+- `S3` turb/calm: `1.099`
+- `S3` worst-cell width ratio: `5.011`
+- `S4` kurtosis ratio: `0.481`
+- `S7` Layer 2: `2/8`
+- `S7` catastrophic rate: `5.1%`
+- `S8` bad-window rate: `4.8%`
+- `S10` aggregate MR ratio: `1.202`
+- `S11` pathwise max-jump KS: `0.132`
+
+Interpretation:
+
+- `183a_v0` is the first post-`182a` follow-up that clearly beats `182a_final` on the strengthened 11-suite harness.
+- Relative to `182a_final`, `183a_final`:
+  - preserves `S2`
+  - preserves `S8`
+  - preserves `S11`
+  - adds an `S10` pass
+  - slightly improves `S7` (`1/8 -> 2/8`, catastrophic `5.2% -> 5.1%`)
+- Relative to `182b_final`, `183a_final`:
+  - restores `S2`
+  - restores `S8`
+  - keeps `S10`
+  - improves `S11`
+
+Conclusion:
+
+- the `182x` pathwise residual-law direction is validated
+- the specific lesson is:
+  - width/tail control helps only when it is integrated into the residual transport, not applied afterward
+- `183a_final` is now the best anchor in the new phase at `8/11`
+- the remaining frontier is still narrow and concentrated:
+  - `S3`: local conditional width
+  - `S4`: pooled tail concentration
+  - `S7`: regime-by-cell hard turbulent slices
+
+Immediate implication:
+
+- do not abandon the `182x/183x` pathwise residual-law direction
+- if continuing, the next step should be a focused `183a_final` mechanistic review of the remaining `S3/S4/S7` cluster before any `183b`
+
+---
+
+## 2026-04-05 - Focused `183a_final` mechanism review and next-step decision
+
+Artifacts:
+
+- review script:
+  - `experiments/backfill/block_ar/analyze_183a_final_mechanism.py`
+- review output:
+  - `results/validations/2026-04-05/analysis/183a_final_mechanistic/mechanistic_summary.json`
+- next-step memo:
+  - `results/validations/2026-04-05/analysis/183_design/183b_state_dependent_radial_transport_memo.md`
+
+Review goal:
+
+- explain the remaining `S3 / S4 / S7` failures in `183a_final`
+- determine whether the integrated controls are pointed at the right slices
+- decide the narrowest next principled fix
+
+Main evidence:
+
+1. `183a` did improve the hard slices versus `182a`, but not enough.
+
+Examples from the review:
+
+- turb `h=14`, cell `(2,2)`:
+  - coverage `0.417 -> 0.447`
+  - std ratio `0.210 -> 0.606`
+- turb `h=30`, cell `(2,2)`:
+  - coverage `0.437 -> 0.515`
+  - std ratio `0.393 -> 0.762`
+- turb `h=30`, cell `(3,3)`:
+  - coverage `0.466 -> 0.583`
+  - std ratio `0.402 -> 0.747`
+
+So `183a` is not a fake gain. It is moving the right slices in the right direction.
+
+2. The integrated controls are still far too weak.
+
+Global control evidence:
+
+- local strength: `0.0567`
+- band strength: `0.0383`
+- turbulent target local abs mean: `0.597`
+- predicted raw local abs mean: `0.074`
+- predicted effective local abs mean: `0.004`
+- raw local vs target correlation (turb): `0.250`
+
+Hard vs easy slices:
+
+- hard-slice mean target local log: `+0.316`
+- hard-slice mean effective local log: `+0.003`
+- overwide-slice mean target local log: `-0.465`
+- overwide-slice mean effective local log: `-0.006`
+
+Interpretation:
+
+- the sign is mostly right
+- the magnitude is nowhere near what the hard slices require
+
+3. The remaining tail miss is still mostly a radial-shape problem, not a jump-collapse problem.
+
+Tail evidence:
+
+- pooled `|ΔIV|` ratio:
+  - median `1.17x`
+  - q90 `1.31x`
+  - q99 `1.09x`
+- pooled kurtosis ratio: `0.635` in the focused review, consistent with benchmark failure
+- pathwise max-jump distribution is broadly acceptable:
+  - q90 ratio `0.77`
+  - q99 ratio `0.93`
+  - KS `0.114`
+- GT-q99 exceedance counts are still too high in generated paths:
+  - GT median `7`
+  - gen median `9`
+  - GT p90 `10`
+  - gen p90 `22`
+
+Interpretation:
+
+- `S11` can pass while `S4` still fails because the model is still producing too many moderate-to-large moves, even if pathwise extreme-jump scale is acceptable
+
+4. Band control is also too weak and too static.
+
+- low-band energy ratio p50: `0.844`
+- mid-band energy ratio p50: `0.958`
+- high-band energy ratio p50: `1.229`
+- effective band controls are all about `±0.01`
+- calm vs turb band means are almost identical
+
+Interpretation:
+
+- `183a` is not sufficiently state-dependent yet
+- the integrated control behaves more like a small static per-window bias field than a true latent pathwise radial law
+
+Conclusion:
+
+- the `183x` direction is still valid
+- `183a` proves integrated control is better than post-transport amplitude patching
+- the remaining bottleneck is now specific:
+  - controls are directionally correct
+  - but too weak
+  - and too static with respect to the current latent residual state
+
+Decision:
+
+- do not broaden diagnostics further
+- do not abandon the `183x` path
+- the next principal fix is `183b`:
+  - keep the `183a` backbone
+  - replace static context-only control with **state-dependent radial transport**
+  - local and band radial control should depend on `(z_t, t, context)` at every transport step
+
+Why this is the narrowest principled fix:
+
+- it preserves the working backbone
+- it keeps the mean/covariance separation
+- it stays in whitened geometry-aware residual space
+- it addresses the exact measured failure:
+  - not wrong direction
+  - underpowered, insufficiently state-sensitive residual amplitude control
+
+---
+
+## 2026-04-05 - 183b implementation and benchmark result
+
+Implemented:
+
+- [train_183b_state_dependent_radial_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_183b_state_dependent_radial_transport.py)
+- harness support in [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Artifacts:
+
+- checkpoint dir: [state_dependent_radial_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183b](/home/max/Documents/vol-surface-vae-pub/models/backfill/state_dependent_radial_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183b)
+- best eval: [183b_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183b_best_v2_s3mrj_full_30d/summary.json)
+- final eval: [183b_final_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183b_final_v2_s3mrj_full_30d/summary.json)
+
+Training signal:
+
+- new state-dependent controls were actually active
+- stage 1 improved from the `183a` warm start without collapsing
+- epoch `4` was the best saved checkpoint
+
+Benchmark result:
+
+- `183b_best` is `8/11`
+- `183b_final` is `7/11`
+- so the saved best checkpoint is the correct anchor
+
+`183b_best` pass profile:
+
+- pass: `S1, S2, S5, S6, S8, S9, S10, S11`
+- fail: `S3, S4, S7`
+
+High-signal metrics for `183b_best`:
+
+- `S2` overall 90% coverage: `82.9%`
+- `S2` h30 worst/best cell: `76.0% / 93.3%`
+- `S3` turb/calm width ratio: `1.098`
+- `S3` worst-cell conditional width ratio: `5.015`
+- `S4` kurtosis ratio: `0.484`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `4.95%`
+- `S8` bad-window rate: `4.66%`
+- `S10` mean-reversion ratio: `1.202`
+- `S11` pathwise max-jump KS: `0.131`
+
+Comparison vs `183a_final`:
+
+- `183b_best` preserves the `8/11` headline
+- it improves `S2` modestly and keeps `S8/S10/S11` pass
+- it does **not** break the remaining frontier on `S3/S4/S7`
+
+What changed at final checkpoint:
+
+- `S7` Layer 2 improved slightly to `2/8`
+- but `S8` failed with bad-window rate `5.48%`
+- net effect: final checkpoint is worse than the saved best checkpoint
+
+Interpretation:
+
+- the `183x` path remains valid
+- making the control state-dependent is better than the static `183a` control
+- but the current radial-control family is still too weak to solve:
+  - worst-cell conditional width
+  - pooled tail concentration
+  - regime-by-cell local calibration
+
+Conclusion:
+
+- keep `183b_best` as the current anchor in this phase
+- do not revert to `182x`
+- the next principled step should be a focused `183b_best` mechanism review, then one more integrated residual-law upgrade aimed specifically at the remaining `S3/S4/S7` cluster
+
+---
+
+## 2026-04-05 - Focused 183b_best mechanism review
+
+Artifacts:
+
+- review script: [analyze_183b_best_mechanism.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/analyze_183b_best_mechanism.py)
+- review output: [mechanistic_summary.json](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183b_best_mechanistic/mechanistic_summary.json)
+- next-step memo: [183c_state_metric_transport_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183_design/183c_state_metric_transport_memo.md)
+
+Main evidence:
+
+1. `183b` fixed the *directionality* problem.
+
+- target local allocation vs raw predicted local control on turbulent slices:
+  - zero-state corr: `0.236`
+  - target-state corr: `0.959`
+- so the state-dependent control is genuinely reading the current residual state
+
+2. The remaining bottleneck is now a *strength bottleneck*, not a routing/sign bottleneck.
+
+- local strength: `0.0646`
+- band strength: `0.0360`
+- turbulent target local abs mean: `0.597`
+- predicted raw local abs mean:
+  - zero-state: `0.0627`
+  - target-state: `0.2484`
+- predicted effective local abs mean:
+  - zero-state: `0.0041`
+  - target-state: `0.0161`
+
+Interpretation:
+
+- state dependence makes the raw controls much better
+- but the global strength scalars crush those controls before they materially move coverage on the hard slices
+
+3. On the exact hard turbulent slices, the fix is still far too weak.
+
+Hard-slice evidence:
+
+- mean target local log on hard slices: `+0.291`
+- mean effective local log on hard slices: `+0.008`
+- mean state uplift on hard slices: `+0.005`
+
+Overwide-slice evidence:
+
+- mean target local log on overwide slices: `-0.465`
+- mean effective local log on overwide slices: `-0.017`
+- mean state uplift on overwide slices: `-0.014`
+
+Interpretation:
+
+- `183b` now points in the right direction on both hard and overwide slices
+- but the actual applied correction remains an order of magnitude too small
+
+4. The remaining tail miss is still not a jump-scale miss.
+
+Tail evidence:
+
+- pooled `|ΔIV|` ratios:
+  - median `1.178x`
+  - q90 `1.306x`
+  - q99 `1.092x`
+- pooled kurtosis ratio: `0.640`
+- pathwise max-jump KS: `0.115` (acceptable)
+- GT-q99 exceedance counts:
+  - GT median `7`, gen median `9`
+  - GT p90 `10`, gen p90 `22`
+
+Interpretation:
+
+- pathwise jump realism is broadly okay
+- pooled tail concentration still fails because the model is producing too many moderate-to-large moves, especially via the high band
+
+5. The “catastrophic ratio” concern is real but secondary at the best checkpoint.
+
+- `183a_final` catastrophic rate: `5.07%`
+- `183b_best` catastrophic rate: `4.95%`
+- so catastrophic windows did not get worse at the best checkpoint
+- the more important regression is that `S7` Layer 2 fell from `2/8` to `1/8`
+
+Interpretation:
+
+- `183b` improved aggregate/local coverage enough to keep `S2` and `S8` pass
+- but it still does not allocate regime-cell width correctly enough to clear Layer 2
+
+Conclusion:
+
+- `183b_best` is still the correct anchor
+- the `183x` path is valid
+- the remaining problem is now very specific:
+  - the model knows *where* to move width
+  - but the current control parameterization cannot move it strongly enough without destabilizing the rest of the path law
+
+Next principled fix:
+
+- do **not** add more gating
+- do **not** add another external amplitude patch
+- build `183c` as a **state-dependent transport metric / precision-field model**
+
+Why:
+
+- `183b` shows the raw state-conditioned allocation is already highly aligned with target allocation
+- the bottleneck is the global low-strength scalar
+- the clean fix is to move from tiny globally shrunk velocity modulation to a normalized state-dependent metric that can reallocate local radial energy strongly while preserving the mean/covariance backbone
+
+---
+
+## 2026-04-05 - 183c implementation and benchmark result
+
+Implemented:
+
+- [train_183c_state_metric_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_183c_state_metric_transport.py)
+- harness support in [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Artifacts:
+
+- checkpoint dir: [state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c](/home/max/Documents/vol-surface-vae-pub/models/backfill/state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c)
+- best eval: [183c_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrj_full_30d/summary.json)
+- final eval: [183c_final_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_final_v2_s3mrj_full_30d/summary.json)
+
+Training signal:
+
+- the transport-metric variant stayed stable from the `183b_best` warm start
+- local metric budget stayed materially above the old `183b` local-strength regime:
+  - epoch 1 `lBud=0.234`, `bBud=0.144`
+  - epoch 12 `lBud=0.233`, `bBud=0.156`
+- so the key `183b` failure mode (correct raw controls crushed by tiny global strengths) was directly addressed
+
+Benchmark result:
+
+- `183c_best` is `9/11`
+- `183c_final` is `8/11`
+- so the saved best checkpoint is the correct anchor
+
+`183c_best` pass profile:
+
+- pass: `S1, S2, S4, S5, S6, S8, S9, S10, S11`
+- fail: `S3, S7`
+
+High-signal metrics for `183c_best`:
+
+- `S2` overall 90% coverage: `84.1%`
+- `S2` h30 worst/best cell: `77.1% / 93.7%`
+- `S3` turb/calm width ratio: `1.112`
+- `S3` worst-cell conditional width ratio: `5.314`
+- `S4` kurtosis ratio: `0.507` PASS
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `4.43%` PASS
+- `S8` bad-window rate: `3.76%`
+- `S10` mean-reversion ratio: `1.212`
+- `S11` pathwise max-jump KS: `0.132`
+
+Comparison vs `183b_best`:
+
+- `183c_best` is the first move from `8/11` to `9/11` in this phase
+- it keeps `S2/S8/S10/S11` pass
+- it fixes the pooled-tail gate:
+  - `S4` kurtosis ratio `0.484 -> 0.507`
+- it also improves aggregate coverage and bad-window rate:
+  - `S2` overall 90% `82.9% -> 84.1%`
+  - `S8` bad-window rate `4.66% -> 3.76%`
+
+What still fails:
+
+- `S3`: local conditional width is still too weak on the hardest slices
+- `S7`: regime-by-cell local coverage still misses the turbulent late-horizon hard cluster
+
+What changed at the final checkpoint:
+
+- `S7` Layer 2 improved slightly to `2/8`
+- but `S8` failed again with bad-window rate `5.40%`
+- net effect: final checkpoint is worse than the saved best checkpoint
+
+Interpretation:
+
+- the `183x` path is now decisively valid
+- the transport-metric change was the right mechanism
+- the remaining frontier is narrow:
+  - hard turbulent local conditional width (`S3/S7`)
+- broad tail shape, mean reversion, and pathwise jump realism are now in acceptable range at the best checkpoint
+
+Conclusion:
+
+- keep `183c_best` as the new anchor for this phase
+- do not revert to `183b`
+- the next principled step should be a focused `183c_best` mechanism review aimed specifically at the remaining `S3/S7` hard-slice width-allocation problem
+
+---
+
+## 2026-04-05 - Deep 183c_best mechanistic review
+
+I ran the deep `183c_best` review to understand why the model still fails `S3` and `S7` even after the state-metric change improved the global score to `9/11`.
+
+Artifacts:
+
+- review script: [analyze_183c_best_mechanism.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/analyze_183c_best_mechanism.py)
+- review output: [183c_best_mechanistic/mechanistic_summary.json](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183c_best_mechanistic/mechanistic_summary.json)
+- next-step memo: [183d_sparse_concentration_transport_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183_design/183d_sparse_concentration_transport_memo.md)
+
+Main evidence:
+
+- `183c` is no longer missing the right state signal.
+  - turbulent target-vs-metric local-allocation correlation is now `0.902`
+  - this is materially better than the old zero-state baseline `0.130`
+- `183c` is still too diffuse.
+  - hard-slice target local log-allocation averages about `+0.324`
+  - applied metric local on hard slices averages only about `+0.077`
+  - overwide slices want about `-0.528`
+  - applied metric local on overwide slices averages only about `-0.248`
+- the remaining miss is mostly concentration, not sign.
+  - on many hard slices the target cell wants more mass than neighbors, but the metric contrast is only about `16%` to `47%` of the target contrast
+  - some slices still have the wrong contrast sign after the metric is applied
+- `183c` improved the hard cells versus `183b`, but not enough.
+  - representative hard-slice coverage gains are roughly `+0.03` to `+0.12`
+  - residual std ratios on those slices also improve, but usually remain below `0.80`
+- the tail issue is still shoulder heaviness, not max-jump scale.
+  - quiet-day pooled mass is too low: ratio about `0.871`
+  - shoulder mass is too high: ratio about `1.105`
+  - extreme mass is only mildly high: ratio about `1.087`
+  - this is why `S11` passes while `S4` is only barely over the gate on the benchmark and still looks fragile mechanistically
+
+Interpretation:
+
+- the `183x` path remains valid
+- the state-dependent metric idea is correct
+- the remaining bottleneck is that residual energy is still spread too smoothly across nearby cells and moderate move sizes instead of concentrating sharply enough on the true hard slices
+
+Next principal fix:
+
+- `183d = sparse concentration transport`
+- keep the `183c` backbone
+- replace the diffuse local metric application with an event-style sparse concentration allocator in whitened geometry-aware space
+- the allocator should decide:
+  - when a window is quiet vs event-like
+  - which small subset of horizon-cell locations should receive concentrated residual mass
+  - how much of the residual budget stays in the quiet background versus the concentrated event component
+
+Why this is the principled generalized next move:
+
+- it is still a residual-law change, not an IV-surface rule
+- it stays in whitened geometry-aware space
+- on IV surfaces the geometry is a grid now; on broader factor systems it becomes a graph
+- it directly targets the measured failure mode:
+  - too little concentration on hard slices
+  - too much shoulder mass in medium moves
+
+Conclusion:
+
+- do not widen globally
+- do not change the backbone
+- the next build, if we continue, should be a sparse concentration version of `183c`, not another generic amplitude increase
+
+---
+
+## 2026-04-05 - 183d implementation and benchmark result
+
+I implemented the next principled fix from the deep `183c` review: a sparse concentration transport layer on top of the `183c` backbone.
+
+Implemented:
+
+- [train_183d_sparse_concentration_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_183d_sparse_concentration_transport.py)
+- harness support in [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Artifacts:
+
+- checkpoint dir: [sparse_concentration_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183d](/home/max/Documents/vol-surface-vae-pub/models/backfill/sparse_concentration_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183d)
+- best eval: [183d_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183d_best_v2_s3mrj_full_30d/summary.json)
+- final eval: [183d_final_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183d_final_v2_s3mrj_full_30d/summary.json)
+
+Training signal:
+
+- the sparse event branch was active from the start
+- event-gate usage was high rather than collapsed:
+  - epoch 1 `val_event_gate_mean=0.768`, `val_event_budget_mean=0.222`
+  - epoch 12 `val_event_gate_mean=0.771`, `val_event_budget_mean=0.282`
+- but the learned support remained only mildly concentrated:
+  - event top-1 share stayed around `0.21 - 0.22`
+- so the event path did not die like `180a`, but it also did not become sharply sparse
+
+Benchmark result:
+
+- `183d_best` is `7/11`
+- `183d_final` is also `7/11`
+- so this is not a checkpoint-selection artifact
+
+`183d_best` pass profile:
+
+- pass: `S1, S2, S5, S6, S9, S10, S11`
+- fail: `S3, S4, S7, S8`
+
+High-signal metrics for `183d_best`:
+
+- `S2` overall 90% coverage: `80.3%`
+- `S2` h30 worst/best cell: `71.9% / 92.2%`
+- `S3` turb/calm width ratio: `1.096`
+- `S3` worst-cell conditional width ratio: `5.330`
+- `S4` kurtosis ratio: `0.497` FAIL
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `6.1%` FAIL
+- `S8` bad-window rate: `6.1%` FAIL
+- `S10` mean-reversion ratio: `1.204` PASS
+- `S11` pathwise max-jump KS: `0.154` PASS
+
+`183d_final` differs only narrowly:
+
+- `S2` is slightly stronger overall at `81.3%`
+- `S7` Layer 2 improves to `2/8`
+- but `S4` still fails (`0.499`)
+- `S8` still fails (`5.6%` bad windows)
+- net result remains `7/11`
+
+Interpretation:
+
+- the sparse-concentration idea did not collapse
+- but it did not solve the core problem either
+- compared with `183c_best`, it gave back too much broad fidelity while still not fixing `S3/S7`
+- the event allocator was active, but not sparse enough to concentrate mass only on the true hard slices
+- instead it appears to have turned on too broadly, which is consistent with:
+  - weaker `S8`
+  - `S4` slipping back below the gate
+  - `S3/S7` still unresolved
+
+Conclusion:
+
+- `183c_best` remains the phase anchor at `9/11`
+- `183d` is a real negative result
+- the next step should not be “more of the same sparse event patch”
+- if we continue, we should first do a comparative `183c_best` vs `183d` mechanism review before another model build
+
+---
+
+## 2026-04-05 - Comparative 183c_best vs 183d mechanism review
+
+I ran the narrow comparison requested to isolate why `183d` gave back `S4/S8` without fixing `S3/S7`.
+
+Artifacts:
+
+- review script: [analyze_183c_183d_comparison.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/analyze_183c_183d_comparison.py)
+- review output: [183c_vs_183d_mechanistic.json](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183_comparison/183c_vs_183d_mechanistic.json)
+- next-step memo: [183e_latent_quiet_event_transport_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/183_design/183e_latent_quiet_event_transport_memo.md)
+
+What the comparison shows:
+
+- `183d` did **not** improve the hard `S3/S7` slices.
+  - on the 12 hard slices inherited from the `183c` review, `183d` mostly regressed
+  - coverage deltas are broadly negative, often around `-0.04` to `-0.12`
+  - residual std ratios also mostly fell versus `183c`
+- `183d` did **not** sharpen local concentration enough.
+  - hard positive share only rose marginally:
+    - `183c`: `0.0213`
+    - `183d`: `0.0235`
+  - mean metric local on hard slices actually fell:
+    - `183c`: `0.0770`
+    - `183d`: `0.0502`
+  - mean absolute target-vs-neighbor contrast ratio also weakened:
+    - `183c`: `0.266`
+    - `183d`: `0.226`
+- the sparse event path in `183d` was broad, not selective.
+  - overall event gate mean: `0.760`
+  - hard turbulent windows: `0.756`
+  - clean turbulent windows: `0.754`
+  - event budgets are also almost identical on hard vs clean turbulent windows
+  - top-1 allocation share stays only about `0.213`
+  - so the event path is effectively always on and barely more concentrated on the actual bad windows
+- `183d` did improve one thing slightly:
+  - quiet mass ratio moved toward GT:
+    - `183c`: `0.872`
+    - `183d`: `0.908`
+  - shoulder mass also improved slightly:
+    - `183c`: `1.105`
+    - `183d`: `1.067`
+  - but it did that without solving local concentration, and it still gave back the benchmark gates in `S4/S8`
+
+Interpretation:
+
+- the sparse-concentration direction was not wrong in principle
+- the actual `183d` implementation was still too diffuse because its event path was basically always active
+- that means `183d` was not a true quiet-vs-event model
+- it was closer to a broad extra residual modulation layer
+
+Most principled next step if continuing:
+
+- `183e = latent quiet-vs-event transport`
+- keep the `183c` backbone
+- replace the always-on event patch with an explicit latent residual state:
+  - quiet state: smooth background transport only
+  - event state: concentrated local transport activates only on selected windows
+- that state should be inferred from history / residual context, not hard-coded from turbulence labels
+
+Why this is now the clean next move:
+
+- `183d` falsified the “always-on sparse patch” idea
+- it did **not** falsify the broader concentration direction
+- the comparison says the missing object is selectivity:
+  - first decide whether the window is quiet or event-like
+  - only then allocate concentrated residual mass within the event windows
+
+Conclusion:
+
+- `183c_best` remains the operational anchor
+- `183d` is a negative
+- if we continue, the next model should be a true latent quiet/event transport model, not another always-on concentration patch
+
+---
+
+## 2026-04-05 - Freeze 183c and define the generalized next-step architecture
+
+I froze [183c_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrj_full_30d/summary.json) as the current anchor and wrote the next-step design memo in:
+
+- [184a_graph_group_activity_architecture_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-05/analysis/184_design/184a_graph_group_activity_architecture_memo.md)
+
+Locked design constraints:
+
+- solve the **real present failure** first:
+  - the model still under-allocates uncertainty to hard late-horizon turbulent cells
+- do **not** build another IV-only patch
+- make the next mechanism **generic by construction**:
+  - single-surface IV is only the first instance
+  - broader factor systems should enter through graph/group geometry, not a different model class
+
+Main conclusion:
+
+- the next path should use a **graph/group-aware latent residual activity architecture**
+- the first implementation should still be a **single-surface IV instance**
+- but the latent activity state and geometry interfaces should already be designed so they extend to:
+  - multiple factor groups
+  - group-level and local activity states
+  - graph-aware residual allocation beyond the current 5x5 surface grid
+
+Why this is the most principled next move:
+
+- it addresses the current `S3/S7` concentration failure directly
+- it avoids solving the IV surface with a one-off mechanism
+- it uses the IV surface as the first test case of a reusable latent activity model rather than as the final scientific object
+
+Conclusion:
+
+- `183c_best` remains the working anchor
+- `183d` is negative
+- the next path should solve the current concentration problem with a mechanism that is reusable beyond the IV surface
+
+---
+
+## 2026-04-06 - Implement and benchmark 184a latent activity transport
+
+I implemented the first single-surface IV instance of the graph/group-aware latent activity design in:
+
+- [184a_implementation_spec.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184_design/184a_implementation_spec.md)
+- [activity_geometry.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/activity_geometry.py)
+- [train_184a_latent_activity_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_184a_latent_activity_transport.py)
+
+I also added loader support in:
+
+- [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Implementation summary:
+
+- keep the `183c` quiet branch intact
+- add a reusable `StructuredResidualActivityGeometry`
+- add a latent residual activity branch with:
+  - activity gate
+  - activity budget
+  - group router
+  - location-wise allocator
+- train selectivity first against a soft teacher activity target derived from target local concentration
+- keep the main `183c` backbone frozen in stage 1, then only lightly unfreeze path transport/context in stage 2
+
+Warm start:
+
+- [183c best checkpoint](/home/max/Documents/vol-surface-vae-pub/models/backfill/state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c/best_model.pt)
+
+Run artifacts:
+
+- [best_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a/best_model.pt)
+- [final_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a/final_model.pt)
+- [training_history.json](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a/training_history.json)
+
+Benchmark results:
+
+- [184a_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184a_best_v2_s3mrj_full_30d/summary.json)
+- [184a_final_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184a_final_v2_s3mrj_full_30d/summary.json)
+
+Headline outcome:
+
+- `184a_best`: `9/11`
+- `184a_final`: `7/11`
+
+`184a_best` pass profile:
+
+- `S1, S2, S4, S5, S6, S8, S9, S10, S11`
+
+`184a_best` remaining fails:
+
+- `S3`
+- `S7`
+
+Key `184a_best` numbers:
+
+- `S2` overall 90% coverage: `83.6%`
+- `S3` turb/calm width ratio: `1.109`
+- `S4` kurtosis ratio: `0.504`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic: `4.7%`
+- `S8` bad-window rate: `4.3%`
+- `S10` mean-reversion ratio: `1.210`
+- `S11` max-jump KS: `0.143`
+
+Interpretation:
+
+- the generalized latent-activity path is viable
+- `184a_best` preserves the broad `183c` pass profile
+- the new activity branch is selective rather than collapsed:
+  - validation activity gate stays around `0.07-0.10`
+- but this `v0` did **not** improve the remaining frontier:
+  - `S3` still fails because turbulence still does not get enough extra width
+  - `S7` still fails on hard regime-by-cell late-horizon slices
+
+Most important conclusion:
+
+- `184a` does **not** falsify the generalized graph/group-aware activity direction
+- it only shows that the first single-surface `v0` activity instantiation is not yet strong enough to beat `183c_best`
+
+Current status:
+
+- `183c_best` remains the anchor
+- `184a_best` is a stable generalized side-branch result
+- the remaining problem is still narrow:
+  - hard turbulent local conditional width / regime-cell allocation
+
+---
+
+## 2026-04-06 - Implement and benchmark 184b latent activity-process transport
+
+I implemented the next generalized branch as a true latent activity-process model in:
+
+- [184b_latent_activity_process_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184_design/184b_latent_activity_process_memo.md)
+- [train_184b_latent_activity_process_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_184b_latent_activity_process_transport.py)
+
+I also added loader support in:
+
+- [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Design change versus `184a`:
+
+- keep the same `183c` mean/covariance/pathwise transport backbone
+- keep the same geometry-aware residual allocation interface
+- replace the teacher-guided activity gate with:
+  - a prior activity process from history/context/state
+  - a posterior activity process from target residual structure during training
+  - KL alignment between posterior and prior
+  - prior-only activity at inference
+
+Warm start:
+
+- [183c best checkpoint](/home/max/Documents/vol-surface-vae-pub/models/backfill/state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c/best_model.pt)
+
+Run artifacts:
+
+- [best_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b/best_model.pt)
+- [final_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b/final_model.pt)
+- [training_history.json](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b/training_history.json)
+
+Benchmark results:
+
+- [184b_best_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184b_best_v2_s3mrj_full_30d/summary.json)
+- [184b_final_v2_s3mrj_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184b_final_v2_s3mrj_full_30d/summary.json)
+
+Headline outcome:
+
+- `184b_best`: `9/11`
+- `184b_final`: `7/11`
+
+`184b_best` pass profile:
+
+- `S1, S2, S4, S5, S6, S8, S9, S10, S11`
+
+`184b_best` remaining fails:
+
+- `S3`
+- `S7`
+
+Key `184b_best` numbers:
+
+- `S2` overall 90% coverage: `82.8%`
+- `S3` turb/calm width ratio: `1.100`
+- `S4` kurtosis ratio: `0.502`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic: `5.0%` PASS
+- `S8` bad-window rate: `4.9%`
+- `S10` mean-reversion ratio: `1.209`
+- `S11` max-jump KS: `0.153`
+
+Interpretation:
+
+- `184b` is stable and genuinely more principled than `184a` in model-class terms
+- the latent prior/posterior activity process trains without collapse
+- but this `v0` does **not** improve the actual remaining frontier
+- versus `184a_best`, `184b_best` keeps the same `9/11` overall profile and still fails the same `S3/S7` cluster
+- the generalized path remains viable, but this latent-process formulation by itself is not enough to fix hard local conditional width allocation
+
+Current status:
+
+- `183c_best` remains the anchor
+- `184a_best` and `184b_best` are generalized side-branch results that preserve broad realism
+- the remaining frontier is still the same narrow problem:
+  - hard turbulent local conditional width / regime-cell allocation
+
+---
+
+## 2026-04-06 - Tightened S4 kurtosis gate and added exceedance-spectrum test
+
+I tightened the `S4` kurtosis gate in [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py) from `0.5-2.0` to `0.8-1.25` and added an explicit `quiet / shoulder / extreme` exceedance-spectrum gate on `|ΔIV|`. This makes the benchmark measure the business-relevant failure we had been diagnosing mechanistically: too little quiet mass, too much medium-move shoulder mass, and misallocated tail concentration.
+
+I reran the current anchor [183c_best](/home/max/Documents/vol-surface-vae-pub/models/backfill/state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c/best_model.pt) under the stricter suite:
+
+- eval: [183c_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json)
+
+Key `S4` result:
+
+- kurtosis ratio: `0.507` -> `FAIL`
+- quiet mass ratio: `0.831` -> `FAIL`
+- shoulder mass ratio: `1.144` -> `FAIL`
+- extreme mass ratio: `1.322` -> `FAIL`
+
+Conclusion:
+
+- the earlier `S4` pass was too permissive
+- under a stricter realism standard, the current anchor now correctly fails `S4`
+- this confirms the remaining issue is not just `S3/S7`; it is the broader residual-concentration problem we had already been inferring from the mechanism work
+
+---
+
+## 2026-04-06 - Short research/spec pass for sparse precision transport
+
+I did the targeted research pass needed to decide whether the next operator-level fix should be coded directly or specified first. The outcome is that a short implementation spec was warranted, and I wrote it here:
+
+- [184c_sparse_precision_transport_spec.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184_design/184c_sparse_precision_transport_spec.md)
+
+Why a spec was needed:
+
+- the diagnosis is already strong
+- but the next move is not “add another head”
+- it is an operator change: replace diffuse residual modulation with a state-dependent sparse transport kernel / precision field
+
+Research conclusions:
+
+- keep explicit mean/covariance structure and residual generation in whitened space
+- keep joint pathwise conditional generation
+- keep the new geometry abstraction rather than reverting to an IV-only mechanism
+- use sparse support explicitly rather than dense soft modulation
+- preserve the latent activity-process path, but let it drive a sharper local operator
+
+Primary sources used for the spec:
+
+- CW-Gen (conditional whitening / mean-cov separation): https://arxiv.org/abs/2509.20928
+- TSFlow (data-dependent priors for time-series transport): https://arxiv.org/abs/2410.03024
+- ProFITi / conditional flow forecasting direction: https://arxiv.org/abs/2402.06293
+- Multivariate conditioned normalizing flows: https://arxiv.org/abs/2002.06103
+- Connecting the Dots (learned graph structure in multivariate time series): https://arxiv.org/abs/2005.11650
+- BernNet (learnable graph spectral filters): https://arxiv.org/abs/2106.10994
+- Sparsemax: https://arxiv.org/abs/1602.02068
+- Entmax / sparse sequence models: https://arxiv.org/abs/1905.05702
+- BCT-SSM (context/state structure for real-valued time series): https://arxiv.org/abs/2106.03023
+
+Decision:
+
+- do not code another diffuse activity variant
+- the next principled build, if we continue, is:
+  - **`184c_v0 = latent activity-process transport + state-dependent sparse precision operator`**
+
+Interpretation:
+
+- this is still generalized, not an IV-only patch
+- the mechanism lives in whitened geometry-aware residual space
+- IV is just the first grid instance; grouped/graph factor systems are the intended extension path
+
+---
+
+## 2026-04-06 - 184c_v0 implemented and tested under stricter S4+spectrum harness
+
+I implemented the operator-level `184c` branch as:
+
+- training script: [train_184c_sparse_precision_transport.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_184c_sparse_precision_transport.py)
+- geometry update: [activity_geometry.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/activity_geometry.py)
+- harness support: [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Artifacts:
+
+- checkpoint dir: [sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c](/home/max/Documents/vol-surface-vae-pub/models/backfill/sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c)
+- best checkpoint: [best_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c/best_model.pt)
+- final checkpoint: [final_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c/final_model.pt)
+- training trace: [training_history.json](/home/max/Documents/vol-surface-vae-pub/models/backfill/sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c/training_history.json)
+
+Validation outputs:
+
+- best eval: [184c_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184c_best_v2_s3mrjspec_full_30d/summary.json)
+- final eval: [184c_final_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184c_final_v2_s3mrjspec_full_30d/summary.json)
+
+Training summary:
+
+- warm start: `184b_best`
+- best checkpoint saved at epoch `4`
+- final checkpoint at epoch `12`
+- smoke run passed first before full training
+
+Results:
+
+- `184c_best` is the correct anchor for this branch
+- `184c_best` gets `8/11` under the stricter `S3 + S4(spectrum) + S10 + S11` harness
+- `184c_final` gets `7/11`
+
+`184c_best` passes:
+
+- `S1`
+- `S2`
+- `S5`
+- `S6`
+- `S8`
+- `S9`
+- `S10`
+- `S11`
+
+`184c_best` still fails:
+
+- `S3`
+- `S4`
+- `S7`
+
+High-signal numbers for `184c_best`:
+
+- `S2` overall 90% coverage: `84.0%`
+- `S3` turb/calm width ratio: `1.112` (`FAIL`)
+- `S3` worst-cell conditional width ratio: `5.297` (`FAIL`)
+- `S4` kurtosis ratio: `0.507` (`FAIL`)
+- `S4` quiet / shoulder / extreme ratios: `0.832 / 1.143 / 1.319` (`FAIL`)
+- `S7` Layer 2: `1/8` (`FAIL`)
+- `S7` catastrophic rate: `4.5%` (`PASS`)
+- `S8` bad-window rate: `3.8%` (`PASS`)
+- `S10` mean-reversion ratio: `1.211` (`PASS`)
+- `S11` pathwise max-jump KS: `0.133` (`PASS`)
+
+`184c_final` keeps the same broad shape but is worse overall:
+
+- `S3` turb/calm width ratio: `1.095`
+- `S4` kurtosis ratio: `0.531`
+- `S7` Layer 2: `2/8`, but catastrophic rate worsens to `5.7%`
+- `S8` bad-window rate worsens to `5.7%`
+
+Interpretation:
+
+- the sparse precision operator is stable and preserves the generalized latent-activity / geometry-aware direction
+- but it does **not** beat the current operator anchor on the actual remaining frontier
+- relative to [183c_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json), it preserves the same broad realism profile without solving the core concentration problem
+- the remaining bottleneck is still the same one under the stricter benchmark:
+  - insufficient concentration of residual mass into hard turbulent late-horizon cells
+  - too little quiet mass and too much shoulder/extreme allocation under the new spectrum gate
+
+Conclusion:
+
+- `184c_v0` is a valid generalized operator experiment, but not a frontier break
+- [183c_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json) remains the practical anchor
+- the stricter `S4` conclusion stands: business-grade kurtosis/tail concentration is still not solved
+
+---
+
+## 2026-04-06 - Focused 183c_best vs 184c_best operator review
+
+I ran the narrow mechanistic review that was needed before considering any `184d` build:
+
+- script: [analyze_184c_operator_mechanism.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/analyze_184c_operator_mechanism.py)
+- output: [184c_best_mechanistic/mechanistic_summary.json](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184c_best_mechanistic/mechanistic_summary.json)
+- next-step memo: [184d_latent_activity_operator_mixture_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184_design/184d_latent_activity_operator_mixture_memo.md)
+
+Main conclusion:
+
+- `184c` did **not** falsify the generalized geometry-aware path
+- it mostly failed because the new sparse-precision operator was effectively turned **off**
+
+High-signal evidence:
+
+- `184b_best` activity gate mean: `0.1497`
+- `184c_best` activity gate mean: `3.21e-05`
+- `184c_final` activity gate mean: `3.83e-06`
+- `184c_best` precision-delta mean: `1.47e-07`
+- node top-1 share stayed diffuse at about `0.110`
+- kernel top-1 stayed at `0.330`, i.e. effectively flat/local-uniform
+
+So the new operator path never became selective enough to materially change the frontier. That is why `184c_best` stayed almost identical to the stricter `183c_best` anchor:
+
+- `S2` overall 90%: `84.10% -> 84.00%`
+- `S3` turb/calm ratio: `1.1115 -> 1.1124`
+- `S3` worst-cell width ratio: `5.314 -> 5.297`
+- `S4` kurtosis ratio: `0.5070 -> 0.5069`
+- `S4` quiet / shoulder / extreme: `0.831 / 1.144 / 1.322 -> 0.832 / 1.143 / 1.319`
+- `S7` Layer 2: `1/8 -> 1/8`
+- `S8` bad-window rate: unchanged at `3.76%`
+
+Interpretation:
+
+- the sparse-precision branch was present in code, but nearly absent in use
+- `184c_best` preserved the old `183c` broad profile rather than sharpening local concentration
+- `S3/S7` remain because the hard turbulent late-horizon cells still do not receive enough target-cell contrast
+- `S4` remains because the residual law still lacks enough selective sparsity to restore quiet mass and reduce shoulder heaviness
+
+Decision:
+
+- do **not** build another free multiplicative sparse gate
+- if we continue on the generalized path, the next principled move is:
+  - **`184d = latent residual activity mixture of operators`**
+  - quiet operator vs event operator
+  - posterior-guided training so the event branch cannot simply collapse to zero
+
+This keeps the generalized architecture intact:
+
+- same mean branch
+- same covariance branch
+- same geometry-aware residual-law backbone
+- grid now, graph/group later
+
+---
+
+## 2026-04-06 - 184d_v0 implemented and tested as the last replacement-style attempt
+
+I implemented the quiet-vs-event operator-mixture branch here:
+
+- training script: [train_184d_latent_activity_operator_mixture.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_184d_latent_activity_operator_mixture.py)
+- harness support: [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+- design memo: [184d_latent_activity_operator_mixture_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/184_design/184d_latent_activity_operator_mixture_memo.md)
+
+Artifacts:
+
+- checkpoint dir: [latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d)
+- best checkpoint: [best_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d/best_model.pt)
+- final checkpoint: [final_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d/final_model.pt)
+- training trace: [training_history.json](/home/max/Documents/vol-surface-vae-pub/models/backfill/latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d/training_history.json)
+
+Validation outputs:
+
+- best eval: [184d_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184d_best_v2_s3mrjspec_full_30d/summary.json)
+- final eval: [184d_final_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/184d_final_v2_s3mrjspec_full_30d/summary.json)
+
+Important distinction from `184c`:
+
+- `184d` did **not** collapse the activity gate to near-zero
+- best-epoch gate stayed around `0.024`
+- node top-1 stayed around `0.17`
+- so this branch actually tested the intended latent operator-mixture idea
+
+Result:
+
+- `184d_best` is `8/11`
+- `184d_final` is `7/11`
+
+`184d_best` passes:
+
+- `S1`
+- `S2`
+- `S5`
+- `S6`
+- `S8`
+- `S9`
+- `S10`
+- `S11`
+
+`184d_best` still fails:
+
+- `S3`
+- `S4`
+- `S7`
+
+High-signal numbers for `184d_best`:
+
+- `S2` overall 90% coverage: `84.2%`
+- `S3` turb/calm width ratio: `1.111`
+- `S3` worst-cell width ratio: `5.319`
+- `S4` kurtosis ratio: `0.507`
+- `S4` quiet / shoulder / extreme ratios: `0.830 / 1.144 / 1.325`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `4.4%`
+- `S8` bad-window rate: `3.8%`
+- `S10` mean-reversion ratio: `1.212`
+- `S11` max-jump KS: `0.130`
+
+Final checkpoint is worse:
+
+- `S4` is still fail
+- `S7` Layer 2 improves slightly to `2/8`
+- but catastrophic windows worsen to `5.8%`
+- `S8` bad-window rate worsens to `5.8%`
+
+Interpretation:
+
+- `184d` is the cleanest version of the latent-activity idea in this family
+- unlike `184c`, it actually keeps the event branch alive
+- but even with the event branch active, the model does **not** beat the stricter `183c_best` anchor on the remaining frontier
+
+Conclusion:
+
+- the generalized mean/covariance/pathwise residual-law direction remains viable
+- but this replacement-style quiet/event operator mixture still does not solve the remaining concentration problem
+- the last coherent attempt in this family did not produce a frontier break
+
+---
+
+## 2026-04-06 - New model-class design phase opened after the `184x` plateau
+
+The user correctly asked whether I had already done the **full new model-class design pass with online ideation** after deciding to stop adding operator/gate variants.
+
+Answer: **not yet**. Up to `184d`, I had only identified the direction qualitatively. I had not yet written the new-phase memo grounded in fresh online research.
+
+I have now done that pass and documented it here:
+
+- [185a_graph_group_latent_event_path_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/185_design/185a_graph_group_latent_event_path_memo.md)
+
+### What is different from the `184x` family
+
+`184x` kept one residual transport law and tried to improve it with:
+
+- activity gates
+- sparse precision operators
+- quiet/event operator mixtures
+
+The new class in `185a` is different:
+
+- the residual **event structure itself** becomes a first-class latent path over `time x node x group`
+- the model no longer asks one transport law to become selectively sharp through gates
+- instead it learns:
+  - a smooth background residual path
+  - a sparse graph/group-aware event path
+  - and their joint contribution to the whitened future residual law
+
+That is a genuine model-class change, not another operator tweak.
+
+### Why this is the principled reset
+
+The current stricter anchor remains:
+
+- [183c_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json)
+
+The plateau evidence from `184d` is now enough to say:
+
+- the backbone is not the main blocker
+- the remaining issue is not “find a better gate”
+- the missing object is a **latent residual event-path law**
+
+So the reset is:
+
+- keep explicit mean reversion
+- keep explicit structured covariance
+- keep whitened residual generation
+- move concentrated event structure into a latent path process that is graph/group-aware by construction
+
+### Online research inputs used in the memo
+
+Primary sources used for the new-phase design:
+
+- CW-Gen: https://arxiv.org/abs/2509.20928
+- TSFlow: https://arxiv.org/abs/2410.03024
+- ProFITi: https://arxiv.org/abs/2402.06293
+- CANF: https://arxiv.org/abs/2201.02753
+- MOSES / marginalization-consistent irregular forecasting: https://arxiv.org/abs/2406.07246
+- Add and Thin (whole-sequence diffusion for TPPs): https://arxiv.org/abs/2311.01139
+- Conditional Generative Modeling for High-dimensional Marked TPPs: https://arxiv.org/abs/2305.12569
+- Neural Jump SDEs: https://arxiv.org/abs/1905.10403
+- Generative modelling with jump-diffusions: https://arxiv.org/abs/2503.06558
+- Connecting the Dots: https://arxiv.org/abs/2005.11650
+- BernNet: https://arxiv.org/abs/2106.10994
+- Marked Neural Spatio-Temporal Point Process involving a Dynamic GNN: https://arxiv.org/abs/2206.03469
+- Graph Regularized Point Process: https://arxiv.org/abs/2211.11758
+- SRKN: https://arxiv.org/abs/2111.08291
+
+### Design conclusion
+
+The next generalized phase should be:
+
+- **`185a = graph/group-aware latent event-path residual law`**
+
+with:
+
+- explicit mean branch
+- explicit covariance branch
+- graph/group-aware geometry abstraction
+- joint latent event-path process in whitened residual space
+
+Implementation guidance from the memo:
+
+- single-surface IV instance first
+- graph/group abstraction in the code path from day one
+- smooth residual path plus latent event-path contribution
+- no more operator/gate variants on top of the old family
+
+### Practical recommendation
+
+The next most principled step is **not to code blind**.
+
+It is:
+
+1. freeze `183c_best` as the stricter empirical anchor
+2. use `185a` as the new-phase design anchor
+3. write a concrete implementation spec for `185a_v0`
+4. then implement the single-surface IV instance of that new class
+
+---
+
+## 2026-04-06 - `185a_v0` implemented and tested as the first new model-class branch
+
+I implemented the first concrete `185a` build here:
+
+- design memo: [185a_graph_group_latent_event_path_memo.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/185_design/185a_graph_group_latent_event_path_memo.md)
+- implementation spec: [185a_implementation_spec.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-06/analysis/185_design/185a_implementation_spec.md)
+- training script: [train_185a_graph_group_latent_event_path.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_185a_graph_group_latent_event_path.py)
+- harness support: [test_block_ar_requirements_v2.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py)
+
+Artifacts:
+
+- checkpoint dir: [graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a](/home/max/Documents/vol-surface-vae-pub/models/backfill/graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a)
+- best checkpoint: [best_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a/best_model.pt)
+- final checkpoint: [final_model.pt](/home/max/Documents/vol-surface-vae-pub/models/backfill/graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a/final_model.pt)
+- training trace: [training_history.json](/home/max/Documents/vol-surface-vae-pub/models/backfill/graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a/training_history.json)
+
+Validation outputs:
+
+- best eval: [185a_best_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/185a_best_v2_s3mrjspec_full_30d/summary.json)
+- final eval: [185a_final_v2_s3mrjspec_full_30d/summary.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/185a_final_v2_s3mrjspec_full_30d/summary.json)
+
+Smoke result first:
+
+- the new event-path branch did **not** collapse immediately
+- smoke-stage `pGate/qGate` stayed around `0.104`
+- so this was a real test of the new class, unlike `184c`
+
+Training behavior on the full run:
+
+- best checkpoint was epoch `7`
+- event scale stayed near `0.34`
+- prior/posterior event gates stayed around `0.026`
+- event support top-1 stayed around `0.226`
+- the event branch remained live, but much weaker than hoped
+
+Strict benchmark result:
+
+- `185a_best` = `6/11`
+- `185a_final` = `6/11`
+
+`185a_best` passes:
+
+- `S1`
+- `S2`
+- `S5`
+- `S6`
+- `S9`
+- `S11`
+
+`185a_best` still fails:
+
+- `S3`
+- `S4`
+- `S7`
+- `S8`
+- `S10`
+
+High-signal numbers for `185a_best`:
+
+- `S2` overall 90% coverage: `79.8%`
+- `S2` h30 worst / best cell: `71.1% / 91.7%`
+- `S3` turb/calm width ratio: `1.093`
+- `S3` worst-cell width ratio: `5.178`
+- `S4` kurtosis ratio: `0.530`
+- `S4` spectrum quiet / shoulder / extreme: `0.916 / 1.060 / 1.170`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `6.5%`
+- `S8` bad-window rate: `6.7%`
+- `S10` aggregate ratio: `1.051`, but full-horizon overall: `FAIL`
+- `S11` max-jump KS: `0.188`
+
+Final checkpoint trade:
+
+- `S10` recovers to overall `PASS`
+- but `S2` and `S8` degrade further
+- so best vs final is a real trade, not noise
+
+Comparison to the stricter `183c` anchor:
+
+- `185a` moves the tail-shape distribution in the right qualitative direction:
+  - more quiet mass
+  - less shoulder excess
+  - less extreme overshoot
+- but it gives back too much broad calibration and late-horizon stability:
+  - `S8` worsens from about `3.8%` bad windows to `6.7%`
+  - `S10` becomes borderline / fail on the best checkpoint
+- `S3` and `S7` remain effectively unresolved
+
+Conclusion:
+
+- `185a` is a real new-class test, not another dead gate/operator branch
+- it proves the graph/group-aware latent event-path formulation is implementable and trainable
+- but `v0` does **not** beat the stricter `183c` anchor
+- the unresolved problem is still selective concentration on hard turbulent late-horizon slices, now with some new broad-calibration regression
+
+## 2026-04-06 185a focused mechanistic review
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/analyze_185a_event_mechanism.py`
+- output: `results/validations/2026-04-06/analysis/185a_event_mechanistic/mechanistic_summary.json`
+
+What the review checked:
+
+- prior vs posterior event support overlap on the exact missed late-horizon turbulent slices
+- event amplitude on hard vs non-hard slices
+- event-off ablation on the same validation subset
+
+Key findings:
+
+- `185a` is not a dead-gate branch:
+  - hard turbulent-window prior gate is about `0.0263`
+  - posterior gate is about `0.0273`
+- but the actual event-path local contribution is effectively negligible:
+  - hard-slice target event local abs mean is about `0.417`
+  - hard-slice prior event local abs mean is only about `1.9e-08` on best
+  - hard-slice posterior event local abs mean is only about `2.0e-08` on best
+  - final checkpoint decays further to about `8.4e-09`
+- support localization exists only weakly and does not line up strongly with misses:
+  - hard-slice prior support abs mean is about `0.011`
+  - miss-vs-prior-support correlation on turbulent late slices is only about `0.021` on best and slightly negative on final
+  - prior and posterior look nearly identical, so teacher forcing is not uncovering a much stronger hidden event path
+- event-off ablation improves broad behavior instead of hurting it:
+  - best checkpoint: turning event off improves worst-late coverage by about `+0.077` and bad-window rate by `-6.25pp`
+  - final checkpoint: turning event off improves worst-late coverage by about `+0.154` and bad-window rate by `-10.94pp`
+  - mean-reversion changes only minimally under event-off ablation
+
+Interpretation:
+
+- the new `185a` class is still directionally different from `184x`, but `v0` is not failing because the event gate is dead
+- it is failing because the event path stays too small to correct the hard `S3/S7` slices, while still perturbing the quiet backbone enough to hurt `S8/S10`
+- so the next branch should not be a blind `185b`; it should specifically address event-path amplitude / decomposition rather than event gating alone
+
+## 2026-04-06 185b explicit event residual decomposition
+
+Artifacts:
+
+- spec: `results/validations/2026-04-06/analysis/185_design/185b_implementation_spec.md`
+- training: `experiments/backfill/block_ar/train_185b_explicit_event_residual_decomposition.py`
+- checkpoints:
+  - `models/backfill/graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b/best_model.pt`
+  - `models/backfill/graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b/final_model.pt`
+- training history:
+  - `models/backfill/graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b/training_history.json`
+- benchmark outputs:
+  - `results/block_ar/185b_best_v2_s3mrjspec_full_30d/summary.json`
+  - `results/block_ar/185b_final_v2_s3mrjspec_full_30d/summary.json`
+
+Design change relative to `185a`:
+
+- keep the graph/group-aware latent activity-path backbone
+- replace the weak implicit event contribution with an explicit event-residual decomposition target in basis space
+- supervise the event branch directly against teacher event residuals rather than only through the combined transport output
+
+Training behavior:
+
+- warm start from `185a_best` loaded cleanly with no missing or shape-skipped keys
+- best checkpoint was saved at epoch `7`
+- event gate stayed alive at about `2.6%`
+- event amplitude no longer numerically collapsed in the loss bookkeeping, so this was a real test of the direct event-residual idea
+
+Benchmark result:
+
+- `185b_best`: effectively `5/11`
+- `185b_final`: effectively `5/11`
+
+`185b_best` passes:
+
+- `S1`
+- `S5`
+- `S6`
+- `S9`
+- `S11`
+
+`185b_best` fails:
+
+- `S2`
+- `S3`
+- `S4`
+- `S7`
+- `S8`
+- `S10`
+
+High-signal numbers for `185b_best`:
+
+- `S2` overall 90% coverage: `77.2%`
+- `S2` h30 worst / best cell: `67.9% / 92.4%`
+- `S3` turb/calm width ratio: `1.075`
+- `S3` worst-cell width ratio: `5.119`
+- `S4` kurtosis ratio: `0.599`
+- `S4` exceedance spectrum quiet / shoulder / extreme: `0.951 / 1.027 / 1.121`
+- `S7` Layer 2: `1/8`
+- `S7` catastrophic rate: `8.0%`
+- `S8` bad-window rate: `9.1%`
+- `S10` aggregate ratio: `1.307`, full-horizon overall: `FAIL`
+- `S11` max-jump KS: `0.177`
+
+Final checkpoint trade:
+
+- `S10` recovers to overall `PASS`
+- but `S11` drops to `FAIL`
+- `S2 / S3 / S4 / S7 / S8` remain unresolved
+
+Interpretation:
+
+- direct event-residual supervision did not fix the concentration frontier
+- the new class stays viable in principle, but this `v0` trades away too much broad calibration and late-horizon stability
+- `185b` does not beat the stricter `183c` anchor and does not justify continuing this exact decomposition parameterization without another focused mechanism review
+
+## 2026-04-06 186a hard-slice / tail-aware objective on top of 183c
+
+Artifacts:
+
+- spec: `results/validations/2026-04-06/analysis/186_design/186a_hard_slice_tail_objective_spec.md`
+- training: `experiments/backfill/block_ar/train_186a_hard_slice_tail_objective.py`
+- checkpoints:
+  - `models/backfill/state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a/best_model.pt`
+  - `models/backfill/state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a/final_model.pt`
+- history:
+  - `models/backfill/state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a/training_history.json`
+- benchmark outputs:
+  - `results/block_ar/186a_best_v2_s3mrjspec_full_30d/summary.json`
+  - `results/block_ar/186a_final_v2_s3mrjspec_full_30d/summary.json`
+
+Principle:
+
+- freeze the `183c` model class
+- change only training signal
+- use weighted sampling on difficult future windows
+- upweight hard `horizon x cell` local-control targets
+- add quiet / shoulder / extreme spectrum pressure directly in the flow-matching objective
+
+Training setup:
+
+- full warm start from `183c_best`
+- no missing or shape-skipped keys
+- 3 epochs control stage + 6 epochs joint stage
+
+What changed relative to the stricter `183c` anchor:
+
+- coverage widened materially:
+  - `S2` overall 90% coverage moved from `84.1%` to about `87.9%`
+  - but this broke the per-cell upper gate, with h30 best cell moving from `93.7%` to about `96.9%`
+- conditional width got only a mild directional improvement:
+  - `S3` turb/calm ratio from `1.112` to about `1.092-1.094`
+  - worst-cell width ratio from `5.314` to about `4.39-4.59`
+- tightened tail realism did not improve enough:
+  - `S4` kurtosis ratio stayed around `0.507-0.515`
+  - quiet mass worsened from `0.831` to about `0.810-0.816`
+  - shoulder mass stayed high at about `1.140-1.149`
+  - extreme mass overshot further to about `1.89-1.95`
+- regime coverage shifted but did not solve:
+  - best checkpoint kept `S7` Layer 2 at `1/8`
+  - final checkpoint improved `S7` Layer 2 to `3/8`
+  - catastrophic rate improved from `4.43%` to about `2.84%`
+- broad distributional behavior became unstable:
+  - best checkpoint failed `S8`
+  - final checkpoint recovered `S8`
+- jump realism regressed:
+  - `S11` max-jump KS moved from `0.132` to `0.277-0.310`
+
+Benchmark result:
+
+- `186a_best`: effectively `5/11`
+- `186a_final`: effectively `5/11`
+
+`186a_best` passes:
+
+- `S1`
+- `S5`
+- `S6`
+- `S9`
+- `S10`
+
+`186a_best` fails:
+
+- `S2`
+- `S3`
+- `S4`
+- `S7`
+- `S8`
+- `S11`
+
+`186a_final` trade:
+
+- recovers `S8`
+- improves `S7` Layer 2 from `1/8` to `3/8`
+- but gives back `S10`
+- still fails `S2 / S3 / S4 / S7 / S11`
+
+Interpretation:
+
+- objective redesign alone is not enough to rescue the frontier on this family
+- it did prove the failure is not purely architectural:
+  - training signal can move coverage, regime coverage, and tail shape in meaningful ways
+- but the current weighting scheme mostly widened the model too broadly, without achieving the needed selective concentration
+- the main unresolved issue remains:
+  - concentrated uncertainty on hard turbulent late-horizon slices
+  - with the right quiet / shoulder / extreme balance
+
+Conclusion:
+
+- `186a` is a real negative on the strict benchmark
+- the architecture-loop stop was still correct
+- but the first objective/curriculum redesign also did not solve the remaining frontier
+
+## 2026-04-06 186a broad-widening mechanism review
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/analyze_186a_broad_widening.py`
+- output: `results/validations/2026-04-06/analysis/186a_broad_widening/mechanistic_summary.json`
+
+Question:
+
+- why did `186a` widen too broadly instead of concentrating width on the genuinely hard slices?
+
+Main findings:
+
+- the extra width was almost uniform across hard vs easy points:
+  - mean width delta on all hard points: `+0.01435`
+  - mean width delta on all easy points: `+0.01458`
+  - on turbulent late-horizon slices:
+    - hard points: `+0.01493`
+    - easy points: `+0.01687`
+- so the new objective did **not** selectively widen misses; if anything it widened easy turbulent late points slightly more
+
+- the weighting signal aligned more with global scale than with actual misses:
+  - corr(window_boost, target magnitude) = `0.460`
+  - corr(window_boost, anchor hard-rate) = `0.324`
+- some max-boost windows were not especially hard:
+  - e.g. top-weighted windows with hard-rate only `2.5%` and `3.6%` still got max boost `3.25`
+
+- the cells that widened most were already wide / high-coverage cells:
+  - top widened cells were `(0,0)`, `(0,3)`, `(2,4)` across multiple horizons
+  - example:
+    - h30 `(0,0)`: width delta `+0.105`, coverage `88.7% -> 92.4%`
+    - h30 `(0,3)`: width delta `+0.067`, coverage `88.7% -> 92.6%`
+    - h14 `(2,4)`: width delta `+0.062`, coverage `96.3% -> 97.5%`
+
+- genuinely hard cells did improve, but with much smaller width changes:
+  - h30 `(3,3)`: coverage `68.8% -> 79.7%`, but width delta only `+0.0095`
+  - h30 `(2,3)`: coverage `65.8% -> 76.6%`, width delta `+0.0118`
+  - h30 `(0,2)`: coverage `69.3% -> 80.3%`, width delta `+0.0251`
+
+- width deltas were actually negatively aligned with target local concentration:
+  - corr(width_delta, target_local_log) = `-0.470`
+- that means the largest extra widening landed where target local allocation was more negative, i.e. slices that should have stayed relatively quiet
+
+Interpretation:
+
+- `186a` did move the model, but mostly by responding to broad future magnitude / late-horizon scale
+- the local weighting used absolute target-local magnitude, so it emphasized both hard positive-allocation slices and already-quiet / negative-allocation slices
+- under the still-smooth `183c` transport, that pressure turned into broad variance inflation on cells with large baseline scale rather than truly selective concentration
+
+Conclusion:
+
+- `186a` failed because the training signal was still too magnitude-driven and not miss-selective enough
+- the objective pushed width broadly onto already-wide cells instead of concentrating it sharply on the actual hard slices
+
+## 2026-04-06 phase decision: stop smooth transport family
+
+Decision:
+
+- stop the smooth-transport / smooth-operator family here
+- freeze `183c_best_v2_s3mrjspec_full_30d` as the practical strict-benchmark anchor for this line
+- do not run more smooth transport variants, more transport gates, or more smooth objective reweighting on this family
+
+Why this decision is now justified:
+
+- across `183c -> 186a`, the same concentration frontier survived:
+  - `S3`
+  - `S7`
+  - tightened `S4`
+- architecture changes, operator changes, event-path changes, and objective reweighting all moved broad behavior
+- but they repeatedly retained the same core bias:
+  - the model knows roughly where stress should go
+  - but allocates it too diffusely
+- the `186a` broad-widening review makes that concrete:
+  - extra width on hard points: `+0.01435`
+  - extra width on easy points: `+0.01458`
+  - extra width on turbulent late hard points: `+0.01493`
+  - extra width on turbulent late easy points: `+0.01687`
+
+Interpretation:
+
+- this is no longer just a tuning problem
+- the smooth transport paradigm appears valid for broad realism, but not sufficient for sparse concentration on rare hard slices
+- the repeated "too smooth" issue is now treated as a model-class limitation for this frontier
+
+New-phase direction:
+
+- keep the explicit mean branch
+- keep the explicit covariance branch
+- move to a latent sparse-support / event-support residual model class
+- make selective, non-smooth concentration a first-class part of the generative law rather than a smooth modulation on top of one transport
+
+Boundary:
+
+- if future work continues, it should be on sparse-support residual structure
+- not on another smooth transport variant
+
+## 2026-04-06: Validation Audit — Long-Horizon + 176b Full Harness
+
+### Long-Horizon 252d (Boss Requirement FULFILLED)
+
+Both best models pass the 252-day long-horizon test:
+
+| Metric | 176b | 183c |
+|--------|:---:|:---:|
+| Overall | PASS | PASS |
+| Spread growth (h252/h30) | 1.40x | 1.67x |
+| Explosion rate h=252 | 0.0% | 0.0% |
+| Stationarity | 1.03x | 0.78x |
+| Spatial structure h=252 | Preserved | Preserved (corr 0.79) |
+
+### 176b Under Full s3mrj Harness (11 suites)
+
+176b = 7/11 (fails S3, S4, S7, S10). 183c = 9/11. 183c is strictly better by 2 suites.
+176b fails S10 (mean reversion 56% GT, gate 70%) — never had explicit drift law.
+
+### Audit Summary
+
+| Verification | Status | Finding |
+|-------------|:------:|---------|
+| 183c 9/11 claim | VERIFIED | All numbers match disk |
+| S3/S7 root cause | VERIFIED | Hard/easy ratio 0.985, structural |
+| 183c long-horizon | **PASS** | Zero explosions at 252 days |
+| 176b long-horizon | **PASS** | Zero explosions at 252 days |
+| 176b full harness | 7/11 | 2 suites below 183c |
+| Cross-model comparison | Done | 183c is Pareto-optimal |
+| Missing: multi-seed 183c | Still missing | S4 borderline (0.507) |
+
+All HIGH priority gaps are now filled except multi-seed verification.
 
 ---

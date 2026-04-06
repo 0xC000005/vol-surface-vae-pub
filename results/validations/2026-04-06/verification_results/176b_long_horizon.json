@@ -1,0 +1,19 @@
+{
+  "test": "176b_long_horizon",
+  "model": "176b",
+  "pass": true,
+  "tests": {
+    "monotonic_spread": true,
+    "explosion_rate": true,
+    "stationarity": true,
+    "spatial_structure": true,
+    "overall": true
+  },
+  "key_metrics": {
+    "spread_ratio_252_30": 1.4007666665266618,
+    "overall_explosion_rate": 0.0,
+    "stationarity_ratio": 1.0272775612131915,
+    "smile_convexity_252": 0.13508281111717224,
+    "cross_cell_corr_252": 0.45151448873565225
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "model": "176b",
+  "checkpoint": "best_model.pt (epoch 9)",
+  "harness": "s3mrj (11 suites)",
+  "date": "2026-04-06",
+  "results_dir": "results/block_ar/176b_best_v2_s3mrj_full_30d",
+  "total_pass": 7,
+  "total_suites": 11,
+  "suite_results": {
+    "S1_surface_validity": {"pass": true, "explosion": "0.0%", "calendar_arb": "7.2%", "butterfly_arb": "21.6%"},
+    "S2_ci_coverage": {"pass": true, "overall_90ci": "83.3%", "worst_cell_h1": "81.2%", "worst_cell_h30": "73.7%", "calibration_error": 0.025},
+    "S3_conditionality": {"pass": false, "turb_calm_ratio": 1.165, "turb_calm_pass": true, "mae_reduction": "88.8%", "worst_cell_width_ratio": 2.756, "fail_reason": "worst cell width ratio 2.756 > 1.20 gate"},
+    "S4_time_series": {"pass": false, "acf_corr": 0.967, "kurtosis_ratio": 0.816, "quiet_mass": 0.772, "shoulder_mass": 1.226, "fail_reason": "exceedance spectrum quiet=0.772, shoulder=1.226 outside [0.90, 1.10]"},
+    "S5_block_ar": {"pass": true, "boundary_ratio": 0.971},
+    "S6_cointegration": {"pass": true, "gen_gt_ratio": 0.663, "worst_cell_ratio": 0.420},
+    "S7_regime_coverage": {"pass": false, "layer1": "PASS", "layer2": "2/8 FAIL", "layer3": "4.1% PASS", "fail_reason": "layer 2 regime x cell: only 2/8 pass"},
+    "S8_distributional": {"pass": true, "ks_daily_changes": "23/25", "ks_iv_levels": "23/25", "median_bias_fraction": "25/25", "window_floor": "3.9%"},
+    "S9_cross_cell_correlation": {"pass": true, "corr_ratio": 0.971, "rank_ratio": 1.147, "gen_eff_rank": 5.77, "gt_eff_rank": 5.03},
+    "S10_mean_reversion": {"pass": false, "gen_gt_slope_ratio": 0.560, "active_cells": "4/9", "active_cell_corr": 0.494, "fail_reason": "slope ratio 0.560 < 0.70 gate, only 4/9 active cells"},
+    "S11_jump_realism": {"pass": true, "max_jump_ks": 0.098, "per_cell_q99": "25/25", "extreme_incidence": 0.992}
+  },
+  "key_metrics": {
+    "S2_coverage": "83.3%",
+    "S3_turb_calm": 1.165,
+    "S4_kurtosis": 0.816,
+    "S9_eff_rank": 5.77,
+    "S9_rank_ratio": 1.147,
+    "S10_mr_ratio": 0.560,
+    "S11_jump_ks": 0.098
+  },
+  "comparison_183c": {
+    "note": "183c achieves 9/11. 176b achieves 7/11. Both fail S7 and S10. 176b additionally fails S3 (cell width) and S4 (exceedance spectrum)."
+  }
+}
