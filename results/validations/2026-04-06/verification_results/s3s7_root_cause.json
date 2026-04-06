@@ -1,0 +1,51 @@
+{
+  "claim_1_186a_numbers_match_log": {
+    "verified": true,
+    "details": {
+      "hard_points": {
+        "claimed_in_log": 0.01435,
+        "actual_in_json": 0.01435,
+        "absolute_diff": 4e-06,
+        "matches": true
+      },
+      "easy_points": {
+        "claimed_in_log": 0.01458,
+        "actual_in_json": 0.01458,
+        "absolute_diff": 3.8e-06,
+        "matches": true
+      },
+      "turb_late_hard": {
+        "claimed_in_log": 0.01493,
+        "actual_in_json": 0.01493,
+        "absolute_diff": 3.4e-06,
+        "matches": true
+      },
+      "turb_late_easy": {
+        "claimed_in_log": 0.01687,
+        "actual_in_json": 0.01687,
+        "absolute_diff": 4e-06,
+        "matches": true
+      }
+    }
+  },
+  "claim_2_smooth_transport_too_diffuse": {
+    "verified": true,
+    "hard_easy_ratio": 0.9848,
+    "turb_late_ratio": 0.885,
+    "explanation": "Hard/easy width delta ratio is 0.98 (nearly identical). For turb_late, ratio is 0.89 (easy actually gets MORE width). This confirms the transport is non-selective."
+  },
+  "claim_3_turbulent_late_horizon_dominates_s7": {
+    "verified": true,
+    "turb_late_failures": 15,
+    "total_failures": 26,
+    "explanation": "Turb late-horizon has 15 cells below threshold, vs calm late 6"
+  },
+  "claim_4_structural_limitation": {
+    "verified": true,
+    "confidence": "MODERATE",
+    "turb_calm_range_across_4_exps": 0.0208,
+    "l2_pass_unchanged": true,
+    "explanation": "LIKELY_STRUCTURAL: The S3/S7 failures are consistent across 4 experiments with radically different architectures (operator gates, event paths, objective reweighting). The key metric (turb_calm_ratio) barely moved (range 0.02). The 186a broad-widening analysis provides the mechanism: smooth transport cannot selectively concentrate width. However, the 4% gap to S3 threshold is small enough that a fundamentally different approach (sparse support) MIGHT close it."
+  },
+  "overall_diagnosis_supported": true
+}

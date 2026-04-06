@@ -1,0 +1,402 @@
+{
+  "metadata": {
+    "audit_date": "2026-04-06T11:01:07.170820",
+    "models_audited": [
+      "176b",
+      "183c"
+    ],
+    "description": "Missing analysis audit for Codex-era best models"
+  },
+  "analyses": {
+    "long_horizon_252d": {
+      "176b": {
+        "exists": false,
+        "block_ar_dirs": [],
+        "validation_scripts": [],
+        "validation_results": [],
+        "priority": "HIGH",
+        "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+      },
+      "183c": {
+        "exists": false,
+        "block_ar_dirs": [],
+        "validation_scripts": [],
+        "validation_results": [],
+        "priority": "HIGH",
+        "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+      }
+    },
+    "multi_seed": {
+      "176b": {
+        "exists": false,
+        "rerun_dirs": [],
+        "seed_dirs": [],
+        "priority": "MEDIUM",
+        "note": "No multi-seed verification found. 179b had rerun5 (verified on disk). Neither 176b nor 183c has a second seed run."
+      },
+      "183c": {
+        "exists": false,
+        "rerun_dirs": [],
+        "seed_dirs": [],
+        "priority": "MEDIUM",
+        "note": "No multi-seed verification found. 179b had rerun5 (verified on disk). Neither 176b nor 183c has a second seed run."
+      }
+    },
+    "factor_analysis": {
+      "176b": {
+        "has_cross_cell_in_v2_harness": true,
+        "cross_cell_data": {
+          "results/block_ar/176b_ablate1_v2_s3fixed_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.735973562973726,
+            "rank_ratio": 1.1406848463901318,
+            "corr_ratio": 0.9746658562257048,
+            "overall_pass": true
+          },
+          "results/block_ar/176b_final_v2_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.14639555800811,
+            "rank_ratio": 1.023438368761573,
+            "corr_ratio": 1.053608705282855,
+            "overall_pass": true
+          },
+          "results/block_ar/176b_v2_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.767476151258411,
+            "rank_ratio": 1.1469496111565471,
+            "corr_ratio": 0.9714778951192891,
+            "overall_pass": true
+          },
+          "results/block_ar/176b_v2_s3fixed_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.767476151258411,
+            "rank_ratio": 1.1469496111565471,
+            "corr_ratio": 0.9714778951192891,
+            "overall_pass": true
+          },
+          "results/block_ar/176b_v2_s3mr_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.767476151258411,
+            "rank_ratio": 1.1469496111565471,
+            "corr_ratio": 0.9714778951192891,
+            "overall_pass": true
+          }
+        },
+        "dedicated_factor_analyses": [],
+        "mechanistic_analyses": [
+          "results/validations/2026-04-05/analysis/176b_mean_reversion_mechanistic",
+          "results/validations/2026-04-05/analysis/176b_mechanistic"
+        ],
+        "priority": "LOW",
+        "note": "Cross-cell correlation in v2 harness covers basic factor structure. Dedicated PCA analysis not found but S9 data provides effective rank and correlation ratio."
+      },
+      "183c": {
+        "has_cross_cell_in_v2_harness": true,
+        "cross_cell_data": {
+          "results/block_ar/183c_best_v2_s3mrj_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.676828170020493,
+            "rank_ratio": 1.128922893038212,
+            "corr_ratio": 0.9690445143549706,
+            "overall_pass": true
+          },
+          "results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.676828170020493,
+            "rank_ratio": 1.128922893038212,
+            "corr_ratio": 0.9690445143549706,
+            "overall_pass": true
+          },
+          "results/block_ar/183c_final_v2_s3mrj_full_30d/summary.json": {
+            "gt_eff_rank": 5.028534902629832,
+            "gen_eff_rank": 5.6916537738623285,
+            "rank_ratio": 1.1318711879449614,
+            "corr_ratio": 0.960330358144046,
+            "overall_pass": true
+          }
+        },
+        "dedicated_factor_analyses": [],
+        "mechanistic_analyses": [
+          "results/validations/2026-04-05/analysis/183c_best_mechanistic"
+        ],
+        "priority": "LOW",
+        "note": "Cross-cell correlation in v2 harness covers basic factor structure. Dedicated PCA analysis not found but S9 data provides effective rank and correlation ratio."
+      }
+    },
+    "checkpoint_comparison": {
+      "176b": {
+        "has_best_eval": true,
+        "has_final_eval": true,
+        "has_both": true,
+        "best_results": {
+          "results/block_ar/176b_v2_full_30d/summary.json": "8/9",
+          "results/block_ar/176b_v2_s3fixed_full_30d/summary.json": "7/9",
+          "results/block_ar/176b_v2_s3mr_full_30d/summary.json": "7/10"
+        },
+        "final_results": {
+          "results/block_ar/176b_final_v2_full_30d/summary.json": "7/9"
+        },
+        "priority": "LOW",
+        "note": "Both best and final checkpoints evaluated."
+      },
+      "183c": {
+        "has_best_eval": true,
+        "has_final_eval": true,
+        "has_both": true,
+        "best_results": {
+          "results/block_ar/183c_best_v2_s3mrj_full_30d/summary.json": "9/11",
+          "results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json": "8/11"
+        },
+        "final_results": {
+          "results/block_ar/183c_final_v2_s3mrj_full_30d/summary.json": "8/11"
+        },
+        "priority": "LOW",
+        "note": "Both best and final checkpoints evaluated."
+      }
+    },
+    "training_reproducibility": {
+      "176b": {
+        "training_script_exists": true,
+        "training_script_path": "experiments/backfill/block_ar/train_176b_shared_local_template_mixture.py",
+        "checkpoints_exist": true,
+        "config_in_checkpoint": true,
+        "seed_documented": true,
+        "priority": "DONE",
+        "note": "Training script, config, and checkpoints all available for reproduction."
+      },
+      "183c": {
+        "training_script_exists": true,
+        "training_script_path": "experiments/backfill/block_ar/train_183c_state_metric_transport.py",
+        "checkpoints_exist": true,
+        "config_in_checkpoint": true,
+        "seed_documented": true,
+        "priority": "DONE",
+        "note": "Training script, config, and checkpoints all available for reproduction."
+      }
+    },
+    "harness_consistency": {
+      "176b": {
+        "harness_versions_found": [
+          "176b_ablate1_v2_s3fixed_full_30d",
+          "176b_final_v2_full_30d",
+          "176b_v2_full_30d",
+          "176b_v2_s3fixed_full_30d",
+          "176b_v2_s3mr_full_30d"
+        ],
+        "result_details": {
+          "176b_ablate1_v2_s3fixed_full_30d": {
+            "pass_count": "5/9",
+            "tested_suites_count": 9
+          },
+          "176b_final_v2_full_30d": {
+            "pass_count": "7/9",
+            "tested_suites_count": 9
+          },
+          "176b_v2_full_30d": {
+            "pass_count": "8/9",
+            "tested_suites_count": 9
+          },
+          "176b_v2_s3fixed_full_30d": {
+            "pass_count": "7/9",
+            "tested_suites_count": 9
+          },
+          "176b_v2_s3mr_full_30d": {
+            "pass_count": "7/10",
+            "tested_suites_count": 10
+          }
+        },
+        "has_s3mrj": false,
+        "has_s3mrjspec": false,
+        "has_base_v2": true,
+        "priority": "MEDIUM",
+        "note": "Evaluated under 5 harness variant(s)."
+      },
+      "183c": {
+        "harness_versions_found": [
+          "183c_best_v2_s3mrj_full_30d",
+          "183c_best_v2_s3mrjspec_full_30d",
+          "183c_final_v2_s3mrj_full_30d"
+        ],
+        "result_details": {
+          "183c_best_v2_s3mrj_full_30d": {
+            "pass_count": "9/11",
+            "tested_suites_count": 11
+          },
+          "183c_best_v2_s3mrjspec_full_30d": {
+            "pass_count": "8/11",
+            "tested_suites_count": 11
+          },
+          "183c_final_v2_s3mrj_full_30d": {
+            "pass_count": "8/11",
+            "tested_suites_count": 11
+          }
+        },
+        "has_s3mrj": true,
+        "has_s3mrjspec": true,
+        "has_base_v2": false,
+        "priority": "LOW",
+        "note": "Evaluated under 3 harness variant(s)."
+      }
+    },
+    "mechanistic_analysis": {
+      "176b": {
+        "analyses_found": {
+          "176b_mechanistic": {
+            "path": "results/validations/2026-04-05/analysis/176b_mechanistic",
+            "files": [
+              "mechanistic_summary.json"
+            ],
+            "date": "2026-04-05"
+          },
+          "176b_mean_reversion_mechanistic": {
+            "path": "results/validations/2026-04-05/analysis/176b_mean_reversion_mechanistic",
+            "files": [
+              "mechanistic_summary.json"
+            ],
+            "date": "2026-04-05"
+          },
+          "176b_failures": {
+            "path": "results/validations/2026-04-05/analysis/176b_failures",
+            "files": [
+              "mechanistic_summary.json"
+            ],
+            "date": "2026-04-05"
+          },
+          "176b_mean_reversion": {
+            "path": "results/validations/2026-04-05/analysis/176b_mean_reversion",
+            "files": [
+              "mean_reversion.json"
+            ],
+            "date": "2026-04-05"
+          }
+        },
+        "count": 4,
+        "has_mean_reversion": true,
+        "has_failure_analysis": true,
+        "priority": "LOW",
+        "note": "4 mechanistic analyses found."
+      },
+      "183c": {
+        "analyses_found": {
+          "183c_best_mechanistic": {
+            "path": "results/validations/2026-04-05/analysis/183c_best_mechanistic",
+            "files": [
+              "mechanistic_summary.json"
+            ],
+            "date": "2026-04-05"
+          }
+        },
+        "count": 1,
+        "has_mean_reversion": false,
+        "has_failure_analysis": false,
+        "priority": "LOW",
+        "note": "1 mechanistic analyses found."
+      }
+    }
+  },
+  "summary_table": [
+    {
+      "analysis": "long_horizon_252d",
+      "176b": {
+        "exists": false,
+        "priority": "HIGH",
+        "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+      },
+      "183c": {
+        "exists": false,
+        "priority": "HIGH",
+        "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+      }
+    },
+    {
+      "analysis": "multi_seed",
+      "176b": {
+        "exists": false,
+        "priority": "MEDIUM",
+        "note": "No multi-seed verification found. 179b had rerun5 (verified on disk). Neither 176b nor 183c has a second seed run."
+      },
+      "183c": {
+        "exists": false,
+        "priority": "MEDIUM",
+        "note": "No multi-seed verification found. 179b had rerun5 (verified on disk). Neither 176b nor 183c has a second seed run."
+      }
+    },
+    {
+      "analysis": "factor_analysis",
+      "176b": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "Cross-cell correlation in v2 harness covers basic factor structure. Dedicated PCA analysis not found but S9 data provides effective rank and correlation ratio."
+      },
+      "183c": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "Cross-cell correlation in v2 harness covers basic factor structure. Dedicated PCA analysis not found but S9 data provides effective rank and correlation ratio."
+      }
+    },
+    {
+      "analysis": "checkpoint_comparison",
+      "176b": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "Both best and final checkpoints evaluated."
+      },
+      "183c": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "Both best and final checkpoints evaluated."
+      }
+    },
+    {
+      "analysis": "training_reproducibility",
+      "176b": {
+        "exists": true,
+        "priority": "DONE",
+        "note": "Training script, config, and checkpoints all available for reproduction."
+      },
+      "183c": {
+        "exists": true,
+        "priority": "DONE",
+        "note": "Training script, config, and checkpoints all available for reproduction."
+      }
+    },
+    {
+      "analysis": "harness_consistency",
+      "176b": {
+        "exists": false,
+        "priority": "MEDIUM",
+        "note": "Evaluated under 5 harness variant(s)."
+      },
+      "183c": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "Evaluated under 3 harness variant(s)."
+      }
+    },
+    {
+      "analysis": "mechanistic_analysis",
+      "176b": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "4 mechanistic analyses found."
+      },
+      "183c": {
+        "exists": true,
+        "priority": "LOW",
+        "note": "1 mechanistic analyses found."
+      }
+    }
+  ],
+  "high_priority_items": [
+    {
+      "analysis": "long_horizon_252d",
+      "model": "176b",
+      "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+    },
+    {
+      "analysis": "long_horizon_252d",
+      "model": "183c",
+      "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+    }
+  ]
+}

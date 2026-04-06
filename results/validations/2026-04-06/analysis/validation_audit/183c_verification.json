@@ -1,0 +1,145 @@
+{
+  "experiment": "183c",
+  "date": "2026-04-06",
+  "headline_claim": "183c achieved 9/11 test suites",
+  "s3mrj_harness": {
+    "description": "Original strengthened harness (11 suites with S10 mean-reversion and S11 jump-KS)",
+    "total_pass": 9,
+    "total_suites": 11,
+    "passing": [
+      "S1",
+      "S2",
+      "S4",
+      "S5",
+      "S6",
+      "S8",
+      "S9",
+      "S10",
+      "S11"
+    ],
+    "failing": [
+      "S3",
+      "S7"
+    ],
+    "claim_verified": true
+  },
+  "s3mrjspec_harness": {
+    "description": "Strict harness (tightened S4 kurtosis 0.8-1.25 + exceedance spectrum)",
+    "total_pass": 8,
+    "total_suites": 11,
+    "passing": [
+      "S1",
+      "S2",
+      "S5",
+      "S6",
+      "S8",
+      "S9",
+      "S10",
+      "S11"
+    ],
+    "failing": [
+      "S3",
+      "S4",
+      "S7"
+    ],
+    "s4_regression_cause": "kurtosis_ratio=0.507 outside [0.8, 1.25] + exceedance spectrum all FAIL"
+  },
+  "key_metrics": {
+    "s2_overall_90pct": 0.84103,
+    "s2_worst_cell_pass": true,
+    "s2_h30_worst_cell": 0.771055,
+    "s2_h30_best_cell": 0.93704,
+    "s3_turb_calm_ratio": 1.111515,
+    "s3_turb_calm_pass": false,
+    "s3_worst_cell_width_ratio": 5.314334,
+    "s4_kurtosis_ratio": 0.506962,
+    "s4_kurtosis_pass": true,
+    "s4_kurtosis_gate_lo": null,
+    "s4_kurtosis_gate_hi": null,
+    "s7_layer2_pass": false,
+    "s7_layer2_n_passing": 1,
+    "s7_layer2_n_total": 8,
+    "s7_catastrophic_rate": 0.044317,
+    "s10_mr_gt_ratio": 1.211674,
+    "s10_aggregate_pass": true,
+    "s10_active_pass_rate": 0.777778,
+    "s10_overall_pass": true,
+    "s11_ks_stat": 0.131562,
+    "s11_overall_pass": true
+  },
+  "checkpoint": {
+    "path": "/home/max/Documents/vol-surface-vae-pub/models/backfill/state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c/best_model.pt",
+    "exists": true,
+    "size_mb": 26.0
+  },
+  "research_log_claims": {
+    "claimed_best_score": "9/11",
+    "claimed_final_score": "8/11",
+    "claimed_pass_suites": [
+      "S1",
+      "S2",
+      "S4",
+      "S5",
+      "S6",
+      "S8",
+      "S9",
+      "S10",
+      "S11"
+    ],
+    "claimed_fail_suites": [
+      "S3",
+      "S7"
+    ],
+    "claimed_s2_coverage_pct": 84.1,
+    "claimed_s3_turb_calm_ratio": 1.112,
+    "claimed_s4_kurtosis_ratio": 0.507,
+    "claimed_s7_layer2": "1/8",
+    "claimed_s10_mr_ratio": 1.212,
+    "claimed_s11_ks": 0.132
+  },
+  "claim_checks": [
+    {
+      "metric": "S2 overall 90% coverage",
+      "claimed": "84.1%",
+      "actual": "84.1%",
+      "match": true
+    },
+    {
+      "metric": "S3 turb/calm width ratio",
+      "claimed": "1.112",
+      "actual": "1.112",
+      "match": true
+    },
+    {
+      "metric": "S4 kurtosis ratio",
+      "claimed": "0.507",
+      "actual": "0.507",
+      "match": true
+    },
+    {
+      "metric": "S10 mean-reversion ratio",
+      "claimed": "1.212",
+      "actual": "1.212",
+      "match": true
+    },
+    {
+      "metric": "S11 pathwise max-jump KS",
+      "claimed": "0.132",
+      "actual": "0.132",
+      "match": true
+    }
+  ],
+  "all_claims_match_disk": true,
+  "overall_verdict": {
+    "9_11_claim_verified": true,
+    "pass_profile_matches_log": true,
+    "all_metric_claims_match": true,
+    "strict_harness_score": "8/11",
+    "notes": [
+      "9/11 claim is VERIFIED on s3mrj (original strengthened) harness",
+      "Under stricter s3mrjspec harness: 8/11 (S4 flips to FAIL due to tightened kurtosis gate 0.8-1.25 vs permissive, and new exceedance spectrum test)",
+      "All numeric claims in RESEARCH_LOG.md match disk values within rounding tolerance",
+      "Model checkpoint exists and matches eval_config.checkpoint_path in both summary files"
+    ]
+  }
+}

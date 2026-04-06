@@ -1,0 +1,50 @@
+{
+  "audit_date": "2026-04-06T11:01:07.950177",
+  "models": [
+    "176b",
+    "183c"
+  ],
+  "high_priority_count": 2,
+  "high_priority_items": [
+    {
+      "analysis": "long_horizon_252d",
+      "model": "176b",
+      "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+    },
+    {
+      "analysis": "long_horizon_252d",
+      "model": "183c",
+      "note": "BOSS REQUIREMENT per CLAUDE.md. 252-day long-horizon test is mandatory."
+    }
+  ],
+  "summary": {
+    "long_horizon_252d": {
+      "176b": "HIGH",
+      "183c": "HIGH"
+    },
+    "multi_seed": {
+      "176b": "MEDIUM",
+      "183c": "MEDIUM"
+    },
+    "factor_analysis": {
+      "176b": "LOW",
+      "183c": "LOW"
+    },
+    "checkpoint_comparison": {
+      "176b": "LOW",
+      "183c": "LOW"
+    },
+    "training_reproducibility": {
+      "176b": "DONE",
+      "183c": "DONE"
+    },
+    "harness_consistency": {
+      "176b": "MEDIUM",
+      "183c": "LOW"
+    },
+    "mechanistic_analysis": {
+      "176b": "LOW",
+      "183c": "LOW"
+    }
+  }
+}

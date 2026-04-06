@@ -1,0 +1,153 @@
+{
+  "review_context": {
+    "base_summary": "results/block_ar/183c_best_v2_s3mrjspec_full_30d/summary.json",
+    "base_mechanistic": "results/validations/2026-04-05/analysis/183c_best_mechanistic/mechanistic_summary.json",
+    "candidate_summary": "results/block_ar/184c_best_v2_s3mrjspec_full_30d/summary.json",
+    "candidate_history": "models/backfill/sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c/training_history.json",
+    "activity_baseline_history": "models/backfill/latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b/training_history.json"
+  },
+  "operator_activity_review": {
+    "183c_anchor_context": {
+      "target_local_abs_mean_turb": 0.5971531867980957,
+      "metric_target_corr_turb_target_state": 0.9020161776329202,
+      "mean_metric_local_hard_slices": 0.07699769735336304,
+      "mean_target_local_hard_slices": 0.32360488176345825,
+      "mean_metric_local_overwide_slices": -0.24768781661987305,
+      "mean_target_local_overwide_slices": -0.5278141498565674
+    },
+    "184b_activity_baseline_best": {
+      "epoch": 5,
+      "stage": "latent-activity-process-joint",
+      "val_post_activity_gate_mean": 0.14965070679344558,
+      "val_prior_activity_gate_mean": 0.14721686262933034,
+      "val_activity_budget_mean": 0.41145596381217714
+    },
+    "184c_first_ctrl_epoch": {
+      "epoch": 1,
+      "stage": "sparse-precision-ctrl",
+      "val_post_activity_gate_mean": 0.001178326721666402,
+      "val_prior_activity_gate_mean": 0.0013814515673371704,
+      "val_activity_gate_mean": 0.0011783267554558831,
+      "val_activity_budget_mean": 0.09626844402005613,
+      "val_activity_node_top1_mean": 0.12909389892065065,
+      "val_activity_node_entropy_mean": 80.13022632555627,
+      "val_kernel_top1_mean": 0.3299999850001735,
+      "val_kernel_entropy_mean": 1.1373034783231428,
+      "val_precision_delta_abs_mean": 5.337798833674006e-06,
+      "joint_turb_calm_ratio": 1.0878126621246338,
+      "joint_kurtosis_ratio": 0.5114550836628696,
+      "joint_pathwise_jump_ks": 0.90625,
+      "frontier_turb_late_worst_cov": 0.0,
+      "frontier_turb_late_best_cov": 1.0
+    },
+    "184c_best_epoch": {
+      "epoch": 5,
+      "stage": "sparse-precision-joint",
+      "val_post_activity_gate_mean": 3.2125453820004384e-05,
+      "val_prior_activity_gate_mean": 3.791069951121719e-05,
+      "val_activity_gate_mean": 3.212545519765169e-05,
+      "val_activity_budget_mean": 0.09475777203601504,
+      "val_activity_node_top1_mean": 0.11028290528153616,
+      "val_activity_node_entropy_mean": 83.77803216012968,
+      "val_kernel_top1_mean": 0.3299999850001735,
+      "val_kernel_entropy_mean": 1.1373034783231428,
+      "val_precision_delta_abs_mean": 1.4688561110076685e-07,
+      "joint_turb_calm_ratio": 1.0367405414581299,
+      "joint_kurtosis_ratio": 0.614392655720073,
+      "joint_pathwise_jump_ks": 0.84375,
+      "frontier_turb_late_worst_cov": 0.0,
+      "frontier_turb_late_best_cov": 1.0
+    },
+    "184c_final_epoch": {
+      "epoch": 12,
+      "stage": "sparse-precision-joint",
+      "val_post_activity_gate_mean": 3.830204099762745e-06,
+      "val_prior_activity_gate_mean": 9.597618682288207e-06,
+      "val_activity_gate_mean": 3.830204198755366e-06,
+      "val_activity_budget_mean": 0.09546567617900788,
+      "val_activity_node_top1_mean": 0.10867612185526868,
+      "val_activity_node_entropy_mean": 83.94835065984401,
+      "val_kernel_top1_mean": 0.3299999850001735,
+      "val_kernel_entropy_mean": 1.1373034783231428,
+      "val_precision_delta_abs_mean": 1.7568919787371795e-08,
+      "joint_turb_calm_ratio": 1.0291863679885864,
+      "joint_kurtosis_ratio": 0.6160454469569183,
+      "joint_pathwise_jump_ks": 0.796875,
+      "frontier_turb_late_worst_cov": 0.0,
+      "frontier_turb_late_best_cov": 1.0
+    },
+    "gate_collapse_ratios": {
+      "best_gate_vs_184b_best": 0.00021466958395243853,
+      "final_gate_vs_184b_best": 2.5594293893765616e-05,
+      "best_precision_delta_vs_first_epoch": 0.027518011764348472,
+      "final_precision_delta_vs_first_epoch": 0.0032914166185013588
+    },
+    "operator_selectivity_interpretation": {
+      "activity_gate_collapsed": true,
+      "precision_delta_effectively_off": true,
+      "node_alloc_still_diffuse": true,
+      "kernel_still_uniformish": true
+    }
+  },
+  "frontier_comparison": {
+    "183c_best": {
+      "s2_overall_90": 0.8410302534750613,
+      "s3_turb_calm_ratio": 1.1115152835845947,
+      "s3_worst_cell_width_ratio": 5.314334465049336,
+      "s4_kurtosis_ratio": 0.5069616442974757,
+      "s4_quiet_ratio": 0.8311101287007673,
+      "s4_shoulder_ratio": 1.1438850543600847,
+      "s4_extreme_ratio": 1.321561548008575,
+      "s7_layer2_pass_count": 1,
+      "s7_layer2_total": 8,
+      "s7_catastrophic_rate": 0.04431725265739984,
+      "s8_bad_window_rate": 0.03761242845461979
+    },
+    "184c_best": {
+      "s2_overall_90": 0.8402038702643773,
+      "s3_turb_calm_ratio": 1.1124083995819092,
+      "s3_worst_cell_width_ratio": 5.297420299700774,
+      "s4_kurtosis_ratio": 0.5068521721784224,
+      "s4_quiet_ratio": 0.8318296440316315,
+      "s4_shoulder_ratio": 1.1431983478945178,
+      "s4_extreme_ratio": 1.3185151754484936,
+      "s7_layer2_pass_count": 1,
+      "s7_layer2_total": 8,
+      "s7_catastrophic_rate": 0.044677023712183156,
+      "s8_bad_window_rate": 0.03761242845461979
+    },
+    "delta_184c_minus_183c": {
+      "s2_overall_90": -0.0008263832106840674,
+      "s3_turb_calm_ratio": 0.0008931159973144531,
+      "s3_worst_cell_width_ratio": -0.016914165348561383,
+      "s4_kurtosis_ratio": -0.0001094721190533221,
+      "s4_quiet_ratio": 0.0007195153308642288,
+      "s4_shoulder_ratio": -0.0006867064655668997,
+      "s4_extreme_ratio": -0.003046372560081334,
+      "s7_layer2_pass_count": 0,
+      "s7_catastrophic_rate": 0.00035977105478331856,
+      "s8_bad_window_rate": 0.0
+    }
+  },
+  "diagnosis": {
+    "operator": "184c did not meaningfully test the sparse precision idea on the benchmarked best checkpoint. The latent activity gate collapsed by roughly four orders of magnitude relative to 184b_best, the precision delta shrank to near zero, the node allocation remained diffuse, and the local kernel stayed effectively uniform.",
+    "frontier": "Because the sparse precision path was mostly off, 184c_best ended up preserving the old 183c broad profile rather than improving the hard concentration frontier. S2/S8 stayed broadly intact, while S3/S4/S7 remained essentially unchanged.",
+    "why_s3_s7_remain": "The unresolved issue is still under-concentration of residual mass on hard turbulent late-horizon cells. 183c already had the right directional signal; 184c did not sharpen that signal enough to change target-cell contrast in practice.",
+    "why_s4_remains": "The tightened S4 failure is consistent with the operator being off: quiet mass remains too low and shoulder/extreme mass remains too high because the transport never became selectively sparse.",
+    "is_generalized_path_dead": "No. The generalized mean/covariance/pathwise residual-law direction is still valid. What failed here is the specific 184c gating parameterization, not the broader geometry-aware latent-activity path."
+  },
+  "next_step": {
+    "recommendation": "Do not build another sparse-precision patch with a free multiplicative gate. The next principled generalized move is a latent residual activity mixture of operators: quiet operator versus event operator, with posterior-guided training so the event branch cannot collapse to zero while still remaining a learned latent state rather than a hand-labeled regime.",
+    "candidate_branch": "184d_latent_activity_operator_mixture",
+    "why": [
+      "It preserves the generalized mean/covariance/pathwise residual-law backbone.",
+      "It keeps geometry abstraction intact: grid now, graph/group later.",
+      "It addresses the measured failure mode directly: the new operator was present in code but nearly absent in use."
+    ],
+    "avoid": [
+      "Do not do another blind sparse gating tweak.",
+      "Do not broaden the benchmark again before fixing operator engagement.",
+      "Do not interpret 184c as evidence that generalized fixes cannot solve S3/S4/S7."
+    ]
+  }
+}

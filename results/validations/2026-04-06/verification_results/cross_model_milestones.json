@@ -1,0 +1,83 @@
+{
+  "generated": "2026-04-06T11:02:13.802820",
+  "task": "cross_model_milestone_comparison",
+  "models_found": [
+    "176b",
+    "177a",
+    "178b",
+    "179b",
+    "182a",
+    "183a",
+    "183c",
+    "185a",
+    "186a"
+  ],
+  "models_missing": [],
+  "pass_counts": {
+    "176b": "7/9",
+    "177a": "7/10",
+    "178b": "7/10",
+    "179b": "6/11",
+    "182a": "7/11",
+    "183a": "8/11",
+    "183c": "9/11",
+    "185a": "6/11",
+    "186a": "5/11"
+  },
+  "best_model": "183c",
+  "best_score": 9,
+  "pareto_optimal": [
+    "183c"
+  ],
+  "universal_failures": [
+    "S3",
+    "S7"
+  ],
+  "universal_passes": [
+    "S1",
+    "S5",
+    "S6"
+  ],
+  "harness_versions_seen": [
+    "v2_s3fixed",
+    "v2_s3mr",
+    "v2_s3mrj",
+    "v2_s3mrjspec"
+  ],
+  "inconsistency_count": 5,
+  "inconsistencies": [
+    {
+      "type": "universal_failure",
+      "suite": "S3.worst_cell_wr"
+    },
+    {
+      "type": "harness_gate_change",
+      "suite": "S4"
+    },
+    {
+      "type": "sub_pass_contradiction",
+      "suite": "S10"
+    },
+    {
+      "type": "universal_failure",
+      "suite": "S7"
+    },
+    {
+      "type": "regression",
+      "suite": "overall"
+    }
+  ],
+  "regression_detected": true,
+  "regression_detail": "183c (9/11) -> 185a (6/11) -> 186a (5/11)",
+  "key_findings": [
+    "183c is the clear best model at 9/11 suites passed",
+    "S3 (conditionality) and S7 (regime coverage) fail for ALL models",
+    "S1 (surface), S5 (block-AR), S6 (cointegration) pass for ALL models",
+    "S4 kurtosis gate tightened in v2_s3mrjspec (0.8-1.25) vs earlier (0.5-2.0)",
+    "176b 7/9 not directly comparable to 183c 9/11 due to harness expansion (9 vs 11 suites)",
+    "Post-183c experiments (185a, 186a) show clear regression",
+    "S7 layer2 (regime-cell coverage) is the single hardest remaining gate (best: 3/8)",
+    "Mean-reversion (S10) full-horizon check is stricter than single-step"
+  ],
+  "markdown_report": "# Cross-Model Milestone Comparison\n\nGenerated: 2026-04-06 11:02\n\n## Suite Pass/Fail Overview\n\n| Model | Harness | Score | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 | S10 | S11 |\n|-------|---------|-------|----|----|----|----|----|----|----|----|----|----|----|\n| **176b** | v2_s3fixed | **7/9** | P | P | **F** | P | P | P | **F** | P | P | n/a | n/a |\n| **177a** | v2_s3mr | **7/10** | P | **F** | **F** | P | P | P | **F** | P | P | P | n/a |\n| **178b** | v2_s3mr | **7/10** | P | **F** | **F** | P | P | P | **F** | P | P | P | n/a |\n| **179b** | v2_s3mrj | **6/11** | P | **F** | **F** | **F** | P | P | **F** | P | P | P | **F** |\n| **182a** | v2_s3mrj | **7/11** | P | P | **F** | **F** | P | P | **F** | P | P | **F** | P |\n| **183a** | v2_s3mrj | **8/11** | P | P | **F** | **F** | P | P | **F** | P | P | P | P |\n| **183c** | v2_s3mrj | **9/11** | P | P | **F** | P | P | P | **F** | P | P | P | P |\n| **185a** | v2_s3mrjspec | **6/11** | P | P | **F** | **F** | P | P | **F** | **F** | P | **F** | P |\n| **186a** | v2_s3mrjspec | **5/11** | P | **F** | **F** | **F** | P | P | **F** | **F** | P | P | **F** |\n\n## Key Metrics Detail\n\n### Coverage (S2), Conditionality (S3), Time Series (S4)\n\n| Model | S2 Cov90 | S2 WC | S3 T/C | S3 WC_WR | S3 MAE% | S4 Kurt | S4 ACF |\n|-------|----------|-------|--------|----------|---------|---------|--------|\n| 176b | 0.8327 | PASS | 1.1648 | 2.7562 | 88.8 | 0.8156 | 0.9674 |\n| 177a | 0.8523 | FAIL | 1.1413 | 2.5108 | 89.8 | 0.7434 | 0.9632 |\n| 178b | 0.8108 | FAIL | 1.1527 | 2.9887 | 89.8 | 0.7238 | 0.9632 |\n| 179b | 0.8522 | FAIL | 1.0311 | 4.2173 | 88.4 | 0.4732 | 0.9750 |\n| 182a | 0.8256 | PASS | 1.1021 | 5.3970 | 89.9 | 0.4855 | 0.9857 |\n| 183a | 0.8231 | PASS | 1.1020 | 5.3861 | 89.9 | 0.4841 | 0.9853 |\n| 183c | 0.8410 | PASS | 1.1115 | 5.3143 | 90.0 | 0.5070 | 0.9851 |\n| 185a | 0.7976 | PASS | 1.0934 | 5.1778 | 90.0 | 0.5304 | 0.9852 |\n| 186a | 0.8791 | FAIL | 1.0916 | 4.3915 | 89.6 | 0.5149 | 0.9857 |\n\n### Regime Coverage (S7), Cross-Cell Correlation (S9)\n\n| Model | S7 L1 | S7 L2 n/N | S7 Catastrophic | S9 Corr | S9 Rank |\n|-------|-------|-----------|-----------------|---------|---------|\n| 176b | PASS | 2/8 | 0.0412 | 0.9715 | 1.1469 |\n| 177a | PASS | 3/8 | 0.0394 | 1.0490 | 1.0246 |\n| 178b | PASS | 3/8 | 0.0515 | 0.9943 | 1.1006 |\n| 179b | PASS | 0/8 | 0.0375 | 0.8620 | 1.2630 |\n| 182a | PASS | 1/8 | 0.0520 | 0.9397 | 1.1685 |\n| 183a | PASS | 1/8 | 0.0531 | 0.9414 | 1.1666 |\n| 183c | PASS | 1/8 | 0.0443 | 0.9690 | 1.1289 |\n| 185a | PASS | 1/8 | 0.0647 | 0.9710 | 1.1270 |\n| 186a | PASS | 1/8 | 0.0284 | 0.9275 | 1.1943 |\n\n### Mean Reversion (S10), Jump Realism (S11)\n\n| Model | S10 MR/GT | S10 Slope Corr | S10 FH | S11 Jump KS | S11 Extreme |\n|-------|-----------|----------------|--------|-------------|-------------|\n| 176b | -- | -- | -- | -- | -- |\n| 177a | 0.9533 | 0.9197 | -- | -- | -- |\n| 178b | 0.8494 | 0.9090 | -- | -- | -- |\n| 179b | 1.1663 | 0.8031 | PASS | 0.3760 | 1.0238 |\n| 182a | 1.1954 | 0.8790 | FAIL | 0.1320 | 1.0147 |\n| 183a | 1.1940 | 0.8805 | PASS | 0.1330 | 1.0146 |\n| 183c | 1.2117 | 0.8955 | PASS | 0.1316 | 1.0119 |\n| 185a | 1.0509 | 0.9160 | FAIL | 0.1878 | 1.0038 |\n| 186a | 1.2752 | 0.9023 | PASS | 0.3097 | 1.0253 |\n\n## Pareto-Optimal Models\n\nModels not dominated by any other model (no other model passes a strict superset of suites):\n\n- **183c** (9/11): S1, S10, S11, S2, S4, S5, S6, S8, S9\n  - Best overall model: 9/11 suites. Tuned 183a variant.\n\n## Harness Version Inconsistencies\n\n### [universal_failure] S3.worst_cell_wr\n\nworst_cell_wr_pass=False for ALL models despite ratios 2.5-5.4. This sub-gate appears structurally impossible or has a different meaning than expected (possibly requires ALL cells above threshold).\n\n### [harness_gate_change] S4\n\nS4 kurtosis gate appears to have changed: 176b passes at ratio=0.8156 (v2_s3fixed, no gate recorded), 183c passes at ratio=0.5070 (v2_s3mrj), 179b fails at ratio=0.4732 (v2_s3mrj). 185a/186a show gate_lo=0.8, gate_hi=1.25 (v2_s3mrjspec). Earlier harness used gate_lo=0.5, later tightened to 0.8.\n\n### [sub_pass_contradiction] S10\n\n182a: aggregate_pass=True, active_pass=True, corr_pass=True, but full_horizon.overall_pass=False (active_profile_pass=False). The full-horizon multi-step check is a stricter gate than the single-step aggregate.\n\n### [universal_failure] S7\n\nS7 layer2_pass=False for ALL 9 models. Layer2 regime-cell coverage is the universal blocker. Best: 177a/178b at 3/8, most at 1/8. This is the hardest remaining suite.\n\n### [regression] overall\n\nClear regression after 183c peak: 183c=9/11, 185a=6/11, 186a=5/11. 185a lost S4,S8,S10. 186a further lost S2,S8,S11.\n\n\n## Evolution Narrative\n\n| Phase | Model | Score | Key Change | Gain/Loss |\n|-------|-------|-------|------------|----------|\n| Breakthrough | 176b | 7/9 | First 7/9 via widened decoder | +7 (from baseline) |\n| Harness expand | 177a | 7/10 | Added S10 mean-reversion | Lost S2, gained S10 |\n| Architecture | 178b | 7/10 | Block-routed decoder | No change from 177a |\n| Noise model | 179b | 6/11 | Cov mixture + S11 jump test | Lost S4, gained nothing net |\n| Residual law | 182a | 7/11 | Pathwise residual | Gained S2, S11; lost S4, S10 |\n| Transport | 183a | 8/11 | Integrated transport operator | Gained S10 back |\n| Tuning | 183c | 9/11 | Tuned 183a variant | Gained S4 -> **PEAK** |\n| Event-path | 185a | 6/11 | Event-path conditioning | Lost S4, S8, S10 |\n| Reweight | 186a | 5/11 | Objective reweighting | Lost S2, S11 further |\n"
+}
