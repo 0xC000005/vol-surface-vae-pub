@@ -9,12 +9,13 @@ Baselines:
     3. UnconditionalBootstrap — resample daily changes (preserving cross-cell), cumsum
     4. PCAVARBaseline — PCA on surfaces, VAR(1) on factors, bootstrap residuals
     5. GARCHCCCBaseline — EWMA variance per cell + constant conditional correlation
-    6. FilteredHistoricalSimulation — EWMA variance + bootstrap standardized residuals
+    6. DCCGARCHBaseline — GARCH per cell + Dynamic Conditional Correlation
+    7. FilteredHistoricalSimulation — EWMA variance + bootstrap standardized residuals
 """
 
 import numpy as np
 import torch
-from scipy import stats as sp_stats
+from scipy import optimize, stats as sp_stats
 
 
 def denormalize_iv(x: torch.Tensor) -> torch.Tensor:
@@ -350,6 +351,7 @@ class GARCHCCCBaseline(BaselineModel):
 
         # CCC: correlation of standardized residuals
         std_flat = std_residuals_all.reshape(N, 25)
+        self.std_residuals_train = std_flat.astype(np.float32)
         self.corr_matrix = np.corrcoef(std_flat.T)
         # Ensure PSD
         eigvals, eigvecs = np.linalg.eigh(self.corr_matrix)
@@ -421,7 +423,209 @@ class GARCHCCCBaseline(BaselineModel):
 
 
 # =============================================================================
-# 6. Filtered Historical Simulation (EWMA + bootstrap actual residuals)
+# 6. GARCH(1,1) + Dynamic Conditional Correlation (DCC)
+# =============================================================================
+
+class DCCGARCHBaseline(GARCHCCCBaseline):
+    """GARCH(1,1) per cell + Dynamic Conditional Correlation (DCC(1,1)).
+
+    This is the natural dynamic-correlation extension of GARCHCCCBaseline:
+        H_t = D_t R_t D_t
+        Q_t = (1-a-b) * Qbar + a * z_{t-1} z_{t-1}' + b * Q_{t-1}
+        R_t = diag(Q_t)^(-1/2) Q_t diag(Q_t)^(-1/2)
+
+    We keep the repo's existing per-cell Student-t GARCH fit and estimate the
+    DCC parameters (a, b) on standardized residuals using a Gaussian
+    quasi-likelihood over a subsample of the training history.
+    """
+
+    def __init__(
+        self,
+        surfaces: np.ndarray,
+        future_len: int = 30,
+        fit_sample_size: int = 1500,
+    ):
+        super().__init__(surfaces, future_len=future_len)
+
+        z = self.std_residuals_train.astype(np.float64)
+        z = z[np.all(np.isfinite(z), axis=1)]
+        z = z - z.mean(axis=0, keepdims=True)
+        z = z / np.maximum(z.std(axis=0, keepdims=True), 1e-6)
+
+        if fit_sample_size and len(z) > fit_sample_size:
+            idx = np.linspace(0, len(z) - 1, fit_sample_size).round().astype(int)
+            z_fit = z[idx]
+        else:
+            z_fit = z
+
+        self.q_bar = self._project_psd(np.corrcoef(z_fit.T))
+        self.dcc_a, self.dcc_b = self._fit_dcc_params(z_fit, self.q_bar)
+
+        print(
+            f"    DCC params: a={self.dcc_a:.4f}, b={self.dcc_b:.4f}, "
+            f"a+b={self.dcc_a + self.dcc_b:.4f}"
+        )
+
+    @staticmethod
+    def _project_psd(matrix: np.ndarray, eps: float = 1e-8) -> np.ndarray:
+        matrix = np.asarray(matrix, dtype=np.float64)
+        matrix = 0.5 * (matrix + matrix.T)
+        eigvals, eigvecs = np.linalg.eigh(matrix)
+        eigvals = np.maximum(eigvals, eps)
+        return eigvecs @ np.diag(eigvals) @ eigvecs.T
+
+    @classmethod
+    def _corr_from_q(cls, q: np.ndarray) -> np.ndarray:
+        q = cls._project_psd(q)
+        diag = np.sqrt(np.maximum(np.diag(q), 1e-10))
+        corr = q / np.outer(diag, diag)
+        corr = 0.5 * (corr + corr.T)
+        corr = cls._project_psd(corr)
+        diag = np.sqrt(np.maximum(np.diag(corr), 1e-10))
+        corr = corr / np.outer(diag, diag)
+        np.fill_diagonal(corr, 1.0)
+        return corr
+
+    @classmethod
+    def _dcc_negloglik(
+        cls,
+        params: tuple[float, float] | np.ndarray,
+        z: np.ndarray,
+        q_bar: np.ndarray,
+    ) -> float:
+        a, b = float(params[0]), float(params[1])
+        if a < 0.0 or b < 0.0 or a + b >= 0.995:
+            return 1e12
+
+        q_t = q_bar.copy()
+        total = 0.0
+        ident = np.eye(q_bar.shape[0], dtype=np.float64)
+
+        for z_t in z:
+            r_t = cls._corr_from_q(q_t)
+            try:
+                chol = np.linalg.cholesky(r_t + 1e-10 * ident)
+            except np.linalg.LinAlgError:
+                return 1e12
+
+            logdet = 2.0 * np.log(np.diag(chol)).sum()
+            solved = np.linalg.solve(chol, z_t)
+            quad = float(solved @ solved)
+            total += logdet + quad
+
+            q_t = (1.0 - a - b) * q_bar + a * np.outer(z_t, z_t) + b * q_t
+            q_t = 0.5 * (q_t + q_t.T)
+
+        return 0.5 * total / max(len(z), 1)
+
+    @classmethod
+    def _fit_dcc_params(
+        cls,
+        z: np.ndarray,
+        q_bar: np.ndarray,
+    ) -> tuple[float, float]:
+        grid = [
+            (a, b)
+            for a in (0.01, 0.02, 0.03, 0.05, 0.08, 0.10)
+            for b in (0.85, 0.90, 0.94, 0.97)
+            if a + b < 0.995
+        ]
+        best = min(grid, key=lambda ab: cls._dcc_negloglik(ab, z, q_bar))
+
+        result = optimize.minimize(
+            lambda x: cls._dcc_negloglik(x, z, q_bar),
+            x0=np.array(best, dtype=np.float64),
+            method="L-BFGS-B",
+            bounds=[(1e-4, 0.25), (1e-4, 0.995)],
+            options={"maxiter": 40},
+        )
+
+        if result.success:
+            a_opt, b_opt = map(float, result.x)
+            if a_opt >= 0.0 and b_opt >= 0.0 and a_opt + b_opt < 0.995:
+                return a_opt, b_opt
+
+        return float(best[0]), float(best[1])
+
+    def _dcc_state_from_history(
+        self, history_denorm: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        changes = np.diff(history_denorm, axis=0)
+        residuals = changes - self.cell_mean
+
+        var = self.uncond_var.copy()
+        q_t = self.q_bar.copy()
+
+        for resid in residuals:
+            std = np.sqrt(np.maximum(var, 1e-12))
+            z_t = np.clip((resid / std).reshape(25), -10.0, 10.0)
+            q_t = (
+                (1.0 - self.dcc_a - self.dcc_b) * self.q_bar
+                + self.dcc_a * np.outer(z_t, z_t)
+                + self.dcc_b * q_t
+            )
+            q_t = 0.5 * (q_t + q_t.T)
+
+            var = self.omega + self.alpha * resid ** 2 + self.beta * var
+            var = np.maximum(var, 1e-12)
+
+        return var, q_t
+
+    def sample(
+        self, history: torch.Tensor, n_samples: int = 50, **kwargs
+    ) -> torch.Tensor:
+        history_denorm = denormalize_iv(history).cpu().numpy()
+        bsz = history_denorm.shape[0]
+
+        all_samples = np.zeros(
+            (bsz, n_samples, self.future_len, 5, 5), dtype=np.float32
+        )
+        ident = np.eye(25, dtype=np.float64)
+
+        for b in range(bsz):
+            last_surface = history_denorm[b, -1]
+            cond_var, q_hist = self._dcc_state_from_history(history_denorm[b])
+
+            for s in range(n_samples):
+                surface = last_surface.copy()
+                var = cond_var.copy()
+                q_t = q_hist.copy()
+
+                for t in range(self.future_len):
+                    r_t = self._corr_from_q(q_t)
+                    chol = np.linalg.cholesky(r_t + 1e-10 * ident)
+
+                    g = np.random.standard_normal(25)
+                    w = np.random.chisquare(self.pooled_df)
+                    z_corr = chol @ g / np.sqrt(w / self.pooled_df)
+                    z_grid = z_corr.reshape(5, 5)
+
+                    std = np.sqrt(var)
+                    change = self.cell_mean + std * z_grid
+                    surface = surface + change
+
+                    resid = change - self.cell_mean
+                    z_t = np.clip((resid / np.maximum(std, 1e-12)).reshape(25), -10.0, 10.0)
+                    q_t = (
+                        (1.0 - self.dcc_a - self.dcc_b) * self.q_bar
+                        + self.dcc_a * np.outer(z_t, z_t)
+                        + self.dcc_b * q_t
+                    )
+                    q_t = 0.5 * (q_t + q_t.T)
+
+                    var = self.omega + self.alpha * resid ** 2 + self.beta * var
+                    var = np.maximum(var, 1e-12)
+
+                    all_samples[b, s, t] = surface
+
+        samples = torch.tensor(
+            all_samples, dtype=history.dtype, device=history.device
+        )
+        return samples.clamp(0.0, 1.0)
+
+
+# =============================================================================
+# 7. Filtered Historical Simulation (EWMA + bootstrap actual residuals)
 # =============================================================================
 
 class FilteredHistoricalSimulation(BaselineModel):

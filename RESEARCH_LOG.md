@@ -63719,3 +63719,563 @@ Both best models pass the 252-day long-horizon test:
 All HIGH priority gaps are now filled except multi-seed verification.
 
 ---
+
+## 2026-04-06 to 2026-04-07 - Reconstructed tail after accidental overwrite
+
+Note:
+
+- The uncommitted tail of `RESEARCH_LOG.md` after the last committed entry on `2026-04-06 11:17 EDT` was accidentally overwritten on `2026-04-07`.
+- The entries below are reconstructed from the saved artifact trail on disk, not copied from the lost buffer verbatim.
+- The linked specs, memos, checkpoints, and summary files are the source of truth for this reconstructed segment.
+
+## 2026-04-06 late session - AR pivot and pre-194 design trail
+
+Artifacts:
+
+- [187a_latent_sparse_support_residual_memo.md](results/validations/2026-04-06/analysis/187_design/187a_latent_sparse_support_residual_memo.md)
+- [187a_sparse_support_residual_implementation_spec.md](results/validations/2026-04-06/analysis/187_design/187a_sparse_support_residual_implementation_spec.md)
+- [187b_underfit_support_residual_implementation_spec.md](results/validations/2026-04-06/analysis/187_design/187b_underfit_support_residual_implementation_spec.md)
+- [187c_discrete_budgeted_support_implementation_spec.md](results/validations/2026-04-06/analysis/187_design/187c_discrete_budgeted_support_implementation_spec.md)
+- [188a_graph_group_marked_event_residual_memo.md](results/validations/2026-04-06/analysis/188_design/188a_graph_group_marked_event_residual_memo.md)
+- [188a_graph_group_marked_event_residual_implementation_spec.md](results/validations/2026-04-06/analysis/188_design/188a_graph_group_marked_event_residual_implementation_spec.md)
+- [188b_amplitude_gated_marked_event_spec.md](results/validations/2026-04-06/analysis/188_design/188b_amplitude_gated_marked_event_spec.md)
+- [189a_structured_condition_interface_spec.md](results/validations/2026-04-06/analysis/189_design/189a_structured_condition_interface_spec.md)
+- [190a_constrained_reallocation_objective_spec.md](results/validations/2026-04-06/analysis/190_design/190a_constrained_reallocation_objective_spec.md)
+
+Read:
+
+- After the smooth-transport family plateau, the repo opened a sequence of sparse-support, marked-event, and structured-conditioning design branches.
+- The common theme was to replace broad smooth reallocation with more selective residual/event structure.
+- This design trail led directly into the later `191x` through `195x` AR/event experiments.
+
+## 2026-04-06 late session - 191a AR reallocation branch
+
+Artifacts:
+
+- [191a_ar_reallocation_student_t_spec.md](results/validations/2026-04-06/analysis/191_design/191a_ar_reallocation_student_t_spec.md)
+- [191a_best summary](results/block_ar/191a_best_v2_s3mrjspec_full_30d/summary.json)
+- [191a_final summary](results/block_ar/191a_final_v2_s3mrjspec_full_30d/summary.json)
+
+Read:
+
+- `191a` was the first direct AR reallocation attempt on this branch.
+- It showed regime sensitivity but did not localize correctly.
+- The branch mainly reallocated by broadening width rather than concentrating support on the real hard cells.
+- Later review conclusion in this research line: the sparse head was active but misaligned, and later training mostly inflated scale.
+
+## 2026-04-06 late session - 192a AR copula / flow branch
+
+Artifacts:
+
+- [192a_diligence_memo.md](results/validations/2026-04-06/analysis/192_design/192a_diligence_memo.md)
+- [192a_graph_ar_conditional_copula_spec.md](results/validations/2026-04-06/analysis/192_design/192a_graph_ar_conditional_copula_spec.md)
+- [192a_best summary](results/block_ar/192a_best_v2_s3mrjspec_full_30d/summary.json)
+- [192a_final summary](results/block_ar/192a_final_v2_s3mrjspec_full_30d/summary.json)
+
+Read:
+
+- `192a` was the cleanest AR copula / flow attempt in this period.
+- Teacher-forced local behavior improved materially, but rollout still destroyed the law.
+- The branch established an important empirical lesson that kept recurring:
+  - local one-step fit can look reasonable,
+  - while the self-fed sampled innovation law is still wrong under rollout.
+
+## 2026-04-06 late session - 193a / 193b latent-factor AR branch
+
+Artifacts:
+
+- [193a_graph_ar_latent_factor_innovation_spec.md](results/validations/2026-04-06/analysis/193_design/193a_graph_ar_latent_factor_innovation_spec.md)
+- [193b_reparameterized_rollout_latent_factor_spec.md](results/validations/2026-04-06/analysis/193_design/193b_reparameterized_rollout_latent_factor_spec.md)
+- [193a_best summary](results/block_ar/193a_best_v2_s3mrjspec_full_30d/summary.json)
+- [193a_final summary](results/block_ar/193a_final_v2_s3mrjspec_full_30d/summary.json)
+- [193b_best summary](results/block_ar/193b_best_v2_s3mrjspec_full_30d/summary.json)
+- [193b_final summary](results/block_ar/193b_final_v2_s3mrjspec_full_30d/summary.json)
+
+Read:
+
+- `193a/193b` moved to latent-factor innovation structure to preserve cross-cell geometry better than the whitening-heavy `192a` line.
+- They did preserve structure better, but remained too broad already in teacher forcing, and rollout still did not solve the real frontier.
+- These branches became part of the later conclusion that the only still-live AR family was the cleaner `169c -> 201x` line, not the `192x/193x` family.
+
+## 2026-04-06 late session - 194a regime-switching AR latent factor opened
+
+Artifacts:
+
+- [194a_regime_switching_ar_latent_factor_spec.md](results/validations/2026-04-06/analysis/194_design/194a_regime_switching_ar_latent_factor_spec.md)
+
+Read:
+
+- `194a` opened the regime-switching AR latent-factor family.
+- The key intuition was that the repo might need explicit quiet-vs-broad latent states rather than one continuous innovation law.
+
+## 2026-04-07 - 194a mechanism review
+
+Artifacts:
+
+- [analyze_194a_regime_switching_mechanism.py](experiments/backfill/block_ar/analyze_194a_regime_switching_mechanism.py)
+- [194a mechanistic summary](results/validations/2026-04-07/analysis/194a_regime_switching_mechanistic/mechanistic_summary.json)
+
+Main read:
+
+- The regime path was alive and non-collapsed.
+- The quiet state was not the main problem.
+- The failure was that the broader states activated in the wrong windows:
+  - high-state occupancy at `h30` was higher in calm than turbulent windows,
+  - high-state alignment with hard late turbulent points was basically zero.
+
+Conclusion:
+
+- `194a` was the first AR family where the abstraction looked partly right, but the state semantics were wrong.
+- That justified a narrow semantic-alignment follow-up rather than a generic width tweak.
+
+## 2026-04-07 - 194b semantic-alignment follow-up
+
+Artifacts:
+
+- [194b_semantic_alignment_spec.md](results/validations/2026-04-07/analysis/194_design/194b_semantic_alignment_spec.md)
+- [194b_best summary](results/block_ar/194b_best_v2_s3mrjspec_full_30d/summary.json)
+- [194b_final summary](results/block_ar/194b_final_v2_s3mrjspec_full_30d/summary.json)
+- [194b mechanism summary](results/validations/2026-04-07/analysis/194b_regime_switching_mechanistic/mechanistic_summary.json)
+
+Main read:
+
+- `194b` improved some symptoms:
+  - kurtosis passed,
+  - some regime-cell coverage improved,
+  - jump KS improved somewhat.
+- But the semantic fix did not really solve state alignment.
+- High-state activation remained calm-biased and hard-state correlation remained near zero.
+
+Conclusion:
+
+- The family still did not create a true quiet-vs-event split.
+- This justified one simplification test rather than more 3-state tuning.
+
+## 2026-04-07 - 194c true 2-state quiet/event simplification
+
+Artifacts:
+
+- [194c_two_state_quiet_event_spec.md](results/validations/2026-04-07/analysis/194_design/194c_two_state_quiet_event_spec.md)
+- [194c_best summary](results/block_ar/194c_best_v2_s3mrjspec_full_30d/summary.json)
+- [194c_final summary](results/block_ar/194c_final_v2_s3mrjspec_full_30d/summary.json)
+- [194c mechanism summary](results/validations/2026-04-07/analysis/194c_two_state_mechanistic/mechanistic_summary.json)
+
+Main read:
+
+- `194c` was better than `194b` but still not a frontier break.
+- It simplified the family correctly, but the event state still did not target hard late cells:
+  - event occupancy remained higher in calm than turbulent windows,
+  - hard-vs-event correlation remained near zero.
+
+Conclusion:
+
+- The event state helped path realism but was still too coarse.
+- This led to targeted localization/generalization testing instead of blind continuation.
+
+## 2026-04-07 - Localization and generalization pretests; 195a feasibility
+
+Artifacts:
+
+- [194c_localization_gap summary](results/validations/2026-04-07/analysis/194c_localization_gap/summary.json)
+- [194c_split_generalization summary](results/validations/2026-04-07/analysis/194c_split_generalization/summary.json)
+- [195a_localized_event_feasibility summary](results/validations/2026-04-07/analysis/195a_localized_event_feasibility/summary.json)
+
+Main read:
+
+- The failure was **not mainly a train/val/test split problem**.
+- The remaining miss was localized and window-specific.
+- `194c`’s event uplift stayed too template-like.
+- A simple localized anchor+kernel object fit the hard turbulent `h30` misses far better than the current event effect.
+
+Conclusion:
+
+- That empirically justified one localized-event AR test as a replacement-style change.
+
+## 2026-04-07 - 195a localized marked-event AR
+
+Artifacts:
+
+- [195a_localized_marked_event_ar_spec.md](results/validations/2026-04-07/analysis/195_design/195a_localized_marked_event_ar_spec.md)
+- [195a_best summary](results/block_ar/195a_best_v2_s3mrjspec_full_30d/summary.json)
+- [195a_final summary](results/block_ar/195a_final_v2_s3mrjspec_full_30d/summary.json)
+
+Main read:
+
+- `195a` was a real localized-event test but still negative overall.
+- It improved some direct targeting symptoms and some layer-2 coverage.
+- It did not break the main frontier:
+  - overcoverage remained bad,
+  - conditional targeting remained weak,
+  - full-horizon mean reversion still failed.
+
+Conclusion:
+
+- The localized event object helped some symptoms but the `194x/195x` AR family still stayed too broad overall.
+
+## 2026-04-07 - Repo-level failure audit
+
+Artifacts:
+
+- [196a_repo_failure_audit.md](results/validations/2026-04-07/analysis/196_design/196a_repo_failure_audit.md)
+
+Main read:
+
+- Shared passes across `183c_best`, `169c_best`, `194c_best`, and `195a_best`: `S1`, `S5`, `S6`, `S9`
+- Shared failures across all four: `S3`, `S4`, `S7`
+- Tradeoff suites: `S2`, `S8`, `S10`, `S11`
+
+Conclusion:
+
+- The repo frontier was behaving like a real cross-family tradeoff, not one missing tweak.
+- `183c_best` remained the strict overall anchor.
+
+## 2026-04-07 - Phase reset, literature diligence, and brainstorm
+
+Artifacts:
+
+- [197a_retrieval_conditioned_scenario_phase_memo.md](results/validations/2026-04-07/analysis/197_design/197a_retrieval_conditioned_scenario_phase_memo.md)
+- [197a_retrieval_conditioned_scenario_spec.md](results/validations/2026-04-07/analysis/197_design/197a_retrieval_conditioned_scenario_spec.md)
+- [197a_literature_diligence_memo.md](results/validations/2026-04-07/analysis/197_design/197a_literature_diligence_memo.md)
+- [197b_conditional_scenario_generation_brainstorm.md](results/validations/2026-04-07/analysis/197_design/197b_conditional_scenario_generation_brainstorm.md)
+- [197c_ranked_shortlist.md](results/validations/2026-04-07/analysis/197_design/197c_ranked_shortlist.md)
+
+Main read:
+
+- Retrieval was researched and found to be literature-backed, but hard commitment was not strongly justified.
+- The broader brainstorm converged on:
+  - learned discrete future motifs,
+  - attentional copulas,
+  - switching state-space / latent-dynamics variants,
+  as the main plausible next families.
+- The ranked shortlist favored discrete motifs as the best balance of novelty and plausibility.
+
+## 2026-04-07 - 198 pretests: discrete motifs vs copula branch
+
+Artifacts:
+
+- [198_pretests_summary.md](results/validations/2026-04-07/analysis/198_design/198_pretests_summary.md)
+- [198a_discrete_motif_feasibility summary](results/validations/2026-04-07/analysis/198_design/198a_discrete_motif_feasibility/summary.json)
+- [198a_routing_feasibility.md](results/validations/2026-04-07/analysis/198_design/198a_routing_feasibility.md)
+- [198a_routing_feasibility summary](results/validations/2026-04-07/analysis/198_design/198a_routing_feasibility/summary.json)
+- [198b_copula_branch_feasibility summary](results/validations/2026-04-07/analysis/198_design/198b_copula_branch_feasibility/summary.json)
+- [198b_copula_failure_review.md](results/validations/2026-04-07/analysis/198_design/198b_copula_failure_review.md)
+
+Main read:
+
+- `198b` copula-only was a clear negative:
+  - widths/conditionality did not move,
+  - path realism degraded,
+  - the branch should be killed as a standalone move.
+- `198a` discrete motifs showed oracle representational signal, but routing from history remained weak.
+
+Conclusion:
+
+- Neither branch earned blind implementation.
+- This pushed the repo back toward a training-first AR continuation rather than a clean architecture reset.
+
+## 2026-04-07 - 199a spec opened, then AR sparse-case preparation
+
+Artifacts:
+
+- [199a_transformer_attentional_copula_spec.md](results/validations/2026-04-07/analysis/199_design/199a_transformer_attentional_copula_spec.md)
+- [200f_ar_sparse_case_preparation_memo.md](results/validations/2026-04-07/analysis/200_design/200f_ar_sparse_case_preparation_memo.md)
+- [200a_ar_sparse_case_audit summary](results/validations/2026-04-07/analysis/200_design/200a_ar_sparse_case_audit/summary.json)
+- [200b_169c_h1_tail_fit summary](results/validations/2026-04-07/analysis/200_design/200b_169c_h1_tail_fit/summary.json)
+- [200c_169c_rollout_gap_concentration summary](results/validations/2026-04-07/analysis/200_design/200c_169c_rollout_gap_concentration/summary.json)
+- [200d_sparse_case_predictability summary](results/validations/2026-04-07/analysis/200_design/200d_sparse_case_predictability/summary.json)
+- [200e_tail_weighting_leverage summary](results/validations/2026-04-07/analysis/200_design/200e_tail_weighting_leverage/summary.json)
+
+Main read:
+
+- The repo pivoted back to AR with a cleaner diagnosis.
+- Sparse cases were small but not dismissible:
+  - raw `q99` cell-day tails about `1%`,
+  - hard late windows about `4%`.
+- `169c` was already decent at `H=1` on average but poor on realized tail cells.
+- Rollout materially worsened the hard-late sparse cases.
+
+Conclusion:
+
+- The next live AR branch should change the training geometry first:
+  - rollout-consistent training,
+  - tail-aware weighting,
+  - without adding bespoke event mechanics at the start.
+
+## 2026-04-07 - 201a rollout-consistent tail-aware Transformer AR
+
+Artifacts:
+
+- [201a_transformer_ar_rollout_tail_student_t_spec.md](results/validations/2026-04-07/analysis/201_design/201a_transformer_ar_rollout_tail_student_t_spec.md)
+- [201a_best summary](results/block_ar/201a_best_v2_s3mrjspec_full_30d/summary.json)
+- [201a_final summary](results/block_ar/201a_final_v2_s3mrjspec_full_30d/summary.json)
+- [201a_transformer_rollout_mechanistic.md](results/validations/2026-04-07/analysis/201a_transformer_rollout_mechanistic/201a_transformer_rollout_mechanistic.md)
+
+Main read:
+
+- `201a` was the first clean training-geometry test of the revived AR line.
+- It improved sparse-case behavior over `169c`, especially on `H=1` realized `q99` coverage and hard-late rollout coverage gaps.
+- But it did so mostly by broadening, not by sharper localization.
+
+Conclusion:
+
+- The class was still alive.
+- The immediate bottleneck was the objective / training equilibrium, not the encoder backbone.
+
+## 2026-04-07 - 201b underfit-aware self-fed rollout fix
+
+Artifacts:
+
+- [201b_underfit_aware_selffed_rollout_spec.md](results/validations/2026-04-07/analysis/201_design/201b_underfit_aware_selffed_rollout_spec.md)
+- [201b_best summary](results/block_ar/201b_best_v2_s3mrjspec_full_30d/summary.json)
+- [201b_final summary](results/block_ar/201b_final_v2_s3mrjspec_full_30d/summary.json)
+- [201b_targeting_jump_mechanistic.md](results/validations/2026-04-07/analysis/201b_targeting_jump_mechanistic/201b_targeting_jump_mechanistic.md)
+
+Main read:
+
+- `201b` stayed within the `201a` model class but replaced the objective with:
+  - underfit-aware tail weighting,
+  - self-fed rollout likelihood,
+  - overwidth penalty.
+- It cleaned up some distributional behavior and passed `S8`.
+- The encoder was **not** the main bottleneck:
+  - hard-window discrimination was strong,
+  - but rollout targeting remained weak,
+  - and the law was still too broad, too shoulder-heavy, and too jump-active across the path.
+
+Conclusion:
+
+- `201b_best` became the live AR anchor.
+- The live problem narrowed to localized routing under rollout.
+
+## 2026-04-07 - 201c and `201x` loss-isolation negatives
+
+Artifacts:
+
+- [201c_rollout_localization_spectrum_spec.md](results/validations/2026-04-07/analysis/201_design/201c_rollout_localization_spectrum_spec.md)
+- [201c_smoke_result.md](results/validations/2026-04-07/analysis/201_design/201c_smoke_result.md)
+- [201x_smoke_loss_isolation.md](results/validations/2026-04-07/analysis/201_design/201x_smoke_loss_isolation.md)
+
+Main read:
+
+- A bundled rollout-shape objective (`201c`) was too destabilizing and failed at smoke scale.
+- Isolating the individual rollout-shape penalties one at a time also failed to beat the live `201b` smoke baseline.
+
+Conclusion:
+
+- The `201x` line was not dead, but objective-only penalty tweaking was close to exhausted.
+
+## 2026-04-07 - 201d gated-shock innovation replacement
+
+Artifacts:
+
+- [201d_gated_shock_innovation_spec.md](results/validations/2026-04-07/analysis/201_design/201d_gated_shock_innovation_spec.md)
+- [201d_smoke_result.md](results/validations/2026-04-07/analysis/201_design/201d_smoke_result.md)
+
+Main read:
+
+- `201d` tested a gated-shock innovation replacement under a fixed smoke gate.
+- It improved one narrow thing:
+  - q99 jump overproduction came down.
+- But it still failed:
+  - localization stayed weak,
+  - effective support stayed too broad,
+  - quiet/shoulder shape stayed wrong.
+
+Conclusion:
+
+- The gated-shock replacement in this direct form did not justify a full run.
+
+## 2026-04-07 - 202a / 202b residual-mode pretests
+
+Artifacts:
+
+- [202a_discrete_innovation_mode_pretest.md](results/validations/2026-04-07/analysis/202_design/202a_discrete_innovation_mode_pretest/202a_discrete_innovation_mode_pretest.md)
+- [202a_discrete_innovation_mode_pretest summary](results/validations/2026-04-07/analysis/202_design/202a_discrete_innovation_mode_pretest/summary.json)
+- [202b_severity_normalized_localization_pretest.md](results/validations/2026-04-07/analysis/202_design/202b_severity_normalized_localization_pretest/202b_severity_normalized_localization_pretest.md)
+- [202b_severity_normalized_localization_pretest summary](results/validations/2026-04-07/analysis/202_design/202b_severity_normalized_localization_pretest/summary.json)
+
+Main read:
+
+- `202a` showed that `201b` teacher-forced residuals were **not single-mode** in a density sense.
+- But naive clustering mostly rediscovered severity buckets, not useful conditionable rare-shape states.
+- `202b` then removed severity and found some real event-pattern structure.
+- That structure looked more like a **transient per-step event-pattern code** than a persistent sticky regime.
+
+Conclusion:
+
+- Severity and localization should be factorized separately.
+- A sticky discrete latent AR regime was **not** empirically earned by these pretests.
+
+## 2026-04-07 - 203a post-hoc tail calibration on 183c
+
+Artifacts:
+
+- [203a_183c_tailcal_v0_spec.md](results/validations/2026-04-07/analysis/203_design/203a_183c_tailcal_v0/203a_183c_tailcal_v0_spec.md)
+
+Read:
+
+- Post-hoc tail calibration on top of `183c` was tested as a conservative fallback.
+- It did **not** justify itself as the main path forward.
+- The strict anchor remained `183c_best`, not a tail-calibrated wrapper.
+
+## 2026-04-07 - 204a transient event-pattern AR
+
+Artifacts:
+
+- [204a_transient_event_pattern_ar_spec.md](results/validations/2026-04-07/analysis/204_design/204a_transient_event_pattern_ar_spec.md)
+- [204a_smoke_result.md](results/validations/2026-04-07/analysis/204_design/204a_smoke_result.md)
+
+Main read:
+
+- `204a` implemented the transient event-pattern code idea directly.
+- The event code was active, but routing stayed too diffuse.
+- Best checkpoint stayed pre-rollout.
+- Final checkpoint still overproduced q99 jumps and did not fix quiet-vs-shoulder shape.
+
+Conclusion:
+
+- The transient event-pattern code did not collapse, but it still did not route sharply enough.
+
+## 2026-04-07 - 205a conditional shape-family audit
+
+Artifacts:
+
+- [205a_conditional_shape_family_audit.md](results/validations/2026-04-07/analysis/205_design/205a_conditional_shape_family_audit/205a_conditional_shape_family_audit.md)
+- [205a_conditional_shape_family_audit summary](results/validations/2026-04-07/analysis/205_design/205a_conditional_shape_family_audit/summary.json)
+
+Main read:
+
+- Ground-truth dangerous-window innovation was **not fully diffuse**.
+- It was also **not one exact predictable shape**.
+- The correct description was:
+  - a **small coherent top-K conditional family** on dangerous steps.
+
+Conclusion:
+
+- This became the clearest statement of the target object:
+  - not one exact rare shape,
+  - not broad diffuse uncertainty,
+  - but a small coherent conditional scenario family.
+
+## 2026-04-07 - 206a global codebook pretest; 206b local-family pretest
+
+Artifacts:
+
+- [206a_conditional_family_codebook_pretest.md](results/validations/2026-04-07/analysis/206_design/206a_conditional_family_codebook_pretest/206a_conditional_family_codebook_pretest.md)
+- [206a_conditional_family_codebook_pretest summary](results/validations/2026-04-07/analysis/206_design/206a_conditional_family_codebook_pretest/summary.json)
+- [206b_local_conditional_scenario_family_pretest.md](results/validations/2026-04-07/analysis/206_design/206b_local_conditional_scenario_family_pretest/206b_local_conditional_scenario_family_pretest.md)
+- [206b_local_conditional_scenario_family_pretest summary](results/validations/2026-04-07/analysis/206_design/206b_local_conditional_scenario_family_pretest/summary.json)
+
+Main read:
+
+- `206a` showed a global dangerous-shape codebook exists, but it is easier to fit than to route.
+- Predicted top-3 family from a global codebook did not beat an unconditional prior family on the hard subsets.
+- `206b` was the strongest result since `205a`:
+  - a tiny **local** family of `3` shapes beat the current `201b` width map on top-1 placement for dangerous severe steps,
+  - though the hardest late `h30` slice remained mixed.
+
+Conclusion:
+
+- One smeared continuous law is the wrong object.
+- A simple global codebook is also too weak.
+- The next promising object was:
+  - base calm AR dynamics,
+  - plus a **local conditional scenario family** on dangerous steps.
+
+## 2026-04-07 - 207a local conditional family AR
+
+Artifacts:
+
+- [207a_local_conditional_family_ar_spec.md](results/validations/2026-04-07/analysis/207_design/207a_local_conditional_family_ar_spec.md)
+- [207a_smoke_result.md](results/validations/2026-04-07/analysis/207_design/207a_smoke_result.md)
+- [207a_smoke_gate_summary.json](results/validations/2026-04-07/analysis/207_design/207a_smoke_gate_summary.json)
+- [207a_smoke_gate_final_summary.json](results/validations/2026-04-07/analysis/207_design/207a_smoke_gate_final_summary.json)
+
+Main read:
+
+- `207a` kept the live `201b` AR backbone, protected the calm/base law, and replaced the single smeared innovation with a small query-generated local family on dangerous steps.
+- The branch was alive:
+  - gate probability rose under rollout,
+  - family union size stayed small and coherent.
+- But it still did **not** earn a full strict run:
+  - the family never became selective enough to beat the plain width map on hard-late allocation,
+  - later rollout paid for that with extra jump activity and wrong quiet-vs-shoulder shape.
+
+Conclusion:
+
+- `207a` is a real negative at smoke scale.
+- A local conditional family remains the right conceptual target, but this direct learned `K=3` implementation still does not route sharply enough.
+
+## 2026-04-07 22:05 EDT - Added `dcc_garch` classical baseline
+
+Artifacts:
+
+- baseline implementation: [experiments/backfill/baselines/classical_baselines.py](experiments/backfill/baselines/classical_baselines.py)
+- legacy evaluator wiring: [experiments/backfill/baselines/evaluate_baselines.py](experiments/backfill/baselines/evaluate_baselines.py)
+- v2 evaluator wiring: [experiments/backfill/baselines/evaluate_baselines_v2.py](experiments/backfill/baselines/evaluate_baselines_v2.py)
+
+Method:
+
+- implement a local `DCCGARCHBaseline` on top of the existing `GARCHCCCBaseline`
+- keep the repo's existing per-cell `arch` Student-t GARCH(1,1) fit
+- estimate `DCC(1,1)` parameters `(a, b)` from standardized residuals via Gaussian quasi-likelihood
+- simulate forward with dynamic conditional correlation `H_t = D_t R_t D_t`
+
+Verification:
+
+- `py_compile` passed on the baseline module and both evaluator entry points
+- direct smoke fit/sample on real repo data succeeded
+- v2 evaluator smoke run succeeded:
+  - `PYTHONPATH=. python experiments/backfill/baselines/evaluate_baselines_v2.py --baselines dcc_garch --n_samples 2 --max_batches 1 --batch_size 2 --device cpu`
+
+Smoke result:
+
+- the baseline integrates cleanly and can now be selected as `dcc_garch`
+- fitted smoke parameters were in a reasonable range (`a≈0.054`, `b≈0.675`)
+- one-batch v2 smoke is predictably weak overall (`2/9`), but that is enough to validate the implementation path
+
+Read:
+
+- `dcc_garch` is now available as an interpretable classical finance baseline
+- it should be used as a comparison against `garch_ccc`, not assumed to be a production winner
+
+## 2026-04-07 22:36 EDT - Full matched `garch_ccc` vs `dcc_garch` v2 baseline run
+
+Command:
+
+- `PYTHONPATH=. python experiments/backfill/baselines/evaluate_baselines_v2.py --baselines garch_ccc dcc_garch --n_samples 50 --max_batches 20 --batch_size 32 --device cpu`
+
+Artifacts:
+
+- combined results: [results/baselines_v2/all_baselines_v2_results.json](results/baselines_v2/all_baselines_v2_results.json)
+- CCC results: [results/baselines_v2/garch_ccc/results.json](results/baselines_v2/garch_ccc/results.json)
+- DCC results: [results/baselines_v2/dcc_garch/results.json](results/baselines_v2/dcc_garch/results.json)
+
+Result:
+
+- both baselines finish at `3/9`
+- neither changes the classical-baseline picture materially
+
+Key comparison:
+
+- CRPS: `0.03380 -> 0.03378` in favor of DCC (negligible)
+- Energy Score: `0.27130 -> 0.26982` in favor of DCC (small)
+- daily-change KS pass cells: `9/25 -> 10/25` in favor of DCC (small)
+- cross-cell correlation ratio: `0.564 -> 0.616` in favor of DCC
+- effective-rank ratio: `2.545 -> 2.353` in favor of DCC
+
+Unchanged failure pattern:
+
+- `S1` surface validity: fail
+- `S2` CI coverage: fail due to severe overcoverage (`~98%`)
+- `S3` conditionality: fail
+- `S4` time series: fail
+- `S7` regime coverage: fail
+- `S8` distributional fidelity: fail
+
+Read:
+
+- dynamic correlation helps a little on cross-cell structure and energy score
+- it does **not** change the broad practical conclusion
+- `dcc_garch` is worth keeping as a more faithful classical finance baseline than `garch_ccc`
+- but it is not a competitive scenario generator under this repo's v2 regime

@@ -1,14 +1,19 @@
 #!/usr/bin/env python
 """
-Comprehensive validation tests for Block-AR DDPM.
+Comprehensive validation tests for conditional surface generators.
 
-Tests six requirement categories adapted for the Block-AR model:
-1. Surface Validity: No explosions, proper term structure, smile convexity
-2. CI Coverage: Variation large enough to include ground truth at multiple horizons
-3. Conditionality: Conditional samples are tighter/better than unconditional baseline
-4. Time Series Properties: ACF, kurtosis preserved
-5. Block-AR Specific: Block boundary smoothness, growing uncertainty monotonicity
-6. Cointegration: IV-EWMA realized vol relationship preserved (Engle-Granger)
+Current suites:
+1. Surface Validity
+2. CI Coverage
+3. Conditionality
+4. Time Series / Tail Realism
+5. Block-AR Specific
+6. Cointegration
+7. Regime Coverage
+8. Distributional Fidelity
+9. Cross-Cell Correlation
+10. Mean Reversion
+11. Pathwise Jump Realism
 
 Usage:
     # Quick test (default model, small run)
@@ -75,6 +80,55 @@ def compute_acf(series: np.ndarray, max_lag: int = 20) -> np.ndarray:
             cov = np.mean((series[:-lag] - mean) * (series[lag:] - mean))
             acf.append(cov / var)
     return np.array(acf)
+
+
+def compute_exceedance_spectrum(
+    gt: np.ndarray,
+    gen: np.ndarray,
+    qs: Tuple[float, ...] = (0.5, 0.75, 0.9, 0.95, 0.99),
+) -> Dict:
+    """Compare quiet / shoulder / extreme mass against GT thresholds."""
+    gt = np.asarray(gt, dtype=np.float64).reshape(-1)
+    gen = np.asarray(gen, dtype=np.float64).reshape(-1)
+    thresholds = {str(q): float(np.quantile(gt, q)) for q in qs}
+    gt_rates = {k: float((gt > thr).mean()) for k, thr in thresholds.items()}
+    gen_rates = {k: float((gen > thr).mean()) for k, thr in thresholds.items()}
+    rate_ratio = {
+        k: float(gen_rates[k] / max(gt_rates[k], 1e-12))
+        for k in gt_rates
+    }
+
+    q50 = thresholds["0.5"]
+    q95 = thresholds["0.95"]
+    q99 = thresholds["0.99"]
+    quiet_gt = float((gt <= q50).mean())
+    quiet_gen = float((gen <= q50).mean())
+    shoulder_gt = float(((gt > q50) & (gt <= q95)).mean())
+    shoulder_gen = float(((gen > q50) & (gen <= q95)).mean())
+    extreme_gt = float((gt > q99).mean())
+    extreme_gen = float((gen > q99).mean())
+
+    return {
+        "thresholds": thresholds,
+        "gt_exceed_rate": gt_rates,
+        "gen_exceed_rate": gen_rates,
+        "exceed_rate_ratio": rate_ratio,
+        "quiet_mass": {
+            "gt": quiet_gt,
+            "gen": quiet_gen,
+            "ratio": float(quiet_gen / max(quiet_gt, 1e-12)),
+        },
+        "shoulder_mass": {
+            "gt": shoulder_gt,
+            "gen": shoulder_gen,
+            "ratio": float(shoulder_gen / max(shoulder_gt, 1e-12)),
+        },
+        "extreme_mass": {
+            "gt": extreme_gt,
+            "gen": extreme_gen,
+            "ratio": float(extreme_gen / max(extreme_gt, 1e-12)),
+        },
+    }
 
 
 def convert_to_serializable(obj):
@@ -966,9 +1020,11 @@ def run_conditionality_tests(
     else:
         print("  Skipped — insufficient data")
 
-    # Gate: turb/calm regime differentiation + MAE reduction
-    # Cond/uncond width ratio is informational only (penalizes wide-CI models unfairly)
-    overall_pass = turb_calm_pass and mae_pass and worst_cell_mae_pass
+    # Gate: turb/calm regime differentiation + conditional accuracy + worst-cell width control.
+    # The suite prints worst_cell_wr_pass as PASS/FAIL, so it must be part of overall_pass;
+    # otherwise the reported suite score can contradict its own subtests.
+    # The legacy average cond/uncond width ratio remains informational only.
+    overall_pass = turb_calm_pass and mae_pass and worst_cell_mae_pass and worst_cell_wr_pass
 
     return {
         'width_ratio': float(width_ratio),
@@ -1007,7 +1063,7 @@ def run_time_series_tests(
     """Test time series properties: ACF correlation and kurtosis matching.
 
     ACF correlation target: > 0.5
-    Kurtosis ratio target: 0.5 - 2.0
+    Kurtosis ratio target: 0.8 - 1.25
 
     Args:
         cond_samples: (N, n_samples, T, 5, 5)
@@ -1084,7 +1140,9 @@ def run_time_series_tests(
         kurt_estimates.append(float(kurtosis(gen_diff_s.flatten(), fisher=True)))
     gen_kurt = float(np.median(kurt_estimates))  # median is robust to outliers
     kurt_ratio = gen_kurt / gt_kurt if gt_kurt != 0 else float("inf")
-    kurt_pass = 0.5 <= kurt_ratio <= 2.0
+    kurt_gate_lo = 0.8
+    kurt_gate_hi = 1.25
+    kurt_pass = kurt_gate_lo <= kurt_ratio <= kurt_gate_hi
 
     gt_skew_val = float(skew(gt_changes))
     gen_skew_val = float(skew(gen_changes))
@@ -1095,7 +1153,7 @@ def run_time_series_tests(
     print(f"  Gen kurtosis: {gen_kurt:.3f}")
     print(
         f"  Kurtosis ratio: {kurt_ratio:.3f} "
-        f"(target 0.5-2.0) {'PASS' if kurt_pass else 'FAIL'}"
+        f"(target {kurt_gate_lo:.2f}-{kurt_gate_hi:.2f}) {'PASS' if kurt_pass else 'FAIL'}"
     )
     print(f"  GT skewness:  {gt_skew_val:.3f}")
     print(f"  Gen skewness: {gen_skew_val:.3f}")
@@ -1148,7 +1206,70 @@ def run_time_series_tests(
         f"  Per-cell skewness range: [{worst_skew:.3f}, {best_skew:.3f}] (informational)"
     )
 
-    overall_pass = acf_pass and kurt_pass
+    # Robust per-cell tail scale check on absolute daily changes.
+    print("\n  --- Test 4e: Per-Cell Tail Scale (|ΔIV| q99) ---")
+    per_cell_tail_ratio = np.zeros((5, 5))
+    tail_pass_grid = np.zeros((5, 5), dtype=bool)
+    n_tail_samples = min(10, cond_samples.shape[1])
+    for r in range(5):
+        for c in range(5):
+            gt_abs = np.abs(gt_diff[:, :, r, c].flatten())
+            gt_q99 = float(np.quantile(gt_abs, 0.99))
+            gen_q99_estimates = []
+            for s_idx in range(n_tail_samples):
+                gen_abs = np.abs(np.diff(cond_samples[:, s_idx, :, r, c], axis=1).flatten())
+                gen_q99_estimates.append(float(np.quantile(gen_abs, 0.99)))
+            gen_q99 = float(np.median(gen_q99_estimates))
+            ratio = gen_q99 / gt_q99 if gt_q99 > 1e-12 else float("nan")
+            per_cell_tail_ratio[r, c] = ratio
+            tail_pass_grid[r, c] = np.isfinite(ratio) and (0.5 <= ratio <= 2.0)
+    n_tail_pass = int(tail_pass_grid.sum())
+    tail_pass = n_tail_pass >= 20
+    worst_tail_idx = np.unravel_index(np.nanargmin(per_cell_tail_ratio), (5, 5))
+    best_tail_idx = np.unravel_index(np.nanargmax(per_cell_tail_ratio), (5, 5))
+    print("  Per-cell q99(|ΔIV|) ratio grid (gate [0.5, 2.0]):")
+    for r in range(5):
+        row_str = "    " + " ".join(
+            f"{per_cell_tail_ratio[r,c]:5.2f}{'*' if not tail_pass_grid[r,c] else ' '}" for c in range(5)
+        )
+        print(row_str)
+    print(
+        f"  Cells passing: {n_tail_pass}/25 (gate >= 20) "
+        f"{'PASS' if tail_pass else 'FAIL'}"
+    )
+    print(
+        f"  Worst: ({worst_tail_idx[0]},{worst_tail_idx[1]})={per_cell_tail_ratio[worst_tail_idx]:.2f}, "
+        f"Best: ({best_tail_idx[0]},{best_tail_idx[1]})={per_cell_tail_ratio[best_tail_idx]:.2f}"
+    )
+
+    # Quiet / shoulder / extreme mass explicitly checks that we get
+    # "mostly small changes, occasionally large ones" rather than a shoulder-heavy law.
+    print("\n  --- Test 4f: Exceedance Spectrum (|ΔIV|) ---")
+    spectrum = compute_exceedance_spectrum(np.abs(gt_changes), np.abs(gen_changes))
+    quiet_ratio = float(spectrum["quiet_mass"]["ratio"])
+    shoulder_ratio = float(spectrum["shoulder_mass"]["ratio"])
+    extreme_ratio = float(spectrum["extreme_mass"]["ratio"])
+    quiet_gate_lo, quiet_gate_hi = 0.9, 1.1
+    shoulder_gate_lo, shoulder_gate_hi = 0.9, 1.1
+    extreme_gate_lo, extreme_gate_hi = 0.8, 1.25
+    quiet_pass = quiet_gate_lo <= quiet_ratio <= quiet_gate_hi
+    shoulder_pass = shoulder_gate_lo <= shoulder_ratio <= shoulder_gate_hi
+    extreme_pass = extreme_gate_lo <= extreme_ratio <= extreme_gate_hi
+    spectrum_pass = quiet_pass and shoulder_pass and extreme_pass
+    print(
+        f"  Quiet mass ratio:    {quiet_ratio:.3f} "
+        f"(gate [{quiet_gate_lo:.2f}, {quiet_gate_hi:.2f}]) {'PASS' if quiet_pass else 'FAIL'}"
+    )
+    print(
+        f"  Shoulder mass ratio: {shoulder_ratio:.3f} "
+        f"(gate [{shoulder_gate_lo:.2f}, {shoulder_gate_hi:.2f}]) {'PASS' if shoulder_pass else 'FAIL'}"
+    )
+    print(
+        f"  Extreme mass ratio:  {extreme_ratio:.3f} "
+        f"(gate [{extreme_gate_lo:.2f}, {extreme_gate_hi:.2f}]) {'PASS' if extreme_pass else 'FAIL'}"
+    )
+
+    overall_pass = acf_pass and kurt_pass and tail_pass and spectrum_pass
 
     return {
         'acf': {
@@ -1162,6 +1283,8 @@ def run_time_series_tests(
             'gt_kurtosis': gt_kurt,
             'gen_kurtosis': gen_kurt,
             'kurtosis_ratio': kurt_ratio,
+            'gate_lo': kurt_gate_lo,
+            'gate_hi': kurt_gate_hi,
             'gt_skewness': gt_skew_val,
             'gen_skewness': gen_skew_val,
             'skewness_ratio': skew_ratio,
@@ -1173,6 +1296,28 @@ def run_time_series_tests(
             'worst_cell_skew_ratio': worst_skew,
             'best_cell_skew_ratio': best_skew,
             'pass': kurt_pass,
+        },
+        'tail_scale': {
+            'per_cell_q99_ratio': per_cell_tail_ratio.tolist(),
+            'n_pass': n_tail_pass,
+            'pass': tail_pass,
+            'worst_cell_ratio': float(per_cell_tail_ratio[worst_tail_idx]),
+            'best_cell_ratio': float(per_cell_tail_ratio[best_tail_idx]),
+            'gate_lo': 0.5,
+            'gate_hi': 2.0,
+        },
+        'exceedance_spectrum': {
+            **spectrum,
+            'quiet_gate_lo': quiet_gate_lo,
+            'quiet_gate_hi': quiet_gate_hi,
+            'shoulder_gate_lo': shoulder_gate_lo,
+            'shoulder_gate_hi': shoulder_gate_hi,
+            'extreme_gate_lo': extreme_gate_lo,
+            'extreme_gate_hi': extreme_gate_hi,
+            'quiet_pass': quiet_pass,
+            'shoulder_pass': shoulder_pass,
+            'extreme_pass': extreme_pass,
+            'pass': spectrum_pass,
         },
         'overall_pass': overall_pass,
     }
@@ -2299,6 +2444,345 @@ def run_cross_cell_correlation_tests(
     }
 
 
+def _slope_intercept_r2(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
+    x = x.reshape(-1).astype(np.float64)
+    y = y.reshape(-1).astype(np.float64)
+    x_mean = x.mean()
+    y_mean = y.mean()
+    var_x = np.mean((x - x_mean) ** 2)
+    cov_xy = np.mean((x - x_mean) * (y - y_mean))
+    slope = cov_xy / var_x if var_x > 1e-12 else 0.0
+    intercept = y_mean - slope * x_mean
+    y_hat = intercept + slope * x
+    ss_res = np.mean((y - y_hat) ** 2)
+    ss_tot = np.mean((y - y_mean) ** 2)
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+    return float(slope), float(intercept), float(r2)
+
+
+def run_mean_reversion_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+    history: np.ndarray,
+    active_slope_threshold: float = 0.05,
+) -> Dict:
+    """Suite 10: sampled mean-reversion realism, first-step and full-horizon."""
+    print("\n" + "=" * 60)
+    print("TEST SUITE 10: MEAN REVERSION")
+    print("=" * 60)
+
+    pred_mean = cond_samples.mean(axis=1)  # (N, T, 5, 5)
+    prev = history[:, -1]  # (N, 5, 5)
+    gt_next = ground_truth[:, 0]
+    pred_next = pred_mean[:, 0]
+
+    gt_delta = gt_next - prev
+    pred_delta = pred_next - prev
+
+    gt_slope, gt_intercept, gt_r2 = _slope_intercept_r2(prev, gt_delta)
+    pred_slope, pred_intercept, pred_r2 = _slope_intercept_r2(prev, pred_delta)
+    mr_gt_ratio = pred_slope / gt_slope if abs(gt_slope) > 1e-12 else float("nan")
+    aggregate_pass = 0.70 <= mr_gt_ratio <= 1.30
+
+    gt_cell_slopes = np.zeros((5, 5), dtype=np.float64)
+    pred_cell_slopes = np.zeros((5, 5), dtype=np.float64)
+    cell_ratio = np.full((5, 5), np.nan, dtype=np.float64)
+    cell_sign_match = np.zeros((5, 5), dtype=bool)
+    cell_pass = np.zeros((5, 5), dtype=bool)
+
+    for i in range(5):
+        for j in range(5):
+            gt_s, _, _ = _slope_intercept_r2(prev[:, i, j], gt_delta[:, i, j])
+            pred_s, _, _ = _slope_intercept_r2(prev[:, i, j], pred_delta[:, i, j])
+            gt_cell_slopes[i, j] = gt_s
+            pred_cell_slopes[i, j] = pred_s
+            if abs(gt_s) > 1e-12:
+                cell_ratio[i, j] = pred_s / gt_s
+            cell_sign_match[i, j] = np.sign(gt_s) == np.sign(pred_s)
+
+    active_mask = np.abs(gt_cell_slopes) >= active_slope_threshold
+    active_count = int(active_mask.sum())
+    if active_count > 0:
+        ratio_mask = (
+            np.isfinite(cell_ratio)
+            & (cell_ratio >= 0.50)
+            & (cell_ratio <= 1.50)
+        )
+        cell_pass = active_mask & cell_sign_match & ratio_mask
+        active_pass_count = int(cell_pass.sum())
+        active_pass_rate = active_pass_count / active_count
+        active_pass = active_pass_rate >= 0.70
+        slope_corr = float(np.corrcoef(
+            gt_cell_slopes[active_mask].reshape(-1),
+            pred_cell_slopes[active_mask].reshape(-1),
+        )[0, 1]) if active_count >= 2 else 1.0
+    else:
+        active_pass_count = 0
+        active_pass_rate = 1.0
+        active_pass = True
+        slope_corr = 1.0
+    corr_pass = slope_corr >= 0.70
+    overall_pass = aggregate_pass and active_pass and corr_pass
+
+    # Worst cells by relative mismatch on active cells only
+    worst_cells = []
+    for i in range(5):
+        for j in range(5):
+            if not active_mask[i, j]:
+                continue
+            ratio = float(cell_ratio[i, j]) if np.isfinite(cell_ratio[i, j]) else float("nan")
+            rel_err = abs(ratio - 1.0) if np.isfinite(ratio) else float("inf")
+            worst_cells.append(
+                {
+                    "cell": [i, j],
+                    "gt_slope": float(gt_cell_slopes[i, j]),
+                    "pred_slope": float(pred_cell_slopes[i, j]),
+                    "ratio": ratio,
+                    "sign_match": bool(cell_sign_match[i, j]),
+                    "pass": bool(cell_pass[i, j]),
+                    "relative_error_from_1": float(rel_err),
+                }
+            )
+    worst_cells.sort(key=lambda x: x["relative_error_from_1"], reverse=True)
+
+    print(f"  GT aggregate slope:   {gt_slope:.3f}")
+    print(f"  Gen aggregate slope:  {pred_slope:.3f}")
+    print(f"  Gen/GT ratio:         {mr_gt_ratio:.3f} "
+          f"(target [0.70, 1.30]) {'PASS' if aggregate_pass else 'FAIL'}")
+    print(f"  Active cells:         {active_pass_count}/{active_count} "
+          f"(gate >=70%) {'PASS' if active_pass else 'FAIL'}")
+    print(f"  Active-cell corr:     {slope_corr:.3f} "
+          f"(target >=0.70) {'PASS' if corr_pass else 'FAIL'}")
+    print(f"  Active slope threshold: |GT slope| >= {active_slope_threshold:.2f}")
+    print("  GT per-cell slopes:")
+    for r in range(5):
+        print("    " + " ".join(f"{gt_cell_slopes[r, c]:+.3f}" for c in range(5)))
+    print("  Gen per-cell slopes:")
+    for r in range(5):
+        print("    " + " ".join(f"{pred_cell_slopes[r, c]:+.3f}" for c in range(5)))
+
+    # Full-horizon mean-reversion profile on selected horizons.
+    print("\n  --- Test 10b: Full-Horizon Mean Reversion Profile ---")
+    selected_horizons = [h for h in [1, 7, 14, 30] if h <= ground_truth.shape[1]]
+    horizon_metrics = {}
+    aggregate_profile_pass = True
+    active_rates = []
+    active_corrs = []
+    for h in selected_horizons:
+        gt_h = ground_truth[:, h - 1]
+        pred_h = pred_mean[:, h - 1]
+        gt_delta_h = gt_h - prev
+        pred_delta_h = pred_h - prev
+        gt_s_h, _, _ = _slope_intercept_r2(prev, gt_delta_h)
+        pred_s_h, _, _ = _slope_intercept_r2(prev, pred_delta_h)
+        ratio_h = pred_s_h / gt_s_h if abs(gt_s_h) > 1e-12 else float("nan")
+        agg_pass_h = np.isfinite(ratio_h) and (0.70 <= ratio_h <= 1.30)
+        aggregate_profile_pass = aggregate_profile_pass and agg_pass_h
+
+        gt_cell_slopes_h = np.zeros((5, 5), dtype=np.float64)
+        pred_cell_slopes_h = np.zeros((5, 5), dtype=np.float64)
+        cell_ratio_h = np.full((5, 5), np.nan, dtype=np.float64)
+        cell_sign_h = np.zeros((5, 5), dtype=bool)
+        for i in range(5):
+            for j in range(5):
+                gt_sc, _, _ = _slope_intercept_r2(prev[:, i, j], gt_delta_h[:, i, j])
+                pred_sc, _, _ = _slope_intercept_r2(prev[:, i, j], pred_delta_h[:, i, j])
+                gt_cell_slopes_h[i, j] = gt_sc
+                pred_cell_slopes_h[i, j] = pred_sc
+                if abs(gt_sc) > 1e-12:
+                    cell_ratio_h[i, j] = pred_sc / gt_sc
+                cell_sign_h[i, j] = np.sign(gt_sc) == np.sign(pred_sc)
+        active_mask_h = np.abs(gt_cell_slopes_h) >= active_slope_threshold
+        active_count_h = int(active_mask_h.sum())
+        if active_count_h > 0:
+            cell_pass_h = (
+                active_mask_h
+                & cell_sign_h
+                & np.isfinite(cell_ratio_h)
+                & (cell_ratio_h >= 0.50)
+                & (cell_ratio_h <= 1.50)
+            )
+            active_pass_rate_h = float(cell_pass_h.sum() / active_count_h)
+            slope_corr_h = float(np.corrcoef(
+                gt_cell_slopes_h[active_mask_h].reshape(-1),
+                pred_cell_slopes_h[active_mask_h].reshape(-1),
+            )[0, 1]) if active_count_h >= 2 else 1.0
+        else:
+            active_pass_rate_h = 1.0
+            slope_corr_h = 1.0
+        active_rates.append(active_pass_rate_h)
+        active_corrs.append(slope_corr_h)
+        horizon_metrics[h] = {
+            "gt_aggregate_slope": float(gt_s_h),
+            "gen_aggregate_slope": float(pred_s_h),
+            "ratio": float(ratio_h),
+            "aggregate_pass": bool(agg_pass_h),
+            "active_pass_rate": float(active_pass_rate_h),
+            "active_slope_corr": float(slope_corr_h),
+            "active_cell_count": int(active_count_h),
+        }
+        print(
+            f"    h={h:2d}: ratio={ratio_h:.3f} "
+            f"(target [0.70, 1.30]) {'PASS' if agg_pass_h else 'FAIL'} | "
+            f"active={active_pass_rate_h:.1%}, corr={slope_corr_h:.3f}"
+        )
+
+    horizon_active_pass = (float(np.mean(active_rates)) >= 0.70) and (float(np.mean(active_corrs)) >= 0.70)
+    horizon_terminal_pass = horizon_metrics.get(selected_horizons[-1], {}).get("aggregate_pass", True) if selected_horizons else True
+    full_horizon_pass = aggregate_profile_pass and horizon_active_pass and horizon_terminal_pass
+    print(
+        f"  Full-horizon aggregate profile: {'PASS' if aggregate_profile_pass else 'FAIL'}"
+    )
+    print(
+        f"  Full-horizon active mean pass: {np.mean(active_rates):.1%}, "
+        f"mean corr: {np.mean(active_corrs):.3f} "
+        f"{'PASS' if horizon_active_pass else 'FAIL'}"
+    )
+    print(f"  Full-horizon overall: {'PASS' if full_horizon_pass else 'FAIL'}")
+
+    overall_pass = overall_pass and full_horizon_pass
+
+    return {
+        "methodology": "sampled_first_step_mean_delta_vs_prev_frame",
+        "active_slope_threshold": active_slope_threshold,
+        "gt_aggregate_slope": gt_slope,
+        "gt_aggregate_intercept": gt_intercept,
+        "gt_aggregate_r2": gt_r2,
+        "gen_aggregate_slope": pred_slope,
+        "gen_aggregate_intercept": pred_intercept,
+        "gen_aggregate_r2": pred_r2,
+        "mr_gt_ratio": mr_gt_ratio,
+        "aggregate_pass": aggregate_pass,
+        "gt_cell_slopes": gt_cell_slopes.tolist(),
+        "gen_cell_slopes": pred_cell_slopes.tolist(),
+        "cell_ratio": cell_ratio.tolist(),
+        "active_cell_mask": active_mask.tolist(),
+        "active_cell_pass": cell_pass.tolist(),
+        "active_pass_count": active_pass_count,
+        "active_cell_count": active_count,
+        "active_pass_rate": active_pass_rate,
+        "active_pass": active_pass,
+        "active_cell_slope_corr": slope_corr,
+        "corr_pass": corr_pass,
+        "full_horizon": {
+            "selected_horizons": selected_horizons,
+            "per_horizon": horizon_metrics,
+            "aggregate_profile_pass": bool(aggregate_profile_pass),
+            "mean_active_pass_rate": float(np.mean(active_rates)) if active_rates else 1.0,
+            "mean_active_slope_corr": float(np.mean(active_corrs)) if active_corrs else 1.0,
+            "active_profile_pass": bool(horizon_active_pass),
+            "terminal_pass": bool(horizon_terminal_pass),
+            "overall_pass": bool(full_horizon_pass),
+        },
+        "worst_active_cells": worst_cells[:10],
+        "overall_pass": overall_pass,
+    }
+
+
+def run_pathwise_jump_realism_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+) -> Dict:
+    """Suite 11: pathwise jump realism on daily changes.
+
+    Goal:
+      - catch in-range but implausible jumpy paths
+      - check that pathwise extreme-move behavior matches GT, not just marginals
+    """
+    print("\n" + "=" * 60)
+    print("TEST SUITE 11: PATHWISE JUMP REALISM")
+    print("=" * 60)
+
+    gt_diff = np.diff(ground_truth, axis=1)  # (N, T-1, 5, 5)
+    n_jump_samples = min(10, cond_samples.shape[1])
+    gen_diff = np.diff(cond_samples[:, :n_jump_samples], axis=2)  # (N, S, T-1, 5, 5)
+
+    gt_path_max = np.abs(gt_diff).max(axis=(1, 2, 3))
+    gen_path_max = np.abs(gen_diff).max(axis=(2, 3, 4)).reshape(-1)
+    maxjump_ks, _ = ks_2samp(gt_path_max, gen_path_max)
+    gt_q90 = float(np.quantile(gt_path_max, 0.90))
+    gt_q99 = float(np.quantile(gt_path_max, 0.99))
+    gen_q90 = float(np.quantile(gen_path_max, 0.90))
+    gen_q99 = float(np.quantile(gen_path_max, 0.99))
+    q90_ratio = gen_q90 / gt_q90 if gt_q90 > 1e-12 else float("nan")
+    q99_ratio = gen_q99 / gt_q99 if gt_q99 > 1e-12 else float("nan")
+    maxjump_ks_pass = maxjump_ks < 0.20
+    qtail_pass = (
+        np.isfinite(q90_ratio) and np.isfinite(q99_ratio)
+        and 0.5 <= q90_ratio <= 2.0
+        and 0.5 <= q99_ratio <= 2.0
+    )
+    print(f"  Pathwise max-|ΔIV| KS: {maxjump_ks:.3f} (gate < 0.20) {'PASS' if maxjump_ks_pass else 'FAIL'}")
+    print(f"  Pathwise q90 ratio:    {q90_ratio:.3f} (gate [0.5, 2.0]) {'PASS' if np.isfinite(q90_ratio) and 0.5 <= q90_ratio <= 2.0 else 'FAIL'}")
+    print(f"  Pathwise q99 ratio:    {q99_ratio:.3f} (gate [0.5, 2.0]) {'PASS' if np.isfinite(q99_ratio) and 0.5 <= q99_ratio <= 2.0 else 'FAIL'}")
+
+    # Per-cell 99th percentile of |ΔIV|.
+    print("\n  --- Test 11b: Per-Cell Extreme Jump Scale ---")
+    per_cell_q99_ratio = np.zeros((5, 5), dtype=np.float64)
+    per_cell_pass = np.zeros((5, 5), dtype=bool)
+    for r in range(5):
+        for c in range(5):
+            gt_abs = np.abs(gt_diff[:, :, r, c].ravel())
+            gt_cell_q99 = float(np.quantile(gt_abs, 0.99))
+            gen_cell_q99_est = []
+            for s_idx in range(n_jump_samples):
+                gen_abs = np.abs(gen_diff[:, s_idx, :, r, c].ravel())
+                gen_cell_q99_est.append(float(np.quantile(gen_abs, 0.99)))
+            gen_cell_q99 = float(np.median(gen_cell_q99_est))
+            ratio = gen_cell_q99 / gt_cell_q99 if gt_cell_q99 > 1e-12 else float("nan")
+            per_cell_q99_ratio[r, c] = ratio
+            per_cell_pass[r, c] = np.isfinite(ratio) and (0.5 <= ratio <= 2.0)
+    n_cell_pass = int(per_cell_pass.sum())
+    per_cell_overall_pass = n_cell_pass >= 20
+    print("  Per-cell q99(|ΔIV|) ratio grid (gate [0.5, 2.0]):")
+    for r in range(5):
+        row_str = "    " + " ".join(
+            f"{per_cell_q99_ratio[r,c]:5.2f}{'*' if not per_cell_pass[r,c] else ' '}" for c in range(5)
+        )
+        print(row_str)
+    print(f"  Cells passing: {n_cell_pass}/25 (gate >= 20) {'PASS' if per_cell_overall_pass else 'FAIL'}")
+
+    # Window-level extreme-jump incidence relative to GT q99 threshold.
+    print("\n  --- Test 11c: Extreme Jump Window Incidence ---")
+    global_gt_q99 = float(np.quantile(np.abs(gt_diff).ravel(), 0.99))
+    gt_window_extreme = (np.abs(gt_diff) >= global_gt_q99).any(axis=(1, 2, 3))
+    gen_window_extreme = (np.abs(gen_diff) >= global_gt_q99).any(axis=(2, 3, 4)).reshape(-1)
+    gt_extreme_rate = float(gt_window_extreme.mean())
+    gen_extreme_rate = float(gen_window_extreme.mean())
+    incidence_ratio = gen_extreme_rate / gt_extreme_rate if gt_extreme_rate > 1e-12 else float("nan")
+    incidence_pass = np.isfinite(incidence_ratio) and (0.5 <= incidence_ratio <= 2.0)
+    print(
+        f"  Extreme-jump incidence ratio: {incidence_ratio:.3f} "
+        f"(GT={gt_extreme_rate:.1%}, Gen={gen_extreme_rate:.1%}, gate [0.5, 2.0]) "
+        f"{'PASS' if incidence_pass else 'FAIL'}"
+    )
+
+    overall_pass = maxjump_ks_pass and qtail_pass and per_cell_overall_pass and incidence_pass
+    return {
+        "pathwise_max_jump": {
+            "ks_stat": float(maxjump_ks),
+            "ks_gate": 0.20,
+            "q90_ratio": float(q90_ratio),
+            "q99_ratio": float(q99_ratio),
+            "pass": bool(maxjump_ks_pass and qtail_pass),
+        },
+        "per_cell_q99": {
+            "ratio_grid": per_cell_q99_ratio.tolist(),
+            "n_pass": n_cell_pass,
+            "pass": bool(per_cell_overall_pass),
+            "gate_lo": 0.5,
+            "gate_hi": 2.0,
+        },
+        "window_extreme_incidence": {
+            "gt_rate": gt_extreme_rate,
+            "gen_rate": gen_extreme_rate,
+            "ratio": float(incidence_ratio),
+            "pass": bool(incidence_pass),
+        },
+        "overall_pass": bool(overall_pass),
+    }
+
+
 # =============================================================================
 # Summary
 # =============================================================================
@@ -2363,9 +2847,19 @@ def print_summary(results: Dict) -> bool:
     print(f"  ACF correlation:     {ts['acf']['acf_correlation']:.3f} "
           f"{'PASS' if ts['acf']['pass'] else 'FAIL'}")
     print(f"  Kurtosis ratio:      {ts['kurtosis']['kurtosis_ratio']:.3f} "
-          f"(per-cell: [{ts['kurtosis'].get('worst_cell_ratio', 0):.3f}, "
+          f"(gate [{ts['kurtosis'].get('gate_lo', 0.5):.2f}, {ts['kurtosis'].get('gate_hi', 2.0):.2f}], "
+          f"per-cell: [{ts['kurtosis'].get('worst_cell_ratio', 0):.3f}, "
           f"{ts['kurtosis'].get('best_cell_ratio', 0):.3f}]) "
           f"{'PASS' if ts['kurtosis']['pass'] else 'FAIL'}")
+    if 'exceedance_spectrum' in ts:
+        sp = ts['exceedance_spectrum']
+        print(f"  Spectrum quiet/sh/ext:{sp['quiet_mass']['ratio']:.3f} / "
+              f"{sp['shoulder_mass']['ratio']:.3f} / {sp['extreme_mass']['ratio']:.3f} "
+              f"{'PASS' if sp['pass'] else 'FAIL'}")
+    if 'tail_scale' in ts:
+        print(f"  Tail scale q99:      {ts['tail_scale']['n_pass']}/25 cells "
+              f"(gate [{ts['tail_scale']['gate_lo']:.1f}, {ts['tail_scale']['gate_hi']:.1f}]) "
+              f"{'PASS' if ts['tail_scale']['pass'] else 'FAIL'}")
     print(f"  Overall:             {'PASS' if ts['overall_pass'] else 'FAIL'}")
 
     # Test Suite 5: Block-AR Specific
@@ -2397,8 +2891,10 @@ def print_summary(results: Dict) -> bool:
         rc = results['regime_coverage']
         print("\nTest Suite 7: Regime Coverage (Three-Layer)")
         print(f"  Layer 1 (regime×horizon): {'PASS' if rc['layer1_pass'] else 'FAIL'}")
-        print(f"  Layer 2 (regime×cell):    {rc.get('layer2_n_passing', '?')}/{rc.get('layer2_n_total', '?')} "
-              f"(gate >= 6) {'PASS' if rc['layer2_pass'] else 'FAIL'}")
+        n_l2_passing = rc.get('layer2_n_passing', '?')
+        n_l2_total = rc.get('layer2_n_total', '?')
+        print(f"  Layer 2 (regime×cell):    {n_l2_passing}/{n_l2_total} "
+              f"(gate: all) {'PASS' if rc['layer2_pass'] else 'FAIL'}")
         print(f"  Layer 3 (catastrophic):   {rc['layer3_catastrophic_rate']:.1%} "
               f"{'PASS' if rc['layer3_pass'] else 'FAIL'}")
         # Width turb/calm ratio (informational)
@@ -2447,6 +2943,37 @@ def print_summary(results: Dict) -> bool:
               f"{'PASS' if xcell.get('rank_pass') else 'FAIL'}")
         print(f"  Overall:             {'PASS' if xcell.get('overall_pass') else 'FAIL'}")
 
+    # Suite 10
+    if 'mean_reversion' in results:
+        mr = results['mean_reversion']
+        print(f"\nTest Suite 10: Mean Reversion")
+        print(f"  GT slope:            {mr['gt_aggregate_slope']:.3f}")
+        print(f"  Gen slope:           {mr['gen_aggregate_slope']:.3f}")
+        print(f"  Gen/GT ratio:        {mr['mr_gt_ratio']:.3f} "
+              f"(target [0.70, 1.30]) {'PASS' if mr['aggregate_pass'] else 'FAIL'}")
+        print(f"  Active cells:        {mr['active_pass_count']}/{mr['active_cell_count']} "
+              f"(gate >=70%) {'PASS' if mr['active_pass'] else 'FAIL'}")
+        print(f"  Active-cell corr:    {mr['active_cell_slope_corr']:.3f} "
+              f"(target >=0.70) {'PASS' if mr['corr_pass'] else 'FAIL'}")
+        if 'full_horizon' in mr:
+            fh = mr['full_horizon']
+            print(f"  Full-horizon profile:{'PASS' if fh['aggregate_profile_pass'] else 'FAIL'}")
+            print(f"  Full-h active mean:  {fh['mean_active_pass_rate']:.1%} "
+                  f"(corr={fh['mean_active_slope_corr']:.3f}) "
+                  f"{'PASS' if fh['active_profile_pass'] else 'FAIL'}")
+        print(f"  Overall:             {'PASS' if mr['overall_pass'] else 'FAIL'}")
+
+    if 'pathwise_jump_realism' in results:
+        pj = results['pathwise_jump_realism']
+        print(f"\nTest Suite 11: Pathwise Jump Realism")
+        print(f"  Max-jump KS:         {pj['pathwise_max_jump']['ks_stat']:.3f} "
+              f"{'PASS' if pj['pathwise_max_jump']['pass'] else 'FAIL'}")
+        print(f"  Per-cell q99 jumps:  {pj['per_cell_q99']['n_pass']}/25 cells "
+              f"{'PASS' if pj['per_cell_q99']['pass'] else 'FAIL'}")
+        print(f"  Extreme incidence:   {pj['window_extreme_incidence']['ratio']:.3f} "
+              f"{'PASS' if pj['window_extreme_incidence']['pass'] else 'FAIL'}")
+        print(f"  Overall:             {'PASS' if pj['overall_pass'] else 'FAIL'}")
+
     # Overall
     print("\n" + "=" * 60)
     all_pass = all([
@@ -2462,6 +2989,10 @@ def print_summary(results: Dict) -> bool:
         all_pass = all_pass and results['distributional']['overall_pass']
     if 'cross_cell_correlation' in results:
         all_pass = all_pass and results['cross_cell_correlation']['overall_pass']
+    if 'mean_reversion' in results:
+        all_pass = all_pass and results['mean_reversion']['overall_pass']
+    if 'pathwise_jump_realism' in results:
+        all_pass = all_pass and results['pathwise_jump_realism']['overall_pass']
     # Cointegration is informational — doesn't affect overall pass/fail yet
     if 'cointegration' in results and not results['cointegration']['overall_pass']:
         print("  NOTE: Cointegration test FAILED (informational)")
@@ -2590,6 +3121,14 @@ def main():
         help="Path to quantile_map.npz for per-cell quantile mapping of daily changes",
     )
     parser.add_argument(
+        "--tailcal_map", type=str, default=None,
+        help="Path to 203a tail calibration map (.npz) for post-hoc teacher-basis radial calibration",
+    )
+    parser.add_argument(
+        "--tailcal_alpha", type=float, default=1.0,
+        help="Tail calibration blending factor: 1.0=full mapping, 0.0=identity",
+    )
+    parser.add_argument(
         "--qmap_alpha", type=float, default=1.0,
         help="Quantile map blending factor: 1.0=full mapping, 0.5=half correction (default: 1.0)",
     )
@@ -2666,6 +3205,8 @@ def main():
         print(f"Calibration:   {args.calibration_head}")
     if args.conformal:
         print(f"Conformal:     W={args.conformal_window} (per-horizon, regime-split)")
+    if args.tailcal_map:
+        print(f"Tail calibrator: {args.tailcal_map} (alpha={args.tailcal_alpha})")
     if args.quantile_map:
         print(f"Quantile map:  {args.quantile_map} (alpha={args.qmap_alpha})")
     print(f"Output:        {output_dir}")
@@ -2684,11 +3225,72 @@ def main():
     )
     is_mean_residual = model_type in ("ar_spatial_transformer_165a_mean_residual", "ar_spatial_transformer_165a_v2_additive_innov", "ar_spatial_transformer_165a_v3_spatial_mean")
     is_factorized = model_type in ("ar_spatial_transformer_167a_factorized", "ar_spatial_transformer_167b_clean_isolation", "ar_spatial_transformer_167d_e2e_factorized")
+    is_student_t_density = model_type in (
+        "one_step_student_t_169a",
+        "multi_step_student_t_169b",
+        "multi_step_student_t_169c",
+        "transformer_ar_rollout_tail_student_t_201a",
+        "transformer_underfit_aware_selffed_rollout_student_t_201b",
+        "transformer_rollout_localization_spectrum_student_t_201c",
+        "joint_future_student_t_170a",
+        "structured_joint_student_t_170d",
+        "local_scale_structured_joint_student_t_170e",
+        "mixture_structured_joint_student_t_171a",
+        "covariance_routed_structured_joint_student_t_171b",
+        "residual_flow_structured_joint_student_t_172a",
+        "local_var_residual_flow_structured_joint_student_t_173a",
+        "regime_template_local_var_residual_flow_structured_joint_student_t_173b",
+        "local_var_residual_flow_structured_joint_student_t_175a",
+        "latent_regime_structured_residual_student_t_176a",
+        "shared_local_template_mixture_residual_flow_structured_joint_student_t_176b",
+        "mean_reverting_shared_local_template_mixture_residual_flow_structured_joint_student_t_177a",
+        "mean_reverting_calibrated_local_template_mixture_residual_flow_structured_joint_student_t_177b",
+        "regime_coupled_state_space_student_t_178a",
+        "block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b",
+        "exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c",
+        "exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d",
+        "exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e",
+        "centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a",
+        "basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b",
+        "centered_smooth_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180a",
+        "sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d",
+        "unified_residual_state_mean_reverting_covariance_mixture_structured_joint_student_t_181a",
+        "pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a",
+        "width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b",
+        "integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a",
+        "state_dependent_radial_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183b",
+        "state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c",
+        "state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a",
+        "state_metric_transport_e2e_sign_aware_concentration_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186b",
+        "structured_condition_interface_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_189a",
+        "constrained_reallocation_objective_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_190a",
+        "constrained_reallocation_multistep_student_t_191a",
+        "graph_ar_latent_factor_innovation_193a",
+        "graph_ar_latent_factor_rollout_193b",
+        "regime_switching_ar_latent_factor_194a",
+        "regime_switching_ar_latent_factor_194b",
+        "regime_switching_ar_latent_factor_194c",
+        "regime_switching_ar_latent_factor_195a",
+        "sparse_concentration_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183d",
+        "latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a",
+        "latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b",
+        "sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c",
+        "latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d",
+        "graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a",
+        "graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b",
+        "latent_sparse_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187a",
+        "underfit_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187b",
+        "discrete_budgeted_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187c",
+        "graph_group_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188a",
+        "amplitude_gated_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188b",
+        "whitened_flow_170b",
+        "graph_ar_conditional_copula_192a",
+    )
     is_ar_spatial = model_type in ("ar_spatial_transformer_164a", "ar_spatial_transformer_164a_v2", "ar_spatial_transformer_164a_v3", "ar_spatial_transformer_164a_v3_percell", "ar_spatial_transformer_164a_v3_percell_is_fix", "ar_spatial_transformer_164a_v3_percell_bptt", "ar_spatial_transformer_164a_v3_percell_bptt_gate", "ar_spatial_transformer_164a_v3_percell_bptt_local_gate", "ar_spatial_transformer_164a_v3_percell_bptt_softplus", "ar_spatial_transformer_165b_ensemble_mean_mse", "ar_spatial_transformer_165b_v2_corrected_is") or is_mean_residual or is_factorized
     is_single_pass = isinstance(raw_config, dict) and "noise_dim" in raw_config and not is_cln_e2e and not is_ar_spatial
 
     # Support both BlockARConfig instance and dict
-    if is_single_pass or is_cln_e2e or is_ar_spatial:
+    if is_single_pass or is_cln_e2e or is_ar_spatial or is_student_t_density:
         model_config = None  # will be handled by specific loaders below
     elif isinstance(raw_config, dict):
         model_config = BlockARConfig(**raw_config)
@@ -2696,7 +3298,7 @@ def main():
         model_config = raw_config
 
     # DDPM-specific config overrides (skip for SinglePassBlockAR, CLN E2E, AR spatial)
-    if not is_single_pass and not is_cln_e2e and not is_ar_spatial:
+    if not is_single_pass and not is_cln_e2e and not is_ar_spatial and not is_student_t_density:
         if args.sampling_mode is not None:
             model_config.sampling_mode = args.sampling_mode
             print(f"  Sampling mode override: {args.sampling_mode}")
@@ -2733,7 +3335,777 @@ def main():
             model_config.crps_boost_only = True
             print("  CRPS boost-only mode")
 
-    if is_ar_spatial:
+    if is_student_t_density:
+        from diffusion.block_ar.gru_encoder import EncoderConfig
+        if model_type == "multi_step_student_t_169c":
+            from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
+                ShapeScaleStudentTARModel,
+            )
+            ModelClass = ShapeScaleStudentTARModel
+        elif model_type == "transformer_ar_rollout_tail_student_t_201a":
+            from experiments.backfill.block_ar.train_201a_transformer_ar_rollout_tail_student_t import (
+                TransformerRolloutTailStudentTARModel,
+            )
+            ModelClass = TransformerRolloutTailStudentTARModel
+        elif model_type == "transformer_underfit_aware_selffed_rollout_student_t_201b":
+            from experiments.backfill.block_ar.train_201a_transformer_ar_rollout_tail_student_t import (
+                TransformerRolloutTailStudentTARModel,
+            )
+            ModelClass = TransformerRolloutTailStudentTARModel
+        elif model_type == "transformer_rollout_localization_spectrum_student_t_201c":
+            from experiments.backfill.block_ar.train_201a_transformer_ar_rollout_tail_student_t import (
+                TransformerRolloutTailStudentTARModel,
+            )
+            ModelClass = TransformerRolloutTailStudentTARModel
+        elif model_type == "constrained_reallocation_multistep_student_t_191a":
+            from experiments.backfill.block_ar.train_191a_ar_reallocation_student_t import (
+                ReallocationStudentTARModel,
+            )
+            ModelClass = ReallocationStudentTARModel
+        elif model_type == "graph_ar_conditional_copula_192a":
+            from experiments.backfill.block_ar.train_192a_graph_ar_conditional_copula import (
+                GraphARConditionalCopulaModel,
+            )
+            ModelClass = GraphARConditionalCopulaModel
+        elif model_type == "graph_ar_latent_factor_innovation_193a":
+            from experiments.backfill.block_ar.train_193a_graph_ar_latent_factor_innovation import (
+                LatentFactorInnovationARModel,
+            )
+            ModelClass = LatentFactorInnovationARModel
+        elif model_type == "graph_ar_latent_factor_rollout_193b":
+            from experiments.backfill.block_ar.train_193b_reparameterized_rollout_latent_factor import (
+                LatentFactorInnovationARModel,
+            )
+            ModelClass = LatentFactorInnovationARModel
+        elif model_type == "regime_switching_ar_latent_factor_194a":
+            from experiments.backfill.block_ar.train_194a_regime_switching_ar_latent_factor import (
+                RegimeSwitchingLatentFactorARModel,
+            )
+            ModelClass = RegimeSwitchingLatentFactorARModel
+        elif model_type == "regime_switching_ar_latent_factor_194b":
+            from experiments.backfill.block_ar.train_194b_regime_switching_semantic_alignment import (
+                RegimeSwitchingLatentFactorARModel,
+            )
+            ModelClass = RegimeSwitchingLatentFactorARModel
+        elif model_type == "regime_switching_ar_latent_factor_194c":
+            from experiments.backfill.block_ar.train_194c_two_state_quiet_event import (
+                RegimeSwitchingLatentFactorARModel,
+            )
+            ModelClass = RegimeSwitchingLatentFactorARModel
+        elif model_type == "regime_switching_ar_latent_factor_195a":
+            from experiments.backfill.block_ar.train_195a_localized_marked_event_ar import (
+                RegimeSwitchingLatentFactorARModel,
+            )
+            ModelClass = RegimeSwitchingLatentFactorARModel
+        elif model_type == "joint_future_student_t_170a":
+            from experiments.backfill.block_ar.train_170a_joint_future_student_t import (
+                JointFutureStudentTModel,
+            )
+            ModelClass = JointFutureStudentTModel
+        elif model_type == "structured_joint_student_t_170d":
+            from experiments.backfill.block_ar.train_170d_structured_joint_student_t import (
+                StructuredJointStudentTModel,
+            )
+            ModelClass = StructuredJointStudentTModel
+        elif model_type == "local_scale_structured_joint_student_t_170e":
+            from experiments.backfill.block_ar.train_170e_local_scale_structured_joint_student_t import (
+                LocalScaleStructuredJointStudentTModel,
+            )
+            ModelClass = LocalScaleStructuredJointStudentTModel
+        elif model_type == "mixture_structured_joint_student_t_171a":
+            from experiments.backfill.block_ar.train_171a_mixture_structured_joint_student_t import (
+                MixtureStructuredJointStudentTModel,
+            )
+            ModelClass = MixtureStructuredJointStudentTModel
+        elif model_type == "covariance_routed_structured_joint_student_t_171b":
+            from experiments.backfill.block_ar.train_171b_covariance_routed_structured_joint_student_t import (
+                CovarianceRoutedStructuredJointStudentTModel,
+            )
+            ModelClass = CovarianceRoutedStructuredJointStudentTModel
+        elif model_type == "residual_flow_structured_joint_student_t_172a":
+            from experiments.backfill.block_ar.train_172a_residual_flow_structured_joint_student_t import (
+                ResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = ResidualFlowStructuredJointStudentTModel
+        elif model_type == "local_var_residual_flow_structured_joint_student_t_173a":
+            from experiments.backfill.block_ar.train_173a_local_var_residual_flow_structured_joint_student_t import (
+                LocalVarianceResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = LocalVarianceResidualFlowStructuredJointStudentTModel
+        elif model_type == "local_var_residual_flow_structured_joint_student_t_175a":
+            from experiments.backfill.block_ar.train_173a_local_var_residual_flow_structured_joint_student_t import (
+                LocalVarianceResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = LocalVarianceResidualFlowStructuredJointStudentTModel
+        elif model_type == "latent_regime_structured_residual_student_t_176a":
+            from experiments.backfill.block_ar.train_176a_latent_regime_structured_residual import (
+                LatentRegimeStructuredResidualStudentTModel,
+            )
+            ModelClass = LatentRegimeStructuredResidualStudentTModel
+        elif model_type == "shared_local_template_mixture_residual_flow_structured_joint_student_t_176b":
+            from experiments.backfill.block_ar.train_176b_shared_local_template_mixture import (
+                SharedLocalTemplateMixtureStudentTModel,
+            )
+            ModelClass = SharedLocalTemplateMixtureStudentTModel
+        elif model_type == "mean_reverting_shared_local_template_mixture_residual_flow_structured_joint_student_t_177a":
+            from experiments.backfill.block_ar.train_177a_mean_reverting_local_template_mixture import (
+                MeanRevertingSharedLocalTemplateMixtureStudentTModel,
+            )
+            ModelClass = MeanRevertingSharedLocalTemplateMixtureStudentTModel
+        elif model_type == "mean_reverting_calibrated_local_template_mixture_residual_flow_structured_joint_student_t_177b":
+            from experiments.backfill.block_ar.train_177b_mean_reverting_calibrated_local_template_mixture import (
+                MeanRevertingCalibratedLocalTemplateMixtureStudentTModel,
+            )
+            ModelClass = MeanRevertingCalibratedLocalTemplateMixtureStudentTModel
+        elif model_type == "regime_coupled_state_space_student_t_178a":
+            from experiments.backfill.block_ar.regime_state_space_modules import (
+                RegimeCoupledStateSpaceModel,
+            )
+            from experiments.backfill.block_ar.support_transforms import (
+                build_support_transform,
+            )
+            ModelClass = RegimeCoupledStateSpaceModel
+        elif model_type == "block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b":
+            from experiments.backfill.block_ar.train_178b_block_routed_mean_reverting_residual_flow import (
+                BlockRoutedMeanRevertingResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = BlockRoutedMeanRevertingResidualFlowStructuredJointStudentTModel
+        elif model_type == "exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c":
+            from experiments.backfill.block_ar.train_178c_exact_block_mixture_mean_reverting_residual_flow import (
+                ExactBlockMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = ExactBlockMixtureMeanRevertingResidualFlowStructuredJointStudentTModel
+        elif model_type == "exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d":
+            from experiments.backfill.block_ar.train_178d_exact_block_covariance_mixture_mean_reverting_residual_flow import (
+                ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel
+        elif model_type == "exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e":
+            from experiments.backfill.block_ar.train_178e_exact_block_flow_expert_mean_reverting_residual_flow import (
+                ExactBlockFlowExpertMeanRevertingResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = ExactBlockFlowExpertMeanRevertingResidualFlowStructuredJointStudentTModel
+        elif model_type == "centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a":
+            from experiments.backfill.block_ar.train_179a_centered_residual_transport_mean_reverting_covariance_mixture import (
+                CenteredResidualTransportMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = CenteredResidualTransportMeanRevertingCovarianceMixtureModel
+        elif model_type == "basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b":
+            from experiments.backfill.block_ar.train_179b_basis_centered_residual_transport import (
+                BasisCenteredResidualTransportMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = BasisCenteredResidualTransportMeanRevertingCovarianceMixtureModel
+        elif model_type == "centered_smooth_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180a":
+            from experiments.backfill.block_ar.train_180a_centered_smooth_jump_residual import (
+                CenteredSmoothJumpResidualMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = CenteredSmoothJumpResidualMeanRevertingCovarianceMixtureModel
+        elif model_type == "sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d":
+            from experiments.backfill.block_ar.train_180d_sparse_centered_jump_residual import (
+                SparseCenteredJumpResidualMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = SparseCenteredJumpResidualMeanRevertingCovarianceMixtureModel
+        elif model_type == "unified_residual_state_mean_reverting_covariance_mixture_structured_joint_student_t_181a":
+            from experiments.backfill.block_ar.train_181a_unified_residual_state import (
+                UnifiedResidualStateMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = UnifiedResidualStateMeanRevertingCovarianceMixtureModel
+        elif model_type == "pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a":
+            from experiments.backfill.block_ar.train_182a_pathwise_residual_law import (
+                PathwiseResidualLawMeanRevertingCovarianceMixtureModel,
+            )
+            ModelClass = PathwiseResidualLawMeanRevertingCovarianceMixtureModel
+        elif model_type == "width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b":
+            from experiments.backfill.block_ar.train_182b_width_tail_control import (
+                WidthTailControlledPathwiseResidualLawModel,
+            )
+            ModelClass = WidthTailControlledPathwiseResidualLawModel
+        elif model_type == "integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a":
+            from experiments.backfill.block_ar.train_183a_integrated_width_tail_transport import (
+                IntegratedWidthTailPathwiseResidualLawModel,
+            )
+            ModelClass = IntegratedWidthTailPathwiseResidualLawModel
+        elif model_type == "state_dependent_radial_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183b":
+            from experiments.backfill.block_ar.train_183b_state_dependent_radial_transport import (
+                StateDependentRadialTransportModel,
+            )
+            ModelClass = StateDependentRadialTransportModel
+        elif model_type == "state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c":
+            from experiments.backfill.block_ar.train_183c_state_metric_transport import (
+                StateMetricTransportModel,
+            )
+            ModelClass = StateMetricTransportModel
+        elif model_type == "state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a":
+            from experiments.backfill.block_ar.train_186a_hard_slice_tail_objective import (
+                StateMetricTransportModel,
+            )
+            ModelClass = StateMetricTransportModel
+        elif model_type == "state_metric_transport_e2e_sign_aware_concentration_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186b":
+            from experiments.backfill.block_ar.train_186b_e2e_sign_aware_concentration import (
+                StateMetricTransportModel,
+            )
+            ModelClass = StateMetricTransportModel
+        elif model_type == "structured_condition_interface_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_189a":
+            from experiments.backfill.block_ar.train_189a_structured_condition_interface import (
+                StructuredConditionInterfaceModel,
+            )
+            ModelClass = StructuredConditionInterfaceModel
+        elif model_type == "constrained_reallocation_objective_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_190a":
+            from experiments.backfill.block_ar.train_190a_constrained_reallocation_objective import (
+                ConstrainedReallocationModel,
+            )
+            ModelClass = ConstrainedReallocationModel
+        elif model_type == "sparse_concentration_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183d":
+            from experiments.backfill.block_ar.train_183d_sparse_concentration_transport import (
+                SparseConcentrationTransportModel,
+            )
+            ModelClass = SparseConcentrationTransportModel
+        elif model_type == "latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a":
+            from experiments.backfill.block_ar.train_184a_latent_activity_transport import (
+                LatentActivityTransportModel,
+            )
+            ModelClass = LatentActivityTransportModel
+        elif model_type == "latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b":
+            from experiments.backfill.block_ar.train_184b_latent_activity_process_transport import (
+                LatentActivityProcessTransportModel,
+            )
+            ModelClass = LatentActivityProcessTransportModel
+        elif model_type == "sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c":
+            from experiments.backfill.block_ar.train_184c_sparse_precision_transport import (
+                SparsePrecisionTransportModel,
+            )
+            ModelClass = SparsePrecisionTransportModel
+        elif model_type == "latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d":
+            from experiments.backfill.block_ar.train_184d_latent_activity_operator_mixture import (
+                LatentActivityOperatorMixtureModel,
+            )
+            ModelClass = LatentActivityOperatorMixtureModel
+        elif model_type == "graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a":
+            from experiments.backfill.block_ar.train_185a_graph_group_latent_event_path import (
+                GraphGroupLatentEventPathModel,
+            )
+            ModelClass = GraphGroupLatentEventPathModel
+        elif model_type == "graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b":
+            from experiments.backfill.block_ar.train_185b_explicit_event_residual_decomposition import (
+                GraphGroupEventResidualDecompositionModel,
+            )
+            ModelClass = GraphGroupEventResidualDecompositionModel
+        elif model_type == "latent_sparse_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187a":
+            from experiments.backfill.block_ar.train_187a_sparse_support_residual import (
+                SparseSupportResidualModel,
+            )
+            ModelClass = SparseSupportResidualModel
+        elif model_type == "underfit_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187b":
+            from experiments.backfill.block_ar.train_187b_underfit_support_residual import (
+                SparseSupportResidualModel,
+            )
+            ModelClass = SparseSupportResidualModel
+        elif model_type == "discrete_budgeted_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187c":
+            from experiments.backfill.block_ar.train_187c_discrete_budgeted_support_residual import (
+                DiscreteBudgetedSupportResidualModel,
+            )
+            ModelClass = DiscreteBudgetedSupportResidualModel
+        elif model_type == "graph_group_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188a":
+            from experiments.backfill.block_ar.train_188a_graph_group_marked_event_residual import (
+                MarkedEventResidualModel,
+            )
+            ModelClass = MarkedEventResidualModel
+        elif model_type == "amplitude_gated_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188b":
+            from experiments.backfill.block_ar.train_188b_amplitude_gated_marked_event_residual import (
+                AmplitudeGatedMarkedEventResidualModel,
+            )
+            ModelClass = AmplitudeGatedMarkedEventResidualModel
+        elif model_type == "regime_template_local_var_residual_flow_structured_joint_student_t_173b":
+            from experiments.backfill.block_ar.train_173b_regime_template_local_var_residual_flow_structured_joint_student_t import (
+                RegimeTemplateLocalVarianceResidualFlowStructuredJointStudentTModel,
+            )
+            ModelClass = RegimeTemplateLocalVarianceResidualFlowStructuredJointStudentTModel
+        elif model_type == "whitened_flow_170b":
+            from experiments.backfill.block_ar.train_170b_whitened_flow import (
+                WhitenedFlowARModel,
+            )
+            ModelClass = WhitenedFlowARModel
+        else:
+            from experiments.backfill.block_ar.train_169a_transformed_student_t import (
+                OneStepStudentTARModel,
+            )
+            ModelClass = OneStepStudentTARModel
+        if model_type == "regime_coupled_state_space_student_t_178a":
+            enc_cfg = EncoderConfig(**raw_config["encoder"])
+            support_transform = build_support_transform(raw_config["support_transform"])
+            model = ModelClass(
+                encoder_config=enc_cfg,
+                support_transform=support_transform,
+                base_nu=raw_config.get("base_nu", 8.0),
+                **raw_config["model"],
+            )
+        else:
+            if model_type not in {
+                "transformer_ar_rollout_tail_student_t_201a",
+                "transformer_underfit_aware_selffed_rollout_student_t_201b",
+                "transformer_rollout_localization_spectrum_student_t_201c",
+            }:
+                enc_cfg = EncoderConfig(**raw_config["encoder"])
+                dec_cfg = raw_config["decoder"]
+                common_kwargs = dict(
+                    encoder_config=enc_cfg,
+                    decoder_config=dec_cfg,
+                    support_lo=raw_config.get("support_lo", 0.01),
+                    support_hi=raw_config.get("support_hi", 1.0),
+                    support_eps=raw_config.get("support_eps", 1e-5),
+                )
+            if model_type in {
+                "transformer_ar_rollout_tail_student_t_201a",
+                "transformer_underfit_aware_selffed_rollout_student_t_201b",
+                "transformer_rollout_localization_spectrum_student_t_201c",
+            }:
+                model = ModelClass(
+                    encoder_config=raw_config["encoder"],
+                    decoder_config=raw_config["decoder"],
+                    support_lo=raw_config.get("support_lo", 0.01),
+                    support_hi=raw_config.get("support_hi", 1.0),
+                    support_eps=raw_config.get("support_eps", 1e-5),
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                )
+            elif model_type == "whitened_flow_170b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    **common_kwargs,
+                )
+            elif model_type == "constrained_reallocation_multistep_student_t_191a":
+                model = ModelClass(
+                    reallocation_config=raw_config["reallocation"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_ar_conditional_copula_192a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_ar_latent_factor_innovation_193a":
+                model = ModelClass(
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_ar_latent_factor_rollout_193b":
+                model = ModelClass(
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "regime_switching_ar_latent_factor_194a":
+                model = ModelClass(
+                    regime_config=raw_config["regime"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "regime_switching_ar_latent_factor_194b":
+                model = ModelClass(
+                    regime_config=raw_config["regime"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "regime_switching_ar_latent_factor_194c":
+                model = ModelClass(
+                    regime_config=raw_config["regime"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "regime_switching_ar_latent_factor_195a":
+                model = ModelClass(
+                    regime_config=raw_config["regime"],
+                    cov_jitter=raw_config.get("cov_jitter", 1e-4),
+                    **common_kwargs,
+                )
+            elif model_type == "residual_flow_structured_joint_student_t_172a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "local_var_residual_flow_structured_joint_student_t_173a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "local_var_residual_flow_structured_joint_student_t_175a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "latent_regime_structured_residual_student_t_176a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "shared_local_template_mixture_residual_flow_structured_joint_student_t_176b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "mean_reverting_shared_local_template_mixture_residual_flow_structured_joint_student_t_177a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "mean_reverting_calibrated_local_template_mixture_residual_flow_structured_joint_student_t_177b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "block_routed_mean_reverting_residual_flow_structured_joint_student_t_178b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "exact_block_mixture_mean_reverting_residual_flow_structured_joint_student_t_178c":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            elif model_type == "centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "basis_centered_residual_transport_mean_reverting_covariance_mixture_structured_joint_student_t_179b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "centered_smooth_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    jump_config=raw_config["jump"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "sparse_centered_jump_residual_mean_reverting_covariance_mixture_structured_joint_student_t_180d":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    jump_config=raw_config["jump"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "unified_residual_state_mean_reverting_covariance_mixture_structured_joint_student_t_181a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    residual_state_config=raw_config["residual_state"],
+                    jump_config=raw_config["jump"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "width_tail_controlled_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_182b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    amplitude_config=raw_config["amplitude"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "integrated_width_tail_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "state_dependent_radial_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "state_metric_transport_hard_slice_tail_weighted_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "state_metric_transport_e2e_sign_aware_concentration_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_186b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "structured_condition_interface_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_189a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    condition_interface_config=raw_config["cond_interface"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "constrained_reallocation_objective_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_190a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    reallocation_config=raw_config["reallocation"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "sparse_concentration_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183d":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    concentration_config=raw_config["concentration"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "latent_activity_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "latent_activity_process_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "sparse_precision_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184c":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    precision_config=raw_config["precision"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "latent_activity_operator_mixture_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_184d":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    precision_config=raw_config["precision"],
+                    mixture_config=raw_config["mixture"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_group_latent_event_path_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_group_event_residual_decomposition_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_185b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    activity_config=raw_config["activity"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "latent_sparse_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    support_config=raw_config["support_model"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "underfit_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    support_config=raw_config["support_model"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "discrete_budgeted_support_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_187c":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    support_config=raw_config["support_model"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "graph_group_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188a":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    slot_config=raw_config["event_slots"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "amplitude_gated_marked_event_residual_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_188b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    path_config=raw_config["path"],
+                    prior_config=raw_config["prior"],
+                    integrated_config=raw_config["integrated"],
+                    state_config=raw_config["state"],
+                    metric_config=raw_config["metric"],
+                    slot_config=raw_config["event_slots"],
+                    event_config=raw_config["event"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+                    **common_kwargs,
+                )
+            elif model_type == "regime_template_local_var_residual_flow_structured_joint_student_t_173b":
+                model = ModelClass(
+                    flow_config=raw_config["flow"],
+                    base_nu=raw_config.get("base_nu", 8.0),
+                    **common_kwargs,
+                )
+            else:
+                model = ModelClass(**common_kwargs)
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        print(f"  Model type: Student-t Density AR ({model_type})")
+        print(f"  Loaded from epoch {checkpoint.get('epoch', 'unknown')}")
+        model_config = BlockARConfig()
+    elif is_ar_spatial:
         # ── AR Spatial Transformer (164a etc.) ──
         if is_factorized:
             if "167b" in model_type or "167d" in model_type:
@@ -2990,6 +4362,18 @@ def main():
         print(f"  Mean correction grid:\n{mean_corr.numpy().round(3)}")
         print(f"  Corrected samples range: [{cond_samples.min():.4f}, {cond_samples.max():.4f}]")
 
+    # Apply teacher-basis radial tail calibration if requested
+    if args.tailcal_map:
+        from experiments.backfill.block_ar.tailcal_mapper import TeacherBasisBlockTailCalibrator
+
+        if not hasattr(model, "teacher_basis_flat_from_outputs") or not hasattr(model, "forward_from_history"):
+            raise ValueError("Tail calibrator only supports teacher-basis structured Student-t models")
+
+        print(f"\n  Applying teacher-basis tail calibration from {args.tailcal_map}...")
+        tailcal = TeacherBasisBlockTailCalibrator(args.tailcal_map, alpha=args.tailcal_alpha)
+        cond_samples = tailcal.apply(cond_samples, history_arr, model=model, device=device, batch_size=8)
+        print(f"  Tail calibrated: [{cond_samples.min():.4f}, {cond_samples.max():.4f}]")
+
     # Apply quantile mapping if requested
     if args.quantile_map:
         from experiments.backfill.block_ar.quantile_mapper import QuantileMapper
@@ -3121,6 +4505,16 @@ def main():
     cross_cell_results = run_cross_cell_correlation_tests(cond_samples, ground_truth)
     results["cross_cell_correlation"] = cross_cell_results
 
+    # Suite 10: Mean reversion realism
+    results["mean_reversion"] = run_mean_reversion_tests(
+        cond_samples, ground_truth, history_arr,
+    )
+
+    # Suite 11: Pathwise jump realism
+    results["pathwise_jump_realism"] = run_pathwise_jump_realism_tests(
+        cond_samples, ground_truth,
+    )
+
     # =========================================================================
     # Summary
     # =========================================================================
@@ -3156,9 +4550,13 @@ def main():
     quantile_map_path = (
         str(Path(args.quantile_map).resolve()) if args.quantile_map else None
     )
+    tailcal_map_path = (
+        str(Path(args.tailcal_map).resolve()) if args.tailcal_map else None
+    )
     eval_args = dict(vars(args))
     eval_args["model_path"] = str(model_path.resolve())
     eval_args["quantile_map"] = quantile_map_path
+    eval_args["tailcal_map"] = tailcal_map_path
 
     results['eval_config'] = {
         'checkpoint_path': str(model_path.resolve()),
@@ -3175,6 +4573,9 @@ def main():
         'post_hoc_scale': args.post_hoc_scale,
         'regime_adaptive_alpha': args.regime_adaptive_alpha,
         'percell_scale_head': args.percell_scale_head,
+        'tailcal_map': tailcal_map_path,
+        'tailcal_alpha': args.tailcal_alpha,
+        'tailcal_map_hash': hash_file(args.tailcal_map),
         'quantile_map': quantile_map_path,
         'qmap_alpha': args.qmap_alpha,
         'quantile_map_hash': hash_file(args.quantile_map),

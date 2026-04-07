@@ -37,6 +37,7 @@ from experiments.backfill.baselines.classical_baselines import (
     UnconditionalBootstrap,
     PCAVARBaseline,
     GARCHCCCBaseline,
+    DCCGARCHBaseline,
     FilteredHistoricalSimulation,
 )
 from experiments.backfill.block_ar.test_block_ar_requirements_v2 import (
@@ -57,7 +58,7 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 # All baseline names in evaluation order
 CLASSICAL_BASELINES = [
     "random_walk", "historical_sim", "bootstrap",
-    "pca_var", "garch_ccc", "filtered_hs",
+    "pca_var", "garch_ccc", "dcc_garch", "filtered_hs",
 ]
 DEEP_BASELINES = ["csdi", "timegrad", "deepvar", "vae"]
 ALL_BASELINES = CLASSICAL_BASELINES + DEEP_BASELINES
@@ -583,6 +584,7 @@ def main():
         "pca_var": lambda: PCAVARBaseline(
             train_surfaces, future_len=future_len, n_components=args.pca_components),
         "garch_ccc": lambda: GARCHCCCBaseline(train_surfaces, future_len=future_len),
+        "dcc_garch": lambda: DCCGARCHBaseline(train_surfaces, future_len=future_len),
         "filtered_hs": lambda: FilteredHistoricalSimulation(
             train_surfaces, future_len=future_len),
     }

@@ -1,0 +1,532 @@
+#!/usr/bin/env python
+"""
+Focused template / assignment analysis for 178d.
+
+Questions:
+  1. Are the blockwise covariance-residual templates distinct in a meaningful way?
+  2. Is the exact latent router alive on the best checkpoint?
+  3. On the exact remaining S2/S3/S7 slices, can any single template actually fix
+     the slice if we force that block assignment?
+  4. Is the remaining bottleneck routing, template expressiveness, or both?
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+import sys
+
+sys.path.insert(0, ".")
+
+from diffusion.block_ar.gru_encoder import EncoderConfig
+from experiments.backfill.block_ar.analyze_170d_mechanisms import (
+    build_test_subset,
+    make_serializable,
+    regime_masks_from_history,
+)
+from experiments.backfill.block_ar.train_169a_transformed_student_t import (
+    denormalize_iv,
+    iv_to_unconstrained,
+    normalize_iv,
+    unconstrained_to_iv,
+)
+from experiments.backfill.block_ar.train_178d_exact_block_covariance_mixture_mean_reverting_residual_flow import (
+    ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+)
+
+
+SELECT_HORIZONS = [1, 7, 14, 30]
+LAYER2_LOW = 0.70
+LAYER2_HIGH = 0.95
+
+
+def load_model(checkpoint_path: str, device: str):
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    raw_config = checkpoint["config"]
+    expected = "exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d"
+    if raw_config["type"] != expected:
+        raise ValueError(f"Expected {expected}, got {raw_config['type']}")
+    enc_cfg = EncoderConfig(**raw_config["encoder"])
+    model = ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel(
+        encoder_config=enc_cfg,
+        decoder_config=raw_config["decoder"],
+        flow_config=raw_config["flow"],
+        support_lo=raw_config.get("support_lo", 0.01),
+        support_hi=raw_config.get("support_hi", 1.0),
+        support_eps=raw_config.get("support_eps", 1e-5),
+        base_nu=raw_config.get("base_nu", 8.0),
+        mix_chunk_size=raw_config.get("mix_chunk_size", 27),
+    )
+    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    model.to(device).eval()
+    return model, checkpoint
+
+
+def top_cells(values: np.ndarray, reverse: bool = True, k: int = 5) -> list[dict[str, Any]]:
+    flat = []
+    for idx, value in enumerate(values.reshape(-1)):
+        flat.append({"cell": [int(idx // 5), int(idx % 5)], "value": float(value)})
+    flat.sort(key=lambda x: x["value"], reverse=reverse)
+    return flat[:k]
+
+
+@torch.no_grad()
+def exact_block_posterior(
+    model: ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+    target_u: torch.Tensor,
+    mu: torch.Tensor,
+    time_factor: torch.Tensor,
+    time_diag: torch.Tensor,
+    cell_factor: torch.Tensor,
+    cell_diag: torch.Tensor,
+    scale: torch.Tensor,
+    flow_context: torch.Tensor,
+    base_local_delta: torch.Tensor,
+    block_logits: torch.Tensor,
+):
+    batch, n_frames, n_cells = target_u.shape
+    cov_t, cov_c = model.covariance_parts(time_factor, time_diag, cell_factor, cell_diag, scale)
+    chol_t = torch.linalg.cholesky(cov_t)
+    chol_c = torch.linalg.cholesky(cov_c)
+    assignments = model.decoder.assignment_index.to(target_u.device)
+    n_assign = assignments.shape[0]
+
+    log_prior_blocks = F.log_softmax(block_logits, dim=-1)
+    log_prior = target_u.new_zeros(batch, n_assign)
+    for b in range(model.decoder.n_blocks):
+        idx = assignments[:, b].unsqueeze(0).expand(batch, -1)
+        log_prior = log_prior + log_prior_blocks[:, b].gather(1, idx)
+
+    shared_local_delta = model.decoder.build_shared_local_delta(base_local_delta)
+    shared_local_scale = torch.exp(0.5 * shared_local_delta)
+    diff = (target_u - mu) / shared_local_scale
+    white_t = torch.linalg.solve_triangular(chol_t, diff, upper=False)
+    white_shared = torch.linalg.solve_triangular(chol_c, white_t.transpose(1, 2), upper=False).transpose(1, 2)
+    white_blocks = white_shared.view(batch, model.decoder.n_blocks, model.decoder.block_len, n_cells)
+
+    logdet_t = 2.0 * torch.log(torch.diagonal(chol_t, dim1=-2, dim2=-1)).sum(dim=-1)
+    logdet_c = 2.0 * torch.log(torch.diagonal(chol_c, dim1=-2, dim2=-1)).sum(dim=-1)
+    logdet_cov = n_cells * logdet_t + n_frames * logdet_c
+    logdet_local = 2.0 * torch.log(shared_local_scale).sum(dim=(1, 2))
+
+    log_joint_chunks = []
+    for start in range(0, n_assign, model.mix_chunk_size):
+        end = min(start + model.mix_chunk_size, n_assign)
+        chunk_assign = assignments[start:end]
+        factors, logdet_template_cov, _ = model.decoder.build_template_factors(chunk_assign)
+        chunk = end - start
+        obs = white_blocks.unsqueeze(1).expand(batch, chunk, -1, -1, -1)
+        rhs = obs.permute(0, 1, 2, 4, 3).reshape(batch * chunk * model.decoder.n_blocks, n_cells, model.decoder.block_len)
+        factor_batch = factors.unsqueeze(0).expand(batch, -1, -1, -1, -1).reshape(
+            batch * chunk * model.decoder.n_blocks, n_cells, n_cells
+        )
+        base_blocks = torch.linalg.solve_triangular(factor_batch, rhs, upper=False)
+        base_blocks = base_blocks.reshape(batch, chunk, model.decoder.n_blocks, n_cells, model.decoder.block_len).permute(0, 1, 2, 4, 3)
+        white_flat = base_blocks.reshape(batch * chunk, n_frames * n_cells)
+        ctx = flow_context.unsqueeze(1).expand(batch, chunk, -1).reshape(batch * chunk, -1)
+        z, flow_logdet = model.flow(white_flat, ctx)
+        base_logprob = model._base_logprob(z).view(batch, chunk)
+        flow_logdet = flow_logdet.view(batch, chunk)
+        comp_logprob = base_logprob + flow_logdet - 0.5 * (
+            logdet_cov.unsqueeze(1) + logdet_local.unsqueeze(1) + logdet_template_cov.unsqueeze(0)
+        )
+        log_joint_chunks.append(log_prior[:, start:end] + comp_logprob)
+
+    log_joint = torch.cat(log_joint_chunks, dim=1)
+    posterior_assign = F.softmax(log_joint - torch.logsumexp(log_joint, dim=1, keepdim=True), dim=1)
+    assignment_onehot = F.one_hot(assignments, num_classes=model.decoder.n_templates).float()
+    posterior_blocks = torch.einsum("ba,akd->bkd", posterior_assign, assignment_onehot)
+    prior_blocks = F.softmax(block_logits, dim=-1)
+    return prior_blocks, posterior_blocks, posterior_assign, assignments
+
+
+@torch.no_grad()
+def sample_forced_assignments(
+    model: ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+    history_01: torch.Tensor,
+    forced_assignments: torch.Tensor,
+    n_samples: int,
+) -> torch.Tensor:
+    (
+        mu,
+        time_factor,
+        time_diag,
+        cell_factor,
+        cell_diag,
+        scale,
+        flow_context,
+        base_local_delta,
+        _block_logits,
+    ) = model.forward_from_history(history_01)
+    batch, n_frames, n_cells = mu.shape
+
+    cov_t, cov_c = model.covariance_parts(time_factor, time_diag, cell_factor, cell_diag, scale)
+    chol_t = torch.linalg.cholesky(cov_t)
+    chol_c = torch.linalg.cholesky(cov_c)
+
+    base = torch.distributions.StudentT(df=model.base_nu)
+    z = base.sample((batch * n_samples, n_frames * n_cells)).to(device=mu.device, dtype=mu.dtype)
+    ctx = flow_context.unsqueeze(1).expand(batch, n_samples, -1).reshape(batch * n_samples, -1)
+    base_white_flat, _ = model.flow.inverse(z, ctx)
+    base_white = base_white_flat.view(batch * n_samples, model.decoder.n_blocks, model.decoder.block_len, n_cells)
+
+    assign_flat = forced_assignments.unsqueeze(1).expand(batch, n_samples, model.decoder.n_blocks).reshape(
+        batch * n_samples, model.decoder.n_blocks
+    )
+    sampled_factors, _logdet_cov, _offdiag_rms = model.decoder.build_template_factors(assign_flat)
+    lhs = base_white.permute(0, 1, 3, 2).reshape(batch * n_samples * model.decoder.n_blocks, n_cells, model.decoder.block_len)
+    factor_flat = sampled_factors.reshape(batch * n_samples * model.decoder.n_blocks, n_cells, n_cells)
+    routed_white = torch.matmul(factor_flat, lhs)
+    routed_white = routed_white.reshape(batch * n_samples, model.decoder.n_blocks, n_cells, model.decoder.block_len).permute(0, 1, 3, 2)
+    routed_white = routed_white.reshape(batch, n_samples, n_frames, n_cells)
+
+    temp = torch.einsum("bij,bsjk->bsik", chol_t, routed_white)
+    noise = torch.einsum("bstj,bcj->bstc", temp, chol_c)
+    shared_local_delta = model.decoder.build_shared_local_delta(base_local_delta)
+    local_scale = torch.exp(0.5 * shared_local_delta).unsqueeze(1)
+    samples_u = mu.unsqueeze(1) + noise * local_scale
+    return unconstrained_to_iv(samples_u, lo=model.support_lo, hi=model.support_hi).view(
+        batch, n_samples, n_frames, 5, 5
+    )
+
+
+@torch.no_grad()
+def analyze_178d_templates(
+    model: ExactBlockCovarianceMixtureMeanRevertingResidualFlowStructuredJointStudentTModel,
+    history_norm: torch.Tensor,
+    future_norm: torch.Tensor,
+    vov: np.ndarray,
+    q20: float,
+    q80: float,
+    device: str,
+    batch_size: int,
+    n_samples: int,
+    slice_eval_samples: int,
+) -> dict[str, Any]:
+    history_norm = history_norm.to(device)
+    future_norm = future_norm.to(device)
+    history_01_all = denormalize_iv(history_norm)
+    future_01_all = denormalize_iv(future_norm).reshape(future_norm.shape[0], future_norm.shape[1], -1)
+    n_windows, future_len, n_cells = future_01_all.shape
+    calm_mask = vov <= q20
+    turb_mask = vov >= q80
+    regime_masks = {
+        "all": np.ones(n_windows, dtype=bool),
+        "calm": calm_mask,
+        "turb": turb_mask,
+    }
+
+    n_blocks = model.decoder.n_blocks
+    n_templates = model.decoder.n_templates
+
+    prior_blocks_all = np.zeros((n_windows, n_blocks, n_templates), dtype=np.float32)
+    posterior_blocks_all = np.zeros((n_windows, n_blocks, n_templates), dtype=np.float32)
+    prior_argmax_all = np.zeros((n_windows, n_blocks), dtype=np.int64)
+    posterior_argmax_all = np.zeros((n_windows, n_blocks), dtype=np.int64)
+    prior_entropy_all = np.zeros((n_windows, n_blocks), dtype=np.float32)
+    posterior_entropy_all = np.zeros((n_windows, n_blocks), dtype=np.float32)
+    per_window_cov = np.zeros(n_windows, dtype=np.float32)
+    covered90 = np.zeros((n_windows, future_len, 5, 5), dtype=bool)
+
+    row0 = 0
+    for start in range(0, n_windows, batch_size):
+        end = min(start + batch_size, n_windows)
+        hist_norm_b = history_norm[start:end]
+        hist_01_b = history_01_all[start:end]
+        fut_01_b = future_01_all[start:end].to(device)
+        (
+            mu,
+            time_factor,
+            time_diag,
+            cell_factor,
+            cell_diag,
+            scale,
+            flow_context,
+            base_local_delta,
+            block_logits,
+        ) = model.forward_from_history(hist_01_b)
+        target_u = iv_to_unconstrained(
+            fut_01_b,
+            lo=model.support_lo,
+            hi=model.support_hi,
+            eps=model.support_eps,
+        )
+        prior_blocks, posterior_blocks, _posterior_assign, _assignments = exact_block_posterior(
+            model,
+            target_u,
+            mu,
+            time_factor,
+            time_diag,
+            cell_factor,
+            cell_diag,
+            scale,
+            flow_context,
+            base_local_delta,
+            block_logits,
+        )
+        prior_blocks_np = prior_blocks.detach().cpu().numpy()
+        posterior_blocks_np = posterior_blocks.detach().cpu().numpy()
+        prior_blocks_all[row0:end] = prior_blocks_np
+        posterior_blocks_all[row0:end] = posterior_blocks_np
+        prior_argmax_all[row0:end] = prior_blocks_np.argmax(axis=-1)
+        posterior_argmax_all[row0:end] = posterior_blocks_np.argmax(axis=-1)
+        prior_entropy_all[row0:end] = (-(prior_blocks_np * np.log(np.clip(prior_blocks_np, 1e-8, 1.0)))).sum(axis=-1)
+        posterior_entropy_all[row0:end] = (-(posterior_blocks_np * np.log(np.clip(posterior_blocks_np, 1e-8, 1.0)))).sum(axis=-1)
+
+        samples = model.sample_batched(hist_norm_b, n_samples=n_samples)
+        future_grid = fut_01_b.view(end - start, future_len, 5, 5)
+        lo = samples.quantile(0.05, dim=1)
+        hi = samples.quantile(0.95, dim=1)
+        covered_b = ((future_grid >= lo) & (future_grid <= hi)).detach().cpu().numpy()
+        covered90[row0:end] = covered_b
+        per_window_cov[row0:end] = covered_b.mean(axis=(1, 2, 3))
+        row0 = end
+
+    diag_bank = model.decoder.block_cov_diag_bank.detach().cpu().numpy()  # [T,B,C]
+    lower_bank = model.decoder.block_cov_lower_bank.detach().cpu().numpy()  # [T,B,C,C]
+    static_field = model.decoder.static_local_logvar.detach().cpu().numpy().reshape(model.decoder.n_frames, 5, 5)
+
+    regime_block_usage = {}
+    regime_block_post = {}
+    regime_entropy = {}
+    for name, mask in regime_masks.items():
+        regime_block_usage[name] = prior_blocks_all[mask].mean(axis=0).tolist()
+        regime_block_post[name] = posterior_blocks_all[mask].mean(axis=0).tolist()
+        regime_entropy[name] = {
+            "prior_mean": prior_entropy_all[mask].mean(axis=0).tolist(),
+            "posterior_mean": posterior_entropy_all[mask].mean(axis=0).tolist(),
+        }
+
+    top_assignment_patterns = {"prior_argmax": {}, "posterior_argmax": {}}
+    for key, arr in [("prior_argmax", prior_argmax_all), ("posterior_argmax", posterior_argmax_all)]:
+        patterns = {}
+        for row in arr:
+            pat = "-".join(str(int(x)) for x in row.tolist())
+            patterns[pat] = patterns.get(pat, 0) + 1
+        ranked = sorted(patterns.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_assignment_patterns[key] = [
+            {"pattern": pat, "count": int(cnt), "fraction": float(cnt / n_windows)} for pat, cnt in ranked
+        ]
+
+    template_bank_summary = {}
+    for b in range(n_blocks):
+        block_name = f"block_{b + 1}"
+        template_bank_summary[block_name] = {}
+        covs = []
+        for t in range(n_templates):
+            diag = np.exp(np.tanh(diag_bank[t, b]) * model.decoder.template_diag_clip)
+            lower = np.tanh(lower_bank[t, b]) * model.decoder.template_offdiag_clip
+            lower = np.tril(lower, k=-1)
+            factor = lower + np.diag(diag)
+            cov = factor @ factor.T
+            covs.append(cov)
+            diag_vals = np.diag(cov).reshape(5, 5)
+            offdiag_rms = float(np.sqrt(np.mean(np.square(cov - np.diag(np.diag(cov))))))
+            template_bank_summary[block_name][f"template_{t}"] = {
+                "diag_mean": float(np.mean(np.diag(cov))),
+                "diag_std": float(np.std(np.diag(cov))),
+                "offdiag_rms": offdiag_rms,
+                "top_diag_cells": top_cells(diag_vals, reverse=True, k=5),
+                "low_diag_cells": top_cells(diag_vals, reverse=False, k=5),
+            }
+        dists = {}
+        for t1 in range(n_templates):
+            for t2 in range(t1 + 1, n_templates):
+                dists[f"{t1}-{t2}"] = float(np.sqrt(np.square(covs[t1] - covs[t2]).sum()))
+        template_bank_summary[block_name]["pairwise_frobenius"] = dists
+
+    under_records = []
+    over_records = []
+    for regime_name, mask in [("calm", calm_mask), ("turb", turb_mask)]:
+        for h in [7, 14, 30]:
+            hid = h - 1
+            cov_grid = covered90[mask, hid].mean(axis=0)
+            for i in range(5):
+                for j in range(5):
+                    val = float(cov_grid[i, j])
+                    if val < LAYER2_LOW:
+                        under_records.append({"regime": regime_name, "horizon": h, "cell": [i, j], "coverage": val})
+                    if val > LAYER2_HIGH:
+                        over_records.append({"regime": regime_name, "horizon": h, "cell": [i, j], "coverage": val})
+    under_records.sort(key=lambda x: x["coverage"])
+    over_records.sort(key=lambda x: x["coverage"], reverse=True)
+    selected_under = under_records[:8]
+    selected_over = over_records[:6]
+
+    def analyze_slice(slice_record: dict[str, Any], mode: str) -> dict[str, Any]:
+        regime = slice_record["regime"]
+        h = slice_record["horizon"]
+        i, j = slice_record["cell"]
+        block_idx = (h - 1) // model.decoder.block_len
+        idx = np.where(regime_masks[regime])[0]
+        if len(idx) == 0:
+            return {**slice_record, "block": int(block_idx + 1), "n_windows": 0}
+        idx = idx[: min(len(idx), 96)]
+        hist_01 = history_01_all[idx].to(device)
+        fut_01 = future_01_all[idx].reshape(len(idx), future_len, 5, 5).to(device)
+
+        (
+            _mu,
+            _tf,
+            _td,
+            _cf,
+            _cd,
+            _scale,
+            _ctx,
+            _base_local_delta,
+            block_logits,
+        ) = model.forward_from_history(hist_01)
+        prior_block = F.softmax(block_logits, dim=-1).detach().cpu().numpy()[:, block_idx]
+        posterior_block = posterior_blocks_all[idx, block_idx]
+        current_assign = torch.from_numpy(prior_argmax_all[idx]).to(device=device, dtype=torch.long)
+
+        current_samples = model.sample_batched(normalize_iv(hist_01), n_samples=slice_eval_samples)
+        current_lo = current_samples.quantile(0.05, dim=1)
+        current_hi = current_samples.quantile(0.95, dim=1)
+        current_cov = ((fut_01 >= current_lo) & (fut_01 <= current_hi)).float().mean(dim=0)[h - 1, i, j].item()
+
+        forced_coverages = []
+        for t in range(n_templates):
+            forced_assign = current_assign.clone()
+            forced_assign[:, block_idx] = t
+            forced_samples = sample_forced_assignments(model, hist_01, forced_assign, n_samples=slice_eval_samples)
+            forced_lo = forced_samples.quantile(0.05, dim=1)
+            forced_hi = forced_samples.quantile(0.95, dim=1)
+            forced_cov = ((fut_01 >= forced_lo) & (fut_01 <= forced_hi)).float().mean(dim=0)[h - 1, i, j].item()
+            forced_coverages.append(float(forced_cov))
+
+        if mode == "under":
+            helpful_template = int(np.argmax(forced_coverages))
+            best_cov = float(np.max(forced_coverages))
+            gap = best_cov - current_cov
+            prior_help = float(prior_block[:, helpful_template].mean())
+            posterior_help = float(posterior_block[:, helpful_template].mean())
+            if best_cov >= LAYER2_LOW and posterior_help > prior_help + 0.10:
+                diagnosis = "prior_underuses_helpful_template"
+            elif best_cov < max(LAYER2_LOW, current_cov + 0.05):
+                diagnosis = "template_family_too_weak"
+            else:
+                diagnosis = "partial_recoverable"
+        else:
+            helpful_template = int(np.argmin(forced_coverages))
+            best_cov = float(np.min(forced_coverages))
+            gap = current_cov - best_cov
+            prior_help = float(prior_block[:, helpful_template].mean())
+            posterior_help = float(posterior_block[:, helpful_template].mean())
+            if best_cov <= LAYER2_HIGH and posterior_help > prior_help + 0.10:
+                diagnosis = "prior_underuses_helpful_template"
+            elif best_cov > min(LAYER2_HIGH, current_cov - 0.05):
+                diagnosis = "template_family_too_weak"
+            else:
+                diagnosis = "partial_recoverable"
+
+        return {
+            **slice_record,
+            "block": int(block_idx + 1),
+            "n_windows": int(len(idx)),
+            "current_coverage_recomputed": float(current_cov),
+            "forced_template_coverages": [float(x) for x in forced_coverages],
+            "helpful_template": helpful_template,
+            "best_forced_coverage": best_cov,
+            "coverage_gap": float(gap),
+            "prior_block_mean": prior_block.mean(axis=0).tolist(),
+            "posterior_block_mean": posterior_block.mean(axis=0).tolist(),
+            "prior_helpful_mass": prior_help,
+            "posterior_helpful_mass": posterior_help,
+            "diagnosis": diagnosis,
+        }
+
+    analyzed_under = [analyze_slice(rec, "under") for rec in selected_under]
+    analyzed_over = [analyze_slice(rec, "over") for rec in selected_over]
+
+    return {
+        "overall": {
+            "n_windows": int(n_windows),
+            "n_blocks": int(n_blocks),
+            "n_templates": int(n_templates),
+            "overall_window_coverage_mean": float(per_window_cov.mean()),
+            "turb_window_coverage_mean": float(per_window_cov[turb_mask].mean()),
+            "calm_window_coverage_mean": float(per_window_cov[calm_mask].mean()),
+            "prior_posterior_argmax_agreement_by_block": (prior_argmax_all == posterior_argmax_all).mean(axis=0).tolist(),
+        },
+        "regime_block_usage": regime_block_usage,
+        "regime_block_posterior": regime_block_post,
+        "regime_entropy": regime_entropy,
+        "top_assignment_patterns": top_assignment_patterns,
+        "template_bank_summary": template_bank_summary,
+        "static_field_extremes": {
+            "top_boosted_cells": top_cells(static_field.mean(axis=0), reverse=True, k=8),
+            "top_suppressed_cells": top_cells(static_field.mean(axis=0), reverse=False, k=8),
+        },
+        "hard_under_slices": analyzed_under,
+        "high_overcoverage_slices": analyzed_over,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Analyze 178d templates and assignment behavior")
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default="models/backfill/exact_block_covariance_mixture_mean_reverting_residual_flow_structured_joint_student_t_178d/best_model.pt",
+    )
+    parser.add_argument("--data_path", type=str, default="data/vol_surface_with_ret.npz")
+    parser.add_argument("--history_len", type=int, default=30)
+    parser.add_argument("--future_len", type=int, default=30)
+    parser.add_argument("--test_start", type=int, default=4540)
+    parser.add_argument("--max_windows", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--n_samples", type=int, default=30)
+    parser.add_argument("--slice_eval_samples", type=int, default=40)
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="results/validations/2026-04-05/analysis/178d_mechanistic",
+    )
+    args = parser.parse_args()
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model, checkpoint = load_model(args.model_path, args.device)
+    history_norm, future_norm = build_test_subset(
+        data_path=args.data_path,
+        history_len=args.history_len,
+        future_len=args.future_len,
+        test_start=args.test_start,
+        max_windows=args.max_windows,
+    )
+    vov, q20, q80 = regime_masks_from_history(history_norm)
+    analysis = analyze_178d_templates(
+        model=model,
+        history_norm=history_norm,
+        future_norm=future_norm,
+        vov=vov,
+        q20=q20,
+        q80=q80,
+        device=args.device,
+        batch_size=args.batch_size,
+        n_samples=args.n_samples,
+        slice_eval_samples=args.slice_eval_samples,
+    )
+    analysis["checkpoint_epoch"] = int(checkpoint.get("epoch", -1))
+    analysis["model_path"] = args.model_path
+    analysis["test_start"] = args.test_start
+    analysis["max_windows"] = int(history_norm.shape[0])
+
+    out_path = output_dir / "mechanistic_summary.json"
+    with open(out_path, "w") as f:
+        json.dump(make_serializable(analysis), f, indent=2)
+    print(f"Saved to {out_path}")
+
+
+if __name__ == "__main__":
+    main()
