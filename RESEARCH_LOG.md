@@ -68280,3 +68280,1214 @@ Follow-up falsification probe:
   and the link between raw kurtosis and innovation kurtosis weakened sharply
 - so the value in `212ai` is not just “late NLL”; the *staged / annealed* part
   appears to be what preserves innovation-law realism
+
+### Exp 212aj: Add Generic Conditional Location-Scale Decomposition to 212ai
+
+Question:
+
+- can a generic conditional location-scale-residual decomposition fix the
+  remaining `212ai` issues in one move:
+  - regime coverage
+  - weak mean reversion
+  - tail overshoots
+
+Spec:
+
+- initialize from the best `212ai` checkpoint
+- keep the same encoder, residual flow, and staged exact-NLL schedule
+- replace:
+  - `delta = s_t * sinh(v)`
+- with:
+  - `delta = mean_delta(h) + residual_scale(h) * sinh(v)`
+- where:
+  - `mean_delta(h)` is a zero-initialized learned center
+  - `residual_scale(h) = s_t * exp(log_scale_mult(h))`
+
+Result:
+
+- suite score stayed `6/9`
+- pooled validation KS improved strongly: `0.037 -> 0.014`
+- regime coverage nearly passed:
+  - calm worst/best `77.5% / 94.4%`
+  - turbulent worst/best `84.3% / 96.6%`
+- cross-cell dependence stayed strong:
+  - corr ratio `0.960`
+  - factor breadth `1.649`
+
+But the branch regressed on the main remaining scientific issues:
+
+- mean-reversion slope ratio fell: `0.793 -> 0.550`
+- q99 coverage stayed weak: `0.545`
+- validation innovation-kurtosis median undershot GT:
+  - GT `8.89`
+  - pred `6.62`
+- raw kurtosis became scale-driven again:
+  - raw-vs-innovation corr `-0.077`
+  - raw-vs-scale-CV corr `0.752`
+
+Interpretation:
+
+- the generic decomposition idea was directionally right
+- but giving the model both a free mean path and a free scale path created an
+  identifiability problem
+- the learned scale map saturated quickly and the model pushed variation back
+  into the scale mixture rather than improving the conditional center cleanly
+
+Updated recommendation:
+
+- the next most principled move is **not** a free location-scale head pair
+- it is a narrower generic decomposition:
+  - keep the fixed causal local scale `s_t`
+  - add only a small conditional mean path
+  - let the residual flow model the remaining residual law
+
+Why:
+
+- `212ai` diagnosis showed regime shortfall tracks center error more than width
+- `212aj` showed a free learned scale head reintroduces the old scale-mixing
+  pathology
+- so the scale path is the wrong place to add more freedom; the center path is
+  the one that still needs help
+
+### Exp 212ak: Add Generic Conditional Mean Path Only on Top of 212ai
+
+Question:
+
+- can the narrower generic decomposition fix the remaining center problems
+  without reintroducing scale mixing:
+  - regime coverage
+  - mean reversion
+  - local calibration
+
+Spec:
+
+- initialize from the best `212ai` checkpoint
+- keep the same encoder, residual flow, fixed causal local scale, and staged
+  exact-NLL schedule
+- replace:
+  - `delta = s_t * sinh(v)`
+- with:
+  - `delta = mean_delta(h) + s_t * sinh(v)`
+- where:
+  - `mean_delta(h) = max_mean_mult * s_t * tanh(mean_head(h))`
+  - `mean_head` is zero-initialized so the starting point matches `212ai`
+
+Best-checkpoint result (epoch `1`):
+
+- suite score stayed `6/9`
+- overall coverage stayed good: `90.0%`
+- realized q99 coverage improved: `0.545 -> 0.576`
+- worst-cell coverage stayed healthy: `82.3%`
+- cross-cell dependence stayed strong:
+  - corr ratio `0.969`
+  - factor breadth `1.628`
+
+What did not improve:
+
+- mean-reversion ratio fell: `0.793 -> 0.667`
+- active mean-reversion cells stayed `7/12`
+- pooled val KS was slightly worse: `0.037 -> 0.039`
+- regime coverage still failed because the best calm/turb cells remained too
+  wide (`96.6%`)
+
+Important diagnostic:
+
+- the later checkpoints show the mean path can move the center when it is
+  allowed to grow
+- by epoch `8`, mean `|u|` rose from `0.032` to `1.974`
+- aggregate mean-reversion ratio improved to `0.772` and passed the aggregate
+  gate
+- regime coverage almost passed
+
+But those later checkpoints paid for it elsewhere:
+
+- distributional fidelity fell to `23/25` KS-pass cells
+- cross-cell correlation ratio fell to `0.768`
+- extreme-move realism failed on max-jump KS
+
+Innovation-law diagnosis:
+
+- unlike `212aj`, this branch did **not** revert to scale mixing on validation:
+  - pred innovation-kurtosis median `11.38` vs GT `8.89`
+  - raw-vs-innovation kurtosis corr `0.834`
+  - raw-vs-scale-CV corr `0.133`
+- on train, some scale-mixing pressure reappeared:
+  - raw-vs-innovation `0.332`
+  - raw-vs-scale-CV `0.796`
+
+Interpretation:
+
+- the location-only decomposition is directionally safer than a free
+  location-scale pair
+- it preserves the core `212ai` structure and improves q99 coverage
+- but the current training / selection geometry still does not prefer the
+  stronger-center solution cleanly
+- early checkpoints stay too close to `212ai`
+- later checkpoints strengthen the center but damage marginal fidelity and
+  dependence
+
+Updated recommendation:
+
+- `212ak` is **not** the new base
+- but it supports the diagnosis that the remaining issue is centered on
+  conditional-location training geometry, not scale
+- the next move should focus on how to train / select the mean path cleanly,
+  rather than adding more free scale flexibility
+
+### Exp 212al: Freeze Residual Law, Calibrate Mean Path First
+
+Question:
+
+- if the remaining issue is really center placement, can we fix it more cleanly
+  by freezing the `212ai` residual law first and calibrating only the generic
+  mean path before any tiny joint update
+
+Spec:
+
+- keep the `212ak` location-only parameterization:
+  - `delta = mean_delta(h) + s_t * sinh(v)`
+- but split training into two stages:
+  1. freeze encoder + residual flow, train only `mean_head`
+  2. run a tiny low-LR joint ES + staged-NLL cleanup
+- checkpoint selection now includes:
+  - coverage / q99 coverage / move-size shape
+  - regime worst/best coverage
+  - aggregate mean-reversion ratio
+  - active-cell mean-reversion pass rate
+
+Result:
+
+- best checkpoint was epoch `8`
+- aggregate mean-reversion ratio improved:
+  - `0.793 -> 0.869`
+- q99 coverage improved:
+  - `0.545 -> 0.576`
+
+But the branch over-corrected:
+
+- overall 90% coverage rose too high:
+  - `89.8% -> 93.1%`
+- best-cell coverage failed:
+  - overall best `96.6%`
+  - turbulent best `100.0%`
+- move-size body failed on the smallest moves:
+  - `<=0.005` ratio `0.848`
+- max-jump KS failed:
+  - `0.209`
+- pooled val KS worsened:
+  - `0.037 -> 0.050`
+
+Innovation audit:
+
+- pred innovation-kurtosis median blew up:
+  - GT `8.89`
+  - pred `37.43`
+- raw-vs-innovation correlation fell to `0.151`
+- raw-vs-scale correlation stayed low (`0.033`)
+
+Interpretation:
+
+- this is a clean falsification of the stricter “freeze the residual law first”
+  move in this exact form
+- the branch does improve the center metrics we targeted
+- but it pays for that by becoming broadly over-covering and by inflating the
+  innovation-law tails
+- so the remaining issue is not simply “the mean path needs its own stage”
+- that stage alone still pushes the model into the wrong basin
+
+Updated recommendation:
+
+- `212al` is **not** the new base
+- `212ai` remains the strongest balanced branch
+- the current evidence no longer supports “just do a cleaner center stage”
+  as the next obvious move
+- the next step should be chosen more cautiously from the now-falsified center
+  hypotheses, not assumed from them
+
+### 2026-04-09 Follow-On Roadmap After 212al Falsification
+
+Given the current evidence, the ordered 1-day experiment queue is:
+
+1. **`212am`: support-by-construction conditional flow with drift in bounded
+   coordinate**
+   - move from clip-after-delta to a bounded coordinate:
+     - `y_t = logit(iv_t)`
+   - model one-day moves as:
+     - `y_{t+1} = y_t + m(h_t) + s_t * sinh(v_t)`
+   - keep population-level ES on raw deltas
+   - add staged exact likelihood on the residual law in `y`-space
+   - goal:
+     - preserve `212ai` dependence / conditionality
+     - remove clip reliance at the source
+     - place mean reversion in the center path
+
+2. **`212an`: bounded-coordinate flow with boundary-aware residual scaling**
+   - only if `212am` is directionally right but still too active near the
+     floor / ceiling
+   - add a mild support-aware residual amplitude, inspired by bounded
+     diffusions / Jacobi-type dynamics
+   - key guardrail:
+     - do not reintroduce a free scale path that can recreate scale-mixing
+
+3. **`212ao`: small pre-clamp boundary penalty on `212ai`**
+   - local cleanup experiment, not a full model redesign
+   - penalize raw next-IV only when it leaves `[0, 1]`
+   - goal:
+     - reduce local floor/ceiling pile-up
+     - reduce clamp reliance without forcing interior repulsion
+
+Decision rule:
+
+- if `212am` materially improves mean reversion and boundary behavior without
+  sacrificing conditionality / marginals, it becomes the new main branch
+- if `212am` fails but the failure is local near bounds, try `212an`
+- if the bounded-coordinate redesign does not win clearly, fall back to the
+  smaller `212ao` cleanup on top of `212ai`
+
+### Exp 212am: Support-by-Construction Flow with Drift in Logit-IV Space
+
+Question:
+
+- can we handle the bounded-support and mean-reversion problems more
+  principledly by moving the whole one-day law into a bounded coordinate rather
+  than clipping raw delta afterward
+
+Spec:
+
+- transform:
+  - `y_t = logit(iv_t)`
+- model:
+  - `y_{t+1} = y_t + m(h_t) + s_t * sinh(v_t)`
+- where:
+  - `m(h_t)` is a learned conditional drift
+  - `s_t` is a causal EWMA local scale in logit-delta space
+  - `v_t` is a conditional flow residual
+- train with:
+  - ES on raw delta samples
+  - staged exact NLL on the residual law in `y`-space
+- decode with:
+  - `iv_{t+1} = sigmoid(y_{t+1})`
+
+Result:
+
+- best checkpoint was epoch `3`
+- suite score stayed `6/9`
+
+What improved:
+
+- support is respected by construction
+- local boundary pile-up dropped sharply:
+  - overall floor `1.08% -> 0.11%`
+  - worst-cell floor `8.98% -> 0.91%`
+- regime coverage nearly passed:
+  - calm best `92.1%`
+  - turb best `96.6%`
+- aggregate mean reversion landed in range:
+  - ratio `0.724`
+
+What failed:
+
+- cross-cell dependence degraded badly:
+  - corr ratio `0.947 -> 0.459`
+- active mean-reversion cells worsened:
+  - `7/12 -> 5/12`
+- unconditional spread overshot:
+  - val std `0.0555 -> 0.0686`
+  - val q99 `0.244 -> 0.301`
+- pooled val KS worsened:
+  - `0.037 -> 0.047`
+
+Interpretation:
+
+- support-by-construction is a real direction, not a fake improvement
+- but this first logit-space implementation over-widens the one-day law and
+  gives up too much joint dependence / local slope strength
+- it is an informative structural branch, not the new base
+
+### Exp 212ao: Small Pre-Clamp Boundary Penalty on 212ai
+
+Question:
+
+- if the remaining boundary issue in `212ai` is mostly clamp reliance, can a
+  tiny penalty on raw out-of-bounds next-IV proposals clean it up without
+  disturbing the rest of the model
+
+Spec:
+
+- warm-start from the best `212ai` checkpoint
+- keep the same architecture and staged NLL schedule
+- add only:
+  - `relu(-raw_next)^2 + relu(raw_next - 1)^2`
+- with a small annealed weight and no interior repulsion
+
+Result:
+
+- best checkpoint was epoch `1`
+- suite score stayed `6/9`
+
+What improved:
+
+- unconditional marginal fit improved a lot:
+  - pooled val KS `0.037 -> 0.014`
+  - val std `0.0536 -> 0.0560` vs GT `0.0555`
+  - val q99 `0.2237 -> 0.2375` vs GT `0.2442`
+- coverage stayed reasonable:
+  - overall `88.6%`
+  - worst/best `85.0% / 91.8%`
+- aggregate mean reversion remained in range:
+  - ratio `0.765`
+
+What did **not** improve:
+
+- boundary pile-up did not get better:
+  - overall floor `1.08% -> 1.09%`
+  - worst-cell floor `8.98% -> 9.22%`
+- active mean-reversion cells stayed `7/12`
+- cross-cell dependence weakened materially vs `212ai`:
+  - corr ratio `0.947 -> 0.569`
+
+Interpretation:
+
+- a tiny pre-clamp violation penalty can clean up the *unconditional* marginal
+  histogram
+- but in this first form it does **not** actually fix the local floor pile-up
+  we care about
+- it also costs too much dependence quality to become the new base
+
+Updated recommendation:
+
+- `212ai` remains the best balanced 1-day branch
+- `212am` is the more conceptually important experiment:
+  - it proves the bounded-coordinate idea is viable
+  - but it needs a cleaner dependence-preserving version
+- `212ao` is useful evidence that a simple boundary penalty is not enough by
+  itself
+- if we continue the 1-day thread, the next most principled experiment is still
+  the remaining bounded-coordinate refinement (`212an`), not more ad hoc loss
+  stacking on `212ai`
+
+### Exp 212an: 212am + Mild Boundary-Aware Residual Scaling
+
+Question:
+
+- can we keep the support-by-construction and drift advantages of `212am` while
+  reducing its excess width by shrinking residual amplitude near the bounds in a
+  fixed, non-learned way
+
+Spec:
+
+- start from the `212am` bounded-coordinate law:
+  - `y_{t+1} = y_t + m(h_t) + s_t * sinh(v_t)`
+- replace residual amplitude with:
+  - `b(prev_t) * s_t`
+- where:
+  - `b(prev) = b_min + (1 - b_min) * 4 * prev * (1 - prev)`
+  - `b_min = 0.5`
+- warm-start from the best `212am` checkpoint
+- keep the same staged NLL schedule
+- no learned scale head, only a deterministic support-aware multiplier
+
+Result:
+
+- best checkpoint was epoch `1`
+- suite score stayed `6/9`
+
+What improved vs `212am`:
+
+- cross-cell dependence recovered materially:
+  - corr ratio `0.459 -> 0.709`
+- aggregate mean reversion improved strongly:
+  - ratio `0.724 -> 1.024`
+- active mean-reversion cells improved:
+  - `5/12 -> 8/12`
+- q99 coverage stayed healthy:
+  - `0.646`
+
+What failed:
+
+- pooled val KS became much worse:
+  - `0.047 -> 0.101`
+- unconditional spread still overshot:
+  - val std `0.0660` vs GT `0.0555`
+  - val q99 `0.274` vs GT `0.244`
+- daily-change KS pass cells fell to:
+  - `15/25`
+- regime coverage still failed on the top end:
+  - turbulent best `95.5%`
+
+Interpretation:
+
+- the boundary-aware residual shrink is directionally useful:
+  - it fixes the main weaknesses of `212am` on mean reversion and dependence
+- but this simple deterministic version distorts the unconditional one-day law
+  too much
+- so `212an` is also **not** the new base
+
+Updated recommendation:
+
+- `212ai` remains the best balanced 1-day base
+- the bounded-coordinate family (`212am` / `212an`) is still promising, but the
+  current versions are not better than `212ai`
+- the next continuation, if desired, should either:
+  - revisit bounded-coordinate modeling with better population calibration, or
+  - stop here and carry `212ai` forward into multi-day work
+
+### Exp 220a: Recursive Rollout Smoke for Frozen 212ai
+
+Question:
+
+- if we treat `212ai` as a 1-day transition kernel and recursively sample it
+  for 30 days, does it at least stay numerically sane before any retraining
+
+Spec:
+
+- freeze the best `212ai` checkpoint
+- wrap `sample_next_iv` in a recursive `sample_batched` rollout engine
+- evaluate only smoke-level path metrics on 160 validation windows with 40
+  samples each
+
+Result:
+
+- the frozen 1-day kernel rolls forward stably in the weak sense
+- key smoke metrics:
+  - h1/h10/h30 cov90: `0.853 / 0.909 / 0.946`
+  - width90: `0.0669 -> 0.1974`
+  - turb/calm width ratio h30: `1.074`
+  - floor occupancy h30: `2.26%`
+
+Interpretation:
+
+- recursive rollout is viable
+- but width already drifts toward conservative over-coverage by h30
+- smoke stability alone is not enough to certify path realism
+
+### Exp 220b: Full Multi-Horizon Path Suite
+
+Question:
+
+- does a good 1-day conditional generator remain a good 30-day path generator
+  once recursively rolled out
+
+Spec:
+
+- reuse the recursive rollout wrapper from `220a`
+- evaluate with the repo's existing multi-day path diagnostics:
+  - surface validity
+  - CI coverage
+  - conditionality
+  - distributional fidelity
+  - cross-cell correlation
+  - mean reversion
+  - pathwise jump realism
+
+Result for frozen `212ai`:
+
+- suite score only `2/7`
+- passes:
+  - surface validity
+  - cross-cell correlation
+- fails:
+  - coverage
+  - conditionality
+  - distributional fidelity
+  - mean reversion
+  - pathwise jump realism
+- key numbers:
+  - h30 cov90 `0.947`
+  - h30 best cell `100%`
+  - turb/calm ratio `1.092`
+  - h1 mean-reversion ratio `0.748`
+  - h30 mean-reversion ratio `0.424`
+  - worst floor occupancy `8.82%`
+  - pathwise max-jump KS `0.468`
+
+Result for challenger `212an`:
+
+- suite score `1/7`
+- stronger aggregate mean reversion at h1/h30:
+  - `1.021 / 0.753`
+- but much worse:
+  - coverage
+  - unconditional fidelity
+  - dependence
+  - pathwise realism
+
+Interpretation:
+
+- the 1-day kernel is good enough to roll out, but not good enough to deliver
+  a realistic multi-day path law by pure recursion
+- the main multi-day failure is **not** surface validity
+- it is:
+  - weak regime differentiation over horizon
+  - full-horizon mean-reversion decay
+  - level-distribution mismatch
+  - pathwise jump mismatch
+
+### Exp 220c: Rollout-Aware Fine-Tuning from 212ai
+
+Question:
+
+- can a small sampled-rollout loss reduce exposure-bias drift without breaking
+  the one-day kernel
+
+Spec:
+
+- initialize from the best `212ai`
+- keep the one-step ES+NLL anchor
+- add a 10-day sampled rollout loss using level-space ES at horizons `5` and
+  `10`
+- low learning rate, 4 epochs, rollout weight ramp to `0.12`
+
+Result:
+
+- best checkpoint was epoch `1`
+- rollout probe looked superficially okay:
+  - h10 cov90 `0.890`
+  - h30 cov90 `0.938`
+  - h30 turb/calm `1.084`
+- but full `220b` evaluation still scored only `1/7`
+- relative to frozen `212ai`:
+  - h30 coverage increased further: `0.947 -> 0.959`
+  - h1 mean-reversion ratio worsened: `0.748 -> 0.640`
+  - h30 mean-reversion ratio worsened: `0.424 -> 0.244`
+  - pathwise jump KS improved slightly: `0.468 -> 0.402`
+    but still failed badly
+
+Interpretation:
+
+- the first rollout-aware fine-tune did **not** solve the actual multi-day
+  problem
+- it mostly made the path law broader / more conservative
+- short-horizon rollout ES by itself is not enough to recover the missing
+  long-horizon center dynamics or regime persistence
+
+Updated recommendation:
+
+- `212ai` remains the baseline 1-day kernel for the multi-day thread
+- `212an` remains only a support-aware challenger
+- the next principled multi-day move should likely introduce stronger
+  cross-step state persistence or a more targeted rollout-consistency objective,
+  rather than more one-day loss engineering
+
+### Queue: Multi-Day Transition Refinements
+
+Queue note:
+
+- formal queue written in
+  `results/validations/2026-04-09/analysis/220_design/220_multiday_queue.md`
+- from here on, the main judge is the multi-horizon path suite (`220b`),
+  which reuses the complete `test_block_ar_requirements_v2.py` components
+
+### Exp 220d: Recurrent-State Flow Transition from 212ai
+
+Question:
+
+- if we keep the `212ai` local-scale flow decoder but roll forward with a
+  persistent stacked-GRU state instead of re-encoding a sliding window, do we
+  preserve more slow regime information over horizon
+
+Spec:
+
+- initialize from `212ai`
+- carry the full stacked GRU hidden state forward day by day using matched
+  `GRUCell`s
+- update local EWMA scale online from the generated/teacher-forced next step
+- train on 30-step futures with multistep ES+NLL in transformed innovation
+  space
+
+Result:
+
+- rollout probe was not enough; full `220b` score is only `1/7`
+- key metrics:
+  - h1 / h30 coverage `0.815 / 0.931`
+  - turb/calm width ratio `1.048`
+  - corr ratio `0.466`
+  - aggregate mean-reversion ratio `0.645`
+  - h30 mean-reversion ratio `0.238`
+  - level KS pass cells `2/25`
+  - pathwise max-jump KS `0.462`
+
+Interpretation:
+
+- persistent state alone is not enough
+- it keeps paths numerically viable but still loses regime differentiation and
+  long-horizon center dynamics
+- it also weakens cross-cell dependence relative to frozen `212ai`
+
+### Exp 220e: Recurrent-State Flow + Scheduled Self-Conditioning
+
+Question:
+
+- if the recurrent model sees its own sampled inputs during training, does that
+  reduce free-run drift and improve horizon realism
+
+Spec:
+
+- same model as `220d`
+- ramp self-feeding probability from `0.067` to `0.4` over 6 epochs
+
+Result:
+
+- full `220b` score remains `1/7`
+- key metrics:
+  - h1 / h30 coverage `0.826 / 0.848`
+  - turb/calm width ratio `0.946`
+  - corr ratio `0.486`
+  - aggregate mean-reversion ratio `0.647`
+  - h30 mean-reversion ratio `0.300`
+  - level KS pass cells `0/25`
+  - worst floor occupancy `12.6%`
+  - pathwise max-jump KS `0.498`
+
+Interpretation:
+
+- scheduled self-conditioning helps neither regime separation nor distributional
+  fidelity enough
+- it slightly improves the smoke/probe score, but under the full path suite it
+  is still not a credible improvement over `220d`
+
+### Exp 220f: Recurrent-State Flow + Teacher/Free-Run State Consistency
+
+Question:
+
+- is the main failure hidden-state drift rather than missing one-step capacity;
+  can we regularize the free-run hidden state back toward the teacher-forced
+  hidden-state manifold
+
+Spec:
+
+- same recurrent model as `220d`
+- keep teacher-forced multistep ES+NLL anchor
+- add a small penalty aligning free-run recurrent states to the teacher-forced
+  next-step recurrent states
+
+Result:
+
+- full `220b` score remains `1/7`
+- key metrics:
+  - h1 / h30 coverage `0.812 / 0.902`
+  - turb/calm width ratio `0.978`
+  - corr ratio `0.472`
+  - aggregate mean-reversion ratio `0.729`
+  - h30 mean-reversion ratio `0.343`
+  - level KS pass cells `2/25`
+  - worst floor occupancy `5.8%`
+  - pathwise max-jump KS `0.536`
+
+Interpretation:
+
+- state consistency improves aggregate h1 mean reversion somewhat
+- but it still does not preserve the right slow regime memory over horizon
+- the same broad failure remains:
+  - weak turb/calm separation
+  - weak h30 mean reversion
+  - low cross-cell correlation
+  - poor pathwise jump realism
+
+Updated recommendation:
+
+- `212ai` remains the frozen multi-day baseline
+- `212an` remains only a stress/support-aware challenger
+- `220d/220e/220f` collectively falsify the idea that
+  “persistent recurrent state + rollout-consistency losses” is enough by itself
+- the next queue item should move to a **slower persistent regime-memory model**
+  rather than more loss tweaks on the same recurrent state
+
+### 220h / 220p: Full v2 Suite + Persistence Investigation
+
+Question:
+
+- before changing model class again, are the multi-day failures actually about
+  missing slow persistence, or are they just generic one-step error compounding
+
+Artifacts:
+
+- `results/validations/2026-04-09/analysis/222_design/220h_212ai_full_v2_suite.md`
+- `results/validations/2026-04-09/analysis/222_design/220h_212an_full_v2_suite.md`
+- `results/validations/2026-04-09/analysis/223_design/220p_212ai_persistence.md`
+- `results/validations/2026-04-09/analysis/223_design/220p_212an_persistence.md`
+- `results/validations/2026-04-09/analysis/223_design/220_multiday_persistence_investigation.md`
+
+Result:
+
+- frozen `212ai` scores `4/11` on the full v2 multi-horizon suite
+- frozen `212an` scores `2/11`
+- both preserve short-lag temporal structure well:
+  - `212ai` mean-level ACF corr `0.997`, mean-delta `0.979`
+  - `212an` mean-level ACF corr `0.986`, mean-delta `0.976`
+- but both lose slow regime/factor memory:
+  - `212ai` regime shares collapse to `15.3% / 74.6% / 10.1%`
+    vs GT `20.2% / 59.7% / 20.2%`
+  - `212ai` h30 delta corr ratio `0.537`, level corr ratio `0.443`
+  - `212ai` jump-cluster lag1 `0.051` vs GT `0.085`
+  - `212ai` floor-day incidence `31.0%` vs GT `0.0%`
+
+Interpretation:
+
+- the main multi-day gap is **not** missing short-lag ACF
+- it is:
+  - weak slow regime persistence
+  - weak h30 shared-factor structure
+  - weak jump clustering
+  - boundary pile-up under recursion
+- that justified moving from `220d/e/f` to slower latent-state experiments
+
+### Exp 220g: Slow Regime Latent on Recurrent Flow
+
+Question:
+
+- if we add a low-dimensional slow regime latent on top of the `212ai`-style
+  recurrent transition, is that enough to preserve regime shares/dwell times
+  and h30 factor structure
+
+Spec:
+
+- keep the recurrent flow transition from `220d`
+- add a 16-dim slow regime latent updated with a small step (`alpha=0.08`)
+- let it modulate the shared flow condition only
+
+Result:
+
+- full v2 score is only `2/11`
+- key metrics:
+  - mean-level ACF corr `0.996`
+  - h30 delta corr ratio `0.380`
+  - h30 level corr ratio `0.372`
+  - regime shares `18.4% / 74.3% / 7.2%`
+  - turb self-transition `0.283` vs GT `0.406`
+  - floor-day incidence `18.8%`
+  - h30 level-vs-drift Spearman `-0.813`
+  - h30 vov-vs-width Spearman `0.000`
+
+Interpretation:
+
+- the slow latent preserved ordering of level-conditioned drift
+- but it did not recover regime-sensitive width or shared-factor persistence
+- because it was too entangled with the same recurrent hidden state, it still
+  collapsed toward the middle regime
+
+### Exp 220i: Slow Factor EMA State from Surfaces
+
+Question:
+
+- if the slow state is extracted directly from surfaces rather than the
+  recurrent hidden state, do we preserve slow factor memory better
+
+Spec:
+
+- replace `220g`’s latent update with a learned surface embedding updated by a
+  small EMA
+- keep conditioning path unchanged: slow factor only modulates the shared flow
+  condition
+
+Result:
+
+- full v2 score remains `2/11`
+- key metrics:
+  - mean-level ACF corr `0.996`
+  - h30 delta corr ratio `0.370`
+  - h30 level corr ratio `0.366`
+  - regime shares `16.7% / 75.3% / 8.0%`
+  - turb self-transition `0.291`
+  - floor-day incidence `20.2%`
+  - h30 level-vs-drift Spearman `-0.828`
+  - h30 vov-vs-width Spearman `-0.068`
+
+Interpretation:
+
+- this is cleaner than `220g` conceptually, but not materially better
+- slow factor memory that only nudges the residual law is still too weak
+
+### Exp 220j: Slow Factor EMA + Low-Rank Drift Head
+
+Question:
+
+- if the slow factor state is allowed to move the center directly through a
+  low-rank drift head, can we recover mean-reversion magnitude and shared
+  factor structure
+
+Spec:
+
+- keep `220i` slow factor EMA state
+- add a learned 25-d drift head from the slow factor state
+- keep the residual law flow-based and local-scale standardized
+
+Result:
+
+- this is a negative result: full v2 score `1/11`
+- a quick rollout screen improved h30 delta corr somewhat, but the full path
+  law collapsed:
+  - surface validity fails
+  - overall coverage `79.2%`
+  - cointegration ratio `0.235`
+  - mean-reversion full-horizon ratio flips negative by h30 (`-0.310`)
+  - floor-day incidence explodes to `77.5%`
+  - regime shares collapse to `4.6% / 88.8% / 6.6%`
+
+Interpretation:
+
+- an unconstrained persistent drift head is too aggressive
+- it drives paths toward the floor, destroys support-calibrated dynamics, and
+  overwhelms the residual law
+
+Updated recommendation:
+
+- `212ai` remains the best multi-day baseline despite only `4/11`
+- `220g` and `220i` show that a slow latent that only conditions the residual
+  law is too weak
+- `220j` shows that a slow latent with an unconstrained additive drift head is
+  too strong
+- the next principled move should be a **support-aware latent state-space
+  model**, not more variants of the same unconstrained latent modulation
+
+### Exp 220m: Oracle Slow-State Sufficiency Test
+
+Question:
+
+- before building a heavier state-space model, is the slow-state story even
+  sufficient in principle
+
+Spec:
+
+- freeze `212ai`
+- compute a GT slow surface path with EMA (`alpha=0.08`)
+- during rollout, replace the model-implied slow component with the oracle slow
+  component, while preserving the model-generated fast residual around it
+- evaluate under the same multi-horizon suite family
+
+Artifacts:
+
+- `results/validations/2026-04-09/analysis/224_design/220m_212ai_oracle_slow_suite.md`
+- `results/validations/2026-04-09/analysis/224_design/220m_212ai_oracle_persistence.md`
+
+Result:
+
+- full v2 score stays `4/11`, but the pattern changes materially
+- big improvements:
+  - full-horizon mean reversion now passes cleanly
+    - h1 ratio `0.759`
+    - h7 `0.724`
+    - h14 `0.753`
+    - h30 `0.732`
+  - active mean-reversion pass rate `91.8%`
+  - cross-cell structure passes:
+    - corr ratio `0.689`
+    - rank ratio `2.593`
+  - boundary pile-up nearly disappears:
+    - floor day incidence `0.213%` vs frozen `212ai` `31.0%`
+    - floor occupancy in 1-day fidelity drops to `0.009%`
+  - daily-change KS improves to `24/25`
+  - level KS improves to `14/25`
+
+- what does **not** fix:
+  - regime width differentiation still weak:
+    - oracle turb/calm width ratio only `1.035`
+  - jump clustering still weak:
+    - lag1 `0.046` vs GT `0.139`
+  - pathwise max-jump KS still bad: `0.532`
+
+Interpretation:
+
+- this is the strongest evidence so far that the multi-day problem is genuinely
+  about missing slow state
+- when the slow state is correct, the hardest failures around:
+  - long-horizon mean reversion
+  - boundary collapse
+  - some level-distribution drift
+  improve sharply without retraining the one-day kernel
+- but slow state alone is not the whole answer:
+  - regime-sensitive width
+  - jump clustering
+  still need better dynamics
+
+Updated recommendation:
+
+- the next model class should be `220k`: a **support-aware latent state-space
+  model**
+- this is now justified by the oracle test, not just by intuition
+- the target should be:
+  - learn the slow state explicitly
+  - keep dynamics bounded/support-aware
+  - separate slow drift state from fast daily residuals
+
+### Exp 220k: Support-Aware Latent State-Space
+
+Question:
+
+- if we take the `220m` lesson seriously and fit a bounded/logit-space slow
+  state-space directly, can we recover the oracle benefit without retraining
+  the one-day kernel
+
+Spec:
+
+- freeze `212ai`
+- fit a slow EMA surface process on train
+- move to logit space
+- fit low-rank factor AR(1) dynamics with support-aware reconstruction
+- preserve the frozen `212ai` fast residual around that predicted slow path
+
+Artifacts:
+
+- `results/validations/2026-04-09/analysis/225_design/220k_212ai_support_state_space_suite.md`
+
+Result:
+
+- negative result: full v2 score `3/11`
+- it collapses too low and over-mean-reverts:
+  - h1 MR ratio `4.750`
+  - h30 MR ratio `2.039`
+  - overall 90% coverage `2.2%`
+  - level KS pass `0/25`
+  - max-jump KS `0.810`
+
+Interpretation:
+
+- support-awareness alone is not enough
+- a single smooth bounded slow law still collapses the path distribution toward
+  the floor
+
+### Exp 220l: Switching Support-Aware State-Space
+
+Question:
+
+- does making the slow process explicitly regime-switching fix the collapse of
+  `220k`
+
+Spec:
+
+- keep the bounded/logit slow state-space idea
+- infer 3 regimes from slow move intensity
+- fit regime-conditioned slow factor dynamics and residual scaling
+
+Artifacts:
+
+- `results/validations/2026-04-09/analysis/225_design/220l_212ai_switching_support_state_space_suite.md`
+
+Result:
+
+- still a negative result: full v2 score `3/11`
+- coverage shape improves relative to `220k`, but the path law is still dragged
+  too low:
+  - h1 MR ratio `4.848`
+  - h30 MR ratio `1.940`
+  - level KS pass `0/25`
+  - max-jump KS `0.691`
+
+Interpretation:
+
+- a post-hoc switching slow process is still too blunt
+- discrete regime-switching helps less than expected when the fast kernel is
+  not trained to live around that slow state
+
+### Exp 220n: Learned Slow-Path Hybrid
+
+Question:
+
+- instead of fitting the slow process post hoc, can we learn the full future
+  slow backbone from history and then let frozen `212ai` generate the fast
+  residual around it
+
+Spec:
+
+- train a seq2seq GRU slow-path predictor in low-rank factor/logit space
+- convert predicted future factors back to slow surfaces
+- hybrid rollout:
+  - frozen `212ai` proposes next-day sample
+  - replace or mix its slow component with the predicted slow backbone
+  - keep the fast residual
+- variants tried:
+  - full replacement
+  - 50% mixed replacement
+  - horizon-ramped replacement (`0 -> 1`)
+
+Artifacts:
+
+- `models/backfill/slow_path_predictor_220n/training_summary.md`
+- `results/validations/2026-04-09/analysis/225_design/220n_212ai_slow_path_hybrid_suite.md`
+- `results/validations/2026-04-09/analysis/225_design/220n_212ai_slow_path_hybrid_mix05_suite.md`
+- `results/validations/2026-04-09/analysis/225_design/220n_212ai_slow_path_hybrid_ramp01_suite.md`
+- `results/validations/2026-04-09/analysis/225_design/220k_220l_220n_result_note.md`
+
+Result:
+
+- the slow-path predictor itself trains cleanly; best factor-path val MSE
+  reaches `0.1549`
+- but every hybrid variant remains a negative result:
+  - full replacement: `2/11`
+  - 50% mix: `2/11`
+  - ramped mix: `2/11`
+- common pattern:
+  - floor/ceiling behavior improves sharply
+  - cross-cell correlation stays decent
+  - long-horizon MR ratio gets closer by h30 (`~0.82`)
+  - but h1 MR is still far too strong (`~3.9`)
+  - move-size realism collapses
+  - level KS stays `0/25`
+
+Interpretation:
+
+- learning the slow backbone from history is directionally right
+- but post-hoc replacement of the one-day kernel's slow component is still too
+  blunt
+- the fast residual generator needs to be trained jointly to understand the
+  slow state it is being asked to live around
+
+Updated recommendation:
+
+- no more post-hoc slow-path replacement variants
+- next principal move should be `220o`: a **jointly trained slow-fast
+  support-aware state-space model**
+- the learned slow state must condition the fast residual generator directly
+  during training and rollout
+
+### Exp 220o investigation: old anchors + slow-fast coupling
+
+Question:
+
+- before continuing deeper into `220o*`, do the old strong multi-day anchors
+  (`97a`, `99j`, `183c`) and the current slow-state evidence actually support
+  this direction
+
+Local evidence gathered:
+
+- `183c_best` remains the strongest on-disk multi-day anchor at `9/11`
+  under the full v2 suite family:
+  - mean-reversion ratio `1.212`
+  - active mean-reversion pass `7/9`
+  - active slope corr `0.896`
+  - cross-cell corr ratio `0.969`
+  - pathwise jump realism `PASS`
+  - remaining failures are still the narrow `S3/S7` local conditional-width
+    cluster
+- `97a` and `99j` still teach an important repo-specific lesson:
+  - `97a` had better conservative coverage but unrealistic rank-1 structure
+  - `99j` had much better shape / correlation structure because the decoder let
+    noise interact more directly with condition/state
+  - that interaction path appears to matter more for realistic path law than
+    the later one-day-kernel family preserved
+- the `220n` slow predictor itself is not the main failure:
+  - h1 slow-drift corr with GT is about `0.992`
+  - h30 slow-drift corr still around `0.740`
+  - so the main miss is the coupling, not the learned slow backbone by itself
+- GT jump clustering is not just regime persistence:
+  - global lag1 jump corr about `0.162`
+  - within turbulent regime lag1 jump corr still about `0.128`
+  - in turbulent regime:
+    - `P(next jump | prev_jump=0) ≈ 10.1%`
+    - `P(next jump | prev_jump=1) ≈ 20.1%`
+  - so a slow regime state alone is not enough
+
+External evidence gathered:
+
+- deep state-space and hierarchical latent forecasting papers support jointly
+  learned latent dynamics + flexible emission models rather than post-hoc slow
+  replacement:
+  - Deep State Space Models for Time Series Forecasting
+  - Normalizing Kalman Filters for Multivariate Time Series Analysis
+  - Deep Generative Model with Hierarchical Latent Factors for Time Series
+    Forecasting
+- switching / explicit-duration papers support persistent slow regimes when
+  long-horizon forecasting collapses toward a middle state:
+  - Deep Explicit Duration Switching Models
+  - Deep Switching Auto-Regressive Factorization
+  - Deep Switching State Space Model
+- self-exciting process work supports an extra short-lived excitation memory
+  when jump clustering persists even after conditioning on slow regime:
+  - The Neural Hawkes Process
+
+Conclusion from the investigation:
+
+- the repo and literature both support **joint slow-fast coupling**
+- but they do **not** support more post-hoc slow replacement
+- they also suggest that slow regime state alone is not enough; a short-lived
+  excitation mechanism is likely needed later
+
+### Exp 220o0: Teacher-Forced Slow-Conditioned Fast Residual
+
+Question:
+
+- if we give the fast generator the correct slow path during training and
+  rollout, does the coupling problem disappear
+
+Spec:
+
+- train a one-day fast residual conditional flow directly around an oracle slow
+  EMA path
+- use slow history and next slow frame as explicit conditioning
+- keep the fast law in raw residual IV space
+- evaluate only under oracle slow rollout
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_220o0_teacher_forced_slow_conditioned_fast.py`
+- `experiments/backfill/block_ar/evaluate_220o0_oracle_slow_conditioned_fast.py`
+- `results/validations/2026-04-09/analysis/226_design/220o0_teacher_forced_slow_suite.md`
+
+Result:
+
+- negative result: `3/11`
+- h1 / h30 MR ratio: `0.100 / 0.374`
+- turb/calm width ratio: `0.997`
+- level KS pass cells: `1/25`
+- daily-change KS pass cells: `22/25`
+- floor-day incidence: `93.96%`
+- max-jump KS: `0.526`
+- overall 90% coverage: `95.5%`
+
+Interpretation:
+
+- joint coupling in raw residual IV space is not enough
+- even with the correct slow path supplied, the fast residual law becomes too
+  broad, too floor-heavy, and too weakly mean-reverting
+- this falsifies the idea that coupling alone solves the problem in the
+  current raw-residual geometry
+
+### Exp 220o1: Joint Slow-Fast Support-Aware State-Space
+
+Question:
+
+- if we learn the slow state jointly and move the fast residual to
+  logit/support-aware space, does the slow-fast family become competitive
+
+Spec:
+
+- learned one-step slow predictor in low-rank factor/logit space
+- jointly trained fast residual conditional flow in logit IV residual space
+- training uses mixed GT/predicted slow conditioning that ramps from teacher
+  slow toward predicted slow
+- rollout uses the predicted slow state recursively
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_220o1_joint_slow_fast_support_state_space.py`
+- `experiments/backfill/block_ar/evaluate_220o1_joint_slow_fast_support_state_space.py`
+- `results/validations/2026-04-09/analysis/226_design/220o1_joint_slow_fast_support_state_space_suite.md`
+
+Result:
+
+- strong negative result: `1/11`
+- h1 / h30 MR ratio: `0.754 / 0.014`
+- turb/calm width ratio: `0.958`
+- h30 delta corr ratio: `0.372`
+- level KS pass cells: `0/25`
+- daily-change KS pass cells: `7/25`
+- floor-day incidence: `48.3%`
+- max-jump KS: `0.461`
+- overall 90% coverage: `66.4%`
+
+Interpretation:
+
+- simply making the slow-fast model support-aware does not rescue this family
+- the current `212ai -> 220o*` line is now clearly weaker than the older
+  `183c` multi-day family
+- because `220o1` fails broadly, not just on jump clustering, adding an
+  explicit excitation state (`220o2`) on top of this base is **not** justified
+
+Updated recommendation:
+
+- stop trying to force the `212ai` one-day kernel into the main multi-day
+  engine
+- pivot the multi-day architecture base back toward the stronger `183c`-style
+  pathwise residual-law family
+- if we continue the persistence line, it should be a slow/excitation extension
+  of that stronger pathwise multi-day backbone, not another `212ai` retrofit

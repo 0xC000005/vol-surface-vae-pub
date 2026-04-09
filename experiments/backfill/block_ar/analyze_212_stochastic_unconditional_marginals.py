@@ -41,6 +41,12 @@ from experiments.backfill.block_ar.train_212af_h1_conditional_flow_local_scale_a
 from experiments.backfill.block_ar.train_212ag_h1_conditional_flow_local_scale_asinh_mean_aux import load_model as load_212ag_model
 from experiments.backfill.block_ar.train_212ah_h1_conditional_flow_local_scale_asinh_nll_mean import load_model as load_212ah_model
 from experiments.backfill.block_ar.train_212ai_h1_conditional_flow_local_scale_asinh_staged_nll import load_model as load_212ai_model
+from experiments.backfill.block_ar.train_212aj_h1_conditional_flow_local_scale_asinh_locscale_staged_nll import load_model as load_212aj_model
+from experiments.backfill.block_ar.train_212ak_h1_conditional_flow_local_scale_asinh_location_staged_nll import load_model as load_212ak_model
+from experiments.backfill.block_ar.train_212al_h1_conditional_flow_local_scale_asinh_location_frozen_stage import load_model as load_212al_model
+from experiments.backfill.block_ar.train_212am_h1_conditional_flow_logit_drift_staged_nll import load_model as load_212am_model
+from experiments.backfill.block_ar.train_212an_h1_conditional_flow_logit_drift_boundary_scale_staged_nll import load_model as load_212an_model
+from experiments.backfill.block_ar.train_212ao_h1_conditional_flow_local_scale_asinh_staged_nll_bound_penalty import load_model as load_212ao_model
 from experiments.backfill.block_ar.train_212ab_h1_conditional_diffusion_local_scale_asinh import load_model as load_212ab_model
 
 
@@ -61,6 +67,12 @@ LOADERS: dict[str, Callable[[str, torch.device], tuple[torch.nn.Module, dict[str
     "212ag": load_212ag_model,
     "212ah": load_212ah_model,
     "212ai": load_212ai_model,
+    "212aj": load_212aj_model,
+    "212ak": load_212ak_model,
+    "212al": load_212al_model,
+    "212am": load_212am_model,
+    "212an": load_212an_model,
+    "212ao": load_212ao_model,
     "212ab": load_212ab_model,
 }
 

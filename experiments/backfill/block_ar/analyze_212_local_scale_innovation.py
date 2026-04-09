@@ -37,6 +37,9 @@ from experiments.backfill.block_ar.train_212af_h1_conditional_flow_local_scale_a
 from experiments.backfill.block_ar.train_212ag_h1_conditional_flow_local_scale_asinh_mean_aux import load_model as load_212ag_model
 from experiments.backfill.block_ar.train_212ah_h1_conditional_flow_local_scale_asinh_nll_mean import load_model as load_212ah_model
 from experiments.backfill.block_ar.train_212ai_h1_conditional_flow_local_scale_asinh_staged_nll import load_model as load_212ai_model
+from experiments.backfill.block_ar.train_212aj_h1_conditional_flow_local_scale_asinh_locscale_staged_nll import load_model as load_212aj_model
+from experiments.backfill.block_ar.train_212ak_h1_conditional_flow_local_scale_asinh_location_staged_nll import load_model as load_212ak_model
+from experiments.backfill.block_ar.train_212al_h1_conditional_flow_local_scale_asinh_location_frozen_stage import load_model as load_212al_model
 from experiments.backfill.block_ar.train_212ab_h1_conditional_diffusion_local_scale_asinh import load_model as load_212ab_model
 
 
@@ -52,6 +55,9 @@ LOADERS: dict[str, Callable[[str, torch.device], tuple[torch.nn.Module, dict[str
     "212ag": load_212ag_model,
     "212ah": load_212ah_model,
     "212ai": load_212ai_model,
+    "212aj": load_212aj_model,
+    "212ak": load_212ak_model,
+    "212al": load_212al_model,
     "212ab": load_212ab_model,
 }
 
@@ -76,7 +82,7 @@ def _safe_corr(a: list[float], b: list[float]) -> float:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Audit innovation-vs-scale behavior for 212x/212y/212z/212aa/212ac/212ad/212ae/212af/212ag/212ah/212ai/212ab local-scale models")
+    parser = argparse.ArgumentParser(description="Audit innovation-vs-scale behavior for 212x/212y/212z/212aa/212ac/212ad/212ae/212af/212ag/212ah/212ai/212aj/212ak/212al/212ab local-scale models")
     parser.add_argument("--model_type", type=str, required=True, choices=sorted(LOADERS))
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--data_path", type=str, default="data/vol_surface_with_ret.npz")
