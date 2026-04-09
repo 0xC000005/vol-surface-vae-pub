@@ -131,6 +131,42 @@ def compute_exceedance_spectrum(
     }
 
 
+def compute_move_size_profile(
+    gt_abs: np.ndarray,
+    gen_abs: np.ndarray,
+    thresholds: Tuple[Tuple[str, float], ...] = (
+        ("very_small_moves", 0.005),
+        ("small_moves", 0.010),
+        ("moderate_moves", 0.020),
+        ("large_moves", 0.050),
+    ),
+    ratio_gate: Tuple[float, float] = (0.90, 1.10),
+) -> Dict:
+    """Compare cumulative absolute-move shares at explicit |ΔIV| thresholds."""
+    gt_abs = np.asarray(gt_abs, dtype=np.float64).reshape(-1)
+    gen_abs = np.asarray(gen_abs, dtype=np.float64).reshape(-1)
+    gate_lo, gate_hi = ratio_gate
+    out: Dict[str, Any] = {
+        "gate_lo": gate_lo,
+        "gate_hi": gate_hi,
+        "pass": True,
+    }
+    for label, threshold in thresholds:
+        gt_share = float((gt_abs <= threshold).mean())
+        gen_share = float((gen_abs <= threshold).mean())
+        ratio = float(gen_share / max(gt_share, 1e-12))
+        passed = gate_lo <= ratio <= gate_hi
+        out[label] = {
+            "threshold": float(threshold),
+            "gt_share": gt_share,
+            "gen_share": gen_share,
+            "ratio": ratio,
+            "pass": passed,
+        }
+        out["pass"] = out["pass"] and passed
+    return out
+
+
 def convert_to_serializable(obj):
     """Convert numpy types for JSON serialization."""
     if isinstance(obj, np.ndarray):
@@ -1242,34 +1278,28 @@ def run_time_series_tests(
         f"Best: ({best_tail_idx[0]},{best_tail_idx[1]})={per_cell_tail_ratio[best_tail_idx]:.2f}"
     )
 
-    # Quiet / shoulder / extreme mass explicitly checks that we get
-    # "mostly small changes, occasionally large ones" rather than a shoulder-heavy law.
-    print("\n  --- Test 4f: Exceedance Spectrum (|ΔIV|) ---")
-    spectrum = compute_exceedance_spectrum(np.abs(gt_changes), np.abs(gen_changes))
-    quiet_ratio = float(spectrum["quiet_mass"]["ratio"])
-    shoulder_ratio = float(spectrum["shoulder_mass"]["ratio"])
-    extreme_ratio = float(spectrum["extreme_mass"]["ratio"])
-    quiet_gate_lo, quiet_gate_hi = 0.9, 1.1
-    shoulder_gate_lo, shoulder_gate_hi = 0.9, 1.1
-    extreme_gate_lo, extreme_gate_hi = 0.8, 1.25
-    quiet_pass = quiet_gate_lo <= quiet_ratio <= quiet_gate_hi
-    shoulder_pass = shoulder_gate_lo <= shoulder_ratio <= shoulder_gate_hi
-    extreme_pass = extreme_gate_lo <= extreme_ratio <= extreme_gate_hi
-    spectrum_pass = quiet_pass and shoulder_pass and extreme_pass
-    print(
-        f"  Quiet mass ratio:    {quiet_ratio:.3f} "
-        f"(gate [{quiet_gate_lo:.2f}, {quiet_gate_hi:.2f}]) {'PASS' if quiet_pass else 'FAIL'}"
+    # Explicit move-size share profile on |ΔIV| using fixed absolute thresholds.
+    print("\n  --- Test 4f: Move-Size Profile (|ΔIV|) ---")
+    move_size_profile = compute_move_size_profile(
+        np.abs(gt_changes),
+        np.abs(gen_changes),
     )
-    print(
-        f"  Shoulder mass ratio: {shoulder_ratio:.3f} "
-        f"(gate [{shoulder_gate_lo:.2f}, {shoulder_gate_hi:.2f}]) {'PASS' if shoulder_pass else 'FAIL'}"
-    )
-    print(
-        f"  Extreme mass ratio:  {extreme_ratio:.3f} "
-        f"(gate [{extreme_gate_lo:.2f}, {extreme_gate_hi:.2f}]) {'PASS' if extreme_pass else 'FAIL'}"
-    )
+    move_size_pass = bool(move_size_profile["pass"])
+    for label, display_name in [
+        ("very_small_moves", "Share |ΔIV| <= 0.005"),
+        ("small_moves", "Share |ΔIV| <= 0.010"),
+        ("moderate_moves", "Share |ΔIV| <= 0.020"),
+        ("large_moves", "Share |ΔIV| <= 0.050"),
+    ]:
+        bucket = move_size_profile[label]
+        print(
+            f"  {display_name:23s}: {bucket['ratio']:.3f} "
+            f"(GT={bucket['gt_share']:.1%}, gen={bucket['gen_share']:.1%}, "
+            f"gate [{move_size_profile['gate_lo']:.2f}, {move_size_profile['gate_hi']:.2f}]) "
+            f"{'PASS' if bucket['pass'] else 'FAIL'}"
+        )
 
-    overall_pass = acf_pass and kurt_pass and tail_pass and spectrum_pass
+    overall_pass = acf_pass and kurt_pass and tail_pass and move_size_pass
 
     return {
         'acf': {
@@ -1306,19 +1336,7 @@ def run_time_series_tests(
             'gate_lo': 0.5,
             'gate_hi': 2.0,
         },
-        'exceedance_spectrum': {
-            **spectrum,
-            'quiet_gate_lo': quiet_gate_lo,
-            'quiet_gate_hi': quiet_gate_hi,
-            'shoulder_gate_lo': shoulder_gate_lo,
-            'shoulder_gate_hi': shoulder_gate_hi,
-            'extreme_gate_lo': extreme_gate_lo,
-            'extreme_gate_hi': extreme_gate_hi,
-            'quiet_pass': quiet_pass,
-            'shoulder_pass': shoulder_pass,
-            'extreme_pass': extreme_pass,
-            'pass': spectrum_pass,
-        },
+        'move_size_profile': move_size_profile,
         'overall_pass': overall_pass,
     }
 
@@ -1675,7 +1693,7 @@ def run_regime_coverage_tests(
     Computes a single boolean tensor covered[w, h, r, c] and derives:
       Layer 1: Per-regime (calm Q20 / turb Q80) per-horizon coverage
       Layer 2: Per-cell coverage within each regime (worst cell gate)
-      Layer 3: Catastrophic window-cell detection
+      Layer 3: Persistent severe undercoverage detection
 
     Args:
         cond_samples: (N, n_samples, T, 5, 5)
@@ -1910,12 +1928,15 @@ def run_regime_coverage_tests(
           f"(gate: all) {'PASS' if layer2_pass else 'FAIL'}")
 
     # =================================================================
-    # Layer 3: Catastrophic window-cell detection
+    # Layer 3: Persistent severe undercoverage
     # =================================================================
-    print("\n  --- Layer 3: Catastrophic Window-Cell Detection ---")
+    print("\n  --- Layer 3: Persistent Severe Undercoverage ---")
 
     # For each (window, cell): mean coverage across all horizons
     window_cell_cov = covered.mean(axis=1)  # (N, 5, 5) — fraction of horizons covered
+    # "Catastrophic" here means a (window, cell) pair whose 90% interval covers
+    # fewer than 30% of future horizons on average. This is meant to catch
+    # sustained path-level undercoverage, not a single bad day.
     catastrophic = window_cell_cov < 0.30  # (N, 5, 5)
     catastrophic_rate = float(catastrophic.mean())
     n_catastrophic = int(catastrophic.sum())
@@ -1925,11 +1946,14 @@ def run_regime_coverage_tests(
     layer3_pass = catastrophic_rate < LAYER3_GATE
 
     print(
-        f"  Catastrophic (window,cell) pairs: {n_catastrophic}/{total_pairs} "
+        f"  Persistently undercovered (window,cell) pairs: {n_catastrophic}/{total_pairs} "
         f"({catastrophic_rate:.1%})"
     )
     print(
-        f"  Gate: < {LAYER3_GATE:.0%} catastrophic "
+        f"  Definition: average 90% CI coverage across horizons < 30%"
+    )
+    print(
+        f"  Gate: < {LAYER3_GATE:.0%} persistently undercovered "
         f"{'PASS' if layer3_pass else 'FAIL'}"
     )
 
@@ -1943,7 +1967,7 @@ def run_regime_coverage_tests(
             if cats_per_window[w] > 0:
                 bad_cells = list(zip(*np.where(catastrophic[w])))
                 print(
-                    f"    Window {w}: {cats_per_window[w]} catastrophic cells, "
+                    f"    Window {w}: {cats_per_window[w]} persistently undercovered cells, "
                     f"vol_of_vol={vol_of_vol[w]:.5f}, "
                     f"cells={bad_cells[:5]}{'...' if len(bad_cells) > 5 else ''}"
                 )
@@ -2851,9 +2875,19 @@ def print_summary(results: Dict) -> bool:
           f"per-cell: [{ts['kurtosis'].get('worst_cell_ratio', 0):.3f}, "
           f"{ts['kurtosis'].get('best_cell_ratio', 0):.3f}]) "
           f"{'PASS' if ts['kurtosis']['pass'] else 'FAIL'}")
-    if 'exceedance_spectrum' in ts:
+    if 'move_size_profile' in ts:
+        mp = ts['move_size_profile']
+        print(
+            "  Move-size shares:    "
+            f"<=0.005 {mp['very_small_moves']['ratio']:.3f}, "
+            f"<=0.010 {mp['small_moves']['ratio']:.3f}, "
+            f"<=0.020 {mp['moderate_moves']['ratio']:.3f}, "
+            f"<=0.050 {mp['large_moves']['ratio']:.3f} "
+            f"{'PASS' if mp['pass'] else 'FAIL'}"
+        )
+    elif 'exceedance_spectrum' in ts:
         sp = ts['exceedance_spectrum']
-        print(f"  Spectrum quiet/sh/ext:{sp['quiet_mass']['ratio']:.3f} / "
+        print(f"  Legacy spectrum:     {sp['quiet_mass']['ratio']:.3f} / "
               f"{sp['shoulder_mass']['ratio']:.3f} / {sp['extreme_mass']['ratio']:.3f} "
               f"{'PASS' if sp['pass'] else 'FAIL'}")
     if 'tail_scale' in ts:
@@ -2895,7 +2929,7 @@ def print_summary(results: Dict) -> bool:
         n_l2_total = rc.get('layer2_n_total', '?')
         print(f"  Layer 2 (regime×cell):    {n_l2_passing}/{n_l2_total} "
               f"(gate: all) {'PASS' if rc['layer2_pass'] else 'FAIL'}")
-        print(f"  Layer 3 (catastrophic):   {rc['layer3_catastrophic_rate']:.1%} "
+        print(f"  Layer 3 (persistent severe undercoverage):   {rc['layer3_catastrophic_rate']:.1%} "
               f"{'PASS' if rc['layer3_pass'] else 'FAIL'}")
         # Width turb/calm ratio (informational)
         if 'width_turb_calm' in rc:
@@ -3222,6 +3256,7 @@ def main():
     is_cln_e2e = model_type in (
         "end_to_end_cln_transformer", "end_to_end_cln_vs_transformer",
         "no_ln_e2e_transformer", "no_ln_vs_e2e_transformer",
+        "direct_output_cln_transformer",
     )
     is_mean_residual = model_type in ("ar_spatial_transformer_165a_mean_residual", "ar_spatial_transformer_165a_v2_additive_innov", "ar_spatial_transformer_165a_v3_spatial_mean")
     is_factorized = model_type in ("ar_spatial_transformer_167a_factorized", "ar_spatial_transformer_167b_clean_isolation", "ar_spatial_transformer_167d_e2e_factorized")

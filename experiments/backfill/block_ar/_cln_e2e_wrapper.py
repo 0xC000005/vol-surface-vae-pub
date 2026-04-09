@@ -14,7 +14,7 @@ from experiments.backfill.block_ar.train_cond_oneshot_flow import normalize_iv
 
 
 class CLNEndToEndWrapper(nn.Module):
-    """Wraps encoder + MeanPredictor + CLN transformer for v2 test suite."""
+    """Wraps encoder + optional mean head + CLN transformer for v2 test suite."""
 
     def __init__(self, encoder, mean_pred, cln_model, config, device="cuda"):
         super().__init__()
@@ -37,13 +37,15 @@ class CLNEndToEndWrapper(nn.Module):
         encoder.load_state_dict(checkpoint["encoder_state"])
         encoder.eval()
 
-        # Load MeanPredictor
-        from experiments.backfill.block_ar.train_158a_end_to_end import MeanPredictor
         T = cfg.get("n_frames", 30)
         C = cfg.get("n_cells", 25)
-        mean_pred = MeanPredictor(cond_dim=cond_dim, n_frames=T, n_cells=C)
-        mean_pred.load_state_dict(checkpoint["mean_pred_state"])
-        mean_pred.eval()
+        mean_pred = None
+        if "mean_pred_state" in checkpoint:
+            from experiments.backfill.block_ar.train_158a_end_to_end import MeanPredictor
+
+            mean_pred = MeanPredictor(cond_dim=cond_dim, n_frames=T, n_cells=C)
+            mean_pred.load_state_dict(checkpoint["mean_pred_state"])
+            mean_pred.eval()
 
         # Load CLN transformer (detect no-LN variant)
         is_no_ln = "no_ln" in model_type
@@ -99,7 +101,10 @@ class CLNEndToEndWrapper(nn.Module):
         with torch.no_grad():
             cond = self.encoder(history)  # (B, cond_dim)
             last_frame = (history[:, -1].reshape(B, C) + 1.0) / 2.0
-            base = self.mean_pred(cond, last_frame).reshape(B, T, C)
+            if self.mean_pred is None:
+                base = last_frame.unsqueeze(1).expand(B, T, C)
+            else:
+                base = self.mean_pred(cond, last_frame).reshape(B, T, C)
 
             all_residuals = []
             for start in range(0, n_samples, CHUNK):

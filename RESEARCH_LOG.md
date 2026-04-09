@@ -64279,3 +64279,3005 @@ Read:
 - it does **not** change the broad practical conclusion
 - `dcc_garch` is worth keeping as a more faithful classical finance baseline than `garch_ccc`
 - but it is not a competitive scenario generator under this repo's v2 regime
+
+## 2026-04-07 23:05 EDT - `207b` teacher-guided local-family AR smoke run
+
+Artifacts:
+
+- spec: [results/validations/2026-04-07/analysis/207_design/207b_teacher_guided_local_family_ar_spec.md](results/validations/2026-04-07/analysis/207_design/207b_teacher_guided_local_family_ar_spec.md)
+- trainer: [experiments/backfill/block_ar/train_207b_teacher_guided_local_family_student_t.py](experiments/backfill/block_ar/train_207b_teacher_guided_local_family_student_t.py)
+- smoke gate: [experiments/backfill/block_ar/analyze_207b_smoke_gate.py](experiments/backfill/block_ar/analyze_207b_smoke_gate.py)
+- result memo: [results/validations/2026-04-07/analysis/207_design/207b_smoke_result.md](results/validations/2026-04-07/analysis/207_design/207b_smoke_result.md)
+- best gate: [results/validations/2026-04-07/analysis/207_design/207b_smoke_gate_summary.json](results/validations/2026-04-07/analysis/207_design/207b_smoke_gate_summary.json)
+- final gate: [results/validations/2026-04-07/analysis/207_design/207b_smoke_gate_final_summary.json](results/validations/2026-04-07/analysis/207_design/207b_smoke_gate_final_summary.json)
+
+Setup:
+
+- fixed smoke train on `512` train / `128` val windows
+- `6` epochs, rollout warmup / ramp `3 / 3`
+- keep the `207a` architecture fixed
+- add offline teacher targets from the `206b` local-family construction on top of the live `201b` AR anchor
+
+Result:
+
+- `207b` does **not** earn a full strict run
+- this is still a negative smoke decision, but it is better than `207a`
+
+High-signal read:
+
+- best checkpoint remains pre-rollout at epoch `3`
+- final checkpoint is post-rollout at epoch `6`
+- the family branch now beats the width map on hard-late top-1 allocation:
+  - best lift `+0.167`
+  - final lift `+0.167`
+- rollout decorrelation does not collapse:
+  - best corr/rank `1.078 / 1.168`
+  - final corr/rank `1.102 / 1.172`
+- but support is still too broad:
+  - best hard-late support `17.57`
+  - final hard-late support `17.58`
+- quiet/shoulder shape is still wrong:
+  - best quiet / shoulder `0.661 / 1.293`
+  - final quiet / shoulder `0.675 / 1.249`
+
+Training read:
+
+- teacher guidance created a real family-learning signal before rollout pressure dominated:
+  - epoch `2` teacher family top-1 match `0.724`
+  - epoch `3` teacher family top-1 match `0.728`
+- once rollout turned on, gate activity rose and the branch still behaved too diffusely
+
+Conclusion:
+
+- teacher-guided local-family AR is a real partial improvement over direct `207a`
+- the family branch is now useful enough to beat the width map
+- but it still does not concentrate sharply enough to fix support or quiet-vs-shoulder shape
+- keep `201b` as the live AR anchor; `207b` is informative, but not enough to justify a full run
+
+## 2026-04-07 23:30 EDT - `208a` dedicated H=1 teacher-guided local-family branch
+
+Artifacts:
+
+- spec: [results/validations/2026-04-07/analysis/208_design/208a_h1_teacher_guided_local_family_spec.md](results/validations/2026-04-07/analysis/208_design/208a_h1_teacher_guided_local_family_spec.md)
+- trainer: [experiments/backfill/block_ar/train_208a_h1_teacher_guided_local_family_student_t.py](experiments/backfill/block_ar/train_208a_h1_teacher_guided_local_family_student_t.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_208a_h1_smoke.py](experiments/backfill/block_ar/analyze_208a_h1_smoke.py)
+- result memo: [results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_result.md](results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_result.md)
+- best summary: [results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_summary.json](results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/208_design/208a_h1_smoke_final_summary.json)
+
+Setup:
+
+- fixed smoke train on `512` train / `128` val windows
+- one-step only
+- reuse the `207b` local-family law
+- remove rollout completely
+- train on:
+  - one-step mixture Student-t NLL
+  - teacher-guided local-family supervision
+  - one-step spectrum loss for quiet / shoulder / extreme mass
+
+Result:
+
+- `208a` does **not** pass the H=1 smoke gate
+- removing rollout does **not** solve the one-step marginal problem
+
+High-signal numbers:
+
+- best checkpoint is epoch `3`
+- best `H=1` coverage90: `0.898`
+- best realized `q99` coverage90: `0.222`
+- best quiet / shoulder / kurtosis ratio: `0.694 / 1.233 / 0.462`
+- final realized `q99` coverage90: `0.278`
+- final quiet / shoulder / kurtosis ratio: `0.716 / 1.206 / 0.513`
+
+Read:
+
+- the branch keeps ordinary one-step coverage in a reasonable range
+- but rare-event one-step coverage remains weak
+- quiet mass remains too low and shoulder mass remains too high
+- the family branch stays too diffuse (`family_top1_mean` only about `0.37`)
+
+Conclusion:
+
+- the H=1 problem is not just rollout contamination
+- even a dedicated one-step calm-plus-family branch still converges to the wrong marginal shape
+- do **not** run a larger `208a`
+
+## 2026-04-07 23:48 EDT - `208b` strict H=1 calm/event separation test
+
+Artifacts:
+
+- spec: [results/validations/2026-04-07/analysis/208_design/208b_h1_hard_separated_local_family_spec.md](results/validations/2026-04-07/analysis/208_design/208b_h1_hard_separated_local_family_spec.md)
+- trainer: [experiments/backfill/block_ar/train_208b_h1_hard_separated_local_family_student_t.py](experiments/backfill/block_ar/train_208b_h1_hard_separated_local_family_student_t.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_208b_h1_smoke.py](experiments/backfill/block_ar/analyze_208b_h1_smoke.py)
+- result memo: [results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_result.md](results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_result.md)
+- best summary: [results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_summary.json](results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/208_design/208b_h1_smoke_final_summary.json)
+
+Setup:
+
+- fixed smoke train on `512` train / `128` val windows
+- warm-start base path from `201b_best`
+- freeze the calm/base path entirely
+- train only:
+  - gate head
+  - family logits head
+  - family scale head
+  - family shape head
+- hard family assignment on severe examples
+- localized diagonal event noise instead of the shared broad covariance
+
+Result:
+
+- `208b` still does **not** pass the H=1 smoke gate
+- but it is directionally different from `208a`
+
+High-signal numbers:
+
+- best checkpoint is epoch `7`
+- best `H=1` coverage90: `0.817`
+- best realized `q99` coverage90: `0.111`
+- best quiet / shoulder / kurtosis ratio: `0.808 / 1.100 / 0.604`
+- final quiet / shoulder / kurtosis ratio: `0.811 / 1.098 / 0.590`
+- family branch becomes genuinely sharp:
+  - family top-1 mean about `0.947`
+  - family entropy about `0.24`
+
+Read:
+
+- hard separation solves the "diffuse family" problem
+- and it improves one-step shape materially relative to `208a`
+- but it under-spreads the law:
+  - overall coverage falls too low
+  - realized `q99` coverage collapses
+
+Conclusion:
+
+- strict separation is directionally correct for the shape problem
+- the new bottleneck is event calibration after hard commitment
+- `208b` is still a negative smoke decision and should not be scaled up
+
+## 2026-04-08 00:03 EDT - `208b` frozen event-spread calibration sweep
+
+Artifacts:
+
+- sweep script: [experiments/backfill/block_ar/analyze_208b_event_spread_sweep.py](experiments/backfill/block_ar/analyze_208b_event_spread_sweep.py)
+- sweep memo: [results/validations/2026-04-07/analysis/208_design/208b_event_spread_sweep.md](results/validations/2026-04-07/analysis/208_design/208b_event_spread_sweep.md)
+- raw output: [results/validations/2026-04-07/analysis/208_design/208b_event_spread_sweep.json](results/validations/2026-04-07/analysis/208_design/208b_event_spread_sweep.json)
+
+Question:
+
+- can the strict `208b` H=1 branch be rescued by calibrating only event spread, while freezing:
+  - the calm path
+  - the event gate
+  - family selection
+
+Sweep:
+
+- checkpoints: `best` and `final`
+- event noise multiplier grid: `0.35, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0`
+- event noise floor grid: `0.002, 0.005, 0.01, 0.02`
+- total settings: `56`
+
+Result:
+
+- no configuration passed the fixed H=1 smoke gate
+- best overall setting is `final` with `event_noise_mult=0.5`, `event_noise_floor=0.002`
+- it passes only `2/6` checks:
+  - coverage90 `0.862`
+  - realized `q99` coverage90 `0.167`
+  - quiet ratio `0.725`
+  - shoulder ratio `1.191`
+  - kurtosis ratio `0.559`
+
+Important aggregate facts:
+
+- `22/56` settings achieve acceptable aggregate coverage
+- `0/56` settings achieve acceptable realized `q99` coverage
+- `0/56` settings achieve acceptable quiet ratio
+- `0/56` settings achieve acceptable shoulder ratio
+- `0/56` settings achieve acceptable kurtosis ratio
+- `56/56` settings keep family top-1 above the floor
+
+Best rare-event-coverage setting:
+
+- `best`, `event_noise_mult=2.0`, `event_noise_floor=0.01`
+- realized `q99` coverage90 rises to `0.472`
+- but coverage widens to `0.967`
+- quiet ratio falls to `0.427`
+- shoulder ratio worsens to `1.397`
+- kurtosis ratio falls to `0.343`
+
+Conclusion:
+
+- spread-only calibration does **not** rescue `208b`
+- the branch is not just mis-scaled after hard commitment
+- the remaining problem is the geometry of the committed event spread itself
+
+## 2026-04-08 00:17 EDT - `209a` H=1 oracle event-spread geometry audit
+
+Artifacts:
+
+- script: [experiments/backfill/block_ar/analyze_209a_h1_oracle_event_spread_geometry.py](experiments/backfill/block_ar/analyze_209a_h1_oracle_event_spread_geometry.py)
+- memo: [results/validations/2026-04-08/analysis/209_design/209a_h1_oracle_event_spread_geometry/209a_h1_oracle_event_spread_geometry.md](results/validations/2026-04-08/analysis/209_design/209a_h1_oracle_event_spread_geometry/209a_h1_oracle_event_spread_geometry.md)
+- raw summary: [results/validations/2026-04-08/analysis/209_design/209a_h1_oracle_event_spread_geometry/summary.json](results/validations/2026-04-08/analysis/209_design/209a_h1_oracle_event_spread_geometry/summary.json)
+
+Question:
+
+- after choosing the correct local severe-event family member, what spread geometry is needed to explain the remaining `H=1` conditional law?
+
+Compared geometries:
+
+- scalar isotropic
+- shape-scaled diagonal
+- local empirical diagonal
+- local low-rank covariance plus isotropic residual
+
+Result on `all_q99` severe next-step windows (`231` queries):
+
+- oracle family top-cell top-1 accuracy: `0.623`
+- `shape_diag`:
+  - coverage90 `0.936`
+  - realized `q99` coverage90 `0.591`
+  - quiet / shoulder / kurtosis ratio `0.230 / 1.889 / 0.819`
+- `diag`:
+  - coverage90 `0.823`
+  - realized `q99` coverage90 `0.622`
+  - quiet / shoulder / kurtosis ratio `0.814 / 1.228 / 1.041`
+- `lowrank`:
+  - coverage90 `0.876`
+  - realized `q99` coverage90 `0.633`
+  - quiet / shoulder / kurtosis ratio `0.605 / 1.459 / 1.033`
+
+Interpretation:
+
+- `208b`-style shape-scaled diagonal spread is too weak
+- once family routing is correct, richer local anisotropic spread matters a lot
+- the simplest promising object is closer to local empirical diagonal spread than to scalar or shape-scaled spread
+
+Important negative result on the hardest `H=1` slice (`hard_window_q99`, `12` queries):
+
+- scalar realized `q99` coverage90 `0.167`
+- shape-scaled diagonal `0.333`
+- empirical diagonal `0.250`
+- low-rank `0.333`
+
+Conclusion:
+
+- `H=1` is hard because the target is not just a family-routing problem
+- and not just a scale-calibration problem
+- the within-family spread geometry matters
+- but even with oracle family choice, the hardest next-step windows remain weakly identifiable from the current conditioning set
+
+## 2026-04-08 00:27 EDT - `210a` H=1 multimodal latent-generator design note
+
+Artifacts:
+
+- spec: [results/validations/2026-04-08/analysis/210_design/210a_h1_multimodal_latent_generator_spec.md](results/validations/2026-04-08/analysis/210_design/210a_h1_multimodal_latent_generator_spec.md)
+
+Context:
+
+- the explicit calm/event/family/spread factorization is evidence-driven, but not very Bitter-Lesson-pure
+- the cleaner alternative for `H=1` is:
+  - one history encoder
+  - one latent scenario variable
+  - one next-step decoder
+
+Core object:
+
+- `z ~ p(z | history)`
+- `y_{t+1} ~ p(y_{t+1} | history, z)`
+
+Motivation:
+
+- `205a/206b` suggest the target is a small coherent next-step scenario family
+- a latent multimodal next-step generator matches that object more directly than the recent calm/event decomposition
+
+Recommended `v0`:
+
+- Transformer history encoder
+- small discrete latent scenario code
+- conditional next-step decoder
+- no explicit calm/event branch in the architecture
+
+Extension path:
+
+- if `H=1` works, later add latent persistence:
+  - `z_t ~ p(z_t | z_{t-1}, history)`
+  - `y_{t+1} ~ p(y_{t+1} | history, z_t)`
+
+Read:
+
+- this is more Bitter-Lesson-pure than the `207x/208x` line
+- but it should be treated only as an `H=1` branch first, not as solved AR rollout
+
+## 2026-04-08 00:39 EDT - `210b` ranked `H=1` multimodal implementation plan
+
+Artifacts:
+
+- plan: [results/validations/2026-04-08/analysis/210_design/210b_h1_multimodal_ranked_plan.md](results/validations/2026-04-08/analysis/210_design/210b_h1_multimodal_ranked_plan.md)
+
+Decision:
+
+- separate **research priority** from **implementation order**
+
+Research priority:
+
+1. categorical latent scenario model
+2. VQ / codebook latent
+3. mixture density head
+4. latent flow decoder
+5. latent diffusion decoder
+6. decoder-only / tokenized surface model
+
+Implementation order:
+
+1. mixture density head
+2. categorical latent scenario model
+3. VQ / codebook latent
+4. richer within-mode decoder
+
+Read:
+
+- reuse the trusted transformer history encoder first
+- treat the decoder / output-law family as the main variable
+- use the clean `H=1` MDN baseline as the fastest falsification before the stronger discrete-latent branches
+
+## 2026-04-08 00:58 EDT - `210c` H=1 mixture-density transformer smoke
+
+Artifacts:
+
+- spec: [results/validations/2026-04-08/analysis/210_design/210c_h1_mixture_density_transformer_spec.md](results/validations/2026-04-08/analysis/210_design/210c_h1_mixture_density_transformer_spec.md)
+- trainer: [experiments/backfill/block_ar/train_210c_h1_mixture_density_transformer.py](experiments/backfill/block_ar/train_210c_h1_mixture_density_transformer.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_210c_h1_smoke.py](experiments/backfill/block_ar/analyze_210c_h1_smoke.py)
+- result memo: [results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_result.md](results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_result.md)
+- best summary: [results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_summary.json](results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/210_design/210c_h1_smoke_final_summary.json)
+
+Setup:
+
+- fixed smoke split: `512` train / `128` val
+- warm-start transformer history encoder from `201b_best`
+- direct `K=4` mixture-of-Student-t next-step decoder
+- no rollout loss
+- no explicit calm/event decomposition
+
+Result:
+
+- the mixture does **not** collapse:
+  - effective active components `3.34`
+  - top-1 mixture probability mean `0.53`
+  - entropy mean `1.21`
+- but the learned `H=1` law is still badly smeared
+
+Best/final `H=1` metrics are both poor:
+
+- coverage90 about `0.951-0.954`
+- realized `q99` coverage90 only `0.139-0.194`
+- quiet ratio about `0.452`
+- shoulder ratio about `1.56`
+- kurtosis ratio about `0.59`
+
+Conclusion:
+
+- this is a clean negative for the soft multimodal baseline
+- the failure is **not** component collapse
+- it is still soft hedging / smear
+- so the next ranked branch should move to **discrete latent scenario commitment**, not another MDN tweak
+
+## 2026-04-07 15:48 EDT - `210d` H=1 encoder verification
+
+Question:
+
+- does the trusted transformer encoder actually work for the pure `H=1` task, or were we over-extrapolating from the older hard-late multi-step probes?
+
+Method:
+
+- new direct probe analysis:
+  - [experiments/backfill/block_ar/analyze_210d_h1_encoder_verification.py](experiments/backfill/block_ar/analyze_210d_h1_encoder_verification.py)
+- artifacts:
+  - [summary.json](results/validations/2026-04-08/analysis/210_design/210d_h1_encoder_verification/summary.json)
+  - [210d_h1_encoder_verification.md](results/validations/2026-04-08/analysis/210_design/210d_h1_encoder_verification/210d_h1_encoder_verification.md)
+- checkpoint tested:
+  - `models/backfill/transformer_underfit_aware_selffed_rollout_student_t_201b/best_model.pt`
+- strict one-step split:
+  - train `4010`
+  - val `441`
+  - test `1281`
+- direct `H=1` probe tasks only:
+  - binary `q95_any`
+  - binary `q99_any`
+  - binary `turb_q99`
+  - multiclass top-cell on `q99_any`
+  - multiclass top-cell on `turb_q99`
+- compared three feature sets:
+  - simple hand features
+  - flattened raw history
+  - transformer encoder features
+
+Result:
+
+- the `H=1` encoder story is **mixed**, not cleanly positive
+
+Direct severe-window detection is weak:
+
+- `q99_any` test ROC-AUC / AP:
+  - simple: `0.529 / 0.203`
+  - flat history: `0.472 / 0.183`
+  - encoder: `0.474 / 0.174`
+- `turb_q99` test ROC-AUC / AP:
+  - simple: `0.964 / 0.203`
+  - flat history: `0.477 / 0.015`
+  - encoder: `0.504 / 0.018`
+
+But severe-shape localization is materially better from the encoder once conditioning on a severe event:
+
+- `q99_any_top_cell` test top-1 / top-3:
+  - simple: `0.472 / 0.788`
+  - flat history: `0.390 / 0.823`
+  - encoder: `0.571 / 0.883`
+- `turb_q99_top_cell` test top-1 / top-3:
+  - simple: `0.333 / 0.619`
+  - flat history: `0.571 / 0.667`
+  - encoder: `0.143 / 0.905`
+
+Interpretation:
+
+- the transformer encoder does carry real **small-family severe-shape** information for `H=1`
+- but it does **not** look clearly right for direct `H=1` severe-event detection
+- so the clean story “encoder is already fine, only decoder is wrong” is too strong for `H=1`
+
+Conclusion:
+
+- `H=1` now looks like a split bottleneck:
+  - severity detection is still at least partly encoder/state-limited
+  - severe-shape allocation is still output-law-limited
+- next `H=1` work should not assume decoder-only anymore; either pass simple severity context through directly or test a stronger encoder together with the discrete-latent decoder line
+
+## 2026-04-07 16:05 EDT - `210e` H=1 categorical-latent transformer smoke
+
+Goal:
+
+- implement the next ranked `H=1` decoder after `210c`
+- replace the failed soft MDN head with a categorical latent scenario model
+
+Artifacts:
+
+- spec:
+  - [210e_h1_categorical_latent_transformer_spec.md](results/validations/2026-04-08/analysis/210_design/210e_h1_categorical_latent_transformer_spec.md)
+- trainer:
+  - [train_210e_h1_categorical_latent_transformer.py](experiments/backfill/block_ar/train_210e_h1_categorical_latent_transformer.py)
+- smoke eval:
+  - [analyze_210e_h1_smoke.py](experiments/backfill/block_ar/analyze_210e_h1_smoke.py)
+- smoke summaries:
+  - [210e_h1_smoke_summary.json](results/validations/2026-04-08/analysis/210_design/210e_h1_smoke_summary.json)
+  - [210e_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/210_design/210e_h1_smoke_final_summary.json)
+- memo:
+  - [210e_h1_smoke_result.md](results/validations/2026-04-08/analysis/210_design/210e_h1_smoke_result.md)
+
+Setup:
+
+- fixed smoke split: `512` train / `128` val
+- warm-start encoder and decoder from `201b_best`
+- direct one-step categorical latent with `16` codes
+- straight-through Gumbel posterior sample
+- KL + mild usage-balance regularization
+
+Result:
+
+`210e` is materially better than `210c` on the `H=1` law shape, but it does **not** pass the full smoke gate.
+
+Best checkpoint (`epoch 2`):
+
+- `H=1` coverage90: `0.879`
+- realized `q99` coverage90: `0.556`
+- quiet ratio: `0.939`
+- shoulder ratio: `1.001`
+- kurtosis ratio: `0.586`
+- active codes: `15.95`
+
+Final checkpoint (`epoch 8`):
+
+- `H=1` coverage90: `0.880`
+- realized `q99` coverage90: `0.583`
+- quiet ratio: `0.921`
+- shoulder ratio: `1.017`
+- kurtosis ratio: `0.577`
+- active codes: `15.96`
+
+Important diagnostic:
+
+- the latent mechanism is basically **unused**
+- prior top-1 mean is only about `0.071`
+- posterior top-1 during training is only about `0.069`
+- entropy is near maximum and active codes are near all `16`
+
+So this branch improved the one-step law shape, but **not because it learned meaningful discrete scenario codes**. In this form it behaves much more like a softened single-head model than a true scenario-token model.
+
+Conclusion:
+
+- this is **not** a clean negative like `210c`
+- hardening the output object helped:
+  - coverage in range
+  - quiet ratio in range
+  - shoulder ratio in range
+- but the current categorical latent path does not earn a larger run yet because:
+  - kurtosis still too low
+  - latent codes are not actually being used
+- the next follow-up on this line, if any, should target **posterior collapse / latent underuse**, not another soft mixture tweak
+
+## 2026-04-07 16:27 EDT - `210f` H=1 latent-engaged categorical transformer smoke
+
+Goal:
+
+- fix the specific `210e` failure mode: latent underuse / posterior collapse
+
+Artifacts:
+
+- spec:
+  - [210f_h1_latent_engaged_transformer_spec.md](results/validations/2026-04-08/analysis/210_design/210f_h1_latent_engaged_transformer_spec.md)
+- trainer:
+  - [train_210f_h1_latent_engaged_transformer.py](experiments/backfill/block_ar/train_210f_h1_latent_engaged_transformer.py)
+- smoke eval:
+  - [analyze_210f_h1_smoke.py](experiments/backfill/block_ar/analyze_210f_h1_smoke.py)
+- smoke summaries:
+  - [210f_h1_smoke_summary.json](results/validations/2026-04-08/analysis/210_design/210f_h1_smoke_summary.json)
+  - [210f_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/210_design/210f_h1_smoke_final_summary.json)
+- memo:
+  - [210f_h1_smoke_result.md](results/validations/2026-04-08/analysis/210_design/210f_h1_smoke_result.md)
+
+Changes vs `210e`:
+
+- removed the uniform code-usage penalty
+- added simple severity context to the latent prior/posterior
+- strengthened latent-to-decoder coupling through fused conditioning + FiLM
+- added a minimum-information penalty
+
+Result:
+
+`210f` is a clean negative.
+
+It did raise KL:
+
+- `210e` train KL was about `0.001`
+- `210f` train KL rose to about `0.08`
+
+But the latent still did **not** become meaningfully engaged:
+
+- best prior top-1 mean: `0.075`
+- best prior active codes: `15.84 / 16`
+- best code-conditioned mean dispersion: `0.00069`
+- best code-conditioned scale dispersion: `0.00021`
+
+So this branch paid more KL without learning real scenario specialization.
+
+Best checkpoint (`epoch 4`):
+
+- `H=1` coverage90: `0.876`
+- realized `q99` coverage90: `0.639`
+- quiet ratio: `0.822`
+- shoulder ratio: `1.096`
+- kurtosis ratio: `0.560`
+
+Final checkpoint (`epoch 8`):
+
+- `H=1` coverage90: `0.859`
+- realized `q99` coverage90: `0.583`
+- quiet ratio: `0.819`
+- shoulder ratio: `1.099`
+- kurtosis ratio: `0.558`
+
+Interpretation:
+
+- `210f` regressed the good `H=1` shape improvements from `210e`
+- quiet mass fell from about `0.92-0.94` in `210e` to about `0.82`
+- the latent variable still failed to separate the decoder outputs enough to matter
+
+Conclusion:
+
+- the exact `210e -> 210f` categorical-latent path is not earning another immediate run
+- the failure is no longer just “codes are a bit too soft”
+- this latent-variable formulation is not discovering useful scenario codes in a stable way
+
+## 2026-04-08 01:23 EDT - `210g` H=1 VQ/codebook latent transformer smoke
+
+Artifacts:
+
+- spec: [results/validations/2026-04-08/analysis/210_design/210g_h1_vq_latent_transformer_spec.md](results/validations/2026-04-08/analysis/210_design/210g_h1_vq_latent_transformer_spec.md)
+- trainer: [experiments/backfill/block_ar/train_210g_h1_vq_latent_transformer.py](experiments/backfill/block_ar/train_210g_h1_vq_latent_transformer.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_210g_h1_smoke.py](experiments/backfill/block_ar/analyze_210g_h1_smoke.py)
+- best summary: [results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_summary.json](results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_final_summary.json)
+- memo: [results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_result.md](results/validations/2026-04-08/analysis/210_design/210g_h1_smoke_result.md)
+
+Setup:
+
+- fixed smoke split: `512` train / `128` val
+- warm-start encoder and decoder from `201b_best`
+- direct one-step VQ/codebook latent with `16` codes
+- prior predicts the quantized posterior code
+- VQ codebook loss + commitment loss + mild usage-balance regularization
+
+Result:
+
+- `210g` does **not** beat `210e`
+- best checkpoint is `epoch 4`
+- best and final both fail only kurtosis in the fixed H=1 smoke gate
+
+Best checkpoint (`epoch 4`):
+
+- `H=1` coverage90: `0.878`
+- realized `q99` coverage90: `0.583`
+- quiet ratio: `0.936`
+- shoulder ratio: `1.003`
+- kurtosis ratio: `0.578`
+- prior active codes: `15.95`
+
+Final checkpoint (`epoch 8`):
+
+- `H=1` coverage90: `0.880`
+- realized `q99` coverage90: `0.583`
+- quiet ratio: `0.927`
+- shoulder ratio: `1.011`
+- kurtosis ratio: `0.580`
+- prior active codes: `15.93`
+
+Important diagnostic:
+
+- the codebook mechanism does **not** engage usefully
+- prior stays near-uniform:
+  - top-1 mean only about `0.077-0.081`
+  - entropy about `2.767-2.768`
+  - active codes near all `16`
+- but the hard posterior assignments collapse during training:
+  - active codes `1.60 -> 1.09 -> 1.00`
+
+Read:
+
+- this is not a catastrophe because the one-step law remains in the same good band on:
+  - coverage
+  - quiet ratio
+  - shoulder ratio
+- but it does **not** improve kurtosis
+- and it does **not** solve latent underuse
+- relative to `210e`, plain VQ/codebook latent is not the right next winner
+
+Conclusion:
+
+- keep `210e/210f` as the stronger active discrete-latent line
+- `210g` should be treated as a negative parallel smoke branch
+- if continuing beyond `210f`, the better next move is likely:
+  - stronger prior/posterior coupling
+  - or explicit severity-sidecar context
+  - not another plain VQ retry
+
+## 2026-04-08 01:41 EDT - `211a` decoder-only H=1 token-surface design
+
+Artifacts:
+
+- spec: [results/validations/2026-04-08/analysis/211_design/211a_h1_decoder_only_token_surface_spec.md](results/validations/2026-04-08/analysis/211_design/211a_h1_decoder_only_token_surface_spec.md)
+
+Decision:
+
+- after `210e`, `210f`, and `210g`, the repo now has strong evidence that latent-variable machinery is becoming part of the problem:
+  - `210e`: improved one-step shape, but latent was unused
+  - `210f`: stronger latent pressure hurt shape and still did not create scenario specialization
+  - `210g`: VQ/codebook did not improve on `210e`; prior stayed diffuse and posterior collapsed
+
+Read from `210d`:
+
+- the clean decoder-only story is still too strong for `H=1`
+- severity detection looks partly state-limited
+- severe-shape allocation looks output-law-limited
+
+So the principled decoder-only test is:
+
+- keep **one decoder-only transformer**
+- remove prior/posterior/codebook machinery entirely
+- represent the next-day move as tokenized transformed cell deltas
+- add simple **severity-sidecar tokens** directly in the prefix
+- autoregressively generate the `25` next-day cell tokens
+
+Why this branch is justified:
+
+- fewer moving parts than the latent branches
+- more Bitter-Lesson-aligned than calm/event/family factorization
+- directly tests whether multimodality can be expressed through:
+  - tokenized output support
+  - decoder-only conditional sampling
+  - without latent collapse
+
+Scope:
+
+- H=1 only
+- same fixed `512 / 128` smoke gate
+- compare against `210e` as the current best shape branch
+
+Success criterion:
+
+- at least match `210e` on coverage / quiet / shoulder
+- while improving kurtosis or realized `q99` coverage
+- and show genuine multimodality through sample diversity rather than latent diagnostics
+
+## 2026-04-07 17:24 EDT - `211a` cached-prefix eval fix and full smoke
+
+Artifacts:
+
+- spec: [results/validations/2026-04-08/analysis/211_design/211a_h1_decoder_only_token_surface_spec.md](results/validations/2026-04-08/analysis/211_design/211a_h1_decoder_only_token_surface_spec.md)
+- trainer: [experiments/backfill/block_ar/train_211a_h1_decoder_only_token_transformer.py](experiments/backfill/block_ar/train_211a_h1_decoder_only_token_transformer.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_211a_h1_smoke.py](experiments/backfill/block_ar/analyze_211a_h1_smoke.py)
+- best summary: [results/validations/2026-04-08/analysis/211_design/211a_h1_smoke_summary.json](results/validations/2026-04-08/analysis/211_design/211a_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-08/analysis/211_design/211a_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/211_design/211a_h1_smoke_final_summary.json)
+- training history: [models/backfill/transformer_h1_decoder_only_token_211a_smoke512_cached/training_history.json](models/backfill/transformer_h1_decoder_only_token_211a_smoke512_cached/training_history.json)
+
+Implementation note:
+
+- the first `211a` evaluator was functionally correct but too slow because it replayed the full `1501`-token prefix for every sampled scenario chunk and sampled a second time for uniqueness
+- fixed this by caching prefix KV once per validation batch and reusing the same sampled token batch for uniqueness
+- this is a principled optimization because it does **not** change:
+  - the model
+  - the training loss
+  - the sampling distribution
+- tiny smoke wall time dropped from about `3.1s` to about `1.5s`
+- full best-epoch wall time dropped to about `96s`, down from the earlier `180-200s` range
+
+Main result:
+
+- `211a` is a clean negative under the fixed `H=1` smoke gate
+- best checkpoint is epoch `6`
+- best and final both fail the smoke gate
+
+Best checkpoint:
+
+- coverage90: `0.868`
+- realized `q99` coverage90: `0.389`
+- quiet ratio: `0.806`
+- shoulder ratio: `1.118`
+- kurtosis ratio: `0.607`
+- token CE: `5.377`
+- token top-1: `0.012`
+- unique sequence ratio: `1.000`
+
+Final checkpoint:
+
+- coverage90: `0.870`
+- realized `q99` coverage90: `0.361`
+- quiet ratio: `0.792`
+- shoulder ratio: `1.093`
+- kurtosis ratio: `0.508`
+- token CE: `5.402`
+- token top-1: `0.012`
+- unique sequence ratio: `1.000`
+
+Read:
+
+- the pure decoder-only transformer does **not** collapse
+- sampled next-step token sequences remain highly diverse (`uniq = 1.0`)
+- but the law is still wrong:
+  - quiet mass too low
+  - shoulder mass too high or borderline
+  - realized severe-event coverage too low
+  - kurtosis still below gate
+
+Conclusion:
+
+- removing latent-variable machinery did **not** solve the `H=1` tail-shape problem
+- this falsifies the simple “decoder-only alone will fix multimodality” hope in this minimal tokenized form
+- the next decoder-only step, if any, should change the **output law / discretization**, not add latent machinery back
+
+## 2026-04-07 16:31 EDT - `210h` H=1 teacher-guided token transformer smoke
+
+Implemented a direct supervised-token follow-up to `210e/210f/210g`:
+
+- spec: [results/validations/2026-04-08/analysis/210_design/210h_h1_teacher_guided_token_transformer_spec.md](results/validations/2026-04-08/analysis/210_design/210h_h1_teacher_guided_token_transformer_spec.md)
+- trainer: [experiments/backfill/block_ar/train_210h_h1_teacher_guided_token_transformer.py](experiments/backfill/block_ar/train_210h_h1_teacher_guided_token_transformer.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_210h_h1_smoke.py](experiments/backfill/block_ar/analyze_210h_h1_smoke.py)
+- best summary: [results/validations/2026-04-08/analysis/210_design/210h_h1_smoke_summary.json](results/validations/2026-04-08/analysis/210_design/210h_h1_smoke_summary.json)
+- final summary: [results/validations/2026-04-08/analysis/210_design/210h_h1_smoke_final_summary.json](results/validations/2026-04-08/analysis/210_design/210h_h1_smoke_final_summary.json)
+
+Design:
+
+- remove prior/posterior/VQ machinery entirely
+- build one calm token plus `8` event tokens from the existing local-family GT analysis
+- supervise token prediction directly with cross-entropy
+- condition the one-step Student-t decoder strongly on the token via fused conditioning + FiLM
+
+Main result:
+
+- `210h` does **not** earn a larger run
+- it is better than the collapsed latent branches on direct token supervision, but still fails both on `H=1` shape and on true token engagement
+
+Best checkpoint (`epoch 2`):
+
+- `H=1` coverage90: `0.876`
+- realized `q99` coverage90: `0.639`
+- quiet ratio: `0.830`
+- shoulder ratio: `1.081`
+- kurtosis ratio: `0.553`
+- overall token top-1: `0.188`
+- event-token top-1 / top-3: `0.277 / 0.325`
+- prior top-1 mean: `0.120`
+- prior active tokens: `8.99 / 9`
+- token-conditioned mean dispersion: `0.00056`
+
+Important diagnostic:
+
+- val token majority baseline is `0.352`
+- val event-token majority baseline is `0.325`
+
+So the token predictor is:
+
+- **not collapsed to one token**
+- but still **not materially informative**
+- and the decoder still barely changes across forced tokens
+
+Conclusion:
+
+- teacher-guided discrete tokens avoid VAE-style posterior collapse
+- but they still do **not** produce a useful scenario-token model in this form
+- the remaining failure is now explicit:
+  - weak token predictability from the current 30-day inputs
+  - plus near-zero decoder separation across tokens
+
+## 2026-04-07 17:05 EDT - `211a` fresh scratch H=1 multimodal redo
+
+Built a genuinely fresh scratch `H=1` comparison harness instead of reusing `210c/e/g` files:
+
+- trainer: [experiments/backfill/block_ar/train_211a_h1_scratch_multimodal.py](experiments/backfill/block_ar/train_211a_h1_scratch_multimodal.py)
+- smoke eval: [experiments/backfill/block_ar/analyze_211a_h1_scratch_smoke.py](experiments/backfill/block_ar/analyze_211a_h1_scratch_smoke.py)
+- memo: [results/validations/2026-04-08/analysis/211_design/211a_scratch_multimodal_smoke_result.md](results/validations/2026-04-08/analysis/211_design/211a_scratch_multimodal_smoke_result.md)
+
+What was reset:
+
+- no warm start
+- no reuse of the `210c/e/g` decoder classes
+- no old prior/posterior scaffolding
+- same smoke split and same `H=1` evaluation contract
+
+Variants tested:
+
+1. scratch soft mixture (`mdn`)
+2. scratch categorical latent (`cat`)
+3. scratch VQ latent (`vq`)
+
+Result:
+
+All three fail the same core gate despite the scratch reset.
+
+Best scratch MDN:
+
+- coverage90: `0.907`
+- realized `q99` coverage90: `0.000`
+- quiet ratio: `0.417`
+- shoulder ratio: `1.701`
+- kurtosis ratio: `0.413`
+
+Best scratch categorical latent:
+
+- coverage90: `0.915`
+- realized `q99` coverage90: `0.000`
+- quiet ratio: `0.386`
+- shoulder ratio: `1.705`
+- kurtosis ratio: `0.352`
+
+Best scratch VQ:
+
+- coverage90: `0.855`
+- realized `q99` coverage90: `0.000`
+- quiet ratio: `0.545`
+- shoulder ratio: `1.603`
+- kurtosis ratio: `0.199`
+
+Interpretation:
+
+- the old inherited branch infrastructure is **not** the main explanation for failure
+- the problem survives a genuine scratch reset
+- the current `30`-day conditioning set plus these minimal multimodal next-step models still converge to broad shoulder-heavy laws instead of realistic sparse-tail `H=1` laws
+
+---
+
+## 2026-04-07 - Strategic Phase Reset: Return to Pre-163 Direct-Output Modeling
+
+Decision:
+
+The mainline research direction is being reset to the pre-`163` family.
+Going forward, the repo will **stop treating the post-`163` Student-t-sampler
+phase as the governing line for model design**.
+
+This is a strategic modeling decision, not a theorem. The rationale is:
+
+- from `169a` onward, the repo repeatedly moved to models that predict
+  parameters of a Student-t conditional law and then sample from that law
+- that phase did not produce a clear research breakthrough relative to the
+  simpler earlier models
+- the underlying modeling principle is also undesirable for the mainline goal:
+  we want models that directly generate diverse, individual, and realistic IV
+  surfaces, not models whose diversity is delegated to a learned Student-t
+  sampler
+
+The relevant pre-`163` reference family is:
+
+- direct level prediction
+- delta-on-last-surface prediction
+- transformed / log-return-space prediction
+
+This includes the earlier best practical models around:
+
+- `97a`
+- `99x`
+- `163a`
+
+Read:
+
+- `97a/99x` showed that direct-output scenario generation can already produce
+  useful broad realism without a learned Student-t law
+- `163a` is the last major branch before the repo committed to the later
+  Student-t density / residual-law phase
+- everything after that may still contain local lessons, but it should no
+  longer control the mainline architecture choice
+
+From this point on, the repo will treat the post-`163` Student-t results as
+**tainted for mainline direction selection**. They are still historically
+documented, but they are no longer the default foundation for new design.
+
+### New narrowed problem statement
+
+We are drastically simplifying the objective.
+
+Mainline goal:
+
+- predict the **one-day-ahead conditional distribution** of the IV surface
+- using models that **directly output surfaces or deltas**
+- with simple stochasticity / noise injection in the model output path
+- without a learned Student-t parameterization as the primary sampler
+
+The priority is now:
+
+1. revisit `163a` carefully and diagnose exactly what blocked it
+2. work on models that directly emit diverse, realistic individual scenarios
+3. if `163a` is too contaminated / hard to salvage, start a fresh direct-output
+   one-day conditional model from scratch
+
+### Explicit exclusions for the reset
+
+For the new mainline branch, do **not** default to:
+
+- learned multivariate Student-t heads
+- Student-t residual-law samplers
+- prior/posterior latent scenario machinery
+- increasingly indirect conditional-law parameterizations
+
+These may remain as side-history, but not as the main restart path.
+
+### Next concrete step
+
+The next principled action after this reset is:
+
+- reopen `163a`
+- document its exact failure profile under the current understanding
+- then build the smallest clean one-day direct-output stochastic baseline that
+  can be compared against `163a`
+
+One-sentence summary:
+
+**The repo is abandoning the post-`163` Student-t-centered mainline and
+returning to a much simpler direct-output one-day conditional scenario
+modeling program, with `163a` as the first restart reference point.**
+
+## 2026-04-07 - `163a` direct-output review with literature-backed restart recommendation
+
+I reviewed the old direct-output `163a` branch in code and results, then
+compared it against primary-source literature on direct probabilistic
+forecasting.
+
+Artifacts:
+
+- [212a_163_direct_output_restart_memo.md](results/validations/2026-04-07/analysis/212_design/212a_163_direct_output_restart_memo.md)
+- [163a old-suite summary](results/block_ar/163a_v2_test/summary.json)
+- [163a outlier diagnostic](results/validations/2026-03-30/analysis/163a_outlier_diagnostic/results.json)
+
+Main conclusion:
+
+- the **direct-output stochastic idea** in `163a` is still defensible
+- the **specific `163a` implementation** is not a good restart foundation
+
+Why:
+
+- `163a` is not a Student-t parameter head; it is a direct stochastic decoder
+  of the form `mean_prediction + residual`
+- this aligns with proper-scoring-rule forecasting ideas and with later
+  distribution-free quantile / quantile-function forecasting literature
+- but the old `No-LN` residual transformer is too unstable:
+  aggregate kurtosis was improved partly through sporadic oversized spikes,
+  not through clean realistic tail shape
+
+Key repo evidence:
+
+- old formal result is only `4/9`
+- unconditional marginals still fail (`KS daily 14/25`, `KS level 5/25`)
+- dedicated outlier diagnostic shows median `p99.9` absolute-delta ratio
+  around `2.58`, with `20/25` cells above `1.2x` GT
+- bulk quantiles are also inconsistent across cells, so the model is not
+  simply "correct bulk + slightly heavy tail"
+
+Literature-backed interpretation:
+
+- proper scoring rules remain principled for direct sample generators
+  (Gneiting & Raftery, 2007)
+- direct nonparametric conditional forecasting via quantiles / quantile
+  functions is a valid alternative to fixed parametric likelihood heads
+  (Wen et al., 2017; Gouttes et al., 2021; Kan et al., 2022)
+- if we want normalization-free conditioning, it should be done with an
+  explicit stabilizer rather than raw deletion of normalization
+  (Zhu et al., 2025)
+
+Decision:
+
+- do **not** keep iterating on the old `163a` code
+- do **not** abandon the direct-output idea
+- restart from the `163a` principle at `H=1`
+
+Recommended next model:
+
+- a **minimal one-day direct-output stochastic delta model**
+- recent levels + deltas as context
+- deterministic mean-delta head
+- late-injected low-dimensional noise through FiLM-style conditioning
+- bounded residual output, e.g. `mean_delta + scale(x) * tanh(residual_raw)`
+- no Student-t head
+- no full `30d` task
+
+## 2026-04-07 - `212b` minimal H=1 direct stochastic delta spec
+
+I refined the direct-output restart into the smallest attributable `H=1`
+experiment and intentionally removed the earlier mean-plus-residual
+decomposition from the first step.
+
+Artifact:
+
+- [212b_h1_minimal_direct_stochastic_delta_spec.md](results/validations/2026-04-07/analysis/212_design/212b_h1_minimal_direct_stochastic_delta_spec.md)
+
+Decision:
+
+- start with **one encoder + one stochastic decoder**
+- input: recent levels plus deltas
+- target: next-day delta surface
+- decoder output is **bounded directly** via `tanh`
+- train with **energy score only**
+
+Important simplifications:
+
+- no deterministic mean head in the first restart
+- no explicit residual decomposition
+- no attention decoder
+- no latent-variable machinery
+- no Student-t head
+- no long-horizon task
+
+Rationale:
+
+- the repo wants a clean falsification test for direct-output stochastic
+  scenario generation
+- adding mean/residual decomposition immediately would confound whether any
+  success or failure came from the direct-output idea itself or from the
+  decomposition choice
+- `212b` is the smallest model that still produces a real conditional scenario
+  distribution
+
+Planned interpretation:
+
+- if `212b` works directionally, add mean/residual decomposition later
+- if `212b` fails, the failure is much more attributable than `163a`
+
+## 2026-04-07 - `212b` minimal H=1 direct stochastic delta smoke
+
+Implemented the first post-reset direct-output smoke branch:
+
+- [train_212b_h1_minimal_direct_stochastic_delta.py](experiments/backfill/block_ar/train_212b_h1_minimal_direct_stochastic_delta.py)
+- [analyze_212b_h1_smoke.py](experiments/backfill/block_ar/analyze_212b_h1_smoke.py)
+- [212b_h1_minimal_direct_stochastic_delta_spec.md](results/validations/2026-04-07/analysis/212_design/212b_h1_minimal_direct_stochastic_delta_spec.md)
+
+Artifacts:
+
+- [best_model.pt](models/backfill/minimal_direct_stochastic_delta_212b_smoke512_full/best_model.pt)
+- [final_model.pt](models/backfill/minimal_direct_stochastic_delta_212b_smoke512_full/final_model.pt)
+- [training_history.json](models/backfill/minimal_direct_stochastic_delta_212b_smoke512_full/training_history.json)
+- [212b_h1_smoke_summary.json](results/validations/2026-04-07/analysis/212_design/212b_h1_smoke_summary.json)
+- [212b_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/212_design/212b_h1_smoke_final_summary.json)
+
+Design:
+
+- history input = levels + deltas
+- target = next-day delta surface
+- encoder = small GRU
+- decoder = one stochastic MLP over `[history_state, z]`
+- bounded direct delta output via `tanh`
+- energy score only
+
+Result: clean negative, but informative.
+
+Best checkpoint is epoch `1`:
+
+- coverage90 `0.804`
+- realized q99 coverage90 `0.222`
+- quiet ratio `0.899`
+- shoulder ratio `1.085`
+- kurtosis ratio `0.552`
+
+Final checkpoint is worse on shape:
+
+- coverage90 `0.847`
+- realized q99 coverage90 `0.167`
+- quiet ratio `0.753`
+- shoulder ratio `1.183`
+- kurtosis ratio `0.357`
+
+Interpretation:
+
+- the minimal direct-output stochastic idea does **not** explode like `163a`
+- it learns a sane small-move law initially
+- but it is strongly **under-dispersed in the severe tail**
+- and as training continues it drifts toward the same familiar failure:
+  fewer very small moves, more medium moves, low kurtosis
+
+What this means for the restart:
+
+- the Student-t sampler was not the only source of failure
+- the bare direct stochastic decoder is **too weak on its own**
+- but the `163a` pathology also does not return here, which is useful
+
+So the next direct-output step, if continued, should probably add the **smallest
+possible deterministic backbone**:
+
+- deterministic mean-delta head
+- bounded stochastic residual head
+
+That would still remain inside the reset program, but `212b` shows the bare
+single-head stochastic decoder is not enough.
+
+## 2026-04-07 - `212b` full mechanistic review
+
+I ran a mechanism audit on the best `212b` checkpoint:
+
+- [analyze_212b_mechanism.py](experiments/backfill/block_ar/analyze_212b_mechanism.py)
+- [212b_mechanistic_review.json](results/validations/2026-04-07/analysis/212_design/212b_mechanistic_review.json)
+- [212b_mechanistic_review.md](results/validations/2026-04-07/analysis/212_design/212b_mechanistic_review.md)
+
+Main findings:
+
+1. zero-delta / "copy last surface" is **not** a good optimum under the energy
+   score
+   - zero-delta energy: `0.2193`
+   - trained model energy: `0.1725`
+   - the pairwise repulsion term rewards spread, so the model has a real
+     incentive to move away from deterministic no-change
+
+2. the encoder is alive but weak where it matters
+   - q95-any linear probe AUC: `0.575`
+   - q99-any linear probe AUC: `0.480`
+   - so the state is not identifying rare severe next-day moves well
+
+3. the decoder responds much more to noise than to state
+   - shuffle state with fixed noise: output changes only `0.00164`
+   - shuffle noise with fixed state: output changes `0.02686`
+   - state/noise shuffle ratio: `0.061`
+
+4. predicted dispersion is basically uncorrelated with realized next-day
+   severity
+   - pred std vs realized max abs delta correlation: `~0.03`
+   - so the model is not allocating uncertainty conditionally
+
+5. fixed per-cell output bounds are a secondary bottleneck, but not the main
+   one
+   - about `18%` of q99 validation cells exceed the model's per-cell reachable
+     scale
+   - so some severe misses are literally unreachable
+   - but the main failure still comes from weak condition use, not just clipping
+
+Interpretation:
+
+- the bad equilibrium is now clear
+- energy score rewards spread
+- encoder tail signal is weak
+- decoder is noise-dominant
+- so SGD converges to a moderate spread cloud instead of "many tiny moves plus
+  a few sharply conditional big ones"
+
+This materially strengthens the case that the next direct-output step should be:
+
+- add a **small deterministic mean-delta backbone**
+- keep a **bounded stochastic residual head**
+
+That is not complexity for its own sake; it is the smallest structural change
+that directly addresses the mechanism seen in `212b`.
+
+## 2026-04-07 - `212c` minimal mean-plus-residual direct delta smoke
+
+Implemented the smallest structured follow-up to `212b`:
+
+- [train_212c_h1_mean_residual_direct_delta.py](experiments/backfill/block_ar/train_212c_h1_mean_residual_direct_delta.py)
+- [analyze_212c_h1_smoke.py](experiments/backfill/block_ar/analyze_212c_h1_smoke.py)
+
+Artifacts:
+
+- [best_model.pt](models/backfill/minimal_mean_residual_direct_delta_212c_smoke512_full/best_model.pt)
+- [final_model.pt](models/backfill/minimal_mean_residual_direct_delta_212c_smoke512_full/final_model.pt)
+- [training_history.json](models/backfill/minimal_mean_residual_direct_delta_212c_smoke512_full/training_history.json)
+- [212c_h1_smoke_summary.json](results/validations/2026-04-07/analysis/212_design/212c_h1_smoke_summary.json)
+- [212c_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/212_design/212c_h1_smoke_final_summary.json)
+
+Design:
+
+- same `212b` input path: levels + deltas
+- deterministic mean-delta head with normalized MSE
+- bounded stochastic residual head with energy score
+- no extra losses, no latent machinery, no Student-t head
+
+Result: mixed but cleanly interpretable.
+
+Best checkpoint is epoch `6`:
+
+- coverage90 `0.866`
+- realized q99 coverage90 `0.306`
+- quiet ratio `0.768`
+- shoulder ratio `1.166`
+- kurtosis ratio `0.415`
+
+Compared with `212b` best:
+
+- coverage improved: `0.804 -> 0.866`
+- realized q99 coverage improved: `0.222 -> 0.306`
+- quiet got worse: `0.899 -> 0.768`
+- shoulder got worse: `1.085 -> 1.166`
+- kurtosis got worse: `0.552 -> 0.415`
+
+Interpretation:
+
+- the explicit mean head does exactly what it should on the center:
+  it improves broad coverage and tail inclusion somewhat
+- but it also makes the sampled law more mean-dominated / medium-heavy
+- so the main tail-shape problem is **not** solved by adding MSE alone
+
+This is still a useful result:
+
+- it validates the mechanism diagnosis from `212b`
+- MSE on the deterministic backbone helps center calibration
+- but it does not by itself recover "many tiny moves plus a few sharp big ones"
+
+So the direct-output reset line remains alive, but the next move should focus
+on how the stochastic residual is encouraged to stay quiet most of the time
+instead of broadening the middle.
+
+## 2026-04-07 - `212d` state-defined basis residual smoke
+
+Implemented the next minimal follow-up:
+
+- [train_212d_h1_state_basis_residual_direct_delta.py](experiments/backfill/block_ar/train_212d_h1_state_basis_residual_direct_delta.py)
+- [analyze_212d_h1_smoke.py](experiments/backfill/block_ar/analyze_212d_h1_smoke.py)
+
+Design:
+
+- keep `212c` mean head
+- replace the free residual MLP on `[state, z]`
+- residual is now generated as:
+  - state -> small set of residual directions
+  - noise -> coefficients on those directions
+
+Goal:
+
+- remove the cheap direct `z -> full surface` shortcut
+- force stochastic variation to live inside a state-defined family
+
+Artifacts:
+
+- [best_model.pt](models/backfill/state_basis_residual_direct_delta_212d_smoke512_full/best_model.pt)
+- [final_model.pt](models/backfill/state_basis_residual_direct_delta_212d_smoke512_full/final_model.pt)
+- [training_history.json](models/backfill/state_basis_residual_direct_delta_212d_smoke512_full/training_history.json)
+- [212d_h1_smoke_summary.json](results/validations/2026-04-07/analysis/212_design/212d_h1_smoke_summary.json)
+- [212d_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/212_design/212d_h1_smoke_final_summary.json)
+
+Result: clear negative.
+
+Best checkpoint is epoch `2`:
+
+- coverage90 `0.925`
+- realized q99 coverage90 `0.167`
+- quiet ratio `0.218`
+- shoulder ratio `1.814`
+- kurtosis ratio `0.337`
+
+Compared with `212c` best:
+
+- coverage increased: `0.866 -> 0.925`
+- realized q99 coverage got worse: `0.306 -> 0.167`
+- quiet collapsed: `0.768 -> 0.218`
+- shoulder exploded: `1.166 -> 1.814`
+- kurtosis worsened: `0.415 -> 0.337`
+
+Interpretation:
+
+- simply forcing residuals into state-defined low-rank directions is not enough
+- in this minimal form it produces overly active broad residual motion
+- the `z -> full surface` shortcut was removed, but the replacement basis was
+  too "always on" and destroyed the small-move mass
+
+So `212d` does **not** work as the next step. The direct-output restart line
+still looks more promising through the `212c` center/backbone result than
+through this basis-only residual parameterization.
+
+## 2026-04-07 - `212c` focused residual-path audit
+
+Ran the targeted follow-up audit to answer two narrower questions:
+
+1. where exactly does `h` get washed out inside the `212c` residual head?
+2. is the residual law too symmetric around the mean across low/high states?
+
+Artifacts:
+
+- [analyze_212c_residual_path_audit.py](experiments/backfill/block_ar/analyze_212c_residual_path_audit.py)
+- [212c_residual_path_audit.json](results/validations/2026-04-07/analysis/212_design/212c_residual_path_audit.json)
+- [212c_residual_path_audit.md](results/validations/2026-04-07/analysis/212_design/212c_residual_path_audit.md)
+
+Main findings:
+
+- this is **not** pure encoder collapse
+- the residual head underweights state relative to noise from the **first
+  layer onward**
+- the residual sign behavior is almost completely unresponsive to the level
+  state
+
+Layerwise residual-path shuffle ratios:
+
+- `pre1`: state/noise `0.153`
+- `act1`: `0.153`
+- `pre2`: `0.186`
+- `act2`: `0.188`
+- `pre3`: `0.111`
+- final residual: `0.172`
+
+Interpretation:
+
+- state is already weak at entry to the residual branch
+- it is **not** mainly being erased deeper in the MLP
+
+First-layer contribution audit:
+
+- state contribution abs mean: `0.0805`
+- noise contribution abs mean: `0.3818`
+- state/noise abs ratio: `0.211`
+- state dominates only `13.5%` of hidden units
+
+But:
+
+- state contribution vs realized max abs corr: `0.296`
+- noise contribution vs realized max abs corr: `-0.011`
+
+So the informative path is the state path, but the decoder gives it too little
+amplitude relative to noise.
+
+Gradient sensitivity says the same thing:
+
+- residual state-gradient RMS: `4.74e-06`
+- residual noise-gradient RMS: `1.02e-05`
+- state/noise gradient ratio: `0.465`
+
+Residual symmetry audit:
+
+- in high-level states, the mean head gets the directional sign broadly right
+- but the sampled residual is too symmetric and dilutes that downward bias
+- window-level level-score vs residual sign-balance corr is only `0.001`
+
+That last result is the key mechanism update:
+
+- the residual branch is acting like a mostly **state-invariant symmetric spread
+  cloud** around the mean
+- so the mean head carries direction, while the residual branch mostly adds
+  generic symmetric amplitude
+
+Updated diagnosis:
+
+- `212c` is not failing because `h` is absent
+- it is failing because:
+  - residual decoder entry already overweights noise vs state
+  - residual law is too symmetric around the mean
+  - level-dependent asymmetry / mean-reversion structure is therefore weakened
+
+This makes the next principled step narrower:
+
+- do not immediately add lots of new machinery
+- first direct the residual law to be **state-conditioned and asymmetric**,
+  rather than just more active or less active.
+
+## 2026-04-07 - `212e` H=1 asymmetric modulated direct delta smoke
+
+Implemented the next narrow direct-output test:
+
+- [train_212e_h1_asymmetric_modulated_direct_delta.py](experiments/backfill/block_ar/train_212e_h1_asymmetric_modulated_direct_delta.py)
+- [analyze_212e_h1_smoke.py](experiments/backfill/block_ar/analyze_212e_h1_smoke.py)
+- [analyze_212e_mechanism.py](experiments/backfill/block_ar/analyze_212e_mechanism.py)
+- [212e_h1_asymmetric_modulated_direct_delta_spec.md](results/validations/2026-04-07/analysis/212_design/212e_h1_asymmetric_modulated_direct_delta_spec.md)
+
+Design:
+
+- keep `H=1`, levels+deltas input, and direct stochastic output
+- remove explicit `mean + residual` output decomposition
+- avoid raw `[h, z]` concat shortcut
+- history modulates hidden random features
+- history sets separate positive and negative output scales
+- keep energy score as the main probabilistic loss to isolate the decoder-law
+  question
+
+Artifacts:
+
+- [best_model.pt](models/backfill/asymmetric_modulated_direct_delta_212e_smoke512_full_run/best_model.pt)
+- [final_model.pt](models/backfill/asymmetric_modulated_direct_delta_212e_smoke512_full_run/final_model.pt)
+- [training_history.json](models/backfill/asymmetric_modulated_direct_delta_212e_smoke512_full_run/training_history.json)
+- [212e_h1_smoke_summary.json](results/validations/2026-04-07/analysis/212_design/212e_h1_smoke_summary.json)
+- [212e_h1_smoke_final_summary.json](results/validations/2026-04-07/analysis/212_design/212e_h1_smoke_final_summary.json)
+- [212e_mechanistic_review.json](results/validations/2026-04-07/analysis/212_design/212e_mechanistic_review.json)
+- [212e_mechanistic_review.md](results/validations/2026-04-07/analysis/212_design/212e_mechanistic_review.md)
+
+Result: informative partial success, but still a smoke-gate fail.
+
+Best checkpoint is epoch `2`:
+
+- coverage90 `0.797`
+- realized q99 coverage90 `0.361`
+- quiet ratio `0.856`
+- shoulder ratio `1.070`
+- kurtosis ratio `0.650`
+
+Final checkpoint drifts worse:
+
+- coverage90 `0.779`
+- realized q99 coverage90 `0.111`
+- quiet ratio `0.806`
+- shoulder ratio `1.117`
+- kurtosis ratio `0.373`
+
+Interpretation:
+
+- `212e` materially improved the `H=1` shape profile versus `212c`
+- it is quieter, less shoulder-heavy, and much closer on kurtosis
+- this supports the earlier diagnosis that the explicit symmetric
+  `mean + residual` structure was part of the problem
+
+But it still fails on severe-event coverage:
+
+- broad 90% coverage stays too low
+- realized q99 coverage remains far below target
+
+Mechanism review:
+
+- encoder probe weakened again:
+  - q95-any AUC `0.585`
+  - q99-any AUC `0.487`
+- decoder remains noise-dominated:
+  - shuffled-state sample MAE `0.00318`
+  - shuffled-noise sample MAE `0.02920`
+  - state/noise sample ratio `0.109`
+- state-conditioned scales barely learned severity:
+  - positive scale vs realized max abs corr `-0.067`
+  - negative scale vs realized max abs corr `0.089`
+  - center abs vs realized max abs corr `0.110`
+
+So the key update is:
+
+- direct asymmetric decoding is better than `212c`
+- but the model still improves shape mostly by becoming somewhat quieter and
+  asymmetric in general
+- it is **not yet routing enough spread into the actual hard severe windows**
+
+Bottom line:
+
+- `212e` is the first post-`212b` branch that produced a genuinely better
+  direct-output shape profile without the `212d` blow-up
+- but it still leaves the main unresolved bottleneck:
+  weak state/severity routing into the stochastic law
+
+## 2026-04-07 - `212e` full-data H=1 run
+
+Promoted the same `212e` architecture from the fixed smoke slice to the full
+pre-test one-day-ahead dataset:
+
+- train windows: `4010`
+- validation windows: `441`
+- still `H=1` only
+
+Artifacts:
+
+- [best_model.pt](models/backfill/asymmetric_modulated_direct_delta_212e_full_h1/best_model.pt)
+- [final_model.pt](models/backfill/asymmetric_modulated_direct_delta_212e_full_h1/final_model.pt)
+- [training_history.json](models/backfill/asymmetric_modulated_direct_delta_212e_full_h1/training_history.json)
+- [212e_full_h1_result.md](results/validations/2026-04-07/analysis/212_design/212e_full_h1_result.md)
+- [212e_full_h1_summary.json](results/validations/2026-04-07/analysis/212_design/212e_full_h1_summary.json)
+- [212e_full_h1_final_summary.json](results/validations/2026-04-07/analysis/212_design/212e_full_h1_final_summary.json)
+- [212e_full_h1_mechanistic_review.json](results/validations/2026-04-07/analysis/212_design/212e_full_h1_mechanistic_review.json)
+
+Best checkpoint is epoch `14`.
+
+Best full-data `H=1` metrics:
+
+- coverage90 `0.7465`
+- realized q99 coverage90 `0.3736`
+- quiet ratio `0.9016`
+- shoulder ratio `1.1172`
+- kurtosis ratio `1.3786`
+
+Final checkpoint:
+
+- coverage90 `0.6632`
+- realized q99 coverage90 `0.2727`
+- quiet ratio `0.9514`
+- shoulder ratio `1.0483`
+- kurtosis ratio `0.9385`
+
+Interpretation:
+
+- full data materially improved `212e` versus the 512/128 smoke
+- the one-day direct-output law now looks much better on:
+  - small-move mass
+  - medium-move suppression
+  - kurtosis
+
+Mechanistically, this is the most important update:
+
+- encoder q95-any AUC `0.631`
+- encoder q99-any AUC `0.749`
+- shuffled-state sample MAE `0.0151`
+- shuffled-noise sample MAE `0.0164`
+- state/noise sample ratio `0.920`
+
+So unlike the smoke branch, the full-data model is now using state and noise at
+roughly comparable strength.
+
+This sharpens the diagnosis again:
+
+- the architecture is now good enough to use state when given enough data
+- the remaining bottleneck is **not mainly state bypass anymore**
+- it is that the learned law is still too under-dispersed on the genuinely hard
+  severe cases
+
+So the direct-output `H=1` line is alive and now much more credible. The next
+principled step should likely focus on the probabilistic objective rather than
+another large decoder rewrite.
+
+## 2026-04-08 - Full-data promotion of `212b` / `212c` / `212d`
+
+Following the `212e` full-data result, promoted the rest of the simplified
+direct-output rebuild line from smoke-scale to the full pre-test `H=1` split:
+
+- train windows: `4010`
+- validation windows: `441`
+
+Artifacts:
+
+- [212_full_data_comparison.md](results/validations/2026-04-08/analysis/212_full/212_full_data_comparison.md)
+- [212b_full_h1_summary.json](results/validations/2026-04-08/analysis/212_full/212b_full_h1_summary.json)
+- [212b_full_h1_final_summary.json](results/validations/2026-04-08/analysis/212_full/212b_full_h1_final_summary.json)
+- [212c_full_h1_summary.json](results/validations/2026-04-08/analysis/212_full/212c_full_h1_summary.json)
+- [212c_full_h1_final_summary.json](results/validations/2026-04-08/analysis/212_full/212c_full_h1_final_summary.json)
+- [212d_full_h1_summary.json](results/validations/2026-04-08/analysis/212_full/212d_full_h1_summary.json)
+- [212d_full_h1_final_summary.json](results/validations/2026-04-08/analysis/212_full/212d_full_h1_final_summary.json)
+
+Best checkpoints:
+
+- `212b` epoch `18`
+  - coverage90 `0.8410`
+  - q99 coverage90 `0.2929`
+  - quiet `0.8304`
+  - shoulder `1.1880`
+  - kurtosis `0.9448`
+- `212c` epoch `2`
+  - coverage90 `0.8689`
+  - q99 coverage90 `0.1111`
+  - quiet `0.8131`
+  - shoulder `1.1719`
+  - kurtosis `0.7099`
+- `212d` epoch `15`
+  - coverage90 `0.8281`
+  - q99 coverage90 `0.4141`
+  - quiet `0.5947`
+  - shoulder `1.4465`
+  - kurtosis `0.9953`
+- `212e` epoch `14`
+  - coverage90 `0.7478`
+  - q99 coverage90 `0.3737`
+  - quiet `0.9031`
+  - shoulder `1.1153`
+  - kurtosis `1.3733`
+
+Interpretation:
+
+- full data helped all of the rebuild branches, so the earlier smoke-only
+  verdicts were too strong as final architecture judgments
+- but the ranking did **not** collapse:
+  - `212e` remains best on law shape
+  - `212b` remains the cleanest simpler fallback
+  - `212c` still looks like the symmetric medium-move compromise
+  - `212d` still looks structurally poor
+
+So the direct-output `H=1` program is now on firmer ground:
+
+- smoke runs should not be treated as final verdicts anymore
+- but full-data reruns also confirm that some earlier negative directions were
+  genuinely weaker, not merely data-starved
+
+## 2026-04-08 - `213a` dedicated `H=1` conditional-distribution suite
+
+Built a dedicated one-day conditional-distribution benchmark so `H=1` branches
+can be judged on more than the old smoke-gate summary.
+
+Artifacts:
+
+- [213a_h1_conditional_distribution_suite_spec.md](results/validations/2026-04-08/analysis/213_design/213a_h1_conditional_distribution_suite_spec.md)
+- [evaluate_213a_h1_conditional_distribution_suite.py](experiments/backfill/block_ar/evaluate_213a_h1_conditional_distribution_suite.py)
+- [212e_full_h1_suite.json](results/validations/2026-04-08/analysis/213_design/212e_full_h1_suite.json)
+- [212e_full_h1_suite.md](results/validations/2026-04-08/analysis/213_design/212e_full_h1_suite.md)
+
+Scope:
+
+- keep the repo-wide suite logic where it still makes sense for `H=1`
+- drop the pieces that are genuinely multi-step:
+  - ACF / forward temporal persistence
+  - block-AR rollout behavior
+  - IV-EWMA cointegration over future paths
+  - multi-horizon persistent-undercoverage layer
+
+Included `H=1` suites:
+
+1. surface validity
+2. interval coverage + stress-subset coverage
+3. conditionality vs shuffled history
+4. one-step move-size shape
+5. regime and worst-cell coverage
+6. unconditional marginal realism
+7. cross-cell dependence and factor concentration
+8. mean-reversion realism
+9. extreme-move realism
+
+First full run on `212e` best (`4010/441`, epoch `14`) scores `4/9`.
+
+Passes:
+
+- surface validity
+- cross-cell dependence and factor concentration
+- mean-reversion realism
+- extreme-move realism
+
+Fails:
+
+- coverage
+- conditionality
+- move-size shape
+- regime coverage
+- unconditional marginal realism
+
+High-signal numbers:
+
+- overall 90% coverage: `0.7478`
+- realized q99 90% coverage: `0.3737` against the existing H1 gate `0.58`
+- conditional MAE reduction vs shuffled history: `+9.2%`
+- turb/calm width ratio: `1.144` vs gate `>1.15`
+- kurtosis ratio: `1.370`
+- move-size shares all near target:
+  - `<=0.005`: `0.922`
+  - `<=0.010`: `0.932`
+  - `<=0.020`: `0.955`
+  - `<=0.050`: `0.996`
+- regime layer 1 passes, but regime layer 2 fails badly:
+  - calm worst cell `53.9%`, best cell `98.9%`
+  - turb worst cell `31.5%`, best cell `100.0%`
+- distributional fidelity fails mainly because:
+  - bad-window coverage rate is `12.9%` (gate `<5%`)
+  - worst window has only `4%` coverage
+  - floor saturation has a worst cell at `5.04%` (gate `<5%`)
+
+Interpretation:
+
+- `212e` is now clearly good on one-step dependence structure, mean reversion,
+  and extreme-move realism
+- but the model is still under-covering the hardest realized stress cells and
+  still misallocates coverage locally by regime/cell
+- the new `213a` suite should become the default benchmark for `H=1` work,
+  rather than the old narrow smoke gate
+
+## 2026-04-08 - `212e` interpretation revision and failure-gap audit
+
+Updated the interpretation of the new `213a` `H=1` result and then ran a
+focused failure-gap audit on `212e`.
+
+Artifacts:
+
+- [analyze_212e_h1_failure_gaps.py](experiments/backfill/block_ar/analyze_212e_h1_failure_gaps.py)
+- [212e_h1_failure_gaps.json](results/validations/2026-04-08/analysis/213_design/212e_h1_failure_gaps.json)
+- [212e_h1_failure_gaps.md](results/validations/2026-04-08/analysis/213_design/212e_h1_failure_gaps.md)
+
+Interpretation changes to keep:
+
+- do **not** over-interpret pooled global kurtosis on its own
+- the direct move-size spectrum is the stronger primary shape signal at `H=1`
+  - `<=0.005`: `0.922`
+  - `<=0.010`: `0.932`
+  - `<=0.020`: `0.955`
+  - `<=0.050`: `0.996`
+- the real remaining risk issue is still the old one:
+  - hard cells do not widen enough
+  - worst windows still collapse
+
+Failure-gap findings:
+
+1. Weak conditional width response is real.
+
+- overall cond/shuffled width ratio is effectively `1.000`
+- turb/calm width ratio is only `1.145`
+- per-window width vs vol-of-vol correlation is only `0.178`
+- width *change* vs shuffled history has near-zero / slightly negative correlation
+  with vol-of-vol
+
+So `212e` is using history for the center / sign story, but still barely using
+history to decide **how wide** the distribution should be.
+
+2. The worst cell is `(1,3)` and it is not a mild miss.
+
+- overall coverage only `48.5%`
+- calm coverage `57.3%`
+- turbulent coverage `32.6%`
+- width mean only `0.0114`
+- width vs realized absolute move correlation is actually slightly negative
+  (`-0.044`)
+- both positive and negative scale correlations with realized severity are near
+  zero for this cell
+
+So the hard-cell gap is very specific: for the worst cell, the width mechanism
+is barely reacting at all to realized severity.
+
+3. The worst misses are giant sign-flip / burst cases with almost no local widening.
+
+Top missed examples on the worst cell are roughly:
+
+- `prev ~ 0.02 -> target ~ 0.23`
+- `prev ~ 0.23 -> target ~ 0.02`
+
+with realized deltas around `±0.21`, while the model still gives widths around
+`0.007-0.011` and center near zero.
+
+So the model can produce plausible broad one-step shape in aggregate, but it is
+still not routing enough probability mass into the rare state-dependent
+flip/burst scenarios.
+
+4. Worst-window failures are concentrated path-level misses, not pooled-noise issues.
+
+- worst window index `94`
+- overall window coverage only `4%`
+- `24/25` cells miss
+- mean width on that window is `0.059`
+- max realized abs delta is `0.094`
+
+This means some windows are not just slightly undercovered; they are almost
+entirely offside.
+
+5. There is also a secondary floor-effect artifact.
+
+- worst floor-hit cell is `(0,3)` at `5.12%`
+- this is exactly why the new `213a` distributional-fidelity suite failed its
+  floor/saturation check by a narrow margin
+
+Current conclusion:
+
+- `212e` has mostly fixed the old medium-move-smear story at the pooled
+  one-step level
+- but it has **not** fixed local conditional width assignment
+- the remaining bottleneck is no longer generic state usage
+- it is specifically:
+  - weak state-to-width routing
+  - especially on rare hard cells and rare burst / sign-flip windows
+
+### 2026-04-08 212e loss-geometry audit: ES under-rewards conditional widening relative to center correction
+
+Built a direct loss-geometry audit for the full-data `212e` checkpoint:
+
+- script: `experiments/backfill/block_ar/analyze_212e_loss_geometry.py`
+- outputs:
+  - `results/validations/2026-04-08/analysis/213_design/212e_loss_geometry.json`
+  - `results/validations/2026-04-08/analysis/213_design/212e_loss_geometry.md`
+
+Main finding:
+
+- under the current plain energy-score objective, once a realized one-day move
+  sits outside the current sample cloud, the gradient pushes the forecast
+  **center** harder than it pushes forecast **width**
+- on ordinary very-small-move days, both positive and negative scale gradients
+  mostly point downward, so common calm days keep teaching the model to stay
+  narrow
+- on severe windows, scale gradients do point in the right direction, but they
+  are still materially smaller than the center gradients
+
+Toy 1D ES scan using a 212e-style asymmetric law confirms the geometry:
+
+- for target `+0.02` and above:
+  - `grad_center ~ -1.000`
+  - `grad_pos_scale ~ -0.498`
+  - `grad_neg_scale ~ +0.089`
+- for target `-0.02` and below:
+  - `grad_center ~ +1.000`
+  - `grad_pos_scale ~ +0.119`
+  - `grad_neg_scale ~ -0.440`
+
+So once the realized move is well outside the current cloud, the ES gradient
+essentially saturates, and the strongest pressure is to move the center in the
+right direction rather than widen proportionally with shock size.
+
+Empirical bucket aggregation over pre-test one-day deltas shows why this is a
+problem for conditional widening:
+
+- `very_small` moves are `46.6%` of training deltas
+  - signed scale grads are positive:
+    - `pos_scale +0.090`
+    - `neg_scale +0.061`
+  - so gradient descent shrinks both scales on those common calm cases
+- tail moves only make up `8.5%`
+  - signed scale grads are negative:
+    - `pos_scale -0.191`
+    - `neg_scale -0.175`
+  - so severe cases do ask for widening, but they are rarer and noisier
+
+Real-window gradients on the full-data checkpoint tell the same story:
+
+- worst window `94`:
+  - abs grad center `0.127`
+  - abs grad pos_scale `0.050`
+  - abs grad neg_scale `0.021`
+- burst/sign-flip window `171`:
+  - abs grad center `0.078`
+  - abs grad pos_scale `0.020`
+  - abs grad neg_scale `0.022`
+
+Interpretation:
+
+- `212e` is not failing because the condition is totally ignored
+- it is failing because plain ES makes it cheaper to learn
+  - conditional center/sign correction first
+  - and only weaker/noisier conditional width adaptation second
+
+This matches the observed suite behavior:
+
+- MAE vs shuffled history improves, so conditioning matters
+- conditioned width vs shuffled width stays basically unchanged
+- worst-cell and worst-window failures are still under-widened hard cases
+
+### 2026-04-08 212f full-data H=1: explicit interval supervision improves coverage, but not conditional width routing
+
+Ran the next full-data `H=1` direct-output experiment:
+
+- spec:
+  - `results/validations/2026-04-08/analysis/212_design/212f_h1_asymmetric_modulated_direct_delta_quantile_spec.md`
+- train script:
+  - `experiments/backfill/block_ar/train_212f_h1_asymmetric_modulated_direct_delta_quantile.py`
+- model:
+  - `models/backfill/asymmetric_modulated_direct_delta_212f_full_h1/best_model.pt`
+- suite:
+  - `results/validations/2026-04-08/analysis/213_design/212f_full_h1_suite.json`
+  - `results/validations/2026-04-08/analysis/213_design/212f_full_h1_suite.md`
+- failure gaps:
+  - `results/validations/2026-04-08/analysis/213_design/212f_h1_failure_gaps.json`
+  - `results/validations/2026-04-08/analysis/213_design/212f_h1_failure_gaps.md`
+- memo:
+  - `results/validations/2026-04-08/analysis/212_design/212f_full_h1_result.md`
+
+Design:
+
+- keep `212e` architecture fixed
+- keep direct sample energy score
+- add sampled `q05/q95` pinball supervision on one-day IV
+- use more train samples (`32`) so the interval targets are not too noisy
+
+Best checkpoint is epoch `15`.
+
+Relative to `212e` full-data:
+
+- overall `90%` coverage: `0.7478 -> 0.8291`
+- realized `q99` coverage: `0.3737 -> 0.4343`
+- worst turbulent cell coverage: `0.3146 -> 0.4494`
+- worst-cell overall coverage: `0.4853 -> 0.6032`
+- bad-window rate: `12.9% -> 6.8%`
+- worst-window coverage: `4% -> 12%`
+
+So explicit interval supervision clearly helps the concrete hard misses that
+motivated the loss change.
+
+But the main conditional-width bottleneck remains:
+
+- conditioned vs shuffled width ratio stays unchanged:
+  - `212e`: `1.0003`
+  - `212f`: `1.0002`
+- turb/calm width ratio does not improve:
+  - `212e`: `1.1438`
+  - `212f`: `1.1317`
+
+And there is a shape tradeoff:
+
+- very-small move share ratio worsens:
+  - `212e`: `0.922`
+  - `212f`: `0.885`
+- daily-change KS pass cells worsen:
+  - `212e`: `20/25`
+  - `212f`: `14/25`
+
+Net conclusion:
+
+- `212f` confirms that the training objective matters
+- but pinball supervision mainly increases width **globally**
+- it does not teach the model **when** to widen much better
+- the remaining problem is now more specifically:
+  - conditional width routing
+  - not generic lack of interval signal
+
+### 2026-04-08 width-ratio investigation: `cond/shuffled width ratio ~ 1.000` is mostly a permutation artifact, not encoder collapse
+
+Investigated the persistent `H=1` result that conditioned vs shuffled width ratio
+stays near `1.000` for both `212e` and `212f`.
+
+Artifact note:
+
+- conditioned widths are computed on the history set `{h_i}`
+- shuffled widths are computed on the same set, only permuted `{h_{pi(i)}}`
+- so a global statistic like
+  - `mean_i width(h_i) / mean_i width(h_{pi(i)})`
+  is nearly permutation-invariant
+
+Empirically:
+
+- `212e` mean width ratio: `0.9997`
+- `212f` mean width ratio: `1.0004`
+
+But average per-window width differences are not zero:
+
+- `212e`: `0.00462`
+- `212f`: `0.00834`
+
+So history *does* change widths locally; the global ratio just hides it.
+
+Most important conclusion:
+
+- this metric should not be interpreted as evidence that the encoder is being
+  ignored
+- it is mostly a weak / non-diagnostic statistic by construction
+
+Encoder verdict:
+
+- full-data state probes are healthy, not collapsed
+  - `212e` q99-any AUC: `0.749`
+  - `212f` q99-any AUC: `0.697`
+- state variation is also healthy
+
+So the main bottleneck is not `history -> state`.
+
+The real bottleneck is `state -> scale / width allocation`:
+
+- `212e`
+  - center abs corr with realized max move: `0.388`
+  - pos-scale corr: `-0.010`
+  - neg-scale corr: `0.399`
+- `212f`
+  - center abs corr: `0.241`
+  - pos-scale corr: `-0.055`
+  - neg-scale corr: `0.300`
+
+This means:
+
+- history strongly affects the center / sign path
+- history does change scales too
+- but scale variation is only weakly aligned with the actual hard-case severity
+- especially on the positive side
+
+So the right interpretation is:
+
+- not encoder collapse
+- not total lack of state usage
+- but weak state-to-width routing, with the current global width-ratio metric
+  hiding that fact rather than revealing it
+
+### 2026-04-08 H1 suite patch: replace weak roll-shuffle conditionality baseline with true random permutation and downweight global width-ratio
+
+Patched:
+
+- `experiments/backfill/block_ar/evaluate_213a_h1_conditional_distribution_suite.py`
+- `experiments/backfill/block_ar/analyze_212e_h1_failure_gaps.py`
+
+Two issues were fixed:
+
+1. The suite's "shuffled history" baseline had been a one-step roll, not a true
+   random permutation.
+
+- for adjacent windows in a time series, that is far too weak
+- on `212e`, MAE reduction vs shuffled jumps from about `9%` under roll-shift to
+  about `57%` under a true random permutation
+
+2. The global `cond/shuffled width ratio` was over-interpreted even though it is
+   almost permutation-invariant by construction.
+
+The conditionality section now:
+
+- reports mean absolute window-width change vs shuffled
+- reports width-vs-realized-max correlation gain vs shuffled
+- still prints turb/calm width ratio
+- no longer treats global average width ratio as a meaningful headline
+
+After patching and rerunning:
+
+`212e`
+
+- MAE reduction vs shuffled: `57.2%`
+- width-vs-realized-max corr gain: `0.409`
+- turb/calm width ratio: `1.143` (still just below gate)
+
+`212f`
+
+- MAE reduction vs shuffled: `56.0%`
+- width-vs-realized-max corr gain: `0.334`
+- turb/calm width ratio: `1.129`
+
+Interpretation:
+
+- history usage for center/sign is clearly real
+- the earlier weak-shuffle conditionality numbers understated that badly
+- but even after fixing the suite, the remaining width-routing issue is still
+  real:
+  - calm vs turbulent widening is still too weak
+  - hard-cell and worst-window misses remain
+
+### 2026-04-08 Experiment 212g: `212e` + direct asymmetric scale-head supervision is a clean negative on full-data `H=1`
+
+Implemented `212g` as the minimal next test after the `212e/212f` width-routing
+analysis:
+
+- same `212e` asymmetric modulated direct-output architecture
+- same full-data `H=1` split (`4010` train / `441` val)
+- keep energy score
+- add direct auxiliary supervision on the positive and negative scale heads
+
+Core idea:
+
+- if the encoder/state is healthy but `state -> width` routing is weak, then
+  directly supervising `pos_scale` and `neg_scale` against realized one-day
+  positive/negative amplitude should be the cleanest architectural no-op fix
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212g_h1_asymmetric_modulated_direct_delta_scale_supervision.py`
+- `results/validations/2026-04-08/analysis/212_design/212g_h1_asymmetric_modulated_direct_delta_scale_supervision_spec.md`
+- `results/validations/2026-04-08/analysis/213_design/212g_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212g_h1_failure_gaps.md`
+
+Result:
+
+- `212g` scores only `2/9` on the patched `213a` full-data `H=1` suite
+- passes:
+  - surface validity
+  - cross-cell dependence
+- fails:
+  - coverage
+  - conditionality
+  - move-size shape
+  - regime coverage
+  - distributional fidelity
+  - mean reversion
+  - extreme-move realism
+
+High-signal numbers:
+
+- overall 90% coverage: `0.6320`
+- realized q99 90% coverage: `0.2626`
+- conditional MAE reduction vs shuffled: `58.1%`
+- width/realized-max corr gain vs shuffled: `0.529`
+- turb/calm width ratio: `1.012`
+- kurtosis ratio: `1.501`
+- move-share ratios:
+  - `<=0.005`: `1.068`
+  - `<=0.010`: `1.002`
+  - `<=0.020`: `0.974`
+  - `<=0.050`: `0.993`
+
+Failure-gap read:
+
+- worst cell: `(3,4)` with only `27.9%` coverage
+- worst-cell turbulent coverage: `13.5%`
+- worst window: index `1`, only `4%` covered
+- width vs vol-of-vol corr: `0.024`
+
+Interpretation:
+
+- direct scale supervision did **not** fix the routing problem
+- instead it pushed the law into an over-quiet / under-dispersed regime:
+  - too many tiny moves
+  - too little shoulder / tail support where it is actually needed
+- condition usage for center/sign is still strong, so this is not encoder
+  collapse
+- but direct per-cell scale-targeting in this form appears to be the wrong
+  inductive bias: it shrinks the forecast too aggressively while leaving
+  calm-vs-turbulent widening almost flat
+
+Conclusion:
+
+- `212g` rules out the simplest "just supervise the asymmetric scale heads"
+  fix
+- the remaining problem is still conditional width allocation, but it is not
+  solved by naive direct scale regression on top of `212e`
+
+### 2026-04-08 Experiment 212h: `212e` + window-level `mean + CVaR` quantile-miss loss is directionally positive but not a clean fix
+
+Implemented `212h` as the next minimal loss-only test after `212g`:
+
+- same `212e` architecture
+- same full-data `H=1` split (`4010` train / `441` val)
+- keep energy score
+- define a per-window sampled `q05/q95` pinball loss
+- optimize `mean(window_loss) + CVaR_0.2(window_loss)` on top of energy score
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212h_h1_asymmetric_modulated_direct_delta_cvar_quantile.py`
+- `results/validations/2026-04-08/analysis/212_design/212h_h1_asymmetric_modulated_direct_delta_cvar_quantile_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212h_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212h_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212h_h1_failure_gaps.md`
+
+Best checkpoint:
+
+- epoch `16`
+- suite score `3/9`
+
+Headline metrics:
+
+- overall 90% coverage: `0.8579`
+- realized q99 90% coverage: `0.3939`
+- conditional MAE reduction vs shuffled: `55.1%`
+- turb/calm width ratio: `1.099`
+- kurtosis ratio: `0.858`
+- move-share ratios:
+  - `<=0.005`: `0.837`
+  - `<=0.010`: `0.920`
+  - `<=0.020`: `0.966`
+  - `<=0.050`: `0.988`
+
+Failure-gap read:
+
+- worst cell `(1,3)` coverage: `64.2%`
+- turbulent worst-cell coverage: `48.3%`
+- worst window coverage: `12%`
+
+Comparison to `212e`:
+
+- coverage improves: `0.746 -> 0.858`
+- worst-cell coverage improves: `0.483 -> 0.642`
+- worst-window coverage improves: `0.04 -> 0.12`
+- turbulent worst-cell coverage improves: `0.315 -> 0.483`
+- kurtosis normalizes from oversharp `1.383` to `0.858`
+
+But:
+
+- realized q99 coverage improves only modestly: `0.364 -> 0.394`
+- turb/calm width ratio gets slightly worse: `1.143 -> 1.099`
+- very-small-move share worsens: `0.921 -> 0.837`
+- suite pass count drops: `4/9 -> 3/9`
+
+Interpretation:
+
+- this is a **directionally positive** result for the loss idea
+- `mean + CVaR` on per-window quantile miss is much better than direct scale
+  supervision (`212g`)
+- it does improve hard-window / hard-cell robustness
+
+But the remaining bottleneck is still not solved:
+
+- the model is buying extra coverage by broadening enough to rescue some hard
+  windows
+- it is **not** yet learning strong calm-vs-turbulent width routing
+- the width heads remain too weakly aligned with the actual severe-state signal
+
+Conclusion:
+
+- tail-focused window objectives are more promising than direct scale regression
+- but this first `mean + CVaR` implementation is still acting more like targeted
+  broadening than genuine conditional width allocation
+
+### 2026-04-08 Experiment 212i: deterministic direct-delta `MSE + CVaR` reset is informative but only a partial success
+
+After the loss-reset discussion, implemented the cleanest possible one-day test:
+
+- deterministic direct next-day delta model
+- no sampler
+- no energy score
+- no interval / quantile objective
+- per-window normalized `MSE + CVaR_0.2`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212i_h1_deterministic_direct_delta_mse_cvar.py`
+- `experiments/backfill/block_ar/analyze_212i_point_forecast.py`
+- `results/validations/2026-04-08/analysis/212_design/212i_h1_deterministic_direct_delta_mse_cvar_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212i_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212i_point_eval.md`
+
+Full-data `H=1` run:
+
+- train windows: `4010`
+- val windows: `441`
+- best epoch: `21`
+
+Headline metrics:
+
+- overall MAE: `0.0193`
+- overall RMSE: `0.0494`
+- q95-cell MAE: `0.1587`
+- q99-cell MAE: `0.3095`
+- q95 sign accuracy: `0.801`
+- q99 sign accuracy: `0.919`
+
+Compared to zero-delta baseline:
+
+- overall MAE is worse: `0.0193` vs `0.0165`
+- overall RMSE is better: `0.0494` vs `0.0555`
+- q95-cell MAE is much better: `0.1587` vs `0.2151`
+- q99-cell MAE is much better: `0.3095` vs `0.4588`
+- worst-window MAE is better: `0.0597` vs `0.0631`
+
+Coordinated-window read:
+
+- validation has `7` all-up windows, `5` all-down windows, and `114` windows
+  with at least `90%` same-sign cells
+- on the strongest positive jump windows, the model does move in the right
+  direction and clearly beats zero-delta
+- but it still underreacts badly in magnitude
+- on average all-up / all-down windows, MAE is still not better than zero-delta
+
+Interpretation:
+
+- this is a useful reset result because it proves the history signal can improve
+  the hardest one-day cells and worst windows under a very simple objective
+- but it is not a generally better point forecast than zero-delta
+- the gain is concentrated in the hard tail, not in the body
+
+Conclusion:
+
+- the deterministic `MSE + CVaR` reset is worth keeping as a clean baseline
+- it validates the idea that hard-window emphasis matters
+- but it does **not** solve coordinated jump-window center prediction yet
+
+### 2026-04-08 Experiment 212k: removing `CVaR` barely changes the deterministic reset story
+
+Ran the exact `212i` setup again, but with pure normalized `MSE` and no `CVaR`
+term.
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212k_h1_deterministic_direct_delta_mse.py`
+- `results/validations/2026-04-08/analysis/212_design/212k_h1_deterministic_direct_delta_mse_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212k_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212k_point_eval.md`
+
+Best checkpoint:
+
+- epoch `21`
+- overall MAE: `0.0178`
+- overall RMSE: `0.0481`
+- q95-cell MAE: `0.1582`
+- q99-cell MAE: `0.3162`
+
+Comparison to `212i` (`MSE + CVaR`):
+
+- body gets slightly better:
+  - MAE `0.0178` vs `0.0193`
+  - RMSE `0.0481` vs `0.0494`
+- hard tail gets slightly worse:
+  - q99 MAE `0.3162` vs `0.3095`
+  - worst-window MAE `0.0628` vs `0.0597`
+
+Compared to zero-delta:
+
+- still worse on overall MAE: `0.0178` vs `0.0165`
+- still much better on q95/q99 hard cells:
+  - q95 MAE `0.1582` vs `0.2151`
+  - q99 MAE `0.3162` vs `0.4588`
+
+Coordinated jump windows are still not fixed:
+
+- all-up MAE remains worse than zero-delta: `0.0191` vs `0.0155`
+- the old hard positive jump window `328` is still badly underreacted and even
+  slightly wrong-signed on average:
+  - predicted mean delta `-0.0029`
+  - realized mean delta `+0.0584`
+
+Conclusion:
+
+- the deterministic reset result is **not** mainly driven by the `CVaR` term
+- `CVaR` gives only a small edge on the hardest tail / worst-window cases
+- the main coordinated-jump bottleneck remains with or without it
+
+### 2026-04-08 Experiment 212l: removing `tanh` and clipping barely changes the deterministic MSE result
+
+Ran a final minimal ablation on top of `212k`:
+
+- same deterministic GRU direct-delta architecture
+- same full-data `H=1` split
+- same `MSE` loss
+- remove output `tanh`
+- remove delta clipping / next-surface clipping
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212l_h1_deterministic_direct_delta_raw_mse.py`
+- `results/validations/2026-04-08/analysis/212_design/212l_h1_deterministic_direct_delta_raw_mse_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212l_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212l_point_eval.md`
+
+Best checkpoint:
+
+- epoch `21`
+- overall MAE: `0.0175`
+- overall RMSE: `0.0477`
+- q95-cell MAE: `0.1586`
+- q99-cell MAE: `0.3155`
+
+Compared to `212k`:
+
+- tiny body improvement:
+  - MAE `0.0175` vs `0.0178`
+  - RMSE `0.0477` vs `0.0481`
+- essentially no meaningful hard-case improvement:
+  - q99 MAE `0.3155` vs `0.3162`
+  - worst-window MAE `0.0636` vs `0.0628`
+
+Hard positive jump windows are still badly underreacted:
+
+- window `328` predicted mean delta `-0.0038` vs realized `+0.0584`
+
+Conclusion:
+
+- bounded output geometry is **not** the main bottleneck
+- the conservative deterministic behavior is coming mostly from the `MSE`
+  objective / representation pair, not from `tanh` or clipping
+
+### 2026-04-08 Experiment 212m: removing q99 loss scaling does not fix the deterministic point forecast
+
+Ran the next clean ablation after `212l`:
+
+- keep the same deterministic GRU direct-delta point forecaster
+- keep raw linear output with no `tanh` and no clipping
+- change only the loss from q99-scaled delta MSE to raw unscaled delta MSE
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212m_h1_deterministic_direct_delta_raw_unscaled_mse.py`
+- `results/validations/2026-04-08/analysis/212_design/212m_h1_deterministic_direct_delta_raw_unscaled_mse_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212m_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212m_point_eval.md`
+
+Best checkpoint:
+
+- epoch `7`
+- overall MAE: `0.0177`
+- overall RMSE: `0.0476`
+- q95-cell MAE: `0.1626`
+- q99-cell MAE: `0.3217`
+- worst-window MAE: `0.0638`
+
+Compared to `212l`:
+
+- overall MAE: `0.0175 -> 0.0177` (slightly worse)
+- overall RMSE: `0.0477 -> 0.0476` (flat)
+- q95-cell MAE: `0.1586 -> 0.1626` (worse)
+- q99-cell MAE: `0.3155 -> 0.3217` (worse)
+- worst-window MAE: `0.0636 -> 0.0638` (flat/slightly worse)
+
+One directional change did show up:
+
+- all-up sign accuracy improved from `0.451` to `0.680`
+
+But the key coordinated positive-jump failure still remained:
+
+- worst window is still `328`
+- predicted mean delta remains slightly negative (`-0.0040`)
+- realized mean delta is strongly positive (`+0.0584`)
+
+Conclusion:
+
+- removing q99-based loss scaling changes the optimization geometry somewhat
+- but it does **not** solve the coordinated-jump bottleneck
+- the main failure is still not coming from q99 loss normalization alone
+
+### 2026-04-08 Experiment 212n: removing q99 scaling from the input features also does not fix the coordinated-jump miss
+
+Ran the fully raw deterministic follow-up to `212m`:
+
+- keep the same deterministic GRU direct-delta point forecaster
+- keep raw linear output, no `tanh`, no clipping
+- keep raw-delta MSE
+- remove q99-based delta normalization from the history features too
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212n_h1_deterministic_direct_delta_fully_raw_mse.py`
+- `results/validations/2026-04-08/analysis/212_design/212n_h1_deterministic_direct_delta_fully_raw_mse_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212n_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212n_point_eval.md`
+
+Best checkpoint:
+
+- epoch `20`
+- overall MAE: `0.0175`
+- overall RMSE: `0.0474`
+- q95-cell MAE: `0.1616`
+- q99-cell MAE: `0.3245`
+- worst-window MAE: `0.0638`
+
+Compared to `212m`:
+
+- overall MAE: `0.0177 -> 0.0175` (tiny improvement)
+- overall RMSE: `0.0476 -> 0.0474` (tiny improvement)
+- q95-cell MAE: `0.1626 -> 0.1616` (tiny improvement)
+- q99-cell MAE: `0.3217 -> 0.3245` (slightly worse)
+- worst-window MAE: `0.0638 -> 0.0638` (no change)
+
+Directional behavior did shift a bit:
+
+- all-up sign accuracy: `0.680 -> 0.691`
+- all-up mean predicted delta: `-0.0006 -> +0.0012`
+
+But the key failure still remains:
+
+- worst window is still `328`
+- predicted mean delta is still near zero / slightly wrong-signed (`-0.0037`)
+- realized mean delta is strongly positive (`+0.0584`)
+
+Conclusion:
+
+- removing q99 scaling from the input features as well does **not** solve the
+  coordinated-jump miss
+- the remaining bottleneck is deeper than q99 normalization in either the loss
+  or the encoder input
+
+## 2026-04-08 - 212o relative-move output with delta loss only
+
+Implemented and ran a deterministic full-data `H=1` GRU point forecaster that:
+
+- outputs per-cell relative move
+- reconstructs next-day delta as `prev * relative_move`
+- still trains only on raw-delta MSE
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212o_h1_deterministic_relative_move_delta_loss.py`
+- `results/validations/2026-04-08/analysis/212_design/212o_h1_deterministic_relative_move_delta_loss_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212o_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212o_point_eval.md`
+
+Best checkpoint:
+
+- epoch `20`
+- overall MAE: `0.0170`
+- overall RMSE: `0.0488`
+- q95-cell MAE: `0.1760`
+- q99-cell MAE: `0.3342`
+- worst-window MAE: `0.0649`
+
+Read:
+
+- body MAE improves slightly versus `212n`
+- but q95/q99 hard-cell errors worsen
+- all-up windows worsen materially
+- worst window is still `328`, with predicted mean delta `-0.0050` vs realized `+0.0584`
+
+Conclusion:
+
+- relative-move output by itself does **not** solve the coordinated positive-jump miss
+- it helps body fit a bit but makes the hard one-sided windows more conservative
+
+## 2026-04-08 - 212p relative-move output with dual delta+return MSE
+
+Implemented and ran the user-requested dual-loss follow-up:
+
+- same relative-move output as `212o`
+- loss = raw-delta MSE + return-space MSE
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212p_h1_deterministic_relative_move_dual_mse.py`
+- `results/validations/2026-04-08/analysis/212_design/212p_h1_deterministic_relative_move_dual_mse_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212p_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/212_design/212p_point_eval.md`
+
+Best checkpoint:
+
+- epoch `30`
+- overall MAE: `0.0206`
+- overall RMSE: `0.0551`
+- q95-cell MAE: `0.1810`
+- q99-cell MAE: `0.3264`
+- worst-window MAE: `0.0729`
+
+Key comparison versus `212o`:
+
+- overall MAE: `0.0170 -> 0.0206` (worse)
+- q95-cell MAE: `0.1760 -> 0.1810` (worse)
+- q99-cell MAE: `0.3342 -> 0.3264` (slightly better)
+- worst-window MAE: `0.0649 -> 0.0729` (worse)
+- all-up sign accuracy: `0.463 -> 0.526` (better)
+- all-up mean predicted delta: `-0.0027 -> +0.0020` (better directionally)
+
+Notable detail:
+
+- old hard positive window `328` improves directionally
+- but the worst-window problem is not solved; it just moves to another window
+
+Conclusion:
+
+- adding return-space MSE does help some coordinated positive-jump direction
+- but this first dual-loss version is a net negative on point forecast quality
+- the return loss is pulling too hard against the raw-delta objective
+
+## 2026-04-08 - 212q learned output-scale follow-up to 212e
+
+Implemented and ran a minimal `212e` follow-up that removes the frozen
+output-side `delta_scale` budget:
+
+- same `212e` encoder and stochastic direct-output path
+- same input normalization
+- same final physical clipping
+- same energy-score loss
+- changed only:
+  - output-side center / pos-scale / neg-scale now use learned amplitudes
+    instead of fixed multiplication by per-cell train `q99(|delta|)`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212q_h1_asymmetric_modulated_direct_delta_learned_output_scale.py`
+- `results/validations/2026-04-08/analysis/212_design/212q_h1_asymmetric_modulated_direct_delta_learned_output_scale_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212q_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212q_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212q_h1_failure_gaps.md`
+
+Best checkpoint:
+
+- epoch `4`
+- overall 90% coverage: `0.7895`
+- realized q99 coverage90: `0.2929`
+- worst cell `(1,3)` coverage: `54.0%`
+- worst-cell turbulent coverage: `37.1%`
+- worst window coverage: `8.0%`
+- suite score: `2/9`
+
+Key comparison versus `212e`:
+
+- overall coverage: `0.746 -> 0.789` (better)
+- realized q99 coverage: `0.364 -> 0.293` (worse)
+- worst cell coverage: `48.3% -> 54.0%` (better)
+- worst-cell turbulent coverage: `31.5% -> 37.1%` (better)
+- worst window coverage: `4.0% -> 8.0%` (better)
+- best cell `(4,0)` coverage: `99.3% -> 99.5%` (still over-covered)
+- kurtosis ratio: `1.383 -> 1.540` (worse)
+- daily-change KS pass cells: `21/25 -> 18/25` (worse)
+
+Important mechanism read:
+
+- the learned output bases barely moved from their initialization
+- on the hard cell `(1,3)`, learned positive base stayed near the old `212e`
+  initial budget (`~0.0077`)
+- on the easy cell `(4,0)`, learned positive base also stayed near the old
+  initial budget (`~0.0265`)
+
+Conclusion:
+
+- the frozen output-side budget was part of the problem
+- removing it helped worst-cell and worst-window robustness somewhat
+- but the energy-score objective still learned nearly the same risk allocation
+- architecture-only change is not enough; the next step needs explicit tail or
+  hard-case emphasis in the objective
+
+## 2026-04-08 - 212r mean + CVaR over per-window energy score
+
+Implemented and ran the clean loss-only follow-up to `212e`:
+
+- same `212e` architecture
+- same input normalization and stochastic direct-output law
+- same physical clipping
+- changed only:
+  - training loss = `mean(window ES) + lambda * CVaR_alpha(window ES)`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212r_h1_asymmetric_modulated_direct_delta_cvar_energy.py`
+- `results/validations/2026-04-08/analysis/212_design/212r_h1_asymmetric_modulated_direct_delta_cvar_energy_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212r_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212r_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212r_h1_failure_gaps.md`
+
+Best checkpoint:
+
+- epoch `10`
+- overall 90% coverage: `0.7938`
+- realized q99 coverage90: `0.4141`
+- worst window coverage: `16.0%`
+- suite score: `2/9`
+
+Key comparison versus `212e`:
+
+- overall coverage: `0.746 -> 0.794` (better)
+- realized q99 coverage: `0.364 -> 0.414` (better)
+- worst-window coverage: `4.0% -> 16.0%` (better)
+- turb/calm width ratio: `1.143 -> 1.146` (basically unchanged)
+- very-small move share ratio: `0.921 -> 0.758` (worse)
+- daily-change KS pass cells: `21/25 -> 8/25` (much worse)
+- extreme-move max-jump KS: `0.154 -> 0.303` (worse)
+- kurtosis ratio: `1.383 -> 0.508` (much worse)
+
+Conclusion:
+
+- this directly supports the imbalance hypothesis
+- stressing hard windows in the objective does improve stress coverage and
+  worst-window robustness
+- but plain mean + CVaR over window energy score is too blunt
+- it broadens the law globally instead of learning sharp local width routing
+
+## 2026-04-08 - 212s minimal `212b` follow-up: energy score + small variogram penalty
+
+Implemented a clean `212b` follow-up with only one change:
+
+- same `212b` GRU encoder
+- same direct stochastic decoder `MLP([h, z])`
+- same bounded direct delta output
+- changed only the training loss:
+  - `loss = ES + 0.1 * VS`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212s_h1_minimal_direct_stochastic_delta_es_vs.py`
+- `results/validations/2026-04-08/analysis/212_design/212s_h1_minimal_direct_stochastic_delta_es_vs_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212s_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212s_full_h1_suite.md`
+
+Best checkpoint:
+
+- epoch `9`
+- coverage90: `0.8695`
+- realized q99 coverage90: `0.2525`
+- quiet ratio: `0.7815`
+- shoulder ratio: `1.2317`
+- kurtosis ratio: `0.7835`
+
+Patched `213a` suite comparison:
+
+- `212b`: `4/9`
+- `212s`: `3/9`
+
+Main effect:
+
+- `VS` did push the law broader:
+  - overall coverage improved
+  - turb/calm width ratio improved a little
+- but it did so too bluntly:
+  - worse very-small move mass
+  - worse daily-change marginals
+  - worse mean-reversion suite
+
+Conclusion:
+
+- the old repo lesson still mostly holds
+- `VS` is capable of moving conditional geometry
+- but in the minimal `212b` direct-output setting, a small `VS` penalty does
+  not produce the local risk allocation we want
+- it broadens the body more than it fixes the tail
+
+## 2026-04-08 - `212b` default training population updated to `K=128`
+
+After rerunning plain `212b` and `212s` with `train_samples = 128`, the result
+is clear:
+
+- the big improvement came from better Monte Carlo estimation of the
+  population-level loss
+- not from the small `VS` add-on
+
+Direct implication:
+
+- treat plain `212b` with `K = 128` as the new clean `H=1` direct-output
+  baseline
+- stop using `K = 8` as the default training population for this line
+
+Code change made:
+
+- `experiments/backfill/block_ar/train_212b_h1_minimal_direct_stochastic_delta.py`
+  now defaults to `--train_samples 128`
+
+Reason:
+
+- `ES` and `VS` are sample-population losses
+- `K = 8` was too noisy and biased the learned one-day law
+- `K = 128` materially improved coverage, conditionality, and worst-cell
+  robustness in plain `212b`
+
+## 2026-04-08 - 212u plain `212b` follow-up: remove output pre-cap
+
+Implemented a clean `212b` ablation with only one architectural change:
+
+- same GRU encoder
+- same direct stochastic decoder `MLP([h, z])`
+- same input normalization
+- same pure energy-score loss
+- same `K = 128` training samples
+- removed output `tanh(raw) * delta_scale`
+- decoder now emits raw next-day delta directly, with only final physical
+  clipping to `[-prev, 1 - prev]`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212u_h1_minimal_direct_stochastic_delta_raw_output.py`
+- `results/validations/2026-04-08/analysis/212_design/212u_h1_minimal_direct_stochastic_delta_raw_output_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212u_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212u_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212u_h1_failure_gaps.md`
+
+Best checkpoint:
+
+- epoch `19`
+
+Key comparison versus `212b K=128`:
+
+- coverage90: `0.894 -> 0.906`
+- realized q99 coverage90: `0.414 -> 0.515`
+- worst-cell coverage: `0.658 -> 0.735`
+- best-cell coverage stayed too high: `0.993 -> 0.986`
+
+But body realism degraded sharply:
+
+- very-small move share ratio: `0.827 -> 0.695`
+- small-move share ratio: `0.897 -> 0.816`
+- daily-change KS pass cells: `19/25 -> 9/25`
+- turb/calm width ratio: `1.177 -> 1.066`
+
+Interpretation:
+
+- the fixed output pre-cap was a real bottleneck
+- removing it clearly helps tail reach and worst-cell coverage
+- but under plain energy-score training, the model uses that freedom too
+  bluntly and broadens the body instead of learning clean local tail
+  allocation
+
+Conclusion:
+
+- removing the pre-cap alone is not a clean win
+- the remaining bottleneck is still objective-driven local risk allocation,
+  not just hard output amplitude limits
+
+## 2026-04-08 - Literature note: high kurtosis here is a sparse-tail problem, not generic outlier robustness
+
+Documented a short literature note after reviewing work on heavy-tailed /
+high-kurtosis regression, imbalanced regression, weighted proper scores, EVT,
+and CVaR-based learning.
+
+Artifact:
+
+- `results/validations/2026-04-08/analysis/213_design/213b_high_kurtosis_sparse_tail_research_note.md`
+
+Main takeaway:
+
+- the external literature supports treating our hard one-day cells as a
+  sparse-target / imbalanced-regression problem
+- not as a plain outlier-robustness problem
+
+Implication:
+
+- generic robust losses like Huber are not the primary answer if the extremes
+  are the thing we care about
+- the more principled directions are:
+  - rarity-aware weighting / sampling
+  - tail-aware proper scoring
+  - or, later, explicit body/tail or EVT-style modeling
+
+## 2026-04-08 - Next-branch spec: 212v tail-incidence encoder head + imbalance-aware sampling
+
+Documented the next candidate branch as a clean follow-up to plain `212b K=128`.
+
+Artifact:
+
+- `results/validations/2026-04-08/analysis/212_design/212v_h1_minimal_direct_stochastic_delta_tail_incidence_sampling_spec.md`
+
+Design:
+
+- keep plain `212b` stochastic direct-delta decoder
+- keep `ES` as the main proper loss
+- add encoder-side q95/q99 tail-incidence heads
+- feed predicted tail probabilities back into the decoder input
+- use rarity-aware window sampling instead of synthetic oversampling
+
+Rationale:
+
+- this directly targets the desired behavior:
+  - calm windows should stay narrow
+  - high-vol windows should widen more aggressively
+- and it does so without adding hand-designed output structure
+
+## 2026-04-08 - 212v result: encoder learns tail incidence, decoder still underuses it
+
+Implemented and ran `212v` exactly from the spec:
+
+- plain `212b` stochastic direct-delta base
+- q95 / q99 tail-incidence encoder heads
+- predicted tail probabilities fed back into decoder input
+- rarity-aware window sampling with weights `1 / 3 / 6`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212v_h1_minimal_direct_stochastic_delta_tail_incidence_sampling.py`
+- `experiments/backfill/block_ar/analyze_212v_tail_incidence.py`
+- `results/validations/2026-04-08/analysis/212_design/212v_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212v_full_h1_suite.md`
+- `results/validations/2026-04-08/analysis/213_design/212v_tail_incidence.md`
+
+Best checkpoint:
+
+- epoch `11`
+
+Main result:
+
+- q95 head AUC: `0.655`
+- q99 head AUC: `0.746`
+
+So the encoder did learn future tail incidence.
+
+But the full suite was poor:
+
+- suite score: `2/9`
+- coverage90: `0.916`
+- realized q99 coverage90: `0.424`
+- turb/calm width ratio: `1.069`
+- kurtosis ratio: `0.468`
+- daily-change KS pass cells: `9/25`
+
+Key diagnosis:
+
+- predicted q99 risk rises strongly by decile
+- realized extreme-event frequency also rises strongly by decile
+- realized max `|Δ|` rises strongly by decile
+- but generated width rises only weakly and then falls in the top deciles
+
+Conclusion:
+
+- `212v` proves the encoder can learn tail incidence from history
+- the remaining bottleneck is that the simple generator still does not use that
+  learned risk signal strongly enough to widen locally where it should
+
+## 2026-04-08 - 212w result: Student-t latent alone does not fix the kurtosis gap
+
+Implemented a clean latent-prior ablation on top of plain `212b`:
+
+- same GRU encoder
+- same direct decoder
+- same bounded output `tanh(raw) * delta_scale`
+- same pure energy score
+- same `K = 128`
+- changed only the latent noise:
+  - Gaussian -> shared-scale multivariate Student-t with `nu = 5`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212w_h1_minimal_direct_stochastic_delta_student_t_latent.py`
+- `results/validations/2026-04-08/analysis/212_design/212w_h1_minimal_direct_stochastic_delta_student_t_latent_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212w_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212w_full_h1_suite.md`
+
+Best checkpoint:
+
+- epoch `10`
+
+Main result:
+
+- suite score: `3/9`
+- coverage90: `0.911`
+- realized q99 coverage90: `0.283`
+- kurtosis ratio: `0.677`
+
+Read:
+
+- the Student-t latent did not solve the hard-tail problem
+- it preserved decent body realism better than some other tail-focused branches
+- but stress coverage and high-kurtosis cell behavior remained too weak
+
+Conclusion:
+
+- changing the latent prior from Gaussian to heavy-tailed is not enough by
+  itself
+- the remaining bottleneck is still conditional local tail allocation, not just
+  the tail of the latent base distribution
+
+## 2026-04-08 - 212b K=128 shoulder-heavy story clarified: validation-only pooled effect, heterogeneous across cells
+
+Documented a direct train-vs-validation audit for plain `212b K=128` in raw
+delta space.
+
+Artifact:
+
+- `results/validations/2026-04-08/analysis/213_design/212b_k128_train_val_shoulder_audit.json`
+
+Main clarification:
+
+- the "too much medium move mass" story is real on validation
+- but it does **not** hold on the train slice
+
+Pooled shape on train:
+
+- quiet ratio: `1.015`
+- shoulder ratio: `0.987`
+- kurtosis ratio: `0.893`
+
+Pooled shape on validation:
+
+- quiet ratio: `0.783`
+- shoulder ratio: `1.214`
+- kurtosis ratio: `0.705`
+
+Important interpretation:
+
+- this is not a split-specific denormalization effect
+- `212b` uses the same train-derived `delta_scale` on both train and
+  validation
+- the issue is out-of-sample shape generalization, not a different raw-output
+  mapping by split
+
+Also clarified the meaning of "shoulder-heavy":
+
+- it does **not** mean all cells move medium at the same time
+- it is a pooled mass-allocation statement over windows, cells, and samples
+
+Per-cell localization on validation shows the problem is heterogeneous:
+
+- strongest shoulder-heavy cells include:
+  - `(0,0)`, `(2,4)`, `(3,3)`, `(3,2)`, `(1,2)`, `(0,2)`
+- but some hard cells show the opposite pattern:
+  - `(4,0)`, `(1,3)`, `(1,0)`, `(1,4)`
+
+Conclusion:
+
+- for `212b K=128`, train shape is broadly fine
+- the pooled shoulder-heavy behavior is mainly a validation / out-of-sample
+  effect
+- and it comes from heterogeneous cross-cell misallocation rather than a
+  uniform "everything becomes medium-sized" pathology
+
+## 2026-04-08 - Current synthesis on cap, kurtosis, and generalization
+
+The main high-level lessons from the latest `212b`-family ablations are now
+clear.
+
+1. Removing the decoder output pre-cap does **not** automatically recover the
+   very high-kurtosis cell behavior we care about.
+
+- `212u` removed the `tanh(raw) * delta_scale` cap from plain `212b`
+- this improved tail reach and stress coverage
+- but it still failed to recreate the very sharp sparse-tail marginals on the
+  hardest cells
+
+2. Keeping the cap can produce **higher average per-cell kurtosis** than the
+   no-cap branch, even though the cap is also part of the tail-allocation
+   problem.
+
+- the cap is therefore not a simple "always bad" component
+- it appears to help preserve some spike-vs-spread shape, while also limiting
+  local tail reach on the hardest cells
+
+3. The most severe failure is out-of-train generalization of raw-delta shape.
+
+- for `212b K=128`, pooled train shape is broadly fine
+- the shoulder-heavy / low-kurtosis story appears mainly on validation
+- this means the central problem is not just in-sample fit
+- it is that the learned conditional law does not preserve the right
+  cell-by-cell move-shape allocation out of sample
+
+Current implication:
+
+- direct delta output remains viable as the base modeling target
+- but "remove cap and hope the tails come back" is not enough
+- and "just preserve the cap" is not enough either
+- the next design has to focus on making the direct-output law
+  **generalizable**, especially on the high-kurtosis cells, rather than only
+  increasing unconditional tail reach in sample

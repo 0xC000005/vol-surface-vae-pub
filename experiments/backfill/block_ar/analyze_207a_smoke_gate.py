@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Fixed smoke-gate evaluation for 207a.
+Fixed smoke-gate evaluation for local-family AR branches.
 """
 
 from __future__ import annotations
@@ -39,7 +39,10 @@ from experiments.backfill.block_ar.train_207a_local_conditional_family_student_t
 def load_model(checkpoint_path: str, device: torch.device):
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     raw_config = payload["config"]
-    if raw_config["type"] != "transformer_local_conditional_family_student_t_207a":
+    if raw_config["type"] not in {
+        "transformer_local_conditional_family_student_t_207a",
+        "transformer_teacher_guided_local_family_student_t_207b",
+    }:
         raise ValueError(f"Unexpected model type: {raw_config['type']}")
     model = TransformerLocalConditionalFamilyARModel(
         encoder_config=raw_config["encoder"],
