@@ -67281,3 +67281,1002 @@ Current implication:
 - the next design has to focus on making the direct-output law
   **generalizable**, especially on the high-kurtosis cells, rather than only
   increasing unconditional tail reach in sample
+
+## 2026-04-08 - Time-series normalization options and recommended general design
+
+Reviewed the broader time-series / finance literature for a normalization and
+targeting scheme that can generalize beyond IV surfaces to:
+
+- equity indices
+- FX
+- interest rates
+- credit spreads
+- other financial risk factors
+
+Main conclusion:
+
+- there is no single universally correct target such as raw delta, simple
+  return, or log return
+- the most principled general approach is to separate the problem into:
+  1. factor-aware coordinate choice
+  2. causal local-scale normalization
+  3. neural generation of standardized innovations
+
+Top options worth keeping in mind:
+
+1. Factor-aware coordinate choice
+
+- use the natural coordinate for each factor family instead of forcing one
+  universal target
+- examples:
+  - positive multiplicative factors: `log`
+  - additive factors like rates / spreads / vol-point moves: `identity`
+  - sign-changing or awkward-scale factors: `asinh`
+- attraction:
+  - minimizes semantic distortion
+  - avoids forcing additive and multiplicative factors into the same target
+    space
+
+2. Causal local-scale normalization
+
+- standardize one-step moves by a scale estimated only from recent history
+- examples:
+  - rolling std
+  - EWMA volatility
+  - rolling robust dispersion such as MAD-like or mean absolute move
+- attraction:
+  - handles volatility clustering
+  - avoids train-era fixed caps and quantile-scale mismatch
+  - gives a factor-general definition of "small" vs "large" move
+
+3. Filtered residual / standardized innovation modeling
+
+- first compute a local mean / scale adjustment
+- then let the neural model learn the one-step innovation law on the
+  standardized residual
+- attraction:
+  - closest to classical finance scenario generation
+  - separates regime-dependent scale from the harder distribution-learning task
+
+4. Heavy-tailed or mixture innovation law
+
+- use a non-Gaussian innovation family once the target has been standardized
+- examples:
+  - Student-t residuals
+  - empirical residual bootstrap
+  - calm/jump mixture
+- attraction:
+  - better inductive bias for "many tiny moves plus rare large jumps"
+  - more natural for very high-kurtosis cells than a smooth Gaussian cloud
+
+5. EVT / body-tail decomposition
+
+- model the ordinary body and the tail with different mechanisms
+- attraction:
+  - statistically principled when sparse extremes are the main concern
+  - useful later if a single-law generator still smooths away the rare jumps
+
+Recommended general design for this repo:
+
+- factor-aware coordinate
+- plus causal local-scale normalization
+- plus neural generator on standardized one-step innovations
+
+This is the cleanest compromise between:
+
+- cross-factor generality
+- no fixed quantile cap
+- no hard boundedness assumption
+- and good neural training geometry
+
+## 2026-04-08 - Proposed next experiment: replace fixed train cap with causal local-scale innovation output
+
+Current problem with plain `212b`:
+
+- capped branch:
+  - `delta = tanh(raw) * delta_scale`
+  - can preserve some spike-vs-spread shape
+  - but generalizes badly because `delta_scale` is fixed from train-era
+    `q99(|delta|)`
+- uncapped branch:
+  - improves tail reach
+  - but unconditional marginal kurtosis becomes badly wrong
+
+So the most principled next experiment is **not** "cap vs no cap" again.
+It is:
+
+- remove the fixed train-era output cap
+- replace it with a **causal local scale** computed from the history window
+- generate a standardized innovation rather than a raw capped delta
+
+### Proposed experiment shape
+
+Base:
+
+- start from plain `212b`
+- keep:
+  - `H = 1`
+  - GRU encoder
+  - direct stochastic decoder
+  - `K = 128`
+  - pure energy score as the primary loss
+
+Change the output parameterization:
+
+1. For each cell, compute a causal local scale `s_t(c)` from the 30-day history
+
+- examples to test in order:
+  - EWMA of absolute delta
+  - EWMA std of delta
+  - rolling mean absolute delta with a floor
+
+2. Decoder predicts a standardized innovation `u_t(c)` rather than raw delta
+
+3. Map back by:
+
+- `delta_t(c) = s_t(c) * u_t(c)`
+
+4. Do not use fixed train `q99` output scaling
+
+5. Keep only final physical validity clipping if needed for IV:
+
+- `delta_t(c) in [-prev_t(c), 1 - prev_t(c)]`
+
+Optional refinement if raw innovation still over-smooths:
+
+- use `asinh` on the standardized innovation target:
+  - model `v_t(c) = asinh(delta_t(c) / s_t(c))`
+  - decode `v`
+  - invert back to `delta`
+
+This remains:
+
+- direct delta output in the original space
+- but with a causal, regime-aware scale bridge instead of a frozen cap
+
+### Why this is the most principled next move
+
+- removes the obviously wrong fixed train-era cap
+- preserves direct delta semantics for IV
+- should generalize better across train and validation because the scale is
+  recomputed from each history window
+- is consistent with broader finance practice:
+  - standardized innovations
+  - volatility scaling
+  - filtered scenario generation
+
+### What success should mean
+
+For both train and validation, pool all windows and all generated samples and
+build per-cell unconditional histograms.
+
+Primary success criteria:
+
+1. Per-cell unconditional generated histograms match GT histograms much more
+   closely on both train and validation
+2. Per-cell unconditional kurtosis is close to GT for the high-kurtosis cells
+3. Absolute move-size distribution remains comparable to GT
+4. Conditional one-day distribution quality remains competitive
+
+Explicit diagnostics to run:
+
+- per-cell unconditional histograms:
+  - GT vs generated
+  - train and validation
+- per-cell unconditional kurtosis table:
+  - GT vs generated
+  - train and validation
+- per-cell unconditional move-size profile:
+  - `|Δ| <= 0.005`
+  - `|Δ| <= 0.010`
+  - `|Δ| <= 0.020`
+  - `|Δ| <= 0.050`
+- pooled train vs validation shoulder audit
+- existing `213a` H=1 suite
+
+### Concrete experimental recommendation
+
+Run one clean branch first:
+
+- plain `212b`
+- replace fixed `delta_scale` output cap with
+  `s_t(c) = EWMA_abs_delta_from_history(c)`
+- decoder emits uncapped standardized innovation
+- final delta is `s_t(c) * innovation`
+- keep ES-only training
+
+If this still smooths the hardest cells too much, the next refinement should be
+to model:
+
+- `asinh(delta / s_t)` rather than `delta / s_t`
+
+That would preserve the same general framework while giving more expressive
+heavy-tail geometry without reintroducing fixed train-time caps.
+
+## 2026-04-08 - 212x result: causal local-scale output fixes the old train/validation shape collapse
+
+Implemented and tested:
+
+- `212x`: plain `212b` base with fixed train-era output cap removed
+- output now uses a causal local scale:
+  - decoder predicts standardized innovation `u`
+  - final delta is `delta = s_t * u`
+  - `s_t` is per-cell EWMA absolute-delta scale from the 30-day history
+- history features also use local-scale-standardized deltas and include log
+  local scale
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212x_h1_minimal_direct_stochastic_delta_local_scale.py`
+- `experiments/backfill/block_ar/analyze_212_stochastic_unconditional_marginals.py`
+- `results/validations/2026-04-08/analysis/212_design/212x_h1_minimal_direct_stochastic_delta_local_scale_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212x_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212x_full_h1_suite.md`
+
+Best checkpoint:
+
+- epoch `14`
+
+Main conditional result:
+
+- suite score: `7/9`
+- coverage90: `82.6%`
+- realized q99 coverage90: `60.6%`
+- turb/calm width ratio: `1.243`
+- move-size shape: PASS
+- unconditional marginal realism: PASS
+- mean reversion: PASS
+
+Most important result:
+
+- `212x` does **not** show the old severe train-to-validation unconditional
+  shape degradation from `212b K=128`
+
+Pooled unconditional shape, train:
+
+- quiet ratio: `1.079`
+- shoulder ratio: `0.898`
+- extreme ratio: `1.033`
+- kurtosis ratio: `1.287`
+
+Pooled unconditional shape, validation:
+
+- quiet ratio: `1.001`
+- shoulder ratio: `0.952`
+- extreme ratio: `1.190`
+- kurtosis ratio: `0.910`
+
+For comparison, old `212b K=128` had:
+
+- train: quiet `1.015`, shoulder `0.987`, kurtosis `0.893`
+- validation: quiet `0.783`, shoulder `1.214`, kurtosis `0.705`
+
+Interpretation:
+
+- replacing the frozen train-era output cap with a causal local scale is the
+  first direct-delta fix that materially improves out-of-sample unconditional
+  shape generalization
+- the model is no longer globally too smooth on validation
+- the remaining problem is now more local:
+  - some cells are still under-covered
+  - some high-kurtosis cells overshoot rather than underfit
+
+Examples on validation:
+
+- `(3,4)` kurtosis ratio `1.007`
+- `(4,4)` kurtosis ratio `1.184`
+- `(1,4)` kurtosis ratio `0.738`
+- `(1,3)` kurtosis ratio `2.773`
+
+Conclusion:
+
+- the fixed train-era q99 cap should stay removed
+- causal local-scale innovation output is a much more generalizable direct-delta
+  parameterization
+- next work should focus on taming the remaining cell-local overshoot /
+  undercoverage problem without reintroducing frozen output scaling
+
+## 2026-04-08 - 212x diagnosis: raw kurtosis is coming mostly from scale mixing, not a truly spiky learned innovation law
+
+Investigated the remaining train-vs-validation difference in per-cell raw-delta
+kurtosis for `212x`.
+
+Key finding:
+
+- the model's learned standardized innovation law `u` is relatively stable and
+  only mildly heavy-tailed across splits and cells
+- the very high raw-delta kurtosis is being produced mainly by the causal local
+  scale `s_t` and its variation across windows
+
+Empirical summary:
+
+- median GT innovation kurtosis:
+  - train: `36.2`
+  - validation: `8.9`
+- median generated innovation kurtosis:
+  - train: `4.79`
+  - validation: `4.43`
+
+So the decoder is not learning highly variable per-cell/per-regime innovation
+tail thickness. It is learning a fairly generic moderate-kurtosis innovation
+law.
+
+At the same time, the local-scale process changes materially by split:
+
+- median per-cell local-scale CV:
+  - train: `0.776`
+  - validation: `0.529`
+- median per-cell local-scale q99/q50:
+  - train: `5.32`
+  - validation: `3.08`
+
+Interpretation:
+
+- train has more scale dispersion across windows, so the product `delta = s_t *
+  u` can create very high raw kurtosis even though `u` itself is only
+  moderately heavy-tailed
+- validation has less scale dispersion, so raw kurtosis falls unless the model
+  also increases innovation tail thickness
+- but the learned innovation law stays near-kurtosis-`4-6`, so some validation
+  cells still under-shoot GT kurtosis
+
+This explains the remaining pattern:
+
+- cells like `(1,3)` on validation over-shoot raw kurtosis because local scale
+  gets large there
+- cells like `(1,4)`, `(1,2)`, `(3,2)`, `(4,2)` under-shoot because their
+  validation local scales are smaller while GT still requires heavier
+  standardized innovations than the model generates
+
+Conclusion:
+
+- `212x` fixed the old global validation shape collapse
+- but it is still relying too much on state-dependent scale mixing and not
+  enough on a genuinely expressive conditional innovation law
+- the next refinement should target the innovation distribution itself, not
+  reintroduce a frozen output cap
+
+## 2026-04-08 - 212y result: transformed-innovation training fixes the exact innovation bottleneck, but over-corrects
+
+Implemented and tested:
+
+- `212y`: same local-scale family as `212x`
+- decoder models transformed innovation:
+  - `v = asinh(delta / s_t)`
+- training loss is energy score in `v`-space
+- raw delta samples are generated by:
+  - `delta = s_t * sinh(v)`
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_212y_h1_minimal_direct_stochastic_delta_local_scale_asinh.py`
+- `experiments/backfill/block_ar/analyze_212_local_scale_innovation.py`
+- `results/validations/2026-04-08/analysis/212_design/212y_h1_minimal_direct_stochastic_delta_local_scale_asinh_spec.md`
+- `results/validations/2026-04-08/analysis/212_design/212y_full_h1_result.md`
+- `results/validations/2026-04-08/analysis/213_design/212y_full_h1_suite.md`
+
+Best checkpoint:
+
+- epoch `7`
+
+Main raw-delta suite result:
+
+- suite score: `3/9`
+- coverage90: `93.2%`
+- realized q99 coverage90: `58.6%`
+- kurtosis ratio: `1.023`
+
+This is not a final-model win because:
+
+- intervals became too broad
+- best-cell coverage rose too high
+- mean reversion regressed
+
+But the targeted mechanism result is strong:
+
+- `212y` fixes the exact `212x` innovation-law bottleneck
+
+Validation innovation audit:
+
+- `212x`
+  - pred innovation kurtosis median: `4.43`
+  - corr(raw pred kurtosis, scale CV): `0.909`
+  - corr(raw pred kurtosis, pred innovation kurtosis): `0.262`
+
+- `212y`
+  - pred innovation kurtosis median: `46.12`
+  - corr(raw pred kurtosis, scale CV): `0.004`
+  - corr(raw pred kurtosis, pred innovation kurtosis): `0.838`
+
+Interpretation:
+
+- under `212x`, raw generated kurtosis was still being driven mostly by the
+  scale process
+- under `212y`, raw generated kurtosis is now driven by the innovation law
+  itself
+
+This also fixes the exact raw-kurtosis underfit we were targeting:
+
+- `212x` validation had multiple under-kurtotic cells below `0.82`
+- `212y` validation no longer has raw-kurtosis ratios below `1.13`
+
+So:
+
+- the innovation-law bottleneck diagnosis was correct
+- transformed-innovation training can fix it
+- but plain global `asinh` geometry over-corrects and broadens too much
+
+Conclusion:
+
+- do not go back to fixed caps or pure scale fixes
+- keep the local-scale setup
+- next work should control innovation-tail broadening more locally / selectively
+  than `212y` does
+
+### Exp 212z: 212y + Small Per-Cell CRPS Auxiliary in Innovation Space
+
+Hypothesis:
+
+- `212y` already fixed the innovation-law bottleneck globally
+- the remaining issue is local per-cell marginal misallocation
+- adding a small plain per-cell CRPS auxiliary term in transformed innovation
+  space should improve the under-covered cells without undoing the good tail
+  behavior
+
+Design:
+
+- base: `212y`
+- loss: `ES(v) + 0.05 * CRPS(v_c)`
+- same local-scale setup, same `v = asinh(delta / s_t)` target, same decoder
+
+Result:
+
+- overall coverage moved closer to nominal: `93.2% -> 91.1%`
+- move-size shape stayed strong:
+  - kurtosis ratio `1.018 -> 1.006`
+  - q99-scale pass cells `15/25 -> 20/25`
+- some weak cells improved:
+  - `(0,3)` train coverage `0.898 -> 0.952`, val `0.873 -> 0.934`
+  - `(3,4)` train `0.872 -> 0.929`, val `0.893 -> 0.925`
+
+But the exact target failure got worse:
+
+- worst cell `(2,4)`:
+  - train coverage `0.763 -> 0.647`
+  - val coverage `0.800 -> 0.719`
+  - train q99 ratio `0.695 -> 0.492`
+  - val q99 ratio `0.896 -> 0.641`
+
+Interpretation:
+
+- plain CRPS does change local marginal allocation
+- but on the hardest sparse-tail cell it still prefers improving the body /
+  center over preserving enough tail reach
+- so this is not the right auxiliary loss for the exact failure we care about
+
+Decision:
+
+- reject `212z` as the new base
+- keep `212y` as the stronger branch for now
+
+### Exp 212aa: 212y + Tail-Weighted Per-Cell CRPS Auxiliary
+
+Hypothesis:
+
+- `212z` failed because plain CRPS was too body-dominant
+- a tail-weighted marginal CRPS term should keep attention on large transformed
+  shocks and rescue the bad sparse-tail cell `(2,4)`
+
+Design:
+
+- base: `212y`
+- loss: `ES(v) + 0.05 * weighted_CRPS(v_c)`
+- tail weight:
+  - `1 + 2.0 * sigmoid((|v_target| - 1.5) / 0.25)`
+
+Result:
+
+- overall coverage remained acceptable: `91.4%`
+- global kurtosis realism stayed strong: ratio `1.011`
+- several middling weak cells improved further
+
+But the exact target failure still worsened:
+
+- cell `(2,4)` train coverage:
+  - `212y 0.762 -> 212z 0.655 -> 212aa 0.627`
+- cell `(2,4)` val coverage:
+  - `212y 0.810 -> 212z 0.714 -> 212aa 0.710`
+- cell `(2,4)` q99 ratio:
+  - train `0.692 -> 0.493 -> 0.460`
+  - val `0.911 -> 0.637 -> 0.593`
+
+Interpretation:
+
+- tail-weighting helped easier marginal-allocation cells
+- but it still did not preserve enough tail reach on the hardest sparse-tail cell
+- so even tail-weighted CRPS remains too blunt for the exact failure we care about
+
+Decision:
+
+- reject `212aa` as the next base
+- keep `212y` as the strongest baseline in this local-scale innovation family
+
+### Exp 212ab: Conditional Diffusion on Local-Scale Asinh Innovation
+
+Hypothesis:
+
+- the remaining hard sparse-tail cell failure is not due to missing gradient,
+  missing encoder signal, or old fixed-cap scaling
+- it is due to the one-shot `MLP([h, z]) + ES` decoder settling on a smooth
+  compromise cloud
+- replacing that one-shot decoder with a more generic conditional density
+  learner should fix the hard-cell tail compromise without needing hand-built
+  q95/q5 heads
+
+Design:
+
+- keep the `212y` setup:
+  - same GRU encoder
+  - same causal local scale `s_t`
+  - same transformed innovation `v = asinh(delta / s_t)`
+- replace the one-shot decoder with a conditional diffusion model over the 25D
+  innovation vector `v`
+- train by DDPM denoising MSE
+- sample by DDIM from Gaussian initial noise
+
+Result:
+
+- this branch **did fix the exact hard-cell issue**:
+  - cell `(2,4)` train coverage:
+    - `212y`: `0.763`
+    - `212ab`: `0.939`
+  - cell `(2,4)` validation coverage:
+    - `212y`: `0.798`
+    - `212ab`: `0.916`
+  - cell `(2,4)` q99 ratio:
+    - train: `0.693 -> 1.272`
+    - val: `0.912 -> 1.787`
+
+- unconditional marginal generalization stayed much better than old capped
+  models:
+  - train: quiet `0.915`, shoulder `1.039`, extreme `1.294`, kurt `0.963`
+  - val: quiet `0.899`, shoulder `1.045`, extreme `1.121`, kurt `0.797`
+
+But it is **not** a new base because the joint 25D surface law regressed badly:
+
+- suite score: `2/9`
+- overall 90% coverage: `94.7%`
+- cross-cell correlation ratio: `0.023`
+- factor breadth ratio: `3.734`
+- mean-reversion slope ratio: `0.277`
+- active mean-reversion cells: `0/12`
+- daily-change KS pass cells: `24/25`
+
+Innovation audit:
+
+- train predicted innovation kurtosis median: `50.49`
+- val predicted innovation kurtosis median: `51.18`
+- train corr(raw pred kurtosis, pred innovation kurtosis): `0.497`
+- val corr(raw pred kurtosis, pred innovation kurtosis): `0.433`
+- val corr(raw pred kurtosis, scale CV): `-0.066`
+
+Interpretation:
+
+- moving to a more expressive generic conditional density learner does solve the
+  hard sparse-tail marginal problem
+- but this first conditional-diffusion implementation destroys too much
+  cross-cell dependence and mean-reversion structure
+- so the real bottleneck was not “need q95/q5 heads”; it was the one-shot
+  smooth conditional law
+- however, this exact diffusion implementation is too weak on joint structure
+
+Decision:
+
+- keep `212ab` as positive evidence that the hard cell is solvable by a more
+  expressive Bitter-Lesson generator
+- reject `212ab` as the new base because joint surface realism regresses too
+  much
+
+### Exp 212ac: Conditional Rectified Flow on Local-Scale Asinh Innovation
+
+Hypothesis:
+
+- maybe the main issue with `212ab` was specifically diffusion denoising /
+  sampling geometry
+- a simpler continuous-time generator trained by rectified flow matching might
+  keep the generic conditional-law benefits without collapsing the joint
+  surface structure
+
+Result:
+
+- suite score: `5/9`
+- overall 90% coverage: `0.879`
+- realized q99 coverage90: `0.545`
+- kurtosis ratio: `1.271`
+- cross-cell correlation ratio: `0.997`
+- factor breadth ratio: `1.296`
+- mean-reversion slope ratio: `0.627`
+
+Hard-cell comparison:
+
+- cell `(2,4)` train coverage: `0.883`, q99 ratio `1.005`
+- cell `(2,4)` val coverage: `0.866`, q99 ratio `1.176`
+
+Marginal generalization:
+
+- train: quiet `1.092`, shoulder `0.914`, extreme `0.605`, kurt `1.767`
+- val: quiet `1.034`, shoulder `0.949`, extreme `0.825`, kurt `1.250`
+
+Innovation audit:
+
+- train pred innovation kurtosis median: `19.44`
+- val pred innovation kurtosis median: `23.59`
+- val corr(raw pred kurtosis, scale CV): `0.079`
+
+Interpretation:
+
+- `212ac` solves the worst diffusion-style joint-structure collapse
+- it keeps cross-cell dependence realistic
+- but it still underproduces train-side extreme mass and slightly overshoots
+  global kurtosis on validation
+
+Decision:
+
+- useful, serious candidate
+- stronger than `212ab`
+- not obviously better than the best direct population-trained branch
+
+### Exp 212ad: Diffusion Fine-Tuning on Terminal Population Loss
+
+Hypothesis:
+
+- `212ab` was expressive enough, but trained on the wrong objective
+- fine-tuning diffusion on terminal-sample energy score should align training
+  with the one-step distribution we actually care about
+
+Result:
+
+- suite score: `5/9`
+- overall 90% coverage: `0.897`
+- realized q99 coverage90: `0.455`
+- kurtosis ratio: `1.044`
+- cross-cell correlation ratio: `0.154`
+- factor breadth ratio: `3.456`
+- mean-reversion slope ratio: `0.325`
+
+Hard-cell comparison:
+
+- cell `(2,4)` train coverage: `0.862`, q99 ratio `0.872`
+- cell `(2,4)` val coverage: `0.853`, q99 ratio `1.042`
+
+Interpretation:
+
+- this is clearly better than raw `212ab`
+- but it still keeps too much of the diffusion-family joint-structure failure
+- terminal ES fine-tuning helps, but does not fully repair the diffusion
+  geometry mismatch
+
+Decision:
+
+- useful evidence, not the new base
+
+### Exp 212ae: Direct Population-Trained Conditional Flow Decoder
+
+Hypothesis:
+
+- the best route may be to keep sample-population-level training
+- but upgrade the conditional law from one-shot Gaussian-MLP to a richer generic
+  transport model
+
+Design:
+
+- keep the `212y` local-scale `v = asinh(delta / s_t)` setup
+- replace the one-shot decoder with a conditional affine coupling flow
+- train directly on sample-population energy score in innovation space
+
+Result:
+
+- suite score: `6/9`
+- overall 90% coverage: `0.905`
+- realized q99 coverage90: `0.576`
+- kurtosis ratio: `1.057`
+- cross-cell correlation ratio: `0.844`
+- factor breadth ratio: `1.900`
+- mean-reversion slope ratio: `0.467`
+
+Hard-cell comparison:
+
+- cell `(2,4)` train coverage: `0.885`, q99 ratio `1.160`
+- cell `(2,4)` val coverage: `0.889`, q99 ratio `1.631`
+
+Marginal generalization:
+
+- train: quiet `1.032`, shoulder `0.963`, extreme `0.784`, kurt `1.457`
+- val: quiet `0.950`, shoulder `1.024`, extreme `0.923`, kurt `1.046`
+
+Innovation audit:
+
+- train pred innovation kurtosis median: `10.19`
+- val pred innovation kurtosis median: `16.59`
+- val corr(raw pred kurtosis, pred innovation kurtosis): `0.808`
+- val corr(raw pred kurtosis, scale CV): `0.078`
+
+Interpretation:
+
+- this is the strongest balanced branch from the overnight sequence
+- it keeps the sample-population objective
+- it fixes the hard sparse-tail cell materially better than `212y`
+- it preserves much more joint structure than either diffusion branch
+- its main remaining weakness is mean reversion, not marginals
+
+Decision:
+
+- make `212ae` the provisional best branch from this thread
+
+### Exp 212ae K=256: More Training Samples on the Best Direct Flow Branch
+
+Hypothesis:
+
+- since population-loss training benefited from larger sample count earlier in
+  the thread, rerunning `212ae` with `train_samples=256` might be an obvious
+  low-risk improvement
+
+Result:
+
+- suite score: `5/9`
+- overall 90% coverage: `0.867`
+- realized q99 coverage90: `0.566`
+- kurtosis ratio: `1.279`
+- cross-cell correlation ratio: `1.053`
+- factor breadth ratio: `1.419`
+- mean-reversion slope ratio: `0.689`
+
+Interpretation:
+
+- larger Monte Carlo count did not improve the best branch overall
+- it helped some structure and mean-reversion statistics
+- but hurt coverage and pushed kurtosis too high
+
+Decision:
+
+- keep the original `212ae` (`train_samples=128`) as the better version
+
+## Overnight Conclusion
+
+The three requested directions settled cleanly:
+
+1. **Rectified flow (`212ac`)** works much better than diffusion and preserves
+   joint structure, but still has some tail-shape mismatch.
+2. **Diffusion + terminal ES (`212ad`)** improves diffusion but does not fix the
+   core joint-structure weakness of the diffusion family.
+3. **Direct conditional flow + population ES (`212ae`)** is the best balanced
+   outcome so far.
+
+So the current best read is:
+
+- the real problem was not “need explicit q95/q5 heads”
+- and not “need more decoder width”
+- it was:
+  - keep a population-level objective
+  - but give it a more expressive generic conditional law than one-shot
+    Gaussian-MLP
+
+That points to the direct conditional-flow family as the strongest direction
+going forward.
+
+### Exp 212af: Add Exact Flow NLL to 212ae
+
+Hypothesis:
+
+- `212ae` still overshoots innovation kurtosis because ES alone tolerates a few
+  unnecessary far-tail draws
+- since `212ae` is already a conditional flow, adding a small exact NLL term in
+  the same innovation space should tighten the law without breaking the rest of
+  the geometry
+
+Spec:
+
+- base: `212ae`
+- target space: `v = asinh(delta / s_t)`
+- loss: `ES(v_samples, v_target) + 0.05 * NLL_flow(v_target | h)`
+
+Result:
+
+- suite score: `6/9`
+- overall 90% coverage: `0.897`
+- realized q99 coverage90: `0.566`
+- pooled validation KS: `0.021` (`212ae`: `0.066`)
+- mean-reversion slope ratio: `0.674` (`212ae`: `0.467`)
+- cross-cell correlation ratio: `0.937` (`212ae`: `0.844`)
+- validation median per-cell kurtosis ratio: `2.55` (`212ae`: `1.78`)
+- validation predicted innovation-kurtosis median: `14.20` (`212ae`: `16.59`, GT `8.89`)
+
+Interpretation:
+
+- this branch helped unconditional histogram matching and improved
+  mean-reversion materially
+- but it did not fix per-cell kurtosis realism cleanly
+- exact NLL is a useful direction, but not yet a full solution
+
+### Exp 212ag: Add Raw-Delta Sample-Mean Auxiliary to 212ae
+
+Hypothesis:
+
+- `212ae`’s remaining mean-reversion failure is mainly a conditional-center
+  problem
+- adding a small raw-delta sample-mean loss should strengthen the conditional
+  first moment without handcrafting a regime head
+
+Spec:
+
+- base: `212ae`
+- target space for sampling: `v = asinh(delta / s_t)`
+- auxiliary: `5.0 * L1(mean(delta_samples), delta_target)`
+
+Result:
+
+- suite score: `6/9`
+- overall 90% coverage: `0.897`
+- realized q99 coverage90: `0.414`
+- mean-reversion slope ratio: `0.402` (`212ae`: `0.467`)
+- validation predicted innovation-kurtosis median: `9.13` (close to GT `8.89`)
+- validation extreme ratio: `0.737` (`212ae`: `0.923`)
+- pooled validation abs q99: `0.209` (`212ae`: `0.234`, GT `0.244`)
+
+Interpretation:
+
+- the mean auxiliary did not fix mean reversion
+- instead it made the model more body-dominant and cut too much useful tail
+  mass
+- this branch is not a base candidate
+
+### Sequential Decision
+
+The user asked to try the kurtosis fix and mean-reversion fix separately before
+considering any combined branch.
+
+Outcome:
+
+- `212af` helped partly but did not solve its target problem cleanly
+- `212ag` did not work individually
+
+Decision:
+
+- **do not combine them yet**
+- if we keep working from this thread, `212ae` remains the base and `212af` is
+  the only one of these two ablations with enough positive signal to justify
+  further investigation
+
+### Exp 212ah: Combine Exact NLL and Sample-Mean Auxiliary
+
+The user asked to try the combined branch anyway, to see whether the optimizer
+could escape the apparent local minimum.
+
+Spec:
+
+- base: `212ae`
+- loss:
+  - `ES(v_samples, v_target)`
+  - `+ 0.05 * NLL_flow(v_target | h)`
+  - `+ 5.0 * L1(mean(delta_samples), delta_target)`
+
+Result:
+
+- suite score: `6/9`
+- overall 90% coverage: `0.889`
+- realized q99 coverage90: `0.556`
+- mean-reversion slope ratio: `0.624`
+- cross-cell correlation ratio: `0.938`
+- pooled validation KS: `0.018` (best among `212ae/af/ag/ah`)
+- validation innovation-kurtosis median: `12.16` (GT `8.89`)
+- validation median per-cell kurtosis ratio: `2.19`
+- validation extreme ratio: `0.804`
+
+Interpretation:
+
+- `212ah` did not find a qualitatively better basin
+- it mostly averaged the behavior of `212af` and `212ag`
+- compared with `212af`, it slightly improved pooled histogram matching and
+  reduced kurtosis overshoot a bit, but gave back some q99 coverage and
+  mean-reversion
+- compared with `212ae`, it improved pooled KS and mean reversion, but still
+  failed the user's stricter unconditional per-cell marginal-matching goal
+
+Decision:
+
+- the combination is **not** a clean new winner
+- if prioritizing unconditional marginal matching, `212af` is still the more
+  promising branch from this follow-up sequence
+
+### Exp 212ai: Warm-Start 212ae Then Fine-Tune with Staged Exact NLL
+
+Question:
+
+- is the most principled next move a late exact-density tightening step on top of
+  the population-trained conditional flow, rather than training the NLL variant
+  from scratch?
+- and does the *staged / annealed* part matter, or is any late NLL step enough?
+
+Spec:
+
+- initialize from `212ae` best checkpoint
+- keep the same `212ae` architecture and local-scale `asinh(delta / s_t)` target
+- fine-tune only with:
+  - `ES(v_samples, v_target)`
+  - `+ lambda_nll * NLL_flow(v_target | h)`
+- linearly ramp `lambda_nll` from `0.00625` to `0.05` over `8` epochs
+
+Result (`212ai` best checkpoint):
+
+- suite score: `6/9`
+- overall 90% coverage: `0.898`
+- per-cell worst/best coverage: `82.8% / 94.1%`
+- mean-reversion slope ratio: `0.793` (`212ae`: `0.467`, `212af`: `0.674`)
+- cross-cell correlation ratio: `0.947`
+- factor breadth ratio: `1.676`
+- pooled train KS: `0.045`
+- pooled val KS: `0.037`
+- train per-cell KS <= 0.10: `25/25`
+- val per-cell KS <= 0.10: `24/25`
+- val predicted innovation-kurtosis median: `8.56` (GT `8.89`)
+- val raw pooled kurtosis ratio: `1.152`
+- val median per-cell kurtosis ratio: `1.96`
+
+Interpretation:
+
+- `212ai` is the first branch in this thread that gets **all three of these**
+  mostly right at once:
+  - unconditional per-cell histogram KS is strong on both train and validation
+  - innovation-space kurtosis median is close to GT
+  - mean reversion improves materially without destroying cross-cell dependence
+- compared with `212af`, it gives back some pooled-KS sharpness but preserves a
+  more realistic innovation law
+- compared with `212ae`, it improves mean reversion substantially while reducing
+  the train/validation marginal mismatch
+
+### Probe: One-Step Full-Weight Late NLL from 212ae
+
+To test whether the staged/annealed part is actually necessary, I ran a probe:
+
+- initialize from `212ae`
+- fine-tune for only `1` epoch
+- use full `lambda_nll = 0.05` immediately
+
+Result:
+
+- suite score: `6/9`
+- overall 90% coverage: `0.906`
+- mean-reversion slope ratio: `0.792`
+- pooled val KS: `0.035`
+- val raw pooled kurtosis ratio: `1.100`
+- but val predicted innovation-kurtosis median: `16.70` (GT `8.89`)
+
+Interpretation:
+
+- a late NLL step alone already helps pooled raw marginals and mean reversion
+- however, it does **not** fix the innovation-law mismatch
+- therefore the staged / annealed schedule is doing something real:
+  it preserves much more of the `212ae` tail structure while still tightening
+  the density
+
+Current recommendation:
+
+- the most evidence-supported next move is now:
+  **keep the `212ae` conditional-flow family and pursue staged / annealed exact
+  NLL fine-tuning, not mean auxiliaries**
+- this is stronger than the earlier `212af` recommendation because:
+  - `212af` showed exact NLL has positive signal
+  - `212ag` showed mean auxiliaries are the wrong direction
+  - `212ah` showed combining them does not discover a better basin
+  - `212ai` showed that *late, annealed* NLL is the first version that improves
+    exact-density behavior without giving up the broader scenario properties
+
+Follow-up falsification probe:
+
+- I also tested a one-epoch late NLL step at full weight (`lambda_nll=0.05`)
+  from the `212ae` checkpoint
+- that probe improved pooled raw marginals and mean reversion, but its
+  predicted innovation-kurtosis median snapped back to `16.70` (vs GT `8.89`)
+  and the link between raw kurtosis and innovation kurtosis weakened sharply
+- so the value in `212ai` is not just “late NLL”; the *staged / annealed* part
+  appears to be what preserves innovation-law realism

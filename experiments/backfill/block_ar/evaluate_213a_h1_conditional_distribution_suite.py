@@ -87,6 +87,42 @@ from experiments.backfill.block_ar.train_212v_h1_minimal_direct_stochastic_delta
 from experiments.backfill.block_ar.train_212w_h1_minimal_direct_stochastic_delta_student_t_latent import (
     load_model as load_212w_model,
 )
+from experiments.backfill.block_ar.train_212x_h1_minimal_direct_stochastic_delta_local_scale import (
+    load_model as load_212x_model,
+)
+from experiments.backfill.block_ar.train_212y_h1_minimal_direct_stochastic_delta_local_scale_asinh import (
+    load_model as load_212y_model,
+)
+from experiments.backfill.block_ar.train_212z_h1_minimal_direct_stochastic_delta_local_scale_asinh_crps import (
+    load_model as load_212z_model,
+)
+from experiments.backfill.block_ar.train_212aa_h1_minimal_direct_stochastic_delta_local_scale_asinh_tailcrps import (
+    load_model as load_212aa_model,
+)
+from experiments.backfill.block_ar.train_212ac_h1_rectified_flow_local_scale_asinh import (
+    load_model as load_212ac_model,
+)
+from experiments.backfill.block_ar.train_212ad_h1_conditional_diffusion_local_scale_asinh_terminal_es import (
+    load_model as load_212ad_model,
+)
+from experiments.backfill.block_ar.train_212ae_h1_conditional_flow_local_scale_asinh import (
+    load_model as load_212ae_model,
+)
+from experiments.backfill.block_ar.train_212af_h1_conditional_flow_local_scale_asinh_nll import (
+    load_model as load_212af_model,
+)
+from experiments.backfill.block_ar.train_212ag_h1_conditional_flow_local_scale_asinh_mean_aux import (
+    load_model as load_212ag_model,
+)
+from experiments.backfill.block_ar.train_212ah_h1_conditional_flow_local_scale_asinh_nll_mean import (
+    load_model as load_212ah_model,
+)
+from experiments.backfill.block_ar.train_212ai_h1_conditional_flow_local_scale_asinh_staged_nll import (
+    load_model as load_212ai_model,
+)
+from experiments.backfill.block_ar.train_212ab_h1_conditional_diffusion_local_scale_asinh import (
+    load_model as load_212ab_model,
+)
 
 
 LoaderFn = Callable[[str, torch.device], tuple[torch.nn.Module, dict[str, Any]]]
@@ -107,6 +143,18 @@ def _get_loader(model_type: str) -> LoaderFn:
         "212u": load_212u_model,
         "212v": load_212v_model,
         "212w": load_212w_model,
+        "212x": load_212x_model,
+        "212y": load_212y_model,
+        "212z": load_212z_model,
+        "212aa": load_212aa_model,
+        "212ac": load_212ac_model,
+        "212ad": load_212ad_model,
+        "212ae": load_212ae_model,
+        "212af": load_212af_model,
+        "212ag": load_212ag_model,
+        "212ah": load_212ah_model,
+        "212ai": load_212ai_model,
+        "212ab": load_212ab_model,
     }
     if model_type not in mapping:
         raise ValueError(f"Unsupported model_type: {model_type}")
@@ -791,7 +839,38 @@ def build_markdown_report(results: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="213a H=1 conditional-distribution suite")
-    parser.add_argument("--model_type", type=str, required=True, choices=["212b", "212c", "212d", "212e", "212f", "212g", "212h", "212q", "212r", "212s", "212u", "212v", "212w"])
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        required=True,
+        choices=[
+            "212b",
+            "212c",
+            "212d",
+            "212e",
+            "212f",
+            "212g",
+            "212h",
+            "212q",
+            "212r",
+            "212s",
+            "212u",
+            "212v",
+            "212w",
+            "212x",
+            "212y",
+            "212z",
+            "212aa",
+            "212ac",
+            "212ad",
+            "212ae",
+            "212af",
+            "212ag",
+            "212ah",
+            "212ai",
+            "212ab",
+        ],
+    )
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--data_path", type=str, default="data/vol_surface_with_ret.npz")
     parser.add_argument("--history_len", type=int, default=30)
