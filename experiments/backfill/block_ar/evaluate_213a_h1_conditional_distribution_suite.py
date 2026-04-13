@@ -138,6 +138,12 @@ from experiments.backfill.block_ar.train_212an_h1_conditional_flow_logit_drift_b
 from experiments.backfill.block_ar.train_212ao_h1_conditional_flow_local_scale_asinh_staged_nll_bound_penalty import (
     load_model as load_212ao_model,
 )
+from experiments.backfill.block_ar.train_223a_generated_history_finetune import (
+    load_model as load_223_model,
+)
+from experiments.backfill.block_ar.train_226a_factor_decoupled_flow import (
+    load_model as load_226a_model,
+)
 from experiments.backfill.block_ar.train_212ab_h1_conditional_diffusion_local_scale_asinh import (
     load_model as load_212ab_model,
 )
@@ -178,7 +184,10 @@ def _get_loader(model_type: str) -> LoaderFn:
         "212am": load_212am_model,
         "212an": load_212an_model,
         "212ao": load_212ao_model,
+        "223a": load_223_model,
+        "223b": load_223_model,
         "212ab": load_212ab_model,
+        "226a": load_226a_model,
     }
     if model_type not in mapping:
         raise ValueError(f"Unsupported model_type: {model_type}")
@@ -899,6 +908,7 @@ def main() -> None:
             "212an",
             "212ao",
             "212ab",
+            "226a",
         ],
     )
     parser.add_argument("--checkpoint", type=str, required=True)

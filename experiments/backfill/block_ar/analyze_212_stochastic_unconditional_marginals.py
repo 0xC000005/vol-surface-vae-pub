@@ -47,6 +47,7 @@ from experiments.backfill.block_ar.train_212al_h1_conditional_flow_local_scale_a
 from experiments.backfill.block_ar.train_212am_h1_conditional_flow_logit_drift_staged_nll import load_model as load_212am_model
 from experiments.backfill.block_ar.train_212an_h1_conditional_flow_logit_drift_boundary_scale_staged_nll import load_model as load_212an_model
 from experiments.backfill.block_ar.train_212ao_h1_conditional_flow_local_scale_asinh_staged_nll_bound_penalty import load_model as load_212ao_model
+from experiments.backfill.block_ar.train_223a_generated_history_finetune import load_model as load_223_model
 from experiments.backfill.block_ar.train_212ab_h1_conditional_diffusion_local_scale_asinh import load_model as load_212ab_model
 
 
@@ -73,6 +74,8 @@ LOADERS: dict[str, Callable[[str, torch.device], tuple[torch.nn.Module, dict[str
     "212am": load_212am_model,
     "212an": load_212an_model,
     "212ao": load_212ao_model,
+    "223a": load_223_model,
+    "223b": load_223_model,
     "212ab": load_212ab_model,
 }
 

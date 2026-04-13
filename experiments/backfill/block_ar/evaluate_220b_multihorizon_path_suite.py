@@ -86,14 +86,35 @@ def main() -> None:
         device=device,
         split="val",
     )
-    cond_samples = rollout_samples_in_batches(
-        wrapper=wrapper,
-        history_norm=batch.history_norm,
-        n_samples=args.samples,
-        n_steps=batch.future_01.shape[1],
-        batch_size=args.batch_size,
-        chunk_size=args.chunk_size,
+
+    # Use model's native sample_batched for models that generate multi-day trajectories
+    # (recurrent/adapter 221d+, smooth transport 183c, etc.)
+    use_native = hasattr(model, 'sample_batched') and (
+        hasattr(model, 'temporal_adapter') or args.model_type == '183c'
     )
+    if use_native:
+        from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv
+        print("Using native sample_batched (recurrent + adapter)")
+        outputs = []
+        n_steps = batch.future_01.shape[1]
+        for start in range(0, batch.history_01.shape[0], args.batch_size):
+            end = min(start + args.batch_size, batch.history_01.shape[0])
+            hist_batch = normalize_iv(batch.history_01[start:end])
+            with torch.no_grad():
+                samp = model.sample_batched(
+                    hist_batch, n_samples=args.samples, n_steps=n_steps, chunk_size=args.chunk_size,
+                )
+            outputs.append(samp.cpu().numpy())
+        cond_samples = np.concatenate(outputs, axis=0)
+    else:
+        cond_samples = rollout_samples_in_batches(
+            wrapper=wrapper,
+            history_norm=batch.history_norm,
+            n_samples=args.samples,
+            n_steps=batch.future_01.shape[1],
+            batch_size=args.batch_size,
+            chunk_size=args.chunk_size,
+        )
     ground_truth = batch.future_01.detach().cpu().numpy()
     history_01 = batch.history_01.detach().cpu().numpy()
 
@@ -105,8 +126,11 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=False,
     )
+    # For native multi-day models, pass model directly (has sample_batched)
+    # For one-day kernels, pass wrapper (wraps sample_next_iv)
+    cond_model = model if use_native else wrapper
     conditionality = run_conditionality_tests(
-        wrapper,
+        cond_model,
         cond_loader,
         n_samples=args.conditionality_samples,
         max_batches=args.conditionality_max_batches,

@@ -117,6 +117,82 @@ def load_one_day_kernel(
         )
 
         return load_220d_model(checkpoint_path, device)
+    if model_type == "221a":
+        from experiments.backfill.block_ar.train_220d_recurrent_flow_transition import (
+            RecurrentFlowTransitionModel,
+        )
+
+        payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        cfg = payload["config"]
+        model = RecurrentFlowTransitionModel(
+            n_cells=cfg["n_cells"],
+            history_feat_dim=cfg["history_feat_dim"],
+            hidden_dim=cfg["hidden_dim"],
+            gru_layers=cfg["gru_layers"],
+            gru_dropout=cfg["gru_dropout"],
+            flow_hidden=cfg["flow_hidden"],
+            n_coupling_layers=cfg["n_coupling_layers"],
+            ewma_alpha=cfg["ewma_alpha"],
+            scale_floor=cfg["scale_floor"],
+            include_scale_feature=cfg["include_scale_feature"],
+            support_lo=cfg.get("support_lo", 0.01),
+            support_hi=cfg.get("support_hi", 1.0),
+        )
+        model.load_state_dict(payload["model_state_dict"], strict=False)
+        model.init_recurrent_cells_from_gru()
+        model.to(device).eval()
+        return model, payload
+    if model_type in {"221d", "221e"}:
+        from experiments.backfill.block_ar.train_221d_adapter_multiday_ar_conditional_flow import (
+            AdapterRecurrentFlowTransitionModel,
+        )
+
+        payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        cfg = payload["config"]
+        model = AdapterRecurrentFlowTransitionModel(
+            n_cells=cfg["n_cells"],
+            history_feat_dim=cfg["history_feat_dim"],
+            hidden_dim=cfg["hidden_dim"],
+            gru_layers=cfg["gru_layers"],
+            gru_dropout=cfg["gru_dropout"],
+            flow_hidden=cfg["flow_hidden"],
+            n_coupling_layers=cfg["n_coupling_layers"],
+            ewma_alpha=cfg["ewma_alpha"],
+            scale_floor=cfg["scale_floor"],
+            include_scale_feature=cfg["include_scale_feature"],
+            support_lo=cfg.get("support_lo", 0.01),
+            support_hi=cfg.get("support_hi", 1.0),
+            adapter_hidden=cfg.get("adapter_hidden", 64),
+            adapter_ramp_steps=cfg.get("adapter_ramp_steps", 0),
+        )
+        model.load_state_dict(payload["model_state_dict"], strict=True)
+        model.to(device).eval()
+        return model, payload
+    if model_type in {"221b", "221c"}:
+        from experiments.backfill.block_ar.train_220d_recurrent_flow_transition import (
+            RecurrentFlowTransitionModel,
+        )
+
+        payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        cfg = payload["config"]
+        model = RecurrentFlowTransitionModel(
+            n_cells=cfg["n_cells"],
+            history_feat_dim=cfg["history_feat_dim"],
+            hidden_dim=cfg["hidden_dim"],
+            gru_layers=cfg["gru_layers"],
+            gru_dropout=cfg["gru_dropout"],
+            flow_hidden=cfg["flow_hidden"],
+            n_coupling_layers=cfg["n_coupling_layers"],
+            ewma_alpha=cfg["ewma_alpha"],
+            scale_floor=cfg["scale_floor"],
+            include_scale_feature=cfg["include_scale_feature"],
+            support_lo=cfg.get("support_lo", 0.01),
+            support_hi=cfg.get("support_hi", 1.0),
+        )
+        # DO NOT call init_recurrent_cells_from_gru -- cells are trained
+        model.load_state_dict(payload["model_state_dict"], strict=True)
+        model.to(device).eval()
+        return model, payload
     if model_type == "220g":
         from experiments.backfill.block_ar.train_220g_slow_regime_flow_transition import (
             load_model as load_220g_model,
@@ -135,6 +211,30 @@ def load_one_day_kernel(
         )
 
         return load_220j_model(checkpoint_path, device)
+    if model_type == "183c":
+        from experiments.backfill.block_ar.analyze_183c_best_mechanism import (
+            load_model as load_183c_model,
+        )
+
+        return load_183c_model(checkpoint_path, device)
+    if model_type in {"223a", "223b", "224a", "224b", "224c", "224d", "224e"}:
+        from experiments.backfill.block_ar.train_223a_generated_history_finetune import (
+            load_model as load_223_model,
+        )
+
+        return load_223_model(checkpoint_path, device)
+    if model_type in {"226a", "226b"}:
+        from experiments.backfill.block_ar.train_226a_factor_decoupled_flow import (
+            load_model as load_226a_model,
+        )
+
+        return load_226a_model(checkpoint_path, device)
+    if model_type == "227a":
+        from experiments.backfill.block_ar.train_227a_factor_ar import (
+            load_model as load_227a_model,
+        )
+
+        return load_227a_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 
