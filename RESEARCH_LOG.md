@@ -4,259 +4,6 @@ This document tracks the chronological research progress, findings, code changes
 
 ---
 
-## 2026-04-05 - Benchmark Strengthening for Realism Claims
-
-To address the benchmark blind spots identified in the independent
-verification pass, I strengthened the frozen v2 harness in
-`experiments/backfill/block_ar/test_block_ar_requirements_v2.py`.
-
-Changes made:
-- Strengthened `S4` with a gated per-cell tail-scale check using
-  `q99(|ΔIV|)` ratios, so aggregate kurtosis is no longer the only tail
-  realism guard.
-- Extended `S10` from a one-step sampled-mean reversion check to a
-  full-horizon mean-reversion profile at horizons `1/7/14/30`, with
-  aggregate slope-ratio, active-cell pass rate, and active-cell slope
-  correlation gates.
-- Added `S11 Pathwise Jump Realism`, covering:
-  - distribution of pathwise max `|ΔIV|`
-  - per-cell `q99(|ΔIV|)` jump scale
-  - extreme-jump window incidence
-
-Re-ran the current `178d` anchor under the stricter harness:
-- result: `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
-- pass profile: `S1, S4, S5, S6, S9, S10, S11`
-- fail profile: `S2, S3, S7, S8`
-
-Key conclusions:
-- `178d` still looks strong on broad structural realism, including the new
-  full-horizon mean-reversion and pathwise jump suites.
-- The remaining realism gap is still local conditional risk allocation:
-  worst-cell conditional width, regime-cell coverage, and window-floor
-  failures.
-- The benchmark is materially better than before, but it still does not
-  fully certify pathwise realism in the strict risk-manager sense.
-
-Remaining suite blind spots after this strengthening:
-- no explicit pathwise turning-point / overshoot / recovery test
-- no gated per-cell tail-shape test beyond `q99(|ΔIV|)` scale
-- no direct pathwise conditional-likelihood or rank-histogram style scenario
-  realism test
-- no dedicated long-horizon drift-shape test beyond the selected
-  `1/7/14/30` mean-reversion profile
-
-Bottom line:
-
-**The strengthened benchmark now closes the two most obvious realism gaps
-that were previously missing (full-horizon mean reversion and pathwise jump
-realism), and `178d` still survives those additions. The remaining failures
-are therefore more likely to be genuine model limitations rather than a
-benchmark artifact.**
-
----
-
-## 2026-04-05 - Current problems, benchmark additions, and 178e ideation
-
-This entry freezes three things:
-
-1. the current problem statement after the strengthened benchmark
-2. the benchmark additions themselves
-3. the full design conclusion for the next branch
-
-### A. Existing problems after the stronger realism benchmark
-
-Current anchor:
-- `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
-
-Current pass profile:
-- pass: `S1, S4, S5, S6, S9, S10, S11`
-- fail: `S2, S3, S7, S8`
-
-Interpretation:
-- the model is now broadly realistic on:
-  - support validity
-  - broad time-series behavior
-  - block continuity
-  - cross-cell dependence
-  - full-horizon mean reversion
-  - pathwise jump realism
-- the remaining realism gap is now much narrower:
-  - local conditional uncertainty allocation on hard `regime x horizon x cell`
-    slices, especially turbulent late-horizon central/right cells
-
-This means the current failures are mostly one core issue viewed through
-different suites:
-- `S2` = local per-cell coverage misallocation
-- `S3` = worst-cell conditional-width realism failure
-- `S7` = regime-by-cell local calibration failure
-- `S8` = bad-window local collapse
-
-### B. New benchmark suites / benchmark strengthening added
-
-All implemented in:
-- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
-
-Changes:
-- strengthened `S4` with gated per-cell tail-scale realism via `q99(|ΔIV|)`
-  ratios
-- extended `S10` from first-step mean reversion to full-horizon mean-reversion
-  profile at horizons `1/7/14/30`
-- added `S11 Pathwise Jump Realism` with:
-  - pathwise max `|ΔIV|` distribution
-  - per-cell extreme-jump scale
-  - extreme-jump window incidence
-
-Why these were needed:
-- earlier versions of the suite could miss realistic-path gaps even if the
-  broad score looked good
-- mean reversion was one concrete example of such a blind spot
-- pathwise jump realism and per-cell tail scale were the next obvious realism
-  blind spots
-
-### C. Remaining benchmark blind spots
-
-Even after the current strengthening, the suite still does not fully certify
-strict risk-grade path realism.
-
-Remaining blind spots:
-- no scenario-level turning-point / overshoot / recovery realism suite
-- no explicit co-jump / joint tail-dependence gate across cells
-- no direct pathwise conditional-likelihood or pathwise discriminator-style
-  realism score
-- no gated full-path scenario-level mean-reversion score beyond the
-  ensemble-profile `S10`
-
-These are worth adding later, but they are no longer the main blocker for the
-current branch.
-
-### D. Full 178e ideation conclusion
-
-Full memo:
-- `results/validations/2026-04-05/analysis/178_design/178e_full_ideation_memo.md`
-
-Main conclusion:
-- do **not** spend more time on router regularization, hand-engineered
-  condition routing, or another whole-model rewrite
-- the repo evidence now says the remaining bottleneck is the **uncertainty
-  expert family itself**
-
-Chosen next branch:
-
-`178e = support-aware exact block mixture of conditionally whitened
-residual-flow experts on top of the 177a/178d mean-reverting backbone`
-
-Why:
-- `178d` already has a working realism backbone
-- the router is alive
-- covariance templates are distinct
-- but even the best forced covariance template still misses the worst turbulent
-  slices
-- so the next move must enrich the local conditional-law experts themselves,
-  not the router
-
-What `178e` should keep:
-- support-aware transforms
-- explicit mean-reverting shared backbone
-- exact latent block mixture semantics
-- structured shared covariance backbone
-
-What `178e` should change:
-- replace covariance-only experts with **whitened residual-flow experts**
-- allow experts to model non-elliptical local residual laws
-- keep the design generic beyond Student-t and beyond IV surfaces
-
-One-sentence summary:
-
-**The benchmark is now materially stronger, the remaining failures are mostly
-one narrow local-uncertainty problem rather than a collection of unrelated
-issues, and the next principled move is `178e`: richer uncertainty experts on
-top of the already-working mean-reverting realism backbone.**
-
----
-
-## 2026-04-05 - 178e_v0 exact block flow-expert branch
-
-Artifacts:
-- training script:
-  `experiments/backfill/block_ar/train_178e_exact_block_flow_expert_mean_reverting_residual_flow.py`
-- checkpoint:
-  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/best_model.pt`
-- training trace:
-  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/training_history.json`
-- full strengthened benchmark:
-  `results/block_ar/178e_best_v2_s3mrj_full_30d/summary.json`
-
-What changed relative to `178d`:
-- kept the `177a/178d` shared mean-reverting backbone
-- kept exact block latent-mixture semantics
-- replaced covariance-only uncertainty experts with **blockwise whitened
-  residual-flow experts**
-- warm-started from `178d` and froze the shared backbone for the first 3 epochs
-
-Result:
-- `178e_v0` is a clean negative overall
-- under the strengthened `S3 + S10 + S11` harness it finishes at `6/11`
-
-Pass:
-- `S1`
-- `S4`
-- `S5`
-- `S6`
-- `S8`
-- `S9`
-- `S11`
-
-Fail:
-- `S2`
-- `S3`
-- `S7`
-- `S10`
-
-Key numbers from the best checkpoint:
-- `S2` overall 90% coverage: `82.7%`
-- `S2` h30 worst/best cell: `66.3% / 98.4%`
-- `S3` turb/calm: `1.075`
-- `S7` Layer 2: `0/8`
-- `S7` Layer 3 catastrophic: `5.3%`
-- `S8` window-floor failures: `4.1%` PASS
-- `S10` overall slope ratio: `1.060`, but active cells only `6/9`, active-cell
-  corr `0.651`, and full-horizon profile fails at `h=14/30`
-- `S11` pathwise jump realism: PASS
-
-Interpretation:
-- the richer expert family did help some broad distributional behavior:
-  - `S8` passes cleanly
-  - pathwise jump realism stays good
-  - broad temporal structure remains good
-- but it did **not** solve the core local uncertainty-allocation problem
-- and worse, it **gave back part of the mean-reversion realism** that the
-  `177a/178d` backbone had solved
-
-Most important conclusion:
-- `178e_v0` validates that moving to richer uncertainty experts is a real
-  research direction
-- but this first blockwise residual-flow-expert realization is **not** the
-  right stable formulation
-- in this form, the expert family is too unstable and trades away the
-  mean-reverting realism backbone rather than improving on it
-
-What this means:
-- do **not** promote `178e_v0` as the new anchor
-- keep `178d` as the current strongest broad-realism / mean-reversion anchor
-- if continuing the `178e` line, the next step is **not** another blind larger
-  flow expert
-- the next step would require a focused design/debug pass on why the expert
-  branch destabilized `S10` while only marginally helping `S8`
-
-One-sentence summary:
-
-**`178e_v0` showed that blockwise whitened residual-flow experts can preserve
- broad realism and improve window-floor behavior, but in the first
- implementation they do not fix the local uncertainty-allocation failures and
- they destabilize full-horizon mean reversion, so `178d` remains the anchor.**
-
----
-
 ## 2026-01-20: Multi-Horizon IV Surface Diffusion Research Synthesis
 
 ### Context
@@ -35617,7 +35364,7 @@ CPU overhead.
 ### Implementation: Vectorized Member Generation
 
 **Training forward()**: Replaced the sequential member loop:
-\`\`\`python
+```python
 # BEFORE (sequential): 8 members × 30 frames = 240 iterations
 for _ in range(n_members):
     z = self._sample_noise(B, device)
@@ -35632,7 +35379,7 @@ z = self._sample_noise(BK, device)  # independent noise per member
 for t in range(n_frames):
     delta = self.frame_decoder(prev_flat, condition, noise, ...)  # BK batch
 trajectory_all = torch.stack(frames, dim=1).reshape(B, n_members, T, H, W)
-\`\`\`
+```
 
 Each of the B*K items gets:
 - Same history (via repeat_interleave)
@@ -35771,7 +35518,7 @@ gamma, beta from 2-layer MLP on noise vector. Init: gamma≈1, beta≈0 (identit
 282K total params (+100K from CLN). B=32 OOM → used B=16 lr=2e-3.
 
 ### Training Command
-\`\`\`bash
+```bash
 PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \\
     --base_model models/backfill/block_ar_vol_scaled_30ep/best_model.pt \\
     --no_ema --epochs 30 --batch_size 16 --noise_dim 32 --n_members 8 \\
@@ -35784,7 +35531,7 @@ PYTHONPATH=. python experiments/backfill/block_ar/train_afcrps.py \\
     --ar_causal_transformer --ar_causal_n_layers 4 --ar_causal_d_model 64 \\
     --ar_causal_n_heads 4 --ar_causal_cln \\
     --output_dir models/backfill/afcrps_141a --device cuda
-\`\`\`
+```
 
 ### Results
 
@@ -36668,9 +36415,9 @@ Direct measurement of 143a ep30 ensemble spread on 41 test windows:
 ### Why h=1 Collapse Happens
 
 The stripped architecture (143a) removed vol_scale. In log-space dynamics:
-\`\`\`
+```
 iv_1 = prev * exp(delta_1)
-\`\`\`
+```
 At the FIRST frame, the transformer has only history context (no generated frames).
 The CLN noise modulates the output, but the model hasn't learned the correct MAGNITUDE
 for the first delta. Without vol_scale to calibrate the initial step size, the first
@@ -36766,9 +36513,9 @@ but h=7 (75%) and h=14 (80.6%) are also below target. The model's deltas are sys
 too conservative across the board.
 
 This is a direct consequence of removing vol_scale. In the old architecture:
-\`\`\`
+```
 delta_iv = vol_scale × delta_raw   (vol_scale ≈ 0.02, calibrated from history std)
-\`\`\`
+```
 The vol_scale CALIBRATED the raw network output to match GT step sizes. Without it,
 the model must learn the correct output magnitude purely from the loss. It learned
 conservatively — smaller deltas reduce MAE (accuracy term of CRPS) at the cost of
@@ -36942,14 +36689,14 @@ mean reversion speed by ~30% (82% vs 74% remaining at h=30).
 ### Multi-Cell Mean Reversion (h=30 gap / h=1 gap)
 Values < 1.0 = mean-reverting. Lower = faster reversion.
 
-\`\`\`
+```
 Model:                    GT would be lower (~0.60-0.75)
 0.69  0.56  0.75  0.75  0.40
 0.71  0.76  0.82  0.88 -1.17
 0.77  0.83  0.85  0.87  1.23
 0.82  0.85  0.87  0.88  0.83
 0.84  0.82  0.85  0.87  0.87
-\`\`\`
+```
 
 Most cells show ratios 0.75-0.88 (some reversion, but too slow).
 Cells (1,4) and (2,4) show ANTI-mean-reversion (>1.0) — these diverge.
@@ -60233,6 +59980,259 @@ One-sentence summary:
 covariance templates are genuinely different, but on the exact worst turbulent
 slices even the best forced template still misses badly, so the remaining
 bottleneck is template-family expressiveness, not router collapse.**
+
+---
+
+## 2026-04-05 - Benchmark Strengthening for Realism Claims
+
+To address the benchmark blind spots identified in the independent
+verification pass, I strengthened the frozen v2 harness in
+`experiments/backfill/block_ar/test_block_ar_requirements_v2.py`.
+
+Changes made:
+- Strengthened `S4` with a gated per-cell tail-scale check using
+  `q99(|ΔIV|)` ratios, so aggregate kurtosis is no longer the only tail
+  realism guard.
+- Extended `S10` from a one-step sampled-mean reversion check to a
+  full-horizon mean-reversion profile at horizons `1/7/14/30`, with
+  aggregate slope-ratio, active-cell pass rate, and active-cell slope
+  correlation gates.
+- Added `S11 Pathwise Jump Realism`, covering:
+  - distribution of pathwise max `|ΔIV|`
+  - per-cell `q99(|ΔIV|)` jump scale
+  - extreme-jump window incidence
+
+Re-ran the current `178d` anchor under the stricter harness:
+- result: `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
+- pass profile: `S1, S4, S5, S6, S9, S10, S11`
+- fail profile: `S2, S3, S7, S8`
+
+Key conclusions:
+- `178d` still looks strong on broad structural realism, including the new
+  full-horizon mean-reversion and pathwise jump suites.
+- The remaining realism gap is still local conditional risk allocation:
+  worst-cell conditional width, regime-cell coverage, and window-floor
+  failures.
+- The benchmark is materially better than before, but it still does not
+  fully certify pathwise realism in the strict risk-manager sense.
+
+Remaining suite blind spots after this strengthening:
+- no explicit pathwise turning-point / overshoot / recovery test
+- no gated per-cell tail-shape test beyond `q99(|ΔIV|)` scale
+- no direct pathwise conditional-likelihood or rank-histogram style scenario
+  realism test
+- no dedicated long-horizon drift-shape test beyond the selected
+  `1/7/14/30` mean-reversion profile
+
+Bottom line:
+
+**The strengthened benchmark now closes the two most obvious realism gaps
+that were previously missing (full-horizon mean reversion and pathwise jump
+realism), and `178d` still survives those additions. The remaining failures
+are therefore more likely to be genuine model limitations rather than a
+benchmark artifact.**
+
+---
+
+## 2026-04-05 - Current problems, benchmark additions, and 178e ideation
+
+This entry freezes three things:
+
+1. the current problem statement after the strengthened benchmark
+2. the benchmark additions themselves
+3. the full design conclusion for the next branch
+
+### A. Existing problems after the stronger realism benchmark
+
+Current anchor:
+- `results/block_ar/178d_best_v2_s3mrj_full_30d/summary.json`
+
+Current pass profile:
+- pass: `S1, S4, S5, S6, S9, S10, S11`
+- fail: `S2, S3, S7, S8`
+
+Interpretation:
+- the model is now broadly realistic on:
+  - support validity
+  - broad time-series behavior
+  - block continuity
+  - cross-cell dependence
+  - full-horizon mean reversion
+  - pathwise jump realism
+- the remaining realism gap is now much narrower:
+  - local conditional uncertainty allocation on hard `regime x horizon x cell`
+    slices, especially turbulent late-horizon central/right cells
+
+This means the current failures are mostly one core issue viewed through
+different suites:
+- `S2` = local per-cell coverage misallocation
+- `S3` = worst-cell conditional-width realism failure
+- `S7` = regime-by-cell local calibration failure
+- `S8` = bad-window local collapse
+
+### B. New benchmark suites / benchmark strengthening added
+
+All implemented in:
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+
+Changes:
+- strengthened `S4` with gated per-cell tail-scale realism via `q99(|ΔIV|)`
+  ratios
+- extended `S10` from first-step mean reversion to full-horizon mean-reversion
+  profile at horizons `1/7/14/30`
+- added `S11 Pathwise Jump Realism` with:
+  - pathwise max `|ΔIV|` distribution
+  - per-cell extreme-jump scale
+  - extreme-jump window incidence
+
+Why these were needed:
+- earlier versions of the suite could miss realistic-path gaps even if the
+  broad score looked good
+- mean reversion was one concrete example of such a blind spot
+- pathwise jump realism and per-cell tail scale were the next obvious realism
+  blind spots
+
+### C. Remaining benchmark blind spots
+
+Even after the current strengthening, the suite still does not fully certify
+strict risk-grade path realism.
+
+Remaining blind spots:
+- no scenario-level turning-point / overshoot / recovery realism suite
+- no explicit co-jump / joint tail-dependence gate across cells
+- no direct pathwise conditional-likelihood or pathwise discriminator-style
+  realism score
+- no gated full-path scenario-level mean-reversion score beyond the
+  ensemble-profile `S10`
+
+These are worth adding later, but they are no longer the main blocker for the
+current branch.
+
+### D. Full 178e ideation conclusion
+
+Full memo:
+- `results/validations/2026-04-05/analysis/178_design/178e_full_ideation_memo.md`
+
+Main conclusion:
+- do **not** spend more time on router regularization, hand-engineered
+  condition routing, or another whole-model rewrite
+- the repo evidence now says the remaining bottleneck is the **uncertainty
+  expert family itself**
+
+Chosen next branch:
+
+`178e = support-aware exact block mixture of conditionally whitened
+residual-flow experts on top of the 177a/178d mean-reverting backbone`
+
+Why:
+- `178d` already has a working realism backbone
+- the router is alive
+- covariance templates are distinct
+- but even the best forced covariance template still misses the worst turbulent
+  slices
+- so the next move must enrich the local conditional-law experts themselves,
+  not the router
+
+What `178e` should keep:
+- support-aware transforms
+- explicit mean-reverting shared backbone
+- exact latent block mixture semantics
+- structured shared covariance backbone
+
+What `178e` should change:
+- replace covariance-only experts with **whitened residual-flow experts**
+- allow experts to model non-elliptical local residual laws
+- keep the design generic beyond Student-t and beyond IV surfaces
+
+One-sentence summary:
+
+**The benchmark is now materially stronger, the remaining failures are mostly
+one narrow local-uncertainty problem rather than a collection of unrelated
+issues, and the next principled move is `178e`: richer uncertainty experts on
+top of the already-working mean-reverting realism backbone.**
+
+---
+
+## 2026-04-05 - 178e_v0 exact block flow-expert branch
+
+Artifacts:
+- training script:
+  `experiments/backfill/block_ar/train_178e_exact_block_flow_expert_mean_reverting_residual_flow.py`
+- checkpoint:
+  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/best_model.pt`
+- training trace:
+  `models/backfill/exact_block_flow_expert_mean_reverting_residual_flow_structured_joint_student_t_178e/training_history.json`
+- full strengthened benchmark:
+  `results/block_ar/178e_best_v2_s3mrj_full_30d/summary.json`
+
+What changed relative to `178d`:
+- kept the `177a/178d` shared mean-reverting backbone
+- kept exact block latent-mixture semantics
+- replaced covariance-only uncertainty experts with **blockwise whitened
+  residual-flow experts**
+- warm-started from `178d` and froze the shared backbone for the first 3 epochs
+
+Result:
+- `178e_v0` is a clean negative overall
+- under the strengthened `S3 + S10 + S11` harness it finishes at `6/11`
+
+Pass:
+- `S1`
+- `S4`
+- `S5`
+- `S6`
+- `S8`
+- `S9`
+- `S11`
+
+Fail:
+- `S2`
+- `S3`
+- `S7`
+- `S10`
+
+Key numbers from the best checkpoint:
+- `S2` overall 90% coverage: `82.7%`
+- `S2` h30 worst/best cell: `66.3% / 98.4%`
+- `S3` turb/calm: `1.075`
+- `S7` Layer 2: `0/8`
+- `S7` Layer 3 catastrophic: `5.3%`
+- `S8` window-floor failures: `4.1%` PASS
+- `S10` overall slope ratio: `1.060`, but active cells only `6/9`, active-cell
+  corr `0.651`, and full-horizon profile fails at `h=14/30`
+- `S11` pathwise jump realism: PASS
+
+Interpretation:
+- the richer expert family did help some broad distributional behavior:
+  - `S8` passes cleanly
+  - pathwise jump realism stays good
+  - broad temporal structure remains good
+- but it did **not** solve the core local uncertainty-allocation problem
+- and worse, it **gave back part of the mean-reversion realism** that the
+  `177a/178d` backbone had solved
+
+Most important conclusion:
+- `178e_v0` validates that moving to richer uncertainty experts is a real
+  research direction
+- but this first blockwise residual-flow-expert realization is **not** the
+  right stable formulation
+- in this form, the expert family is too unstable and trades away the
+  mean-reverting realism backbone rather than improving on it
+
+What this means:
+- do **not** promote `178e_v0` as the new anchor
+- keep `178d` as the current strongest broad-realism / mean-reversion anchor
+- if continuing the `178e` line, the next step is **not** another blind larger
+  flow expert
+- the next step would require a focused design/debug pass on why the expert
+  branch destabilized `S10` while only marginally helping `S8`
+
+One-sentence summary:
+
+**`178e_v0` showed that blockwise whitened residual-flow experts can preserve
+ broad realism and improve window-floor behavior, but in the first
+ implementation they do not fix the local uncertainty-allocation failures and
+ they destabilize full-horizon mean reversion, so `178d` remains the anchor.**
 
 ---
 
