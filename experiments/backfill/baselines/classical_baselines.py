@@ -3,6 +3,10 @@
 All baselines implement the same interface as SinglePassBlockAR:
     model.sample(history, n_samples=50) -> (B, n_samples, T_fut, 5, 5) in [0, 1]
 
+Joint 38-d interface (for multi-factor benchmark):
+    model.sample_joint(history_changes, n_samples) -> (B, n_samples, T_fut, D)
+    Returns daily changes (not levels). Caller handles IV reconstruction.
+
 Baselines:
     1. RandomWalk — persist last surface + scaled Gaussian noise
     2. HistoricalSimulation — sample matching windows from training data

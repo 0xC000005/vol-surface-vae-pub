@@ -71557,3 +71557,614 @@ The change KS regression (24→16) is NOT a decoder expressiveness problem. It's
 The bottleneck is compounding, not the decoder. Next direction should address WHY per-step innovations are imperfect (loss function? capacity? noise structure?) rather than trying to make the decoder more expressive.
 
 ---
+
+## 2026-04-13: Benchmark A — Joint 38-d Multi-Factor Baseline Comparison
+
+### Context
+Extended IV-only (25-dim) baseline comparison to joint 38-d forecasting (25 IV surface cells + 13 financial factors: SPX, Nikkei, USDCAD, USDJPY, DXY, Gold, Copper, Wheat, Crude Oil, US2Y, US10Y, AAA OAS, BBB OAS). All baselines generate the full 38-d daily change vector from past-only information (no future factor oracle). IV surfaces reconstructed via cumsum + anchor for existing test suites.
+
+**Data**: `multi_factor_data.npz` aligned to IV surface dates by date-matching (3 extra MF dates: 2000-09-15, 2000-09-18, 2023-02-27). Verified SPX return alignment r=1.000. Factor returns NaN→0.0, factor levels forward-filled. Training changes: 4039 rows (38-d).
+
+**Baselines (9)**: 6 classical (JointRandomWalk, JointBootstrap, JointHistoricalSim, JointPCAVAR, JointGARCHCCC, JointFilteredHS) + 3 deep (DeepVAR 38-d, TimeGrad 38-d, CSDI 38-d). Dropped CVAE (spatial 5x5 arch), DCC-GARCH (unused, O(D²)).
+
+**Evaluation**: Panel A = 5 IV test suites (S1, S2, S4, S8, S9). Panel B = per-factor CRPS, standardized Energy Score, Variogram Score, correlation Frobenius, factor KS.
+
+### Panel A: IV Suite Results
+
+| Baseline       | S1 | S2 | S4 | S8 | S9 | IV Pass |
+|----------------|----|----|----|----|-----|---------|
+| RandomWalk     | F  | F  | F  | F  | P   | 1/5     |
+| Bootstrap      | F  | F  | F  | F  | P   | 1/5     |
+| HistoricalSim  | P  | F  | F  | F  | P   | 2/5     |
+| PCA-VAR        | P  | F  | F  | F  | P   | 2/5     |
+| GARCH-CCC      | F  | F  | F  | F  | P   | 1/5     |
+| FilteredHS     | P  | F  | F  | F  | P   | 2/5     |
+| DeepVAR        | P  | F  | F  | F  | P   | 2/5     |
+| TimeGrad       | P  | F  | F  | F  | P   | 2/5     |
+| **CSDI**       | P  | F  | **P** | F | P  | **3/5** |
+
+### Panel B: Factor Metrics
+
+| Baseline       | CRPS    | ES(std) | VS      | CorrScore | KS    |
+|----------------|---------|---------|---------|-----------|-------|
+| RandomWalk     | .01295  | 3.09    | .214    | .664      | 0/13  |
+| Bootstrap      | .01156  | 2.96    | .163    | .663      | 0/13  |
+| HistoricalSim  | .01157  | 2.95    | .158    | .684      | 0/13  |
+| PCA-VAR        | .01173  | 2.91    | .157    | .246      | 0/13  |
+| GARCH-CCC      | .01334  | 3.78    | .696    | .600      | 0/13  |
+| FilteredHS     | .01141  | 2.93    | .153    | .669      | 0/13  |
+| DeepVAR        | .01169  | 2.93    | .163    | .686      | 0/13  |
+| TimeGrad       | .01157  | 2.89    | .154    | .622      | 0/13  |
+| **CSDI**       | **.01117** | 2.89 | **.143** | .609     | 0/13  |
+
+### Deep Baseline Training Details
+
+| Model    | Params  | Best Epoch | Val Loss | Early Stop |
+|----------|---------|------------|----------|------------|
+| DeepVAR  | 252,426 | 5          | 106.75   | Epoch 25   |
+| TimeGrad | 331,174 | 5          | 1.84     | Epoch 25   |
+| CSDI     | 414,113 | 50         | 0.2338   | Epoch 80   |
+
+### Key Findings
+
+1. **CSDI is the strongest baseline under the current configuration** — only one to pass S4 (time series properties), best CRPS (0.01117), best Variogram Score (0.143). Its score-based diffusion handles the 38-d joint distribution better than autoregressive approaches. Single-seed result; ES is effectively tied with TimeGrad.
+
+2. **FilteredHS is the best classical baseline** — best CRPS (0.01141) and VS (0.153) among classical methods. GARCH variance filtering + empirical residual bootstrap is a strong nonparametric approach.
+
+3. **GARCH-CCC is worst overall** — highest CRPS (0.01334), ES (3.78), VS (0.696). The multivariate Student-t with 38-d correlation matrix produces unstable samples. Heavy tails in 38 dimensions cause explosive paths.
+
+4. **PCA-VAR has worst correlation preservation** (CorrScore 0.246) — PCA projects to 10 components capturing 71% variance, destroying cross-dimension structure. The reconstruction via inverse PCA smooths out factor-specific dynamics.
+
+5. **All baselines fail S2 (CI coverage) and S8 (distributional fidelity)** — calibration and marginal matching are hard for any baseline in the 38-d joint setting.
+
+6. **Factor KS is 0/13 for all baselines** — none match marginal factor return distributions. This is expected: models trade marginal accuracy for joint structure, and 320 test windows may be insufficient for the KS test to pass on heavy-tailed financial returns.
+
+7. **DeepVAR and TimeGrad overfit quickly** — both best at epoch 5, val loss diverging by epoch 25. The 38-d output space is large relative to training data (3980 windows). CSDI's diffusion framework is more data-efficient.
+
+### Implementation
+
+New files created:
+- `experiments/backfill/baselines/data_loader_38d.py` — aligned 38-d data loader
+- `experiments/backfill/baselines/joint_classical_baselines.py` — 6 joint classical baselines
+- `experiments/backfill/baselines/joint_deep_baselines.py` — 3 joint deep baseline wrappers
+- `experiments/backfill/baselines/train_{deepvar,timegrad,csdi}_38d.py` — training scripts
+- `experiments/backfill/baselines/evaluate_baselines_38d.py` — evaluation harness
+
+Checkpoints: `models/backfill/baselines/{deepvar,timegrad,csdi}_38d/best_model.pt`
+Results: `results/baselines_38d/{baseline}/results_38d.json`
+
+### Decision
+Classical and deep baselines established for paper Table 2. CSDI at 3/5 is the strongest competitor. Our model needs to be evaluated on the same 38-d joint benchmark for direct comparison. Benchmark B (scenario generation with known future factor paths) deferred until main benchmark comparison is complete.
+
+---
+
+## 2026-04-13: Benchmark A v2 — Updated 7-Suite Evaluation + Provenance
+
+### Context
+Re-ran all 9 baselines after adding S3 (Conditionality) and S7 (Regime Coverage) to the
+evaluation harness. Also added `eval_config` provenance block to all result JSONs.
+
+Addresses review feedback:
+- Gap between planned 9 suites and reported 5 suites → now 7 suites (S5 Block-AR and S6
+  Cointegration still excluded as trivial/informational for non-AR baselines, same as IV-only)
+- Missing provenance → full eval_config in every result JSON (seed, splits, column order,
+  normalization source, clipping rule, suites run)
+
+### Panel A: IV Suite Results (7 suites)
+
+| Baseline       | S1 | S2 | S3 | S4 | S7 | S8 | S9 | Pass |
+|----------------|----|----|----|----|----|----|-----|------|
+| RandomWalk     | F  | F  | F  | F  | F  | F  | P   | 1/7  |
+| Bootstrap      | F  | F  | F  | F  | F  | F  | P   | 1/7  |
+| HistoricalSim  | P  | F  | F  | F  | F  | F  | P   | 2/7  |
+| PCA-VAR        | P  | F  | F  | F  | F  | F  | P   | 2/7  |
+| GARCH-CCC      | F  | F  | F  | F  | F  | F  | P   | 1/7  |
+| FilteredHS     | P  | F  | F  | F  | F  | F  | P   | 2/7  |
+| DeepVAR        | P  | F  | F  | F  | F  | F  | P   | 2/7  |
+| TimeGrad       | P  | F  | F  | F  | F  | F  | P   | 2/7  |
+| **CSDI**       | P  | F  | F  | **P** | F | F  | P   | **3/7** |
+
+### Panel B: Factor Metrics (unchanged from v1)
+
+| Baseline       | CRPS    | ES(std) | VS      | CorrScore | KS    |
+|----------------|---------|---------|---------|-----------|-------|
+| RandomWalk     | .01295  | 3.09    | .214    | .664      | 0/13  |
+| Bootstrap      | .01156  | 2.96    | .163    | .663      | 0/13  |
+| HistoricalSim  | .01157  | 2.95    | .158    | .684      | 0/13  |
+| PCA-VAR        | .01173  | 2.91    | .157    | .246      | 0/13  |
+| GARCH-CCC      | .01334  | 3.78    | .696    | .600      | 0/13  |
+| FilteredHS     | .01141  | 2.93    | .153    | .669      | 0/13  |
+| DeepVAR        | .01171  | 2.93    | .161    | .685      | 0/13  |
+| TimeGrad       | .01155  | 2.89    | .153    | .621      | 0/13  |
+| **CSDI**       | **.01119** | 2.90 | **.142** | .629     | 0/13  |
+
+### S3 Details: Turb/Calm Width Ratios
+
+| Baseline       | Turb/Calm Ratio | Worst Cell | Pass? |
+|----------------|-----------------|------------|-------|
+| RandomWalk     | 1.012           | 0.887      | F     |
+| Bootstrap      | 1.035           | 0.881      | F     |
+| HistoricalSim  | 1.142           | 0.815      | F     |
+| PCA-VAR        | 1.041           | 0.920      | F     |
+| GARCH-CCC      | 1.164           | 0.556      | F     |
+| FilteredHS     | 1.190           | 0.449      | F     |
+| DeepVAR        | 1.224           | 0.507      | F     |
+| TimeGrad       | 1.088           | 1.007      | F     |
+| CSDI           | 1.246           | 0.511      | F     |
+
+All baselines fail S3. The turb/calm ratio exceeds 1.15 for GARCH-CCC, FilteredHS,
+DeepVAR, and CSDI — but worst-cell gate fails because some IV cells show *narrower*
+CI in turbulent regime (ratio < 1.0). This is a genuine finding: baselines lack
+selective per-cell regime sensitivity. Our model must pass this gate.
+
+### Key Corrections from Review
+
+1. **Factor KS 0/13 explained**: Bootstrap resamples from training pool but KS compares
+   against test ground truth. Train/test distribution shift (500-day gap) causes the
+   mismatch. Bootstrap correctly preserves train marginals — the KS test measures
+   train-vs-test shift, not model failure.
+
+2. **No future-factor leakage**: Verified in code for all 3 deep baselines:
+   - CSDI: `gt_mask[:, T_hist:, :] = 0.0` — all 38 future dims unobserved
+   - DeepVAR: feeds back own `dist.rsample()` at each AR step
+   - TimeGrad: feeds back own DDPM-generated `x` at each AR step
+
+3. **Provenance block added**: Every result JSON now contains `eval_config` with seed,
+   splits, column order, normalization source, clipping rule, and suites run.
+
+### Decision
+CSDI is the strongest baseline under the current configuration at 3/7 (S1, S4, S9).
+FilteredHS is the strongest classical baseline at 2/7. CRPS ranking (CSDI > FilteredHS >
+TimeGrad) is statistically supported by paired bootstrap CIs, though single-seed and
+ES is effectively tied between CSDI and TimeGrad. S3 and S7 are universally failed —
+these are the suites where our model's conditional architecture should differentiate.
+
+### Appendix: Robustness Diagnostics
+
+#### A. Train-vs-Test Marginal Shift
+
+27/38 dimensions show significant distribution shift (KS p<0.05) between train (4039 rows)
+and test (1282 rows). This is the primary explanation for 0/13 factor KS across all baselines.
+
+| Category | Shifted | Total | Rate |
+|----------|---------|-------|------|
+| IV cells | 19 | 25 | 76% |
+| Factors  | 8 | 13 | 62% |
+| **All**  | **27** | **38** | **71%** |
+
+Largest shifts: iv_4_0 (KS=0.126), iv_2_0 (KS=0.118), iv_3_0 (KS=0.109) — deep OTM
+short-tenor cells. Among factors: us2y_diff (KS=0.079), us10y_diff (KS=0.082),
+aaa_oas_diff (KS=0.078) — rates/credit regime shift 2020-2023.
+
+Bootstrap correctly preserves training marginals. The KS test measures **train-vs-test
+distribution shift**, not model failure. Any baseline trained on pre-2020 data and
+evaluated on 2020-2023 will fail this test.
+
+#### B. Paired Bootstrap CIs (CRPS, 10,000 resamples)
+
+| Comparison | Mean diff | 95% CI | Significant? |
+|------------|----------|--------|-------------|
+| CSDI vs FilteredHS | -0.000219 (-1.9%) | [-0.000457, -0.000043] | **YES** |
+| CSDI vs TimeGrad | -0.000358 (-3.1%) | [-0.000536, -0.000212] | **YES** |
+| FilteredHS vs TimeGrad | -0.000139 (-1.2%) | [-0.000323, +0.000100] | NO |
+
+CSDI's CRPS advantage over FilteredHS is small (1.9%) but statistically significant
+at 95% confidence. FilteredHS and TimeGrad are not statistically distinguishable.
+
+Negative diff = first baseline is better. Bootstrap over 152 observations (4 horizons × 38 dims).
+
+**Note:** Single-seed results. ES is effectively tied (CSDI 2.90 vs TimeGrad 2.89). The
+ordering is robust for CRPS and VS, but a 3-seed rerun would strengthen the claim.
+
+---
+
+---
+
+## 2026-04-13: 229a Wide Decoder Capacity Test + Compounding Diagnostic
+
+### Hypothesis
+Can a wider decoder (256 hidden vs 128) + longer training (60 epochs vs 30) materially improve per-cell marginals while preserving the structural gains of 227a +skip+d3+vs10? And WHERE does compounding start to degrade the innovation law?
+
+### Setup
+- **Only intervention**: decoder_hidden 128→256 (all else matched to frontier checkpoint)
+- K=128 (matched to baseline), B=16, N=30, ES+VS, lambda_vs=0.10
+- Dense checkpointing: every 2 epochs up to 20, every 5 after
+- 513K params (vs ~255K for 128-hidden baseline)
+
+### Training Summary
+- 60 epochs, ~45 minutes total (17-84s/epoch depending on GPU contention)
+- Train loss: 0.1932→0.1095 (43% reduction)
+- Val loss stable ~0.20 (best at epoch 9: 0.1932)
+- Loss spike at epoch 48, recovered by 50
+
+### Results: Comparison Table
+
+| Metric | 226a rollout | 227a orig | 227a +skip+d3+vs10 | **229a@30** | 229a best (ep9) | 229a final (ep60) |
+|--------|-------------|-----------|---------------------|-------------|-----------------|-------------------|
+| Score (/7) | 2 | 2 | 2 | **2** | 2 | 2 |
+| Corr ratio | 0.857 | 1.477 | 0.966 | **1.125** | 0.923 | 1.061 |
+| Rank ratio | 1.744 | 0.702 | 1.494 | **1.129** | 1.468 | 1.253 |
+| MR ratio | 0.891 | 0.820 | 0.859 | **1.330** | 0.953 | 1.496 |
+| Change KS | 20/25 | 16/25 | 16/25 | **19/25** | 18/25 | 16/25 |
+| Level KS | 0/25 | 9/25 | 14/25 | **16/25** | 2/25 | 4/25 |
+| Turb/calm | 1.023 | 1.259 | 1.084 | **0.957** | 0.937 | 0.962 |
+| Jump KS | 0.521 | 0.751 | 0.438 | **0.509** | 0.560 | 0.535 |
+| h1 cov90 | - | - | 0.810 | **0.725** | 0.803 | 0.662 |
+| h30 cov90 | - | - | 0.746 | **0.661** | 0.732 | 0.606 |
+
+### Key Finding: 229a@30 Is the Best Checkpoint
+
+Epoch 30 (width at matched training budget) is clearly the best:
+- **Change KS: 19/25** (+3 from baseline 16/25)
+- **Level KS: 16/25** (+2 from baseline 14/25, first time passing ≥15 gate!)
+- **Rank ratio: 1.129** (best ever for this line, near 183c's 1.113)
+- MR: 1.330 (borderline, just outside [0.70, 1.30] gate)
+- Corr: 1.125 (within [0.75, 1.25] gate)
+
+### Attribution: Width Helped, Extra Training Degraded
+
+| Comparison | Change KS | Level KS | Corr | Rank |
+|------------|-----------|----------|------|------|
+| 227a baseline (128h, ~30ep) | 16/25 | 14/25 | 0.966 | 1.494 |
+| 229a@30 (256h, 30ep) | **19/25** | **16/25** | 1.125 | **1.129** |
+| 229a best (256h, ep9) | 18/25 | 2/25 | 0.923 | 1.468 |
+| 229a final (256h, ep60) | 16/25 | 4/25 | 1.061 | 1.253 |
+
+**Width is the lever.** The ep30 checkpoint achieves the best metrics. Extra training (ep60) regresses level KS from 16→4 (overfitting). The best_model.pt (ep9 by val loss) also has degraded level KS (2/25), suggesting val loss is not a good proxy for level stationarity.
+
+### Compounding Diagnostic: ROOT CAUSE IDENTIFIED
+
+Teacher-forced vs self-fed comparison reveals the mechanism:
+
+| Horizon | 229a TF ChgKS | 229a SF ChgKS | Gap | 227a TF ChgKS | 227a SF ChgKS | Gap |
+|---------|--------------|--------------|-----|---------------|--------------|-----|
+| h=5 | 24/25 | 15/25 | +9 | 24/25 | 10/25 | +14 |
+| h=10 | 25/25 | 11/25 | +14 | 25/25 | 6/25 | +19 |
+| h=20 | 25/25 | 10/25 | +15 | 25/25 | 3/25 | +22 |
+| h=30 | 25/25 | 10/25 | +15 | 25/25 | 0/25 | +25 |
+
+**Both models achieve perfect (25/25) change KS under teacher-forcing.** The dominant residual error is self-fed compounding, with EWMA scale collapse as the clearest mechanism and recurrent-state drift as a likely co-contributor. Teacher-forcing stabilizes both scale AND GRU state, so we cannot attribute the full gap to scale alone.
+
+229a is more robust: retains 10/25 at h=30 vs 0/25 for baseline. The wider decoder produces innovations that are more resistant to compounding.
+
+### Root Cause: EWMA Local Scale Collapse
+
+Per-step diagnostics reveal the smoking gun:
+
+| Step | 229a SF scale | 229a TF scale | 227a SF scale | 227a TF scale |
+|------|-------------|-------------|--------------|-------------|
+| 0 | 0.01787 | 0.01787 | 0.01787 | 0.01787 |
+| 4 | 0.01401 | 0.01796 | 0.01479 | 0.01796 |
+| 9 | 0.00969 | 0.01788 | 0.01043 | 0.01788 |
+| 19 | 0.00701 | 0.01793 | 0.00504 | 0.01793 |
+| 29 | 0.00642 | 0.01775 | 0.00251 | 0.01775 |
+
+Under teacher-forcing, local_scale stays at ~0.018 (driven by real data volatility). Under self-feeding:
+- **227a: 86% collapse** (0.018→0.003) — innovations shrink to near-zero
+- **229a: 65% collapse** (0.018→0.006) — wider decoder mitigates but doesn't solve
+
+**Feedback loop**: model generates slightly too smooth paths → EWMA scale shrinks → smaller innovations → even smoother paths → scale collapses → change distribution becomes degenerate.
+
+### Wrapper/Native Decision Gate: TRIGGERED
+
+Both models show large wrapper/native gaps (change KS differs by 8-16 cells). Wrapper (re-encoding each step) produces DIFFERENT results from native (maintained GRUCell state). Native performs worse on change KS, suggesting GRUCell state drift compounds with scale collapse.
+
+### Nanda Questions
+1. **Was prediction correct?** Partially. Change KS improved 16→19 (expected improvement). But level KS regressed badly at later epochs (unexpected).
+2. **What would I do differently?** Monitor level KS per-epoch during training, not just val loss. Val loss is not a proxy for level stationarity.
+3. **Most interesting finding?** The local_scale collapse mechanism. Under teacher-forcing, BOTH models achieve 25/25 change KS — the per-step innovation capacity is sufficient. The dominant compounding failure is mediated by the EWMA feedback loop and recurrent-state drift, not raw decoder capacity.
+
+### Decision Memo: Conclusion B (Compounding, Not Capacity)
+
+**Capacity helped materially** (19 vs 16 change KS, 16 vs 14 level KS at matched training budget). But the diagnostic shows the dominant remaining problem is **self-fed compounding — EWMA scale collapse as the clearest mechanism, recurrent-state drift as a co-contributor** — not decoder capacity:
+- Teacher-forced: 25/25 (perfect)
+- Self-fed: 10/25 (229a) to 0/25 (227a)
+
+**229a@30 is NOT a universal replacement for 227a +skip+d3+vs10.** It is better on marginal KS (19 vs 16) and structural fit (rank 1.129 vs 1.494), but worse on h1/h30 coverage (0.725/0.661 vs 0.810/0.746), jump KS (0.509 vs 0.438), and turb/calm (0.957 vs 1.084). Best checkpoint depends on which metrics matter for the use case.
+
+**Before making any strong frontier claim, the wrapper/native mismatch must be resolved.** Currently the evaluation harness (wrapper) and the truly autonomous rollout (native) produce materially different results.
+
+**Next principled experiment should target the scale/state feedback loop directly.** Options ranked by cleanliness:
+1. **Anchored EWMA ablation**: blend self-fed scale with history-conditioned anchor (cheapest test of whether scale collapse is the primary mechanism)
+2. **Scale-trajectory distillation**: add a loss matching self-fed scale paths to teacher-forced scale paths
+3. **Scheduled sampling for scale/state recursion only**: gradually transition from GT-fed to self-fed during training
+4. Replace EWMA entirely with a learned scale predictor conditioned on history + GRU state
+
+Files: train_227a_factor_ar.py (updated with dense checkpointing), diagnose_229a_compounding.py (NEW), screen_229a_checkpoints.py (NEW), results/block_ar/229a_*.json
+
+---
+
+## 2026-04-13: 230a — Causal Decomposition: Scale Collapse vs State Drift
+
+### Context
+229a established that teacher-forced rollout is near-perfect (25/25 change KS at h30) while self-fed collapses (10/25 for 229a, 0/25 for 227a). EWMA local_scale collapses 64% (229a) to 86% (227a). The wrapper re-encoding path recovers some of the gap. This experiment causally decomposes: how much is scale collapse, how much is state drift, and does combining both saturate the recovery?
+
+No training. Pure inference-time interventions on existing checkpoints.
+
+### Intervention Matrix
+9 modes per checkpoint. State knob: teacher_forced | native_self_fed | wrapper_reencode. Scale knob: self_fed_scale | anchor_blend(alpha) | oracle_teacher_forced_scale. All modes use paired pre-generated noise for fair comparison.
+
+Anchor blend: log_s_used = (1-alpha)*log(s_ewma) + alpha*log(s_anchor0), where s_anchor0 is the history-derived initial scale held constant. Oracle: inject the exact teacher-forced scale trajectory at each step.
+
+### Key Results — 229a@30
+
+| Mode | h=10 ChgKS | h=20 ChgKS | h=30 ChgKS | h=30 LvlKS | h=30 Corr | h=30 Jump | Scale@t29 |
+|------|-----------|-----------|-----------|-----------|----------|----------|-----------|
+| TF (upper bound) | 25 | 25 | 25 | 23 | 0.922 | 0.481 | 1.013 |
+| Native (baseline) | 12 | 10 | 10 | 7 | 1.170 | 0.931 | 0.358 |
+| Native + anchor(0.50) | 15 | 18 | 19 | 6 | 1.287 | 0.940 | 0.919 |
+| Native + oracle scale | 16 | 19 | 19 | 4 | 1.300 | 0.930 | 1.011 |
+| Wrapper-path | 22 | 20 | 18 | 0 | 1.068 | 0.595 | 2.006 |
+| Wrapper + anchor(0.50) | **24** | **24** | **24** | 0 | 1.311 | 0.481 | 0.997 |
+| Wrapper + oracle | **24** | **24** | **24** | 0 | 1.346 | 0.359 | 1.011 |
+
+Gap = 15 cells (TF=25, native=10). Anchor alone: +9 (60%). Wrapper alone: +8 (53%). Combined: +14 (93%).
+
+### Key Results — 227a baseline
+
+| Mode | h=10 ChgKS | h=20 ChgKS | h=30 ChgKS | h=30 LvlKS | h=30 Corr | h=30 Jump | Scale@t29 |
+|------|-----------|-----------|-----------|-----------|----------|----------|-----------|
+| TF (upper bound) | 25 | 25 | 25 | 24 | 0.742 | 0.196 | 1.013 |
+| Native (baseline) | 5 | 3 | 0 | 5 | 1.004 | 0.946 | 0.142 |
+| Native + anchor(0.50) | 16 | 14 | 14 | 1 | 1.069 | 0.929 | 0.905 |
+| Native + oracle scale | 17 | 14 | 14 | 1 | 1.092 | 0.885 | 1.011 |
+| Wrapper-path | 22 | 17 | 15 | 17 | 0.955 | 0.451 | 0.880 |
+| Wrapper + anchor(0.50) | 22 | 22 | **24** | 13 | 1.173 | 0.508 | 0.902 |
+| Wrapper + oracle | **25** | **25** | **25** | 7 | 1.193 | 0.272 | 1.011 |
+
+Gap = 25 cells. Anchor alone: +14 (56%). Wrapper alone: +15 (60%). Combined: +24 (96%). Wrapper+oracle: +25 (100%).
+
+### Scale Trajectory Analysis
+
+| Model | Mode | Scale ratio at t=29 |
+|-------|------|-------------------|
+| 229a | Native self-fed | 0.358 (64% collapse) |
+| 229a | Anchor(0.50) | 0.919 (stabilized) |
+| 229a | Wrapper (re-encode) | 2.006 (INFLATION — wider decoder creates larger deltas in sliding window) |
+| 229a | Wrapper + anchor(0.50) | 0.997 (stabilized) |
+| 227a | Native self-fed | 0.142 (86% collapse) |
+| 227a | Anchor(0.50) | 0.905 (stabilized) |
+| 227a | Wrapper (re-encode) | 0.880 (modest collapse, much better than native) |
+| 227a | Wrapper + anchor(0.50) | 0.902 (stabilized) |
+
+Surprise: 229a wrapper INFLATES scale to 2x because the wider decoder generates slightly larger-than-real deltas. When re-encoding includes these generated frames, EWMA grows. The wrapper still helps change KS through state re-encoding despite bad scale.
+
+### Crossover Between Mechanisms
+
+At shorter horizons (h=5-10), wrapper-path gains dominate anchor gains:
+- 229a h=10: wrapper +10 vs anchor +3
+- 227a h=10: wrapper +17 vs anchor +11
+
+At longer horizons (h=30), they converge or anchor slightly leads:
+- 229a h=30: wrapper +8 vs anchor +9
+- 227a h=30: wrapper +15 vs anchor +14
+
+Interpretation: state drift dominates early degradation; scale collapse dominates late degradation. Both matter across the full horizon span.
+
+### Regressions in Interventions
+
+Anchor modes regress level KS for 229a (7→6 for anchor, 7→0 for wrapper). Wrapper destroys level KS for 229a completely (7→0). For 227a, wrapper actually IMPROVES level KS (5→17). Corr ratio drifts higher (more correlated) under anchor modes for both checkpoints.
+
+The combined modes (wrapper+anchor) are best on change KS but worst on level KS for 229a. This suggests the model's level distribution is sensitive to the scale pathway, and fixing scale collapse trades off against level stationarity. Any trainable scale fix must be validated against the full metric suite.
+
+### Decisions
+
+**Q1 (oracle scale recovery):** Oracle scale recovers 60% (229a) to 56% (227a) of the change KS gap at h=30. Scale collapse is a dominant mechanism but not the only one.
+
+**Q2 (wrapper vs anchor):** Wrapper gains more at short horizons, anchor gains more at long horizons. At h=30 they're comparable. Neither alone is clearly dominant overall.
+
+**Q3 (combined saturation):** Wrapper+anchor nearly saturates: 24/25 for 229a (93%), 24/25 for 227a (96%). Wrapper+oracle achieves 25/25 for 227a (100%). The remaining gap is 0-1 cell — within noise. **Scale collapse + state drift together explain essentially ALL of the compounding failure.** No unknown third mechanism.
+
+**Overall decision: C (COMBINED) for both models.** Neither scale nor state alone is sufficient across all horizons. The combined fix nearly saturates the gap, confirming that the self-fed failure has exactly two causal components. (Note: the automated h=30 decision rule triggers "A" for 229a because anchor(0.50) barely reaches the 60% threshold there, but multi-horizon analysis including h=10 where wrapper dominates 77% vs anchor 23% makes C the honest characterization.)
+
+### HARD GATE: Level KS Regression
+
+Wrapper+anchor(0.50) for 229a achieves 24/25 change KS but **0/25 level KS**. This is not a footnote — it means the scale fix that recovers change KS DESTROYS level stationarity for the wider-decoder model. For 227a the pattern is different (wrapper improves level KS from 5→17), suggesting the regression is decoder-width-dependent.
+
+**Any trainable scale fix is gated on not regressing level KS below baseline.** The 230b implementation must be validated against the full metric suite, not just change KS.
+
+### Next Experiment Direction
+
+Since combining scale stabilization and state re-encoding saturates the recovery, the next model should target both. The simplest trainable approach:
+
+1. **Anchored EWMA** (learn alpha and optionally a scale anchor head): a single learnable parameter blending self-fed scale with initial anchor. Anchor(0.50) is already near-optimal as a starting point. Must be validated against level KS.
+
+2. **State stabilization**: Options include periodic re-encoding (expensive), GRU state regularization, or state-dependent correction. Note: fixing scale may partially fix state drift as a downstream effect, since GRU features include delta/scale.
+
+The oracle ≈ anchor finding is important: the specific trajectory of TF scale doesn't matter, just preventing collapse is sufficient. A fixed or slowly-varying anchor should be enough — but only if it preserves level KS.
+
+### What This Rules Out
+
+- More decoder width (already done, 229a established this)
+- Tanh removal (228a falsified)
+- Bigger K (not the bottleneck)
+- Architecture rewrites (the architecture is fine — the AR loop mechanics are the issue)
+- Single-channel fixes (both scale AND state needed)
+
+---
+
+## 2026-04-13: 230b — Native Anchored EWMA Fine-Tune (PARTIAL FAIL)
+
+### Context
+230a showed that inference-only anchor(0.50) on 229a@30 recovers change KS from 10→19/25 at h30. This experiment tried to bake the anchor into the native rollout and fine-tune, hoping the model would adapt its innovations to the stabilized scale path.
+
+### Model Change
+Added to FactorARModel.forward(): after each _step_features EWMA update, blend with initial anchor in log-space:
+`log_s = (1-alpha)*log(s_ewma) + alpha*log(s_anchor0)`
+Config flags: use_scale_anchor=True, scale_anchor_alpha=0.50. Backward compatible.
+
+### Training
+Fine-tuned 229a@30 for 15 epochs, LR=3e-4 (3x lower than original), K=128, B=16. Train loss decreased 0.115→0.107. Best val loss at epoch 3 (0.2074), val loss then drifted up.
+
+### Results
+
+| Checkpoint | ChgKS | LvlKS | Scale@t29 | Corr | Rank | Coverage | Jump |
+|-----------|-------|-------|----------|------|------|---------|------|
+| 229a@30 native (no anchor) | 10/25 | 7/25 | 0.223 | 1.164 | 1.070 | 0.513 | 0.932 |
+| **Phase 0: frozen anchor (no train)** | **19/25** | **6/25** | **0.802** | 1.287 | 0.827 | 0.582 | 0.940 |
+| 230b best (epoch 3) | 15/25 | 4/25 | 0.802 | 1.297 | 0.816 | 0.504 | 0.876 |
+| 230b final (epoch 15) | 15/25 | 1/25 | 0.791 | 1.258 | 0.843 | 0.466 | 0.865 |
+
+Phase 0 frozen-anchor reference is from 230a diagnostic (native+anchor 0.50 on 229a@30, verified in Phase 0 sanity check).
+
+### Key Finding: Fine-tuning HURTS
+
+The frozen inference-only anchor on 229a@30 gives 19/25 change KS and 6/25 level KS. Fine-tuning on the anchored path degrades BOTH:
+- Change KS drops 19→15 (fine-tuning learned smaller innovations to "match" the now-stable scale)
+- Level KS drops 6→4→1 (distribution shape distorted by parameter adaptation)
+- Correlation pushed higher (1.170→1.297) toward over-correlation
+
+The model adapted its innovation magnitudes downward during fine-tuning, since the non-collapsing scale no longer requires large innovations to maintain realistic path variance. But this recalibration overshoots, making paths too smooth at long horizons.
+
+### Decision: PARTIAL FAIL (Case C from spec)
+
+Fine-tuning fails the success criteria:
+- h30 change KS = 15 < 19 target
+- h30 level KS = 4, regressed 3 cells below baseline 7
+
+However, the FROZEN anchor (no training) meets the criteria:
+- h30 change KS = 19 >= 19 target
+- h30 level KS = 6, regressed only 1 cell from baseline 7
+- Scale stabilized (ratio 0.80)
+
+### What This Means
+
+1. **The anchor mechanism works.** The 230a finding is confirmed: blending EWMA with the initial anchor at inference prevents scale collapse and recovers 60% of the change KS gap.
+
+2. **Training on the anchored path does not help in the current form.** Even 3 epochs of fine-tuning at 3x-reduced LR degrades both metrics. The model's learned innovation magnitudes are calibrated to the collapsing-scale regime and re-calibrate incorrectly when scale stops collapsing.
+
+3. **The frozen anchor is an inference-side modification, not a trained feature.** This raises a question about whether it counts as a "post-hoc correction" under the Bitter Lesson constraint. It modifies the rollout dynamics but the model was never trained on this modified path.
+
+### Recommended Path Forward
+
+Option 1 — **Accept the frozen anchor as an inference-time rollout modification** (analogous to using reflecting boundaries, which is already standard). Use 229a@30 + frozen anchor(0.50) as the new baseline. Then train the NEXT model from scratch with anchor enabled, so the model learns on the correct path from the start.
+
+Option 2 — **Train 230b' from scratch** (not fine-tune): Run the full 227a recipe but with anchored EWMA enabled from epoch 1. This avoids the recalibration problem because the model never learns to rely on scale collapse.
+
+Option 3 — **Curriculum approach**: Start training without anchor, switch on at epoch 15-20 with reduced LR. Avoids both the recalibration problem and the cold-start problem.
+
+### What Not To Do Next
+- Do NOT try lower fine-tune LR on the same checkpoint (the problem is calibration mismatch, not learning rate)
+- Do NOT escalate to wrapper training
+- Do NOT add a new scale head without first trying from-scratch training
+
+---
+
+## 2026-04-13: 230b — Full Training Variant Matrix (ALL APPROACHES TRIED)
+
+### Context
+230b fine-tune (LR=3e-4) degraded both change KS and level KS vs the frozen inference-only anchor. This follow-up tests ALL viable training approaches to determine whether ANY training path can match or beat the frozen anchor.
+
+### Approaches Tested
+
+| Variant | Strategy | LR | Epochs | What adapts |
+|---------|---------|-----|--------|------------|
+| Frozen anchor (baseline) | No training, just enable anchor on 229a@30 | - | 0 | Nothing |
+| FT LR=3e-4 | Fine-tune all params (original 230b) | 3e-4 | 15 | Everything |
+| FROM SCRATCH | Train from PCA init + warmstart GRU, anchor from epoch 1 | 1e-3 | 30 | Everything (fresh) |
+| ULTRA-LOW LR | Fine-tune all params at minimal rate | 5e-5 | 15 | Everything (barely) |
+| FREEZE DECODER | Freeze factor_head, idio_head, noise_skip; only GRU learns | 3e-4 | 15 | GRU only |
+| SHORT FT | Fine-tune all params, very brief | 1e-4 | 5 | Everything (briefly) |
+
+### Results (h=30, native forward with anchor)
+
+| Variant | ChgKS | LvlKS | Scale | Cov90 | Corr | Rank | Jump |
+|---------|-------|-------|-------|-------|------|------|------|
+| 229a@30 native (no anchor) | 10/25 | 7/25 | 0.359 | 0.509 | 1.167 | 1.063 | 0.931 |
+| **Frozen anchor (0.50)** | **19/25** | **6/25** | **0.915** | **0.579** | **1.291** | **0.824** | **0.935** |
+| FT LR=3e-4 best (ep3) | 15/25 | 4/25 | 0.911 | 0.504 | 1.298 | 0.820 | 0.872 |
+| FROM SCRATCH best (ep8) | 2/25 | 3/25 | 0.869 | 0.625 | 0.986 | 1.156 | 0.940 |
+| Ultra-low LR best (ep2) | 16/25 | 4/25 | 0.902 | 0.539 | 1.291 | 0.815 | 0.896 |
+| **Freeze decoder best (ep1)** | **17/25** | **5/25** | **0.892** | **0.565** | **1.291** | **0.824** | **0.927** |
+| Short FT best (ep1) | 16/25 | 4/25 | 0.913 | 0.549 | 1.291 | 0.821 | 0.878 |
+| FROM SCRATCH ep30 | 3/25 | 4/25 | 0.897 | 0.484 | 0.979 | 1.284 | 0.875 |
+
+### Key Findings
+
+1. **No training approach matches the frozen anchor.** The frozen anchor achieves 19/25 change KS and 6/25 level KS. The best trained variant (freeze decoder, ep1) gets 17/25 and 5/25. Every other approach is worse.
+
+2. **From scratch is catastrophic.** Training with anchor from epoch 1 produces 2-3/25 change KS. The model learns a fundamentally different (and worse) innovation law when scale never collapses during training. Scale is stable but innovations are wrong.
+
+3. **All trained variants have their best checkpoint at epoch 1-2.** Even minimal gradient updates degrade the model. The frozen innovation law is already optimal for the anchored scale path.
+
+4. **Decoder freeze is the least harmful** because it prevents factor_head and idio_head recalibration. Only GRU state dynamics adapt, which preserves the innovation magnitudes. But even this is not enough to match the frozen anchor.
+
+5. **The innovation law is non-trivially coupled to the scale regime.** The model learned its innovations under collapsing scale. Those same innovations happen to work even better under stable scale. Re-optimizing under stable scale finds a WORSE local optimum because the ES+VS loss landscape changes shape when scale stops collapsing.
+
+### Decision
+
+**The frozen inference-only anchor IS the deployment path.** This is analogous to reflecting boundaries — an inference-time rollout modification that the model was not explicitly trained on, but that corrects a known dynamics failure.
+
+The promoted configuration is: **229a@30 + use_scale_anchor=True + scale_anchor_alpha=0.50**
+
+This gives:
+- h30 ChgKS: 10→19 (+9 cells, 60% of TF gap recovered)
+- h30 LvlKS: 7→6 (1 cell regression, within tolerance)
+- Scale: 0.36→0.92 (collapse eliminated)
+- No catastrophic regressions in other metrics
+
+### 230c Follow-up Assessment
+
+The user spec said to consider 230c (native-path state consistency) only if 230b is safe but incomplete. The frozen anchor IS safe and recovers 60% of the gap. The remaining 40% gap (19→25) is from state drift + residual compounding. 230c could help — but the trained approaches failed so badly that any training-side state consistency loss is risky.
+
+A safer path for 230c: use the frozen anchor as the inference baseline, and add a lightweight TEACHER-FORCED STATE MATCHING auxiliary during a fresh train (not fine-tune), where the model trains from scratch with both anchor and state consistency from epoch 1.
+
+### What This Rules Out
+- Fine-tuning existing checkpoints with new inference-time modifications (the innovation law is regime-coupled and degrades under re-optimization)
+- From-scratch training with anchor alone (the optimization landscape is different and finds worse solutions)
+- All LR/schedule/freeze heuristics for adapting existing weights to the anchor path
+
+---
+
+## 2026-04-14: Apples-to-Apples 30-Step Comparison — 97a vs 229a vs 227a
+
+### Context
+First-ever head-to-head of old (97a SinglePassBlockAR) vs new (227a/229a FactorAR) model families on the SAME 200 val windows, SAME 48 members, SAME 30-step horizon, SAME metrics. 97a had never been evaluated on multi-day metrics before.
+
+### Results
+
+| Metric | 97a raw | 229a@30 native | 229a@30+anchor | 227a native |
+|--------|---------|---------------|----------------|-------------|
+| h1 cov90 | **0.839** | 0.708 | 0.715 | 0.797 |
+| h30 cov90 | **0.925** | 0.511 | 0.577 | 0.708 |
+| Change KS /25 | 10 | 10 | **19** | 0 |
+| Level KS /25 | 0 | **7** | 6 | 5 |
+| Corr ratio | 1.903 | 1.167 | 1.283 | **1.012** |
+| Rank ratio | 0.363 | **1.057** | 0.829 | 1.352 |
+| MR ratio | 0.572 | 1.431 | 1.391 | **0.856** |
+| Jump KS | **1.000** | 0.932 | 0.934 | 0.954 |
+| Bad windows % | **0.0%** | 0.3% | 0.2% | 0.1% |
+| Median bias /25 | **23** | 14 | 13 | 20 |
+
+### Analysis
+
+**97a is the BEST calibration model**: 92.5% coverage at h30, zero catastrophic windows, best median bias (23/25). It produces well-calibrated intervals that contain the truth.
+
+**97a has the WORST structural properties**: corr ratio 1.903 (factor-collapsed, nearly rank-1), rank ratio 0.363 (extreme factor collapse), MR ratio 0.572 (too little mean reversion). It generates structurally unrealistic paths — all cells move together, paths don't revert to mean, the cross-cell correlation structure is wrong.
+
+**97a has ZERO level KS passing cells**: the level distribution is completely wrong despite good coverage. This confirms that 97a achieves high coverage through over-dispersion (wide CIs that contain truth) rather than through realistic dynamics.
+
+**229a+anchor is the BEST marginal model**: 19/25 change KS (best by far), reasonable level KS (6/25), stabilized scale. But poor coverage (57.7%) and weak structural properties under anchoring.
+
+**227a has the BEST structural properties**: corr ratio 1.012 (nearly perfect), MR ratio 0.856 (reasonable). But 0/25 change KS due to severe scale collapse.
+
+### The Tradeoff Landscape
+
+No single model dominates. The models occupy different Pareto points:
+
+| Strength | Best model | The cost |
+|----------|-----------|----------|
+| Coverage / calibration | 97a | Structurally unrealistic (rank-1 collapse) |
+| Marginal distributions | 229a+anchor | Poor coverage, moderate structure |
+| Cross-cell structure | 227a | Zero change KS from scale collapse |
+| Mean reversion | 227a | Zero change KS |
+
+### What "Production Ready" Actually Means
+
+97a was called production-ready because it has the best CALIBRATION — its uncertainty intervals are correctly sized. For risk management (VaR/ES), this is what matters most.
+
+But if you need realistic PATHS (for strategy backtesting, relative-value, or stress testing), 97a is the worst choice — its paths are structurally unrealistic despite having correct coverage.
+
+The research frontier is now: can we combine 229a+anchor's marginal quality with 97a's coverage? That gap is the next research target.
+
+---

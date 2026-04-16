@@ -93,6 +93,8 @@ class FactorARModel(nn.Module):
         cell_spread: bool = False,
         decoder_layers: int = 2,
         no_tanh: bool = False,
+        use_scale_anchor: bool = False,
+        scale_anchor_alpha: float = 0.50,
     ):
         super().__init__()
         self.n_cells = n_cells
@@ -106,6 +108,8 @@ class FactorARModel(nn.Module):
         self.d_scale = d_scale
         self.cell_spread_enabled = cell_spread
         self.no_tanh = no_tanh
+        self.use_scale_anchor = use_scale_anchor
+        self.scale_anchor_alpha = scale_anchor_alpha
 
         # History feature dim: 25 levels + 25 deltas + 25 log_scales = 75
         history_feat_dim = 75 if include_scale_feature else 50
@@ -255,11 +259,18 @@ class FactorARModel(nn.Module):
         cond, local_scale = self.encode_history(history_01)
         prev = history_01[:, -1].reshape(B, self.n_cells)
 
+        # Capture scale anchor before BK expansion (for anchored EWMA)
+        if self.use_scale_anchor:
+            scale_anchor = local_scale.clone()  # (B, 25)
+
         # Vectorize K members into batch dim
         BK = B * n_members
         cond = cond.unsqueeze(1).expand(B, n_members, -1).reshape(BK, -1)
         local_scale = local_scale.unsqueeze(1).expand(B, n_members, -1).reshape(BK, -1)
         prev = prev.unsqueeze(1).expand(B, n_members, -1).reshape(BK, -1)
+
+        if self.use_scale_anchor:
+            scale_anchor_bk = scale_anchor.unsqueeze(1).expand(B, n_members, -1).reshape(BK, -1)
 
         # Init AR(1) factor noise
         z_f = torch.randn(BK, self.factor_rank, device=device)
@@ -304,6 +315,14 @@ class FactorARModel(nn.Module):
             feat, local_scale = self._step_features(prev, next_iv, local_scale)
             cond = self.gru_cell(feat, cond)
             prev = next_iv
+
+            # Anchored EWMA: blend self-fed scale with initial anchor in log-space
+            if self.use_scale_anchor:
+                log_s = ((1.0 - self.scale_anchor_alpha)
+                         * torch.log(local_scale.clamp_min(self.scale_floor))
+                         + self.scale_anchor_alpha
+                         * torch.log(scale_anchor_bk.clamp_min(self.scale_floor)))
+                local_scale = torch.exp(log_s)
 
         # (N, BK, 25) → (B, K, N, 5, 5)
         trajectory = torch.stack(frames, dim=0)  # (N, BK, 25)
@@ -430,6 +449,8 @@ def load_model(
         cell_spread=cfg.get("cell_spread", False),
         decoder_layers=cfg.get("decoder_layers", 2),
         no_tanh=cfg.get("no_tanh", False),
+        use_scale_anchor=cfg.get("use_scale_anchor", False),
+        scale_anchor_alpha=cfg.get("scale_anchor_alpha", 0.50),
     )
     model.load_state_dict(payload["model_state_dict"])
     model.to(device).eval()
@@ -471,6 +492,20 @@ def main() -> None:
                         help="Main loss: 'es' (Energy Score) or 'afcrps' (almost-fair CRPS)")
     parser.add_argument("--no_tanh", action="store_true",
                         help="Remove tanh from decoder output layers (unbounded outputs)")
+    parser.add_argument("--use_scale_anchor", action="store_true",
+                        help="Enable anchored EWMA: blend self-fed scale with initial anchor")
+    parser.add_argument("--scale_anchor_alpha", type=float, default=0.50,
+                        help="Anchor blend weight (0=pure self-fed, 1=pure anchor)")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to checkpoint to fine-tune from (loads full model state)")
+    parser.add_argument("--freeze_decoder", action="store_true",
+                        help="Freeze factor/idio heads and noise_skip; only GRU and cell_spread learn")
+    parser.add_argument("--checkpoint_every_early", type=int, default=3,
+                        help="Checkpoint frequency for first --checkpoint_late_after epochs")
+    parser.add_argument("--checkpoint_every_late", type=int, default=3,
+                        help="Checkpoint frequency after --checkpoint_late_after epochs")
+    parser.add_argument("--checkpoint_late_after", type=int, default=0,
+                        help="Epoch after which to switch to late checkpoint frequency")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -500,19 +535,39 @@ def main() -> None:
         cell_spread=args.cell_spread,
         decoder_layers=args.decoder_layers,
         no_tanh=args.no_tanh,
+        use_scale_anchor=args.use_scale_anchor,
+        scale_anchor_alpha=args.scale_anchor_alpha,
     ).to(device)
 
-    # PCA init
-    pca = np.load(args.pca_init)
-    model.init_from_pca(pca["lambda_init"], pca["d_init"])
-    print(f"PCA init: rank={pca['factor_rank']}, var={pca['explained_variance_ratio'][:int(pca['factor_rank'])].sum():.3f}")
+    # Initialize weights
+    if args.resume:
+        resume_payload = torch.load(args.resume, map_location=device, weights_only=False)
+        model.load_state_dict(resume_payload["model_state_dict"])
+        print(f"Resumed from {args.resume} (epoch {resume_payload.get('epoch', '?')})")
+    else:
+        # PCA init (only for fresh models)
+        pca = np.load(args.pca_init)
+        model.init_from_pca(pca["lambda_init"], pca["d_init"])
+        print(f"PCA init: rank={pca['factor_rank']}, var={pca['explained_variance_ratio'][:int(pca['factor_rank'])].sum():.3f}")
 
-    # Warm-start GRU encoder
-    if args.warmstart_encoder:
-        ws = torch.load(args.warmstart_encoder, map_location=device, weights_only=False)
-        gru_keys = {k: v for k, v in ws["model_state_dict"].items() if k.startswith("gru.")}
-        model.load_state_dict(gru_keys, strict=False)
-        print(f"Warm-started GRU from {args.warmstart_encoder} ({len(gru_keys)} params)")
+        # Warm-start GRU encoder
+        if args.warmstart_encoder:
+            ws = torch.load(args.warmstart_encoder, map_location=device, weights_only=False)
+            gru_keys = {k: v for k, v in ws["model_state_dict"].items() if k.startswith("gru.")}
+            model.load_state_dict(gru_keys, strict=False)
+            print(f"Warm-started GRU from {args.warmstart_encoder} ({len(gru_keys)} params)")
+
+    # Freeze decoder if requested (only GRU/cell_spread learn)
+    if args.freeze_decoder:
+        frozen = 0
+        for name, param in model.named_parameters():
+            if name.startswith(("gru.", "gru_cell.")) or name.startswith("cell_spread"):
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+                frozen += 1
+        trainable = sum(1 for p in model.parameters() if p.requires_grad)
+        print(f"Decoder frozen: {frozen} params frozen, {trainable} trainable")
 
     # Data: multi-step windows
     raw = np.load(args.data_path)
@@ -563,6 +618,8 @@ def main() -> None:
         "decoder_layers": args.decoder_layers,
         "loss_type": args.loss_type,
         "no_tanh": args.no_tanh,
+        "use_scale_anchor": args.use_scale_anchor,
+        "scale_anchor_alpha": args.scale_anchor_alpha,
     }
 
     n_params = sum(p.numel() for p in model.parameters())
@@ -639,7 +696,8 @@ def main() -> None:
                 "val_loss": val_loss,
             }, out_dir / "best_model.pt")
 
-        if epoch % 3 == 0:
+        ckpt_freq = args.checkpoint_every_early if epoch <= args.checkpoint_late_after else args.checkpoint_every_late
+        if epoch % ckpt_freq == 0:
             torch.save({
                 "model_state_dict": model.state_dict(),
                 "config": config,
