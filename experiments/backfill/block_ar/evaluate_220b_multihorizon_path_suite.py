@@ -70,10 +70,29 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_json", type=str, required=True)
     parser.add_argument("--output_md", type=str, required=True)
+    parser.add_argument("--force_native_anchor", action="store_true",
+                        help="Force native-path rollout (model.sample_batched) with inference "
+                             "anchor(0.50) for any 227a-family checkpoint. Use this to compare "
+                             "229a honestly against 232 variants (which always use this regime).")
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_one_day_kernel(args.model_type, args.checkpoint, device)
+
+    # 232 variants train without anchor to preserve 229a's innovation-law calibration
+    # (see 231 negative finding). They are *evaluated* with inference-time anchor(0.5),
+    # which is the production recipe for the 229a family.
+    if args.model_type in {'232a', '232b', '232c', '232d'}:
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] 232 variant: use_scale_anchor=True, alpha=0.50 at inference")
+
+    # --force_native_anchor: apply the same regime to 227a/229a baselines for fair comparison
+    if args.force_native_anchor and args.model_type == '227a':
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] --force_native_anchor: use_scale_anchor=True alpha=0.50, native path")
+
     wrapper = OneDayKernelRolloutWrapper(model).eval()
 
     batch = build_rollout_windows(
@@ -90,7 +109,10 @@ def main() -> None:
     # Use model's native sample_batched for models that generate multi-day trajectories
     # (recurrent/adapter 221d+, smooth transport 183c, etc.)
     use_native = hasattr(model, 'sample_batched') and (
-        hasattr(model, 'temporal_adapter') or args.model_type == '183c'
+        hasattr(model, 'temporal_adapter')
+        or args.model_type == '183c'
+        or args.model_type in {'231a', '231b', '231c', '232a', '232b', '232c', '232d'}
+        or args.force_native_anchor
     )
     if use_native:
         from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv

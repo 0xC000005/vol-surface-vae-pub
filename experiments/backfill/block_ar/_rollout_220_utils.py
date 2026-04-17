@@ -235,6 +235,31 @@ def load_one_day_kernel(
         )
 
         return load_227a_model(checkpoint_path, device)
+    if model_type in {"231a", "231b", "231c"}:
+        from experiments.backfill.block_ar.train_231a_hybrid_recurrent_factor_flow import (
+            load_model as load_231a_model,
+        )
+
+        return load_231a_model(checkpoint_path, device)
+    if model_type == "232a":
+        from experiments.backfill.block_ar.train_232a_regime_mixture import (
+            load_model as load_232a_model,
+        )
+
+        return load_232a_model(checkpoint_path, device)
+    if model_type == "232b":
+        from experiments.backfill.block_ar.train_232b_heavy_tail import (
+            load_model as load_232b_model,
+        )
+
+        return load_232b_model(checkpoint_path, device)
+    if model_type in {"232c", "232d"}:
+        # 232c/d use 227a's FactorARModel architecturally (loss-only variants)
+        from experiments.backfill.block_ar.train_227a_factor_ar import (
+            load_model as load_227a_model,
+        )
+
+        return load_227a_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 
