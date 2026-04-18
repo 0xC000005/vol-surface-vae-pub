@@ -532,6 +532,63 @@ class TwoPathFactorAR(FactorARModel227a):
         )
 
 
+    def _run_teacher_branch(
+        self, history: torch.Tensor, future: torch.Tensor, W: int,
+    ) -> list:
+        """
+        BPTT-SA teacher branch: shared parameters, W steps, deterministic GT
+        feedback, mask=0 (no jump firings). Returns a list of DETACHED h_slow
+        teacher tensors — these are stop-gradient targets for the state-reg loss.
+
+        The free branch (forward_full) shares the same slow-path parameters, so
+        the teacher-branch gradients must be cut at the return site to preserve
+        BPTT-SA semantics.
+        """
+        assert self.variant == "full", "_run_teacher_branch only for v1-full"
+        # Accept flat (B, T, 25) or grid (B, T, 5, 5); normalise to flat
+        if history.dim() == 4:
+            B, T, H, W_grid = history.shape
+            D = H * W_grid
+            history = history.reshape(B, T, D)
+        else:
+            B, T, D = history.shape
+        if future.dim() == 4:
+            future = future.reshape(future.shape[0], future.shape[1], -1)
+
+        state = self.init_slow_state(history)
+        buffer = list(state["buffer"])
+        h_slow = state["h_slow"]
+        s_ewma, lam_hawkes = state["s_ewma"], state["lam_hawkes"]
+        delta_t_last = state["delta_t_last_jump"]
+
+        h_slow_seq: list = []
+        x_prev = history[:, -1]                                # (B, D)
+
+        for t in range(W):
+            x_gt = future[:, t]                                # (B, D), deterministic GT
+            buffer.append(x_gt)
+            buffer = buffer[-30:]
+            coarse_t = self.coarse(x_gt, buffer)
+
+            dx_gt = x_gt - x_prev
+            mean_sq = (dx_gt ** 2).mean(dim=-1)                # (B,)
+            j_t = (dx_gt.norm(dim=-1) > self.q90_train).float() # (B,)
+
+            sp_out = self.slow_path.step(
+                coarse_t, h_slow, s_ewma, lam_hawkes, delta_t_last, mean_sq, j_t,
+            )
+            h_slow = sp_out["h_t"]
+            s_ewma = sp_out["s_ewma_t"]
+            lam_hawkes = sp_out["lam_hawkes_t"]
+            delta_t_last = torch.where(j_t.bool(), torch.zeros_like(delta_t_last), delta_t_last + 1.0)
+
+            # Detach here: teacher states are stop-gradient targets
+            h_slow_seq.append(h_slow.detach())
+            x_prev = x_gt
+
+        return h_slow_seq
+
+
 def _sanity_check_model_constructors():
     # Minimal kwargs to match 227a's signature; adjust once we know what 227a needs
     kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
@@ -667,6 +724,28 @@ def _sanity_check_forward_full():
     assert len(out["q_seq"]) == 5
     assert out["h_slow_teacher_seq"] == []
     print("forward_full PASS")
+
+
+def _sanity_check_teacher_branch():
+    """Smoke test: _run_teacher_branch returns W detached h_slow tensors."""
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    m = TwoPathFactorAR(variant="full", **kwargs).eval()
+    history = torch.rand(2, 30, 25) * 0.3 + 0.1
+    future = torch.rand(2, 8, 25) * 0.3 + 0.1
+    # Direct call
+    teacher_seq = m._run_teacher_branch(history, future, W=5)
+    assert len(teacher_seq) == 5
+    assert teacher_seq[0].shape == (2, 8)
+    assert all(not t.requires_grad for t in teacher_seq), "teacher h must be detached"
+    # Integrated via forward_full return_teacher_h=True
+    with torch.no_grad():
+        out = m.forward_full(
+            history, future, n_members=4, n_steps=5,
+            p_gt_feedback=0.5,
+            return_teacher_h=True, state_reg_window=5,
+        )
+    assert len(out["h_slow_teacher_seq"]) == 5
+    print("teacher branch PASS")
 
 
 if __name__ == "__main__":
