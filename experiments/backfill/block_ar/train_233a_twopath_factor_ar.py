@@ -150,7 +150,9 @@ class SlowPath(nn.Module):
 
         # Analytic backbone
         s_ewma_t = (1.0 - a) * s_ewma_prev + a * mean_sq_dx
-        decay = torch.exp(-F.softplus(self.beta_H) * delta_t_last_jump)
+        # Clamp delta_t to avoid inf * 0 = NaN in backward when no jump has occurred.
+        # exp(-softplus(β) * 252) ≈ 0 for any plausible β.
+        decay = torch.exp(-F.softplus(self.beta_H) * delta_t_last_jump.clamp(max=252.0))
         lam_hawkes_t = self.lambda_base + F.softplus(self.alpha_H) * decay * j_t
 
         # Hybrid (analytic + learned residual)
@@ -338,7 +340,8 @@ class TwoPathFactorAR(FactorARModel227a):
         for t in range(1, T):
             d = history[:, t] - history[:, t-1]
             j = (d.norm(dim=-1) > self.q90_train).float()
-            decay = torch.exp(-F.softplus(self.slow_path.beta_H) * delta_t)
+            # Clamp delta_t to avoid inf * 0 = NaN in backward (mirrors SlowPath.step).
+            decay = torch.exp(-F.softplus(self.slow_path.beta_H) * delta_t.clamp(max=252.0))
             lam_hawkes = self.slow_path.lambda_base + F.softplus(self.slow_path.alpha_H) * decay * j
             delta_t = torch.where(j.bool(), torch.zeros_like(delta_t), delta_t + 1.0)
 
