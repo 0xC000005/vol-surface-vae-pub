@@ -354,6 +354,183 @@ class TwoPathFactorAR(FactorARModel227a):
             s=s, lam=lam, buffer=buffer, delta_t_last_jump=delta_t,
         )
 
+    def forward_full(
+        self,
+        history: torch.Tensor,        # (B, T, D), in [0, 1]
+        future: torch.Tensor,          # (B, n_steps, D), in [0, 1]
+        n_members: int,
+        n_steps: int,
+        p_gt_feedback: float = 0.0,
+        return_teacher_h: bool = False,
+        state_reg_window: int = 5,
+    ) -> dict:
+        """
+        v1-full training forward. Uses 227a's BK batch-expansion convention for
+        the fast path; slow path operates in (B,...) shape and FiLM-modulates the
+        fast path via broadcast-to-BK.
+
+        Returns a dict with:
+          samples: (B, K, n_steps, D)
+          h_slow_free_seq: list[Tensor(B, H_slow)] of length n_steps
+          h_slow_teacher_seq: list or empty if return_teacher_h=False
+          s_seq, lam_seq, q_seq, rv_pred_seq, mean_sq_dx_seq: per-step (B,) lists
+        """
+        assert self.variant == "full", "forward_full is for v1-full only"
+        # Normalise to flat 3D (B, T, D) for internal use; encode_history needs 4D (B, T, 5, 5)
+        if history.dim() == 4:
+            B, T = history.shape[0], history.shape[1]
+            D = history.shape[2] * history.shape[3]
+            history = history.reshape(B, T, D)
+        else:
+            B, T, D = history.shape
+        if future.dim() == 4:
+            future = future.reshape(future.shape[0], future.shape[1], -1)
+        device = history.device
+        K = n_members
+        BK = B * K
+
+        # --- Slow state (B, ...) ---
+        state = self.init_slow_state(history)
+        buffer_B = list(state["buffer"])   # list of (B, D), length T
+        h_slow = state["h_slow"]
+        s_ewma, lam_hawkes = state["s_ewma"], state["lam_hawkes"]
+        s_t, lam_t = state["s"], state["lam"]
+        delta_t_last = state["delta_t_last_jump"]
+
+        # --- Fast state (BK, ...) per 227a ---
+        # encode_history expects (B, T, 5, 5) — reshape flat history to 4D
+        hist_4d = history.reshape(B, T, 5, 5)
+        cond_B, local_scale_B = self.encode_history(hist_4d)   # (B, hidden), (B, D)
+        scale_anchor_B = local_scale_B.clone()
+
+        cond = cond_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        local_scale = local_scale_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        prev = history[:, -1].unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+        scale_anchor_bk = scale_anchor_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+
+        # Slow-state x_prev tracking (B, D)
+        x_prev_B = history[:, -1]
+
+        # AR(1) factor noise (227a convention)
+        z_f = torch.randn(BK, self.factor_rank, device=device)
+        rho_sq_comp = math.sqrt(1.0 - self.rho ** 2)
+
+        # Output containers
+        samples = torch.empty(B, K, n_steps, D, device=device)
+        h_slow_free_seq: list = []
+        s_seq, lam_seq, q_seq, rv_pred_seq, mean_sq_dx_seq = [], [], [], [], []
+
+        for t in range(n_steps):
+            # --- FiLM at batch level, then expand to BK ---
+            film_out = self.film(s_t, lam_t)
+            gamma_L_B = film_out["gamma_lambda"]    # (B, k)
+            beta_L_B = film_out["beta_lambda"]       # (B, k)
+            gamma_D_B = film_out["gamma_d"]           # (B, D)
+            beta_D_B = film_out["beta_d"]             # (B, D)
+            drift_B = film_out["drift_bias"]         # (B, D)
+            logit_B = film_out["p_jump_logit"]       # (B,)
+
+            gamma_L_bk = gamma_L_B.unsqueeze(1).expand(B, K, self.k).reshape(BK, self.k)
+            beta_L_bk = beta_L_B.unsqueeze(1).expand(B, K, self.k).reshape(BK, self.k)
+            gamma_D_bk = gamma_D_B.unsqueeze(1).expand(B, K, D).reshape(BK, D)
+            beta_D_bk = beta_D_B.unsqueeze(1).expand(B, K, D).reshape(BK, D)
+            drift_bk = drift_B.unsqueeze(1).expand(B, K, D).reshape(BK, D)
+            logit_bk = logit_B.unsqueeze(1).expand(B, K).reshape(BK)
+
+            # --- Fast-path emission (227a pattern) ---
+            if t > 0:
+                z_f = self.rho * z_f + rho_sq_comp * torch.randn_like(z_f)
+            z_i = torch.randn(BK, D, device=device)
+            pos = self.pos_embed(t, BK, device)
+
+            factor_in = torch.cat([prev, cond, z_f, pos], dim=-1)
+            f_scores = self.factor_head(factor_in)           # (BK, k)
+
+            idio_in = torch.cat([prev, cond, z_i, pos], dim=-1)
+            i_resid = self.idio_head(idio_in)                 # (BK, D)
+
+            # Modulated loadings and idio scale
+            Lambda_base = self.get_lambda(cond)               # (BK, D, k)
+            Lambda_mod = Lambda_base * gamma_L_bk.unsqueeze(-2) + beta_L_bk.unsqueeze(-2)
+            D_base = self.get_d(cond)                          # (BK, D)
+            D_mod = D_base * gamma_D_bk + beta_D_bk
+
+            v = torch.einsum("bdr,br->bd", Lambda_mod, f_scores) + D_mod * i_resid + drift_bk
+
+            # Jump mixture (mask * s_jump * eps_extra — NOT times D_mod)
+            lam_t_bk = lam_t.unsqueeze(1).expand(B, K).reshape(BK)
+            mask = straight_through_bernoulli(logit_bk, shape=(BK, 1))     # (BK, 1)
+            eps_extra = torch.randn(BK, D, device=device)
+            s_jump_bk = self.scale_jump_head(lam_t_bk)                     # (BK,)
+            v = v + mask * s_jump_bk.unsqueeze(-1) * eps_extra
+
+            # Innovation → delta → next IV
+            delta = torch.sinh(v) * local_scale
+            next_iv = (prev + delta).clamp(1e-4, 1.0 - 1e-4)               # (BK, D)
+            samples[:, :, t] = next_iv.view(B, K, D)
+
+            # --- Feedback selection (batch-level PF; all K members share the mode this step) ---
+            if self.training and torch.rand(1).item() < p_gt_feedback:
+                x_feedback_B = future[:, t]                                # (B, D)
+                x_feedback_bk = x_feedback_B.unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+            else:
+                x_feedback_bk = next_iv                                     # (BK, D)
+                x_feedback_B = next_iv.view(B, K, D).mean(dim=1)           # (B, D)
+
+            # --- Fast-path state update (BK) ---
+            feat, local_scale = self._step_features(prev, x_feedback_bk, local_scale)
+            cond = self.gru_cell(feat, cond)
+            prev = x_feedback_bk
+
+            if self.use_scale_anchor:
+                log_s = ((1.0 - self.scale_anchor_alpha)
+                         * torch.log(local_scale.clamp_min(self.scale_floor))
+                         + self.scale_anchor_alpha
+                         * torch.log(scale_anchor_bk.clamp_min(self.scale_floor)))
+                local_scale = torch.exp(log_s)
+
+            # --- Slow-path state update (B) ---
+            dx_B = x_feedback_B - x_prev_B
+            mean_sq_dx = (dx_B ** 2).mean(dim=-1)                          # (B,)
+            j_t_B = (dx_B.norm(dim=-1) > self.q90_train).float()           # (B,)
+
+            buffer_B.append(x_feedback_B)
+            buffer_B = buffer_B[-30:]
+            coarse_t = self.coarse(x_feedback_B, buffer_B)                 # (B, F_coarse)
+
+            sp_out = self.slow_path.step(
+                coarse_t, h_slow, s_ewma, lam_hawkes, delta_t_last,
+                mean_sq_dx, j_t_B,
+            )
+            h_slow = sp_out["h_t"]
+            s_ewma = sp_out["s_ewma_t"]
+            lam_hawkes = sp_out["lam_hawkes_t"]
+            s_t, lam_t = sp_out["s_t"], sp_out["lam_t"]
+
+            rv_pred_seq.append(sp_out["rv_pred"])
+            q_seq.append(sp_out["q_t"])
+            s_seq.append(s_t); lam_seq.append(lam_t)
+            mean_sq_dx_seq.append(mean_sq_dx)
+            h_slow_free_seq.append(h_slow)
+
+            delta_t_last = torch.where(j_t_B.bool(), torch.zeros_like(delta_t_last), delta_t_last + 1.0)
+
+            x_prev_B = x_feedback_B
+
+        # BPTT-SA teacher branch is added in Task 2.4 — keep the hook but guard against it
+        h_slow_teacher_seq: list = []
+        if return_teacher_h:
+            # `_run_teacher_branch` is defined in Task 2.4.
+            h_slow_teacher_seq = self._run_teacher_branch(history, future, state_reg_window)
+
+        return dict(
+            samples=samples,
+            h_slow_free_seq=h_slow_free_seq,
+            h_slow_teacher_seq=h_slow_teacher_seq,
+            s_seq=s_seq, lam_seq=lam_seq, q_seq=q_seq,
+            rv_pred_seq=rv_pred_seq, mean_sq_dx_seq=mean_sq_dx_seq,
+        )
+
 
 def _sanity_check_model_constructors():
     # Minimal kwargs to match 227a's signature; adjust once we know what 227a needs
@@ -469,6 +646,27 @@ def _sanity_check_init_slow_state():
     assert (state["s"] >= 0).all()
     assert (state["lam"] >= 0).all()
     print("init_slow_state PASS")
+
+
+def _sanity_check_forward_full():
+    """Smoke test: forward_full outputs expected shapes; no teacher branch called."""
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    m = TwoPathFactorAR(variant="full", **kwargs).eval()
+    history = torch.rand(2, 30, 25) * 0.3 + 0.1
+    future = torch.rand(2, 5, 25) * 0.3 + 0.1
+    with torch.no_grad():
+        out = m.forward_full(
+            history, future, n_members=4, n_steps=5,
+            p_gt_feedback=0.5,
+            return_teacher_h=False,   # leave OFF — teacher branch is Task 2.4
+        )
+    assert out["samples"].shape == (2, 4, 5, 25), f"samples shape: {out['samples'].shape}"
+    assert len(out["h_slow_free_seq"]) == 5
+    assert out["h_slow_free_seq"][0].shape == (2, 8)
+    assert len(out["s_seq"]) == 5 and out["s_seq"][0].shape == (2,)
+    assert len(out["q_seq"]) == 5
+    assert out["h_slow_teacher_seq"] == []
+    print("forward_full PASS")
 
 
 if __name__ == "__main__":
