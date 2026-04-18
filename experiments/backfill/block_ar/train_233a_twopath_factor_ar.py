@@ -312,6 +312,48 @@ class TwoPathFactorAR(FactorARModel227a):
         else:
             raise ValueError(f"Unknown variant: {variant}")
 
+    def init_slow_state(self, history: torch.Tensor) -> dict:
+        """
+        Warm up slow state from observed history (v1-full only).
+        Returns dict with keys: h_slow, s_ewma, lam_hawkes, s, lam, buffer, delta_t_last_jump.
+        """
+        assert self.variant == "full", "init_slow_state only for v1-full"
+        B, T, D = history.shape
+        device = history.device
+
+        # Analytic EWMA over history
+        a = self.slow_path.alpha_learn
+        s_ewma = torch.zeros(B, device=device)
+        for t in range(1, T):
+            d = history[:, t] - history[:, t-1]
+            s_ewma = (1 - a) * s_ewma + a * (d ** 2).mean(dim=-1)
+
+        # Analytic Hawkes over history
+        lam_hawkes = self.slow_path.lambda_base.expand(B).clone()
+        delta_t = torch.full((B,), float("inf"), device=device)
+        for t in range(1, T):
+            d = history[:, t] - history[:, t-1]
+            j = (d.norm(dim=-1) > self.q90_train).float()
+            decay = torch.exp(-F.softplus(self.slow_path.beta_H) * delta_t)
+            lam_hawkes = self.slow_path.lambda_base + F.softplus(self.slow_path.alpha_H) * decay * j
+            delta_t = torch.where(j.bool(), torch.zeros_like(delta_t), delta_t + 1.0)
+
+        # GRUSlow warm-up with left-padded coarse features
+        buffer = [history[:, t] for t in range(T)]   # list of (B, D)
+        h = torch.zeros(B, self.slow_path.slow_hidden, device=device)
+        for t in range(T):
+            coarse_t = self.coarse(history[:, t], buffer[:t+1])
+            h = self.slow_path.gru_slow(coarse_t, h)
+
+        # Hybrid combined states
+        s = F.softplus(s_ewma + self.slow_path.linear_s(h).squeeze(-1))
+        lam = F.relu(lam_hawkes + self.slow_path.linear_lam(h).squeeze(-1))
+
+        return dict(
+            h_slow=h, s_ewma=s_ewma, lam_hawkes=lam_hawkes,
+            s=s, lam=lam, buffer=buffer, delta_t_last_jump=delta_t,
+        )
+
 
 def _sanity_check_model_constructors():
     # Minimal kwargs to match 227a's signature; adjust once we know what 227a needs
@@ -412,6 +454,21 @@ def _sanity_check_straight_through():
     # sigmoid(0)*(1-sigmoid(0)) = 0.25 per element; total 2*4*1 = 8 elements
     assert logit.grad is not None and logit.grad.abs().sum() > 0, "gradient must flow"
     print(f"straight-through Bernoulli grad check PASS (grad={logit.grad})")
+
+
+def _sanity_check_init_slow_state():
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    # Use the real PCA artifact (exists from Task 0.2)
+    m = TwoPathFactorAR(variant="full", **kwargs)
+    history = torch.randn(2, 30, 25) * 0.01 + 0.2   # plausible IV values
+    state = m.init_slow_state(history)
+    assert state["h_slow"].shape == (2, 8)
+    assert state["s"].shape == (2,)
+    assert state["lam"].shape == (2,)
+    assert len(state["buffer"]) == 30
+    assert (state["s"] >= 0).all()
+    assert (state["lam"] >= 0).all()
+    print("init_slow_state PASS")
 
 
 if __name__ == "__main__":
