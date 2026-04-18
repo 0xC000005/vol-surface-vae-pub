@@ -773,11 +773,13 @@ def run_conditionality_tests(
             if B < 2:
                 continue
 
-            # Compute per-window vol_of_vol for regime classification
+            # Compute per-window regime proxy: full-surface realized variance
+            # (data-agnostic: no dependence on "mean IV" concept, generalizes to
+            # non-IV factor data). Keep variable name `batch_vov` for downstream
+            # compatibility — it's the same "how volatile was history" signal.
             hist_np = denormalize_iv(history).cpu().numpy()  # (B, T_hist, 5, 5)
-            mean_iv_hist = hist_np.mean(axis=(2, 3))  # (B, T_hist)
-            daily_ch = np.diff(mean_iv_hist, axis=1)  # (B, T_hist-1)
-            batch_vov = daily_ch.std(axis=1)  # (B,)
+            dhist = np.diff(hist_np, axis=1)                 # (B, T_hist-1, 5, 5)
+            batch_vov = (dhist ** 2).mean(axis=(1, 2, 3))    # (B,) realized variance
             all_batch_vov.append(batch_vov)
 
             # --- Conditional samples ---
