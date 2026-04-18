@@ -1263,6 +1263,36 @@ def _eval_step(model, hist, fut, H, args):
         raise ValueError(f"Unknown variant: {args.variant}")
 
 
+def load_model(
+    checkpoint_path: str, device: torch.device,
+) -> tuple["TwoPathFactorAR", dict]:
+    """
+    Reconstruct a 233a TwoPathFactorAR from a checkpoint. Returns (model, payload).
+    The training loop saves payload = {"model_state_dict", "epoch", "args", "variant"}.
+    """
+    payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    args = payload["args"]
+    variant = payload.get("variant", args.get("variant", "full"))
+    model = TwoPathFactorAR(
+        variant=variant,
+        pca_artifact_path=args["pca_artifact"],
+        slow_hidden=args["slow_hidden"],
+        coarse_window=args["coarse_window"],
+        har_windows=tuple(int(x) for x in args["har_windows"].split(",")),
+        alpha_init=args["alpha_init"],
+        hawkes_init=tuple(float(x) for x in args["hawkes_init"].split(",")),
+        hidden_dim=args["hidden_dim"],
+        factor_rank=args["factor_rank"],
+        rho=args.get("rho", 0.8),
+        ewma_alpha=args.get("ewma_alpha", 0.20),
+        scale_floor=args.get("scale_floor", 1e-4),
+        n_cells=25,
+    )
+    model.load_state_dict(payload["model_state_dict"])
+    model.to(device).eval()
+    return model, payload
+
+
 def main():
     args = parse_args()
     torch.manual_seed(args.seed)
