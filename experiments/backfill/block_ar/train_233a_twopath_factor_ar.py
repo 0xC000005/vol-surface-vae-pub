@@ -238,9 +238,105 @@ class ScaleJumpHead(nn.Module):
         return F.softplus(self.lin(lam_t.unsqueeze(-1)).squeeze(-1))
 
 
-class TwoPathFactorAR(nn.Module):
-    """v1-full model. Subclasses FactorARModel227a and adds slow path + FiLM + jump mixture."""
-    pass
+class TwoPathFactorAR(FactorARModel227a):
+    """
+    v1-full: 227a fast-path inherited; slow-path + FiLM + jump mixture bolted on.
+    Variant switching via __init__ arg `variant`:
+      "full" = slow path + FiLM + jump
+      "B"    = no slow path; aux-supervised cond_fast with parallel residual MLP
+      "C"    = HAR-feature control, no learned slow state
+    """
+
+    def __init__(
+        self,
+        variant: str = "full",
+        pca_artifact_path: str = "models/backfill/coarse_pca_233a.npz",
+        slow_hidden: int = 8,
+        coarse_window: int = 10,
+        har_windows: tuple = (1, 5, 22),
+        alpha_init: float = -1.4,
+        hawkes_init: tuple = (0.1, 0.5, 0.5),
+        **base_kwargs,
+    ):
+        super().__init__(**base_kwargs)
+        self.variant = variant
+        self.D = self.n_cells                       # inherit from 227a
+        self.k = self.factor_rank                   # inherit from 227a (default 6 at D=25)
+        self.coarse_window = coarse_window
+        self.har_windows = har_windows
+
+        # Anchor is always ON for 233a
+        self.use_scale_anchor = True
+        self.scale_anchor_alpha = 0.50
+
+        # -- variant-specific wiring --
+        if variant == "full":
+            self.coarse = CoarseFeatures(pca_artifact_path, coarse_window=coarse_window)
+            self.slow_path = SlowPath(
+                coarse_feature_dim=self.coarse.output_dim,
+                slow_hidden=slow_hidden,
+                alpha_init=alpha_init,
+                lambda_base_init=hawkes_init[0],
+                alpha_H_init=hawkes_init[1],
+                beta_H_init=hawkes_init[2],
+            )
+            self.film = FiLM(D=self.D, k=self.k, hidden=32)
+            self.scale_jump_head = ScaleJumpHead()
+            # q90_train is loaded into coarse.q90_train buffer
+            self.register_buffer("q90_train", self.coarse.q90_train.clone())
+
+        elif variant == "B":
+            # v1-B: no slow path, aux-supervised cond_fast via bottleneck MLP
+            self.aux_bottleneck = nn.Sequential(
+                nn.Linear(128, 32), nn.ReLU(), nn.Linear(32, 32), nn.ReLU(),
+            )
+            self.rv_head_B = nn.Linear(32, 1)
+            self.jump_head_B = nn.Linear(32, 1)
+            self.cond_extra = nn.Sequential(
+                nn.Linear(128, 32), nn.ReLU(), nn.Linear(32, 32), nn.ReLU(),
+            )
+            self.cond_residual_proj = nn.Linear(32, 128)
+            nn.init.zeros_(self.cond_residual_proj.weight)   # start at identity
+            nn.init.zeros_(self.cond_residual_proj.bias)
+
+        elif variant == "C":
+            # v1-C: HAR-feature control (5 features); no learned state, aux, FiLM, jump
+            self.har_concat_mlp = nn.Sequential(
+                nn.Linear(128 + 5, 160), nn.ReLU(),
+                nn.Linear(160, 128), nn.ReLU(),
+            )
+            # Need q90 for HAR jump-frequency feature
+            artifact = np.load(pca_artifact_path)
+            self.register_buffer("q90_train", torch.tensor(float(artifact["q90_train"])))
+
+        else:
+            raise ValueError(f"Unknown variant: {variant}")
+
+
+def _sanity_check_model_constructors():
+    # Minimal kwargs to match 227a's signature; adjust once we know what 227a needs
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    import tempfile, os
+    # Create minimal fake PCA artifact so CoarseFeatures / variant-C can load
+    with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
+        np.savez(tmp.name,
+            pca_mean_components=np.random.randn(4, 25).astype(np.float32),
+            pca_mean_mean=np.random.randn(25).astype(np.float32),
+            pca_disp_components=np.random.randn(4, 25).astype(np.float32),
+            pca_disp_mean=np.random.randn(25).astype(np.float32),
+            pca_rsc_components=np.random.randn(4, 25).astype(np.float32),
+            pca_rsc_mean=np.random.randn(25).astype(np.float32),
+            q90_train=np.array(0.1, dtype=np.float32),
+            coarse_window=np.array(10, dtype=np.int32))
+        path = tmp.name
+    try:
+        for variant in ["full", "B", "C"]:
+            m = TwoPathFactorAR(variant=variant, pca_artifact_path=path, **kwargs)
+            n_params = sum(p.numel() for p in m.parameters())
+            print(f"{variant}: {n_params/1e3:.1f}k params")
+        print("constructor sanity check PASS")
+    finally:
+        os.unlink(path)
 
 
 def _sanity_check_coarse_features():
