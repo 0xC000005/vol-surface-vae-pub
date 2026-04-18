@@ -87,6 +87,14 @@ def main() -> None:
         model.scale_anchor_alpha = 0.50
         print(f"[eval override] 232 variant: use_scale_anchor=True, alpha=0.50 at inference")
 
+    # 233a variants always use anchor (set in constructor). Keep it redundantly here
+    # so --force_native_anchor still produces consistent settings regardless of how
+    # the checkpoint was saved.
+    if args.model_type.startswith('233a'):
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] 233a {args.model_type}: use_scale_anchor=True, alpha=0.50 at inference")
+
     # --force_native_anchor: apply the same regime to 227a/229a baselines for fair comparison
     if args.force_native_anchor and args.model_type == '227a':
         model.use_scale_anchor = True
@@ -112,6 +120,7 @@ def main() -> None:
         hasattr(model, 'temporal_adapter')
         or args.model_type == '183c'
         or args.model_type in {'231a', '231b', '231c', '232a', '232b', '232c', '232d'}
+        or args.model_type.startswith('233a')
         or args.force_native_anchor
     )
     if use_native:
