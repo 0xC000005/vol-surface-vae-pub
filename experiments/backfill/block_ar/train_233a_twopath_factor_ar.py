@@ -1147,5 +1147,272 @@ def _sanity_check_compute_loss():
     print("compute_loss PASS")
 
 
+# ---------------------------------------------------------------------------
+# Training loop + CLI
+# ---------------------------------------------------------------------------
+
+
+def parse_curriculum(spec: str) -> list:
+    """Parse `'0:5,10:15,25:30'` into [(0, 5), (10, 15), (25, 30)]."""
+    return [(int(a.split(":")[0]), int(a.split(":")[1])) for a in spec.split(",")]
+
+
+def get_horizon(curriculum: list, epoch: int) -> int:
+    """Return the current curriculum horizon H for the given epoch."""
+    H = curriculum[0][1]
+    for e, h in curriculum:
+        if epoch >= e:
+            H = h
+    return H
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--variant", choices=["full", "B", "C"], required=True)
+    p.add_argument("--seed", type=int, required=True)
+    p.add_argument("--output_dir", required=True)
+    p.add_argument("--pca_artifact", default="models/backfill/coarse_pca_233a.npz")
+    p.add_argument("--data_path", default="data/vol_surface_with_ret.npz")
+    # Train / val split (matches 227a defaults)
+    p.add_argument("--history_len", type=int, default=30)
+    p.add_argument("--n_steps", type=int, default=30)            # curriculum maximum
+    p.add_argument("--test_start", type=int, default=4511)
+    p.add_argument("--val_size", type=int, default=441)
+    p.add_argument("--max_train_windows", type=int, default=4010)
+    # Training hyperparameters
+    p.add_argument("--epochs", type=int, default=60)
+    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--n_members", type=int, default=8)
+    p.add_argument("--lr", type=float, default=4e-3)
+    p.add_argument("--weight_decay", type=float, default=1e-4)
+    p.add_argument("--grad_clip", type=float, default=1.0)
+    # Loss weights
+    p.add_argument("--lambda_vs", type=float, default=0.05)
+    p.add_argument("--lambda_rv", type=float, default=0.1)
+    p.add_argument("--lambda_jump", type=float, default=0.05)
+    p.add_argument("--lambda_state", type=float, default=0.1)
+    p.add_argument("--state_reg_window", type=int, default=5)
+    # Curriculum / feedback
+    p.add_argument("--curriculum_schedule", default="0:5,10:15,25:30")
+    p.add_argument("--feedback_decay_end", type=int, default=30)
+    # Model hyperparameters
+    p.add_argument("--hidden_dim", type=int, default=128)
+    p.add_argument("--factor_rank", type=int, default=6)
+    p.add_argument("--slow_hidden", type=int, default=8)
+    p.add_argument("--coarse_window", type=int, default=10)
+    p.add_argument("--har_windows", default="1,5,22")
+    p.add_argument("--alpha_init", type=float, default=-1.4)
+    p.add_argument("--hawkes_init", default="0.1,0.5,0.5")
+    # 227a hyperparameters (forwarded via base_kwargs)
+    p.add_argument("--rho", type=float, default=0.8)
+    p.add_argument("--ewma_alpha", type=float, default=0.20)
+    p.add_argument("--scale_floor", type=float, default=1e-4)
+    # Execution
+    p.add_argument("--device", default="cuda")
+    return p.parse_args()
+
+
+def _training_step(model, hist, fut, H, p_gt, args):
+    """Dispatch on variant; returns the model-output dict needed by compute_loss."""
+    fut_H = fut[:, :H]
+    if args.variant == "full":
+        return model.forward_full(
+            hist, fut_H,
+            n_members=args.n_members, n_steps=H,
+            p_gt_feedback=p_gt,
+            return_teacher_h=True, state_reg_window=args.state_reg_window,
+        ), fut_H
+    elif args.variant == "B":
+        return model.forward_B(
+            hist, fut_H,
+            n_members=args.n_members, n_steps=H,
+            p_gt_feedback=p_gt,
+        ), fut_H
+    elif args.variant == "C":
+        return model.forward_C(
+            hist, fut_H,
+            n_members=args.n_members, n_steps=H,
+            p_gt_feedback=p_gt,
+        ), fut_H
+    else:
+        raise ValueError(f"Unknown variant: {args.variant}")
+
+
+def _eval_step(model, hist, fut, H, args):
+    """Same dispatch but with p_gt_feedback=0 and return_teacher_h=False."""
+    fut_H = fut[:, :H]
+    if args.variant == "full":
+        return model.forward_full(
+            hist, fut_H,
+            n_members=args.n_members, n_steps=H,
+            p_gt_feedback=0.0,
+            return_teacher_h=False,
+        ), fut_H
+    elif args.variant == "B":
+        return model.forward_B(
+            hist, fut_H, n_members=args.n_members, n_steps=H, p_gt_feedback=0.0,
+        ), fut_H
+    elif args.variant == "C":
+        return model.forward_C(
+            hist, fut_H, n_members=args.n_members, n_steps=H, p_gt_feedback=0.0,
+        ), fut_H
+    else:
+        raise ValueError(f"Unknown variant: {args.variant}")
+
+
+def main():
+    args = parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    device = torch.device(args.device)
+    curriculum = parse_curriculum(args.curriculum_schedule)
+
+    # ---- Data ----
+    # Repo convention: surfaces in [0, 1], history_01 style. No normalize_iv needed for training.
+    from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
+        build_multistep_windows,
+    )
+    from torch.utils.data import DataLoader, TensorDataset
+
+    raw = np.load(args.data_path)
+    surfaces = raw["surface"].astype(np.float32)
+    surf_tensor = torch.from_numpy(surfaces).to(device)
+
+    max_train_idx = args.test_start - args.history_len - args.n_steps
+    train_indices = np.arange(0, max_train_idx - args.val_size)
+    val_indices = np.arange(max_train_idx - args.val_size, max_train_idx)
+    train_indices = train_indices[:args.max_train_windows]
+
+    train_hist, train_future = build_multistep_windows(
+        train_indices, surf_tensor, args.history_len, args.n_steps
+    )
+    train_future = train_future.view(train_hist.shape[0], args.n_steps, 5, 5)
+    val_hist, val_future = build_multistep_windows(
+        val_indices, surf_tensor, args.history_len, args.n_steps
+    )
+    val_future = val_future.view(val_hist.shape[0], args.n_steps, 5, 5)
+
+    # Keep on device (small dataset fits in VRAM easily)
+    train_loader = DataLoader(
+        TensorDataset(train_hist, train_future),
+        batch_size=args.batch_size, shuffle=True, drop_last=True,
+    )
+    val_loader = DataLoader(
+        TensorDataset(val_hist, val_future),
+        batch_size=args.batch_size, shuffle=False,
+    )
+
+    # ---- Model ----
+    hawkes_init = tuple(float(x) for x in args.hawkes_init.split(","))
+    base_kwargs = dict(
+        n_cells=25,
+        factor_rank=args.factor_rank,
+        hidden_dim=args.hidden_dim,
+        rho=args.rho,
+        ewma_alpha=args.ewma_alpha,
+        scale_floor=args.scale_floor,
+    )
+    model = TwoPathFactorAR(
+        variant=args.variant,
+        pca_artifact_path=args.pca_artifact,
+        slow_hidden=args.slow_hidden,
+        coarse_window=args.coarse_window,
+        har_windows=tuple(int(x) for x in args.har_windows.split(",")),
+        alpha_init=args.alpha_init,
+        hawkes_init=hawkes_init,
+        **base_kwargs,
+    ).to(device)
+
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"\n233a TwoPathFactorAR variant={args.variant}  seed={args.seed}")
+    print(f"  params={n_params:,}  train_windows={train_hist.shape[0]}  val_windows={val_hist.shape[0]}")
+    print(f"  curriculum={curriculum}  feedback_decay_end={args.feedback_decay_end}")
+    print(f"  lambdas: vs={args.lambda_vs} rv={args.lambda_rv} jump={args.lambda_jump} state={args.lambda_state}")
+
+    history_log: list = []
+    best_val_loss = float("inf")
+
+    for epoch in range(args.epochs):
+        t0 = time.time()
+        H = get_horizon(curriculum, epoch)
+        # Linear decay of GT-feedback probability from 1.0 → 0.0 over feedback_decay_end epochs
+        p_gt = max(0.0, 1.0 - epoch / max(args.feedback_decay_end, 1))
+
+        model.train()
+        train_totals = {k: 0.0 for k in ["L_total", "L_ES", "L_VS", "L_RV", "L_jump", "L_state"]}
+        train_batches = 0
+        for hist, fut in train_loader:
+            hist = hist.to(device, non_blocking=True)
+            fut = fut.to(device, non_blocking=True)
+            out, fut_H = _training_step(model, hist, fut, H, p_gt, args)
+            losses = compute_loss(
+                out, fut_H, q90_train=model.q90_train,
+                lambda_vs=args.lambda_vs, lambda_rv=args.lambda_rv,
+                lambda_jump=args.lambda_jump, lambda_state=args.lambda_state,
+                state_reg_window=args.state_reg_window,
+            )
+            opt.zero_grad(set_to_none=True)
+            losses["L_total"].backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            opt.step()
+            for k in train_totals:
+                train_totals[k] += float(losses[k].detach().item())
+            train_batches += 1
+        train_means = {k: train_totals[k] / max(train_batches, 1) for k in train_totals}
+
+        # ---- Validation ----
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for hist, fut in val_loader:
+                hist = hist.to(device, non_blocking=True)
+                fut = fut.to(device, non_blocking=True)
+                out, fut_H = _eval_step(model, hist, fut, H, args)
+                losses = compute_loss(
+                    out, fut_H, q90_train=model.q90_train,
+                    lambda_vs=args.lambda_vs, lambda_rv=args.lambda_rv,
+                    lambda_jump=args.lambda_jump, lambda_state=args.lambda_state,
+                    state_reg_window=args.state_reg_window,
+                )
+                val_losses.append(float(losses["L_total"].item()))
+
+        mean_val = float(np.mean(val_losses)) if val_losses else float("inf")
+        dt = time.time() - t0
+        log_row = dict(
+            epoch=epoch, H=H, p_gt=round(p_gt, 3),
+            val_loss=mean_val, dt_sec=round(dt, 2), **{f"train_{k}": train_means[k] for k in train_means},
+        )
+        history_log.append(log_row)
+        print(
+            f"ep {epoch:3d}  H={H:2d}  p_gt={p_gt:.2f}  "
+            f"train_total={train_means['L_total']:.4f}  val={mean_val:.4f}  "
+            f"dt={dt:.1f}s"
+        )
+
+        # ---- Save checkpoints ----
+        ckpt = {
+            "model_state_dict": model.state_dict(),
+            "epoch": epoch,
+            "args": vars(args),
+            "variant": args.variant,
+        }
+        torch.save(ckpt, output_dir / "final_model.pt")
+        if mean_val < best_val_loss:
+            best_val_loss = mean_val
+            torch.save(ckpt, output_dir / "best_model.pt")
+
+    # ---- Persist log ----
+    with open(output_dir / "training_log.json", "w") as f:
+        json.dump(history_log, f, indent=2)
+    print(f"\nTraining complete. Best val loss = {best_val_loss:.4f}")
+    print(f"Saved: {output_dir / 'best_model.pt'}, {output_dir / 'final_model.pt'}")
+
+
 if __name__ == "__main__":
-    main()   # defined in later task
+    main()
