@@ -89,8 +89,77 @@ class CoarseFeatures(nn.Module):
 
 # --- stubs filled in by later tasks ---
 class SlowPath(nn.Module):
-    """Slow path: GRUSlow + hybrid (EWMA + Hawkes) analytic backbone + learned residuals."""
-    pass
+    """
+    Slow path: GRUSlow hidden state + hybrid analytic/learned EWMA + Hawkes.
+
+    Inputs per step: coarse_features (B, F_coarse), x_t, x_{t-1}, j_t, Δt_last_jump
+    Outputs:        h_t (B, slow_hidden), s_t (B,), λ_t (B,)
+                    + q_t (B,) jump_prob logit, rv_pred (B,) for aux supervision
+    """
+
+    def __init__(
+        self,
+        coarse_feature_dim: int = 14,
+        slow_hidden: int = 8,
+        alpha_init: float = -1.4,       # sigmoid(-1.4) ≈ 0.2
+        lambda_base_init: float = 0.1,
+        alpha_H_init: float = 0.5,
+        beta_H_init: float = 0.5,
+    ):
+        super().__init__()
+        self.slow_hidden = slow_hidden
+        self.gru_slow = nn.GRUCell(coarse_feature_dim, slow_hidden)
+
+        # Scalar learned parameters
+        self.theta_alpha = nn.Parameter(torch.tensor(alpha_init, dtype=torch.float32))
+        self.lambda_base = nn.Parameter(torch.tensor(lambda_base_init, dtype=torch.float32))
+        self.alpha_H = nn.Parameter(torch.tensor(alpha_H_init, dtype=torch.float32))
+        self.beta_H = nn.Parameter(torch.tensor(beta_H_init, dtype=torch.float32))
+
+        # Learned residual correction heads
+        self.linear_s = nn.Linear(slow_hidden, 1)
+        self.linear_lam = nn.Linear(slow_hidden, 1)
+
+        # Auxiliary heads
+        self.rv_head = nn.Linear(slow_hidden, 1)
+        self.jump_prob_head = nn.Linear(slow_hidden, 1)
+
+    @property
+    def alpha_learn(self) -> torch.Tensor:
+        return torch.sigmoid(self.theta_alpha)
+
+    def step(
+        self,
+        coarse_t: torch.Tensor,
+        h_prev: torch.Tensor,
+        s_ewma_prev: torch.Tensor,
+        lam_hawkes_prev: torch.Tensor,
+        delta_t_last_jump: torch.Tensor,   # (B,) days since last jump
+        mean_sq_dx: torch.Tensor,           # (B,) mean((Δx)^2) this step
+        j_t: torch.Tensor,                   # (B,) binary jump indicator
+    ) -> dict:
+        """Single-step slow-path update. Returns dict with all derived quantities."""
+        a = self.alpha_learn
+        h_t = self.gru_slow(coarse_t, h_prev)
+
+        # Analytic backbone
+        s_ewma_t = (1.0 - a) * s_ewma_prev + a * mean_sq_dx
+        decay = torch.exp(-F.softplus(self.beta_H) * delta_t_last_jump)
+        lam_hawkes_t = self.lambda_base + F.softplus(self.alpha_H) * decay * j_t
+
+        # Hybrid (analytic + learned residual)
+        s_t = F.softplus(s_ewma_t + self.linear_s(h_t).squeeze(-1))      # (B,)
+        lam_t = F.relu(lam_hawkes_t + self.linear_lam(h_t).squeeze(-1))  # (B,)
+
+        # Aux heads (used for training losses only)
+        rv_pred = self.rv_head(h_t).squeeze(-1)
+        q_t = self.jump_prob_head(h_t).squeeze(-1)
+
+        return dict(
+            h_t=h_t, s_t=s_t, lam_t=lam_t,
+            s_ewma_t=s_ewma_t, lam_hawkes_t=lam_hawkes_t,
+            rv_pred=rv_pred, q_t=q_t,
+        )
 
 
 class FiLM(nn.Module):
@@ -125,6 +194,30 @@ def _sanity_check_coarse_features():
     assert out.shape == (2, 14), f"expected (2, 14), got {out.shape}"
     print("CoarseFeatures sanity check PASS")
     os.unlink(path)
+
+
+def _sanity_check_slow_path():
+    """Smoke test: SlowPath.step produces expected shapes and gradients."""
+    sp = SlowPath(coarse_feature_dim=14, slow_hidden=8)
+    B = 3
+    coarse = torch.randn(B, 14)
+    h_prev = torch.zeros(B, 8)
+    s_ewma = torch.full((B,), 0.01, dtype=torch.float32)
+    lam_hawkes = torch.full((B,), 0.1, dtype=torch.float32)
+    delta_t = torch.full((B,), 5.0, dtype=torch.float32)
+    mean_sq = torch.full((B,), 0.02, dtype=torch.float32)
+    j_t = torch.tensor([0.0, 1.0, 0.0])
+    out = sp.step(coarse, h_prev, s_ewma, lam_hawkes, delta_t, mean_sq, j_t)
+    assert out["h_t"].shape == (B, 8), f"h_t shape wrong: {out['h_t'].shape}"
+    assert out["s_t"].shape == (B,)
+    assert out["lam_t"].shape == (B,)
+    assert (out["s_t"] >= 0).all(), "s_t should be non-negative (softplus)"
+    assert (out["lam_t"] >= 0).all(), "lam_t should be non-negative (ReLU)"
+    # Gradient check
+    loss = out["s_t"].sum() + out["lam_t"].sum() + out["rv_pred"].sum() + out["q_t"].sum()
+    loss.backward()
+    assert sp.theta_alpha.grad is not None, "theta_alpha should receive gradient"
+    print("SlowPath sanity check PASS")
 
 
 if __name__ == "__main__":
