@@ -383,7 +383,7 @@ class TwoPathFactorAR(FactorARModel227a):
             history = history.reshape(B, T, D)
         else:
             B, T, D = history.shape
-        if future.dim() == 4:
+        if future is not None and future.dim() == 4:
             future = future.reshape(future.shape[0], future.shape[1], -1)
         device = history.device
         K = n_members
@@ -470,7 +470,7 @@ class TwoPathFactorAR(FactorARModel227a):
             samples[:, :, t] = next_iv.view(B, K, D)
 
             # --- Feedback selection (batch-level PF; all K members share the mode this step) ---
-            if self.training and torch.rand(1).item() < p_gt_feedback:
+            if self.training and future is not None and torch.rand(1).item() < p_gt_feedback:
                 x_feedback_B = future[:, t]                                # (B, D)
                 x_feedback_bk = x_feedback_B.unsqueeze(1).expand(B, K, -1).reshape(BK, D)
             else:
@@ -587,6 +587,267 @@ class TwoPathFactorAR(FactorARModel227a):
             x_prev = x_gt
 
         return h_slow_seq
+
+    def forward_B(
+        self,
+        history: torch.Tensor,
+        future: Optional[torch.Tensor] = None,
+        n_members: int = 8,
+        n_steps: int = 30,
+        p_gt_feedback: float = 0.0,
+        **kwargs,
+    ) -> dict:
+        """
+        v1-B: no slow path, no FiLM. Instead, cond_fast gets a zero-init parallel
+        residual MLP (cond_extra -> cond_residual_proj), and two aux heads
+        (rv_head_B, jump_head_B) read off cond's batch-pooled representation for
+        RV/jump supervision. All fast-path machinery (factor head, idio head,
+        Λ, D, AR(1) z_f, anchored EWMA) is 227a-unchanged.
+        """
+        assert self.variant == "B", "forward_B requires variant=B"
+        # Accept both flat and grid shapes
+        if history.dim() == 4:
+            B, T, H, W_grid = history.shape
+            D = H * W_grid
+            hist_flat = history.reshape(B, T, D)
+        else:
+            B, T, D = history.shape
+            hist_flat = history
+        if future is not None and future.dim() == 4:
+            future = future.reshape(future.shape[0], future.shape[1], -1)
+        device = history.device
+        K = n_members
+        BK = B * K
+
+        hist_4d = hist_flat.reshape(B, T, 5, 5)
+        cond_B_0, local_scale_B = self.encode_history(hist_4d)
+        scale_anchor_B = local_scale_B.clone()
+
+        cond = cond_B_0.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        local_scale = local_scale_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        prev = hist_flat[:, -1].unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+        scale_anchor_bk = scale_anchor_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+
+        x_prev_B = hist_flat[:, -1]
+
+        z_f = torch.randn(BK, self.factor_rank, device=device)
+        rho_sq_comp = math.sqrt(1.0 - self.rho ** 2)
+
+        samples = torch.empty(B, K, n_steps, D, device=device)
+        q_seq, rv_pred_seq, mean_sq_dx_seq = [], [], []
+
+        for t in range(n_steps):
+            # Aux heads read mean-across-K cond (B, hidden); supervised each step
+            cond_as_B = cond.view(B, K, -1).mean(dim=1)          # (B, hidden)
+            aux_h = self.aux_bottleneck(cond_as_B)                # (B, 32)
+            rv_pred_seq.append(self.rv_head_B(aux_h).squeeze(-1))
+            q_seq.append(self.jump_head_B(aux_h).squeeze(-1))
+
+            # Parallel residual MLP (zero-init at start -> identity behaviour)
+            cond_extra = self.cond_extra(cond)                    # (BK, 32)
+            cond_adj = cond + self.cond_residual_proj(cond_extra) # (BK, hidden)
+
+            # Fast-path emission (227a pattern, no FiLM)
+            if t > 0:
+                z_f = self.rho * z_f + rho_sq_comp * torch.randn_like(z_f)
+            z_i = torch.randn(BK, D, device=device)
+            pos = self.pos_embed(t, BK, device)
+
+            factor_in = torch.cat([prev, cond_adj, z_f, pos], dim=-1)
+            f_scores = self.factor_head(factor_in)                # (BK, k)
+            idio_in = torch.cat([prev, cond_adj, z_i, pos], dim=-1)
+            i_resid = self.idio_head(idio_in)                      # (BK, D)
+
+            Lambda = self.get_lambda(cond_adj)                     # (BK, D, k)
+            D_base = self.get_d(cond_adj)                           # (BK, D)
+            v = torch.einsum("bdr,br->bd", Lambda, f_scores) + D_base * i_resid
+
+            delta = torch.sinh(v) * local_scale
+            next_iv = (prev + delta).clamp(1e-4, 1.0 - 1e-4)
+            samples[:, :, t] = next_iv.view(B, K, D)
+
+            # Feedback
+            if self.training and future is not None and torch.rand(1).item() < p_gt_feedback:
+                x_feedback_B = future[:, t]
+                x_feedback_bk = x_feedback_B.unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+            else:
+                x_feedback_bk = next_iv
+                x_feedback_B = next_iv.view(B, K, D).mean(dim=1)
+
+            dx_B = x_feedback_B - x_prev_B
+            mean_sq_dx_seq.append((dx_B ** 2).mean(dim=-1))
+
+            feat, local_scale = self._step_features(prev, x_feedback_bk, local_scale)
+            cond = self.gru_cell(feat, cond)
+            prev = x_feedback_bk
+
+            if self.use_scale_anchor:
+                log_s = ((1.0 - self.scale_anchor_alpha)
+                         * torch.log(local_scale.clamp_min(self.scale_floor))
+                         + self.scale_anchor_alpha
+                         * torch.log(scale_anchor_bk.clamp_min(self.scale_floor)))
+                local_scale = torch.exp(log_s)
+
+            x_prev_B = x_feedback_B
+
+        return dict(
+            samples=samples,
+            q_seq=q_seq,
+            rv_pred_seq=rv_pred_seq,
+            mean_sq_dx_seq=mean_sq_dx_seq,
+        )
+
+    def _compute_har_features(self, buffer_B: list) -> torch.Tensor:
+        """
+        5 HAR features computed from history buffer:
+          1. RV over window 1   (B,)
+          2. RV over window 5   (B,)
+          3. RV over window 22  (B,)
+          4. RV-of-RV over last 10 days (B,)
+          5. q90 exceedance score over last 10 days (B,)
+        Pads buffer with oldest frame if too short.
+        """
+        required = max(max(self.har_windows) + 1, 11)
+        if len(buffer_B) < required:
+            buffer_B = [buffer_B[0]] * (required - len(buffer_B)) + list(buffer_B)
+
+        rvs = []
+        for w in self.har_windows:
+            window = torch.stack(buffer_B[-w - 1:], dim=1)      # (B, w+1, D)
+            d = window[:, 1:] - window[:, :-1]
+            rvs.append((d ** 2).mean(dim=[1, 2]))                # (B,)
+
+        w10 = torch.stack(buffer_B[-11:], dim=1)                 # (B, 11, D)
+        d10 = w10[:, 1:] - w10[:, :-1]
+        rsc = (d10 ** 2).mean(dim=-1)                            # (B, 10)
+        rvs.append(rsc.std(dim=-1))                              # RV-of-RV (B,)
+
+        diffs = (w10[:, 1:] - w10[:, :-1]).norm(dim=-1)          # (B, 10)
+        q_score = (diffs > self.q90_train).float().mean(dim=-1)  # (B,)
+        rvs.append(q_score)
+
+        return torch.stack(rvs, dim=-1)                           # (B, 5)
+
+    def forward_C(
+        self,
+        history: torch.Tensor,
+        future: Optional[torch.Tensor] = None,
+        n_members: int = 8,
+        n_steps: int = 30,
+        p_gt_feedback: float = 0.0,
+        **kwargs,
+    ) -> dict:
+        """
+        v1-C: HAR-feature control. No learned slow state; 5 deterministic HAR
+        features are concatenated onto cond each step and projected back to the
+        cond hidden size via har_concat_mlp.
+        """
+        assert self.variant == "C", "forward_C requires variant=C"
+        if history.dim() == 4:
+            B, T, H, W_grid = history.shape
+            D = H * W_grid
+            hist_flat = history.reshape(B, T, D)
+        else:
+            B, T, D = history.shape
+            hist_flat = history
+        if future is not None and future.dim() == 4:
+            future = future.reshape(future.shape[0], future.shape[1], -1)
+        device = history.device
+        K = n_members
+        BK = B * K
+
+        hist_4d = hist_flat.reshape(B, T, 5, 5)
+        cond_B_0, local_scale_B = self.encode_history(hist_4d)
+        scale_anchor_B = local_scale_B.clone()
+
+        cond = cond_B_0.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        local_scale = local_scale_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+        prev = hist_flat[:, -1].unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+        scale_anchor_bk = scale_anchor_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+
+        buffer_B = [hist_flat[:, t] for t in range(T)]
+
+        z_f = torch.randn(BK, self.factor_rank, device=device)
+        rho_sq_comp = math.sqrt(1.0 - self.rho ** 2)
+
+        samples = torch.empty(B, K, n_steps, D, device=device)
+
+        for t in range(n_steps):
+            har_B = self._compute_har_features(buffer_B)                  # (B, 5)
+            har_bk = har_B.unsqueeze(1).expand(B, K, -1).reshape(BK, -1)
+            cond_conditioned = self.har_concat_mlp(
+                torch.cat([cond, har_bk], dim=-1)
+            )                                                              # (BK, hidden)
+
+            if t > 0:
+                z_f = self.rho * z_f + rho_sq_comp * torch.randn_like(z_f)
+            z_i = torch.randn(BK, D, device=device)
+            pos = self.pos_embed(t, BK, device)
+
+            factor_in = torch.cat([prev, cond_conditioned, z_f, pos], dim=-1)
+            f_scores = self.factor_head(factor_in)
+            idio_in = torch.cat([prev, cond_conditioned, z_i, pos], dim=-1)
+            i_resid = self.idio_head(idio_in)
+
+            Lambda = self.get_lambda(cond_conditioned)
+            D_base = self.get_d(cond_conditioned)
+            v = torch.einsum("bdr,br->bd", Lambda, f_scores) + D_base * i_resid
+
+            delta = torch.sinh(v) * local_scale
+            next_iv = (prev + delta).clamp(1e-4, 1.0 - 1e-4)
+            samples[:, :, t] = next_iv.view(B, K, D)
+
+            if self.training and future is not None and torch.rand(1).item() < p_gt_feedback:
+                x_feedback_B = future[:, t]
+                x_feedback_bk = x_feedback_B.unsqueeze(1).expand(B, K, -1).reshape(BK, D)
+            else:
+                x_feedback_bk = next_iv
+                x_feedback_B = next_iv.view(B, K, D).mean(dim=1)
+
+            buffer_B.append(x_feedback_B)
+            buffer_B = buffer_B[-30:]
+
+            feat, local_scale = self._step_features(prev, x_feedback_bk, local_scale)
+            cond = self.gru_cell(feat, cond)
+            prev = x_feedback_bk
+
+            if self.use_scale_anchor:
+                log_s = ((1.0 - self.scale_anchor_alpha)
+                         * torch.log(local_scale.clamp_min(self.scale_floor))
+                         + self.scale_anchor_alpha
+                         * torch.log(scale_anchor_bk.clamp_min(self.scale_floor)))
+                local_scale = torch.exp(log_s)
+
+        return dict(samples=samples)
+
+    def forward(
+        self,
+        history: torch.Tensor,
+        n_members: int = 8,
+        n_steps: int = 30,
+        *,
+        future: Optional[torch.Tensor] = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        """
+        Variant dispatch; returns tensor (B, K, N, 5, 5) compatible with 227a's
+        inherited `sample_batched`. `future` is ignored at inference (p_gt_feedback=0).
+
+        For training, call `forward_full` / `forward_B` / `forward_C` directly to
+        get the full dict (samples + per-step aux tensors for the loss).
+        """
+        kwargs_with_future = dict(kwargs)
+        kwargs_with_future.setdefault("p_gt_feedback", 0.0)
+        if self.variant == "full":
+            out = self.forward_full(history, future, n_members, n_steps, **kwargs_with_future)
+        elif self.variant == "B":
+            out = self.forward_B(history, future, n_members, n_steps, **kwargs_with_future)
+        elif self.variant == "C":
+            out = self.forward_C(history, future, n_members, n_steps, **kwargs_with_future)
+        else:
+            raise ValueError(f"Unknown variant {self.variant}")
+        samples = out["samples"]                        # (B, K, N, D=25)
+        return samples.view(*samples.shape[:-1], 5, 5)  # (B, K, N, 5, 5)
 
 
 def _sanity_check_model_constructors():
@@ -746,6 +1007,37 @@ def _sanity_check_teacher_branch():
         )
     assert len(out["h_slow_teacher_seq"]) == 5
     print("teacher branch PASS")
+
+
+def _sanity_check_variant_dispatch():
+    """Smoke test: forward() dispatches to each variant and returns (B, K, N, 5, 5)."""
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    history = torch.rand(2, 30, 5, 5) * 0.3 + 0.1   # grid shape
+    for variant in ["full", "B", "C"]:
+        m = TwoPathFactorAR(variant=variant, **kwargs).eval()
+        with torch.no_grad():
+            out = m(history, n_members=4, n_steps=5)
+        assert out.shape == (2, 4, 5, 5, 5), f"{variant}: {out.shape}"
+    print("variant dispatch PASS")
+
+
+def _sanity_check_forward_B_C_training():
+    """Smoke test: forward_B/C in training mode return dict + correct shapes."""
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    history = torch.rand(2, 30, 25) * 0.3 + 0.1
+    future = torch.rand(2, 5, 25) * 0.3 + 0.1
+    # B
+    m_b = TwoPathFactorAR(variant="B", **kwargs).train()
+    out_b = m_b.forward_B(history, future, n_members=4, n_steps=5, p_gt_feedback=0.5)
+    assert out_b["samples"].shape == (2, 4, 5, 25)
+    assert len(out_b["rv_pred_seq"]) == 5
+    assert len(out_b["q_seq"]) == 5
+    assert len(out_b["mean_sq_dx_seq"]) == 5
+    # C
+    m_c = TwoPathFactorAR(variant="C", **kwargs).train()
+    out_c = m_c.forward_C(history, future, n_members=4, n_steps=5, p_gt_feedback=0.5)
+    assert out_c["samples"].shape == (2, 4, 5, 25)
+    print("forward_B/C training PASS")
 
 
 if __name__ == "__main__":
