@@ -211,6 +211,33 @@ class FiLM(nn.Module):
         )
 
 
+def straight_through_bernoulli(logit: torch.Tensor, shape: tuple) -> torch.Tensor:
+    """
+    Straight-through Bernoulli sampling.
+    Forward: hard 0/1 sample. Backward: σ(logit) sigmoid gradient.
+
+    logit: (B,) or broadcastable to shape
+    shape: desired output shape (B, K, 1) or similar
+    """
+    p = torch.sigmoid(logit)
+    p_broadcast = p.view(*p.shape, *([1] * (len(shape) - len(p.shape))))
+    U = torch.rand(shape, device=logit.device)
+    mask_hard = (U < p_broadcast).float()
+    # Straight-through: forward=hard, backward=soft
+    return mask_hard.detach() + p_broadcast - p_broadcast.detach()
+
+
+class ScaleJumpHead(nn.Module):
+    """Single learned scalar magnitude for the jump term; softplus(linear(λ_t → 1))."""
+    def __init__(self):
+        super().__init__()
+        self.lin = nn.Linear(1, 1)
+
+    def forward(self, lam_t: torch.Tensor) -> torch.Tensor:
+        """lam_t: (B,) -> scale: (B,)"""
+        return F.softplus(self.lin(lam_t.unsqueeze(-1)).squeeze(-1))
+
+
 class TwoPathFactorAR(nn.Module):
     """v1-full model. Subclasses FactorARModel227a and adds slow path + FiLM + jump mixture."""
     pass
@@ -277,6 +304,18 @@ def _sanity_check_film_identity_init():
     assert torch.allclose(out["drift_bias"], torch.zeros_like(out["drift_bias"])), "drift_bias not 0 at init"
     assert torch.allclose(out["p_jump_logit"], torch.zeros_like(out["p_jump_logit"])), "p_jump_logit not 0 at init"
     print("FiLM identity-at-init check PASS")
+
+
+def _sanity_check_straight_through():
+    logit = torch.tensor([0.0, 0.0], requires_grad=True)
+    mask = straight_through_bernoulli(logit, shape=(2, 4, 1))
+    assert mask.shape == (2, 4, 1)
+    assert ((mask == 0.0) | (mask == 1.0)).all(), "forward must be hard 0/1"
+    loss = mask.sum()
+    loss.backward()
+    # sigmoid(0)*(1-sigmoid(0)) = 0.25 per element; total 2*4*1 = 8 elements
+    assert logit.grad is not None and logit.grad.abs().sum() > 0, "gradient must flow"
+    print(f"straight-through Bernoulli grad check PASS (grad={logit.grad})")
 
 
 if __name__ == "__main__":
