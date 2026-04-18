@@ -29,6 +29,12 @@ import torch.nn.functional as F
 from experiments.backfill.block_ar.train_227a_factor_ar import (
     FactorARModel as FactorARModel227a,
 )
+from experiments.backfill.block_ar.train_212b_h1_minimal_direct_stochastic_delta import (
+    energy_score,
+)
+from experiments.backfill.block_ar.train_212s_h1_minimal_direct_stochastic_delta_es_vs import (
+    variogram_score,
+)
 
 FastFeatures = namedtuple("FastFeatures", ["feature_vec", "local_scale"])
 
@@ -269,6 +275,10 @@ class TwoPathFactorAR(FactorARModel227a):
         self.use_scale_anchor = True
         self.scale_anchor_alpha = 0.50
 
+        # q90_train is needed by the jump BCE loss (all variants) and by variant-C HAR features
+        _artifact = np.load(pca_artifact_path)
+        self.register_buffer("q90_train", torch.tensor(float(_artifact["q90_train"])))
+
         # -- variant-specific wiring --
         if variant == "full":
             self.coarse = CoarseFeatures(pca_artifact_path, coarse_window=coarse_window)
@@ -282,8 +292,6 @@ class TwoPathFactorAR(FactorARModel227a):
             )
             self.film = FiLM(D=self.D, k=self.k, hidden=32)
             self.scale_jump_head = ScaleJumpHead()
-            # q90_train is loaded into coarse.q90_train buffer
-            self.register_buffer("q90_train", self.coarse.q90_train.clone())
 
         elif variant == "B":
             # v1-B: no slow path, aux-supervised cond_fast via bottleneck MLP
@@ -296,18 +304,14 @@ class TwoPathFactorAR(FactorARModel227a):
                 nn.Linear(128, 32), nn.ReLU(), nn.Linear(32, 32), nn.ReLU(),
             )
             self.cond_residual_proj = nn.Linear(32, 128)
-            nn.init.zeros_(self.cond_residual_proj.weight)   # start at identity
+            nn.init.zeros_(self.cond_residual_proj.weight)
             nn.init.zeros_(self.cond_residual_proj.bias)
 
         elif variant == "C":
-            # v1-C: HAR-feature control (5 features); no learned state, aux, FiLM, jump
             self.har_concat_mlp = nn.Sequential(
                 nn.Linear(128 + 5, 160), nn.ReLU(),
                 nn.Linear(160, 128), nn.ReLU(),
             )
-            # Need q90 for HAR jump-frequency feature
-            artifact = np.load(pca_artifact_path)
-            self.register_buffer("q90_train", torch.tensor(float(artifact["q90_train"])))
 
         else:
             raise ValueError(f"Unknown variant: {variant}")
@@ -850,6 +854,79 @@ class TwoPathFactorAR(FactorARModel227a):
         return samples.view(*samples.shape[:-1], 5, 5)  # (B, K, N, 5, 5)
 
 
+def compute_loss(
+    model_output: dict,
+    future: torch.Tensor,          # (B, N, D) with N being n_steps (need N+1 steps if RV aux wanted for every sampled step)
+    q90_train: torch.Tensor,       # scalar tensor
+    lambda_vs: float = 0.05,
+    lambda_rv: float = 0.1,
+    lambda_jump: float = 0.05,
+    lambda_state: float = 0.1,
+    state_reg_window: int = 5,
+) -> dict:
+    """
+    Total loss for 233a training. Sums per-step energy + variogram scores over
+    all N prediction steps. For v1-full / v1-B (which expose rv_pred_seq, q_seq),
+    adds log-realized-variance MSE and jump BCE aux losses (on future[t+1] − future[t]
+    for t in [0, N-1)). For v1-full only, adds state-reg MSE on h_slow_free vs
+    h_slow_teacher (detached).
+
+    Returns a dict of scalar loss tensors (L_total, L_ES, L_VS, L_RV, L_jump, L_state).
+    """
+    samples = model_output["samples"]      # (B, K, N, D)
+    B, K, N, D = samples.shape
+    # Flatten future to (B, T_fut, D) if it's grid-shaped
+    if future.dim() == 4:
+        future = future.reshape(future.shape[0], future.shape[1], -1)
+
+    device = samples.device
+
+    # Per-step ES, VS
+    L_ES = torch.zeros((), device=device)
+    L_VS = torch.zeros((), device=device)
+    for t in range(N):
+        L_ES = L_ES + energy_score(samples[:, :, t], future[:, t])
+        L_VS = L_VS + variogram_score(samples[:, :, t], future[:, t])
+    L_ES = L_ES / N
+    L_VS = L_VS / N
+
+    # Slow-path aux losses (variant-full and variant-B expose rv_pred_seq + q_seq)
+    L_RV = torch.zeros((), device=device)
+    L_jump = torch.zeros((), device=device)
+    if "rv_pred_seq" in model_output and "q_seq" in model_output:
+        rv_seq = model_output["rv_pred_seq"]
+        q_seq_ = model_output["q_seq"]
+        # Count only valid t's (need future[t+1])
+        valid = min(N - 1, len(rv_seq), len(q_seq_))
+        if valid > 0:
+            for t in range(valid):
+                dy = future[:, t + 1] - future[:, t]
+                mean_sq_dy = (dy ** 2).mean(dim=-1).clamp_min(1e-10)
+                target_log_rv = torch.log(mean_sq_dy)
+                target_jump = (dy.norm(dim=-1) > q90_train).float()
+                L_RV = L_RV + F.mse_loss(rv_seq[t], target_log_rv)
+                L_jump = L_jump + F.binary_cross_entropy_with_logits(q_seq_[t], target_jump)
+            L_RV = L_RV / valid
+            L_jump = L_jump / valid
+
+    # State consistency (v1-full only)
+    L_state = torch.zeros((), device=device)
+    if model_output.get("h_slow_teacher_seq"):
+        free_seq = model_output["h_slow_free_seq"]
+        teacher_seq = model_output["h_slow_teacher_seq"]
+        W = min(state_reg_window, len(teacher_seq), len(free_seq))
+        if W > 0:
+            for t in range(W):
+                L_state = L_state + F.mse_loss(free_seq[t], teacher_seq[t])   # teacher already detached
+            L_state = L_state / W
+
+    L_total = L_ES + lambda_vs * L_VS + lambda_rv * L_RV + lambda_jump * L_jump + lambda_state * L_state
+
+    return dict(
+        L_total=L_total, L_ES=L_ES, L_VS=L_VS, L_RV=L_RV, L_jump=L_jump, L_state=L_state,
+    )
+
+
 def _sanity_check_model_constructors():
     # Minimal kwargs to match 227a's signature; adjust once we know what 227a needs
     kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
@@ -1038,6 +1115,36 @@ def _sanity_check_forward_B_C_training():
     out_c = m_c.forward_C(history, future, n_members=4, n_steps=5, p_gt_feedback=0.5)
     assert out_c["samples"].shape == (2, 4, 5, 25)
     print("forward_B/C training PASS")
+
+
+def _sanity_check_compute_loss():
+    """Smoke test: compute_loss returns finite scalar tensors and supports backward."""
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    # v1-full end-to-end
+    m = TwoPathFactorAR(variant="full", **kwargs).train()
+    history = torch.rand(2, 30, 25) * 0.3 + 0.1
+    future = torch.rand(2, 8, 25) * 0.3 + 0.1
+    out = m.forward_full(history, future, n_members=4, n_steps=5,
+                          p_gt_feedback=0.5, return_teacher_h=True, state_reg_window=3)
+    losses = compute_loss(out, future[:, :6], q90_train=m.q90_train)
+    assert torch.isfinite(losses["L_total"]).item(), f"L_total: {losses['L_total']}"
+    assert all(torch.isfinite(losses[k]).item() for k in ["L_ES", "L_VS", "L_RV", "L_jump", "L_state"])
+    losses["L_total"].backward()   # must not raise
+    # v1-B (no state reg; has RV/jump aux)
+    m_b = TwoPathFactorAR(variant="B", **kwargs).train()
+    out_b = m_b.forward_B(history, future, n_members=4, n_steps=5, p_gt_feedback=0.5)
+    losses_b = compute_loss(out_b, future[:, :6], q90_train=m_b.q90_train)
+    assert losses_b["L_state"].item() == 0.0, "v1-B should have no state-reg contribution"
+    losses_b["L_total"].backward()
+    # v1-C (no RV/jump/state)
+    m_c = TwoPathFactorAR(variant="C", **kwargs).train()
+    out_c = m_c.forward_C(history, future, n_members=4, n_steps=5, p_gt_feedback=0.5)
+    losses_c = compute_loss(out_c, future[:, :5], q90_train=m_c.q90_train)
+    assert losses_c["L_RV"].item() == 0.0
+    assert losses_c["L_jump"].item() == 0.0
+    assert losses_c["L_state"].item() == 0.0
+    losses_c["L_total"].backward()
+    print("compute_loss PASS")
 
 
 if __name__ == "__main__":
