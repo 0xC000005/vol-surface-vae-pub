@@ -163,8 +163,52 @@ class SlowPath(nn.Module):
 
 
 class FiLM(nn.Module):
-    """Restricted FiLM coupling: (s, λ) -> (γ_Λ, β_Λ, γ_D, β_D, drift_bias, p_jump_logit)."""
-    pass
+    """
+    Restricted FiLM coupling: (s_t, λ_t) -> modulation parameters.
+
+    Input pre-scaling with log1p spreads the small-magnitude inputs so the
+    MLP's output is not bias-dominated early in training.
+    γ heads start at identity (γ = 1) so the fast path is initially
+    equivalent to 226a (no modulation). drift_bias, β heads, logit start at 0.
+    """
+
+    def __init__(self, D: int, k: int, hidden: int = 32):
+        super().__init__()
+        self.D = D
+        self.k = k
+        self.mlp = nn.Sequential(
+            nn.Linear(2, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+        )
+        # Output heads — zero-init all weights AND biases; γ is handled with +1.0 in forward()
+        self.g_lambda = nn.Linear(hidden, k)        # γ_Λ (identity-at-init)
+        self.b_lambda = nn.Linear(hidden, k)        # β_Λ
+        self.g_d = nn.Linear(hidden, D)              # γ_D
+        self.b_d = nn.Linear(hidden, D)
+        self.drift = nn.Linear(hidden, D)
+        self.logit = nn.Linear(hidden, 1)
+
+        for head in (self.g_lambda, self.b_lambda, self.g_d, self.b_d, self.drift, self.logit):
+            nn.init.zeros_(head.weight)
+            nn.init.zeros_(head.bias)
+
+    def forward(self, s_t: torch.Tensor, lam_t: torch.Tensor) -> dict:
+        """
+        s_t, lam_t: (B,) scalars
+        Returns dict with keys: gamma_lambda, beta_lambda, gamma_d, beta_d, drift_bias, p_jump_logit
+        """
+        u = torch.stack([torch.log1p(s_t), torch.log1p(lam_t)], dim=-1)   # (B, 2)
+        h = self.mlp(u)                                                     # (B, hidden)
+        return dict(
+            gamma_lambda=1.0 + self.g_lambda(h),   # (B, k) — identity at init
+            beta_lambda=self.b_lambda(h),           # (B, k) — 0 at init
+            gamma_d=1.0 + self.g_d(h),              # (B, D) — identity at init
+            beta_d=self.b_d(h),
+            drift_bias=self.drift(h),
+            p_jump_logit=self.logit(h).squeeze(-1), # (B,) — 0 at init -> σ(0) = 0.5
+        )
 
 
 class TwoPathFactorAR(nn.Module):
@@ -218,6 +262,21 @@ def _sanity_check_slow_path():
     loss.backward()
     assert sp.theta_alpha.grad is not None, "theta_alpha should receive gradient"
     print("SlowPath sanity check PASS")
+
+
+def _sanity_check_film_identity_init():
+    """FiLM γ outputs should be exactly 1.0 at init; β/drift should be 0."""
+    film = FiLM(D=25, k=6, hidden=32)
+    s = torch.tensor([0.1, 0.5])
+    lam = torch.tensor([0.2, 0.3])
+    out = film(s, lam)
+    assert torch.allclose(out["gamma_lambda"], torch.ones_like(out["gamma_lambda"])), "γ_Λ not identity at init"
+    assert torch.allclose(out["gamma_d"], torch.ones_like(out["gamma_d"])), "γ_D not identity at init"
+    assert torch.allclose(out["beta_lambda"], torch.zeros_like(out["beta_lambda"])), "β_Λ not 0 at init"
+    assert torch.allclose(out["beta_d"], torch.zeros_like(out["beta_d"])), "β_D not 0 at init"
+    assert torch.allclose(out["drift_bias"], torch.zeros_like(out["drift_bias"])), "drift_bias not 0 at init"
+    assert torch.allclose(out["p_jump_logit"], torch.zeros_like(out["p_jump_logit"])), "p_jump_logit not 0 at init"
+    print("FiLM identity-at-init check PASS")
 
 
 if __name__ == "__main__":
