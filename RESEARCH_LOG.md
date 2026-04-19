@@ -72818,3 +72818,132 @@ Passed suites (all 3 variants): surface_validity + cross_cell_correlation (2/7).
 **Next research project:** `rc24_joint_flow_v1` — joint-path conditional flow matching over (H=30, D=25) trajectories, conditioned on history. Window-level AR for 252-day horizon. Preserves 212ai-class H=1 marginal prior. Will draft design spec before implementation; see `research/flow_matching_nextsteps/` for literature groundwork.
 
 ---
+
+## 2026-04-18: 233a Failure Investigation — Mechanistic Decomposition (REVERSES Prior Conclusion)
+
+### Context
+
+The earlier 2026-04-18 entry closed the 233a line with "AR paradigm exhausted, pivot to joint-path flow matching." User challenged this as insufficiently justified — we had not determined *why* the model failed, only that it failed aggregate gates. Four parallel diagnostic agents were dispatched to investigate:
+
+1. **FiLM collapse training dynamics** — gradient-driven vs init-driven; loss supervision check
+2. **Slow-state regime encoding** — does slow state carry regime info; does it collapse in rollout
+3. **AR compounding profile** — per-step drift analysis; teacher-forced vs self-fed comparison
+4. **Regime-stratified performance** — calm vs turb per-metric breakdown
+
+Each agent produced a diagnostic script, JSON, and MD summary. Commits `b732ee0, 1170b21, d32ae8a, 12b1820, 8bbb1b9`.
+
+### Key Findings — Three Specific, Fixable Bugs
+
+#### Bug 1: LOSS WIRING (`diagnose_233a_film_collapse.py`, commit `1170b21`)
+
+`L_jump` (BCE loss) supervises `slow_path.jump_prob_head(q_t)` — **NOT** `film.logit`. The `film.logit` output (which feeds the Bernoulli jump mask) receives zero direct gradient from L_jump. The only path is L_ES via straight-through Bernoulli, 8× weaker than what L_jump would have provided.
+
+Two-stage gradient starvation confirmed:
+- **Stage 1 (ep 0-8):** L_ES pushes zero-init logit negative (suppressing mask reduces v variance)
+- **Stage 2 (ep 8-59):** Once σ(logit) << 0.5, mask ≈ 0 always, straight-through gradient ≡ 0. **Self-reinforcing dead zone.**
+
+By ep 59, ALL FiLM gradients (logit, mlp[0], g_lambda, g_d, drift) = 0.00 for seeds 42, 1337. The shared MLP backbone is dead → γ/β heads also stuck.
+
+| seed | ckpt | ep | p_jump_logit std | slow_q std |
+|------|------|----|-----------------|------------|
+| 42   | best | 9  | 0.00229 | 0.0623 |
+| 42   | final | 59 | **0.00000** | 0.0672 |
+| 1337 | best | 8  | 0.00039 | 0.0398 |
+| 1337 | final | 59 | **0.00000** | 0.1145 |
+
+Slow-path's own aux jump head (`slow_path.jump_prob_head`) is trained correctly throughout (q_t std = 0.04-0.11). **The problem is exclusively at the FiLM layer and its loss wiring.**
+
+#### Bug 2: SELF-FED STATE COLLAPSE (`diagnose_233a_slow_state.py`, commit `12b1820`)
+
+Slow state is **HIGHLY discriminative at init**:
+
+| metric | value (mean across 3 seeds) |
+|---|---|
+| `lam_hawkes` turb/calm ratio | **2.46** |
+| `s_ewma` turb/calm ratio | **3.09** |
+| `h_slow` PC1 Cohen's d | **1.17** (large effect) |
+| `h_slow` PC1 AUC as regime classifier | **0.788** |
+| `rv_head` correlation with log-RV | 0.16 |
+| `jump_prob_head` AUC | 0.68 |
+
+Aux heads train correctly. The slow state at init encodes regime. **Yet self-fed rollout collapses s_t diversity by 50-70%:**
+
+| seed | mode | s_std step 0→29 ratio |
+|------|------|----------------------|
+| 42   | teacher-forced | 1.08 (maintained) |
+| 42   | self-fed | 0.92 |
+| 1337 | teacher-forced | 1.10 (maintained) |
+| 1337 | self-fed | **0.29** (severe collapse) |
+| 2024 | teacher-forced | 1.09 (maintained) |
+| 2024 | self-fed | **0.39** (severe collapse) |
+
+**This is rollout-drift, not representation failure.** Teacher-forcing keeps the slow-state's regime information intact; self-feedback erodes it across the 30-step horizon.
+
+#### Bug 3: ARTIFICIAL OSCILLATION (`diagnose_233a_ar_compounding.py`, commit `d32ae8a`)
+
+Contrary to expectation, 233a does **NOT show AR compounding drift**:
+
+| model | KS@h1 | KS@h5 | KS@h10 | KS@h20 | KS@h30 | TF−SF gap | lag-1 autocorr |
+|---|---|---|---|---|---|---|---|
+| 233a SF (self-fed) | 0.075 | 0.117 | 0.124 | 0.104 | **0.078** | +0.020 | **−0.35** (oscillating) |
+| 233a TF | 0.074 | 0.080 | 0.097 | 0.082 | 0.058 | | +0.09 |
+| 229a SF | 0.054 | 0.112 | 0.141 | 0.143 | **0.158** | −0.111 | +0.18 (healthy) |
+| 229a TF | 0.060 | 0.071 | 0.169 | 0.236 | **0.269** | | +0.66 (GRU mismatch) |
+
+Findings:
+- **233a KS is flat across rollout** (0.075 → 0.078). No structural distribution drift.
+- **229a DOES drift** (0.054 → 0.158). Classical AR compounding.
+- **233a lag-1 autocorr = −0.35**: deltas are anti-correlated → artificial sign-flipping oscillation from factor+jump machinery.
+- **229a lag-1 autocorr = +0.18**: healthy positive AR correlation.
+- **Teacher-forcing hurts 229a** (TF gap −0.111) — the GRU was never trained on GT feedback, so TF creates distribution mismatch. Evidence that 229a's "good" eval performance depends on self-fed training distribution.
+
+The 233a aggregate gate failures are explained by (a) calm-overdispersion from dead FiLM constant multiplier + (b) sign-flipping oscillation from jump machinery, **NOT** by AR compounding.
+
+#### Bug 4: REGIME-INVERTED WIDTHS (`diagnose_233a_regime_breakdown.py`, commit `b732ee0`)
+
+All 9 runs exhibit **FiLM sign inversion**:
+
+| variant | TC_ratio | calm_wr | turb_wr | calm_MAE% | turb_MAE% |
+|---|---|---|---|---|---|
+| v1-full | 0.976 | **1.212** (too wide) | **0.788** (too narrow) | -23.6% | +22.4% |
+| v1-B | 1.016 | 1.218 | 0.799 | -23.6% | +18.5% |
+| v1-C | 0.998 | 1.215 | 0.791 | -30.3% | +23.0% |
+| **229a baseline** | 1.025 | 1.117 | 0.871 | -3.9% | +24.2% |
+
+Aggregate turb_calm ≈ 1.0 masks a sign inversion: the model widens calm and narrows turb — opposite of correct. Because this shows up in v1-B (no FiLM, no slow state), the inversion source is partially in the fast path itself (factor noise + EWMA + anchor interaction), amplified by dead FiLM in v1-full.
+
+### Reversed Strategic Conclusion
+
+**The earlier "AR paradigm exhausted" conclusion was premature.** The failure is not paradigm-intrinsic:
+
+1. 233a does NOT suffer AR compounding drift — per-step KS is flat.
+2. Slow state carries meaningful regime information.
+3. FiLM collapse is traced to a specific, reproducible loss-wiring bug.
+4. 229a's "good" 3/7 under TF breaks badly — its apparent quality depends on training-distribution match, not a fundamental AR-paradigm advantage.
+
+The three bugs are independently fixable:
+- **Bug 1 fix:** wire BCE directly to `film.logit` (`F.binary_cross_entropy_with_logits(film_out["p_jump_logit"], jump_target)`), OR add a variance regularizer on FiLM outputs. Closed-form 1-2 line change.
+- **Bug 2 fix:** state consistency regularizer that pulls self-fed `s_t`/`lam_t` toward teacher-forced trajectory, OR periodic history refresh during rollout, OR stronger BPTT-SA window (W=15 instead of W=5).
+- **Bug 3 fix:** expected to self-correct once Bug 1 closes FiLM dead zone, because oscillation correlates with jump mask activity. If it persists, add a lag-1 autocorr regularizer toward positive target.
+
+### Decision
+
+**Launch 233a-v1.1 as next experiment.** Do NOT pivot to joint-path flow matching yet. Rationale:
+- v1.1 tests a clean mechanistic hypothesis (fix the 3 diagnosed bugs).
+- Cost: ~5-10 hours (same infra as v1, targeted patch).
+- If v1.1 closes the gap: AR paradigm is viable with correct wiring — major finding, unblocks production.
+- If v1.1 still fails: we have MUCH cleaner negative evidence (not architectural ambiguity) for pivoting.
+
+**Superseded:** The previous 2026-04-18 entry's "pivot to joint-path flow matching" remains a backup plan for if v1.1 fails, NOT the next action.
+
+**Artifacts:**
+- `experiments/backfill/block_ar/diagnose_233a_film_collapse.py`
+- `experiments/backfill/block_ar/diagnose_233a_slow_state.py`
+- `experiments/backfill/block_ar/diagnose_233a_ar_compounding.py`
+- `experiments/backfill/block_ar/diagnose_233a_regime_breakdown.py`
+- `results/block_ar/233a/_diagnostic_*.{json,md}` (4 each)
+- Commits `b732ee0..8bbb1b9` on `diffusion-poc-v1`
+
+**Next project: `233a_twopath_v1_1` — targeted bug fixes, same 3-seed ladder.**
+
+---
