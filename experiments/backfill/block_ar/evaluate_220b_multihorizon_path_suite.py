@@ -95,6 +95,12 @@ def main() -> None:
         model.scale_anchor_alpha = 0.50
         print(f"[eval override] 233a {args.model_type}: use_scale_anchor=True, alpha=0.50 at inference")
 
+    # 233a_v1_2 variants: anchor always on, same as v1
+    if args.model_type.startswith("233a_v1_2"):
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] 233a_v1_2 {args.model_type}: use_scale_anchor=True, alpha=0.50")
+
     # --force_native_anchor: apply the same regime to 227a/229a baselines for fair comparison
     if args.force_native_anchor and args.model_type == '227a':
         model.use_scale_anchor = True
