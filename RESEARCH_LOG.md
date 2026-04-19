@@ -72753,3 +72753,68 @@ All 3 variants evaluated with v3 harness at `--max_windows 192 --samples 48`:
 - Reference (original): `results/block_ar/229a_ep30_suite.json`, `results/block_ar/232_eval/`
 
 ---
+## 2026-04-18: 233a Two-Path Factor AR v1 — AR Paradigm Exhausted (NEGATIVE)
+
+**Hypothesize:**
+After RC23 established that single-lever fine-tunes on the 229a+anchor regime are architecturally capped (231a/232 all stuck at 2–3/7), the 233a design proposed that a **two-path generator with restricted FiLM coupling** can break the cap. Three-variant falsification ladder:
+- **v1-full:** learned slow state (GRUSlow + hybrid EWMA/Hawkes) + restricted FiLM coupling (6 levers) + jump mixture
+- **v1-B:** same fast path + zero-init parallel residual MLP on cond + aux RV/jump heads (no slow state, no FiLM, no jump mixture)
+- **v1-C:** same fast path + 5 deterministic HAR features concatenated onto cond (no learned state)
+
+Premise supported iff v1-full beats v1-B and v1-C on ≥2 of {n_pass, worst-cell h=30 coverage, pathwise max-jump KS} by "generous gain" thresholds (ΔN≥2, Δwc≥+0.15, Δjk≤−0.20).
+
+**Experiment:**
+9 training runs: 3 variants × 3 seeds (42, 1337, 2024) × 60 epochs × batch=32 × n_members=8. Curriculum `0:5,10:15,25:30`, feedback decay to epoch 30, anchor α=0.50 throughout. Loss = ES + 0.05·VS + 0.1·RV_MSE + 0.05·jump_BCE + 0.1·state_reg (v1-full only). Eval: v3 harness with `--force_native_anchor`, 192 windows × 48 samples. Also re-evaluated 229a@ep30 under the NEW regime proxy (Task 4.3 swapped IV-specific vov for generic RV).
+
+Code: `experiments/backfill/block_ar/train_233a_twopath_factor_ar.py` (1451 LoC). Design spec: `research/233a_twopath_v1/design.md` (879 lines). Plan: `research/233a_twopath_v1/plan.md` (2003 lines).
+
+**Document:**
+
+3-seed means under v3 harness + native+anchor + new proxy:
+
+| config | n/7 | turb_calm | worstC_h30 | jumpKS | ks/25 |
+|---|---|---|---|---|---|
+| 229a@ep30 (new proxy) | 3 | 1.025 | 0.270 | 0.940 | 19 |
+| v1-full (n=3) | 2.00 ± 0.00 | 0.976 ± 0.033 | 0.280 ± 0.076 | 0.824 ± 0.067 | 13.3 ± 1.2 |
+| v1-B (n=3) | 1.67 ± 0.47 | 1.016 ± 0.020 | 0.257 ± 0.088 | **0.795 ± 0.043** | 13.3 ± 3.1 |
+| v1-C (n=3) | 2.00 ± 0.00 | 0.998 ± 0.024 | **0.363 ± 0.064** | 0.910 ± 0.045 | 14.7 ± 1.2 |
+
+Failed suites (all 3 variants, all 3 seeds): coverage, conditionality, distributional_fidelity, mean_reversion, pathwise_jump_realism.
+
+Passed suites (all 3 variants): surface_validity + cross_cell_correlation (2/7). 229a passes those plus mean_reversion (3/7).
+
+**Mechanistic diagnosis (v1-full_s42):**
+- Slow state HAS regime information: `lam_hawkes` per-batch std = 0.275 after `init_slow_state`.
+- FiLM outputs HAVE moderate batch variation: γ_Λ ∈ [0.70, 1.07], γ_D ∈ [1.03, 2.04] across 20 val windows.
+- **But `p_jump_logit` collapsed to [−1.06, −0.99] — essentially constant across batches.** σ(-1) ≈ 0.27 jump probability regardless of slow state. The FiLM channel most responsible for regime sensitivity converged to a batch-constant solution.
+- Additional: `s_t` and `λ_t` per-step std collapses from 0.037 → 0.012 (s_t) and 0.31 → 0.02 (λ_t) over the 10-step unroll, confirming slow-state regime info is lost during the AR rollout.
+
+**Decision tree output:** STOP line — decomposition not load-bearing; deploy v1-B (within the 233a family). In absolute terms, none of the 233a variants match the 229a 3/7 incumbent.
+
+**Analyze:**
+
+1. **The architectural thesis (restricted FiLM coupling transmits regime information) FAILED.** The wiring is correct and end-to-end gradients flow, but the ES+VS loss landscape does not reward learning regime-dependent modulation. The FiLM collapsed to near-constant outputs on the regime-sensitive channel.
+
+2. **v1-full does NOT uniquely achieve low max_jump_ks.** Seed-42 suggested 0.735 (best in the 227a-family native+anchor regime), but the 3-seed mean is 0.824, and v1-B (without any jump mixture) reaches 0.795. The "novel advance on pathwise extremes" interpretation from seed 42 was a seed-variance artifact.
+
+3. **The IV-regime-proxy change (Task 4.3) moved 229a's turb_calm from 1.142 (old proxy) to 1.025 (new proxy).** The old "1.142" was largely a proxy-specific signal, not a model property. Under the NEW proxy, even 229a fails the 1.15 turb_calm gate. This is an important historical correction.
+
+4. **The AR paradigm IS the ceiling.** Historical non-AR H=1 architectures (183c, 179, H=1 analysis models) routinely achieved max_jump_ks in 0.115–0.210. Every multi-day AR model in this repo (227a, 229a, 231a, 232a-d, 233a) sits at 0.5–0.95 on max_jump_ks. The structural cost of step-wise compounding under curriculum + ES+VS loss is paid on both pathwise-extreme and per-cell distributional fidelity gates. No amount of smarter coupling inside the AR paradigm recovers this.
+
+5. **Fixing FiLM collapse would be paradigm-captive.** Even if v1.1 forced FiLM to produce regime-sensitive outputs (e.g., via variance regularizer or supervised regime classifier), the AR compounding problem remains. The evidence now covers dozens of AR configurations; none clears the gates.
+
+**Conclusion (headline):**
+> **RC23 confirmed via 233a: AR with anchor + restricted-coupling slow state + jump mixture cannot simultaneously pass pathwise-jump and distributional-fidelity gates. Max-jump KS ceiling in this family ≈ 0.80 vs gate 0.20; historical non-AR H=1 family hit ≈ 0.12. AR paradigm is exhausted. Next: joint-path conditional flow matching on 30-day trajectories, with window-level AR for 252-day extension.**
+
+**Artifacts:**
+- Design spec: `research/233a_twopath_v1/design.md`
+- Implementation plan: `research/233a_twopath_v1/plan.md`
+- Model code: `experiments/backfill/block_ar/train_233a_twopath_factor_ar.py`
+- Comparator + decision: `experiments/backfill/block_ar/compare_233a_variants.py`, `results/block_ar/233a/decision.md`
+- 9-run ladder results: `results/block_ar/233a/{full,B,C}_s{42,1337,2024}/suite.json`
+- 229a-new-proxy baseline: `results/block_ar/233a/_baseline_229a_newproxy/suite.json`
+- Integration: `_rollout_220_utils.py` (233a dispatch), `evaluate_220b_multihorizon_path_suite.py` (native+anchor), `test_block_ar_requirements_v2.py` (generic RV regime proxy)
+
+**Next research project:** `rc24_joint_flow_v1` — joint-path conditional flow matching over (H=30, D=25) trajectories, conditioned on history. Window-level AR for 252-day horizon. Preserves 212ai-class H=1 marginal prior. Will draft design spec before implementation; see `research/flow_matching_nextsteps/` for literature groundwork.
+
+---
