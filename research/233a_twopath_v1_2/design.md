@@ -485,7 +485,7 @@ Three stages with explicit kill conditions.
 - `α = σ(link_gate(cond))` distribution on val windows: `std(α) > 0.05` AND `|mean(α | turb) − mean(α | calm)| > 0.02`.
   **Kill:** α collapsed to constant → learned link is not adapting; revert to sinh-only in next iteration.
 
-### Stage C — Full 6-variant decision tree (all variants completed)
+### Stage C — Full 7-variant decision tree (all variants completed)
 
 **Branch 1 (clean success):** `v1.2-both` ≥ **5/7** AND max_jump_ks < 0.50 → **architectural signal, not paradigm victory.** Multi-seed (3 seeds) replication required before claiming "AR paradigm viable." Plan v1.3: multi-seed + H=252 smoke test + multi-factor validation. Also run `diagnose_233a_v1_2_emission_link.py` to confirm α didn't collapse (v1 FiLM collapse lesson).
 
