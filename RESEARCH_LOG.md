@@ -73109,3 +73109,80 @@ Commit `d23a82d` (peak-and-recover + hypothesis softening).
 Begin H1 Stage 1: write `research/233a_twopath_v1_2/design.md` for user review, then implement FiLM rewire + emission fix. Stage 1 smoke-train (2h) gates whether to proceed.
 
 ---
+
+## $(date +%Y-%m-%d): 233a-v1.2 7-Variant Ladder — Branch 3 Paradigm-Pivot Signal
+
+### Context
+
+233a-v1 (two-path factor AR with restricted FiLM coupling) scored 2/7 — below 229a incumbent's 3/7. Post-v1 diagnostic agents identified 6 bugs: (1) FiLM dead-zone from loss-wiring (L_jump → slow_path.jump_prob_head, not film.logit); (2) self-fed state collapse; (3) artificial oscillation (lag1=-0.35); (4) regime-inverted widths (calm_wr>1, turb_wr<1); (5) residual heads cancel analytic backbones (lam_hybrid ReLU-killed, s_hybrid ratio inverted); (6) sinh·local_scale tail attenuation.
+
+v1.2 targeted all 6 bugs via 4 core changes: C1 (FiLMFromHSlow reads h_slow directly, bypassing broken s_hybrid/lam_hybrid bottleneck); C2 (L_film_jump_bce wires BCE directly to film.logit); C3 (state consistency regularizer for self-fed drift); C4a (twCRPS pathwise-max aux loss); C4b (learned emission link g(v)=α·tanh+(1-α)·sinh).
+
+Ran 7-variant ablation × 1 seed × 60 epochs: control (v1 FiLM pipe baseline), minreg (C1+C2), minimal (+C3), aux (+C4a), link (+C4b), both (all), noreg (all−C3).
+
+### Key Findings
+
+**Suite results — all 7 variants = 2/7 (below 229a incumbent 3/7):**
+
+| variant | n_pass | turb_calm | worstC_h30 | maxJumpKS | chgKS |
+|---------|--------|-----------|-----------|-----------|-------|
+| 229a (incumbent) | 3 | 1.025 | 0.271 | 0.945 | 19 |
+| v1-full (prev) | 2 | 1.010 | 0.385 | 0.735 | 13 |
+| v1.2-control | 2 | 0.950 | 0.255 | **0.531** | 14 |
+| v1.2-minreg | 2 | **1.065** | 0.297 | 0.849 | 12 |
+| v1.2-minimal | 2 | 1.006 | 0.312 | 0.868 | 17 |
+| v1.2-aux | 2 | 1.038 | 0.292 | 0.822 | 16 |
+| v1.2-link | 2 | 1.011 | 0.240 | 0.737 | **23** |
+| v1.2-both | 2 | 0.957 | **0.229** | 0.789 | 17 |
+| v1.2-noreg | 2 | 1.032 | 0.115 | 0.806 | 11 |
+
+All variants fail identical suites: coverage, conditionality, distributional_fidelity, mean_reversion, pathwise_jump_realism.
+
+**Mechanistic diagnostics (5 × 7):**
+
+| variant | film_std | h_slow_auc | lag1_AR | α_std | α_sep | regInv |
+|---------|---------|-----------|---------|-------|-------|--------|
+| control | 0.022 | 0.983 | -0.532 | — | — | True |
+| minreg | 0.098 | 0.968 | -0.408 | — | — | True |
+| minimal | 0.103 | 0.966 | -0.399 | — | — | True |
+| aux | 0.095 | 0.966 | -0.451 | — | — | True |
+| link | **0.001** | 0.980 | -0.408 | 0.269 | -0.018 | True |
+| both | 0.153 | 0.960 | -0.391 | 0.314 | -0.009 | True |
+| noreg | **0.001** | 0.983 | -0.364 | 0.192 | -0.008 | True |
+
+**Attribution deltas:**
+- C1+C2 alone: Δturb_calm=+0.115 (meaningful, but n_pass unchanged)
+- C3 state-reg alone: Δn_pass=0
+- C4a twCRPS alone: Δmax_jump_ks=-0.045 (WORSE)
+- C4b learned-link alone: Δmax_jump_ks=-0.131 (WORSE), but Δchange_ks=+6
+- C4a+C4b combined: Δmax_jump_ks=-0.079 (WORSE)
+
+**New bugs discovered during v1.2:**
+- **Bug 7 — Emission-link × BCE gradient competition**: link and noreg variants (both have emission_link but vary in state-reg / twCRPS) show film_std collapse (0.001), despite λ_film_bce=0.05. The L_ES gradient through LearnedLink appears to overwhelm the BCE signal on film.logit, driving it back into a collapsed negative regime. Present only when emission_link is active.
+- **Bug 8 — α is cell-variant, not regime-variant**: link/both/noreg show α_std 0.19-0.31 across the 25 cells but α_sep≈0 (mean α difference between calm/turb < 0.02). LearnedLink learned per-cell bias, not regime discrimination. The zero-init gate + cond input is insufficient to differentiate regimes in 25 cells × 60 epochs.
+
+**Structural findings invariant across variants:**
+- h_slow AUC 0.96-0.98 universal — slow state representation is NOT the bottleneck
+- lag1_autocorr ∈ [-0.53, -0.36] ALL variants — AR oscillation is structural, not FiLM-fix-able
+- regime_inversion=True for ALL 7 — universal calm>turb width inversion
+
+**Partial signals worth noting:**
+- v1.2-link: chgKS=23/25 (+10 over v1-full, +4 over 229a) — emission link learning is the single strongest lever for change-KS
+- v1.2-control: max_jump_ks=0.531 (best across all including baselines) — unexplained; worth investigating
+- v1.2-both: worstC_h30=0.229 (best among v1.2, still below 229a's 0.271)
+
+### Decision
+
+**BRANCH 3 (paradigm pivot justified) per design spec §8.** Also fires:
+- **Branch 5 (YAGNI)**: v1.2-minimal ≈ v1.2-both (ΔN=0) — C4 emission fixes add zero suite value
+- **Branch 7 (C3 not load-bearing)**: v1.2-minreg ≈ v1.2-minimal (|ΔN|=0) — state consistency reg didn't help
+
+Per design spec kill conditions: all 6 diagnosed bugs fixed per design, suite n_pass did not cross gate. Two new bugs (B7: emission_link × BCE competition; B8: α not regime-variant) surface but do NOT explain the 5 hard-gate failures. AR-oscillation (lag1 negative) and regime-inversion are structural to the AR paradigm.
+
+**Production unchanged**: 229a@ep30 + `use_scale_anchor=True, scale_anchor_alpha=0.50` inference-only (3/7, chgKS=19, worstC=0.271) remains incumbent.
+
+**Next direction**: v1.3 within-AR is NOT justified (gates not budging across 7-way ablation). Joint-path flow matching (trajectory-level conditional flow, no AR compounding, no anchor) is now the principal move. Caveat: no H>30 extensibility in joint-path without design changes (user noted concern earlier re: longer-horizon prediction).
+
+**Artifacts**: `models/backfill/233a_v1_2_{control,minreg,minimal,aux,link,both,noreg}_25d_s42/best_model.pt`, `results/block_ar/233a_v1_2/*/suite.json` + `_diagnostic_*.json` + `decision.md`. Plan: `research/233a_twopath_v1_2/plan.md` (2705 LoC), design: `research/233a_twopath_v1_2/design.md` (683 LoC).
+
+---
