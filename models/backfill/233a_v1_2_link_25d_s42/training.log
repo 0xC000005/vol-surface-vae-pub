@@ -1,0 +1,67 @@
+
+233a-v1.2 variant=link seed=42
+  Flags: use_v1_film_pipe=False, use_learned_link=True
+  λ: vs=0.05, rv=0.1, jump_slow=0.05, film_bce=0.05, twcrps=0.0, state=0.1
+ep   0  H= 5  p_gt=1.00  train_total=2.7204  val=0.8918  dt=6.4s
+ep   1  H= 5  p_gt=0.97  train_total=0.5401  val=0.5830  dt=6.0s
+ep   2  H= 5  p_gt=0.93  train_total=0.4971  val=0.5710  dt=5.7s
+ep   3  H= 5  p_gt=0.90  train_total=0.4962  val=0.5711  dt=5.6s
+ep   4  H= 5  p_gt=0.87  train_total=0.4942  val=0.5589  dt=5.6s
+ep   5  H= 5  p_gt=0.83  train_total=0.4931  val=0.5607  dt=5.6s
+ep   6  H= 5  p_gt=0.80  train_total=0.4931  val=0.5629  dt=5.7s
+ep   7  H= 5  p_gt=0.77  train_total=0.4932  val=0.5628  dt=5.7s
+ep   8  H= 5  p_gt=0.73  train_total=0.4775  val=0.5597  dt=5.7s
+ep   9  H= 5  p_gt=0.70  train_total=0.4711  val=0.5602  dt=5.6s
+ep  10  H=15  p_gt=0.67  train_total=0.4679  val=0.6015  dt=11.5s
+ep  11  H=15  p_gt=0.63  train_total=0.4661  val=0.6046  dt=11.5s
+ep  12  H=15  p_gt=0.60  train_total=0.4651  val=0.6024  dt=11.5s
+ep  13  H=15  p_gt=0.57  train_total=0.4668  val=0.5929  dt=11.6s
+ep  14  H=15  p_gt=0.53  train_total=0.4658  val=0.5983  dt=11.5s
+ep  15  H=15  p_gt=0.50  train_total=0.4661  val=0.6178  dt=11.6s
+ep  16  H=15  p_gt=0.47  train_total=0.4692  val=0.6000  dt=11.8s
+ep  17  H=15  p_gt=0.43  train_total=0.4696  val=0.6022  dt=11.6s
+ep  18  H=15  p_gt=0.40  train_total=0.4727  val=0.5941  dt=11.6s
+ep  19  H=15  p_gt=0.37  train_total=0.4743  val=0.5973  dt=11.6s
+ep  20  H=15  p_gt=0.33  train_total=0.4752  val=0.5985  dt=11.6s
+ep  21  H=15  p_gt=0.30  train_total=0.4764  val=0.5966  dt=11.6s
+ep  22  H=15  p_gt=0.27  train_total=0.4807  val=0.6121  dt=11.6s
+ep  23  H=15  p_gt=0.23  train_total=0.4839  val=0.5960  dt=11.6s
+ep  24  H=15  p_gt=0.20  train_total=0.4868  val=0.6078  dt=11.6s
+ep  25  H=30  p_gt=0.17  train_total=0.4983  val=0.6288  dt=21.0s
+ep  26  H=30  p_gt=0.13  train_total=0.5037  val=0.6283  dt=20.8s
+ep  27  H=30  p_gt=0.10  train_total=0.5083  val=0.6156  dt=20.7s
+ep  28  H=30  p_gt=0.07  train_total=0.5097  val=0.6184  dt=20.7s
+ep  29  H=30  p_gt=0.03  train_total=0.5189  val=0.6169  dt=20.7s
+ep  30  H=30  p_gt=0.00  train_total=0.5199  val=0.6157  dt=20.8s
+ep  31  H=30  p_gt=0.00  train_total=0.5166  val=0.6269  dt=21.1s
+ep  32  H=30  p_gt=0.00  train_total=0.5144  val=0.6224  dt=20.7s
+ep  33  H=30  p_gt=0.00  train_total=0.5163  val=0.6308  dt=20.8s
+ep  34  H=30  p_gt=0.00  train_total=0.5206  val=0.6167  dt=20.8s
+ep  35  H=30  p_gt=0.00  train_total=0.5178  val=0.6255  dt=20.8s
+ep  36  H=30  p_gt=0.00  train_total=0.5140  val=0.6232  dt=20.8s
+ep  37  H=30  p_gt=0.00  train_total=0.5189  val=0.6247  dt=21.2s
+ep  38  H=30  p_gt=0.00  train_total=0.5239  val=0.6264  dt=20.8s
+ep  39  H=30  p_gt=0.00  train_total=0.5180  val=0.6244  dt=20.8s
+ep  40  H=30  p_gt=0.00  train_total=0.5267  val=0.6256  dt=20.8s
+ep  41  H=30  p_gt=0.00  train_total=0.5179  val=0.6291  dt=20.8s
+ep  42  H=30  p_gt=0.00  train_total=0.5177  val=0.6294  dt=21.1s
+ep  43  H=30  p_gt=0.00  train_total=0.5142  val=0.6291  dt=21.0s
+ep  44  H=30  p_gt=0.00  train_total=0.5132  val=0.6372  dt=20.8s
+ep  45  H=30  p_gt=0.00  train_total=0.5122  val=0.6366  dt=20.8s
+ep  46  H=30  p_gt=0.00  train_total=0.5136  val=0.6365  dt=20.8s
+ep  47  H=30  p_gt=0.00  train_total=0.5159  val=0.6329  dt=20.7s
+ep  48  H=30  p_gt=0.00  train_total=0.5235  val=0.6450  dt=21.3s
+ep  49  H=30  p_gt=0.00  train_total=0.5183  val=0.6356  dt=20.9s
+ep  50  H=30  p_gt=0.00  train_total=0.5169  val=0.6392  dt=20.8s
+ep  51  H=30  p_gt=0.00  train_total=0.5207  val=0.6297  dt=20.8s
+ep  52  H=30  p_gt=0.00  train_total=0.5153  val=0.6369  dt=20.8s
+ep  53  H=30  p_gt=0.00  train_total=0.5304  val=0.6361  dt=20.8s
+ep  54  H=30  p_gt=0.00  train_total=0.5339  val=0.6435  dt=21.2s
+ep  55  H=30  p_gt=0.00  train_total=0.5418  val=0.6402  dt=20.8s
+ep  56  H=30  p_gt=0.00  train_total=0.5357  val=0.6313  dt=20.8s
+ep  57  H=30  p_gt=0.00  train_total=0.5233  val=0.6357  dt=20.8s
+ep  58  H=30  p_gt=0.00  train_total=0.5252  val=0.6500  dt=20.9s
+ep  59  H=30  p_gt=0.00  train_total=0.5230  val=0.6385  dt=20.9s
+
+Training complete. Best val loss = 0.5589
+Saved: models/backfill/233a_v1_2_link_25d_s42/best_model.pt, models/backfill/233a_v1_2_link_25d_s42/final_model.pt
