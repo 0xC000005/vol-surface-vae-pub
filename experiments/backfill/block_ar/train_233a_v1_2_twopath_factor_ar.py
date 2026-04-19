@@ -378,6 +378,15 @@ class TwoPathFactorARv1_2(TwoPathFactorAR):
             mean_sq_dx_seq=mean_sq_dx_seq,
         )
 
+    def forward_B(self, history, future=None, n_members=8, n_steps=30, p_gt_feedback=0.0, **kwargs):
+        """v1.2 variant=B: just delegate to v1's forward_B (C4b doesn't apply; no FiLM in B variant)."""
+        # v1.2 ablation variants are variant="full" only. forward_B is kept for API compatibility.
+        return super().forward_B(history, future, n_members, n_steps, p_gt_feedback, **kwargs)
+
+    def forward_C(self, history, future=None, n_members=8, n_steps=30, p_gt_feedback=0.0, **kwargs):
+        """v1.2 variant=C: just delegate to v1's forward_C."""
+        return super().forward_C(history, future, n_members, n_steps, p_gt_feedback, **kwargs)
+
 
 def compute_loss_v1_2(*args, **kwargs):
     """Extends v1's compute_loss with L_film_jump_bce, L_twcrps, L_state."""
