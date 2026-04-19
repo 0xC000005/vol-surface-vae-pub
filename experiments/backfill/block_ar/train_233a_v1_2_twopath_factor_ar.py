@@ -158,8 +158,49 @@ def twcrps_pathwise_max(
 
 
 class TwoPathFactorARv1_2(TwoPathFactorAR):
-    """v1.2 = v1 + selective overrides for C1, C2, C3, C4a, C4b fixes."""
-    pass
+    """
+    233a-v1.2 model. Subclasses v1's TwoPathFactorAR.
+
+    Variant behavior controlled by two architectural flags:
+      use_v1_film_pipe: False (default) → FiLM reads h_slow directly (Bugs 2+5 fix)
+                         True            → v1's broken (s_hybrid, lam_hybrid) pipe
+      use_learned_link: False (default) → sinh(v) · local_scale (v1 emission)
+                         True            → α·tanh + (1-α)·sinh (Bug 6-B fix)
+
+    Loss-level flags (applied in compute_loss_v1_2):
+      lambda_film_bce > 0 → C2 BCE on film.logit
+      lambda_twcrps > 0   → C4a threshold-weighted aux
+      lambda_state > 0    → C3 state consistency reg
+    """
+
+    def __init__(
+        self,
+        variant: str = "full",
+        use_v1_film_pipe: bool = False,
+        use_learned_link: bool = False,
+        pca_artifact_path: str = "models/backfill/coarse_pca_233a.npz",
+        **base_kwargs,
+    ):
+        super().__init__(variant=variant, pca_artifact_path=pca_artifact_path, **base_kwargs)
+        self.use_v1_film_pipe = use_v1_film_pipe
+        self.use_learned_link = use_learned_link
+
+        # C1 fix: swap FiLM module if not keeping v1 pipe, for variant="full"
+        if variant == "full" and not use_v1_film_pipe:
+            # Replace the v1 FiLM(D, k) (reads log1p(s), log1p(lam))
+            # with FiLMFromHSlow(slow_hidden, D, k) (reads h_slow)
+            self.film = FiLMFromHSlow(
+                slow_hidden=self.slow_path.slow_hidden,
+                D=self.D,
+                k=self.k,
+                hidden=32,
+            )
+
+        # C4b fix: add learned emission link if enabled
+        if use_learned_link:
+            self.emission_link = LearnedLink(cond_dim=self.hidden_dim, D=self.D)
+        else:
+            self.emission_link = None
 
 
 def compute_loss_v1_2(*args, **kwargs):
@@ -204,6 +245,58 @@ def _sanity_check_learned_link():
     loss.backward()
     assert link.gate.weight.grad.abs().sum() > 0, "gate.weight has no gradient"
     print("LearnedLink sanity check PASS")
+
+
+def _sanity_check_v1_2_constructor():
+    import tempfile, os
+    # Create minimal fake PCA artifact
+    with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
+        np.savez(tmp.name,
+            pca_mean_components=np.random.randn(4, 25).astype(np.float32),
+            pca_mean_mean=np.random.randn(25).astype(np.float32),
+            pca_disp_components=np.random.randn(4, 25).astype(np.float32),
+            pca_disp_mean=np.random.randn(25).astype(np.float32),
+            pca_rsc_components=np.random.randn(4, 25).astype(np.float32),
+            pca_rsc_mean=np.random.randn(25).astype(np.float32),
+            q90_train=np.array(0.1, dtype=np.float32),
+            coarse_window=np.array(10, dtype=np.int32))
+        path = tmp.name
+
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+
+    # 7 variant configs: (use_v1_film_pipe, use_learned_link)
+    configs = {
+        "control": (True,  False),   # v1 pipe, no link
+        "minreg":  (False, False),   # h_slow pipe, no link
+        "minimal": (False, False),
+        "aux":     (False, False),
+        "link":    (False, True),
+        "both":    (False, True),
+        "noreg":   (False, True),
+    }
+    for name, (v1_pipe, link) in configs.items():
+        m = TwoPathFactorARv1_2(
+            variant="full",
+            use_v1_film_pipe=v1_pipe,
+            use_learned_link=link,
+            pca_artifact_path=path,
+            **kwargs,
+        )
+        has_hslow_film = isinstance(m.film, FiLMFromHSlow)
+        has_link = m.emission_link is not None
+        print(f"{name}: FiLMFromHSlow={has_hslow_film}, LearnedLink={has_link}, "
+              f"params={sum(p.numel() for p in m.parameters())/1e3:.1f}k")
+        # Invariants
+        if v1_pipe:
+            assert not has_hslow_film, f"{name}: should keep v1 FiLM"
+        else:
+            assert has_hslow_film, f"{name}: should use FiLMFromHSlow"
+        if link:
+            assert has_link, f"{name}: should have emission_link"
+        else:
+            assert not has_link, f"{name}: should not have emission_link"
+    os.unlink(path)
+    print("v1_2 constructor sanity check PASS")
 
 
 def _sanity_check_twcrps():
