@@ -72947,3 +72947,47 @@ The three bugs are independently fixable:
 **Next project: `233a_twopath_v1_1` — targeted bug fixes, same 3-seed ladder.**
 
 ---
+
+## 2026-04-18: 233a Diagnostic Amendment — Fifth Bug (Residual Cancellation)
+
+Slow-state agent (which finished after synthesis was written) reported a FIFTH critical mechanism:
+
+### Bug 5: LEARNED RESIDUAL HEADS CANCEL ANALYTIC BACKBONES
+
+The SlowPath hybrid combination is:
+- `s_hybrid = softplus(s_ewma + linear_s(h_slow))`
+- `lam_hybrid = ReLU(lam_hawkes + linear_lam(h_slow))`
+
+The `linear_s`, `linear_lam` learned residual heads actively UNDO the analytic backbones:
+
+| seed | `lam_hybrid` status (val) |
+|------|--------------------------|
+| s42   | alive (ratio 1.12 turb/calm, mild) |
+| s1337 | **ReLU-killed to 0.0** across ALL val windows |
+| s2024 | **ReLU-killed to 0.0** across ALL val windows |
+
+| seed | `s_ewma` turb/calm (pure analytic) | `s_hybrid` turb/calm (after learned residual) |
+|------|-----------------------------------|----------------------------------------------|
+| s42   | **3.84×** | **0.93× (INVERTED — turb < calm!)** |
+| s1337 | 2.73× | 1.04× (nearly flat) |
+| s2024 | 2.70× | 1.08× (nearly flat) |
+
+FiLM receives `(log1p(s_hybrid), log1p(lam_hybrid))`. For 2/3 seeds `lam_hybrid = 0` identically (dead ReLU); for all seeds `s_hybrid` barely differentiates calm vs turb despite the raw EWMA having 3-4× discrimination.
+
+**The scalars FiLM sees are nearly-flat garbage, even when the underlying h_slow state is highly discriminative** (PC1 AUC 0.79, Cohen's d 1.17). The information bottleneck is at the hybrid-combination stage.
+
+### Combined Fix Direction for 233a-v1.1
+
+Not just 3 bugs — **5 bugs, with a cleaner architectural fix**:
+
+1. **Bug 1 (loss wiring):** Wire BCE to `film.logit` directly.
+2. **Bug 2/5 combined (slow state → FiLM bottleneck):** **Rewire FiLM to consume `h_slow` (8-dim) directly, bypassing the broken `(s_hybrid, lam_hybrid)` 2-scalar bottleneck.** This eliminates the dead ReLU and the residual-cancellation problem at once.
+   - Optional belt-and-suspenders: add a preservation loss that penalizes `linear_s`/`linear_lam` from cancelling the analytic signal.
+3. **Bug 3 (oscillation):** Expected to self-correct after Bugs 1+2/5 are fixed. If persists, add lag-1 autocorr regularizer.
+4. **Bug 4 (inversion):** Symptom of Bugs 1+2/5 — should self-correct.
+
+**This is a bigger architectural change than "1-line fix" but still well within v1 scope.** The slow-state computation + aux heads stay. The hybrid scalar combination is replaced by `FiLM(h_slow)` direct wiring.
+
+Commit `d6c1e0b` (slow-state agent amendment).
+
+---
