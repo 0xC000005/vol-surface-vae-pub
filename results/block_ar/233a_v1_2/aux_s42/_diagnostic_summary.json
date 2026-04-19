@@ -1,0 +1,17 @@
+{
+  "variant_name": "aux",
+  "checkpoint": "models/backfill/233a_v1_2_aux_25d_s42/best_model.pt",
+  "film_logit_std": 0.09505483508110046,
+  "film_logit_range": [
+    -2.22575306892395,
+    -1.8772788047790527
+  ],
+  "logit_std_final_seed_42": 0.09505483508110046,
+  "h_slow_pc1_auc_seed_42": 0.96625,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.45069968700408936
+  },
+  "calm_avg_wr": 1.1976170785751286,
+  "turb_avg_wr": 0.7897759373007865,
+  "regime_inversion_detected": true
+}

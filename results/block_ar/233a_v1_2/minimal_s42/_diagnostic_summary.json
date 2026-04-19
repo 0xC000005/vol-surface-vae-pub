@@ -1,0 +1,17 @@
+{
+  "variant_name": "minimal",
+  "checkpoint": "models/backfill/233a_v1_2_minimal_25d_s42/best_model.pt",
+  "film_logit_std": 0.10335977375507355,
+  "film_logit_range": [
+    -2.221500873565674,
+    -1.8390594720840454
+  ],
+  "logit_std_final_seed_42": 0.10335977375507355,
+  "h_slow_pc1_auc_seed_42": 0.96625,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.39948752522468567
+  },
+  "calm_avg_wr": 1.2342220137848334,
+  "turb_avg_wr": 0.7860633825413271,
+  "regime_inversion_detected": true
+}

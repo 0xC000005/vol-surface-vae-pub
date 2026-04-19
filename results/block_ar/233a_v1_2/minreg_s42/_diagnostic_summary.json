@@ -1,0 +1,17 @@
+{
+  "variant_name": "minreg",
+  "checkpoint": "models/backfill/233a_v1_2_minreg_25d_s42/best_model.pt",
+  "film_logit_std": 0.09791914373636246,
+  "film_logit_range": [
+    -2.2028398513793945,
+    -1.8415793180465698
+  ],
+  "logit_std_final_seed_42": 0.09791914373636246,
+  "h_slow_pc1_auc_seed_42": 0.968125,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.40824857354164124
+  },
+  "calm_avg_wr": 1.2133368002847198,
+  "turb_avg_wr": 0.8062298759548984,
+  "regime_inversion_detected": true
+}

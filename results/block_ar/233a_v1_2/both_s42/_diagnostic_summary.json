@@ -1,0 +1,23 @@
+{
+  "variant_name": "both",
+  "checkpoint": "models/backfill/233a_v1_2_both_25d_s42/best_model.pt",
+  "film_logit_std": 0.15308375656604767,
+  "film_logit_range": [
+    -2.6110785007476807,
+    -2.067596912384033
+  ],
+  "logit_std_final_seed_42": 0.15308375656604767,
+  "h_slow_pc1_auc_seed_42": 0.96,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.3908166289329529
+  },
+  "calm_avg_wr": 1.2190996066326152,
+  "turb_avg_wr": 0.7806639042429918,
+  "regime_inversion_detected": true,
+  "alpha_overall_stats": {
+    "mean": 0.7842270135879517,
+    "std": 0.31359976530075073,
+    "min": 0.025821326300501823,
+    "max": 0.9983695149421692
+  }
+}

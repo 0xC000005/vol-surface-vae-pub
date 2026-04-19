@@ -1,0 +1,23 @@
+{
+  "checkpoint": "models/backfill/233a_v1_2_both_25d_s42/best_model.pt",
+  "variant_name": "both",
+  "n_windows": 200,
+  "n_calm": 40,
+  "n_turb": 40,
+  "alpha_overall_stats": {
+    "mean": 0.7842270135879517,
+    "std": 0.31359976530075073,
+    "min": 0.025821326300501823,
+    "max": 0.9983695149421692
+  },
+  "alpha_per_regime": {
+    "calm_mean": 0.7848897576332092,
+    "turb_mean": 0.7754988074302673
+  },
+  "regime_separation": -0.009390950202941895,
+  "gates": {
+    "alpha_std_gt_0p05": true,
+    "abs_separation_gt_0p02": false
+  },
+  "alpha_collapsed": false
+}

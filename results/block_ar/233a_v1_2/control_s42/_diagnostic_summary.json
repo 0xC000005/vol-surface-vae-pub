@@ -1,0 +1,17 @@
+{
+  "variant_name": "control",
+  "checkpoint": "models/backfill/233a_v1_2_control_25d_s42/best_model.pt",
+  "film_logit_std": 0.02195465750992298,
+  "film_logit_range": [
+    -1.498582363128662,
+    -1.3658957481384277
+  ],
+  "logit_std_final_seed_42": 0.02195465750992298,
+  "h_slow_pc1_auc_seed_42": 0.983125,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.5319691896438599
+  },
+  "calm_avg_wr": 1.2293793814530458,
+  "turb_avg_wr": 0.7911330530813345,
+  "regime_inversion_detected": true
+}

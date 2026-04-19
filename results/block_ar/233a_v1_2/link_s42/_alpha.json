@@ -1,0 +1,23 @@
+{
+  "checkpoint": "models/backfill/233a_v1_2_link_25d_s42/best_model.pt",
+  "variant_name": "link",
+  "n_windows": 200,
+  "n_calm": 40,
+  "n_turb": 40,
+  "alpha_overall_stats": {
+    "mean": 0.7272644639015198,
+    "std": 0.2685242295265198,
+    "min": 0.08262374252080917,
+    "max": 0.992453396320343
+  },
+  "alpha_per_regime": {
+    "calm_mean": 0.7334983944892883,
+    "turb_mean": 0.7154471278190613
+  },
+  "regime_separation": -0.01805126667022705,
+  "gates": {
+    "alpha_std_gt_0p05": true,
+    "abs_separation_gt_0p02": false
+  },
+  "alpha_collapsed": false
+}

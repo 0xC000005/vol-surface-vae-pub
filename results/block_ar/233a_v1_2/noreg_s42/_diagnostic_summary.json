@@ -1,0 +1,23 @@
+{
+  "variant_name": "noreg",
+  "checkpoint": "models/backfill/233a_v1_2_noreg_25d_s42/best_model.pt",
+  "film_logit_std": 0.0005343153025023639,
+  "film_logit_range": [
+    -2.1671295166015625,
+    -2.1651535034179688
+  ],
+  "logit_std_final_seed_42": 0.0005343153025023639,
+  "h_slow_pc1_auc_seed_42": 0.9825,
+  "model_v1_2": {
+    "lag1_autocorr_h29": -0.3635158836841583
+  },
+  "calm_avg_wr": 1.2057232432690028,
+  "turb_avg_wr": 0.7870950643343617,
+  "regime_inversion_detected": true,
+  "alpha_overall_stats": {
+    "mean": 0.7923110723495483,
+    "std": 0.19242219626903534,
+    "min": 0.2142733782529831,
+    "max": 0.9859173893928528
+  }
+}
