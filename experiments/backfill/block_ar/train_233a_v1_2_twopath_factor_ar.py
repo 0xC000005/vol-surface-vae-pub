@@ -388,9 +388,99 @@ class TwoPathFactorARv1_2(TwoPathFactorAR):
         return super().forward_C(history, future, n_members, n_steps, p_gt_feedback, **kwargs)
 
 
-def compute_loss_v1_2(*args, **kwargs):
-    """Extends v1's compute_loss with L_film_jump_bce, L_twcrps, L_state."""
-    raise NotImplementedError
+def compute_loss_v1_2(
+    model_output: dict,
+    future: torch.Tensor,               # (B, N, D) flat or (B, N, 5, 5)
+    q90_train: torch.Tensor,
+    # v1-inherited weights:
+    lambda_vs: float = 0.05,
+    lambda_rv: float = 0.10,
+    lambda_jump: float = 0.05,          # slow-path BCE weight (on q_seq_slow)
+    # v1.2 new weights:
+    lambda_film_bce: float = 0.0,
+    lambda_twcrps: float = 0.0,
+    lambda_state: float = 0.0,
+    state_reg_window: int = 5,
+) -> dict:
+    """
+    7-component loss per design spec §4:
+      L_ES + λ_VS·L_VS + λ_rv·L_rv_mse + λ_jump·L_slow_jump_bce
+           + λ_BCE·L_film_jump_bce + λ_twcrps·L_twcrps + λ_state·L_state
+    """
+    samples = model_output["samples"]
+    B, K, N, D = samples.shape
+    device = samples.device
+
+    # Flatten future if grid-shaped
+    if future.dim() == 4:
+        future = future.reshape(future.shape[0], future.shape[1], -1)
+
+    # Per-step ES + VS (v1 inherited)
+    L_ES = torch.zeros((), device=device)
+    L_VS = torch.zeros((), device=device)
+    for t in range(N):
+        L_ES = L_ES + energy_score(samples[:, :, t], future[:, t])
+        L_VS = L_VS + variogram_score(samples[:, :, t], future[:, t])
+    L_ES = L_ES / N
+    L_VS = L_VS / N
+
+    # v1-inherited slow-path aux: log-RV MSE + jump BCE on q_seq_slow
+    L_rv = torch.zeros((), device=device)
+    L_slow_jump = torch.zeros((), device=device)
+    # v1.2 new: jump BCE on q_seq_film
+    L_film_jump = torch.zeros((), device=device)
+
+    rv_seq = model_output.get("rv_pred_seq", [])
+    q_seq_slow = model_output.get("q_seq_slow", [])
+    q_seq_film = model_output.get("q_seq_film", [])
+    valid = min(N - 1, len(rv_seq), len(q_seq_slow), len(q_seq_film))
+    if valid > 0:
+        for t in range(valid):
+            dy = future[:, t + 1] - future[:, t]
+            mean_sq_dy = (dy ** 2).mean(dim=-1).clamp_min(1e-10)
+            target_log_rv = torch.log(mean_sq_dy)
+            target_jump = (dy.norm(dim=-1) > q90_train).float()
+            L_rv = L_rv + F.mse_loss(rv_seq[t], target_log_rv)
+            L_slow_jump = L_slow_jump + F.binary_cross_entropy_with_logits(q_seq_slow[t], target_jump)
+            L_film_jump = L_film_jump + F.binary_cross_entropy_with_logits(q_seq_film[t], target_jump)
+        L_rv = L_rv / valid
+        L_slow_jump = L_slow_jump / valid
+        L_film_jump = L_film_jump / valid
+
+    # C4a: twCRPS aux loss
+    L_twcrps = torch.zeros((), device=device)
+    if lambda_twcrps > 0:
+        future_nd = future.reshape(B, N, D) if future.dim() == 3 else future.reshape(B, N, D)
+        L_twcrps = twcrps_pathwise_max(samples, future_nd[:, :N], q90_train)
+
+    # C3: state consistency reg
+    L_state = torch.zeros((), device=device)
+    if lambda_state > 0 and model_output.get("h_slow_teacher_seq"):
+        free_seq = model_output["h_slow_free_seq"]
+        teacher_seq = model_output["h_slow_teacher_seq"]
+        W = min(state_reg_window, len(teacher_seq), len(free_seq))
+        if W > 0:
+            for t in range(W):
+                L_state = L_state + F.mse_loss(free_seq[t], teacher_seq[t])
+            L_state = L_state / W
+
+    L_total = (
+        L_ES
+        + lambda_vs * L_VS
+        + lambda_rv * L_rv
+        + lambda_jump * L_slow_jump
+        + lambda_film_bce * L_film_jump
+        + lambda_twcrps * L_twcrps
+        + lambda_state * L_state
+    )
+
+    return dict(
+        L_total=L_total,
+        L_ES=L_ES, L_VS=L_VS,
+        L_rv=L_rv, L_slow_jump=L_slow_jump,
+        L_film_jump=L_film_jump, L_twcrps=L_twcrps,
+        L_state=L_state,
+    )
 
 
 def load_model(checkpoint_path, device):
@@ -430,6 +520,61 @@ def _sanity_check_learned_link():
     loss.backward()
     assert link.gate.weight.grad.abs().sum() > 0, "gate.weight has no gradient"
     print("LearnedLink sanity check PASS")
+
+
+def _sanity_check_compute_loss_v1_2():
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
+        np.savez(tmp.name,
+            pca_mean_components=np.random.randn(4, 25).astype(np.float32),
+            pca_mean_mean=np.random.randn(25).astype(np.float32),
+            pca_disp_components=np.random.randn(4, 25).astype(np.float32),
+            pca_disp_mean=np.random.randn(25).astype(np.float32),
+            pca_rsc_components=np.random.randn(4, 25).astype(np.float32),
+            pca_rsc_mean=np.random.randn(25).astype(np.float32),
+            q90_train=np.array(0.1, dtype=np.float32),
+            coarse_window=np.array(10, dtype=np.int32))
+        path = tmp.name
+
+    kwargs = dict(hidden_dim=128, factor_rank=6, ewma_alpha=0.20, scale_floor=1e-4, n_cells=25)
+    history = torch.rand(2, 30, 25) * 0.3 + 0.1
+    future = torch.rand(2, 10, 25) * 0.3 + 0.1
+
+    # v1.2-both config: all fixes on
+    m = TwoPathFactorARv1_2(
+        variant="full", use_v1_film_pipe=False, use_learned_link=True,
+        pca_artifact_path=path, **kwargs,
+    ).train()
+    out = m.forward_full(history, future, n_members=4, n_steps=5,
+                         p_gt_feedback=0.5, return_teacher_h=True, state_reg_window=3)
+    losses = compute_loss_v1_2(
+        out, future[:, :5], q90_train=m.q90_train,
+        lambda_vs=0.05, lambda_rv=0.10, lambda_jump=0.05,
+        lambda_film_bce=0.05, lambda_twcrps=0.05, lambda_state=0.10,
+    )
+    for k in ["L_total", "L_ES", "L_VS", "L_rv", "L_slow_jump", "L_film_jump", "L_twcrps", "L_state"]:
+        assert k in losses
+        assert torch.isfinite(losses[k]).item(), f"{k} not finite"
+    losses["L_total"].backward()    # must not raise
+
+    # v1.2-control config: all new fixes off
+    m_c = TwoPathFactorARv1_2(
+        variant="full", use_v1_film_pipe=True, use_learned_link=False,
+        pca_artifact_path=path, **kwargs,
+    ).train()
+    out_c = m_c.forward_full(history, future, n_members=4, n_steps=5,
+                              p_gt_feedback=0.5, return_teacher_h=False)
+    losses_c = compute_loss_v1_2(
+        out_c, future[:, :5], q90_train=m_c.q90_train,
+        lambda_film_bce=0.0, lambda_twcrps=0.0, lambda_state=0.0,
+    )
+    # All "new" losses weighted to 0 → don't contribute to L_total
+    assert losses_c["L_state"].item() == 0.0
+    # But their values still computed for logging:
+    assert losses_c["L_film_jump"].item() > 0   # computed but zero-weighted
+
+    os.unlink(path)
+    print("compute_loss_v1_2 sanity check PASS")
 
 
 def _sanity_check_forward_full_v1_2():
