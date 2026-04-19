@@ -73110,7 +73110,7 @@ Begin H1 Stage 1: write `research/233a_twopath_v1_2/design.md` for user review, 
 
 ---
 
-## $(date +%Y-%m-%d): 233a-v1.2 7-Variant Ladder — Branch 3 Paradigm-Pivot Signal
+## 2026-04-19: 233a-v1.2 7-Variant Ladder — Branch 3 Paradigm-Pivot Signal
 
 ### Context
 
