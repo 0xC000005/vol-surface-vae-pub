@@ -1161,6 +1161,77 @@ def _training_step(model, hist, fut, H, p_gt, args):
     ), fut_H
 
 
+def _check_stage_b(model, val_loader, epoch, args, device):
+    """Stage B mid-training kill gates (per design §8). Returns None (pass) or kill reason string."""
+    if epoch not in {5, 15, 20}:
+        return None
+    if args.variant_name != "both":
+        return None   # Stage B kills apply to `v1.2-both` only per design
+
+    model.eval()
+    loss_dict_accum = {"L_ES": 0.0, "L_VS": 0.0, "L_rv": 0.0, "L_slow_jump": 0.0,
+                       "L_film_jump": 0.0, "L_twcrps": 0.0, "L_state": 0.0}
+    film_logits = []
+    batches = 0
+    with torch.no_grad():
+        for hist, fut in val_loader:
+            hist = hist.to(device); fut = fut.to(device)
+            fut_H = fut[:, :30]
+            out = model.forward_full(
+                hist, fut_H, n_members=args.n_members, n_steps=30,
+                p_gt_feedback=0.0, return_teacher_h=(args.lambda_state > 0),
+            )
+            losses = compute_loss_v1_2(
+                out, fut_H, q90_train=model.q90_train,
+                lambda_vs=args.lambda_vs, lambda_rv=args.lambda_rv, lambda_jump=args.lambda_jump,
+                lambda_film_bce=args.lambda_film_bce, lambda_twcrps=args.lambda_twcrps,
+                lambda_state=args.lambda_state,
+            )
+            for k in loss_dict_accum:
+                loss_dict_accum[k] += float(losses[k].detach().item())
+            if epoch >= 15:   # only at ep 15+ do we check FiLM distribution
+                film_logits.extend(out["q_seq_film"][0].cpu().tolist())
+            batches += 1
+            if batches >= 3:   # cap for speed — 3 val batches suffice for ratio check
+                break
+    means = {k: v / max(batches, 1) for k, v in loss_dict_accum.items()}
+    L_ES_mean = means["L_ES"]
+
+    # EPOCH 5: loss-scale kill gate
+    if epoch == 5 and L_ES_mean > 0:
+        for k in ["L_VS", "L_rv", "L_slow_jump", "L_film_jump", "L_twcrps", "L_state"]:
+            lam = getattr(args, f"lambda_{k.replace('L_', '').lower()}", None) or {
+                "L_VS": args.lambda_vs, "L_rv": args.lambda_rv, "L_slow_jump": args.lambda_jump,
+                "L_film_jump": args.lambda_film_bce, "L_twcrps": args.lambda_twcrps, "L_state": args.lambda_state,
+            }[k]
+            weighted = lam * means[k]
+            ratio = weighted / L_ES_mean if L_ES_mean > 0 else 0.0
+            if ratio > 3.0:
+                return f"ep5 loss-scale kill: {k} ratio={ratio:.2f} > 3.0 (λ={lam}, L={means[k]:.4f}, L_ES={L_ES_mean:.4f})"
+
+    # EPOCH 15: FiLM logit std, h_slow AUC, per-regime logit separation
+    if epoch == 15 and film_logits:
+        import numpy as np
+        film_std = float(np.std(film_logits))
+        if film_std < 0.01:
+            return f"ep15 FiLM collapse: logit_std={film_std:.4f} < 0.01 (Bug 1 fix did not take)"
+
+    # EPOCH 20: calm_wr overshoot, α-collapse, lag1_autocorr
+    if epoch == 20:
+        # These require per-regime / per-sequence analysis beyond a single val-loss pass.
+        # Full implementation: compute on a sample of val windows with stratified regime labels.
+        # For simplicity in this plan, we log metrics and let the post-training diagnostic catch issues.
+        print(f"[ep{epoch}] Stage B ep20 gate: deferred to post-train diagnostics (film_std={film_std if film_logits else 'N/A'})")
+
+    return None   # pass
+
+
+# ... main() training loop should call _check_stage_b after each epoch's val pass:
+#     kill_reason = _check_stage_b(model, val_loader, epoch, args, device)
+#     if kill_reason is not None:
+#         print(f"STAGE B KILL: {kill_reason}"); sys.exit(1)
+
+
 def main():
     args = parse_args()
     print(f"\n233a-v1.2 variant={args.variant_name} seed={args.seed}")
@@ -1348,7 +1419,7 @@ PYTHONPATH=. python -u experiments/backfill/block_ar/train_233a_v1_2_twopath_fac
     --device cuda 2>&1 | tail -40
 ```
 
-Expected: "Training complete", finite val_loss (likely 0.4-0.7), ~20-30s wall time.
+Expected: "Training complete", finite val_loss (likely 0.4-0.7), ~**60-120s** wall time (v1's smoke took ~24s at H=5 with no FiLM overhead; v1.2's extra 3 loss terms + FiLMFromHSlow increase per-epoch compute).
 
 - [ ] **Step 2: Verify Stage-A gradient check**
 
@@ -2309,3 +2380,326 @@ No TBD / TODO / "implement later". Task 6.5 has explicit `[PASTE HERE]` directiv
 - `VARIANT_CONFIGS` has all 7 entries; variant guard in main() matches
 
 ---
+
+---
+
+## Appendix A: Plan Review Amendments (2026-04-18)
+
+Three parallel review agents reviewed this plan after it was drafted. The consolidated findings below document fixes that subagents MUST apply during execution. Each amendment is keyed by the task number it affects. Subagents executing this plan should re-read this appendix BEFORE starting the referenced task.
+
+### CRITICAL — must apply during implementation
+
+**PA-01 (Task 3.2): Implement Stage-B kill gates inside main()**
+The `_check_stage_b` helper function shown above must be called from `main()` after each epoch's validation pass:
+```python
+# After the val_losses loop and `mean_val` computation, before checkpoint save:
+kill_reason = _check_stage_b(model, val_loader, epoch, args, device)
+if kill_reason is not None:
+    print(f"STAGE B KILL: {kill_reason}")
+    import sys
+    sys.exit(1)
+```
+This implements the ep-5 loss-scale, ep-15 FiLM-std, and ep-20 logging-only gates from design §8. The ep-20 calm_wr / α-collapse / autocorr gates are deferred to the post-training diagnostics (Task 6.2) due to per-regime analysis complexity; documented here rather than silent-skipped.
+
+**PA-02 (Task 4.4): Add Branches 4, 5, 6, 7 to `compare_233a_v1_2_variants.py`**
+The comparator currently covers Branches 1, 2a, 2b, 3. Append the following decision logic at the end of `main()`:
+
+```python
+# Branch 4: control anomaly — v1.2-control should match v1-full_s42's pass-set
+if results["control"] and v1_metrics:
+    ctrl_suite = load_suite("control")
+    v1_suite = json.load(open(V1_RESULT_DIR / "full_s42" / "suite.json"))
+    ctrl_pass = set(ctrl_suite["summary"].get("passed_suites", []))
+    v1_pass = set(v1_suite["summary"].get("passed_suites", []))
+    if ctrl_pass != v1_pass:
+        print(f"\nBRANCH 4 WARNING (control anomaly): v1.2-control passed {ctrl_pass}, "
+              f"v1-full passed {v1_pass}. Drift detected — investigate before trusting "
+              f"attribution deltas.")
+
+# Branch 5: YAGNI — minimal ≈ both (within 1 n_pass)
+if results["minimal"] and results["both"]:
+    dN = results["both"]["n_pass"] - results["minimal"]["n_pass"]
+    if abs(dN) <= 1:
+        print(f"\nBRANCH 5 (YAGNI): v1.2-minimal ≈ v1.2-both (ΔN={dN}). "
+              f"Emission fixes add no value; deploy minimal.")
+
+# Branch 6: one-fix dominates
+if results["aux"] and results["link"] and results["both"]:
+    aux_n = results["aux"]["n_pass"]
+    link_n = results["link"]["n_pass"]
+    both_n = results["both"]["n_pass"]
+    if aux_n >= both_n - 0.5 and aux_n > link_n:
+        print(f"\nBRANCH 6a: v1.2-aux dominates; prefer aux-only (λ_twcrps) over both.")
+    if link_n >= both_n - 0.5 and link_n > aux_n:
+        print(f"\nBRANCH 6b: v1.2-link dominates; prefer link-only (learned g_θ) over both.")
+
+# Branch 7: C3 not load-bearing — minreg ≈ minimal
+if results["minreg"] and results["minimal"]:
+    dN7 = abs(results["minreg"]["n_pass"] - results["minimal"]["n_pass"])
+    if dN7 <= 1:
+        print(f"\nBRANCH 7 (C3 NOT load-bearing): v1.2-minreg ≈ v1.2-minimal (|ΔN|={dN7}). "
+              f"Drop state consistency reg from production recipe.")
+
+# H=252 smoke demotion: if Branch 1 triggered AND h252_smoke.json fails any gate,
+# demote to Branch 2a
+if n >= 5 and jk < 0.50:
+    h252_path = RESULT_DIR / "h252_smoke.json"
+    if h252_path.exists():
+        h252 = json.load(open(h252_path))
+        if not h252.get("all_gates_pass", False):
+            print(f"\nBRANCH 1 → 2a DEMOTION: H=252 smoke failed gates: "
+                  f"{[k for k, v in h252.items() if k.endswith('_ok') and not v]}. "
+                  f"Long-horizon rollout fails despite H=30 success. "
+                  f"Bug 6 or state collapse at long horizons; v1.3 scope.")
+```
+
+**PA-03 (Task 5.2): Change 3-way parallel to 2-way parallel to avoid GPU OOM**
+
+Each v1.2 training uses ~4.2 GB VRAM (per CLAUDE.md). RTX 3070 Ti has 8 GB → max 2 concurrent jobs. The plan originally launched 3 parallel. Revised launch sequence:
+
+```bash
+# Batch 1: control + minreg (lightest two)
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_233a_v1_2_twopath_factor_ar.py \
+    --variant_name control --seed 42 \
+    --output_dir models/backfill/233a_v1_2_control_25d_s42 \
+    --epochs 60 --batch_size 32 --n_members 8 \
+    --curriculum_schedule 0:5,10:15,25:30 --feedback_decay_end 30 \
+    --device cuda 2>&1 | tee models/backfill/233a_v1_2_control_25d_s42/training.log &
+
+PYTHONPATH=. python -u experiments/backfill/block_ar/train_233a_v1_2_twopath_factor_ar.py \
+    --variant_name minreg --seed 42 \
+    --output_dir models/backfill/233a_v1_2_minreg_25d_s42 \
+    --epochs 60 --batch_size 32 --n_members 8 \
+    --curriculum_schedule 0:5,10:15,25:30 --feedback_decay_end 30 \
+    --device cuda 2>&1 | tee models/backfill/233a_v1_2_minreg_25d_s42/training.log &
+
+wait
+
+# Batch 2: minimal + aux
+# (same pattern, wait)
+
+# Batch 3: link + both
+# (same pattern, wait)
+
+# Batch 4: noreg alone (or paired with a spare)
+```
+
+4 batches × ~20 min each = ~80 min total wall time for the 7-run ladder.
+
+**PA-04 (NEW Task 4.5): Create a unified v1.2 diagnostic runner**
+
+The existing v1 diagnostic scripts (`diagnose_233a_film_collapse.py`, `diagnose_233a_slow_state.py`, `diagnose_233a_regime_breakdown.py`) do NOT have argparse — their checkpoint paths are hardcoded. `diagnose_233a_ar_compounding.py` has argparse but with `--model_233a`/`--model_229a` (not `--checkpoint`/`--model_type`). Task 6.2 as written will fail silently.
+
+**NEW Task 4.5**: Create `experiments/backfill/block_ar/diagnose_233a_v1_2_runner.py` that imports the DIAGNOSTIC LOGIC functions from the v1 scripts (not their main() entry points), loads v1.2 checkpoints via the v1.2 load_model, and writes per-variant JSON outputs. Skeleton:
+
+```python
+#!/usr/bin/env python
+"""Unified v1.2 diagnostic runner — wraps v1 diagnostic logic for v1.2 checkpoints."""
+import argparse
+import json
+from pathlib import Path
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--checkpoint", required=True)
+    ap.add_argument("--variant_name", required=True)
+    ap.add_argument("--output_dir", required=True)
+    ap.add_argument("--n_windows", type=int, default=200)
+    ap.add_argument("--device", default="cuda")
+    args = ap.parse_args()
+
+    import torch
+    from experiments.backfill.block_ar.train_233a_v1_2_twopath_factor_ar import load_model
+    model, payload = load_model(args.checkpoint, torch.device(args.device))
+
+    out_dir = Path(args.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
+
+    # For each diagnostic, import the core function and run on v1.2 model.
+    # If a v1 diagnostic script doesn't expose a clean function, fall back to
+    # "diagnostic deferred — run manually by editing v1 script paths" and log.
+
+    results = {"variant_name": args.variant_name, "checkpoint": args.checkpoint}
+
+    # --- 1. FiLM logit distribution ---
+    try:
+        # Inline core logic: compute film.logit std across val windows
+        from experiments.backfill.block_ar.train_169c_shape_scale_student_t import build_multistep_windows
+        import numpy as np
+        raw = np.load("data/vol_surface_with_ret.npz")
+        surf = torch.from_numpy(raw["surface"].astype(np.float32)).to(args.device)
+        val_idx = np.arange(4070, 4070 + args.n_windows)
+        hist, _ = build_multistep_windows(val_idx, surf, 30, 30)
+        model.eval()
+        with torch.no_grad():
+            state = model.init_slow_state(hist.reshape(args.n_windows, 30, 25).to(args.device))
+            if hasattr(model, "use_v1_film_pipe") and model.use_v1_film_pipe:
+                film_out = model.film(state["s"], state["lam"])
+            else:
+                film_out = model.film(state["h_slow"])
+        logit = film_out["p_jump_logit"]
+        results["film_logit_std"] = float(logit.std().item())
+        results["film_logit_range"] = [float(logit.min()), float(logit.max())]
+    except Exception as e:
+        results["film_error"] = str(e)
+
+    # --- 2. Slow-state discrimination (h_slow PC1 AUC on regime) ---
+    # (same pattern — inline core logic)
+
+    # --- 3. lag-1 autocorr (for Bug 3/4 persistence check) ---
+    # Run sample_batched on 50 val windows, compute lag-1 autocorr of deltas
+
+    # --- 4. Regime breakdown (read from suite.json if available) ---
+    suite_path = Path(f"results/block_ar/233a_v1_2/{args.variant_name}_s42/suite.json")
+    if suite_path.exists():
+        with open(suite_path) as f:
+            suite = json.load(f)
+        cond = suite.get("conditionality", {}).get("per_regime_conditionality", {})
+        results["calm_avg_wr"] = cond.get("calm", {}).get("avg_width_ratio")
+        results["turb_avg_wr"] = cond.get("turb", {}).get("avg_width_ratio")
+        results["regime_inversion"] = (
+            (results["calm_avg_wr"] or 1.0) > 1.05 and (results["turb_avg_wr"] or 1.0) < 0.95
+        )
+
+    # --- 5. α-collapse (delegate to existing diagnose_233a_v1_2_emission_link.py if learned link) ---
+    if hasattr(model, "emission_link") and model.emission_link is not None:
+        from experiments.backfill.block_ar.diagnose_233a_v1_2_emission_link import main as em_link_main
+        # Use subprocess-style call via sys.argv temp-manipulation, or inline the core logic
+        # For simplicity, delegate by writing a separate alpha JSON:
+        import subprocess
+        subprocess.run([
+            "python", "experiments/backfill/block_ar/diagnose_233a_v1_2_emission_link.py",
+            "--checkpoint", args.checkpoint,
+            "--output_json", str(out_dir / "_alpha.json"),
+            "--n_windows", str(args.n_windows),
+            "--device", args.device,
+        ])
+
+    with open(out_dir / "_diagnostic_summary.json", "w") as f:
+        json.dump(results, f, indent=2)
+    print(json.dumps(results, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**Update Task 6.2** to use this runner instead of the original 4 v1 scripts:
+
+```bash
+for V in control minreg minimal aux link both noreg; do
+  CKPT=models/backfill/233a_v1_2_${V}_25d_s42/best_model.pt
+  DDIR=results/block_ar/233a_v1_2/${V}_s42
+  PYTHONPATH=. python experiments/backfill/block_ar/diagnose_233a_v1_2_runner.py \
+      --checkpoint ${CKPT} --variant_name ${V} --output_dir ${DDIR} \
+      --n_windows 200 --device cuda
+done
+```
+
+**PA-05 (Task 6.4): Inline `BEST_VARIANT` into Python, not bash variable**
+
+Bash variables don't persist across subprocess invocations under subagent-driven-development. Rewrite Task 6.4 as a single Python script that:
+1. Reads `results/block_ar/233a_v1_2/decision.md` to find best variant (or re-run `compare_233a_v1_2_variants.py` and parse stdout)
+2. OR simpler: iterate over all 7 variants, compute best inline
+
+```python
+# Task 6.4 revised — single Python block:
+PYTHONPATH=. python <<'PY'
+import json, numpy as np, torch
+from pathlib import Path
+from experiments.backfill.block_ar.train_233a_v1_2_twopath_factor_ar import load_model
+from experiments.backfill.block_ar.train_169c_shape_scale_student_t import build_multistep_windows
+from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv
+
+# Find best variant by n_pass + jumpKS tiebreaker
+best = None; best_score = (-1, 1.0)
+for V in ["control","minreg","minimal","aux","link","both","noreg"]:
+    path = Path(f"results/block_ar/233a_v1_2/{V}_s42/suite.json")
+    if not path.exists(): continue
+    d = json.load(open(path))
+    n = d["summary"]["n_pass"]
+    jk = d.get("pathwise_jump_realism", {}).get("pathwise_max_jump", {}).get("ks_stat", 1.0)
+    score = (n, -jk)   # higher n_pass better; lower jumpKS better
+    if score > best_score:
+        best_score = score; best = V
+
+if best is None:
+    raise SystemExit("No v1.2 suite results found; run Task 6.1 first")
+
+print(f"Best variant: {best} (n_pass={best_score[0]}, jumpKS={-best_score[1]:.3f})")
+ckpt = f"models/backfill/233a_v1_2_{best}_25d_s42/best_model.pt"
+m, _ = load_model(ckpt, torch.device("cuda"))
+
+# Run 252-day smoke on 20 val windows
+raw = np.load("data/vol_surface_with_ret.npz")
+surf = torch.from_numpy(raw["surface"].astype(np.float32)).cuda()
+max_train_idx = 4511 - 30 - 252
+val_idx = np.arange(max_train_idx - 20, max_train_idx)
+hist, fut = build_multistep_windows(val_idx, surf, 30, 252)
+
+with torch.no_grad():
+    samples = m.sample_batched(normalize_iv(hist), n_samples=24, n_steps=252, chunk_size=8)
+
+s_flat = samples.reshape(20, 24, 252, 25)
+has_nan = bool(torch.isnan(s_flat).any())
+iv_in_range = bool((s_flat >= 0.01).all() and (s_flat <= 1.0).all())
+
+gen_delta = (s_flat[:, :, 1:] - s_flat[:, :, :-1]).abs()
+max_delta_early = float(gen_delta[:, :, 24:30].max(dim=2).values.mean())
+max_delta_late = float(gen_delta[:, :, 199:252].max(dim=2).values.mean())
+delta_ratio = max_delta_late / max(max_delta_early, 1e-8)
+delta_ratio_ok = bool(0.5 < delta_ratio < 2.0)
+
+fut_flat = fut.reshape(20, 252, 25).cuda()
+dfut = (fut_flat[:, 200:] - fut_flat[:, 199:-1]).abs()
+dgen = gen_delta[:, :, 199:].mean(dim=1)
+mr_ratio_long = float(dgen.mean() / max(dfut.mean(), 1e-8))
+mr_long_ok = bool(0.60 < mr_ratio_long < 1.40)
+
+result = dict(
+    best_variant=best,
+    has_nan=has_nan, iv_in_range=iv_in_range,
+    max_delta_early=max_delta_early, max_delta_late=max_delta_late,
+    delta_ratio=delta_ratio, delta_ratio_ok=delta_ratio_ok,
+    mr_ratio_long=mr_ratio_long, mr_long_ok=mr_long_ok,
+    all_gates_pass=not has_nan and iv_in_range and delta_ratio_ok and mr_long_ok,
+)
+with open("results/block_ar/233a_v1_2/h252_smoke.json", "w") as f:
+    json.dump(result, f, indent=2)
+print(json.dumps(result, indent=2))
+PY
+```
+
+### MINOR (apply if convenient; no hard blocker)
+
+**PA-06 (Task 4.2): Redundant anchor-override block — harmless, can be removed**
+
+The added `if args.model_type.startswith("233a_v1_2"):` anchor-override block is dead code because the existing `startswith("233a")` block already matches. Subagents can leave it (no regression) OR remove it for cleanliness. Design decision: leave for defensive-explicit documentation.
+
+**PA-07 (Task 6.5): `$(date)` in single-quoted heredoc writes literal string**
+
+Change the research-log append heredoc from `<< 'LOG_EOF'` (literal) to `<< LOG_EOF` (shell-evaluated) so `$(date +%Y-%m-%d)` expands correctly:
+
+```bash
+cat >> RESEARCH_LOG.md << LOG_EOF
+
+## $(date +%Y-%m-%d): 233a-v1.2 — Targeted Bug-Fix Experiment
+...
+LOG_EOF
+```
+
+**PA-08 (twcrps_pathwise_max comment)**: the inline code comment claiming "matches energy_score convention in train_212b" is inaccurate — train_212b uses `torch.cdist(...).mean()` which has biased K*K denominator. The K*(K-1) off-diagonal denominator used in v1.2 is the UNBIASED variance estimator, not a copy of 212b's convention. Updated comment (1-line fix):
+
+```python
+# term2: unbiased pairwise mean using off-diagonal K*(K-1) denominator.
+# (train_212b uses a simpler biased cdist-based mean; we prefer unbiased here.)
+```
+
+### Summary
+
+- **5 critical amendments** (PA-01 through PA-05) require code additions during implementation. Subagents executing Tasks 3.2, 4.4, 5.2, 6.2, 6.4 must apply these.
+- **3 minor amendments** (PA-06 through PA-08) are cosmetic.
+- All design-spec amendments (Appendix B + C of design.md) are correctly reflected in the plan.
+- No blocking technical correctness bugs (all imports resolve, signatures compatible, shapes correct).
+
+Spec is cleared for subagent-driven execution.
+
