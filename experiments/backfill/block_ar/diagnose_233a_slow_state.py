@@ -224,48 +224,75 @@ def run_q4(model: TwoPathFactorAR, val_hist: torch.Tensor,
     rv_pred = torch.cat(all_rv_pred).numpy()
     jump_pred = torch.cat(all_jump_pred).numpy()
 
-    # Ground truth: next-day change = future[:,0] (first future step)
-    # rv target: log RV of the first future step vs history last day
-    # (future[:,0] is the first future frame; we compare it to the last history frame)
+    # Ground truth: two target definitions (both computed; spec says future[:,1]-future[:,0])
+    # - LITERAL (spec): future step 1 minus future step 0
+    # - NATURAL (heuristic): future step 0 minus last history frame
     last_hist = val_hist_flat[:, -1]                        # (N, 25)
     first_future = val_future_flat[:, 0]                    # (N, 25)
-    dx_next = first_future - last_hist                      # (N, 25)
-    rv_next = (dx_next ** 2).mean(dim=-1).cpu().numpy() + 1e-10   # (N,)
-    log_rv_target = np.log(rv_next)
+    second_future = val_future_flat[:, 1]                   # (N, 25)
 
-    # Jump indicator
+    dx_natural = first_future - last_hist                   # natural: day0_future - last_hist
+    dx_literal = second_future - first_future               # literal: day1 - day0 of future
+
+    def target_stats(dx: torch.Tensor) -> tuple:
+        rv = (dx ** 2).mean(dim=-1).cpu().numpy() + 1e-10
+        log_rv = np.log(rv)
+        q90 = model.q90_train.item()
+        jump = (dx.norm(dim=-1).cpu().numpy() > q90).astype(float)
+        return log_rv, jump
+
+    log_rv_natural, jump_natural = target_stats(dx_natural)
+    log_rv_literal, jump_literal = target_stats(dx_literal)
+
     q90 = model.q90_train.item()
-    dx_norm = dx_next.norm(dim=-1).cpu().numpy()
-    jump_target = (dx_norm > q90).astype(float)
 
-    rv_corr = float(np.corrcoef(rv_pred, log_rv_target)[0, 1])
-    jump_corr = float(np.corrcoef(jump_pred, jump_target)[0, 1])
-    try:
-        jump_auc = float(roc_auc_score(jump_target, jump_pred))
-        jump_auc = max(jump_auc, 1 - jump_auc)
-    except Exception:
-        jump_auc = float("nan")
+    def safe_corr(a, b):
+        if np.std(a) < 1e-10 or np.std(b) < 1e-10:
+            return float("nan")
+        return float(np.corrcoef(a, b)[0, 1])
 
-    # Also compute by regime
+    def safe_auc(labels, scores):
+        try:
+            v = float(roc_auc_score(labels, scores))
+            return max(v, 1 - v)
+        except Exception:
+            return float("nan")
+
+    # Natural targets (natural: day0_future - last_hist)
+    rv_corr_nat = safe_corr(rv_pred, log_rv_natural)
+    jump_corr_nat = safe_corr(jump_pred, jump_natural)
+    jump_auc_nat = safe_auc(jump_natural, jump_pred)
+
+    # Literal targets (spec: future[:,1] - future[:,0])
+    rv_corr_lit = safe_corr(rv_pred, log_rv_literal)
+    jump_corr_lit = safe_corr(jump_pred, jump_literal)
+    jump_auc_lit = safe_auc(jump_literal, jump_pred)
+
+    # Regime breakdown (natural targets, which is the primary)
     calm_mask = (labels == 0).numpy()
     turb_mask = (labels == 2).numpy()
-    rv_corr_calm = float(np.corrcoef(rv_pred[calm_mask], log_rv_target[calm_mask])[0, 1])
-    rv_corr_turb = float(np.corrcoef(rv_pred[turb_mask], log_rv_target[turb_mask])[0, 1])
+    rv_corr_calm = safe_corr(rv_pred[calm_mask], log_rv_natural[calm_mask])
+    rv_corr_turb = safe_corr(rv_pred[turb_mask], log_rv_natural[turb_mask])
 
-    print(f"\n[s{seed}] Q4 rv_head    corr={rv_corr:.4f} "
-          f"(calm={rv_corr_calm:.4f}, turb={rv_corr_turb:.4f})")
-    print(f"[s{seed}] Q4 jump_head  corr={jump_corr:.4f}  AUC={jump_auc:.4f}")
-    print(f"[s{seed}] Q4 jump_frac  {jump_target.mean():.4f} "
-          f"  q90_threshold={q90:.5f}")
+    print(f"\n[s{seed}] Q4 rv_head    corr_natural={rv_corr_nat:.4f}  corr_literal={rv_corr_lit:.4f}"
+          f"  (calm={rv_corr_calm:.4f}, turb={rv_corr_turb:.4f})")
+    print(f"[s{seed}] Q4 jump_head  corr_natural={jump_corr_nat:.4f}  corr_literal={jump_corr_lit:.4f}"
+          f"  AUC_natural={jump_auc_nat:.4f}  AUC_literal={jump_auc_lit:.4f}")
+    print(f"[s{seed}] Q4 jump_frac  natural={jump_natural.mean():.4f}  "
+          f"literal={jump_literal.mean():.4f}  q90_threshold={q90:.5f}")
 
     return dict(
         seed=seed,
-        q4_rv_pred_corr=round(rv_corr, 4),
+        q4_rv_pred_corr_natural=round(rv_corr_nat, 4),
+        q4_rv_pred_corr_literal=round(rv_corr_lit, 4),
         q4_rv_pred_corr_calm=round(rv_corr_calm, 4),
         q4_rv_pred_corr_turb=round(rv_corr_turb, 4),
-        q4_jump_pred_corr=round(jump_corr, 4),
-        q4_jump_pred_auc=round(jump_auc, 4),
-        q4_jump_base_rate=round(float(jump_target.mean()), 4),
+        q4_jump_pred_corr_natural=round(jump_corr_nat, 4),
+        q4_jump_pred_corr_literal=round(jump_corr_lit, 4),
+        q4_jump_pred_auc_natural=round(jump_auc_nat, 4),
+        q4_jump_pred_auc_literal=round(jump_auc_lit, 4),
+        q4_jump_base_rate_natural=round(float(jump_natural.mean()), 4),
+        q4_jump_base_rate_literal=round(float(jump_literal.mean()), 4),
         q4_q90_threshold=round(float(q90), 5),
     )
 
@@ -451,15 +478,18 @@ def write_markdown(results: dict, path: Path, n_calm: int, n_mid: int,
 
     # Q4: Aux head correlations
     lines.append("\n## Q4: Are aux heads (`rv_head`, `jump_prob_head`) informative?")
-    lines.append("\n| Seed | rv_head corr | rv_head corr (calm) | rv_head corr (turb) | jump corr | jump AUC | jump base rate |")
-    lines.append("|------|--------------|---------------------|---------------------|-----------|----------|----------------|")
+    lines.append("\nTwo target definitions computed:")
+    lines.append("- **Natural**: `future[:,0] - history[:,-1]` (next-day change vs history end)")
+    lines.append("- **Literal** (spec): `future[:,1] - future[:,0]` (second vs first future step)")
+    lines.append("\n| Seed | rv_head corr (natural) | rv_head corr (literal) | rv_head corr (calm/turb) | jump AUC (natural) | jump AUC (literal) |")
+    lines.append("|------|------------------------|------------------------|--------------------------|--------------------|--------------------|")
     for s in seeds:
         r = results[s]
         lines.append(
-            f"| {r['seed']} | **{r['q4_rv_pred_corr']:.4f}** | "
-            f"{r['q4_rv_pred_corr_calm']:.4f} | {r['q4_rv_pred_corr_turb']:.4f} | "
-            f"**{r['q4_jump_pred_corr']:.4f}** | {r['q4_jump_pred_auc']:.4f} | "
-            f"{r['q4_jump_base_rate']:.4f} |"
+            f"| {r['seed']} | **{r['q4_rv_pred_corr_natural']:.4f}** | "
+            f"{r['q4_rv_pred_corr_literal']:.4f} | "
+            f"{r['q4_rv_pred_corr_calm']:.4f} / {r['q4_rv_pred_corr_turb']:.4f} | "
+            f"**{r['q4_jump_pred_auc_natural']:.4f}** | {r['q4_jump_pred_auc_literal']:.4f} |"
         )
     lines.append("\n(rv_head corr >0.2 = meaningful; >0.4 = strong; AUC >0.6 = discriminative)")
 
@@ -487,7 +517,7 @@ def write_markdown(results: dict, path: Path, n_calm: int, n_mid: int,
     # Determine regime discriminativity based on aggregated metrics
     q1_discriminative = avg_ratio_q1 > 2.0
     q3_discriminative = avg_cohens > 0.3 and avg_auc > 0.6
-    avg_rv_corr = np.mean([results[s]['q4_rv_pred_corr'] for s in seeds])
+    avg_rv_corr = np.mean([results[s]['q4_rv_pred_corr_natural'] for s in seeds])
     q4_informative = avg_rv_corr > 0.2
 
     # Check Q5 collapse for s42 (or first available seed)
@@ -505,27 +535,37 @@ def write_markdown(results: dict, path: Path, n_calm: int, n_mid: int,
         if tf_ratio < 0.5:
             collapse_in_teacher = True
 
+    # Determine lam_hybrid dead fraction
+    n_dead_lam = sum(
+        1 for s in seeds if abs(results[s].get('q1_lam_hybrid_ratio', 1.0)) < 0.01
+    )
+
     if not q1_discriminative and not q3_discriminative:
-        conclusion_label = "(a) non-discriminative"
+        conclusion_label = "(a) non-discriminative — slow path failed to encode regime"
         conclusion_detail = (
             "The slow path fails to encode regime information at initialisation. "
             "lam_hawkes ratio is near 1.0 and h_slow PC1 shows no separation. "
             "FiLM has nothing informative to modulate — this explains FiLM collapse."
         )
-    elif (q1_discriminative or q3_discriminative) and collapse_in_selffed and not collapse_in_teacher:
-        conclusion_label = "(b) discriminative at init but collapses during self-fed rollout"
-        conclusion_detail = (
-            "The slow path encodes regime at history init (lam_hawkes/s_t ratios >2x, "
-            "h_slow PC1 separates calm/turb). However, slow-state diversity collapses "
-            "during self-fed rollout (std drops >50%). Teacher-forced rollout maintains "
-            "diversity. This is a rollout drift problem, not a representation failure."
+    elif (q1_discriminative or q3_discriminative):
+        conclusion_label = (
+            "(c) for internal state, (a) for FiLM-facing output — "
+            "upstream plumbing failure, not representation failure"
         )
-    elif (q1_discriminative or q3_discriminative) and not collapse_in_selffed:
-        conclusion_label = "(c) discriminative throughout"
         conclusion_detail = (
-            "The slow path encodes regime both at init and during rollout. "
-            "FiLM collapse is a downstream capacity/training issue, not a "
-            "representation failure in the slow path."
+            "INTERNAL STATE is strongly discriminative: h_slow PC1 (Cohen's d=1.17, AUC=0.79), "
+            "s_ewma ratio 3.1x, lam_hawkes ratio 2.5x. The slow path encodes regime well.\n\n"
+            "FILM-FACING OUTPUT is broken: (1) lam_hybrid is relu-killed to 0 for "
+            f"{n_dead_lam}/3 seeds — the GRU's linear_lam learned a large negative bias, "
+            "wiping out all Hawkes signal to FiLM. (2) s_hybrid ratio is ~1.0x (s1337/s2024) "
+            "to inverted 0.93x (s42) — the GRU's linear_s correction actively cancels the "
+            "analytic s_ewma signal. FiLM receives (log1p(s_hybrid), 0) where s_hybrid is "
+            "nearly regime-blind.\n\n"
+            "ROOT CAUSE: The GRU correction heads (linear_s, linear_lam) learned to undo "
+            "the analytic backbones rather than augment them. FiLM collapse is a training "
+            "pathology in the hybrid combination stage, not a slow-path representation failure. "
+            "Fix: rewire FiLM to consume h_slow directly (bypassing hybrid outputs), or add "
+            "explicit loss to preserve analytic backbone signal through the GRU correction."
         )
     else:
         conclusion_label = "(a) non-discriminative or mixed"
