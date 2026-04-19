@@ -73025,3 +73025,87 @@ The sinh(v) × local_scale innovation structure suppresses extremes in both mode
 Commit `d23a82d` (peak-and-recover + hypothesis softening).
 
 ---
+
+## 2026-04-18: Research Compass — Next Principal Move for General-Factor Conditional Scenario Generator
+
+### Philosophy Applied
+- **Hamming**: every hypothesis below is both important (gated metric) AND attackable (specific code path)
+- **Popper**: each hypothesis has stage-by-stage kill conditions; failure is as informative as success
+- **Hinton**: independent reasoning done before literature; the diagnostic evidence shaped the compass
+- **Bitter Lesson**: all emission/coupling changes proposed are LEARNED mechanisms, no domain heuristics
+- **Karpathy**: each hypothesis stands independently; staged checkpoints give early signal before full commit
+
+### Evidence Summary (from 4-parallel-agent diagnostics, commits `b732ee0..37b635f`)
+
+**Proven root causes** (measured):
+- Bug 1 loss-wiring: film.logit weight grad = 0 (L_jump goes to slow_path head, not film)
+- Bug 2 rollout collapse: self-fed s_t diversity drops 29-92% (TF holds)
+- Bug 5 residual cancellation: lam_hybrid=0 in 2/3 seeds, s_hybrid ratio 3.1→1.04
+- Bug 6 tail attenuation: sinh·local_scale caps max|δ|; shared 227a-family emission
+
+**Exhausted directions:**
+- Plain 227a AR (compounding drift, KS 0.054→0.158 monotonic)
+- 231a learnable anchor (230b coupling trap)
+- 232 single-lever fine-tunes (all 2/7)
+- 233a-v1 with 6-lever FiLM (2/7, mechanistically diagnosed)
+
+**Contradictions / open questions:**
+- 233a vs 229a show DIFFERENT AR failure modes (peak-recover vs monotonic) — paradigm is not monolithically bad
+- 229a's 3/7 depends on training-distribution match (TF breaks it -0.111)
+- max_jump_ks achievable in H=1 (183c: 0.12) but never in multi-day family
+- Is AR the structural cap, or is the *emission* the structural cap? Never cleanly separated.
+
+### Active Hypotheses (ranked by information value)
+
+**H1 (PRIMARY): 233a-v1.2 — FiLM wiring fix + tail-aware emission**
+- Fix A: FiLM consumes h_slow (8-dim) directly + BCE wired to film.logit + state consistency reg
+- Fix B: replace sinh·local_scale with either twCRPS aux loss OR learned convex combination g_θ(v) = σ(·)·tanh(v) + (1-σ(·))·sinh(v)
+- Staged: smoke (2h) → 1-seed/30-ep (4h) → full 3-seed ladder (10h)
+- Kill conditions: Stage 1 — film.logit grad still 0 after BCE rewire. Stage 2 — p_jump_logit std <0.001. Stage 3 — n_pass ≤ 2/7.
+- **Value of failure:** cleanly falsifies AR-paradigm viability if emission fix doesn't drop max_jump_ks; pivot to joint-path flow becomes well-justified.
+- **Value of success:** first multi-day model to pass turb_calm + worst_cell + MR gates simultaneously, possibly max_jump_ks.
+
+**H2 (OMIT): minimal-coupling anchor-only scaffold**
+- Rationale for omission: information value subsumed by H1's learned-emission stage.
+
+**H3 (SAFETY NET, parallelizable with H1 Stage 3): External temporal scaffold + frozen H=1 local law**
+- Frozen 212ai/183c-class local law + separate GRU slow-tracker that outputs anchor/scale. Anchor-only feedback (no frame feedback) → no compounding.
+- Kill conditions: Stage 2 — H=1 law can't be adapted to accept (anchor, scale) inputs at all. Stage 3 — n_pass ≤ 3/7.
+- **Value of failure:** rules out naive H=1 extension; forces joint-path flow as only remaining architectural option.
+- **Value of success:** decoupled architecture wins; AR was indeed the cap.
+
+### Exhausted Directions (with WHY)
+
+- **Plain AR (227a/229a)**: compounding drift mechanism measured (EWMA + factor feedback attractor).
+- **Learnable anchor (231a)**: re-optimizing innovation law under trained anchor locks worse optimum (230b regime-coupling trap).
+- **Single-lever fine-tunes (232a-d)**: too narrow; structural gates require architectural change, not loss tuning.
+- **233a 6-lever FiLM**: FiLM collapses via gradient starvation cascade; hybrid scalar bottleneck discards discriminative h_slow.
+
+### Open Questions (to resolve via H1/H3)
+
+1. Is the paradigm cap at AR compounding or at sinh·local_scale emission? H1 answers: if emission fix drops max_jump_ks within AR → AR is viable. If not → paradigm is the cap.
+2. Can H=1 local-law quality extend to multi-day via anchor-only feedback? H3 answers.
+3. How much of v1's regime inversion (calm-wide / turb-narrow) is from dead FiLM vs from sinh·local_scale interaction with anchor? H1 isolates by fixing one and testing the other.
+
+### Garbage Can Lists
+
+**Unsolved problems:**
+- Pathwise max_jump_ks in multi-day (gate 0.20; all AR models stuck 0.5-0.95; 183c H=1 achieved 0.12)
+- Regime-sensitive CI widening under anchor-stable scale (turb_calm gate 1.15; 229a 1.025)
+- Worst-cell coverage at h=30 (gate 0.70; best 0.363)
+- Multi-horizon extension while preserving tail quality
+
+**Available techniques:**
+- twCRPS (threshold-weighted CRPS) for tail-loss emphasis
+- Learned link functions (tanh/sinh convex combo)
+- State consistency regularization (BPTT-SA)
+- Direct h_slow → FiLM piping (replaces scalar bottleneck)
+- Joint-path flow matching over H-step trajectories (pivot-backup)
+- Window-level AR (joint at H=30, AR across 8 windows for 252d)
+- Frozen H=1 local law + anchor-only scaffold (H3)
+
+### Next Action
+
+Begin H1 Stage 1: write `research/233a_twopath_v1_2/design.md` for user review, then implement FiLM rewire + emission fix. Stage 1 smoke-train (2h) gates whether to proceed.
+
+---
