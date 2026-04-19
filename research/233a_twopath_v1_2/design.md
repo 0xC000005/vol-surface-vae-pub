@@ -313,6 +313,7 @@ experiments/backfill/block_ar/
 
 models/backfill/                             # created per-variant, empty dir skeletons
   ├── 233a_v1_2_control_25d_s42/
+  ├── 233a_v1_2_minreg_25d_s42/              # NEW per 2nd review
   ├── 233a_v1_2_minimal_25d_s42/
   ├── 233a_v1_2_aux_25d_s42/
   ├── 233a_v1_2_link_25d_s42/
@@ -332,10 +333,10 @@ experiments/backfill/block_ar/
 
 - `FiLMFromHSlow(nn.Module)`:
   - reads `h_slow: (B, 8)` directly; same 6 outputs as v1 FiLM; same γ-identity init convention
-  - **Attribute names preserved** (`self.mlp`, `self.g_lambda`, `self.b_lambda`, `self.g_d`, `self.b_d`, `self.drift`, `self.logit`) so that existing `diagnose_233a_film_collapse.py` runs unchanged on v1.2 checkpoints without modification.
+  - **Attribute names preserved** (`self.mlp`, `self.g_lambda`, `self.b_lambda`, `self.g_d`, `self.b_d`, `self.drift`, `self.logit`) so that existing `diagnose_233a_film_collapse.py` can target the same attribute paths on v1.2 checkpoints with a **one-line model-type dispatch** change (NOT "unchanged" — `self.mlp[0].weight` shape differs: v1 `(32, 2)` → v1.2 `(32, 8)`, so strict `load_state_dict` would fail. The diagnostic must load via `load_model` dispatch, not torch.load + strict load_state_dict on v1 class).
 - `LearnedLink(nn.Module)`:
   - `g(v) = σ(gate(cond))·tanh(v) + (1−σ(·))·sinh(v)`; `self.gate = Linear(cond_dim, D)` zero-init (weight + bias)
-  - **`cond` timing** (per review): uses PER-STEP `cond` tensor at the moment of emission (i.e., `cond` AFTER the current step's gru_cell update but BEFORE next step's advance). NOT initial-history cond. This lets α adapt to the evolving regime within a trajectory.
+  - **`cond` timing (CORRECTED per 2nd review):** uses the `cond` tensor AT EMISSION TIME for the current step. In v1's loop, `gru_cell` runs at the END of each step (after emission) to prepare cond for the NEXT step. So the `cond` that `factor_head(prev, cond, z_f, pos)` uses at step t is the output of step (t-1)'s `gru_cell` update (for t=0, it's the encode_history output). The emission link must use THE SAME `cond` tensor that `factor_head` and `idio_head` consume — NOT the post-update cond. Implementation: compute `alpha = σ(gate(cond))` at the SAME place in the loop where `factor_head(prev, cond, ...)` is called.
 - `twcrps_pathwise_max(samples, future, threshold) → scalar` — threshold-weighted pathwise-max CRPS; **term2 uses K×(K−1) denominator** (off-diagonal pairs only) matching 212b's energy_score convention.
 - `class TwoPathFactorARv1_2(TwoPathFactorAR)`:
   - Overrides `__init__`:
@@ -353,7 +354,7 @@ experiments/backfill/block_ar/
     - `L_film_jump_bce` = BCE on `q_seq_film` against the same jump_target_seq used by L_slow_jump_bce (same training signal, different consumer).
     - `L_twcrps` = `twcrps_pathwise_max(samples, future, q90_train)` if `λ_twcrps > 0`.
     - `L_state` = mean per-step MSE between `h_slow_free_seq[:W]` and `h_slow_teacher_seq[:W].detach()` if `λ_state > 0`.
-  - Returns dict with all 6 (or 8) loss components for logging.
+  - Returns dict with all 7 loss components for logging (L_ES, L_VS, L_rv_mse, L_slow_jump_bce, L_film_jump_bce, L_twcrps, L_state) — typo fix per 2nd review.
 - `main()` argparse + training loop:
   - **Teacher-branch gating**: `return_teacher_h = (args.lambda_state > 0)`. Variants with `λ_state=0` skip teacher-branch compute (save ~1s/epoch).
   - **FiLM-pipe branching** visible in model-construction log line so operator can confirm.
@@ -420,6 +421,10 @@ deltas = {
 
 **Seed-42 caveat (per adversarial review):** seed 42 was v1's best seed for jumpKS (0.735) vs seeds 1337/2024 at 0.898/0.838 — a 23% swing within the same variant. Any partial improvement on single-seed v1.2 must be treated as an **architectural signal requiring multi-seed replication** before claiming "AR paradigm viable." Branch-1 language in Section 8 reflects this.
 
+**Headline success hedging (per 2nd review):** the "headline success" paragraph above should be read through the single-seed caveat filter: passing 5/7 on seed 42 ALONE does not constitute a paradigm claim. It constitutes an architectural signal that warrants v1.3 multi-seed (3+) investigation. Any write-up language should describe v1.2 outcomes as "seed-42 result; pending multi-seed replication."
+
+**Diagnostic roll-up requirement (per 2nd review):** `compare_233a_v1_2_variants.py` must produce a single **roll-up table** cross-referencing 5 diagnostics × 7 variants = 35 cells. Minimum columns: `variant | n_pass | turb_calm | worstC_h30 | max_jump_ks | ks_test/25 | MR_ratio | film_logit_std | alpha_std | lag1_autocorr | regime_inversion_flag`. Single markdown file per v1.2 run; prevents hunting through 35 individual result files during debugging.
+
 **Headline success:** v1.2-best passes ≥ 3 new suites (turb_calm + change_ks + MR) for a 5/7 score without regressing surface/cross_cell. Would be the first multi-day model to reach 5/7 since v3 harness.
 
 **Stretch:** max_jump_ks < 0.20 (pass Bug-6 gate) — would dethrone historical best in multi-day AR.
@@ -446,19 +451,24 @@ These give MECHANISM confirmation, not just metric confirmation. Crucial for lea
 
 Three stages with explicit kill conditions.
 
-### Stage A — Pre-training smoke (1 epoch on `v1.2-both`, batch=8, n_members=4, H=5)
+### Stage A — Pre-training smoke (1 epoch on `v1.2-both` AND `v1.2-link`; batch=8, n_members=4, H=5)
 
-**Pass:**
+**Per 2nd review:** expanded to smoke-test `v1.2-link` as well, since it's the only variant where C4b fires without C4a co-activation.
+
+**Pass (for EACH smoke variant):**
 - Completes without exception
 - `film.logit.weight.grad.abs().sum() > 0` after epoch 0 backward (C2 routes gradient to FiLM)
-- `emission_link.gate.weight.grad.abs().sum() > 0` (C4b connected to loss)
+- `emission_link.gate.weight.grad.abs().sum() > 0` (C4b connected to loss — required for link + both variants)
 - No NaN in any parameter
 - Val loss finite
 
 **Kill:**
 - Any exception / NaN → bug; fix before Stage B
-- `film.logit.weight.grad == 0` → C2 fix didn't take; cross-check that `q_seq_film` is stacked and passed to `compute_loss_v1_2`
-- `emission_link` grad == 0 → C4b disconnected from loss graph
+- `film.logit.weight.grad == 0` on either smoke → C2 fix didn't take; cross-check that `q_seq_film` is stacked and passed to `compute_loss_v1_2`
+- `emission_link.gate.weight.grad == 0` on `v1.2-link` smoke → C4b disconnected from loss graph
+
+**Implementation requirement — flag-combination guard (`main()`):**
+Before training begins, `main()` MUST validate that the combination of `use_v1_film_pipe`, `use_learned_link`, `lambda_film_bce`, `lambda_twcrps`, `lambda_state` matches ONE of the 7 named variants. Reject any other combination with a clear error. Prevents a 60-epoch run on a bad flag typo. Explicit `--variant_name {control,minreg,minimal,aux,link,both,noreg}` CLI arg is the cleanest enforcement.
 
 ### Stage B — Mid-training single-variant check (`v1.2-both`, checked at ep 5, ep 15, ep 20)
 
@@ -485,13 +495,24 @@ Three stages with explicit kill conditions.
 - `α = σ(link_gate(cond))` distribution on val windows: `std(α) > 0.05` AND `|mean(α | turb) − mean(α | calm)| > 0.02`.
   **Kill:** α collapsed to constant → learned link is not adapting; revert to sinh-only in next iteration.
 
+**Pass (ep 20 — Bug 3/4 persistence check, NEW per 2nd review):**
+- lag-1 autocorrelation of generated innovations on 50 val windows: `|mean(lag1_autocorr)| ≤ 0.20`. (v1 measured −0.35 — oscillation pathology.)
+- Per-regime width ratios sanity: `calm_wr < 1.20` AND `turb_wr > 0.90` (directional improvement vs v1's 1.21/0.79).
+  **Kill / flag:** if either fails at ep 20, Bugs 3 or 4 did NOT self-correct from C1+C2. Continue training but flag as "Bug 3/4 residual — may need explicit autocorr regularizer in v1.3."
+
+**Kill-threshold calibration note:** the Stage-B numerical thresholds (`std > 0.01`, `std(α) > 0.05`, logit separation `> 0.3`, autocorr `≤ 0.20`) are **engineering defaults** not principled derivations. They represent "substantially non-zero" signals sufficient for the diagnostic to declare a mechanism alive vs dead. A borderline pass (e.g., FiLM std = 0.011) should NOT be interpreted as a decisive positive confirmation; interpret against the full distribution not a point threshold.
+
 ### Stage C — Full 7-variant decision tree (all variants completed)
 
-**Branch 1 (clean success):** `v1.2-both` ≥ **5/7** AND max_jump_ks < 0.50 → **architectural signal, not paradigm victory.** Multi-seed (3 seeds) replication required before claiming "AR paradigm viable." Plan v1.3: multi-seed + H=252 smoke test + multi-factor validation. Also run `diagnose_233a_v1_2_emission_link.py` to confirm α didn't collapse (v1 FiLM collapse lesson).
+**Branch decision logic:** Branches 1-4 use the **best v1.2 variant** (the one with highest `n_pass`, ties broken by lowest `max_jump_ks`). "v1.2-both" is one likely best-variant candidate but not the only one — if `v1.2-aux` or `v1.2-link` wins outright, apply the branch logic to THAT variant's metrics. Branches 5-7 are orthogonal diagnostic branches (not MECE with 1-4): they apply to interpreting the attribution table, not to a single winner metric.
 
-**Branch 2 (partial):** `v1.2-both` ≥ 4/7 BUT max_jump_ks ≥ 0.50 → FiLM fixed (C1+C2 signals confirmed), emission structural cap remains. Isolate C4a vs C4b via `aux`/`link` deltas. Publish 4/7; Bug 6 is next bottleneck. Parallel H3 scaffold design accelerates alternative-paradigm evaluation.
+**Branch 1 (clean success):** best v1.2 variant ≥ **5/7** AND max_jump_ks < 0.50 → **architectural signal, not paradigm victory.** Multi-seed (3 seeds) replication required before claiming "AR paradigm viable." Plan v1.3: multi-seed + H=252 smoke test + multi-factor validation. Also run `diagnose_233a_v1_2_emission_link.py` to confirm α didn't collapse (v1 FiLM collapse lesson). **Forward reference:** H3 (frozen H=1 + external scaffold) remains the complementary architectural track documented in the Research Compass (`6f4b568`); consider parallel H3 implementation for v1.3.
 
-**Branch 3 (failure):** all variants ≤ 3/7 → architectural pivot justified with clean evidence. Launch H3 (external scaffold) + joint-path flow matching design. 229a remains production incumbent.
+**Branch 2a (partial — FiLM fixed, emission cap remains):** best v1.2 variant ≥ 4/7 BUT max_jump_ks ≥ 0.50 → FiLM fixed (C1+C2 signals confirmed), emission structural cap remains. Isolate C4a vs C4b via `aux`/`link` deltas. Publish 4/7; Bug 6 is next bottleneck. Parallel H3 scaffold design accelerates alternative-paradigm evaluation.
+
+**Branch 2b (partial-success + emission progress — NEW per 2nd review):** best v1.2 variant ≥ 4/7 AND max_jump_ks < 0.50 → this is the most informative partial outcome: FiLM fixed AND Bug 6 cracked but 1 suite still missing (probably worst_cell_cov gate, which needs 0.70 to pass). Action: identify the specific failing suite, design a targeted v1.2.x fix for ONE gate, and re-run 3 seeds. This is the "almost there" branch.
+
+**Branch 3 (failure):** best v1.2 variant ≤ 3/7 → architectural pivot justified with clean evidence. Launch H3 (external scaffold) + joint-path flow matching design. 229a remains production incumbent.
 
 **Branch 4 (control anomaly):** `v1.2-control` does NOT match v1-full_s42's **per-suite pass-set** (v1-full_s42 passed exactly {surface_validity, cross_cell_correlation}). Checking n_pass scalar alone is insufficient — a variant could score 2/7 via passing a different pair of suites and still represent a drift. **Specific gate:** v1.2-control.passed_suites must == v1-full_s42.passed_suites. Any mismatch → stop, diagnose drift in v1.2 codebase before trusting other variant deltas.
 
@@ -503,7 +524,13 @@ Three stages with explicit kill conditions.
 
 ### Long-horizon readiness (Branch-1 follow-up requirement)
 
-Before declaring v1.3-ready, **any promoted v1.2 variant must pass a 252-day smoke test**: run `sample_batched` for n_steps=252 on 20 val windows, verify (a) no NaN, (b) final-step IV levels stay in [0.01, 1.0], (c) max-delta distribution at h=200-252 doesn't diverge from h=25-30 distribution. Formal H=252 eval (`test_long_horizon.py` style) is v1.3 scope but the smoke check is v1.2's exit gate.
+Before declaring v1.3-ready, **any promoted v1.2 variant must pass a 252-day smoke test**:
+1. Run `sample_batched` for n_steps=252 on 20 val windows
+2. Verify: (a) no NaN, (b) final-step IV levels stay in [0.01, 1.0], (c) max-delta distribution at h=200-252 doesn't diverge from h=25-30 distribution
+3. **MR_ratio check (NEW per 2nd review):** compute mean-reversion ratio at h=200-252; must stay in [0.60, 1.40] (wider than 30d gate because long-horizon MR has more noise).
+4. **Failure branch (NEW per 2nd review):** if any of (2a-c) or (3) fails, **DEMOTE Branch 1 → Branch 2a**: architectural signal at H=30 but does not extend to H=252. Publish 5/7 finding with the H=252 caveat. Bug 6 (tail attenuation) or state collapse at long horizons likely need v1.3 fixes.
+
+Formal H=252 eval (`test_long_horizon.py` style) is v1.3 scope but the smoke check is v1.2's exit gate.
 
 ### Rollback triggers (global)
 
@@ -611,4 +638,46 @@ Five parallel review agents audited the v1.0 draft of this spec. The inline amen
 ### Verdict after amendments
 
 All 5 reviewers raised LIKELY-FIXABLE concerns. Amendments A-R close them. Deferred items L, Q are legitimate scope boundaries for v1.3. Spec is cleared for implementation.
+
+
+---
+
+## Appendix C: Second-Pass Review Amendments (2026-04-18)
+
+Four additional review agents (principle + falsifiability + Bitter-Lesson, debuggability, implementation correctness, generalizability + long-term) produced a second pass. Amendments below.
+
+### Critical fixes applied
+
+| # | Reviewer | Change | Section |
+|---|---|---|---|
+| P1 | Principle | Added **Branch 2b** for partial success (≥4/7 AND max_jump_ks < 0.50) — previously an uncovered cell in decision tree | §8 |
+| P2 | Principle | Branches 1-3 conditions now reference "best v1.2 variant" not "v1.2-both"; added note that Branches 5-7 are orthogonal diagnostic, not MECE | §8 |
+| D1 | Debuggability | `main()` must validate flag combination against 7 named variants; reject invalid combos before training | §6, §8 |
+| D2 | Debuggability | Stage A smoke EXPANDED to both `v1.2-both` AND `v1.2-link` — the only variants that exercise the learned-link init path | §8 |
+| I1 | Implementation | **Bug fix:** C4b `cond` timing description corrected — use cond at emission time (what `factor_head` consumes), NOT post-gru_cell cond | §6 |
+| I2 | Implementation | **Bug fix:** FiLM state-dict promise corrected — `film.mlp[0].weight` shape differs between v1 and v1.2 so diagnostic needs one-line model-type dispatch, NOT "runs unchanged" | §6 |
+| I3 | Implementation | Typo fix: "6 or 8 loss components" → "7 loss components" in §6 | §6 |
+| LT1 | Long-term | Added **Bug 3/4 persistence Stage-B gate** at ep 20: `lag1_autocorr_abs ≤ 0.20` + width ratio sanity check | §8 |
+| LT2 | Long-term | H=252 smoke gate extended with MR_ratio at h=200-252 AND explicit failure-branch demotion (Branch 1 → Branch 2a on H=252 failure) | §8 |
+| LT3 | Long-term | Branch 1 forward-references H3 (parallel architectural track per Research Compass) | §8 |
+| QOL1 | Debuggability | Diagnostic roll-up requirement: single table cross-referencing 5 diagnostics × 7 variants in `compare_233a_v1_2_variants.py` | §7 |
+| QOL2 | Debuggability | `v1.2-minreg` directory added to §6 model-output list (was omitted in first pass) | §6 |
+| QOL3 | Principle | Stage-B kill thresholds labeled as "engineering defaults" not principled derivations; caveat against borderline-pass interpretation | §8 |
+| QOL4 | Principle | Headline success paragraph hedged with single-seed caveat + multi-seed replication requirement | §7 |
+
+### Not applied (acceptable / out-of-scope)
+
+- **λ_state = 0.10 derivation gap (Principle):** acknowledged as engineering default matching λ_rv=0.10 (v1 convention). The ep-5 loss-scale kill condition (`ratio = λ_i·L_i/L_ES < 3`) serves as the empirical gate.
+- **W=5 state-reg window justification:** W=5 matches the first-curriculum-horizon H=5 and the 231a precedent. Noted as design choice, not ablated.
+- **Per-step `cond` discriminability probe (BL-adjacent):** acknowledged as future diagnostic for v1.3. If `diagnose_233a_v1_2_emission_link.py` shows α collapsed in v1.2, that's the signal to add cond-discriminability investigation as v1.3 follow-up.
+- **twCRPS K=1 edge case guard:** not a concern at production K=8; low priority.
+- **q_seq → q_seq_slow rename audit:** will be caught in implementation by grep, enforced by the `compute_loss_v1_2` signature requiring the new key name. Not a standalone spec item.
+- **C4b zero-init α=0.5 partial confound for `link vs minimal`:** acknowledged. The delta captures "emission bounded-plus-unbounded mix vs pure sinh" signal, which is what we WANT to measure. Init bias to -10 would give artifically-sinh-at-init, removing the signal we're testing.
+- **C2 one-step lag labeled deliberate:** the mask at step t gates emission via `future[t+1] - future[t]` target, which is the canonical indicator for "did a jump happen between step t and t+1" — not a bug.
+
+### Verdict after second pass
+
+All 4 second-pass reviewers agreed: spec is principled, falsifiable, debuggable, implementable, generalizable, and serves long-term objectives. All critical fixes applied. Deferred items either acknowledged or documented.
+
+**Spec cleared for plan drafting.**
 
