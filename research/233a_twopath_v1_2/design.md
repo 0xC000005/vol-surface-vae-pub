@@ -3,7 +3,7 @@
 **Date:** 2026-04-18
 **Parent experiment:** 233a-v1 (see `research/233a_twopath_v1/design.md`; results at commits b09dd28..fa857df)
 **Diagnostic basis:** Four-agent mechanistic investigation, commits `b732ee0..37b635f` (2026-04-18)
-**Objective:** Test whether the 6 bugs diagnosed on v1 are fixable within the AR paradigm, via 6-variant ablation grid. Single seed (42). Architecture/loss exploration phase, not statistical-validation phase.
+**Objective:** Test whether the 6 bugs diagnosed on v1 are fixable within the AR paradigm, via 7-variant ablation grid (amended from 6 after review). Single seed (42). Architecture/loss exploration phase, not statistical-validation phase.
 
 ---
 
@@ -40,15 +40,25 @@ with W = 5 steps. Uses the existing `_run_teacher_branch` method (already implem
 
 **C4. Tail-aware emission (fixes Bug 6) — two orthogonal mechanisms, toggleable:**
 
-**C4a (twCRPS aux loss):** threshold-weighted CRPS on the pathwise-max-|Δx| functional:
+**C4a (twCRPS aux loss):** threshold-weighted CRPS on the pathwise-max-|Δx| functional. **Formula corrected per review** — the pairwise `term2` must exclude the K×K diagonal to give an unbiased variance estimate:
 ```python
 gen_max = (samples[:, :, 1:] - samples[:, :, :-1]).abs().max(dim=2).values   # (B, K, D)
 gt_max  = (future[:, 1:] - future[:, :-1]).abs().max(dim=1).values            # (B, D)
 indicator = (gt_max > q90_train).float()                                      # (B, D) — tail weight
+
+# term1: mean |gen - gt| across K samples, per cell
 term1 = (gen_max - gt_max.unsqueeze(1)).abs().mean(dim=1)                     # (B, D)
-term2 = 0.5 · (gen_max.unsqueeze(1) - gen_max.unsqueeze(2)).abs().mean((1,2)) # (B, D)
-L_twcrps = ((term1 - term2) · indicator).mean()
+
+# term2: pairwise |gen_i - gen_j| across K×K samples, EXCLUDING diagonal (i==j contributes 0 but inflates denominator)
+pairwise = (gen_max.unsqueeze(1) - gen_max.unsqueeze(2)).abs()                # (B, K, K, D)
+# Sum and divide by K*(K-1) pairs (not K*K), matching energy_score convention in train_212b
+K = gen_max.shape[1]
+term2 = pairwise.sum(dim=(1, 2)) / (2 * K * (K - 1))                          # (B, D)
+
+# Threshold-weighted: only tail-exceeding cells contribute
+L_twcrps = ((term1 - term2) * indicator).mean()                               # scalar
 ```
+Note: this matches the off-diagonal energy-score convention already used in `train_212b_h1_minimal_direct_stochastic_delta.py:energy_score`.
 
 **C4b (learned emission link):** replaces `delta = sinh(v) * local_scale` with a per-cell learned convex combination:
 ```python
@@ -74,26 +84,30 @@ delta = g(v) · local_scale
 
 ## 2. Variant Grid
 
-Six variants, each seed 42, each 60 epochs. Isolates the effect of each fix through carefully-designed knob toggling.
+Seven variants, each seed 42, each 60 epochs. Isolates the effect of each fix through carefully-designed knob toggling. **Amendment (post-review):** added `v1.2-minreg` to cleanly separate C3 (state reg) from C1+C2 in the attribution logic — without it, the `minimal - control` delta conflates all three.
 
 | # | Variant | FiLM pipe (C1) | BCE→film.logit (C2) | twCRPS aux (C4a) | Learned link (C4b) | State reg (C3) |
 |---|---|:-:|:-:|:-:|:-:|:-:|
 | 1 | `v1.2-control` | v1 bottleneck | v1 wiring | off | off | off |
-| 2 | `v1.2-minimal` | h_slow direct | on | off | off | on |
-| 3 | `v1.2-aux` | h_slow direct | on | on | off | on |
-| 4 | `v1.2-link` | h_slow direct | on | off | on | on |
-| 5 | `v1.2-both` | h_slow direct | on | on | on | on |
-| 6 | `v1.2-noreg` | h_slow direct | on | on | on | off |
+| 2 | `v1.2-minreg` | h_slow direct | on | off | off | **off** |
+| 3 | `v1.2-minimal` | h_slow direct | on | off | off | on |
+| 4 | `v1.2-aux` | h_slow direct | on | on | off | on |
+| 5 | `v1.2-link` | h_slow direct | on | off | on | on |
+| 6 | `v1.2-both` | h_slow direct | on | on | on | on |
+| 7 | `v1.2-noreg` | h_slow direct | on | on | on | off |
 
-### Attribution logic
+### Attribution logic (revised)
 
-- `minimal vs control`: effect of C1 + C2 (FiLM pipe + BCE wiring) alone
-- `aux vs minimal`: effect of C4a (twCRPS aux) in isolation
-- `link vs minimal`: effect of C4b (learned link) in isolation
+- `minreg vs control`: effect of **C1 + C2 alone** (FiLM pipe fix + BCE wiring, NO state reg)
+- `minimal vs minreg`: effect of **C3 (state reg) alone**, given C1+C2 already applied
+- `aux vs minimal`: effect of **C4a (twCRPS aux)** in isolation
+- `link vs minimal`: effect of **C4b (learned link)** in isolation
 - `both vs minimal`: combined emission effect; is it additive, redundant, or superadditive?
-- `both vs noreg`: is state reg (C3) load-bearing?
+- `both vs noreg`: is state reg (C3) load-bearing when emission fixes are also on?
 - `best v1.2 variant vs 229a`: did we beat the incumbent?
-- `best v1.2 variant vs v1 (commits `fa857df`)`: did we close gates that v1 failed?
+- `best v1.2 variant vs v1-full_s42 (commit `fa857df`)`: did we close gates that v1 failed?
+
+**One extra variant (~15 min compute) in exchange for a clean C3-vs-C1+C2 decomposition.**
 
 ---
 
@@ -149,29 +163,36 @@ Allows evaluator (`evaluate_220b_multihorizon_path_suite.py`) to treat v1.2 mode
 
 ```
 L_total = L_ES
-         + λ_VS     · L_VS             (v1-inherited)
-         + λ_BCE    · L_film_jump_bce  (C2; new)
-         + λ_twcrps · L_twcrps         (C4a; new)
-         + λ_state  · L_state          (C3; new)
+         + λ_VS         · L_VS                     (v1-inherited)
+         + λ_rv         · L_rv_mse                 (v1-inherited: slow-path RV aux)
+         + λ_jump_slow  · L_slow_jump_bce          (v1-inherited: slow-path BCE on q_seq_slow)
+         + λ_BCE        · L_film_jump_bce          (C2; new: BCE on q_seq_film)
+         + λ_twcrps     · L_twcrps                 (C4a; new)
+         + λ_state      · L_state                  (C3; new)
 ```
 
-Per-variant λ:
+Per-variant λ (**amended post-review to include v1-inherited `λ_rv` and `λ_jump_slow`** which v1's `compute_loss` uses and any re-baseline must preserve):
 
-| variant | λ_VS | λ_BCE | λ_twcrps | λ_state |
-|---|---|---|---|---|
-| `v1.2-control` | 0.05 | 0.00 | 0.00 | 0.00 |
-| `v1.2-minimal` | 0.05 | 0.05 | 0.00 | 0.10 |
-| `v1.2-aux` | 0.05 | 0.05 | 0.05 | 0.10 |
-| `v1.2-link` | 0.05 | 0.05 | 0.00 | 0.10 |
-| `v1.2-both` | 0.05 | 0.05 | 0.05 | 0.10 |
-| `v1.2-noreg` | 0.05 | 0.05 | 0.05 | 0.00 |
+| variant | λ_VS | λ_rv | λ_jump_slow | λ_BCE | λ_twcrps | λ_state |
+|---|---|---|---|---|---|---|
+| `v1.2-control` | 0.05 | 0.10 | 0.05 | 0.00 | 0.00 | 0.00 |
+| `v1.2-minreg` | 0.05 | 0.10 | 0.05 | 0.05 | 0.00 | **0.00** |
+| `v1.2-minimal` | 0.05 | 0.10 | 0.05 | 0.05 | 0.00 | 0.10 |
+| `v1.2-aux` | 0.05 | 0.10 | 0.05 | 0.05 | 0.05 | 0.10 |
+| `v1.2-link` | 0.05 | 0.10 | 0.05 | 0.05 | 0.00 | 0.10 |
+| `v1.2-both` | 0.05 | 0.10 | 0.05 | 0.05 | 0.05 | 0.10 |
+| `v1.2-noreg` | 0.05 | 0.10 | 0.05 | 0.05 | 0.05 | 0.00 |
 
 Notes:
+- **`λ_rv` and `λ_jump_slow`** are v1's existing loss weights (on slow-path's `rv_head` MSE against log-RV target and slow-path's own `jump_prob_head` BCE against jump target). They stay at their v1 values for ALL variants, including control, so that `v1.2-control` recovers v1's loss function exactly.
+- `λ_BCE` is the NEW C2 term that wires BCE to FiLM's `p_jump_logit` (separately from slow-path's `q_seq_slow`).
 - `v1.2-minimal` and `v1.2-link` have identical λ — they differ only in the `use_learned_link` architectural flag.
 - `v1.2-both` and `v1.2-noreg` differ only in `λ_state`.
-- `v1.2-control` and `v1.2-minimal` differ in `use_v1_film_pipe` (C1) plus all 3 new λ.
-- All λ values are chosen at the same order of magnitude as v1's `λ_VS = 0.05`. If any loss term dominates during training (> 3× `L_ES`), lower it 2× and restart — this is a Stage-A (smoke) gate (see Section 8).
-- L_ES, L_VS unchanged from v1 (average over 30 steps).
+- `v1.2-control` and `v1.2-minreg` differ in `use_v1_film_pipe` (C1) AND in `λ_BCE` (0 vs 0.05). This isolates C1+C2 effect jointly.
+- `v1.2-minreg` and `v1.2-minimal` differ only in `λ_state` (0 vs 0.10). This isolates C3 effect.
+- L_ES, L_VS, L_rv_mse, L_slow_jump_bce unchanged from v1.
+
+**Loss-scale kill condition (formalized):** at epochs 5 AND 15 of `v1.2-both` (Stage-B variant), compute `ratio_i = mean(λ_i · L_i) / mean(L_ES)` for each non-ES term on the val set. If `ratio_i > 3.0` for any term, halve `λ_i` and restart training. This prevents any single aux loss from dominating ES and creating optimization pathologies.
 
 Bitter-Lesson check: all new loss terms weight LEARNED model outputs; no per-cell constants, no domain heuristics. `q90_train` is a single scalar threshold computed once from training-split data (`coarse_pca_233a.npz`) — same usage as v1.
 
@@ -202,17 +223,25 @@ Bitter-Lesson check: all new loss terms weight LEARNED model outputs; no per-cel
 - **coarse_window:** 10
 - **state_reg_window W:** 5
 
-### CLI flag schema (all fixes are OPT-IN to prevent silent enablement)
+### CLI flag schema (all NEW fixes opt-in; all v1 INHERITED defaults preserved)
 
 ```
---use_v1_film_pipe               action='store_true', default=False  (C1 opt-out)
---lambda_film_bce                float, default=0.0                   (C2 weight; 0.05 enables)
---use_learned_link               action='store_true', default=False   (C4b enable)
---lambda_twcrps                  float, default=0.0                   (C4a weight; 0.05 enables)
---lambda_state                   float, default=0.0                   (C3 weight; 0.10 enables)
+# NEW v1.2 flags (opt-in):
+--use_v1_film_pipe               action='store_true', default=False   (C1 opt-out: True = v1 broken bottleneck)
+--lambda_film_bce                float, default=0.0                    (C2 weight; 0.05 enables)
+--use_learned_link               action='store_true', default=False    (C4b enable)
+--lambda_twcrps                  float, default=0.0                    (C4a weight; 0.05 enables)
+--lambda_state                   float, default=0.0                    (C3 weight; 0.10 enables)
+
+# v1-INHERITED flags (defaults match v1's compute_loss defaults — DO NOT CHANGE per variant):
+--lambda_vs                      float, default=0.05                   (v1 variogram weight)
+--lambda_rv                      float, default=0.10                   (v1 slow-path RV MSE weight)
+--lambda_jump                    float, default=0.05                   (v1 slow-path BCE weight, on q_seq_slow)
 ```
 
-Plus inherited v1 flags (seed, output_dir, data_path, pca_artifact, lambda_vs, curriculum_schedule, etc.).
+Plus inherited v1 flags (seed, output_dir, data_path, pca_artifact, curriculum_schedule, etc.).
+
+**Gating:** `return_teacher_h` (used to run the `_run_teacher_branch` for state reg) is gated by `args.lambda_state > 0` in the training loop. Variants with `λ_state=0` skip teacher-branch compute (save ~1s/epoch).
 
 ### Variant launch commands
 
@@ -224,33 +253,39 @@ COMMON="--seed 42 --epochs 60 --batch_size 32 --n_members 8 \
         --data_path data/vol_surface_with_ret.npz \
         --device cuda"
 
-# v1.2-control: disable all fixes (re-baseline v1)
+# v1.2-control: all NEW fixes disabled (re-baseline v1)
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_control_25d_s42 \
     --use_v1_film_pipe                        # Opt back into broken pipe
-    # (all lambdas default to 0; no learned link)
+    # v1-inherited λ defaults apply; no learned link
 
-# v1.2-minimal: fix C1 + C2 + C3 only
+# v1.2-minreg: C1 + C2 only (no C3, no C4) — isolates C1+C2 effect
+python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
+    --output_dir models/backfill/233a_v1_2_minreg_25d_s42 \
+    --lambda_film_bce 0.05
+    # no --lambda_state: C3 OFF
+
+# v1.2-minimal: C1 + C2 + C3 only (no emission fixes)
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_minimal_25d_s42 \
     --lambda_film_bce 0.05 --lambda_state 0.10
 
-# v1.2-aux: fix C1 + C2 + C3 + C4a
+# v1.2-aux: C1 + C2 + C3 + C4a
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_aux_25d_s42 \
     --lambda_film_bce 0.05 --lambda_state 0.10 --lambda_twcrps 0.05
 
-# v1.2-link: fix C1 + C2 + C3 + C4b
+# v1.2-link: C1 + C2 + C3 + C4b
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_link_25d_s42 \
     --lambda_film_bce 0.05 --lambda_state 0.10 --use_learned_link
 
-# v1.2-both: fix C1 + C2 + C3 + C4a + C4b
+# v1.2-both: all fixes
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_both_25d_s42 \
     --lambda_film_bce 0.05 --lambda_state 0.10 --lambda_twcrps 0.05 --use_learned_link
 
-# v1.2-noreg: fix C1 + C2 + C4a + C4b (no C3)
+# v1.2-noreg: all fixes EXCEPT C3
 python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
     --output_dir models/backfill/233a_v1_2_noreg_25d_s42 \
     --lambda_film_bce 0.05 --lambda_twcrps 0.05 --use_learned_link
@@ -258,7 +293,7 @@ python train_233a_v1_2_twopath_factor_ar.py $COMMON --variant full \
 
 ### Wall-time estimate
 
-Per-variant ~15-20 min at H=30 under 3-way GPU parallel. Six variants sequential: ~100 min. With 3-way parallelism: ~35 min. Compute estimate assumes no training issues (smoke test gates this).
+Per-variant ~15-20 min at H=30 under 3-way GPU parallel. **Seven variants** sequential: ~110 min. With 3-way parallelism: ~40 min. Compute estimate assumes no training issues (smoke test gates this).
 
 ---
 
@@ -293,15 +328,39 @@ experiments/backfill/block_ar/
   └── evaluate_220b_multihorizon_path_suite.py  # +3 LoC: extend native_families + startswith
 ```
 
-### Subclass structure for `train_233a_v1_2_twopath_factor_ar.py`
+### Subclass structure for `train_233a_v1_2_twopath_factor_ar.py` (**revised per review**)
 
-- `FiLMFromHSlow(nn.Module)` — reads `h_slow: (B, 8)` directly; same 6 outputs as v1 FiLM; same γ-identity init convention
-- `LearnedLink(nn.Module)` — `g(v) = σ(Linear(cond))·tanh(v) + (1−σ(·))·sinh(v)`; zero-init gate
-- `twcrps_pathwise_max(samples, future, threshold) → scalar` — threshold-weighted pathwise-max CRPS
-- `class TwoPathFactorARv1_2(TwoPathFactorAR)` — overrides `__init__` (to swap FiLM when not `use_v1_film_pipe`, add `emission_link` when `use_learned_link`), `forward_full` (to apply link + collect `q_seq_film`)
-- `compute_loss_v1_2` — adds L_film_jump_bce, L_twcrps, L_state to the loss dict
-- `main()` — argparse + data loading + training loop; mirrors v1's `main()` with the 5 new flags
-- `load_model(ckpt, device)` — reconstructs `TwoPathFactorARv1_2` from checkpoint payload
+- `FiLMFromHSlow(nn.Module)`:
+  - reads `h_slow: (B, 8)` directly; same 6 outputs as v1 FiLM; same γ-identity init convention
+  - **Attribute names preserved** (`self.mlp`, `self.g_lambda`, `self.b_lambda`, `self.g_d`, `self.b_d`, `self.drift`, `self.logit`) so that existing `diagnose_233a_film_collapse.py` runs unchanged on v1.2 checkpoints without modification.
+- `LearnedLink(nn.Module)`:
+  - `g(v) = σ(gate(cond))·tanh(v) + (1−σ(·))·sinh(v)`; `self.gate = Linear(cond_dim, D)` zero-init (weight + bias)
+  - **`cond` timing** (per review): uses PER-STEP `cond` tensor at the moment of emission (i.e., `cond` AFTER the current step's gru_cell update but BEFORE next step's advance). NOT initial-history cond. This lets α adapt to the evolving regime within a trajectory.
+- `twcrps_pathwise_max(samples, future, threshold) → scalar` — threshold-weighted pathwise-max CRPS; **term2 uses K×(K−1) denominator** (off-diagonal pairs only) matching 212b's energy_score convention.
+- `class TwoPathFactorARv1_2(TwoPathFactorAR)`:
+  - Overrides `__init__`:
+    - If `not use_v1_film_pipe`: replace inherited `self.film` (v1 `FiLM(D, k)`) with `FiLMFromHSlow(slow_hidden=8, D, k)`.
+    - If `use_learned_link`: add `self.emission_link = LearnedLink(cond_dim=hidden_dim, D=self.D)`.
+    - Else: `self.emission_link = None`.
+  - Overrides `forward_full`:
+    - **Branches on `use_v1_film_pipe`** for FiLM input: if False call `self.film(h_slow)`; if True call `self.film(s_t, lam_t)` (v1 signature). Both branches produce the same output dict.
+    - **Branches on `use_learned_link`** for delta computation: if True do `delta = self.emission_link(v, cond) * local_scale`; if False do `delta = torch.sinh(v) * local_scale` (v1 path).
+    - Collects `q_seq_film` (list of `film_out["p_jump_logit"]` per step) into the returned dict. The existing `q_seq` from v1 (slow-path's `jump_prob_head` output) is **renamed `q_seq_slow`** in the returned dict to avoid naming collision. Both are returned.
+  - `_run_teacher_branch` unchanged from v1 (already produces detached teacher h_slow trajectory).
+- `compute_loss_v1_2`:
+  - Inherits all v1 loss terms (L_ES, L_VS, L_rv_mse on `rv_pred_seq`, L_slow_jump_bce on `q_seq_slow`) — DO NOT remove or rename.
+  - Adds:
+    - `L_film_jump_bce` = BCE on `q_seq_film` against the same jump_target_seq used by L_slow_jump_bce (same training signal, different consumer).
+    - `L_twcrps` = `twcrps_pathwise_max(samples, future, q90_train)` if `λ_twcrps > 0`.
+    - `L_state` = mean per-step MSE between `h_slow_free_seq[:W]` and `h_slow_teacher_seq[:W].detach()` if `λ_state > 0`.
+  - Returns dict with all 6 (or 8) loss components for logging.
+- `main()` argparse + training loop:
+  - **Teacher-branch gating**: `return_teacher_h = (args.lambda_state > 0)`. Variants with `λ_state=0` skip teacher-branch compute (save ~1s/epoch).
+  - **FiLM-pipe branching** visible in model-construction log line so operator can confirm.
+  - **Model config saved in checkpoint payload** includes all 5 new flags + all v1 flags, so `load_model` reconstructs correctly.
+- `load_model(ckpt, device)`: reads payload["args"], reconstructs `TwoPathFactorARv1_2` with all flags. Returns `(model, payload)`.
+
+**Critical subclass constraint:** `linear_s`, `linear_lam` (the broken residual heads inside SlowPath) are NOT removed — they stay in the slow-path for backward compatibility with v1 diagnostic scripts (those scripts read `slow_path.linear_s`). But their OUTPUTS (`s_hybrid`, `lam_hybrid`) are **not consumed by FiLM in v1.2**. They still feed `scale_jump_head(lam_t)` for the jump-mixture term, consistent with v1 behavior (this is the correction to the minor Section 1 text error flagged in review — `linear_s`/`linear_lam` primary consumer is `scale_jump_head`, not "the aux heads").
 
 ---
 
@@ -333,30 +392,33 @@ python evaluate_220b_multihorizon_path_suite.py \
 | ks_test_n_pass | `distributional_fidelity.ks_test.n_pass` | ≥ 15/25 |
 | MR_ratio | `mean_reversion.gt_ratio` | ∈ [0.70, 1.30] |
 
-### Attribution calls (in `compare_233a_v1_2_variants.py`)
+### Attribution calls (in `compare_233a_v1_2_variants.py`, **revised for 7 variants**)
 
 ```python
 deltas = {
-    "filmpipe_wiring_effect":     v1_2_minimal   - v1_2_control,
-    "twcrps_aux_isolated_effect": v1_2_aux       - v1_2_minimal,
-    "learned_link_isolated":      v1_2_link      - v1_2_minimal,
-    "combined_emission_effect":   v1_2_both      - v1_2_minimal,
-    "state_reg_effect":           v1_2_both      - v1_2_noreg,
+    "C1_C2_alone_effect":         v1_2_minreg    - v1_2_control,    # FiLM pipe + BCE wiring, NO state reg
+    "C3_state_reg_isolated":      v1_2_minimal   - v1_2_minreg,     # state reg alone (given C1+C2)
+    "twcrps_aux_isolated":        v1_2_aux       - v1_2_minimal,    # twCRPS alone
+    "learned_link_isolated":      v1_2_link      - v1_2_minimal,    # learned link alone
+    "combined_emission_effect":   v1_2_both      - v1_2_minimal,    # C4a + C4b combined
+    "state_reg_with_emission":    v1_2_both      - v1_2_noreg,      # C3 load-bearing test
     "vs_incumbent":               best_v1_2      - baseline_229a_newproxy,
     "vs_v1":                      best_v1_2      - v1_full_s42,
 }
 ```
 
-### Success targets (seed 42, native+anchor, new RV proxy)
+### Success targets (seed 42, native+anchor, new RV proxy) — **raised per review**
 
 | metric | v1 baseline | 229a baseline | v1.2 success target |
 |---|---|---|---|
-| n_pass | 2 | 3 | ≥ 4 |
+| n_pass | 2 | 3 | **≥ 5** (raised from 4; match production bar) |
 | turb_calm | 1.010 | 1.025 | > 1.15 (pass gate) |
 | worstC_h30 | 0.385 | 0.270 | > 0.50 (directional) |
 | max_jump_ks | 0.735 | 0.940 | < 0.50 (directional) |
 | ks_test/25 | 13 | 19 | ≥ 15 (pass gate) |
 | MR_ratio | 0.794 | 1.318 | ∈ [0.70, 1.30] (pass gate) |
+
+**Seed-42 caveat (per adversarial review):** seed 42 was v1's best seed for jumpKS (0.735) vs seeds 1337/2024 at 0.898/0.838 — a 23% swing within the same variant. Any partial improvement on single-seed v1.2 must be treated as an **architectural signal requiring multi-seed replication** before claiming "AR paradigm viable." Branch-1 language in Section 8 reflects this.
 
 **Headline success:** v1.2-best passes ≥ 3 new suites (turb_calm + change_ks + MR) for a 5/7 score without regressing surface/cross_cell. Would be the first multi-day model to reach 5/7 since v3 harness.
 
@@ -369,6 +431,12 @@ Re-run the 4 diagnostic scripts from the v1 investigation on v1.2 best variant:
 - `diagnose_233a_slow_state.py`: verify h_slow still discriminative AND post-rollout collapse reduced
 - `diagnose_233a_ar_compounding.py`: verify lag-1 autocorr no longer ≤ −0.30 (oscillation resolved)
 - `diagnose_233a_regime_breakdown.py`: verify regime sign inversion resolved (calm_wr < 1.0 OR turb_wr > 1.0)
+
+**NEW — `diagnose_233a_v1_2_emission_link.py` (for variants with C4b enabled):**
+- Compute `α = σ(link_gate(cond))` on 200 val windows, stratified by calm/turb regime
+- Verify `α` has non-trivial variance across conditions (std > 0.05)
+- Verify **regime separation**: `mean(α | turb) − mean(α | calm)` should be non-zero (either sign OK; zero suggests α collapsed like v1's FiLM γ)
+- If `α` collapses uniformly (std < 0.01), record this as the Bug-6-B failure mode and flag for v1.3.
 
 These give MECHANISM confirmation, not just metric confirmation. Crucial for learning from either success or failure.
 
@@ -392,32 +460,50 @@ Three stages with explicit kill conditions.
 - `film.logit.weight.grad == 0` → C2 fix didn't take; cross-check that `q_seq_film` is stacked and passed to `compute_loss_v1_2`
 - `emission_link` grad == 0 → C4b disconnected from loss graph
 
-### Stage B — Mid-training single-variant check (epoch 15 of `v1.2-both`)
+### Stage B — Mid-training single-variant check (`v1.2-both`, checked at ep 5, ep 15, ep 20)
 
-**Pass:**
-- `film.p_jump_logit` std > 0.01 on 20 val windows (primary C2 success signal)
-- Val loss trending down from ep 10
-- h_slow PC1 AUC on val regime > 0.65 (state encoding preserved)
+**Pass (all epochs):**
 - No NaN in per-step loss components
+- Val loss trending down (not divergent)
 
-**Kill:**
-- FiLM std < 0.01 → dead zone returned despite BCE wiring; need variance regularizer or different architectural fix
-- Val divergent → loss term scale mismatch
-- h_slow AUC collapsed → architectural change broke something upstream
+**Pass (ep 5 — loss-scale check):**
+- For each aux term `L_i ∈ {L_VS, L_rv_mse, L_slow_jump_bce, L_film_jump_bce, L_twcrps, L_state}`:
+  `mean(λ_i · L_i) / mean(L_ES) < 3.0` (no single term dominates ES)
+  **Kill:** if any ratio > 3.0 → halve that `λ_i` and restart training.
+
+**Pass (ep 15 — C2 success signal):**
+- `film.p_jump_logit` std > 0.01 on 20 val windows (Bug 1 fixed)
+- h_slow PC1 AUC on val regime > 0.65 (slow state preserved)
+- **Per-regime FiLM logit separation** (NEW): `mean(p_jump_logit | turb) − mean(p_jump_logit | calm)` > 0.3 — confirms FiLM is doing regime-conditional work, not just producing non-zero variance.
+  **Kill:** any of these fails → dead zone has returned in a new form; need variance regularizer or architectural backup.
+
+**Pass (ep 20 — C4a overshoot guard, for variants with λ_twcrps > 0):**
+- Per-regime `calm_wr ≤ 1.30` on val sample (computed as width(calm regime) / width(uncond)) — twCRPS should not inflate calm dispersion beyond v1's 1.21 failure level.
+  **Kill:** `calm_wr > 1.30` → twCRPS is cheating for max_jump_ks at cost of calm overdispersion; halve `λ_twcrps` and restart.
+
+**Pass (ep 20 — C4b α-collapse guard, for variants with `use_learned_link`):**
+- `α = σ(link_gate(cond))` distribution on val windows: `std(α) > 0.05` AND `|mean(α | turb) − mean(α | calm)| > 0.02`.
+  **Kill:** α collapsed to constant → learned link is not adapting; revert to sinh-only in next iteration.
 
 ### Stage C — Full 6-variant decision tree (all variants completed)
 
-**Branch 1 (clean success):** `v1.2-both` ≥ 5/7 AND max_jump_ks < 0.50 → v1.2 wins. Declare AR viable with correct wiring. Plan v1.3: multi-seed + multi-factor validation.
+**Branch 1 (clean success):** `v1.2-both` ≥ **5/7** AND max_jump_ks < 0.50 → **architectural signal, not paradigm victory.** Multi-seed (3 seeds) replication required before claiming "AR paradigm viable." Plan v1.3: multi-seed + H=252 smoke test + multi-factor validation. Also run `diagnose_233a_v1_2_emission_link.py` to confirm α didn't collapse (v1 FiLM collapse lesson).
 
-**Branch 2 (partial):** `v1.2-both` ≥ 4/7 BUT max_jump_ks ≥ 0.50 → FiLM fixed, emission structural cap remains. Isolate via aux/link deltas. Publish 5/7; Bug 6 is next bottleneck.
+**Branch 2 (partial):** `v1.2-both` ≥ 4/7 BUT max_jump_ks ≥ 0.50 → FiLM fixed (C1+C2 signals confirmed), emission structural cap remains. Isolate C4a vs C4b via `aux`/`link` deltas. Publish 4/7; Bug 6 is next bottleneck. Parallel H3 scaffold design accelerates alternative-paradigm evaluation.
 
-**Branch 3 (failure):** all variants ≤ 3/7 → architectural pivot justified. Launch H3 (external scaffold) + joint-path flow matching design. Paradigm pivot has clean evidence basis.
+**Branch 3 (failure):** all variants ≤ 3/7 → architectural pivot justified with clean evidence. Launch H3 (external scaffold) + joint-path flow matching design. 229a remains production incumbent.
 
-**Branch 4 (control anomaly):** `v1.2-control` ≠ 2/7 → drift between v1 and v1.2-control. Stop, diagnose, ensure attribution logic is valid.
+**Branch 4 (control anomaly):** `v1.2-control` does NOT match v1-full_s42's **per-suite pass-set** (v1-full_s42 passed exactly {surface_validity, cross_cell_correlation}). Checking n_pass scalar alone is insufficient — a variant could score 2/7 via passing a different pair of suites and still represent a drift. **Specific gate:** v1.2-control.passed_suites must == v1-full_s42.passed_suites. Any mismatch → stop, diagnose drift in v1.2 codebase before trusting other variant deltas.
 
-**Branch 5 (YAGNI minimum):** `v1.2-minimal` ≈ `v1.2-both` → emission changes redundant. Deploy `minimal`.
+**Branch 5 (YAGNI minimum):** `v1.2-minimal` ≈ `v1.2-both` (within 1 n_pass) → emission changes redundant. Deploy `minimal`.
 
 **Branch 6 (one fix dominates):** `v1.2-aux` or `v1.2-link` alone matches `v1.2-both` → prefer the simpler single-fix variant.
+
+**Branch 7 (C3 not load-bearing):** `v1.2-minreg` ≈ `v1.2-minimal` on pass metrics → state reg adds no value given C1+C2 pipe fix. Drop C3 from production recipe.
+
+### Long-horizon readiness (Branch-1 follow-up requirement)
+
+Before declaring v1.3-ready, **any promoted v1.2 variant must pass a 252-day smoke test**: run `sample_batched` for n_steps=252 on 20 val windows, verify (a) no NaN, (b) final-step IV levels stay in [0.01, 1.0], (c) max-delta distribution at h=200-252 doesn't diverge from h=25-30 distribution. Formal H=252 eval (`test_long_horizon.py` style) is v1.3 scope but the smoke check is v1.2's exit gate.
 
 ### Rollback triggers (global)
 
@@ -487,3 +573,42 @@ Rewrite CURRENT STATE section per Branch outcome. Add `rc23_233a_v1_2_outcome.md
 - Diagnostic results: `results/block_ar/233a/_diagnostic_*.{json, md}`
 - RESEARCH_LOG entries: 2026-04-18 (v1 ladder) + 2026-04-18 (diagnostic synthesis) + 2026-04-18 (Bug 5 amendment) + 2026-04-18 (Bug 6 peak-and-recover refinement) + 2026-04-18 (Research Compass)
 - Commits: `b09dd28` (v1 complete), `b732ee0..37b635f` (diagnostics), `6f4b568` (compass)
+
+---
+
+## Appendix B: Review Amendments (2026-04-18)
+
+Five parallel review agents audited the v1.0 draft of this spec. The inline amendments below incorporate their findings. Where a reviewer flagged a long-term strategic concern (e.g., H=252 integration, multi-factor I/O boundary) that is out of scope for v1.2, the concern is noted but deferred to v1.3.
+
+### Applied to spec
+
+| # | Reviewer | Change | Section |
+|---|---|---|---|
+| A | Principle | Added `v1.2-minreg` 7th variant (C1+C2, no C3) to cleanly isolate C3 effect | §2, §4, §5, §7 |
+| B | Consistency | Added `λ_rv=0.10, λ_jump_slow=0.05` (v1-inherited) to loss-weight table and CLI schema; control must match v1 loss exactly | §4, §5 |
+| C | Consistency | Renamed v1's `q_seq` to `q_seq_slow`; new C2 output is `q_seq_film`; both returned from `forward_full` | §3, §6 |
+| D | Consistency | `return_teacher_h` gated on `args.lambda_state > 0` in training loop | §5, §6 |
+| E | Consistency | `forward_full` explicitly branches on `use_v1_film_pipe` and `use_learned_link` flags; documented in §6 | §6 |
+| F | Adversarial | Section 7 attribution labels revised to match new variant grid (minreg vs control isolates C1+C2 alone) | §7 |
+| G | Adversarial | Branch 4 now checks per-suite pass-set match (Surface + CrossCell), not n_pass scalar | §8 |
+| H | Adversarial | Added `diagnose_233a_v1_2_emission_link.py` for α collapse detection | §7 |
+| I | Principle | Loss-scale kill condition formalized: ratio = `mean(λ_i·L_i)/mean(L_ES)` at ep 5 and ep 15, kill + halve if > 3.0 | §4, §8 |
+| K | Long-term | Branch 1 n_pass gate raised from 4 to 5 (match production target) | §7, §8 |
+| N | Adversarial | Added Stage-B kill gates at ep 20: `calm_wr ≤ 1.30` (twCRPS overshoot), α separation `> 0.02` (C4b collapse), per-regime FiLM logit separation `> 0.3` (C2 effectiveness) | §8 |
+| O | Adversarial | `twcrps_pathwise_max` term2 denominator corrected to K×(K−1) off-diagonal (matches 212b energy_score convention) | §1 |
+| P | Adversarial | Branch 1 reframed as "architectural signal only, multi-seed required" — single-seed success does NOT claim paradigm viability | §8 |
+| R | Consistency | Corrected minor text error: `linear_s`/`linear_lam` primary consumer is `scale_jump_head`, not the aux heads | §6 |
+| — | Long-term | H=252 smoke test added to Branch 1 exit criteria (sample_batched n_steps=252 on 20 val windows; formal H=252 eval remains v1.3 scope) | §8 |
+
+### Deferred to v1.3 (acknowledged, not applied)
+
+| # | Reviewer | Concern | Rationale for deferral |
+|---|---|---|---|
+| L | Long-term | Parallelize H3 (external-scaffold) alongside v1.2 instead of as Branch-3 contingency | H3 is a separate architecture with its own design spec; parallel launch is a scheduling decision, not a v1.2 spec decision. The Research Compass (`6f4b568`) already tracks H3 independently. |
+| Q | Generalizability | Multi-factor I/O blockers (unconditional `reshape(B,T,5,5)`, hardwired `(B,K,N,5,5)` output, `[1e-4, 1-1e-4]` clamp) | These are the concrete v1.3 scope items for extending to `multi_factor_data.npz`. Fixing them in v1.2 would confound attribution vs v1. |
+| Seed variance | Adversarial | Seed 42 is v1's BEST seed for jumpKS; partial v1.2 improvement may be outlier | Caveat is now flagged in §7 success-targets table. v1.3 multi-seed replication is the cure. |
+
+### Verdict after amendments
+
+All 5 reviewers raised LIKELY-FIXABLE concerns. Amendments A-R close them. Deferred items L, Q are legitimate scope boundaries for v1.3. Spec is cleared for implementation.
+
