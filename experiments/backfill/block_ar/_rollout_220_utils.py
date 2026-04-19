@@ -266,6 +266,12 @@ def load_one_day_kernel(
         )
 
         return load_233a_model(checkpoint_path, device)
+    if model_type in {"233a_v1_2", "233a_v1_2_full"}:
+        from experiments.backfill.block_ar.train_233a_v1_2_twopath_factor_ar import (
+            load_model as load_233a_v1_2_model,
+        )
+
+        return load_233a_v1_2_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 
