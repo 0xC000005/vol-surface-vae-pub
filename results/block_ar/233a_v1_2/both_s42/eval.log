@@ -1,0 +1,231 @@
+[eval override] 233a 233a_v1_2: use_scale_anchor=True, alpha=0.50 at inference
+[eval override] 233a_v1_2 233a_v1_2: use_scale_anchor=True, alpha=0.50
+Using native sample_batched (recurrent + adapter)
+
+============================================================
+TEST SUITE 1: SURFACE VALIDITY
+============================================================
+  Total generated trajectories: 9216
+  Ground truth windows: 192
+  Explosion rate: 0.0% (target <5%) PASS
+  Calendar arbitrage: 8.9% (target <15%) PASS
+  Butterfly arbitrage: 27.8% (target <40%) PASS
+  Calendar worst strike: 27.7% (GT: 25.9%, gate <GT+10pp=35.9%) PASS
+  Butterfly worst tenor: 36.6% (target <50%) PASS
+
+============================================================
+TEST SUITE 2: CI COVERAGE
+============================================================
+  Overall 90% CI Coverage: 64.1%
+    50% CI: 31.5%
+    80% CI: 54.1%
+    90% CI: 64.1%
+    95% CI: 70.3%
+
+  Per-Horizon Coverage (90% CI):
+    h= 1: 63.0% (target >80%) FAIL
+    h= 7: 63.5% (target >75%) FAIL
+    h=14: 65.9% (target >70%) FAIL
+    h=30: 59.4% (target >65%) FAIL
+
+  Per-Cell Coverage (90% CI) — gate: [70%, 95%]:
+    h= 1: worst (3,4) = 51.0% FAIL | best (2,4) = 81.8% PASS
+    h= 7: worst (1,2) = 53.6% FAIL | best (2,4) = 79.2% PASS
+    h=14: worst (0,3) = 41.1% FAIL | best (2,4) = 85.4% PASS
+    h=30: worst (3,4) = 22.9% FAIL | best (4,0) = 81.8% PASS
+  Calibration Error: 0.171
+
+============================================================
+TEST SUITE 3: CONDITIONALITY
+============================================================
+Conditionality tests:   0%|          | 0/8 [00:00<?, ?it/s]Conditionality tests:  12%|█▎        | 1/8 [00:00<00:03,  1.86it/s]Conditionality tests:  25%|██▌       | 2/8 [00:01<00:03,  1.93it/s]Conditionality tests:  38%|███▊      | 3/8 [00:01<00:02,  1.93it/s]Conditionality tests:  50%|█████     | 4/8 [00:02<00:02,  1.94it/s]Conditionality tests:  62%|██████▎   | 5/8 [00:02<00:01,  1.95it/s]Conditionality tests:  75%|███████▌  | 6/8 [00:02<00:00,  2.35it/s]Conditionality tests:  75%|███████▌  | 6/8 [00:02<00:00,  2.11it/s]
+  Width ratio (cond/uncond): 1.010 (informational)
+    Cond width:   0.0724
+    Uncond width: 0.0717
+  MAE reduction: 3.6% (target >5%) FAIL
+    Cond MAE:   0.0310
+    Uncond MAE: 0.0322
+  Growing uncertainty (monotonic variance): PASS (informational, not gated)
+    Var(h= 1): 0.001331
+    Var(h=10): 0.001730
+    Var(h=20): 0.001876
+    Var(h=30): 0.002084
+
+  --- Test 3d: Per-Horizon Conditionality ---
+    h= 1: width_ratio=0.998, MAE_reduction=32.7%
+    h= 7: width_ratio=1.017, MAE_reduction=5.0%
+    h=14: width_ratio=1.022, MAE_reduction=2.1%
+    h=30: width_ratio=1.004, MAE_reduction=-2.0%
+
+  --- Test 3e: Per-Cell Conditionality ---
+  Per-cell width ratio (cond/uncond):
+    0.968 0.970 1.014 1.027 1.065
+    0.986 0.994 0.991 1.363 0.988
+    0.968 0.991 0.978 0.983 1.053
+    0.991 0.969 0.967 0.951 0.917
+    0.950 1.001 0.948 0.972 0.927
+    Worst cell: 1.363 (target <1.20) FAIL
+  Per-cell MAE reduction (%):
+      -4.0    2.7   12.1    6.1    5.9
+       0.8   11.9   20.6    1.0    0.4
+       4.1   14.4   11.8   10.6   -0.3
+      15.2   17.2   13.8   10.2   10.3
+       0.2   11.5    8.2   14.5    8.6
+    Worst cell: -4.0% (target >-10%) PASS
+
+  --- Test 3f: Regime Differentiation (turb/calm width ratio) ---
+  Windows: 192 total, 39 calm (Q20), 39 turb (Q80)
+  Turb/Calm width ratio: 0.957 (target >1.15) FAIL
+    Calm avg width: 0.0706
+    Turb avg width: 0.0676
+
+  CALM (n=39):
+    Avg width ratio vs uncond: 1.219, worst cell: 1.501 (informational)
+    Avg MAE reduction: -4.7%, worst cell: -47.9%
+
+  TURB (n=39):
+    Avg width ratio vs uncond: 0.781, worst cell: 1.207 (informational)
+    Avg MAE reduction: 16.5%, worst cell: -39.6%
+
+============================================================
+TEST SUITE 8: DISTRIBUTIONAL FIDELITY
+============================================================
+
+  --- Test 8a: Per-Cell Daily Change Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.120  0.140  0.145  0.133  0.119 
+    0.212* 0.151* 0.112  0.109  0.096 
+    0.122  0.092  0.184* 0.167* 0.082 
+    0.125  0.122  0.153* 0.221* 0.251*
+    0.115  0.124  0.234* 0.133  0.118 
+  Cells passing: 17/25 (gate >= 15) PASS
+  Worst: (3,4) D=0.251, median D=0.125
+
+  --- Test 8a2: Per-Cell IV Level Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.245* 0.168* 0.234* 0.469* 0.111 
+    0.468* 0.193* 0.125  0.237* 0.276*
+    0.411* 0.103  0.298* 0.322* 0.207*
+    0.091  0.280* 0.339* 0.414* 0.397*
+    0.095  0.119  0.287* 0.213* 0.337*
+  Cells passing: 6/25 (gate >= 15) FAIL
+  Worst: (0,3) D=0.469, median D=0.245
+
+  --- Test 8b: Per-Cell Median Bias ---
+  Fraction where median > GT (50% = unbiased, gate [30%, 70%]):
+    58.0%  62.7%  35.6%  14.7%* 47.3% 
+    84.2%* 41.2%  47.5%  44.4%  32.3% 
+    19.6%* 51.2%  30.2%  30.9%  54.8% 
+    54.5%  26.8%* 26.4%* 25.4%* 19.8%*
+    58.9%  42.0%  77.6%* 36.1%  31.1% 
+  Fraction gate: 17/25 (gate >= 20) FAIL
+  Mean bias (IV points × 100):
+     -6.17*  +1.07   -1.00  -10.64*  -1.17 
+     +4.64*  -0.43   +0.03   -0.55   -2.18 
+     -1.53   +0.07   -0.66   -0.51   +1.80 
+     +0.05   -0.52   -0.59   -0.58   -1.32 
+     +0.14   -0.15   +0.71   -0.17   -0.41 
+  Bias magnitude: 22/25 cells < 3 IV pts (gate >= 22) PASS
+
+  --- Test 8c: Per-Window Coverage Floor ---
+  Windows with <50% coverage: 22/192 (11.5%, gate < 5%) FAIL
+  Worst window 11: 35.3% coverage
+  P10 window coverage: 49.5%
+  Coverage distribution: [35.3%, P25=55.8%, P50=65.4%, P75=71.1%, 88.9%]
+
+  --- Test 8d: Sample Explosion/Ceiling Rate ---
+  Samples at ceiling (>=0.99): 0.002% (gate < 2%) PASS
+  Samples at floor (<=0.001):  1.994% (gate < 2%) PASS
+  Worst cell ceiling: (0,0) = 0.05% (gate < 5%) PASS
+  Per-cell ceiling rate (%):
+     0.05   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+     0.00   0.00   0.00   0.00   0.00 
+
+  --- Test 8e: Per-Cell Absolute MAE ---
+  Per-cell MAE (IV points, gate < 10%):
+    19.49*  3.08   2.33  11.91*  4.84 
+     5.29   1.32   1.42   2.81   3.83 
+     1.83   1.00   1.27   1.25   7.80 
+     0.77   0.78   0.93   0.94   1.53 
+     0.54   0.50   0.87   0.56   0.83 
+  Cells passing: 23/25 (gate >= 20) PASS
+  Worst: (0,0) MAE=19.49%
+
+============================================================
+TEST SUITE 9: CROSS-CELL CORRELATION STRUCTURE
+============================================================
+
+  GT mean cross-cell correlation: 0.436
+  Gen mean cross-cell correlation: 0.379
+  Correlation ratio: 0.868 (target [0.5, 2.0]) PASS
+
+  GT effective rank: 5.70
+  Gen effective rank: 7.98
+  Rank ratio: 1.401 (target [0.5, 3.0]) PASS
+
+  Frobenius distance: 6.883 (informational)
+  GT PC1 variance: 55.9%, Gen PC1 variance: 46.3%
+
+============================================================
+TEST SUITE 10: MEAN REVERSION
+============================================================
+  GT aggregate slope:   -0.198
+  Gen aggregate slope:  -0.160
+  Gen/GT ratio:         0.811 (target [0.70, 1.30]) PASS
+  Active cells:         1/24 (gate >=70%) FAIL
+  Active-cell corr:     0.669 (target >=0.70) PASS
+  Active slope threshold: |GT slope| >= 0.05
+  GT per-cell slopes:
+    -0.545 -0.301 -0.079 -0.295 -0.446
+    -0.520 -0.140 -0.060 -0.642 -0.504
+    -0.416 -0.105 -0.059 -0.061 -0.599
+    -0.183 -0.085 -0.064 -0.065 -0.107
+    -0.093 -0.065 -0.050 -0.053 -0.114
+  Gen per-cell slopes:
+    -0.553 -0.138 -0.000 -0.098 -0.220
+    -0.217 -0.036 +0.005 +0.002 -0.134
+    -0.152 -0.028 +0.007 +0.007 -0.137
+    -0.046 -0.016 +0.000 +0.007 -0.004
+    -0.018 -0.011 -0.002 -0.004 +0.012
+
+  --- Test 10b: Full-Horizon Mean Reversion Profile ---
+    h= 1: ratio=0.811 (target [0.70, 1.30]) PASS | active=4.2%, corr=0.669
+    h= 7: ratio=0.742 (target [0.70, 1.30]) PASS | active=16.0%, corr=0.814
+    h=14: ratio=0.712 (target [0.70, 1.30]) PASS | active=24.0%, corr=0.733
+    h=30: ratio=0.569 (target [0.70, 1.30]) FAIL | active=32.0%, corr=0.694
+  Full-horizon aggregate profile: FAIL
+  Full-horizon active mean pass: 19.0%, mean corr: 0.728 FAIL
+  Full-horizon overall: FAIL
+
+============================================================
+TEST SUITE 11: PATHWISE JUMP REALISM
+============================================================
+  Pathwise max-|ΔIV| KS: 0.789 (gate < 0.20) FAIL
+  Pathwise q90 ratio:    0.723 (gate [0.5, 2.0]) PASS
+  Pathwise q99 ratio:    1.095 (gate [0.5, 2.0]) PASS
+
+  --- Test 11b: Per-Cell Extreme Jump Scale ---
+  Per-cell q99(|ΔIV|) ratio grid (gate [0.5, 2.0]):
+     0.77   0.61   0.38*  0.45*  0.73 
+     0.97   0.49*  0.41*  0.43*  0.77 
+     0.69   0.50   0.50   0.46*  1.06 
+     0.53   0.50*  0.49*  0.68   0.44*
+     0.40*  0.48*  0.49*  0.47*  0.49*
+  Cells passing: 11/25 (gate >= 20) FAIL
+
+  --- Test 11c: Extreme Jump Window Incidence ---
+  Extreme-jump incidence ratio: 0.617 (GT=100.0%, Gen=61.7%, gate [0.5, 2.0]) PASS
+{
+  "n_pass": 2,
+  "n_total": 7,
+  "failed_suites": [
+    "coverage",
+    "conditionality",
+    "distributional_fidelity",
+    "mean_reversion",
+    "pathwise_jump_realism"
+  ]
+}
