@@ -635,7 +635,12 @@ def main():
             "ks_mean": float(np.mean(ks)),
             "ks_late_mean": float(np.mean(ks[20:])) if len(ks) > 20 else float("nan"),
             "ks_early_mean": float(np.mean(ks[:5])) if len(ks) >= 5 else float("nan"),
+            # True monotone: KS at h30 > KS at h1.
+            # Peak-and-recover: KS rises >20% above h1 then falls back to <90% of peak.
             "ks_monotone_check": bool(ks[-1] > ks[0]) if ks else False,
+            "ks_peak_and_recover": bool(
+                max(ks) > ks[0] * 1.2 and ks[-1] < max(ks) * 0.9
+            ) if len(ks) > 1 else False,
             "mean_sq_delta_h1": msd[0] if msd else float("nan"),
             "mean_sq_delta_h30": msd[-1] if msd else float("nan"),
             "mean_sq_delta_ratio": msd[-1] / msd[0] if (msd and msd[0] > 1e-12) else float("nan"),
@@ -703,10 +708,13 @@ def main():
         (s_229a_sf["cross_member_std_h30"] / s_229a_sf["cross_member_std_h1"]) < 0.5
 
     # 4. Is KS monotonically increasing? (structural degradation)
+    # Note: monotone_check is h1→h30 direction only; peak_and_recover is a distinct pattern.
     ks_growing_233a = s_233a_sf["ks_monotone_check"]
+    ks_peak_233a    = s_233a_sf.get("ks_peak_and_recover", False)
     ks_growing_229a = s_229a_sf["ks_monotone_check"]
+    ks_peak_229a    = s_229a_sf.get("ks_peak_and_recover", False)
 
-    def classify_model(name, ks_gap, ks_tf_h1, diversity_collapse, ks_growing):
+    def classify_model(name, ks_gap, ks_tf_h1, diversity_collapse, ks_growing, ks_peak=False):
         lines = [f"### {name}"]
         if ks_gap > THRESHOLD_COMPOUNDING and ks_tf_h1 < THRESHOLD_SINGLE_STEP:
             verdict = "COMPOUNDING IS PRIMARY CULPRIT"
@@ -740,17 +748,19 @@ def main():
         lines.append(explanation)
         if diversity_collapse:
             lines.append("- WARNING: Cross-member diversity collapses by >50% from h1→h30 (rank collapse).")
-        if ks_growing:
-            lines.append(f"- KS monotonically increases (h1→h30): structural distributional drift confirmed.")
+        if ks_peak:
+            lines.append("- KS profile: peak-and-recover (rises mid-rollout then falls back below h30). Not monotone.")
+        elif ks_growing:
+            lines.append("- KS monotonically increases (h1→h30): structural distributional drift confirmed.")
         return "\n".join(lines)
 
     conclusion_233a = classify_model(
         "233a v1-full", ks_gap_233a, ks_tf_h1_233a,
-        diversity_collapse_233a, ks_growing_233a
+        diversity_collapse_233a, ks_growing_233a, ks_peak=ks_peak_233a
     )
     conclusion_229a = classify_model(
         "229a", ks_gap_229a, ks_tf_h1_229a,
-        diversity_collapse_229a, ks_growing_229a
+        diversity_collapse_229a, ks_growing_229a, ks_peak=ks_peak_229a
     )
 
     # ──────────────────────────────────────────────────────────────────────────
