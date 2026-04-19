@@ -72991,3 +72991,37 @@ Not just 3 bugs — **5 bugs, with a cleaner architectural fix**:
 Commit `d6c1e0b` (slow-state agent amendment).
 
 ---
+
+## 2026-04-18: 233a Diagnostic Refinement — AR Compounding Shape Nuance
+
+Post-advisor review of the AR-compounding diagnostic clarified a nuance in the compounding profile.
+
+**233a is NOT flat, it's peak-and-recover.** KS peaks at h10 (0.124) then drops to h30 (0.078), which is actually BELOW h1 (0.075). The initial summary said "flat — no drift" but the actual shape is:
+
+| model | h1 | h5 | h10 | h15 | h20 | h25 | h30 | shape |
+|---|---|---|---|---|---|---|---|---|
+| 233a SF | 0.075 | 0.117 | **0.124 (peak)** | 0.099 | 0.098 | 0.085 | **0.078** | peak-and-recover |
+| 229a SF | 0.054 | 0.112 | 0.141 | 0.112 | 0.146 | 0.155 | **0.158** | monotone ascending |
+
+Peak-and-recover is consistent with: **strong mean-reversion dominates after an initial transient**, pulling the generated distribution back toward steady state. This matches the observed negative lag-1 autocorrelation (−0.35) and supports the hypothesis that FiLM/jump machinery creates oscillations that then damp out.
+
+**New mechanistic link: max|δ| attenuation → max_jump_ks gate failure.**
+- 233a: per-step max|δ| has high initial pulse (1.87 at h0) that persists but doesn't grow into the tail needed to pass max_jump_ks.
+- 229a: max|δ| collapses from 2.54 (h0) → 1.36 (h30) — classical tail attenuation, directly explains max_jump_ks≥0.94.
+
+The sinh(v) × local_scale innovation structure suppresses extremes in both models; this is a shared architectural feature, not a 233a-specific bug. Fixing FiLM will not help max_jump_ks directly — that gate needs a DIFFERENT intervention (twCRPS aux, or tail-targeted innovation law).
+
+**v1.1 fix list updated:**
+- Bug 1 (BCE wiring): film.logit supervision
+- Bug 2+5 (FiLM bottleneck): FiLM(h_slow) directly
+- Bug 3 (oscillation): likely self-corrects; add autocorr reg as contingency
+- Bug 4 (inversion): symptom of 1+2; self-corrects
+- **[NEW] Bug 6 (tail attenuation via sinh·local_scale): REQUIRES SEPARATE INTERVENTION.** Not addressed by FiLM fixes. Will still fail max_jump_ks gate post-v1.1 unless innovation law is reshaped. Candidates: (a) parametric heavy-tailed floor on innovations, (b) twCRPS pathwise-max aux loss, (c) exp-sinh mixture for tails.
+
+**Implication for v1.1 success criteria:**
+- If v1.1 passes turb_calm + worst_cell_cov + mean_reversion → major progress (3 new suites passed).
+- But max_jump_ks will likely remain stuck at ~0.8 even in v1.1. Passing that gate is a v2 problem (or a separate Bug-6 fix layered on v1.1).
+
+Commit `d23a82d` (peak-and-recover + hypothesis softening).
+
+---
