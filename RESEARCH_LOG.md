@@ -75348,3 +75348,119 @@ quantiles). Bitter-Lesson preserved end-to-end.
 - Diagnostics: factor_diag, mean_spread_diag under same
 - Log: `logs/250a/train_250b_L16.log`
 
+
+## 2026-04-20: 250 series extension — three independent attacks on the joint-vs-marginal Pareto
+
+### Context
+
+After Stages A+B identified a structural Pareto frontier between joint cross-cell structure
+and per-cell marginal flexibility, user asked to attack the frontier from three angles
+simultaneously. Three targeted experiments, all warm-starting from 250a L=16 best where
+applicable.
+
+### The three attacks
+
+**Option A — 250a + multi-CRPS (tail attack):** keep Stage A architecture, add
+`lambda_pmax` (afCRPS on pathwise max-|Δ|) and `lambda_chg` (afCRPS on per-cell daily
+changes) to the loss stack. Tests whether idio-scale collapse is loss-structural and can
+be fixed without architectural change. Trained from scratch, L=16, 60 ep.
+
+**Option B — 250b-r1 (joint-preserving Stage B):** keep Stage B's learned marginal head
+but (i) halve capacity: K_knots=12 → K_knots=6, and (ii) add `lambda_joint_vs` — VS on
+pre-head samples (new aux tensor from `decode()`) as a joint-preserving regularizer.
+Tests whether Stage B's MARGINAL OVERFIT is pure-capacity or needs structural counter-weight.
+
+**Option C — 250c latent FM:** replace Gaussian reparameterisation `z = μ + σ·η` with
+a 4-step Euler ODE on learned velocity field `v_θ(z_t, t, h)`. 4-layer MLP over
+(z_t, t_emb, h_bottleneck) → L-dim velocity. Warm-start backbone, train LatentFM only
+for 10 ep, then co-train.
+
+### Results — full 11-suite comparison (both Stage A and Stage B baselines included)
+
+| Variant | n | corr | rank | lvl_KS | chg_KS | cov90 | tc | max_jmp | q99r | gen_slp |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Baseline 250a L=8 | 3/11 | 0.579 | 2.251 | 12 | 0 | 0.768 | 1.057 | 1.000 | 0.146 | -0.0667 |
+| **Baseline 250a L=16** | 3/11 | **0.824** | 1.739 | **20** | 0 | 0.859 | 1.031 | 1.000 | 0.146 | -0.0654 |
+| Baseline 250b K=12 | 2/11 | 0.499 | 2.389 | 19 | 7 | 0.844 | 0.995 | 1.000 | 0.131 | **-0.168** |
+| **A: 250a L=16 + multi-CRPS** | 2/11 | 0.187 | 2.246 | 14 | **19** | 0.839 | 1.029 | **0.827** | **0.600** | -0.076 |
+| B: 250b-r1 K=6 +joint_vs | 2/11 | 0.443 | 2.447 | 17 | 7 | 0.841 | 0.995 | 1.000 | 0.126 | **-0.171** |
+| **C: 250c latent FM** | 3/11 | **0.700** | 1.907 | 14 | 0 | 0.809 | 1.068 | 0.999 | 0.167 | -0.083 |
+
+GT references: corr_ratio target ≈1.0; gen_slope target -0.194; max_jump_KS ≤0.30; turb/calm >1.15.
+
+### Interpretation
+
+Three independent experiments attacking the Pareto frontier produced three different
+confirmations of its structure:
+
+1. **Option A unlocked tails** — first real movement across the entire 240/241/250 history:
+   - q99_ratio 0.15 → **0.60** (biggest single-step gain; gate is 1.0)
+   - max_jump_KS 1.00 → **0.83** (first sub-1.0 value)
+   - chg_KS 0/25 → **19/25** (nearly full pass)
+   - **BUT corr 0.82 → 0.19** (catastrophic joint collapse — per-cell loss terms pull each
+     cell to its GT marginal independently, breaking Λ's joint structure)
+
+2. **Option B only marginally improved over 250b** — joint_vs regularizer at λ=0.5 and
+   K_knots=6 both too weak:
+   - corr 0.50 → 0.44 (barely moves)
+   - chg_KS holds at 7/25
+   - MR holds at gen_slope -0.17 (pass)
+   - Tails completely unmoved (max_jmp 1.0, q99r 0.13)
+
+3. **Option C (latent FM) preserved joint but didn't unlock tails**:
+   - corr 0.58 → **0.70** (meaningful improvement over L=8 baseline; Stage C FM posterior
+     did something structurally useful)
+   - But no tail movement, no MR improvement
+   - FM posterior by itself doesn't have enough signal to learn multimodality without
+     explicit tail pressure in the loss
+
+### Mechanism — the Pareto is not an optimization artifact, it's architectural
+
+Four independent perturbations (Stages B, A, B-r1, C) all hit the same wall: any per-cell
+optimization pressure (marginal head, per-cell CRPS, etc.) decorrelates cells. The
+factor decoder `Λ(h)·z + D(h)·ε` tries to impose shared structure, but per-cell
+optimization can route around Λ by making D large and cell-specific — breaking the
+intended low-rank coupling.
+
+**Implication:** the fix needs a BUILT-IN joint constraint that CANNOT be routed around.
+Three such candidates:
+- (a) Strong orthogonality + L2 penalty on Λ deviations from a canonical low-rank basis
+- (b) Combine Options A + C: LatentFM + tail pressure. Latent may learn multimodal
+  distribution that produces tails through the factor path (not through D).
+- (c) Architectural: replace independent D(h) with a low-rank D structure tied to Λ,
+  so per-cell idio scale cannot decouple from the factor structure.
+
+### Best single-checkpoint ranking (structural-first)
+
+1. **250a L=16 baseline** (corr 0.82): best joint, no tails/MR — structural leader
+2. **250c latent FM** (corr 0.70): best *upgradable* — FM posterior preserved
+3. **250b / 250b-r1** (corr 0.44-0.50): marginal fixed, joint broken
+4. **A: 250a+tails** (corr 0.19): tails fixed, joint destroyed
+
+### Decision gate (per v1 plan Stage B decision matrix)
+
+All three options read as **NOT CLEAN SUCCESS**. Each exposes a different facet of the
+same frontier. Next principled move is a combined attack: **250c_A = LatentFM + tail
+attack** (stacked A+C). Codex originally warned against stacking, but we now have
+empirical evidence that neither alone succeeds, and stacking is the minimum viable
+mechanism for multimodal tails. Separate plan required.
+
+### Mechanism citations (required)
+- "Option A chg_KS 0→19/25, q99_r 0.15→0.60, max_jmp_KS 1.00→0.83: tail lever fires;
+  corr_ratio 0.82→0.19 confirms per-cell pressure decorrelates joint"
+- "Option B K_knots=6 + λ_joint_vs=0.5 only recovered corr 0.44 from 0.50 baseline:
+  joint regularizer at this strength is not load-bearing"
+- "Option C LatentFM corr_ratio 0.70 (L=8 baseline 0.58) — FM posterior adds
+  structural capacity but not tail signal without explicit loss term"
+
+### Artifacts
+
+- `train_250a_neural_factor.py` — extended with `--lambda_pmax`, `--lambda_chg`
+- `train_250b_learned_marginal.py` — extended with `--lambda_joint_vs`
+- `train_250c_latent_fm.py` — new
+- `neural_factor.py` — added `LatentFM` class, `use_latent_fm` config field,
+  `aux["pre_head"]` exposure in `decode()`
+- Checkpoints: `250a_L16_tails_s42/`, `250b_r1_K6_joint_s42/`, `250c_L16_fm_s42/`
+- Results: `results/block_ar/250a_L16_tails/`, `250b_r1/`, `250c/`
+- Logs: `logs/250a/train_L16_tails.log`, `train_250b_r1.log`, `train_250c.log`
+

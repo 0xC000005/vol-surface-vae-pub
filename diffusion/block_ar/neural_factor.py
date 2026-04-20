@@ -70,6 +70,12 @@ class NeuralFactorConfig:
     use_marginal_head: bool = False
     marginal_knots: int = 12
 
+    # Stage C knob: replace Gaussian z with flow-matched posterior
+    use_latent_fm: bool = False
+    latent_fm_steps: int = 4
+    latent_fm_hidden: int = 256
+    latent_fm_time_embed: int = 32
+
 
 def _mlp(in_dim: int, out_dim: int, hidden: int, layers: int, dropout: float) -> nn.Module:
     mods: list[nn.Module] = []
@@ -157,6 +163,62 @@ class IdiosyncraticScaleHead(nn.Module):
         # Soft cap to keep idio path from dominating early training.
         scale = scale.clamp(max=self.cfg.idio_scale_clip)
         return scale
+
+
+class LatentFM(nn.Module):
+    """Stage C — latent flow-matching posterior.
+
+    Replaces the Gaussian reparameterisation `z = mu_z + sigma_z * eta` with an
+    ODE-solved trajectory starting from η ~ N(0, I_L):
+
+        z(t=0) = η ~ N(0, I_L)
+        dz/dt  = v_θ(z_t, t, h)        (history-conditioned velocity)
+        z(t=1) = posterior sample
+
+    4-step Euler integration by default. Small MLP head; all shapes preserve L.
+    Trained end-to-end on the same proper-scoring-rule loss as Stage A/B — if the
+    optimal posterior is multimodal (tail-driven), LatentFM learns to deform the
+    N(0, I) prior into that distribution.
+    """
+
+    def __init__(self, cfg: NeuralFactorConfig):
+        super().__init__()
+        self.cfg = cfg
+        self.L = cfg.latent_dim
+        self.n_steps = cfg.latent_fm_steps
+        self.time_embed = nn.Linear(1, cfg.latent_fm_time_embed)
+        in_dim = self.L + cfg.latent_fm_time_embed + cfg.bottleneck_dim
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, cfg.latent_fm_hidden), nn.GELU(),
+            nn.Linear(cfg.latent_fm_hidden, cfg.latent_fm_hidden), nn.GELU(),
+            nn.Linear(cfg.latent_fm_hidden, self.L),
+        )
+        # Small-init velocity so early training is ≈ identity flow (η → η).
+        with torch.no_grad():
+            last = self.net[-1]
+            if isinstance(last, nn.Linear):
+                last.weight.mul_(0.1)
+                last.bias.zero_()
+
+    def velocity(self, z_t: torch.Tensor, t_val: float, h: torch.Tensor) -> torch.Tensor:
+        """z_t: (B, K, L). t_val: scalar in [0, 1]. h: (B, bottleneck). -> (B, K, L)."""
+        B, K, _ = z_t.shape
+        t_tensor = torch.full(
+            (B, K, 1), float(t_val), device=z_t.device, dtype=z_t.dtype
+        )
+        t_emb = self.time_embed(t_tensor)             # (B, K, time_embed)
+        h_exp = h.unsqueeze(1).expand(-1, K, -1)      # (B, K, bottleneck)
+        inp = torch.cat([z_t, t_emb, h_exp], dim=-1)  # (B, K, L + time_embed + bottleneck)
+        return self.net(inp)
+
+    def sample(self, eta: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        """eta: (B, K, L) ~ N(0, I_L). h: (B, bottleneck). -> z: (B, K, L)."""
+        dt = 1.0 / self.n_steps
+        z = eta
+        for i in range(self.n_steps):
+            v = self.velocity(z, i * dt, h)
+            z = z + dt * v
+        return z
 
 
 class LearnedMarginalHead(nn.Module):
@@ -278,6 +340,10 @@ class NeuralFactorModel(nn.Module):
             self.marginal_head: Optional[LearnedMarginalHead] = LearnedMarginalHead(cfg)
         else:
             self.marginal_head = None
+        if cfg.use_latent_fm:
+            self.latent_fm: Optional[LatentFM] = LatentFM(cfg)
+        else:
+            self.latent_fm = None
 
     # ------------------------------------------------------------------
     # Core forward
@@ -310,12 +376,17 @@ class NeuralFactorModel(nn.Module):
         Lambda = self.loading_head(h)  # (B, T, D, L)
         D_scale = self.idio_head(h)    # (B, T, D)
 
-        # Draw K latent samples: eta_z ~ N(0, I_L), z = mu + sigma * eta_z
+        # Draw K latent samples: eta_z ~ N(0, I_L)
         sigma_z = torch.exp(log_sigma_z).unsqueeze(1)  # (B, 1, L)
         eta_z = torch.randn(
             B, K, self.cfg.latent_dim, device=history.device, dtype=history.dtype
         )
-        z = mu_z.unsqueeze(1) + sigma_z * eta_z  # (B, K, L)
+        if self.latent_fm is not None:
+            # Stage C: ODE-solve from η ~ N(0, I) to posterior sample, history-conditioned.
+            z = self.latent_fm.sample(eta_z, h)
+        else:
+            # Stage A/B: parametric Gaussian reparameterisation
+            z = mu_z.unsqueeze(1) + sigma_z * eta_z  # (B, K, L)
 
         # Factor path: (B, T, D, L) x (B, K, L) -> (B, K, T, D)
         factor = torch.einsum("btdl, bkl -> bktd", Lambda, z)
@@ -332,6 +403,7 @@ class NeuralFactorModel(nn.Module):
         last_iv = last_iv.clamp(self.cfg.support_lo, self.cfg.support_hi)
         last = last_iv.unsqueeze(1)  # (B, 1, 1, D)
         surface_level = last + torch.cumsum(surface_change, dim=2)
+        pre_head = surface_level.clamp(self.cfg.support_lo, self.cfg.support_hi)
 
         if self.marginal_head is not None:
             surface_level = self.marginal_head(surface_level, h)
@@ -347,6 +419,7 @@ class NeuralFactorModel(nn.Module):
             "z": z,
             "factor": factor,
             "idio": idio,
+            "pre_head": pre_head,  # clamped pre-marginal-head samples (B, K, T, D)
         }
         return surface_level, aux
 

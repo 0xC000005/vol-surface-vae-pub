@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 """
-250b: Stage B — add LearnedMarginalHead on top of 250a's factor generator.
+250c: Stage C — latent flow-matching posterior.
 
-Warm-starts from a 250a best_model.pt, enables cfg.use_marginal_head=True, instantiates
-the marginal head (Choice A — conditional spline head, all knots learnable).
+Warm-start from a 250a best_model.pt. Enable cfg.use_latent_fm=True, attach LatentFM
+(4-step Euler ODE in L-dim latent space). Backbone (encoder, heads, latent_encoder)
+frozen for first `--freeze_backbone_epochs` epochs; then optional co-train.
 
-Schedule:
-  - first `--freeze_backbone_epochs` epochs: train ONLY the marginal head (backbone frozen)
-  - remaining epochs: unfreeze backbone and co-train
-
-Loss stack is unchanged from 250a.
+Trained on the same proper-scoring-rule loss as Stage A. If optimal posterior is
+multimodal (tail-driven), LatentFM deforms N(0, I_L) into that distribution.
 """
 
 from __future__ import annotations
@@ -29,7 +27,7 @@ import sys
 sys.path.insert(0, ".")
 
 from diffusion.block_ar.neural_factor import (
-    LearnedMarginalHead,
+    LatentFM,
     NeuralFactorConfig,
     NeuralFactorModel,
     load_model,
@@ -45,14 +43,12 @@ from experiments.backfill.block_ar.train_170d_structured_joint_student_t import 
 def build_losses(
     samples_btd: torch.Tensor, gt_btd: torch.Tensor,
     lambda_cell: float, lambda_vs: float, lambda_es: float, H: int, W: int,
-    pre_head_btd: torch.Tensor | None = None, lambda_joint_vs: float = 0.0,
+    lambda_pmax: float = 0.0, lambda_chg: float = 0.0,
 ) -> tuple[torch.Tensor, dict]:
     B, K, T, D = samples_btd.shape
     samples_grid = samples_btd.view(B, K, T, H, W)
     gt_grid = gt_btd.view(B, T, H, W)
-    cell_crps, _mae, _spread = afcrps_loss(
-        samples_grid, gt_grid, alpha=0.95, reduction="frame_sum"
-    )
+    cell_crps, _mae, _spread = afcrps_loss(samples_grid, gt_grid, alpha=0.95, reduction="frame_sum")
     vs = variogram_score(samples_grid, gt_grid, p=0.5)
     es = energy_score(samples_grid, gt_grid)
     total = lambda_cell * cell_crps + lambda_vs * vs + lambda_es * es
@@ -61,20 +57,25 @@ def build_losses(
         "variogram_score": vs.detach(),
         "energy_score": es.detach(),
     }
-    # Joint-preserving VS on pre-head samples (prevents head from decorrelating cells).
-    if lambda_joint_vs > 0.0 and pre_head_btd is not None:
-        pre_grid = pre_head_btd.view(B, K, T, H, W)
-        joint_vs = variogram_score(pre_grid, gt_grid, p=0.5)
-        total = total + lambda_joint_vs * joint_vs
-        metrics["joint_vs"] = joint_vs.detach()
+    if lambda_pmax > 0.0 and T >= 2:
+        s_chg = samples_grid[:, :, 1:] - samples_grid[:, :, :-1]
+        g_chg = gt_grid[:, 1:] - gt_grid[:, :-1]
+        s_pmax = s_chg.abs().amax(dim=2, keepdim=True)
+        g_pmax = g_chg.abs().amax(dim=1, keepdim=True)
+        pmax_crps, _, _ = afcrps_loss(s_pmax, g_pmax, alpha=0.95, reduction="frame_sum")
+        total = total + lambda_pmax * pmax_crps
+        metrics["pmax_crps"] = pmax_crps.detach()
+    if lambda_chg > 0.0 and T >= 2:
+        s_chg = samples_grid[:, :, 1:] - samples_grid[:, :, :-1]
+        g_chg = gt_grid[:, 1:] - gt_grid[:, :-1]
+        chg_crps, _, _ = afcrps_loss(s_chg, g_chg, alpha=0.95, reduction="frame_sum")
+        total = total + lambda_chg * chg_crps
+        metrics["chg_crps"] = chg_crps.detach()
     metrics["total"] = total.detach()
     return total, metrics
 
 
-def estimate_lambda_vs_auto(
-    model: NeuralFactorModel, loader: DataLoader, device: str, K: int, H: int, W: int,
-    max_batches: int = 40,
-) -> float:
+def estimate_lambda_vs_auto(model, loader, device, K, H, W, max_batches=40):
     model.eval()
     es_sum = vs_sum = 0.0
     n = 0
@@ -93,35 +94,27 @@ def estimate_lambda_vs_auto(
             vs_sum += variogram_score(s_grid, g_grid, p=0.5).item()
             n += 1
     model.train()
-    if n == 0 or vs_sum <= 0.0:
-        return 0.5
-    return float(es_sum) / float(vs_sum)
-
-
-def attach_marginal_head(model: NeuralFactorModel, K_knots: int, device: torch.device) -> NeuralFactorModel:
-    """Create a fresh marginal head on the model and update config."""
-    model.cfg.use_marginal_head = True
-    model.cfg.marginal_knots = K_knots
-    model.marginal_head = LearnedMarginalHead(model.cfg).to(device)
-    return model
+    return float(es_sum) / float(vs_sum) if n > 0 and vs_sum > 0 else 0.5
 
 
 def set_backbone_trainable(model: NeuralFactorModel, trainable: bool) -> None:
+    """Freeze backbone (encoder, heads, latent_encoder) — train only LatentFM."""
     for name, p in model.named_parameters():
-        if name.startswith("marginal_head."):
+        if name.startswith("latent_fm."):
             p.requires_grad_(True)
         else:
             p.requires_grad_(trainable)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="250b: Stage B Learned Marginal Head")
-    parser.add_argument("--warm_start", type=str, required=True,
-                        help="Path to a 250a best_model.pt (Stage A output)")
-    parser.add_argument("--K_knots", type=int, default=12)
+    parser = argparse.ArgumentParser(description="250c: Stage C latent flow-matching")
+    parser.add_argument("--warm_start", type=str, required=True)
+    parser.add_argument("--fm_steps", type=int, default=4)
+    parser.add_argument("--fm_hidden", type=int, default=256)
+    parser.add_argument("--fm_time_embed", type=int, default=32)
     parser.add_argument("--freeze_backbone_epochs", type=int, default=10)
     parser.add_argument("--total_epochs", type=int, default=20)
-    parser.add_argument("--K", type=int, default=8, help="ensemble members")
+    parser.add_argument("--K", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
@@ -129,9 +122,10 @@ def main() -> None:
     parser.add_argument("--lambda_cell", type=float, default=1.0)
     parser.add_argument("--lambda_vs", type=str, default="auto")
     parser.add_argument("--lambda_es", type=float, default=1.0)
-    parser.add_argument("--lambda_joint_vs", type=float, default=0.0,
-                        help="Variogram-score weight on pre-head samples. Preserves joint "
-                             "coupling; counter to MARGINAL OVERFIT in Stage B.")
+    parser.add_argument("--lambda_pmax", type=float, default=0.0,
+                        help="Optional: afCRPS on pathwise max-|Δ| (tail attack).")
+    parser.add_argument("--lambda_chg", type=float, default=0.0,
+                        help="Optional: afCRPS on per-cell daily changes (kurtosis attack).")
     parser.add_argument("--data_path", type=str, default="data/vol_surface_with_ret.npz")
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
@@ -153,18 +147,22 @@ def main() -> None:
 
     device = torch.device(args.device)
 
-    # ---- Warm-start from Stage A ----
+    # Warm-start backbone
     model, payload = load_model(args.warm_start, device)
     print(f"Warm-started from {args.warm_start} (epoch {payload.get('epoch', -1)})")
-    print(f"  config L={model.cfg.latent_dim}  D={model.cfg.n_cells}  T={model.cfg.future_len}")
 
-    # ---- Attach marginal head ----
-    model = attach_marginal_head(model, args.K_knots, device)
+    # Enable latent FM + attach fresh LatentFM
+    model.cfg.use_latent_fm = True
+    model.cfg.latent_fm_steps = args.fm_steps
+    model.cfg.latent_fm_hidden = args.fm_hidden
+    model.cfg.latent_fm_time_embed = args.fm_time_embed
+    model.latent_fm = LatentFM(model.cfg).to(device)
+
     n_params = sum(p.numel() for p in model.parameters())
-    n_head = sum(p.numel() for p in model.marginal_head.parameters())
-    print(f"Total params: {n_params:,}   Marginal head params: {n_head:,}")
+    n_fm = sum(p.numel() for p in model.latent_fm.parameters())
+    print(f"Total params: {n_params:,}   LatentFM params: {n_fm:,}")
 
-    # ---- Data ----
+    # Data
     data = np.load(args.data_path)
     surfaces = data["surface"].astype(np.float32)
     _, H, W = surfaces.shape
@@ -183,14 +181,12 @@ def main() -> None:
     )
     print(f"Train: {len(train_loader.dataset)}  Val: {len(val_loader.dataset)}  Grid: {H}x{W} D={H*W}")
 
-    # ---- lambda_vs calibration (fresh — head changes the scale) ----
     if args.lambda_vs == "auto":
         lambda_vs = estimate_lambda_vs_auto(model, train_loader, args.device, args.K, H, W)
         print(f"lambda_vs = {lambda_vs:.4f}")
     else:
         lambda_vs = float(args.lambda_vs)
 
-    # ---- Mixed precision ----
     device_is_cuda = device.type == "cuda"
     use_bf16 = bool(args.bf16) and device_is_cuda
 
@@ -200,13 +196,13 @@ def main() -> None:
         return torch.autocast(device_type="cuda", enabled=False) if device_is_cuda \
             else torch.autocast(device_type="cpu", enabled=False)
 
-    # ---- Phase 1: freeze backbone, train head only ----
+    # Phase 1: freeze backbone, train LatentFM only
     set_backbone_trainable(model, trainable=False)
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=args.lr, weight_decay=args.weight_decay,
     )
-    print(f"\nPhase 1: freeze backbone, train head only. epochs 1..{args.freeze_backbone_epochs}")
+    print(f"\nPhase 1: freeze backbone, train LatentFM only. epochs 1..{args.freeze_backbone_epochs}")
 
     history: list[dict] = []
     best_val = float("inf")
@@ -215,7 +211,7 @@ def main() -> None:
     history_path = Path(args.output_dir) / "training_history.json"
     global_step = 0
 
-    def _epoch(model, loader, train_mode: bool, epoch: int) -> dict:
+    def _epoch(loader, train_mode: bool, epoch: int) -> dict:
         nonlocal global_step
         model.train() if train_mode else model.eval()
         ep_sums: dict[str, float] = {}
@@ -227,14 +223,12 @@ def main() -> None:
                 B = hist_01.shape[0]
                 hist_norm = normalize_iv(hist_01).view(B, hist_01.shape[1], -1)
                 with autocast_ctx():
-                    samples, aux = model(hist_norm, n_samples=args.K)
-                    pre_head = aux.get("pre_head")
+                    samples, _ = model(hist_norm, n_samples=args.K)
                     loss, metrics = build_losses(
                         samples, fut_flat,
                         lambda_cell=args.lambda_cell, lambda_vs=lambda_vs, lambda_es=args.lambda_es,
                         H=H, W=W,
-                        pre_head_btd=pre_head,
-                        lambda_joint_vs=args.lambda_joint_vs,
+                        lambda_pmax=args.lambda_pmax, lambda_chg=args.lambda_chg,
                     )
                 if train_mode:
                     if not torch.isfinite(loss):
@@ -257,16 +251,14 @@ def main() -> None:
         if epoch == args.freeze_backbone_epochs + 1:
             print(f"\nPhase 2: unfreeze backbone, co-train. epochs {epoch}..{args.total_epochs}")
             set_backbone_trainable(model, trainable=True)
-            # Rebuild optimizer so all params get an entry
             optimizer = torch.optim.AdamW(
                 model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
             )
 
         t0 = time.time()
-        train_avg = _epoch(model, train_loader, train_mode=True, epoch=epoch)
-        val_avg = _epoch(model, val_loader, train_mode=False, epoch=epoch)
+        train_avg = _epoch(train_loader, train_mode=True, epoch=epoch)
+        val_avg = _epoch(val_loader, train_mode=False, epoch=epoch)
         dt = time.time() - t0
-
         phase = "frozen" if epoch <= args.freeze_backbone_epochs else "cotrain"
         print(
             f"Epoch {epoch:3d}/{args.total_epochs} [{phase}] "

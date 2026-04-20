@@ -49,8 +49,15 @@ def build_losses(
     lambda_es: float,
     H: int,
     W: int,
+    lambda_pmax: float = 0.0,
+    lambda_chg: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """samples_btd: (B, K, T, D). gt_btd: (B, T, D). Reshape once to (B,K,T,H,W) for loss helpers."""
+    """samples_btd: (B, K, T, D). gt_btd: (B, T, D). Reshape once to (B,K,T,H,W) for loss helpers.
+
+    Optional tail-attack terms:
+      lambda_pmax: afCRPS on pathwise max-|Δ| per cell. Directly attacks under-generation of extreme jumps.
+      lambda_chg:  afCRPS on per-cell daily changes (frame_sum). Attacks chg_KS and kurtosis.
+    """
     B, K, T, D = samples_btd.shape
     assert D == H * W, f"loss reshape requires D=H*W, got D={D}, H*W={H*W}"
     samples_grid = samples_btd.view(B, K, T, H, W)
@@ -61,14 +68,35 @@ def build_losses(
     )
     vs = variogram_score(samples_grid, gt_grid, p=0.5)
     es = energy_score(samples_grid, gt_grid)
-
     total = lambda_cell * cell_crps + lambda_vs * vs + lambda_es * es
     metrics = {
         "cell_crps": cell_crps.detach(),
         "variogram_score": vs.detach(),
         "energy_score": es.detach(),
-        "total": total.detach(),
     }
+
+    if lambda_pmax > 0.0 and T >= 2:
+        # Pathwise max-|Δ| per cell: reduces (B,K,T,H,W) -> (B,K,1,H,W), (B,T,H,W) -> (B,1,H,W)
+        s_chg = samples_grid[:, :, 1:] - samples_grid[:, :, :-1]       # (B, K, T-1, H, W)
+        g_chg = gt_grid[:, 1:] - gt_grid[:, :-1]                        # (B, T-1, H, W)
+        s_pmax = s_chg.abs().amax(dim=2, keepdim=True)                  # (B, K, 1, H, W)
+        g_pmax = g_chg.abs().amax(dim=1, keepdim=True)                  # (B, 1, H, W)
+        pmax_crps, _, _ = afcrps_loss(
+            s_pmax, g_pmax, alpha=0.95, reduction="frame_sum"
+        )
+        total = total + lambda_pmax * pmax_crps
+        metrics["pmax_crps"] = pmax_crps.detach()
+
+    if lambda_chg > 0.0 and T >= 2:
+        s_chg = samples_grid[:, :, 1:] - samples_grid[:, :, :-1]       # (B, K, T-1, H, W)
+        g_chg = gt_grid[:, 1:] - gt_grid[:, :-1]                        # (B, T-1, H, W)
+        chg_crps, _, _ = afcrps_loss(
+            s_chg, g_chg, alpha=0.95, reduction="frame_sum"
+        )
+        total = total + lambda_chg * chg_crps
+        metrics["chg_crps"] = chg_crps.detach()
+
+    metrics["total"] = total.detach()
     return total, metrics
 
 
@@ -154,6 +182,10 @@ def main() -> None:
         help="Variogram-score weight. 'auto' calibrates from mean_ES/mean_VS on a warmup pass.",
     )
     parser.add_argument("--lambda_es", type=float, default=1.0)
+    parser.add_argument("--lambda_pmax", type=float, default=0.0,
+                        help="afCRPS on pathwise max-|Δ| per cell. Attacks tail under-generation.")
+    parser.add_argument("--lambda_chg", type=float, default=0.0,
+                        help="afCRPS on per-cell daily changes (frame_sum). Attacks chg_KS and kurtosis.")
     parser.add_argument("--ortho_reg_weight", type=float, default=0.0)
 
     # Optim
@@ -308,6 +340,7 @@ def main() -> None:
                     samples, fut_flat,
                     lambda_cell=args.lambda_cell, lambda_vs=lambda_vs, lambda_es=args.lambda_es,
                     H=H, W=W,
+                    lambda_pmax=args.lambda_pmax, lambda_chg=args.lambda_chg,
                 )
                 if args.ortho_reg_weight > 0.0:
                     loss = loss + args.ortho_reg_weight * model.orthogonality_penalty(aux["Lambda"])
@@ -356,6 +389,7 @@ def main() -> None:
                         samples, fut_flat,
                         lambda_cell=args.lambda_cell, lambda_vs=lambda_vs, lambda_es=args.lambda_es,
                         H=H, W=W,
+                        lambda_pmax=args.lambda_pmax, lambda_chg=args.lambda_chg,
                     )
                 for k, v in metrics.items():
                     val_sums[k] = val_sums.get(k, 0.0) + (v.item() if torch.is_tensor(v) else float(v))
