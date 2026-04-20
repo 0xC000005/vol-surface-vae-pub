@@ -78,10 +78,37 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_json", type=str, required=True)
     parser.add_argument("--output_md", type=str, required=True)
+    parser.add_argument("--force_native_anchor", action="store_true",
+                        help="Force native-path rollout (model.sample_batched) with inference "
+                             "anchor(0.50) for any 227a-family checkpoint. Use this to evaluate "
+                             "229a honestly under its production rollout regime.")
     args = parser.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_one_day_kernel(args.model_type, args.checkpoint, device)
+
+    # Keep inference-time anchor overrides aligned with evaluate_220b so the 11-suite
+    # uses the same rollout regime as the 7-suite comparisons.
+    if args.model_type in {'232a', '232b', '232c', '232d'}:
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print("[eval override] 232 variant: use_scale_anchor=True, alpha=0.50 at inference")
+
+    if args.model_type.startswith('233a'):
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] 233a {args.model_type}: use_scale_anchor=True, alpha=0.50 at inference")
+
+    if args.model_type.startswith("233a_v1_2"):
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print(f"[eval override] 233a_v1_2 {args.model_type}: use_scale_anchor=True, alpha=0.50")
+
+    if args.force_native_anchor and args.model_type == '227a':
+        model.use_scale_anchor = True
+        model.scale_anchor_alpha = 0.50
+        print("[eval override] --force_native_anchor: use_scale_anchor=True alpha=0.50, native path")
+
     wrapper = OneDayKernelRolloutWrapper(model).eval()
 
     batch = build_rollout_windows(
@@ -94,14 +121,42 @@ def main() -> None:
         device=device,
         split="val",
     )
-    cond_samples = rollout_samples_in_batches(
-        wrapper=wrapper,
-        history_norm=batch.history_norm,
-        n_samples=args.samples,
-        n_steps=batch.future_01.shape[1],
-        batch_size=args.batch_size,
-        chunk_size=args.chunk_size,
+    use_native = hasattr(model, 'sample_batched') and (
+        hasattr(model, 'temporal_adapter')
+        or args.model_type == '183c'
+        or args.model_type in {'231a', '231b', '231c', '232a', '232b', '232c', '232d'}
+        or args.model_type.startswith('233a')
+        or args.model_type.startswith('240a')
+        or args.model_type.startswith('240b')
+        or args.model_type.startswith('240c')
+        or args.force_native_anchor
     )
+    if use_native:
+        from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv
+        print("Using native sample_batched")
+        outputs = []
+        n_steps = batch.future_01.shape[1]
+        for start in range(0, batch.history_01.shape[0], args.batch_size):
+            end = min(start + args.batch_size, batch.history_01.shape[0])
+            hist_batch = normalize_iv(batch.history_01[start:end])
+            with torch.no_grad():
+                samp = model.sample_batched(
+                    hist_batch,
+                    n_samples=args.samples,
+                    n_steps=n_steps,
+                    chunk_size=args.chunk_size,
+                )
+            outputs.append(samp.cpu().numpy())
+        cond_samples = np.concatenate(outputs, axis=0)
+    else:
+        cond_samples = rollout_samples_in_batches(
+            wrapper=wrapper,
+            history_norm=batch.history_norm,
+            n_samples=args.samples,
+            n_steps=batch.future_01.shape[1],
+            batch_size=args.batch_size,
+            chunk_size=args.chunk_size,
+        )
     ground_truth = batch.future_01.detach().cpu().numpy()
     history_01 = batch.history_01.detach().cpu().numpy()
 
@@ -118,8 +173,10 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=False,
     )
+    # Native multi-day models already implement sample_batched; one-day kernels need the wrapper.
+    cond_model = model if use_native else wrapper
     conditionality = run_conditionality_tests(
-        wrapper,
+        cond_model,
         cond_loader,
         n_samples=args.conditionality_samples,
         max_batches=args.conditionality_max_batches,

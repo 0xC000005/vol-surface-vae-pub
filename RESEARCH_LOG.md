@@ -74306,3 +74306,168 @@ Artifacts:
 - Control training log: `logs/241a_ctrl/train.log`, eval log: `logs/241a_ctrl/eval_best.log`
 
 ---
+
+## $(date +%Y-%m-%d): 241b Stage 2 — Multi-CRPS Fine-Tune: Partial Direction Right, Interior-Capacity Limit Reached
+
+### Context
+Per plan v4 Stage 2 (after Stage 1a empirically falsified paper-exact ΔFM as a
+regime-separation mechanism), fine-tune 183c with four simultaneous proper scoring
+rules on a sampled ensemble:
+
+```
+L = L_183c_fm + L_183c_ctrl
+  + 0.10 · afCRPS(samples[:,:,-1],      gt[:,-1])        # mean_reversion
+  + 0.05 · afCRPS(max_t|Δsamples|,      max_t|Δgt|)      # pathwise_jump_realism
+  + 0.03 · twCRPS_tw(Δsamples per-cell, Δgt  per-cell)   # kurtosis / time_series
+  + 0.05 · ES_25d(samples[:,:,-1],      gt[:,-1])        # cross-cell guard (240a lesson)
+```
+
+Addresses three failing suites in one training run — afCRPS@h30 for mean_reversion,
+twCRPS@pathwise-max for pathwise_jump_realism, twCRPS tail-weighted for kurtosis.
+Energy-Score on 25-dim terminal as cross-cell structure guard per 240a lesson.
+
+Implementation: sample_future_u_with_grad mirrors sample_future_u without the
+@torch.no_grad decorator. K=32 ensemble, partial ODE unroll (train_ode_steps=4) with
+torch.utils.checkpoint on each velocity call. Teacher pathway (encoder/decoder/prior/
+Cholesky/block assign) stays frozen; grad flows through path_transport, state gates,
+and metric budgets only.
+
+10 epochs warm-start from 183c best, lr_ctrl=2.5e-4 lr_path=1.0e-4, fp32 (bf16 breaks
+teacher_basis Cholesky per Stage 1a). Wall clock: ~8.5 min on RTX 3070 Ti.
+
+### Key Findings — Gate Matrix (full-11 suite, 441 val windows, 48 samples)
+
+| Metric | 183c baseline | 241b best (ep10) | 241b final (ep10) | Δ vs 183c (best) |
+|---|---|---|---|---|
+| **n_pass / 11** | 4/11 | **4/11** | **3/11** | flat (final regressed) |
+| MR h30 ratio (GATE) | 0.592 | **0.685** | 0.681 | +0.093 (still FAIL <0.70) |
+| MR h1 ratio | 1.051 | 1.786 | 1.790 | +0.735 (overshot) |
+| MR h7 ratio | 0.772 | 0.975 | — | +0.203 (right) |
+| MR h14 ratio | 0.707 | 0.742 | — | +0.035 (right) |
+| level KS pass cells | 4/25 | **21/25** | 19/25 | +17 (big improvement) |
+| change KS pass cells | 23/25 | 23/25 | 23/25 | flat |
+| max-jump KS | 0.482 | 0.584 | 0.578 | +0.102 (REGRESSED) |
+| corr_ratio | 1.050 | 1.220 | 1.215 | +0.170 (REGRESSED) |
+| rank_ratio | 1.100 | 0.856 | 0.860 | -0.244 (collapsed <0.9) |
+| turb/calm | 1.059 | 1.062 | 1.047 | +0.003 (flat) |
+| h1 cov90 | 0.889 | 0.764 | 0.768 | -0.125 (undercoverage) |
+| h30 cov90 | 0.897 | 0.860 | 0.861 | -0.037 (undercoverage) |
+| cointegration gen/GT | 0.747 | 0.641 | 0.583 | -0.106 / -0.164 |
+| calibration_error | 0.009 | 0.039 | — | +0.030 (4x worse) |
+
+### Mechanism — Training CRPS Trajectory
+
+| Epoch | fm_loss | afcrps_h30 | twcrps_pmax | twcrps_tail | es_h30 | val_fm |
+|---|---|---|---|---|---|---|
+| 1 | 0.837 | 0.649 | 0.613 | 33.53 | 0.192 | 1.374 |
+| 5 | 0.844 | 0.641 | 0.584 | 33.38 | 0.190 | 1.366 |
+| 10 | 0.831 | 0.635 | 0.575 | 33.33 | 0.188 | 1.351 |
+| Δ | flat | **-2.2%** | -6.2% | -0.6% | -1.9% | — |
+
+**Mechanism insight (decisive)**: CRPS terms moved ≤6% over 10 epochs. tail_crps
+essentially frozen (-0.6%). Yet full-11 metrics shifted meaningfully on structural
+dimensions. Interpretation:
+
+- CRPS loss surface is FLAT near the 183c warm-start — model is already near a local
+  min for these proper scoring rules given the frozen teacher pathway.
+- Small CRPS gradients produce large metric changes by widening h1 spread (std_ratio
+  at h1 grew from 0.84 → 1.13, a +35% widening). Wider first-step → compressed pred_mean
+  → amplified MR slope ratio at h1 (1.05 → 1.79).
+- afCRPS@h30 pulled variance uniformly across all horizons; no per-horizon weighting
+  to shield early horizons.
+
+### Mechanism — Per-Horizon Spread/Skill (diagnose_241_mr_profile, 200 val windows)
+
+std_ratio = ensemble_std / gt_innovation_std by horizon:
+
+| Horizon | h1 | h5 | h10 | h15 | h20 | h25 | h30 |
+|---|---|---|---|---|---|---|---|
+| 183c | 0.84 | 1.00 | 1.14 | 1.28 | 1.34 | 1.36 | 1.42 |
+| 241b | 1.13 | 1.02 | 1.14 | 1.29 | 1.33 | 1.33 | 1.38 |
+| Δ | **+0.29** | +0.02 | 0.00 | +0.01 | -0.01 | -0.03 | -0.04 |
+
+The multi-CRPS fine-tune expanded h1 spread (+35%) while leaving h30 spread
+essentially unchanged. This confirms the "uniform widening across the trajectory's
+early steps" hypothesis: afCRPS@h30 loss has no way to distinguish "add variance at
+h30" from "add variance at h1 that compounds to h30" — and the latter is cheaper for
+the model to learn.
+
+### Mechanism — Regime Separation (diagnose_241_regime_separation, 120 val windows)
+
+Velocity cosine-gap at t=0.5 (turb vs calm):
+
+| | 183c baseline | 241b best |
+|---|---|---|
+| within_turb | 0.340 | 0.351 |
+| within_calm | 0.347 | 0.357 |
+| between_turb_calm | 0.342 | 0.352 |
+| **cosine_gap_turb_calm** | 0.002 | **0.0018** |
+
+Like 241a (paper-exact ΔFM), multi-CRPS produces NO regime-distinguishable velocity —
+cosine gap ≈ 0 (target >0.05). This rules out CRPS as a regime-separation mechanism
+at the velocity level. The slight turb/calm width improvement in joint eval during
+training (peaked at 1.222 ep6) did not translate to the full-441 eval (1.062).
+
+### Decision (per plan v4 matrix)
+
+Classification: **PARTIAL SUCCESS / MECHANISM_ONLY**.
+
+Gates:
+- MR h30 ≥ 0.70: FAIL (0.685, 0.015 below gate)
+- max-jump KS ≤ 0.30: FAIL (0.584, worse than baseline)
+- corr_ratio ∈ [0.95, 1.10]: FAIL (1.22, structural regression)
+- best_model ≈ final_model: FAIL (best 4/11, final 3/11)
+
+Mechanism evidence:
+- Target metrics moved in right direction (MR h30 +9pp, level KS +17 cells, MR h7
+  near-perfect at 0.97 vs 183c 0.77).
+- CRPS loss surface flat (≤6% drop) → **model lacks interior capacity** to further
+  drop loss without widening h1 spread (structural leakage).
+
+Structural guards failed:
+- ES term at λ=0.05 too weak to prevent corr_ratio/rank_ratio regression.
+- twCRPS@pmax produced WORSE max-jump KS (likely noisy gradient through max-functional +
+  partial ODE unroll + grad_ckpt).
+
+**Verdict**: Plan v4 Stage 2 closes as **confirmed mechanism + capacity limit**. The
+direction works (proper scoring rules reach gates), but 183c's architecture cannot
+simultaneously (a) move h30 metrics, (b) keep h1 tight, (c) protect cross-cell
+structure. Stage 4 (interior-capacity architectural work) is justified per plan's
+escalation rule.
+
+### Bitter-Lesson Audit: PASS
+- 313 tensors, 6.80M params
+- args.json: no per-cell lookup arrays, no regime thresholds, no IV-specific constants
+- cell_median / cell_iqr computed lazily from training data at training launch
+  (equivalent to standard normalisation, not a persisted constant)
+
+### Artifacts
+
+- `experiments/backfill/block_ar/train_241b_183c_multi_crps.py` — multi-CRPS fine-tune
+- `experiments/backfill/block_ar/diagnose_241_mr_profile.py` — per-horizon MR/KS/spread
+- `experiments/backfill/block_ar/audit_241b_bitter_lesson.py` — Bitter-Lesson check
+- `models/backfill/241b_multi_crps_s42/{best,final}_model.pt` — ep10 (both)
+- `results/block_ar/241b/{best,final}_full11.{json,md}` — full-11 suite
+- `results/block_ar/241b/mr_diag/summary.json` — per-horizon profile
+- `models/backfill/241b_multi_crps_s42/audit.json` — Bitter-Lesson PASS
+
+### Next: Stage 4 Trigger Conditions Met
+
+Plan v4 entry criterion for Stage 4: "Stage 2 concludes AND either (a) mean_reversion
+still fails OR (b) all targets pass but turb/calm gap matters". Condition (a) is met.
+
+Stage 4 candidates (in order of literature-grounded evidence for THIS architecture,
+per plan v4):
+
+1. **C²OT conditional OT cost weighting** (arXiv 2503.10636, 2025). Still loss-side;
+   lightest lift. Adds conditional weighting to transport-cost matrix — addresses the
+   "transport ignores conditioning" pathology directly.
+2. **PAFM MoE router on velocity head** (arXiv 2511.14488, 2025). Interior capacity
+   boost: replaces single width_allocator with 2–4 experts. Not output-range
+   expansion (saturation audit already ruled that out).
+3. **GMFlow mixture velocity** (arXiv 2504.05304, 2025). Most invasive. Justified only
+   if (1) and (2) don't move turb/calm.
+
+Stage 4 plan to be written as separate document when Stage 4 is triggered.
+
+---
