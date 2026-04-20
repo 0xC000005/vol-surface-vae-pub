@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-241e: 241b multi-CRPS with encoder/decoder/flow/prior UNFROZEN (advisor ablation).
+241f: 241b multi-CRPS with encoder/decoder/flow/prior UNFROZEN (advisor ablation).
 
 Tests advisor's alternative hypothesis: "path_context is detached → the scalable DOF
 is frozen out of scope. A 2% CRPS drop may reflect gradient reaches path_transport
@@ -141,7 +141,7 @@ def sample_future_u_with_grad(
 ) -> torch.Tensor:
     """Mirrors sample_future_u() body; optionally grad flows through forward_from_history.
 
-    241e: grad_through_teacher=True lets CRPS gradient reach encoder+decoder+prior
+    241f: grad_through_teacher=True lets CRPS gradient reach encoder+decoder+prior
     parameters (advisor's proposed DOF-access fix). Block sampling (torch.multinomial)
     is always no_grad — it's discrete and not trainable.
 
@@ -365,7 +365,7 @@ def multi_crps_loss(
         metrics["es_h30"] = es_h30.detach()
         metrics["sample_std_h30_mean"] = iv_samples[:, :, -1].std(dim=1).mean().detach()
 
-        # 241e: KS-preservation anchor. Uses a PRECOMPUTED per-window ref_pred_mean
+        # 241f: KS-preservation anchor. Uses a PRECOMPUTED per-window ref_pred_mean
         # (pre-cached at training start using ref_model over many K samples) so the
         # anchor target is DETERMINISTIC and noise-free. Pulled from a cache indexed
         # by window_indices (optionally passed via kwarg).
@@ -388,15 +388,15 @@ def main() -> None:
     parser.add_argument("--lr_ctrl", type=float, default=2.5e-4)
     parser.add_argument("--lr_path", type=float, default=1.0e-4)
     parser.add_argument("--lr_backbone", type=float, default=3.0e-5,
-                        help="241e: LR for UNFROZEN encoder/decoder/flow/prior. Small "
+                        help="241f: LR for UNFROZEN encoder/decoder/flow/prior. Small "
                              "because those were trained end-to-end before and we don't "
                              "want to destroy their learned structure.")
     parser.add_argument("--lambda_anchor", type=float, default=1.0,
-                        help="241e: weight on |pred_mean - ref_183c_pred_mean|.mean(). "
+                        help="241f: weight on |pred_mean - ref_183c_pred_mean|.mean(). "
                              "Pulls pred_mean toward 183c's well-calibrated marginals. "
                              "Default 1.0; set to 0 to disable (recovers 241c).")
     parser.add_argument("--K_ref", type=int, default=128,
-                        help="241e: K samples used to precompute each window's ref_pred_mean. "
+                        help="241f: K samples used to precompute each window's ref_pred_mean. "
                              "128 gives noise ~1/sqrt(128) ≈ 0.09. Higher is tighter but "
                              "slower at startup (one-time cost).")
     parser.add_argument("--weight_decay", type=float, default=1e-4)
@@ -601,7 +601,7 @@ def main() -> None:
         else:
             model.maybe_load_warm_start(args.warm_start_path, args.device)
 
-    # 241e: Build a FROZEN reference 183c and PRECOMPUTE per-window pred_mean ONCE
+    # 241f: Build a FROZEN reference 183c and PRECOMPUTE per-window pred_mean ONCE
     # with large K_ref=128 (noise ~1/sqrt(128) ≈ 0.09, 3x tighter than K=32). The
     # cached tensor is used as a DETERMINISTIC anchor target during training — avoids
     # stochastic moving-target bug that diverged the earlier 241e attempt.
@@ -642,9 +642,19 @@ def main() -> None:
             batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=0,
         )
 
-    # 241e: UNFREEZE encoder/decoder/flow/prior. Matches 241c's freeze strategy.
-    for p in model.parameters():
-        p.requires_grad_(True)
+    # 241f: PARTIAL unfreeze — keep encoder+prior FROZEN (they shape the marginal
+    # distributions that 241c collapsed on level_KS/change_KS). Unfreeze decoder+flow
+    # (routing/covariance heads) plus the 241b-trainable pieces.
+    model.encoder.requires_grad_(False)
+    model.prior.requires_grad_(False)
+    model.decoder.requires_grad_(True)
+    model.flow.requires_grad_(True)
+    model.path_transport.requires_grad_(True)
+    model.path_context_adapter.requires_grad_(True)
+    model.width_allocator.requires_grad_(True)
+    model.band_tail.requires_grad_(True)
+    model.local_state_gate.requires_grad_(True)
+    model.band_state_gate.requires_grad_(True)
     ctrl_params = (
         list(model.width_allocator.parameters())
         + list(model.band_tail.parameters())
@@ -653,11 +663,10 @@ def main() -> None:
         + [model.local_metric_budget_logit, model.band_metric_budget_logit]
     )
     path_params = list(model.path_transport.parameters()) + list(model.path_context_adapter.parameters())
+    # 241f: partial unfreeze — only decoder+flow in the "backbone" group.
     backbone_params = (
-        list(model.encoder.parameters())
-        + list(model.decoder.parameters())
+        list(model.decoder.parameters())
         + list(model.flow.parameters())
-        + list(model.prior.parameters())
     )
     optimizer = torch.optim.AdamW(
         [
@@ -770,7 +779,7 @@ def main() -> None:
                     "epoch": epoch,
                     "selection_key": best_key,
                     "config": {
-                        "type": "241e_unfreeze_anchor_multi_crps_state_metric_transport",
+                        "type": "241f_partial_unfreeze_multi_crps_state_metric_transport",
                         "encoder": vars(encoder_config),
                         "decoder": decoder_config,
                         "flow": flow_config,
@@ -825,7 +834,7 @@ def main() -> None:
             "model_state_dict": model.state_dict(),
             "epoch": args.epochs,
             "config": {
-                "type": "241e_unfreeze_anchor_multi_crps_state_metric_transport",
+                "type": "241f_partial_unfreeze_multi_crps_state_metric_transport",
                 "encoder": vars(encoder_config),
                 "decoder": decoder_config, "flow": flow_config, "path": path_config,
                 "prior": prior_config, "integrated": integrated_config,

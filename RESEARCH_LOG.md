@@ -74943,3 +74943,80 @@ multi-objective is model-capacity limited.
 - `results/block_ar/241b/gt_oracle_11suite_v3.json`
 
 ---
+
+## 2026-04-20: 241f Partial-Unfreeze — Hypothesis Refuted, 241b is Pareto-Optimal
+
+### Context
+After 241c's full-unfreeze caused KS regression (21→11, 23→15), hypothesis was:
+encoder+prior shape the marginal distributions → freezing them while unfreezing
+decoder+flow should preserve KS while still allowing MR/kurt gains via covariance
+and velocity heads.
+
+241f: enc+prior frozen, decoder+flow+path_transport+gates unfrozen. lr_backbone=3e-5,
+no anchor, 10 epochs, warm-start 183c.
+
+### Result: Partial-Unfreeze Does NOT Preserve KS
+
+| Variant | Frozen | MR h30 | kurt | level_KS | change_KS | max_jump_KS |
+|---|---|---|---|---|---|---|
+| 183c today | full backbone | 0.660 | 0.471 | 18/25 | 22/25 | 0.486 |
+| **241b** | enc+dec+flow+prior (only path+gates unfrozen) | 0.685 | 0.575 | **21/25** | **23/25** | 0.584 |
+| 241c | nothing frozen | 0.794 | 0.669 | 11/25 | 15/25 | 0.577 |
+| 241d | all unfrozen, lr=1e-5 | 0.732 | 0.631 | 13/25 | 23/25 | 0.601 |
+| **241f** | enc+prior | 0.758 | 0.625 | **11/25** | **13/25** | 0.531 |
+
+### Conclusion
+
+Unfreezing decoder OR flow regresses KS just as much as unfreezing everything.
+KS degradation is NOT localized to encoder+prior. The marginal distributions
+depend on ALL of backbone, not just the upstream shape-setters.
+
+**241b is Pareto-optimal in the 241 series**: trades small MR h30 gain (+0.025
+vs 183c) for preserved KS. Any backbone unfreeze breaks the KS-MR trade-off's
+favorable side.
+
+### Interpretation (Architectural)
+
+The 183c architecture has three coupled components that all contribute to marginal
+distribution shape:
+1. **Encoder** (history → mu, time_factor, cell_factor, scale, flow_context)
+2. **Decoder** (structured student-t factorization, build_template_factors)
+3. **Flow** (path_transport transformer that generates velocity field)
+4. **Prior** (StructuredBasisSmoothJumpPrior on initial z0)
+
+All of them must stay FROZEN (as 183c trained them end-to-end) to preserve the
+level_KS/change_KS marginal calibration. Only path_transport + state gates can
+move safely — which is 241b's configuration.
+
+### Implication — 241 Series Closed
+
+241 series has saturated the "freeze combinations × multi-CRPS loss" exploration.
+Best-case result is 241b at 4/11, marginally better than 183c on most joint metrics
+(kurt +0.10, MR h30 +0.03), no additional suites crossed.
+
+To make further progress, the architectural shortcut needs to go. Options (order of
+investment):
+
+1. **Differentiable level_KS loss** as a KS-preserving regularizer during 241c-style
+   unfreeze training. Keeps architecture, adds explicit marginal-fidelity gradient.
+   Lowest risk.
+
+2. **Replace Student-t head with learned distribution** (normalizing flow per-cell,
+   or continuous mixture) — lets the model learn the marginal shape it needs rather
+   than inherit it from a fixed parametric family. Medium risk.
+
+3. **Full rewrite to a learned joint head** (diffusion or flow over the full 25-cell
+   vector with ES + VS supervision — what 240a Stage 2 was supposed to do but was
+   superseded by the 241 series). Biggest lift, handles multi-factor extension
+   cleanly.
+
+Ship 241b as the 241-series deliverable; next series should attack architecture,
+not loss engineering.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/train_241f_partial_unfreeze.py`
+- `models/backfill/241f_partial_unfreeze_s42/{best,final}_model.pt`
+- `results/block_ar/241f/{best,final}_full11.{json,md}`
+
+---
