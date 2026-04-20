@@ -74193,3 +74193,97 @@ to help; escalate to Stage 4 architectural.
   now accepts 241-series checkpoint types.
 
 ---
+
+## 2026-04-20: 241a Stage 1a — AMENDMENT (λ=0 control falsifies contrastive as cause)
+
+### Amendment scope
+
+Corrects two things in the prior 2026-04-20 Stage 1a entry after running a matched
+λ=0 control and receiving independent verifier feedback:
+
+1. **Empirical correction (primary):** paper-exact ΔFM does NOT cause the +0.037
+   turb/calm movement. The matched λ=0 control produces a LARGER movement.
+2. **Mechanism-story correction (important):** the "architecture is conditional-signal
+   saturated / maximally conditional" framing I wrote was over-reach. The evidence
+   supports empirical falsification only, not the causal architectural explanation.
+
+### Matched control — three-way table (full-11 common eval, val split 441, samples=48)
+
+| Metric | 183c | 241a (λ=0.05) | **ctrl (λ=0)** | 241a − ctrl |
+|---|---|---|---|---|
+| turb/calm ratio | 1.0595 | 1.0963 | **1.1037** | **−0.0075** |
+| corr_ratio | 1.0502 | 1.0140 | 1.0275 | −0.0136 |
+| rank_ratio | 1.0997 | 1.0552 | 1.0440 | +0.0112 |
+| mr_gt_ratio (aggregate) | 1.0506 | 1.0466 | 1.0778 | −0.0312 |
+| h30 MR ratio | 0.592 | 0.660 | 0.675 | −0.015 |
+| calibration_error | 0.0093 | 0.0165 | 0.0282 | −0.0116 |
+| max-jump KS | 0.48 | 0.417 | 0.455 | −0.038 |
+| n_pass | 4 | 4 | 4 | 0 |
+
+- Control best_model is from epoch 4 (per verifier — NOT epoch 15). Plain fine-tune
+  reaches the same regime within ~4 epochs.
+- 241a is slightly WORSE than the control on the target metrics (turb/calm, h30 MR).
+- 241a is BETTER than the control on calibration_error (0.0165 vs 0.0282) and
+  max-jump KS (0.417 vs 0.455) — an observation I missed in the original entry.
+
+### What this establishes vs does NOT establish
+
+**Established:**
+- Paper-exact ΔFM at λ=0.05 does not outperform matched λ=0 fine-tune on the target.
+- ΔFM acts more like a small tradeoff regularizer (calibration/tails vs regime-width)
+  than a regime-separation mechanism.
+- Stage 1a is empirically falsified as a useful first move for turb/calm on 183c.
+- Dropping Stage 1b (regime-masked ΔFM) on empirical grounds is justified — if the
+  paper's mechanism adds nothing, a variant is unlikely to.
+
+**NOT established** (retracted from earlier entry):
+- "Architecture is conditional-signal-saturated." No direct evidence.
+- "Output range is exhausted." Verifier checked magnitudes: `metric_local_abs_mean
+  ~0.095` (vs clip 0.60), `local_gate ~0.12`, `band_gate_abs ~0.25` (vs clip 0.35).
+  None obviously at saturation.
+- "Conditional capacity exhausted." Still a plausible hypothesis but not proven.
+- "Prior is history-conditional." Wrong — 183c's prior is structured but not
+  history-conditional. The nuisance in ṽ comes from permuting target path AND an
+  independent prior draw, not a history-conditional prior.
+
+### Mechanism story — narrower and honest
+
+What the paper's ΔFM is designed for: fixing overlapping velocity fields in multi-class
+generators where conditional flows collapse toward a shared mean. 183c is a single-flow
+conditional generator where each window has distinct `path_context` already. The ΔFM
+term pushes `v̂` away from ṽ, but ṽ = target_basis_flat[perm] − z0[perm] differs from
+the anchor's true target via multiple axes simultaneously (different x_1, different z0
+draw, different teacher_basis structure). The regime-specific component of that
+difference is a small fraction of the total `||v̂ − ṽ||²`, so the regime-relevant
+gradient signal is diluted.
+
+That is the *hypothesis* for why ΔFM doesn't move the regime axis here. It is NOT
+proved by the current evidence.
+
+### Saturation audit (queued)
+
+Because the original "output range saturated" claim was not supported, running an
+explicit audit of `raw_local`, `raw_band`, `metric_local`, `metric_band`, and gate
+output distributions (including clip-hit rates) on 183c and 241a. Result will amend
+whether saturation is present or not.
+
+Script: `experiments/backfill/block_ar/audit_183c_saturation.py` (in construction).
+
+### Decision (unchanged — verifier concurs)
+
+- Drop Stage 1a (falsified) and Stage 1b (premise unlikely).
+- Proceed to Stage 2 (CRPS on h30 MR) as the next principled attack. Independent
+  mechanism, independent failure mode.
+- Do not commit to Stage 4 architectural until (a) Stage 2 concludes, and (b) the
+  saturation audit provides an evidence base for whether output-range is a real
+  bottleneck.
+
+### Artifacts
+
+- Control training: `models/backfill/241a_ctrl_lambda0_s42/{best,final}_model.pt`
+- Control full-11 eval: `results/block_ar/241a_ctrl/best_full11.json`
+- Weight-delta investigation: `results/block_ar/241a/weight_delta_investigation.md`
+- Control-path regime probe: `results/block_ar/241a/control_path_diag/summary.{json,md}`
+- Control training log: `logs/241a_ctrl/train.log`, eval log: `logs/241a_ctrl/eval_best.log`
+
+---
