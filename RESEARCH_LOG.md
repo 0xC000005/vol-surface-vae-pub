@@ -73888,3 +73888,174 @@ hypothesis. If not, escalate to Option 5.
 - Prior VAE experience (2026-01-20): healthy posterior + deterministic decoder = 33% CI
 
 ---
+
+## 2026-04-20: 183c next step — risk-manager triage, Bitter-Lesson audit, and literature-backed direction
+
+### Context
+
+After 240-series DiT paradigm closure (IID-noise cross-cell correlation failure), the
+question is: what's the most principled next step toward a generalizable financial
+conditional scenario generator? With `native AR / extendable horizon` demoted from
+hard requirement, **183c becomes the natural fixed-30d benchmark line** — it holds the
+strongest structural backbone ever measured on this project (corr ratio 1.050, rank
+ratio 1.100, h30 cov90 89.8%, calibration error 0.009, bad-windows 1.6%).
+
+### Verified 183c residual failures (common 11-suite, v3 RV proxy)
+
+Numbers verified from `results/block_ar/229a_honest_eval/183c_full11_common_eval.json`:
+
+| Metric | Value | Gate | Status |
+|---|---|---|---|
+| turb/calm width ratio | 1.059 | > 1.15 | FAIL (close) |
+| overall MAE reduction | 0.61% | > 5% | FAIL |
+| ACF correlation | 0.934 | PASS | PASS |
+| kurtosis ratio | 0.678 | [0.8, 1.25] | FAIL (soft tails) |
+| per-cell tail scale | 23/25 | PASS | PASS |
+| Layer 2 regime coverage | 1/8 | 8/8 | FAIL |
+| daily-change KS | 23/25 | ≥ 15/25 | PASS |
+| level KS | 4/25 | ≥ 15/25 | FAIL |
+| aggregate MR | 1.051 | [0.70, 1.30] | PASS |
+| h30 MR ratio | 0.592 | PASS | FAIL (over-dispersion at h30) |
+| mean active MR pass rate | 46.9% | > 70% | FAIL |
+| max-jump KS | 0.482 | < 0.20 | FAIL |
+| pathwise q99 ratio | 0.979 | PASS | PASS |
+| per-cell q99 | 23/25 | PASS | PASS |
+| h30 cov90 | 89.8% | ≥ 85% | PASS |
+| worst-cell h30 | 70.8% | ≥ 70% | PASS |
+| bad-windows rate | 1.6% | < 50% | PASS |
+
+### Risk-manager triage — which gates are load-bearing
+
+**Hard gates (keep as production blockers):** surface validity, coverage/calibration,
+worst-window reliability, cross-cell structure, regime-sensitive widening (sign +
+meaningful separation), long-horizon MR / uncertainty plateau, no explosion/floor
+collapse, broad extreme-event incidence and scale.
+
+**Demoted to diagnostic/monitor:** MAE-reduction gate (forecast skill, not scenario
+quality), exact kurtosis/skew thresholds, Layer-2 all-pass, per-cell level-KS count
+threshold, exact max-jump-KS threshold, cointegration, Block-AR-specific checks.
+
+**Under risk-manager triage, 183c residual gaps collapse to two:**
+
+1. **Conditional regime separation still too weak** (turb/calm 1.059 vs 1.15 gate)
+2. **Long-horizon mean reversion decays too much** (h30 MR 0.592 — over-dispersion at
+   terminal horizon)
+
+### Bitter-Lesson audit of 183c (STRICTLY ALIGNED)
+
+Audited `StateMetricTransportModel` and its 183a/b lineage. Every parameter
+is learned via gradient descent:
+
+- `TimeConditionedGate` (learned gates with reasonable init probabilities 0.30/0.25)
+- `local_state_gate`, `band_state_gate` (learned outputs)
+- `LowRankWidthAllocator` (learned low-rank factorization context → allocations)
+- `BandwiseRadialTailController` (learned context → 3 band controls)
+- `path_transport` (ConditionalPathFlowTransformer — fully learnable FM net)
+- Metric budget logits (learnable scalars)
+
+**No data-derived constants anywhere:** no PCA init .npz, no variance templates,
+no per-cell/per-tenor lookup tables, no GT kurtosis targets. The only data file
+loaded is raw `data/vol_surface_with_ret.npz`.
+
+**Architectural inductive biases only** (acceptable): DCT basis decomposition,
+band cutoffs at 1/3 and 2/3 (structural, not fit), [0.01, 1.0] IV support bounds,
+numerical clipping for stability.
+
+**Magic numbers are CLI hyperparameters**, not baked-in empirical constants.
+
+**Verdict**: 183c is production-line-worthy on Bitter-Lesson grounds. Any extension
+must preserve this alignment.
+
+### Literature review (3 parallel agents, 2024-2026 papers)
+
+Three independent research dispatches (arXiv MCP + PaperQA + WebSearch) on:
+(1) regime-conditional dispersion in generative models, (2) long-horizon uncertainty
+calibration in generative time-series, (3) state-dependent transport in flow matching.
+
+**Convergent non-obvious finding: Mixture-of-flows is NOT the SOTA first move.**
+
+All three agents independently pointed away from architectural surgery:
+
+| Angle | Paper | Finding |
+|---|---|---|
+| Regime dispersion | AIFS-CRPS (arXiv 2412.15832, 2024) | SOTA uses almost-fair CRPS + in-network Gaussian noise injection; weather-diffusion literature has *bypassed* mixture-of-flows |
+| Regime dispersion | GenCast (arXiv 2312.15796, 2023) | Spread is implicit from conditional score + stochastic sampler, not from gating |
+| Transport | Contrastive Flow Matching (arXiv 2506.05350, 2025) | Contrastive penalty forces velocity field to be regime-discriminable; pure loss-side, zero architecture change |
+| Transport | C²OT (arXiv 2503.10636, 2025) | Conditional weighting in OT cost matrix — makes transport plan respect condition |
+| Transport | GMFlow (arXiv 2504.05304, 2025) | Mixture-of-velocity — only justified after contrastive/C²OT exhausted |
+| Long-horizon | Survey of ERDM, Rolling Diffusion, Diffusion Forcing, AIFS-CRPS, GenCast, TSFlow, MDGen | **No paper in 2023-2026 explicitly upweights terminal-horizon CRPS/ES/VS** — this gap is itself the finding |
+
+**Critical framing correction from the long-horizon agent:**
+`h30 MR = 0.59` means the model is **over-dispersed** at h=30 (scenarios stay too
+wide), not under-dispersed. All rolling / progressive-noise mechanisms (ERDM, Rolling
+Diffusion, Diffusion Forcing) go in the wrong direction — they ADD noise at late
+horizons to INCREASE uncertainty there. A mean-reverting process needs the opposite:
+late-horizon LOSS WEIGHT to pull scenarios back toward (narrower) GT marginals.
+
+### Decision: two loss-side patches, staged independently
+
+**Zero architectural change to `StateMetricTransportModel`.** Both patches preserve
+183c's strict Bitter-Lesson alignment.
+
+**Stage 1 — Contrastive Flow Matching auxiliary (attacks turb/calm):**
+- Source: Stojanovski et al., *Contrastive Flow Matching*, arXiv 2506.05350 (2025)
+- Mechanism: contrastive penalty forces 183c's velocity field to be distinguishable
+  across regime labels (regime labels used only for LOSS SIGNAL, not model input)
+- Implementation: single loss term added to 183c's existing training objective
+- Kill: turb/calm ≤ 1.10 after 15 epochs → 183c's velocity lacks representational
+  capacity to be regime-discriminable; architectural surgery becomes justified
+- Compute: ~5 hours
+
+**Stage 2 — Horizon-weighted proper scoring (attacks h30 MR):**
+- Mechanism: reweight existing ES/CRPS/VS per-horizon with α_h, α_30 > α_1.
+  Optionally make α_h learnable via softmax parameterization (fully principled)
+- Implementation: one-line loss-function change
+- Why the direction is correct: GT h=30 is narrower (mean-reverted); 183c h=30
+  is too wide; ES/VS loss at h=30 pushes model to match GT → model learns to
+  mean-revert more
+- Kill: h30 MR ≤ 0.80 after 10 epochs → terminal calibration needs architectural
+  support (per-horizon modulator head)
+- Compute: ~3.5 hours
+
+**Stage 3 (combined)** — only if both independent stages pass. Karpathy-independence
+preserved by running Stages 1 and 2 separately first.
+
+### Why loss-side over architectural
+
+- **Tighter literature chain**: 3 independent papers (2506.05350, 2412.15832, 2405.14780)
+  converge on loss-side interventions before architectural surgery.
+- **Smaller blast radius**: zero changes to `StateMetricTransportModel` itself.
+- **Cleaner attribution**: if loss-side fixes work, 183c's representations were fine.
+  If they don't, we've diagnosed WHY — stronger case for architectural surgery.
+- **Strict Bitter Lesson**: no hand scalars, no fixed schedules, no per-cell constants.
+  Loss weights are training hyperparameters, not data-derived empirical values.
+
+### Rejected candidates (with reason)
+
+| Rejected | Why |
+|---|---|
+| K=2 mixture-of-flows head | Literature says not-SOTA; known expert-collapse failure mode; larger blast radius |
+| EWMA-anchor blend on scale output | EWMA is hand-picked temporal filter — Bitter-Lesson violation |
+| Hand regime scalars in gate (vov-10, slope proxy) | Hand-designed features — would introduce Bitter-Lesson violation into clean model |
+| Rolling Diffusion / ERDM progressive-noise schedule | Wrong direction for over-dispersion; also hand-designed schedule |
+| Stage 1+2 combined train | Karpathy-independence — if A+B fails, can't attribute |
+
+### Artifacts
+
+- 183c suite results: `results/block_ar/229a_honest_eval/183c_full11_common_eval.json`
+- 183c training script: `experiments/backfill/block_ar/train_183c_*.py` (Codex-era)
+- 183c model: `diffusion/block_ar/state_metric_transport.py` (audited as strictly aligned)
+- Papers referenced:
+  - arXiv 2506.05350 (Contrastive Flow Matching, 2025) — Stage 1 basis
+  - arXiv 2412.15832 (AIFS-CRPS, 2024) — afCRPS + noise injection rationale
+  - arXiv 2312.15796 (GenCast, 2023) — implicit conditional spread
+  - arXiv 2503.10636 (C²OT, 2025) — fallback if Stage 1 fails
+  - arXiv 2504.05304 (GMFlow, 2025) — architectural fallback (last resort)
+
+### Next action
+
+Implement Stage 1 as `experiments/backfill/block_ar/train_241a_183c_contrastive_fm.py`.
+Warm-start from 183c best. Contrastive loss term on paired regime windows. 15 epochs.
+Then evaluate on v3 suite; if turb/calm > 1.10, proceed to Stage 2.
+
+---
