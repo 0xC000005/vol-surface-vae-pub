@@ -278,6 +278,18 @@ def load_one_day_kernel(
         )
 
         return load_240a_model(checkpoint_path, device)
+    if model_type in {"240b", "240b_joint_chunk_crps"}:
+        from experiments.backfill.block_ar.train_240b_joint_chunk_crps import (
+            load_model as load_240b_model,
+        )
+
+        return load_240b_model(checkpoint_path, device)
+    if model_type in {"240c", "240c_iter", "240c_iter_ddim_crps"}:
+        from experiments.backfill.block_ar.train_240c_iter_ddim_crps import (
+            load_model as load_240c_model,
+        )
+
+        return load_240c_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 
