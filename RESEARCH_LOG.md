@@ -74260,14 +74260,33 @@ gradient signal is diluted.
 That is the *hypothesis* for why ΔFM doesn't move the regime axis here. It is NOT
 proved by the current evidence.
 
-### Saturation audit (queued)
+### Saturation audit — RESULT (`audit_183c_saturation.py`)
 
-Because the original "output range saturated" claim was not supported, running an
-explicit audit of `raw_local`, `raw_band`, `metric_local`, `metric_band`, and gate
-output distributions (including clip-hit rates) on 183c and 241a. Result will amend
-whether saturation is present or not.
+Audited distributions of `raw_local`, `raw_band`, `metric_local`, `metric_band`,
+`local_gate`, `band_gate`, `local_metric_budget`, `band_metric_budget` on 200 val
+windows × 3 t-values × 2 checkpoints (183c, 241a).
 
-Script: `experiments/backfill/block_ar/audit_183c_saturation.py` (in construction).
+**Verdict: "output range exhausted" is NOT supported.** 7 of 8 channels on BOTH
+checkpoints show HEADROOM. The one SATURATED flag (241a local_gate at t=0.25,
+mean=0.043, 81% < 0.05) is learned early-time DORMANCY (state-path switched off at
+early flow time), not upper-range exhaustion — by t=0.75 it lifts to mean 0.20 with
+0% tail; 183c shows the same pattern milder. Not a clip wall.
+
+Key numbers (worst across t):
+- raw_local p99(|.|) = 0.19–0.29 vs clip 0.80 (uses ≤ 36% of range)
+- raw_band p99(|.|) ≈ 0.13 vs clip 0.45 (uses ≤ 29%)
+- metric_local p99(|.|) ≤ 0.60 with clip-hit ≤ 1.8% (well under NEAR threshold)
+- Both metric_budget logits parked near init (~43% and ~26% across their ranges)
+
+**Implication:** the 183c ceiling on turb/calm (and h30 MR) is NOT output-range
+saturation. It lies elsewhere — optimization, loss signal, prior, or interior
+architecture (path_transport, width_allocator, band_tail capacity). This
+formally retracts my earlier over-claim and gives Stage 4 architectural planning
+a concrete evidence base: widening clips / expanding output ranges will NOT help.
+
+Artifacts:
+- Script: `experiments/backfill/block_ar/audit_183c_saturation.py`
+- Report: `results/block_ar/241a/saturation_audit/summary.{json,md}`
 
 ### Decision (unchanged — verifier concurs)
 
