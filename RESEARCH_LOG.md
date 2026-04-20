@@ -73311,3 +73311,85 @@ cross-attention).
 - Dispatch registered: `_rollout_220_utils.py` model_type "240a"; `evaluate_220b` native-sample path
 
 ---
+
+## 2026-04-20: 240c_iter (Stage 2.5) — iterative DDIM + ES+VS negative on corr_ratio
+
+### Context
+Stage 2.5 tests whether the SOTA recipe (AIFS-CRPS / GenCast pattern — diffusion training
+scaffold preserved + proper multivariate scoring rules on end-of-loop K ensemble) closes
+the cross-cell correlation gap that 240a (MSE) and 240b-ep3 (single-step ES+VS) both failed
+to move (corr_ratio 0.002 vs GT 0.436).
+
+### Method
+`experiments/backfill/block_ar/train_240c_iter_ddim_crps.py`. Same DiT backbone as 240a/b.
+Loss = 1.0·MSE(flow-matching at random t) + 1.0·ES + 0.05·VS. K=128 noise seeds unrolled
+through 4-step DDIM loop with gradient checkpointing, ES+VS applied on final samples.
+bf16 autocast (implicit flash attention). B=1, grad_accum=8, lr=1e-4, 10 epochs seed 42,
+warm-start from 240b ep3. Training: 10 × 2321s = 6.4h. Best val_loss 19.97 @ ep6.
+
+### Key findings — 240c_iter vs all predecessors
+
+| metric | 229a | 240a | 240b ep3 | **240c_iter** |
+|---|---|---|---|---|
+| n_pass/7 | 3 | 1 | 1 | **1** |
+| max_jump_ks | 0.945 | 0.422 | 0.628 | **0.329 (best)** |
+| corr_ratio (GT 0.436) | 1.285 | 0.002 | 0.002 | **0.002** |
+| chgKS /25 | 19 | 5 | 5 | 2 |
+| lvlKS /25 | 6 | 0 | 4 | 0 |
+| turb_calm | 1.025 | 0.928 | 1.040 | 1.042 |
+| ensemble_std_ratio h30 | — | — | 1.259 | 1.296 |
+| ensemble_eff_rank | — | — | 39.35 | 40.32 |
+| GT pooled eff_rank | — | — | 39.69 | 39.69 |
+
+**Decisive signal:** cross-cell correlation gap is **not movable by ES+VS + iterative DDIM**
+under this architecture/training budget. 10 epochs, K=128, proper iterative scaffold —
+corr_ratio still 0.002 (0.5% of GT).
+
+**What IS working:**
+- **Pathwise tail realism** — max_jump_ks keeps improving (0.945 → 0.422 → 0.329) as we
+  go from MSE → single-step ES+VS → iterative ES+VS. Joint-chunk paradigm IS doing this job.
+- **Diversity calibration** — std_ratio 1.11–1.30 (samples slightly wider than GT marginal,
+  consistent with conditioning providing meaningful information narrowing). Effective rank
+  40.32 vs GT 39.69 — near-perfect match on dimensional diversity.
+
+**What is NOT working:**
+- Samples are **full-rank diverse but factor-structureless**. GT has PC1 = 55% of variance
+  (one dominant factor from level shifts across the 25 cells); our samples have PC1 ≈ 2%.
+  The ensemble spans the full 40-d space uniformly, like isotropic Gaussian noise with
+  the right marginals but no cross-cell alignment.
+
+### Diagnosis
+The failure mode is **architectural/optimization**, not loss-function — ES and VS are
+strictly proper for joint distributions (Gneiting-Raftery 2007) and in principle should
+penalize cross-cell decorrelation. But with the DiT's unfactored 750-token self-attention
+and zero-init AdaLN gates, the gradient signal from spread-term-minus-accuracy apparently
+finds a local minimum that is "full-rank noise with right marginals" rather than "low-rank
+factor structure." Related findings in literature: rectified flow / CFM variants
+(arXiv:2502.09616) document similar regression-to-marginal on heavy-tailed data.
+
+### Decision
+Stage 2.5 is NEGATIVE on its primary gate (corr_ratio). Do not proceed to Stage 3 regime
+cross-attention as originally planned — regime conditioning doesn't address factor structure
+either. Instead, the next principled move per the research-ideation compass (H3 branch) is
+**explicit low-rank / path-distribution supervision**:
+
+1. **Signature-based loss** (PCF-GAN, arXiv:2305.12511; Sig-WGAN): adds a characteristic
+   metric on the full path distribution. Zero loss ⟺ equal path laws, directly addressing
+   our "right marginals, wrong joint" failure.
+2. **Explicit factor-variance regularization**: add `|PC1_gen_ratio - PC1_gt_ratio|²` as
+   aux loss. Simpler, fewer moving parts; kills the specific failure by direct penalization.
+3. **Copula decomposition**: keep 240c_iter for marginals, wrap cross-cell coupling through
+   a learned Gaussian or vine copula fitted to GT residuals.
+
+Recommendation: start with (2) as the cheapest test — one extra loss term, one extra
+hyperparameter. If that moves corr_ratio > 0.2, we have a principled path. If not, (1) is
+the next fallback.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/train_240c_iter_ddim_crps.py`
+- Checkpoint: `models/backfill/240c_iter_ddim_crps_s42/best_model.pt` (ep 6)
+- Suite: `results/block_ar/240c_iter_s42/suite.json` + `.md`
+- Training log: `logs/train_240c_iter_s42.log`
+- Eval log: `logs/eval_240c_iter_s42.log`
+
+---
