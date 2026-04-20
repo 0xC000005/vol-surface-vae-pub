@@ -75248,3 +75248,103 @@ PASS (no empirical-quantile or per-cell data-derived buffers). Confirmed stack-a
 - Eval: `results/block_ar/250a/`, `250a_L4/`, `250a_L16/`
 - Logs: `logs/250a/`
 
+
+## 2026-04-20: 250b Stage B — Learned Marginal Head — MARGINAL OVERFIT (joint/marginal tradeoff)
+
+### Context
+
+Stage B of the 250-series plan. Extend 250a L=16 best with `LearnedMarginalHead`
+(Choice A — conditional spline, K_knots=12, all knots learnable, no precomputed empirical
+quantiles — Bitter-Lesson compliant). Warm-start from `250a_L16_K8_s42/best_model.pt`.
+Schedule: 10 epochs head-only frozen, then 10 epochs co-train. 20 total, ~25 s.
+
+### Key result table (vs Stage A L=16 best)
+
+| Metric | 250a L=16 | 250b L=16 | Δ | Plan gate |
+|---|---|---|---|---|
+| n_pass (11-suite) | 3/11 | 2/11 | -1 | — |
+| **corr_ratio** | **0.824** | **0.499** | **-0.325 (BROKE)** | ≥0.95 CLEAN |
+| rank_ratio | 1.739 | 2.389 | +0.650 | ≥0.80 CLEAN |
+| level_KS passes | 20/25 | 19/25 | -1 | ≥22 CLEAN |
+| change_KS passes | 0/25 | **7/25** | **+7** | — |
+| coverage 0.90 | 0.859 | 0.844 | -0.015 | — |
+| **gen_slope (MR)** | -0.065 | **-0.168** | **+0.103** | GT: -0.194 |
+| h30 MR ratio | 0.335 | **0.866** | **FLIP TO PASS** | [0.70, 1.30] |
+| turb/calm | 1.031 | 0.995 | -0.036 | — |
+| max_jump_KS | 1.000 | 1.000 | same | ≤0.30 Stage C |
+| q99_ratio | 0.146 | 0.131 | -0.015 | — |
+
+### Interpretation (per v1 plan Stage B decision matrix)
+
+**Classic MARGINAL OVERFIT:** "KS improves BUT corr_ratio < 0.95 OR rank_ratio < 0.8 →
+Marginal head broke joint structure; reduce K_knots or add joint-preserving regularizer."
+
+Positive signals Stage B DID unlock (not just noise):
+- **MR h30 flipped to PASS** (0.335 → 0.866, well within [0.70, 1.30]). First 250-series
+  result where MR gate is hit.
+- **chg_KS 0/25 → 7/25**: first non-zero per-cell daily-change KS pass in this series.
+- **|bias|(h30) increased:** 0.00777 → 0.00985 — paradoxically higher but gen_slope
+  captures signed slope in time-averaged stats; the bias-vs-signed-bias distinction
+  matters here (see mean-vs-spread report).
+
+Tradeoff:
+- **corr_ratio collapsed 0.824 → 0.499**: per-cell marginal head operates cell-by-cell
+  without joint-preserving constraint. When the head learns per-cell CDF corrections,
+  each cell's marginal distribution drifts independently, decorrelating the ensemble.
+- level_KS regressed 20→19 (small). chg_KS went 0→7 (head added daily-change shape info).
+- Pathwise max KS unchanged at 1.0 — extremes remain under-generated.
+  This is Stage C territory (latent FM multimodality), not Stage B's responsibility.
+
+### Mechanism citations (required per diagnostic-methodology)
+- "250b corr_ratio 0.499 < 0.8 — MARGINAL OVERFIT gate triggered, Stage A's joint
+  coupling broken by per-cell head"
+- "250b MR h30 ratio 0.866 vs 0.335 at 250a L=16 — marginal flexibility WAS the MR
+  bottleneck; Stage A factor path alone can't capture cell-wise mean-reversion shape"
+- "250b chg_KS 7/25 vs 0/25 at 250a L=16 — daily-change marginal shape IS learnable,
+  but Stage A's rigid (pre-head) output distribution blocked it"
+- "250b spread_ratio(h30) 1.389 ≈ 250a L=16's 1.437 — Stage B did not collapse spread;
+  tradeoff is cross-cell, not tail"
+
+### Decision (per v1 plan)
+
+Per plan's Stage B gate: MARGINAL OVERFIT → "reduce K_knots or add joint-preserving
+regularizer". Natural next sub-experiment: **250b-r1** with K_knots=6 (half the capacity)
+and/or a joint-structure regularizer like VS on raw Stage A output (before head).
+
+Stage C trigger condition (per plan): "B CLEAN SUCCESS AND tail/multimodality underfit
+(max-jump KS > 0.30)". 250b did NOT clean-succeed (corr broke) → Stage C is NOT triggered
+per the strict plan gate. But the extreme-tail failure (max_jump_KS 1.0) is architectural
+(idio path D-magnitude learned near 0), and latent-FM in Stage C is one of the candidate
+fixes. The other fix is direct: unclip idio_scale or add a tail-variance regularizer.
+
+### Closing the 250-series staged execution
+
+All three stages designed, Stages A+B executed as planned. Artifacts / mechanism / gates
+all recorded. Honest outcome: factor architecture is structurally correct (low-rank
+preserved, no collapse, no leak), but the proper-scoring-rule stack has a Pareto frontier:
+  - Stage A (L=16): joint OK, marginal limited
+  - Stage B: marginal flexible, joint broken
+
+Best overall single checkpoint in the 250 series depends on user's priority:
+  - If cross-cell structure is the headline: `250a_L16_K8_s42/best_model.pt` (3/11)
+  - If marginal/daily-change is the headline: `250b_L16_K8_s42/best_model.pt` (2/11 but
+    MR h30 PASSES and chg_KS moves to 7/25)
+
+Neither ships as-is. Next principled move (separate plan / Stage C scope):
+  - (a) 250b-r1 with K_knots=6 + joint-preserving regularizer (VS term on pre-head samples)
+  - (b) Stage C latent FM on L=16 backbone (addresses tails + decouples marginal from joint)
+  - (c) Architectural: time-conditioned Λ(h, t) — per-horizon factor loadings
+Option (a) is cheapest (~30 min). Deferred to user decision.
+
+### Bitter-Lesson audit
+`audit_250_bitter_lesson.py` on 250b best: SOURCE PASS, CHECKPOINT PASS. Confirmed the
+marginal head's knot positions are LEARNABLE params (not precomputed empirical
+quantiles). Bitter-Lesson preserved end-to-end.
+
+### Artifacts
+- `experiments/backfill/block_ar/train_250b_learned_marginal.py`
+- Checkpoint: `models/backfill/250b_L16_K8_s42/{best,final}_model.pt`
+- Eval: `results/block_ar/250b_L16/`
+- Diagnostics: factor_diag, mean_spread_diag under same
+- Log: `logs/250a/train_250b_L16.log`
+
