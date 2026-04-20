@@ -4,206 +4,6 @@ This document tracks the chronological research progress, findings, code changes
 
 ---
 
-## 2026-04-17: Why a Valid Multi-Day Conditional AR Generator Needs Local-vs-Temporal Decomposition
-
-### Context
-
-Follow-up conceptual review after the v3 harness standardization and the failure of the
-`212ai -> 221/222/223` extension line to become a convincing multi-day conditional
-scenario generator. The question was:
-
-> If an AR model already feeds its own generated frames back into a rolling 30-day history,
-> why is that not enough? Why do we need an explicit "temporal path" or slow state, rather
-> than relying on the existing condition encoder?
-
-### Core distinction
-
-`212ai` is a strong **one-day conditional density model**:
-
-`p(x_{t+1} | H_t)`
-
-with `H_t = last 30 observed surfaces`.
-
-A valid multi-day conditional scenario generator must model:
-
-`p(x_{t+1:t+30} | H_t)`
-
-These are not the same object.
-
-The multi-day generator must satisfy BOTH:
-
-1. **Local conditional correctness every day**
-   - given today's history, tomorrow's distribution is correct
-   - spatial structure / pair changes / cross-cell dependence remain realistic
-2. **Temporal path realism**
-   - slow regime persistence
-   - volatility clustering / scale persistence
-   - mean reversion over horizon
-   - uncertainty grows then plateaus
-   - jump clustering memory
-
-The repo evidence says the current shared-path models do the first much better than the
-second.
-
-### Why "rolling 30 generated days" is not sufficient
-
-Feeding generated frames back is **necessary**, but not sufficient.
-
-That approach is valid only if ALL three hold:
-
-1. the true process is effectively Markov of order 30 in observed surfaces
-2. the encoder extracts a sufficient statistic for both next-day law and long-horizon state
-3. generated 30-day windows stay on the same manifold as real 30-day windows
-
-The repo results indicate these do NOT all hold.
-
-#### 1. Generated histories drift off-manifold
-
-If the model is slightly too smooth today, tomorrow it sees:
-
-- a slightly smoother history
-- interprets it as calmer
-- emits slightly smaller moves
-- which makes the next history even smoother
-
-This is the dampening loop diagnosed in the `212ai` multi-day rollout analysis. Big moves
-can still occur, but they are underweighted, under-persisted, and under-propagated.
-
-#### 2. The visible 30-day window is not always a sufficient state
-
-Two histories can look similar in the last 30 days but correspond to different latent
-episodes:
-
-- short-lived spike that should fade
-- persistent stress regime that should remain elevated
-- transition state where jump risk is building
-
-These may have similar local surfaces and still imply different 10-30 day path laws.
-
-#### 3. The existing condition encoder is trained for "tomorrow", not "day 30"
-
-The current encoder is rewarded primarily for improving `p(x_{t+1} | H_t)`.
-Signals that matter mostly for:
-
-- regime persistence
-- uncertainty plateau
-- jump after-effects
-- long-horizon reliability
-
-receive much weaker training pressure. So the hidden state may contain some slow-state
-information, but not in a stable or rollout-robust form.
-
-### Why the current condition encoding is not enough
-
-The existing condition path is overloaded. It has to represent all at once:
-
-- next-day local law
-- level / slope / skew information
-- cross-cell structure
-- scale
-- slow regime
-- jump after-effects
-
-In practice, short-horizon local signals dominate because that is what the one-day loss
-directly rewards.
-
-This explains the repeated pattern in the repo:
-
-- adapt enough for multi-day dynamics -> h1 conditional quality degrades
-- protect h1 conditional quality -> multi-day dynamics remain weak
-
-This was the consistent lesson of the `221/222` line and later `223` follow-ups.
-
-### What "local path" vs "temporal path" means
-
-The proposed decomposition is:
-
-#### Local conditional path
-
-Owns the question:
-
-> "Given the current history, what should tomorrow's conditional distribution look like?"
-
-This path should own:
-
-- one-day conditionality
-- spatial realism of the next surface
-- pair-change / cross-cell structure
-- calibrated daily innovation law
-
-This is the role `212ai` is good at.
-
-#### Temporal path
-
-Owns the question:
-
-> "What broader episode am I in, and how should that persist across days?"
-
-This path should own:
-
-- slow regime
-- scale persistence
-- mean reversion over horizon
-- uncertainty accumulation then plateau
-- jump clustering memory
-
-This is the part the current shared-path models represent only implicitly and unreliably.
-
-### Why a temporal path is needed
-
-Because multi-day realism depends on **persistent hidden state**, not just the next-day
-conditional law.
-
-Without an explicit temporal path:
-
-- the model re-inferrs regime from a noisy rolling visible window every step
-- one or two generated calm days can falsely signal "regime is calming"
-- persistent stress / excitation information gets washed out
-- uncertainty either dampens too fast or diffuses incorrectly
-
-With an explicit temporal path:
-
-- the model can preserve "we are still in a stressed / excited episode"
-  even if one generated day looks ordinary
-- plateau behavior can live in state evolution rather than in the one-day emission
-- jump clustering can be represented as short-lived excitation memory rather than
-  forced into the daily conditional law
-
-### Implication for next architecture
-
-The next AR model should not try to make one shared `212ai`-style conditioning state do
-everything.
-
-It should explicitly separate:
-
-1. **Local conditional module**
-   - protects one-day law quality
-2. **Temporal state module**
-   - carries persistent regime / scale / excitation information across rollout
-3. **Restricted coupling**
-   - temporal state can modulate drift / anchored scale / factor intensity / jump intensity
-   - but should NOT fully rewrite the local one-day emission law each step
-
-This is the cleanest path if the product requirement remains:
-
-- AR / extendable beyond 30 days
-- explainable to management
-- conditional one-day behavior remains valid at every day in rollout
-- temporal path law remains realistic
-
-### Decision
-
-Keep this as the conceptual basis for the next AR architecture class.
-
-The key lesson is:
-
-**Feeding generated history back is necessary for AR rollout, but it does not prove the
-last 30 generated/observed days are a sufficient state. A valid multi-day conditional
-generator needs an explicit temporal path because multi-day realism depends on persistent
-hidden state, not just repeated one-day local correctness.**
-
----
-
 ## 2026-01-20: Multi-Horizon IV Surface Diffusion Research Synthesis
 
 ### Context
@@ -72753,6 +72553,206 @@ All 3 variants evaluated with v3 harness at `--max_windows 192 --samples 48`:
 - Reference (original): `results/block_ar/229a_ep30_suite.json`, `results/block_ar/232_eval/`
 
 ---
+## 2026-04-17: Why a Valid Multi-Day Conditional AR Generator Needs Local-vs-Temporal Decomposition
+
+### Context
+
+Follow-up conceptual review after the v3 harness standardization and the failure of the
+`212ai -> 221/222/223` extension line to become a convincing multi-day conditional
+scenario generator. The question was:
+
+> If an AR model already feeds its own generated frames back into a rolling 30-day history,
+> why is that not enough? Why do we need an explicit "temporal path" or slow state, rather
+> than relying on the existing condition encoder?
+
+### Core distinction
+
+`212ai` is a strong **one-day conditional density model**:
+
+`p(x_{t+1} | H_t)`
+
+with `H_t = last 30 observed surfaces`.
+
+A valid multi-day conditional scenario generator must model:
+
+`p(x_{t+1:t+30} | H_t)`
+
+These are not the same object.
+
+The multi-day generator must satisfy BOTH:
+
+1. **Local conditional correctness every day**
+   - given today's history, tomorrow's distribution is correct
+   - spatial structure / pair changes / cross-cell dependence remain realistic
+2. **Temporal path realism**
+   - slow regime persistence
+   - volatility clustering / scale persistence
+   - mean reversion over horizon
+   - uncertainty grows then plateaus
+   - jump clustering memory
+
+The repo evidence says the current shared-path models do the first much better than the
+second.
+
+### Why "rolling 30 generated days" is not sufficient
+
+Feeding generated frames back is **necessary**, but not sufficient.
+
+That approach is valid only if ALL three hold:
+
+1. the true process is effectively Markov of order 30 in observed surfaces
+2. the encoder extracts a sufficient statistic for both next-day law and long-horizon state
+3. generated 30-day windows stay on the same manifold as real 30-day windows
+
+The repo results indicate these do NOT all hold.
+
+#### 1. Generated histories drift off-manifold
+
+If the model is slightly too smooth today, tomorrow it sees:
+
+- a slightly smoother history
+- interprets it as calmer
+- emits slightly smaller moves
+- which makes the next history even smoother
+
+This is the dampening loop diagnosed in the `212ai` multi-day rollout analysis. Big moves
+can still occur, but they are underweighted, under-persisted, and under-propagated.
+
+#### 2. The visible 30-day window is not always a sufficient state
+
+Two histories can look similar in the last 30 days but correspond to different latent
+episodes:
+
+- short-lived spike that should fade
+- persistent stress regime that should remain elevated
+- transition state where jump risk is building
+
+These may have similar local surfaces and still imply different 10-30 day path laws.
+
+#### 3. The existing condition encoder is trained for "tomorrow", not "day 30"
+
+The current encoder is rewarded primarily for improving `p(x_{t+1} | H_t)`.
+Signals that matter mostly for:
+
+- regime persistence
+- uncertainty plateau
+- jump after-effects
+- long-horizon reliability
+
+receive much weaker training pressure. So the hidden state may contain some slow-state
+information, but not in a stable or rollout-robust form.
+
+### Why the current condition encoding is not enough
+
+The existing condition path is overloaded. It has to represent all at once:
+
+- next-day local law
+- level / slope / skew information
+- cross-cell structure
+- scale
+- slow regime
+- jump after-effects
+
+In practice, short-horizon local signals dominate because that is what the one-day loss
+directly rewards.
+
+This explains the repeated pattern in the repo:
+
+- adapt enough for multi-day dynamics -> h1 conditional quality degrades
+- protect h1 conditional quality -> multi-day dynamics remain weak
+
+This was the consistent lesson of the `221/222` line and later `223` follow-ups.
+
+### What "local path" vs "temporal path" means
+
+The proposed decomposition is:
+
+#### Local conditional path
+
+Owns the question:
+
+> "Given the current history, what should tomorrow's conditional distribution look like?"
+
+This path should own:
+
+- one-day conditionality
+- spatial realism of the next surface
+- pair-change / cross-cell structure
+- calibrated daily innovation law
+
+This is the role `212ai` is good at.
+
+#### Temporal path
+
+Owns the question:
+
+> "What broader episode am I in, and how should that persist across days?"
+
+This path should own:
+
+- slow regime
+- scale persistence
+- mean reversion over horizon
+- uncertainty accumulation then plateau
+- jump clustering memory
+
+This is the part the current shared-path models represent only implicitly and unreliably.
+
+### Why a temporal path is needed
+
+Because multi-day realism depends on **persistent hidden state**, not just the next-day
+conditional law.
+
+Without an explicit temporal path:
+
+- the model re-inferrs regime from a noisy rolling visible window every step
+- one or two generated calm days can falsely signal "regime is calming"
+- persistent stress / excitation information gets washed out
+- uncertainty either dampens too fast or diffuses incorrectly
+
+With an explicit temporal path:
+
+- the model can preserve "we are still in a stressed / excited episode"
+  even if one generated day looks ordinary
+- plateau behavior can live in state evolution rather than in the one-day emission
+- jump clustering can be represented as short-lived excitation memory rather than
+  forced into the daily conditional law
+
+### Implication for next architecture
+
+The next AR model should not try to make one shared `212ai`-style conditioning state do
+everything.
+
+It should explicitly separate:
+
+1. **Local conditional module**
+   - protects one-day law quality
+2. **Temporal state module**
+   - carries persistent regime / scale / excitation information across rollout
+3. **Restricted coupling**
+   - temporal state can modulate drift / anchored scale / factor intensity / jump intensity
+   - but should NOT fully rewrite the local one-day emission law each step
+
+This is the cleanest path if the product requirement remains:
+
+- AR / extendable beyond 30 days
+- explainable to management
+- conditional one-day behavior remains valid at every day in rollout
+- temporal path law remains realistic
+
+### Decision
+
+Keep this as the conceptual basis for the next AR architecture class.
+
+The key lesson is:
+
+**Feeding generated history back is necessary for AR rollout, but it does not prove the
+last 30 generated/observed days are a sufficient state. A valid multi-day conditional
+generator needs an explicit temporal path because multi-day realism depends on persistent
+hidden state, not just repeated one-day local correctness.**
+
+---
+
 ## 2026-04-18: 233a Two-Path Factor AR v1 — AR Paradigm Exhausted (NEGATIVE)
 
 **Hypothesize:**
@@ -73309,6 +73309,356 @@ cross-attention).
 - Suite: `results/block_ar/240a_s42/suite.json` + `.md`
 - Train log: `logs/train_240a_s42.log`
 - Dispatch registered: `_rollout_220_utils.py` model_type "240a"; `evaluate_220b` native-sample path
+
+---
+
+## 2026-04-20: Apples-to-Apples Common 11-Suite Eval — `229a+anchor` vs `183c`
+
+Ran both the current AR incumbent and the old one-shot anchor through the SAME
+full 11-suite evaluator, with the SAME window/sample settings:
+
+- windows: `192`
+- samples per window: `48`
+- split: validation
+- `229a`: native rollout + inference `anchor(0.50)`
+- `183c`: native joint 30-day rollout
+
+To make this possible, updated
+`experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py` to:
+
+1. support `--force_native_anchor` (mirroring `evaluate_220b`)
+2. use native `sample_batched` rollout for multi-day models
+3. use native conditionality evaluation for models without `sample_next_iv`
+
+### Artifacts
+
+- `results/block_ar/229a_honest_eval/229a_v3_full11_native_anchor.json`
+- `results/block_ar/229a_honest_eval/229a_v3_full11_native_anchor.md`
+- `results/block_ar/229a_honest_eval/183c_full11_common_eval.json`
+- `results/block_ar/229a_honest_eval/183c_full11_common_eval.md`
+
+### Result
+
+Both models score `4/11`, but they fail for different reasons.
+
+**`229a@ep30 + anchor(0.50)` passes:**
+- `surface`
+- `time_series`
+- `block_ar`
+- `cross_cell_correlation`
+
+**`183c` passes:**
+- `surface`
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+
+### High-signal metric comparison
+
+| Metric | `229a+anchor` | `183c` |
+|---|---:|---:|
+| suite score | `4/11` | `4/11` |
+| h1 cov90 | `72.8%` | `88.9%` |
+| h30 cov90 | `57.3%` | `89.8%` |
+| worst-cell h30 cov90 | `26.6%` | `70.8%` |
+| calibration error | `0.197` | `0.009` |
+| turb/calm | `0.928` | `1.059` |
+| daily-change KS pass cells | `19/25` | `23/25` |
+| level KS pass cells | `6/25` | `4/25` |
+| bad windows `<50%` coverage | `21.4%` | `1.6%` |
+| corr ratio | `1.279` | `1.050` |
+| rank ratio | `0.835` | `1.100` |
+| aggregate MR ratio | `1.318` | `1.051` |
+| h30 MR ratio | `0.975` | `0.592` |
+| max-jump KS | `0.940` | `0.482` |
+| extreme-jump incidence ratio | `0.294` | `0.977` |
+
+### Interpretation
+
+The apples-to-apples comparison settles the earlier ambiguity:
+
+- **`183c` is clearly the stronger fixed-30d structural model**
+  - much better coverage
+  - much better calibration
+  - much better window-floor behavior
+  - much better pathwise jump realism
+  - better cross-cell factor structure
+
+- **`229a+anchor` remains the better operating AR model only because it is native AR / extensible**
+  - it is not better than `183c` on fixed-horizon quality
+  - it is only the operating incumbent under the product constraint that the model must
+    roll forward autoregressively beyond 30 days
+
+### How bad are `183c`'s remaining fails?
+
+The six failed suites for `183c` are not equally severe:
+
+**Mild / near-miss**
+- `conditionality`
+  - turb/calm `1.059` vs gate `>1.15`
+  - MAE reduction `0.6%` vs gate `>5%`
+  - worst-cell width ratio `1.027` and worst-cell MAE reduction `-8.4%` are fine
+- `time_series`
+  - ACF corr `0.934` passes strongly
+  - move-size profile passes
+  - per-cell tail scale `23/25` passes
+  - fail is mainly kurtosis ratio `0.678` vs gate `[0.80, 1.25]`
+
+**Moderate structural**
+- `regime_coverage`
+  - Layer 1 passes
+  - Layer 3 catastrophic rate `2.5%` passes
+  - Layer 2 only `1/8` passes
+- `mean_reversion`
+  - aggregate MR, active cells, and active-cell corr all pass
+  - fail is long-horizon profile: h30 ratio `0.592`, mean active pass rate `46.9%`
+
+**Severe**
+- `distributional_fidelity`
+  - not broad collapse: change KS `23/25`, median bias `23/25`, mag bias `22/25`,
+    window-floor `1.6%`, cell MAE `23/25` all pass
+  - the actual blocker is **level KS `4/25`**
+- `pathwise_jump_realism`
+  - max-jump KS `0.482` vs gate `<0.20`
+  - per-cell q99 `23/25` and extreme-jump incidence `0.977` pass
+  - blocker is the **shape of pathwise extremes**, not jump scale/incidence
+
+### Decision impact
+
+This changes the framing:
+
+- `183c` is **not** production-ready for the current product goal
+- but it **is** the stronger fixed-horizon benchmark
+- `229a+anchor` is **not** better than `183c` on 30-day quality; it is just the best
+  surviving model under the AR/extensibility constraint
+
+---
+
+## 2026-04-20: Strategic Update — `183c` Is Worth Continuing if Fixed-30d Quality Is the Goal
+
+User clarified that **native AR / extendable horizon is no longer a hard requirement**.
+That changes the model-selection logic materially.
+
+### Updated decision
+
+If the objective is now:
+
+- best possible **fixed 30-day conditional scenario generator**
+- strongest structural realism on a common suite
+- publishable, principled model design
+
+then **`183c` is worth continuing as the main benchmark / improvement line**.
+
+This is now the cleanest reading of the common full-11 evaluation:
+
+- `183c` and `229a+anchor` both score `4/11`
+- but `183c` is substantially stronger on the metrics that matter for a fixed-horizon
+  scenario engine:
+  - coverage
+  - calibration
+  - worst-cell coverage
+  - window-floor reliability
+  - pathwise jump realism
+  - cross-cell factor structure
+
+So the previous reason to prefer `229a+anchor` was **product constraint only**
+(native AR / extendability), not superior 30-day scenario quality.
+
+### Publishability / theory position
+
+`183c` remains publishable and defensible if framed correctly:
+
+- a **structured conditional joint-path transport model**
+- for **fixed-horizon IV-surface scenario generation**
+- built from principled components:
+  - mean-reverting center path
+  - covariance-mixture dependence backbone
+  - geometry-aware basis transport
+  - structured smooth+jump path prior
+  - state-conditioned local/band uncertainty reallocation
+
+The novelty claim should be:
+
+- **new structured combination**
+- **new domain architecture**
+- **strong empirical and mechanistic analysis**
+
+The novelty claim should **not** be:
+
+- new copula theory
+- new fundamental flow-matching theorem
+- universal multivariate forecasting architecture
+
+### What `183c` still gets wrong
+
+The common 11-suite plus prior 183c mechanism review imply the following:
+
+**Mild / moderate misses**
+- conditionality is weak but not broken
+- time-series dependence is broadly good; tails are too soft
+
+**Main structural blockers**
+- level-distribution fidelity (`level KS`)
+- cell-level regime reliability (`S7`-style hard slices)
+- long-horizon mean-reversion decay
+- pathwise max-jump shape
+
+The saved 183c mechanism review still gives the right local diagnosis:
+
+- the hard-slice problem is **too diffuse allocation**, not missing state information
+- the tail problem is **shoulder heaviness** (too many medium moves, too little quiet mass),
+  not grossly wrong extreme scale
+
+### Updated recommendation
+
+Because fixed-30d quality is now the objective, the right next move is:
+
+- keep `183c` as the main fixed-horizon benchmark / research line
+- use `229a+anchor` only as an AR historical comparator, not as the main target
+
+### Most principled next `183c` improvement directions
+
+1. **Context-conditioned concentration budgets**
+- Replace mostly global local/band transport budgets with bounded context-conditioned
+  budgets so the model can concentrate mass selectively in genuinely hard windows.
+
+2. **Refine the smooth/jump prior to reduce shoulder heaviness**
+- Preserve extreme-jump scale while restoring quiet-day mass and reducing medium-move
+  over-allocation.
+
+3. **Target level-KS specifically**
+- Add a light conditional marginal-calibration layer that improves level stationarity
+  without destroying joint dependence.
+
+4. **Strengthen long-horizon center-path mean reversion**
+- Make horizon-wise center dynamics more state-aware so the h30 MR profile does not decay
+  to `~0.59`.
+
+### Decision
+
+With AR extensibility removed as a hard constraint, **`183c` is now the most justified
+main line to continue if the goal is the best publishable fixed-30d conditional scenario
+generator.**
+
+---
+
+## 2026-04-20: Production-Oriented Gate Triage for `183c`
+
+Reviewed the common full-11 evaluation from a **risk-manager / production** perspective
+rather than a research-maximal benchmark perspective.
+
+### Core conclusion
+
+Not all of `183c`'s current failed suites should remain hard deployment blockers.
+
+For a fixed-30d conditional scenario generator, the three production-critical attack
+targets are:
+
+1. **Conditional regime separation**
+2. **Long-horizon mean reversion / uncertainty plateau**
+3. **Long-horizon level fidelity / stationarity**
+
+These are the three failures to treat as real blockers.
+
+### Keep hard and attack
+
+#### 1. Conditional regime separation
+
+Keep hard.
+
+Reason:
+- if turbulent windows are not wider than calm windows, the generator is not conditionally
+  credible for risk use
+
+Current `183c`:
+- turb/calm `1.059` vs gate `>1.15`
+
+This is the first thing to attack.
+
+#### 2. Long-horizon mean reversion / plateau
+
+Keep hard.
+
+Reason:
+- a valid multi-day IV scenario engine should not behave like an unbounded random walk
+- the path should widen initially, then plateau in a mean-reverting market
+
+Current `183c`:
+- h30 MR ratio `0.592`
+- full-horizon active mean pass rate `46.9%`
+
+This is the second thing to attack.
+
+#### 3. Level fidelity / long-horizon stationarity
+
+Keep hard, but narrow the definition.
+
+Reason:
+- the real concern is not "15/25 level KS or fail" in the abstract
+- the real concern is whether long-horizon level distributions remain realistic enough for
+  risk aggregation
+
+Current `183c`:
+- level KS only `4/25`
+
+This remains the third real blocker.
+
+### Demote from hard blockers
+
+#### 1. Exact time-series kurtosis/skew gate
+
+Demote to diagnostic.
+
+Reason:
+- `183c` already passes the more important temporal checks:
+  - ACF
+  - move-size profile
+  - per-cell tail scale mostly
+- the kurtosis-ratio miss reflects tail-shape softness, but is not the first production
+  blocker
+
+#### 2. Regime coverage Layer 2 all-pass
+
+Demote to secondary monitor.
+
+Reason:
+- Layer 1 and Layer 3 matter more for production
+- requiring all 8 regime×cell hard slices to pass is too research-maximal for deployment
+
+#### 3. Exact max-jump KS threshold
+
+Demote to strong monitor rather than hard blocker.
+
+Reason:
+- `183c` still fails max-jump KS (`0.482`)
+- but broad jump realism is much better than the AR line:
+  - extreme incidence is right
+  - per-cell q99 scale mostly passes
+- the exact `<0.20` threshold is too strict to be the first deployment blocker
+
+### Production-oriented acceptance focus
+
+**Promote / attack**
+- conditional regime separation
+- long-horizon MR / plateau
+- level fidelity / stationarity
+
+**Demote**
+- exact kurtosis/skew gate
+- regime Layer 2 all-pass
+- exact max-jump KS threshold
+
+### Practical implication
+
+Under a production-oriented gate set, `183c` is materially closer to deployable than under
+the research-maximal 11-suite.
+
+The main remaining work is therefore not "fix everything equally" but:
+
+1. strengthen conditional regime-sensitive widening
+2. preserve the correct mean-reversion profile through h30
+3. improve long-horizon level fidelity without breaking the strong coverage / calibration /
+   cross-cell structure that `183c` already has
 
 ---
 
