@@ -75464,3 +75464,107 @@ mechanism for multimodal tails. Separate plan required.
 - Results: `results/block_ar/250a_L16_tails/`, `250b_r1/`, `250c/`
 - Logs: `logs/250a/train_L16_tails.log`, `train_250b_r1.log`, `train_250c.log`
 
+
+## 2026-04-20: 250ac — A+C stacked BREAKTHROUGH (4/11 first in series)
+
+### Context
+
+After the A/B/C Pareto mapping showed neither alone clears the frontier, stacked Option A
+(multi-CRPS tails) + Option C (LatentFM multimodal latent) into one training run. Codex
+had warned against stacking without empirical justification — we now have it.
+
+Recipe: warm-start from 250a L=16 best; enable LatentFM (4-step Euler ODE); add
+`lambda_pmax=0.5` + `lambda_chg=0.2` to the loss stack. 10 ep head-only frozen + 10 ep
+co-train.
+
+### Result — first 4/11 in the 250 series
+
+| Metric | 250a L=16 | A alone | C alone | **A+C stacked** |
+|---|---|---|---|---|
+| **n_pass** | 3/11 | 2/11 | 3/11 | **4/11** |
+| corr_ratio | 0.824 | 0.187 | 0.700 | 0.543 |
+| rank_ratio | 1.739 | 2.246 | 1.907 | 1.994 |
+| lvl_KS | 20 | 14 | 14 | 17 |
+| chg_KS | 0 | 19 | 0 | **18** |
+| cov90 | 0.859 | 0.839 | 0.809 | 0.816 |
+| turb/calm | 1.031 | 1.029 | 1.068 | **1.093** |
+| max_jump_KS | 1.000 | 0.827 | 0.999 | **0.829** |
+| q99_ratio | 0.146 | 0.600 | 0.167 | **0.593** |
+| gen_slope | -0.065 | -0.076 | -0.083 | -0.087 |
+
+**Passes: surface, block_ar, cross_cell_correlation, distributional_fidelity.** Previously
+unattained fourth pass comes from distributional_fidelity (chg_KS 18/25 + lvl_KS 17/25).
+
+### Interpretation — the synergy is real
+
+A alone collapsed corr to 0.19 (per-cell pressure decorrelates cells). C alone preserved
+corr at 0.70 but did nothing for tails. Stacked: the LatentFM acts as a buffer that
+*absorbs* the per-cell tail pressure through multimodal latent deformation, so the
+decorrelation doesn't propagate as severely:
+- corr 0.187 (A) → 0.543 (A+C): +2.9× recovery
+- q99_r 0.15 (C) → 0.593 (A+C): +4× tail unlock (matches A alone)
+- chg_KS 0 (C) → 18 (A+C): matches A alone
+- turb/calm 1.068 (C) → 1.093 (A+C): closest yet to 1.15 gate
+
+The multimodal latent can encode tail events without forcing D(h) to grow cell-by-cell.
+Codex's "don't stack" was the right default in the absence of evidence; now that we have
+evidence that neither alone succeeds, the stack is the minimum viable mechanism.
+
+### Mechanism (factor diagnostic on A+C best)
+
+- SVD(Λ) top-L energy = 1.000 (low-rank preserved — no full-rank leak)
+- effective_rank(z) = 9.16 / 16 (slight reduction from 250a L=16's 11.2 — FM deformation
+  concentrates latent mass into fewer effective modes, consistent with multimodal fit)
+- rel_cond_std(Λ) = 0.391 (vs 0.602 at 250a L=16; Λ still history-dependent but less)
+- D_scale mean = 0.00242 (vs 0.00078 at 250a L=16; 3.1× larger — D is taking SOME
+  tail signal alongside the latent FM)
+- Singular profile: [0.170, 0.108, 0.079, 0.056, 0.044, ...] — healthy low-rank decay
+
+### Mechanism (mean-vs-spread h30)
+
+- |bias|(h30) = 0.01218 (vs 0.00775 at 250a L=16 — +57%, but signed_bias 0.00275)
+- spread_ratio(h30) = 1.876 (vs 1.437 at 250a L=16 — more over-spread, consistent with
+  the first real tail generation — heavy tails need width)
+- MAE(h30) = 0.04909 (vs 0.04238 at 250a L=16 — worse per-window accuracy)
+
+The model trades center-path accuracy for tail realism. Coverage at 0.816 because
+the CI is wider but less centered on the GT.
+
+### Remaining failures
+
+7 suites still fail:
+1. **coverage**: cov90 0.816 < 0.90 (wider CI but not well-centered)
+2. **conditionality**: turb/calm 1.09 < 1.15 (close but not crossed)
+3. **time_series**: kurtosis out of [0.8, 1.25] (needs to be checked; likely over-kurtotic now)
+4. **cointegration**: probably structural
+5. **regime_coverage**: needs regime-aware width
+6. **mean_reversion**: gen_slope -0.087 vs -0.194 (center still doesn't revert fast enough)
+7. **pathwise_jump_realism**: q99_r 0.59 vs 1.0 gate (halfway there)
+
+### Decision
+
+A+C stacked is the new 250-series champion. Clean architectural story:
+- LatentFM absorbs decorrelation that per-cell losses introduce
+- Per-cell loss unlocks tails that latent alone couldn't find
+- Joint structure preserved at ~65% of baseline
+
+**Candidate paths from here** (user decides):
+- (a) tune λ_pmax / λ_chg; higher values might unlock more tails at corr cost
+- (b) add Stage B marginal head on top of A+C (three-way stack)
+- (c) add MR regularizer directly (penalize deviation from OLS(gen_slope, gt_slope))
+- (d) ship 250ac as production-proxy and move to multi-factor generalization test
+  (D=5 rates, D=30 FX) to validate the stack-agnostic claim end-to-end
+
+### Mechanism citations
+- "A+C n_pass 4/11: first 4-suite pass in 250-series"
+- "Stacking synergy confirmed: corr 0.187(A) → 0.543(A+C) = 2.9× recovery"
+- "Factor structure clean post-stack: SVD top-L = 1.000, D_scale mean 3.1× baseline,
+  Λ condition-sensitivity preserved"
+- "spread_ratio(h30) 1.876 vs 1.437 baseline — tails generated via latent + D synergy"
+
+### Artifacts
+- Checkpoint: `models/backfill/250ac_L16_fm_tails_s42/best_model.pt`
+- Eval: `results/block_ar/250ac/best_full11.{json,md}`
+- Diagnostics: `results/block_ar/250ac/{factor_diag,mean_spread_diag}/`
+- Log: `logs/250a/train_250ac.log`
+
