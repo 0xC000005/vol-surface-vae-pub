@@ -75568,3 +75568,102 @@ A+C stacked is the new 250-series champion. Clean architectural story:
 - Diagnostics: `results/block_ar/250ac/{factor_diag,mean_spread_diag}/`
 - Log: `logs/250a/train_250ac.log`
 
+
+## 2026-04-20: 250 series — structural root-cause diagnosis and 251 DLFM proposal
+
+### Diagnosis of the four-variant Pareto (A, B, C, A+C)
+
+Empirical outcome: A (per-cell tails) collapses joint; B (learned marginal) breaks
+correlation; C (latent FM) preserves joint but doesn't unlock tails; A+C gets 4/11
+by routing tail signal through a non-Gaussian latent that survives Λ's joint structure.
+
+Three variability channels in the current architecture:
+1. Latent `z ∈ R^L` (shared across cells, routed through Λ — joint-preserving)
+2. Idio `D(h)·ε` (per-cell independent — joint-breaking)
+3. Marginal head (per-cell monotone — joint-neutral, shape-only)
+
+**When per-cell pressure is applied and the latent is a static Gaussian, the only
+optimization path is to grow D cell-by-cell, decoupling the cells.** LatentFM opens
+a second path: reshape z's distribution to carry the signal through Λ. This is
+why A+C recovered corr from 0.187 → 0.543. The stacking isn't a compound hack;
+it's a **capacity-routing** outcome.
+
+### Why the remaining seven suites fail — one root cause
+
+All seven trace to a single architectural fact: **z is a static random vector, not
+a stochastic process.** One `z ∼ p(·|h)` is drawn per trajectory, then every day of
+the 30-day path reads out the same `z` via `Λ(h)[t]·z`. The trajectory is a fixed
+linear function of one L-dim noise.
+
+Failure clusters:
+- **Temporal dynamics (mean_reversion, cointegration):** static z cannot mean-revert,
+  drift toward equilibrium, or evolve.
+- **Rare-event structure (pathwise_jump_realism, time_series kurtosis):** a single
+  draw cannot produce "calm week then crash" within one trajectory — jumps must happen
+  *inside* a window.
+- **Regime / calibration (coverage, conditionality, regime_coverage):** conditional
+  spread is fixed at decode-time; the model cannot know it's in a turbulent regime as
+  the window unfolds.
+
+### Statistical argument — why proper scoring rules don't save us
+
+afCRPS / VS / ES are minimized at the true distribution **iff the hypothesis class
+contains it**. The current class is `{history → fixed 30-day linear trajectory of
+one latent z + iid idio noise}`. No 30-day IV path distribution lives in this class
+(MR alone rules it out). Proper-scoring-rule tuning cannot converge to truth when
+truth is not in the optimization's search space — no amount of λ tweaking changes
+this. We've mapped the Pareto of the *wrong class*.
+
+### The principled revision: DLFM (Dynamical Latent Factor Model)
+
+Replace `z ∈ R^L` (static, one per trajectory) with `z_t ∈ R^L` (T=30 states,
+evolving as a learned stochastic process):
+
+```
+z_0         ~ p_0(· | h)                                   # inherit LatentFM from C
+z_{t+1}     = z_t + f_θ(z_t, t, h)·Δt + g_θ(z_t, t, h)·ε_t # learned drift + diffusion
+Δsurface[t] = Λ(h)[t] · z_t + D(h)[t] · η[t]              # readout per step
+surface[t]  = history[-1] + cumsum(Δsurface)[:t]
+```
+
+`f_θ, g_θ` = small shared MLP on `(z_t, t_emb, h)` → `(drift, diffusion)`. ~100k
+params total at L=16.
+
+### Why this single revision addresses every failure cluster
+
+- **Temporal dynamics:** `f_θ` can learn OU-like pull toward zero → MR emerges if
+  data supports it. Cointegration = shared drift structure across cells via Λ.
+- **Rare events / tails:** large `g_θ·ε_t` steps generate jumps *inside* trajectories
+  — multimodality across time, not just across ensemble draws. q99_r gap closes.
+- **Regime / calibration:** conditional spread at day t depends on realized `z_{1..t-1}`
+  — the model "knows" it's in a calm/turbulent regime as the path unfolds. Coverage
+  and turb/calm improve because spread is path-dependent, not history-fixed.
+
+### Why DLFM is principled, not a patch
+
+- Hypothesis-class upgrade: class becomes a neural SDE (universal approximation).
+  Proper scoring rules now have a meaningful convergence target.
+- One new component (`f_θ, g_θ`), ~100k params
+- Same loss stack, same training recipe, same eval harness, same stack-agnostic
+  contract (z_t is still R^L, cells still R^D)
+- Inherits all A+C wins (LatentFM is the initial condition p_0)
+- No per-cell additions — joint structure preserved by construction
+
+### Alternatives considered and rejected
+
+- **Transformer decoder:** more params, loses explicit low-rank, assumes sequence-style
+  structure (not stack-agnostic to arbitrary factor families).
+- **Full-trajectory score-based diffusion:** 240a failure mode — cross-cell collapse.
+- **Hierarchical factor (slow + fast):** adds complexity without a single unifying
+  mechanism.
+
+### Call this 251a DLFM. Queued for implementation pending user go.
+
+### Mechanism citations
+- "Static-latent hypothesis class cannot represent trajectory distributions with MR:
+  model convergence to true distribution is impossible in principle, not practice."
+- "LatentFM in A+C was a special case of DLFM with T=1 (just the initial condition);
+  2.9× corr recovery shows the routing mechanism works at T=1."
+- "Extending to T=30 stochastic process expands hypothesis class to contain real IV
+  path distributions (neural SDE universal approximation)."
+
