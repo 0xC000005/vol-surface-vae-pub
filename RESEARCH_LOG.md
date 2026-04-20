@@ -74859,3 +74859,87 @@ Stage 2/3 established:
 - `results/block_ar/{241c,241d}/best_full11.{json,md}`
 
 ---
+
+## 2026-04-20: Oracle Amendment — Advisor Challenge Upheld
+
+### Retraction
+The previous entry's conclusion that "11/11 is infeasible" was premature. Advisor
+called this correctly: the k-NN oracle's 4/10 score is dominated by three specific
+biases (train→val distribution shift, retrieval-dilution of pred_mean, over-wide
+spread), NOT metric-design tension.
+
+Ran two additional oracles that the advisor requested to resolve the question:
+- **Gaussian oracle**: pred_mean = GT, + IID Gaussian noise with per-cell per-horizon σ.
+- **Structured oracle**: pred_mean = GT, + zero-mean anomalies sampled from random
+  other val windows (preserves joint structure).
+
+### Full 5-Oracle Table
+
+| Oracle | n_pass / 10 | MR h30 | kurtosis | level_KS | change_KS | corr_ratio | max_jump_KS |
+|---|---|---|---|---|---|---|---|
+| **GT-replicated (K copies of GT)** | **7/10** | 1.000 | 1.000 | 25/25 | 25/25 | 1.000 | 0.000 |
+| GT-Gaussian (IID σ per cell) | 4/10 | 0.988 | 0.342 | 18/25 | 0/25 | 0.067 | 0.318 |
+| GT-Structured (random anomaly) | 3/10 | -0.020 | 0.648 | 1/25 | 21/25 | 0.937 | 0.295 |
+| k-NN conditional | 4/10 | 0.925 | 0.636 | 3/25 | 23/25 | 1.126 | 0.531 |
+| Pool unconditional | 4/10 | 1.236 | 0.556 | 0/25 | 13/25 | 1.049 | 0.492 |
+
+### Revised Interpretation
+
+**Constraints are NOT fundamentally contradictory.** GT-replicated passes 7/10 with:
+- MR = 1.000, kurtosis = 1.000, level_KS = 25/25, change_KS = 25/25, corr = 1.000,
+  max_jump_KS = 0.000, rank_ratio = 1.000
+
+The only failures are the 3 suites that REQUIRE spread (coverage, regime_coverage,
+distributional_fidelity-window_floor). A model with `pred_mean = E[GT|history]` and
+calibrated spread that preserves joint structure would pass all 10.
+
+### But: Adding Spread Requires STRUCTURE, Not Just Magnitude
+
+- **Gaussian IID spread** passes MR (0.988), level_KS (18/25), mostly OK marginals.
+  BUT destroys cross_cell_correlation (0.067, should be ~1.0) and time_series /
+  pathwise_jump_realism / change_KS because IID noise has:
+  - No cross-cell correlation → corr_ratio → 0
+  - Normal kurtosis (3, not heavy-tailed like GT) → kurt ratio = 0.34
+  - No autocorrelation → ACF wrong → time_series fails
+  - Gaussian changes ≠ fat-tailed GT changes → change_KS = 0/25
+
+- **Structured anomaly** (from random windows) preserves cross-cell + temporal
+  structure but destroys MR (-0.020) because anomalies are not zero-mean
+  CONDITIONALLY — swapping a turb window's GT for a calm window's anomaly shifts
+  the sample pred_mean off its true conditional expected value.
+
+So the target is clear: `pred_mean = E[y|x]` PLUS spread with:
+- heavy tails (matches GT kurtosis)
+- cross-cell correlation (matches GT covariance)
+- temporal autocorrelation (matches GT ACF)
+- magnitude = calibrated innovation std (for coverage)
+- conditional on history (not global shuffle) — otherwise MR breaks
+
+A good conditional generative model CAN do this. The architectures (183c, 241b/c/d)
+are approximations; the 4/11 result is not a ceiling, it's a local minimum.
+
+### Revised Next Step — 241e: Unfreeze + KS-Preservation Anchor
+
+241c proved unfreeze lets backbone move pred_mean (MR h30 crossed gate). 241c also
+showed the downside: level/change KS collapse because unfrozen backbone drifts off
+183c's learned marginal distributions.
+
+**241e design**: identical to 241c but adds
+```
+L_anchor = |pred_mean_241e - pretrained_183c_pred_mean.detach()|.mean()
+```
+with weight λ_anchor (default 1.0). This constrains pred_mean to stay near 183c's
+well-calibrated marginal predictions while CRPS gradient still moves it somewhat
+toward GT. Thread the needle between 241b (frozen, no MR movement) and 241c
+(unfreezed, KS collapses).
+
+Queuing 241e. If it lands ≥ 5/11 or passes both MR h30 AND level_KS, we have a
+real improvement. If 4/11 or less, the anchor strength needs tuning or the
+multi-objective is model-capacity limited.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/diagnose_241_gt_oracle_11suite.py` (now has 5 oracles)
+- `results/block_ar/241b/gt_oracle_11suite_v3.json`
+
+---

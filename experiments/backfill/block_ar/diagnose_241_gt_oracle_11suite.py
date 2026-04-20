@@ -207,7 +207,7 @@ def main():
     print(f"\nPool oracle: {pool_pass}/10 PASS  |  failed: {pool_fail}")
 
     # --- ORACLE C: GT replicated K (no spread) ---
-    print("\n[3/3] Running GT-replicated oracle (should fail coverage)...")
+    print("\n[3/4] Running GT-replicated oracle (should fail coverage)...")
     samples_repl = np.tile(val_future_np[:, np.newaxis], (1, args.K, 1, 1, 1))
     repl_results = run_10_suites(
         samples_repl, val_future_np, val_hist_np,
@@ -217,11 +217,64 @@ def main():
     repl_pass, repl_fail = count_pass(repl_results)
     print(f"\nGT-replicated oracle: {repl_pass}/10 PASS  |  failed: {repl_fail}")
 
+    # --- ORACLE D: GT-centered with GT-matched Gaussian spread (clean oracle) ---
+    # pred_mean = GT exactly. Spread = calibrated per-cell-per-horizon std so the
+    # MARGINAL distribution of samples matches GT marginal across windows.
+    # This is the "perfect conditional predictor + correct marginal variance" test —
+    # if this fails suites, the 11-suite is fundamentally tensioned.
+    print("\n[4/5] Running GT-Gaussian oracle (calibrated spread + GT center)...")
+    # σ[t, i, j] = std across val windows of GT[:, t, i, j] (marginal std).
+    # Using the sample variance of GT rather than innovation variance because the
+    # "ensemble marginal" we want to match is the GT marginal (which is what
+    # level-KS/kurtosis/distributional_fidelity compare against).
+    gt_std_per_hc = val_future_np.std(axis=0)  # (T, 5, 5)
+    rng = np.random.default_rng(42)
+    noise = rng.standard_normal((len(val_future_np), args.K, args.future_len, 5, 5)).astype(np.float32)
+    noise = noise * gt_std_per_hc[np.newaxis, np.newaxis]
+    samples_gaussian = val_future_np[:, np.newaxis] + noise  # (N, K, T, 5, 5)
+    # Clip to support [0.01, 1.0] to avoid surface violations
+    samples_gaussian = np.clip(samples_gaussian, 0.01, 0.999)
+    gaussian_results = run_10_suites(
+        samples_gaussian, val_future_np, val_hist_np,
+        returns=returns, rollout_start=rollout_start,
+        history_len=args.history_len, future_len=args.future_len,
+    )
+    gaussian_pass, gaussian_fail = count_pass(gaussian_results)
+    print(f"\nGT-Gaussian oracle: {gaussian_pass}/10 PASS  |  failed: {gaussian_fail}")
+
+    # --- ORACLE E: GT-centered with STRUCTURED spread from other val windows ---
+    # For each val window i, use K=48 OTHER val windows' anomalies (GT[j] - GT[j]_mean)
+    # as the noise pattern. This preserves joint structure (cross-cell, temporal) from
+    # real data while centering on the correct pred_mean.
+    print("\n[5/5] Running GT-Structured oracle (real-data anomaly noise + GT center)...")
+    rng = np.random.default_rng(43)
+    gt_mean_per_window = val_future_np.mean(axis=(1, 2, 3), keepdims=True)  # (N,1,1,1) scalar per window
+    anomalies = val_future_np - gt_mean_per_window  # (N, T, 5, 5) — zero-mean paths with real joint structure
+    structured_noise = np.zeros((len(val_future_np), args.K, args.future_len, 5, 5), dtype=np.float32)
+    for i in range(len(val_future_np)):
+        # Pick K different val windows as noise sources (exclude i itself when possible)
+        choices = list(range(len(val_future_np)))
+        if i in choices:
+            choices.remove(i)
+        pick = rng.choice(choices, size=args.K, replace=True)
+        structured_noise[i] = anomalies[pick]  # (K, T, 5, 5)
+    samples_struct = val_future_np[:, np.newaxis] + structured_noise
+    samples_struct = np.clip(samples_struct, 0.01, 0.999)
+    struct_results = run_10_suites(
+        samples_struct, val_future_np, val_hist_np,
+        returns=returns, rollout_start=rollout_start,
+        history_len=args.history_len, future_len=args.future_len,
+    )
+    struct_pass, struct_fail = count_pass(struct_results)
+    print(f"\nGT-Structured oracle: {struct_pass}/10 PASS  |  failed: {struct_fail}")
+
     summary = {
         "args": vars(args),
-        "knn_oracle":  {"n_pass": knn_pass, "failed": knn_fail, "results": knn_results},
-        "pool_oracle": {"n_pass": pool_pass, "failed": pool_fail, "results": pool_results},
-        "repl_oracle": {"n_pass": repl_pass, "failed": repl_fail, "results": repl_results},
+        "knn_oracle":      {"n_pass": knn_pass, "failed": knn_fail, "results": knn_results},
+        "pool_oracle":     {"n_pass": pool_pass, "failed": pool_fail, "results": pool_results},
+        "repl_oracle":     {"n_pass": repl_pass, "failed": repl_fail, "results": repl_results},
+        "gaussian_oracle": {"n_pass": gaussian_pass, "failed": gaussian_fail, "results": gaussian_results},
+        "struct_oracle":   {"n_pass": struct_pass, "failed": struct_fail, "results": struct_results},
     }
     Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output_json).write_text(json.dumps(summary, indent=2, default=str))
