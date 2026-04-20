@@ -249,6 +249,10 @@ def train_loop(args):
     history_log = []
     grad_accum = max(1, args.grad_accum)
 
+    amp_dtype = {"fp32": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}[args.precision]
+    use_autocast = amp_dtype != torch.float32
+    print(f"[train] precision={args.precision} (autocast={use_autocast})")
+
     for epoch in range(args.epochs):
         model.train()
         t0 = time.time()
@@ -257,10 +261,11 @@ def train_loop(args):
         for step, batch in enumerate(train_loader):
             history = batch["history"].to(device)
             future = batch["future"].to(device)
-            loss, metrics = model.compute_loss(
-                history, future, args.n_samples, args.n_ddim_train,
-                args.lam_fm, args.lam_es, args.lam_vs,
-            )
+            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_autocast):
+                loss, metrics = model.compute_loss(
+                    history, future, args.n_samples, args.n_ddim_train,
+                    args.lam_fm, args.lam_es, args.lam_vs,
+                )
             (loss / grad_accum).backward()
             if (step + 1) % grad_accum == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -278,10 +283,11 @@ def train_loop(args):
             for batch in val_loader:
                 history = batch["history"].to(device)
                 future = batch["future"].to(device)
-                _, m = model.compute_loss(
-                    history, future, args.n_samples, args.n_ddim_train,
-                    args.lam_fm, args.lam_es, args.lam_vs, use_checkpoint=False,
-                )
+                with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_autocast):
+                    _, m = model.compute_loss(
+                        history, future, args.n_samples, args.n_ddim_train,
+                        args.lam_fm, args.lam_es, args.lam_vs, use_checkpoint=False,
+                    )
                 v_fm += m["fm"]; v_es += m["es"]; v_vs += m["vs"]; vn += 1
         val_fm, val_es, val_vs = v_fm/vn, v_es/vn, v_vs/vn
         val_loss = args.lam_fm * val_fm + args.lam_es * val_es + args.lam_vs * val_vs
@@ -354,6 +360,8 @@ def main():
     p.add_argument("--output_dir", default="models/backfill/240c_iter_ddim_crps_s42")
     p.add_argument("--device", default="cuda")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="bf16",
+                   help="Mixed precision. bf16 recommended (Ampere-native, safer than fp16 for sqrt-heavy ES/VS).")
     args = p.parse_args()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
