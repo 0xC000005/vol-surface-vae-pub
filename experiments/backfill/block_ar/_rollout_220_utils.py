@@ -290,6 +290,10 @@ def load_one_day_kernel(
         )
 
         return load_240c_model(checkpoint_path, device)
+    if model_type in {"250a", "250b", "250c"}:
+        from diffusion.block_ar.neural_factor import load_model as load_250_model
+
+        return load_250_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 

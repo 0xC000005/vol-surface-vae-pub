@@ -75132,3 +75132,119 @@ Open question: what's the right value of L? TACTiS-2 didn't use explicit factor 
 **Available**: explicit low-rank latent (H-NFM), two-stage curriculum (TACTiS-2), signature-based losses (PCF-GAN).
 
 ---
+
+## 2026-04-20: 250a Stage A — Explicit Low-Rank Neural Factor Generator — MIXED / CAPACITY LIMITED
+
+### Context
+
+First experiment of the 250-series plan: non-AR joint 30-day neural factor generator
+with EXPLICIT low-rank factor loadings (Λ), idiosyncratic scale head (D), learned latent
+posterior (μ_z, σ_z), reparameterised Gaussian latent, and proper-scoring-rule loss
+(afCRPS + scale-matched VS + ES). No Student-t, no DCT, no path_transport — fresh
+scratch architecture in `diffusion/block_ar/neural_factor.py`.
+
+Primary driver: multi-factor generalization (183c inherits IV-grid assumptions that
+do not transfer to rates/FX/credit). Plan: /home/max/.claude/plans/curious-soaring-mitten.md (v1).
+
+Stack-agnostic by construction: model internals strictly (B, K, T, D); 5×5 reshape
+lives only in the caller (evaluator and training code). Verified by audit.
+
+Training: bf16 mixed precision (fp32 optimizer), AdamW lr=1e-3 cosine, weight_decay 1e-4,
+60 epochs, batch 32, K=8 ensemble. RTX 3070 Ti. ~45 s/run (very fast).
+
+### L-ablation — structural-first ranking (per `feedback_structural_first_selection.md`)
+
+| L | best epoch | val_cell | n_pass | corr_ratio | rank_ratio | lvl_KS | chg_KS | cov90 | turb/calm | max_jump_KS | q99_r | gen_slope |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 4 | 19 | 15.51 | 2/11 | 0.466 | 2.591 | 17/25 | 0/25 | 0.833 | 1.027 | 0.881 | 0.511 | -0.053 |
+| 8 | 21 | 15.47 | 3/11 | 0.579 | 2.251 | 12/25 | 0/25 | 0.768 | 1.057 | 1.000 | 0.161 | -0.067 |
+| **16** | 23 | **15.34** | **3/11** | **0.824** | 1.739 | **20/25** | 0/25 | **0.859** | 1.031 | 1.000 | 0.146 | -0.065 |
+
+**Selection:** L=16 by structural-first rule — closest to corr_ratio band [0.95, 1.15],
+best level KS (20/25), best coverage. Monotonic improvement in structural metrics with
+capacity.
+
+### Mechanism (factor-structure diagnostic on L=16 best)
+
+- SVD(Λ) mean top-L energy fraction: 1.0000 (Λ uses exactly L=16 factors — **Codex's
+  top risk of full-rank leak NOT materialized**).
+- Mean singular values: [0.113, 0.074, 0.054, 0.041, 0.032, 0.026, 0.022, 0.018, 0.015, 0.013, 0.011, 0.009, 0.007, 0.006, 0.005, 0.003] — smooth low-rank profile with real secondary modes.
+- effective_rank(z) = 11.206 / L=16 — strong latent utilization.
+- rel_cond_std(Λ) = 0.602 — Λ varies strongly with history (conditioning works).
+- **All three Codex risks cleared:** no full-rank leak, no latent collapse, no Λ constancy.
+
+### Mechanism (mean-vs-spread diagnostic on L=16 best, K=50)
+
+| h | \|bias\| | signed_bias | ens_spread | gt_std | ratio | crps | mae |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.00109 | +0.00062 | 0.01428 | 0.02325 | 0.614 | 0.01320 | 0.02118 |
+| 30 | 0.00775 | -0.00227 | 0.03191 | 0.02220 | **1.437** | 0.02450 | 0.04238 |
+
+**Pathology flag:** spread_ratio(h30) = 1.437 >> 0.6 floor — **241b spread-collapse
+pathology DID NOT recur.** Model is slightly over-spread at h30, not under-spread.
+
+vs L=8 baseline: |bias|(h30) 0.0114 → 0.0078 (−32%); spread_ratio 1.397 → 1.437 (flat).
+Increasing L reduces center-path error, not spread.
+
+### Key diagnosis
+
+Architecture works: Λ·z factor path + idio residual cleanly replicates low-rank
+structure, no collapse, no leak. But THREE specific failure modes remain:
+
+1. **Mean reversion under-generated:** gen_slope = -0.065 vs gt_slope = -0.194 (~34% of
+   GT). Factor path is conditional-mean-like but doesn't mean-revert fast enough. Stage B
+   monotone marginal head will NOT fix this (the issue is center-path temporal dynamics,
+   not marginal shape).
+
+2. **Pathwise max-jump KS = 1.00, q99_ratio = 0.15** — extremes severely under-generated.
+   D_scale learned mean 0.00078 (hard clip 0.20 not binding) — idio path collapsed in
+   magnitude. Root cause: afCRPS/VS/ES jointly reward narrow ensembles at each cell;
+   D → 0 is the local minimum.
+
+3. **Cross-cell correlation under-generated:** corr_ratio monotonic in L (0.47 → 0.58 →
+   0.82). Capacity-limited; more factors help. Expect L=24/32 pushes corr_ratio → 1.0.
+
+### Decision (per v1 plan gate matrix)
+
+Closest match: **MR FAIL / CAPACITY UNDERFIT** (not STRUCTURAL COLLAPSE —
+corr_ratio 0.82 ≥ 0.8 gate; not MARGINAL UNDERFIT — lvl KS 20/25 passes the gate).
+Stage B **will not** resolve MR (dynamics issue, not marginal shape). Two options:
+
+**Option 1 (scale capacity):** L=24/32, more head layers, longer training with aggressive
+early stop (best consistently at ep 20-23; overfit after). No architectural change.
+
+**Option 2 (temporal dynamics):** add explicit mean-reversion regularizer OR make Λ time-
+conditioned (currently Λ(h) is static across T; Λ(h, t) would allow different factor
+loadings per horizon). This is closer to Stage C (latent FM) in spirit.
+
+**Recommendation:** run Option 1 first (L=24, epochs=30 with early-stop). If corr_ratio
+clears 0.95 at L=24, then Stage B can handle marginal KS tightening and we ship. If MR
+still fails at L=24, proceed to Option 2 (time-conditioned Λ) or Stage C.
+
+### Mechanism citations (required per diagnostic-methodology rule)
+- "SVD(Λ) top-L energy = 1.000; effective rank 16/16 — Codex full-rank-leak NOT materialized"
+- "effective_rank(z) = 11.206/16 — latent utilization OK, no posterior collapse"
+- "spread_ratio(h30) = 1.437 — 241b spread-pathology NOT recurring"
+- "|bias|(h30): 0.0114 (L=8) → 0.0078 (L=16), −32% — capacity adds signal, not noise"
+- "gen_slope(MR) flat across L ∈ {4, 8, 16}: −0.053 / −0.067 / −0.065 — MR is
+  not a capacity issue within this architecture"
+
+### H=252 informational probe
+Non-AR 30-day generator; windowed-252 informational only per plan. Gen mean max over 100
+val windows = 0.684 vs GT 0.851. Not a gate; logged for reference.
+
+### Bitter-Lesson audit
+`audit_250_bitter_lesson.py`: SOURCE PASS (no literals in executable code), CHECKPOINT
+PASS (no empirical-quantile or per-cell data-derived buffers). Confirmed stack-agnostic.
+
+### Artifacts
+- `diffusion/block_ar/neural_factor.py`
+- `experiments/backfill/block_ar/train_250a_neural_factor.py`
+- `experiments/backfill/block_ar/diagnose_250_factor_structure.py`
+- `experiments/backfill/block_ar/diagnose_250_mean_vs_spread.py`
+- `experiments/backfill/block_ar/audit_250_bitter_lesson.py`
+- Plus eval-path patch in `_rollout_220_utils.py` + `evaluate_220h_*.py` for model_type=250a.
+- Checkpoints: `models/backfill/250a_{L4,L8,L16}_K8_s42/`
+- Eval: `results/block_ar/250a/`, `250a_L4/`, `250a_L16/`
+- Logs: `logs/250a/`
+
