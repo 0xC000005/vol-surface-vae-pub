@@ -106,8 +106,10 @@ def load_model(checkpoint_path: str, device: str):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     raw_config = checkpoint["config"]
     expected = "state_metric_transport_pathwise_residual_law_mean_reverting_covariance_mixture_structured_joint_student_t_183c"
-    if raw_config["type"] != expected:
-        raise ValueError(f"Expected {expected}, got {raw_config['type']}")
+    # Accept 241-series descendants (same architecture, different loss surgery)
+    compatible_prefixes = ("241a_", "241b_", "241c_")
+    if raw_config["type"] != expected and not raw_config["type"].startswith(compatible_prefixes):
+        raise ValueError(f"Expected {expected} or 241-series, got {raw_config['type']}")
     enc_cfg = EncoderConfig(**raw_config["encoder"])
     model = StateMetricTransportModel(
         encoder_config=enc_cfg,

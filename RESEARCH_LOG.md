@@ -74059,3 +74059,137 @@ Warm-start from 183c best. Contrastive loss term on paired regime windows. 15 ep
 Then evaluate on v3 suite; if turb/calm > 1.10, proceed to Stage 2.
 
 ---
+
+## 2026-04-20: 241a Stage 1a — paper-exact Contrastive FM on 183c (PARTIAL / MECHANISM NEGATIVE)
+
+### Context
+
+First implementation of the 241-series plan (loss-side extensions to 183c, literature-backed
+against mixture-of-flows). Stage 1a tests whether paper-exact Contrastive Flow Matching
+(Stojanovski et al., arXiv 2506.05350, Algorithm 1) can move the conditional turb/calm
+width ratio from 183c's 1.059 toward the 1.15 gate under the v3 RV proxy.
+
+Formulation (paper-exact):
+```
+L = ||v̂ - v||² - λ * ||v̂ - ṽ||²   with random-permutation negatives (no class labels).
+v̂ = v_θ(z_t, t, cond_i),  v = x_1 - z0,  ṽ = x_1[perm] - z0[perm].
+```
+λ = 0.05 per paper Table 5. Warm-start from 183c best (include gates via
+`--warmstart_include_gates`). fp32 throughout (bf16 broke Cholesky in
+`teacher_basis_flat_from_outputs`).
+
+### Training
+
+15 epochs, B=32 × grad_accum=4 (effective 128, paper's minimum validated is 256).
+Wall-clock 5 s/epoch (very fast — small model, amortized sampling).
+
+```
+PYTHONPATH=. python experiments/backfill/block_ar/train_241a_183c_contrastive_fm.py \
+    --warm_start_path models/backfill/state_metric_transport_*_183c/best_model.pt \
+    --warmstart_include_gates \
+    --lambda_contrastive 0.05 \
+    --no_bf16 \
+    --epochs 15 --batch_size 32 --grad_accum 4 \
+    --lr_ctrl 2.5e-4 --lr_path 1.0e-4 \
+    --output_dir models/backfill/241a_contrastive_fm_s42 --device cuda --seed 42
+```
+
+Contrastive loss trajectory: `cneg` stable ~3.6 across epochs (no collapse, no explosion).
+`fm_loss` stable ~0.84. Ratio `cneg / fm_loss ≈ 4.3` — significant regularization
+(0.05 × 3.6 ≈ 0.18 of fm_loss subtracted).
+
+### Headline metrics (full-11 common eval, val split 441, samples=48)
+
+| Metric | 183c baseline | 241a best | Δ | Gate |
+|---|---|---|---|---|
+| turb/calm ratio | 1.0595 | **1.0963** | **+0.0368** | > 1.15 (partial) |
+| corr_ratio | 1.0502 | 1.0140 | -0.0363 | [0.95, 1.10] ✓ |
+| rank_ratio | 1.0997 | 1.0552 | -0.0445 | ~1 ✓ |
+| mr_gt_ratio (aggregate) | 1.0506 | 1.0466 | -0.004 | [0.70, 1.30] ✓ |
+| h30 MR ratio | 0.592 | 0.660 | +0.068 | [0.70, 1.30] (closer) |
+| calibration_error | 0.0093 | 0.0165 | +0.0073 | < 0.02 ✓ |
+| n_pass (out of 11) | 4 | 4 | 0 | — |
+
+Failed suites in 241a: same 7 as 183c (coverage, conditionality, time_series,
+regime_coverage, distributional_fidelity, mean_reversion, pathwise_jump_realism).
+
+### Mechanism check (from `diagnose_241_regime_separation.py`)
+
+Velocity cosine gap at t=0.5 (z_t = 0.5 * z0; 4 random-seed trials, N=89 turb, 89 calm, 263 mid):
+
+| Group | Mean cosine sim |
+|---|---|
+| within-turb | 0.0347 |
+| within-calm | 0.0468 |
+| within-middle | — |
+| between turb-calm | 0.0382 |
+| **cosine_gap_turb_calm** | **+0.0026** |
+
+**Gate: gap must be > 0.05. Measured: 0.0026. → Mechanism CLEAN FAILURE.**
+
+Interpretation: the velocity field at t=0.5 is essentially indistinguishable across regimes
+under the contrastive loss. The +0.037 movement on turb/calm width ratio is NOT coming from
+regime-separable velocity — it is coming through some other channel (likely state-metric
+control allocation adjustments, OR near-noise fluctuation).
+
+### Decision per plan matrix
+
+Gate (1.0963) is < 1.10 AND cos-gap (0.0026) < 0.03 → **CLEAN_FAILURE** per the plan's
+Stage-1a decision table (v2 of the plan). The letter of the rule says: Stage 1b unlikely
+to help; escalate to Stage 4 architectural.
+
+**But the gate DID move +0.037 without mechanism.** That is anomalous. Two possibilities:
+(a) movement is near-noise; would need seed-variance run to confirm.
+(b) contrast is acting through state-metric controls, NOT through the main velocity field —
+   which would mean the cosine-gap diagnostic is measuring the wrong channel.
+
+### What was learned
+
+1. Paper-exact ΔFM on 183c produces a small but non-zero turb/calm movement (+0.037)
+   without regressing 183c's structural strengths (corr/rank/MR aggregate all within bands).
+2. The gate still misses 1.10 by 0.04 — not close enough to claim success.
+3. The hypothesized mechanism (regime-separable velocity) is NOT present. So even though
+   gate moved, we have not validated the paper's causal story on 183c.
+4. Notable side benefit: h30 MR ratio improved 0.592 → 0.660 (still below 0.70 gate but
+   closer). The contrastive loss may incidentally tighten terminal marginals.
+5.  ratio ~4.3 during training is stable — no velocity collapse at λ=0.05.
+6. Cosine-gap diagnostic as written probes one channel only (main velocity at t=0.5).
+   If contrast acts through state-metric path, need a different mechanism probe.
+
+### Open questions
+
+- Is the +0.037 repeatable across seeds, or is it sampling noise (one seed run)?
+- If ΔFM acts through state-metric controls, does their distribution actually differ
+  by regime? Need to probe , , , 
+  splits by regime label.
+- Is Stage 1b (regime-masked contrastive) justified? Under strict decision matrix: no.
+  Under charitable interpretation (gate moved, just wrong channel probed): maybe.
+- Stage 2 (CRPS fine-tune) is INDEPENDENT of Stage 1. Could proceed to Stage 2
+  regardless — it attacks a different failure mode (h30 MR decay) with a different
+  mechanism (proper scoring rule on sampled ensemble). Plan's staging dependency
+  was "Stage 2 only if Stage 1a passes" — but there's no causal reason Stage 2 needs
+  Stage 1a; it's just prioritization.
+
+### Decision — what next (proposed, user-gated)
+
+1. **Extend probe before concluding CLEAN_FAILURE.** Add a state-metric-path mechanism
+   probe to  — measure regime-split distributions
+   of  and  controls. If these are regime-discriminable, the
+   cosine-gap diagnostic was measuring the wrong channel and the +0.037 is mechanistically
+   real, just at the control level.
+2. **Seed variance check** (2 additional seeds, 5 epochs each) — confirm +0.037 is not noise.
+3. **Then decide Stage 1b vs move to Stage 2.** If gate moved robustly across seeds,
+   proceed to Stage 2 as independent attack (h30 MR). Stage 1b becomes a secondary probe
+   if we need to push turb/calm further after Stage 2.
+
+### Artifacts
+
+- Training script: 
+- Diagnostic script: 
+- Checkpoint: 
+- Full-11 JSON: 
+- Training log: 
+- Compatibility patch: 
+  now accepts 241-series checkpoint types.
+
+---
