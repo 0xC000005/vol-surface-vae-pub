@@ -74307,7 +74307,7 @@ Artifacts:
 
 ---
 
-## $(date +%Y-%m-%d): 241b Stage 2 — Multi-CRPS Fine-Tune: Partial Direction Right, Interior-Capacity Limit Reached
+## 2026-04-20: 241b Stage 2 — Multi-CRPS Fine-Tune: Partial Direction Right, Interior-Capacity Limit Reached
 
 ### Context
 Per plan v4 Stage 2 (after Stage 1a empirically falsified paper-exact ΔFM as a
@@ -74469,5 +74469,103 @@ per plan v4):
    if (1) and (2) don't move turb/calm.
 
 Stage 4 plan to be written as separate document when Stage 4 is triggered.
+
+---
+
+## 2026-04-20: 241b Stage 2 AMENDMENT — Honest Same-Day Baseline Comparison
+
+### Reason for amendment
+Advisor review caught two bugs in the original Stage 2 entry:
+1. `<<'RESEARCH_EOF'` quoted heredoc blocked `$(date +%Y-%m-%d)` expansion; the original
+   header was literal `$(date ...)`. Fixed.
+2. `diagnose_241_mr_profile.py` skipped `normalize_iv(history)` before calling
+   `model.sample_batched`. CLAUDE.md explicitly flags this ("ALWAYS `normalize_iv()`
+   before `model.sample()`"). Without normalisation the model saw history in [0,1]
+   range instead of [-1,1], producing 2x-inverted MR h30 ratios (1.341 instead of
+   0.670). Fixed.
+
+Additionally, the original entry compared **today's 241b** against **2026-04-13's 183c
+full-11** (from `results/block_ar/229a_honest_eval/183c_full11_common_eval.json`).
+CLAUDE.md's standing rule is "ALWAYS compare same checkpoint type across models" —
+same-day evaluation is needed to attribute deltas cleanly. I re-ran 183c baseline
+today (same checkpoint, same harness) and found significant sampling variance from
+the older run (level KS passes: 4/25 in the old run vs **18/25 today**). This changes
+several deltas.
+
+### Corrected Gate Matrix (SAME-DAY comparison, 441 windows, 48 samples)
+
+| Metric | 183c TODAY | 241b best | Δ (clean) | Previous Δ (stale) |
+|---|---|---|---|---|
+| n_pass / 11 | 4 | 4 | 0 | 0 |
+| MR h30 ratio (GATE) | 0.660 | 0.685 | **+0.025** | +0.093 (stale) |
+| MR h1 ratio | 1.101 | 1.786 | +0.685 | +0.735 |
+| MR h7 ratio | 0.864 | 0.975 | +0.111 | +0.203 |
+| MR h14 ratio | 0.720 | 0.742 | +0.022 | +0.035 |
+| level KS pass cells | 18/25 | 21/25 | **+3** | +17 (stale, from 4/25) |
+| change KS pass cells | 22/25 | 23/25 | +1 | 0 (stale, from 23/25) |
+| max-jump KS | 0.485 | 0.584 | +0.099 | +0.102 |
+| turb/calm ratio | **1.106** | 1.062 | **-0.044 REGRESSED** | +0.003 (stale, from 1.059) |
+| corr_ratio | 1.043 | 1.220 | +0.177 | +0.170 |
+| rank_ratio | 1.038 | 0.856 | -0.182 | -0.244 |
+| h1 cov90 | 0.897 | 0.764 | -0.133 | -0.125 |
+| h30 cov90 | 0.865 | 0.860 | -0.005 | -0.037 |
+| cointegration gen/GT | 0.819 | 0.641 | **-0.178 REGRESSED** | -0.106 |
+
+Key corrections:
+- **MR h30 improvement is +0.025, not +0.093** — modest, above noise but much smaller
+  than originally claimed. Still fails gate (<0.70).
+- **Level KS improvement is +3 cells, not +17** — old baseline's 4/25 pass rate was
+  a run-specific sampling anomaly; today's 183c runs at 18/25.
+- **Turb/calm REGRESSED**: 1.106 → 1.062 (Δ=-0.044). The previously cited +0.003 was
+  against an older 183c baseline that scored 1.059; today's same-day 183c scores
+  1.106 (which already passes the 1.15 gate from below). This makes 241b a REGRESSION
+  on conditionality, not a flat result.
+- **Cointegration REGRESSED by -0.178**, not -0.106. 183c today scores 0.819 (close
+  to GT), 241b drops to 0.641 (far below).
+
+### Revised Mechanism Interpretation
+
+The corrected picture is weaker than originally claimed:
+- Three target metrics (MR h30, level KS, max-jump KS) all moved *marginally* — within
+  2–5x full-11 sampling noise observed between runs. Direction is correct for MR h30
+  and level KS; WRONG for max-jump KS (target was ≤0.30, actual moved 0.485→0.584).
+- Structural guards failed more severely than stated: cointegration -0.178, turb/calm
+  -0.044 (vs previously claimed flat).
+
+### Revised Verdict
+
+Downgrade classification from **PARTIAL_SUCCESS** to **MOSTLY_FAILED with
+directional hints**. Multi-CRPS fine-tune at these λ values:
+- moves MR h30 within noise, not decisively
+- damages conditionality, cross-cell structure, cointegration, and h1 coverage
+- is a NET REGRESSION against same-day 183c on any composite metric
+
+Stage 4 trigger remains met — mean_reversion still fails — but with weaker evidence
+that CRPS signals reach the target gates meaningfully at current capacity.
+
+### Honest Note on Full-11 Sampling Variance
+
+Today's 183c run showed dramatically different level KS vs the 2026-04-13 run on the
+same checkpoint (18/25 vs 4/25). This suggests **significant run-to-run variance** in
+the suite's KS cell counts — possibly from sampling RNG + window ordering effects.
+Future research log entries MUST include SAME-DAY baseline comparison, not cross-date.
+Standing rule reinforced.
+
+### Alternative Interpretation (Advisor Note, Worth Testing)
+
+The claim "CRPS loss surface flat → interior capacity limit" is one of several
+readings. Alternative: `path_context` is detached in the loss pathway, so
+`transport_velocity` only receives gradient on its own parameters; the encoder/prior
+DOFs that generate path_context are frozen out of scope. A 2–5% CRPS drop may reflect
+"gradient reaches path_transport but scalable DOF not in scope."
+
+Before Stage 4 architectural work, a cheaper ablation is warranted: one-epoch variant
+with encoder+prior unfrozen to see if CRPS terms drop by >10%. If yes, the bottleneck
+is not interior capacity but parameter-surface access. If no, interior capacity limit
+is confirmed and Stage 4 is justified.
+
+### Artifacts Added
+- `results/block_ar/241b/183c_baseline_today.{json,md}` — same-day 183c baseline
+- `results/block_ar/241b/mr_diag/summary.json` — corrected MR profile (with normalize_iv fix)
 
 ---

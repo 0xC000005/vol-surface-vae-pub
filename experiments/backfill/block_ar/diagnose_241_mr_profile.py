@@ -38,6 +38,7 @@ import sys
 sys.path.insert(0, ".")
 
 from diffusion.block_ar.gru_encoder import EncoderConfig
+from diffusion.block_ar.single_pass_ar import normalize_iv
 from experiments.backfill.block_ar.train_170d_structured_joint_student_t import build_multistep_windows
 from experiments.backfill.block_ar.train_183c_state_metric_transport import StateMetricTransportModel
 
@@ -88,13 +89,22 @@ def collect_samples(
     n_samples: int,
     batch_size: int = 16,
 ) -> np.ndarray:
-    """Run model.sample over val_hist[:eval_limit]; return (N, K, T, 5, 5)."""
+    """Run model.sample over val_hist[:eval_limit]; return (N, K, T, 5, 5).
+
+    CRITICAL: val_hist is raw IV in [0,1]. The harness normalizes with normalize_iv()
+    before calling sample_batched (evaluate_220h_full_multihorizon_v2_suite.py:141).
+    Match that convention here — otherwise the model receives history in the wrong
+    range and produces systematically biased samples (confirmed 2x inversion of MR h30
+    ratio when raw [0,1] was passed directly).
+    """
     device = next(model.parameters()).device
     out = []
     for i in range(0, min(eval_limit, len(val_hist)), batch_size):
-        hist = val_hist[i : i + batch_size].to(device)
-        samples = model.sample_batched(hist, n_samples=n_samples)  # (B, K, T, 25)
-        samples = samples.view(samples.shape[0], samples.shape[1], samples.shape[2], 5, 5)
+        hist_raw = val_hist[i : i + batch_size].to(device)
+        hist = normalize_iv(hist_raw)  # [0,1] → [-1,1] per CLAUDE.md gotcha
+        samples = model.sample_batched(hist, n_samples=n_samples)  # (B, K, T, 5, 5) IV [0,1]
+        if samples.dim() == 4:
+            samples = samples.view(samples.shape[0], samples.shape[1], samples.shape[2], 5, 5)
         out.append(samples.cpu().numpy())
     return np.concatenate(out, axis=0)  # (N, K, T, 5, 5)
 
