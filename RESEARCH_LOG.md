@@ -75020,3 +75020,115 @@ not loss engineering.
 - `results/block_ar/241f/{best,final}_full11.{json,md}`
 
 ---
+
+## 2026-04-20: Research Compass — 241 Closed, Multi-Factor Generalization, Architectural Next Step
+
+### Philosophy Applied
+- **Karpathy independence**: each proposed hypothesis must be testable alone, not stacked.
+- **Bitter Lesson**: Student-t ν=8 + DCT basis + low-rank covariance are IV-specific parametric shortcuts that block multi-factor generalization.
+- **Popper**: identified architectural bottleneck (DiT as isometric noise transformer, 240a diagnostic) is a fundamental limit, not an implementation detail.
+- **Schulman / Nanda**: adversarial challenge from user ("we tried DiT no?") retracted the naive H3 recommendation; forced re-examination of prior-attempt evidence.
+
+### Evidence Summary (closing the 241 series)
+
+**241 series results (full-11 eval on 441 val windows, K=48):**
+
+| Variant | Frozen | n_pass | MR h30 | kurt | level_KS | change_KS |
+|---|---|---|---|---|---|---|
+| 183c baseline | all backbone | 4/11 | 0.660 | 0.471 | 18 | 22 |
+| **241b** (Pareto-optimal) | enc+dec+flow+prior | **4/11** | 0.685 | 0.575 | **21** | **23** |
+| 241c (full unfreeze) | nothing | 3/11 | 0.794 | 0.669 | 11 | 15 |
+| 241d (tight LR) | all, lr=1e-5 | 3/11 | 0.732 | 0.631 | 13 | 23 |
+| 241e (anchor) | anchor L | diverged | — | — | — | — |
+| 241f (partial) | enc+prior | 3/11 | 0.758 | 0.625 | 11 | 13 |
+
+**Proven**: ANY backbone unfreeze regresses level_KS from 21 → 11-13. Localization hypothesis (KS regression from encoder+prior only) REFUTED by 241f.
+
+**KS-vs-MR trade-off is not mathematically fundamental** (GT-replicated oracle passes 7/10). It IS an optimization artifact of:
+- Multi-CRPS spread-shrinkage (CRPS minimizes by both shifting mean AND tightening spread)
+- Student-t + DCT + low-rank covariance parametric coupling (unfreezing any backbone module propagates changes through all marginals)
+
+### Prior-Attempt Validation (critical — retracted my first proposals)
+
+| Proposed direction | Prior attempt | Outcome | Novelty of current proposal |
+|---|---|---|---|
+| Per-cell CRPS | 97/99 series; `afcrps_loss(reduction="frame_sum")` | standard | Current 241 used h30-terminal-only — full per-horizon application NEW on 183c backbone |
+| Variogram Score λ=0.1 | 161a, 164a, 232c | VS alone insufficient | dualGNN scale-matching (λ_VS = mean_ES/mean_VS) NEW to this codebase |
+| Copula approach | **192a Graph AR Conditional Copula** | FAILED (rollout destroyed the law in AR setting) | 192a was AR; non-AR joint generator setting NOT tried |
+| Mixture Density | **211a MDN/VQ/categorical** | FAILED (broad-shoulder collapse at H=1 scratch) | 211a was scratch at H=1 tiny model; head-graft onto trained 183c NOT tried |
+| TACTiS-2 (marginal+copula 2-stage) | Proposed 3x in hypothesis lists (lines 29653, 29708, 30177) | NEVER built | Paper uses NLL; CRPS-compatibility OPEN |
+| DiT joint-chunk | **240a Stage 1 (MSE)** + **240c_iter (ES+VS)** | BOTH failed on corr_ratio (0.002 vs GT 0.436) | Running DiT with CRPS-LAM loss is NOT a new experiment — 240c_iter already tested this |
+
+### Multi-Factor Generalization Concern (user's primary)
+
+If the long-term goal is a generator for IV + rates + FX + credit (100+ cells across asset classes), 183c has IV-specific blockers:
+- **Student-t ν=8 fixed**: IV tail behavior ≠ rates ≠ FX ≠ credit
+- **DCT 3-band basis**: assumes 2D smooth spectral structure (IV moneyness × tenor), not applicable to 1D rate curves or cross-currency
+- **Low-rank covariance (time_rank=6, cell_rank=5)**: tuned for 25 cells; inadequate for crisis tail dependence across 100+ cells
+- **`normalize_iv([0,1])` hardcoded**: rates are signed
+
+### Critical Architectural Finding: DiT Is Wrong Inductive Bias
+
+240a diagnostic established: "DiT acts as near-isometric noise transformer (rank-3 in → rank-3 out, rank-32 in → rank-28 out)". Weather/physics data has spatial locality that makes isometric transport meaningful. Financial factor data is dominated by low-rank PC-1 (55% of variance) that DiT cannot produce from IID noise regardless of loss function.
+
+**Implication**: "port 240a to CRPS-LAM single-pass" is NOT a fresh experiment. 240c_iter (DiT + ES+VS + FM, K=128, iterative DDIM) already tested the DiT+scoring-rule combination and failed at corr_ratio=0.002 over 10 epochs.
+
+### Revised Hypothesis (genuinely untried for multi-factor + low-rank)
+
+**Neural factor model with flow-matching transport**:
+- history → encoder → z ∈ R^L (small L = 8-16) — EXPLICIT low-rank latent
+- cells = decoder(z, history) — decoder is learned (no parametric density assumption)
+- ensemble via sampling z
+- loss: per-cell per-horizon afCRPS + scale-matched VS(p=0.5)
+- flow-matching transport from N(0, I_L) prior to learned z posterior
+
+Why this is genuinely different:
+- **Explicit low-rank** (L = 8 prevents full-rank output) — breaks DiT isometry failure
+- **Scales to multi-factor** (Λ = decoder(z, history) grows with cell count; latent L stays small)
+- **No Student-t assumption** (decoder learns whatever marginal shape data has)
+- **No DCT assumption** (decoder operates on learned latent, not spectral basis)
+- **Bitter Lesson compatible** (all parametric structure learned end-to-end)
+
+Adjacent to FuNVol (arXiv 2303.00859) — FPCA + Neural SDE on multi-asset IV — but with learned Λ instead of fixed FPCA, and flow-matching instead of SDE.
+
+Prior-attempt check:
+- 193a/193b (latent-factor AR): FAILED via rollout, AR-specific
+- 194a (regime-switching latent factor): FAILED via wrong state semantics
+- **Non-AR neural factor model with CRPS+VS loss + flow-matching transport: UNTRIED**
+
+### Active Hypotheses (ranked by information/effort)
+
+**H-NFM**: Neural factor model with flow-matching transport + per-cell per-horizon afCRPS + VS. 
+- Staged checkpoints: (1) build latent encoder + decoder, smoke test (2 days); (2) train 10 epochs, measure corr_ratio and marginal KS (3 days); (3) full eval + multi-factor port test with rates data (1 week).
+- Kill: if corr_ratio still < 0.2 after 10 epochs with explicit L=8 latent, then low-rank bottleneck is enforced but model can't couple cross-cell — either increase L or add explicit factor-loading structure.
+- Effort: ~2 weeks implementation + eval.
+
+**H-TACTiS2** (fallback if H-NFM fails): TACTiS-2 two-stage curriculum. Stage 1: fit per-cell DSF flows with NLL on marginals. Stage 2: freeze marginals, fit attentional copula with CRPS. Stage 3: retrain flow-matching with frozen head.
+- Effort: ~3-4 weeks.
+
+**Deprioritized**:
+- H-KS-Regularizer (add differentiable per-cell KS to 241c unfreeze setup): IV-only patch; doesn't address multi-factor goal.
+- H-Learnable-ν (make Student-t ν per-cell trainable): IV-only patch; keeps DCT.
+- H-DiT-CRPS-LAM (port 240a to single-pass + CRPS+VS): already effectively run as 240c_iter; failed.
+
+### Decision
+
+Start H-NFM. Skip the IV-only Steps 0/1/2 diagnostic — they wouldn't transfer to multi-factor.
+
+Open question: what's the right value of L? TACTiS-2 didn't use explicit factor count; FuNVol used 8 FPCA components. Start with L=8, allow scaling in hyperparam search.
+
+### Exhausted Directions
+- Within-AR architecture (233a family × 7 variants): paradigm limit
+- Within-parametric-head loss tuning (241 series): ceiling at 4/11
+- DiT+scoring-rule (240 series): architectural isometry problem
+
+### Open Questions
+- Is L=8 enough to capture IV factor structure? (Likely yes; PC1 alone is 55%)
+- Does flow-matching on latent space need different hyperparameters than on DCT basis?
+- How does multi-factor Λ matrix get initialized? Shared across factors or factor-specific?
+
+### Garbage Can
+**Unsolved**: (1) cross-cell correlation collapse under IID noise + attention architectures, (2) KS-vs-MR optimization pathology under joint proper scoring rules.  
+**Available**: explicit low-rank latent (H-NFM), two-stage curriculum (TACTiS-2), signature-based losses (PCF-GAN).
+
+---
