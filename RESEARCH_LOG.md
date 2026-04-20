@@ -73186,3 +73186,62 @@ Per design spec kill conditions: all 6 diagnosed bugs fixed per design, suite n_
 **Artifacts**: `models/backfill/233a_v1_2_{control,minreg,minimal,aux,link,both,noreg}_25d_s42/best_model.pt`, `results/block_ar/233a_v1_2/*/suite.json` + `_diagnostic_*.json` + `decision.md`. Plan: `research/233a_twopath_v1_2/plan.md` (2705 LoC), design: `research/233a_twopath_v1_2/design.md` (683 LoC).
 
 ---
+
+## 2026-04-19: H0 — Regime inversion is architectural, not a proxy artefact
+
+### Context
+After 233a-v1.2 NEGATIVE (Branch 3 paradigm pivot fired), the cheapest prerequisite question before
+committing to joint-path CFM is: does the universal model-side regime inversion
+(calm_wr > turb_wr across every trained model — 229a/230b/231a/232/233a/v1.2, ratios 0.95–1.14)
+reflect an ARCHITECTURAL defect or a REGIME-PROXY labelling problem? If the GT futures under the
+suite's current RV-based proxy do not themselves exhibit turb > calm dispersion, no architectural
+change can close the gate. The question is a hard kill-gate for H1 (joint-path CFM).
+
+### Method (100 LoC, no training)
+`experiments/backfill/block_ar/diagnose_H0_regime_inversion_gt.py` — on the test split (start_idx=4511,
+n_windows=1252), buckets windows with the exact vov proxy used in
+`test_block_ar_requirements_v2.py::run_conditionality_tests` (`dhist**2` averaged over time × row × col),
+thresholds q20/q80, then computes three independent GT dispersion statistics per regime:
+(A) realised variance of the 30-day future; (B) within-path std averaged over cells;
+(C) marginal 90% CI width over the pooled regime futures — the direct GT analogue of the
+suite's 90% CI width gate. Also replicates against the legacy IV-mean proxy for reference.
+
+### Key findings
+
+**New RV-based proxy (current suite):**
+
+| Measure | calm | turb | **turb/calm** | Pass 1.15? |
+|---|---|---|---|---|
+| (A) RV of future | 2.243e-03 | 2.967e-03 | **1.323** | ✓ |
+| (B) within-path std (avg cell) | 0.0228 | 0.0319 | **1.397** | ✓ |
+| (C) marginal 90% CI width | 0.1666 | 0.2094 | **1.257** | ✓ |
+
+GT marginal CI ratio **1.257** lands inside the suite docstring's advertised range **1.25–1.52**
+(test_block_ar_requirements_v2.py L713). All three independent operationalisations of "GT regime
+width" clear the 1.15 suite gate — the proxy correctly separates regimes in GT.
+
+**Legacy IV-mean proxy (reference):** A=1.071 (fail), B=1.234 (pass), C=1.173 (pass). Weaker but
+still-positive signal; confirms the proxy swap strengthened the GT signal, not weakened it.
+
+**Model-vs-GT gap (incumbent 229a@ep30 under new proxy):** model turb/calm = 1.025 vs. GT = 1.257.
+Models ship widths ~18–23% below what GT permits. That is the architectural defect's order of magnitude.
+
+### Decision
+Kill-gate cleared: the proxy is not lying. The regime-inversion failure mode is ARCHITECTURAL — every
+within-AR variant converges near turb/calm ≈ 1.0 because step-wise AR decoders cannot amortise regime
+width information across horizons (the innovation law is shared across regimes, the regime-conditional
+gate is too weak to counteract it in 30 denoising steps). Joint-chunk flow matching / Diffusion-Policy-style
+denoising (H1) is the principled next move: it denoises the full (30, 5, 5) trajectory jointly,
+so regime shapes the joint distribution rather than being composed step-by-step.
+
+### Next
+Proceed to H1 Stage 1 (UNet-1D / small DiT joint-chunk denoiser with history cross-attention,
+MSE objective, 2-day feasibility probe). Gate to Stage 2: ANY improvement vs 229a's 3/7 on any
+individual suite gate at Stage 1.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/diagnose_H0_regime_inversion_gt.py`
+- JSON: `results/block_ar/H0_regime_inversion_gt/H0_gt_regime_stats.json`
+- Markdown: `results/block_ar/H0_regime_inversion_gt/H0_gt_regime_stats.md`
+
+---
