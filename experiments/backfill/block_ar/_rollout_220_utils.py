@@ -272,6 +272,12 @@ def load_one_day_kernel(
         )
 
         return load_233a_v1_2_model(checkpoint_path, device)
+    if model_type in {"240a", "240a_joint_chunk"}:
+        from experiments.backfill.block_ar.train_240a_joint_chunk_flow import (
+            load_model as load_240a_model,
+        )
+
+        return load_240a_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 

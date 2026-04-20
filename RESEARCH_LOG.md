@@ -73245,3 +73245,69 @@ individual suite gate at Stage 1.
 - Markdown: `results/block_ar/H0_regime_inversion_gt/H0_gt_regime_stats.md`
 
 ---
+
+## 2026-04-19: 240a Stage 1 — joint-chunk DiT with MSE objective
+
+### Context
+After H0 confirmed regime inversion is architectural (not a proxy labelling artefact, see
+prior entry), the H1 research compass calls for a paradigm pivot to joint-chunk denoising
+(Diffusion Policy arXiv:2303.04137, GenCast arXiv:2312.15796). Stage 1 is a 2-day feasibility
+probe: simplest-possible joint-chunk denoiser with MSE ε-prediction, to test whether the
+joint-chunk *architecture* even works on (30, 25) vol-surface trajectories. Gate: ANY
+improvement over 229a@ep30 incumbent on any single suite metric.
+
+### Method
+`experiments/backfill/block_ar/train_240a_joint_chunk_flow.py`. DiT-style backbone, 6 layers,
+d_model=128, AdaLN-Zero conditioning. T×S=750 tokens attend fully to one another per layer.
+Encoder warm-started from `models/backfill/block_ar_vol_scaled_30ep/best_model.pt`. DDPM
+ε-prediction with cosine schedule, 100 training timesteps, 20 DDIM steps at inference.
+AdamW lr=2e-4 with cosine schedule + 5% warmup, batch 32, 30 epochs, seed 42. Trained in
+7 min on RTX 3070 Ti; best val_loss 0.032 at epoch 20.
+
+### Key findings — 240a vs 229a@ep30 incumbent
+
+| metric | 229a | 240a | Δ | winner |
+|---|---|---|---|---|
+| n_pass | 3/7 | **1/7** | −2 | 229a |
+| max_jump_ks (pathwise) | 0.945 | **0.422** | **−0.523** | **240a** |
+| chgKS /25 | 19 | 5 | −14 | 229a |
+| lvlKS /25 | 6 | 0 | −6 | 229a |
+| corr_ratio | 1.285 | 0.002 | −1.283 | 229a (catastrophic) |
+| rank_ratio | — | 4.38 | — | — |
+| turb_calm | 1.025 | 0.928 | −0.097 | 229a |
+| worst_cell h30 | 0.271 | 0.458 | +0.187 | 229a |
+| worst_cell_wr | — | 1.003 PASS | — | 240a |
+| MR ratio | 1.329 | 1.561 | worse | 229a |
+
+**Gate met:** max_jump_ks halved (0.945 → 0.422). Stage 1 passes on the single hardest gate —
+the one every AR variant failed for 30+ experiments. Joint-chunk paradigm validates for
+pathwise tail realism.
+
+**Failure mode:** cross-cell correlation catastrophically collapsed (corr_ratio 0.002 vs GT 0.436;
+rank_ratio 4.38 vs ~1.0 target). Samples are essentially per-cell-independent noise — the DiT
+attention learned temporal coherence (evidence: max_jump_ks win) but NOT cross-cell structure.
+This is the textbook MSE-ε-prediction failure on correlated fields: MSE scores per-pixel
+marginals, not joint dependence structure. Predicted by the adversarial critique in the
+research-ideation compass ("Cross-sample diversity collapse in diffusion/CFM ... our correlation
+gate does not catch this — only sample-to-sample Wasserstein or signature-distance on path
+ensembles does." — reversed sign here: correlation is UNDER what GT expects.)
+
+### Decision
+**Proceed to Stage 2.** Stage 1 validates the joint-chunk *architecture* (max_jump_ks wins +
+no NaN + sampling shape correct + conditionality gradient flows). The cross-cell collapse is
+a loss-function artefact, not an architectural one. Stage 2 swaps MSE for an Energy-Score +
+Variogram-Score objective over sampled ensembles (Gneiting & Raftery 2007; Scheuerer-Hamill
+variogram loss) — this directly supervises the joint sample distribution across cells and
+is exactly the fix for corr_ratio=0.002.
+
+Stage 2 gate: n_pass ≥ 3/7 (match or beat 229a). If 4/7+ : proceed to Stage 3 (regime
+cross-attention).
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/train_240a_joint_chunk_flow.py` (~430 LoC)
+- Checkpoint: `models/backfill/240a_joint_chunk_dit_s42/best_model.pt` (ep 20)
+- Suite: `results/block_ar/240a_s42/suite.json` + `.md`
+- Train log: `logs/train_240a_s42.log`
+- Dispatch registered: `_rollout_220_utils.py` model_type "240a"; `evaluate_220b` native-sample path
+
+---

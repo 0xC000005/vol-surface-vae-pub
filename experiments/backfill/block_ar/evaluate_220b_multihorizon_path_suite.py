@@ -127,6 +127,7 @@ def main() -> None:
         or args.model_type == '183c'
         or args.model_type in {'231a', '231b', '231c', '232a', '232b', '232c', '232d'}
         or args.model_type.startswith('233a')
+        or args.model_type.startswith('240a')
         or args.force_native_anchor
     )
     if use_native:
