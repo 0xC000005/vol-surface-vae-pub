@@ -73393,3 +73393,148 @@ the next fallback.
 - Eval log: `logs/eval_240c_iter_s42.log`
 
 ---
+
+## 2026-04-20: 240-series synthesis — why DiT + IID noise fails at cross-cell correlation
+
+### Context
+After 240a Stage 1 (MSE DiT) and 240c_iter Stage 2.5 (iterative DDIM + ES+VS K=128) both
+failed to move `corr_ratio` from 0.002 (GT 0.436) — despite steady improvement on
+pathwise tail realism (`max_jump_ks` 0.945 → 0.422 → 0.628 → 0.329) — a mechanistic
+diagnostic pinpointed the failure mode. This entry consolidates the reasoning chain from
+first DiT training through the root-cause diagnosis and the decision point on how to
+proceed.
+
+### The four attempts, same architecture, different losses
+
+| model | loss | stage | n_pass | max_jump_ks | corr_ratio | chgKS |
+|---|---|---|---|---|---|---|
+| 240a | MSE on ε-pred | 1 | 1/7 | 0.422 | 0.002 | 5 |
+| 240b (cut @ep3) | single-step ES+VS K=128 | 2 | 1/7 | 0.628 | 0.002 | 5 |
+| 240b (killed, would have been ep10) | same | 2 | (killed for time budget) | - | - | - |
+| 240c_iter | iterative DDIM + ES+VS K=128 | 2.5 | 1/7 | **0.329** (best) | 0.002 | 2 |
+
+Consistent pattern: joint-chunk paradigm **does** address pathwise realism (max_jump_ks
+keeps improving), but **never** moves cross-cell correlation. All four variants have
+`corr_ratio = 0.002` vs GT `0.436` — a 200× gap.
+
+### Mechanistic diagnostic (diagnose_240c_corr_collapse.py)
+On 240c_iter best checkpoint, 64 test windows, K=32 samples:
+
+**H1 — Loss-landscape probe.** Compute ES+VS on three synthetic sample clouds:
+- (a) actual model samples: ES=39.8, VS=196.1, PC1_var=6.6%
+- (b) GT-like low-rank samples (PCA basis + Gaussian coeffs): ES=**4.4**, VS=**46.6**, PC1_var=21.4%
+- (c) isotropic noise with marginal-matched stds: ES=10.8, VS=125.6, PC1_var=9.8%
+
+Verdict: loss at GT-like is **9× lower** than at actual model output. Loss gradient
+points toward factor-structured samples — this is optimization failure, not loss saturation.
+The model is actually *worse than isotropic noise* at matching the joint target.
+
+**H2 — Factor-direction alignment.** Per-window: compute SVD of sample matrix (K=32),
+measure `|<PC1_sample, PC1_GT>|`.
+- GT PC1 variance fraction: 17.9%
+- Sample PC1 variance fraction: 6.9% ± 0.4%
+- PC1 direction alignment: **0.089 ± 0.068** (orthogonal; 1.0 = aligned)
+
+The model learned a *different coordinate system entirely* — not just wrong-magnitude
+factors, but wrong axes.
+
+**H3 — Noise-structure amplification (decisive).** Inject low-rank structured noise
+(rank-3) vs IID noise (rank-K=32) into the DDIM loop.
+- IID input rank 32 → output effective rank **27.8** (near-preserved)
+- Rank-3 input → output effective rank **3.03** (exactly preserved)
+
+The DiT acts as a **near-isometric noise transformer**: it propagates input rank to
+output rank. It doesn't amplify low-rank directions or compress high-rank ones. Output
+factor structure = input factor structure.
+
+**AdaLN-gate inspection.** After 10 epochs, block-level mean |adaLN.weight| values are
+4–8 × 10⁻³ (started at 0). This is ~100× too small for meaningful conditioning — gates
+typically need to reach O(0.1–1) to modulate the transformer meaningfully. The DiT is
+running as a nearly-unconditional model.
+
+### Root cause synthesis
+Self-attention is **input-dependent**: attention weights are computed from Q·Kᵀ where
+Q, K come from the current sample. With IID Gaussian input, Q·Kᵀ ≈ uniform noise →
+attention weights vary per sample → output cross-cell correlations vary per sample.
+For data whose joint structure is *static* (same factor loadings for every window —
+vol surfaces behave this way), self-attention can't lock in the structural property
+from IID input alone; it would need enormous training signal to learn a consistent
+attention-pattern prior that reproduces factor structure.
+
+Convolution, by contrast, has **static weights**. Its output covariance is
+`W · Cov(input) · Wᵀ` — a *fixed* quantity determined by the kernel. Given IID input,
+conv output has spatial correlation dictated by the kernel, not by the noise realization.
+This is why U-Net + DDPM on small datasets (original CIFAR-10) works where DiT + DDPM
+would struggle.
+
+### Why other DiT-based SOTA systems don't have this problem
+| paper | data | compute | why it works |
+|---|---|---|---|
+| GenCast (arXiv:2312.15796) | 60k weather samples × millions of dim | 3B params, TPU-weeks | physics spatial locality + compute scale + graph-transformer spatial bias |
+| Diffusion Policy (arXiv:2303.04137) | 200–500 rich demos | ~20M params | dominant image-obs conditioning; noise diversity is secondary |
+| MDGen (arXiv:2409.17808) | 50k MD trajectories × 100k frames | Hyena long-context | molecular-bond locality + sheer training volume |
+| LDM / Stable Diffusion | 5B+ images | ~1B params | VAE latent space pre-encodes factor structure; diffusion operates in factor space |
+| **ours** | **4010 windows × 750-dim surfaces** | **2M params × 6h GPU** | *no locality prior, no VAE pre-compression, small data, short train* |
+
+The common pattern in SOTA: when the data is *not* natively amenable to IID-noise
+through-attention (e.g., images with arbitrary content), they add a pre-compression step
+(VAE, FPCA, GP prior) that encodes the factor structure *outside* the diffusion. Our
+implementation followed the textbook pure DiT+IID+ES/VS recipe, which works in the
+data/compute regimes above but not ours.
+
+### Methodological discussion (design options considered and rejected)
+Five fixes were proposed and evaluated for fit to this specific diagnostic:
+
+1. **Add factor-variance auxiliary loss** — rejected: patches the symptom (PC1 mismatch)
+   without addressing H3 (model can't produce static structure from IID noise). Adds a
+   loss term without addressing the architectural reason.
+
+2. **VAE latent diffusion (LDM-style)** — rejected on prior experience. Causal 3D VAE
+   (2026-01-20) had healthy posterior (logvar=-0.1) but deterministic decoder — 33% CI
+   coverage. Gaussian prior mismatch + deterministic decoder is a known failure mode for
+   this data.
+
+3. **Historical bootstrap of factor coefficients** — rejected methodologically. Would
+   collapse the pipeline to "conditional historical simulation with a neural conditioner":
+   with H3 saying the DiT is a noise transformer, bootstrap-in → bootstrap-out. That is
+   a classical econometric approach dressed up; defeats the generative-AI premise of
+   inventing structure beyond training support. Also caps generalization to rates/FX
+   (the bootstrap distribution is IV-specific).
+
+4. **Learnable low-rank projection layer (Λ ∈ R^(25×8) at output)** — acceptable: adds
+   one static layer that structurally enforces rank ≤ 8 in output, but lets Λ be
+   learnable so the factor basis isn't frozen. Minimal code change. Warm-start Λ with
+   GT PCA loadings. Directly attacks H3 (static output covariance) without changing
+   noise input, loss, or core architecture.
+
+5. **Replace DiT with U-Net (conv kernels as static coupling)** — more principled for
+   this data regime. Convolution kernels are static weights → output covariance is
+   kernel-determined, consistent across samples. Our own prior (DDPM POC bs30 Conv3D,
+   2026-02-19) never had the factor collapse 240 series shows. U-Net trains faster
+   (~10× per step), is more data-efficient, handles small grids (5×5) naturally.
+
+### Decision
+The chain of four DiT experiments has exhausted the "improve the loss" lever within
+the DiT + IID noise paradigm. The diagnostic is architectural (H3), not loss-function
+(H1 shows loss is working). Two architectural fixes remain viable:
+
+- **Minimal**: Option 4 (add learnable low-rank output projection layer, warm-start with
+  PCA). Preserves current training pipeline; single-layer addition.
+- **Principled**: Option 5 (replace DiT with U-Net / 3D Conv). Matches prior DDPM POC
+  architecture that didn't exhibit factor collapse; better inductive bias for the
+  specific data regime.
+
+### Next
+Commit to a single change and test. If the minimal fix (Option 4) moves corr_ratio to
+> 0.2 in one training run, that's sufficient validation of the static-structure
+hypothesis. If not, escalate to Option 5.
+
+### Artifacts
+- Diagnostic script: `experiments/backfill/block_ar/diagnose_240c_corr_collapse.py`
+- Diagnostic JSON: `results/block_ar/240c_iter_s42/diagnostic/corr_collapse_diagnostic.json`
+- Checkpoints: `models/backfill/240{a,b_joint_chunk_crps_k128,c_iter_ddim_crps}_s42/best_model.pt`
+- Commits: `388a763` (240a Stage 1), `6d0d936` (diversity diagnostic), `1ee69ac`
+  (240c_iter Stage 2.5), `ac42cf7` (corr-collapse diagnostic)
+- Prior VAE experience (2026-01-20): healthy posterior + deterministic decoder = 33% CI
+
+---
