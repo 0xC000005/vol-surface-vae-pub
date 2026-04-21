@@ -337,6 +337,7 @@ class MinimalFactorFM(nn.Module):
         history_norm: torch.Tensor,
         n_samples: int,
         ode_steps: int | None = None,
+        x_init: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_norm = self._flatten_history(history_norm)
         B = history_norm.shape[0]
@@ -345,7 +346,15 @@ class MinimalFactorFM(nn.Module):
         steps = int(ode_steps or self.cfg.ode_steps)
         cond = self.condition(history_norm)
         cond_k = self.expand_condition(cond, n_samples)
-        x = torch.randn(B * n_samples, T, D, device=history_norm.device, dtype=history_norm.dtype)
+        if x_init is None:
+            x = torch.randn(B * n_samples, T, D, device=history_norm.device, dtype=history_norm.dtype)
+        else:
+            if x_init.ndim == 3:
+                x = x_init.repeat_interleave(n_samples, dim=0)
+            elif x_init.ndim == 4:
+                x = x_init.reshape(B * n_samples, T, D)
+            else:
+                raise ValueError(f"Unexpected x_init shape: {tuple(x_init.shape)}")
         dt = 1.0 / float(steps)
         last_aux: dict[str, torch.Tensor] | None = None
         for i in range(steps):
@@ -354,6 +363,32 @@ class MinimalFactorFM(nn.Module):
             x = x + dt * v
         assert last_aux is not None
         return x.view(B, n_samples, T, D), last_aux
+
+    def deterministic_center_path(
+        self,
+        history_norm: torch.Tensor,
+        ode_steps: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        history_norm = self._flatten_history(history_norm)
+        zeros = torch.zeros(
+            history_norm.shape[0],
+            self.cfg.future_len,
+            self.cfg.n_cells,
+            device=history_norm.device,
+            dtype=history_norm.dtype,
+        )
+        residual_change, _ = self.sample_change_paths(
+            history_norm,
+            n_samples=1,
+            ode_steps=ode_steps,
+            x_init=zeros,
+        )
+        residual_change = residual_change[:, 0]
+        raw_change = self.inverse_transform_change(residual_change, history_norm)
+        raw_change = self.compose_raw_change(raw_change, history_norm)
+        last_level = history_norm[:, -1:, :]
+        levels_norm = (last_level + torch.cumsum(raw_change, dim=1)).clamp(-1.0, 1.0)
+        return raw_change, levels_norm
 
     def sample_batched(
         self,

@@ -79957,3 +79957,59 @@ The next principled step is `experiment`.
 Run `260f` as the last justified deterministic refinement: a low-weight center-path level regularization on top of `260e`.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 13 — 260f last deterministic refinement fails to break 4/11
+
+### Context
+Iteration 12 chose `260f` as the last justified deterministic refinement on top of `260e`. The hypothesis was that a low-weight auxiliary loss on the implied deterministic center path would fix the remaining level-stationary marginal miss without changing the architecture or the FM core.
+
+### Result
+- model: `260f-v0`
+- trainer: `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- model code: `diffusion/block_ar/minimal_factor_fm.py`
+- checkpoint evaluated: `models/backfill/260f_v0_L8_s42/best_model.pt`
+- full 11-suite: `results/block_ar/260f_v0_L8_s42/full11.json`
+- score: `4/11`
+- passed suites: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+Key metrics:
+- coverage90 overall: `0.971`
+- calibration error: `0.138`
+- turb/calm: `1.032`
+- corr_ratio / rank_ratio: `0.591 / 2.423`
+- cointegration gen/GT ratio: `0.885` (worst cell `(2,4)` = `0.342`)
+- change KS pass cells: `24/25`
+- level KS pass cells: `0/25`
+- ACF corr: `0.952`
+- kurtosis ratio: `0.941`
+- MR aggregate ratio: `0.685`
+- full-horizon MR ratios h1/h7/h14/h30: `0.685 / 1.021 / 0.954 / 0.803`
+- max-jump KS: `0.529`
+
+Training note:
+- `best_model.pt` was written and evaluated successfully
+- the long-running trainer never wrote `training_history.json` / `final_model.pt` during this session, so the best checkpoint was used directly
+
+### Mechanism Read
+This is a negative result for the last deterministic refinement.
+
+What improved or held:
+- cross-cell structure remained healthy
+- change-law fidelity remained strong (`change KS 24/25`)
+- MR stayed near gate
+
+What did **not** improve:
+- `level KS` remained `0/25`
+- suite score stayed at `4/11`
+
+What worsened:
+- coverage widened (`0.953 -> 0.971` vs `260e`)
+- calibration error worsened (`0.106 -> 0.138`)
+- pathwise max-jump KS worsened (`0.462 -> 0.529`)
+
+So the center-path level regularizer did not fix the live marginal issue. It mostly traded back toward wider scenarios without moving the decisive suite blockers.
+
+### Decision
+The next principled step is `post_experiment_analysis` with a strong default toward the `261a` pivot.
+`260f` was explicitly the last justified deterministic refinement. Unless the postmortem reveals a better interpretation than the current one, the elegant deterministic side of the 260 family should now be treated as capped and frozen at `260e` for a two-stage residual scenario follow-up.
+
+---

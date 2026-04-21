@@ -47,6 +47,9 @@ def fm_step(
     model: MinimalFactorFM,
     history_norm: torch.Tensor,
     target_change_coord: torch.Tensor,
+    future_norm: torch.Tensor,
+    level_path_weight: float,
+    terminal_level_weight: float,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     B = target_change_coord.shape[0]
     cond = model.condition(history_norm)
@@ -62,7 +65,20 @@ def fm_step(
     idio_rms = aux["idio"].pow(2).mean().sqrt()
     idio_ratio = idio_rms / (common_rms + 1e-8)
     ortho = model.ortho_penalty(aux["loadings"])
-    loss = fm_loss + model.cfg.ortho_reg_weight * ortho
+    level_path_loss = torch.zeros((), device=history_norm.device, dtype=history_norm.dtype)
+    terminal_level_loss = torch.zeros((), device=history_norm.device, dtype=history_norm.dtype)
+    if level_path_weight > 0.0 or terminal_level_weight > 0.0:
+        _, center_levels = model.deterministic_center_path(history_norm)
+        if level_path_weight > 0.0:
+            level_path_loss = torch.nn.functional.smooth_l1_loss(center_levels, future_norm)
+        if terminal_level_weight > 0.0:
+            terminal_level_loss = torch.nn.functional.smooth_l1_loss(center_levels[:, -1], future_norm[:, -1])
+    loss = (
+        fm_loss
+        + model.cfg.ortho_reg_weight * ortho
+        + level_path_weight * level_path_loss
+        + terminal_level_weight * terminal_level_loss
+    )
     metrics = {
         "total": loss.detach(),
         "fm_loss": fm_loss.detach(),
@@ -70,6 +86,8 @@ def fm_step(
         "common_rms": common_rms.detach(),
         "idio_rms": idio_rms.detach(),
         "ortho": ortho.detach(),
+        "level_path_loss": level_path_loss.detach(),
+        "terminal_level_loss": terminal_level_loss.detach(),
     }
     return loss, metrics
 
@@ -124,6 +142,8 @@ def main() -> None:
     parser.add_argument("--anchor_delta_mult", type=float, default=0.0)
     parser.add_argument("--short_ec_boost_max", type=float, default=0.0)
     parser.add_argument("--short_ec_horizons", type=int, default=0)
+    parser.add_argument("--level_path_weight", type=float, default=0.0)
+    parser.add_argument("--terminal_level_weight", type=float, default=0.0)
 
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -224,7 +244,14 @@ def main() -> None:
             raw_target_change = model.residualize_raw_change(raw_target_change, hist_norm, fut_norm)
             target_change = model.transform_change(raw_target_change, hist_norm)
             with torch.set_grad_enabled(train_mode):
-                loss, metrics = fm_step(model, hist_norm, target_change)
+                loss, metrics = fm_step(
+                    model,
+                    hist_norm,
+                    target_change,
+                    fut_norm,
+                    level_path_weight=args.level_path_weight,
+                    terminal_level_weight=args.terminal_level_weight,
+                )
                 if train_mode:
                     optimizer.zero_grad()
                     loss.backward()
@@ -251,9 +278,13 @@ def main() -> None:
             "train_total": train_avg["total"],
             "train_fm": train_avg["fm_loss"],
             "train_idio_ratio": train_avg["idio_ratio"],
+            "train_level_path": train_avg["level_path_loss"],
+            "train_terminal_level": train_avg["terminal_level_loss"],
             "val_total": val_avg["total"],
             "val_fm": val_avg["fm_loss"],
             "val_idio_ratio": val_avg["idio_ratio"],
+            "val_level_path": val_avg["level_path_loss"],
+            "val_terminal_level": val_avg["terminal_level_loss"],
             "lr": optimizer.param_groups[0]["lr"],
             "sec": time.time() - t0,
         }
@@ -262,6 +293,7 @@ def main() -> None:
             f"[ep {epoch:03d}] "
             f"train={rec['train_total']:.5f} "
             f"val={rec['val_total']:.5f} "
+            f"lvl={rec['val_level_path']:.4f} "
             f"idio={rec['val_idio_ratio']:.3f} "
             f"lr={rec['lr']:.2e} "
             f"time={rec['sec']:.1f}s"
