@@ -80279,3 +80279,65 @@ Artifacts:
 - `results/validations/2026-04-21/analysis/261b_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch restart iteration 18 — 261b-v0 factor-space residual FM collapses to under-dispersion
+
+### Context
+Iteration 17 chose `261b-v0` as the clean follow-up to `261a`.
+
+The central change was not another architecture branch, but a cleaner residual space:
+- freeze `260e`
+- freeze its low-rank loadings / readout
+- project transformed panel residual targets into frozen factor coordinates
+- model only the latent factor-residual path with a small vanilla FM model
+- exact-center residual samples in factor space at inference
+
+Artifacts:
+- model: `diffusion/block_ar/latent_factor_residual_fm.py`
+- trainer: `experiments/backfill/block_ar/train_261b_latent_factor_residual_fm.py`
+- eval: `results/block_ar/261b_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/261b_postmortem/summary.md`
+
+### Result
+`261b-v0` scored `3/11`.
+
+Passes:
+- `surface`
+- `block_ar`
+- `cross_cell_correlation`
+
+Relative to `261a`, it fixed the decomposition cleanliness but collapsed the stochastic amplitude:
+- coverage90: `0.911 -> 0.080`
+- calibration error: `0.071 -> 0.470`
+- cointegration ratio: `0.703 -> 0.108`
+- max-jump KS: `0.532 -> 1.000`
+
+What it did preserve:
+- corr ratio: `1.225`
+- rank ratio: `0.786`
+- sample mean level shift abs vs frozen `260e`: `0.000279`
+- sample mean level shift max: `0.02856`
+
+### Mechanism Read
+The important finding is that `261b` failed for the opposite reason from `261a`.
+
+`261a` had enough residual dispersion but leaked into the mean path after support/clamping.
+`261b` stayed much cleaner in the mean path, but the latent-factor residual amplitude collapsed:
+- sample factor std: `0.1129`
+- target factor std: `0.7350`
+- sample panel residual coord std: `0.0757`
+- sample raw residual std: `0.00365`
+
+So the latent-factor residual family itself is **not** falsified. The failure is narrower:
+- the current training formulation drives severe under-dispersion in factor space.
+
+### Decision
+The next principled step is another **experiment**, not another ideation round.
+
+Run one clean follow-up only:
+- keep the exact same `261b` architecture
+- remove the training-time zero-mean penalty
+- keep exact factor-space centering only at inference
+
+That is the smallest decisive test of whether the under-dispersion was caused by the training constraint rather than by the factor-space family itself.
+
+---

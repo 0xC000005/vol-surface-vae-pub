@@ -1,0 +1,26 @@
+# 261b Postmortem
+
+## Base vs 261b
+- 260e_n_pass: `4`
+- 261b_n_pass: `3`
+- 260e_coverage90: `0.9511388888888889`
+- 261b_coverage90: `0.0799375`
+- 260e_turb_calm: `0.9721773266792297`
+- 261b_turb_calm: `0.8534021973609924`
+- 260e_corr_ratio: `0.5090199832777952`
+- 261b_corr_ratio: `1.2252131685710708`
+- 260e_cointegration: `0.8822580645161292`
+- 261b_cointegration: `0.10806451612903227`
+- 260e_max_jump_ks: `0.46197916666666666`
+- 261b_max_jump_ks: `1.0`
+
+## Latent Probe
+- sample_factor_std: `0.1129225492477417`
+- target_factor_std: `0.7349593639373779`
+- sample_panel_resid_coord_std: `0.07573944330215454`
+- sample_raw_resid_std: `0.0036531181540340185`
+- sample_mean_level_shift_abs_norm: `0.00027933571254834533`
+- sample_mean_level_shift_max_norm: `0.028555870056152344`
+
+## Mechanism Read
+- The factor-space residual family stayed structurally aligned but collapsed to severe under-dispersion. The main failure is not mean drift; it is that the sampled latent residual amplitude is far below the target factor residual amplitude, which kills coverage, conditionality, and jump realism.
