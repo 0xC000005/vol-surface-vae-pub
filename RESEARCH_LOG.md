@@ -80868,3 +80868,39 @@ Choose `263c-v0` as the next experiment.
 - ideation memo: `results/validations/2026-04-21/analysis/263c_ideation/memo.md`
 
 ---
+## 2026-04-21: 263c-v0 Scale Anchor Fails the Pre-Registered Gates and Closes the Clean 263 Path
+
+### Context
+`263c-v0` tested the last clean extension inside the `263` family. It kept the `263b` recurrent low-rank mean path and bounded history-mean EC baseline intact, then added exactly one new mechanism: a bounded multiplicative latent sigma anchor derived from history vol-of-vol / local change scale.
+
+### Result
+- `263c-v0` scored `3/11`, unchanged in total suite count
+- the pre-registered `263c` gates failed cleanly:
+  - coverage90 collapsed `0.755 -> 0.500`
+  - calibration error worsened `0.087 -> 0.259`
+  - turb/calm width improved only slightly `1.020 -> 1.041`, still below gate
+  - MR stayed below the preservation gate (`0.606 -> 0.590`)
+- other important regressions:
+  - change-KS pass cells `19/25 -> 9/25`
+  - cointegration ratio `0.619 -> 0.485`
+  - corr_ratio `1.284 -> 0.685`
+  - pathwise max-jump KS `0.456 -> 0.926`
+
+### Mechanism Read
+- the sigma anchor worked on the predictor side:
+  - predicted sigma vs vol-of-vol Spearman `-0.139 -> 0.715`
+- but it did **not** fix the target-side geometry:
+  - target factor scale vs vol-of-vol stayed negative (`-0.312 -> -0.315`)
+- so `263c` forced the predictor to disagree with the pseudoinverse-derived latent target instead of repairing the underlying target construction
+- that is why the line undercovered badly and lost fidelity even though the width-vs-regime sign became more plausible
+
+### Decision
+Close the clean `263` extension path. The active bottleneck is now the latent target construction itself, not one more mean or scale knob. The next principled step is a paradigm shift: keep the elegant state-space low-rank FM story, but replace the pseudoinverse-derived factor target with a learned future-factor posterior / latent teacher so mean and scale are learned in the same latent geometry.
+
+### Artifacts
+- trainer: `experiments/backfill/block_ar/train_263c_joint_state_space_latent_factor_fm_ec_scale_anchor.py`
+- model: `diffusion/block_ar/joint_state_space_latent_factor_fm_ec_scale_anchor.py`
+- eval: `results/block_ar/263c_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/263c_postmortem/summary.md`
+
+---
