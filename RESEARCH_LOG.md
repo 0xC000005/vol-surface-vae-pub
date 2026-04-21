@@ -80062,3 +80062,38 @@ Freeze `260e` as the deterministic core and design the smallest zero-mean residu
 without reopening the deterministic architecture search.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 15 — choose 261a residual scenario line
+
+### Context
+Iteration 14 closed the deterministic 260 line. The next family had to preserve the elegant `260e` center path while attacking the suites that naturally belong to uncertainty quality.
+
+### Ideation
+Artifact:
+- memo: `results/validations/2026-04-21/analysis/261a_ideation/memo.md`
+
+Chosen direction: `261a-v0`
+
+Core decomposition:
+1. freeze `260e` as the deterministic core
+2. define residual targets in the same transformed change space
+3. train a small conditional residual FM model on those residuals
+4. enforce residual sample mean ≈ 0 so the stochastic layer does not silently rewrite the center path
+
+Design principles:
+- vanilla FM remains the generative core
+- no reopening of deterministic architecture search
+- low-capacity residual backbone only
+- zero-mean residual constraint
+- residual scale tied to local/history scale
+
+### Mechanism Read
+This is the cleanest and most defensible next step after the deterministic line was closed:
+- deterministic core handles center path
+- residual layer handles uncertainty and scenario spread
+- the mean / risk decomposition is explicit for both research and risk-manager use
+
+### Decision
+The next principled step is `experiment`.
+Implement and run `261a-v0` next as the first residual scenario layer around frozen `260e`.
+
+---
