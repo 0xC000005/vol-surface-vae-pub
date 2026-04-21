@@ -80231,3 +80231,51 @@ Leading candidate for the next family:
 - a more structure-preserving residual layer in **latent factor space**, rather than another direct panel-space residual model.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 17 — choose 261b latent-factor residual family
+
+### Context
+Iteration 16 showed that the first residual family (`261a-v0`) was live but not clean.
+
+It improved calibration, regime-sensitive width, level KS, and cross-cell structure, but still regressed on:
+- cointegration
+- mean reversion
+- jump realism
+
+The postmortem clarified why: exact centering in raw residual changes was not enough once the residuals were reintegrated into levels and pushed through support/clamping. So the direct panel-space residual layer was still reintroducing effective mean-path movement in the observed level path.
+
+### Decision
+Choose **`261b-v0`** as the next residual family.
+
+`261b` changes only the residual space, not the deterministic core.
+
+Instead of modeling residual uncertainty directly in panel space, it will:
+- freeze `260e`
+- freeze its low-rank loadings / readout
+- define residual targets in transformed panel space
+- project those residuals into frozen **factor coordinates**
+- model only the latent factor-residual path with a small vanilla FM model
+- exact-center residual samples in factor space
+- decode back through the frozen loadings
+
+### Why This Is More Principled
+This is the cleanest response to the `261a` pathology.
+
+It preserves the elegance of the restart line:
+- vanilla FM core
+- frozen deterministic center path
+- explicit low-rank structure
+- no new bespoke branches
+
+And it directly addresses the failure mode:
+- fewer degrees of freedom than panel-space residuals
+- residual uncertainty stays inside the same low-rank structural subspace
+- better chance of preserving MR / cointegration / cross-cell structure
+- less likely to recreate support-induced mean drift through unconstrained panel perturbations
+
+### Decision / Next Step
+Run **`261b-v0`** next.
+
+Artifacts:
+- `results/validations/2026-04-21/analysis/261b_ideation/memo.md`
+
+---
