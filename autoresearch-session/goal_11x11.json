@@ -1,0 +1,28 @@
+{
+  "objective": "Reach 11/11 on the common full 11-suite for a generalizable conditional scenario generator over general financial factors.",
+  "target_n_pass": 11,
+  "metric": "summary.n_pass on evaluate_220h_full_multihorizon_v2_suite.py output",
+  "loop_name": "HEAD",
+  "head_steps": [
+    "Hypothesis",
+    "Execute",
+    "Analyze",
+    "Decide"
+  ],
+  "hard_constraints": [
+    "generalizable_across_financial_factor_panels",
+    "non_AR_mainline",
+    "no_domain_specific_post_hoc_corrections",
+    "no_evaluator_specific_hacks",
+    "append_RESEARCH_LOG_via_research-log-tail-append",
+    "one_commit_per_iteration"
+  ],
+  "allowed_iteration_types": [
+    "post_experiment_analysis",
+    "research_ideation",
+    "paradigm_shift",
+    "experiment"
+  ],
+  "primary_execution_mode": "in_session",
+  "stop_file": "autoresearch-session/STOP"
+}

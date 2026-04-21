@@ -78409,3 +78409,96 @@ Compared with `253a-ec`, the idiosyncratic mean path was almost eliminated rathe
 The dual-timescale idea is still live, but this specific `254a-v0` implementation is too aggressively common-mode constrained. If continuing in the `254` family, the next move should loosen the common/readout bottleneck and explicitly guard against PC1 domination / rank collapse rather than pushing even more common structure.
 
 ---
+## 2026-04-21: 254a-v0 artifact inventory and commit snapshot
+
+### Context
+
+The primary `254a-v0` result entry is already in the log. This supplement records the concrete artifact set, training checkpoint detail, and code snapshot that produced that result.
+
+### Artifacts
+
+- spec: `results/validations/2026-04-21/analysis/254a_design/spec.md`
+- model: `diffusion/block_ar/dual_timescale_low_rank_temporal.py`
+- trainer: `experiments/backfill/block_ar/train_254a_dual_timescale_temporal.py`
+- eval JSON: `results/block_ar/254a_v0_L8_s42/full11.json`
+- eval markdown: `results/block_ar/254a_v0_L8_s42/full11.md`
+- postmortem: `results/validations/2026-04-21/analysis/254a_postmortem/summary.md`
+
+### Training Snapshot
+
+- output dir: `models/backfill/254a_v0_L8_s42`
+- best checkpoint: `best_model.pt`
+- best epoch: `15`
+- best val total: `0.03033`
+- saved history ends at epoch `23`
+- `final_model.pt` was not present, so evaluation used the saved best checkpoint directly
+
+### Practical Read
+
+`254a-v0` is a useful negative result:
+
+- the new family is not rejected outright
+- but `v0` clearly over-collapsed into shared common mode
+- so the next `254` attempt, if any, should target **anti-collapse / anti-PC1-domination**, not “more common structure”
+
+### Code Snapshot
+
+Committed research-code snapshot:
+
+- commit: `c8d2b6a`
+- message: `feat: add backfill research lineage through 254a`
+
+---
+## 2026-04-21: Autoresearch iteration 1 — 254b anti-collapse ideation
+
+### Context
+
+Started the first in-session `HEAD` autoresearch iteration from the new persistent loop state. Current frontier was:
+
+- `253` family structurally capped at `4/11`
+- `254a-v0` regressed to `3/11`
+- failure mechanism for `254a-v0` was over-shared common-mode collapse, not dormant temporal branches
+
+So the most principled next iteration type was `research_ideation`, not another blind experiment.
+
+### Result
+
+Created the targeted ideation memo:
+
+- `results/validations/2026-04-21/analysis/254b_anti_collapse_ideation/memo.md`
+
+Main conclusion:
+
+- stay in the `254` family for one more decisive attempt
+- do **not** add more idio
+- do **not** jump immediately to a dense temporal backbone
+- next experiment should be:
+  - `254b = anti-collapse dual-timescale backbone with dynamic loading modulation`
+
+### Mechanism Read
+
+The ideation sharpens the `254a-v0` diagnosis:
+
+- the dual-timescale family is not yet falsified
+- the actual failure was that temporal diversity still flowed through a nearly fixed
+  cross-sectional map
+- that let the model solve by collapsing into PC1 / rank-1 shared dynamics
+
+So the next fix should target:
+
+1. time-varying loading modulation
+2. anti-PC1 / anti-rank-collapse regularization
+3. preserved low-rank semantics without reverting to deterministic idio leakage
+
+### Decision
+
+Iteration 2 should be an `experiment`:
+
+- implement and run `254b`
+- judge it on both:
+  - anti-collapse mechanism metrics
+  - whether it restores or exceeds the `4/11` frontier
+
+If `254b` still collapses or stays below `4/11`, treat the `254` family as capped and switch paradigm.
+
+---
