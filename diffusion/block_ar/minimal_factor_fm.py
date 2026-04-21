@@ -42,6 +42,8 @@ class MinimalFactorFMConfig:
     support_hi: float = 1.0
     ode_steps: int = 16
     ortho_reg_weight: float = 0.0
+    change_coord: str = "raw"  # "raw" | "asinh_local_scale"
+    change_scale_eps: float = 1e-3
 
 
 class MinimalFactorFM(nn.Module):
@@ -128,6 +130,30 @@ class MinimalFactorFM(nn.Module):
     def encode_history(self, history_norm: torch.Tensor) -> torch.Tensor:
         history_norm = self._flatten_history(history_norm)
         return self.encoder(history_norm)
+
+    def compute_change_scale(self, history_norm: torch.Tensor) -> torch.Tensor:
+        history_norm = self._flatten_history(history_norm)
+        hist_change = history_norm[:, 1:] - history_norm[:, :-1]
+        scale = hist_change.pow(2).mean(dim=1, keepdim=True).sqrt()
+        return scale.clamp_min(self.cfg.change_scale_eps)
+
+    def transform_change(self, raw_change: torch.Tensor, history_norm: torch.Tensor) -> torch.Tensor:
+        if self.cfg.change_coord == "raw":
+            return raw_change
+        if self.cfg.change_coord == "asinh_local_scale":
+            scale = self.compute_change_scale(history_norm)
+            return torch.asinh(raw_change / scale)
+        raise ValueError(f"Unknown change_coord={self.cfg.change_coord}")
+
+    def inverse_transform_change(self, model_change: torch.Tensor, history_norm: torch.Tensor) -> torch.Tensor:
+        if self.cfg.change_coord == "raw":
+            return model_change
+        if self.cfg.change_coord == "asinh_local_scale":
+            scale = self.compute_change_scale(history_norm)
+            if model_change.ndim == 4:
+                scale = scale.unsqueeze(1)
+            return torch.sinh(model_change) * scale
+        raise ValueError(f"Unknown change_coord={self.cfg.change_coord}")
 
     def condition(self, history_norm: torch.Tensor) -> dict[str, torch.Tensor]:
         history_norm = self._flatten_history(history_norm)
@@ -219,7 +245,8 @@ class MinimalFactorFM(nn.Module):
         chunk_size = max(1, min(int(chunk_size), int(n_samples)))
         for start in range(0, n_samples, chunk_size):
             k = min(chunk_size, n_samples - start)
-            change_norm, _ = self.sample_change_paths(history_norm, n_samples=k)
+            change_coord, _ = self.sample_change_paths(history_norm, n_samples=k)
+            change_norm = self.inverse_transform_change(change_coord, history_norm)
             last_level = history_norm[:, -1:, :].unsqueeze(1)
             levels_norm = last_level + torch.cumsum(change_norm, dim=2)
             levels_norm = levels_norm.clamp(-1.0, 1.0)
@@ -235,7 +262,8 @@ class MinimalFactorFM(nn.Module):
         n_samples: int,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_norm = self._flatten_history(history_norm)
-        change_norm, aux = self.sample_change_paths(history_norm, n_samples=n_samples)
+        change_coord, aux = self.sample_change_paths(history_norm, n_samples=n_samples)
+        change_norm = self.inverse_transform_change(change_coord, history_norm)
         last_level = history_norm[:, -1:, :].unsqueeze(1)
         levels_norm = last_level + torch.cumsum(change_norm, dim=2)
         levels_norm = levels_norm.clamp(-1.0, 1.0)

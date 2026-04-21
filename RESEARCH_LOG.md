@@ -79524,3 +79524,55 @@ Artifact:
 - `results/validations/2026-04-21/analysis/260a_postmortem/summary.md`
 
 ---
+## 2026-04-21: Autoresearch restart iteration 4 — 260b coordinate-only follow-up
+
+### Context
+This restart iteration tested whether the `260a` failure was mainly an architecture failure or a coordinate-system failure. `260b` kept the exact same minimal conditional factor FM architecture and vanilla flow-matching objective, but replaced raw normalized future changes with a causal local-scale `asinh` change coordinate.
+
+### Result
+- model: `260b-v0`
+- trainer: `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- model code: `diffusion/block_ar/minimal_factor_fm.py`
+- checkpoint: `models/backfill/260b_v0_L8_s42/best_model.pt`
+- full 11-suite: `results/block_ar/260b_v0_L8_s42/full11.json`
+- score: `2/11`
+- passed suites: `cross_cell_correlation`, `distributional_fidelity`
+
+Key metrics:
+- coverage90 overall: `0.981`
+- calibration error: `0.231`
+- turb/calm: `0.953`
+- corr_ratio / rank_ratio: `0.589 / 2.357`
+- cointegration gen/GT ratio: `0.871` (worst cell `(2,4)` = `0.211`)
+- change KS pass cells: `21/25`
+- level KS pass cells: `0/25`
+- ACF corr: `0.957`
+- kurtosis ratio: `1.455`
+- MR ratio / h30 MR: `0.225 / 0.442`
+- max-jump KS: `0.366`
+
+Training metadata:
+- output dir: `models/backfill/260b_v0_L8_s42`
+- params: `1,226,475`
+- best epoch: `40/40`
+- best val total: `1.1979842483997345`
+
+### Mechanism Read
+This is a meaningful restart-line improvement over `260a` despite the same `2/11` total. The coordinate fix recovered sane common structure and daily-change fidelity without changing the architecture: `260a` had `corr_ratio = 0.039` and `change KS = 0/25`, while `260b` reached `corr_ratio = 0.589` and `change KS = 21/25`. That strongly suggests the raw-change FM geometry was the main cause of the first restart failure.
+
+What still fails is now narrower:
+- long-horizon level geometry is still wrong (`level KS = 0/25`)
+- conditional width does not respond to regime (`turb/calm = 0.953`)
+- mean reversion remains too weak (`MR = 0.225`, `h30 = 0.442`)
+- jump shape remains too distorted (`max-jump KS = 0.366`)
+
+So the immediate bottleneck is no longer broad unstable FM. It is the remaining mismatch between the improved change-space dynamics and the decoded level / regime / jump behavior.
+
+### Decision
+The next principled step is `post_experiment_analysis`, not another blind experiment. The family is still alive, but the next lever is underdetermined. The analysis should determine whether the next change should target:
+- mean-reversion / level-stationarity geometry,
+- regime-sensitive width conditioning,
+- or residual jump-shape distortion,
+while keeping the minimal architecture and the `asinh` local-scale coordinate.
+
+---

@@ -37,7 +37,7 @@ from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
 )
 
 
-def build_target_changes(history_norm: torch.Tensor, future_norm: torch.Tensor) -> torch.Tensor:
+def build_raw_target_changes(history_norm: torch.Tensor, future_norm: torch.Tensor) -> torch.Tensor:
     first = future_norm[:, :1] - history_norm[:, -1:]
     rest = future_norm[:, 1:] - future_norm[:, :-1]
     return torch.cat([first, rest], dim=1)
@@ -46,15 +46,15 @@ def build_target_changes(history_norm: torch.Tensor, future_norm: torch.Tensor) 
 def fm_step(
     model: MinimalFactorFM,
     history_norm: torch.Tensor,
-    target_change: torch.Tensor,
+    target_change_coord: torch.Tensor,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    B = target_change.shape[0]
+    B = target_change_coord.shape[0]
     cond = model.condition(history_norm)
-    x0 = torch.randn_like(target_change)
-    t = torch.rand(B, device=target_change.device, dtype=target_change.dtype)
+    x0 = torch.randn_like(target_change_coord)
+    t = torch.rand(B, device=target_change_coord.device, dtype=target_change_coord.dtype)
     t_view = t[:, None, None]
-    x_t = (1.0 - t_view) * x0 + t_view * target_change
-    target_v = target_change - x0
+    x_t = (1.0 - t_view) * x0 + t_view * target_change_coord
+    target_v = target_change_coord - x0
     pred_v, aux = model.velocity(x_t, t, cond)
 
     fm_loss = (pred_v - target_v).pow(2).mean()
@@ -117,6 +117,8 @@ def main() -> None:
     parser.add_argument("--max_idio_ratio", type=float, default=0.25)
     parser.add_argument("--ode_steps", type=int, default=16)
     parser.add_argument("--ortho_reg_weight", type=float, default=0.01)
+    parser.add_argument("--change_coord", type=str, default="raw", choices=["raw", "asinh_local_scale"])
+    parser.add_argument("--change_scale_eps", type=float, default=1e-3)
 
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -182,6 +184,8 @@ def main() -> None:
         max_idio_ratio=args.max_idio_ratio,
         ode_steps=args.ode_steps,
         ortho_reg_weight=args.ortho_reg_weight,
+        change_coord=args.change_coord,
+        change_scale_eps=args.change_scale_eps,
     )
     model = MinimalFactorFM(cfg).to(device)
     optimizer = torch.optim.AdamW(
@@ -206,7 +210,8 @@ def main() -> None:
             fut_01 = fut_01.to(device, non_blocking=True)
             hist_norm = normalize_iv(hist_01).view(hist_01.shape[0], hist_01.shape[1], -1)
             fut_norm = normalize_iv(fut_01).view(fut_01.shape[0], fut_01.shape[1], -1)
-            target_change = build_target_changes(hist_norm, fut_norm)
+            raw_target_change = build_raw_target_changes(hist_norm, fut_norm)
+            target_change = model.transform_change(raw_target_change, hist_norm)
             with torch.set_grad_enabled(train_mode):
                 loss, metrics = fm_step(model, hist_norm, target_change)
                 if train_mode:
