@@ -1,16 +1,16 @@
 {
   "objective_ref": "autoresearch-session/goal_11x11.json",
   "mode": "in_session",
-  "iteration": 1,
-  "last_iteration_type": "research_ideation",
-  "active_family": "254 anti-collapse follow-up",
-  "current_bottleneck": "254a-v0 changed the backbone correctly but collapsed into a near-rank-1 common path because the readout had no strong anti-PC1 / anti-rank-collapse guard.",
-  "last_result_summary": "Iteration 1 ideation concluded that the next principled step is 254b: anti-collapse dual-timescale backbone with dynamic loading modulation and structural anti-collapse penalties.",
-  "next_step_recommendation": "Run 254b as the next decisive experiment inside the 254 family; if it stays below the 4/11 frontier or still collapses, switch paradigm.",
+  "iteration": 2,
+  "last_iteration_type": "experiment",
+  "active_family": "254 family likely capped",
+  "current_bottleneck": "254b fixed loading-rank statistics but the generated panel still collapsed into an over-shared common path, so the failure is deeper than loading-matrix regularization.",
+  "last_result_summary": "Iteration 2 ran 254b and it stayed at 3/11. Anti-collapse penalties improved loading statistics but did not prevent output-level common-mode collapse.",
+  "next_step_recommendation": "Do a paradigm-shift ideation iteration next; do not run 254c unless that ideation fails to produce a stronger alternative.",
   "current_best_n_pass": 4,
   "current_best_model": "Frontier remains at 4/11 across prior families; use the most informative current baseline for the next iteration rather than assuming a single winner.",
   "current_best_note": "253-family capped at 4/11; 254a-v0 regressed to 3/11 with PC1/common-mode collapse.",
   "goal_reached": false,
-  "last_commit": "pending_iteration_1_commit",
+  "last_commit": "pending_iteration_2_commit",
   "resume_command_hint": "continue autoresearch"
 }

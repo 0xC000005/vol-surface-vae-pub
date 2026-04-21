@@ -78502,3 +78502,72 @@ Iteration 2 should be an `experiment`:
 If `254b` still collapses or stays below `4/11`, treat the `254` family as capped and switch paradigm.
 
 ---
+## 2026-04-21: Autoresearch iteration 2 — 254b anti-collapse experiment
+
+### Context
+
+Iteration 2 was the decisive `experiment` selected by iteration 1 ideation:
+
+- `254a-v0` had regressed to `3/11`
+- its failure mode was over-shared common-mode collapse
+- the recommended follow-up was `254b`: anti-collapse dual-timescale backbone with
+  dynamic loading modulation and explicit spectral penalties
+
+Artifacts:
+
+- spec: `results/validations/2026-04-21/analysis/254b_design/spec.md`
+- model: `diffusion/block_ar/anti_collapse_dual_timescale_temporal.py`
+- trainer: `experiments/backfill/block_ar/train_254b_anti_collapse_temporal.py`
+- eval: `results/block_ar/254b_L8_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/254b_postmortem/summary.md`
+
+### Result
+
+- `254b` scored `3/11`
+- passes: `surface`, `block_ar`, `cointegration`
+- it did **not** recover the `4/11` frontier
+
+Relative to `254a-v0`:
+
+- `corr_ratio: 2.233 -> 2.232`
+- `rank_ratio: 0.201 -> 0.201`
+- `mr_gt_ratio: 2.724 -> 3.270`
+- `change KS: 0 -> 1`
+- `level KS: 4 -> 1`
+- `max-jump KS: 0.943 -> 0.938`
+
+### Mechanism Read
+
+The anti-collapse intervention worked on the **loading matrix statistics**:
+
+- `dynamic_loading_eff_rank = 3.74`
+- `dynamic_loading_top1_share = 0.459`
+
+But the generated panel still collapsed at the output level:
+
+- `common_share_rms = 0.936`
+- `idio_share_rms = 0.031`
+- `corr_ratio = 2.232`
+- `rank_ratio = 0.201`
+
+Important extra finding:
+
+- the latent factor path itself was not collapsed
+  - `common_latent_top1_share = 0.176`
+  - `common_latent_entropy_rank = 7.23`
+
+So the failure is stronger than “bad loadings”. The `254` family still maps healthy-ish
+latent/loadings statistics into an over-shared panel path.
+
+### Decision
+
+Treat this as negative evidence for continued `254` tuning.
+
+Most principled next iteration type:
+
+- `paradigm_shift`
+
+Next step should be ideation for a family where output geometry is not trapped in the
+same low-rank common-path attractor that survived both `254a` and `254b`.
+
+---
