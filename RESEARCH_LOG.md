@@ -79405,3 +79405,60 @@ Artifacts:
 - `results/validations/2026-04-21/analysis/260a_restart_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch restart iteration 2 — 260a-v0 minimal factor-FM experiment
+
+### Context
+Iteration 2 executed the first clean restart baseline after the old `205-258` tree was archived.
+
+`260a-v0` was intentionally minimal:
+
+- future **change-path** target
+- vanilla conditional **flow matching** objective
+- single temporal backbone
+- explicit low-rank readout
+- bounded idio path
+
+No token hierarchy, motif routing, marginal head, pulse branch, or stacked scenario loss was added.
+
+### Result
+- model: `260a_v0_L8_s42`
+- best epoch: `40`
+- best val total: `0.5297`
+- suite score: `2/11`
+- passes:
+  - `block_ar`
+  - `cointegration`
+
+Artifacts:
+- `diffusion/block_ar/minimal_factor_fm.py`
+- `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- `models/backfill/260a_v0_L8_s42/best_model.pt`
+- `results/block_ar/260a_v0_L8_s42/full11.json`
+- `results/block_ar/260a_v0_L8_s42/full11.md`
+
+### High-Signal Read
+The restart baseline trained cleanly but failed badly on scenario quality.
+
+Most important metrics:
+
+- overall 90% coverage: `100.0%`
+- calibration error: `0.416`
+- turb/calm width ratio: `0.997`
+- corr ratio: `0.039`
+- rank ratio: `4.060`
+- h30 MR ratio: `1.615`
+- max-jump KS: `0.896`
+- level KS pass: `0/25`
+- change KS pass: `0/25`
+
+### Decision
+The first restart baseline is a useful negative result.
+
+The next step is **post-experiment analysis**, not another architecture jump.
+The key question is whether `260a` failed because of:
+
+- idio leakage
+- low-rank head failure
+- or the raw change-space coordinate system itself
+
+---

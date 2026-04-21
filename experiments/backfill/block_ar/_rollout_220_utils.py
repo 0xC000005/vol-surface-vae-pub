@@ -347,6 +347,12 @@ def load_one_day_kernel(
         )
 
         return load_258a_model(checkpoint_path, device)
+    if model_type == "260a":
+        from diffusion.block_ar.minimal_factor_fm import (
+            load_model as load_260a_model,
+        )
+
+        return load_260a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 
