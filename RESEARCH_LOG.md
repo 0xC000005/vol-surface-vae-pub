@@ -79213,3 +79213,46 @@ Unlike late `257`, this is not a capped-family signal. The next principled step 
 - `results/validations/2026-04-21/analysis/258a_postmortem/summary.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 18 — 258a fast-branch follow-up analysis
+
+### Context
+
+Iteration 17 (`258a-v0`) tied the best stochastic score so far (`3/11`) and fixed cross-cell rank, but the mechanism clearly looked like a slow-branch-only model.
+
+### Findings
+
+Follow-up analysis on the best checkpoint confirmed that the fast branch is effectively dead:
+
+- `fast_scale_mean < 1e-3` by epoch `2`
+- best-checkpoint fast scale mean: `7.8e-06`
+- best-checkpoint slow scale mean: `0.0104`
+
+Per-horizon diagnostics show the pattern directly:
+
+- `fast_scale_mean` is near zero for almost the entire horizon
+- `fast_gate_mean` stays near zero until very late steps
+- `sample_std_mean` grows monotonically across horizon mainly through the slow branch
+
+Interpretation:
+
+- the family is alive
+- coverage and cross-cell rank improvements are real
+- but almost all useful variance is routed through the slow branch
+- the fast branch never survives long enough to learn local shocks
+
+### Decision
+
+The next principled step is a direct **experiment**, not more ideation.
+
+Run `258b` next as an anti-collapse follow-up inside the same family:
+
+- keep the slow branch that already gives good coverage/rank
+- add a fast-scale floor/penalty
+- add a short-horizon utility signal so the fast branch has a reason to stay alive
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/258a_followup_analysis/summary.md`
+- `results/validations/2026-04-21/analysis/258a_followup_analysis/summary.json`
+
+---
