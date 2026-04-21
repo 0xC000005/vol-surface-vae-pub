@@ -81048,3 +81048,63 @@ Do constrained ideation next for `264c`. The question is now the minimal stabili
 - smoke postmortem: `results/validations/2026-04-21/analysis/264b_smoke_postmortem/summary.md`
 
 ---
+## 2026-04-21: Proper Reset: Retire 263/264 as the Active Search Tree and Start 265a as a Clean Probabilistic Family
+
+### Context
+The active `263`/`264` line stopped being a clean scenario-generator program and became target-engineering research.
+
+- `263a` to `263c` showed the recurrent low-rank state-space backbone was useful, but the pinv-derived latent target became the blocker.
+- `264a` and `264b` then shifted the bottleneck from model quality to teacher engineering and sigma-collapse stabilization.
+
+That is no longer the right mainline for a publishable, defensible, generalizable conditional scenario generator.
+
+### Reset Decision
+Perform a proper reset.
+
+The active methodology is now:
+- retire `263`/`264` as the main search process
+- keep them as falsification history and baselines only
+- start a fresh family in fresh code: `265a-v0`
+
+### New Family
+`265a-v0` is a single coherent probabilistic model:
+- history-conditioned latent state-space prior
+- learned posterior from day one
+- explicit low-rank decoder
+- bounded idio path
+- bounded history-mean EC baseline
+- end-to-end variational training with reconstruction + KL
+
+No latent teachers.
+No pinv targets.
+No posterior-teacher retrofits.
+No residual scenario split.
+No router/token/pulse branches.
+
+### Retained Components
+Keep only the genuinely supported lessons from the restart line:
+- non-AR mainline
+- dynamic latent state
+- explicit low-rank factor structure
+- bounded idio path
+- bounded EC baseline
+- transformed change coordinate
+- common 11-suite harness
+
+### Banned Components
+The reset line explicitly bans:
+- pinv-derived latent targets
+- posterior-teacher patches as the training story
+- scale-anchor patches
+- token/motif/router branches
+- jump/pulse special heads
+- frozen-core residual scenario decomposition
+- suite-specific losses and evaluator hacks
+
+### Immediate Next Step
+Implement `265a-v0` in fresh files, using only shared utilities for normalization, window building, and evaluation.
+
+### Artifacts
+- reset spec: `results/validations/2026-04-21/analysis/265a_proper_reset/spec.md`
+
+---
