@@ -80978,3 +80978,43 @@ Keep the `264` paradigm alive, but close `264a-v0` specifically. The next most p
 - postmortem: `results/validations/2026-04-21/analysis/264a_postmortem/summary.md`
 
 ---
+## 2026-04-21: 264b Ideation Chooses a Posterior Epsilon Teacher as the Minimal Stochastic Continuation
+
+### Context
+`264a-v0` showed the posterior-teacher paradigm is directionally right but the **mean-only** teacher is too weak: it fixes the target-direction issue only by collapsing the stochastic channel.
+
+### Ideation Read
+The cleanest next object is not a posterior mean+scale distribution yet. That would immediately add another variance-collapse subproblem and new weighting knobs.
+
+The smallest extension that matches latent FM directly is a **posterior epsilon teacher**:
+- posterior encoder predicts `eps_target` directly from `(history, future)`
+- latent target becomes `z_target = mu_prior + sigma_prior * eps_target`
+- reconstruction uses `z_target`
+- FM uses `eps_target` directly
+
+This keeps the model elegant:
+- same recurrent low-rank prior
+- same bounded EC mean baseline
+- same low-rank decoder
+- same vanilla latent FM core
+- only the posterior target object changes
+
+### Decision
+Choose `264b-v0` next as the minimal stochastic continuation of the `264` family.
+
+### Pre-Registered Gates
+- preserve the target-direction fix:
+  - target latent scale vs realized vol-of-vol correlation nonnegative
+- avoid `264a`-style stochastic collapse:
+  - `coverage90 >= 0.30`
+  - `calibration_error <= 0.30`
+  - pathwise q90 jump ratio `>= 0.25`
+- preserve structural quality:
+  - `corr_ratio` in `[0.70, 1.50]`
+  - `rank_ratio` in `[0.70, 1.40]`
+  - `mr_gt_ratio >= 0.55`
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/264b_ideation/memo.md`
+
+---
