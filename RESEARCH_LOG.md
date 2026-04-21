@@ -80614,3 +80614,69 @@ The constraint for `262b` is strict:
 - use the minimal history-mean EC mechanism only to recover MR / short-horizon deterministic flexibility
 
 ---
+## 2026-04-21: 262b-v0 Joint Probabilistic Latent-Factor FM + History-Mean EC
+
+### Context
+Ran the single-mechanism follow-up to `262a-v0`: keep the joint probabilistic latent-factor FM intact, but center it on residual changes around a bounded history-mean error-correction baseline copied from the proven `260e` deterministic restart line.
+
+This was the narrowest allowed extension:
+- still one coherent joint probabilistic model
+- no frozen deterministic core
+- no residual scenario layer
+- no jump head / router / token hierarchy
+- only the bounded history-mean EC baseline added inside the joint mean path
+
+### Result
+- Train/eval complete for `262b-v0`
+- Checkpoint: `models/backfill/262b_v0_s42/best_model.pt`
+- Eval: `results/block_ar/262b_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-21/analysis/262b_postmortem/summary.md`
+- Suite score: `2/11`
+- Passed: `surface`, `block_ar`
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`
+
+High-signal metrics:
+- coverage90 `0.608`
+- calibration error `0.213`
+- turb/calm `0.942`
+- corr_ratio `0.364`
+- rank_ratio `1.487`
+- MR ratio `0.581`
+- h30 MR `0.688`
+- cointegration ratio `0.573`
+- level KS `14/25`
+- change KS `18/25`
+- max-jump KS `0.952`
+- ACF corr `0.960`
+- kurtosis ratio `1.397`
+
+### Mechanism Read
+`262b` did exactly one useful thing and one harmful thing.
+
+What improved vs `262a`:
+- deterministic MR shape came back materially
+- aggregate MR moved `0.071 -> 0.581`
+- h30 MR moved `0.307 -> 0.688`
+- active-cell MR corr stayed strong (`0.809`)
+- time-series ACF stayed strong (`0.960`)
+
+What worsened:
+- coverage collapsed (`0.814 -> 0.608`)
+- calibration error worsened (`0.036 -> 0.213`)
+- corr_ratio fell below gate (`0.676 -> 0.364`)
+- jump realism remained very weak (`max-jump KS 0.952`)
+
+Postmortem confirms the deeper issue:
+- sigma mean collapsed from `0.884` in `262a` to `0.289` in `262b`
+- deterministic idio/common RMS ratio remained effectively zero (`2.4e-06`)
+- EC gain stayed active (`0.096`), so the model really did use the baseline
+- but the deterministic idio mean path still did not revive
+
+So `262b` did not restore the missing cellwise mean flexibility cleanly. It traded `262a`'s no-MR failure for under-dispersed mean-corrected paths with weakened cross-cell structure.
+
+### Decision
+Do not stack another local patch into `262` immediately. The family is still scientifically legible, but the next move is now underdetermined. The principled next step is constrained ideation:
+- either define one minimal `262c` that restores structured mean flexibility without residualizing or adding branch soup,
+- or switch to a cleaner joint state-space factor paradigm if that cannot be done elegantly.
+
+---
