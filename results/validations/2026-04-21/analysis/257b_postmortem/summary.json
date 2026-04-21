@@ -1,0 +1,29 @@
+{
+  "model": "257b_v0_K4_s42",
+  "suite_score": 2,
+  "n_total": 11,
+  "passes": [
+    "surface",
+    "block_ar"
+  ],
+  "key_metrics": {
+    "coverage_90_overall": 0.25,
+    "coverage_90_h30": 0.227,
+    "corr_ratio": 0.648,
+    "rank_ratio": 0.439,
+    "change_ks_pass": 3,
+    "level_ks_pass": 1,
+    "mr_gt_ratio": 1.407,
+    "cointegration_ratio": 0.329,
+    "max_jump_ks": 0.819
+  },
+  "mechanism": {
+    "attn_entropy_mean": 1.1940943002700806,
+    "attn_top1_mean": 0.450327605009079,
+    "post_vs_zero_mae": 0.1306360363960266,
+    "priormean_vs_zero_mae": 0.12782809138298035,
+    "post_vs_priormean_mae": 0.006682733539491892,
+    "sample_std_mean": 0.007543777581304312
+  },
+  "decision": "Do not continue with latent-pressure changes alone; next step should target sample-dependent scenario training."
+}

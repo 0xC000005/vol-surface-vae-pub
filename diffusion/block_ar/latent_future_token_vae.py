@@ -50,6 +50,11 @@ class LatentFutureTokenVAEConfig:
     max_resid_ratio: float = 0.30
     support_lo: float = 0.01
     support_hi: float = 1.0
+    query_use_history: bool = True
+    factor_use_history: bool = True
+    resid_use_history: bool = True
+    token_dependent_loadings: bool = False
+    loading_delta_scale: float = 0.5
 
 
 class LatentFutureTokenVAE(nn.Module):
@@ -83,7 +88,9 @@ class LatentFutureTokenVAE(nn.Module):
             nn.GELU(),
             nn.Linear(cfg.obs_hidden, cfg.obs_hidden),
         )
-        query_dim = cfg.bottleneck_dim + cfg.obs_hidden + cfg.time_embed_dim + cfg.latent_dim
+        query_dim = cfg.obs_hidden + cfg.time_embed_dim + cfg.latent_dim
+        if cfg.query_use_history:
+            query_dim += cfg.bottleneck_dim
         self.query_head = _mlp(query_dim, cfg.token_dim, cfg.head_hidden, cfg.head_layers, cfg.head_dropout)
         self.key_proj = nn.Linear(cfg.token_dim, cfg.token_dim)
         self.value_proj = nn.Linear(cfg.token_dim, cfg.token_dim)
@@ -95,11 +102,25 @@ class LatentFutureTokenVAE(nn.Module):
         self.loading_head = _mlp(
             cfg.bottleneck_dim, cfg.n_cells * cfg.latent_dim, cfg.head_hidden, cfg.head_layers, cfg.head_dropout
         )
-        factor_ctx_dim = cfg.bottleneck_dim + cfg.token_dim + cfg.latent_dim + cfg.time_embed_dim
+        if cfg.token_dependent_loadings:
+            self.loading_delta_head = _mlp(
+                cfg.bottleneck_dim + cfg.token_dim,
+                cfg.n_cells * cfg.latent_dim,
+                cfg.head_hidden,
+                cfg.head_layers,
+                cfg.head_dropout,
+            )
+        else:
+            self.loading_delta_head = None
+        factor_ctx_dim = cfg.token_dim + cfg.latent_dim + cfg.time_embed_dim
+        if cfg.factor_use_history:
+            factor_ctx_dim += cfg.bottleneck_dim
         self.factor_head = _mlp(
             factor_ctx_dim, cfg.latent_dim, cfg.head_hidden, cfg.head_layers, cfg.head_dropout
         )
-        resid_ctx_dim = cfg.bottleneck_dim + cfg.token_dim + cfg.obs_hidden + cfg.time_embed_dim + cfg.latent_dim
+        resid_ctx_dim = cfg.token_dim + cfg.obs_hidden + cfg.time_embed_dim + cfg.latent_dim
+        if cfg.resid_use_history:
+            resid_ctx_dim += cfg.bottleneck_dim
         self.resid_head = _mlp(
             resid_ctx_dim, cfg.n_cells, cfg.head_hidden, cfg.head_layers, cfg.head_dropout
         )
@@ -120,6 +141,8 @@ class LatentFutureTokenVAE(nn.Module):
             self.resid_head,
             self.resid_budget_head,
         ]
+        if self.loading_delta_head is not None:
+            nets.append(self.loading_delta_head)
         for net in nets:
             last = net[-1]
             if isinstance(last, nn.Linear):
@@ -171,6 +194,11 @@ class LatentFutureTokenVAE(nn.Module):
         keys = self.key_proj(tokens)
         values = self.value_proj(tokens)
         loadings = self.loading_head(h).view(B, self.cfg.n_cells, self.cfg.latent_dim)
+        if self.loading_delta_head is not None:
+            token_summary = token_latents.mean(dim=1)
+            delta = self.loading_delta_head(torch.cat([h, token_summary], dim=-1))
+            delta = delta.view(B, self.cfg.n_cells, self.cfg.latent_dim)
+            loadings = loadings + self.cfg.loading_delta_scale * delta
         z = torch.tanh(self.state_init(h))
 
         current = 0.5 * (history[:, -1, :] + 1.0)
@@ -189,18 +217,27 @@ class LatentFutureTokenVAE(nn.Module):
             t_idx = torch.full((B,), t, device=history.device, dtype=torch.long)
             t_emb = self.time_embed(t_idx)
             obs = self.obs_proj(current)
-            query_ctx = torch.cat([h, obs, t_emb, z], dim=-1)
+            query_parts = [obs, t_emb, z]
+            if self.cfg.query_use_history:
+                query_parts.insert(0, h)
+            query_ctx = torch.cat(query_parts, dim=-1)
             q = self.query_head(query_ctx)
             attn_logits = torch.einsum("bd,bnd->bn", q, keys) * scale
             attn = torch.softmax(attn_logits, dim=-1)
             token_ctx = torch.einsum("bn,bnd->bd", attn, values)
 
             z = self.state_cell(token_ctx, z)
-            factor_ctx = torch.cat([h, token_ctx, z, t_emb], dim=-1)
+            factor_parts = [token_ctx, z, t_emb]
+            if self.cfg.factor_use_history:
+                factor_parts.insert(0, h)
+            factor_ctx = torch.cat(factor_parts, dim=-1)
             factor_scores = self.factor_head(factor_ctx)
             factor = torch.einsum("bdl,bl->bd", loadings, factor_scores)
 
-            resid_ctx = torch.cat([h, token_ctx, obs, t_emb, z], dim=-1)
+            resid_parts = [token_ctx, obs, t_emb, z]
+            if self.cfg.resid_use_history:
+                resid_parts.insert(0, h)
+            resid_ctx = torch.cat(resid_parts, dim=-1)
             factor_rms = factor.pow(2).mean(dim=1, keepdim=True).sqrt()
             budget = self.cfg.max_resid_ratio * torch.sigmoid(self.resid_budget_head(resid_ctx)) * factor_rms
             resid = torch.tanh(self.resid_head(resid_ctx)) * budget

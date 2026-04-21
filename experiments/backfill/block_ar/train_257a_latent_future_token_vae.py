@@ -69,6 +69,8 @@ def build_losses(
     lambda_terminal: float,
     lambda_resid: float,
     lambda_kl: float,
+    lambda_kl_floor: float,
+    kl_floor: float,
     terminal_weight: float,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     _, T, _ = pred_level.shape
@@ -90,6 +92,7 @@ def build_losses(
 
     resid_rms = aux["mean_resid"].pow(2).mean().sqrt()
     kl = aux["kl"]
+    kl_floor_penalty = torch.relu(torch.as_tensor(kl_floor, device=kl.device, dtype=kl.dtype) - kl).square()
     attn = aux["attn_weights"].clamp_min(1e-8)
     attn_entropy = -(attn * attn.log()).sum(dim=-1).mean()
     token_std = aux["post_logvar"].exp().sqrt().mean()
@@ -102,6 +105,7 @@ def build_losses(
         + lambda_terminal * terminal_loss
         + lambda_resid * resid_rms
         + lambda_kl * kl
+        + lambda_kl_floor * kl_floor_penalty
     )
     metrics = {
         "level_loss": level_loss.detach(),
@@ -110,6 +114,7 @@ def build_losses(
         "terminal_loss": terminal_loss.detach(),
         "resid_rms": resid_rms.detach(),
         "kl": kl.detach(),
+        "kl_floor_penalty": kl_floor_penalty.detach(),
         "attn_entropy": attn_entropy.detach(),
         "token_std": token_std.detach(),
         "token_top1": token_top1.detach(),
@@ -141,8 +146,15 @@ def main() -> None:
     parser.add_argument("--lambda_terminal", type=float, default=0.75)
     parser.add_argument("--lambda_resid", type=float, default=0.05)
     parser.add_argument("--lambda_kl", type=float, default=0.01)
+    parser.add_argument("--lambda_kl_floor", type=float, default=0.0)
+    parser.add_argument("--kl_floor", type=float, default=0.0)
     parser.add_argument("--kl_warmup_epochs", type=int, default=8)
     parser.add_argument("--terminal_weight", type=float, default=2.0)
+    parser.add_argument("--no_query_history", action="store_true")
+    parser.add_argument("--no_factor_history", action="store_true")
+    parser.add_argument("--no_resid_history", action="store_true")
+    parser.add_argument("--token_dependent_loadings", action="store_true")
+    parser.add_argument("--loading_delta_scale", type=float, default=0.5)
 
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -214,6 +226,11 @@ def main() -> None:
         max_resid_ratio=args.max_resid_ratio,
         support_lo=args.support_lo,
         support_hi=args.support_hi,
+        query_use_history=not args.no_query_history,
+        factor_use_history=not args.no_factor_history,
+        resid_use_history=not args.no_resid_history,
+        token_dependent_loadings=args.token_dependent_loadings,
+        loading_delta_scale=args.loading_delta_scale,
     )
     model = LatentFutureTokenVAE(cfg).to(device)
     print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
@@ -272,6 +289,8 @@ def main() -> None:
                         lambda_terminal=args.lambda_terminal,
                         lambda_resid=args.lambda_resid,
                         lambda_kl=kl_scale,
+                        lambda_kl_floor=args.lambda_kl_floor,
+                        kl_floor=args.kl_floor,
                         terminal_weight=args.terminal_weight,
                     )
                 if train_mode:
@@ -293,6 +312,7 @@ def main() -> None:
                         f"chg={metrics['change_loss'].item():.4f} "
                         f"jump={metrics['jump_loss'].item():.4f} "
                         f"kl={metrics['kl'].item():.4f} "
+                        f"klfloor={metrics['kl_floor_penalty'].item():.4f} "
                         f"top1={metrics['token_top1'].item():.4f} "
                         f"H={metrics['attn_entropy'].item():.4f} "
                         f"std={metrics['token_std'].item():.4f} "
@@ -319,6 +339,7 @@ def main() -> None:
             f"val_chg={val_avg.get('change_loss', 0):.4f}  "
             f"val_jump={val_avg.get('jump_loss', 0):.4f}  "
             f"val_kl={val_avg.get('kl', 0):.4f}  "
+            f"val_klfloor={val_avg.get('kl_floor_penalty', 0):.4f}  "
             f"val_top1={val_avg.get('token_top1', 0):.4f}  "
             f"val_H={val_avg.get('attn_entropy', 0):.4f}  "
             f"val_std={val_avg.get('token_std', 0):.4f}  "

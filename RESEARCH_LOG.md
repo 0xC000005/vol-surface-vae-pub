@@ -78902,3 +78902,38 @@ Artifact:
 - `results/validations/2026-04-21/analysis/257c_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 10 (recorded late) — 257b latent-usage experiment
+
+### Context
+This is the delayed experiment record for `257b`, the stronger latent-usage follow-up to `257a`.
+
+### Result
+- model: `257b_v0_K4_s42`
+- suite score: `2/11`
+- passes: `surface`, `block_ar`
+- improved coverage relative to `257a`:
+  - overall 90% coverage `20.5% -> 25.0%`
+  - h30 90% coverage `11.5% -> 22.7%`
+- but regressed overall by damaging structure and long-run behavior
+
+### Mechanism Read
+`257b` increased latent pressure, but still did not make sample identity matter enough.
+
+- attention entropy mean: `1.194`
+- attention top-1 mean: `0.450`
+- `post_vs_zero_mae = 0.1306`
+- `prior_mean_vs_zero_mae = 0.1278`
+- `post_vs_prior_mean_mae = 0.0067`
+- sample std mean: `0.0075`
+
+So the decoder responds more to token-conditioned means, but changing latent samples still barely changes the decoded future.
+
+### Decision
+Treat `257b` as a useful failed probe: more latent pressure alone is not the answer. The next follow-up should target sample-dependent scenario training, which is why the loop moved to `257c` ideation.
+
+Artifacts:
+- `results/validations/2026-04-21/analysis/257b_design/spec.md`
+- `results/validations/2026-04-21/analysis/257b_postmortem/summary.md`
+- `results/validations/2026-04-21/analysis/257b_postmortem/summary.json`
+
+---
