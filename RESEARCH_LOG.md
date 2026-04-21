@@ -80456,3 +80456,62 @@ Artifacts:
 - `results/validations/2026-04-21/analysis/261d_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch restart iteration 21 — 261d analysis points to decomposition misalignment
+
+### Context
+Iteration 20 proposed `261d-v0` as the smallest elegant extension of `261c`: keep the same latent-factor residual FM family, but add one supervised conditional scale profile so residual amplitude could be allocated more intelligently across windows and horizons.
+
+`261d-v0` was implemented in:
+- `diffusion/block_ar/scale_calibrated_latent_factor_residual_fm.py`
+- `experiments/backfill/block_ar/train_261d_scale_calibrated_latent_factor_residual_fm.py`
+
+### Result
+`261d-v0` still scored `3/11`.
+
+Relative to `261c`, it improved the average calibration-style metrics:
+- coverage90: `0.731 -> 0.779`
+- calibration error: `0.090 -> 0.041`
+- turb/calm: `0.924 -> 1.021`
+- worst-window floor failure rate: `4.7% -> 0.5%`
+
+But it regressed on the structural suites that still mattered for total score:
+- cointegration ratio: `0.550 -> 0.452`
+- level KS pass cells: `16 -> 11`
+- max-jump KS: `0.968 -> 0.985`
+- jump incidence remained far below gate
+
+Artifacts:
+- eval: `results/block_ar/261d_v0_fix2_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/261d_postmortem/summary.md`
+
+### Mechanism Read
+The important finding is not merely that `261d` failed to improve `n_pass`. The key finding is **why**.
+
+The scale head did learn a meaningful average scale target:
+- predicted scale mean: `0.943`
+- target scale mean: `0.820`
+- scale MAE: `0.360`
+
+But the window-level analysis shows that the supervised target factor-residual scale itself is misaligned with the risk-manager regime signal:
+- predicted scale vs vol-of-vol corr: `-0.615`
+- target scale vs vol-of-vol corr: `-0.535`
+
+So the scale head is not simply failing to learn. It is learning a target that is itself pointed in the wrong direction for the desired conditionality behavior.
+
+That means the problem is deeper than “one more calibration knob.”
+
+The current two-stage decomposition
+- frozen `260e` deterministic center path
+- residual stochastic layer on top
+
+produces residual targets whose scale is anti-aligned with the regime-sensitive width objective. In other words, the decomposition itself is now the live bottleneck.
+
+### Decision
+The next principled step is **not another residual-family tweak inside the same frozen-260e decomposition**.
+
+The next step should be a `paradigm_shift` / `research_ideation` decision about leaving the residualized two-stage family and moving to a cleaner joint probabilistic latent-factor model where:
+- the mean path and uncertainty path are learned together,
+- the low-rank structure remains explicit,
+- and regime-sensitive uncertainty does not have to be recovered from a misaligned residual target.
+
+---

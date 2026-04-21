@@ -1,0 +1,31 @@
+# 261d Postmortem
+
+## Scoreboard
+- 261c_n_pass: `3`
+- 261d_n_pass: `3`
+- 261c_coverage90: `0.7312777777777778`
+- 261d_coverage90: `0.7788680555555556`
+- 261c_calibration_error: `0.08961959876543209`
+- 261d_calibration_error: `0.04079320987654321`
+- 261c_turb_calm: `0.9237925410270691`
+- 261d_turb_calm: `1.0210959911346436`
+- 261c_cointegration: `0.55`
+- 261d_cointegration: `0.45161290322580644`
+- 261c_level_ks_pass: `16`
+- 261d_level_ks_pass: `11`
+- 261c_max_jump_ks: `0.9682291666666667`
+- 261d_max_jump_ks: `0.9848958333333333`
+
+## Scale Probe
+- pred_scale_mean: `0.9432609677314758`
+- target_scale_mean: `0.8204808831214905`
+- scale_mae: `0.36043232679367065`
+- pred_scale_win_vov_corr: `-0.6149193393606377`
+- target_scale_win_vov_corr: `-0.5349204716104256`
+- pred_scale_win_p10: `0.768094003200531`
+- pred_scale_win_p90: `1.0933005809783936`
+- target_scale_win_p10: `0.5286490321159363`
+- target_scale_win_p90: `1.1557286977767944`
+
+## Mechanism Read
+- The scale head learned average residual width, but not the conditional allocation pattern strongly enough. 261d improves overall coverage/calibration versus 261c, but it does not reproduce the regime-linked scale structure needed for conditionality and regime coverage.
