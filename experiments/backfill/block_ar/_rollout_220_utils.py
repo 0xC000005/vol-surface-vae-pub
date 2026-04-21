@@ -290,10 +290,37 @@ def load_one_day_kernel(
         )
 
         return load_240c_model(checkpoint_path, device)
-    if model_type in {"250a", "250b", "250c"}:
+    if model_type in {
+        "250a", "250b", "250c",
+        "251a", "251b", "251c", "251d", "251e", "251f", "251g", "251h",
+    }:
         from diffusion.block_ar.neural_factor import load_model as load_250_model
 
         return load_250_model(checkpoint_path, device)
+    if model_type == "252a":
+        from diffusion.block_ar.mean_first_factor import load_model as load_252a_model
+
+        return load_252a_model(checkpoint_path, device)
+    if model_type == "253b":
+        from diffusion.block_ar.dynamic_change_factor_shock_ssm import load_model as load_253b_model
+
+        return load_253b_model(checkpoint_path, device)
+    if model_type == "253c":
+        from diffusion.block_ar.dynamic_change_factor_selective_pulse_ssm import (
+            load_model as load_253c_model,
+        )
+
+        return load_253c_model(checkpoint_path, device)
+    if model_type == "254a":
+        from diffusion.block_ar.dual_timescale_low_rank_temporal import (
+            load_model as load_254a_model,
+        )
+
+        return load_254a_model(checkpoint_path, device)
+    if model_type.startswith("253"):
+        from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
+
+        return load_253a_model(checkpoint_path, device)
     loader = _get_h1_loader(model_type)
     return loader(checkpoint_path, device)
 
