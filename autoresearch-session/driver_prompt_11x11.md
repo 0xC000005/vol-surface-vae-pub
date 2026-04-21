@@ -2,6 +2,10 @@ Use the `autoresearch-head-loop` skill and the `research-log-tail-append` skill.
 
 Continue the persistent autoresearch loop toward `11/11` on the common full 11-suite for a generalizable conditional scenario generator over general financial factors.
 
+Honor the active restart phase in `state_11x11.json`. If the state says the old
+`205-258` program is archived, do not resume `258b` or any other old-family follow-up.
+Treat that tree as baselines and falsification history only.
+
 Rules for this invocation:
 
 1. Read:

@@ -12,6 +12,11 @@
   "hard_constraints": [
     "generalizable_across_financial_factor_panels",
     "non_AR_mainline",
+    "restart_from_clean_minimal_architecture_line",
+    "keep_generative_core_vanilla",
+    "dynamic_latent_state_required",
+    "explicit_low_rank_factor_structure_required",
+    "bounded_idio_path_only",
     "no_domain_specific_post_hoc_corrections",
     "no_evaluator_specific_hacks",
     "append_RESEARCH_LOG_via_research-log-tail-append",
