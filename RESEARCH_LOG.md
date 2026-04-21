@@ -79155,3 +79155,61 @@ Next decisive experiment:
 - `results/validations/2026-04-21/analysis/258a_paradigm_shift_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 17 — 258a stochastic state-space experiment
+
+### Context
+
+Iteration 17 executed `258a-v0`: first experiment in the new stochastic dual-timescale latent state-space family.
+
+### Result
+
+- `258a-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+
+This ties the best stochastic score so far, but through a new mechanism.
+
+Relative to the late `257` line, `258a-v0` improved:
+
+- coverage90: `0.343 -> 0.507`
+- h30 coverage90: `0.234 -> 0.710`
+- calibration error: `0.335 -> 0.238`
+- cross-cell structure now passes:
+  - `corr_ratio = 0.703`
+  - `rank_ratio = 1.262`
+
+But it failed badly on temporal law and jumps:
+
+- mean reversion ratio: `0.024`
+- active MR pass: `0/24`
+- max-jump KS: `1.000`
+- pathwise q90 ratio: `0.091`
+- extreme jump incidence ratio: `0.000`
+
+### Mechanism Read
+
+The fast stochastic branch collapsed almost immediately:
+
+- `fast_scale_mean` fell to `~0` by epoch 2
+- the model behaved mostly like a slow latent state with diffuse long-horizon spread
+
+That explains the suite shape:
+
+- good coverage and cross-cell rank
+- almost no jump realism
+- almost no mean-reversion strength
+
+### Decision
+
+The `258` family is alive.
+
+Unlike late `257`, this is not a capped-family signal. The next principled step is **post-experiment analysis**, then a targeted `258b` anti-collapse follow-up inside the same family.
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/258a_design/spec.md`
+- `diffusion/block_ar/stochastic_dual_timescale_ssm.py`
+- `experiments/backfill/block_ar/train_258a_stochastic_dual_timescale_ssm.py`
+- `results/block_ar/258a_v0_L8_s42/full11.json`
+- `results/validations/2026-04-21/analysis/258a_postmortem/summary.md`
+
+---

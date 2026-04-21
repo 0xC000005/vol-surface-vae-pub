@@ -1,0 +1,24 @@
+{
+  "model": "258a_v0_L8_s42",
+  "iteration_type": "experiment",
+  "n_pass": 3,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "key_metrics": {
+    "coverage90": 0.5069444444444444,
+    "h30_coverage90": 0.7104166666666667,
+    "calibration_error": 0.23776620370370367,
+    "corr_ratio": 0.7031700387660647,
+    "rank_ratio": 1.2624145485935985,
+    "cointegration_ratio": 0.23225806451612904,
+    "mr_ratio": 0.02435041821056213,
+    "max_jump_ks": 1.0,
+    "turb_calm_ratio": 0.9209049940109253
+  },
+  "mechanism_conclusion": "258a-v0 immediately fixed the token family's cross-cell rank weakness, but training collapsed the fast stochastic branch almost to zero. The resulting model behaves like a slow latent state with diffuse long-horizon spread, which explains the good coverage and the catastrophic jump/MR failures.",
+  "next_step": "post_experiment_analysis",
+  "next_step_recommendation": "Analyze the fast-branch collapse directly, then design 258b as an anti-collapse follow-up within the 258 family."
+}
