@@ -80515,3 +80515,54 @@ The next step should be a `paradigm_shift` / `research_ideation` decision about 
 - and regime-sensitive uncertainty does not have to be recovered from a misaligned residual target.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 22 — paradigm shift to 262a joint probabilistic latent-factor FM
+
+### Context
+Iteration 21 showed that the live bottleneck is no longer a missing residual-layer tweak.
+
+The key postmortem result from `261d` was:
+- the scale head learned the target residual scale reasonably well,
+- but the target factor-residual scale itself was anti-correlated with vol-of-vol,
+- so the frozen `260e` residualized decomposition is misaligned with the regime-sensitive uncertainty objective.
+
+That means another `261*` residual variant would likely keep optimizing the wrong target.
+
+### Decision
+Make a **paradigm shift**.
+
+Retire the frozen `260e -> residual layer` decomposition as the active search family and move to **`262a-v0`**, a joint probabilistic latent-factor FM model.
+
+### 262a Principle
+Learn the conditional center path and conditional uncertainty path **together** inside one explicit low-rank factor model.
+
+The clean proposed decomposition is:
+- history encoder
+- explicit low-rank loadings
+- latent factor mean path `mu_t`
+- latent factor positive scale path `sigma_t`
+- standardized latent innovation path `eps_t` modeled by vanilla FM
+- latent factor path `z_t = mu_t + sigma_t * eps_t`
+- panel change path decoded through the low-rank readout
+
+So the stochastic law is still vanilla FM, but uncertainty is no longer forced to emerge from a residual target around a frozen deterministic model.
+
+### Why This Is The Most Principled Next Family
+This is cleaner than continuing `261` because it addresses the actual identified bottleneck:
+- the two-stage residual target is misaligned
+- not merely under-parameterized
+- not merely missing one scale knob
+
+It also stays aligned with the restart design discipline:
+- explicit low-rank structure
+- no motif/router/token hierarchy
+- no panel-space stochastic hacks
+- no stacked loss soup
+- minimal deviation from a defensible probabilistic factor model
+
+### Decision / Next Step
+Implement **`262a-v0`** next.
+
+Artifacts:
+- `results/validations/2026-04-21/analysis/262a_paradigm_shift/memo.md`
+
+---
