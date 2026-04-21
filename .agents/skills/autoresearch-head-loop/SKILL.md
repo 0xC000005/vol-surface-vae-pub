@@ -84,6 +84,25 @@ Use this order:
 
 Do not run another experiment just because “more experiments” sounds active.
 
+## Clean Pathology Guard
+
+The loop must stay scientifically legible.
+
+If either of these becomes true:
+
+- the current failure mechanism is no longer clean enough to describe in one or two concrete causal statements
+- or the active family is accumulating too many special-case knobs, branches, losses, or flags
+
+then do **not** keep experimenting inside the same branch by default.
+
+Instead:
+
+1. stop and choose `post_experiment_analysis` if the mechanism is not yet clear,
+2. choose `research_ideation` if the mechanism is clear but the next move is underdetermined,
+3. choose `paradigm_shift` if the active decomposition itself now looks wrong.
+
+The goal is not only `11/11`. The goal is `11/11` with a model that remains elegant, publishable, and defensible as a generalizable conditional scenario generator.
+
 ## In-Session Workflow
 
 When the user says things like:
@@ -97,13 +116,14 @@ use this workflow:
 
 1. Read the goal and current state.
 2. Determine the requested run budget:
-   - default: `1` iteration
+   - default for `continue autoresearch`: keep iterating within this session until manually stopped or a real stop condition occurs
    - if user says `run N iterations`: use `N`
    - if user says `run until blocked`: keep iterating within this session until:
      - goal reached
      - `autoresearch-session/STOP` exists
      - a real blocker requires human input
      - or session/runtime/tool limits make further work unreasonable
+   - if the user explicitly asks for exactly one iteration, honor that
 3. Before each iteration:
    - check stop condition
    - decide the iteration type using the decision law
@@ -180,6 +200,7 @@ The loop stops when either:
 - `goal_reached == true`
 - `autoresearch-session/STOP` exists
 - a hard blocker requires human input
+- the clean pathology guard says the line must pause for ideation or paradigm review and that review itself cannot be completed inside the remaining session/runtime budget
 - the user-specified in-session iteration budget is exhausted
 
 ## Session Commands
@@ -187,7 +208,7 @@ The loop stops when either:
 Treat these as canonical user commands:
 
 - `continue autoresearch`
-  - run one next principled iteration
+  - keep iterating in this same session until manually stopped or a real stop condition occurs
 - `run 2 autoresearch iterations`
   - run exactly two iterations back-to-back
 - `run autoresearch until blocked`

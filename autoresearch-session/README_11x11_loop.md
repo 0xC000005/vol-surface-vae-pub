@@ -22,6 +22,14 @@ Each iteration:
 
 If the session later pauses or ends, the next session resumes from saved state.
 
+Current in-session default:
+
+- `continue autoresearch` means **keep going until manually stopped or a real stop condition occurs**
+- manual stop is via `autoresearch-session/STOP`
+- the loop must remain scientifically clean:
+  - if the pathology becomes unclear, pause experimentation and do postmortem/ideation
+  - if the active line starts accumulating too many knobs, do ideation or paradigm shift instead of continuing local patching
+
 ## Files
 
 - `goal_11x11.json`
@@ -75,7 +83,7 @@ Examples of acceptable outer-driver environments:
 
 ## Recommended Discipline
 
-- one decisive iteration per invocation
+- one decisive iteration per commit
 - no skipped logging
 - no skipped commit
 - no broad manual staging of local tooling state
@@ -84,6 +92,7 @@ Examples of acceptable outer-driver environments:
   - ideation
   - paradigm shift
   - experiment
+- keep the active model elegant and defensible; reaching `11/11` by knob soup is not an acceptable terminal state
 
 ## Why This Works Better
 

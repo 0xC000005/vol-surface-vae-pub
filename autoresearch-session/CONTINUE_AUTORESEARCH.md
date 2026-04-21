@@ -6,10 +6,16 @@ Default behavior for this prompt:
 - read persistent state
 - honor the active restart phase in state
 - choose the most principled next step
-- execute one full HEAD iteration
-- update state
-- append to the true tail of `RESEARCH_LOG.md`
-- make one focused git commit
+- keep executing full HEAD iterations in sequence
+- after each iteration:
+  - update state
+  - append to the true tail of `RESEARCH_LOG.md`
+  - make one focused git commit
+- stop only when:
+  - `autoresearch-session/STOP` exists
+  - the goal is reached
+  - a hard blocker requires human input
+  - or session/runtime/tool limits make further work unreasonable
 
 Important:
 
@@ -21,11 +27,17 @@ Important:
   - dynamic latent state
   - explicit low-rank factor structure
   - bounded idio path
+- if the pathology becomes unclear or the active branch starts accumulating too many knobs,
+  do not keep stacking experiments in place:
+  - switch to post-experiment analysis
+  - or research ideation
+  - or paradigm shift
+  before continuing experimentation
 
 If the user says:
 
 - `continue autoresearch`
-  - do exactly one next iteration
+  - keep going until manually stopped or a real stop condition occurs
 - `run 2 iterations`
   - do two full iterations in sequence
 - `run until blocked`
