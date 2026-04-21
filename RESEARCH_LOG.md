@@ -80831,3 +80831,40 @@ Close `263b` as a real but partial gain. Do not stack another ad hoc determinist
 - postmortem: `results/validations/2026-04-21/analysis/263b_postmortem/summary.md`
 
 ---
+## 2026-04-21: 263c Ideation Chooses History-Anchored Scale Path as the Last Clean 263 Extension
+
+### Context
+`263b` established that the recurrent low-rank `263` family is still alive. The bounded history-mean EC baseline restored most of the deterministic MR gap without destroying common structure, but it also made the next bottleneck sharper: the active failure is now latent scale allocation, not deterministic mean-path flexibility.
+
+### Ideation Read
+- the `263` family should not be abandoned yet:
+  - `263b` kept `corr_ratio` and `rank_ratio` in-range while improving aggregate MR from `0.062` to `0.606`
+  - so the family is still producing clean mechanism gains rather than random churn
+- the next move should not add more mean-path or idio knobs:
+  - bounded idio mean would reopen the leakage problem the restart line was designed to avoid
+  - broader paradigm shift is premature while `263` still has a single clean unresolved bottleneck
+- the clean next mechanism is a history-anchored latent scale path inside `263`, not another deterministic patch
+
+### Decision
+Choose `263c-v0` as the next experiment.
+
+`263c-v0` will:
+- keep the `263b` recurrent low-rank mean path intact
+- keep the bounded history-mean EC baseline intact
+- add exactly one mechanism: a bounded multiplicative sigma anchor derived from history vol-of-vol / local change scale
+- keep the generative core otherwise unchanged
+
+### Pre-Registered Gates
+- improve at least one stochastic allocation metric materially:
+  - `coverage90 >= 0.80` or `calibration_error <= 0.06`
+  - and `turb/calm width ratio >= 1.10`
+- preserve the `263b` deterministic gains:
+  - `mr_gt_ratio >= 0.55`
+  - `corr_ratio` in `[0.70, 1.50]`
+  - `rank_ratio` in `[0.70, 1.40]`
+- if sigma-vs-vol-of-vol correlation stays nonpositive after the anchor, close this sub-line and do a new paradigm review instead of stacking more scale knobs
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/263c_ideation/memo.md`
+
+---
