@@ -1,0 +1,16 @@
+{
+  "best_epoch": 23,
+  "best_val": 1.2977829575538635,
+  "n_pass": 3,
+  "sigma_mean_mean": 0.8836838603019714,
+  "sigma_mean_p10": 0.803808867931366,
+  "sigma_mean_p90": 0.9728047847747803,
+  "sigma_std_mean": 0.5839840769767761,
+  "idio_ratio_mean": 3.770809780689888e-05,
+  "mean_common_rms_mean": 0.016805119812488556,
+  "mean_idio_rms_mean": 9.67301616583427e-07,
+  "target_factor_std_mean": 0.8805145025253296,
+  "eps_target_std_mean": 0.8453865051269531,
+  "pred_scale_vov_corr": 0.061658509557669224,
+  "target_scale_vov_corr": -0.11515585255081053
+}

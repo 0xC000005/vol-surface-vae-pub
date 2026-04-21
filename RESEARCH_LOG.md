@@ -80566,3 +80566,51 @@ Artifacts:
 - `results/validations/2026-04-21/analysis/262a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-21: 262a-v0 Joint Probabilistic Latent-Factor FM
+
+### Context
+Implemented the first clean joint probabilistic restart-family prototype, `262a-v0`, to replace the capped `260e -> 261*` residual decomposition. The model keeps the stochastic engine vanilla by modeling standardized latent innovations with flow matching, while learning latent mean path, latent scale path, explicit low-rank loadings, and a bounded deterministic idio mean path jointly in one model.
+
+### Result
+- Train/eval complete for `262a-v0`
+- Checkpoint: `models/backfill/262a_v0_s42/best_model.pt`
+- Eval: `results/block_ar/262a_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-21/analysis/262a_postmortem/summary.md`
+- Suite score: `3/11`
+- Passed: `surface`, `block_ar`, `cross_cell_correlation`
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`
+
+Key metrics vs the nearest restart comparators:
+- `262a`: coverage90 `0.814`, calibration error `0.036`, turb/calm `0.999`, corr_ratio `0.676`, rank_ratio `1.709`, MR ratio `0.071`, h30 MR `0.307`, cointegration ratio `0.695`, level KS `9/25`, change KS `18/25`, max-jump KS `0.831`
+- `260e`: `4/11`, coverage90 `0.951`, calibration error `0.106`, corr_ratio `0.509`, MR ratio `0.696`, cointegration ratio `0.882`, level KS `0/25`, change KS `24/25`, max-jump KS `0.462`
+- `261d`: `3/11`, coverage90 `0.779`, calibration error `0.041`, corr_ratio `1.400`, MR ratio `0.558`, cointegration ratio `0.452`, level KS `11/25`, change KS `20/25`, max-jump KS `0.985`
+
+### Mechanism Read
+The paradigm shift fixed one important pathology but exposed the next one cleanly.
+
+What improved:
+- The old frozen-core residual target misalignment from `261d` is gone as the main story.
+- `262a` is a coherent one-model probabilistic generator rather than a deterministic core plus residual layer.
+- Calibration stayed strong (`0.036`) and cross-cell structure remained in-range (`corr_ratio 0.676`, `rank_ratio 1.709`).
+- The latent scale path did not collapse: sigma mean at the best checkpoint was `0.884` with per-window p10/p90 `[0.804, 0.973]`.
+
+What failed:
+- Deterministic mean flexibility collapsed.
+- Mean-reversion fell almost to zero (`0.071` aggregate, `0.307` at h30).
+- The bounded deterministic idio mean path was effectively dead: idio/common RMS ratio was only `3.8e-05` on the validation set.
+- The model therefore behaved like an almost pure common-factor stochastic generator: reasonable structure, weak deterministic cross-sectional correction, and over-spiky tails (`kurtosis_ratio 4.73`, `max-jump KS 0.831`).
+- Predicted latent scale was only weakly aligned with vol-of-vol (`Spearman 0.062`), so regime-sensitive uncertainty is still not really learned.
+
+So the family looks live, but `262a-v0` over-collapsed toward common stochastic structure and gave up the one proven deterministic correction the restart line needed.
+
+### Decision
+Do not abandon the joint `262` family yet. The next principled step is a single follow-up experiment, `262b-v0`, that keeps the joint probabilistic latent-factor FM intact but adds exactly one proven deterministic correction inside the joint mean path: a bounded history-mean error-correction baseline.
+
+The constraint for `262b` is strict:
+- keep one coherent joint model
+- no frozen deterministic core
+- no residual scenario layer
+- no extra jump heads or routers
+- use the minimal history-mean EC mechanism only to recover MR / short-horizon deterministic flexibility
+
+---
