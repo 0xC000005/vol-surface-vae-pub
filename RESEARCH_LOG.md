@@ -78762,3 +78762,37 @@ Artifact:
 - `results/validations/2026-04-21/analysis/257a_paradigm_shift_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 8 — 257a latent-token VAE experiment
+
+### Context
+Iteration 8 executed `257a-v0`, the first conditional latent future-token VAE after deterministic token families were judged exhausted.
+
+### Result
+- model: `257a_v0_K4_s42`
+- suite score: `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+- still below the `4/11` frontier, but this is the first family with meaningful non-zero stochastic coverage
+- eval artifact: `results/block_ar/257a_v0_K4_s42/full11.json`
+- postmortem artifacts:
+  - `results/validations/2026-04-21/analysis/257a_postmortem/summary.md`
+  - `results/validations/2026-04-21/analysis/257a_postmortem/summary.json`
+
+### Mechanism Read
+`257a` is not a dead stochastic model. The latent channel is active, but still too weak to fix the conditional mean path.
+
+- 90% coverage overall: `20.5%`
+- h30 90% coverage: `11.5%`
+- `corr_ratio=0.604`, `rank_ratio=0.598` (cross-cell structure now passes)
+- attention entropy mean: `1.197`
+- top-1 token weight mean: `0.433`
+- validation KL mean: `0.0028`
+- prior std mean: `0.450`
+- posterior std mean: `0.462`
+- sample path std mean: `0.0062`
+
+So the latent mechanism is alive, but modest. It adds spread and preserves joint structure, but the decoder still produces the wrong mean path and the latent variables are not yet strong enough to solve conditionality, fidelity, MR, or jump realism.
+
+### Decision
+Stay in the `257` family for one focused **post-experiment analysis** iteration next. The key question is whether the right follow-up is to strengthen latent usage (KL schedule / decoder dependence / multi-sample objective) or whether the current latent-token VAE is already too weak.
+
+---

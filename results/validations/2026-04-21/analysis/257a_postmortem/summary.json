@@ -1,0 +1,34 @@
+{
+  "model": "257a_v0_K4_s42",
+  "suite_score": 3,
+  "n_total": 11,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "key_metrics": {
+    "coverage_90_overall": 0.205,
+    "coverage_90_h30": 0.115,
+    "corr_ratio": 0.604,
+    "rank_ratio": 0.598,
+    "change_ks_pass": 2,
+    "level_ks_pass": 0,
+    "mr_gt_ratio": 1.782,
+    "cointegration_ratio": 1.387,
+    "max_jump_ks": 0.46
+  },
+  "mechanism": {
+    "epoch": 23,
+    "kl_mean": 0.0027760362718254328,
+    "attn_entropy_mean": 1.1965655088424683,
+    "attn_top1_mean": 0.4330274760723114,
+    "prior_std_mean": 0.44997498393058777,
+    "post_std_mean": 0.4615422189235687,
+    "sample_path_std_mean": 0.0061670951545238495,
+    "sample_terminal_std_mean": 0.003978614695370197,
+    "output_eff_rank_meanpath": 3.5757265090942383,
+    "output_pc1_share_meanpath": 0.6096691489219666
+  },
+  "decision": "Stay in the 257 family for one focused analysis iteration; the latent channel is active but too weak, so the next move should strengthen latent usage rather than abandoning the paradigm."
+}
