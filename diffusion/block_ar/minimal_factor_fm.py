@@ -44,6 +44,8 @@ class MinimalFactorFMConfig:
     ortho_reg_weight: float = 0.0
     change_coord: str = "raw"  # "raw" | "asinh_local_scale"
     change_scale_eps: float = 1e-3
+    ec_anchor_mode: str = "none"  # "none" | "history_mean"
+    ec_gain_max: float = 0.0
 
 
 class MinimalFactorFM(nn.Module):
@@ -112,6 +114,13 @@ class MinimalFactorFM(nn.Module):
             cfg.head_layers,
             cfg.head_dropout,
         )
+        self.ec_gain_head = _mlp(
+            cfg.bottleneck_dim,
+            cfg.n_cells,
+            cfg.head_hidden,
+            cfg.head_layers,
+            cfg.head_dropout,
+        )
         self._init_heads()
 
     def _init_heads(self) -> None:
@@ -120,6 +129,10 @@ class MinimalFactorFM(nn.Module):
             if isinstance(last, nn.Linear):
                 with torch.no_grad():
                     last.bias.zero_()
+        last = self.ec_gain_head[-1]
+        if isinstance(last, nn.Linear):
+            with torch.no_grad():
+                last.bias.zero_()
 
     @staticmethod
     def _flatten_history(history: torch.Tensor) -> torch.Tensor:
@@ -155,12 +168,81 @@ class MinimalFactorFM(nn.Module):
             return torch.sinh(model_change) * scale
         raise ValueError(f"Unknown change_coord={self.cfg.change_coord}")
 
+    def compute_anchor(self, history_norm: torch.Tensor) -> torch.Tensor:
+        history_norm = self._flatten_history(history_norm)
+        if self.cfg.ec_anchor_mode == "none":
+            return torch.zeros(
+                history_norm.shape[0],
+                self.cfg.n_cells,
+                device=history_norm.device,
+                dtype=history_norm.dtype,
+            )
+        if self.cfg.ec_anchor_mode == "history_mean":
+            return history_norm.mean(dim=1)
+        raise ValueError(f"Unknown ec_anchor_mode={self.cfg.ec_anchor_mode}")
+
+    @staticmethod
+    def _expand_path_tensor(tensor: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return tensor.unsqueeze(1) if target.ndim == 3 else tensor
+
+    def error_correction_baseline(
+        self,
+        prev_level: torch.Tensor,
+        cond: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        if self.cfg.ec_anchor_mode == "none" or self.cfg.ec_gain_max <= 0.0:
+            return torch.zeros_like(prev_level)
+        anchor = cond["anchor"]
+        ec_gain = cond["ec_gain"]
+        if prev_level.ndim == 3:
+            anchor = anchor.unsqueeze(1)
+            ec_gain = ec_gain.unsqueeze(1)
+        return ec_gain * (anchor - prev_level)
+
+    def residualize_raw_change(
+        self,
+        raw_change: torch.Tensor,
+        history_norm: torch.Tensor,
+        future_levels_norm: torch.Tensor,
+    ) -> torch.Tensor:
+        history_norm = self._flatten_history(history_norm)
+        future_levels_norm = self._flatten_history(future_levels_norm)
+        cond = self.condition(history_norm)
+        prev = history_norm[:, -1, :]
+        residuals = []
+        for t in range(raw_change.shape[1]):
+            baseline = self.error_correction_baseline(prev, cond)
+            residuals.append(raw_change[:, t, :] - baseline)
+            prev = future_levels_norm[:, t, :]
+        return torch.stack(residuals, dim=1)
+
+    def compose_raw_change(
+        self,
+        residual_change: torch.Tensor,
+        history_norm: torch.Tensor,
+        cond: dict[str, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
+        history_norm = self._flatten_history(history_norm)
+        cond = self.condition(history_norm) if cond is None else cond
+        prev = history_norm[:, -1, :]
+        if residual_change.ndim == 4:
+            prev = prev.unsqueeze(1).expand(-1, residual_change.shape[1], -1)
+        pieces = []
+        for t in range(residual_change.shape[-2]):
+            baseline = self.error_correction_baseline(prev, cond)
+            total = residual_change[..., t, :] + baseline
+            pieces.append(total)
+            prev = prev + total
+        return torch.stack(pieces, dim=-2)
+
     def condition(self, history_norm: torch.Tensor) -> dict[str, torch.Tensor]:
         history_norm = self._flatten_history(history_norm)
         h = self.encode_history(history_norm)
         loadings = self.loading_head(h).view(history_norm.shape[0], self.cfg.n_cells, self.cfg.latent_dim)
         ctx = self.context_proj(h)
-        return {"h": h, "loadings": loadings, "ctx": ctx}
+        anchor = self.compute_anchor(history_norm)
+        ec_gain = self.cfg.ec_gain_max * torch.sigmoid(self.ec_gain_head(h))
+        return {"h": h, "loadings": loadings, "ctx": ctx, "anchor": anchor, "ec_gain": ec_gain}
 
     def expand_condition(self, cond: dict[str, torch.Tensor], repeat: int) -> dict[str, torch.Tensor]:
         expanded: dict[str, torch.Tensor] = {}
@@ -247,6 +329,7 @@ class MinimalFactorFM(nn.Module):
             k = min(chunk_size, n_samples - start)
             change_coord, _ = self.sample_change_paths(history_norm, n_samples=k)
             change_norm = self.inverse_transform_change(change_coord, history_norm)
+            change_norm = self.compose_raw_change(change_norm, history_norm)
             last_level = history_norm[:, -1:, :].unsqueeze(1)
             levels_norm = last_level + torch.cumsum(change_norm, dim=2)
             levels_norm = levels_norm.clamp(-1.0, 1.0)
@@ -264,6 +347,7 @@ class MinimalFactorFM(nn.Module):
         history_norm = self._flatten_history(history_norm)
         change_coord, aux = self.sample_change_paths(history_norm, n_samples=n_samples)
         change_norm = self.inverse_transform_change(change_coord, history_norm)
+        change_norm = self.compose_raw_change(change_norm, history_norm)
         last_level = history_norm[:, -1:, :].unsqueeze(1)
         levels_norm = last_level + torch.cumsum(change_norm, dim=2)
         levels_norm = levels_norm.clamp(-1.0, 1.0)

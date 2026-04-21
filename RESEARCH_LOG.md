@@ -79622,3 +79622,57 @@ The next principled step is `experiment`, not more ideation. Run `260c` as a min
 - add an explicit bounded error-correction baseline so the model learns residual future changes around a mean-reverting level anchor instead of integrating a small persistent positive drift for 30 steps.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 6 — 260c error-correction baseline reaches 4/11
+
+### Context
+Iteration 5 isolated the live `260b` failure: the restart line no longer had broken common structure, but it was still integrating a small persistent positive drift into bad h30 level geometry. `260c` tested the smallest clean fix: keep the exact same vanilla FM core and `asinh` local-scale change coordinate, but learn residual future changes around a bounded history-mean error-correction baseline.
+
+### Result
+- model: `260c-v0`
+- trainer: `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- model code: `diffusion/block_ar/minimal_factor_fm.py`
+- checkpoint: `models/backfill/260c_v0_L8_s42/best_model.pt`
+- full 11-suite: `results/block_ar/260c_v0_L8_s42/full11.json`
+- score: `4/11`
+- passed suites: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+Key metrics:
+- coverage90 overall: `0.963`
+- calibration error: `0.100`
+- turb/calm: `0.940`
+- corr_ratio / rank_ratio: `0.584 / 2.419`
+- cointegration gen/GT ratio: `0.734` (worst cell `(1,2)` = `0.292`)
+- change KS pass cells: `23/25`
+- level KS pass cells: `0/25`
+- ACF corr: `0.956`
+- kurtosis ratio: `0.937`
+- MR aggregate ratio: `0.497`
+- full-horizon MR ratios h1/h7/h14/h30: `0.497 / 0.898 / 0.879 / 0.758`
+- max-jump KS: `0.485`
+
+Training metadata:
+- output dir: `models/backfill/260c_v0_L8_s42`
+- params: `1,331,716`
+- best epoch: `35/40`
+- best val total: `1.2039533044610704`
+- new config knobs: `ec_anchor_mode=history_mean`, `ec_gain_max=0.2`
+
+### Mechanism Read
+This is the first real restart-line breakthrough. The result is still not beyond the archived frontier, but it matters for two reasons:
+
+1. The gain came from a minimal, theory-backed structural bias rather than another bespoke branch. `260c` keeps the architecture clean: vanilla FM in change space, low-rank readout, bounded idio path, plus one bounded error-correction baseline.
+2. The change directly addressed the postmortem diagnosis. The family recovered enough level discipline to turn the restart line from `2/11` into `4/11` without losing the structure that `260b` had regained.
+
+The remaining misses are now narrower:
+- one-step / aggregate MR is still too weak even though h7/h14/h30 are now in range
+- level-stationary marginals are still wrong (`level KS = 0/25`)
+- conditional width is still flat (`turb/calm = 0.940`)
+- pathwise jump realism remains off (`max-jump KS = 0.485`)
+
+### Decision
+The next principled step is `post_experiment_analysis`. `260c` is now good enough that the next lever should be chosen from mechanism, not intuition. The analysis should decide whether the restart line is still mainly missing:
+- short-horizon deterministic center-path geometry,
+- level-stationary marginal control,
+- or a separate stochastic width / jump-shape mechanism.
+
+---

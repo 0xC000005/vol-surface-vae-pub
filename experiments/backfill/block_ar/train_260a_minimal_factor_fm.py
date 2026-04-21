@@ -119,6 +119,8 @@ def main() -> None:
     parser.add_argument("--ortho_reg_weight", type=float, default=0.01)
     parser.add_argument("--change_coord", type=str, default="raw", choices=["raw", "asinh_local_scale"])
     parser.add_argument("--change_scale_eps", type=float, default=1e-3)
+    parser.add_argument("--ec_anchor_mode", type=str, default="none", choices=["none", "history_mean"])
+    parser.add_argument("--ec_gain_max", type=float, default=0.0)
 
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -186,6 +188,8 @@ def main() -> None:
         ortho_reg_weight=args.ortho_reg_weight,
         change_coord=args.change_coord,
         change_scale_eps=args.change_scale_eps,
+        ec_anchor_mode=args.ec_anchor_mode,
+        ec_gain_max=args.ec_gain_max,
     )
     model = MinimalFactorFM(cfg).to(device)
     optimizer = torch.optim.AdamW(
@@ -211,6 +215,7 @@ def main() -> None:
             hist_norm = normalize_iv(hist_01).view(hist_01.shape[0], hist_01.shape[1], -1)
             fut_norm = normalize_iv(fut_01).view(fut_01.shape[0], fut_01.shape[1], -1)
             raw_target_change = build_raw_target_changes(hist_norm, fut_norm)
+            raw_target_change = model.residualize_raw_change(raw_target_change, hist_norm, fut_norm)
             target_change = model.transform_change(raw_target_change, hist_norm)
             with torch.set_grad_enabled(train_mode):
                 loss, metrics = fm_step(model, hist_norm, target_change)
