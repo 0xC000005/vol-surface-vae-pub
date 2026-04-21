@@ -1,0 +1,31 @@
+# 261c Postmortem
+
+## Scoreboard
+- 260e_n_pass: `4`
+- 261a_n_pass: `3`
+- 261b_n_pass: `3`
+- 261c_n_pass: `3`
+
+## 261c Metrics
+- coverage90: `0.7312777777777778`
+- calibration_error: `0.08961959876543209`
+- turb_calm: `0.9237925410270691`
+- change_ks_pass: `20`
+- level_ks_pass: `16`
+- corr_ratio: `1.4863623237322914`
+- rank_ratio: `0.518828225422772`
+- cointegration_ratio: `0.55`
+- mr_ratio: `0.5478107345171764`
+- mr_h30: `0.7673436360133402`
+- max_jump_ks: `0.9682291666666667`
+
+## Latent Probe
+- sample_factor_std: `0.7710679769515991`
+- target_factor_std: `0.7349593639373779`
+- sample_panel_resid_coord_std: `0.5459766983985901`
+- sample_raw_resid_std: `0.026633264496922493`
+- sample_mean_level_shift_abs_norm: `0.005171508528292179`
+- sample_mean_level_shift_max_norm: `0.12405472993850708`
+
+## Mechanism Read
+- Removing the training-time zero-mean penalty restored a large fraction of the latent residual amplitude. The latent-factor residual family is therefore still alive; its main remaining gap is not total collapse, but weak regime differentiation and jump incidence under a still-mean-preserving factor residual layer.

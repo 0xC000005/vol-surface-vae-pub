@@ -359,7 +359,7 @@ def load_one_day_kernel(
         )
 
         return load_261a_model(checkpoint_path, device)
-    if model_type == "261b":
+    if model_type in {"261b", "261c"}:
         from diffusion.block_ar.latent_factor_residual_fm import (
             load_model as load_261b_model,
         )

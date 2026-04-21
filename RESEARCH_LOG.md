@@ -80341,3 +80341,66 @@ Run one clean follow-up only:
 That is the smallest decisive test of whether the under-dispersion was caused by the training constraint rather than by the factor-space family itself.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 19 — 261c-v0 restores latent residual amplitude but still stalls at 3/11
+
+### Context
+Iteration 18 showed that the latent-factor residual family was structurally cleaner than `261a`, but `261b-v0` collapsed to severe under-dispersion.
+
+The cleanest follow-up was therefore not a new architecture, but one constraint removal:
+- keep the exact same `261b` factor-space residual FM
+- remove the training-time zero-mean penalty
+- keep exact factor-space centering only at inference
+
+### Result
+`261c-v0` scored `3/11`.
+
+Passes:
+- `surface`
+- `block_ar`
+- `cointegration`
+
+Relative to `261b`, it restored much of the missing residual amplitude and materially improved the useful metrics:
+- coverage90: `0.080 -> 0.731`
+- calibration error: `0.470 -> 0.090`
+- cointegration ratio: `0.108 -> 0.550`
+- change KS pass cells: `0 -> 20`
+- level KS pass cells: `13 -> 16`
+- window-floor failure rate: `100% -> 4.7%`
+- MR h30: `0.694 -> 0.767`
+
+Postmortem confirms the mechanism shift:
+- sample factor std: `0.7711`
+- target factor std: `0.7350`
+- sample panel residual coord std: `0.5460`
+- sample raw residual std: `0.02663`
+
+So removing the training-time zero-mean penalty restored the latent residual amplitude almost exactly.
+
+### Mechanism Read
+This means the latent-factor residual family itself is **still alive**.
+
+`261b` failed mainly because the training constraint suppressed factor amplitude.
+`261c` removed that bottleneck and recovered a much more realistic residual process while staying cleaner than `261a`:
+- sample mean level shift abs vs frozen `260e`: `0.00517`
+- sample mean level shift max: `0.12405`
+
+That mean drift is still present, but materially smaller than the direct panel-residual formulation in `261a`, while the residual factor amplitude is no longer collapsed.
+
+The remaining misses are now more specific:
+- conditionality still weak (`turb/calm = 0.924`)
+- regime coverage Layer 2/3 still fails
+- jump realism still fails badly (`max-jump KS = 0.968`, incidence ratio `0.300`)
+- aggregate MR still fails (`0.548`) even though h30 is now back in range
+
+So the family is no longer failing because it is dead or because the decomposition is obviously wrong. It is now failing because the residual process is not yet conditionally sharp enough in the right parts of state space.
+
+### Decision
+The next principled step is **research ideation**, not another blind run.
+
+The live question is now:
+- what is the smallest elegant way to make the factor-space residual scale more regime-sensitive and improve jump incidence,
+- without reopening the center-path search or adding panel-space residual hacks?
+
+That is the next decision point for the restart line.
+
+---
