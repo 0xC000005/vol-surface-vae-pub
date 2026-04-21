@@ -78871,3 +78871,34 @@ Artifact:
 - `results/validations/2026-04-21/analysis/257b_followup_analysis/summary.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 12 — 257c ideation
+
+### Context
+The `257b` follow-up analysis showed that the active stochastic latent family still reacts much more to token means than to token samples. The next design choice was whether to change the objective or the prior.
+
+### Ideation Result
+Choose **`257c` next**, not `258a`.
+
+Reason:
+- a richer prior is premature if the current objective still lets sampled latents stay mostly decorative
+- current evidence points to an **objective bottleneck**, not yet a prior-expressivity bottleneck
+
+### 257c Direction
+Keep the `257b` architecture family, but add a **multi-sample scenario objective**.
+
+Minimal sketch:
+- draw multiple posterior samples during training
+- decode multiple futures
+- add a small CRPS-style / ensemble scenario term on future levels and/or changes
+- keep the single-sample reconstruction and KL terms
+
+### Decision
+The next decisive experiment should be `257c`.
+
+Fallback only after that:
+- `258a`: richer latent prior in token space
+
+Artifact:
+- `results/validations/2026-04-21/analysis/257c_ideation/memo.md`
+
+---
