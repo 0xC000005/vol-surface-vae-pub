@@ -80942,3 +80942,39 @@ The first `264a-v0` prototype is successful only if it changes the target geomet
 - paradigm memo: `results/validations/2026-04-21/analysis/264a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-21: 264a-v0 Learned Posterior Teacher Fixes the Target Direction but Collapses the Stochastic Channel
+
+### Context
+`264a-v0` was the first clean paradigm-shift prototype after closing the pseudoinverse-target `263` family. It kept the recurrent low-rank prior and bounded EC mean baseline from `263`, but replaced the hard-coded latent teacher with a learned posterior encoder over `(history, future)`.
+
+### Result
+- `264a-v0` scored `3/11`, unchanged in total suite count
+- it did preserve the deterministic / structural side of the restart line reasonably well:
+  - `corr_ratio = 0.987`
+  - `rank_ratio = 0.988`
+  - `mr_gt_ratio = 0.594`
+- but the stochastic channel collapsed almost completely:
+  - coverage90 `= 0.008`
+  - calibration error `= 0.496`
+  - pathwise max-jump KS `= 1.000`
+  - q90 jump ratio `= 0.078`
+  - q99 jump ratio `= 0.142`
+
+### Mechanism Read
+- the shift did fix the old target-direction pathology in the weakest sense:
+  - target latent scale vs realized vol-of-vol became nonnegative (`+0.100`)
+- but the posterior teacher itself collapsed to an almost deterministic latent path:
+  - posterior-target factor std mean `= 0.00050`
+  - prior sigma stayed pinned at the floor (`0.0500` everywhere)
+- so `264a` did not fail because the new paradigm is incoherent; it failed because a **mean-only posterior teacher** gives the prior no usable stochastic target to learn from
+
+### Decision
+Keep the `264` paradigm alive, but close `264a-v0` specifically. The next most principled step is not another experiment yet; it is constrained ideation for `264b`, focused on the minimal stochastic extension of the posterior teacher that can restore nontrivial latent scale without reintroducing the old pseudoinverse target.
+
+### Artifacts
+- trainer: `experiments/backfill/block_ar/train_264a_joint_state_space_latent_factor_fm_posterior_teacher.py`
+- model: `diffusion/block_ar/joint_state_space_latent_factor_fm_posterior_teacher.py`
+- eval: `results/block_ar/264a_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/264a_postmortem/summary.md`
+
+---
