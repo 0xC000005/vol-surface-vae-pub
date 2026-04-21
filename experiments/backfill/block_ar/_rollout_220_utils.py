@@ -329,6 +329,12 @@ def load_one_day_kernel(
         )
 
         return load_255a_model(checkpoint_path, device)
+    if model_type == "256a":
+        from diffusion.block_ar.hierarchical_future_token_model import (
+            load_model as load_256a_model,
+        )
+
+        return load_256a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

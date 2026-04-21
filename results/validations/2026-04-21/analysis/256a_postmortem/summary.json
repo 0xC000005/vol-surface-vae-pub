@@ -1,0 +1,40 @@
+{
+  "model": "256a_v0_L8_s42",
+  "suite_score": 2,
+  "n_total": 11,
+  "passes": [
+    "surface",
+    "block_ar"
+  ],
+  "key_metrics": {
+    "change_ks_pass": 0,
+    "level_ks_pass": 4,
+    "corr_ratio": 0.475,
+    "rank_ratio": 0.33,
+    "mr_gt_ratio": 1.235,
+    "mr_h30": 1.08,
+    "acf_corr": 0.86,
+    "kurtosis_ratio": 0.387,
+    "cointegration_ratio": 0.194,
+    "max_jump_ks": 0.677
+  },
+  "mechanism": {
+    "epoch": 19,
+    "attn_entropy_mean": 1.6094379425048828,
+    "attn_entropy_min": 1.6094377040863037,
+    "token_top1_mean": 0.20001468062400818,
+    "token_utilization": [
+      0.20001471042633057,
+      0.1999938189983368,
+      0.19999690353870392,
+      0.2000013142824173,
+      0.199993297457695
+    ],
+    "util_entropy": 1.6094379425048828,
+    "factor_share_rms": 0.9777451157569885,
+    "resid_share_rms": 0.06656020134687424,
+    "output_eff_rank": 2.666379928588867,
+    "output_pc1_share": 0.5733956098556519
+  },
+  "decision": "Deterministic token families are not justified after 256a-v0; next paradigm should move to a richer latent generative family."
+}

@@ -78694,3 +78694,34 @@ Artifact:
 - `results/validations/2026-04-21/analysis/256a_paradigm_shift_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 6 — 256a hierarchical token experiment
+
+### Context
+Iteration 6 executed `256a-v0`, the first hierarchical latent-token prototype after the fixed sparse motif family (`255a`) was rejected. The hypothesis was that an adaptive per-window token set would avoid both continuous common-path collapse and fixed motif collapse.
+
+### Result
+- model: `256a_v0_L8_s42`
+- suite score: `2/11`
+- passes: `surface`, `block_ar`
+- still below the deterministic `4/11` frontier
+- eval artifact: `results/block_ar/256a_v0_L8_s42/full11.json`
+- postmortem artifacts:
+  - `results/validations/2026-04-21/analysis/256a_postmortem/summary.md`
+  - `results/validations/2026-04-21/analysis/256a_postmortem/summary.json`
+
+### Mechanism Read
+`256a` did not collapse to one token. It failed more fundamentally: the token-attention mechanism stayed exactly **uniform** for the entire run.
+
+- best checkpoint epoch: `19`
+- attention entropy mean: `1.6094`
+- attention entropy min: `1.6094`
+- top-1 token weight mean: `0.2000`
+- token utilization: `[0.2000, 0.2000, 0.2000, 0.2000, 0.2000]`
+- utilization entropy: `1.6094`
+
+For 5 tokens, `log(5)=1.6094`, so the model never learned selective token usage at all. It solved the task almost entirely through the low-rank factor path (`factor_share_rms=0.978`, `resid_share_rms=0.067`) while the token mechanism remained dead.
+
+### Decision
+Treat deterministic token families as exhausted for now. The next principled iteration should be another **paradigm shift** toward a richer latent generative family rather than another deterministic basis design.
+
+---
