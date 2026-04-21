@@ -79462,3 +79462,65 @@ The key question is whether `260a` failed because of:
 - or the raw change-space coordinate system itself
 
 ---
+## 2026-04-21: Autoresearch restart iteration 3 — 260a postmortem points to coordinate failure, not architecture failure
+
+### Context
+Iteration 2 established that the first clean restart baseline (`260a-v0`) is not enough. The next task was to determine whether the failure should trigger another architecture change or a narrower follow-up inside the same family.
+
+### Findings
+Checkpoint-level postmortem on `260a` shows that the low-rank/common thesis did **not** fail in the usual old-family way.
+
+Key diagnostics:
+
+- idio/common RMS ratio: `0.239`
+- loading effective rank mean: `8.00`
+- loading top-1 share mean: `0.127`
+
+So:
+
+- idio is **not** dominating
+- the low-rank head is **active**
+- the model is **not** collapsing to one factor or one mode
+
+The actual failure is scale geometry:
+
+- generated change std: `0.719`
+- GT change std: `0.109`
+- change std ratio: `6.58x`
+- generated level std: `0.432`
+- GT level std: `0.090`
+- level std ratio: `4.82x`
+- floor rate: `41.8%`
+- ceiling rate: `25.9%`
+
+This means pure FM on raw normalized change paths learned a massively over-broad common process. The support clamp then converts that into pathological floor/ceiling occupancy and trivial over-coverage.
+
+### Mechanism Read
+`260a` therefore falsifies the naive restart thesis:
+
+- **vanilla FM + low-rank readout in raw change space is not enough**
+
+But it does **not** falsify the restart architecture principle itself.
+
+The clean conclusion is:
+
+- the immediate bottleneck is the **coordinate system / target geometry**
+- not idio leakage
+- not a dead low-rank readout
+- not a need for another architecture family yet
+
+### Decision
+Stay in the restarted `260` line.
+
+The next principled step is another **experiment**, not a paradigm shift:
+
+- run `260b` as a coordinate-only follow-up
+- keep the exact same architecture
+- change only the target space to a more stable causal change coordinate
+  - local-scale normalization
+  - optionally asinh transform
+
+Artifact:
+- `results/validations/2026-04-21/analysis/260a_postmortem/summary.md`
+
+---

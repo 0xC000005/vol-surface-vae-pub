@@ -1,0 +1,16 @@
+{
+  "common_rms": 0.034108083695173264,
+  "idio_rms": 0.0019430340034887195,
+  "idio_to_common_rms": 0.2386775331001076,
+  "idio_budget_mean": 0.043180547654628754,
+  "loading_eff_rank_mean": 7.999638557434082,
+  "loading_top1_share_mean": 0.12682676315307617,
+  "gen_change_std": 0.7194854021072388,
+  "gt_change_std": 0.10931672900915146,
+  "gen_change_std_ratio": 6.581658714349265,
+  "gen_level_std": 0.4316213130950928,
+  "gt_level_std": 0.08955912292003632,
+  "gen_level_std_ratio": 4.819400849654031,
+  "floor_rate": 0.41822656989097595,
+  "ceil_rate": 0.25870832800865173
+}
