@@ -80680,3 +80680,44 @@ Do not stack another local patch into `262` immediately. The family is still sci
 - or switch to a cleaner joint state-space factor paradigm if that cannot be done elegantly.
 
 ---
+## 2026-04-21: 263a Ideation — Clean State-Space Factor Paradigm
+
+### Context
+After `262a` and `262b`, the joint probabilistic latent-factor FM family is still scientifically legible but no longer well served by another local patch. The key repeated signal is that the bounded deterministic idio mean path stayed effectively dead in both variants.
+
+So the next question was not “which extra head should be added?” but “is one more clean in-family patch justified, or is the deterministic mean-path parameterization itself the wrong abstraction?”
+
+### Findings
+Constrained ideation compared two options:
+
+1. `262c`: one last local patch inside `262`
+- only acceptable form would be a tiny structured deterministic mean-correction path
+- rejected as primary next move because `262a` and `262b` already killed the same idio path twice
+- high risk of turning a still-clean family into knob soup
+
+2. `263a`: clean joint latent state-space factor FM
+- retain the broad principle:
+  - joint probabilistic model
+  - low-rank latent factor structure
+  - vanilla FM stochastic core
+- replace only the part the evidence says is wrong:
+  - full-horizon deterministic mean-path parameterization
+- new backbone:
+  - history encoder -> initial latent state
+  - recurrent latent mean state
+  - recurrent latent scale state
+  - vanilla FM over standardized latent innovations
+  - explicit low-rank readout
+
+### Decision
+Choose `263a-v0` next.
+
+This is a clean paradigm shift, not a local patch:
+- retire `262` as an active patch family after two informative endpoints
+- keep `262a/262b` as evidence that the joint low-rank probabilistic thesis is alive
+- move to a cleaner state-space deterministic mean backbone inside the joint model
+
+Artifact:
+- `results/validations/2026-04-21/analysis/263a_ideation/memo.md`
+
+---
