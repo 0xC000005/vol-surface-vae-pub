@@ -79924,3 +79924,36 @@ The next principled step is `research_ideation`, not another blind experiment.
 The ideation should choose the smallest elegant deterministic/marginal fix on top of `260e`. If no such fix is defensible, then the fallback is to freeze `260e` and move to the residual scenario layer (`261a`).
 
 ---
+## 2026-04-21: Autoresearch restart iteration 12 — choose 260f as last deterministic refinement
+
+### Context
+Iteration 11 showed that `260e` is not yet a pure stochastic-layer problem. The strongest unresolved miss is still deterministic/marginal: level-stationary marginals and center-path shape remain wrong even in the mean path.
+
+### Ideation
+Artifact:
+- memo: `results/validations/2026-04-21/analysis/260f_ideation/memo.md`
+
+Two options were considered:
+
+1. `260f` — one last deterministic/marginal refinement
+- keep the exact `260e` architecture
+- keep the exact FM core
+- add only a small auxiliary loss on the implied deterministic center path
+- target: level-stationary marginals and center-path shape
+
+2. `261a` — freeze `260e` and add a residual scenario layer
+- target: coverage / conditionality / regime coverage / jump realism
+
+### Mechanism Read
+The post-260e evidence still favors one last deterministic try before the two-stage pivot:
+- `260e` is the strongest deterministic core so far,
+- but the mean-path control still shows unresolved level geometry,
+- so freezing it immediately would likely bury that remaining bias under extra variance.
+
+At the same time, the fallback is now explicit. If `260f` does not materially improve the deterministic/marginal miss, the loop should stop stacking deterministic refinements and move directly to `261a`.
+
+### Decision
+The next principled step is `experiment`.
+Run `260f` as the last justified deterministic refinement: a low-weight center-path level regularization on top of `260e`.
+
+---
