@@ -78796,3 +78796,44 @@ So the latent mechanism is alive, but modest. It adds spread and preserves joint
 Stay in the `257` family for one focused **post-experiment analysis** iteration next. The key question is whether the right follow-up is to strengthen latent usage (KL schedule / decoder dependence / multi-sample objective) or whether the current latent-token VAE is already too weak.
 
 ---
+## 2026-04-21: Autoresearch iteration 9 — 257a latent follow-up analysis
+
+### Context
+Iteration 8 showed that `257a-v0` is the first stochastic family with non-zero coverage and passing cross-cell structure, but it still only reached `3/11`. The next step was to understand whether the latent channel is actually carrying useful stochastic structure.
+
+### Analysis Result
+The latent-token VAE is **alive but weak**.
+
+Key diagnostics:
+- `post_vs_zero_mae = 0.0965`
+- `prior_mean_vs_zero_mae = 0.0979`
+- `post_vs_prior_mean_mae = 0.0057`
+- ensemble-mean abs error: `0.8328`
+- sample std mean: `0.0061`
+- std / mean-error ratio: `0.0073`
+
+Interpretation:
+- the decoder meaningfully uses the **history-conditioned token mean**
+- but changing from the prior mean to a posterior sample barely moves the output
+- stochastic spread is present, but tiny relative to how wrong the center path still is
+
+### Mechanism Read
+This is not a total posterior-collapse failure. The latent channel exists, but it is underpowered relative to the direct deterministic history path.
+
+So the current issue is not “latent tokens are impossible.” It is:
+- too much history bypass in the decoder
+- too little pressure for sampled latent variation to matter
+
+### Decision
+Stay in the `257` family and run `257b` next.
+
+`257b` should strengthen latent usage by:
+- reducing direct history bypass
+- using free-bits / minimum-KL instead of warmup alone
+- making loadings or factor state more token-dependent
+- optionally adding a small multi-sample reconstruction/scenario term
+
+Artifact:
+- `results/validations/2026-04-21/analysis/257a_followup_analysis/summary.md`
+
+---

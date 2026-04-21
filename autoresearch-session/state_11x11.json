@@ -1,16 +1,16 @@
 {
   "objective_ref": "autoresearch-session/goal_11x11.json",
   "mode": "in_session",
-  "iteration": 8,
-  "last_iteration_type": "experiment",
+  "iteration": 9,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "257 latent-token VAE family",
-  "current_bottleneck": "The stochastic latent channel is active but weak: 257a improves coverage and cross-cell structure, but the mean path remains wrong and KL is very small. The next step should understand whether the latent path is underweighted, posterior-collapsed, or decoder-ignored.",
-  "last_result_summary": "257a-v0 scored 3/11. It is the first family with non-zero coverage (20.5% overall 90% CI) and passing cross-cell structure, but it still misses conditionality, fidelity, MR, and jump realism. Token attention is selective, KL is non-zero but small.",
-  "next_step_recommendation": "Do a post-experiment analysis iteration next. Decide whether 257b should strengthen latent usage (KL schedule / decoder dependence / multi-sample training) or whether the paradigm is still too weak.",
+  "current_bottleneck": "257a uses the history-conditioned token mean much more than stochastic token samples. The latent channel is alive, but sampled variation is far too weak relative to the center-path error.",
+  "last_result_summary": "Follow-up analysis shows `post_vs_prior_mean_mae=0.0057` while `prior_mean_vs_zero_mae=0.0979`, so the decoder depends on token means much more than token samples. Coverage improves, but sample spread remains tiny relative to mean-path error.",
+  "next_step_recommendation": "Run 257b next as a stronger latent-usage VAE: reduce history bypass, add free-bits/min-KL, and make loadings or factor state more token-dependent.",
   "current_best_n_pass": 4,
   "current_best_model": "Frontier remains at 4/11 across prior families; use the most informative current baseline for the next iteration rather than assuming a single winner.",
-  "current_best_note": "253-family remains the best deterministic frontier at 4/11, but 257a is the first stochastic family with non-zero coverage and passing cross-cell structure.",
+  "current_best_note": "253-family remains the best deterministic frontier at 4/11, but 257a is the first stochastic family with non-zero coverage and passing cross-cell structure, so 257 is now the most promising active family.",
   "goal_reached": false,
-  "last_commit": "pending_iteration_8_commit",
+  "last_commit": "3a6f3ca",
   "resume_command_hint": "continue autoresearch"
 }
