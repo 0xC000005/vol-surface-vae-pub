@@ -78725,3 +78725,40 @@ For 5 tokens, `log(5)=1.6094`, so the model never learned selective token usage 
 Treat deterministic token families as exhausted for now. The next principled iteration should be another **paradigm shift** toward a richer latent generative family rather than another deterministic basis design.
 
 ---
+## 2026-04-21: Autoresearch iteration 7 — 257a paradigm shift
+
+### Context
+Iteration 6 showed that deterministic token families are not just underperforming; the `256a-v0` token mechanism stayed exactly uniform, so deterministic basis selection is no longer the right search space.
+
+### New Paradigm
+Adopt **`257a`: a conditional latent future-token VAE**.
+
+Core sketch:
+- `history -> context encoder -> h`
+- `future (train only) -> posterior encoder -> q(z_tokens | history, future)`
+- `history -> prior network -> p(z_tokens | history)`
+- sample latent token sets
+- temporal queries attend to sampled latent tokens
+- decoder outputs the future path directly
+
+### Why This Family
+This is the smallest viable move from deterministic future-basis selection to a genuinely stochastic conditional future representation.
+
+It directly addresses three facts now established by the loop:
+- deterministic common-path families cap out early
+- fixed motif libraries collapse
+- deterministic token attention can remain completely dead even when the decoder still trains
+
+### Decision
+The next decisive experiment should be `257a-v0`.
+
+Kill criteria:
+- recover at least the `4/11` frontier
+- meaningfully beat deterministic `0%` coverage
+- avoid posterior collapse
+- preserve or improve at least one deterministic temporal-law suite
+
+Artifact:
+- `results/validations/2026-04-21/analysis/257a_paradigm_shift_ideation/memo.md`
+
+---
