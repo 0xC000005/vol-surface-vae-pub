@@ -79576,3 +79576,49 @@ The next principled step is `post_experiment_analysis`, not another blind experi
 while keeping the minimal architecture and the `asinh` local-scale coordinate.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 5 — 260b postmortem isolates cumulative level drift
+
+### Context
+Iteration 4 (`260b`) established that the restart line is alive: the asinh local-scale change coordinate recovered cross-cell structure and change-law fidelity without changing the architecture. The next decision depended on whether the remaining failures were mostly level drift, conditional width insensitivity, or jump-scale distortion.
+
+### Analysis
+Artifacts:
+- postmortem summary: `results/validations/2026-04-21/analysis/260b_postmortem/summary.md`
+- postmortem json: `results/validations/2026-04-21/analysis/260b_postmortem/summary.json`
+
+Key findings:
+- idio/common RMS ratio: `0.198`
+- loading effective rank mean: `7.670`
+- loading top1 share mean: `0.203`
+- width vs history-scale corr h1/h30: `0.249 / 0.041`
+- level MAE h1/h30: `0.0195 / 0.0494`
+- level bias h1/h30: `+0.0038 / +0.0330`
+- change MAE h1/h30: `0.0195 / 0.0188`
+- change std ratio h1/h30: `0.130 / 0.305`
+- level std ratio h1/h30: `0.467 / 1.278`
+- floor rate h1/h30: `2.46% / 10.87%`
+- ceiling rate h1/h30: `0.27% / 3.51%`
+- path max-jump q90/q99 ratio: `1.524 / 1.363`
+
+### Mechanism Read
+The low-rank/common structure is not the live problem anymore. `260b` keeps high effective rank and low idio leakage, so the restart family is no longer failing because it collapses into dense idio noise or dead factors.
+
+The dominant deterministic miss is cumulative level drift:
+- change-space fit is materially better and roughly stable across horizons,
+- but level error and positive bias grow steadily toward h30,
+- and level dispersion becomes too wide by long horizons.
+
+That explains the current pattern:
+- daily-change KS recovers,
+- cross-cell structure recovers,
+- but level KS, MR, and long-horizon fidelity still fail.
+
+Conditional width response is still weak, especially by h30, but that is not the first lever to attack while the restart line remains below the deterministic `8/11` ceiling. Jump realism is also not mainly a raw tail-scale problem; the remaining miss looks more like path timing/shape on top of the level-drift issue.
+
+### Decision
+The next principled step is `experiment`, not more ideation. Run `260c` as a minimal mean-reversion / level-anchor follow-up:
+- keep the same vanilla FM core,
+- keep the same asinh local-scale coordinate,
+- add an explicit bounded error-correction baseline so the model learns residual future changes around a mean-reverting level anchor instead of integrating a small persistent positive drift for 30 steps.
+
+---
