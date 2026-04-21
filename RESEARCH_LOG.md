@@ -79873,3 +79873,54 @@ The next principled step is `post_experiment_analysis`.
 The immediate question is whether `260e` is effectively the deterministic ceiling for this elegant restart family. If so, the next move should be to freeze the `260e` center path and build a separate residual scenario layer (`261a`) rather than keep stacking deterministic tweaks.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 11 — 260e postmortem says not stochastic-only yet
+
+### Context
+Iteration 10 made `260e` the strongest restart-line deterministic model so far, but it was still unclear whether the program should now freeze that center path and move to a residual scenario layer. The postmortem therefore compared the full `260e` samples against a mean-replicated control on the exact same validation windows.
+
+### Analysis
+Artifacts:
+- postmortem summary: `results/validations/2026-04-21/analysis/260e_postmortem/summary.md`
+- postmortem json: `results/validations/2026-04-21/analysis/260e_postmortem/summary.json`
+
+Key findings:
+- full suite passes: `4/11`
+- mean-replicated suite passes: `3/11`
+- full passes: `surface, block_ar, cointegration, cross_cell_correlation`
+- mean-replicated passes: `surface, block_ar, cross_cell_correlation`
+- coverage90 full / mean-rep: `0.954 / 0.000`
+- level KS pass cells full / mean-rep: `0 / 2`
+- change KS pass cells full / mean-rep: `24 / 0`
+- MR ratio full / mean-rep: `0.668 / 0.668`
+- max-jump KS full / mean-rep: `0.483 / 1.000`
+- corr ratio full / mean-rep: `0.518 / 0.559`
+- rank ratio full / mean-rep: `2.630 / 2.494`
+
+Internal diagnostics:
+- idio/common RMS ratio: `0.193`
+- loading effective rank mean: `7.590`
+- loading top1 share mean: `0.198`
+- ec gain mean: `0.125`
+- short boost mean: `0.505`
+- width-vs-history corr h1/h30: `0.335 / 0.202`
+- level MAE h1/h30: `0.0188 / 0.0357`
+- level bias h1/h30: `+0.0019 / +0.0131`
+
+### Mechanism Read
+The result is mixed but informative.
+
+What the mean-replicated control proves:
+- scenario spread is doing real work for coverage and jump realism,
+- but the restart line is **not** yet in a pure “scenario layer only” regime.
+
+The strongest reason is that level-stationary marginals are still wrong even in the mean path:
+- full `260e`: `level KS = 0/25`
+- mean-replicated `260e`: `level KS = 2/25`
+
+Mean reversion is now near gate and essentially unchanged by removing scenario variation, so MR is no longer the dominant blocker. The remaining live deterministic issue is narrower: level-stationary marginals and path-shape / small-move behavior.
+
+### Decision
+The next principled step is `research_ideation`, not another blind experiment.
+The ideation should choose the smallest elegant deterministic/marginal fix on top of `260e`. If no such fix is defensible, then the fallback is to freeze `260e` and move to the residual scenario layer (`261a`).
+
+---
