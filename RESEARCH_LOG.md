@@ -78996,3 +78996,53 @@ The next principled step is **research ideation**, not an immediate prior swap. 
 - `results/validations/2026-04-21/analysis/257c_postmortem/summary.json`
 
 ---
+## 2026-04-21: Autoresearch iteration 14 — 257d structure-preserving ideation
+
+### Context
+
+Iteration 13 (`257c`) established that the `257` latent-token family is still alive: a multi-sample scenario objective materially improved sample identity, coverage, calibration, change KS, and jump KS.
+
+But `257c` also showed the remaining bottleneck more clearly: long-run structure is still underconstrained.
+
+### Decision
+
+Choose `257d` next, not `258a`.
+
+`257d` should keep the `257c` architecture and multi-sample scenario objective, but add **generic structure-preserving anchors** on the ensemble mean path.
+
+### Why 257d Before 258a
+
+`257c` already proved that the current latent family responds to a better objective. That means the prior is still not the first bottleneck.
+
+The most principled next test is therefore:
+
+- keep the current latent-token VAE family
+- keep the multi-sample objective
+- add long-run structure anchors before escalating to a richer latent prior
+
+### 257d Sketch
+
+Apply new losses to the **ensemble mean** of posterior samples:
+
+- change correlation anchor
+- change spectrum / eigenvalue-shape anchor
+- level correlation anchor
+- level spectrum / eigenvalue-shape anchor
+
+These losses are computed from the 30-step future panel and are generic across `(T,D)` financial factor panels. They are not IV-specific cointegration hacks.
+
+### Pre-Registered Criterion
+
+`257d` is meaningful only if it preserves most of `257c`'s stochastic gains while improving at least one long-run structure metric:
+
+- `rank_ratio`
+- `cointegration_ratio`
+- `level KS`
+
+If `257d` fails, escalate to `258a` rather than stacking more objective terms in the same family.
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/257d_ideation/memo.md`
+
+---
