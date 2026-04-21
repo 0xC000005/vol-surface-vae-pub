@@ -81018,3 +81018,33 @@ Choose `264b-v0` next as the minimal stochastic continuation of the `264` family
 - ideation memo: `results/validations/2026-04-21/analysis/264b_ideation/memo.md`
 
 ---
+## 2026-04-21: 264b-v0 Posterior Epsilon Teacher Fails the Smoke Test via Sigma Collapse and NaNs
+
+### Context
+`264b-v0` was the minimal stochastic continuation of the posterior-teacher family: keep the `264a` architecture intact, but replace the posterior **mean** teacher with a posterior **epsilon** teacher so `z_target = mu_prior + sigma_prior * eps_target` and the prior sigma participates directly in reconstruction.
+
+### Result
+The run was stopped as a failed smoke-test experiment before full training/eval.
+
+- first forward/backward pass was finite and well-behaved
+- repeated optimizer steps drove prior sigma rapidly toward the floor:
+  - step 1: `0.745`
+  - step 10: `0.317`
+  - step 18: `0.0501`
+- once sigma pinned to the floor, the loss became nonfinite by step `38`
+
+### Mechanism Read
+- this is a cleaner failure than `264a`, not a noisier one
+- `264a` collapsed because the posterior teacher was too deterministic
+- `264b` collapses because the raw epsilon-teacher formulation is numerically unstable under the current objective: sigma is rewarded for shrinking before the epsilon target has a stable scale
+- so the `264` paradigm stays alive, but `264b-v0` as-written is closed
+
+### Decision
+Do constrained ideation next for `264c`. The question is now the minimal stabilization of the posterior-teacher family, not a return to the old pinv target and not another broad paradigm shift.
+
+### Artifacts
+- trainer: `experiments/backfill/block_ar/train_264b_joint_state_space_latent_factor_fm_epsilon_teacher.py`
+- model: `diffusion/block_ar/joint_state_space_latent_factor_fm_epsilon_teacher.py`
+- smoke postmortem: `results/validations/2026-04-21/analysis/264b_smoke_postmortem/summary.md`
+
+---
