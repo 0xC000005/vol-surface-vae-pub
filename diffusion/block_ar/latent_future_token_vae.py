@@ -292,6 +292,7 @@ class LatentFutureTokenVAE(nn.Module):
         mean_level, aux = self._decode(history, h, token_latents)
         aux.update(
             {
+                "h": h,
                 "prior_mu": prior_mu,
                 "prior_logvar": prior_logvar,
                 "post_mu": post_mu,

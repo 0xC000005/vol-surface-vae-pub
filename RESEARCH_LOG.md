@@ -78937,3 +78937,62 @@ Artifacts:
 - `results/validations/2026-04-21/analysis/257b_postmortem/summary.json`
 
 ---
+## 2026-04-21: Autoresearch iteration 13 — 257c multi-sample latent experiment
+
+### Context
+
+Iteration 13 executed `257c`: keep the `257b` latent future-token VAE architecture, but add a multi-sample scenario objective so posterior sample identity matters during training.
+
+### Result
+
+- `257c` scored `2/11`
+- passes: `surface`, `block_ar`
+- best checkpoint: epoch `16`
+- best val total: `0.0709`
+
+Compared with `257b`, the total suite score stayed flat, but several stochastic-quality metrics improved:
+
+- coverage90: `0.250 -> 0.332`
+- calibration error: `0.381 -> 0.341`
+- change KS pass: `3 -> 7`
+- pathwise max-jump KS: `0.819 -> 0.440`
+- corr ratio: `0.648 -> 0.792`
+
+Long-run structure still failed:
+
+- rank ratio: `0.439 -> 0.487` (still below pass)
+- cointegration ratio: `0.329 -> 0.234`
+- level KS pass: `1 -> 1`
+- conditionality still flat: turb/calm `0.991`
+
+### Mechanism Read
+
+`257c` is the first clean evidence inside the stochastic latent-token family that the objective, not only the prior, was the bottleneck.
+
+Apples-to-apples latent diagnostics across `257a/257b/257c` on the same validation split:
+
+- `post_vs_prior_mean_mae`: `0.0034 -> 0.0103 -> 0.0102`
+- `sample_std_mean`: `0.0060 -> 0.0069 -> 0.0086`
+- `std_to_mean_error_ratio`: `0.092 -> 0.101 -> 0.152`
+
+Interpretation:
+
+- `257b` mostly strengthened token-mean influence
+- `257c` materially increased sample-dependent variation
+- but the multi-sample loss mainly rewards local level/change spread, not long-run rank / cointegration / regime structure
+
+### Decision
+
+The `257` family is still alive.
+
+The next principled step is **research ideation**, not an immediate prior swap. The right follow-up is `257d`: a structure-preserving multi-sample objective that keeps `257c`'s sample-identity gain while explicitly anchoring long-run structure (rank / cointegration / regime-sensitive width) before escalating to a richer latent prior family (`258a`).
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/257c_design/spec.md`
+- `experiments/backfill/block_ar/train_257c_multisample_latent_future_token_vae.py`
+- `results/block_ar/257c_v0_K4_s42/full11.json`
+- `results/validations/2026-04-21/analysis/257c_postmortem/summary.md`
+- `results/validations/2026-04-21/analysis/257c_postmortem/summary.json`
+
+---

@@ -335,7 +335,7 @@ def load_one_day_kernel(
         )
 
         return load_256a_model(checkpoint_path, device)
-    if model_type in {"257a", "257b"}:
+    if model_type in {"257a", "257b", "257c"}:
         from diffusion.block_ar.latent_future_token_vae import (
             load_model as load_257a_model,
         )

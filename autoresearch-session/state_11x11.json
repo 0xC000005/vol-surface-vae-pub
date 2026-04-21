@@ -1,16 +1,16 @@
 {
   "objective_ref": "autoresearch-session/goal_11x11.json",
   "mode": "in_session",
-  "iteration": 12,
-  "last_iteration_type": "research_ideation",
+  "iteration": 13,
+  "last_iteration_type": "experiment",
   "active_family": "257 latent-token VAE family",
-  "current_bottleneck": "Within the 257 family, the main missing ingredient is training signal for sample identity. Token means matter, but sample-to-sample variation is still too weak, so the next move should change the objective before changing the prior.",
-  "last_result_summary": "Iteration 12 chose 257c as the next step: keep the 257b architecture family, but add a multi-sample scenario objective so sample identity matters during training.",
-  "next_step_recommendation": "Run 257c next. Only escalate to 258a (richer latent prior in token space) if 257c fails to turn stronger stochasticity into real scenario-quality gains.",
+  "current_bottleneck": "257c proved that the stochastic latent-token family can respond to a multi-sample objective, but the remaining failure is now long-run structure: rank, cointegration, and regime-sensitive width are still underconstrained relative to local level/change spread.",
+  "last_result_summary": "Iteration 13 ran 257c (257b architecture plus a multi-sample scenario objective). Result: 2/11. Coverage, calibration, change KS, and jump KS improved materially versus 257b, but long-run structure remained weak and total suite score stayed flat.",
+  "next_step_recommendation": "Do research ideation next. Design 257d as a structure-preserving multi-sample objective inside the 257 family before escalating to a richer latent prior (258a).",
   "current_best_n_pass": 4,
   "current_best_model": "Frontier remains at 4/11 across prior families; use the most informative current baseline for the next iteration rather than assuming a single winner.",
-  "current_best_note": "253-family remains the best deterministic frontier at 4/11. Within stochastic families, 257a is still the best overall result so far, and 257c is now the most principled active follow-up.",
+  "current_best_note": "253-family remains the best deterministic frontier at 4/11. Within stochastic families, 257a still has the best total score (3/11), but 257c is now the most informative stochastic result because it is the first clean evidence that a multi-sample objective can make sample identity matter.",
   "goal_reached": false,
-  "last_commit": "3a6f3ca",
+  "last_commit": "",
   "resume_command_hint": "continue autoresearch"
 }
