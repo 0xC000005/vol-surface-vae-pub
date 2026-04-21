@@ -1,0 +1,86 @@
+{
+  "model": "257d_v0_K4_s42",
+  "iteration_type": "experiment",
+  "n_pass": 2,
+  "passes": [
+    "surface",
+    "block_ar"
+  ],
+  "comparison_vs_257c": {
+    "coverage90": {
+      "257c": 0.3323333333333333,
+      "257d": 0.3425138888888889
+    },
+    "h30_coverage90": {
+      "257c": 0.199375,
+      "257d": 0.23416666666666666
+    },
+    "calibration_error": {
+      "257c": 0.34065586419753086,
+      "257d": 0.33484490740740736
+    },
+    "corr_ratio": {
+      "257c": 0.7922608382094294,
+      "257d": 1.9879803370796119
+    },
+    "rank_ratio": {
+      "257c": 0.4874518828502993,
+      "257d": 0.2863285357015032
+    },
+    "cointegration_ratio": {
+      "257c": 0.23387096774193553,
+      "257d": 0.11935483870967743
+    },
+    "mr_ratio": {
+      "257c": 1.1047768496594559,
+      "257d": 2.773628852266907
+    },
+    "mr_h30": {
+      "257c": 0.9790444893634163,
+      "257d": 0.9492954387633787
+    },
+    "acf_corr": {
+      "257c": 0.8407539433596614,
+      "257d": 0.9295735814161432
+    },
+    "kurt_ratio": {
+      "257c": 0.4068640599317779,
+      "257d": 0.20820244689595016
+    },
+    "change_ks_pass": {
+      "257c": 7,
+      "257d": 4
+    },
+    "level_ks_pass": {
+      "257c": 1,
+      "257d": 3
+    },
+    "max_jump_ks": {
+      "257c": 0.4395833333333333,
+      "257d": 0.93125
+    },
+    "turb_calm_ratio": {
+      "257c": 0.9907884001731873,
+      "257d": 1.0131916999816895
+    }
+  },
+  "latent_diagnostics": {
+    "257c": {
+      "post_vs_prior_mean_mae": 0.010223886197698968,
+      "sample_std_mean": 0.008591528848877974,
+      "ensemble_mean_abs_error": 0.0565030678574528,
+      "std_to_mean_error_ratio": 0.15256850213030568,
+      "kl_mean": 0.0009600192591148828
+    },
+    "257d": {
+      "post_vs_prior_mean_mae": 0.034169534487383704,
+      "sample_std_mean": 0.009806998606239046,
+      "ensemble_mean_abs_error": 0.05082725653690951,
+      "std_to_mean_error_ratio": 0.19413092943593954,
+      "kl_mean": 0.007781745308810579
+    }
+  },
+  "mechanism_conclusion": "257d preserved and increased sample identity, but the ensemble-mean covariance/spectrum anchors over-coupled the decoded path into a too-strong common mode. The failure is not dead stochasticity; it is objective-induced over-coupling inside the current decoder family.",
+  "next_step": "paradigm_shift",
+  "next_step_recommendation": "Shift to 258a rather than adding more objective terms inside the 257 family."
+}

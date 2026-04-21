@@ -50,6 +50,37 @@ def sample_crps(samples: torch.Tensor, target: torch.Tensor, weights: torch.Tens
     return term1 - term2
 
 
+def temporal_covariance(x: torch.Tensor) -> torch.Tensor:
+    xc = x - x.mean(dim=1, keepdim=True)
+    denom = max(x.shape[1] - 1, 1)
+    return torch.einsum("btd,bte->bde", xc, xc) / float(denom)
+
+
+def covariance_to_correlation(cov: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    diag = torch.diagonal(cov, dim1=-2, dim2=-1).clamp_min(eps).sqrt()
+    denom = diag.unsqueeze(-1) * diag.unsqueeze(-2)
+    return cov / denom.clamp_min(eps)
+
+
+def corr_structure_loss(gen_path: torch.Tensor, gt_path: torch.Tensor) -> torch.Tensor:
+    gen_cov = temporal_covariance(gen_path)
+    gt_cov = temporal_covariance(gt_path)
+    gen_corr = covariance_to_correlation(gen_cov)
+    gt_corr = covariance_to_correlation(gt_cov)
+    return F.smooth_l1_loss(gen_corr, gt_corr)
+
+
+def spectrum_structure_loss(gen_path: torch.Tensor, gt_path: torch.Tensor, topk: int = 8) -> torch.Tensor:
+    gen_cov = temporal_covariance(gen_path)
+    gt_cov = temporal_covariance(gt_path)
+    gen_eigs = torch.linalg.eigvalsh(gen_cov).flip(dims=[-1]).clamp_min(0.0)
+    gt_eigs = torch.linalg.eigvalsh(gt_cov).flip(dims=[-1]).clamp_min(0.0)
+    gen_eigs = gen_eigs / gen_eigs.sum(dim=-1, keepdim=True).clamp_min(1e-6)
+    gt_eigs = gt_eigs / gt_eigs.sum(dim=-1, keepdim=True).clamp_min(1e-6)
+    k = min(topk, gen_eigs.shape[-1], gt_eigs.shape[-1])
+    return F.smooth_l1_loss(gen_eigs[:, :k], gt_eigs[:, :k])
+
+
 def make_dataset(
     data_path: str,
     history_len: int,
@@ -78,6 +109,11 @@ def build_losses(
     aux: dict[str, torch.Tensor],
     ms_level_samples: torch.Tensor,
     ms_change_samples: torch.Tensor,
+    lambda_change_corr: float,
+    lambda_change_spec: float,
+    lambda_level_corr: float,
+    lambda_level_spec: float,
+    structure_topk: int,
     lambda_level: float,
     lambda_change: float,
     lambda_jump: float,
@@ -109,6 +145,12 @@ def build_losses(
 
     ms_level_loss = sample_crps(ms_level_samples, future_norm, h_weights)
     ms_change_loss = sample_crps(ms_change_samples, gt_change, h_weights)
+    ensemble_mean_level = ms_level_samples.mean(dim=1)
+    ensemble_mean_change = ms_change_samples.mean(dim=1)
+    change_corr_loss = corr_structure_loss(ensemble_mean_change, gt_change)
+    change_spec_loss = spectrum_structure_loss(ensemble_mean_change, gt_change, topk=structure_topk)
+    level_corr_loss = corr_structure_loss(ensemble_mean_level, future_norm)
+    level_spec_loss = spectrum_structure_loss(ensemble_mean_level, future_norm, topk=structure_topk)
 
     resid_rms = aux["mean_resid"].pow(2).mean().sqrt()
     kl = aux["kl"]
@@ -128,6 +170,10 @@ def build_losses(
         + lambda_kl_floor * kl_floor_penalty
         + lambda_ms_level * ms_level_loss
         + lambda_ms_change * ms_change_loss
+        + lambda_change_corr * change_corr_loss
+        + lambda_change_spec * change_spec_loss
+        + lambda_level_corr * level_corr_loss
+        + lambda_level_spec * level_spec_loss
     )
     metrics = {
         "level_loss": level_loss.detach(),
@@ -139,6 +185,10 @@ def build_losses(
         "kl_floor_penalty": kl_floor_penalty.detach(),
         "ms_level_loss": ms_level_loss.detach(),
         "ms_change_loss": ms_change_loss.detach(),
+        "change_corr_loss": change_corr_loss.detach(),
+        "change_spec_loss": change_spec_loss.detach(),
+        "level_corr_loss": level_corr_loss.detach(),
+        "level_spec_loss": level_spec_loss.detach(),
         "attn_entropy": attn_entropy.detach(),
         "token_std": token_std.detach(),
         "token_top1": token_top1.detach(),
@@ -175,6 +225,11 @@ def main() -> None:
     parser.add_argument("--kl_warmup_epochs", type=int, default=8)
     parser.add_argument("--lambda_ms_level", type=float, default=0.10)
     parser.add_argument("--lambda_ms_change", type=float, default=0.20)
+    parser.add_argument("--lambda_change_corr", type=float, default=0.0)
+    parser.add_argument("--lambda_change_spec", type=float, default=0.0)
+    parser.add_argument("--lambda_level_corr", type=float, default=0.0)
+    parser.add_argument("--lambda_level_spec", type=float, default=0.0)
+    parser.add_argument("--structure_topk", type=int, default=8)
     parser.add_argument("--ms_samples", type=int, default=4)
     parser.add_argument("--terminal_weight", type=float, default=2.0)
 
@@ -309,6 +364,11 @@ def main() -> None:
                         aux=aux,
                         ms_level_samples=ms_level_samples,
                         ms_change_samples=ms_change_samples,
+                        lambda_change_corr=args.lambda_change_corr,
+                        lambda_change_spec=args.lambda_change_spec,
+                        lambda_level_corr=args.lambda_level_corr,
+                        lambda_level_spec=args.lambda_level_spec,
+                        structure_topk=args.structure_topk,
                         lambda_level=args.lambda_level,
                         lambda_change=args.lambda_change,
                         lambda_jump=args.lambda_jump,
@@ -340,6 +400,8 @@ def main() -> None:
                         f"chg={metrics['change_loss'].item():.4f} "
                         f"msL={metrics['ms_level_loss'].item():.4f} "
                         f"msC={metrics['ms_change_loss'].item():.4f} "
+                        f"cCorr={metrics['change_corr_loss'].item():.4f} "
+                        f"lCorr={metrics['level_corr_loss'].item():.4f} "
                         f"kl={metrics['kl'].item():.4f} "
                         f"top1={metrics['token_top1'].item():.4f} "
                         f"H={metrics['attn_entropy'].item():.4f} "
@@ -362,10 +424,12 @@ def main() -> None:
             f"train_level={train_avg.get('level_loss', 0):.4f}  "
             f"train_chg={train_avg.get('change_loss', 0):.4f}  "
             f"train_msC={train_avg.get('ms_change_loss', 0):.4f}  "
+            f"train_cCorr={train_avg.get('change_corr_loss', 0):.4f}  "
             f"train_kl={train_avg.get('kl', 0):.4f}  "
             f"val_level={val_avg.get('level_loss', 0):.4f}  "
             f"val_chg={val_avg.get('change_loss', 0):.4f}  "
             f"val_msC={val_avg.get('ms_change_loss', 0):.4f}  "
+            f"val_cCorr={val_avg.get('change_corr_loss', 0):.4f}  "
             f"val_jump={val_avg.get('jump_loss', 0):.4f}  "
             f"val_kl={val_avg.get('kl', 0):.4f}  "
             f"val_top1={val_avg.get('token_top1', 0):.4f}  "

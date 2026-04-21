@@ -79046,3 +79046,68 @@ If `257d` fails, escalate to `258a` rather than stacking more objective terms in
 - `results/validations/2026-04-21/analysis/257d_ideation/memo.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 15 — 257d structure-preserving experiment
+
+### Context
+
+Iteration 15 executed `257d`: keep the `257c` latent-token VAE architecture and multi-sample objective, but add generic ensemble-mean covariance/spectrum anchors on future changes and levels to preserve long-run structure.
+
+### Result
+
+- `257d` scored `2/11`
+- passes: `surface`, `block_ar`
+- best checkpoint: epoch `19`
+- best val total: `0.0760`
+
+Relative to `257c`, a few low-frequency/stochastic metrics improved:
+
+- coverage90: `0.332 -> 0.343`
+- h30 coverage90: `0.199 -> 0.234`
+- calibration error: `0.341 -> 0.335`
+- ACF correlation: `0.841 -> 0.930`
+- level KS pass: `1 -> 3`
+
+But the core frontier regressed:
+
+- corr ratio: `0.792 -> 1.988`
+- rank ratio: `0.487 -> 0.286`
+- cointegration ratio: `0.234 -> 0.119`
+- MR ratio: `1.105 -> 2.774`
+- change KS pass: `7 -> 4`
+- max-jump KS: `0.440 -> 0.931`
+
+### Mechanism Read
+
+The latent channel did **not** collapse. In fact it strengthened:
+
+- `post_vs_prior_mean_mae`: `0.0102 -> 0.0342`
+- `sample_std_mean`: `0.0086 -> 0.0098`
+- `std_to_mean_error_ratio`: `0.153 -> 0.194`
+- `kl_mean`: `0.0010 -> 0.0078`
+
+So the failure is not dead stochasticity.
+
+The new structure losses over-coupled the decoder into an overly strong common mode:
+
+- more correlation
+- less effective rank
+- too much aggregate reversion
+- worse jump law
+
+This is the clean failure that likely caps the `257` family under further objective stacking.
+
+### Decision
+
+The next principled step is **paradigm shift**, not more analysis or more losses in `257`.
+
+Move to `258a` next.
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/257d_design/spec.md`
+- `experiments/backfill/block_ar/train_257c_multisample_latent_future_token_vae.py`
+- `results/block_ar/257d_v0_K4_s42/full11.json`
+- `results/validations/2026-04-21/analysis/257d_postmortem/summary.md`
+- `results/validations/2026-04-21/analysis/257d_postmortem/summary.json`
+
+---
