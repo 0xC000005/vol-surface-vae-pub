@@ -80904,3 +80904,41 @@ Close the clean `263` extension path. The active bottleneck is now the latent ta
 - postmortem: `results/validations/2026-04-21/analysis/263c_postmortem/summary.md`
 
 ---
+## 2026-04-21: 264a Paradigm Shift Replaces the Pseudoinverse Latent Target with a Learned Posterior Teacher
+
+### Context
+`263a` through `263c` established a clean limit on the restart `263` family. The recurrent low-rank state-space backbone is real, and the bounded EC baseline can restore most of the deterministic MR gap. But `263c` showed that once scale allocation is corrected directly, the model starts fighting its own training target: predicted sigma can be made positively aligned with realized vol-of-vol, yet the pseudoinverse-derived latent factor target remains negatively aligned.
+
+### Paradigm Shift Read
+- the active bottleneck is now the latent target construction itself, not one more mean-path or scale-path knob
+- so the next family should preserve the elegant `263` story:
+  - dynamic low-rank latent factors
+  - bounded EC mean baseline
+  - vanilla latent FM core
+- but replace the brittle hard-coded latent teacher with a learned future-factor posterior / latent teacher
+
+### Decision
+Choose `264a-v0` as the next family.
+
+`264a-v0` will:
+- keep the history-conditioned recurrent low-rank prior from `263`
+- keep the bounded EC mean baseline
+- keep the low-rank decoder / readout
+- replace the pseudoinverse-derived latent target with a learned posterior encoder over `(history, future)`
+- train the latent FM prior against this learned posterior target instead of the pinv projection
+
+### Pre-Registered Gates
+The first `264a-v0` prototype is successful only if it changes the target geometry cleanly:
+- target latent scale vs realized vol-of-vol correlation becomes nonnegative
+- preserve `263b`-level deterministic quality:
+  - `mr_gt_ratio >= 0.55`
+  - `corr_ratio` in `[0.70, 1.50]`
+  - `rank_ratio` in `[0.70, 1.40]`
+- avoid `263c`-style calibration collapse:
+  - `coverage90 >= 0.70`
+  - `calibration_error <= 0.12`
+
+### Artifacts
+- paradigm memo: `results/validations/2026-04-21/analysis/264a_paradigm_shift/memo.md`
+
+---
