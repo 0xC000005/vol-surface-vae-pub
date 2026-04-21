@@ -80404,3 +80404,55 @@ The live question is now:
 That is the next decision point for the restart line.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 20 — choose 261d scale-calibrated latent-factor residual family
+
+### Context
+Iteration 19 changed the interpretation of the residual line.
+
+`261c-v0` restored latent residual amplitude and materially improved over `261b` on:
+- coverage
+- calibration
+- cointegration
+- level KS
+- window-floor behavior
+
+So the latent-factor residual family is no longer failing because it is dead or too constrained.
+
+What still fails is more specific:
+- weak regime differentiation (`turb/calm < 1`)
+- poor per-regime per-cell coverage
+- weak jump incidence / pathwise max-jump realism
+- aggregate MR still below gate
+
+### Decision
+Choose **`261d-v0`** as the next family.
+
+`261d` keeps the exact `261c` latent-factor residual FM backbone and adds only one new mechanism:
+- a small positive **conditional scale head** for the latent factor residual path
+
+The idea is not to change the residual process family again, but to calibrate **where and when** the residual amplitude appears.
+
+### Why This Is The Smallest Elegant Fix
+`261c` already showed that the family has enough total latent residual amplitude on average.
+
+So the next problem is not “more variance” in the abstract. It is:
+- wrong residual amplitude allocation across windows / horizons / regimes
+
+A scale-calibrated latent-factor residual model is the cleanest response because it:
+- stays entirely in factor space
+- keeps the FM core vanilla
+- adds one interpretable heteroskedasticity mechanism
+- avoids reopening panel-space residuals or deterministic center-path search
+
+### Training Principle
+Use the already-available target factor residuals from `261b/261c` and supervise a per-window or per-horizon residual scale target directly.
+
+That is cleaner than hoping the FM objective alone will discover the needed regime sensitivity.
+
+### Decision / Next Step
+Run **`261d-v0`** next.
+
+Artifacts:
+- `results/validations/2026-04-21/analysis/261d_ideation/memo.md`
+
+---
