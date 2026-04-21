@@ -79676,3 +79676,56 @@ The next principled step is `post_experiment_analysis`. `260c` is now good enoug
 - or a separate stochastic width / jump-shape mechanism.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 7 — 260c postmortem favors anchor refinement
+
+### Context
+Iteration 6 showed the restart line can reach `4/11` with a still-elegant architecture: vanilla FM in change space, low-rank readout, bounded idio path, and one bounded error-correction baseline. The remaining question was whether the next bottleneck had shifted to stochastic calibration or whether the deterministic center path was still the cleaner next lever.
+
+### Analysis
+Artifacts:
+- postmortem summary: `results/validations/2026-04-21/analysis/260c_postmortem/summary.md`
+- postmortem json: `results/validations/2026-04-21/analysis/260c_postmortem/summary.json`
+
+Key 260c readings:
+- idio/common RMS ratio: `0.194`
+- loading effective rank mean: `7.714`
+- loading top1 share mean: `0.176`
+- learned ec gain mean/std: `0.1349 / 0.0151`
+- width vs history-scale corr h1/h30: `0.213 / 0.027`
+- level MAE h1/h30: `0.0190 / 0.0405`
+- level bias h1/h30: `+0.0035 / +0.0201`
+- change MAE h1/h30: `0.0190 / 0.0190`
+- level std ratio h1/h30: `0.378 / 0.988`
+- change std ratio h1/h30: `0.169 / 0.300`
+- path max-jump q90/q99 ratio: `1.645 / 1.395`
+
+Delta vs `260b`:
+- h30 level bias: `0.0330 -> 0.0201`
+- h30 level MAE: `0.0494 -> 0.0405`
+- h30 level std ratio: `1.278 -> 0.988`
+- h30 ceiling rate: `3.51% -> 0.74%`
+- h30 floor rate: `10.87% -> 4.19%`
+- width-vs-history corr h30: `0.041 -> 0.027`
+- path max-jump q90 ratio: `1.524 -> 1.645`
+
+### Mechanism Read
+`260c` did the intended job: it is a real long-horizon drift fix. The error-correction baseline materially improves level geometry by h30 while preserving the good structural properties of the restart line.
+
+But the postmortem also says the fixed history-mean anchor is too crude:
+- h1 / aggregate MR still lag,
+- level-stationary marginals are still off,
+- width responsiveness does not improve,
+- and jump scale/path shape gets a bit rougher.
+
+That combination points to a remaining deterministic center-path issue, not a need to switch immediately into a more complicated stochastic family. The family is still elegant and alive; the anchor is the weak piece.
+
+### Decision
+The next principled step is `experiment`. Run `260d` as a minimal anchor-refinement follow-up:
+- keep the same vanilla FM core,
+- keep the same `asinh` local-scale coordinate,
+- keep the same bounded error-correction form,
+- replace the fixed history-mean anchor with a learned history-conditioned anchor.
+
+The goal is to improve h1 / aggregate MR and level-stationarity without giving back the long-horizon drift gains from `260c`.
+
+---
