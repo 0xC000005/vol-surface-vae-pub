@@ -79784,3 +79784,35 @@ The next principled step is `post_experiment_analysis`, not another blind determ
 - or whether one more elegant deterministic refinement remains justified.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 9 — choose 260e as last deterministic refinement
+
+### Context
+Iteration 8 falsified the obvious `260c` follow-up. A learned residual anchor (`260d`) gave back structural quality and did not improve aggregate MR, so the next step was no longer obvious.
+
+### Ideation
+Artifact:
+- memo: `results/validations/2026-04-21/analysis/260e_ideation/memo.md`
+
+The ideation narrowed the next path to two options:
+
+1. `260e` — one last deterministic refinement
+- keep the exact `260c` architecture
+- add only a tiny bounded short-horizon corrective bias on h1-h3
+- purpose: target the remaining aggregate / h1 MR and level-stationarity miss without reopening anchor flexibility
+
+2. `261a` — freeze `260c` and add a separate residual scenario layer
+- purpose: attack coverage / conditionality / jump-shape with a clean two-stage decomposition
+
+### Mechanism Read
+The evidence still supports one last deterministic try before switching to a two-stage stochastic extension:
+- `260c` is below the deterministic ceiling but clearly alive
+- `260d` ruled out anchor flexibility specifically, not the family
+- the remaining deterministic miss is concentrated enough that a constrained short-horizon correction is still justified
+
+At the same time, the fallback is now explicit. If `260e` fails, the loop should stop stacking deterministic tweaks and pivot to `261a`.
+
+### Decision
+The next principled step is `experiment`.
+Run `260e` next as the last justified deterministic refinement. If it fails, freeze `260c` as the deterministic core and move to `261a` rather than inventing more anchor variants.
+
+---
