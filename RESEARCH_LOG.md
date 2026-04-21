@@ -78656,3 +78656,41 @@ So the model did not learn a diverse reusable motif library. It learned a mostly
 Treat fixed sparse motif routing as capped for now. The next principled iteration should be a **paradigm shift** toward a hierarchical latent-token future representation rather than another `255b` tweak.
 
 ---
+## 2026-04-21: Autoresearch iteration 5 — 256a paradigm shift
+
+### Context
+Iteration 4 showed that `255a-v0` did not just miss the frontier; it collapsed into a nearly single-motif future representation. The next step was therefore not another experiment but a paradigm-shift decision on how to represent the deterministic future path.
+
+### New Paradigm
+Adopt **`256a`: a hierarchical latent-token future representation**.
+
+Core sketch:
+- `history -> encoder -> context h`
+- `h -> one slow global token`
+- `h -> multiple fast event tokens`
+- learned temporal queries attend to those tokens at each future horizon
+- attention outputs are mapped through a low-rank readout to `delta_t`
+- a small bounded residual adapter stays secondary
+
+### Why This Family
+`253`, `254`, and `255a` all failed in different ways, but with the same deeper pattern: the future representation collapsed to one dominant basis element.
+
+- `253`: one dominant continuous common-path tradeoff
+- `254`: over-shared common mode / PC1-style collapse
+- `255a`: one dominant routed motif from a collapsed motif bank
+
+`256a` changes that by making the future basis **adaptive per history window** rather than fixed as one path or one motif library.
+
+### Decision
+The next decisive experiment should be `256a-v0`.
+
+Kill criteria:
+- recover at least the `4/11` frontier
+- improve at least one of `change KS`, `max-jump KS`, or `distributional_fidelity`
+- avoid token collapse
+- avoid `254`-style over-shared output collapse
+
+Artifact:
+- `results/validations/2026-04-21/analysis/256a_paradigm_shift_ideation/memo.md`
+
+---

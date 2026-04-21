@@ -1,16 +1,16 @@
 {
   "objective_ref": "autoresearch-session/goal_11x11.json",
   "mode": "in_session",
-  "iteration": 4,
-  "last_iteration_type": "experiment",
-  "active_family": "255 motif-routing likely capped",
-  "current_bottleneck": "Fixed sparse motif routing collapsed to a single dominant motif and failed to recover deterministic temporal-law metrics; the future representation likely needs multiple conditional latent tokens rather than one routed motif bank.",
-  "last_result_summary": "255a-v0 scored 1/11. The router top-1 collapsed to one motif on all 192 validation windows, the motif bank itself was low-rank (PC1 share 0.834), and the bounded residual adapter stayed secondary.",
-  "next_step_recommendation": "Do a paradigm-shift ideation iteration next. The leading candidate is a hierarchical latent-token future representation that keeps non-AR fixed-horizon generation but replaces fixed sparse motifs.",
+  "iteration": 5,
+  "last_iteration_type": "paradigm_shift",
+  "active_family": "256 hierarchical latent-token paradigm",
+  "current_bottleneck": "Deterministic future representations keep collapsing to one dominant basis element; the next family must produce an adaptive multi-token future basis per history window rather than a single common path or fixed motif bank.",
+  "last_result_summary": "Iteration 5 selected 256a as the next paradigm: a deterministic hierarchical future-token model with one slow token, multiple fast event tokens, temporal query attention, low-rank readout, and a bounded residual adapter.",
+  "next_step_recommendation": "Run 256a-v0 as the next decisive experiment. If it cannot recover the 4/11 frontier or token usage collapses, the next shift should leave deterministic token families entirely.",
   "current_best_n_pass": 4,
   "current_best_model": "Frontier remains at 4/11 across prior families; use the most informative current baseline for the next iteration rather than assuming a single winner.",
   "current_best_note": "253-family remains the best deterministic frontier at 4/11; 254 regressed through over-shared common-mode collapse and 255a regressed further through single-motif collapse.",
   "goal_reached": false,
-  "last_commit": "pending_iteration_4_commit",
+  "last_commit": "a5d979e",
   "resume_command_hint": "continue autoresearch"
 }
