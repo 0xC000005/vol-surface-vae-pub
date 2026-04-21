@@ -80097,3 +80097,137 @@ The next principled step is `experiment`.
 Implement and run `261a-v0` next as the first residual scenario layer around frozen `260e`.
 
 ---
+## 2026-04-21: Assessment — Restart pathology is clear; freeze 260e as canonical core
+
+### Context
+After the restart-line `260` sequence and the `260e` / `260f` postmortems, the active question was whether the current from-scratch model family is now mechanistically understood and whether it remains elegant enough to defend against simpler vanilla FM / diffusion / DiT baselines.
+
+### Assessment
+The pathology is now clear enough to justify the next decomposition.
+
+The restart line established the following sequence:
+- `260a` failed because raw-change FM geometry was wrong, not because the low-rank factor thesis was wrong.
+- `260b` fixed the coordinate system with the `asinh` local-scale change target and recovered cross-cell structure and change-law fidelity.
+- `260c` and `260e` showed that the next live deterministic miss was cumulative level drift / weak short-horizon mean reversion, and that a bounded history-mean error-correction baseline was the right minimal structural fix.
+- `260e` postmortem then clarified the remaining split: scenario spread is doing real work, but deterministic marginals are still not fully solved by the center path alone.
+- `260f` confirmed that further deterministic tweaking inside the same line was not moving the decisive blocker.
+
+So the live bottleneck is now well-specified:
+- freeze the deterministic center path,
+- treat residual conditional uncertainty as a separate problem,
+- and require the residual scenario layer to improve coverage / conditionality / regime coverage / jump realism **without moving the deterministic mean path**.
+
+### Elegance Read
+Conceptually, the restart model is still elegant and defensible.
+
+The clean core is:
+- vanilla conditional flow matching,
+- history encoder,
+- explicit low-rank factor readout,
+- bounded idiosyncratic residual path,
+- small bounded error-correction baseline.
+
+That remains much cleaner and easier to justify than the archived motif / token / pulse / shock families.
+
+However, the implementation is beginning to accumulate research-only knobs:
+- `change_coord`
+- `ec_anchor_mode`
+- `anchor_delta_mult`
+- `short_ec_boost_*`
+- extra deterministic level-loss weights in the trainer
+
+Those were useful for diagnosis, but continuing to stack them into the same `260` implementation would start to recreate the old pathology of a family that is harder to defend than a simple alternative.
+
+### Decision
+Treat `260e` as the canonical clean deterministic core of the restart line.
+
+Do **not** keep extending the same `260` model file as the eventual paper architecture.
+
+Instead:
+- freeze `260e` conceptually as the deterministic center-path model,
+- build `261a` as a separate residual scenario layer on top,
+- and keep that residual model small, vanilla, and explicitly mean-preserving.
+
+### Bottom Line
+The restart line has reached a much clearer theory than the old `205-258` tree:
+- simple deterministic low-rank FM core for the center path,
+- plus a separate residual scenario model for conditional uncertainty.
+
+The model is still elegant, but only if the next layer is kept separate rather than turning `260` into another kitchen-sink family.
+
+---
+## 2026-04-21: Autoresearch restart iteration 16 — 261a-v0 residual scenario layer does not preserve the clean decomposition
+
+### Context
+After closing the deterministic `260` search at `260e/260f`, the next principled move was to test the smallest elegant stochastic extension rather than reopen the center-path search.
+
+`261a-v0` therefore froze `260e` and added a separate shallow residual flow-matching layer in the same `asinh` local-scale change coordinate. The design constraints were explicit:
+- keep `260e` fixed as the deterministic core,
+- model only residual future changes,
+- keep the residual model small and vanilla,
+- and enforce zero-mean residual behavior rather than letting the scenario layer move the deterministic mean path.
+
+Artifacts:
+- spec: `results/validations/2026-04-21/analysis/261a_design/spec.md`
+- model: `diffusion/block_ar/residual_scenario_fm.py`
+- trainer: `experiments/backfill/block_ar/train_261a_residual_scenario_fm.py`
+- eval: `results/block_ar/261a_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/261a_postmortem/summary.md`
+
+### Result
+`261a-v0` scored `3/11`.
+
+Passes:
+- `surface`
+- `block_ar`
+- `cross_cell_correlation`
+
+Relative to `260e`, it improved several uncertainty and fidelity metrics:
+- coverage90: `0.951 -> 0.911` (lower overall, but still strong and less trivially over-wide)
+- calibration error: `0.106 -> 0.071`
+- turb/calm width ratio: `0.972 -> 1.119`
+- change KS pass cells: `24 -> 25`
+- level KS pass cells: `0 -> 6`
+- corr ratio: `0.509 -> 0.980`
+- rank ratio: `2.653 -> 1.342`
+
+But it lost on the structural metrics that mattered more for total score:
+- suite score: `4/11 -> 3/11`
+- cointegration ratio: `0.882 -> 0.703`
+- MR ratio: `0.696 -> 0.542`
+- h30 MR: `0.761 -> 0.687`
+- max-jump KS: `0.462 -> 0.532`
+
+### Mechanism Read
+The important finding is that the residual layer did **not** fail by being a trivial no-op.
+
+Postmortem shows:
+- uncentered raw residual mean abs: `0.00736`
+- centered raw residual mean abs: `6.36e-10`
+- centered raw residual std: `0.04968`
+
+So the residual FM layer is genuinely generating residual dispersion, and the explicit raw-residual centering is working numerically.
+
+However, the decomposition is still not clean in the final output space:
+- sample-mean level shift abs vs frozen `260e`: `0.00781` in normalized space
+- sample-mean level shift max: `0.46926`
+
+That means exact mean-centering in raw change space is **not** enough once the residuals are re-integrated into levels and pushed through support/clamping. The residual layer is therefore still reintroducing effective mean-path movement in the observed level path, which explains why calibration and level KS can improve while MR, jump realism, and cointegration regress.
+
+So the direct panel-residual formulation is not yet a clean separation between:
+- deterministic center path
+- stochastic residual uncertainty
+
+### Decision
+Do **not** stack more knobs into `261a`.
+
+The next principled step is `research_ideation`, not another blind experiment.
+
+The live question is now narrower:
+- what residual family preserves the frozen `260e` center path and low-rank structure **after** the support map and level integration,
+- while still improving the uncertainty suites?
+
+Leading candidate for the next family:
+- a more structure-preserving residual layer in **latent factor space**, rather than another direct panel-space residual model.
+
+---
