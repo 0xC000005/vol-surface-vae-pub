@@ -78571,3 +78571,55 @@ Next step should be ideation for a family where output geometry is not trapped i
 same low-rank common-path attractor that survived both `254a` and `254b`.
 
 ---
+## 2026-04-21: Autoresearch iteration 3 — 255a paradigm shift
+
+### Context
+
+Iteration 3 followed the negative `254b` result.
+
+At that point the evidence was:
+
+- `253` family capped at `4/11`
+- `254a` regressed to `3/11` by common-mode collapse
+- `254b` improved loading-rank statistics but still produced the same over-shared output path
+
+So the most principled next iteration type was `paradigm_shift`, not another within-family tweak.
+
+### Result
+
+Created the paradigm-shift memo:
+
+- `results/validations/2026-04-21/analysis/255a_paradigm_shift_ideation/memo.md`
+
+Main conclusion:
+
+- abandon the continuous common-path worldview used by `253/254`
+- next family should be:
+  - `255a = learned future motif library with sparse conditional routing`
+
+### Mechanism Read
+
+Why this shift:
+
+- `254b` showed the failure is not just bad loading-rank regularization
+- even healthy latent/loadings statistics still mapped into a PC1-dominated panel path
+- so the representational geometry is wrong, not merely the penalties
+
+The new family should treat a future as:
+
+- a sparse mixture of learned dynamic motifs
+
+rather than:
+
+- one continuous low-rank common path plus bounded side corrections
+
+### Decision
+
+Iteration 4 should be an `experiment`:
+
+- implement `255a-v0`
+- keep it deterministic
+- test whether sparse motif routing can recover at least the `4/11` frontier and
+  improve change-law / jump realism without falling back into dense coupling
+
+---
