@@ -79256,3 +79256,152 @@ Run `258b` next as an anti-collapse follow-up inside the same family:
 - `results/validations/2026-04-21/analysis/258a_followup_analysis/summary.json`
 
 ---
+## 2026-04-21: Pivot — retire 205-258 as active search tree, restart from clean minimal architecture
+
+### Context
+After reviewing the 205-258 program as a whole, the key conclusion is that the work should not be discarded intellectually, but it should be retired as the active architecture-search tree.
+
+The main concern is not just empirical score. It is **defensibility**.
+As the architecture becomes more bespoke, it becomes harder to justify against simpler baselines such as vanilla diffusion, vanilla flow matching, or a vanilla DiT. For a publishable, generalizable conditional scenario generator that a risk manager can actually use, the active line should now optimize for:
+
+- elegance
+- minimal architectural assumptions
+- clear causal justification for every inductive bias
+- clean comparison against vanilla generative cores
+
+### Findings
+The 205-258 program still produced durable knowledge and should remain part of the research record:
+
+- it established that dense / unconstrained coupling is wrong for this problem
+- it established that static latent path models are too weak
+- it established that some form of dynamic latent state is necessary
+- it established that explicit low-rank factor structure is necessary
+- it established that too many bespoke branches, routing mechanisms, token hierarchies, and stacked objective hacks make the story harder to defend
+
+So the right interpretation is:
+
+- **do not retire 205-258 as research evidence**
+- **do retire 205-258 as the active architecture search program**
+
+Those lines should now serve three roles only:
+
+- baselines
+- falsification history
+- evidence for design constraints in the restart
+
+### Decision
+Start a **new clean line from scratch in code and design**, while preserving the old line as comparison material.
+
+This is **not** an intellectual reset. It is an **architectural reset**.
+
+The new active design principle is:
+
+- keep the **generative core vanilla**
+  - standard conditional flow matching or diffusion
+- put the inductive bias in the **state-space / readout structure**
+  - dynamic latent factors
+  - low-rank readout
+  - small bounded idiosyncratic residual path
+
+The intended modeling object remains:
+
+- a conditional future path law for a low-rank financial factor panel
+- generalizable across IV, rates, FX, credit, and related factor surfaces
+- valid as a conditional scenario generator, not just a point forecaster
+- simple enough to defend against vanilla FM / diffusion / DiT baselines
+
+### What To Keep vs Drop
+Keep from the old tree:
+
+- `183c`, `250ac`, `251h`, and `258a` as empirical baselines
+- the diagnostics and mechanistic audits
+- the negative results as evidence for why the restart is necessary
+
+Drop as active architectural directions:
+
+- motif routing
+- hierarchical future tokens
+- special pulse / shock branches as the main idea
+- marginal-head patching as the main idea
+- stacked loss hacks as the main research program
+
+### Restart Principle
+The new line should begin from the smallest defensible architecture that already incorporates the two requirements the repo has actually falsified as necessary:
+
+1. **dynamic latent state**
+2. **explicit low-rank factor structure**
+
+Everything else should be treated as optional and added only if later evidence forces it.
+
+### Practical Implication
+From this point forward, the active goal is no longer to continue extending 205-258.
+The active goal is to build a new minimal architecture line that is:
+
+- simpler
+- more publishable
+- more defensible
+- more generalizable
+- and still suitable for risk-manager scenario generation
+
+The old tree remains in the paper and in the repo as the falsification path that justifies the restart.
+
+---
+## 2026-04-21: Autoresearch restart iteration 1 — 260a minimal conditional factor-FM line selected
+
+### Context
+The autoresearch loop has been reset away from the archived `205-258` tree. The next step was therefore not another experiment, but a clean restart-line ideation decision.
+
+The restart constraints are now explicit:
+
+- keep the generative core vanilla
+- require dynamic latent/common state
+- require explicit low-rank factor structure
+- keep only a bounded idio path
+- remain `(B,T,D)` generalizable across financial factor panels
+
+### Decision
+Choose **`260a`** as the first restart family.
+
+`260a` is a **minimal conditional factor flow-matching baseline**:
+
+- model the future **change path** rather than future levels
+- use **vanilla conditional flow matching** as the generative core
+- use a single temporal backbone over the future horizon
+- map that backbone through an explicit **low-rank readout**
+- allow only a **small bounded idiosyncratic residual**
+
+This is intentionally the smallest defensible architecture under the restart thesis.
+
+### Why This Family
+The restart is explicitly optimizing for publishability and defensibility, not novelty-by-construction.
+
+So the first new-line baseline should avoid:
+
+- motif routing
+- token hierarchies
+- special pulse/shock branches
+- learned marginal heads
+- stacked custom objectives
+
+`260a` keeps the stochastic/generative core as close as possible to a vanilla baseline while putting the inductive bias only where the old tree actually justified it:
+
+1. dynamic temporal state in the future path
+2. explicit low-rank common structure
+3. bounded idio path
+
+### Mechanism Hypothesis
+If the archived tree was correct about the true requirements, then even this minimal restart baseline should:
+
+- preserve some useful common-factor structure
+- produce more interpretable failures than the bespoke families
+- tell us cleanly whether the next escalation should be:
+  - diffusion instead of FM, or
+  - a stronger temporal backbone with the same low-rank readout
+
+### Decision / Next Step
+Run **`260a-v0`** next as the first decisive restart experiment.
+
+Artifacts:
+- `results/validations/2026-04-21/analysis/260a_restart_ideation/memo.md`
+
+---
