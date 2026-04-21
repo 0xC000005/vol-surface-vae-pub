@@ -80786,3 +80786,48 @@ Stay in the `263` family for one clean follow-up. The next principled step is `2
 - do not add any other heads, routers, or residual scenario layers
 
 ---
+## 2026-04-21: 263b-v0 Bounded EC Inside 263 Restores MR but Exposes Scale-Path Bottleneck
+
+### Context
+`263a` restored common structure and calibration in the clean restart line, but deterministic mean-reversion stayed nearly dead (`0.062` aggregate, `0.259` at h30). `263b-v0` tested the smallest justified deterministic fix inside the stronger `263` family: keep the recurrent low-rank joint latent-factor FM intact and add exactly one bounded history-mean EC baseline inside the recurrent mean path.
+
+### Result
+- `263b-v0` scored `3/11`, unchanged in total suite count versus `263a`
+- deterministic MR improved sharply without collapsing structure:
+  - aggregate MR `0.062 -> 0.606`
+  - h30 MR `0.259 -> 0.705`
+  - active MR pass rate `0.000 -> 0.583`
+- other deterministic/fidelity metrics also improved materially:
+  - level KS pass cells `3/25 -> 9/25`
+  - daily-change KS pass cells `18/25 -> 19/25`
+  - pathwise max-jump KS `0.820 -> 0.456`
+  - corr_ratio `0.812 -> 1.284`
+  - rank_ratio stayed in-range (`1.192 -> 0.866`)
+- but stochastic allocation regressed:
+  - coverage90 `0.811 -> 0.755`
+  - calibration error `0.034 -> 0.087`
+  - conditional MAE reduction `+3.2% -> -1.5%`
+  - turb/calm width ratio only `1.020`
+  - worst-cell cointegration ratio worsened `0.145 -> 0.053`
+
+### Mechanism Read
+- the bounded EC term was a real active mechanism, not a dormant branch:
+  - EC gain mean `0.091`
+  - short-horizon EC boost mean `1.000`
+  - EC baseline RMS was `1.089x` the deterministic center-change RMS
+- unlike `262b`, this did not destroy the stronger state-space factor structure; the recurrent low-rank common path remained intact
+- the remaining bottleneck is now the latent scale path, not the mean path:
+  - predicted sigma vs vol-of-vol Spearman `-0.139`
+  - target factor scale vs vol-of-vol Spearman `-0.312`
+- so another blind deterministic patch would be the wrong move; the next issue is how stochastic amplitude is allocated across windows/regimes inside the otherwise stronger `263` family
+
+### Decision
+Close `263b` as a real but partial gain. Do not stack another ad hoc deterministic knob. The next most principled step is constrained ideation for `263c`, focused on one clean scale-path fix inside `263` rather than a broader architecture reset or another local patch.
+
+### Artifacts
+- trainer: `experiments/backfill/block_ar/train_263b_joint_state_space_latent_factor_fm_ec.py`
+- model: `diffusion/block_ar/joint_state_space_latent_factor_fm_ec.py`
+- eval: `results/block_ar/263b_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-21/analysis/263b_postmortem/summary.md`
+
+---
