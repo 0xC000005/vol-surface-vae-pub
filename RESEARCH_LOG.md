@@ -78837,3 +78837,37 @@ Artifact:
 - `results/validations/2026-04-21/analysis/257a_followup_analysis/summary.md`
 
 ---
+## 2026-04-21: Autoresearch iteration 11 — 257b latent follow-up analysis
+
+### Context
+Iteration 10 ran `257b`, a stronger latent-usage variant of the `257` token VAE. Coverage improved, but the total score regressed from `3/11` to `2/11`, so the next step was to understand whether that tradeoff still leaves the family worth continuing.
+
+### Analysis Result
+`257b` strengthens the **token mean effect** more than the **sample-specific latent effect**.
+
+Key diagnostics:
+- attention entropy mean: `1.194`
+- attention top-1 mean: `0.450`
+- `post_vs_zero_mae = 0.1306`
+- `prior_mean_vs_zero_mae = 0.1278`
+- `post_vs_prior_mean_mae = 0.0067`
+- sample std mean: `0.0075`
+- coverage 90% overall: `25.0%`
+
+Interpretation:
+- token attention is still alive
+- latent-conditioned structure matters more than in `257a`
+- but **sample identity still barely moves the decoded future**
+- the run buys more spread, not enough genuinely sample-dependent scenario structure
+
+### Decision
+Stay near the `257` line, but do a short **research ideation** iteration next before another run.
+
+The next design should target sample-dependent realism directly, with the shortlist:
+- `257c`: multi-sample scenario objective
+- `258a`: richer latent prior in token space
+
+Artifact:
+- `results/validations/2026-04-21/analysis/257b_followup_analysis/summary.md`
+
+---
