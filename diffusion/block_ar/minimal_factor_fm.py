@@ -44,8 +44,9 @@ class MinimalFactorFMConfig:
     ortho_reg_weight: float = 0.0
     change_coord: str = "raw"  # "raw" | "asinh_local_scale"
     change_scale_eps: float = 1e-3
-    ec_anchor_mode: str = "none"  # "none" | "history_mean"
+    ec_anchor_mode: str = "none"  # "none" | "history_mean" | "learned_history_residual"
     ec_gain_max: float = 0.0
+    anchor_delta_mult: float = 0.0
 
 
 class MinimalFactorFM(nn.Module):
@@ -121,6 +122,13 @@ class MinimalFactorFM(nn.Module):
             cfg.head_layers,
             cfg.head_dropout,
         )
+        self.anchor_delta_head = _mlp(
+            cfg.bottleneck_dim,
+            cfg.n_cells,
+            cfg.head_hidden,
+            cfg.head_layers,
+            cfg.head_dropout,
+        )
         self._init_heads()
 
     def _init_heads(self) -> None:
@@ -130,6 +138,10 @@ class MinimalFactorFM(nn.Module):
                 with torch.no_grad():
                     last.bias.zero_()
         last = self.ec_gain_head[-1]
+        if isinstance(last, nn.Linear):
+            with torch.no_grad():
+                last.bias.zero_()
+        last = self.anchor_delta_head[-1]
         if isinstance(last, nn.Linear):
             with torch.no_grad():
                 last.bias.zero_()
@@ -168,7 +180,7 @@ class MinimalFactorFM(nn.Module):
             return torch.sinh(model_change) * scale
         raise ValueError(f"Unknown change_coord={self.cfg.change_coord}")
 
-    def compute_anchor(self, history_norm: torch.Tensor) -> torch.Tensor:
+    def compute_anchor(self, history_norm: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         history_norm = self._flatten_history(history_norm)
         if self.cfg.ec_anchor_mode == "none":
             return torch.zeros(
@@ -179,6 +191,11 @@ class MinimalFactorFM(nn.Module):
             )
         if self.cfg.ec_anchor_mode == "history_mean":
             return history_norm.mean(dim=1)
+        if self.cfg.ec_anchor_mode == "learned_history_residual":
+            mean_anchor = history_norm.mean(dim=1)
+            scale = self.compute_change_scale(history_norm).squeeze(1)
+            delta = torch.tanh(self.anchor_delta_head(h)) * (self.cfg.anchor_delta_mult * scale)
+            return (mean_anchor + delta).clamp(-1.0, 1.0)
         raise ValueError(f"Unknown ec_anchor_mode={self.cfg.ec_anchor_mode}")
 
     @staticmethod
@@ -240,7 +257,7 @@ class MinimalFactorFM(nn.Module):
         h = self.encode_history(history_norm)
         loadings = self.loading_head(h).view(history_norm.shape[0], self.cfg.n_cells, self.cfg.latent_dim)
         ctx = self.context_proj(h)
-        anchor = self.compute_anchor(history_norm)
+        anchor = self.compute_anchor(history_norm, h)
         ec_gain = self.cfg.ec_gain_max * torch.sigmoid(self.ec_gain_head(h))
         return {"h": h, "loadings": loadings, "ctx": ctx, "anchor": anchor, "ec_gain": ec_gain}
 

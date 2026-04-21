@@ -79729,3 +79729,58 @@ The next principled step is `experiment`. Run `260d` as a minimal anchor-refinem
 The goal is to improve h1 / aggregate MR and level-stationarity without giving back the long-horizon drift gains from `260c`.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 8 — 260d learned-anchor follow-up falsified
+
+### Context
+Iteration 7 said the remaining weakness in `260c` was likely the anchor itself: long-horizon drift was much better, but h1 / aggregate MR still lagged and level-stationarity was still off. `260d` tested the cleanest anchor-refinement idea inside the same architecture: keep the bounded error-correction form, but replace the fixed history-mean anchor with a learned residual adjustment around that mean.
+
+### Result
+- model: `260d-v0`
+- trainer: `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- model code: `diffusion/block_ar/minimal_factor_fm.py`
+- checkpoint: `models/backfill/260d_v0_L8_s42/best_model.pt`
+- full 11-suite: `results/block_ar/260d_v0_L8_s42/full11.json`
+- score: `3/11`
+- passed suites: `surface`, `block_ar`, `cointegration`
+
+Key metrics:
+- coverage90 overall: `0.951`
+- calibration error: `0.122`
+- turb/calm: `0.963`
+- corr_ratio / rank_ratio: `0.487 / 2.746`
+- cointegration gen/GT ratio: `0.844` (worst cell `(4,4)` = `0.385`)
+- change KS pass cells: `19/25`
+- level KS pass cells: `4/25`
+- ACF corr: `0.954`
+- kurtosis ratio: `0.954`
+- MR aggregate ratio: `0.496`
+- full-horizon MR ratios h1/h7/h14/h30: `0.496 / 0.868 / 0.845 / 0.658`
+- max-jump KS: `0.505`
+
+Training metadata:
+- output dir: `models/backfill/260d_v0_L8_s42`
+- params: `1,436,957`
+- best epoch: `21/40`
+- best val total: `1.1871935086590903`
+- new config knob: `ec_anchor_mode=learned_history_residual`, `anchor_delta_mult=2.0`
+
+### Mechanism Read
+This is a clean falsification of the anchor-refinement hypothesis.
+
+The learned residual anchor did not meaningfully improve the live deterministic miss:
+- aggregate MR stayed essentially unchanged (`0.497 -> 0.496`),
+- conditionality stayed flat (`0.940 -> 0.963` but still far below gate),
+- and pathwise jump realism worsened.
+
+At the same time, the added anchor flexibility gave back structural quality:
+- `260c` passed cross-cell structure,
+- `260d` slips just below gate with `corr_ratio = 0.487`.
+
+So the conclusion is narrow but useful: the elegant `260c` family remains alive, but **more anchor flexibility is not the right next deterministic lever**.
+
+### Decision
+The next principled step is `post_experiment_analysis`, not another blind deterministic tweak. The immediate comparison should be `260d` vs `260c` to decide whether the restart line should:
+- keep `260c` fixed as the deterministic core and move to an orthogonal stochastic / shape-control mechanism,
+- or whether one more elegant deterministic refinement remains justified.
+
+---
