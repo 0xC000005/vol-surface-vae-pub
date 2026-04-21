@@ -122,6 +122,8 @@ def main() -> None:
     parser.add_argument("--ec_anchor_mode", type=str, default="none", choices=["none", "history_mean", "learned_history_residual"])
     parser.add_argument("--ec_gain_max", type=float, default=0.0)
     parser.add_argument("--anchor_delta_mult", type=float, default=0.0)
+    parser.add_argument("--short_ec_boost_max", type=float, default=0.0)
+    parser.add_argument("--short_ec_horizons", type=int, default=0)
 
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -192,6 +194,8 @@ def main() -> None:
         ec_anchor_mode=args.ec_anchor_mode,
         ec_gain_max=args.ec_gain_max,
         anchor_delta_mult=args.anchor_delta_mult,
+        short_ec_boost_max=args.short_ec_boost_max,
+        short_ec_horizons=args.short_ec_horizons,
     )
     model = MinimalFactorFM(cfg).to(device)
     optimizer = torch.optim.AdamW(

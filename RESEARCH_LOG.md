@@ -79816,3 +79816,60 @@ The next principled step is `experiment`.
 Run `260e` next as the last justified deterministic refinement. If it fails, freeze `260c` as the deterministic core and move to `261a` rather than inventing more anchor variants.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 10 — 260e short-horizon MR boost reaches co-best 4/11
+
+### Context
+Iteration 9 chose `260e` as the last justified deterministic refinement before a possible pivot to a two-stage residual scenario layer. The hypothesis was narrow: keep `260c` fixed except for a bounded short-horizon boost to the existing error-correction baseline, so early mean reversion improves without reopening the failed learned-anchor direction.
+
+### Result
+- model: `260e-v0`
+- trainer: `experiments/backfill/block_ar/train_260a_minimal_factor_fm.py`
+- model code: `diffusion/block_ar/minimal_factor_fm.py`
+- checkpoint: `models/backfill/260e_v0_L8_s42/best_model.pt`
+- full 11-suite: `results/block_ar/260e_v0_L8_s42/full11.json`
+- score: `4/11`
+- passed suites: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+Key metrics:
+- coverage90 overall: `0.951`
+- calibration error: `0.106`
+- turb/calm: `0.972`
+- corr_ratio / rank_ratio: `0.509 / 2.653`
+- cointegration gen/GT ratio: `0.882` (worst cell `(2,4)` = `0.421`)
+- change KS pass cells: `24/25`
+- level KS pass cells: `0/25`
+- ACF corr: `0.955`
+- kurtosis ratio: `0.962`
+- MR aggregate ratio: `0.696`
+- full-horizon MR ratios h1/h7/h14/h30: `0.696 / 0.992 / 0.956 / 0.761`
+- max-jump KS: `0.462`
+
+Training metadata:
+- output dir: `models/backfill/260e_v0_L8_s42`
+- params: `1,536,030`
+- best epoch: `21/40`
+- best val total: `1.2014071473053523`
+- new config knobs: `short_ec_boost_max=1.0`, `short_ec_horizons=3`
+
+### Mechanism Read
+This is a qualified positive result.
+
+The short-horizon boost did what it was meant to do:
+- aggregate MR improved sharply (`0.497 -> 0.696`)
+- h1 MR improved sharply (`0.497 -> 0.696`)
+- active MR cells improved from `15/24` to `22/24`
+- h7/h14/h30 MR stayed in range
+
+At the same time, the line still plateaus at `4/11` and still misses the same broad remaining suites:
+- conditionality / regime coverage
+- level-stationary marginals
+- pathwise jump realism
+- time-series skew / move-size / tail-scale details
+
+So `260e` strengthens the case that the elegant 260 family has a viable deterministic center path, but it also suggests the next bottleneck may no longer be another deterministic correction.
+
+### Decision
+The next principled step is `post_experiment_analysis`.
+The immediate question is whether `260e` is effectively the deterministic ceiling for this elegant restart family. If so, the next move should be to freeze the `260e` center path and build a separate residual scenario layer (`261a`) rather than keep stacking deterministic tweaks.
+
+---

@@ -347,7 +347,7 @@ def load_one_day_kernel(
         )
 
         return load_258a_model(checkpoint_path, device)
-    if model_type in {"260a", "260b", "260c", "260d"}:
+    if model_type in {"260a", "260b", "260c", "260d", "260e"}:
         from diffusion.block_ar.minimal_factor_fm import (
             load_model as load_260a_model,
         )

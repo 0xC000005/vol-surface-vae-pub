@@ -47,6 +47,8 @@ class MinimalFactorFMConfig:
     ec_anchor_mode: str = "none"  # "none" | "history_mean" | "learned_history_residual"
     ec_gain_max: float = 0.0
     anchor_delta_mult: float = 0.0
+    short_ec_boost_max: float = 0.0
+    short_ec_horizons: int = 0
 
 
 class MinimalFactorFM(nn.Module):
@@ -129,6 +131,13 @@ class MinimalFactorFM(nn.Module):
             cfg.head_layers,
             cfg.head_dropout,
         )
+        self.short_ec_head = _mlp(
+            cfg.bottleneck_dim,
+            1,
+            cfg.head_hidden,
+            cfg.head_layers,
+            cfg.head_dropout,
+        )
         self._init_heads()
 
     def _init_heads(self) -> None:
@@ -142,6 +151,10 @@ class MinimalFactorFM(nn.Module):
             with torch.no_grad():
                 last.bias.zero_()
         last = self.anchor_delta_head[-1]
+        if isinstance(last, nn.Linear):
+            with torch.no_grad():
+                last.bias.zero_()
+        last = self.short_ec_head[-1]
         if isinstance(last, nn.Linear):
             with torch.no_grad():
                 last.bias.zero_()
@@ -206,6 +219,7 @@ class MinimalFactorFM(nn.Module):
         self,
         prev_level: torch.Tensor,
         cond: dict[str, torch.Tensor],
+        step_idx: int = 0,
     ) -> torch.Tensor:
         if self.cfg.ec_anchor_mode == "none" or self.cfg.ec_gain_max <= 0.0:
             return torch.zeros_like(prev_level)
@@ -214,7 +228,14 @@ class MinimalFactorFM(nn.Module):
         if prev_level.ndim == 3:
             anchor = anchor.unsqueeze(1)
             ec_gain = ec_gain.unsqueeze(1)
-        return ec_gain * (anchor - prev_level)
+        boost = 1.0
+        if self.cfg.short_ec_boost_max > 0.0 and self.cfg.short_ec_horizons > 0:
+            decay = max(0.0, 1.0 - float(step_idx) / float(self.cfg.short_ec_horizons))
+            short_boost = cond["short_ec_boost"]
+            if prev_level.ndim == 3:
+                short_boost = short_boost.unsqueeze(1)
+            boost = 1.0 + decay * short_boost
+        return boost * ec_gain * (anchor - prev_level)
 
     def residualize_raw_change(
         self,
@@ -228,7 +249,7 @@ class MinimalFactorFM(nn.Module):
         prev = history_norm[:, -1, :]
         residuals = []
         for t in range(raw_change.shape[1]):
-            baseline = self.error_correction_baseline(prev, cond)
+            baseline = self.error_correction_baseline(prev, cond, step_idx=t)
             residuals.append(raw_change[:, t, :] - baseline)
             prev = future_levels_norm[:, t, :]
         return torch.stack(residuals, dim=1)
@@ -246,7 +267,7 @@ class MinimalFactorFM(nn.Module):
             prev = prev.unsqueeze(1).expand(-1, residual_change.shape[1], -1)
         pieces = []
         for t in range(residual_change.shape[-2]):
-            baseline = self.error_correction_baseline(prev, cond)
+            baseline = self.error_correction_baseline(prev, cond, step_idx=t)
             total = residual_change[..., t, :] + baseline
             pieces.append(total)
             prev = prev + total
@@ -259,7 +280,15 @@ class MinimalFactorFM(nn.Module):
         ctx = self.context_proj(h)
         anchor = self.compute_anchor(history_norm, h)
         ec_gain = self.cfg.ec_gain_max * torch.sigmoid(self.ec_gain_head(h))
-        return {"h": h, "loadings": loadings, "ctx": ctx, "anchor": anchor, "ec_gain": ec_gain}
+        short_ec_boost = self.cfg.short_ec_boost_max * torch.sigmoid(self.short_ec_head(h))
+        return {
+            "h": h,
+            "loadings": loadings,
+            "ctx": ctx,
+            "anchor": anchor,
+            "ec_gain": ec_gain,
+            "short_ec_boost": short_ec_boost,
+        }
 
     def expand_condition(self, cond: dict[str, torch.Tensor], repeat: int) -> dict[str, torch.Tensor]:
         expanded: dict[str, torch.Tensor] = {}
