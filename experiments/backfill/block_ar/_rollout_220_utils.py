@@ -323,6 +323,12 @@ def load_one_day_kernel(
         )
 
         return load_254b_model(checkpoint_path, device)
+    if model_type == "255a":
+        from diffusion.block_ar.sparse_future_motif_model import (
+            load_model as load_255a_model,
+        )
+
+        return load_255a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

@@ -1,0 +1,51 @@
+{
+  "model": "255a_v0_M16_s42",
+  "suite_score": 1,
+  "n_total": 11,
+  "passes": [
+    "block_ar"
+  ],
+  "key_metrics": {
+    "change_ks_pass": 2,
+    "level_ks_pass": 1,
+    "corr_ratio": 0.492,
+    "rank_ratio": 1.943,
+    "mr_gt_ratio": 1.426,
+    "mr_h30": 0.882,
+    "acf_corr": 0.881,
+    "kurtosis_ratio": 0.44,
+    "cointegration_ratio": 0.827,
+    "max_jump_ks": 0.823
+  },
+  "mechanism": {
+    "route_entropy_mean": 0.32929909229278564,
+    "route_top1_mean": 0.9126394391059875,
+    "active_top1_motifs": 1,
+    "top1_counts": [
+      0,
+      0,
+      0,
+      192,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "motif_bank_eff_rank": 2.059532880783081,
+    "motif_bank_pc1_share": 0.8336008191108704,
+    "motif_share_rms": 0.9475209712982178,
+    "resid_share_rms": 0.10821268707513809,
+    "resid_budget_mean": 0.02782880701124668,
+    "output_eff_rank": 7.131470680236816,
+    "output_pc1_share": 0.5210307240486145
+  },
+  "decision": "Abandon fixed sparse motif routing as a primary path; next paradigm should be a hierarchical latent-token future representation."
+}

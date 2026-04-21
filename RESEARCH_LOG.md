@@ -78623,3 +78623,36 @@ Iteration 4 should be an `experiment`:
   improve change-law / jump realism without falling back into dense coupling
 
 ---
+## 2026-04-21: Autoresearch iteration 4 — 255a motif-routing experiment
+
+### Context
+Iteration 4 executed `255a-v0`, the first paradigm-shift prototype after the continuous common-path families (`253/254`) were judged structurally capped. The hypothesis was that future changes should be represented as a sparse conditional mixture of learned motifs plus only a small bounded residual adapter.
+
+### Result
+- model: `255a-v0_M16_s42`
+- suite score: `1/11`
+- pass: `block_ar`
+- deterministic target suites still failed: `surface`, `time_series`, `cointegration`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`
+- eval artifact: `results/block_ar/255a_v0_M16_s42/full11.json`
+- postmortem artifacts:
+  - `results/validations/2026-04-21/analysis/255a_postmortem/summary.md`
+  - `results/validations/2026-04-21/analysis/255a_postmortem/summary.json`
+
+### Mechanism Read
+`255a` failed through motif collapse rather than through a dead residual adapter alone.
+
+- routing entropy mean: `0.329`
+- routing top-1 mean: `0.913`
+- active top-1 motifs across 192 validation windows: `1/16`
+- all 192 validation windows routed to the same top motif
+- motif-bank effective rank: `2.06`
+- motif-bank PC1 share: `0.834`
+- motif share RMS: `0.948`
+- residual share RMS: `0.108`
+
+So the model did not learn a diverse reusable motif library. It learned a mostly single-mode motif basis and then routed nearly every window to the same mode. This is a different failure than `254`: not rank-1 continuous common-mode collapse, but a near-single-motif routed future with insufficient adaptive capacity.
+
+### Decision
+Treat fixed sparse motif routing as capped for now. The next principled iteration should be a **paradigm shift** toward a hierarchical latent-token future representation rather than another `255b` tweak.
+
+---
