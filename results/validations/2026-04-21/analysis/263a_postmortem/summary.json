@@ -1,0 +1,13 @@
+{
+  "best_epoch": 12,
+  "best_val": 2.2862117205347334,
+  "n_pass": 3,
+  "sigma_mean_mean": 13.611323356628418,
+  "sigma_mean_p10": 12.710821151733398,
+  "sigma_mean_p90": 14.059235572814941,
+  "sigma_std_mean": 3.592432975769043,
+  "target_factor_std_mean": 11.862648010253906,
+  "eps_target_std_mean": 0.8632556200027466,
+  "pred_scale_vov_corr": 0.3300026304227985,
+  "target_scale_vov_corr": 0.017069764968924633
+}

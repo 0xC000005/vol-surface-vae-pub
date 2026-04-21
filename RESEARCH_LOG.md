@@ -80721,3 +80721,68 @@ Artifact:
 - `results/validations/2026-04-21/analysis/263a_ideation/memo.md`
 
 ---
+## 2026-04-21: 263a-v0 Joint State-Space Latent-Factor FM
+
+### Context
+Implemented the first clean state-space follow-up to the `262` joint latent family. `263a-v0` keeps the probabilistic low-rank thesis intact, but replaces the full-horizon deterministic mean-path parameterization with a recurrent latent state-space backbone:
+- history encoder
+- recurrent latent mean state
+- recurrent latent scale state
+- vanilla FM over standardized latent innovations
+- explicit low-rank readout
+- no residual scenario layer
+- no router / motif / token hierarchy
+
+### Result
+- Train/eval complete for `263a-v0`
+- Checkpoint: `models/backfill/263a_v0_s42/best_model.pt`
+- Eval: `results/block_ar/263a_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-21/analysis/263a_postmortem/summary.md`
+- Suite score: `3/11`
+- Passed: `surface`, `block_ar`, `cross_cell_correlation`
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`
+
+High-signal metrics:
+- coverage90 `0.811`
+- calibration error `0.034`
+- turb/calm `0.874`
+- corr_ratio `0.812`
+- rank_ratio `1.192`
+- MR ratio `0.062`
+- h30 MR `0.259`
+- cointegration ratio `0.700`
+- level KS `3/25`
+- change KS `18/25`
+- max-jump KS `0.820`
+- ACF corr `0.946`
+- kurtosis ratio `3.074`
+
+### Mechanism Read
+`263a` cleanly answered the question left by `262a/262b`.
+
+What improved:
+- common structure improved materially
+- corr_ratio moved to `0.812`
+- rank_ratio moved to `1.192`
+- generated PC1 concentration reached `50.3%`, much closer to GT `55.9%`
+- coverage and calibration stayed in the strong `262a` range (`0.811`, `0.034`)
+
+What failed:
+- deterministic MR stayed almost dead (`0.062` aggregate, `0.259` at h30)
+- conditionality / regime-sensitive widening still failed
+- level KS remained poor
+- jump realism remained poor
+
+Postmortem confirms the narrow read:
+- latent sigma stayed large and non-collapsed (mean `13.61`)
+- predicted sigma vs vol-of-vol correlation was positive (`0.330`)
+- so the model is not failing because stochastic scale died
+- it is failing because dynamic latent state alone still does not generate the needed deterministic error-correction / mean-reversion behavior
+
+### Decision
+Stay in the `263` family for one clean follow-up. The next principled step is `263b-v0`:
+- keep the stronger `263a` state-space backbone
+- add exactly one proven deterministic mechanism: a bounded history-mean EC baseline
+- do not add any other heads, routers, or residual scenario layers
+
+---
