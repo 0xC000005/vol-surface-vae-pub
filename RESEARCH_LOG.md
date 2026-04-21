@@ -79111,3 +79111,47 @@ Move to `258a` next.
 - `results/validations/2026-04-21/analysis/257d_postmortem/summary.json`
 
 ---
+## 2026-04-21: Autoresearch iteration 16 — 258a paradigm shift
+
+### Context
+
+The `257` latent-token VAE family now appears capped.
+
+- `257c` proved the family was partly objective-limited
+- `257d` tested the strongest objective-only follow-up and still failed to improve the frontier, while over-coupling the decoder into a too-strong common mode
+
+### Decision
+
+Shift to `258a`.
+
+### 258a Family
+
+`258a` should be a **stochastic dual-timescale latent state-space generator**:
+
+- history encoder initializes latent state
+- separate slow and fast latent states evolve over the future horizon
+- sampled innovations drive stochasticity over time
+- low-rank readout maps latent state to the panel
+- bounded idio path stays secondary
+
+### Why This Shift
+
+The problem is no longer just prior expressivity. The current token-decoder family is itself the bottleneck:
+
+- too static
+- too token-mean dominated
+- too easy to over-couple under stronger structure losses
+
+So the right paradigm shift is to change the latent temporal representation, not only to make the token prior richer.
+
+### Recommendation
+
+Next decisive experiment:
+
+- `258a-v0`: stochastic dual-timescale latent state-space generator with low-rank readout and bounded idio path
+
+### Artifacts
+
+- `results/validations/2026-04-21/analysis/258a_paradigm_shift_ideation/memo.md`
+
+---
