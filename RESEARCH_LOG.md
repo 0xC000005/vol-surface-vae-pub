@@ -80013,3 +80013,52 @@ The next principled step is `post_experiment_analysis` with a strong default tow
 `260f` was explicitly the last justified deterministic refinement. Unless the postmortem reveals a better interpretation than the current one, the elegant deterministic side of the 260 family should now be treated as capped and frozen at `260e` for a two-stage residual scenario follow-up.
 
 ---
+## 2026-04-21: Autoresearch restart iteration 14 — deterministic 260 line closed, pivot to 261a
+
+### Context
+Iteration 13 was explicitly the last justified deterministic refinement inside the elegant 260 family. The remaining question was whether `260f` gave enough evidence to finally close that deterministic line and pivot to a residual scenario family.
+
+### Analysis
+The comparison against `260e` is now decisive enough:
+- `260e`: `4/11`
+- `260f`: `4/11`
+
+What `260f` did **not** improve:
+- `level KS`: `0/25 -> 0/25`
+- suite score: `4/11 -> 4/11`
+
+What `260f` made worse:
+- coverage90: `0.954 -> 0.971`
+- calibration error: `0.106 -> 0.138`
+- max-jump KS: `0.462 -> 0.529`
+
+What held up:
+- change KS remained strong
+- cross-cell structure remained in-band
+- MR stayed near gate
+
+### Mechanism Read
+That pattern is enough to close the deterministic line.
+
+The elegant 260 family succeeded on the center-path problem:
+- transformed coordinate,
+- low-rank structure,
+- bounded idio,
+- bounded error-correction,
+- bounded short-horizon MR boost.
+
+But the line is now capped:
+- the decisive remaining marginal blocker (`level KS`) does not move,
+- extra deterministic regularization only widens the scenarios again,
+- and the residual missing suites are increasingly the ones that naturally belong to a separate scenario layer.
+
+### Decision
+The next principled step is `research_ideation` for `261a`.
+Freeze `260e` as the deterministic core and design the smallest zero-mean residual scenario layer around it. The goal is to attack:
+- coverage
+- conditionality
+- regime coverage
+- jump realism
+without reopening the deterministic architecture search.
+
+---
