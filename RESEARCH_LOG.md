@@ -82623,3 +82623,29 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next iteration type: research ideation for a cleaner deterministic Stage A formulation rather than another 275d-style backbone swap
 
 ---
+## 2026-04-22: 276a Stage A Ideation: Tokenized Deterministic Next-Change Seq2Seq
+
+- Completed constrained Stage A ideation after the 275 family postmortem closed the current architecture-only branch as capped.
+- Artifact:
+  - memo: results/validations/2026-04-22/analysis/276a_stage_a_ideation/memo.md
+- Selected next family: 276a-v0, deterministic tokenized next-change seq2seq model.
+- Keep from 275c:
+  - observation-space seq2seq transformer backbone
+  - generated-state feedback
+  - asinh local-scale change coordinate
+- Change:
+  - replace continuous pointwise change regression with categorical next-change prediction
+  - deterministic rollout uses argmax bins, not stochastic sampling
+- Rationale:
+  - the shared 275 pathology is regression-to-the-mean smoothing under pointwise deterministic supervision
+  - tokenized next-change prediction is the smallest first-principles formulation change that directly targets that pathology while keeping the architecture elegant
+- Explicitly still banned:
+  - stochastic latent variables in Stage A
+  - diffusion / FM in Stage A
+  - bounded side paths
+  - EC baselines
+  - hard low-rank heads
+  - suite-specific penalty stacks
+- Next step: implement 276a-v0 in fresh files and rerun the full train/eval/postmortem loop.
+
+---
