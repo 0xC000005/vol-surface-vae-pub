@@ -83616,3 +83616,33 @@ Center-preserving hierarchical retrieval with a minimal query-conditioned horizo
 Implement `280b-v0` and evaluate whether horizon-structured residual scaling can keep the `280a` coverage gains while recovering regime differentiation and full-horizon mean-reversion.
 
 ---
+## 2026-04-22: 280b Horizon-Scale Residual Results
+
+### Context
+`280b` kept the same fixed `277d` Stage A center path, the same anchored residual bank, and the same partial residual-centering geometry, but replaced the scalar residual scale head from `280a` with a tiny query-conditioned 4-knot horizon scale profile.
+
+### Result
+- `280b-v0` scored `5/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`
+- key metrics:
+  - coverage90 overall: `0.609`
+  - change KS pass cells: `21/25`
+  - corr ratio / rank ratio: `1.023 / 1.099`
+  - full-horizon mean_reversion: `PASS`
+  - pathwise max-jump KS: `0.513`
+- artifacts:
+  - `results/block_ar/280b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/280b_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a real structural effect.
+- Relative to `280a`, horizon-structured residual scaling restores the full-horizon mean-reversion pass and keeps the deterministic Stage A backbone intact.
+- But it gives back too much of the Stage B spread gains: overall coverage drops materially, regime differentiation stays weak, and pathwise jump realism worsens again.
+- The Stage B diagnosis is now sharper: scale-only adjustments are real and useful, but even horizon-structured scale-only control is still too limited.
+
+### Decision
+- Keep the two-level hierarchy.
+- Close the scale-only Stage B subfamily as likely capped.
+- Next step: post-experiment analysis across `277d`, `278a`, `279a`, `279b`, `280a`, and `280b` to choose the smallest non-scale Stage B mechanism that still preserves the fixed Stage A center path.
+
+---
