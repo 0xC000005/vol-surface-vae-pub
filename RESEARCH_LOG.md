@@ -82446,3 +82446,39 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 274b-v0 in fresh files and rerun the full train/eval/postmortem loop.
 
 ---
+## 2026-04-22: 275 Two-Level Reset: Deterministic 8/11 Backbone + Stochastic 3/11 Residual
+
+- Decision: stop treating the 11-suite as a single-model research objective.
+- Keep the 11-suite unchanged as the final risk-manager acceptance test.
+- Reset the active program into an explicit two-level hierarchy:
+  - Stage A: deterministic backbone for the oracle-reachable 8/11
+  - Stage B: residual conditional scenario layer for the remaining stochastic 3/11
+- Stage A target suites:
+  - surface
+  - time_series
+  - block_ar
+  - cointegration
+  - distributional_fidelity
+  - cross_cell_correlation
+  - mean_reversion
+  - pathwise_jump_realism
+- Stage B target suites:
+  - coverage
+  - conditionality
+  - regime_coverage
+- 275a-v0 selected as the new active line for Stage A.
+- 275a-v0 doctrine:
+  - deterministic autoregressive/state-space next-change predictor
+  - generated-state feedback
+  - simple recurrent hidden state
+  - no diffusion / FM / posterior / prior
+  - no hard low-rank head
+  - no bounded side paths
+  - no EC baseline
+  - reuse only the asinh local-scale change-coordinate lesson from the older tree
+- Rationale:
+  - one-shot fixed-horizon lines have already been falsified enough times on state-feedback dynamics
+  - the current probabilistic line remains scientifically coherent but is not moving the 11/11 frontier enough to justify continuing as the sole program
+- Immediate next step: implement 275a-v0 and evaluate it primarily as the deterministic 8/11 backbone candidate.
+
+---
