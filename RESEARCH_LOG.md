@@ -84493,3 +84493,37 @@ Leading hypothesis:
 - change support use from single-nearest replay to deterministic top-k / soft retrieval replay
 
 ---
+## 2026-04-22: 288a support-use reset selected after 287 bracket
+
+### Context
+The `287c / 287d / 287e` bracket closed the local query-key branch cleanly:
+- `287c` restored slow structure
+- `287d` improved level KS but destroyed aggregate MR
+- `287e` reconciled the fast-local / slow-global query story, but still stayed at `4/11`
+
+### Analysis
+This means query-key design is no longer the main bottleneck.
+
+What the bracket now says:
+- the retrieval embedding is expressive enough to expose the real tradeoff
+- but single-nearest deterministic replay is too brittle to preserve local fidelity and simultaneously activate the right strong MR cells
+
+So the likely cap is in **support use**, not **embedding design**.
+
+### Decision
+Close the `287` query-key sub-branch as locally exhausted.
+
+Next family: `288a-v0`
+- keep the `287e` mixed query key fixed
+- keep normalized-change replay fixed
+- change only the support use:
+  - from single-nearest deterministic replay
+  - to deterministic top-k / soft retrieval replay
+
+### Kill Criteria
+`288a` is only worth keeping if it improves structural behavior over `287e` without giving back the current deterministic gains:
+- active-cell mean-reversion support must improve materially
+- level KS should stay near the `287e` range
+- cointegration and cross-cell structure must remain in gate
+
+---
