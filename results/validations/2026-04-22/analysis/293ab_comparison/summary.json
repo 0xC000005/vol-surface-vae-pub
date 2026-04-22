@@ -1,0 +1,67 @@
+{
+  "comparison": "293a_vs_293b",
+  "headline": {
+    "293a_n_pass": 3,
+    "293b_n_pass": 4
+  },
+  "improved_in_293b": {
+    "calibration_error": {
+      "293a": 0.040949845679012324,
+      "293b": 0.032097993827160484
+    },
+    "token_acc_best_epoch": {
+      "293a": 0.02292841553155865,
+      "293b": 0.026428050627665862
+    },
+    "cointegration_pass": true,
+    "jump_ks": {
+      "293a": 0.7,
+      "293b": 0.6796875
+    }
+  },
+  "stable": {
+    "change_ks_n_pass": {
+      "293a": 24,
+      "293b": 23
+    },
+    "corr_ratio": {
+      "293a": 1.2453868112296969,
+      "293b": 1.256180571460769
+    },
+    "rank_ratio": {
+      "293a": 0.8795849202593581,
+      "293b": 0.8794434810896107
+    },
+    "level_ks_n_pass": {
+      "293a": 2,
+      "293b": 2
+    },
+    "coverage90": {
+      "293a": 0.901125,
+      "293b": 0.8953263888888889
+    },
+    "token_entropy_best_epoch": {
+      "293a": 4.8448606218610495,
+      "293b": 4.85354437146868
+    }
+  },
+  "regressed_in_293b": {
+    "turb_calm_width_ratio": {
+      "293a": 1.0101057291030884,
+      "293b": 0.9798551201820374
+    },
+    "mr_ratio": {
+      "293a": 0.08244168704678273,
+      "293b": 0.03350214933340449
+    },
+    "kurtosis_ratio": {
+      "293a": 1.7347522901030594,
+      "293b": 1.822564801743075
+    }
+  },
+  "mechanism_read": {
+    "conclusion": "The shared global latent improved calibration and some window-level dependence, but did not act as a long-horizon path-shape controller.",
+    "next_target": "structured_path_shape_coupling"
+  },
+  "recommended_next_step": "293c_ideation_coarse_to_fine_path_anchor"
+}

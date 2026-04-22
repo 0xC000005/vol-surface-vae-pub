@@ -85233,3 +85233,57 @@ Compare:
 The next mechanism should target path-shape control directly, not just add another generic latent.
 
 ---
+## 2026-04-22: 293a vs 293b analysis: path-shape still missing
+
+### Context
+Compared `293a-v0` and `293b-v0` to isolate what the added global path latent actually changed.
+
+Artifacts:
+- comparison: `results/validations/2026-04-22/analysis/293ab_comparison/summary.md`
+- source evals:
+  - `results/block_ar/293a_v0_s42/full11.json`
+  - `results/block_ar/293b_v0_s42/full11.json`
+
+### Findings
+What improved in `293b`:
+- score: `3/11 -> 4/11`
+- calibration error: `0.041 -> 0.032`
+- cointegration recovered to pass
+- token accuracy at best checkpoint rose slightly
+
+What stayed invariant:
+- change KS stayed strong (`24/25 -> 23/25`)
+- cross-cell corr/rank stayed in gate
+- level KS stayed dead (`2/25 -> 2/25`)
+- coverage stayed broadly alive
+- token entropy at best checkpoint stayed almost unchanged
+
+What regressed:
+- MR ratio: `0.082 -> 0.034`
+- turb/calm width ratio: `1.010 -> 0.980`
+- kurtosis ratio worsened
+
+### Mechanism Read
+The shared global latent did not become a true path-shape controller.
+
+It behaved more like:
+- a mild global context / entropy regularizer
+- or a better window-level dependence prior
+
+It did not move the metrics that should change if path shape were actually controlled:
+- levels
+- mean reversion
+- regime-sensitive width allocation
+- pathwise jump ordering
+
+So the family diagnosis is now stable:
+- local stochastic move law is alive
+- path-shape control is still missing
+
+### Decision
+The next move should target **structured path shape**, not another generic latent.
+
+Most likely next step:
+- `293c` ideation around a coarse-to-fine future anchor / horizon-knot scaffold that the daily token law must respect.
+
+---
