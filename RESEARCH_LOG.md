@@ -81291,3 +81291,86 @@ Suggested first shape:
 - ideation memo: `results/validations/2026-04-21/analysis/266b_ideation/memo.md`
 
 ---
+## 2026-04-21: 266b-v0 Temporal Bottleneck Baseline: Representation Improves, Flattened Prior Breaks Sampling
+
+### Context
+`266b-v0` was the smallest first-principles extension beyond `266a-v0`.
+
+It changed exactly one structural assumption:
+- from a **single compressed future code**
+- to a **short latent token path**
+
+Everything else stayed aligned with the reset:
+- fixed-horizon conditional generation
+- vanilla latent diffusion core
+- no hard low-rank decoder
+- no bounded idio path
+- no bounded EC baseline
+- no teacher engineering
+
+### Result
+`266b-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `28`
+- best val total: `0.4803`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal full-sample metrics:
+- coverage90: `0.304`
+- calibration error: `0.346`
+- turb/calm width ratio: `1.056`
+- ACF corr: `0.637`
+- kurtosis ratio: `0.263`
+- corr ratio: `2.165`
+- rank ratio: `0.229`
+- cointegration ratio: `0.371`
+- MR ratio: `1.889`
+- max-jump KS: `0.979`
+- pathwise q99 ratio: `0.484`
+
+### Mechanism Read
+A targeted reconstruction-vs-sampling probe again separated representation from the latent prior.
+
+Reconstruction probe:
+- ACF corr: `0.417`
+- kurtosis ratio: `0.266`
+- corr ratio: `0.759`
+- rank ratio: `0.747`
+- cointegration ratio: `0.706`
+- MR ratio: `1.902`
+- max-jump KS: `1.000`
+- pathwise q99 ratio: `0.005`
+
+Interpretation:
+- the temporal bottleneck representation is a **real improvement** over `266a` on joint structure:
+  - reconstruction rank is materially better
+  - reconstruction cointegration is materially better
+- but reconstruction still suppresses jump scale and overstates MR
+- the flattened latent diffusion prior then damages the representation further at sampling time:
+  - coverage and calibration collapse
+  - common-mode correlation becomes too strong
+  - rank collapses
+  - cointegration weakens versus reconstruction
+
+So `266b-v0` is a clean result:
+- the temporal bottleneck itself is **not** the wrong direction
+- the active bottleneck is now the **latent prior over the token path**
+
+### Decision
+Do constrained research ideation next.
+
+The next question is:
+
+what is the smallest first-principles change to the latent token-path prior that preserves the improved representation at sampling time, without reintroducing low-rank heads, bounded side paths, or bespoke correction mechanisms?
+
+### Artifacts
+- model: `diffusion/block_ar/latent_path_bottleneck_diffusion.py`
+- trainer: `experiments/backfill/block_ar/train_266b_latent_path_bottleneck_diffusion.py`
+- checkpoint: `models/backfill/266b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/266b_v0_s42/full11.json`
+- eval MD: `results/block_ar/266b_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/266b_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/266b_postmortem/summary.md`
+
+---

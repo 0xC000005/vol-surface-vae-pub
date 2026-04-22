@@ -1,0 +1,64 @@
+{
+  "model": "266b-v0",
+  "checkpoint": "models/backfill/266b_v0_s42/best_model.pt",
+  "checkpoint_epoch": 28,
+  "suite_result": {
+    "n_pass": 2,
+    "passing_suites": [
+      "surface",
+      "block_ar"
+    ],
+    "failing_suites": [
+      "coverage",
+      "conditionality",
+      "time_series",
+      "cointegration",
+      "regime_coverage",
+      "distributional_fidelity",
+      "cross_cell_correlation",
+      "mean_reversion",
+      "pathwise_jump_realism"
+    ]
+  },
+  "training": {
+    "best_val_total": 0.48033866712025236,
+    "latent_std_val": 0.479,
+    "note": "Training remained stable, but the latent diffusion objective stayed materially harder than 266a."
+  },
+  "full_sample_metrics": {
+    "coverage90": 0.304,
+    "calibration_error": 0.346,
+    "turb_calm_width_ratio": 1.056,
+    "acf_correlation": 0.637,
+    "kurtosis_ratio": 0.263,
+    "corr_ratio": 2.165,
+    "rank_ratio": 0.229,
+    "cointegration_ratio": 0.371,
+    "mr_gt_ratio": 1.889,
+    "max_jump_ks": 0.979,
+    "max_jump_q99_ratio": 0.484
+  },
+  "reconstruction_probe": {
+    "acf_correlation": 0.417,
+    "kurtosis_ratio": 0.266,
+    "corr_ratio": 0.759,
+    "rank_ratio": 0.747,
+    "cointegration_ratio": 0.706,
+    "mr_gt_ratio": 1.902,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.005
+  },
+  "mechanism_read": {
+    "core": "The temporally structured bottleneck improves the latent representation of joint structure, but the current flattened latent diffusion prior fails to preserve that structure when sampling. The decoder/reconstruction path still suppresses jump scale, while the prior injects amplitude in a way that is badly biased and overly common-mode.",
+    "supported_claims": [
+      "Compared with 266a, 266b materially improves move-size realism and jump scale in full samples.",
+      "Compared with 266a, 266b materially worsens aggregate coverage, calibration, and cross-cell common-mode collapse.",
+      "The reconstruction probe shows that the temporal bottleneck itself is useful: rank and cointegration are much stronger in reconstruction than in sampled scenarios.",
+      "Therefore the active bottleneck is now the latent prior over token paths, not the existence of a temporal bottleneck itself."
+    ]
+  },
+  "decision": {
+    "next_step_type": "research_ideation",
+    "next_question": "What is the smallest first-principles change to the latent token-path prior that can preserve the improved representation structure at sampling time without reintroducing hand-designed factor heads or correction paths?"
+  }
+}
