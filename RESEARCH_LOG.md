@@ -85369,3 +85369,24 @@ The latent-conditioning subfamily is locally capped. The live part of `293` is t
 Do `293d` ideation next, but only for an **explicit coarse path representation** at knot horizons. Do not do another latent-conditioning tweak.
 
 ---
+## 2026-04-22: 293d ideation: explicit coarse path support
+
+### Context
+The `293a/293b/293c` bracket showed that local stochastic law, calibration, and cross-cell dependence are alive, but long-horizon path shape is not. The analysis concluded that latent-conditioning variants are near a local cap.
+
+### Decision
+Selected `293d-v0` as the next follow-up.
+
+Mechanism:
+- keep the fixed-horizon daily joint-token law unchanged
+- add an explicit coarse path support object at knot horizons
+- predict a distribution over coarse future path codes from history
+- condition the daily decoder on the sampled or teacher coarse code
+
+### Mechanism read
+The point of `293d` is to make low-frequency trajectory shape part of the training target itself rather than hoping a hidden latent implies it. This is materially different from `293b/293c`, which both relied on latent conditioning.
+
+### Next step
+Implement `293d-v0` with a coarse path codebook over knot-horizon future states and test whether it improves level KS, MR, regime timing, or jump ordering without giving back the family's current local-law wins.
+
+---
