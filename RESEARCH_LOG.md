@@ -82535,3 +82535,34 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 275b-v0 in fresh files and rerun the full train/eval/postmortem loop.
 
 ---
+## 2026-04-22: 275b Deterministic Latent-State Backbone: Better Surface Validity, Worse Common-Mode Collapse
+
+- Implemented and ran 275b-v0 as the first deterministic latent-state follow-up under the two-level Stage A program.
+- Artifacts:
+  - model: diffusion/block_ar/ar_surface_deterministic_latent_backbone.py
+  - trainer: experiments/backfill/block_ar/train_275b_ar_surface_deterministic_latent_backbone.py
+  - eval: results/block_ar/275b_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/275b_backbone_postmortem/summary.md
+- Full 11-suite result: 2/11 (passes: surface, block_ar).
+- For the deterministic Stage A read, the important split is:
+  - improved support/static surface validity:
+    - explosion rate = 0.000
+    - calendar arbitrage = 4.3%
+    - butterfly arbitrage = 21.6%
+  - worse dynamic/common-mode behavior:
+    - corr ratio = 2.009
+    - rank ratio = 0.230
+    - cointegration ratio = 0.382
+    - change KS pass = 0/25
+    - level KS pass = 0/25
+    - pathwise q99 ratio = 0.002
+- Mechanism read:
+  - the explicit observation model is not the blocker; support and surface validity are now clean
+  - the deterministic latent transition is too contractive and collapses the rollout into an over-common-mode dynamic with too little rank and too little jump activity
+  - deterministic latent-state compression is therefore the wrong minimal extension for Stage A
+- Decision:
+  - close 275b as a negative follow-up
+  - keep the two-level reset
+  - next step: 275c-v0, a stronger deterministic observation-space temporal backbone with richer sequence modeling and generated-state feedback, while still banning stochastic machinery and side paths
+
+---
