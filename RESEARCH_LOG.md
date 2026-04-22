@@ -82108,3 +82108,38 @@ Select `270c-v0` as the next active family:
 Implement `270c-v0` and test whether change decoding restores the teacher-forced state law before considering any larger family shift.
 
 ---
+## 2026-04-21: 270c change-decoder follow-up closes the AR latent-token family
+
+### Context
+- `270b` showed the latent token sequence no longer collapsed, but the next-level decoder target was still wrong under teacher forcing.
+- `270c-v0` tested the smallest possible follow-up: keep the latent-sequence bottleneck and autoregressive latent FM transition fixed, and change only the decoded object from next normalized level to next normalized change.
+
+### Result
+- `270c-v0` scored `1/11`.
+- Passes: `block_ar` only.
+- Artifacts:
+  - model: `diffusion/block_ar/ar_latent_sequence_change_flow_matching.py`
+  - trainer: `experiments/backfill/block_ar/train_270c_ar_latent_sequence_change_flow_matching.py`
+  - eval: `results/block_ar/270c_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/270c_postmortem/summary.md`
+- Headline metrics:
+  - `coverage90 = 0.941`
+  - `conditional_mae_reduction = -1.9%`
+  - `turb/calm = 0.982`
+  - `corr_ratio = 2.016`
+  - `rank_ratio = 0.254`
+  - `mr_ratio = 2.655`
+  - `mr_h30_ratio = -152.520`
+  - `cointegration_ratio = 0.263`
+  - `max_jump_ks = 1.000`
+
+### Mechanism Read
+- The latent token sequence remains alive; teacher-forced token std stays well above the `270a` collapse regime (`prev_std_mean = 0.00384`).
+- Teacher-forced decoding is materially cleaner than rollout and already recovers pass-level cross-cell structure and cointegration (`teacher_forced corr_ratio = 1.478`, `rank_ratio = 0.581`, `cointegration_ratio = 1.440`), but it still misses aggregate h1 mean reversion (`0.588`) and underestimates tail thickness (`kurtosis_ratio = 0.449`).
+- Autoregressive sampling then amplifies that decoder mismatch into support explosion, almost-flat conditionality, over-wide common-mode scenarios, and catastrophic jump realism. The bottleneck is therefore the tiny token-to-observation decoder itself, not latent collapse and not the level-vs-change target choice alone.
+
+### Decision
+- Close the `270` family. The clean first-principles AR latent-token line has now falsified both next-level and next-change decoded objects without improving the frontier.
+- Next step: constrained ideation for a new family that preserves autoregressive state feedback but replaces the tiny per-step token decoder with a more expressive learned observation path, still without hand-engineered side branches or explicit structural assumptions.
+
+---
