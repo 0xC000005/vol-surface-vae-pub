@@ -82699,3 +82699,29 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 276b-v0 and evaluate whether deterministic tokenization should remain live or be closed.
 
 ---
+## 2026-04-22: 276b Joint Deterministic Tokens: Structure Recovered, Dynamic Law Still Missing
+
+- Implemented and ran 276b-v0 as the joint-token follow-up to 276a.
+- Artifacts:
+  - model: diffusion/block_ar/ar_seq2seq_transformer_joint_token_backbone.py
+  - trainer: experiments/backfill/block_ar/train_276b_ar_seq2seq_transformer_joint_token_backbone.py
+  - eval: results/block_ar/276b_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/276b_backbone_postmortem/summary.md
+- Full 11-suite result: 2/11 (passes: block_ar, cross_cell_correlation).
+- What it fixed relative to 276a:
+  - corr ratio = 0.826
+  - rank ratio = 0.802
+  - the joint factor law is back in range
+- What it did not fix:
+  - change KS pass = 0/25
+  - MR ratio = 0.021 with 0/24 active cells
+  - pathwise q99 ratio = 0.255
+  - max-jump KS = 1.000
+- Mechanism read:
+  - per-cell tokenization was indeed the reason 276a broke the joint structure
+  - but even with joint targets, deterministic tokenized next-step prediction still learns prototype-smooth central paths rather than the right conditional dynamic law
+- Decision:
+  - close deterministic tokenization as an active Stage A strategy
+  - next iteration type: paradigm shift
+
+---
