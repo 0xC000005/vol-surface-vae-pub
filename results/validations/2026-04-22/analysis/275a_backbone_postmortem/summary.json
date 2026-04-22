@@ -1,0 +1,48 @@
+{
+  "result": {
+    "score": "2/11",
+    "passes": [
+      "block_ar",
+      "cross_cell_correlation"
+    ],
+    "best_epoch": 4
+  },
+  "stage_a_read": {
+    "surface_near_miss": true,
+    "support_ok": true,
+    "static_structure_ok": true,
+    "dynamic_change_law_bad": true
+  },
+  "key_metrics": {
+    "surface_explosion_rate": 0.0,
+    "calendar_arbitrage": 0.087,
+    "butterfly_arbitrage": 0.271,
+    "butterfly_worst_tenor": 0.53,
+    "acf_corr": 0.525,
+    "kurtosis_ratio": 8.471,
+    "cointegration_ratio": 0.274,
+    "cointegration_worst_cell_ratio": 0.013,
+    "level_ks_pass": 19,
+    "change_ks_pass": 0,
+    "median_bias_pass": 24,
+    "bias_magnitude_pass": 23,
+    "mae_pass": 24,
+    "corr_ratio": 1.023,
+    "rank_ratio": 0.815,
+    "mr_ratio": 0.684,
+    "active_cells": 1,
+    "active_cell_corr": 0.594,
+    "max_jump_ks": 1.0,
+    "q90_ratio": 0.063,
+    "q99_ratio": 0.102
+  },
+  "mechanism_read": [
+    "275a preserves support, static level marginals, and cross-cell structure well.",
+    "275a fails because deterministic state evolution is too smooth and too weak on change-law richness, active mean reversion, and jump behavior.",
+    "The next clean deterministic extension should target latent dynamic richness rather than support fixes or stochasticity."
+  ],
+  "decision": {
+    "status": "baseline_complete",
+    "next_step": "275b-v0 deterministic latent-state backbone with explicit observation model"
+  }
+}

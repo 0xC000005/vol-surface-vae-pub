@@ -82482,3 +82482,56 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Immediate next step: implement 275a-v0 and evaluate it primarily as the deterministic 8/11 backbone candidate.
 
 ---
+## 2026-04-22: 275a Deterministic Backbone Baseline: Strong Static Structure, Weak Dynamic Richness
+
+- Implemented and ran 275a-v0 as the first Stage A deterministic backbone under the new 8+3 two-level program.
+- Artifacts:
+  - model: diffusion/block_ar/ar_deterministic_change_backbone.py
+  - trainer: experiments/backfill/block_ar/train_275a_ar_deterministic_change_backbone.py
+  - eval: results/block_ar/275a_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/275a_backbone_postmortem/summary.md
+- Full 11-suite result: 2/11 (passes: block_ar, cross_cell_correlation).
+- For the deterministic Stage A read, the important split is:
+  - strong on support and static structure:
+    - explosion rate = 0.000
+    - corr ratio = 1.023
+    - rank ratio = 0.815
+    - level KS pass = 19/25
+    - median-bias pass = 24/25
+    - MAE pass = 24/25
+  - weak on dynamic richness:
+    - change KS pass = 0/25
+    - cointegration ratio = 0.274
+    - MR ratio = 0.684 with only 1/24 active cells
+    - pathwise q99 ratio = 0.102
+- Mechanism read:
+  - the simple deterministic autoregressive next-change backbone is good at support, level marginals, and cross-cell structure
+  - it is too smooth and too weak dynamically for change-law realism, active MR, and jump behavior
+- Decision:
+  - keep the two-level reset
+  - close 275a as the minimal deterministic Stage A baseline
+  - select 275b-v0 as the next Stage A family: deterministic latent-state backbone with explicit observation model and deterministic latent transition
+
+---
+## 2026-04-22: 275b Deterministic Latent-State Backbone Selected
+
+- Trigger:
+  - 275a established the first deterministic Stage A baseline.
+  - It already solves support and static cross-cell structure reasonably well, but remains too smooth dynamically.
+- Selected next family: 275b-v0, deterministic latent-state backbone with explicit observation model.
+- Minimal architectural change from 275a:
+  - keep deterministic autoregressive rollout
+  - replace direct surface-space recurrent dynamics with deterministic latent-state dynamics
+  - add explicit learned observation encoder/decoder
+- Explicitly still banned:
+  - diffusion / FM
+  - posterior / prior
+  - hard low-rank heads
+  - bounded side paths
+  - EC baselines
+- Rationale:
+  - 272/273 showed that explicit observation models improve manifold fidelity
+  - for Stage A, we want those gains without the stochastic latent-transition machinery
+- Next step: implement 275b-v0 in fresh files and rerun the full train/eval/postmortem loop.
+
+---
