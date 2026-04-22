@@ -85124,3 +85124,52 @@ Next step:
 - target exactly one missing ingredient: global path-level coupling across the future window
 
 ---
+## 2026-04-22: 293b ideation: global path coupling inside 293 family
+
+### Context
+`293a-v0` validated the new fixed-horizon conditional joint-law family at the mechanism level:
+- stochastic spread is alive
+- daily change KS is strong
+- cross-cell structure is alive
+
+But it still failed on the long-horizon path law:
+- level KS
+- MR
+- regime-sensitive width allocation
+- pathwise max-jump ordering
+
+So the next move should stay inside the same family and add exactly one mechanism for **global path coupling**.
+
+### Candidate Directions
+1. Add one global future latent / path summary that conditions every daily token decode.
+2. Replace daily panel tokens with a full future time-cell token grid.
+3. Use a coarse-to-fine path hierarchy with explicit horizon anchors.
+
+### Decision
+Choose (1).
+
+`293b-v0` should keep:
+- the fixed-horizon conditional joint-law family
+- the daily joint-token support primitive
+- the exact teacher-forced token likelihood objective
+
+And add exactly one mechanism:
+- a shared global future latent / path summary
+- history-conditioned prior at inference
+- future-conditioned posterior during training
+- token NLL + small KL objective
+
+### Why This Is The Clean Move
+`293a-v0` already showed the local stochastic move law is alive. The missing ingredient is not more local flexibility; it is one coherent future-window-level variable that can tie the 30-day path together.
+
+This is the narrowest response to the observed failure mode:
+- preserve the local-law wins
+- target the weak long-horizon path structure directly
+- avoid another retrieval / AR / transport reset
+
+### Immediate Next Step
+Implement `293b-v0` as:
+- `293a` backbone
+- plus one global path latent conditioning all daily token decodes
+
+---
