@@ -85922,3 +85922,38 @@ That isolates the new bottleneck to the **global smoothness of the current conti
 Keep the `294` family alive. Next step: ideate `294b` as a sharper continuous scaffold follow-up that adds more localized path curvature without returning to support codebooks.
 
 ---
+## 2026-04-22: 294b piecewise-linear knot scaffold ideation
+
+### Context
+`294a` proved that the continuous scaffold family is live, but also isolated the new bottleneck: the global low-frequency basis is too smooth. It improved level-law fidelity and removed the old over-reversion pathology, yet it cannot express enough localized curvature or mid-window reversion.
+
+### Decision
+Next step: `294b-v0`
+
+Keep:
+- fixed-horizon one-stage joint-law framing
+- explicit continuous scaffold
+- residual daily token law around scaffold increments
+
+Change:
+- replace the global low-frequency basis with a **piecewise-linear knot scaffold**
+
+### Mechanism
+Predict joint continuous scaffold values at a small set of ordered future knot horizons, then linearly interpolate them into the full 30-day scaffold path.
+
+Suggested knot horizons:
+- `1, 4, 8, 14, 21, 30`
+
+This is the smallest clean follow-up because it stays continuous and explicit, but adds localized path bends and mid-window slope changes without returning to support codebooks or support-use geometry search.
+
+### Kill criteria
+`294b` is alive only if it improves at least one of:
+- MR ratio
+- worst-cell cointegration ratio
+- max-jump KS
+
+without giving back both:
+- `25/25` change KS
+- the `294a` level-KS gain
+
+---
