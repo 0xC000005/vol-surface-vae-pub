@@ -82143,3 +82143,38 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: constrained ideation for a new family that preserves autoregressive state feedback but replaces the tiny per-step token decoder with a more expressive learned observation path, still without hand-engineered side branches or explicit structural assumptions.
 
 ---
+## 2026-04-21: 271a constrained ideation selects a minimal conditional decoder family
+
+### Context
+- `270c-v0` closed the clean AR latent-token family at `1/11`.
+- The teacher-forced probe made the remaining failure explicit: latent token states remain usable, but the tiny per-step token-to-observation decoder is still too weak. The problem is no longer latent collapse and no longer the level-vs-change target choice alone.
+
+### Ideation
+- Constrained candidate directions:
+  1. keep the `270` latent transition and make the decoder conditional on a compact current-history summary from the same encoder
+  2. make the latent transition itself more expressive while leaving the decoder tiny
+  3. add a direct history-to-next-change bypass
+- Rejected for now:
+  - stronger latent transition first, because teacher forcing already says the latent state is not the main failure
+  - direct history bypass, because it weakens the bottleneck story and risks recreating bypass-heavy pathologies
+
+### Decision
+- Select `271a-v0` as the next family.
+- `271a-v0` keeps:
+  - autoregressive latent-sequence bottleneck
+  - latent FM transition
+- `271a-v0` changes exactly one thing:
+  - decode next normalized change from the transitioned latent token state plus one compact current-history summary from the same encoder
+
+### Why This Is Principled
+- It follows the `270c` postmortem directly: the decoder needs current state context.
+- It keeps the architecture first-principles and minimal:
+  - history encoder
+  - latent transition
+  - conditional decoder
+- It does not add hard low-rank structure, bounded side paths, teacher tricks, or suite-specific losses.
+
+### Next Step
+- Implement `271a-v0` and judge the family on whether this minimal conditional decoder materially improves conditionality / MR / structure without worsening support and jump realism beyond `270c`.
+
+---
