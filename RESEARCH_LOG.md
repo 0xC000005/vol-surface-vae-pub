@@ -83691,3 +83691,30 @@ The Stage B comparison is now decisive across `277d`, `278a`, `279a`, `279b`, `2
 - Next step: `281b-v0`, the minimal joint Stage B model with learned residual temperature plus one learned residual scale over the same fixed residual bank.
 
 ---
+## 2026-04-22: 281b Joint Temperature+Scale Collapse
+
+### Context
+`281b` tested the minimal joint Stage B model: learned residual temperature plus one learned residual scale over the same fixed `277d` center path and residual bank.
+
+### Result
+- `281b-v0` scored `5/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`
+- key failure signal:
+  - coverage90 overall: `0.208`
+  - calibration error: `0.407`
+  - persistent severe undercoverage: `71.5%`
+- artifacts:
+  - `results/block_ar/281b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/281b_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a clean negative on the training objective, not necessarily on the architecture class.
+- The joint temperature+scale head did not learn a better scenario law; it learned to collapse the residual distribution.
+- The likely cause is explicit now: the expected-distance objective rewards one narrow good-match residual configuration and does not reward preserving a usable scenario distribution.
+
+### Decision
+- Keep the two-level hierarchy and the fixed Stage A center path.
+- Do not continue the current expected-distance Stage B objective unchanged.
+- Next step: post-experiment analysis of the Stage B training objective before another experiment.
+
+---
