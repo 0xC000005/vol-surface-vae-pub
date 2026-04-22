@@ -1,0 +1,54 @@
+{
+  "model": "293c",
+  "checkpoint": "models/backfill/293c_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293c_v0_s42/full11.json",
+  "score": {
+    "n_pass": 3,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.892,
+    "calibration_error": 0.023,
+    "change_ks_pass": 23,
+    "level_ks_pass": 1,
+    "corr_ratio": 1.244,
+    "rank_ratio": 0.881,
+    "cointegration_ratio": 0.61,
+    "mr_ratio": 0.057,
+    "turb_calm_width_ratio": 0.99,
+    "acf_corr": 0.96,
+    "max_jump_ks": 0.674
+  },
+  "training": {
+    "best_epoch": 1,
+    "best_val_total": 5.243,
+    "final_val_total": 9.443,
+    "val_token_entropy_epoch1": 4.783,
+    "val_token_entropy_final": 1.53
+  },
+  "comparison_vs_293b": {
+    "score": "4/11 -> 3/11",
+    "improved": [
+      "calibration_error",
+      "max_jump_ks_marginally",
+      "mr_ratio_marginally"
+    ],
+    "unchanged": [
+      "coverage_alive",
+      "change_ks_alive",
+      "cross_cell_structure_alive"
+    ],
+    "worsened": [
+      "level_ks",
+      "cointegration_ratio",
+      "overall_score"
+    ]
+  },
+  "mechanism_read": "Interpolated knot latents did not become the missing path-shape controller. They preserved local-law fidelity, calibration, and cross-cell structure, but still failed to control levels, mean reversion timing, regime width timing, and jump ordering. The early best epoch and rapid entropy collapse suggest the scaffold acted as extra context rather than a true low-frequency trajectory constraint.",
+  "next_step": "post_experiment_analysis"
+}

@@ -85307,3 +85307,35 @@ Mechanism:
 Implement `293c-v0`, train one baseline, and test whether structured low-frequency conditioning improves path-shape suites without giving back change KS or cross-cell structure.
 
 ---
+## 2026-04-22: 293c-v0 interpolated knot-latent follow-up
+
+### Context
+`293c-v0` tested the smallest structured path-shape follow-up inside the new fixed-horizon joint-law family. It kept the `293b` local joint-token likelihood and history encoder fixed, but replaced the single shared latent with a 5-knot future latent scaffold interpolated across the 30-day window.
+
+### Result
+- model: `293c`
+- score: `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.892`
+- calibration error: `0.023`
+- change KS: `23/25`
+- level KS: `1/25`
+- corr ratio: `1.244`
+- rank ratio: `0.881`
+- cointegration ratio: `0.610`
+- MR ratio: `0.057`
+- turb/calm width ratio: `0.990`
+- max-jump KS: `0.674`
+
+### Mechanism read
+The interpolated knot latent did not become the missing path-shape controller. It preserved the family's strong local-law behavior, calibration, and cross-cell structure, but it still failed to control levels, mean-reversion timing, regime width timing, or jump ordering. Best validation occurred at epoch 1 and token entropy collapsed quickly afterward, which supports the read that the scaffold acted like extra context rather than a true low-frequency trajectory constraint.
+
+### Decision
+Do post-experiment analysis next over `293a`, `293b`, and `293c`. The live question is no longer whether the family needs more latent capacity. It is whether latent conditioning inside `293` is locally capped and the next move should instead be an explicit coarse path representation.
+
+---
