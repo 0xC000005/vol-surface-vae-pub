@@ -84040,3 +84040,86 @@ The bottleneck has moved upstream. The `277d` support family is built around rep
 - Next step: research ideation for a new Stage A support object, not another weighting tweak inside the existing `277d` anchored-delta family.
 
 ---
+## 2026-04-22: 285a Decayed Offset Support Direction
+
+### Context
+`284b` strengthened the support-family diagnosis: raw future support helps level-side fidelity and the window-floor test, while anchored-delta support preserves more statistical validity. The next question is no longer about weighting or centering; it is about the support object itself.
+
+### Decision
+Next step: `285a-v0`
+
+### Family
+Support-object interpolation between raw future support and anchored-delta support.
+
+### Core idea
+For each retrieved future path, define `offset = query_last_level - library_last_level` and construct the candidate support as `raw_future_t + beta_t * offset`, where `beta_t` decays from `1` at the first future step to `0` at the last horizon.
+
+### Why This Is The Smallest Principled Step
+- no new training
+- no new scorer
+- no new loss
+- no new bank
+- only one support-object change: the current level offset matters early, but should decay over horizon
+
+### Immediate Next Action
+Implement `285a-v0` as an evaluation-only support-object variant using the existing `283a` reweighting checkpoint and the new horizon-decayed offset transport support.
+
+---
+## 2026-04-22: 284b Raw Future Support Result
+
+### Context
+`284b` evaluated the existing `283a` reweighting checkpoint with a raw-future sampler, so the sampled support finally matched the raw future support that `283a` had been trained on.
+
+### Result
+- `284b-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.756`
+  - calibration error: `0.082`
+  - change KS pass cells: `23/25`
+  - level KS pass cells: `3/25`
+  - window-floor: `PASS`
+  - mean reversion aggregate ratio: `1.689` with active-cell corr `-0.314`
+- artifacts:
+  - `results/block_ar/284b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/284b_support_postmortem/summary.md`
+
+### Mechanism Read
+- This is the cleanest read so far on the raw-future support object.
+- Relative to the anchored-delta family, level fidelity improves materially and the window-floor test passes.
+- But the cost is severe: mean reversion collapses hard and regime differentiation stays wrong-way.
+
+### Decision
+- Keep the support-family rethink active.
+- Next step: `285a-v0`, a minimal support-transport object between raw future support and anchored-delta support using a horizon-decayed initial-level offset.
+
+---
+## 2026-04-22: 285a Decayed Offset Support Result
+
+### Context
+`285a` used the same `283a` reweighting checkpoint, but changed the support object to a horizon-decayed initial-level offset transport that sits between raw future support and anchored-delta support.
+
+### Result
+- `285a-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.757`
+  - calibration error: `0.082`
+  - change KS pass cells: `24/25`
+  - level KS pass cells: `3/25`
+  - window-floor: `PASS`
+  - mean reversion active support: `FAIL`
+- artifacts:
+  - `results/block_ar/285a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/285a_support_postmortem/summary.md`
+
+### Mechanism Read
+- The support-object interpolation effect is real: level fidelity stays materially better than the anchored-delta family while change-KS stays extremely strong.
+- But the hoped-for reconciliation does not happen. Cointegration local robustness regresses again, mean-reversion active support still fails badly, and regime-sensitive width allocation stays weak.
+- So a simple horizon-decayed offset transport is not enough to reconcile the two support extremes.
+
+### Decision
+- Close the simple offset-decay support probe as a negative.
+- Next step should be research ideation for a genuinely new Stage A support object or retrieval coordinate, not another local interpolation inside the current family.
+
+---

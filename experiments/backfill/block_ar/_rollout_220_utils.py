@@ -665,6 +665,18 @@ def load_one_day_kernel(
         )
 
         return load_283c_model(checkpoint_path, device)
+    if model_type == "284b":
+        from diffusion.block_ar.hierarchical_retrieval_reweighted_raw_future_scenario_generator import (
+            load_model as load_284b_model,
+        )
+
+        return load_284b_model(checkpoint_path, device)
+    if model_type == "285a":
+        from diffusion.block_ar.hierarchical_retrieval_reweighted_offset_decay_scenario_generator import (
+            load_model as load_285a_model,
+        )
+
+        return load_285a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 
