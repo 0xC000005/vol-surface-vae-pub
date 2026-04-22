@@ -83442,3 +83442,59 @@ Implement `278c-v0` and test whether learned candidate reweighting can improve
 conditionality and regime coverage without breaking the Stage A center-path gains.
 
 ---
+## 2026-04-22: 278c Learned Stage-B Weighting
+
+### Context
+`278c` tested whether Stage B should learn query-conditioned weights over the top-k retrieved future candidates while keeping the `277d` deterministic Stage A retrieval core fixed.
+
+### Result
+- `278c-v0` scored `3/11`
+- passes: `surface`, `coverage`, `cross_cell_correlation`
+- artifacts:
+  - `results/block_ar/278c_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/278c_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a clean negative.
+- The learned Stage B scorer did not just add spread; it also pulled the ensemble center away from the `277d` deterministic backbone.
+- Cointegration and active mean-reversion support both degraded, which means Stage B should not choose whole future paths in a way that is free to move the center path.
+
+### Decision
+- Close full-path learned weighting as the main Stage B direction.
+- Keep the two-level hierarchy.
+- Next step: `279a-v0`, residual hierarchical retrieval with a fixed `277d` center path and zero-centered residual scenarios sampled from the retrieved future bank.
+
+---
+## 2026-04-22: 279a Residual Hierarchical Retrieval
+
+### Context
+`279a` tested whether the hierarchy can preserve the `277d` deterministic Stage A center path while still adding useful Stage B scenario spread. It kept the center path fixed and converted retrieved future candidates into zero-centered residual scenarios around that center.
+
+### Result
+- `279a-v0` scored `5/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`
+- key metrics:
+  - coverage90 overall: `0.633`
+  - h1 / h30 coverage90: `0.694 / 0.574`
+  - corr ratio: `1.036`
+  - rank ratio: `1.079`
+  - MR ratio h1 / h30: `1.043 / 0.792`
+  - max-jump KS: `0.223`
+- artifacts:
+  - `results/block_ar/279a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/279a_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a real positive for the two-level hierarchy.
+- Relative to `278a`, `279a` preserves the deterministic Stage A backbone much better: mean reversion, cointegration, and cross-cell structure all remain pass, and jump realism gets close to the gate.
+- But the full zero-centering step is too strong: coverage and change-KS fidelity fall too far.
+- `278a` and `279a` now define a clean bracket:
+  - `278a`: enough spread, not enough center preservation
+  - `279a`: enough center preservation, not enough spread/fidelity preservation
+
+### Decision
+- Keep `277d` as the fixed Stage A core.
+- Keep retrieval-based Stage B.
+- Next step: `279b-v0`, partial residual centering between the `278a` and `279a` endpoints.
+
+---
