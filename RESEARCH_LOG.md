@@ -81751,3 +81751,45 @@ The next principled step is constrained ideation for the smallest anti-collapse 
 - postmortem MD: `results/validations/2026-04-21/analysis/267a_postmortem/summary.md`
 
 ---
+## 2026-04-21: 267b-v0 Ideation: Reduce Decoder History Bypass Before Using KL Tricks
+
+### Context
+`267a-v0` showed that the probabilistic latent-token paradigm is alive, but the plain implementation collapsed because the decoder could ignore the latent path.
+
+The evidence was explicit:
+- KL stayed at `0.0`
+- prior/posterior std stayed identical
+- sampled coverage remained near zero
+
+So the next step should target **latent usage**, not add KL heuristics.
+
+### Decision
+Select `267b-v0` as the next family.
+
+`267b-v0` keeps:
+- the probabilistic latent-token model
+- the prior/posterior heads
+- the narrow bottleneck
+- the plain ELBO objective
+
+It changes exactly one mechanism:
+- reduce the decoder's direct history bypass
+- history still sets the prior and decoder initial state
+- but is no longer concatenated at every decoding step
+
+### Why 267b Is The Most Principled Next Step
+This is the smallest architectural anti-collapse test.
+
+If the latent path was ignored because the decoder saw too much history directly, the cleanest fix is to make the latent path more necessary before resorting to objective-level tricks.
+
+### Immediate Next Step
+Implement `267b-v0` and compare it directly against `267a-v0` on:
+- KL usage
+- coverage
+- jump incidence
+- cross-cell structure
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/267b_ideation/memo.md`
+
+---
