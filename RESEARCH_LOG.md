@@ -82242,3 +82242,46 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement `272a-v0` in fresh files and test whether making the observation model explicit is enough to beat the exhausted token-decoder AR line.
 
 ---
+## 2026-04-21: 272a explicit observation model improves manifold fidelity but exposes memoryless latent dynamics
+
+### Context
+- `272a-v0` was the first explicit observation-model baseline after closing the autoregressive latent-token decoder line.
+- It kept the reset doctrine strict:
+  - learned bottleneck
+  - learned latent dynamics
+  - learned observation model
+  - no hard low-rank head
+  - no bounded side paths
+
+### Result
+- `272a-v0` scored `2/11`.
+- Passes: `block_ar`, `cointegration`.
+- Artifacts:
+  - model: `diffusion/block_ar/ar_surface_latent_flow_matching.py`
+  - trainer: `experiments/backfill/block_ar/train_272a_ar_surface_latent_flow_matching.py`
+  - eval: `results/block_ar/272a_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/272a_postmortem/summary.md`
+- Headline metrics:
+  - `coverage90 = 0.966`
+  - `conditional_mae_reduction = 1.5%`
+  - `turb/calm = 1.006`
+  - `corr_ratio = 2.216`
+  - `rank_ratio = 0.204`
+  - `mr_ratio = 2.589`
+  - `mr_h30_ratio = 1.339`
+  - `cointegration_ratio = 0.979`
+  - `max_jump_ks = 0.683`
+  - `level KS pass = 0/25`
+  - `change KS pass = 4/25`
+  - `cell MAE pass = 23/25`
+
+### Mechanism Read
+- Making the observation model explicit helped the manifold side materially: calendar/butterfly arbitrage mostly passed, level MAE passed 23/25 cells, cointegration passed, and pathwise q90/q99 jump scales came back inside gate.
+- The remaining failure is now concentrated in the latent transition. A one-step Markov latent FM collapses toward an over-common-mode dynamic (`corr_ratio = 2.216`, `rank_ratio = 0.204`) and mean reversion is too strong.
+- Conditional width allocation is still nearly flat across history and regimes (`width_ratio ~ 1.00`, `turb/calm ~ 1.006`). So the model learned a cleaner observation manifold, but the latent dynamics are too memoryless and too globally coupled.
+
+### Decision
+- Keep the `272` family alive.
+- Next step: `272b-v0`, the smallest principled extension. Keep the learned observation model fixed in spirit, but make the latent transition history-conditioned with short latent memory rather than pure one-step Markov dynamics.
+
+---
