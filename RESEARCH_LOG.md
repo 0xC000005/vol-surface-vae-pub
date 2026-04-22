@@ -83498,3 +83498,61 @@ conditionality and regime coverage without breaking the Stage A center-path gain
 - Next step: `279b-v0`, partial residual centering between the `278a` and `279a` endpoints.
 
 ---
+## 2026-04-22: 279b Partial Residual Centering
+
+### Context
+`279b` tested the smallest clean interpolation between the `278a` and `279a` Stage B endpoints. It kept the same fixed `277d` center path and the same anchored retrieval bank, but only subtracted half of the residual mean (`alpha = 0.5`) instead of fully zero-centering the residual scenarios.
+
+### Result
+- `279b-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.694`
+  - h1 / h30 coverage90: `0.783 / 0.627`
+  - turb/calm ratio: `1.161`
+  - change KS pass cells: `16/25`
+  - corr ratio / rank ratio: `1.021 / 1.099`
+  - MR ratio: `1.001`, but full-horizon overall mean_reversion still fails
+- artifacts:
+  - `results/block_ar/279b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/279b_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a real interpolation result.
+- Relative to `279a`, `279b` recovers more spread and change-law fidelity: coverage improves, change-KS passes again, and regime width differentiation passes again.
+- But centering strength alone is not enough: mean-reversion falls back below the full-horizon gate, jump realism still fails, and level-KS remains dead.
+
+### Decision
+- Keep the two-level hierarchy.
+- Close pure centering-strength interpolation as insufficient by itself.
+- Next step: `280a-v0`, a center-preserving residual hierarchy with learned query-conditioned residual scaling over the fixed residual bank.
+
+---
+## 2026-04-22: 280a Learned Residual Scaling
+
+### Context
+The `278a` / `279a` / `279b` sequence now gives a clean Stage B diagnosis. Raw retrieved futures preserve spread but move the center too much; fully centered residuals preserve the center but suppress too much spread; partial centering recovers part of the tradeoff but still cannot solve coverage and center preservation together.
+
+### Decision
+Next step: `280a-v0`
+
+### Family
+Center-preserving hierarchical retrieval with learned residual scaling.
+
+### Core idea
+- keep the fixed `277d` deterministic Stage A center path
+- keep the same anchored retrieved residual bank
+- keep partial residual centering as the Stage B residual geometry
+- add a small query-conditioned scale head that only scales the residual scenarios
+- do not let the learned component weight or shift whole future paths
+
+### Why This Is The Smallest Principled Step
+- the deterministic center path remains fixed
+- the retrieval residual bank remains fixed
+- the only learned freedom is residual amplitude
+- this directly targets the current undercoverage / regime-width bottleneck without reintroducing center drift
+
+### Immediate Next Action
+Implement `280a-v0` with a single query-conditioned residual scale head and evaluate it on the full 11-suite.
+
+---
