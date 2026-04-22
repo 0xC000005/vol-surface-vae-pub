@@ -84277,3 +84277,49 @@ Train the Stage A retrieval backbone and construct the candidate bank directly i
 Implement `287a-v0` as a new deterministic Stage A retrieval backbone in the local-history coordinate, evaluate the deterministic center path first, and only then decide whether to reopen Stage B weighting on top of it.
 
 ---
+## 2026-04-22: 287a Local-History Retrieval Result and 287b Direction
+
+### Context
+`287a` was the first upstream reset after closing the `286a` / `286b` support bracket. It moved retrieval training, candidate-bank construction, and deterministic support generation into the same local-history coordinate instead of transporting the old `277d` bank post hoc.
+
+### Result
+- `287a-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - deterministic coverage: `0.0%`
+  - change KS pass cells: `20/25`
+  - level KS pass cells: `1/25`
+  - cointegration ratio: `1.247`
+  - aggregate mean-reversion ratio: `1.741`
+  - pathwise max-jump KS: `0.578`
+- artifacts:
+  - `results/block_ar/287a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/287a_retrieval_coordinate_postmortem/summary.md`
+
+### Mechanism Read
+This is a clean negative on the pure local-history **level** coordinate.
+
+What held up:
+- support validity remains clean
+- cross-cell structure still passes
+- cointegration still passes
+
+What broke:
+- deterministic coverage is exactly zero
+- mean reversion degrades badly
+- active-cell slope support collapses
+- jump realism degrades
+
+The likely cause is specific:
+- the local-history coordinate removed too much current-state anchoring
+- retrieval and support now align, but they align around an object that is too insensitive to the query's current normalized state
+
+### Decision
+- Close `287a` as a negative on pure local-history level retrieval.
+- Keep the upstream reset alive.
+- Next step: `287b-v0`
+  - keep the local-history retrieval coordinate
+  - store normalized future changes rather than absolute future levels in that coordinate
+  - reconstruct the deterministic future by replaying normalized changes from the query's current normalized state
+
+---
