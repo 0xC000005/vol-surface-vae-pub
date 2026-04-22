@@ -539,6 +539,12 @@ def load_one_day_kernel(
         )
 
         return load_275c_model(checkpoint_path, device)
+    if model_type == "276a":
+        from diffusion.block_ar.ar_seq2seq_transformer_change_token_backbone import (
+            load_model as load_276a_model,
+        )
+
+        return load_276a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

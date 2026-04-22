@@ -82649,3 +82649,30 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 276a-v0 in fresh files and rerun the full train/eval/postmortem loop.
 
 ---
+## 2026-04-22: 276a Deterministic Tokenized Seq2Seq: Surface Fixed, Joint Factor Law Broken
+
+- Implemented and ran 276a-v0 as the first deterministic formulation-level follow-up after the 275 Stage A family postmortem.
+- Artifacts:
+  - model: diffusion/block_ar/ar_seq2seq_transformer_change_token_backbone.py
+  - trainer: experiments/backfill/block_ar/train_276a_ar_seq2seq_transformer_change_token_backbone.py
+  - eval: results/block_ar/276a_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/276a_backbone_postmortem/summary.md
+- Full 11-suite result: 2/11 (passes: surface, block_ar).
+- What improved:
+  - first fully passing surface validity in the new Stage A line
+  - ACF corr = 0.942
+  - cointegration ratio = 0.792 overall
+- What failed decisively:
+  - change KS pass = 0/25
+  - corr ratio = 0.012
+  - rank ratio = 3.828
+  - MR ratio = -0.034
+  - pathwise q99 ratio = 0.054
+- Mechanism read:
+  - changing the deterministic objective does change behavior, so the 275 smoothness diagnosis was real
+  - but the specific per-cell categorical token formulation destroys the joint factor structure and still does not recover jump/change-law richness
+- Decision:
+  - close 276a as a negative formulation test
+  - next iteration type: constrained ideation on whether a joint tokenization target is the clean next move or whether deterministic tokenization should be abandoned entirely
+
+---
