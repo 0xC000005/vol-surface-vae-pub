@@ -1,0 +1,52 @@
+{
+  "model": "293d",
+  "checkpoint": "models/backfill/293d_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293d_v0_s42/full11.json",
+  "score": {
+    "n_pass": 4,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.909,
+    "calibration_error": 0.049,
+    "change_ks_pass": 25,
+    "level_ks_pass": 1,
+    "corr_ratio": 1.301,
+    "rank_ratio": 0.849,
+    "cointegration_ratio": 0.656,
+    "mr_ratio": 0.093,
+    "active_cell_corr": 0.773,
+    "turb_calm_width_ratio": 0.984,
+    "max_jump_ks": 0.647
+  },
+  "training": {
+    "best_epoch": 3,
+    "best_val_total": 8.812,
+    "coarse_head_accuracy_range": "roughly 0.08-0.15"
+  },
+  "comparison_vs_293c": {
+    "score": "3/11 -> 4/11",
+    "improved": [
+      "change_ks",
+      "cointegration_ratio",
+      "mr_ratio",
+      "active_cell_corr"
+    ],
+    "unchanged_failures": [
+      "level_ks",
+      "regime_differentiation",
+      "pathwise_jump_realism"
+    ],
+    "worsened": [
+      "calibration_error"
+    ]
+  },
+  "mechanism_read": "The explicit coarse path support object is directionally better than the latent scaffold. It restored cointegration pass and some mean-reversion structure while preserving strong local-law fidelity. But the coarse support head is still weak, and the model still does not control level-law fidelity, regime width timing, or jump ordering strongly enough.",
+  "next_step": "post_experiment_analysis"
+}

@@ -85390,3 +85390,37 @@ The point of `293d` is to make low-frequency trajectory shape part of the traini
 Implement `293d-v0` with a coarse path codebook over knot-horizon future states and test whether it improves level KS, MR, regime timing, or jump ordering without giving back the family's current local-law wins.
 
 ---
+## 2026-04-22: 293d-v0 explicit coarse-path support follow-up
+
+### Context
+`293d-v0` tested the next clean move after the latent-conditioning branch was judged near a local cap. It kept the `293` daily joint-token local-law core fixed, but replaced latent scaffolding with an explicit coarse path support object: a codebook over future knot-horizon states predicted from history and used to condition the daily decoder.
+
+### Result
+- model: `293d`
+- score: `4/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cointegration`
+  - `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.909`
+- calibration error: `0.049`
+- change KS: `25/25`
+- level KS: `1/25`
+- corr ratio: `1.301`
+- rank ratio: `0.849`
+- cointegration ratio: `0.656`
+- MR ratio: `0.093`
+- active-cell corr: `0.773`
+- turb/calm width ratio: `0.984`
+- max-jump KS: `0.647`
+
+### Mechanism read
+The explicit coarse path support object is directionally better than the latent scaffold. It restored cointegration pass and some mean-reversion structure while preserving the family's local-law wins. But it is still not strong enough to control level-law fidelity, regime width timing, or jump ordering. The coarse-code head itself stayed weak, so the support object is alive as a concept but underpowered in this first implementation.
+
+### Decision
+Do post-experiment analysis next over `293b`, `293c`, and `293d`. The new question is whether the family should strengthen the explicit support object, rather than return to latent-conditioning or change the local joint-law core again.
+
+---
