@@ -85468,3 +85468,36 @@ This keeps the right representation class while making the support object compos
 Implement `293e-v0` and test whether compositional support improves level KS, mean-reversion support, regime timing, or jump ordering without giving back change KS or cross-cell structure.
 
 ---
+## 2026-04-22: 293e-v0 compositional knot-token support follow-up
+
+### Context
+`293e-v0` tested the next clean support-object follow-up inside the `293` family. It kept the explicit support idea from `293d`, but replaced the monolithic coarse path code with a compositional sequence of coarse knot tokens.
+
+### Result
+- model: `293e`
+- score: `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.901`
+- calibration error: `0.038`
+- change KS: `24/25`
+- level KS: `3/25`
+- corr ratio: `1.215`
+- rank ratio: `0.914`
+- cointegration ratio: `0.768` but worst-cell gate failed
+- MR ratio: `0.075`
+- active-cell corr: `0.670`
+- turb/calm width ratio: `1.029`
+- max-jump KS: `0.625`
+
+### Mechanism read
+Compositional support is easier to learn than the monolithic coarse code and it did improve some path-shape-adjacent metrics such as level KS, regime width ratio, and jump KS. But it simultaneously weakened the structural anchoring that made `293d` promising, especially on mean-reversion support and worst-cell cointegration robustness. So the branch now has a real support-object tradeoff rather than a monotonic improvement path.
+
+### Decision
+Do post-experiment analysis next over `293d` and `293e`. The live question is whether there is a clean hybrid support object that keeps `293d`'s structural anchoring while recovering some of `293e`'s learnability and level/jump gains.
+
+---

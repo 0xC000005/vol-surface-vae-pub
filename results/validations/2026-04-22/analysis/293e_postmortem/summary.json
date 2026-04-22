@@ -1,0 +1,50 @@
+{
+  "model": "293e",
+  "checkpoint": "models/backfill/293e_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293e_v0_s42/full11.json",
+  "score": {
+    "n_pass": 3,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.901,
+    "calibration_error": 0.038,
+    "change_ks_pass": 24,
+    "level_ks_pass": 3,
+    "corr_ratio": 1.215,
+    "rank_ratio": 0.914,
+    "cointegration_ratio": 0.768,
+    "mr_ratio": 0.075,
+    "active_cell_corr": 0.67,
+    "turb_calm_width_ratio": 1.029,
+    "max_jump_ks": 0.625
+  },
+  "training": {
+    "best_epoch": 2,
+    "best_val_total": 8.772,
+    "coarse_token_accuracy_range": "roughly 0.14-0.17"
+  },
+  "comparison_vs_293d": {
+    "score": "4/11 -> 3/11",
+    "improved": [
+      "calibration_error",
+      "level_ks",
+      "rank_ratio",
+      "max_jump_ks",
+      "turb_calm_ratio"
+    ],
+    "regressed": [
+      "change_ks",
+      "worst_cell_cointegration_gate",
+      "mr_ratio",
+      "active_cell_corr"
+    ]
+  },
+  "mechanism_read": "The compositional support representation is easier to learn than the monolithic coarse code, but it also weakens the structural anchoring that made 293d interesting. The branch is now in a real support-object tradeoff: monolithic support recovers more structure, compositional support recovers more local/path-shape softness.",
+  "next_step": "post_experiment_analysis"
+}
