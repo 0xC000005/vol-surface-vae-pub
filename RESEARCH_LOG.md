@@ -82598,3 +82598,28 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next iteration type: post-experiment analysis across 275a/275b/275c to diagnose the shared deterministic smoothness failure before selecting any 275d+ extension
 
 ---
+## 2026-04-22: 275 Stage A Family Postmortem: Architecture Diversity, Same Smoothness Failure
+
+- Completed a family-level Stage A postmortem across 275a/275b/275c rather than continuing directly to another backbone experiment.
+- Artifacts:
+  - analysis: results/validations/2026-04-22/analysis/275_stage_a_family_analysis/summary.md
+- Shared result:
+  - all three deterministic Stage A backbones scored 2/11 overall
+  - the static/support tradeoffs differ, but the dynamic-richness failure is shared
+- Cross-run comparison:
+  - 275a: best simple-rank preservation, but too smooth and too weak dynamically
+  - 275b: best surface validity, but over-collapsed into common mode
+  - 275c: strongest overall static compromise (corr ratio = 0.983, rank ratio = 1.418, level KS pass = 21/25, MAE pass = 23/25)
+- Shared dynamic failure across all three:
+  - change KS pass = 0/25
+  - tail-scale pass cells = 0/25
+  - max-jump KS = 1.000
+  - active MR never becomes broadly correct
+- Mechanism read:
+  - the current deterministic Stage A formulation is now the cleaner bottleneck than backbone capacity itself
+  - pointwise deterministic supervision is learning support-preserving smooth central paths, not the dynamic change law needed for the oracle-reachable 8/11 target
+- Decision:
+  - close the current 275 deterministic architecture-only family as capped under its present formulation
+  - next iteration type: research ideation for a cleaner deterministic Stage A formulation rather than another 275d-style backbone swap
+
+---
