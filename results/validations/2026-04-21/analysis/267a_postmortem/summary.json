@@ -1,0 +1,41 @@
+{
+  "checkpoint": "models/backfill/267a_v0_s42/best_model.pt",
+  "best_epoch": 19,
+  "suite_score": "3/11",
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "headline_read": "267a-v0 made the right paradigm shift, but the plain ELBO implementation collapsed immediately. KL stayed at zero, prior and posterior standard deviations remained identical, and the sampled generator became another near-deterministic forecaster with only microscopic regime-dependent width.",
+  "training_diagnostics": {
+    "val_kl_at_best_epoch": 0.0,
+    "val_prior_std_at_best_epoch": 0.998,
+    "val_post_std_at_best_epoch": 0.998
+  },
+  "full_sample_metrics": {
+    "coverage90": 0.0031458333333333335,
+    "calibration_error": 0.4989066358024692,
+    "turb_calm_width_ratio": 1.4682373986495384,
+    "acf_corr": 0.8775169159662286,
+    "kurtosis_ratio": 0.787651982957973,
+    "corr_ratio": 1.2046467914410074,
+    "rank_ratio": 0.7194453571502104,
+    "cointegration_ratio": 0.5683870967741935,
+    "mr_ratio": 2.0509898969846882,
+    "mr_h30_ratio": 0.8790117038109375,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.010755747338538883,
+    "very_small_moves_ratio": 1.7240180907307342,
+    "small_moves_ratio": 1.3670679669146278,
+    "level_ks_pass": 0,
+    "change_ks_pass": 0
+  },
+  "mechanism_conclusion": [
+    "The probabilistic latent-token shift is directionally right: cross-cell structure improved materially versus 266d and the model regained a cleaner stochastic framing.",
+    "But the plain ELBO model suffered immediate posterior collapse. The decoder and direct history conditioning were strong enough that the latent token path was ignored.",
+    "That is why coverage and jump realism stayed effectively zero even though the model is formally probabilistic.",
+    "So the active bottleneck is now latent-usage, not whether the model should be probabilistic at all."
+  ],
+  "next_question": "What is the smallest first-principles anti-collapse change to the probabilistic latent-token family that makes the latent path necessary without introducing heuristic KL tricks or side heads?"
+}

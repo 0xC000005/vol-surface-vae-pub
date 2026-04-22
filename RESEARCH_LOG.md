@@ -81676,3 +81676,78 @@ Implement `267a-v0` in fresh files and use it as the first clean probabilistic b
 - paradigm-shift memo: `results/validations/2026-04-21/analysis/267a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-21: 267a-v0 Probabilistic Latent Tokens: Posterior Collapse, But the Paradigm Is Alive
+
+### Context
+`267a-v0` was the first clean probabilistic family after the deterministic-target `266` line was closed.
+
+It kept the narrow bottleneck doctrine and changed the latent modeling assumption:
+- history-conditioned prior over latent token path
+- future-conditioned posterior over latent token path
+- same bottleneck-scale decoder
+- standard reconstruction + KL objective
+
+### Result
+`267a-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `19`
+- suite score: `3/11`
+- passing suites: `surface`, `block_ar`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.003`
+- calibration error: `0.499`
+- turb/calm width ratio: `1.468`
+- ACF corr: `0.878`
+- kurtosis ratio: `0.788`
+- corr ratio: `1.205`
+- rank ratio: `0.719`
+- cointegration ratio: `0.568`
+- MR ratio: `2.051`
+- max-jump KS: `1.000`
+- max-jump q99 ratio: `0.011`
+
+Training diagnostics:
+- KL stayed at `0.0`
+- prior std stayed at `~0.998`
+- posterior std stayed at `~0.998`
+
+### Mechanism Read
+The probabilistic latent-token idea is **not** falsified.
+
+The plain implementation is.
+
+`267a-v0` suffered immediate **posterior collapse**:
+- the decoder had too easy a direct history-conditioned bypass
+- the latent token path was ignored
+- the sampled model became another near-deterministic forecaster
+
+That is why:
+- coverage stayed near zero
+- jump incidence stayed near zero
+- move-size profile remained heavily over-smoothed
+
+But the paradigm shift still mattered:
+- cross-cell correlation structure passed
+- effective rank passed
+- aggregate cointegration stayed above the gate
+
+So the next bottleneck is now **latent usage**, not whether the family should be probabilistic.
+
+### Decision
+Stay in the `267` family.
+
+Do **not** respond with KL heuristics first.
+
+The next principled step is constrained ideation for the smallest anti-collapse change, with priority on reducing the decoder's direct history bypass so the latent path becomes necessary.
+
+### Artifacts
+- model: `diffusion/block_ar/probabilistic_latent_token_model.py`
+- trainer: `experiments/backfill/block_ar/train_267a_probabilistic_latent_token_model.py`
+- checkpoint: `models/backfill/267a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/267a_v0_s42/full11.json`
+- eval MD: `results/block_ar/267a_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/267a_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/267a_postmortem/summary.md`
+
+---
