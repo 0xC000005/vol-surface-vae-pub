@@ -14,7 +14,7 @@ Default behavior for this prompt:
 - stop only when:
   - `autoresearch-session/STOP` exists
   - the goal is reached
-  - a hard blocker requires human input
+  - the configured hard iteration cap is reached
   - or session/runtime/tool limits make further work unreasonable
 
 Important:
@@ -38,15 +38,22 @@ Important:
 If the user says:
 
 - `continue autoresearch`
-  - keep going until manually stopped or a real stop condition occurs
+  - keep going until manually stopped or a configured hard stop condition occurs
 - `run 2 iterations`
   - do two full iterations in sequence
 - `run until blocked`
   - keep iterating in this same session until:
     - goal reached
     - `autoresearch-session/STOP` exists
-    - a hard blocker requires human input
+    - the configured hard iteration cap is reached
     - or session/runtime/tool limits make further work unreasonable
+
+Research blockers are not stop conditions.
+If the current line becomes unclear, exhausted, or too knob-heavy:
+- do postmortem
+- or ideation
+- or paradigm shift
+- then continue
 
 Always read first:
 

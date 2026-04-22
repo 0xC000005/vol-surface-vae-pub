@@ -31,8 +31,15 @@ Rules for this invocation:
 6. Continue until stopped only by:
    - the goal being reached
    - `autoresearch-session/STOP` existing
-   - a hard blocker requiring human input
+   - the configured hard iteration cap being reached
    - or session/runtime/tool limits making further work unreasonable
+
+Do not stop for research/model blockers.
+If a blocker appears, convert it into:
+- post-experiment analysis
+- research ideation
+- or paradigm shift
+and continue.
 
 Current reset doctrine:
 - the only core architectural bias that should be assumed by default is a narrow encoder-decoder bottleneck

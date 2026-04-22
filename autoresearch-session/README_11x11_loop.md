@@ -25,10 +25,12 @@ If the session later pauses or ends, the next session resumes from saved state.
 Current in-session default:
 
 - `continue autoresearch` means **keep going until manually stopped or a real stop condition occurs**
+- `continue autoresearch` means **keep going until manually stopped or a configured hard stop condition occurs**
 - manual stop is via `autoresearch-session/STOP`
 - the loop must remain scientifically clean:
   - if the pathology becomes unclear, pause experimentation and do postmortem/ideation
   - if the active line starts accumulating too many knobs, do ideation or paradigm shift instead of continuing local patching
+  - research blockers are not stop conditions; they should trigger analysis/ideation/paradigm shift and then continuation
 
 ## Files
 
@@ -60,6 +62,7 @@ The loop stops when one of these is true:
 - `current_best_n_pass >= 11`
 - `state_11x11.json` sets `goal_reached = true`
 - `autoresearch-session/STOP` exists
+- the configured hard iteration cap is reached
 
 ## Optional Outer Driver Pattern
 

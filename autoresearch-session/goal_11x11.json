@@ -30,5 +30,11 @@
     "experiment"
   ],
   "primary_execution_mode": "in_session",
-  "stop_file": "autoresearch-session/STOP"
+  "stop_file": "autoresearch-session/STOP",
+  "hard_stop_policy": {
+    "type": "absolute_iteration_cap",
+    "current_iteration_at_policy_set": 63,
+    "max_additional_iterations": 200,
+    "stop_at_iteration": 263
+  }
 }

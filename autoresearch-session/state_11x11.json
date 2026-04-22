@@ -14,6 +14,7 @@
   "current_best_model": "Archived baselines retain the overall frontier at 4/11; the 270 restart family is still below that frontier but remains scientifically live.",
   "current_best_note": "Archived baselines still hold the 4/11 frontier. Within the strict first-principles restart line, 272a remains the clearest positive architectural step because the explicit observation model improved manifold fidelity, but 272b showed the single-vector latent state itself is now the limiting abstraction.",
   "goal_reached": false,
+  "hard_stop_iteration": 263,
   "last_commit": "7ad03a6",
   "resume_command_hint": "continue autoresearch"
 }

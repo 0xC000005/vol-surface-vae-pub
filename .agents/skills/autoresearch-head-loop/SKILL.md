@@ -116,12 +116,12 @@ use this workflow:
 
 1. Read the goal and current state.
 2. Determine the requested run budget:
-   - default for `continue autoresearch`: keep iterating within this session until manually stopped or a real stop condition occurs
+   - default for `continue autoresearch`: keep iterating within this session until manually stopped or a configured hard stop condition occurs
    - if user says `run N iterations`: use `N`
    - if user says `run until blocked`: keep iterating within this session until:
      - goal reached
      - `autoresearch-session/STOP` exists
-     - a real blocker requires human input
+     - configured hard iteration cap is reached
      - or session/runtime/tool limits make further work unreasonable
    - if the user explicitly asks for exactly one iteration, honor that
 3. Before each iteration:
@@ -199,20 +199,28 @@ The loop stops when either:
 - `current_best_n_pass >= target_n_pass`
 - `goal_reached == true`
 - `autoresearch-session/STOP` exists
-- a hard blocker requires human input
-- the clean pathology guard says the line must pause for ideation or paradigm review and that review itself cannot be completed inside the remaining session/runtime budget
+- the configured hard iteration cap is reached
 - the user-specified in-session iteration budget is exhausted
+
+Research or model blockers are **not** stop conditions by default. When a blocker appears,
+the loop should react autonomously by choosing the most principled next iteration type:
+
+- `post_experiment_analysis`
+- `research_ideation`
+- `paradigm_shift`
+
+Only platform/runtime limits remain external stop conditions.
 
 ## Session Commands
 
 Treat these as canonical user commands:
 
 - `continue autoresearch`
-  - keep iterating in this same session until manually stopped or a real stop condition occurs
+  - keep iterating in this same session until manually stopped or a configured hard stop condition occurs
 - `run 2 autoresearch iterations`
   - run exactly two iterations back-to-back
 - `run autoresearch until blocked`
-  - keep iterating in this session until a real stop condition occurs
+  - keep iterating in this session until a configured hard stop condition occurs
 
 ## Reality Constraint
 
