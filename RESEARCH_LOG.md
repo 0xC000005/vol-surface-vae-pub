@@ -82285,3 +82285,63 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: `272b-v0`, the smallest principled extension. Keep the learned observation model fixed in spirit, but make the latent transition history-conditioned with short latent memory rather than pure one-step Markov dynamics.
 
 ---
+## 2026-04-21: 272b recurrent latent memory fails to fix the single-state collapse
+
+### Context
+- `272b-v0` tested the smallest extension suggested by the `272a` postmortem.
+- It kept the explicit observation encoder/decoder, and changed exactly one thing: the latent transition now carried recurrent GRU memory over latent states instead of being purely one-step Markov.
+
+### Result
+- `272b-v0` scored `1/11`.
+- Passes: `block_ar` only.
+- Artifacts:
+  - model: `diffusion/block_ar/ar_surface_latent_memory_flow_matching.py`
+  - trainer: `experiments/backfill/block_ar/train_272b_ar_surface_latent_memory_flow_matching.py`
+  - eval: `results/block_ar/272b_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/272b_postmortem/summary.md`
+- Headline metrics:
+  - `coverage90 = 0.983`
+  - `conditional_mae_reduction = 3.6%`
+  - `turb/calm = 1.002`
+  - `corr_ratio = 2.249`
+  - `rank_ratio = 0.195`
+  - `mr_ratio = 2.594`
+  - `mr_h30_ratio = 0.429`
+  - `cointegration_ratio = 0.413`
+  - `max_jump_ks = 0.724`
+  - `surface explosion = 0.970`
+
+### Mechanism Read
+- Short recurrent latent memory did not solve the `272a` bottleneck. The model remains strongly over-common-mode and still allocates almost no regime-sensitive width.
+- Cointegration regressed below gate and manifold fidelity worsened modestly versus `272a`, while the same heavy over-reversion persisted.
+- This falsifies the minimal GRU-memory extension. The issue is no longer just lack of transition memory; the single latent vector state itself is too compressed and too coupled.
+
+### Decision
+- Close `272b` as a negative result.
+- Next step: constrained ideation for a structured latent-state family that keeps the explicit observation model but replaces the single latent vector with a small latent token/state set and a sequence-aware transition.
+
+---
+## 2026-04-21: 273a ideation shifts from single latent vector to latent token state
+
+### Context
+- `272a` improved the observation manifold.
+- `272b` showed that adding GRU memory on top of the same single latent vector does not solve the over-common-mode collapse.
+
+### Ideation
+- The next clean change is to alter the latent state structure itself.
+- Select `273a-v0`: latent token state-space flow matching with explicit observation model.
+- Core architecture:
+  1. `surface_encoder` maps a normalized surface to a small set of latent tokens
+  2. `token_transition` performs a sequence-aware flow-matching transition over those latent tokens
+  3. `surface_decoder` reconstructs the normalized surface from the latent token set
+
+### Why This Is Principled
+- It keeps the helpful explicit observation model from `272a`.
+- It changes the latent state itself, which is now the clean bottleneck.
+- It remains general and learned from data, without hard low-rank heads, bounded side paths, or special objective tricks.
+
+### Decision
+- Active next family is `273a-v0`.
+- Next step: implement `273a-v0` and test whether a structured latent token state can reduce the over-common-mode collapse while preserving the manifold gains from `272a`.
+
+---
