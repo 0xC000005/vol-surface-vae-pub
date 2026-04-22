@@ -85886,3 +85886,39 @@ So the continuous scaffold is a live new mechanism class, but the current basis 
 Keep the `294` family alive for one narrow follow-up. Next step: post-experiment analysis / ideation for `294b`, staying inside the continuous scaffold family and sharpening path shape without returning to support codebooks.
 
 ---
+## 2026-04-22: 294a versus 293h continuous scaffold analysis
+
+### Context
+`293h` was the strongest end-state of the explicit support branch: `4/11`, but with dead level KS and severe over-reversion. `294a` was the first continuous-scaffold follow-up: `3/11`, with much stronger level-law fit and no over-reversion.
+
+### Findings
+The important result is not the one-point score drop. The mechanism changed materially.
+
+What `294a` improved versus `293h`:
+- level KS: `0/25 -> 9/25`
+- coverage90: `0.980 -> 0.782`
+- calibration error: `0.143 -> 0.087`
+- rank ratio: `1.234 -> 1.043`
+- active MR pass count: `1/24 -> 4/24`
+
+What `294a` broke:
+- cointegration ratio: `0.811 -> 2.247`
+- worst-cell cointegration ratio: `0.263 -> 0.211`
+- aggregate MR ratio: `2.321 -> 0.163`
+- active-cell slope corr: `0.632 -> -0.291`
+
+### Mechanism read
+`294a` is not another local support-branch tradeoff. It is a live new mechanism class.
+
+The failure pattern flipped from:
+- support branch: too strongly anchored / over-reverting
+
+to:
+- continuous scaffold: too smooth / under-reverting
+
+That isolates the new bottleneck to the **global smoothness of the current continuous scaffold basis**, not support representation or support-use geometry.
+
+### Decision
+Keep the `294` family alive. Next step: ideate `294b` as a sharper continuous scaffold follow-up that adds more localized path curvature without returning to support codebooks.
+
+---
