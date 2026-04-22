@@ -85995,3 +85995,42 @@ So the issue is not only that `294a` was too globally smooth. The deeper problem
 Do post-experiment analysis next. Compare `294a` against `294b` and decide whether the continuous scaffold family is still alive or already near a local cap.
 
 ---
+## 2026-04-22: 294a versus 294b scaffold branch comparison
+
+### Context
+The `294` branch tested two explicit continuous path-shape scaffolds on top of the same residual daily token law:
+- `294a`: global low-frequency basis scaffold
+- `294b`: piecewise-linear knot scaffold
+
+### Findings
+Both variants scored `3/11`.
+
+`294a` is better at:
+- coverage90: `0.782` vs `0.707`
+- calibration: `0.087` vs `0.124`
+- level KS: `9/25` vs `6/25`
+- max-jump KS: `0.662` vs `0.740`
+
+`294b` is only slightly better at coarse structural anchoring:
+- cointegration ratio: `2.247 -> 1.402`
+- active MR pass count: `4 -> 9`
+
+But it did not fix the real bottleneck:
+- worst-cell cointegration stayed at `0.211`
+- aggregate MR got worse: `0.163 -> 0.082`
+- day-1 coverage collapsed to `0.0`
+
+### Mechanism read
+The `294` branch is now close to a local cap.
+
+Changing the scaffold object changes behavior, but both variants still fail on the same deeper issue:
+- not enough short-horizon uncertainty allocation
+- not enough short-horizon reversion mass
+- not enough jump timing mass
+
+while preserving the path-shape gains.
+
+### Decision
+Do research ideation next for the next fixed-horizon path-shape mechanism class beyond the explicit continuous scaffold branch. Do not spend another experiment on local scaffold-object tweaks.
+
+---
