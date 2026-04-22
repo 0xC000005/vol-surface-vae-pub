@@ -83663,3 +83663,31 @@ The Stage B comparison is now decisive across `277d`, `278a`, `279a`, `279b`, `2
 - Next step: `281a-v0`, learned query-conditioned residual temperature over the fixed retrieval scores, with center preservation enforced by centering residuals under the same sampling weights.
 
 ---
+## 2026-04-22: 281a Residual Temperature Hierarchy
+
+### Context
+`281a` kept the fixed `277d` center path and the same residual bank, but replaced scale-only control with a learned query-conditioned residual temperature over the fixed retrieval scores, with weighted centering under the same selection distribution.
+
+### Result
+- `281a-v0` scored `5/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`
+- key metrics:
+  - coverage90 overall: `0.615`
+  - turb/calm ratio: `1.164`
+  - change KS pass cells: `7/25`
+  - pathwise max-jump KS: `0.220`
+- artifacts:
+  - `results/block_ar/281a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/281a_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a real non-scale effect.
+- Relative to `280b`, temperature control improves the parts that depend on residual shape rather than just amplitude: regime differentiation passes again, and jump realism gets very close to the gate.
+- But temperature-only control is still not enough: coverage remains poor, change-KS fidelity collapses badly again, and distributional fidelity remains weak.
+- The current Stage B diagnosis is now explicit: scale control and selection-shape control are complementary, and neither one alone is sufficient.
+
+### Decision
+- Keep the same two-level hierarchy.
+- Next step: `281b-v0`, the minimal joint Stage B model with learned residual temperature plus one learned residual scale over the same fixed residual bank.
+
+---
