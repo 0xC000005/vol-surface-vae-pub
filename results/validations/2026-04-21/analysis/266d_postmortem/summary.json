@@ -1,0 +1,72 @@
+{
+  "checkpoint": "models/backfill/266d_v0_s42/best_model.pt",
+  "best_epoch": 30,
+  "suite_score": "1/11",
+  "passes": [
+    "block_ar"
+  ],
+  "headline_read": "266d-v0 made the cleanest possible generative-core swap inside the 266 family and failed harder than 266c. The latent flow-matching prior collapsed to an almost deterministic point forecaster: coverage, conditional width, jump incidence, and scenario diversity all effectively vanished.",
+  "full_sample_metrics": {
+    "coverage90": 0.001125,
+    "calibration_error": 0.4996496913580247,
+    "turb_calm_width_ratio": 0.9249737950865617,
+    "acf_corr": 0.8029989121794284,
+    "kurtosis_ratio": 0.33088390082943503,
+    "corr_ratio": 1.5568279472753368,
+    "rank_ratio": 0.4774511386813906,
+    "cointegration_ratio": 0.7045161290322581,
+    "mr_ratio": 1.9594501667677467,
+    "mr_h30_ratio": 0.8124102472723095,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.008906738420516368,
+    "very_small_moves_ratio": 1.7241676152989936,
+    "small_moves_ratio": 1.3670679669146278,
+    "level_ks_pass": 0,
+    "change_ks_pass": 0
+  },
+  "relative_to_266c": {
+    "coverage90": {
+      "266c": 0.20381944444444444,
+      "266d": 0.001125
+    },
+    "calibration_error": {
+      "266c": 0.4051026234567901,
+      "266d": 0.4996496913580247
+    },
+    "acf_corr": {
+      "266c": 0.7184288098927131,
+      "266d": 0.8029989121794284
+    },
+    "kurtosis_ratio": {
+      "266c": 1.0199694017635514,
+      "266d": 0.33088390082943503
+    },
+    "corr_ratio": {
+      "266c": 2.1134901210827475,
+      "266d": 1.5568279472753368
+    },
+    "rank_ratio": {
+      "266c": 0.24186534994934877,
+      "266d": 0.4774511386813906
+    },
+    "cointegration_ratio": {
+      "266c": 0.31774193548387103,
+      "266d": 0.7045161290322581
+    },
+    "max_jump_q99_ratio": {
+      "266c": 0.4385142727877656,
+      "266d": 0.008906738420516368
+    },
+    "very_small_moves_ratio": {
+      "266c": 1.3119322899240369,
+      "266d": 1.7241676152989936
+    }
+  },
+  "mechanism_conclusion": [
+    "Replacing diffusion with flow matching did not fix the latent-prior mismatch. It removed almost all stochastic spread instead.",
+    "The sampled generator now behaves like a near-delta conditional predictor: conditional widths are effectively zero, coverage is near zero, and jump incidence vanishes.",
+    "Some deterministic structure metrics improved, especially cointegration and rank, which means the token bottleneck and decoder can represent a cleaner center path.",
+    "That combination implies the deeper issue is not diffusion versus flow matching by itself. The deeper issue is treating the future token path as a deterministic latent target to be generated from history."
+  ],
+  "next_question": "What is the smallest first-principles probabilistic latent-token model that makes scenario variability part of the model specification instead of asking a prior to generate deterministic encoded future tokens?"
+}

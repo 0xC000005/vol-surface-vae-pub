@@ -81550,3 +81550,86 @@ Implement `266d-v0` in fresh files and compare it directly against `266c-v0`.
 - ideation memo: `results/validations/2026-04-21/analysis/266d_ideation/memo.md`
 
 ---
+## 2026-04-21: 266d-v0 Latent Flow Matching: Deterministic Collapse Closes the 266 Family
+
+### Context
+`266d-v0` was the cleanest possible core swap inside the `266` family.
+
+It kept:
+- the history encoder
+- the temporal bottleneck token path
+- the decoder
+- the first-principles reset doctrine
+
+It changed exactly one thing from `266c-v0`:
+- replace the latent diffusion prior
+- with a **vanilla conditional flow-matching prior over latent token paths**
+
+This was the narrowest test of whether the `266` bottleneck representation could support scenario generation once the diffusion prior was removed.
+
+### Result
+`266d-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `30`
+- best val total: `0.0190`
+- suite score: `1/11`
+- passing suite: `block_ar`
+
+High-signal full-sample metrics:
+- coverage90: `0.001`
+- calibration error: `0.500`
+- turb/calm width ratio: `0.925`
+- ACF corr: `0.803`
+- kurtosis ratio: `0.331`
+- corr ratio: `1.557`
+- rank ratio: `0.477`
+- cointegration ratio: `0.705`
+- MR ratio: `1.959`
+- MR h30 ratio: `0.812`
+- max-jump KS: `1.000`
+- max-jump q99 ratio: `0.009`
+- very-small-move ratio: `1.724`
+- daily-change KS pass cells: `0/25`
+- level KS pass cells: `0/25`
+
+### Mechanism Read
+The result is cleaner than a noisy regression.
+
+`266d-v0` did not become unstable or arbitrary. It became an almost **deterministic point forecaster**:
+- conditional widths are effectively zero
+- coverage is effectively zero
+- jump incidence disappears
+- scenario diversity disappears
+
+At the same time, several deterministic structure metrics improved versus `266c-v0`:
+- corr ratio: `2.113 -> 1.557`
+- rank ratio: `0.242 -> 0.477`
+- cointegration ratio: `0.318 -> 0.705`
+- ACF corr: `0.718 -> 0.803`
+
+So the bottleneck/decoder can support a cleaner center path, but the FM prior over deterministic encoded future tokens collapses stochasticity instead of learning conditional scenario spread.
+
+This is the key conclusion:
+- the active bottleneck is no longer diffusion versus flow matching
+- the active bottleneck is the assumption that the future latent token path is a **deterministic target code** to be generated from history
+
+### Decision
+Treat the deterministic-target `266` family as closed.
+
+Do **not** keep tuning diffusion or FM inside the same target-latent setup.
+
+The next principled step is a **paradigm shift**:
+- keep the narrow bottleneck idea
+- keep the architecture elegant
+- move to a **probabilistic latent-token model** where scenario variability is part of the model specification from the start
+
+### Artifacts
+- model: `diffusion/block_ar/latent_path_bottleneck_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_266d_latent_path_bottleneck_flow_matching.py`
+- checkpoint: `models/backfill/266d_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/266d_v0_s42/full11.json`
+- eval MD: `results/block_ar/266d_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/266d_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/266d_postmortem/summary.md`
+
+---
