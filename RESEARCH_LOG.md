@@ -85501,3 +85501,28 @@ Compositional support is easier to learn than the monolithic coarse code and it 
 Do post-experiment analysis next over `293d` and `293e`. The live question is whether there is a clean hybrid support object that keeps `293d`'s structural anchoring while recovering some of `293e`'s learnability and level/jump gains.
 
 ---
+## 2026-04-22: 293d-293e analysis: support-object tradeoff
+
+### Context
+`293e-v0` established a real support-object tradeoff inside the `293` family, so the next step was to compare `293d` and `293e` directly.
+
+### Findings
+`293d` does better on structural anchoring:
+- change KS
+- cointegration robustness
+- MR structure
+
+`293e` does better on softer path-shape qualities:
+- level KS
+- calibration
+- regime width ratio
+- jump KS
+
+Interpretation:
+- monolithic support is harder to predict but anchors structure better
+- compositional support is easier to predict but weakens that anchor
+
+### Decision
+Do `293f` ideation next only if a clean hybrid support representation exists. Otherwise the branch should be treated as near a local cap.
+
+---

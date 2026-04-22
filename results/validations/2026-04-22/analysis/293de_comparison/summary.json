@@ -1,0 +1,28 @@
+{
+  "293d": {
+    "n_pass": 4,
+    "change_ks": 25,
+    "level_ks": 1,
+    "cointegration_ratio": 0.656,
+    "mr_ratio": 0.093,
+    "active_corr": 0.773,
+    "turb_calm_ratio": 0.984,
+    "max_jump_ks": 0.647
+  },
+  "293e": {
+    "n_pass": 3,
+    "change_ks": 24,
+    "level_ks": 3,
+    "cointegration_ratio": 0.768,
+    "mr_ratio": 0.075,
+    "active_corr": 0.67,
+    "turb_calm_ratio": 1.029,
+    "max_jump_ks": 0.625
+  },
+  "tradeoff": {
+    "monolithic_support": "harder to predict, stronger structural anchor",
+    "compositional_support": "easier to predict, weaker structural anchor"
+  },
+  "decision": "research_ideation",
+  "next_direction": "Consider a clean hybrid support representation or declare the branch near a local cap."
+}
