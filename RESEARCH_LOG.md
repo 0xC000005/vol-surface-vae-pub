@@ -84323,3 +84323,48 @@ The likely cause is specific:
   - reconstruct the deterministic future by replaying normalized changes from the query's current normalized state
 
 ---
+## 2026-04-22: 287b Local-History Delta Replay Result and 287c Direction
+
+### Context
+`287b` was the first follow-up after the negative `287a` result. It kept the local-history retrieval coordinate, but changed the support primitive from absolute future z-levels to normalized future change replay from the query's current normalized state.
+
+### Result
+- `287b-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+- key metrics:
+  - change KS pass cells: `25/25`
+  - level KS pass cells: `3/25`
+  - cointegration ratio: `0.742` with worst-cell gate failing
+  - aggregate mean-reversion ratio: `0.927`
+  - full-horizon aggregate profile: `PASS`
+  - pathwise max-jump KS: `0.229`
+- artifacts:
+  - `results/block_ar/287b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/287b_retrieval_coordinate_postmortem/summary.md`
+
+### Mechanism Read
+This fixed the exact `287a` anchoring failure, but it overshot toward a different tradeoff.
+
+What improved:
+- retrieval validation improved materially during training
+- mean-reversion aggregate profile recovered into gate
+- change KS became perfect
+- level KS improved further
+- jump realism improved sharply
+
+What regressed or stayed weak:
+- local cointegration robustness fell back out of gate
+- active-cell mean-reversion support still failed
+- deterministic coverage is still zero, as expected for a deterministic Stage A path
+
+So the local-history coordinate is still alive and normalized change replay is the right support primitive inside it. The remaining bottleneck is now the retrieval key itself: a single mixed embedding appears to overweight fast local change alignment and underpreserve the slow structure needed for the hard cells.
+
+### Decision
+- Keep the `287` family alive.
+- Keep normalized change replay as the support primitive.
+- Next step: `287c-v0`
+  - same local-history coordinate
+  - same normalized change replay support
+  - split the retrieval key into fast normalized-change and slow cumulative-displacement channels
+
+---
