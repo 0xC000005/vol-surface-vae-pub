@@ -86034,3 +86034,35 @@ while preserving the path-shape gains.
 Do research ideation next for the next fixed-horizon path-shape mechanism class beyond the explicit continuous scaffold branch. Do not spend another experiment on local scaffold-object tweaks.
 
 ---
+## 2026-04-22: 295a future control-state sequence ideation
+
+### Context
+The fixed-horizon one-stage joint-law line has now tested three path-shape mechanism classes:
+- latent conditioning (`293b`, `293c`)
+- explicit support objects (`293d` to `293h`)
+- explicit continuous scaffolds (`294a`, `294b`)
+
+The family is still scientifically live because it can keep a strong local stochastic law and cross-cell structure alive, and it has shown separate gains in structural anchoring (`293d`) and level-law fit (`294a`). But it still cannot allocate short-horizon uncertainty, reversion, and jump timing well enough.
+
+### Decision
+Continue the fixed-horizon joint-law paradigm for **one bounded mechanism-class shift**, not as an open-ended local search.
+
+Next step: `295a-v0`
+- keep the one-stage fixed-horizon joint-law framing
+- replace direct support/scaffold objects with a **coarse future control-state sequence**
+- decode a short sequence of future control states at knot horizons
+- interpolate/broadcast those control states across the 30-day window
+- condition the daily joint-law head on that future control-state trajectory
+
+### Why this is the most principled next step
+This is materially different from the prior branches:
+- not another hidden latent scaffold
+- not another support codebook
+- not another direct scaffold geometry
+
+It is a compositional, future-time-local controller for the daily law.
+
+### Decision rule
+Treat `295a` as the last justified in-paradigm shift. If it fails to improve short-horizon allocation while preserving the family's local-law strengths, then the whole fixed-horizon joint-law paradigm should be treated as near a broader cap and a paradigm shift should follow.
+
+---
