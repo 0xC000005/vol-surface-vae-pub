@@ -82006,3 +82006,26 @@ Close the pure direct-generator line.
 The next principled step is research ideation for a new clean restart family built around a narrow learned latent bottleneck with autoregressive state feedback, while keeping the reset bans in place: no hard low-rank head, no bounded side paths, and no heuristic teacher-engineering patches.
 
 ---
+## 2026-04-21: 270a-v0 Ideation: Reintroduce One Generic Bottleneck, Nothing More
+
+### Context
+`268a-269a` closed the strict direct-generator reset. The family learned real spread and, eventually, some conditionality, but pure observation-space generation stayed either support-loose or structurally diffuse.
+
+### Finding
+The next family should reintroduce exactly one structural bias:
+- a narrow learned bottleneck
+
+Not because low-rank or EC/idio heuristics were right, but because the direct-generator evidence says some generic shared hidden state is necessary.
+
+### Decision
+Select `270a-v0` as the next active family:
+- autoregressive latent-bottleneck next-change flow matching
+- generated-state feedback preserved
+- no hard low-rank head
+- no bounded side paths
+- no teacher-engineering / KL hacks in the core story
+
+### Next Step
+Implement `270a-v0` in fresh files and evaluate whether a narrow learned bottleneck is enough to recover state-dependent mean reversion and cross-cell structure without giving up the reset's elegance.
+
+---
