@@ -1,0 +1,18 @@
+{
+  "model": "270a-v0",
+  "latent_summary": {
+    "latent_prev_std_mean": 0.0014143198495730758,
+    "latent_prev_std_min": 1.0318257409380749e-05,
+    "latent_prev_std_max": 0.0027003393042832613,
+    "latent_next_std_mean": 0.0014122159918770194,
+    "latent_next_std_min": 1.0322279194951989e-05,
+    "latent_next_std_max": 0.002683687722310424
+  },
+  "teacher_forced_decode": {
+    "corr_ratio": 2.2924038123778687,
+    "rank_ratio": 0.17553496586466147,
+    "mr_ratio": 0.6022829897533521,
+    "acf_corr": 0.8341340857423275,
+    "kurtosis_ratio": 0.03711850925145931
+  }
+}

@@ -82029,3 +82029,45 @@ Select `270a-v0` as the next active family:
 Implement `270a-v0` in fresh files and evaluate whether a narrow learned bottleneck is enough to recover state-dependent mean reversion and cross-cell structure without giving up the reset's elegance.
 
 ---
+## 2026-04-21: 270a-v0 AR Latent Bottleneck FM: Single-Vector Bottleneck Collapses
+
+### Context
+`270a-v0` was the first autoregressive latent-bottleneck restart family: one generic learned bottleneck, no hard factorization, no side paths.
+
+### Result
+- `270a-v0` trained stably and scored `2/11`
+- passes: `block_ar`, `cointegration`
+- best epoch: `15`
+- artifacts:
+  - eval: `results/block_ar/270a_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/270a_postmortem/summary.md`
+
+### Mechanism Read
+- The single-vector bottleneck itself collapsed before the stochastic transition mattered. Teacher-forced latent codes had almost no variation across the dataset (`latent_prev_std_mean ~ 1.4e-3`).
+- Because the bottleneck/decoder pair already collapsed under teacher forcing, the sampled model inherited an almost rank-1 common mode (`corr ratio = 2.289`, `rank ratio = 0.178`).
+- This is not evidence that all bottlenecks are wrong. It is evidence that a single-vector bottleneck is too compressive for this path law.
+
+### Decision
+Do not knob-tune `270a`.
+
+Proceed by changing exactly one thing: bottleneck shape.
+
+---
+## 2026-04-21: 270b-v0 Ideation: Keep the Family, Change Only the Bottleneck Shape
+
+### Context
+The `270a` postmortem showed that the bottleneck family is still live, but the single-vector bottleneck collapses too early.
+
+### Finding
+The cleanest next move is to keep the same autoregressive latent-FM story and replace the single latent code with a short learned latent token sequence.
+
+### Decision
+Select `270b-v0` as the next active family:
+- autoregressive latent-sequence bottleneck next-change flow matching
+- same reset bans remain in force
+- only one structural change from `270a`: bottleneck shape
+
+### Next Step
+Implement `270b-v0` in fresh files and test whether a short latent token state is enough to avoid the rank-1 collapse while preserving generated-state feedback.
+
+---
