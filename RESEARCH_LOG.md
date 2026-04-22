@@ -83718,3 +83718,88 @@ The Stage B comparison is now decisive across `277d`, `278a`, `279a`, `279b`, `2
 - Next step: post-experiment analysis of the Stage B training objective before another experiment.
 
 ---
+## 2026-04-22: 282a Weighted Energy Score Direction
+
+### Context
+`281b` showed that the current Stage B failure is now about the training objective, not the residual-bank architecture. The fixed `277d` center path and the residual bank still look usable, but the expected-distance objective collapses the residual law once temperature and scale are both free.
+
+### Decision
+Next step: `282a-v0`
+
+### Family
+Same `281b` hierarchy, new Stage B objective.
+
+### Core idea
+- keep the fixed `277d` Stage A center path
+- keep the same residual bank
+- keep the same minimal joint temperature+scale controller
+- replace expected-distance matching with an exact weighted energy score over the finite residual-support distribution
+
+### Why This Is The Smallest Principled Step
+- no new architecture
+- no new residual bank
+- no new side path or scorer
+- directly corrects the now-identified objective mismatch
+
+### Immediate Next Action
+Implement `282a-v0` by reusing the `281b` model class and training it with the weighted energy score.
+
+---
+## 2026-04-22: 282a Weighted Energy Score Result
+
+### Context
+`282a` kept the exact `281b` architecture and residual bank, but replaced the collapse-seeking expected-distance objective with an exact weighted energy score over the finite scenario-support distribution.
+
+### Result
+- `282a-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.783`
+  - calibration error: `0.075`
+  - severe undercoverage layer: `PASS`
+  - change KS pass cells: `4/25`
+  - mean_reversion full-horizon: `FAIL`
+- artifacts:
+  - `results/block_ar/282a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/282a_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a clean objective effect.
+- Weighted energy score prevents collapse and restores broad coverage strongly.
+- But it is too global and over-disperses the law relative to local fidelity: change-KS collapses, tail scale inflates, jump realism worsens, and full-horizon mean_reversion slips below gate.
+
+### Decision
+- Keep the same two-level hierarchy and the same fixed residual-support distribution.
+- Close weighted energy score as too global by itself.
+- Next step: `282b-v0`, exact weighted CRPS over the same residual-support distribution.
+
+---
+## 2026-04-22: 282b Weighted CRPS Direction
+
+### Context
+`282a` proved that the current Stage B failure is still objective-related rather than architectural. Weighted energy score prevents collapse and restores broad coverage, but it is too global and over-disperses the scenario law relative to local fidelity, jump realism, and full-horizon mean reversion.
+
+### Decision
+Next step: `282b-v0`
+
+### Family
+Same `281b` hierarchy, new Stage B objective only.
+
+### Core idea
+- keep the fixed `277d` Stage A center path
+- keep the same fixed residual bank
+- keep the same minimal joint temperature+scale controller
+- replace weighted energy score with exact weighted CRPS over the same finite residual-support distribution, averaged across flattened scalar coordinates
+
+### Why This Is The Smallest Principled Step
+- no architecture change
+- no new residual bank
+- no new side loss
+- same finite-support distribution
+- proper score, but more local than energy score
+- directly targets the now-identified `282a` failure mode
+
+### Immediate Next Action
+Implement and run `282b-v0` by reusing the `281b` model class and training it with exact weighted CRPS.
+
+---
