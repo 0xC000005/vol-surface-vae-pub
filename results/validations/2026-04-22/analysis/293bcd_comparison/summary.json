@@ -1,0 +1,53 @@
+{
+  "models": {
+    "293b": {
+      "n_pass": 4,
+      "coverage90": 0.895,
+      "change_ks_pass": 23,
+      "corr_ratio": 1.256,
+      "rank_ratio": 0.879,
+      "cointegration_ratio": 0.702,
+      "mr_ratio": 0.034,
+      "active_corr": 0.684,
+      "turb_calm_ratio": 0.98,
+      "level_ks_pass": 2,
+      "max_jump_ks": 0.68
+    },
+    "293c": {
+      "n_pass": 3,
+      "coverage90": 0.892,
+      "change_ks_pass": 23,
+      "corr_ratio": 1.244,
+      "rank_ratio": 0.881,
+      "cointegration_ratio": 0.61,
+      "mr_ratio": 0.057,
+      "active_corr": 0.523,
+      "turb_calm_ratio": 0.99,
+      "level_ks_pass": 1,
+      "max_jump_ks": 0.674
+    },
+    "293d": {
+      "n_pass": 4,
+      "coverage90": 0.909,
+      "change_ks_pass": 25,
+      "corr_ratio": 1.301,
+      "rank_ratio": 0.849,
+      "cointegration_ratio": 0.656,
+      "mr_ratio": 0.093,
+      "active_corr": 0.773,
+      "turb_calm_ratio": 0.984,
+      "level_ks_pass": 1,
+      "max_jump_ks": 0.647
+    }
+  },
+  "stable_invariants": [
+    "coverage_alive",
+    "daily_change_ks_alive",
+    "cross_cell_structure_alive"
+  ],
+  "latent_limit_read": "293b and 293c improved calibration-like qualities but did not move level KS, regime differentiation, or active MR support materially. Hidden latent conditioning appears near a local cap for path-shape control.",
+  "support_read": "293d is the first variant to recover structural path-shape-adjacent metrics like cointegration robustness and active MR correlation, which suggests explicit support objects are directionally correct.",
+  "current_bottleneck": "The monolithic coarse path codebook is likely too entangled and too hard to predict cleanly.",
+  "decision": "research_ideation",
+  "next_direction": "Use a compositional coarse support object, most likely a sequence of knot tokens instead of one monolithic coarse path code."
+}

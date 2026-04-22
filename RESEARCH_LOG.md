@@ -85424,3 +85424,47 @@ The explicit coarse path support object is directionally better than the latent 
 Do post-experiment analysis next over `293b`, `293c`, and `293d`. The new question is whether the family should strengthen the explicit support object, rather than return to latent-conditioning or change the local joint-law core again.
 
 ---
+## 2026-04-22: 293b-293d analysis: explicit support alive, monolithic code weak
+
+### Context
+`293d-v0` completed the first explicit-support follow-up, so the next step was to compare `293b`, `293c`, and `293d` directly.
+
+### Findings
+Stable wins across the branch:
+- coverage alive
+- daily change KS alive
+- cross-cell structure alive
+
+What changed only with explicit support:
+- `293d` recovered cointegration robustness and active mean-reversion correlation in a way `293b/293c` did not
+
+Interpretation:
+- hidden latent conditioning is near a local cap for path-shape control
+- explicit support objects are directionally right
+- the current monolithic coarse codebook is likely too entangled and too hard to predict cleanly
+
+### Decision
+Do `293e` ideation next for a compositional support object, most likely a sequence of coarse knot tokens rather than one all-at-once coarse path code.
+
+---
+## 2026-04-22: 293e ideation: compositional coarse knot-token support
+
+### Context
+The `293b/293c/293d` comparison showed that explicit support objects are directionally better than hidden latent scaffolds, but the current `293d` monolithic coarse path code is too entangled and too hard to predict cleanly.
+
+### Decision
+Selected `293e-v0` as the next follow-up.
+
+Mechanism:
+- keep the same daily joint-token local-law decoder
+- keep explicit coarse support as the path-shape mechanism
+- replace the single monolithic coarse path code with a sequence of coarse knot tokens
+- interpolate the predicted knot panels into the same explicit coarse scaffold
+
+### Mechanism read
+This keeps the right representation class while making the support object compositional and easier to predict. The goal is to preserve the structural gains from `293d` while reducing all-at-once coarse classification difficulty.
+
+### Next step
+Implement `293e-v0` and test whether compositional support improves level KS, mean-reversion support, regime timing, or jump ordering without giving back change KS or cross-cell structure.
+
+---
