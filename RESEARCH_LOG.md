@@ -85733,3 +85733,59 @@ This is the smallest direct fix to the `293g` pathology. If it works, the proble
 Implement `293h-v0` with scaffold-increment residual daily change tokens.
 
 ---
+## 2026-04-22: 293h scaffold-increment residual daily law
+
+### Context
+`293g` showed that support use is live, but the first residual formulation over-anchored to the scaffold because it used a direct daily level-pull baseline.
+
+`293h-v0` kept the same coarse support and residual daily token law, but changed the baseline geometry:
+- use the scaffold's own day-to-day increment schedule
+- not a direct pull from the current state to that day's scaffold level
+
+### Result
+- model: `293h`
+- checkpoint: `models/backfill/293h_v0_s42/best_model.pt`
+- eval: `results/block_ar/293h_v0_s42/full11.json`
+- score: `4/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cointegration`
+  - `cross_cell_correlation`
+
+### High-signal metrics
+- coverage90: `0.980`
+- calibration error: `0.143`
+- change KS pass: `25/25`
+- level KS pass: `0/25`
+- corr ratio: `1.027`
+- rank ratio: `1.234`
+- cointegration ratio: `0.811`
+- worst-cell cointegration ratio: `0.263`
+- MR ratio: `2.321`
+- active-cell corr: `0.632`
+- turb/calm width ratio: `0.876`
+- max-jump KS: `0.643`
+
+### Mechanism read
+The geometry change mattered.
+
+Relative to `293g`, `293h` restored:
+- perfect daily change KS
+- cross-cell structure
+
+But it still did not solve:
+- dead level KS
+- MR overshoot
+- weak regime-width timing
+
+So the support-use subfamily is still live enough to learn from, but it is now looking close to a local cap too.
+
+### Decision
+Do post-experiment analysis of `293f`, `293g`, and `293h` next.
+
+Question:
+- do these support-use variants open a real path,
+- or have they now reduced to a clean but capped tradeoff between scaffold control and local-law preservation?
+
+---

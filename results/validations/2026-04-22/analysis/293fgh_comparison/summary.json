@@ -1,0 +1,35 @@
+{
+  "293f": {
+    "n_pass": 4,
+    "coverage90": 0.913,
+    "change_ks": 25,
+    "level_ks": 2,
+    "cointegration_ratio": 0.779,
+    "mr_ratio": 0.098,
+    "turb_calm_ratio": 1.049,
+    "max_jump_ks": 0.66
+  },
+  "293g": {
+    "n_pass": 4,
+    "coverage90": 0.948,
+    "change_ks": 14,
+    "level_ks": 3,
+    "cointegration_ratio": 1.035,
+    "mr_ratio": 2.42,
+    "turb_calm_ratio": 0.697,
+    "max_jump_ks": 0.578
+  },
+  "293h": {
+    "n_pass": 4,
+    "coverage90": 0.98,
+    "change_ks": 25,
+    "level_ks": 0,
+    "cointegration_ratio": 0.811,
+    "mr_ratio": 2.321,
+    "turb_calm_ratio": 0.876,
+    "max_jump_ks": 0.643
+  },
+  "mechanism_read": "Support use is real and geometry-sensitive, but the whole support-use subfamily is now near a local cap. Stronger scaffold control either damages the local law or still fails to solve the dead long-horizon path-shape suites.",
+  "decision": "post_experiment_analysis",
+  "next_direction": "Do constrained ideation for the next path-shape mechanism class instead of another local support variant."
+}
