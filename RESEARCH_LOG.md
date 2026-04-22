@@ -84448,3 +84448,48 @@ Next step: `287e-v0`
   - slow history channel from globally normalized level displacement
 
 ---
+## 2026-04-22: 287e-v0 mixed-query retrieval bracket follow-up
+
+### Context
+`287c` and `287d` produced a clean query-key bracket:
+- `287c` kept the slow global anchor but was too weak on local level fidelity
+- `287d` aligned the query fully to the local-history coordinate and improved level KS, but it destroyed aggregate mean reversion
+
+The next smallest follow-up was `287e-v0`: keep the replay support and future keys fixed, but use a mixed query key with a local-history fast channel and a globally anchored slow channel.
+
+### Result
+- Implemented `287e-v0` in `diffusion/block_ar/deterministic_learned_retrieval_local_history_two_timescale_mixed_query_delta_backbone.py`
+- Trainer: `experiments/backfill/block_ar/train_287e_deterministic_learned_retrieval_local_history_two_timescale_mixed_query_delta_backbone.py`
+- Eval: `results/block_ar/287e_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-22/analysis/287e_mixed_query_postmortem/summary.md`
+- Score: `4/11`
+- Passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+### Mechanism Read
+`287e` confirmed the mixed-query hypothesis:
+- `mr_gt_ratio`: `0.168 -> 0.928` versus `287d`
+- `active_cell_slope_corr`: `0.394 -> 0.731`
+- `change KS pass cells`: `24/25 -> 25/25`
+- `level KS pass cells`: `10/25 -> 12/25` versus `287c`
+- `max-jump KS`: `0.359 -> 0.349` versus `287c`
+
+But the score stayed at `4/11`, and one failure got sharper:
+- `active_pass_rate`: `66.7% -> 8.3%`
+
+So the `287c/287d/287e` bracket clarifies the cap:
+- query-key choice matters
+- but query-key choice alone is no longer the main bottleneck
+- the single-nearest deterministic replay is now the more likely cap
+
+### Decision
+Close the local query-key sub-branch as locally exhausted.
+
+Next step:
+- post-experiment analysis over `287c / 287d / 287e`
+- then choose the next smallest Stage A move
+
+Leading hypothesis:
+- keep the `287e` mixed query key
+- change support use from single-nearest replay to deterministic top-k / soft retrieval replay
+
+---
