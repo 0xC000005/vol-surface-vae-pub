@@ -1,0 +1,39 @@
+{
+  "model": "294a",
+  "checkpoint": "models/backfill/294a_v0_s42/best_model.pt",
+  "eval": "results/block_ar/294a_v0_s42/full11.json",
+  "score": 3,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "high_signal_metrics": {
+    "coverage90": 0.7822708333333334,
+    "calibration_error": 0.08663425925925927,
+    "h1_cov90": 0.6027083333333333,
+    "h30_cov90": 0.865,
+    "change_ks_pass": 25,
+    "level_ks_pass": 9,
+    "corr_ratio": 1.1774878825944823,
+    "rank_ratio": 1.042511904107015,
+    "cointegration_ratio": 2.2467741935483874,
+    "worst_cell_cointegration_ratio": 0.21052631578947367,
+    "mr_ratio": 0.16261478868108503,
+    "active_mr_pass_count": 4,
+    "active_mr_cell_count": 24,
+    "active_cell_slope_corr": -0.29113213068482674,
+    "mean_turbulent_calm_width_ratio": 1.1061492124266586,
+    "max_jump_ks": 0.6619791666666667,
+    "jump_q90_ratio": 0.828450095553424,
+    "jump_q99_ratio": 1.1410528650603506,
+    "acf_corr": 0.9439772402986141
+  },
+  "training": {
+    "best_epoch": 2,
+    "best_val_total": 5.225852693830218,
+    "read": "Stable optimization; basis regression trained cleanly, token accuracy stayed low but nonzero."
+  },
+  "mechanism_read": "The continuous low-frequency scaffold is a real new mechanism class. It preserves daily change law and cross-cell structure while materially improving level-law fit, but the current basis scaffold is too smooth and too weakly mean-reverting, leading to under-reversion and worse worst-cell cointegration robustness.",
+  "decision": "Keep the 294 continuous scaffold family alive for one narrow follow-up. Next step: post-experiment analysis / ideation for 294b to sharpen the scaffold without returning to support codebooks."
+}

@@ -85818,3 +85818,71 @@ Treat the explicit support branch as near a local cap in both:
 The next principled step is not another local support tweak. It is constrained ideation for the next path-shape mechanism class.
 
 ---
+## 2026-04-22: 294a ideation: continuous low-frequency path scaffold
+
+### Context
+The `293` family exhausted both:
+- support-representation search
+- support-use search
+
+The stable read is that the branch still lacks a direct long-horizon path-shape controller.
+
+### Decision
+Selected `294a-v0` as the next mechanism class.
+
+Mechanism:
+- replace the support codebook branch with a continuous low-frequency path basis scaffold over the 30-day horizon
+- keep the daily residual token law
+- train the scaffold directly against future path shape
+
+### Mechanism read
+This is materially different from the prior `293` variants:
+- not another latent scaffold
+- not another support codebook
+- not another support-use geometry tweak
+
+It is the first explicit, supervised, differentiable low-frequency path controller in the current fixed-horizon joint-law family.
+
+### Next step
+Implement `294a-v0` with a continuous low-frequency path scaffold plus residual daily token law.
+
+---
+## 2026-04-22: 294a continuous low-frequency scaffold baseline
+
+### Context
+`294a-v0` was the first explicit continuous path-shape controller in the current fixed-horizon joint-law family. It replaced the support codebook branch with a low-frequency basis scaffold over the 30-day window, then modeled residual daily token moves around the scaffold increment schedule.
+
+### Result
+- model: `294a`
+- score: `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- artifacts:
+  - `diffusion/block_ar/probabilistic_joint_token_path_basis_residual_model.py`
+  - `experiments/backfill/block_ar/train_294a_probabilistic_joint_token_path_basis_residual_model.py`
+  - `results/block_ar/294a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/294a_postmortem/summary.md`
+
+### Mechanism read
+`294a` materially changed the failure mode instead of reproducing the old support-branch tradeoff.
+
+What improved versus `293h`:
+- level KS: `0/25 -> 9/25`
+- coverage90: `0.980 -> 0.782` moved much closer to the 0.90 target
+- calibration error: `0.143 -> 0.087`
+- rank ratio: `1.234 -> 1.043`
+- mean turbulent/calm width ratio: `0.876 -> 1.106`
+
+What stayed wrong:
+- aggregate MR collapsed in the opposite direction: `2.321 -> 0.163`
+- worst-cell cointegration robustness worsened: `0.263 -> 0.211`
+- jump realism stayed weak
+
+So the continuous scaffold is a live new mechanism class, but the current basis scaffold is too smooth and too weakly mean-reverting.
+
+### Decision
+Keep the `294` family alive for one narrow follow-up. Next step: post-experiment analysis / ideation for `294b`, staying inside the continuous scaffold family and sharpening path shape without returning to support codebooks.
+
+---
