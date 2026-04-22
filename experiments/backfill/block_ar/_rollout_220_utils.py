@@ -725,6 +725,12 @@ def load_one_day_kernel(
         )
 
         return load_288a_model(checkpoint_path, device)
+    if model_type == "289a":
+        from diffusion.block_ar.deterministic_causal_transformer_world_model import (
+            load_model as load_289a_model,
+        )
+
+        return load_289a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

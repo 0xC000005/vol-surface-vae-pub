@@ -84600,3 +84600,44 @@ New active family: `289a-v0`
 Implement `289a-v0` as a deterministic causal Transformer backbone and evaluate it directly as the new Stage A baseline.
 
 ---
+## 2026-04-22: 289a-v0 direct world-model failure and 289b latent follow-up
+
+### Context
+`289a-v0` was the first true Stage A world-model reset away from retrieval:
+- deterministic causal Transformer
+- direct observation-space joint next-change prediction
+- autoregressive generated-state rollout
+- no retrieval bank
+
+### Result
+- Eval: `results/block_ar/289a_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-22/analysis/289a_world_model_postmortem/summary.md`
+- Score: `1/11`
+- Only pass: `block_ar`
+
+### Mechanism Read
+The failure is clean: direct observation-space collapse.
+
+The model did not explode. It instead became too smooth and too decorrelated:
+- `corr_ratio = 0.056`
+- `cointegration ratio = 0.476`
+- `kurtosis ratio = 0.068`
+- `max-jump KS = 1.000`
+- `path q90 ratio = 0.077`
+- `path q99 ratio = 0.125`
+
+So the world-model paradigm itself is not yet falsified, but the direct raw panel-state parameterization is.
+
+### Decision
+Keep the Stage A world-model paradigm.
+
+Replace the state representation.
+
+Next step: `289b-v0`
+- deterministic latent world model
+- learned panel encoder
+- latent autoregressive transition model
+- decoder back to panel state
+- still no retrieval bank, no low-rank hand-constraint, no bounded side paths
+
+---
