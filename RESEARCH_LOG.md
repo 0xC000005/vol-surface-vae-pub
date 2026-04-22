@@ -85287,3 +85287,23 @@ Most likely next step:
 - `293c` ideation around a coarse-to-fine future anchor / horizon-knot scaffold that the daily token law must respect.
 
 ---
+## 2026-04-22: 293c ideation: coarse-to-fine path-shape scaffold
+
+### Context
+The `293a` vs `293b` comparison removed the generic latent-capacity ambiguity. The family now has a specific gap: local stochastic move law and cross-cell dependence are alive, but long-horizon path shape remains weak.
+
+### Decision
+Selected `293c-v0` as the next follow-up.
+
+Mechanism:
+- keep the same fixed-horizon joint-token local-law core
+- replace the single shared global latent with a small set of future horizon-knot latents
+- linearly interpolate those knot latents across the 30-day window so each decoder step sees a time-varying low-frequency scaffold
+
+### Mechanism read
+`293b`'s constant latent improved calibration and cointegration slightly, but it acted like a mild global context / entropy regularizer rather than a true path-shape controller. `293c` is the smallest clean change that directly targets levels, MR timing, regime width timing, and jump ordering.
+
+### Next step
+Implement `293c-v0`, train one baseline, and test whether structured low-frequency conditioning improves path-shape suites without giving back change KS or cross-cell structure.
+
+---
