@@ -1,0 +1,45 @@
+{
+  "result": {
+    "score": "3/11",
+    "passes": [
+      "surface",
+      "block_ar",
+      "cross_cell_correlation"
+    ]
+  },
+  "stage_a_read": {
+    "retrieval_alive": true,
+    "dynamic_law_preserved": true,
+    "hard_anchor_overcorrected": true
+  },
+  "key_metrics": {
+    "acf_corr": 0.8666288049698633,
+    "kurtosis_ratio": 0.9742571170691495,
+    "tail_scale_pass": 19,
+    "cointegration_ratio": 1.159677419354839,
+    "cointegration_worst_cell_ratio": 0.21052631578947367,
+    "level_ks_pass": 3,
+    "change_ks_pass": 21,
+    "median_bias_pass": 25,
+    "mae_pass": 22,
+    "corr_ratio": 1.176909429401283,
+    "rank_ratio": 0.9171223473769179,
+    "mr_ratio": 0.3601450340317431,
+    "active_pass_count": 3,
+    "active_cell_count": 24,
+    "active_cell_slope_corr": 0.28648662666423397,
+    "max_jump_ks": 0.3958333333333333,
+    "q90_ratio": 0.9282807287619479,
+    "q99_ratio": 0.9763259598308388
+  },
+  "mechanism_read": [
+    "Anchored retrieval preserved the strongest part of 277a: realistic future changes, realistic temporal moments, and realistic cross-cell structure.",
+    "The hard query-level re-anchor overcorrected the long-run level dynamics: mean reversion became too weak and jump-shape realism worsened.",
+    "The active bottleneck is now the retrieval metric itself. Raw L2 history similarity is not predictive enough of the right anchored future path."
+  ],
+  "decision": {
+    "status": "retrieval_family_alive",
+    "next_step": "277c-v0 learned history embedding retrieval",
+    "rationale": "Keep retrieval, but replace the hand-fixed history-space distance with a learned similarity that is trained to retrieve future change paths better."
+  }
+}

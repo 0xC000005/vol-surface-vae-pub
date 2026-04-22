@@ -82777,3 +82777,160 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next step: 277b-v0, retrieve future changes and re-anchor them to the query window's current level
 
 ---
+## 2026-04-22: 277b Retrieval Changes With Query Anchoring: Dynamics Preserved, Similarity Bottleneck Exposed
+
+# 277b Postmortem
+
+## Result
+- Full 11-suite score: 3/11
+- Passes: surface, block_ar, cross_cell_correlation
+
+## What Matters For Stage A
+`277b` keeps the retrieval family alive.
+
+The important question was whether we could preserve the strong dynamic-law realism of
+`277a` while fixing its level-path copying pathology by re-anchoring the retrieved
+future changes to the query window's current level.
+
+## Key Metrics
+- surface:
+  - all surface gates pass
+- time_series:
+  - ACF corr: 0.867
+  - kurtosis ratio: 0.974
+  - q99(|ΔIV|) cells passing: 19/25
+- cointegration:
+  - ratio: 1.160
+  - worst-cell ratio: 0.211
+- distributional_fidelity:
+  - level KS pass: 3/25
+  - change KS pass: 21/25
+  - median-bias pass: 25/25
+  - MAE pass: 22/25
+- cross_cell_correlation:
+  - corr ratio: 1.177
+  - rank ratio: 0.917
+- mean_reversion:
+  - aggregate ratio: 0.360
+  - active cells: 3/24
+  - active-cell corr: 0.286
+- pathwise_jump_realism:
+  - max-jump KS: 0.396
+  - q90 ratio: 0.928
+  - q99 ratio: 0.976
+
+## Mechanism Read
+- `277b` fixed the exact `277a` anchoring issue only partially.
+- Re-anchoring the retrieved future **changes** to the query level preserved most of
+  the dynamic-law benefits:
+  - change KS stayed strong
+  - ACF and kurtosis stayed in range
+  - cross-cell structure stayed strong
+- But the full hard re-anchor also removed too much of the retrieved path's own
+  long-run anchor:
+  - mean reversion collapsed from over-strong to too weak
+  - level KS improved only marginally
+  - jump-shape realism worsened
+- So the live Stage A bottleneck is no longer “copying a real path is too literal.”
+- It is now:
+  - raw L2 retrieval in history space finds a path with the right change law,
+  - but the retrieval metric is not predictive enough of the *right anchored future*
+    for the query.
+
+## Decision
+- Keep the two-level reset.
+- Keep retrieval as the active deterministic Stage A family.
+- Do not add another manual anchoring knob.
+- Next step: `277c-v0`, learned history embedding retrieval.
+- Rationale:
+  - the retrieval family is still the strongest deterministic Stage A line
+  - the remaining miss is now the similarity metric, not the backbone
+  - a learned retrieval embedding is the smallest first-principles extension that
+    lets the model learn which histories imply the right anchored future changes
+    without adding explicit low-rank, EC, or bounded side paths
+
+---
+## 2026-04-22: 277c Stage A Decision: Learn The Retrieval Metric
+
+# 277c Stage A Ideation
+
+## Context
+`277a` and `277b` established that deterministic retrieval is the first genuinely live
+Stage A family in the strict two-level reset:
+- retrieval preserves real dynamic law much better than learned deterministic
+  predictors
+- the remaining deterministic miss is no longer the path family itself
+- it is the retrieval **metric**
+
+`277b` also showed that adding another manual anchoring rule is not the right next
+move. Hard query-level re-anchoring fixed the old level-copy pathology only partially
+and overcorrected mean reversion.
+
+## Decision
+Next step: `277c-v0`
+
+### Family
+Learned history-embedding retrieval for deterministic future-change paths.
+
+### Core idea
+- keep the deterministic retrieval backbone
+- keep query-level anchoring of retrieved future **changes**
+- replace raw L2 distance on normalized history tensors with a learned embedding
+  distance
+
+## Proposed Model
+Two small encoders:
+- `f(H)` history encoder
+- `g(ΔF)` future-change encoder
+
+Train them with a contrastive objective so that a history embedding is close to the
+embedding of its own future-change path and far from mismatched futures.
+
+At inference:
+- encode query history with `f(H_q)`
+- encode all training histories once and store their embeddings
+- retrieve nearest neighbors in learned embedding space
+- use the retrieved future-change path and anchor it to the query's last observed
+  level, as in `277b`
+
+## Why This Is The Smallest Principled Step
+- no hard low-rank head
+- no bounded idio path
+- no EC baseline
+- no manual blend coefficient
+- no explicit finance-specific assumptions
+
+This is still first-principles:
+- a memory-based deterministic Stage A model
+- but the similarity function is learned from data rather than hand-fixed
+
+## Minimal Training Story
+- training data: `(history, future_change_path)`
+- build `future_change_path` as raw daily level differences in `[0,1]` space
+- encoder output dimension: small latent embedding, e.g. `d=64`
+- objective: symmetric InfoNCE over batch
+- no reconstruction decoder
+- no KL / prior / posterior
+
+## Expected Failure Mode To Test
+If `277c` still fails badly on level KS and MR while preserving change KS and
+cross-cell structure, then the retrieval metric is not the main issue and Stage A may
+need a different deterministic scaffold than direct analog retrieval.
+
+## Pre-Registered Success Criteria
+Relative to `277b`, `277c` should improve at least two of:
+- level KS pass cells
+- worst-cell cointegration ratio
+- aggregate MR ratio
+- active MR pass count
+
+while preserving:
+- change KS pass cells >= 18
+- corr ratio inside gate
+- rank ratio inside gate
+- surface validity pass
+
+## Immediate Next Action
+Implement `277c-v0` in fresh files and run the full deterministic Stage A iteration.
+
+---
