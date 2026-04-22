@@ -82934,3 +82934,146 @@ while preserving:
 Implement `277c-v0` in fresh files and run the full deterministic Stage A iteration.
 
 ---
+## 2026-04-22: 277c Learned Retrieval: Similarity Lives, Change-Only Keys Are Too Level-Free
+
+# 277c Postmortem
+
+## Result
+- Full 11-suite score: 3/11
+- Passes: surface, block_ar, cross_cell_correlation
+
+## What Matters For Stage A
+`277c` tested the cleanest next deterministic retrieval step after `277b`:
+- keep retrieval
+- keep anchored future changes
+- replace raw L2 history distance with a learned history-to-future similarity
+
+This was the right test because `277b` showed that the active deterministic bottleneck
+had moved from the path family itself to the retrieval metric.
+
+## Key Metrics
+- surface:
+  - all surface gates pass
+- time_series:
+  - ACF corr: 0.923
+  - kurtosis ratio: 0.887
+  - q99(|ΔIV|) cells passing: 19/25
+- cointegration:
+  - ratio: 0.635
+  - worst-cell ratio: 0.077
+- distributional_fidelity:
+  - level KS pass: 0/25
+  - change KS pass: 19/25
+  - median-bias pass: 17/25
+  - MAE pass: 20/25
+- cross_cell_correlation:
+  - corr ratio: 0.958
+  - rank ratio: 1.201
+- mean_reversion:
+  - aggregate ratio: 0.458
+  - active cells: 1/24
+  - active-cell corr: -0.233
+- pathwise_jump_realism:
+  - max-jump KS: 0.589
+  - q90 ratio: 0.882
+  - q99 ratio: 0.882
+
+## Mechanism Read
+- `277c` confirms that retrieval remains the right deterministic Stage A family:
+  - surface validity stayed strong
+  - change-law realism stayed usable
+  - cross-cell structure stayed inside gate
+- But the learned metric was trained only against the **future change path**.
+- That made the retrieval key too level-free:
+  - level KS collapsed from weak to dead
+  - median-bias and cointegration worsened
+  - active mean reversion also stayed dead
+- So the clean conclusion is not “learned retrieval is wrong.”
+- The clean conclusion is:
+  - change-only future targets are too incomplete for deterministic Stage A retrieval
+  - the retrieval key must encode both local change law and long-run anchored level
+
+## Decision
+- Keep the two-level reset.
+- Keep retrieval as the active deterministic Stage A family.
+- Keep learned similarity as the next live idea.
+- Next step: `277d-v0`, learned retrieval with a richer future target that includes both:
+  - future daily changes
+  - future cumulative level displacement from the current state
+
+## Why 277d Is The Smallest Principled Fix
+- still no hard low-rank head
+- still no bounded side paths
+- still no EC baseline
+- still no explicit finance-specific assumptions
+- only the retrieval target representation changes, because `277c` showed the change-only representation is the actual bottleneck
+
+---
+## 2026-04-22: 277d Stage A Decision: Richer Future Keys For Learned Retrieval
+
+# 277d Stage A Ideation
+
+## Context
+`277c` showed that learned retrieval is directionally valid, but its target was too
+incomplete:
+- using only the future change path made the learned similarity ignore the long-run
+  level anchor
+- deterministic Stage A then kept dynamic realism but lost level KS, bias, and active
+  mean reversion
+
+So the next step should not abandon retrieval or learned similarity.
+It should fix the future target representation.
+
+## Decision
+Next step: `277d-v0`
+
+### Family
+Learned retrieval with a richer future target:
+- future daily changes
+- future cumulative displacement from the current state
+
+### Retrieval action
+Unchanged from `277b` / `277c`:
+- retrieve a real future path from memory
+- apply the retrieved daily changes on top of the query's current last observed level
+
+## Proposed Model
+Keep the same architecture:
+- history encoder `f(H)`
+- future encoder `g(R)`
+- contrastive training
+
+Change only the future representation `R`:
+- `Δx_t`
+- `x_t - x_0`
+
+Concatenate them per future step and let the future encoder learn from that joint path
+representation.
+
+## Why This Is The Smallest Principled Step
+- no extra decoder
+- no manual anchor blend
+- no low-rank head
+- no bounded side path
+- no explicit finance-specific assumptions
+
+Only the target representation changes, because `277c` showed the representation
+rather than the retrieval family is the active bottleneck.
+
+## Pre-Registered Success Criteria
+Relative to `277c`, `277d` should improve at least two of:
+- level KS pass cells
+- median-bias pass cells
+- worst-cell cointegration ratio
+- aggregate MR ratio
+
+while preserving:
+- change KS pass cells >= 18
+- corr ratio inside gate
+- rank ratio inside gate
+- surface validity pass
+
+## Immediate Next Action
+Implement `277d-v0` and run the full deterministic Stage A iteration.
+
+---

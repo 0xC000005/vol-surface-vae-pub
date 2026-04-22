@@ -1,0 +1,44 @@
+{
+  "result": {
+    "score": "3/11",
+    "passes": [
+      "surface",
+      "block_ar",
+      "cross_cell_correlation"
+    ]
+  },
+  "stage_a_read": {
+    "retrieval_alive": true,
+    "learned_metric_alive": true,
+    "change_only_target_too_level_free": true
+  },
+  "key_metrics": {
+    "acf_corr": 0.9229845340468558,
+    "kurtosis_ratio": 0.8867039223967504,
+    "tail_scale_pass": 19,
+    "cointegration_ratio": 0.6346774193548388,
+    "cointegration_worst_cell_ratio": 0.07692307692307693,
+    "level_ks_pass": 0,
+    "change_ks_pass": 19,
+    "median_bias_pass": 17,
+    "mae_pass": 20,
+    "corr_ratio": 0.9576397636058187,
+    "rank_ratio": 1.201486022301822,
+    "mr_ratio": 0.45841453774598446,
+    "active_pass_count": 1,
+    "active_cell_count": 24,
+    "active_cell_slope_corr": -0.23324074578759367,
+    "max_jump_ks": 0.5885416666666666,
+    "q90_ratio": 0.8823600776823417,
+    "q99_ratio": 0.8822633820458376
+  },
+  "mechanism_read": [
+    "The learned retrieval metric did not break the retrieval family. Surface validity, change-law realism, and cross-cell structure remain intact.",
+    "The collapse happened because the future target for metric learning used only future changes. That target is too level-free for deterministic Stage A selection.",
+    "The next clean fix is to keep learned retrieval but train it on a richer future representation that carries both local changes and anchored cumulative displacement."
+  ],
+  "decision": {
+    "status": "retrieval_family_alive",
+    "next_step": "277d-v0 learned retrieval with change-plus-displacement future target"
+  }
+}
