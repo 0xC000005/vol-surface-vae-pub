@@ -82676,3 +82676,26 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next iteration type: constrained ideation on whether a joint tokenization target is the clean next move or whether deterministic tokenization should be abandoned entirely
 
 ---
+## 2026-04-22: 276b Stage A Ideation: Joint Deterministic Token Target
+
+- Completed constrained ideation after 276a showed that deterministic tokenization changes behavior but factorized per-cell tokens destroy the joint factor law.
+- Artifact:
+  - memo: results/validations/2026-04-22/analysis/276b_stage_a_ideation/memo.md
+- Selected next family: 276b-v0, deterministic joint-token next-change model.
+- Keep:
+  - deterministic Stage A objective
+  - tokenized next-change supervision
+  - autoregressive generated-state feedback
+  - general observation-space backbone
+- Change:
+  - replace per-cell token targets with a single joint token for the full next-step surface-change vector
+- Rationale:
+  - 275 continuous regression preserved joint structure but smoothed away the dynamic law
+  - 276a per-cell tokenization changed the objective but factorized away the joint structure
+  - joint tokenization is the cleanest next test of whether deterministic discrete supervision can preserve both sharpness and cross-cell structure
+- Risk accepted:
+  - this introduces one new component, a learned joint tokenizer/codebook
+  - it is justified because there is no simpler way to obtain a joint discrete target without reverting to smooth continuous regression
+- Next step: implement 276b-v0 and evaluate whether deterministic tokenization should remain live or be closed.
+
+---
