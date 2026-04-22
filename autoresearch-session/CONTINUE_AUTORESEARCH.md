@@ -19,14 +19,15 @@ Default behavior for this prompt:
 
 Important:
 
-- if `state_11x11.json` says the program has restarted from a clean minimal architecture line,
-  do **not** resume old-family follow-ups such as `258b`
-- use `205-258` only as baselines, negative evidence, and design constraints
+- if `state_11x11.json` says the program has restarted from a clean first-principles line,
+  do **not** resume old-family follow-ups such as `258b` or the transitional `265a` assumptions
+- use `205-265` only as baselines, negative evidence, and design constraints
 - prefer the smallest publishable architecture with:
   - a vanilla generative core
-  - dynamic latent state
-  - explicit low-rank factor structure
-  - bounded idio path
+  - a real encoder-decoder bottleneck
+  - no hard low-rank decoder in the core spec
+  - no bounded idio or EC side paths in the core spec
+- choose fixed-horizon vs AR only on first-principles and evaluation-alignment grounds, not because an older family used one
 - if the pathology becomes unclear or the active branch starts accumulating too many knobs,
   do not keep stacking experiments in place:
   - switch to post-experiment analysis

@@ -81108,3 +81108,62 @@ Implement `265a-v0` in fresh files, using only shared utilities for normalizatio
 - reset spec: `results/validations/2026-04-21/analysis/265a_proper_reset/spec.md`
 
 ---
+## 2026-04-21: Stricter First-Principles Reset: Supersede 265a with 266a Bottleneck Generator
+
+### Context
+`265a` was not a thorough enough reset. It still inherited several design commitments from the retired `263`/`264` tree:
+
+- hard low-rank decoder
+- bounded idio path
+- bounded history-mean EC baseline
+- prior/posterior framing as the default model story
+
+That is not the Bitter-Lesson / first-principles version of a restart. The user explicitly rejected those inherited assumptions as core requirements.
+
+### Decision
+Supersede `265a` as the active reset family.
+
+The new active line is `266a-v0`: a first-principles conditional bottleneck generator whose only core structural bias is a narrow encoder-decoder latent bottleneck around a vanilla latent generative core.
+
+Core doctrine:
+- conditional future-path generation is the direct objective
+- keep the generative core vanilla
+- keep only a real compression bottleneck as the default inductive bias
+- do **not** assume hard low-rank structure in the core spec
+- do **not** assume bounded idio or EC side paths in the core spec
+- do **not** inherit teacher-engineering logic into the new family
+
+### Why This Reset Is Cleaner
+This reset is more faithful to first principles because it removes architectural opinions that were previously being treated as lessons prematurely.
+
+The point of `266a-v0` is to learn what a clean bottleneck conditional generator can and cannot discover by itself before introducing any extra structure.
+
+### Active Family
+`266a-v0` is defined as:
+- direct fixed-horizon conditional generator
+- history encoder
+- future bottleneck encoder/decoder
+- vanilla conditional latent generator in bottleneck space
+- no hard low-rank head
+- no bounded idio side path
+- no bounded EC baseline
+
+### Immediate Next Step
+Implement `266a-v0` in fresh files.
+
+Reuse only:
+- normalization helpers
+- window builders
+- evaluation harness integration
+
+Do not reuse:
+- `263`/`264` teacher logic
+- `260` deterministic correction logic
+- `261` residual scenario decomposition
+- `265a` low-rank or bounded-side-path assumptions
+
+### Artifacts
+- superseded transitional reset spec: `results/validations/2026-04-21/analysis/265a_proper_reset/spec.md`
+- new active reset spec: `results/validations/2026-04-21/analysis/266a_first_principles_reset/spec.md`
+
+---
