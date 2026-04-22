@@ -1,0 +1,65 @@
+{
+  "model": "266a-v0",
+  "checkpoint": "models/backfill/266a_v0_s42/best_model.pt",
+  "checkpoint_epoch": 28,
+  "suite_result": {
+    "n_pass": 2,
+    "passing_suites": [
+      "surface",
+      "block_ar"
+    ],
+    "failing_suites": [
+      "coverage",
+      "conditionality",
+      "time_series",
+      "cointegration",
+      "regime_coverage",
+      "distributional_fidelity",
+      "cross_cell_correlation",
+      "mean_reversion",
+      "pathwise_jump_realism"
+    ]
+  },
+  "training": {
+    "best_val_total": 0.088138112532241,
+    "latent_std_val": 0.528,
+    "recon_abs_mae": 0.029
+  },
+  "full_sample_metrics": {
+    "coverage90": 0.881,
+    "calibration_error": 0.042,
+    "turb_calm_width_ratio": 0.911,
+    "acf_correlation": 0.786,
+    "kurtosis_ratio": 3.155,
+    "corr_ratio": 1.871,
+    "rank_ratio": 0.346,
+    "cointegration_ratio": 0.174,
+    "mr_gt_ratio": 2.111,
+    "mr_h30_ratio": 0.872,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.104
+  },
+  "decoder_reconstruction_probe": {
+    "acf_correlation": 0.703,
+    "kurtosis_ratio": 0.537,
+    "corr_ratio": 1.069,
+    "rank_ratio": 0.569,
+    "cointegration_ratio": 0.319,
+    "mr_gt_ratio": 2.057,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.010
+  },
+  "mechanism_read": {
+    "core": "The bottleneck/decoder already over-smooths path changes and overstates short-horizon mean reversion; the latent diffusion prior then worsens common-mode collapse and cointegration while only partially restoring tail activity.",
+    "supported_claims": [
+      "The pure bottleneck autoencoder preserves cross-cell structure materially better than the sampled generator.",
+      "The decoder itself already suppresses jump scale and produces too many tiny moves.",
+      "The sampled diffusion prior pushes the joint law toward a lower-rank, more common-mode scenario family than the reconstruction path.",
+      "This is a clean first-principles failure: the model learns valid support and broad aggregate coverage, but does not learn correct conditional allocation, jump incidence, or balanced joint structure."
+    ]
+  },
+  "decision": {
+    "next_step_type": "post_experiment_analysis_then_ideation",
+    "next_question": "How much of the failure comes from the single-vector bottleneck itself versus the latent diffusion prior over that bottleneck, and what is the smallest first-principles extension that can increase temporal/joint flexibility without reintroducing hand-designed side paths?"
+  }
+}

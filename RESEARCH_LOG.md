@@ -81167,3 +81167,79 @@ Do not reuse:
 - new active reset spec: `results/validations/2026-04-21/analysis/266a_first_principles_reset/spec.md`
 
 ---
+## 2026-04-21: 266a-v0 First-Principles Bottleneck Baseline: Stable Training, 2/11, Decoder and Prior Failures Separated
+
+### Context
+`266a-v0` was the first actual baseline after the stricter first-principles reset. The model intentionally removed inherited structural commitments from the old tree:
+
+- no hard low-rank decoder
+- no bounded idio side path
+- no bounded EC baseline
+- no teacher-engineering logic
+
+The baseline family was:
+- fixed-horizon conditional generator
+- history encoder
+- future bottleneck encoder/decoder
+- vanilla latent diffusion prior in bottleneck space
+
+### Result
+`266a-v0` trained cleanly and evaluated successfully on the common 11-suite.
+
+- best epoch: `28`
+- best val total: `0.0881`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal full-sample metrics:
+- coverage90: `0.881`
+- calibration error: `0.042`
+- turb/calm width ratio: `0.911`
+- ACF corr: `0.786`
+- kurtosis ratio: `3.155`
+- corr ratio: `1.871`
+- rank ratio: `0.346`
+- cointegration ratio: `0.174`
+- MR ratio: `2.111`
+- h30 MR ratio: `0.872`
+- max-jump KS: `1.000`
+- pathwise q99 ratio: `0.104`
+
+### Mechanism Read
+A targeted reconstruction-vs-sampling probe separated the bottleneck/decoder from the latent diffusion prior.
+
+Reconstruction probe (decode encoded future):
+- ACF corr: `0.703`
+- kurtosis ratio: `0.537`
+- corr ratio: `1.069`
+- rank ratio: `0.569`
+- cointegration ratio: `0.319`
+- MR ratio: `2.057`
+- max-jump KS: `1.000`
+- pathwise q99 ratio: `0.010`
+
+Interpretation:
+- the single-vector bottleneck plus direct decoder already over-smooths the path, suppresses jump scale almost completely, and overstates short-horizon mean reversion
+- the latent diffusion prior then worsens the sampled joint law further, pushing it toward stronger common-mode collapse and weaker cointegration than reconstruction
+- so `266a-v0` is a clean failure, not an incoherent one:
+  - the reset is valid
+  - the pure bottleneck family is capable of stable training and nontrivial spread
+  - but this specific single-code bottleneck generator does not learn enough temporal/joint flexibility
+
+### Decision
+Do constrained post-experiment analysis / ideation next before another experiment.
+
+The next question is not whether to bring back low-rank / bounded-side-path machinery. The next question is:
+
+what is the smallest first-principles extension beyond a single compressed future code that can improve temporal and joint flexibility while keeping the model elegant?
+
+### Artifacts
+- model: `diffusion/block_ar/latent_bottleneck_diffusion.py`
+- trainer: `experiments/backfill/block_ar/train_266a_latent_bottleneck_diffusion.py`
+- checkpoint: `models/backfill/266a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/266a_v0_s42/full11.json`
+- eval MD: `results/block_ar/266a_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/266a_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/266a_postmortem/summary.md`
+
+---

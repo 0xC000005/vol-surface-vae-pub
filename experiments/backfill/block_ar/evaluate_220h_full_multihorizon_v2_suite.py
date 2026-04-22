@@ -129,7 +129,7 @@ def main() -> None:
         or args.model_type.startswith('240a')
         or args.model_type.startswith('240b')
         or args.model_type.startswith('240c')
-        or args.model_type.startswith(("250", "251", "252", "253", "254", "255", "256", "257", "258", "260", "261", "262", "263", "264"))
+        or args.model_type.startswith(("250", "251", "252", "253", "254", "255", "256", "257", "258", "260", "261", "262", "263", "264", "266"))
         or args.force_native_anchor
     )
     if use_native:
