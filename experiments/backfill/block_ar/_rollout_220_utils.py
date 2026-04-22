@@ -755,6 +755,18 @@ def load_one_day_kernel(
         )
 
         return load_289e_model(checkpoint_path, device)
+    if model_type == "290a":
+        from diffusion.block_ar.deterministic_history_memory_discrete_world_model import (
+            load_model as load_290a_model,
+        )
+
+        return load_290a_model(checkpoint_path, device)
+    if model_type == "290b":
+        from diffusion.block_ar.deterministic_history_memory_discrete_world_model import (
+            load_model_soft_decode as load_290b_model,
+        )
+
+        return load_290b_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

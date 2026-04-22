@@ -84880,3 +84880,53 @@ Next step: `290a-v0`
   - [290a spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/290a_world_model_formulation_ideation/spec.md)
 
 ---
+## 2026-04-22: 290 discrete-output world-model bracket
+
+### Context
+`289e` showed the deterministic Stage A world-model backbone was structurally viable, but the remaining blocker had shifted from recurrent state design to next-step output formulation.
+
+### Result
+Completed the `290` discrete-output formulation bracket.
+
+- `290a-v0`
+  - kept the `289e` history-memory world-model backbone
+  - replaced smooth next-change regression with discretized normalized-change bins
+  - trained stably, but full `11`-suite evaluation failed in suite 9 with `LinAlgError: Eigenvalues did not converge`
+- `290b-v0`
+  - reused the same trained checkpoint class
+  - changed only inference/sample decode from hard argmax to soft expected-bin-center
+  - completed the full `11`-suite and scored `1/11`
+  - pass: `block_ar`
+
+Artifacts:
+- `290a` trainer: `experiments/backfill/block_ar/train_290a_deterministic_history_memory_discrete_world_model.py`
+- `290a` model: `diffusion/block_ar/deterministic_history_memory_discrete_world_model.py`
+- `290a` postmortem: `results/validations/2026-04-22/analysis/290a_world_model_formulation_postmortem/summary.md`
+- `290b` eval: `results/block_ar/290b_v0_s42/full11.json`
+- `290b` postmortem: `results/validations/2026-04-22/analysis/290b_world_model_formulation_postmortem/summary.md`
+- next-step spec: `results/validations/2026-04-22/analysis/291a_world_model_joint_support_ideation/spec.md`
+
+### Mechanism Read
+The bracket closed the naive discrete-head idea cleanly.
+
+`290a` showed that hard per-cell discrete decode can sharpen local-law proxies, but it produced brittle, piecewise-constant correlation geometry that broke the cross-cell eigendecomposition.
+
+`290b` showed that once inference is made formulation-consistent with training, the deeper problem is not the hard/soft mismatch alone. The factorized per-cell discrete head is itself too weakly joint:
+- it restored evaluator stability
+- but it stayed too smooth on local move-size law
+- change KS remained `0/25`
+- MR fell to `0.418`
+- cointegration stayed weak at `0.202`
+
+So the live bottleneck is now the **factorized per-cell output head**, not the `289e` backbone.
+
+### Decision
+Keep the `289e` history-memory Stage A world-model backbone alive, but close the naive per-cell discrete-output branch.
+
+Next step: `291a-v0`
+- keep the same world-model backbone
+- replace the factorized per-cell output head with a learned **joint next-change support** bottleneck for the full panel
+- stay deterministic for Stage A
+- do not add retrieval, low-rank side heads, or hand-coded correction paths
+
+---
