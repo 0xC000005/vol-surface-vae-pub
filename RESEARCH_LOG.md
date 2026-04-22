@@ -81957,3 +81957,27 @@ Do not keep patching direct level-space FM.
 Shift the `268` family to direct conditional future-change flow matching in a generic normalized change coordinate, then test whether that tighter stochastic object restores support and conditional structure without latent machinery, bounded side paths, or hand-engineered factorization.
 
 ---
+## 2026-04-21: 268c-v0 Direct Change-Space Flow Matching: Time-Series Fixed, State Feedback Missing
+
+### Context
+`268a` and `268b` showed that direct fixed-horizon level-space FM can generate spread but has the wrong support/conditioning geometry. `268c-v0` tested the cleanest remaining fixed-horizon reformulation: keep the same generic direct FM family, but make the stochastic object the future change path instead of future levels.
+
+### Result
+- `268c-v0` trained stably and scored `2/11`
+- passes: `time_series`, `cross_cell_correlation`
+- best epoch: `29`
+- artifacts:
+  - eval: `results/block_ar/268c_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/268c_postmortem/summary.md`
+
+### Mechanism Read
+- Moving to future changes fixed the temporal-moment pathology: ACF passed, kurtosis passed, and uncertainty growth became monotone.
+- But mean reversion collapsed almost completely (`MR ratio = 0.004`, `0/24` active cells). A fixed-horizon future-change generator conditioned only on initial history does not let the generated state feed back into later changes.
+- Cross-cell and cointegration structure stayed passable, so the family did learn useful joint change statistics. The decisive miss is state-dependent change dynamics, not generic stochasticity.
+
+### Decision
+Close the fixed-horizon direct-path `268` family.
+
+Shift to `269a-v0`: a first-principles autoregressive next-change flow-matching baseline that conditions each next-step change on the evolving generated history, with no latent bottleneck, no KL, and no hand-engineered side paths.
+
+---

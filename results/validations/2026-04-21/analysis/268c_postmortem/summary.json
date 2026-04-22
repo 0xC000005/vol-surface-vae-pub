@@ -1,0 +1,48 @@
+{
+  "model": "268c-v0",
+  "family": "268 direct conditional future-change flow matching",
+  "best_epoch": 29,
+  "best_val_total": 0.07858960569969245,
+  "n_pass": 2,
+  "failed_suites": [
+    "surface",
+    "coverage",
+    "conditionality",
+    "time_series",
+    "cointegration",
+    "regime_coverage",
+    "distributional_fidelity",
+    "mean_reversion",
+    "pathwise_jump_realism"
+  ],
+  "passes": [
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "key_metrics": {
+    "coverage90": 0.9391111111111111,
+    "calibration_error": 0.13896913580246914,
+    "conditional_mae_reduction": 3.1929403624526858,
+    "turb_calm_width_ratio": 0.8921616077423096,
+    "acf_corr": 0.9488427467541146,
+    "kurtosis_ratio": 0.9541956651428403,
+    "change_ks_pass_cells": 10,
+    "level_ks_pass_cells": 0,
+    "corr_ratio": 0.6362112356830514,
+    "rank_ratio": 2.4780455547548006,
+    "mr_ratio": 0.003976517095560533,
+    "mr_h1_ratio": 0.003976517095560533,
+    "mr_h30_ratio": -0.039039443747229084,
+    "max_jump_ks": 0.5671875,
+    "q99_jump_ratio": 1.1137834896022305,
+    "cointegration_ratio": 0.6951612903225807,
+    "surface_explosion_rate": 0.8949652777777778
+  },
+  "mechanism_read": [
+    "Moving the stochastic object from future levels to future changes fixed the temporal-moment pathology: ACF passed, kurtosis passed, and monotonic uncertainty growth became clean.",
+    "But mean reversion collapsed almost completely (aggregate ratio ~0.004, 0 active cells). A fixed-horizon future-change generator conditioned only on initial history has no evolving state feedback, so it behaves close to a driftless change process.",
+    "Cross-cell and cointegration structure remained passable, which means the family did learn useful joint change statistics. The decisive miss is state-dependent change dynamics, not generic stochasticity.",
+    "This suggests the next principled step is not another fixed-horizon direct-path patch. The model needs generated state to feed back into future changes during rollout."
+  ],
+  "decision": "Close the fixed-horizon direct-path 268 family. Shift to a first-principles autoregressive next-change FM baseline that conditions each next-step change on the evolving generated history, without latent bottlenecks or hand-engineered side mechanisms."
+}
