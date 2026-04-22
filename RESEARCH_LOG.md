@@ -84016,3 +84016,27 @@ Implement and run `283c-v0` by copying `283b` and replacing the anchored support
 - Next step: post-experiment analysis across `282b`, `283a`, `283b`, and `283c` to decide whether the real bottleneck is now upstream in the `277d` support/library family itself.
 
 ---
+## 2026-04-22: 284a Support Family Bottleneck Confirmed
+
+### Context
+After `282b`, `283a`, `283b`, and `283c`, the remaining question was whether the live bottleneck was still the Stage B objective / weighting law or whether it had moved upstream into the `277d` support family itself.
+
+### Findings
+- `282b` is the cleanest fixed-center residual result:
+  - `5/11`
+  - full-horizon mean reversion passes
+  - but `level KS = 0/25`, `change KS = 5/25`
+- `283b` is the cleanest reopened weighting result:
+  - `4/11`
+  - `change KS = 23/25`, `level KS = 1/25`
+  - but mean-reversion active support still fails
+- `283c` showed that local support-geometry interpolation does not create a new regime.
+
+### Mechanism Read
+The bottleneck has moved upstream. The `277d` support family is built around replaying retrieved delta paths from the query last level, and the full `282b` to `283c` bracket now suggests that this anchored-delta support object is itself the cap. The recent experiments rule out the simpler explanations: it is no longer just an objective problem, and it is no longer just a train/inference mismatch.
+
+### Decision
+- Close the local `282b` to `283c` objective/support-geometry branch.
+- Next step: research ideation for a new Stage A support object, not another weighting tweak inside the existing `277d` anchored-delta family.
+
+---
