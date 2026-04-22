@@ -1,0 +1,49 @@
+{
+  "result": {
+    "score": "2/11",
+    "passes": [
+      "block_ar",
+      "cointegration"
+    ],
+    "best_epoch": 20
+  },
+  "key_metrics": {
+    "coverage90": 0.996,
+    "calibration_error": 0.188,
+    "conditional_mae_reduction_pct": 1.2,
+    "turb_calm_width_ratio": 0.996,
+    "acf_corr": 0.94,
+    "kurtosis_ratio": 0.482,
+    "corr_ratio": 1.599,
+    "rank_ratio": 0.337,
+    "mr_ratio": -1.673,
+    "cointegration_ratio": 1.513,
+    "max_jump_ks": 1.0,
+    "surface_explosion_rate": 1.0,
+    "level_ks_pass": 0,
+    "change_ks_pass": 0,
+    "mae_pass": 4
+  },
+  "probes": {
+    "reconstruction": {
+      "floor_rate": 0.0,
+      "ceiling_rate": 0.0,
+      "mae": 0.0328
+    },
+    "one_step_rollout": {
+      "floor_rate": 0.291,
+      "ceiling_rate": 0.069,
+      "min": -1.905,
+      "max": 7.971
+    }
+  },
+  "mechanism_read": [
+    "The tokenized observation autoencoder is stable on encoded ground-truth surfaces.",
+    "The sampled latent transition leaves the learned latent manifold immediately.",
+    "Decoder outputs from off-manifold token states create floor/ceiling explosions, over-common-mode dependence, and the wrong mean-reversion sign."
+  ],
+  "decision": {
+    "status": "closed",
+    "next_step": "Move to a probabilistic latent-token state-space family instead of adding deterministic token-delta stabilizers."
+  }
+}

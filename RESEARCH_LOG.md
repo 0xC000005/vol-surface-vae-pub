@@ -82345,3 +82345,29 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement `273a-v0` and test whether a structured latent token state can reduce the over-common-mode collapse while preserving the manifold gains from `272a`.
 
 ---
+## 2026-04-21: 273a Token Latent FM Closes on Manifold-Departure Pathology
+
+- Implemented and ran 273a-v0: latent token state-space flow matching with explicit observation model.
+- Artifacts:
+  - model: diffusion/block_ar/ar_surface_token_flow_matching.py
+  - trainer: experiments/backfill/block_ar/train_273a_ar_surface_token_flow_matching.py
+  - eval: results/block_ar/273a_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-21/analysis/273a_postmortem/summary.md
+- Result: 2/11 (passes: block_ar, cointegration).
+- Key metrics:
+  - coverage90 = 0.996, calibration_error = 0.188
+  - corr_ratio = 1.599, rank_ratio = 0.337
+  - mr_ratio = -1.673
+  - cointegration_ratio = 1.513
+  - pathwise_max_jump_ks = 1.000
+  - surface explosion rate = 1.000
+- Mechanism read:
+  - the tokenized observation autoencoder itself is not the blocker; reconstruction on encoded ground-truth future surfaces stays on-manifold (recon_floor_rate = 0.000, recon_ceiling_rate = 0.000, recon_mae = 0.0328)
+  - the sampled latent transition is the blocker; a one-step rollout probe already leaves the latent manifold and explodes support (step1_floor_rate = 0.291, step1_ceiling_rate = 0.069, min/max = -1.905 / 7.971)
+  - deterministic FM on raw token-state deltas is therefore not a viable continuation path
+- Decision:
+  - close 273a as the active deterministic token-delta FM path
+  - do not add latent-scaling or clipping stabilizers
+  - next step is a probabilistic latent-token state-space family where the latent manifold is part of the model specification rather than an accidental reconstruction manifold
+
+---
