@@ -85629,3 +85629,30 @@ The next principled step is not another support variant. It is a support-conditi
 - make the daily decoder predict residual daily changes around that scaffold, not the absolute next-change law
 
 ---
+## 2026-04-22: 293g ideation: support-conditioned residual daily law
+
+### Context
+The `293d/293e/293f` analysis showed that the explicit support-object branch is near a local cap as a representation search:
+- monolithic support anchors structure better
+- compositional support softens level/jump behavior
+- the hybrid still does not make the scaffold govern the dead path-shape suites
+
+So the live question is no longer support representation. It is support **use**.
+
+### Decision
+Selected `293g-v0` as the next clean follow-up.
+
+Mechanism:
+- keep the `293d` monolithic coarse support object
+- keep the same fixed-horizon daily joint-token decoder family
+- change only the daily target:
+  - predict residual transformed changes around the scaffold
+  - not the absolute transformed next-change law
+
+### Mechanism read
+This is the narrowest direct test of the current diagnosis. If it works, the scaffold was informative enough and the blocker was how the decoder used it. If it fails, the support branch is closer to capped even when the scaffold is used structurally.
+
+### Next step
+Implement `293g-v0` with coarse support plus a residual daily change-token law around the scaffold.
+
+---

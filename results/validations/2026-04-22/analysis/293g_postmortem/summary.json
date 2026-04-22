@@ -1,0 +1,57 @@
+{
+  "model": "293g",
+  "checkpoint": "models/backfill/293g_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293g_v0_s42/full11.json",
+  "score": {
+    "n_pass": 4,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.948,
+    "calibration_error": 0.109,
+    "change_ks_pass": 14,
+    "level_ks_pass": 3,
+    "corr_ratio": 0.69,
+    "rank_ratio": 1.933,
+    "cointegration_ratio": 1.035,
+    "worst_cell_cointegration_ratio": 0.25,
+    "mr_ratio": 2.42,
+    "active_pass_rate": 0.125,
+    "active_cell_corr": 0.703,
+    "turb_calm_width_ratio": 0.697,
+    "max_jump_ks": 0.578,
+    "q90_ratio": 1.186,
+    "q99_ratio": 1.232
+  },
+  "training": {
+    "best_epoch": 6,
+    "best_val_total": 6.48,
+    "token_accuracy_read": "residual token accuracy materially stronger than earlier support runs",
+    "coarse_accuracy_read": "coarse support accuracy became meaningfully non-zero"
+  },
+  "comparison_vs_293f": {
+    "score": "4/11 -> 4/11",
+    "improved": [
+      "coverage90",
+      "level_ks",
+      "cointegration_ratio",
+      "jump_q90_q99_scale",
+      "active_cell_corr"
+    ],
+    "regressed": [
+      "change_ks",
+      "calibration_error",
+      "corr_ratio",
+      "mr_ratio",
+      "turb_calm_ratio"
+    ]
+  },
+  "mechanism_read": "Support use is live, but the first residual formulation over-anchors to the scaffold. Treating the scaffold as a daily level pull target improved cointegration and some level-side metrics, but it over-mean-reverted, inverted regime width timing, and damaged daily change-law sharpness.",
+  "next_step": "research_ideation"
+}
