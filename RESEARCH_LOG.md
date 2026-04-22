@@ -81933,3 +81933,27 @@ Proceed to `268b-v0`.
 Keep the same direct path-space FM family, but replace the single broadcast history context with sequence-aware history-to-future conditioning so the velocity field can use history locally in time. Do not add latent machinery, bounded side paths, or suite-specific losses.
 
 ---
+## 2026-04-21: 268b-v0 Cross-Attentive History Conditioning: Direct Level-Space FM Closes Cleanly
+
+### Context
+`268a-v0` showed that direct path-space flow matching is alive, but the main failure looked like weak history use. `268b-v0` tested the smallest clean fix: keep the same direct future-path FM family and replace the single broadcast history vector with sequence-aware history-to-future conditioning.
+
+### Result
+- `268b-v0` trained stably and regressed to `1/11`
+- passes: `block_ar`
+- best epoch: `8`
+- artifacts:
+  - eval: `results/block_ar/268b_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/268b_postmortem/summary.md`
+
+### Mechanism Read
+- Sequence-aware conditioning did not fix the decisive problem. Conditionality remained almost flat (`MAE reduction = 0.3%`, turb/calm width ratio `1.017`).
+- Support and anchoring got worse, not better: explosion rose to `70.3%`, level KS fell to `1/25`, and cross-cell mean correlation fell below gate (`corr ratio = 0.461`).
+- This points away from the broadcast-context hypothesis as the primary bottleneck. The deeper issue is that direct level-space path FM is too support-loose and too easy to solve with generic overspread trajectories.
+
+### Decision
+Do not keep patching direct level-space FM.
+
+Shift the `268` family to direct conditional future-change flow matching in a generic normalized change coordinate, then test whether that tighter stochastic object restores support and conditional structure without latent machinery, bounded side paths, or hand-engineered factorization.
+
+---

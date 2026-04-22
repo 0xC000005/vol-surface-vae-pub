@@ -1,0 +1,18 @@
+{
+  "best_epoch": 8,
+  "best_val_total": 0.09385073823588234,
+  "config": {
+    "history_len": 30,
+    "future_len": 30,
+    "n_cells": 25,
+    "model_hidden": 192,
+    "model_layers": 4,
+    "model_dropout": 0.1,
+    "time_dim": 32,
+    "pos_dim": 32,
+    "kernel_size": 3,
+    "dilation": 1,
+    "n_heads": 4,
+    "flow_steps": 24
+  }
+}
