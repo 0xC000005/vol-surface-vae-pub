@@ -82396,3 +82396,53 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 274a-v0 in fresh files and run the full train/eval/postmortem loop.
 
 ---
+## 2026-04-21: 274a Probabilistic Token-State Model Fixes Support but Exposes Narrow Prior
+
+- Implemented and ran 274a-v0: probabilistic latent-token state-space model with explicit observation model.
+- Artifacts:
+  - model: diffusion/block_ar/ar_surface_probabilistic_token_model.py
+  - trainer: experiments/backfill/block_ar/train_274a_ar_surface_probabilistic_token_model.py
+  - eval: results/block_ar/274a_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-21/analysis/274a_postmortem/summary.md
+- Result: 2/11 (passes: surface, block_ar).
+- Key metrics:
+  - coverage90 = 0.648, calibration_error = 0.154
+  - corr_ratio = 1.546, rank_ratio = 0.450
+  - mr_ratio = 2.336
+  - cointegration_ratio = 1.066, but worst-cell ratio = 0.224
+  - pathwise_max_jump_ks = 0.998
+  - surface explosion rate = 0.003
+- What improved vs 273a:
+  - the manifold-departure pathology is fixed without any clips or side paths
+  - surface validity now passes cleanly
+  - samples no longer hit floor/ceiling saturation
+- Mechanism read:
+  - posterior collapse did not happen (val_kl ~ 0.255, prior_std ~ 0.445, post_std ~ 0.329)
+  - posterior/decoder probe stays well-behaved (posterior_recon_mae = 0.0267, zero floor/ceiling)
+  - the live bottleneck is the one-step latent prior, which is too narrow and too common-mode (prior_step1_std = 0.0643 vs GT 0.0892)
+- Decision:
+  - keep the 274 family alive
+  - next step is not a side-path or KL patch
+  - next step is a short-memory latent prior over recent latent-token history
+
+---
+## 2026-04-21: 274b Short-Memory Prior Selected
+
+- Trigger:
+  - 274a fixed support and manifold departure, so the family is still live.
+  - The remaining failure concentrates in the prior: samples are too narrow, too smooth, and too common-mode.
+- Selected next family: 274b-v0, probabilistic latent-token state-space model with short-memory latent prior.
+- Minimal architectural change:
+  - keep posterior q(z_t | x_t)
+  - keep decoder p(x_t | z_t)
+  - keep tokenized latent state
+  - change only the prior from p(z_t | z_{t-1}) to p(z_t | z_{t-k:t-1})
+- Why this is principled:
+  - it responds directly to the now-isolated memoryless-prior pathology
+  - it does not add side paths, EC baselines, KL warmup, free bits, or low-rank output assumptions
+- Kill criteria:
+  - if KL collapses after adding memory, close the family quickly
+  - if rank ratio and coverage still do not improve together, do not keep stacking prior machinery
+- Next step: implement 274b-v0 in fresh files and rerun the full train/eval/postmortem loop.
+
+---

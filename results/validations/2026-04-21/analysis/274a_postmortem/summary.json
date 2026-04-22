@@ -1,0 +1,56 @@
+{
+  "result": {
+    "score": "2/11",
+    "passes": [
+      "surface",
+      "block_ar"
+    ],
+    "best_epoch": 20
+  },
+  "key_metrics": {
+    "coverage90": 0.648,
+    "calibration_error": 0.154,
+    "conditional_mae_reduction_pct": 0.6,
+    "turb_calm_width_ratio": 0.979,
+    "acf_corr": 0.948,
+    "kurtosis_ratio": 0.207,
+    "corr_ratio": 1.546,
+    "rank_ratio": 0.45,
+    "mr_ratio": 2.336,
+    "cointegration_ratio": 1.066,
+    "cointegration_worst_cell_ratio": 0.224,
+    "max_jump_ks": 0.998,
+    "surface_explosion_rate": 0.003,
+    "level_ks_pass": 1,
+    "change_ks_pass": 6,
+    "mae_pass": 23
+  },
+  "training_signals": {
+    "val_kl": 0.255,
+    "prior_std": 0.445,
+    "post_std": 0.329
+  },
+  "probes": {
+    "posterior_reconstruction": {
+      "mae": 0.0267,
+      "floor_rate": 0.0,
+      "ceiling_rate": 0.0
+    },
+    "one_step_prior": {
+      "mae": 0.0363,
+      "floor_rate": 0.0,
+      "ceiling_rate": 0.0,
+      "std": 0.0643,
+      "gt_std": 0.0892
+    }
+  },
+  "mechanism_read": [
+    "The probabilistic latent manifold fixed the 273a support explosion without any clipping or side paths.",
+    "Posterior collapse did not occur: KL remained nonzero and prior/posterior scales stayed distinct.",
+    "The one-step latent prior is now the bottleneck: it stays on-support but produces samples that are too narrow, too smooth, and too common-mode."
+  ],
+  "decision": {
+    "status": "keep_family_alive",
+    "next_step": "274b-v0: add short latent memory to the prior while keeping the same probabilistic token-state family and explicit observation model."
+  }
+}
