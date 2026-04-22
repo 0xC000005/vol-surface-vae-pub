@@ -81505,3 +81505,48 @@ Do **not** respond with more diffusion denoiser micro-tuning unless a later para
 - postmortem MD: `results/validations/2026-04-21/analysis/266c_postmortem/summary.md`
 
 ---
+## 2026-04-21: 266d-v0 Ideation: Vanilla Latent Flow Matching as the Cleanest Core Swap
+
+### Context
+`266c-v0` clarified the `266` family cleanly:
+
+- the temporal token bottleneck representation is still alive
+- the sequence-aware latent diffusion prior improved sampled temporal moments
+- but the sampled law still collapsed rank, weakened cointegration, and failed calibrated conditional scenario generation
+
+So the active question is no longer denoiser geometry. It is the generative core itself.
+
+### Decision
+Select `266d-v0` as the next family.
+
+`266d-v0` keeps everything from `266c` except one thing:
+- replace the latent diffusion prior
+- with a **vanilla conditional flow-matching prior over latent token paths**
+
+Keep fixed:
+- history encoder
+- future token bottleneck encoder
+- decoder
+- latent token-path geometry
+- first-principles reset doctrine
+
+### Why 266d Is The Most Principled Next Step
+This is the smallest clean change left inside the `266` family.
+
+It tests the narrowest possible claim:
+
+if the temporal bottleneck representation is real, can a simpler standard generative core preserve it better than latent diffusion?
+
+This avoids:
+- more diffusion denoiser tuning
+- bounded side paths
+- low-rank decoder reintroduction
+- posterior-teacher or target-engineering drift
+
+### Immediate Next Step
+Implement `266d-v0` in fresh files and compare it directly against `266c-v0`.
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/266d_ideation/memo.md`
+
+---
