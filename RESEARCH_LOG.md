@@ -81981,3 +81981,28 @@ Close the fixed-horizon direct-path `268` family.
 Shift to `269a-v0`: a first-principles autoregressive next-change flow-matching baseline that conditions each next-step change on the evolving generated history, with no latent bottleneck, no KL, and no hand-engineered side paths.
 
 ---
+## 2026-04-21: 269a-v0 Autoregressive Next-Change FM: State Feedback Matters, Pure Direct Generators Close
+
+### Context
+`269a-v0` was the first strict-reset autoregressive baseline: next-change flow matching with generated-state feedback, no latent bottleneck, no KL, no hard low-rank head, and no bounded side mechanisms.
+
+### Result
+- `269a-v0` trained stably and scored `1/11`
+- passes: `conditionality`
+- best epoch: `19`
+- artifacts:
+  - eval: `results/block_ar/269a_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/269a_postmortem/summary.md`
+
+### Mechanism Read
+- Generated-state feedback did matter: conditional MAE reduction finally passed (`5.2%`).
+- But the pure direct-generator line failed in a new way: width exploded, support broke badly (`100%` explosion), and cross-cell structure collapsed (`corr ratio = 0.298`, `rank ratio = 3.607`).
+- Mean reversion still stayed essentially absent through most of the horizon.
+- Taken together with `268a-268c`, this closes the pure direct observation-space generator line. The missing ingredient now looks like a generic learned shared bottleneck, not more direct-path capacity.
+
+### Decision
+Close the pure direct-generator line.
+
+The next principled step is research ideation for a new clean restart family built around a narrow learned latent bottleneck with autoregressive state feedback, while keeping the reset bans in place: no hard low-rank head, no bounded side paths, and no heuristic teacher-engineering patches.
+
+---
