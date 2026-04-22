@@ -82725,3 +82725,26 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next iteration type: paradigm shift
 
 ---
+## 2026-04-22: 277a Stage A Paradigm Shift: Deterministic Retrieval Backbone
+
+- Completed a Stage A paradigm-shift decision after 276b closed deterministic tokenization as a live strategy.
+- Artifact:
+  - memo: results/validations/2026-04-22/analysis/277a_stage_a_paradigm_shift/memo.md
+- Selected next family: 277a-v0, deterministic retrieval backbone.
+- Core idea:
+  - retrieve the most similar training history window
+  - output that window's realized future path directly as the deterministic Stage A backbone path
+- Rationale:
+  - the learned deterministic predictors keep smoothing away jumps, active MR, and change-law shape
+  - a retrieved real future path preserves those properties by construction
+  - this is the cleanest first-principles response to the deterministic oracle evidence that 8/11 is achievable in principle
+- Explicitly still banned:
+  - diffusion / FM in Stage A
+  - latent priors/posteriors
+  - token heads
+  - side paths
+  - EC baselines
+  - suite-specific auxiliary losses
+- Next step: implement 277a-v0 as a raw-history nearest-neighbor deterministic backbone and evaluate it as the first retrieval-based Stage A test.
+
+---
