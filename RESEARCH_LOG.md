@@ -84641,3 +84641,64 @@ Next step: `289b-v0`
 - still no retrieval bank, no low-rank hand-constraint, no bounded side paths
 
 ---
+## 2026-04-22: 289b-v0 Deterministic Latent World Model
+
+### Context
+`289a` falsified direct observation-space world modeling for Stage A. The next clean test was `289b-v0`: keep the deterministic world-model paradigm, but insert a learned latent state between observation and transition.
+
+### Implementation
+- Added deterministic latent world model:
+  - [deterministic_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/diffusion/block_ar/deterministic_latent_world_model.py)
+- Added trainer:
+  - [train_289b_deterministic_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_289b_deterministic_latent_world_model.py)
+- Registered loader path in:
+  - [_rollout_220_utils.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/_rollout_220_utils.py)
+
+### Result
+- `289b-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - [full11.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289b_v0_s42/full11.json)
+  - [full11.md](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289b_v0_s42/full11.md)
+- postmortem:
+  - [summary.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289b_world_model_postmortem/summary.md)
+
+### Findings
+- Relative to `289a`, the latent state materially improved deterministic structure:
+  - `n_pass: 1 -> 2`
+  - `corr_ratio: 0.056 -> 0.440`
+  - `rank_ratio: 2.871 -> 1.751`
+  - `mr_ratio: 0.686 -> 0.719`
+  - `active MR pass rate: 33.3% -> 45.8%`
+- But sharp change-law realism got worse:
+  - `change KS pass cells: 7 -> 0`
+  - `cointegration ratio: 0.476 -> 0.340`
+  - `jump q90 ratio: 0.077 -> 0.045`
+  - `jump q99 ratio: 0.125 -> 0.070`
+
+### Mechanism
+A teacher-vs-rollout probe shows the next bottleneck is rollout collapse, not a dead one-step model:
+- teacher-change std: `0.0596`
+- rollout-change std: `0.0119`
+- target-change std: `0.1076`
+- teacher-change MAE: `0.0343`
+- rollout-change MAE: `0.0332`
+- rollout-level MAE still degrades to `0.0630`
+
+Interpretation:
+- the latent-state idea is directionally right
+- but the autoregressive generated-state update is too weak and quickly collapses variance
+
+### Decision
+Keep the world-model Stage A paradigm active.
+
+Next step: `289c-v0`
+- keep deterministic Stage A
+- keep latent world model
+- replace the shallow generated-state update with an explicit observation encoder feeding the recurrent latent transition at every step
+- spec:
+  - [289c spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289c_world_model_ideation/spec.md)
+
+---
