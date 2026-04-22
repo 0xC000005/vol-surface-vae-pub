@@ -85526,3 +85526,66 @@ Interpretation:
 Do `293f` ideation next only if a clean hybrid support representation exists. Otherwise the branch should be treated as near a local cap.
 
 ---
+## 2026-04-22: 293f ideation: anchored coarse support with knot refinement
+
+### Context
+The `293d` vs `293e` comparison showed a real support-object tradeoff: monolithic support anchors structure better, while compositional support is easier to learn and softens level/jump behavior.
+
+### Decision
+Selected `293f-v0` as the next follow-up.
+
+Mechanism:
+- keep the `293d` monolithic coarse path code as the explicit structural anchor
+- add a small continuous knotwise refinement path conditioned on history and the chosen anchor
+- interpolate the refined knot panel into the same scaffold used by the daily joint-token decoder
+
+### Mechanism read
+This is the narrowest clean hybrid test. It keeps one strong global anchor but avoids adding a second discrete support branch. The question is whether light continuous knot refinement can recover some of `293e`'s path-shape softness without destroying `293d`'s structural anchoring.
+
+### Next step
+Implement `293f-v0` with one global coarse anchor code plus a bounded knotwise refinement head.
+
+---
+## 2026-04-22: 293f anchored support with knot refinement
+
+### Context
+`293d` and `293e` established a clean support-object tradeoff inside the `293` fixed-horizon joint-law family:
+- `293d`: monolithic coarse support, harder to predict, stronger structural anchoring
+- `293e`: compositional knot-token support, easier to learn, weaker structural anchoring
+
+`293f-v0` tested the narrowest clean hybrid: keep `293d`'s global coarse anchor, then add a small continuous knotwise refinement before interpolating the support scaffold for the unchanged daily joint-token decoder.
+
+### Result
+- model: `293f`
+- checkpoint: `models/backfill/293f_v0_s42/best_model.pt`
+- eval: `results/block_ar/293f_v0_s42/full11.json`
+- score: `4/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cointegration`
+  - `cross_cell_correlation`
+
+### High-signal metrics
+- coverage90: `0.913`
+- calibration error: `0.054`
+- change KS pass: `25/25`
+- level KS pass: `2/25`
+- corr ratio: `1.278`
+- rank ratio: `0.863`
+- cointegration ratio: `0.779`
+- worst-cell cointegration ratio: `0.250`
+- MR ratio: `0.098`
+- active-cell corr: `0.591`
+- turb/calm width ratio: `1.049`
+- max-jump KS: `0.660`
+
+### Mechanism read
+The hybrid trained stably, but it did not break the support-object tradeoff. Relative to `293d`, it preserved the stronger anchored side and marginally improved coverage and cointegration robustness, but it did not keep enough of `293e`'s softer path-shape gains. Level KS stayed effectively dead and jump realism remained weak.
+
+So `293f` behaved mostly like a slightly better anchored variant, not a synthesis of the two sides.
+
+### Decision
+The explicit support-object branch remains alive, but it now looks close to a local cap. The next principled step is post-experiment analysis of `293d`, `293e`, and `293f`, focused on whether the real bottleneck is support use rather than support representation.
+
+---

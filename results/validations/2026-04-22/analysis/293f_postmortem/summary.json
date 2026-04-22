@@ -1,0 +1,64 @@
+{
+  "model": "293f",
+  "checkpoint": "models/backfill/293f_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293f_v0_s42/full11.json",
+  "score": {
+    "n_pass": 4,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.913,
+    "calibration_error": 0.054,
+    "change_ks_pass": 25,
+    "level_ks_pass": 2,
+    "corr_ratio": 1.278,
+    "rank_ratio": 0.863,
+    "cointegration_ratio": 0.779,
+    "worst_cell_cointegration_ratio": 0.25,
+    "mr_ratio": 0.098,
+    "active_cell_corr": 0.591,
+    "turb_calm_width_ratio": 1.049,
+    "max_jump_ks": 0.66
+  },
+  "training": {
+    "best_epoch": 4,
+    "best_val_total": 9.042,
+    "anchor_accuracy_read": "coarse anchor accuracy remained weak throughout training",
+    "refinement_read": "refinement loss stayed bounded and stable"
+  },
+  "comparison_vs_293d": {
+    "score": "4/11 -> 4/11",
+    "improved": [
+      "coverage90",
+      "cointegration_ratio",
+      "worst_cell_cointegration_ratio",
+      "mr_ratio",
+      "turb_calm_ratio"
+    ],
+    "regressed": [
+      "active_cell_corr",
+      "max_jump_ks",
+      "calibration_error"
+    ]
+  },
+  "comparison_vs_293e": {
+    "score": "3/11 -> 4/11",
+    "improved": [
+      "change_ks",
+      "cointegration_robustness",
+      "mr_ratio"
+    ],
+    "not_kept": [
+      "level_ks",
+      "max_jump_ks"
+    ]
+  },
+  "mechanism_read": "The hybrid anchor-plus-refinement support object did not break the support-object tradeoff. It behaved mostly like a slightly better anchored variant: structural anchoring stayed alive, but the soft path-shape gains from the compositional branch did not carry through strongly enough to move the dead suites.",
+  "next_step": "post_experiment_analysis"
+}
