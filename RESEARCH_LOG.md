@@ -84764,3 +84764,60 @@ Next step: `289d-v0`
   - [289d spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289d_world_model_ideation/spec.md)
 
 ---
+## 2026-04-22: 289d-v0 Token-State Latent World Model
+
+### Context
+`289c` was the strongest world-model Stage A result so far at `3/11`. The next clean question was whether the remaining bottleneck was simply too little latent state capacity under rollout. `289d-v0` tested the smallest such increase: replace the single latent vector with a small latent token/state set updated by a sequence-aware Transformer block.
+
+### Implementation
+- Added token-state world model:
+  - [deterministic_token_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/diffusion/block_ar/deterministic_token_latent_world_model.py)
+- Added trainer:
+  - [train_289d_deterministic_token_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_289d_deterministic_token_latent_world_model.py)
+- Registered loader path in:
+  - [_rollout_220_utils.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/_rollout_220_utils.py)
+
+### Result
+- `289d-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - [full11.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289d_v0_s42/full11.json)
+  - [full11.md](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289d_v0_s42/full11.md)
+- postmortem:
+  - [summary.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289d_world_model_postmortem/summary.md)
+
+### Findings
+- `289d` improved only one major deterministic structural metric over `289c`:
+  - aggregate cointegration ratio: `0.292 -> 1.192`
+- But it gave back most of the useful `289c` gains:
+  - `n_pass: 3 -> 2`
+  - `corr_ratio: 0.596 -> 0.212`
+  - `rank_ratio: 1.356 -> 2.168`
+  - `mr_ratio: 0.912 -> 0.781`
+  - `level KS pass cells: 5 -> 0`
+
+### Mechanism
+A teacher-vs-rollout probe shows the token-state branch weakened even the one-step path:
+- teacher-change std: `0.0293`
+- rollout-change std: `0.0116`
+- target-change std: `0.1076`
+
+Interpretation:
+- `289d` did not solve rollout collapse
+- it also made the teacher-forced path itself too smooth
+- the naive token-state capacity increase fragmented the shared state instead of preserving useful global structure
+
+### Decision
+Do not continue local token-state tweaks.
+
+Keep the world-model Stage A paradigm, but treat the naive token-state branch as falsified.
+
+Next step: `289e-v0`
+- return to the stronger `289c`-style global latent state
+- add explicit read-only history-memory access during rollout
+- spec:
+  - [289e spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289e_world_model_ideation/spec.md)
+
+---
