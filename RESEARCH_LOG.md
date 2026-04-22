@@ -85014,3 +85014,46 @@ Artifacts:
 - reset spec: `results/validations/2026-04-22/analysis/292a_one_stage_ar_reset/spec.md`
 
 ---
+## 2026-04-22: 293a joint conditional-law reset
+
+### Context
+The active `289 -> 292` line is being retired as the main search tree.
+
+The repo now has three clear historical anchors:
+- `170e`: one-shot structured joint likelihood with explicit Student-t / separable covariance assumptions
+- `183c`: strongest fixed-30d joint generator, but transport / residual-law based
+- `212ai` and descendants: strong H=1 conditional law that degrades under autoregressive rollout
+
+That means another reset is only justified if it is materially different from all three.
+
+### Decision
+The new active family is `293a`: a one-stage fixed-horizon conditional joint-law model over future normalized changes.
+
+Native target:
+- `p(Delta X_{1:30} | H)`
+
+Minimal workflow:
+1. encode history
+2. build future `(horizon, cell)` tokens
+3. predict conditional marginals for each future point
+4. model dependence across all future points jointly
+5. train by maximizing conditional joint log-likelihood
+
+### Why This Is Different
+Relative to prior anchors:
+- vs `170e`: no fixed Student-t family or separable Kronecker covariance
+- vs `183c`: no transport / residual-law backbone, no explicit mean/covariance/path split
+- vs `212`: no recursive next-day rollout; the 30-day future is the native object
+
+So this is not another vague "one-shot" or "AR" restart. It is a distribution-first fixed-horizon reset.
+
+### Immediate Next Step
+Implement `293a-v0` as:
+- history encoder
+- future token grid
+- conditional monotone marginal flows
+- attentional copula dependency module
+
+Train and evaluate one clean baseline before any ablations.
+
+---
