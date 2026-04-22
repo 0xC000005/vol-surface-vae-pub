@@ -81868,3 +81868,43 @@ The next principled step is a **paradigm shift** toward a direct conditional sce
 - postmortem MD: `results/validations/2026-04-21/analysis/267b_postmortem/summary.md`
 
 ---
+## 2026-04-21: 268a-v0 Paradigm Shift: Direct Conditional Path-Space Flow Matching
+
+### Context
+`267b-v0` closed the plain latent-token anti-collapse line cleanly:
+
+- plain ELBO latent collapse remained
+- decoder-bypass reduction was not enough
+- keeping the family alive would now require heuristic rescue machinery
+
+That is no longer the most principled path.
+
+### Decision
+Select `268a-v0` as the next family.
+
+`268a-v0` is a **direct conditional future-path flow-matching model**:
+- history encoder -> context
+- future path itself is the stochastic object
+- sequence-aware velocity network over the future path
+- no latent posterior
+- no KL
+- no low-rank head
+- no bounded side paths
+
+### Why 268a Is The Most Principled Next Step
+This is the cleanest Bitter-Lesson-aligned generator remaining:
+- direct
+- generic
+- high-capacity
+- minimal assumptions
+
+It matches the real object we care about:
+- the conditional law of the future path itself
+
+### Immediate Next Step
+Implement `268a-v0` in fresh files and compare it directly against the best clean reset lines.
+
+### Artifacts
+- paradigm-shift memo: `results/validations/2026-04-21/analysis/268a_paradigm_shift/memo.md`
+
+---
