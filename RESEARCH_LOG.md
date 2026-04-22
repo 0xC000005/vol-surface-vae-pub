@@ -85656,3 +85656,80 @@ This is the narrowest direct test of the current diagnosis. If it works, the sca
 Implement `293g-v0` with coarse support plus a residual daily change-token law around the scaffold.
 
 ---
+## 2026-04-22: 293g residual daily law around coarse support
+
+### Context
+The `293d/293e/293f` analysis concluded that the explicit support branch was near a local cap as a support-representation search. `293g-v0` therefore kept the same monolithic coarse scaffold as `293d`, but changed the daily law to predict residual transformed changes around that scaffold instead of the absolute next-change law.
+
+### Result
+- model: `293g`
+- checkpoint: `models/backfill/293g_v0_s42/best_model.pt`
+- eval: `results/block_ar/293g_v0_s42/full11.json`
+- score: `4/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cointegration`
+  - `cross_cell_correlation`
+
+### High-signal metrics
+- coverage90: `0.948`
+- calibration error: `0.109`
+- change KS pass: `14/25`
+- level KS pass: `3/25`
+- corr ratio: `0.690`
+- rank ratio: `1.933`
+- cointegration ratio: `1.035`
+- worst-cell cointegration ratio: `0.250`
+- MR ratio: `2.420`
+- active-cell pass rate: `12.5%`
+- active-cell corr: `0.703`
+- turb/calm width ratio: `0.697`
+- max-jump KS: `0.578`
+- jump q90 ratio: `1.186`
+- jump q99 ratio: `1.232`
+
+### Mechanism read
+`293g` changed the behavior materially. The scaffold was no longer being ignored. Cointegration improved, level-side metrics improved slightly, and the extreme-jump scale came into gate.
+
+But the residual formulation was too aggressive:
+- daily change KS collapsed
+- short-horizon mean reversion overshot badly
+- regime width timing inverted
+
+So the read is not that support use is wrong. It is that using the scaffold as a direct daily level pull target over-anchors the path.
+
+### Decision
+The branch remains alive, but the live formulation question is now narrower:
+- the scaffold likely needs to act as a low-frequency drift schedule, not a direct daily level attractor
+
+The next principled step is research ideation for that support-use variant, not another support-object change.
+
+---
+## 2026-04-22: 293h ideation: scaffold-increment residual law
+
+### Context
+`293g` showed that support use is live, but it over-anchored to the scaffold because the baseline was defined as a direct daily move toward that day's scaffold level.
+
+That created the characteristic failure pattern:
+- daily change KS collapsed
+- short-horizon mean reversion overshot
+- regime width timing inverted
+
+### Decision
+Selected `293h-v0` as the next clean follow-up.
+
+Mechanism:
+- keep the same monolithic coarse scaffold
+- keep the same residual daily token law
+- change only the baseline geometry:
+  - use the scaffold's own day-to-day increment schedule
+  - not a direct pull from the current state to the scaffold level
+
+### Mechanism read
+This is the smallest direct fix to the `293g` pathology. If it works, the problem was the support-use geometry, not support use itself. If it fails, the support-use subfamily is close to a local cap too.
+
+### Next step
+Implement `293h-v0` with scaffold-increment residual daily change tokens.
+
+---
