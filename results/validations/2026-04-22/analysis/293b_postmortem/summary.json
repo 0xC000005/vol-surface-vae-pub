@@ -1,0 +1,43 @@
+{
+  "model": "293b",
+  "checkpoint": "models/backfill/293b_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293b_v0_s42/full11.json",
+  "n_pass": 4,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cointegration",
+    "cross_cell_correlation"
+  ],
+  "metrics": {
+    "coverage90": 0.89475,
+    "calibration_error": 0.032299382716049395,
+    "conditional_width_ratio": 1.031150476747096,
+    "conditional_mae_reduction_pct": 2.0135631765466132,
+    "turb_calm_width_ratio": 0.9799508177758376,
+    "acf_corr": 0.9558615537453618,
+    "change_ks_n_pass": 23,
+    "level_ks_n_pass": 2,
+    "corr_ratio": 1.2562617959248572,
+    "rank_ratio": 0.8792106222643273,
+    "cointegration_ratio": 0.7016129032258065,
+    "mr_ratio": 0.03372949807602066,
+    "active_mr_pass_rate": 0.0,
+    "max_jump_ks": 0.6796875,
+    "jump_q90_ratio": 0.8321486311563567,
+    "jump_q99_ratio": 1.1780240145325452
+  },
+  "comparison_to_293a": {
+    "n_pass_delta": 1,
+    "calibration_error_delta": -0.008650462962962929,
+    "cointegration_pass_delta": 1,
+    "mr_ratio_delta": -0.048712188970762075,
+    "level_ks_n_pass_delta": 0,
+    "max_jump_ks_delta": -0.020312499999999956
+  },
+  "mechanism_read": {
+    "family_status": "alive",
+    "primary_issue": "The added global path latent improved calibration and cointegration a bit, but it did not become a true long-horizon path-shape controller. It behaves more like an extra entropy/context channel than a mechanism that enforces mean reversion, level-law fidelity, regime width allocation, or pathwise jump ordering."
+  },
+  "next_step": "post_experiment_analysis_compare_293a_293b"
+}

@@ -85173,3 +85173,63 @@ Implement `293b-v0` as:
 - plus one global path latent conditioning all daily token decodes
 
 ---
+## 2026-04-22: 293b-v0 global-path-latent follow-up
+
+### Context
+Second experiment inside the `293` fixed-horizon joint-law family.
+
+Goal:
+- keep `293a`'s live local stochastic law
+- add exactly one global future-window-level variable that could tie the 30-day path together
+
+Implementation:
+- same daily joint-token likelihood as `293a`
+- add one shared global path latent
+- history-conditioned prior at inference
+- future-conditioned posterior during training
+- token NLL + small KL objective
+
+### Result
+Artifacts:
+- model: `diffusion/block_ar/probabilistic_joint_token_path_latent_model.py`
+- trainer: `experiments/backfill/block_ar/train_293b_probabilistic_joint_token_path_latent_model.py`
+- eval: `results/block_ar/293b_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/293b_postmortem/summary.md`
+
+Headline:
+- `293b-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.895`
+- calibration error: `0.032`
+- change KS: `23/25`
+- level KS: `2/25`
+- corr ratio: `1.256`
+- rank ratio: `0.879`
+- cointegration ratio: `0.702`
+- MR ratio: `0.034`
+- max-jump KS: `0.680`
+
+### Mechanism Read
+Relative to `293a`:
+- the global path latent helped calibration and recovered cointegration
+- but it did not fix the actual long-horizon path-shape failures
+- mean reversion got worse
+- level-law fidelity did not move
+- regime differentiation is still dead
+
+Clean read:
+- the added latent behaves more like an extra entropy/context channel than a true path-shape controller
+- the family is still alive, but the missing ingredient is now specifically **path-shape coupling**, not generic latent capacity
+
+### Decision
+Do **post-experiment analysis** next.
+
+Compare:
+- `293a`
+- `293b`
+
+The next mechanism should target path-shape control directly, not just add another generic latent.
+
+---
