@@ -82371,3 +82371,28 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next step is a probabilistic latent-token state-space family where the latent manifold is part of the model specification rather than an accidental reconstruction manifold
 
 ---
+## 2026-04-21: 274a Probabilistic Latent-Token State-Space Family Selected
+
+- Trigger for the paradigm shift:
+  - 273a showed that the explicit tokenized observation autoencoder is usable, but deterministic FM on raw token-state deltas is not generative enough to stay on the learned latent manifold.
+  - The first sampled step already leaves support badly, while direct reconstructions remain well-behaved.
+- Selected next family: 274a-v0, a probabilistic latent-token state-space model with explicit observation model.
+- Core design:
+  - posterior q(z_t | x_t) from the tokenized observation encoder
+  - prior p(z_t | z_{t-1}) from a small sequence-aware token transition
+  - decoder p(x_t | z_t) back to surfaces
+  - simple autoregressive ELBO training with reconstruction + adjacent-step KL
+- Explicitly kept:
+  - explicit learned observation model
+  - small latent token set
+  - sequence-aware transition
+- Explicitly banned in v0:
+  - latent target engineering
+  - hard low-rank heads
+  - bounded side paths
+  - KL warmup, free bits, or posterior-collapse patching before evidence requires them
+- Rationale:
+  - if the latent manifold itself is the blocker, the clean fix is to make it part of the probabilistic model rather than keep treating it as a deterministic autoencoder coordinate system
+- Next step: implement 274a-v0 in fresh files and run the full train/eval/postmortem loop.
+
+---
