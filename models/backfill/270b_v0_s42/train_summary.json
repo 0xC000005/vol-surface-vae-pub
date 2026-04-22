@@ -1,0 +1,25 @@
+{
+  "best_epoch": 20,
+  "best_val_total": 0.28745223581790924,
+  "config": {
+    "history_len": 30,
+    "future_len": 30,
+    "n_cells": 25,
+    "n_tokens": 4,
+    "token_dim": 16,
+    "history_hidden": 64,
+    "encoder_layers": 1,
+    "encoder_dropout": 0.1,
+    "transition_hidden": 128,
+    "transition_layers": 3,
+    "transition_dropout": 0.1,
+    "time_dim": 32,
+    "step_dim": 16,
+    "decoder_hidden": 128,
+    "decoder_layers": 2,
+    "decoder_dropout": 0.1,
+    "flow_steps": 24,
+    "recon_weight": 1.0,
+    "fm_weight": 1.0
+  }
+}

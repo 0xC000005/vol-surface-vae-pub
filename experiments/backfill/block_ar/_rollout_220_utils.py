@@ -479,6 +479,12 @@ def load_one_day_kernel(
         )
 
         return load_270a_model(checkpoint_path, device)
+    if model_type == "270b":
+        from diffusion.block_ar.ar_latent_sequence_flow_matching import (
+            load_model as load_270b_model,
+        )
+
+        return load_270b_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

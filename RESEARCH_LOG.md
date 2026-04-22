@@ -82071,3 +82071,40 @@ Select `270b-v0` as the next active family:
 Implement `270b-v0` in fresh files and test whether a short latent token state is enough to avoid the rank-1 collapse while preserving generated-state feedback.
 
 ---
+## 2026-04-21: 270b-v0 Latent Token Bottleneck: Representation Lives, Decoder Target Fails
+
+### Context
+`270b-v0` kept the `270a` family but changed exactly one thing: the bottleneck shape, from one latent code to a short latent token sequence.
+
+### Result
+- `270b-v0` trained stably and scored `1/11`
+- passes: `cointegration`
+- best epoch: `20`
+- artifacts:
+  - eval: `results/block_ar/270b_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/270b_postmortem/summary.md`
+
+### Mechanism Read
+- The token bottleneck fixed the collapse pathology from `270a`. Teacher-forced token states have real variation (`prev_std_mean ~ 0.011`).
+- But teacher-forced decoding is still structurally wrong: it already has too-low rank and the wrong mean-reversion profile before stochastic rollout.
+- So the remaining bottleneck is not representation collapse. It is the decoded object.
+
+### Decision
+Keep the `270` family alive and change exactly one thing next: decode next change, not next level.
+
+---
+## 2026-04-21: 270c-v0 Ideation: Keep the Tokens, Decode Changes Instead of Levels
+
+### Context
+`270b` showed that the token bottleneck is now alive; the next-level decoder target is the part that still distorts the state law.
+
+### Decision
+Select `270c-v0` as the next active family:
+- same autoregressive latent token bottleneck
+- same latent FM transition
+- change only the decoder target from next level to next normalized change
+
+### Next Step
+Implement `270c-v0` and test whether change decoding restores the teacher-forced state law before considering any larger family shift.
+
+---
