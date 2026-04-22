@@ -84562,3 +84562,41 @@ Next step:
 - decide whether the deterministic Stage A retrieval line is capped, or whether one final non-smoothing support-use move still exists
 
 ---
+## 2026-04-22: 289a Stage A paradigm shift to deterministic world model
+
+### Context
+The deterministic retrieval Stage A line is now capped enough to retire as the active search tree.
+
+The clean comparison is:
+- `277d`: `5/11`, strong aggregate MR / active-cell support, weak level KS
+- `287e`: `4/11`, strong local change law and better level KS, but active-cell MR support collapses
+- `288a`: `4/11`, soft replay improves level-side support further, but change KS and jump realism collapse
+
+### Mechanism Read
+This is now a structural cap, not a tuning problem.
+
+The retrieval-and-replay implementation is stuck in a stable tradeoff:
+- sharp replay preserves deterministic change law but is too brittle
+- soft replay improves local level fidelity but oversmooths the dynamics
+
+So the bottleneck is no longer the query key or support object locally.
+It is the retrieval mechanism itself.
+
+### Decision
+Keep the hierarchical `8 + 3` decomposition.
+
+Replace the deterministic Stage A implementation.
+
+New active family: `289a-v0`
+- deterministic causal world-model backbone
+- learned parametric sequence model
+- normalized-change target
+- autoregressive generated-state rollout
+- no retrieval bank
+- no low-rank head
+- no bounded side paths
+
+### Immediate Next Step
+Implement `289a-v0` as a deterministic causal Transformer backbone and evaluate it directly as the new Stage A baseline.
+
+---
