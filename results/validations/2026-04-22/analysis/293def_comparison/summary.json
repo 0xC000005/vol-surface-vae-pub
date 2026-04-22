@@ -1,0 +1,38 @@
+{
+  "293d": {
+    "n_pass": 4,
+    "coverage90": 0.909,
+    "change_ks": 25,
+    "level_ks": 1,
+    "cointegration_ratio": 0.656,
+    "mr_ratio": 0.093,
+    "active_corr": 0.773,
+    "turb_calm_ratio": 0.984,
+    "max_jump_ks": 0.647
+  },
+  "293e": {
+    "n_pass": 3,
+    "coverage90": 0.901,
+    "change_ks": 24,
+    "level_ks": 3,
+    "cointegration_ratio": 0.768,
+    "mr_ratio": 0.075,
+    "active_corr": 0.67,
+    "turb_calm_ratio": 1.029,
+    "max_jump_ks": 0.625
+  },
+  "293f": {
+    "n_pass": 4,
+    "coverage90": 0.913,
+    "change_ks": 25,
+    "level_ks": 2,
+    "cointegration_ratio": 0.779,
+    "mr_ratio": 0.098,
+    "active_corr": 0.591,
+    "turb_calm_ratio": 1.049,
+    "max_jump_ks": 0.66
+  },
+  "mechanism_read": "The explicit support-object branch is near a local cap as a representation search. Monolithic, compositional, and hybrid support objects all preserve the local stochastic law, but none makes the scaffold govern the dead path-shape suites strongly enough.",
+  "decision": "research_ideation",
+  "next_direction": "Keep explicit coarse support but make the daily decoder model residual next-change law around the scaffold rather than absolute next-change law."
+}

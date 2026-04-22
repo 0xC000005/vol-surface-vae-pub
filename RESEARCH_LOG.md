@@ -85589,3 +85589,43 @@ So `293f` behaved mostly like a slightly better anchored variant, not a synthesi
 The explicit support-object branch remains alive, but it now looks close to a local cap. The next principled step is post-experiment analysis of `293d`, `293e`, and `293f`, focused on whether the real bottleneck is support use rather than support representation.
 
 ---
+## 2026-04-22: 293d-293f support branch analysis
+
+### Context
+The `293` family moved from latent-conditioning to explicit path support because latent scaffolds never became real path-shape controllers.
+
+The explicit-support bracket is now:
+- `293d`: one monolithic coarse path anchor code
+- `293e`: compositional knot-token support
+- `293f`: monolithic anchor plus light knotwise refinement
+
+### Findings
+- score trajectory:
+  - `293d`: `4/11`
+  - `293e`: `3/11`
+  - `293f`: `4/11`
+- all three keep the same local-law wins alive:
+  - coverage
+  - daily change KS
+  - cross-cell structure
+- all three still leave the same hard path-shape suites dead:
+  - level KS
+  - regime-sensitive width timing
+  - pathwise jump realism
+  - strong MR support
+
+Interpretation:
+- `293d` gives the strongest structural anchor
+- `293e` gives the softest level/jump-side gains
+- `293f` lands back near the anchored side
+
+So the branch is no longer missing another support representation. It is missing stronger **support use**.
+
+### Decision
+Treat the explicit support-object branch as near a local cap **as a representation search**.
+
+The next principled step is not another support variant. It is a support-conditioned residual next-change law:
+- keep an explicit coarse scaffold
+- make the daily decoder predict residual daily changes around that scaffold, not the absolute next-change law
+
+---
