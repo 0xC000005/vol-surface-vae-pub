@@ -575,6 +575,18 @@ def load_one_day_kernel(
         )
 
         return load_277d_model(checkpoint_path, device)
+    if model_type == "277e":
+        from diffusion.block_ar.deterministic_learned_retrieval_medoid_backbone import (
+            load_model as load_277e_model,
+        )
+
+        return load_277e_model(checkpoint_path, device)
+    if model_type == "278a":
+        from diffusion.block_ar.hierarchical_retrieval_scenario_generator import (
+            load_model as load_278a_model,
+        )
+
+        return load_278a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

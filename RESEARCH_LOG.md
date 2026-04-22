@@ -83228,3 +83228,146 @@ while preserving:
 Implement `277e-v0` and run the full deterministic Stage A iteration.
 
 ---
+## 2026-04-22: 277e Top-k Medoid Selection: Deterministic Retrieval Still Capped
+
+# 277e Postmortem
+
+## Result
+- Full 11-suite score: 5/11
+- Passes: surface, block_ar, cointegration, cross_cell_correlation, mean_reversion
+
+## What Was Tested
+`277e` kept the `277d` learned retrieval family fixed and changed only the
+deterministic selection rule:
+- retrieve top-k plausible futures
+- choose the medoid future in learned future-embedding space
+- anchor that future to the query level
+
+## Mechanism Read
+- This was the right test for top-1 brittleness.
+- The result is basically neutral-to-slightly worse versus `277d`:
+  - mean reversion stayed a pass overall, but active support weakened
+  - level KS improved only marginally
+  - jump realism did not improve
+- So the live deterministic bottleneck is **not** just that top-1 retrieval picks an
+  overly idiosyncratic future.
+- The remaining deterministic miss is deeper:
+  - exact path selection alone will not fix level-distribution fidelity or tail-shape
+    realism
+
+## Decision
+- Close `277e` as a negative local selection-rule experiment.
+- Keep `277d` as the deterministic Stage A frontier.
+- Move to the explicit two-level hierarchical scenario layer on top of `277d`.
+
+---
+## 2026-04-22: 278a Hierarchical Retrieval: Two-Level Split Finally Validated
+
+# 278a Postmortem
+
+## Result
+- Full 11-suite score: 4/11
+- Passes: surface, coverage, cointegration, cross_cell_correlation
+
+## Why This Matters
+`278a` is the first explicit two-level hierarchical model in the reset line:
+- Stage A center-path family: `277d` learned retrieval
+- Stage B scenario layer: sample from the retrieved top-k future paths
+
+This immediately validates the hierarchy:
+- coverage jumped from 0% to 74.5%
+- all horizon-level coverage gates passed
+- calibration error dropped to 0.100
+
+## Key Metrics
+- coverage:
+  - overall cov90: 74.5%
+  - h1/h7/h14/h30: 83.5% / 78.7% / 77.0% / 70.2%
+  - calibration error: 0.100
+- conditionality:
+  - MAE reduction: 4.6%
+  - turb/calm width ratio: 1.123
+- regime coverage:
+  - layer-1 calm windows: all 4 horizons pass
+  - layer-1 turb windows: 2/4 horizons pass
+  - persistent severe undercoverage: 6.9%
+- deterministic carryover:
+  - cointegration: pass
+  - cross-cell correlation: pass
+  - surface: pass
+  - mean reversion: aggregate profile pass, but active support no longer passes
+
+## Mechanism Read
+- The two-level split is now empirically justified.
+- The retrieval-based scenario layer solves the pure undercoverage problem without
+  needing a separate stochastic neural generator.
+- The remaining Stage B bottleneck is now narrow:
+  - width exists
+  - but width is not allocated strongly enough across regimes and windows
+- The remaining Stage A carryover bottleneck also remains visible:
+  - level KS is still dead
+  - jump-shape realism is still weak
+  - active mean-reversion support weakened under ensemble sampling
+
+## Decision
+- Keep the hierarchical retrieval family alive.
+- `277d` remains the deterministic Stage A frontier.
+- `278a` becomes the first live Stage B baseline.
+- Next step: `278b-v0`, adaptive retrieval-temperature scenario sampling to improve
+  regime-sensitive width allocation without changing the center-path family.
+
+---
+## 2026-04-22: 278b Stage B Decision: Adaptive Retrieval Temperature
+
+# 278b Hierarchical Ideation
+
+## Context
+`278a` validated the two-level retrieval hierarchy:
+- Stage A center path from `277d`
+- Stage B scenario spread from the top-k retrieved futures
+
+Coverage is now solved at the headline level.
+The live Stage B miss is more specific:
+- width exists
+- but it is not allocated strongly enough by regime and forecast difficulty
+- turb/calm width ratio is 1.123, just under the 1.15 gate
+- regime coverage still fails on turbulent longer horizons
+
+## Decision
+Next step: `278b-v0`
+
+### Family
+Adaptive retrieval-temperature scenario sampling.
+
+### Core idea
+Keep the same top-k retrieved future set as `278a`, but replace the fixed sampling
+temperature with a per-query temperature derived from retrieval uncertainty:
+- more ambiguous query => wider sampling
+- sharper query => narrower sampling
+
+## Why This Is The Smallest Principled Step
+- no new neural generator
+- no explicit vol-of-vol feature engineering
+- no extra decoder
+- no side path
+
+Only the sampling rule changes, and it changes using the retrieval geometry itself.
+
+## Pre-Registered Success Criteria
+Relative to `278a`, `278b` should improve at least two of:
+- conditionality MAE reduction
+- turb/calm width ratio
+- regime coverage layer-1 turbulent horizons
+- persistent severe undercoverage rate
+
+while preserving:
+- overall coverage pass
+- cointegration pass
+- cross-cell correlation pass
+- surface pass
+
+## Immediate Next Action
+Implement `278b-v0` with per-query adaptive temperature from the top-k retrieval score
+dispersion and rerun the full 11-suite.
+
+---
