@@ -83371,3 +83371,74 @@ Implement `278b-v0` with per-query adaptive temperature from the top-k retrieval
 dispersion and rerun the full 11-suite.
 
 ---
+## 2026-04-22: 278b Adaptive Temperature: Heuristic Stage B Allocation Is Not Enough
+
+# 278b Postmortem
+
+## Result
+- Full 11-suite score: 4/11
+- Passes: surface, coverage, cointegration, cross_cell_correlation
+
+## What Was Tested
+`278b` kept the `278a` two-level hierarchy fixed and changed only the Stage B sampling
+rule:
+- same top-k retrieved future set
+- same deterministic Stage A center family
+- adaptive per-query sampling temperature derived from retrieval ambiguity
+
+## Mechanism Read
+- This did **not** improve the live Stage B bottleneck.
+- Coverage stayed solved, but:
+  - conditionality stayed below gate
+  - regime width allocation did not improve enough
+  - active MR support weakened further
+- So simple retrieval-geometry heuristics are not enough.
+- The Stage B family is alive, but it now needs a **learned reweighting mechanism**
+  over the retrieved futures rather than another hand-designed temperature rule.
+
+## Decision
+- Keep the two-level hierarchy.
+- Keep `277d` as Stage A deterministic frontier.
+- Keep `278a` as the first live Stage B baseline.
+- Close `278b` as a negative heuristic-allocation variant.
+- Next step: `278c-v0`, learned query-conditioned reweighting over the top-k retrieved
+  future set.
+
+---
+## 2026-04-22: 278c Stage B Decision: Learn The Candidate Weights
+
+# 278c Hierarchical Ideation
+
+## Context
+`278a` validated the two-level retrieval hierarchy.
+`278b` showed that hand-built adaptive temperature from retrieval ambiguity is not
+enough to fix the remaining Stage B allocation problem.
+
+The remaining Stage B task is now clear:
+- keep the same retrieved future set
+- learn better weights over that set for each query
+
+## Decision
+Next step: `278c-v0`
+
+### Family
+Learned query-conditioned reweighting over the retrieved top-k future candidates.
+
+### Core idea
+- keep the `277d` retrieval embeddings fixed
+- keep the same top-k future candidate set as `278a`
+- train a small scoring module to reweight those candidates using:
+  - query history embedding
+  - candidate future embedding
+  - their similarity
+
+This stays within the same hierarchical retrieval program:
+- no separate stochastic generator
+- no explicit finance-specific regime features
+- only a learned selection distribution over already retrieved plausible futures
+
+## Immediate Next Action
+Implement `278c-v0` and test whether learned candidate reweighting can improve
+conditionality and regime coverage without breaking the Stage A center-path gains.
+
+---
