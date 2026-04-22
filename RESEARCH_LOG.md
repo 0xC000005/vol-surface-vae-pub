@@ -84123,3 +84123,39 @@ Implement `285a-v0` as an evaluation-only support-object variant using the exist
 - Next step should be research ideation for a genuinely new Stage A support object or retrieval coordinate, not another local interpolation inside the current family.
 
 ---
+## 2026-04-22: 286a History-Affine Support Direction
+
+### Context
+The current Stage A support-family split is now explicit:
+- anchored-delta support preserves more statistical validity, especially mean reversion and cointegration, but leaves level KS effectively dead
+- raw future support improves level fidelity and window-floor behavior, but breaks mean reversion badly
+- simple interpolation between those two support objects does not reconcile the tradeoff
+
+### Decision
+Next step: `286a-v0`
+
+### Family
+History-affine support transport.
+
+### Core idea
+Express each retrieved future path in the affine coordinate of its own recent history rather than in raw absolute levels or as deltas replayed from the last level:
+- compute library recent-history mean and level std
+- represent the retrieved future path in that local coordinate
+- map it back into the query's recent-history coordinate using the query mean and std
+
+This creates a genuinely new support object:
+- not last-level anchoring
+- not raw future levels
+- not a fixed interpolation between the two
+
+### Why This Is The Smallest Principled Step
+- no new scorer
+- no new loss
+- no new bank
+- no new branch-heavy architecture
+- only the support coordinate changes
+
+### Immediate Next Action
+Implement `286a-v0` as an evaluation-only support-object probe using the existing `283a` reweighting checkpoint and the new history-affine transport support.
+
+---
