@@ -84368,3 +84368,43 @@ So the local-history coordinate is still alive and normalized change replay is t
   - split the retrieval key into fast normalized-change and slow cumulative-displacement channels
 
 ---
+## 2026-04-22: 287c-v0 two-timescale local-history retrieval follow-up
+
+### Context
+`287b` showed that normalized change replay was the right support primitive, but a single mixed retrieval embedding was still washing out slow structure. The next smallest follow-up was to split the retrieval key into separate fast normalized-change and slow cumulative-displacement channels while keeping the replay support fixed.
+
+### Result
+- Implemented `287c-v0` in `diffusion/block_ar/deterministic_learned_retrieval_local_history_two_timescale_delta_backbone.py`
+- Trainer: `experiments/backfill/block_ar/train_287c_deterministic_learned_retrieval_local_history_two_timescale_delta_backbone.py`
+- Eval: `results/block_ar/287c_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-22/analysis/287c_retrieval_coordinate_postmortem/summary.md`
+- Score: `4/11`
+- Passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+### Mechanism Read
+`287c` materially improved the `287b` deterministic center path without changing the replay support object:
+- `cointegration ratio`: `0.742 -> 1.337`
+- `aggregate MR ratio`: `0.927 -> 1.056`
+- `level KS pass cells`: `3/25 -> 10/25`
+- `change KS pass cells`: `25/25 -> 24/25` (effectively preserved)
+
+This confirms the core `287b` diagnosis: a single mixed key was suppressing slow structure.
+
+The remaining miss is now cleaner:
+- deterministic coverage remains `0%`, which is expected for Stage A
+- mean-reversion suite still fails because active-cell support is weak (`active_pass_rate = 66.7%`, `active_cell_slope_corr = 0.504`)
+- pathwise jump realism still fails (`max-jump KS = 0.359`)
+
+Most importantly, the query/support coordinate is still not fully aligned:
+- future keys and replay support live in the local-history `delta_z / cumulative_disp_z` space
+- query keys are still built from globally normalized history levels and their transforms
+
+### Decision
+Keep the `287` family alive.
+
+Next step: `287d-v0`
+- keep the `287c` fast/slow split fixed
+- keep normalized-change replay fixed
+- change only the query/history representation so it is built in the same local-history z-coordinate as the replay support
+
+---
