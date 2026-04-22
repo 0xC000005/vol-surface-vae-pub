@@ -84408,3 +84408,43 @@ Next step: `287d-v0`
 - change only the query/history representation so it is built in the same local-history z-coordinate as the replay support
 
 ---
+## 2026-04-22: 287d-v0 local-history query alignment bracket
+
+### Context
+`287c` showed that splitting the retrieval key into fast and slow channels was the right move, but the remaining miss still looked like a coordinate mismatch between the query key and the normalized-change replay support. The next smallest follow-up was `287d-v0`: keep the `287c` support primitive and future keys fixed, and change only the history/query representation so it is built in the same local-history z-coordinate as the replay support.
+
+### Result
+- Implemented `287d-v0` in `diffusion/block_ar/deterministic_learned_retrieval_local_history_two_timescale_localz_delta_backbone.py`
+- Trainer: `experiments/backfill/block_ar/train_287d_deterministic_learned_retrieval_local_history_two_timescale_localz_delta_backbone.py`
+- Eval: `results/block_ar/287d_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-22/analysis/287d_query_coordinate_postmortem/summary.md`
+- Score: `4/11`
+- Passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+### Mechanism Read
+`287d` created a clean bracket against `287c`.
+
+Improvements:
+- `level KS pass cells`: `10/25 -> 14/25`
+- `max-jump KS`: `0.359 -> 0.354`
+
+Regressions:
+- `aggregate MR ratio`: `1.056 -> 0.168`
+- `active-cell slope corr`: `0.504 -> 0.394`
+- `cointegration ratio`: `1.337 -> 1.273`
+- `corr_ratio`: `0.971 -> 0.907`
+- `rank_ratio`: `1.298 -> 1.449`
+
+This means the pure local-history query coordinate is too local. It improves near-term level fidelity, but it throws away too much slow absolute-state information and collapses mean-reversion structure.
+
+### Decision
+Keep the `287` family alive.
+
+Next step: `287e-v0`
+- keep normalized-change replay fixed
+- keep future fast/slow keys fixed
+- use a mixed query key:
+  - fast history channel from local-history z
+  - slow history channel from globally normalized level displacement
+
+---
