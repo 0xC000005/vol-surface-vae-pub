@@ -84970,3 +84970,47 @@ Next step: `291b-v0`
 - change only the support representation from continuous code to a learned **discrete codebook** over next normalized-change panels
 
 ---
+## 2026-04-22: 292a one-stage probabilistic AR reset
+
+### Context
+The active `289e -> 290 -> 291` line became an output-representation search inside an explicit two-stage Stage A / Stage B program.
+
+That line clarified a real conceptual issue:
+- if realized next-day changes are largely irreducible,
+- then forcing Stage A to predict a deterministic realized center path is the wrong object.
+
+The older repo line already showed that `212`-style H=1 conditional models plus AR rollout do not automatically produce a convincing multi-day scenario generator. But that does not rescue the deterministic Stage A framing either.
+
+### Decision
+Retire the explicit two-level deterministic Stage A / residual Stage B hierarchy as the active search tree.
+
+New active line: `292a`
+- one-stage probabilistic AR latent state-space model
+- no explicit deterministic backbone first
+- no retrieval bank
+- no bounded side paths
+- no hand-coded correction terms
+
+### Why
+The new target is:
+- learn the conditional latent state
+- learn the conditional innovation law
+- roll forward autoregressively
+
+rather than:
+- predict tomorrow deterministically
+- then add uncertainty later
+
+This is the cleanest response to the irreducibility concern and the current world-model bottleneck.
+
+### Next step
+Implement `292a-v0` as the minimal baseline:
+- recurrent hidden state over history and generated path
+- learned prior/posterior over latent innovations
+- stochastic emission over next normalized changes
+- multi-step sequential variational training
+
+Artifacts:
+- reset spec: `results/validations/2026-04-22/analysis/292a_one_stage_ar_reset/spec.md`
+
+---
