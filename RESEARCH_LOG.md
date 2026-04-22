@@ -84527,3 +84527,38 @@ Next family: `288a-v0`
 - cointegration and cross-cell structure must remain in gate
 
 ---
+## 2026-04-22: 288a-v0 deterministic soft retrieval replay probe
+
+### Context
+After the `287c / 287d / 287e` bracket, the next smallest Stage A move was to keep the `287e` mixed query key fixed and change only the support use. `288a-v0` reused the exact `287e` checkpoint and replaced single-nearest deterministic replay with deterministic soft top-k replay over normalized future changes.
+
+### Result
+- Implemented `288a-v0` inference wrapper in `diffusion/block_ar/deterministic_soft_retrieval_local_history_mixed_query_delta_backbone.py`
+- Reused checkpoint: `models/backfill/287e_v0_s42/best_model.pt`
+- Eval: `results/block_ar/288a_v0_s42/full11.json`
+- Postmortem: `results/validations/2026-04-22/analysis/288a_support_use_postmortem/summary.md`
+- Score: `4/11`
+- Passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+### Mechanism Read
+The soft top-k replay hypothesis is falsified as the next smallest fix.
+
+What improved:
+- `level KS pass cells`: `12/25 -> 20/25`
+- floor/ceiling support now passes cleanly
+
+What broke:
+- `change KS pass cells`: `25/25 -> 8/25`
+- `max-jump KS`: `0.349 -> 0.766`
+- `kurtosis ratio`: `1.463 -> 3.040`
+
+So soft support-use smoothing helps level-side fidelity, but it destroys the sharp deterministic change law that the local-history delta replay family had recovered.
+
+### Decision
+Do not continue local smoothing variants inside `288`.
+
+Next step:
+- post-experiment analysis over `277d`, `287e`, and `288a`
+- decide whether the deterministic Stage A retrieval line is capped, or whether one final non-smoothing support-use move still exists
+
+---
