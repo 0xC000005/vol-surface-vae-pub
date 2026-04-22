@@ -84821,3 +84821,62 @@ Next step: `289e-v0`
   - [289e spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289e_world_model_ideation/spec.md)
 
 ---
+## 2026-04-22: 289e-v0 History-Memory World Model
+
+### Context
+`289d` showed that naive token-state capacity was the wrong fix. The next clean hypothesis was `289e-v0`: return to the stronger `289c` global latent state, but add explicit read-only history-memory access during rollout so the recurrent state can preserve longer-horizon context without a retrieval bank.
+
+### Implementation
+- Added history-memory world model:
+  - [deterministic_history_memory_world_model.py](/home/max/Documents/vol-surface-vae-pub/diffusion/block_ar/deterministic_history_memory_world_model.py)
+- Added trainer:
+  - [train_289e_deterministic_history_memory_world_model.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_289e_deterministic_history_memory_world_model.py)
+- Registered loader path in:
+  - [_rollout_220_utils.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/_rollout_220_utils.py)
+
+### Result
+- `289e-v0` scored `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- eval:
+  - [full11.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289e_v0_s42/full11.json)
+  - [full11.md](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289e_v0_s42/full11.md)
+- postmortem:
+  - [summary.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289e_world_model_postmortem/summary.md)
+
+### Findings
+- `289e` materially improved shared deterministic structure over `289c`:
+  - `corr_ratio: 0.596 -> 0.952`
+  - `rank_ratio: 1.356 -> 1.232`
+  - `mr_ratio: 0.912 -> 0.970`
+  - `active MR pass rate: 45.8% -> 83.3%`
+  - `active MR corr: 0.743 -> 0.763`
+- Teacher-vs-rollout probe also improved one-step state quality:
+  - teacher-change std: `0.0603 -> 0.0687`
+  - rollout-change std: `0.0130 -> 0.0134`
+
+### Mechanism
+The backbone is no longer the main issue.
+
+What stayed dead:
+- `change KS` is still `0/25`
+- `cointegration ratio` stayed below gate: `0.277`
+- `jump q90/q99` regressed to `0.071 / 0.111`
+
+Interpretation:
+- the world-model state architecture is now preserving shared structure and active mean reversion reasonably well
+- the remaining failure is the deterministic smooth-regression target, which still oversmooths local move-size and jump behavior
+
+### Decision
+Keep the world-model Stage A backbone.
+
+Next step: `290a-v0`
+- keep the `289e` history-memory backbone
+- change only the next-step output formulation away from pure smooth regression
+- first candidate: discretized normalized-change target
+- spec:
+  - [290a spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/290a_world_model_formulation_ideation/spec.md)
+
+---
