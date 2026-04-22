@@ -1,0 +1,55 @@
+{
+  "model": "293h",
+  "checkpoint": "models/backfill/293h_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293h_v0_s42/full11.json",
+  "score": {
+    "n_pass": 4,
+    "n_total": 11,
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation"
+    ]
+  },
+  "metrics": {
+    "coverage90": 0.98,
+    "calibration_error": 0.143,
+    "change_ks_pass": 25,
+    "level_ks_pass": 0,
+    "corr_ratio": 1.027,
+    "rank_ratio": 1.234,
+    "cointegration_ratio": 0.811,
+    "worst_cell_cointegration_ratio": 0.263,
+    "mr_ratio": 2.321,
+    "active_cells": 1,
+    "active_cell_corr": 0.632,
+    "turb_calm_width_ratio": 0.876,
+    "max_jump_ks": 0.643,
+    "q90_ratio": 0.816,
+    "q99_ratio": 1.163
+  },
+  "training": {
+    "best_epoch": 4,
+    "best_val_total": 8.644,
+    "token_accuracy_read": "very low throughout training",
+    "coarse_accuracy_read": "modest but real"
+  },
+  "comparison_vs_293g": {
+    "score": "4/11 -> 4/11",
+    "improved": [
+      "change_ks",
+      "corr_ratio",
+      "rank_ratio"
+    ],
+    "regressed": [
+      "level_ks",
+      "coverage90",
+      "calibration_error",
+      "active_cell_corr",
+      "max_jump_ks"
+    ]
+  },
+  "mechanism_read": "The drift-schedule scaffold fixes the local-law collapse from 293g and restores cross-cell structure, but it still does not solve the dead level/regime suites and it still over-reverts. The support-use geometry matters, but the subfamily is approaching a local cap too.",
+  "next_step": "post_experiment_analysis"
+}
