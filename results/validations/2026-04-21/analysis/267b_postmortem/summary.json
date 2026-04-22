@@ -1,0 +1,62 @@
+{
+  "checkpoint": "models/backfill/267b_v0_s42/best_model.pt",
+  "best_epoch": 19,
+  "suite_score": "2/11",
+  "passes": [
+    "surface",
+    "block_ar"
+  ],
+  "headline_read": "267b-v0 made the intended architectural anti-collapse change, but the plain ELBO model still collapsed completely. KL remained at zero and the latent path was still ignored. Decoder-bypass reduction alone is not enough to make the latent token path necessary.",
+  "training_diagnostics": {
+    "val_kl_at_best_epoch": 0.0,
+    "val_prior_std_at_best_epoch": 0.998,
+    "val_post_std_at_best_epoch": 0.998
+  },
+  "full_sample_metrics": {
+    "coverage90": 0.026222222222222223,
+    "calibration_error": 0.4877912808641975,
+    "turb_calm_width_ratio": 1.7988803537264489,
+    "acf_corr": 0.829642881734448,
+    "kurtosis_ratio": 3.0131870180707795,
+    "corr_ratio": 0.4413770774235669,
+    "rank_ratio": 1.0502211523065264,
+    "cointegration_ratio": 0.19677419354838713,
+    "mr_ratio": 2.0547954933236093,
+    "mr_h30_ratio": 0.9200545271755591,
+    "max_jump_ks": 1.0,
+    "max_jump_q99_ratio": 0.028462834852319276,
+    "very_small_moves_ratio": 1.7173866953991317,
+    "small_moves_ratio": 1.3659627239199152,
+    "level_ks_pass": 2,
+    "change_ks_pass": 0
+  },
+  "relative_to_267a": {
+    "coverage90": {
+      "267a": 0.0031458333333333335,
+      "267b": 0.026222222222222223
+    },
+    "turb_calm_width_ratio": {
+      "267a": 1.4682373986495384,
+      "267b": 1.7988803537264489
+    },
+    "corr_ratio": {
+      "267a": 1.2046467914410074,
+      "267b": 0.4413770774235669
+    },
+    "rank_ratio": {
+      "267a": 0.7194453571502104,
+      "267b": 1.0502211523065264
+    },
+    "cointegration_ratio": {
+      "267a": 0.5683870967741935,
+      "267b": 0.19677419354838713
+    }
+  },
+  "mechanism_conclusion": [
+    "Reducing the decoder's direct history bypass increased sample width slightly, but it did not turn on latent usage. KL still stayed at zero.",
+    "Structural behavior changed in a mixed way: rank improved, mean correlation fell below the lower gate, and cointegration collapsed.",
+    "So the plain probabilistic latent-token family remains alive only in a very weak sense. The key result is that architectural bypass reduction alone is insufficient to prevent collapse.",
+    "At this point, staying in the same plain-ELBO latent family without heuristics is no longer the most principled use of time."
+  ],
+  "next_question": "What is the cleanest direct conditional scenario generator that models the future path itself, instead of trying to route stochasticity through a collapsed latent-variable bottleneck?"
+}

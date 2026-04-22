@@ -81793,3 +81793,78 @@ Implement `267b-v0` and compare it directly against `267a-v0` on:
 - ideation memo: `results/validations/2026-04-21/analysis/267b_ideation/memo.md`
 
 ---
+## 2026-04-21: 267b-v0 Reduced Decoder Bypass: Anti-Collapse Idea Fails Cleanly
+
+### Context
+`267b-v0` was the smallest anti-collapse follow-up to `267a-v0`.
+
+It kept:
+- the probabilistic latent-token family
+- the plain ELBO objective
+- the bottleneck scale
+
+It changed exactly one mechanism:
+- reduce the decoder's direct history bypass
+- keep history only in the latent distributions and decoder initial state
+
+### Result
+`267b-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `19`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal metrics:
+- coverage90: `0.026`
+- calibration error: `0.488`
+- turb/calm width ratio: `1.799`
+- ACF corr: `0.830`
+- kurtosis ratio: `3.013`
+- corr ratio: `0.441`
+- rank ratio: `1.050`
+- cointegration ratio: `0.197`
+- MR ratio: `2.055`
+- max-jump KS: `1.000`
+- max-jump q99 ratio: `0.028`
+
+Training diagnostics:
+- KL stayed at `0.0`
+- prior std stayed at `~0.998`
+- posterior std stayed at `~0.998`
+
+### Mechanism Read
+This is a clean negative result.
+
+Reducing decoder history bypass alone did **not** make the latent path active.
+
+What changed:
+- coverage improved slightly
+- regime-width ratio improved
+- rank improved
+
+What did not change:
+- KL remained exactly collapsed
+- jump realism stayed dead
+- latent usage stayed absent
+
+And the structural side degraded in a different way:
+- mean correlation fell below the lower gate
+- cointegration collapsed
+
+So the plain ELBO latent-token family is no longer the best active path if we want to stay elegant and avoid heuristic KL rescue machinery.
+
+### Decision
+Do **not** keep stacking anti-collapse patches inside the same plain latent family.
+
+The next principled step is a **paradigm shift** toward a direct conditional scenario generator that models the future path itself, rather than routing stochasticity through a latent bottleneck the model keeps ignoring.
+
+### Artifacts
+- model: `diffusion/block_ar/probabilistic_latent_token_model_reduced_bypass.py`
+- trainer: `experiments/backfill/block_ar/train_267b_probabilistic_latent_token_model_reduced_bypass.py`
+- checkpoint: `models/backfill/267b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/267b_v0_s42/full11.json`
+- eval MD: `results/block_ar/267b_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/267b_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/267b_postmortem/summary.md`
+
+---
