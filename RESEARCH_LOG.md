@@ -84204,3 +84204,76 @@ But the core deterministic carryover miss remains:
 - Next step: isolate whether the remaining miss comes from the scale part of the affine transport, starting with a mean-only history transport.
 
 ---
+## 2026-04-22: 286b History-Mean Transport Result
+
+### Context
+`286b` bracketed the new history-coordinate support family by removing the scale term from `286a`. The question was whether the affine scale transport was the specific cause of the remaining miss, or whether the support-family cap was deeper.
+
+### Result
+- `286b-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `71.3%`
+  - calibration error: `0.114`
+  - change KS pass cells: `23/25`
+  - level KS pass cells: `0/25`
+  - cointegration ratio: `0.816`
+  - aggregate mean-reversion ratio: `1.359`
+  - pathwise max-jump KS: `0.459`
+- artifacts:
+  - `results/block_ar/286b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/286b_support_postmortem/summary.md`
+
+### Mechanism Read
+Mean-only transport does not rescue the history-coordinate family.
+
+Relative to `286a`, it:
+- does not improve level KS at all
+- weakens coverage and calibration
+- weakens regime allocation
+- worsens jump realism
+- still fails short-horizon active mean reversion
+
+So the scale term was not the main culprit. The deeper problem is upstream:
+- the current retrieval coordinate and candidate bank do not contain the right central level law
+- post-hoc transport of the current retrieved futures is no longer enough
+
+### Decision
+- Close the local `286a` / `286b` history-coordinate transport bracket.
+- Do not continue with more support transports on top of the current `277d` retrieval bank.
+- Next step: research ideation for a new Stage A retrieval coordinate or support bank, ideally aligning retrieval training and support generation in the same local-history coordinate rather than using post-hoc transport on the current bank.
+
+---
+## 2026-04-22: 287a Local-History Retrieval Coordinate Direction
+
+### Context
+The local support-transport bracket is now closed:
+- raw future support improves level fidelity but breaks mean reversion
+- simple transport between raw future and anchored-delta does not reconcile the tradeoff
+- history-affine transport and mean-only history transport both stay cleaner, but neither revives level KS
+
+### Decision
+Next step: `287a-v0`
+
+### Family
+Local-history-coordinate retrieval and support bank.
+
+### Core idea
+Train the Stage A retrieval backbone and construct the candidate bank directly in the same local-history coordinate that made the `286a` and `286b` probes interpretable:
+- compute recent-history statistics from each history window
+- represent the future in that local coordinate
+- train retrieval similarity on that coordinate
+- store candidate futures in that same coordinate
+- map back to the query state only once, after retrieval/support selection
+
+### Why This Is The Smallest Principled Upstream Change
+- same two-level hierarchy
+- same nonparametric retrieval idea
+- no new stochastic neural generator
+- no side branches
+- only aligns retrieval training, candidate-bank construction, and support generation in one coordinate
+
+### Immediate Next Action
+Implement `287a-v0` as a new deterministic Stage A retrieval backbone in the local-history coordinate, evaluate the deterministic center path first, and only then decide whether to reopen Stage B weighting on top of it.
+
+---
