@@ -81374,3 +81374,45 @@ what is the smallest first-principles change to the latent token-path prior that
 - postmortem MD: `results/validations/2026-04-21/analysis/266b_postmortem/summary.md`
 
 ---
+## 2026-04-21: 266c-v0 Ideation: Sequence-Aware Latent Prior as the Smallest Clean Fix to 266b
+
+### Context
+`266b-v0` established that the temporal bottleneck itself is useful, but the current flattened latent diffusion prior is not.
+
+The clean evidence was:
+- reconstruction rank ratio: `0.747`
+- reconstruction cointegration ratio: `0.706`
+- sampled rank ratio: `0.229`
+- sampled cointegration ratio: `0.371`
+
+So the next step should not reopen low-rank heads or bounded correction paths. It should only change the latent prior geometry.
+
+### Decision
+Select `266c-v0` as the next family.
+
+`266c-v0` keeps everything from `266b` except one thing:
+- replace the **flattened-vector latent denoiser**
+- with a **sequence-aware latent denoiser over token paths**
+
+Recommended first version:
+- same token path bottleneck
+- same decoder
+- same diffusion objective
+- small temporal-conv denoiser over latent token sequence
+
+### Why 266c Is The Most Principled Next Step
+This is the smallest clean change that directly targets the mechanism read from `266b`.
+
+The problem in `266b` was not lack of temporal bottleneck structure. The problem was that the prior ignored that structure by flattening token paths into one vector at denoising time.
+
+So `266c` tests the narrowest possible claim:
+
+if the prior respects token order and local token interactions, can the improved representation survive sampling?
+
+### Immediate Next Step
+Implement `266c-v0` and compare it directly against `266b-v0`.
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/266c_ideation/memo.md`
+
+---
