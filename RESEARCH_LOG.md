@@ -85339,3 +85339,33 @@ The interpolated knot latent did not become the missing path-shape controller. I
 Do post-experiment analysis next over `293a`, `293b`, and `293c`. The live question is no longer whether the family needs more latent capacity. It is whether latent conditioning inside `293` is locally capped and the next move should instead be an explicit coarse path representation.
 
 ---
+## 2026-04-22: 293a-293c analysis: latent-conditioning branch near cap
+
+### Context
+`293c-v0` completed the latent-conditioning bracket inside the new fixed-horizon joint-law family, so the next step was to compare `293a`, `293b`, and `293c` directly rather than keep adding latent variants.
+
+### Findings
+Stable wins across all three:
+- coverage alive
+- calibration good and improving
+- daily change KS strong
+- cross-cell structure preserved
+
+Stable failures across all three:
+- level KS dead
+- mean reversion effectively absent
+- regime width timing dead
+- pathwise jump realism still far from gate
+
+Interpretation:
+- `293b` and `293c` changed window-level distribution quality a bit
+- neither variant changed the actual long-horizon path-shape suites
+- so the family no longer looks bottlenecked by generic latent capacity or latent time structure
+
+### Mechanism read
+The latent-conditioning subfamily is locally capped. The live part of `293` is the local stochastic joint law. The dead part is path-shape control. A single global latent did not fix that, and a structured knot latent also did not fix it.
+
+### Decision
+Do `293d` ideation next, but only for an **explicit coarse path representation** at knot horizons. Do not do another latent-conditioning tweak.
+
+---

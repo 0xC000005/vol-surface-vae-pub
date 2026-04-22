@@ -1,0 +1,59 @@
+{
+  "family": "293 fixed-horizon joint conditional-law model",
+  "models": {
+    "293a": {
+      "n_pass": 3,
+      "coverage90": 0.901,
+      "calibration_error": 0.041,
+      "change_ks_pass": 24,
+      "level_ks_pass": 2,
+      "corr_ratio": 1.245,
+      "rank_ratio": 0.88,
+      "cointegration_ratio": 0.705,
+      "mr_ratio": 0.082,
+      "turb_calm_ratio": 1.01,
+      "max_jump_ks": 0.7
+    },
+    "293b": {
+      "n_pass": 4,
+      "coverage90": 0.895,
+      "calibration_error": 0.032,
+      "change_ks_pass": 23,
+      "level_ks_pass": 2,
+      "corr_ratio": 1.256,
+      "rank_ratio": 0.879,
+      "cointegration_ratio": 0.702,
+      "mr_ratio": 0.034,
+      "turb_calm_ratio": 0.98,
+      "max_jump_ks": 0.68
+    },
+    "293c": {
+      "n_pass": 3,
+      "coverage90": 0.892,
+      "calibration_error": 0.023,
+      "change_ks_pass": 23,
+      "level_ks_pass": 1,
+      "corr_ratio": 1.244,
+      "rank_ratio": 0.881,
+      "cointegration_ratio": 0.61,
+      "mr_ratio": 0.057,
+      "turb_calm_ratio": 0.99,
+      "max_jump_ks": 0.674
+    }
+  },
+  "stable_wins": [
+    "coverage_alive",
+    "calibration_good",
+    "change_ks_alive",
+    "cross_cell_structure_alive"
+  ],
+  "stable_failures": [
+    "level_ks_dead",
+    "mean_reversion_dead",
+    "regime_width_timing_dead",
+    "pathwise_jump_realism_dead"
+  ],
+  "mechanism_conclusion": "The family is alive at the local stochastic move-law level, but the latent-conditioning subfamily appears locally capped. Both a single global latent and a time-structured knot latent improved window-level distribution quality somewhat, but neither became true path-shape control.",
+  "decision": "research_ideation",
+  "next_direction": "Design an explicit coarse path representation rather than another latent-conditioning variant."
+}
