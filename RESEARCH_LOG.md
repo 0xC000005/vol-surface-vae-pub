@@ -84930,3 +84930,43 @@ Next step: `291a-v0`
 - do not add retrieval, low-rank side heads, or hand-coded correction paths
 
 ---
+## 2026-04-22: 291a joint-support world-model test
+
+### Context
+`290a/290b` closed the naive per-cell discrete-output branch on the `289e` history-memory world-model backbone. The next live question was whether a learned **joint** next-change support object could preserve shared structure and sharpen the local law without per-cell factorization.
+
+### Result
+Completed `291a-v0`.
+
+- model: `diffusion/block_ar/deterministic_history_memory_joint_support_world_model.py`
+- trainer: `experiments/backfill/block_ar/train_291a_deterministic_history_memory_joint_support_world_model.py`
+- eval: `results/block_ar/291a_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/291a_world_model_joint_support_postmortem/summary.md`
+- next-step spec: `results/validations/2026-04-22/analysis/291b_world_model_discrete_joint_support_ideation/spec.md`
+
+`291a-v0` trained stably but scored `1/11`.
+Pass:
+- `block_ar`
+
+### Mechanism Read
+This was a clean modeling failure, not a numerical one.
+
+`291a` replaced the factorized per-cell head with a learned continuous **joint** support bottleneck for the full 25-cell next normalized-change panel. The backbone stayed the same as `289e`.
+
+The result was worse than `290b` on the shared deterministic structure:
+- corr ratio collapsed to `0.021`
+- MR ratio collapsed to `0.033`
+- active MR cells dropped to `0/24`
+- jump q90/q99 collapsed to `0.009 / 0.015`
+
+So the support object direction was right, but the specific representation was wrong. The continuous joint support code was too entangled for the deterministic head to predict reliably.
+
+### Decision
+Close the naive continuous joint-support branch.
+
+Next step: `291b-v0`
+- keep the `289e` history-memory world-model backbone
+- keep a learned **joint** next-change support object
+- change only the support representation from continuous code to a learned **discrete codebook** over next normalized-change panels
+
+---
