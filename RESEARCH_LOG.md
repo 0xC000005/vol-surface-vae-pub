@@ -84159,3 +84159,48 @@ This creates a genuinely new support object:
 Implement `286a-v0` as an evaluation-only support-object probe using the existing `283a` reweighting checkpoint and the new history-affine transport support.
 
 ---
+## 2026-04-22: 286a History-Affine Support Result
+
+### Context
+`286a` was the first genuinely new Stage A support-family probe after the raw-future, anchored-delta, and offset-decay bracket closed. It kept the existing `283a` query-conditioned reweighting checkpoint fixed and changed only the support object.
+
+### Result
+- `286a-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `73.6%`
+  - calibration error: `0.107`
+  - change KS pass cells: `24/25`
+  - level KS pass cells: `0/25`
+  - cointegration ratio: `0.800`
+  - aggregate mean-reversion ratio: `1.341`
+  - pathwise max-jump KS: `0.306`
+- artifacts:
+  - `results/block_ar/286a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/286a_support_postmortem/summary.md`
+
+### Mechanism Read
+This is a real new regime, not another interpolation failure.
+
+Relative to raw-future support, the history-affine transport recovers much more of the statistical-validity object:
+- cointegration stays a pass
+- cross-cell correlation stays a pass
+- full-horizon mean-reversion profile passes again
+- surface validity remains clean
+
+At the same time it keeps the main local-fidelity gain of the freer-support family:
+- change KS remains extremely strong
+- coverage and calibration stay usable
+
+But the core deterministic carryover miss remains:
+- level KS is still dead
+- window-floor still fails
+- jump realism still fails
+- short-horizon active mean-reversion support still fails
+
+### Decision
+- Keep the new history-coordinate support family alive.
+- Do not go back to raw-vs-anchored interpolation.
+- Next step: isolate whether the remaining miss comes from the scale part of the affine transport, starting with a mean-only history transport.
+
+---
