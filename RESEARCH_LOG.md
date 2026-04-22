@@ -83646,3 +83646,20 @@ Implement `280b-v0` and evaluate whether horizon-structured residual scaling can
 - Next step: post-experiment analysis across `277d`, `278a`, `279a`, `279b`, `280a`, and `280b` to choose the smallest non-scale Stage B mechanism that still preserves the fixed Stage A center path.
 
 ---
+## 2026-04-22: 281a Stage-B Temperature Direction
+
+### Context
+The Stage B comparison is now decisive across `277d`, `278a`, `279a`, `279b`, `280a`, and `280b`.
+
+### Findings
+- `277d` proves the deterministic Stage A backbone is real, but has zero useful spread.
+- `278a` proves the raw retrieved bank already contains the useful spread/fidelity signal: best coverage, best coverage floor, and strongest change-KS fidelity, but weak center preservation.
+- `279a` proves center-preserving residualization is directionally right: mean_reversion returns and jump realism gets closest to gate, but full centering removes too much of the useful Stage B shape.
+- `279b`, `280a`, and `280b` prove centering-strength and scale-only controls are real but too blunt.
+- The raw residual bank is not the problem. The live problem is how to change Stage B selection shape without moving the fixed Stage A center path.
+
+### Decision
+- Close the scale-only Stage B subfamily as likely capped.
+- Next step: `281a-v0`, learned query-conditioned residual temperature over the fixed retrieval scores, with center preservation enforced by centering residuals under the same sampling weights.
+
+---
