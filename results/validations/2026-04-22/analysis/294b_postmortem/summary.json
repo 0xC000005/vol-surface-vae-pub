@@ -1,0 +1,39 @@
+{
+  "model": "294b",
+  "checkpoint": "models/backfill/294b_v0_s42/best_model.pt",
+  "eval": "results/block_ar/294b_v0_s42/full11.json",
+  "score": 3,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "high_signal_metrics": {
+    "coverage90": 0.7072708333333333,
+    "calibration_error": 0.12380555555555557,
+    "h1_cov90": 0.0,
+    "h30_cov90": 0.7897916666666667,
+    "change_ks_pass": 25,
+    "level_ks_pass": 6,
+    "corr_ratio": 1.119601113775738,
+    "rank_ratio": 1.1545984196986707,
+    "cointegration_ratio": 1.4016129032258067,
+    "worst_cell_cointegration_ratio": 0.21052631578947367,
+    "mr_ratio": 0.08197848384812077,
+    "active_mr_pass_count": 9,
+    "active_mr_cell_count": 24,
+    "active_cell_slope_corr": -0.25687846415272214,
+    "mean_turbulent_calm_width_ratio": 1.1276687151813118,
+    "max_jump_ks": 0.7401041666666667,
+    "jump_q90_ratio": 0.751956311299982,
+    "jump_q99_ratio": 1.0686155843888767,
+    "acf_corr": 0.9423597100100697
+  },
+  "training": {
+    "best_epoch": 3,
+    "best_val_total": 4.942397390093122,
+    "read": "Stable optimization; knot regression trained cleanly, token accuracy stayed low but nonzero."
+  },
+  "mechanism_read": "The piecewise-linear knot scaffold did not solve the 294a bottleneck. It improved the aggregate cointegration ratio and active MR pass count, but weakened short-horizon support sharply, with h1 coverage collapsing to zero and aggregate MR collapsing further. The deeper problem is now the scaffold family's inability to place enough short-horizon uncertainty and reversion mass.",
+  "decision": "Do post-experiment analysis next. Compare 294a vs 294b and decide whether the continuous scaffold family is still alive or already near a local cap."
+}

@@ -85957,3 +85957,41 @@ without giving back both:
 - the `294a` level-KS gain
 
 ---
+## 2026-04-22: 294b piecewise-linear knot scaffold baseline
+
+### Context
+`294b-v0` was the narrow follow-up to `294a`: keep the explicit continuous scaffold family, but replace the global low-frequency basis with a piecewise-linear knot scaffold so the 30-day path can bend more locally.
+
+### Result
+- model: `294b`
+- score: `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- artifacts:
+  - `diffusion/block_ar/probabilistic_joint_token_path_knot_residual_model.py`
+  - `experiments/backfill/block_ar/train_294b_probabilistic_joint_token_path_knot_residual_model.py`
+  - `results/block_ar/294b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/294b_postmortem/summary.md`
+
+### Mechanism read
+`294b` did not solve the live `294a` bottleneck.
+
+What improved versus `294a`:
+- cointegration ratio: `2.247 -> 1.402`
+- active MR pass count: `4/24 -> 9/24`
+
+What got worse:
+- coverage90: `0.782 -> 0.707`
+- h1 coverage90: `0.603 -> 0.000`
+- level KS: `9/25 -> 6/25`
+- aggregate MR ratio: `0.163 -> 0.082`
+- max-jump KS: `0.662 -> 0.740`
+
+So the issue is not only that `294a` was too globally smooth. The deeper problem is that the current explicit scaffold family still does not place enough short-horizon uncertainty and reversion mass.
+
+### Decision
+Do post-experiment analysis next. Compare `294a` against `294b` and decide whether the continuous scaffold family is still alive or already near a local cap.
+
+---
