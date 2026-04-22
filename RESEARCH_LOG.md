@@ -81633,3 +81633,46 @@ The next principled step is a **paradigm shift**:
 - postmortem MD: `results/validations/2026-04-21/analysis/266d_postmortem/summary.md`
 
 ---
+## 2026-04-21: 267a-v0 Paradigm Shift: Probabilistic Latent Tokens Replace Deterministic Target Codes
+
+### Context
+`266d-v0` closed the deterministic-target `266` family cleanly:
+
+- the bottleneck and decoder can support a better center path
+- but both diffusion and flow matching fail when asked to generate **deterministic encoded future tokens** from history
+- the active issue is no longer the choice of generative core inside that setup
+- the active issue is the latent modeling assumption itself
+
+### Decision
+Select `267a-v0` as the next family.
+
+`267a-v0` is a **probabilistic latent-token conditional scenario generator**.
+
+Core idea:
+- history encoder -> latent-token prior
+- future encoder -> latent-token posterior
+- decoder -> future path from sampled latent tokens plus history context
+- training -> standard reconstruction + KL objective
+
+### Why This Paradigm Shift Is Principled
+This is the smallest probabilistic correction to the `266` reset.
+
+It keeps:
+- the narrow bottleneck doctrine
+- the architecture simple
+- the model generalizable
+- the long-horizon / multi-factor objective intact
+
+It still avoids:
+- low-rank decoder assumptions
+- bounded idio or EC side paths
+- posterior-teacher machinery
+- bespoke scenario heads
+
+### Immediate Next Step
+Implement `267a-v0` in fresh files and use it as the first clean probabilistic bottleneck baseline.
+
+### Artifacts
+- paradigm-shift memo: `results/validations/2026-04-21/analysis/267a_paradigm_shift/memo.md`
+
+---
