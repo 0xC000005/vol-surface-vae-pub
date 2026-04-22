@@ -83556,3 +83556,63 @@ Center-preserving hierarchical retrieval with learned residual scaling.
 Implement `280a-v0` with a single query-conditioned residual scale head and evaluate it on the full 11-suite.
 
 ---
+## 2026-04-22: 280a Learned Residual Scalar Scaling
+
+### Context
+`280a` kept the fixed `277d` Stage A center path, the same anchored residual bank, and the same partial residual-centering geometry as `279b`, but added a learned query-conditioned scalar residual scale head.
+
+### Result
+- `280a-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.723`
+  - h1 / h30 coverage90: `0.798 / 0.663`
+  - regime turb/calm ratio: `1.014`
+  - calibration error: `0.111`
+  - kurtosis ratio: `0.826`
+  - max-jump KS: `0.312`
+- artifacts:
+  - `results/block_ar/280a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/280a_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- This is a real effect.
+- The scalar residual scale improves global amplitude-sensitive metrics: overall coverage improves, h30 coverage crosses the gate, coverage floor improves, kurtosis ratio passes, and jump KS improves.
+- But the scale is too blunt: regime differentiation collapses back toward `1.0`, conditionality remains weak, and full-horizon mean-reversion still fails.
+
+### Decision
+- Keep the two-level hierarchy.
+- Keep learned residual scaling as the right mechanism class.
+- Close the single-scalar scale head as insufficient by itself.
+- Next step: `280b-v0`, a minimal query-conditioned horizon-scale profile over the same residual bank.
+
+---
+## 2026-04-22: 280b Horizon-Scale Residual Hierarchy
+
+### Context
+`280a` showed that learned residual scaling is the right Stage B mechanism class, but also proved that one scalar per query is too blunt: it improves global amplitude-sensitive metrics while flattening regime allocation.
+
+### Decision
+Next step: `280b-v0`
+
+### Family
+Center-preserving hierarchical retrieval with a minimal query-conditioned horizon-scale profile.
+
+### Core idea
+- keep the fixed `277d` deterministic Stage A center path
+- keep the same anchored residual bank
+- keep partial residual centering
+- replace the single scalar scale head with 4 learned horizon-anchor scales at `[1, 7, 14, 30]`
+- linearly interpolate those scales across the 30-day horizon
+- apply the resulting scale profile uniformly across cells
+
+### Why This Is The Smallest Principled Step
+- Stage A center path remains fixed
+- residual bank remains fixed
+- learned freedom is still only residual amplitude
+- horizon structure is added only because `280a` proved one scalar is too blunt
+
+### Immediate Next Action
+Implement `280b-v0` and evaluate whether horizon-structured residual scaling can keep the `280a` coverage gains while recovering regime differentiation and full-horizon mean-reversion.
+
+---
