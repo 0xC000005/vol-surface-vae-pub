@@ -85789,3 +85789,32 @@ Question:
 - or have they now reduced to a clean but capped tradeoff between scaffold control and local-law preservation?
 
 ---
+## 2026-04-22: 293f-293h support branch analysis
+
+### Context
+The `293` family first exhausted support-representation search (`293d/293e/293f`), then tested two stronger support-use variants:
+- `293g`: residual law around a direct daily level-pull scaffold
+- `293h`: residual law around the scaffold's own increment schedule
+
+### Findings
+- score trajectory stayed flat:
+  - `293f`: `4/11`
+  - `293g`: `4/11`
+  - `293h`: `4/11`
+- `293g` proved the scaffold was no longer being ignored, but over-anchored:
+  - change KS collapsed
+  - MR overshot
+  - regime width timing inverted
+- `293h` fixed the local-law collapse and restored cross-cell structure, but still did not solve:
+  - dead level KS
+  - MR overshoot
+  - weak regime differentiation
+
+### Decision
+Treat the explicit support branch as near a local cap in both:
+- support representation
+- support use
+
+The next principled step is not another local support tweak. It is constrained ideation for the next path-shape mechanism class.
+
+---
