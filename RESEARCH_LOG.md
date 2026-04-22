@@ -82566,3 +82566,35 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
   - next step: 275c-v0, a stronger deterministic observation-space temporal backbone with richer sequence modeling and generated-state feedback, while still banning stochastic machinery and side paths
 
 ---
+## 2026-04-22: 275c Deterministic Seq2Seq Backbone: Strongest Structure, Same Smoothness Ceiling
+
+- Implemented and ran 275c-v0 as the stronger deterministic observation-space Stage A backbone after 275b showed that latent-state compression was the wrong minimal extension.
+- Artifacts:
+  - model: diffusion/block_ar/ar_seq2seq_transformer_change_backbone.py
+  - trainer: experiments/backfill/block_ar/train_275c_ar_seq2seq_transformer_change_backbone.py
+  - eval: results/block_ar/275c_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/275c_backbone_postmortem/summary.md
+- Full 11-suite result: 2/11 (passes: block_ar, cross_cell_correlation).
+- For the deterministic Stage A read, the important split is:
+  - strongest support/static structure so far:
+    - explosion rate = 0.000
+    - calendar arbitrage = 8.2%
+    - butterfly arbitrage = 29.5% with worst tenor = 51.8% (narrow near-miss)
+    - corr ratio = 0.983
+    - rank ratio = 1.418
+    - level KS pass = 21/25
+    - median-bias pass = 25/25
+    - MAE pass = 23/25
+  - still missing dynamic richness:
+    - change KS pass = 0/25
+    - active MR cells = 0/24
+    - cointegration worst-cell ratio = 0.000
+    - pathwise q99 ratio = 0.085
+- Mechanism read:
+  - full history attention and generated-state feedback are not enough by themselves to recover realistic change-law, active MR, or jump incidence
+  - the deterministic Stage A formulation is now the cleaner bottleneck than backbone capacity itself
+- Decision:
+  - close 275c as the strongest deterministic architecture-only Stage A baseline so far
+  - next iteration type: post-experiment analysis across 275a/275b/275c to diagnose the shared deterministic smoothness failure before selecting any 275d+ extension
+
+---
