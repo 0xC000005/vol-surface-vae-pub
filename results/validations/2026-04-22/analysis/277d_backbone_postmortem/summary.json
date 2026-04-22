@@ -1,0 +1,47 @@
+{
+  "result": {
+    "score": "5/11",
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation",
+      "mean_reversion"
+    ]
+  },
+  "stage_a_read": {
+    "retrieval_alive": true,
+    "learned_similarity_validated": true,
+    "rich_future_keys_required": true,
+    "stage_a_breakthrough": true
+  },
+  "key_metrics": {
+    "acf_corr": 0.928,
+    "kurtosis_ratio": 0.913,
+    "tail_scale_pass": 16,
+    "cointegration_ratio": 0.766,
+    "cointegration_worst_cell_ratio": 0.281,
+    "level_ks_pass": 0,
+    "change_ks_pass": 23,
+    "median_bias_pass": 25,
+    "mae_pass": 22,
+    "corr_ratio": 1.058,
+    "rank_ratio": 1.027,
+    "mr_ratio": 1.065,
+    "active_pass_count": 21,
+    "active_cell_count": 24,
+    "active_cell_slope_corr": 0.75,
+    "max_jump_ks": 0.391,
+    "q90_ratio": 0.792,
+    "q99_ratio": 0.928
+  },
+  "mechanism_read": [
+    "277d fixed the 277c collapse by giving the retrieval key both local change information and anchored cumulative displacement.",
+    "That restored cointegration, mean reversion, and stable cross-cell structure without giving back the strong change-law realism of the retrieval family.",
+    "The remaining deterministic miss is no longer family choice. It is the brittleness of top-1 path selection for level-distribution and tail-shape fidelity."
+  ],
+  "decision": {
+    "status": "deterministic_stage_a_live",
+    "next_step": "277e-v0 top-k learned retrieval with medoid selection"
+  }
+}
