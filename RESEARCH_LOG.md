@@ -81243,3 +81243,51 @@ what is the smallest first-principles extension beyond a single compressed futur
 - postmortem MD: `results/validations/2026-04-21/analysis/266a_postmortem/summary.md`
 
 ---
+## 2026-04-21: 266b-v0 Ideation: Temporal Bottleneck Latent Path Diffusion as the Smallest Clean Extension
+
+### Context
+`266a-v0` established a clean first-principles baseline, but its failure mode was now understood well enough to choose a precise next extension.
+
+The key mechanism read from the postmortem was:
+- the single compressed future code plus direct decoder already over-smooths the path and suppresses jump scale
+- the latent diffusion prior then worsens common-mode collapse and weakens cointegration further
+
+So the next step had to stay first-principles and ask for the smallest increase in temporal/joint flexibility, not reopen low-rank structure or bounded correction paths.
+
+### Decision
+Select `266b-v0` as the next family.
+
+`266b-v0` keeps the `266` reset doctrine intact and changes exactly one assumption:
+
+- from a **single future code**
+- to a **short future latent token path**
+
+Everything else stays the same:
+- fixed-horizon conditional generation
+- vanilla latent diffusion core
+- no hard low-rank decoder
+- no bounded idio path
+- no bounded EC baseline
+- no teacher engineering
+
+### Why 266b Is The Most Principled Extension
+This is the smallest clean extension because it addresses the diagnosed representational bottleneck directly.
+
+The problem in `266a` was not just “decoder too weak” in the generic sense. The problem was that one global code had to summarize the entire future path. That made it too easy for the decoder to learn an over-smoothed future representation and too hard for the latent prior to preserve richer horizon-specific structure.
+
+A short latent token path keeps the Bitter-Lesson reset intact while allowing:
+- different horizon segments to carry different information
+- more temporal flexibility without hand-designed factors
+- more joint flexibility without side correction paths
+
+### Immediate Next Step
+Implement `266b-v0` in fresh files and compare it directly against `266a-v0`.
+
+Suggested first shape:
+- `K = 5` latent future tokens
+- latent token dimension `d = 32`
+
+### Artifacts
+- ideation memo: `results/validations/2026-04-21/analysis/266b_ideation/memo.md`
+
+---
