@@ -81416,3 +81416,92 @@ Implement `266c-v0` and compare it directly against `266b-v0`.
 - ideation memo: `results/validations/2026-04-21/analysis/266c_ideation/memo.md`
 
 ---
+## 2026-04-21: 266c-v0 Sequence-Aware Latent Prior: Better Temporal Moments, Same Scenario Bottleneck
+
+### Context
+`266c-v0` kept the first-principles `266` reset intact and changed exactly one thing from `266b-v0`:
+
+- keep the temporal bottleneck token path
+- keep the decoder
+- keep the latent diffusion core
+- replace the flattened latent denoiser with a sequence-aware denoiser over latent tokens
+
+This was the smallest clean test of whether the `266b` failure was mainly a prior-geometry problem.
+
+### Result
+`266c-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `28`
+- best val total: `0.2511`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal full-sample metrics:
+- coverage90: `0.204`
+- calibration error: `0.405`
+- turb/calm width ratio: `0.980`
+- ACF corr: `0.718`
+- kurtosis ratio: `1.020`
+- corr ratio: `2.113`
+- rank ratio: `0.242`
+- cointegration ratio: `0.318`
+- MR ratio: `1.877`
+- MR h30 ratio: `1.094`
+- max-jump KS: `0.989`
+- max-jump q99 ratio: `0.439`
+- very-small-move ratio: `1.312`
+- daily-change KS pass cells: `2/25`
+- level KS pass cells: `0/25`
+
+### Mechanism Read
+The result is clean.
+
+Relative to `266b-v0`, the sequence-aware prior **did** change the sampled law:
+- ACF improved: `0.637 -> 0.718`
+- aggregate kurtosis improved sharply: `0.263 -> 1.020`
+
+But it did **not** improve the actual scenario-generation bottleneck:
+- coverage worsened: `0.304 -> 0.204`
+- calibration worsened: `0.346 -> 0.405`
+- corr ratio stayed too high: `2.165 -> 2.113`
+- rank ratio stayed collapsed: `0.229 -> 0.242`
+- cointegration remained weak: `0.371 -> 0.318`
+
+A reconstruction-vs-sampling probe made the split explicit.
+
+Reconstruction:
+- rank ratio: `0.788`
+- cointegration ratio: `0.656`
+- jump q99 ratio: `0.008`
+
+Sampled:
+- rank ratio: `0.243`
+- cointegration ratio: `0.374`
+- jump q99 ratio: `0.416`
+
+Interpretation:
+- the temporal bottleneck representation is still alive
+- the sampled latent diffusion prior still pushes the decoded law toward excessive common-mode coupling, low rank, weak cointegration, and poor calibrated coverage
+- the sequence-aware prior fixed token-order ignorance, but not the deeper prior mismatch
+
+So the active bottleneck is no longer denoiser geometry. It is the **latent diffusion prior itself** on the bottlenecked future-token manifold.
+
+### Decision
+Do constrained research ideation next.
+
+The next question is:
+
+what is the smallest first-principles generative-core change that keeps the `266` temporal bottleneck and decoder intact, but replaces the latent diffusion prior with a more direct conditional generator over latent token paths?
+
+Do **not** respond with more diffusion denoiser micro-tuning unless a later paradigm review explicitly reopens it.
+
+### Artifacts
+- model: `diffusion/block_ar/latent_path_bottleneck_diffusion_seq.py`
+- trainer: `experiments/backfill/block_ar/train_266c_latent_path_bottleneck_diffusion_seq.py`
+- checkpoint: `models/backfill/266c_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/266c_v0_s42/full11.json`
+- eval MD: `results/block_ar/266c_v0_s42/full11.md`
+- postmortem JSON: `results/validations/2026-04-21/analysis/266c_postmortem/summary.json`
+- postmortem MD: `results/validations/2026-04-21/analysis/266c_postmortem/summary.md`
+
+---

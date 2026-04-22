@@ -1,0 +1,93 @@
+{
+  "checkpoint": "models/backfill/266c_v0_s42/best_model.pt",
+  "best_epoch": 28,
+  "suite_score": "2/11",
+  "passes": [
+    "surface",
+    "block_ar"
+  ],
+  "headline_read": "266c-v0 kept the first-principles 266 family clean and improved sampled temporal moments, but it did not improve the actual scenario-generation bottleneck. The sequence-aware latent diffusion prior changed the sampled law, yet cross-cell structure, cointegration, coverage, and jump realism remained far from pass levels.",
+  "full_sample_metrics": {
+    "coverage90": 0.20381944444444444,
+    "calibration_error": 0.4051026234567901,
+    "turb_calm_width_ratio": 0.9803577065467834,
+    "acf_corr": 0.7184288098927131,
+    "kurtosis_ratio": 1.0199694017635514,
+    "corr_ratio": 2.1134901210827475,
+    "rank_ratio": 0.24186534994934877,
+    "cointegration_ratio": 0.31774193548387103,
+    "mr_ratio": 1.8769470425442938,
+    "mr_h30_ratio": 1.0941194296488463,
+    "max_jump_ks": 0.9885416666666667,
+    "max_jump_q99_ratio": 0.4385142727877656,
+    "very_small_moves_ratio": 1.3119322899240369,
+    "small_moves_ratio": 1.1867830766813325,
+    "level_ks_pass": 0,
+    "change_ks_pass": 2
+  },
+  "relative_to_266b": {
+    "coverage90": {
+      "266b": 0.3037638888888889,
+      "266c": 0.20381944444444444
+    },
+    "calibration_error": {
+      "266b": 0.3464729938271605,
+      "266c": 0.4051026234567901
+    },
+    "acf_corr": {
+      "266b": 0.6371314138154724,
+      "266c": 0.7184288098927131
+    },
+    "kurtosis_ratio": {
+      "266b": 0.26281902744888726,
+      "266c": 1.0199694017635514
+    },
+    "corr_ratio": {
+      "266b": 2.1653864636396953,
+      "266c": 2.1134901210827475
+    },
+    "rank_ratio": {
+      "266b": 0.22906786839049445,
+      "266c": 0.24186534994934877
+    },
+    "cointegration_ratio": {
+      "266b": 0.37096774193548393,
+      "266c": 0.31774193548387103
+    },
+    "max_jump_q99_ratio": {
+      "266b": 0.48351912757740856,
+      "266c": 0.4385142727877656
+    },
+    "very_small_moves_ratio": {
+      "266b": 1.0618486436918348,
+      "266c": 1.3119322899240369
+    }
+  },
+  "reconstruction_probe": {
+    "acf_corr": 0.6076652659045759,
+    "kurtosis_ratio": 0.6870507789891307,
+    "corr_ratio": 0.5921206846102143,
+    "rank_ratio": 0.7884544516362568,
+    "cointegration_ratio": 0.656451612903226,
+    "mr_ratio": 1.890937138721887,
+    "jump_ks": 1.0,
+    "jump_q99_ratio": 0.007786797868703279
+  },
+  "sample_probe": {
+    "acf_corr": 0.7129859099257853,
+    "kurtosis_ratio": 1.0728064961133967,
+    "corr_ratio": 2.1100434565269697,
+    "rank_ratio": 0.24276492467050304,
+    "cointegration_ratio": 0.3741935483870968,
+    "mr_ratio": 1.8772350320506366,
+    "jump_ks": 0.9916666666666667,
+    "jump_q99_ratio": 0.41593637948737533
+  },
+  "mechanism_conclusion": [
+    "The temporal token bottleneck representation is still alive: posterior reconstruction keeps cross-cell rank and cointegration in a plausible range.",
+    "The sampled latent diffusion prior still drives the decoded law toward excessive common-mode coupling, low effective rank, and weak cointegration.",
+    "The sequence-aware prior geometry did improve sampled temporal moments, especially aggregate kurtosis, but it did not improve calibrated conditional scenario generation.",
+    "So the active bottleneck is no longer token-order ignorance. The active bottleneck is the latent diffusion prior itself on this bottlenecked future-token manifold."
+  ],
+  "next_question": "What is the smallest first-principles generative-core change that keeps the 266 temporal bottleneck and decoder intact, but replaces the latent diffusion prior with a more direct conditional path generator over latent tokens?"
+}
