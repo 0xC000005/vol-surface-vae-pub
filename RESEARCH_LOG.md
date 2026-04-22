@@ -82178,3 +82178,67 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Implement `271a-v0` and judge the family on whether this minimal conditional decoder materially improves conditionality / MR / structure without worsening support and jump realism beyond `270c`.
 
 ---
+## 2026-04-21: 271a conditional decoder improves calibration but leaves the AR token line below frontier
+
+### Context
+- `271a-v0` was the minimal follow-up to the closed `270` family.
+- It kept the autoregressive latent-sequence bottleneck and latent FM transition fixed, and changed exactly one thing: the next-change decoder also saw one compact current-history summary from the same encoder.
+
+### Result
+- `271a-v0` scored `1/11`.
+- Passes: `block_ar` only.
+- Artifacts:
+  - model: `diffusion/block_ar/ar_latent_sequence_conditional_change_flow_matching.py`
+  - trainer: `experiments/backfill/block_ar/train_271a_ar_latent_sequence_conditional_change_flow_matching.py`
+  - eval: `results/block_ar/271a_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/271a_postmortem/summary.md`
+- Headline metrics:
+  - `coverage90 = 0.820`
+  - `calibration_error = 0.030`
+  - `conditional_mae_reduction = 2.7%`
+  - `turb/calm = 0.910`
+  - `corr_ratio = 1.782`
+  - `rank_ratio = 0.407`
+  - `mr_ratio = 2.013`
+  - `mr_h30_ratio = 9.934`
+  - `cointegration_ratio = 0.418`
+  - `max_jump_ks = 1.000`
+
+### Mechanism Read
+- Adding current-history summary to the decoder improved some conditional-law proxies versus `270c`: calibration improved materially, conditional MAE reduction turned positive, rank improved, and cointegration partially recovered.
+- But the family still fails for the same high-level reason: the one-step AR latent-token decoder remains too weak and too support-loose. It still cannot produce the right state-dependent width allocation, tail profile, jump law, or long-horizon mean-reversion shape.
+- This means the next clean move is not another decoder feature tweak. The broader autoregressive latent-token next-step family is now close to exhausted under the current first-principles simplicity constraint.
+
+### Decision
+- Close `271a` as a negative but informative result.
+- Next step: paradigm-shift ideation for a cleaner learned latent state-space family with a learned observation model, rather than continuing to patch the token-to-observation decoder line.
+
+---
+## 2026-04-21: 272a paradigm shift makes the observation model explicit
+
+### Context
+- `271a-v0` improved calibration and some structure metrics relative to `270c`, but it still stayed at `1/11`.
+- The live bottleneck is now broader than a single decoder target: the autoregressive latent-token next-step family is asking a tiny decoder to learn the observation manifold implicitly.
+
+### Paradigm Shift
+- Select `272a-v0`: autoregressive latent state-space flow matching with a learned observation autoencoder.
+- Core architecture:
+  1. `surface_encoder`: map current normalized surface into a narrow latent state
+  2. `latent_transition`: autoregressive FM transition for the next latent state conditioned on current latent state
+  3. `surface_decoder`: decode latent state back into normalized surface
+- Training story:
+  - encode `x_t -> z_t`
+  - encode `x_{t+1} -> z_{t+1}`
+  - train latent FM on `z_t -> z_{t+1}`
+  - train decoder to reconstruct surfaces from latent states
+
+### Why This Is More Principled
+- It keeps the first-principles bottleneck doctrine, but stops hiding the observation model inside a tiny per-step decoder.
+- It does not add hard low-rank heads, bounded side paths, teacher tricks, or suite-specific losses.
+- It remains general across factor panels and longer horizons.
+
+### Decision
+- Active next family is now `272a-v0`.
+- Next step: implement `272a-v0` in fresh files and test whether making the observation model explicit is enough to beat the exhausted token-decoder AR line.
+
+---
