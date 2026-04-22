@@ -85057,3 +85057,70 @@ Implement `293a-v0` as:
 Train and evaluate one clean baseline before any ablations.
 
 ---
+## 2026-04-22: 293a-v0 fixed-horizon joint-law baseline
+
+### Context
+First experiment after the `293a` reset.
+
+Goal:
+- test whether a fixed-horizon conditional joint-law family can beat the old AR compounding and deterministic Stage A bottlenecks
+
+Implementation choice for `v0`:
+- minimal probabilistic **joint-token** path model
+- history-conditioned fixed-30d decoder
+- exact teacher-forced token NLL
+- ancestral sampling at inference
+
+This is narrower than the full spline-flow + copula spec, but it tests the core family idea without another large implementation branch.
+
+### Result
+Artifacts:
+- model: `diffusion/block_ar/probabilistic_joint_token_path_model.py`
+- trainer: `experiments/backfill/block_ar/train_293a_probabilistic_joint_token_path_model.py`
+- eval: `results/block_ar/293a_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/293a_postmortem/summary.md`
+
+Headline:
+- `293a-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.901`
+- calibration error: `0.041`
+- change KS: `24/25`
+- level KS: `2/25`
+- corr ratio: `1.245`
+- rank ratio: `0.880`
+- cointegration ratio: `0.705`
+- MR ratio: `0.082`
+- max-jump KS: `0.700`
+
+### Mechanism Read
+This is a real family result, not a dead baseline.
+
+What is alive:
+- stochastic spread is alive immediately
+- broad calibration is alive immediately
+- daily change-law fidelity is much stronger than the deterministic world-model line
+- cross-cell structure stays in gate instead of collapsing into per-cell behavior
+
+What is still wrong:
+- cumulative level law is weak
+- mean reversion is almost absent
+- regime differentiation is too weak
+- pathwise max-jump ordering is still poor
+
+Clean read:
+- the fixed-horizon joint-token likelihood is enough to learn a usable **local stochastic move law**
+- but the current daily token chain does not impose enough **global 30-day path structure**
+
+So `293a-v0` is local-law-alive but path-law-weak.
+
+### Decision
+Stay inside the `293` family.
+
+Next step:
+- do narrow in-family ideation for `293b`
+- target exactly one missing ingredient: global path-level coupling across the future window
+
+---

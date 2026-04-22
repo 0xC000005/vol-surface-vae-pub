@@ -1,0 +1,37 @@
+{
+  "model": "293a",
+  "checkpoint": "models/backfill/293a_v0_s42/best_model.pt",
+  "eval_json": "results/block_ar/293a_v0_s42/full11.json",
+  "n_pass": 3,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "metrics": {
+    "coverage90": 0.901125,
+    "calibration_error": 0.040949845679012324,
+    "conditional_width_ratio": 1.0139398676323739,
+    "conditional_mae_reduction_pct": 1.6152271693913565,
+    "turb_calm_width_ratio": 1.0101057291030884,
+    "acf_corr": 0.957339302606561,
+    "kurtosis_ratio": 1.7347522901030594,
+    "change_ks_n_pass": 24,
+    "level_ks_n_pass": 2,
+    "corr_ratio": 1.2453868112296969,
+    "rank_ratio": 0.8795849202593581,
+    "cointegration_ratio": 0.7048387096774195,
+    "mr_ratio": 0.08244168704678273,
+    "active_mr_pass_rate": 0.0,
+    "max_jump_ks": 0.7,
+    "jump_q90_ratio": 0.8210927756910914,
+    "jump_q99_ratio": 1.220278919049137
+  },
+  "mechanism_read": {
+    "local_law_status": "alive",
+    "path_law_status": "weak",
+    "primary_issue": "The daily joint-token likelihood learns a useful stochastic local move law and preserves cross-cell dependence, but the current day-token chain does not impose enough global 30-day path structure, so levels, mean reversion, regime width allocation, and pathwise jump realism remain weak."
+  },
+  "family_status": "alive",
+  "next_step": "research_ideation_for_293b_global_path_coupling"
+}
