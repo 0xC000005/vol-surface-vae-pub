@@ -82748,3 +82748,32 @@ Implement `270c-v0` and test whether change decoding restores the teacher-forced
 - Next step: implement 277a-v0 as a raw-history nearest-neighbor deterministic backbone and evaluate it as the first retrieval-based Stage A test.
 
 ---
+## 2026-04-22: 277a Retrieval Backbone: First Truly Live Stage A Deterministic Path
+
+- Implemented and ran 277a-v0 as the first retrieval-based deterministic Stage A backbone.
+- Artifacts:
+  - model: diffusion/block_ar/deterministic_retrieval_backbone.py
+  - builder: experiments/backfill/block_ar/train_277a_deterministic_retrieval_backbone.py
+  - eval: results/block_ar/277a_v0_s42/full11.json
+  - postmortem: results/validations/2026-04-22/analysis/277a_backbone_postmortem/summary.md
+- Full 11-suite result: 3/11 (passes: surface, conditionality, cross_cell_correlation).
+- This is the strongest deterministic Stage A result so far in the reset line.
+- What improved materially:
+  - change KS pass = 21/25
+  - corr ratio = 1.172
+  - rank ratio = 0.917
+  - kurtosis ratio = 0.925
+  - cointegration ratio = 1.174
+  - pathwise q90/q99 ratios = 0.928 / 0.986
+- Remaining failure:
+  - level KS pass = 2/25
+  - MR ratio = 1.719 with only 7/24 active cells
+  - max-jump KS = 0.250 (close, but still above gate)
+- Mechanism read:
+  - retrieving a real observed future path preserves dynamic realism much better than learned deterministic predictors
+  - the remaining problem is level anchoring: raw retrieval copies the matched training future level path too literally
+- Decision:
+  - keep retrieval as the active Stage A family
+  - next step: 277b-v0, retrieve future changes and re-anchor them to the query window's current level
+
+---
