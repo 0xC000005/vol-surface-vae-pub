@@ -84702,3 +84702,65 @@ Next step: `289c-v0`
   - [289c spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289c_world_model_ideation/spec.md)
 
 ---
+## 2026-04-22: 289c-v0 Observation-Encoded Latent World Model
+
+### Context
+`289b` showed that a learned latent state improves the world-model Stage A line, but autoregressive rollout still collapses variance. The next clean test was `289c-v0`: keep the same deterministic latent world-model family, but replace the shallow generated-state update with an explicit observation encoder feeding the recurrent latent transition.
+
+### Implementation
+- Added observation-encoded latent world model:
+  - [deterministic_obs_encoded_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/diffusion/block_ar/deterministic_obs_encoded_latent_world_model.py)
+- Added trainer:
+  - [train_289c_deterministic_obs_encoded_latent_world_model.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/train_289c_deterministic_obs_encoded_latent_world_model.py)
+- Registered loader path in:
+  - [_rollout_220_utils.py](/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/_rollout_220_utils.py)
+
+### Result
+- `289c-v0` scored `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- eval:
+  - [full11.json](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289c_v0_s42/full11.json)
+  - [full11.md](/home/max/Documents/vol-surface-vae-pub/results/block_ar/289c_v0_s42/full11.md)
+- postmortem:
+  - [summary.md](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289c_world_model_postmortem/summary.md)
+
+### Findings
+- This is a real gain over `289b`:
+  - `n_pass: 2 -> 3`
+  - `acf_corr: 0.404 -> 0.634`
+  - `corr_ratio: 0.440 -> 0.596`
+  - `rank_ratio: 1.751 -> 1.356`
+  - `mr_ratio: 0.719 -> 0.912`
+  - `active MR corr: 0.676 -> 0.743`
+  - `level KS pass cells: 2 -> 5`
+  - `jump q90 ratio: 0.045 -> 0.094`
+  - `jump q99 ratio: 0.070 -> 0.131`
+- But the remaining failure is now narrower:
+  - `change KS` is still `0/25`
+  - `cointegration ratio` is still only `0.292`
+  - pathwise jump realism is still far below gate
+
+### Mechanism
+A teacher-vs-rollout probe confirms the same dominant pathology:
+- teacher-change std: `0.0603`
+- rollout-change std: `0.0130`
+- target-change std: `0.1076`
+
+Interpretation:
+- the explicit observation encoder helped
+- but a single latent vector still compresses the evolving market state too aggressively under rollout
+
+### Decision
+Keep the deterministic world-model Stage A paradigm active.
+
+Next step: `289d-v0`
+- keep deterministic autoregressive world modeling
+- keep normalized-change target
+- replace the single latent vector with a small latent token/state set
+- spec:
+  - [289d spec](/home/max/Documents/vol-surface-vae-pub/results/validations/2026-04-22/analysis/289d_world_model_ideation/spec.md)
+
+---
