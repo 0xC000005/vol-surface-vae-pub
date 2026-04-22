@@ -83803,3 +83803,216 @@ Same `281b` hierarchy, new Stage B objective only.
 Implement and run `282b-v0` by reusing the `281b` model class and training it with exact weighted CRPS.
 
 ---
+## 2026-04-22: 282b Weighted CRPS Result
+
+### Context
+`282b` kept the exact `281b` Stage B architecture and the same fixed `277d` center path plus residual bank, but replaced the weighted energy score from `282a` with exact weighted CRPS over the finite residual-support distribution.
+
+### Result
+- `282b-v0` scored `5/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`
+- key metrics:
+  - coverage90 overall: `0.732`
+  - calibration error: `0.114`
+  - h30 coverage90: `0.662`
+  - turb/calm ratio: `1.071`
+  - change KS pass cells: `5/25`
+  - level KS pass cells: `0/25`
+  - max-jump KS: `0.378`
+- artifacts:
+  - `results/block_ar/282b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/282b_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- Weighted CRPS is a real improvement over weighted energy score.
+- It restores the useful broad coverage and calibration gains without losing full-horizon mean reversion.
+- But the deeper cap is now explicit: across `278a` through `282b`, every Stage B variant still has `0/25` level-KS passes. The objective trades off coverage, jump realism, and MR, but it does not repair the deterministic support mismatch inherited from the fixed-center residual family.
+
+### Decision
+- Close the fixed-center residual-objective branch as locally optimized enough.
+- Do not run another residual objective tweak.
+- Next step: reopen raw future-path weighting, but train it with a proper score instead of the old target-matching KL objective.
+
+---
+## 2026-04-22: 283a Reopen Raw Future Weighting With Proper Score
+
+### Context
+`282b` showed that objective choice matters, but it also made the deeper cap explicit: the fixed-center residual hierarchy still has `0/25` level-KS passes across the full `278a` to `282b` bracket. That means the residual-objective family is no longer the main bottleneck.
+
+### Decision
+Next step: `283a-v0`
+
+### Family
+Reopen raw future-path weighting, but replace the old target-matching KL objective with an exact proper score.
+
+### Core idea
+- keep the same `277d` learned retrieval embeddings and top-k candidate future set
+- drop the fixed-center residualization requirement
+- let the model learn a query-conditioned distribution directly over retrieved future paths
+- train that distribution with exact weighted CRPS over the finite future-path support
+
+### Why This Is The Smallest Principled Shift
+- no new encoder
+- no new decoder
+- no handcrafted residual centering
+- no new side losses
+- only one substantive shift: allow the support distribution to move the center when needed, and train it with the best local proper-score direction found in `282b`
+
+### Immediate Next Action
+Implement `283a-v0` by reusing the `278c` reweighting architecture and replacing the old KL objective with exact weighted CRPS over the retrieved future-path support.
+
+---
+## 2026-04-22: 283a Reweighted Future CRPS Result
+
+### Context
+`283a` reopened the old `278c` raw future-path weighting family, but replaced the old target-matching KL objective with exact weighted CRPS.
+
+### Result
+- `283a-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.725`
+  - calibration error: `0.110`
+  - change KS pass cells: `23/25`
+  - level KS pass cells: `1/25`
+  - turb/calm ratio: `1.153`
+  - cointegration local worst-cell gate: `FAIL`
+  - mean reversion full-horizon active support: `FAIL`
+- artifacts:
+  - `results/block_ar/283a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/283a_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- Relative to `282b`, this improves local distributional behavior materially.
+- But the run is not a clean verdict on the reopened family because training and inference were misaligned:
+  - training optimized weights over raw retrieved future paths
+  - inference samples anchored future paths obtained by replaying retrieved deltas from the query last level
+- So `283a` mixed a real family shift with a train/inference support mismatch.
+
+### Decision
+- Do not treat `283a` as a decisive negative.
+- Next step: `283b-v0`, same architecture and same weighted CRPS objective, but train on the anchored candidate futures that match the inference geometry exactly.
+
+---
+## 2026-04-22: 283b Fix Train Inference Support Mismatch
+
+### Context
+`283a` improved local distributional behavior, but it was not a clean test of the reopened weighting family because the training objective used raw retrieved future paths while inference samples anchored future paths.
+
+### Decision
+Next step: `283b-v0`
+
+### Family
+Same `278c/283a` reweighting architecture, same weighted CRPS objective, corrected support geometry.
+
+### Core idea
+- keep the same `277d` retrieval embeddings and top-k candidate set
+- keep the same query-conditioned reweighting scorer
+- keep the same exact weighted CRPS objective
+- change only the support used during training so it matches inference exactly:
+  - anchored candidate futures, not raw retrieved future paths
+
+### Why This Is The Smallest Principled Fix
+- no new architecture
+- no new loss
+- no new bank
+- no new side path
+- only removes the now-identified train/inference mismatch
+
+### Immediate Next Action
+Implement and run `283b-v0` by copying `283a` and training on the anchored candidate futures used by the actual sampling path.
+
+---
+## 2026-04-22: 283b Anchored Support CRPS Result
+
+### Context
+`283b` kept the `283a` reweighting architecture and weighted CRPS objective, but corrected the support geometry so that training used the same anchored candidate futures that inference later samples.
+
+### Result
+- `283b-v0` scored `4/11`
+- passes: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.728`
+  - calibration error: `0.102`
+  - change KS pass cells: `23/25`
+  - level KS pass cells: `1/25`
+  - turb/calm ratio: `1.121`
+  - mean reversion active support: `FAIL`
+  - max-jump KS: `0.477`
+- artifacts:
+  - `results/block_ar/283b_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/283b_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- The train/inference mismatch fix was real: cointegration local support recovered and the run is cleaner than `283a`.
+- But the family still sits between the current endpoints:
+  - it keeps the strong change-KS behavior from the reopened weighting line
+  - but it still gives back too much mean-reversion active support and jump realism
+- So the reopened weighting family is alive, but the center path is now moving too freely.
+
+### Decision
+- Keep the reopened weighting family alive.
+- Next step: `283c-v0`, same weighting law and same weighted CRPS objective, but with fixed partial centering of the anchored candidate futures around the `277d` deterministic center path.
+
+---
+## 2026-04-22: 283c Partial Centering Bracket Test
+
+### Context
+`283b` is the first clean verdict on the reopened weighting family. It improves local fidelity versus the fixed-center branch, but it still gives back too much mean-reversion active support and jump realism, which suggests the center is now moving too freely.
+
+### Decision
+Next step: `283c-v0`
+
+### Family
+Same reweighting architecture and same weighted CRPS objective, with fixed partial centering of the anchored candidate futures.
+
+### Core idea
+- keep the same `277d` retrieval embeddings and top-k candidate set
+- keep the same query-conditioned weighting scorer
+- keep the same anchored candidate futures and exact weighted CRPS objective
+- transform each anchored candidate by `center + alpha * (candidate - center)` with fixed `alpha = 0.5`, where `center` is the deterministic `277d` center path
+
+### Why This Is The Smallest Principled Step
+- no new trainable head
+- no new loss
+- no new bank
+- no new side path
+- only tests whether the current tradeoff is primarily a support-geometry interpolation issue
+
+### Immediate Next Action
+Implement and run `283c-v0` by copying `283b` and replacing the anchored support with the fixed half-centered anchored support.
+
+---
+## 2026-04-22: 283c Half Centered Support Result
+
+### Context
+`283c` kept the same `283b` anchored-support reweighting architecture and the same weighted CRPS objective, but replaced the fully free anchored candidate support with a fixed half-centered support around the deterministic `277d` center path.
+
+### Result
+- `283c-v0` scored `3/11`
+- passes: `surface`, `block_ar`, `cross_cell_correlation`
+- key metrics:
+  - coverage90 overall: `0.731`
+  - calibration error: `0.102`
+  - change KS pass cells: `23/25`
+  - level KS pass cells: `1/25`
+  - turb/calm ratio: `1.125`
+  - mean reversion active support: `FAIL`
+  - max-jump KS: `0.446`
+- artifacts:
+  - `results/block_ar/283c_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/283c_hierarchical_postmortem/summary.md`
+
+### Mechanism Read
+- The support-geometry interpolation effect is real but not enough.
+- Relative to `283b`, half-centering does not create a new regime; it just drags the family back toward the same tradeoff.
+- The `282b` to `283c` bracket is now clear:
+  - fully fixed center preserves too much of the old support miss
+  - fully free weighting gives back too much of the Stage A statistical-validity object
+  - fixed half-centering does not break that tradeoff
+
+### Decision
+- Do not continue with more local centering-geometry tweaks in the `283` family.
+- Next step: post-experiment analysis across `282b`, `283a`, `283b`, and `283c` to decide whether the real bottleneck is now upstream in the `277d` support/library family itself.
+
+---
