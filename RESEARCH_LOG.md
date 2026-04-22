@@ -81908,3 +81908,28 @@ Implement `268a-v0` in fresh files and compare it directly against the best clea
 - paradigm-shift memo: `results/validations/2026-04-21/analysis/268a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-21: 268a-v0 Direct Path-Space Flow Matching: Family Alive, Conditioning Weak
+
+### Context
+The strict first-principles restart had already falsified deterministic latent bottlenecks (`266`) and plain probabilistic latent tokens (`267`). `268a-v0` was the first direct conditional future-path flow-matching baseline with no latent posterior, no KL, no hard low-rank head, and no bounded side paths.
+
+### Result
+- `268a-v0` trained stably and scored `3/11`
+- passes: `coverage`, `block_ar`, `cross_cell_correlation`
+- best epoch: `23`
+- artifacts:
+  - eval: `results/block_ar/268a_v0_s42/full11.json`
+  - postmortem: `results/validations/2026-04-21/analysis/268a_postmortem/summary.md`
+
+### Mechanism Read
+- The family is alive: unlike late latent lines, it generates real spread and strong unconditional calibration (`coverage90 = 0.909`, calibration error `0.032`).
+- The dominant failure is weak history use. Conditionality is almost flat (`MAE reduction = 0.1%`, turb/calm width ratio `0.967`), so the velocity field is learning a mostly generic path law rather than a strongly history-conditioned one.
+- Mean dynamics are misallocated across horizon: short-horizon mean reversion is far too strong (`h1 ratio = 1.907`) while longer horizons are closer to gate.
+- Support is still too loose: explosion rate is `59.0%`, level KS passes only `4/25`, and pathwise max-jump KS is `0.653`.
+
+### Decision
+Proceed to `268b-v0`.
+
+Keep the same direct path-space FM family, but replace the single broadcast history context with sequence-aware history-to-future conditioning so the velocity field can use history locally in time. Do not add latent machinery, bounded side paths, or suite-specific losses.
+
+---
