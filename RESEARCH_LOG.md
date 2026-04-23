@@ -86783,3 +86783,39 @@ Constraint:
 - add a variance-budget / redistribution constraint on the fast shell
 
 ---
+## 2026-04-22: 296f hybrid budgeted multiresolution shell ideation
+
+### Context
+`296e` showed the fast multiresolution shell is directionally right, but too
+unconstrained:
+- it fixed h1 coverage and regime width
+- but it turned those gains into global overdispersion
+
+### Result
+`296f` ideation selected a cleaner factorization:
+- keep frozen `277d`
+- keep the zero-mean Gaussian shell law
+- keep the multiresolution knot basis from `296e`
+- add a separate per-cell shell budget head
+- normalize the raw multiresolution shell so it redistributes that budget instead of
+  inventing extra width
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296f_hybrid_ideation/memo.md`
+
+### Mechanism Read
+The next question is no longer whether early-horizon shell geometry matters.
+It does.
+
+The question is whether an explicit budget-plus-redistribution factorization can keep
+the `296e` local gains while restoring the global balance of `296c`.
+
+### Decision
+Next step:
+- run `296f-v0` as a budgeted multiresolution zero-mean shell baseline
+
+Constraint:
+- do not add another support-law change
+- do not revisit the backbone
+
+---
