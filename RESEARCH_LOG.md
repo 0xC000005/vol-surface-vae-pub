@@ -89831,3 +89831,68 @@ A sampled token independent of the FM base noise would be ignored by the optimal
 Run `317a-v0` as the decisive experiment. The key falsifier is whether shared coupling improves relative to `316a` without destroying the direct-path anchoring strengths: correlation ratio should move toward the gated range, rank ratio should fall, level KS should improve, and cointegration/MR/calibration should not collapse.
 
 ---
+## 2026-04-23: 317a shared-stochastic direct-path flow experiment
+
+### Context
+`317a-v0` tested the cleanest shared-stochastic repair for the direct-path reset line:
+- direct future-logit path coordinates
+- vanilla one-stage flow matching
+- local IID base path noise plus a narrow shared Gaussian base-noise component
+- shared stochastic prefix tokens exposed to the velocity network
+- no posterior/prior, no multiscale split, no center/residual split, no low-rank decoder
+
+The key falsifier was whether sampled shared base-noise channels could repair cross-cell coupling without breaking the direct-path anchor.
+
+### Result
+The model trained stably.
+
+- best epoch: `26`
+- best validation loss: `0.3416`
+- suite score: `3/11`
+- passing suites: `surface`, `block_ar`, `cointegration`
+
+High-signal metrics:
+- coverage90: `0.883`
+- calibration error: `0.032`
+- conditional MAE reduction: `3.0%`
+- turb/calm width ratio: `1.064`
+- ACF corr: `0.942`
+- kurtosis ratio: `0.724`
+- cointegration ratio: `1.216`
+- worst-cell cointegration ratio: `0.539`
+- daily-change KS pass cells: `15/25`
+- level KS pass cells: `3/25`
+- corr ratio: `0.177`
+- rank ratio: `4.054`
+- MR ratio: `1.234`
+- active MR cells: `9/24`
+- pathwise jump KS: `0.319`
+- jump q90 ratio: `0.900`
+- jump q99 ratio: `1.069`
+- extreme-jump incidence ratio: `0.979`
+
+### Mechanism Read
+`317a` preserved the anchor but did not solve the actual coupling bottleneck.
+
+Relative to `316a`, the shared stochastic channel improved cointegration strongly and nudged correlation in the right direction, but not enough:
+- corr ratio: `0.122 -> 0.177`, still far below the `0.5` gate and below `312a` at `0.446`
+- rank ratio: `4.199 -> 4.054`, still too diffuse
+- level KS stayed `3/25`
+- daily KS fell from `21/25` to `15/25`
+- active MR weakened from `11/24` to `9/24`
+
+So the fixed random shared base-noise subspace is not sufficient. It makes common shocks available, but the direct FM velocity still does not transport that stochastic channel into realistic panel co-movement.
+
+### Decision
+Close `317a` as an informative negative result, not a score improvement.
+
+The next HEAD step should be `post_experiment_analysis`: decide whether the clean next move is still inside `317` with a more direct learned shared stochastic coupling path, or whether one-stage direct-path FM without an explicit joint-law objective is capped.
+
+### Artifacts
+- model: `diffusion/block_ar/shared_stochastic_state_aware_future_logit_path_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_317a_shared_stochastic_state_aware_future_logit_path_flow_matching.py`
+- checkpoint: `models/backfill/317a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/317a_v0_s42/full11.json`
+- eval MD: `results/block_ar/317a_v0_s42/full11.md`
+
+---
