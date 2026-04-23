@@ -87345,3 +87345,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/300a_postmortem/summary.md`
 
 ---
+## 2026-04-23: 299a vs 300a coordinate comparison
+
+### Context
+
+After `299a` and `300a`, the active question is whether the continuous-flow line has a clear coordinate synthesis or whether it is becoming a knob search.
+
+### Findings
+
+Comparison:
+
+- `299a` rolling asinh-local-scale innovation flow: `2/11`, explosion `95.5%`, cov90 `0.903`, turb/calm `1.347`, change KS `24/25`, level KS `3/25`, corr/rank `0.900/1.487`, MR h1 `-0.091`, MR h30 `-0.051`, q99 jump ratio `9.236`.
+- `300a` absolute logit-IV level flow: `4/11`, explosion `0.0%`, cov90 `0.819`, turb/calm `0.907`, change KS `8/25`, level KS `0/25`, corr/rank `0.683/2.287`, MR h1 `1.979`, MR h30 `0.836`, q99 jump ratio `0.960`.
+
+### Mechanism Read
+
+The tradeoff is clean:
+
+- `299a` has the right rolling transition/local-law geometry but invalid unbounded inversion.
+- `300a` has valid physical support but the wrong absolute-level geometry for local transitions and conditional spread.
+
+### Decision
+
+Implement `301a`: support-valid rolling logit-transition flow. It models `z_t = logit(IV_t) - logit(IV_{t-1})` with vanilla continuous flow matching, then samples by cumulatively adding logit transitions and applying sigmoid. This is the smallest clean synthesis of 299a and 300a, not an added architecture knob.
+
+Artifacts:
+
+- `results/validations/2026-04-22/analysis/299a_300a_coordinate_comparison/summary.md`
+
+---
