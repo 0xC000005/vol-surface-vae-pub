@@ -87835,3 +87835,27 @@ Artifacts:
 - `results/block_ar/304a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 304a state-path postmortem
+
+### Context
+
+`304a-v0` was the first one-shot joint token path flow after the capped `303` recurrent branch. It removed recursive exposure bias but regressed to `1/11`, so the next required HEAD step was to distinguish a true paradigm failure from a clean missing state variable.
+
+### Findings
+
+- `303b` remains the best clean recurrent reference: score `4/11`, corr ratio `0.911`, rank ratio `1.559`, change KS `24/25`, MR h1 `1.044`, MR h30 `0.832`.
+- `303d` shows objective forcing can repair MR, but it narrows/biases the path law: cov90 h30 `0.420`, change KS `17/25`, max-jump KS `0.544`.
+- `304a` removes recursion but loses state-dependent path structure: score `1/11`, level KS `0/25`, corr ratio `0.466`, MR h1 `0.021`, MR h30 `-0.019`.
+- Prior one-shot evidence is consistent: `301a` also has near-zero MR, while `302a` exposes implied state logits and improves MR somewhat, though not enough to move the frontier.
+
+### Mechanism Read
+
+The clean failure mechanism is state-path invisibility. In a logit-transition coordinate, future levels are the cumulative sum of transitions plus the last history logit. A mean-reverting conditional law depends on that implied level state. `303b` exposes `current_logit` at every recurrent step; `304a` only exposes the noisy transition tokens, cell/time position, and a global history context. A transformer could in principle infer cumulative levels from transition tokens, but the decisive metrics say it does not learn the conditional center/geometry reliably in this data regime.
+
+This is not a reason to add low-rank readouts, retrieval, bounded idio/EC paths, explicit volatility features, or evaluator-specific losses. It is a coordinate sufficiency issue: the velocity field should be given the Markov state implied by its own noisy path.
+
+### Decision
+
+Continue the 304 family for one minimal causal test. `304b` should keep the same one-shot joint token flow and vanilla FM objective, but add per-token implied state logits as input to the token velocity. If `304b` does not materially repair MR/correlation/level law without destroying coverage, then the one-shot support-valid transition-flow branch should be treated as capped.
+
+---
