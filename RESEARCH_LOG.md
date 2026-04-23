@@ -87179,3 +87179,43 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/298a_interface_diagnostic/summary.md`
 
 ---
+## 2026-04-23: 299a paradigm shift to continuous local-scale joint change flow
+
+### Context
+
+`298a` showed that historical-library replay is capped: the training future-level library itself has `0/25` level-KS cells against validation, while daily changes are much closer. The next model must therefore generate support rather than replay support.
+
+### Decision
+
+Shift to `299a`: a continuous local-scale joint change flow.
+
+### Rationale
+
+This is the clean synthesis of prior evidence:
+
+- `268c` already tested direct continuous change flow, but in raw normalized-change coordinates and only reached `2/11`.
+- `293` to `295` showed the asinh-local-scale innovation coordinate is better for local stochastic law and conditional spread.
+- `295a` also showed conditional spread allocation is learnable, but token codebooks/control states did not solve center-path dynamics.
+- `298a` showed historical support replay is capped by train/validation level shift.
+
+So `299a` keeps a vanilla continuous flow core but moves it into the local-scale innovation coordinate. It removes codebooks, explicit support objects, residual shells, fixed centers, low-rank readouts, and bounded idio/EC paths.
+
+### 299a Spec
+
+Train a one-shot conditional rectified flow over the full 30-day future innovation path:
+
+- encode the 30-day normalized history;
+- teacher-force future changes into asinh-local-scale coordinates using the rolling history;
+- train flow matching on the full future innovation tensor;
+- sample a full coordinate path from noise;
+- sequentially invert coordinates back to future levels using generated rolling history.
+
+### Next Step
+
+Implement and run `299a-v0` as the next decisive experiment.
+
+Artifacts:
+
+- `results/validations/2026-04-22/analysis/299a_paradigm_shift/memo.md`
+
+---
