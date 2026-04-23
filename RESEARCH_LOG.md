@@ -87278,3 +87278,41 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/299a_temperature_diagnostic/summary.md`
 
 ---
+## 2026-04-23: 300a paradigm shift to support-valid logit-IV level flow
+
+### Context
+
+`299a` established that continuous local-scale flow learns useful stochastic signals but fails because the unbounded `sinh` inverse creates extreme IV paths. A temperature diagnostic rejected scalar temperature tuning as a research knob.
+
+### Decision
+
+Shift to `300a`: support-valid logit-IV future-level flow.
+
+### Rationale
+
+This is the smallest clean continuation of the continuous-flow line:
+
+- keep vanilla conditional flow matching;
+- remove historical support replay;
+- remove token codebooks and explicit support objects;
+- avoid residual shells and bounded idio/EC paths;
+- change only the observation coordinate so sampled futures live on physical IV support.
+
+### 300a Spec
+
+Train a one-shot conditional flow over the 30-day future IV level path in logit space:
+
+- encode 30-day normalized history;
+- transform target future levels from `(0, 1)` into logits;
+- train rectified flow matching on the full future logit tensor;
+- sample future logits and invert through sigmoid to IV levels.
+
+### Next Step
+
+Implement and run `300a-v0` as the next decisive experiment.
+
+Artifacts:
+
+- `results/validations/2026-04-22/analysis/300a_paradigm_shift/memo.md`
+
+---
