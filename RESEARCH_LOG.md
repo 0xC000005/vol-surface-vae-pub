@@ -87612,3 +87612,30 @@ Artifacts:
 - `results/block_ar/303b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 303b conditioning-geometry postmortem
+
+### Context
+
+`303b` repaired the exact `303a` failure by replacing a flat recurrent transition velocity with a generic token-mixing velocity. The question after the full 11-suite is what remains broken and whether the next move is still principled.
+
+### Findings
+
+- Joint transition geometry was repaired: corr ratio `0.297 -> 0.911`, rank ratio `3.610 -> 1.559`, change KS `3/25 -> 24/25`, and q99 jump cells `8/25 -> 21/25` from `303a` to `303b`.
+- State dependence mostly survived: aggregate MR ratio was `1.044`, h30 MR was `0.832`, and active-cell slope correlation stayed `0.803`.
+- The remaining failure is conditional calibration: cond/uncond width ratio was `0.995`, conditional MAE reduction was only `2.7%`, and turb/calm width ratio inverted to `0.955`.
+- Level-law fit remains weak: level KS was `3/25`, although change KS passed and sample explosion remained zero.
+
+### Mechanism Read
+
+The transition model now has enough generic joint capacity. The weak point is how recurrent history state enters the stochastic transition law. In `303b`, state and time are added as broadcast token biases before a pre-norm transformer. That is a plausible conditioning bottleneck: the token mixer can learn unconditional shared shocks, but the conditional state may not strongly modulate width, regime, or level drift.
+
+### Decision
+
+Keep the recurrent support-valid token-transition family. The next minimal experiment is `303c`: replace additive global-state conditioning with explicit state/time prefix tokens in the transformer velocity. This is still a generic joint-law learner, not a financial side path. Do not add rollout losses, explicit volatility features, slow latents, low-rank readouts, retrieval, or bounded idio/EC components until this cleaner conditioning-path test is falsified.
+
+Artifacts:
+
+- `results/block_ar/303a_v0_s42/full11.json`
+- `results/block_ar/303b_v0_s42/full11.json`
+
+---
