@@ -87859,3 +87859,36 @@ This is not a reason to add low-rank readouts, retrieval, bounded idio/EC paths,
 Continue the 304 family for one minimal causal test. `304b` should keep the same one-shot joint token flow and vanilla FM objective, but add per-token implied state logits as input to the token velocity. If `304b` does not materially repair MR/correlation/level law without destroying coverage, then the one-shot support-valid transition-flow branch should be treated as capped.
 
 ---
+## 2026-04-23: 304b state-aware joint token path-flow experiment
+
+### Context
+
+The `304a` postmortem identified a clean coordinate-sufficiency problem: one-shot transition tokens did not expose the implied future level state, while recurrent `303b` directly conditioned each transition on `current_logit`. `304b-v0` tested the minimal repair: keep the one-shot joint token path flow and vanilla FM objective, but give each token `[transition, implied_state_logit]`, where implied state is the cumulative transition path plus the last history logit.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `surface`, `block_ar`.
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Training: best epoch `27`, val FM loss `0.29130`.
+- Key metrics: h1 cov90 `0.902`, h30 cov90 `0.977`, calibration error `0.173`, conditional MAE reduction `6.7%`, turb/calm `0.871`, change KS `14/25`, level KS `0/25`, corr ratio `0.456`, rank ratio `3.068`, MR h1 `0.533`, MR h30 `0.671`, max-jump KS `0.176`, q99 jump cells `15/25`.
+
+### Mechanism Read
+
+The causal repair worked in the direction predicted but was not sufficient. Exposing the implied state path repaired support validity and moved mean reversion substantially away from the `304a` collapse. It also improved aggregate jump realism and conditional MAE. However, the generated law remains too weakly coupled across cells and too high-rank, and its unconditional level marginals remain wrong.
+
+The remaining failure is no longer just missing Markov state. It is joint stochastic geometry: the model has independent token-level noise at the base and a deterministic transformer map, but it is not learning the shared low-dimensional shocks strongly enough from this data and objective. This points toward a narrow shared stochastic bottleneck as the next first-principles candidate, not toward low-rank readouts, retrieval, bounded side paths, volatility hand features, or evaluator-specific losses.
+
+### Decision
+
+Do not add local 304 token knobs. Run a focused `304a/304b` postmortem next. The key decision is whether to test a narrow latent stochastic bottleneck inside the vanilla joint flow family, or to abandon one-shot support-valid transition flow as capped.
+
+Artifacts:
+
+- `diffusion/block_ar/joint_state_token_logit_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_304b_joint_state_token_logit_transition_flow_matching.py`
+- `models/backfill/304b_v0_s42/best_model.pt`
+- `results/block_ar/304b_v0_s42/full11.json`
+- `results/block_ar/304b_v0_s42/full11.md`
+
+---
