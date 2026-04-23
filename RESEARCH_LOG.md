@@ -87949,3 +87949,31 @@ Artifacts:
 - `results/block_ar/305a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 306 recurrent likelihood paradigm
+
+### Context
+
+`305a` tested the only clean one-shot repair left: a narrow stochastic latent bottleneck inside the state-aware joint flow. It did not move the score frontier and only barely improved cross-cell geometry. Continuing with latent-token counts, latent loss weights, or sampling temperatures would be knob accumulation.
+
+### Findings
+
+- Plain one-shot transition flows are capped in this evidence set: `301a`, `302a`, `304a`, `304b`, and `305a` all miss level marginals and/or shared stochastic geometry.
+- `305a` nearly reached the cross-cell gates (`corr ratio 0.499`, `rank ratio 3.040`) but worsened MR, conditional MAE, and pathwise jump realism.
+- The best clean AR evidence is still `303b`: it preserves change law and cross-cell dependence better because recurrence exposes and propagates the current state.
+- The weak point in `303b` is not recurrence; it is teacher-forced FM as the one-step conditional law and its poor calibration under free-run sampling.
+
+### Mechanism Read
+
+For a financial scenario generator, AR factorization is the more defensible first-principles decomposition after these failures:
+
+`p(path | history) = product_t p(x_t | history, x_<t)`
+
+It gives the model the current generated state exactly when deciding the next transition. The next model should therefore keep support-valid logit transitions and recurrent state propagation, but use an explicit learned likelihood for the multivariate daily transition instead of another flow/rollout objective.
+
+A full-covariance Student-t transition law is a clean baseline: it directly learns conditional mean, covariance, and tail thickness for the 25-cell daily move. It is not a hard low-rank readout, retrieval layer, bounded side path, hand regime feature, or evaluator-specific correction.
+
+### Decision
+
+Shift to `306`: recurrent full-covariance Student-t likelihood. `306a` should train by exact NLL under teacher forcing, then sample autoregressively in logit-transition coordinates. If this cannot beat the AR-flow family, the blocker is likely data/test difficulty rather than one-shot-vs-AR plumbing.
+
+---
