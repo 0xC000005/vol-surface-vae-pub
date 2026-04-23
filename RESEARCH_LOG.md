@@ -88243,3 +88243,48 @@ Do not tune profile amplitude, scale floors, or knot positions blindly. The next
 - decide whether the `308` family remains alive only if Stage B is replaced by a cleaner joint residual generator rather than another shell tweak
 
 ---
+## 2026-04-23: 308a Stage A versus Stage B postmortem
+
+### Context
+
+`308a-v0` showed a mixed pattern: surface validity stayed clean and overall coverage improved sharply, but cross-cell geometry collapsed. That was not enough to choose the next move confidently, so the next HEAD step isolated the learned Stage A center path from the Stage B shell.
+
+### Analysis Run
+
+- evaluated the learned Stage A checkpoint directly:
+  - `python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 289c --checkpoint models/backfill/308a_stage1_289c_v0_s42/best_model.pt --output_json results/block_ar/308a_stage1_289c_v0_s42/full11.json --output_md results/block_ar/308a_stage1_289c_v0_s42/full11.md --device cuda --chunk_size 4`
+
+### Result
+
+- learned Stage A alone scored `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- compared with `308a`:
+  - `n_pass`: `3 -> 2`
+  - corr ratio: `0.596 -> 0.032`
+  - rank ratio: `1.356 -> 4.343`
+  - overall 90% coverage: `0.0% -> 93.2%`
+  - h1 90% coverage: `0.0% -> 70.2%`
+  - conditional MAE reduction: `4.4% -> 2.8%`
+  - aggregate MR ratio: `0.912 -> 0.936`
+  - jump q99 ratio: `0.131 -> 0.324`
+
+### Mechanism Read
+
+The decomposition is now clear.
+- Stage A is not the failure. It remains the part that preserves the large-scale path basin and cross-cell structure.
+- Stage B is also not failing because it is "too weak" in a generic sense. It is failing because its law is wrong for the job.
+- Once the center path is deterministic, the stochastic stage carries almost all within-history scenario diversity.
+- A diagonal coarse shell can widen intervals, but it cannot preserve the shared cross-cell and cross-time residual dependence that the evaluation suites demand.
+
+So the conclusion is precise:
+- the `308` family is still scientifically alive
+- the current shell parameterization is not
+
+### Decision
+
+Do not continue the shell line with more profile heads, budget heads, scale clamps, or knot tweaks. The next iteration should replace Stage B entirely with a cleaner vanilla joint residual generator conditioned on the learned center path.
+
+---
