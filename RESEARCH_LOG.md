@@ -88716,3 +88716,53 @@ But it did not solve the whole problem.
 The unified future-path family is alive and more promising than the learned-center split line. The next HEAD step should be post-experiment analysis inside the unified family, not another paradigm shift.
 
 ---
+## 2026-04-23: 312a postmortem and next repair
+
+### Context
+
+`312a-v0` was the first unified single-stage future-path model after retiring the learned-center family. It was therefore important to distinguish between:
+- a genuinely better paradigm with an identifiable next bottleneck
+- versus another family that only moved metrics around without clarifying the next move
+
+### Findings
+
+`312a` is materially more hopeful than `309a/310a/311a` for one main reason: it escaped the `2/11` plateau and reached `3/11` without reintroducing extra structure.
+
+Key gains versus the capped learned-center family:
+- full cointegration suite now passes, including worst-cell gate
+- level KS improved to `5/25`
+- daily-change KS stayed at the pass threshold `15/25`
+- correlation ratio improved to `0.446`, close to the gate
+- worst per-cell coverage is less pathological at early horizons
+
+But the remaining failure cluster is specific:
+- conditional MAE reduction is still only `3.6%`
+- turb/calm width ratio is still essentially flat at `1.004`
+- late-horizon per-cell coverage remains badly imbalanced
+- active MR cells are still too few
+- jump-shape realism remains weak
+
+### Mechanism Read
+
+This no longer looks like the wrong future-path law.
+It looks like the model is not using history richly enough.
+
+`312a` conditions the whole future law through a single GRU bottleneck vector. That is likely too compressed for:
+- regime-sensitive uncertainty
+- cell-specific conditional calibration
+- long-horizon spatial coverage balance
+
+This read is also consistent with prior evidence from the world-model line, where adding explicit history-memory access improved structural behavior without adding domain-specific knobs.
+
+### Decision
+
+Stay in the unified `312` family.
+Do not change the future-path law yet.
+The next clean repair is to strengthen history access generically:
+- keep the unified future-logit path flow
+- keep implied future-state and transition exposure
+- replace the single bottleneck history summary with token-level history memory / history prefix tokens inside the same transformer mixer
+
+Next step: `312b` unified future-path flow with history-memory conditioning.
+
+---
