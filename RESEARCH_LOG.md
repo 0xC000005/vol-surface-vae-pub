@@ -86868,3 +86868,39 @@ Question:
   factorization?
 
 ---
+## 2026-04-22: 296e vs 296f hybrid comparison analysis
+
+### Context
+`296f-v0` was the first constrained multiresolution follow-up to `296e`.
+
+So the immediate question became whether the multiresolution family itself is still
+alive, or whether `296e` was just another one-off local tradeoff.
+
+### Result
+The `296e` vs `296f` comparison is now clear:
+- `296f` preserved the key local gain from `296e`: high h1 coverage
+- `296f` also improved calibration and structure modestly
+- but it still did not restore a balanced shell
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296ef_comparison/summary.md`
+
+### Mechanism Read
+The multiresolution family is still alive.
+
+The budget helped, but it is too global.
+
+The next missing ingredient is:
+- a learned activation/gating mechanism for the fast shell
+- so it turns on strongly only in the right windows and regimes
+
+### Decision
+Next step:
+- `296g` ideation
+
+Constraint:
+- keep the `296f` budget-plus-redistribution factorization
+- add a minimal activation/gating term on the fast shell
+- do not add another global budget or support factor
+
+---
