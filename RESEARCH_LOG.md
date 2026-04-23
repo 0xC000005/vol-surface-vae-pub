@@ -90729,3 +90729,22 @@ Standardizing the joint path flow is not enough. The flow learns plausible bound
 Keep the 324 principle (learn the joint future law together), but change the implementation to an efficient joint model. The next candidate should avoid full 750-token quadratic attention while still modeling cross-cell/time dependence jointly, e.g. a daily joint transition likelihood with learned state-dependent covariance or an efficient recurrent latent sequence model.
 
 ---
+## 2026-04-23: 324b standardized Student-t daily joint transition
+
+### Context
+After 324a showed that a full future-token standardized flow was too slow at useful capacity and collapsed cross-cell stochastic dependence, I tested a cleaner efficient joint law: a daily 25-cell Cholesky transition model trained in standardized transition coordinates with a Student-t likelihood. This keeps the model single-stage and learned, with no low-rank decoder, bounded idio path, retrieval copula, or evaluator-specific correction.
+
+### Result
+324b_v0_s42 scored 4/11 on the common full suite, passing surface validity, block-AR smoothness, IV-EWMA cointegration, and cross-cell correlation structure. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: coverage90 0.983 with calibration error 0.218, turb/calm width ratio 1.009, daily-change KS 19/25, level KS 0/25, median-bias gate 25/25, move-size gate 2/4, cross-cell correlation ratio 0.902, effective-rank ratio 1.379, aggregate MR ratio 0.525, active MR cells 1/24, pathwise max-jump KS 0.441.
+
+Artifacts: `models/backfill/324b_v0_s42/best_model.pt`, `models/backfill/324b_v0_s42/train_summary.json`, `results/block_ar/324b_v0_s42/full11.json`, and `results/block_ar/324b_v0_s42/full11.md`.
+
+### Mechanism Read
+The experiment is useful because it cleanly falsifies the narrow claim that learned full daily covariance plus heavy-tailed innovations is enough. It fixes 324a's cross-cell dependence collapse, but the Student-t Cholesky law becomes too diffuse and too weakly conditional: the unconditional scale dominates, level marginals remain far from historical, regime width barely changes, and mean reversion is underpowered except in a few high-slope cells.
+
+### Decision
+Do not add more calibration knobs to 324b. The next step should stay in the learned single-stage family but change the modeling target/objective so the model learns the joint future path law more directly, rather than relying on one-step Gaussian/Student-t transition likelihood to imply the 30-day path distribution.
+
+---

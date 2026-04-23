@@ -24,6 +24,9 @@ from experiments.backfill.block_ar.train_169a_transformed_student_t import norma
 from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
     build_multistep_windows,
 )
+from experiments.backfill.block_ar.train_320a_future_scalar_ar_mixture_density_model import (
+    compute_train_logit_stats,
+)
 
 
 def make_dataset(
@@ -67,6 +70,10 @@ def main() -> None:
     parser.add_argument("--use_level_feedback", action="store_true")
     parser.add_argument("--target_mode", type=str, default="transition", choices=["transition", "level"])
     parser.add_argument("--level_mean_residual", action="store_true")
+    parser.add_argument("--standardize_target", action="store_true")
+    parser.add_argument("--target_std_floor", type=float, default=1e-3)
+    parser.add_argument("--distribution", type=str, default="gaussian", choices=["gaussian", "student_t"])
+    parser.add_argument("--nu_floor", type=float, default=4.0)
 
     parser.add_argument("--epochs", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -136,8 +143,21 @@ def main() -> None:
         use_level_feedback=args.use_level_feedback,
         target_mode=args.target_mode,
         level_mean_residual=args.level_mean_residual,
+        standardize_target=args.standardize_target,
+        target_std_floor=args.target_std_floor,
+        distribution=args.distribution,
+        nu_floor=args.nu_floor,
     )
     model = DailyJointCholeskyTransitionModel(cfg).to(device)
+    if args.standardize_target:
+        target_mean, target_std = compute_train_logit_stats(
+            train_hist,
+            train_future,
+            logit_eps=args.logit_eps,
+            std_floor=args.target_std_floor,
+            target_mode=args.target_mode,
+        )
+        model.set_target_stats(target_mean.to(device), target_std.to(device))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

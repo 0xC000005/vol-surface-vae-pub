@@ -1055,7 +1055,7 @@ def load_one_day_kernel(
         )
 
         return load_317a_model(checkpoint_path, device)
-    if model_type in {"318a", "318b", "319a", "319b"}:
+    if model_type in {"318a", "318b", "319a", "319b", "324b"}:
         from diffusion.block_ar.daily_joint_cholesky_transition_model import (
             load_model as load_318a_model,
         )
