@@ -88350,3 +88350,52 @@ Do not revert to shell engineering. The next HEAD step should be post-experiment
 - or whether the level-drift plus residual-correlation weakness means this residual parameterization is still structurally incomplete
 
 ---
+## 2026-04-23: 309a postmortem and next clean move
+
+### Context
+
+`309a-v0` was the first clean learned-center stochastic model whose local stochastic metrics looked plausibly alive: h1 coverage passed, daily-change KS passed, jump q90/q99 passed, and active mean-reversion cells passed. But the suite score still stayed at `2/11`, so the next step was to decide whether this was mostly calibration or a deeper residual-law mismatch.
+
+### Findings
+
+Compared with `308a`, `309a` made the right kind of gains:
+- h1 90% coverage: `70.2% -> 86.5%`
+- conditional MAE reduction: `2.8% -> 4.2%`
+- daily-change KS pass cells: `0/25 -> 16/25`
+- move-size profile: from `1/4` style partial pass to `4/4` pass
+- cointegration gen/GT ratio: `0.313 -> 0.537`
+- corr ratio: `0.032 -> 0.492`
+- rank ratio: `4.343 -> 2.984`
+- active MR cells: `11/24 -> 18/24`
+- jump q90 ratio: `0.210 -> 0.894`
+- jump q99 ratio: `0.324 -> 1.008`
+- extreme-jump incidence ratio: `0.007 -> 0.964`
+
+But the remaining failures are concentrated in a specific cluster:
+- IV level KS stayed bad: `0/25`
+- late-horizon MR weakens materially by `h=14` and `h=30`
+- regime-sensitive width is still absent (`turb/calm = 0.964`)
+- per-cell coverage remains imbalanced, with simultaneous under- and over-coverage
+- cross-cell correlation is much better, but still just below the gate (`0.492`)
+
+### Mechanism Read
+
+This is not the same pathology as `308a`.
+- `308a` failed because the stochastic law was too factorless and too shell-like.
+- `309a` fixed that. The model now knows how to generate realistic local moves.
+- The remaining problem is that residual transitions are not anchored tightly enough in cumulative future-level space.
+
+That explains the current metric split:
+- daily changes and jump magnitudes look much more realistic
+- but accumulated level distributions and long-horizon path geometry still drift
+
+### Decision
+
+Do not add more capacity, shell heads, or temperature-style knobs first. The next clean move should change coordinates, not add machinery:
+- keep the learned deterministic center
+- keep the vanilla joint flow core
+- move Stage B from residual **transition** paths to residual **future-level/logit** paths around the center
+
+Next step: `310a` ideation/implementation for a center-conditioned residual level-path flow.
+
+---
