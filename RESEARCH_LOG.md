@@ -87671,3 +87671,27 @@ Artifacts:
 - `results/block_ar/303c_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 303b/303c objective-alignment postmortem
+
+### Context
+
+`303b` and `303c` are the clean recurrent-token support-valid variants. `303b` injects state/time additively into cell tokens; `303c` uses explicit state/time prefix tokens. Both keep the same recurrent logit-transition factorization and vanilla flow-matching core.
+
+### Findings
+
+- `303b` is the better dependence/MR base: corr ratio `0.911`, rank ratio `1.559`, full-horizon MR active pass `64.9%`, change KS `24/25`.
+- `303c` is the better conditioning/jump-shape variant: conditional MAE reduction `4.3%` vs `2.7%`, turb/calm `0.985` vs `0.955`, level KS `4/25` vs `3/25`, max-jump KS `0.209` vs `0.330`.
+- Both score `4/11` and fail the same suite set: coverage, conditionality, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+- The architecture tweaks traded metrics rather than moving the score frontier.
+
+### Mechanism Read
+
+The recurrent-token architecture has largely solved support, local change law, cross-cell dependence, and aggregate mean reversion. The remaining failures are generated-path failures under recursion: level marginals, regime-dependent width, and cellwise/terminal path calibration. Teacher-forced one-step FM is not sufficiently aligned with the free-run 30-day path law.
+
+This is not evidence for adding a low-rank decoder, slow latent side channel, retrieval layer, bounded idio/EC path, or evaluator-specific correction. It is evidence that the objective should match the actual conditional scenario-generation process more directly.
+
+### Decision
+
+Stop local conditioning-architecture tweaks inside `303` for now. The next HEAD step should ideate a minimal path-objective alignment experiment: keep `303b` as the architectural base, preserve the teacher-forced transition FM anchor, and add the smallest principled free-run path scoring or self-conditioning mechanism that trains the recursive generated level/regime law.
+
+---
