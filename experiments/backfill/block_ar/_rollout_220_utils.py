@@ -851,6 +851,12 @@ def load_one_day_kernel(
         )
 
         return load_296b_model(checkpoint_path, device)
+    if model_type == "296c":
+        from diffusion.block_ar.probabilistic_backbone_profiled_zero_mean_coarse_shell_model import (
+            load_model as load_296c_model,
+        )
+
+        return load_296c_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

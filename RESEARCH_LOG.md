@@ -86439,3 +86439,64 @@ Constraints:
 - only the scale-allocation head changes
 
 ---
+## 2026-04-22: 296c profiled coarse shell baseline
+
+### Context
+`296c-v0` was the narrow follow-up to `296b`.
+
+It kept:
+- frozen `277d` backbone
+- zero-mean coarse residual shell
+- paired symmetric sampling
+
+It changed only one thing:
+- shell scale allocation via a shared query-conditioned knot profile
+
+### Result
+`296c-v0` scored `5/11`.
+
+Passes:
+- `surface`
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+- `mean_reversion`
+
+High-signal metrics:
+- coverage90: `0.882`
+- calibration error: `0.031`
+- h1 / h30 coverage90: `0.593 / 0.953`
+- change KS: `19/25`
+- cointegration ratio: `0.744`
+- MR ratio: `1.086`
+- max-jump KS: `0.453`
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_296c_probabilistic_backbone_profiled_zero_mean_coarse_shell_model.py`
+- model: `diffusion/block_ar/probabilistic_backbone_profiled_zero_mean_coarse_shell_model.py`
+- eval: `results/block_ar/296c_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/296c_postmortem/summary.md`
+
+### Mechanism Read
+`296c` ties the overall `5/11` frontier and is the strongest current hybrid result.
+
+What it proves:
+- the hybrid line is still alive
+- shell scale allocation can improve support behavior without damaging the backbone
+
+What it does not prove:
+- that scale-allocation tweaks alone can solve the remaining bottleneck
+
+The misses barely moved where they mattered most:
+- h1 coverage
+- regime differentiation
+- level-law fidelity
+- pathwise jump realism
+
+### Decision
+Do post-experiment analysis next comparing `296b` and `296c`.
+
+If that analysis shows the scale-allocation subfamily is near a local cap, then `296d`
+should change shell support or shell objective, not add another scale head.
+
+---

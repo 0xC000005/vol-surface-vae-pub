@@ -1,0 +1,44 @@
+{
+  "result": {
+    "score": "5/11",
+    "passes": [
+      "surface",
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation",
+      "mean_reversion"
+    ]
+  },
+  "key_metrics": {
+    "coverage90": 0.882,
+    "calibration_error": 0.031,
+    "cov90_h1": 0.593,
+    "cov90_h30": 0.953,
+    "change_ks_pass": 19,
+    "level_ks_pass": 0,
+    "corr_ratio": 0.904,
+    "rank_ratio": 1.491,
+    "cointegration_ratio": 0.744,
+    "cointegration_worst_cell_ratio": 0.281,
+    "mr_ratio": 1.086,
+    "active_pass_count": 21,
+    "active_cell_slope_corr": 0.778,
+    "max_jump_ks": 0.453,
+    "acf_corr": 0.906
+  },
+  "training_read": {
+    "best_epoch": 22,
+    "best_val_total": -0.3026492553097861,
+    "profile_scale_mean": 0.548,
+    "profile_scale_h1": 0.768
+  },
+  "mechanism_read": [
+    "The query-conditioned shared knot profile improved support behavior and preserved structural validity.",
+    "The hybrid line now ties the overall 5/11 frontier.",
+    "But scale-profile refinement alone did not solve short-horizon width allocation, regime sensitivity, or pathwise jump realism."
+  ],
+  "decision": {
+    "status": "hybrid_alive_frontier_tied",
+    "next_step": "post_experiment_analysis comparing 296b and 296c before specifying 296d"
+  }
+}
