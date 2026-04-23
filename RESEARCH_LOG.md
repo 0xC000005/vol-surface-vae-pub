@@ -86303,3 +86303,63 @@ Constraints:
 - no shell mean drift away from the frozen backbone
 
 ---
+## 2026-04-22: 296b zero-mean coarse shell baseline
+
+### Context
+`296b-v0` was the decisive follow-up to `296a`.
+
+It kept the hybrid split but changed the shell geometry:
+- frozen `277d` backbone
+- zero-mean coarse residual controls at knot horizons
+- paired symmetric sampling so the ensemble stays centered on the backbone path
+
+### Result
+`296b-v0` scored `4/11`.
+
+Passes:
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+- `mean_reversion`
+
+High-signal metrics:
+- coverage90: `0.892`
+- calibration error: `0.039`
+- h1 / h30 coverage90: `0.605 / 0.956`
+- change KS: `20/25`
+- cointegration ratio: `0.723`
+- worst-cell cointegration ratio: `0.281`
+- MR ratio: `1.088`
+- active-cell slope corr: `0.783`
+- max-jump KS: `0.446`
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_296b_probabilistic_backbone_zero_mean_coarse_shell_model.py`
+- model: `diffusion/block_ar/probabilistic_backbone_zero_mean_coarse_shell_model.py`
+- eval: `results/block_ar/296b_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/296b_postmortem/summary.md`
+
+### Mechanism Read
+This is a real improvement over `296a`.
+
+The coarse zero-mean shell:
+- preserved the backbone structure much better
+- restored broad coverage and calibration
+- did not become a second center path
+
+So the hybrid split is now materially more credible.
+
+The remaining misses are narrower:
+- short-horizon coverage still weak
+- regime differentiation still slightly underallocated
+- level-law fidelity still dead
+- pathwise max-jump realism still weak
+
+### Decision
+Do post-experiment analysis next comparing `277d`, `296a`, and `296b`.
+
+If that confirms the current shell geometry is right, `296c` should be a **narrow
+shell refinement** for short-horizon and regime-sensitive width allocation, not a new
+paradigm shift.
+
+---

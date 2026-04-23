@@ -1,0 +1,43 @@
+{
+  "result": {
+    "score": "4/11",
+    "passes": [
+      "block_ar",
+      "cointegration",
+      "cross_cell_correlation",
+      "mean_reversion"
+    ]
+  },
+  "key_metrics": {
+    "coverage90": 0.892,
+    "calibration_error": 0.039,
+    "cov90_h1": 0.605,
+    "cov90_h30": 0.956,
+    "change_ks_pass": 20,
+    "level_ks_pass": 0,
+    "corr_ratio": 0.889,
+    "rank_ratio": 1.536,
+    "cointegration_ratio": 0.723,
+    "cointegration_worst_cell_ratio": 0.281,
+    "mr_ratio": 1.088,
+    "active_pass_count": 21,
+    "active_cell_slope_corr": 0.783,
+    "max_jump_ks": 0.446,
+    "acf_corr": 0.902
+  },
+  "training_read": {
+    "best_epoch": 19,
+    "best_val_total": -0.3123403915337154,
+    "pred_scale_mean": 0.48,
+    "z_abs_mean": 0.788
+  },
+  "mechanism_read": [
+    "The coarse zero-mean shell preserved the structural backbone substantially better than 296a.",
+    "Coverage and calibration returned without the shell becoming the de facto center path.",
+    "The remaining bottleneck is short-horizon and regime-sensitive width allocation, not the high-level hybrid split."
+  ],
+  "decision": {
+    "status": "hybrid_alive",
+    "next_step": "post_experiment_analysis comparing 277d, 296a, and 296b before specifying 296c"
+  }
+}
