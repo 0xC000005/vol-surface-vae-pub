@@ -88149,3 +88149,39 @@ Do not stack arbitrary latent knobs. The next HEAD step should be research ideat
 If the answer is yes, run only one such experiment. If the answer is no, abandon 307 rather than accumulate latent structure.
 
 ---
+## 2026-04-23: 308 learned center shell ideation
+
+### Context
+
+The `307a` postmortem left one apparent repair: add a shared daily innovation on top of the global path latent. But implementing that cleanly would either require an effectively hard low-rank step factorization or a more complicated hierarchical latent model. Both would move away from the clean-pathology guard.
+
+### Candidate Moves Considered
+
+- `307b` with a shared daily innovation on top of the global latent:
+  rejected for now because the clean implementation would either hard-code a low-dimensional factor innovation or add another latent hierarchy layer.
+- Return to the hybrid frontier as-is:
+  rejected because frozen retrieval scaffolding is not aligned with the current reset doctrine.
+- Learned center path plus stochastic residual shell:
+  selected as the next principled move.
+
+### Mechanism Read
+
+What the empirical frontier is really using is not retrieval itself. It is the decomposition:
+- a stable center trajectory that keeps the scenario path in the right basin
+- a residual shell that controls stochastic spread around that center
+
+The clean end-to-end families have repeatedly failed when asked to learn both with one undifferentiated generative law. So the next move should preserve that decomposition but learn both pieces from scratch.
+
+### Decision
+
+Shift to `308`: learned center path plus residual shell.
+
+`308a` should:
+- train a deterministic support-valid center-path model in logit-transition coordinates
+- then train a zero-mean coarse residual shell around that learned center
+- avoid retrieval and frozen scaffolding entirely
+- keep the shell simple and symmetric, in the spirit of the `296` coarse-shell line
+
+This is a cleaner, more defensible version of the practical hierarchy that has worked best so far.
+
+---
