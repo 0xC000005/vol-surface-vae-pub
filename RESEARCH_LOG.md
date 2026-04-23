@@ -86697,3 +86697,50 @@ Constraint:
 - do not add another global scale factor or global tail factor
 
 ---
+## 2026-04-22: 296e multiresolution coarse shell baseline
+
+### Context
+`296e-v0` tested the next narrow hybrid hypothesis after `296c -> 296d`:
+- keep the `296c` Gaussian shell law
+- keep the zero-mean shell geometry
+- change only the shell basis to a multiresolution basis with extra early-horizon
+  control points
+
+### Result
+`296e-v0` scored `4/11`.
+
+Passes:
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+- `mean_reversion`
+
+Artifacts:
+- `results/block_ar/296e_v0_s42/full11.json`
+- `results/validations/2026-04-22/analysis/296e_postmortem/summary.md`
+
+### Mechanism Read
+The fast basis solved the exact local problem it was supposed to solve:
+- h1 coverage moved from `59.3% -> 85.9%`
+- turb/calm width ratio moved from `1.110 -> 1.165`
+- max-jump KS improved from `0.453 -> 0.394`
+
+But it overpaid for those gains:
+- overall coverage expanded to `93.0%`
+- calibration worsened
+- change KS and cross-cell structure weakened
+- calendar arbitrage failed
+
+So early-horizon shell geometry is real, but it needs an additional constraint that
+prevents global overdispersion.
+
+### Decision
+Next step:
+- post-experiment analysis comparing `296c`, `296d`, and `296e`
+
+Question:
+- does `296e` validate the multiresolution shell as the right direction,
+- and if so, what is the minimal constraint needed to keep its local gains without
+  giving back structure?
+
+---
