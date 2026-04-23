@@ -86500,3 +86500,38 @@ If that analysis shows the scale-allocation subfamily is near a local cap, then 
 should change shell support or shell objective, not add another scale head.
 
 ---
+## 2026-04-22: 296b vs 296c hybrid comparison analysis
+
+### Context
+`296c` tied the `5/11` frontier, so the immediate question became whether the
+scale-allocation subfamily is still moving the real bottleneck or only polishing
+secondary behavior.
+
+### Result
+The `296b` vs `296c` comparison is now clear:
+- `296c` improved support/surface behavior and slightly improved calibration
+- but it did not improve:
+  - h1 coverage
+  - regime-sensitive width
+  - level-law fidelity
+  - pathwise jump realism
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296bc_comparison/summary.md`
+
+### Mechanism Read
+The hybrid decomposition remains alive.
+The pure shell scale-allocation subfamily is near a local cap.
+
+So another scale-head tweak is unlikely to break the frontier.
+
+### Decision
+Next step:
+- `296d` ideation
+
+Constraint:
+- keep the hybrid decomposition
+- keep the zero-mean shell geometry
+- change shell support or shell objective, not just scale allocation
+
+---
