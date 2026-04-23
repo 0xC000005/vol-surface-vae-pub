@@ -88288,3 +88288,65 @@ So the conclusion is precise:
 Do not continue the shell line with more profile heads, budget heads, scale clamps, or knot tweaks. The next iteration should replace Stage B entirely with a cleaner vanilla joint residual generator conditioned on the learned center path.
 
 ---
+## 2026-04-23: 309a learned center-conditioned residual flow experiment
+
+### Context
+
+The `308a` postmortem showed that the learned deterministic center path was useful, but the profiled zero-mean shell was the wrong stochastic law: it widened intervals while destroying shared residual geometry. `309a-v0` kept the learned `289c` center path and replaced Stage B entirely with a vanilla joint residual path flow-matching model over future logit transitions.
+
+### Implementation
+
+- added center-conditioned residual flow model:
+  - `diffusion/block_ar/center_conditioned_residual_logit_transition_flow_matching.py`
+- added trainer:
+  - `experiments/backfill/block_ar/train_309a_center_conditioned_residual_logit_transition_flow_matching.py`
+- registered loader/eval support in:
+  - `experiments/backfill/block_ar/_rollout_220_utils.py`
+  - `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- trained with learned Stage A center from:
+  - `models/backfill/308a_stage1_289c_v0_s42/best_model.pt`
+- trained flow checkpoint:
+  - `models/backfill/309a_v0_s42/best_model.pt`
+
+### Result
+
+- `309a-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - `results/block_ar/309a_v0_s42/full11.json`
+  - `results/block_ar/309a_v0_s42/full11.md`
+- best training epoch: `27`
+- key metrics:
+  - overall 90% coverage: `95.0%`
+  - h1 90% coverage: `86.5%`
+  - conditional MAE reduction: `4.2%`
+  - ACF correlation: `0.952`
+  - daily-change KS pass cells: `16/25`
+  - IV level KS pass cells: `0/25`
+  - corr ratio: `0.492`
+  - rank ratio: `2.984`
+  - aggregate MR ratio: `0.828`
+  - active MR cells: `18/24`
+  - pathwise q90 ratio: `0.894`
+  - pathwise q99 ratio: `1.008`
+  - pathwise max-jump KS: `0.277`
+
+### Mechanism Read
+
+This is a materially better stochastic stage than `308a`, even though the top-line suite count did not move.
+- The residual flow fixed the most obvious shell pathology: tiny moves and missing jumps.
+- It also restored meaningful early-horizon uncertainty, which is why h1 coverage now passes.
+- But the residual law is still not balanced correctly across cells and horizons.
+- Some cells are still undercovered while many others are overcovered, regime-sensitive width is absent, and unconditional level distributions drift badly even when daily changes look plausible.
+- Cross-cell dependence is much healthier than `308a`, but still slightly below the gate once residual diversity is added.
+
+### Decision
+
+Do not revert to shell engineering. The next HEAD step should be post-experiment analysis on `309a`:
+- compare `309a` against `308a` and Stage A directly
+- decide whether the remaining gap is mostly a calibration/temperature issue around a good residual law
+- or whether the level-drift plus residual-correlation weakness means this residual parameterization is still structurally incomplete
+
+---
