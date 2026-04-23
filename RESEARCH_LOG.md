@@ -89750,3 +89750,59 @@ The next HEAD step should be `post_experiment_analysis`, focused on whether the 
 - eval MD: `results/block_ar/316a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 316a direct-path shared-stochasticity analysis
+
+### Context
+`316a-v0` was meant to test whether the clean direct-path `312a` family only needed more shared internal communication. It kept the unified direct future-path law and added deterministic global mixer tokens.
+
+That made the next question narrower: did `316a` fail because the direct-path family is wrong, or because deterministic global tokens are the wrong coupling mechanism?
+
+### Comparative Findings
+The key three-way comparison is now:
+- `312a`: direct path, no extra global token mechanism
+- `316a`: direct path plus deterministic global mixer tokens
+- `314b`: explicit shared stochastic state via posterior-latent machinery
+
+What changed from `312a` to `316a`:
+- calibration improved strongly: `0.037 -> 0.017`
+- daily-change KS improved strongly: `15/25 -> 21/25`
+- jump KS improved: `0.451 -> 0.328`
+- cointegration stayed alive at the suite level, though worst-cell weakened: `0.455 -> 0.250`
+
+What got worse from `312a` to `316a`:
+- corr ratio collapsed: `0.446 -> 0.122`
+- rank ratio worsened: `3.157 -> 4.199`
+- level KS weakened: `5/25 -> 3/25`
+- active mean-reversion coverage weakened: `54.2% -> 42.5%`
+
+What `314b` still proves:
+- when the model gets extra shared stochastic degrees of freedom, coupling and local fidelity can improve sharply (`corr ratio 1.173`, level KS `8/25`, daily KS `19/25`)
+- but posterior-latent machinery breaks anchor (`worst-cell cointegration 0.171`, MR ratio `0.296`)
+
+### Mechanism Read
+This is the cleanest read so far on the remaining gap.
+
+Deterministic global tokens are not shared stochasticity.
+They improve the model's ability to fit local marginal laws and calibration, but they do not give sampled trajectories a shared random channel that can generate panel-wide co-movement.
+
+That explains the `316a` pattern:
+- better daily marginals and jump shape
+- worse shared correlation structure
+- weaker level-law anchoring across cells
+
+So the direct-path family itself is not falsified. What is falsified is the idea that deterministic internal tokens are enough to solve the coupling problem.
+
+### Decision
+The next move should not be another deterministic global-token tweak.
+
+The next clean family should keep the direct path coordinates but replace deterministic global tokens with a **narrow sampled shared stochastic channel**:
+- sampled shared tokens or shared global noise channels per scenario
+- one-stage flow matching
+- no posterior/prior training
+- no multiscale factorization
+- no deterministic center/residual split
+
+### Next Step
+Choose a paradigm shift next and start `317` as a direct future-path flow with sampled shared stochastic tokens.
+
+---
