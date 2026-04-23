@@ -87248,3 +87248,33 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/299a_postmortem/summary.md`
 
 ---
+## 2026-04-23: 299a temperature diagnostic
+
+### Context
+
+`299a-v0` failed mainly through unbounded `sinh` inversion: it had strong local stochastic signals but massive surface explosion. The diagnostic question was whether generic flow sample-temperature reduction fixes the model or only creates a tradeoff.
+
+### Result
+
+Temperature `0.5` scored `1/11`, worse than the original `2/11`.
+
+Comparison:
+
+- `299a temp=1.0`: score `2/11`, explosion `95.5%`, cov90 `0.903`, turb/calm `1.347`, change KS `24/25`, level KS `3/25`, rank ratio `1.487`, MR ratio `-0.091`, jump KS `0.430`, q99 jump ratio `9.236`.
+- `299a temp=0.5`: score `1/11`, explosion `63.6%`, cov90 `0.588`, turb/calm `1.001`, change KS `15/25`, level KS `18/25`, rank ratio `0.453`, MR ratio `-0.050`, jump KS `0.919`, q99 jump ratio `1.044`.
+
+### Mechanism Read
+
+Temperature reduction improves level KS and jump scale but does not remove explosion, and it trades away coverage, regime sensitivity, rank, change fidelity, and jump incidence. Mean reversion remains dead. This is not a scalar-temperature problem.
+
+### Decision
+
+Stop temperature tuning. The next clean move is a support-valid continuous coordinate while keeping the generative core vanilla: either logit-IV future-level flow or a bounded transition transform.
+
+Artifacts:
+
+- `results/block_ar/299a_v0_temp05_s42/full11.json`
+- `results/block_ar/299a_v0_temp05_s42/full11.md`
+- `results/validations/2026-04-22/analysis/299a_temperature_diagnostic/summary.md`
+
+---
