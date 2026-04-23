@@ -87549,3 +87549,34 @@ Artifacts:
 - `results/block_ar/303a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 303a dependence-geometry postmortem
+
+### Context
+
+`303a-v0` was the clean recurrent support-valid transition test. It should be compared directly against `301a` and `302a`, because those are the one-shot support-valid transition baselines.
+
+### Comparison
+
+| model | score | corr ratio | rank ratio | change KS | level KS | MR h1 | MR h30 | jump KS | q99 cells |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `301a` | `4/11` | `0.794` | `1.787` | `16/25` | `0/25` | `0.031` | `0.166` | `0.418` | `18/25` |
+| `302a` | `3/11` | `0.798` | `1.818` | `15/25` | `1/25` | `0.332` | `0.417` | `0.373` | `14/25` |
+| `303a` | `2/11` | `0.297` | `3.610` | `3/25` | `0/25` | `1.016` | `0.920` | `0.662` | `8/25` |
+
+### Mechanism Read
+
+The result is not ambiguous. `303a` fixed the aggregate state-dependence failure that capped `301a/302a`: mean reversion landed inside target range at h1 and h30. But this came with a severe dependence-geometry failure: the generated 25D transition law became too high-rank and too weakly correlated across cells, which also damaged change KS, calendar consistency, and pathwise jump shape.
+
+This suggests the flat recurrent one-step MLP velocity over-factorizes the transition law. The problem is not recurrence itself, support validity, or lack of aggregate state dependence. It is insufficient joint geometry inside the recurrent transition kernel.
+
+### Decision
+
+Do not add a slow latent, low-rank readout, bounded idio/EC path, retrieval replay, or evaluator-specific loss. The clean next experiment should keep the 303 recurrent logit-transition factorization, but replace the flat transition velocity with a generic joint-variable/token velocity network that can learn shared shocks and cross-cell dependence directly. A small self-attention/token-mixing velocity is acceptable because it is a general joint-law learner, not a hand-engineered financial factor path.
+
+Artifacts:
+
+- `results/block_ar/301a_v0_s42/full11.json`
+- `results/block_ar/302a_v0_s42/full11.json`
+- `results/block_ar/303a_v0_s42/full11.json`
+
+---
