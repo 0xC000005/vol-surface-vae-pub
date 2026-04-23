@@ -86268,3 +86268,38 @@ Hard constraints for `296b`:
   correction
 
 ---
+## 2026-04-22: 296b mean-preserving coarse shell ideation
+
+### Context
+The `296a` comparison analysis showed the hybrid split is still plausible, but the
+shell interface is wrong. Direct daily residual-token corrections are both too local
+and too free to preserve the frozen `277d` center path.
+
+### Result
+Selected `296b-v0` as the next hybrid baseline.
+
+Core design:
+- frozen `277d` backbone
+- shell acts on a **coarse residual control sequence** at knot horizons
+- shell mean fixed at zero relative to the backbone
+- paired symmetric sampling keeps the scenario ensemble centered on the backbone path
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296b_hybrid_ideation/memo.md`
+
+### Mechanism Read
+The right response to `296a` is not more shell entropy on daily corrections.
+It is to change shell geometry:
+- move residual freedom from daily local corrections to coarse pathwise controls
+- keep the shell explicitly mean-preserving
+- let the backbone continue to own the center path
+
+### Decision
+Implement `296b-v0` next.
+
+Constraints:
+- no daily residual-token shell
+- no retrieval-weighting Stage B
+- no shell mean drift away from the frozen backbone
+
+---
