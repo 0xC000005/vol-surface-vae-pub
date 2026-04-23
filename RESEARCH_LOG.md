@@ -86363,3 +86363,41 @@ shell refinement** for short-horizon and regime-sensitive width allocation, not 
 paradigm shift.
 
 ---
+## 2026-04-22: 296b hybrid comparison analysis
+
+### Context
+`296b` was the first hybrid run that looked alive. The immediate question after that
+result was whether it actually validates the hybrid split, or just happens to be a
+less bad shell variant.
+
+### Result
+The comparison against `277d` and `296a` is decisive:
+- `277d`: strongest structure, no stochastic adequacy
+- `296a`: wrong shell interface, both structure and stochastic adequacy degraded
+- `296b`: broad coverage/calibration restored while most of the `277d` structural
+  strengths stayed alive
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296b_vs_277d_296a_comparison/summary.md`
+
+### Mechanism Read
+This validates the hybrid direction much more strongly than before.
+
+The open problem is no longer the high-level split.
+It is the shell scale allocation:
+- too little width at h1
+- slightly weak regime differentiation
+- no level-law fix yet
+- pathwise jump realism still weak
+
+### Decision
+Keep the hybrid paradigm.
+
+Next step:
+- `296c` ideation as a **narrow shell refinement**
+
+Design rule:
+- keep the `296b` zero-mean coarse shell geometry
+- change only horizon/regime-sensitive scale allocation
+
+---
