@@ -87148,3 +87148,34 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/298a_postmortem/summary.md`
 
 ---
+## 2026-04-23: 298a interface diagnostic postmortem
+
+### Context
+
+After `298a-v0` scored `4/11`, the key question was whether its failure came from hard nearest-neighbor decoding of sampled embeddings or from the broader library-replay support interface.
+
+### Diagnostic
+
+I compared train-library support, sampled raw decoded futures, and anchored generated futures against validation futures:
+
+- Train-vs-validation level KS: `0/25` cells pass, median KS `0.474`, worst `0.749`.
+- Train-vs-validation daily-change KS: `13/25` cells pass, median KS `0.148`, worst `0.191`.
+- Raw selected-library level KS vs validation: `1/25` cells pass, median KS `0.354`, worst `0.607`.
+- Anchored generated level KS vs validation in this diagnostic sample: `4/25` cells pass, median KS `0.415`, worst `0.495`.
+- Decode diversity is not the main collapse: 719 unique library paths selected globally, mean 14.4 unique paths per condition from 48 samples, selected-path effective N about 270.
+- Embedding density is concentrated but not degenerate: mean scale `0.064`, mean top1-top2 margin `0.011`.
+
+### Mechanism Read
+
+The library-replay interface is capped for the level-distribution test because the training library itself is not level-compatible with the validation marginal. This explains why 298a can improve local change KS and correlation while still failing level KS and coverage. Hard nearest-neighbor decoding may add roughness, but replacing top-1 with a soft mixture over the same raw library is unlikely to fix the core level-support mismatch.
+
+### Decision
+
+Do not pursue `298b` as a soft/mixture library decoder as the main route. The next paradigm should keep the clean first-principles lesson from 298a, but the support object must be learned/generative rather than replaying training futures. A principled next candidate is a direct conditional joint path density over normalized future levels/changes with a narrow latent bottleneck and likelihood/flow objective, not historical library support.
+
+Artifacts:
+
+- `results/validations/2026-04-22/analysis/298a_interface_diagnostic/summary.json`
+- `results/validations/2026-04-22/analysis/298a_interface_diagnostic/summary.md`
+
+---
