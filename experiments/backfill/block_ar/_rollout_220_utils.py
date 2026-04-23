@@ -1071,6 +1071,7 @@ def load_one_day_kernel(
         "321a",
         "321b",
         "321c",
+        "322a",
     }:
         from diffusion.block_ar.future_scalar_ar_mixture_density_model import (
             load_model as load_320a_model,

@@ -40,6 +40,8 @@ class FutureScalarARMixtureConfig:
     logit_std_floor: float = 1e-3
     target_mode: str = "level"
     standardize_level_features: bool = False
+    aux_transition_weight: float = 0.0
+    standardize_aux_transition: bool = False
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -79,6 +81,14 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             nn.Dropout(cfg.ar_dropout),
             nn.Linear(cfg.ar_hidden, cfg.n_mixtures * 3),
         )
+        self.transition_head: nn.Module | None = None
+        if cfg.aux_transition_weight > 0.0:
+            self.transition_head = nn.Sequential(
+                nn.Linear(cfg.ar_hidden, cfg.ar_hidden),
+                nn.GELU(),
+                nn.Dropout(cfg.ar_dropout),
+                nn.Linear(cfg.ar_hidden, cfg.n_mixtures * 3),
+            )
         token_idx = torch.arange(cfg.future_len * cfg.n_cells)
         self.register_buffer("token_day", token_idx // cfg.n_cells)
         self.register_buffer("token_cell", token_idx % cfg.n_cells)
@@ -86,6 +96,8 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
         self.register_buffer("cell_level_mean", torch.zeros(cfg.n_cells))
         self.register_buffer("cell_level_std", torch.ones(cfg.n_cells))
+        self.register_buffer("cell_transition_mean", torch.zeros(cfg.n_cells))
+        self.register_buffer("cell_transition_std", torch.ones(cfg.n_cells))
 
     @staticmethod
     def _flatten(x: torch.Tensor) -> torch.Tensor:
@@ -120,6 +132,14 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         self.cell_level_mean.copy_(mean.to(self.cell_level_mean))
         self.cell_level_std.copy_(std.clamp_min(self.cfg.logit_std_floor).to(self.cell_level_std))
 
+    def set_transition_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        if mean.shape != (self.cfg.n_cells,) or std.shape != (self.cfg.n_cells,):
+            raise ValueError("Expected per-cell transition stats with shape (n_cells,)")
+        self.cell_transition_mean.copy_(mean.to(self.cell_transition_mean))
+        self.cell_transition_std.copy_(
+            std.clamp_min(self.cfg.logit_std_floor).to(self.cell_transition_std)
+        )
+
     def _to_model_coord(self, logits: torch.Tensor) -> torch.Tensor:
         if not self.cfg.standardize_logits:
             return logits
@@ -144,6 +164,11 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         if not self.cfg.standardize_level_features:
             return logit
         return (logit - self.cell_level_mean[cell]) / self.cell_level_std[cell]
+
+    def _to_transition_coord(self, transition: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_aux_transition:
+            return transition
+        return (transition - self.cell_transition_mean) / self.cell_transition_std
 
     def _initial_hidden(self, context: torch.Tensor) -> torch.Tensor:
         hidden = self.init_hidden(context)
@@ -200,6 +225,13 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         context = self.encode_history(history_norm)
         history_logits = self.to_logits(history_norm)
         future_logits = self.to_logits(future_norm)
+        future_trans_raw = torch.cat(
+            [
+                future_logits[:, :1] - history_logits[:, -1:, :],
+                future_logits[:, 1:] - future_logits[:, :-1],
+            ],
+            dim=1,
+        )
         if self.cfg.target_mode == "level":
             history_coord = self._to_model_coord(history_logits)
             future_coord = self._to_model_coord(future_logits)
@@ -209,16 +241,9 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             same_cell_source = future_coord
             same_cell_initial = history_coord[:, -1]
         else:
-            future_trans = torch.cat(
-                [
-                    future_logits[:, :1] - history_logits[:, -1:, :],
-                    future_logits[:, 1:] - future_logits[:, :-1],
-                ],
-                dim=1,
-            )
             history_trans = torch.zeros_like(history_logits)
             history_trans[:, 1:] = history_logits[:, 1:] - history_logits[:, :-1]
-            target_seq = self._to_model_coord(future_trans)
+            target_seq = self._to_model_coord(future_trans_raw)
             history_trans_coord = self._to_model_coord(history_trans)
             first_prev = history_trans_coord[:, -1, self.token_cell[0]]
             current_level = torch.empty_like(future_logits)
@@ -247,18 +272,32 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         logits, means, scales = self._split_params(self.head(states))
         nll_grid = self.mixture_nll(target, logits, means, scales)
         nll = nll_grid.mean()
+        total = nll
+        aux_nll = None
+        if self.transition_head is not None and self.cfg.aux_transition_weight > 0.0:
+            aux_target = self._to_transition_coord(future_trans_raw).reshape(
+                future_trans_raw.shape[0],
+                -1,
+            )
+            aux_logits, aux_means, aux_scales = self._split_params(
+                self.transition_head(states)
+            )
+            aux_nll = self.mixture_nll(aux_target, aux_logits, aux_means, aux_scales).mean()
+            total = total + float(self.cfg.aux_transition_weight) * aux_nll
 
         weights = F.softmax(logits, dim=-1)
         expected = (weights * means).sum(dim=-1)
         metrics = {
-            "total": nll.detach(),
+            "total": total.detach(),
             "nll": nll.detach(),
             "target_std": target.std(unbiased=False).detach(),
             "target_abs": target.abs().mean().detach(),
             "scale_mean": (weights * scales).sum(dim=-1).mean().detach(),
             "mean_abs_err": (expected - target).abs().mean().detach(),
         }
-        return nll, metrics
+        if aux_nll is not None:
+            metrics["aux_transition_nll"] = aux_nll.detach()
+        return total, metrics
 
     @torch.no_grad()
     def sample_batched(
@@ -357,7 +396,18 @@ def load_model(
     model = FutureScalarARMixtureDensityModel(cfg)
     state_dict = payload["model_state_dict"]
     result = model.load_state_dict(state_dict, strict=False)
-    allowed_missing = {"cell_logit_mean", "cell_logit_std", "cell_level_mean", "cell_level_std"}
+    allowed_missing = {
+        "cell_logit_mean",
+        "cell_logit_std",
+        "cell_level_mean",
+        "cell_level_std",
+        "cell_transition_mean",
+        "cell_transition_std",
+    }
+    if cfg.aux_transition_weight <= 0.0:
+        allowed_missing.update(
+            key for key in result.missing_keys if key.startswith("transition_head.")
+        )
     missing = set(result.missing_keys) - allowed_missing
     if missing or result.unexpected_keys:
         raise RuntimeError(
@@ -372,6 +422,11 @@ def load_model(
         result.missing_keys
     ):
         raise RuntimeError("Checkpoint is missing saved level feature stats")
+    if cfg.standardize_aux_transition and {
+        "cell_transition_mean",
+        "cell_transition_std",
+    }.intersection(result.missing_keys):
+        raise RuntimeError("Checkpoint is missing saved transition stats")
     model.to(device).eval()
     return model, payload
 

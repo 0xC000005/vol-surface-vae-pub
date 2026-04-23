@@ -90560,3 +90560,25 @@ Stop feature/regularization tweaks inside 321. The next principled move is a joi
 - eval MD: `results/block_ar/321c_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 322a joint level-transition objective experiment
+
+### Context
+322a tested a shared-state multi-view objective. Sampling remained level-coordinate, but training added an equal-weight auxiliary transition likelihood from the same autoregressive states. The intent was to combine the level control of 320 with the daily-change/path behavior of 321 without adding a second generator or evaluator-specific correction.
+
+### Result
+322a-v0 trained stably and scored 3/11, passing surface validity, block_ar, and cross_cell_correlation. It did not preserve the mean-reversion pass; active cells fell to 15/24.
+
+Key metrics: coverage90 0.899, calibration error 0.018, conditional MAE improvement 6.1% passes but turb/calm width ratio 0.936 fails, ACF corr 0.953, kurtosis ratio 0.882 and skewness ratio 0.282 pass, daily KS 23/25 passes, level KS 8/25 fails, cross-cell corr ratio 0.864 and rank ratio 1.531 pass, MR active cells 15/24 fail, pathwise max-jump KS 0.332, and cointegration worst-cell ratio 0.167 fails.
+
+### Mechanism
+The auxiliary transition head improves some path-shape diagnostics and conditional MAE, but it does not solve the core marginal/level calibration problem and it weakens active-cell MR. This means a shared-state auxiliary loss is not enough. The remaining failures are structural: per-cell level marginals, per-cell coverage, regime-adaptive width, worst-cell cointegration, and pathwise per-cell tails.
+
+### Decision
+Close 322a as non-frontier. The 320/321/322 evidence argues against more small feature or auxiliary-loss tweaks. The next paradigm should be a principled conditional marginal + dependence factorization: learn calibrated per-cell/horizon marginal laws and a dependence/copula structure, rather than expecting one scalar AR mixture head to satisfy all marginal and joint constraints simultaneously.
+
+### Artifacts
+- checkpoint: `models/backfill/322a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/322a_v0_s42/full11.json`
+- eval MD: `results/block_ar/322a_v0_s42/full11.md`
+
+---

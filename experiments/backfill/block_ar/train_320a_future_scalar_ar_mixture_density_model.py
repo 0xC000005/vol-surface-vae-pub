@@ -115,6 +115,8 @@ def main() -> None:
     parser.add_argument("--logit_std_floor", type=float, default=1e-3)
     parser.add_argument("--target_mode", type=str, default="level", choices=["level", "transition"])
     parser.add_argument("--standardize_level_features", action="store_true")
+    parser.add_argument("--aux_transition_weight", type=float, default=0.0)
+    parser.add_argument("--standardize_aux_transition", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -188,6 +190,8 @@ def main() -> None:
         logit_std_floor=args.logit_std_floor,
         target_mode=args.target_mode,
         standardize_level_features=args.standardize_level_features,
+        aux_transition_weight=args.aux_transition_weight,
+        standardize_aux_transition=args.standardize_aux_transition,
     )
     model = FutureScalarARMixtureDensityModel(cfg).to(device)
     if args.standardize_logits:
@@ -207,6 +211,15 @@ def main() -> None:
             std_floor=args.logit_std_floor,
         )
         model.set_level_stats(level_mean.to(device), level_std.to(device))
+    if args.standardize_aux_transition:
+        trans_mean, trans_std = compute_train_logit_stats(
+            train_hist,
+            train_future,
+            logit_eps=args.logit_eps,
+            std_floor=args.logit_std_floor,
+            target_mode="transition",
+        )
+        model.set_transition_stats(trans_mean.to(device), trans_std.to(device))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
