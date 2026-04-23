@@ -55,6 +55,17 @@ class ConditionalMarginalCopulaConfig:
     )
 
 
+@dataclass
+class EmpiricalMarginalTransportConfig:
+    history_len: int = 30
+    future_len: int = 30
+    n_cells: int = 25
+    logit_eps: float = 1e-4
+    max_sample_chunk: int = 8
+    base_checkpoint: str = "models/backfill/321c_v0_s42/best_model.pt"
+    n_quantiles: int = 101
+
+
 class ConditionalMarginalCopulaModel(nn.Module):
     """323a: conditional scalar marginals plus an empirical neural copula.
 
@@ -305,6 +316,95 @@ class ConditionalMarginalCopulaModel(nn.Module):
         return out
 
 
+class EmpiricalMarginalTransportCopulaModel(nn.Module):
+    """323c: empirical marginal transport applied to a neural copula sampler."""
+
+    def __init__(
+        self,
+        cfg: EmpiricalMarginalTransportConfig,
+        source_quantiles: torch.Tensor,
+        target_quantiles: torch.Tensor,
+        quantile_levels: torch.Tensor,
+        base_model: FutureScalarARMixtureDensityModel | None = None,
+    ):
+        super().__init__()
+        self.cfg = cfg
+        expected = (cfg.future_len, cfg.n_cells, cfg.n_quantiles)
+        if tuple(source_quantiles.shape) != expected or tuple(target_quantiles.shape) != expected:
+            raise ValueError(f"Expected quantile tensors with shape {expected}")
+        if tuple(quantile_levels.shape) != (cfg.n_quantiles,):
+            raise ValueError("Expected quantile_levels with shape (n_quantiles,)")
+        self.register_buffer("source_quantiles", source_quantiles.float())
+        self.register_buffer("target_quantiles", target_quantiles.float())
+        self.register_buffer("quantile_levels", quantile_levels.float())
+        self.__dict__["base_model"] = base_model
+
+    @torch.no_grad()
+    def sample_batched(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 50,
+        n_steps: int = 30,
+        chunk_size: int = 8,
+        history_is_normalized: bool = True,
+        **kwargs: object,
+    ) -> torch.Tensor:
+        if n_steps != self.cfg.future_len:
+            raise ValueError(f"Expected n_steps={self.cfg.future_len}, got {n_steps}")
+        if self.base_model is None:
+            raise RuntimeError("EmpiricalMarginalTransportCopulaModel requires a base model")
+        history_norm = history if history_is_normalized else normalize_iv(history)
+        base_samples = self.base_model.sample_batched(
+            history_norm,
+            n_samples=n_samples,
+            n_steps=n_steps,
+            chunk_size=chunk_size,
+            history_is_normalized=True,
+            **kwargs,
+        )
+        base_flat = base_samples.view(
+            base_samples.shape[0],
+            base_samples.shape[1],
+            self.cfg.future_len,
+            self.cfg.n_cells,
+        )
+        base_logits = iv_to_logit(base_flat, self.cfg.logit_eps)
+        transported = self._transport(base_logits)
+        future_01 = logit_to_iv(transported)
+        if self.cfg.n_cells == 25:
+            return future_01.view(
+                history.shape[0],
+                n_samples,
+                self.cfg.future_len,
+                5,
+                5,
+            )
+        return future_01
+
+    def _transport(self, x: torch.Tensor) -> torch.Tensor:
+        src = self.source_quantiles[None, None]
+        tgt = self.target_quantiles[None, None]
+        low_denom = (src[..., 1] - src[..., 0]).abs().clamp_min(1e-6)
+        low = tgt[..., 0] + (x - src[..., 0]) * (tgt[..., 1] - tgt[..., 0]) / low_denom
+        out = low
+        for idx in range(self.cfg.n_quantiles - 1):
+            src_lo = src[..., idx]
+            src_hi = src[..., idx + 1]
+            tgt_lo = tgt[..., idx]
+            tgt_hi = tgt[..., idx + 1]
+            denom = (src_hi - src_lo).abs().clamp_min(1e-6)
+            weight = (x - src_lo) / denom
+            value = tgt_lo + weight * (tgt_hi - tgt_lo)
+            mask = (x >= src_lo) & (x <= src_hi)
+            out = torch.where(mask, value, out)
+        high_denom = (src[..., -1] - src[..., -2]).abs().clamp_min(1e-6)
+        high = tgt[..., -1] + (x - src[..., -1]) * (
+            tgt[..., -1] - tgt[..., -2]
+        ) / high_denom
+        out = torch.where(x > src[..., -1], high, out)
+        return out
+
+
 def _validate_quantile_levels(levels: Sequence[float]) -> None:
     if len(levels) < 3:
         raise ValueError("quantile_levels must contain at least three levels")
@@ -320,8 +420,21 @@ def _validate_quantile_levels(levels: Sequence[float]) -> None:
 def load_model(
     checkpoint_path: str,
     device: torch.device,
-) -> tuple[ConditionalMarginalCopulaModel, dict]:
+) -> tuple[nn.Module, dict]:
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    if payload.get("model_class") == "empirical_transport":
+        cfg = EmpiricalMarginalTransportConfig(**payload["config"])
+        base_model, _ = load_scalar_ar_model(cfg.base_checkpoint, device)
+        model = EmpiricalMarginalTransportCopulaModel(
+            cfg,
+            source_quantiles=payload["source_quantiles"],
+            target_quantiles=payload["target_quantiles"],
+            quantile_levels=payload["quantile_levels"],
+            base_model=base_model,
+        )
+        model.to(device).eval()
+        model.base_model.to(device).eval()
+        return model, payload
     cfg = ConditionalMarginalCopulaConfig(**payload["config"])
     base_model, _ = load_scalar_ar_model(cfg.base_checkpoint, device)
     model = ConditionalMarginalCopulaModel(cfg, base_model=base_model)
@@ -344,6 +457,27 @@ def save_checkpoint(
             "epoch": int(epoch),
             "best_val": float(best_val),
             "model_state_dict": model.state_dict(),
+        },
+        path,
+    )
+
+
+def save_transport_checkpoint(
+    path: str,
+    cfg: EmpiricalMarginalTransportConfig,
+    source_quantiles: torch.Tensor,
+    target_quantiles: torch.Tensor,
+    quantile_levels: torch.Tensor,
+) -> None:
+    torch.save(
+        {
+            "model_class": "empirical_transport",
+            "config": asdict(cfg),
+            "epoch": 0,
+            "best_val": 0.0,
+            "source_quantiles": source_quantiles.cpu(),
+            "target_quantiles": target_quantiles.cpu(),
+            "quantile_levels": quantile_levels.cpu(),
         },
         path,
     )

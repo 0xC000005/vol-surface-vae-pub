@@ -1074,8 +1074,9 @@ def load_one_day_kernel(
         "322a",
         "323a",
         "323b",
+        "323c",
     }:
-        if model_type in {"323a", "323b"}:
+        if model_type in {"323a", "323b", "323c"}:
             from diffusion.block_ar.conditional_marginal_copula_model import (
                 load_model as load_320a_model,
             )

@@ -90648,3 +90648,25 @@ Quantile marginals are better than Gaussian for daily-change calibration, but th
 Do not add more quantile-network knobs. The clean next falsifier is empirical marginal transport: keep the same 321c copula samples, but learn/store direct per-cell/horizon source-to-target quantile maps from training data. This tests whether marginal CDF mismatch is the real bottleneck before spending more complexity on a learned marginal network.
 
 ---
+## 2026-04-23: 323c empirical marginal transport diagnostic
+
+### Context
+323c tested the decisive non-learned marginal diagnostic for the 323 factorization. It kept the 321c transition-coordinate scalar AR model as the copula/path sampler and replaced the learned Gaussian/quantile marginal networks with direct per-cell/horizon empirical source-to-target quantile transport estimated from training windows only.
+
+### Result
+`323c_v0_s42` scored `3/11`, passing surface validity, block-AR boundary smoothness, and cross-cell correlation. It failed coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: overall 90% coverage `0.895`, calibration error `0.043`, aggregate horizon coverage passes but per-cell coverage fails at h7/h14/h30; turb/calm width ratio `0.985`; daily-change KS `23/25` pass; level KS `3/25` pass; move-size profile passes all four thresholds; corr ratio `0.903`; rank ratio `1.360`; aggregate MR ratio `1.053` and full-horizon aggregate profile pass, but active-cell profile fails; pathwise max-jump KS `0.370`; per-cell q99 jump pass `16/25`; cointegration overall ratio `0.666` but worst-cell ratio `0.222`.
+
+Artifacts:
+- model: `models/backfill/323c_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/323c_v0_s42/full11.json`
+- eval MD: `results/block_ar/323c_v0_s42/full11.md`
+
+### Mechanism Read
+Unconditional empirical transport preserves much more of 321c's path structure than learned Gaussian/quantile marginals, and it fixes move-size profile. But it still cannot match validation level marginals or per-cell coverage because the target marginal law is state-dependent. A single unconditional CDF per cell/horizon is too blunt under nonstationary level regimes.
+
+### Decision
+Continue only one more clean 323 variant: state-conditional empirical marginal transport using current level and historical realized variance bins. This is still a conditional CDF estimator inside the same Sklar factorization. If that fails to move level KS/per-cell coverage materially, abandon 323 and shift to a larger learned joint sequence model rather than adding more calibration knobs.
+
+---
