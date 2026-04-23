@@ -90582,3 +90582,25 @@ Close 322a as non-frontier. The 320/321/322 evidence argues against more small f
 - eval MD: `results/block_ar/322a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 323 conditional marginal-copula factorization paradigm shift
+
+### Context
+The clean scalar chain-rule line has now produced a clear map. Level-coordinate models (320c/320d) can pass surface validity, cross-cell dependence, and mean reversion, but struggle with daily/path marginal tails. Transition-coordinate models (321a/321c) can pass daily KS and move-size profile while retaining cross-cell/MR, but drift in level marginals and per-cell coverage. The joint auxiliary objective (322a) improves some path diagnostics but does not solve per-cell level calibration or active MR.
+
+### Diagnosis
+The remaining failures are not caused by missing low-rank structure, bounded paths, or posterior/prior machinery. They are the classic joint-distribution decomposition problem: the tests require both calibrated marginal laws and realistic dependence. A single scalar AR mixture head is being asked to learn marginal calibration, conditional width/regime response, cross-cell dependence, mean reversion, and pathwise extremes through one parameterization, and finite-sample optimization is trading these off.
+
+### Principle
+Use the probability identity behind multivariate modeling:
+
+`joint law = marginal laws + dependence/copula`
+
+This is not a two-stage correction path in the old sense; it is Sklar-style factorization of the same conditional distribution. It is more defensible than adding more AR feature knobs because it directly separates the two things the 11-suite measures: per-cell/horizon marginal calibration and cross-cell/time dependence.
+
+### Decision
+Pivot to 323: conditional marginal + learned dependence factorization. The generative core should still be clean and general: learn calibrated scalar marginal distributions for future cells/horizons, transform to probability/rank space, then learn/sample a dependence structure over those transformed variables. The first implementation should be minimal and falsifiable, preferably using the existing scalar AR representations as a baseline dependence model while replacing ad-hoc level/transition target choices with an explicit marginal/copula interface.
+
+### Falsifier
+323 must improve the currently stubborn failures: level KS, per-cell coverage/regime coverage, pathwise/tail cell counts, and cointegration worst-cell, while preserving the 320/321 passes on surface, cross-cell correlation, and mean reversion. If it cannot improve marginal tests without destroying dependence, the test suite may require either more data or a substantially larger attention-based density model.
+
+---
