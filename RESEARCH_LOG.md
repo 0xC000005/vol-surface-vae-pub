@@ -88010,3 +88010,40 @@ Artifacts:
 - `results/block_ar/306a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 306a versus 303b and 296c postmortem
+
+### Context
+
+`306a-v0` falsified the naive recurrent full-covariance Student-t likelihood. The next step was to compare it against the two most informative reference points:
+- `303b`: best clean recurrent AR flow
+- `296c`: current overall `5/11` frontier, though hybrid
+
+### Findings
+
+- `303b` remains the strongest clean AR baseline: score `4/11`, corr ratio `0.911`, rank ratio `1.559`, change KS `24/25`, MR h30 `0.832`.
+- `296c` remains the best overall frontier result at `5/11`, with corr ratio `0.904`, rank ratio `1.491`, MR h30 `0.772`, but it relies on a frozen hybrid backbone plus residual shell.
+- `306a` scored `2/11` and collapsed in free run: corr ratio `0.174`, rank ratio `3.955`, MR h30 `0.169`, max-jump KS `0.493`, calendar arbitrage `20.8%`.
+- A direct diagnostic on `306a` showed the teacher-forced h1 covariance head was not trivial: mean absolute off-diagonal correlation was about `0.40`, mean signed off-diagonal correlation about `0.42`, and mean df about `2.78`.
+
+### Mechanism Read
+
+The `306a` failure is not simply that the covariance head learned diagonal noise. It learned substantial one-step covariance under teacher forcing, but the recursive generated path still broadened, lost MR, and lost effective shared geometry. That means local likelihood fit is not enough; the model needs a path-level shared stochastic variable that remains coherent across the whole 30-day rollout.
+
+This also explains the contrast with `303b` and `296c`:
+- `303b` preserves dependence because the token-mixing transition law imposes structured joint moves each step.
+- `296c` preserves geometry because a frozen center path plus shell narrows the free-run space.
+- `306a` has neither a shared path latent nor a constrained center trajectory, so free-run recursion drifts into diffuse weakly informative regimes.
+
+### Decision
+
+Do not tune 306 covariance details. Shift to `307`: recurrent path-level latent bottleneck. The clean spec is:
+- support-valid AR logit transitions
+- recurrent state propagation
+- one narrow global latent for the whole 30-day future path
+- standard-normal prior
+- structured token-mixing decoder conditioned on state, current logit, and global latent
+- teacher-forced ELBO training with simple per-step likelihood
+
+This is closer to the reset doctrine than the hybrid frontier and addresses the concrete missing mechanism: persistent shared path-level uncertainty.
+
+---
