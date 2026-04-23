@@ -90406,3 +90406,25 @@ Continue inside 320. The next change should be a minimal allowed conditioning sk
 - eval MD: `results/block_ar/320b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 320c same-cell chain-rule conditioning experiment
+
+### Context
+320c adds the minimal conditioning skip selected after 320b: each scalar future token receives the previous same-cell level directly. This is not a separate residual path or financial correction module; the value is already in the chain-rule conditioning set for future days, and the skip only makes same-cell dynamics easier for the recurrent density model to use.
+
+### Result
+320c-v0 trained cleanly for 48 epochs with `--use_same_cell_feedback`, reaching best validation NLL around epoch 46 (`val_total=-1.317`), a large improvement over 320b (`-0.900`). The full 11-suite score improved to 4/11, passing surface validity, block_ar, cross_cell_correlation, and mean_reversion.
+
+Key metrics: coverage90 0.898 with calibration error 0.042; conditional MAE improvement 0.0%; turb/calm width ratio 1.061; ACF corr 0.947; aggregate kurtosis ratio 0.870 now passes, but skewness/tail subtests still fail; daily KS 8/25; level KS 1/25; cross-cell corr ratio 0.591 and rank ratio 2.696 both pass; mean reversion fully passes with h1 ratio 0.889, active cells 20/24, active-cell corr 0.878, and full-horizon active profile pass; pathwise max-jump KS 0.457. Cointegration aggregate ratio remains acceptable at 0.945, but the suite fails because the worst-cell ratio drops to 0.194.
+
+### Mechanism
+The same-cell skip is a clean improvement for dependence and dynamics. It turns 320 from near-cross-cell/near-MR into a formal pass on both, while also improving daily-change KS and aggregate kurtosis. The cost is level marginal distortion in a few cells, weaker regime width differentiation, and one-cell cointegration failure. The remaining pathology is therefore not missing dependence or mean reversion; it is calibrated per-cell marginal shape across levels and jumps.
+
+### Decision
+Keep 320 as the active paradigm. The next move should not add a new financial path. A principled Bitter-Lesson-aligned next step is capacity scaling within the same chain-rule model: larger hidden state and more mixture components, while preserving the same inputs and objective. If capacity scaling does not improve per-cell marginals, then revisit the scalar likelihood family rather than adding post-hoc evaluators.
+
+### Artifacts
+- checkpoint: `models/backfill/320c_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320c_v0_s42/full11.json`
+- eval MD: `results/block_ar/320c_v0_s42/full11.md`
+
+---

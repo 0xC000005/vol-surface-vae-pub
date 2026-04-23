@@ -34,6 +34,7 @@ class FutureScalarARMixtureConfig:
     scale_floor: float = 1e-3
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
+    use_same_cell_feedback: bool = False
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -54,7 +55,8 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             nn.Linear(cfg.context_dim, cfg.ar_layers * cfg.ar_hidden),
             nn.Tanh(),
         )
-        self.scalar_in = nn.Linear(2, cfg.ar_hidden)
+        scalar_input_dim = 3 if cfg.use_same_cell_feedback else 2
+        self.scalar_in = nn.Linear(scalar_input_dim, cfg.ar_hidden)
         self.day_embed = nn.Embedding(cfg.future_len, cfg.ar_hidden)
         self.cell_embed = nn.Embedding(cfg.n_cells, cfg.ar_hidden)
         self.ar = nn.GRU(
@@ -97,8 +99,14 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         self,
         prev_scalar: torch.Tensor,
         anchor_scalar: torch.Tensor,
+        same_cell_scalar: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        scalar_feat = torch.stack([prev_scalar, anchor_scalar], dim=-1)
+        if self.cfg.use_same_cell_feedback:
+            if same_cell_scalar is None:
+                raise ValueError("same_cell_scalar is required when use_same_cell_feedback=True")
+            scalar_feat = torch.stack([prev_scalar, anchor_scalar, same_cell_scalar], dim=-1)
+        else:
+            scalar_feat = torch.stack([prev_scalar, anchor_scalar], dim=-1)
         inp = self.scalar_in(scalar_feat)
         inp = inp + self.day_embed(self.token_day)[None]
         inp = inp + self.cell_embed(self.token_cell)[None]
@@ -143,8 +151,14 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         prev_scalar[:, 0] = history_logits[:, -1, self.token_cell[0]]
         prev_scalar[:, 1:] = target[:, :-1]
         anchor_scalar = history_logits[:, -1, self.token_cell]
+        same_cell_scalar = None
+        if self.cfg.use_same_cell_feedback:
+            same_cell = torch.empty_like(future_logits)
+            same_cell[:, 0] = history_logits[:, -1]
+            same_cell[:, 1:] = future_logits[:, :-1]
+            same_cell_scalar = same_cell.reshape(future_logits.shape[0], -1)
 
-        inputs = self._token_inputs(prev_scalar, anchor_scalar)
+        inputs = self._token_inputs(prev_scalar, anchor_scalar, same_cell_scalar)
         states, _ = self.ar(inputs, self._initial_hidden(context))
         logits, means, scales = self._split_params(self.head(states))
         nll_grid = self.mixture_nll(target, logits, means, scales)
@@ -191,12 +205,16 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             hist_logits = history_logits.repeat_interleave(k, dim=0)
             hidden = self._initial_hidden(ctx)
             prev_scalar = hist_logits[:, -1, self.token_cell[0]]
+            last_cell_values = hist_logits[:, -1].clone()
             draws: list[torch.Tensor] = []
             for token in range(n_tokens):
                 cell = int(self.token_cell[token].item())
                 day = int(self.token_day[token].item())
                 anchor = hist_logits[:, -1, cell]
-                scalar_feat = torch.stack([prev_scalar, anchor], dim=-1)
+                if self.cfg.use_same_cell_feedback:
+                    scalar_feat = torch.stack([prev_scalar, anchor, last_cell_values[:, cell]], dim=-1)
+                else:
+                    scalar_feat = torch.stack([prev_scalar, anchor], dim=-1)
                 inp = self.scalar_in(scalar_feat)
                 inp = inp + self.day_embed.weight[day][None]
                 inp = inp + self.cell_embed.weight[cell][None]
@@ -207,6 +225,7 @@ class FutureScalarARMixtureDensityModel(nn.Module):
                 chosen_scale = scales.gather(-1, mix_idx.unsqueeze(-1)).squeeze(-1)
                 draw = chosen_mean + temp * chosen_scale * torch.randn_like(chosen_mean)
                 draws.append(draw)
+                last_cell_values[:, cell] = draw
                 prev_scalar = draw
             future_logits = torch.stack(draws, dim=1).view(
                 bsz * k,
