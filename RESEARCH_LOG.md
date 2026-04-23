@@ -86105,3 +86105,29 @@ So the future control-state sequence behaved more like a volatility allocator th
 Treat `295a` as the last justified in-paradigm experiment for the current fixed-horizon one-stage joint-law line. Next step: paradigm-shift analysis rather than another local family tweak.
 
 ---
+## 2026-04-22: 296a hybrid backbone plus stochastic shell paradigm shift
+
+### Context
+The fixed-horizon one-stage joint-law line (`293` through `295`) produced a coherent result: it can learn local stochastic law, preserve cross-cell structure, and `295a` showed it can allocate conditional spread well. But it still fails badly on center-path dynamics: level law, mean reversion, and worst-cell cointegration robustness.
+
+### Decision
+Retire the fixed-horizon one-stage joint-law line as the active mainline.
+
+Next active family: `296a`
+- hybrid structural center-path backbone
+- plus fixed-horizon stochastic shell
+
+### Why this is the most principled shift
+The evidence now says the current paradigm learns the distributional shell better than the structural center path.
+
+So the right move is:
+- stop asking one fixed-horizon model to solve both jobs
+- keep the learned stochastic-law gains from `293`-`295`
+- pair them with a stronger structural backbone
+
+### Concrete next step
+Do research ideation for `296a-v0`:
+- choose the cleanest structural backbone to pair with a `295a`-style stochastic shell
+- define the interface between backbone and shell before implementation
+
+---
