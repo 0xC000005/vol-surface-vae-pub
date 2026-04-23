@@ -87517,3 +87517,35 @@ This keeps the core generative model vanilla while making state dependence nativ
 Implement `303a-v0`: recurrent support-valid logit-transition flow. Train with teacher-forced 30-step one-day transition objectives, then evaluate by recursive multi-day sampling under the same full 11-suite. This directly tests whether native recurrent state dependence closes the mean-reversion/level-law gap without sacrificing the support-valid safety recovered by `300a-302a`.
 
 ---
+## 2026-04-23: 303a recurrent support-valid logit-transition flow experiment
+
+### Context
+
+`303a-v0` tested the clean recurrent version of the support-valid transition idea. Instead of drawing a whole 30-day transition block at once, it factorizes the conditional law into one-step logit-IV transitions, updates the generated state on support, and conditions the next transition on the generated recurrent state.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `block_ar`, `cointegration`.
+- Failed: `surface`, `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: explosion `0.0%`, calendar avg violation `20.8%`, cov90 `0.939`, calibration error `0.174`, conditional MAE reduction `0.6%`, turb/calm `1.092`, change KS `3/25`, level KS `0/25`, corr ratio `0.297`, rank ratio `3.610`, MR ratio `1.016`, MR h30 `0.920`, max-jump KS `0.662`, q99 jump ratio `0.857`, q99 jump cells `8/25`.
+
+### Mechanism Read
+
+The result is a clean tradeoff. Native recurrence did what it was supposed to do for aggregate state dependence: mean reversion moved from weak in `301a/302a` to target-range at h1 and h30. But the one-step recurrent transition flow badly weakened the joint law: cross-cell correlation collapsed, effective rank inflated, daily-change KS collapsed, and pathwise jump shape failed even though support remained safe.
+
+This means the current bottleneck is no longer support validity or aggregate mean reversion. It is dependence geometry under the recurrent one-step factorization.
+
+### Decision
+
+Do not add a slow latent, low-rank readout, bounded idio/EC path, retrieval layer, or evaluator-specific loss yet. Run a focused postmortem comparing `301a`, `302a`, and `303a` to determine whether the failure comes from cell-independent noise geometry, the one-step MLP velocity, or teacher-forced recurrent training/free-run mismatch. Only then choose the next move.
+
+Artifacts:
+
+- `diffusion/block_ar/recurrent_logit_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_303a_recurrent_logit_transition_flow_matching.py`
+- `models/backfill/303a_v0_s42/best_model.pt`
+- `results/block_ar/303a_v0_s42/full11.json`
+- `results/block_ar/303a_v0_s42/full11.md`
+
+---
