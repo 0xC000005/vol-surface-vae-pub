@@ -87639,3 +87639,35 @@ Artifacts:
 - `results/block_ar/303b_v0_s42/full11.json`
 
 ---
+## 2026-04-23: 303c prefix-token recurrent logit-transition flow experiment
+
+### Context
+
+`303c-v0` tested the minimal conditioning-path repair from the `303b` postmortem. It kept the recurrent support-valid token-transition flow, but made recurrent state and diffusion time explicit prefix tokens in the transformer velocity instead of adding them as broadcast biases to every cell token.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `time_series`, `block_ar`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: cov90 `0.817`, calibration error `0.078`, conditional MAE reduction `4.3%`, turb/calm `0.985`, change KS `23/25`, level KS `4/25`, corr ratio `0.733`, rank ratio `2.089`, MR ratio `1.066`, MR h30 `0.901`, full-horizon MR active pass rate `52.6%`, max-jump KS `0.209`, q99 jump ratio `1.031`, q99 jump cells `20/25`.
+
+### Mechanism Read
+
+The conditioning-path hypothesis was directionally right but not sufficient. Compared with `303b`, prefix tokens improved conditional MAE (`2.7% -> 4.3%`), turb/calm width (`0.955 -> 0.985`), level KS (`3/25 -> 4/25`), and max-jump KS (`0.330 -> 0.209`, nearly passing). But it weakened cross-cell geometry and active-cell mean reversion.
+
+The pathology is now a tradeoff inside the recurrent-token family: better conditioning/pathwise shape can hurt dependence and cellwise MR. Another blind conditioning tweak risks becoming knob accumulation.
+
+### Decision
+
+Do a focused `303b` vs `303c` postmortem before any new experiment. The next decision should be whether to preserve `303b` and align the training objective with free-run level/regime law, or whether the recurrent-token branch is capped and needs a broader paradigm shift. Do not add side channels, low-rank readouts, retrieval, bounded idio/EC paths, or evaluator-specific losses.
+
+Artifacts:
+
+- `diffusion/block_ar/recurrent_logit_transition_prefix_token_flow_matching.py`
+- `experiments/backfill/block_ar/train_303c_recurrent_logit_transition_prefix_token_flow_matching.py`
+- `models/backfill/303c_v0_s42/best_model.pt`
+- `results/block_ar/303c_v0_s42/full11.json`
+- `results/block_ar/303c_v0_s42/full11.md`
+
+---
