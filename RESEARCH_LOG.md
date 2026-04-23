@@ -88645,3 +88645,74 @@ Next paradigm:
 Next step: `312a` ideation/implementation for a unified future-logit path flow.
 
 ---
+## 2026-04-23: 312a unified state-aware future-logit path flow experiment
+
+### Context
+
+The learned-center additive-residual family was retired after `309a/310a/311a` stayed capped at `2/11`. `312a-v0` was the first true paradigm shift after that postmortem:
+- no deterministic center path
+- no additive residual stage
+- one single-stage stochastic law for the full future logit path
+- condition only on history
+- expose both future level state and implied daily transitions internally inside the same vanilla joint model
+
+### Implementation
+
+- added unified future-path model:
+  - `diffusion/block_ar/unified_state_aware_future_logit_path_flow_matching.py`
+- added trainer:
+  - `experiments/backfill/block_ar/train_312a_unified_state_aware_future_logit_path_flow_matching.py`
+- registered loader/eval support in:
+  - `experiments/backfill/block_ar/_rollout_220_utils.py`
+  - `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- trained checkpoint:
+  - `models/backfill/312a_v0_s42/best_model.pt`
+
+### Result
+
+- `312a-v0` scored `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cointegration`
+- eval:
+  - `results/block_ar/312a_v0_s42/full11.json`
+  - `results/block_ar/312a_v0_s42/full11.md`
+- best training epoch: `27`
+- key metrics:
+  - overall 90% coverage: `88.9%`
+  - h1 90% coverage: `94.2%`
+  - calibration error: `0.037`
+  - conditional MAE reduction: `3.6%`
+  - turb/calm width ratio: `1.004`
+  - ACF correlation: `0.935`
+  - daily-change KS pass cells: `15/25`
+  - IV level KS pass cells: `5/25`
+  - cointegration gen/GT ratio: `1.031`
+  - worst-cell cointegration ratio: `0.455`
+  - corr ratio: `0.446`
+  - rank ratio: `3.157`
+  - aggregate MR ratio: `1.192`
+  - active MR cells: `13/24`
+  - pathwise q90 ratio: `0.838`
+  - pathwise q99 ratio: `0.980`
+  - pathwise max-jump KS: `0.451`
+
+### Mechanism Read
+
+This is the first result that actually justifies the paradigm shift.
+- Removing the explicit center/residual split did not make optimization collapse.
+- The unified law recovered enough global structure to pass the full cointegration suite, including the worst-cell gate.
+- It also improved level fidelity relative to the learned-center family without destroying dependence completely.
+
+But it did not solve the whole problem.
+- Shared cross-cell dependence is still slightly too weak.
+- Regime-sensitive uncertainty remains almost absent.
+- Active mean-reversion is still too sparse across cells.
+- Jump scale is reasonable, but jump-shape realism is still poor.
+
+### Decision
+
+The unified future-path family is alive and more promising than the learned-center split line. The next HEAD step should be post-experiment analysis inside the unified family, not another paradigm shift.
+
+---
