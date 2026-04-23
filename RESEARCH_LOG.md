@@ -89218,3 +89218,86 @@ The next HEAD step should be `post_experiment_analysis` on the `314a/314b` trade
 - eval MD: `results/block_ar/314b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 314 coordinate tradeoff analysis and 314c selection
+
+### Context
+The `314` family now has two clean experiments with the same active latent-state mechanism but different observation coordinates:
+- `314a`: latent state emits absolute future logit levels
+- `314b`: latent state emits future logit transitions, integrated from the last observed logit
+
+Both runs stayed non-collapsed and structurally legible. So the task is no longer to rescue latent usage. The task is to read the `314a/314b` tradeoff correctly.
+
+### Comparative Read
+`314a` strengths:
+- preserves long-run structure better
+- passes cointegration cleanly, including worst-cell gate
+- keeps stronger mean reversion signal
+- still passes cross-cell structure
+
+`314a` weaknesses:
+- undercovers badly
+- weak calibration
+- weak daily-change fidelity
+- almost dead jump incidence
+
+`314b` strengths:
+- coverage and calibration improve sharply
+- move-size profile passes 4/4
+- daily-change KS passes 19/25 and crosses the suite gate
+- per-window coverage floor now passes
+- cross-cell structure still passes
+
+`314b` weaknesses:
+- worst-cell cointegration falls back below gate
+- mean reversion collapses in the opposite direction, with active pass rate dropping to 0%
+- level KS improves but still does not pass
+- jump realism remains far below target
+
+### Mechanism Read
+This is not random tradeoff noise. It points to a missing state variable.
+
+`314a` works better on long-run anchoring because the observation model is expressed directly in level space.
+`314b` works better on local stochastic scale because the observation model is expressed in transition space.
+
+But in `314b`, once sampling starts, the transition prior and decoder do **not** see the current absolute level state explicitly. They evolve only through latent state plus history context while the absolute level is updated outside the probabilistic state law by cumulative integration.
+
+That means the model can learn local innovation scale without having the current level available as an explicit state variable for mean-reversion and cointegration behavior.
+
+So the likely missing ingredient is simple and first-principles:
+- the transition law should be Markov in the current level state as well as the latent state
+
+### Decision
+Select `314c` as the next repair inside the same family.
+
+`314c` should keep:
+- the `314b` transition-emission coordinate
+- the healthy latent-state prior/posterior structure
+- the narrow bottleneck and plain KL objective
+
+`314c` should change exactly one mechanism:
+- make the posterior, prior, and/or decoder level-aware by conditioning on the running current-logit level state
+
+Concretely, the state law should look like:
+- `q(z_t | Δx_t, x_{t-1}, h)`
+- `p(z_t | z_{t-1}, x_{t-1}, h)`
+- `p(Δx_t | z_t, x_{t-1})`
+
+This keeps the model one-stage and generative. It does **not** require an explicit deterministic center path or a two-stage residual scaffold.
+
+### Why 314c Is The Most Principled Next Step
+This is the smallest repair that directly addresses the observed failure mechanism.
+
+It does not add:
+- KL warmup
+- free bits
+- retrieval
+- low-rank heads
+- bounded side paths
+- a learned center/residual split
+
+It simply says that if transitions need to know where the process currently is, then the current level should be part of the state.
+
+### Next Step
+Implement `314c-v0` with level-aware transition dynamics and run the full train/eval loop.
+
+---
