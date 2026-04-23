@@ -90202,3 +90202,45 @@ This keeps the explicit joint-likelihood principle while avoiding transition ran
 - eval MD: `results/block_ar/318b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 319 chain-rule daily joint-level paradigm shift
+
+### Context
+Transition-coordinate `318` is retired. It represented cross-cell dependence explicitly, but ancestral transition sampling behaved like an over-wide random walk and destroyed level law/MR.
+
+The surviving evidence is now:
+- direct path/level coordinates preserve anchor better (`312a`, `316a`, `317a/b`)
+- explicit daily full covariance improves dependence directionally (`318a/b`)
+- transition-coordinate sampling accumulates too much variance over 30 days
+
+### Paradigm Shift
+Start `319`: a level-coordinate chain-rule daily joint law.
+
+Instead of modeling daily transition deltas, model the next 25-cell future logit level directly:
+
+`p(x_1, ..., x_30 | history) = product_t p(x_t | history, x_<t)`
+
+Each factor is a full-covariance 25-dimensional Gaussian over the next logit level.
+
+### Why This Is Principled
+This keeps the probability-chain-rule foundation and explicit joint likelihood, but uses the coordinate system that prior reset experiments showed is better anchored. It does not add a finance-specific correction or a separate deterministic center.
+
+### Guardrails
+Keep it clean:
+- full 25-cell covariance, not hard low-rank
+- no bounded idio/EC path
+- no posterior/prior scaffold
+- no two-stage model
+- no post-hoc calibration or evaluator-specific temperature tuning
+- no explicit center/residual split
+
+### Next Step
+Run `319a-v0`:
+- GRU history encoder
+- recurrent future decoder over 30 future days
+- current logit level fed to the decoder
+- full Cholesky Gaussian NLL for the next 25-cell logit level
+- teacher-forced training and ancestral level sampling
+
+The decisive question is whether level-coordinate full-covariance chain modeling restores surface validity/MR/level KS while improving corr/rank beyond the direct-FM line.
+
+---
