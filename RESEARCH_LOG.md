@@ -88907,3 +88907,54 @@ Promote a new active family:
 Next step: implement the smallest `313a` baseline before any further tuning.
 
 ---
+## 2026-04-23: 313a deterministic latent-token future-path bottleneck
+
+### Context
+
+`313a-v0` was the first experiment in the new `313` family selected after capping `312`. The idea was to keep the law unified and one-stage, but replace direct future-path token generation with a narrow set of shared latent future tokens decoded jointly to the full future logit path.
+
+### Result
+
+`313a` scored `2/11`, worse than the `312` frontier.
+
+Passes:
+- `surface`
+- `block_ar`
+
+Key metrics:
+- overall 90% coverage: `0.1%`
+- calibration error: `0.500`
+- turb/calm width ratio: `1.143` but on effectively zero widths
+- corr ratio: `0.414`
+- rank ratio: `2.203`
+- pathwise q90 ratio: `0.032`
+- pathwise q99 ratio: `0.036`
+- extreme-jump incidence ratio: `0.000`
+
+Artifacts:
+- `diffusion/block_ar/unified_latent_token_future_logit_path_flow_matching.py`
+- `experiments/backfill/block_ar/train_313a_unified_latent_token_future_logit_path_flow_matching.py`
+- `results/block_ar/313a_v0_s42/full11.json`
+- `results/block_ar/313a_v0_s42/full11.md`
+
+### Mechanism Read
+
+The failure is clean.
+
+The shared latent-token bottleneck did help one thing: it preserved more common structure than the `312b/312c` local-memory variants, with corr ratio up to `0.414` and rank ratio back inside gate. But because the latent target was deterministic, the learned latent flow collapsed almost all stochastic variation. The model effectively learned a near-point latent attractor per history.
+
+That is why:
+- sampled path variance is almost zero
+- coverage collapses to `0.1%`
+- jump realism disappears
+- regime width is numerically meaningless despite a superficially better ratio
+
+So `313a` is not evidence against latent bottlenecks. It is evidence against a deterministic latent bottleneck for this task.
+
+### Decision
+
+Keep the `313` family alive, but kill the deterministic latent-target variant.
+
+Next step: `313b` should keep the same unified latent-token future-path architecture, but make the latent tokens explicitly stochastic with a learned conditional prior and training-time posterior. Diversity must live in the latent law rather than being inferred from a single latent target point.
+
+---
