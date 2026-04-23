@@ -87916,3 +87916,36 @@ The clean next bias is a narrow stochastic bottleneck inside the generative core
 Shift from plain 304 to `305`: latent-augmented state-aware joint path flow. `305a` should keep the support-valid logit-transition coordinate and vanilla flow matching, but augment the flow state with a small number of stochastic latent prefix tokens. Training maps standard Gaussian path noise plus latent-token noise to target transitions plus zero terminal latent tokens. The latent tokens give the velocity a learned shared-noise channel without imposing a fixed factor/readout structure.
 
 ---
+## 2026-04-23: 305a latent state-token path-flow experiment
+
+### Context
+
+`305a-v0` tested the paradigm shift from plain one-shot path flow to a narrow latent-augmented flow. It kept `304b`'s support-valid state-aware logit-transition path flow, then added `8` stochastic latent prefix tokens as part of the augmented FM state. The terminal latent target was zero, so training mapped Gaussian path noise plus Gaussian latent-token noise to target transitions plus zero latent tokens.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `surface`, `block_ar`.
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Training: best epoch `22`, val total `0.36396`.
+- Key metrics: h1 cov90 `0.890`, h30 cov90 `0.971`, calibration error `0.156`, conditional MAE reduction `4.6%`, turb/calm `0.951`, change KS `13/25`, level KS `0/25`, corr ratio `0.499`, rank ratio `3.040`, MR h1 `0.427`, MR h30 `0.552`, max-jump KS `0.252`, q99 jump cells `14/25`.
+
+### Mechanism Read
+
+The latent bottleneck helped only at the margin. Cross-cell geometry moved almost exactly to the gate (`corr ratio 0.499`, rank ratio `3.040`) but did not pass, while MR, conditionality, and pathwise jump realism worsened relative to `304b`. This suggests the latent channel was either too weakly used by the path velocity or too quickly drained by the zero-terminal latent objective; it does not yet provide a robust shared-shock representation.
+
+The result does not justify stacking latent-token counts, latent loss weights, temperatures, or local noise scales blindly. The clean conclusion is that one-shot support-valid transition flow remains below the frontier unless a more principled latent objective is identified.
+
+### Decision
+
+Run a post-experiment analysis next. The decision point is whether to repair 305 with a better latent coupling objective, or abandon one-shot joint transition flow and return to a recurrent/AR likelihood model that already preserves dependence more naturally.
+
+Artifacts:
+
+- `diffusion/block_ar/latent_state_token_logit_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_305a_latent_state_token_logit_transition_flow_matching.py`
+- `models/backfill/305a_v0_s42/best_model.pt`
+- `results/block_ar/305a_v0_s42/full11.json`
+- `results/block_ar/305a_v0_s42/full11.md`
+
+---
