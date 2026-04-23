@@ -90338,3 +90338,25 @@ This was a useful negative result because the repair is not actually a distinct 
 Close 319b as non-frontier and non-distinct. The key live pathology is now explicit: full-covariance level likelihood can learn cross-cell dependence, but its unconstrained level mean breaks anchoring; residual anchoring restores the old transition model and loses dependence. The next iteration should be analysis/paradigm selection, not another small 319 knob.
 
 ---
+## 2026-04-23: 320 scalar chain-rule mixture-density paradigm shift
+
+### Context
+319a and 319b isolate the current pathology cleanly. 319a passes cross-cell correlation for the first time on the clean reset line by using a full-covariance next-level likelihood, but fails anchoring, coverage, surface validity, daily/level KS, MR, and pathwise jumps. 319b tries the minimal residual-level anchor, but that is algebraically equivalent to a transition likelihood and returns to the 318b regime, losing the cross-cell pass.
+
+### Diagnosis
+The issue is not a missing small knob inside 319. The vector Gaussian parameterization couples marginal shape, mean anchoring, and dependence too tightly. In 319a the full covariance can express joint dependence, but the Gaussian level mean/covariance fit sacrifices marginal calibration. In 319b anchoring is restored by changing coordinates, but the model becomes a transition random walk and the dependence signal is washed out.
+
+### Principle
+Use the probability chain rule directly:
+
+`p(future_path | history) = product_j p(x_j | history, x_<j)`
+
+This is a one-stage conditional joint law, not a two-stage correction system. It makes no low-rank, bounded-idiosyncratic, posterior/prior, or explicit center/residual assumption. Dependence is learned through conditioning on previously generated future coordinates; marginal non-Gaussianity is learned through a flexible scalar mixture likelihood.
+
+### Decision
+Pivot to 320: a flattened future scalar autoregressive mixture-density model over the 30x25 future logit path. This is closer to first principles and Bitter Lesson alignment than another 319 repair because it increases general modeling capacity while keeping the architecture conceptually simple: history encoder, future token ordering, recurrent autoregressive state, scalar mixture output.
+
+### Falsifier
+320a must at minimum recover the 319a cross-cell signal without destroying marginal/level calibration, or show clear evidence that scalar chain-rule capacity is insufficient at this data scale. If it underfits, the next move should be capacity/training analysis, not adding hand-engineered financial paths.
+
+---
