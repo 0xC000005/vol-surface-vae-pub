@@ -90360,3 +90360,27 @@ Pivot to 320: a flattened future scalar autoregressive mixture-density model ove
 320a must at minimum recover the 319a cross-cell signal without destroying marginal/level calibration, or show clear evidence that scalar chain-rule capacity is insufficient at this data scale. If it underfits, the next move should be capacity/training analysis, not adding hand-engineered financial paths.
 
 ---
+## 2026-04-23: 320a scalar chain-rule mixture-density experiment
+
+### Context
+320a implements the 320 paradigm shift: a one-stage scalar chain-rule density over the flattened 30x25 future logit path. The model uses a GRU history encoder, day/cell token embeddings, a recurrent autoregressive future state, and a scalar Gaussian-mixture likelihood. It has no low-rank readout, bounded idiosyncratic path, learned posterior/prior, or two-stage center/residual split.
+
+### Result
+320a-v0 trained cleanly for 24 epochs, with best validation NLL at epoch 23 (`val_total=-0.791`). On the common full 11-suite it scored 3/11, passing surface validity, block_ar, and cointegration.
+
+Key metrics: aggregate coverage90 0.857 with calibration error 0.022; conditional MAE improvement 1.2%; turb/calm width ratio 1.074; ACF corr 0.931; kurtosis ratio 0.332; daily KS 3/25; level KS 3/25; cross-cell corr ratio 0.405 and rank ratio 3.076; h1 aggregate MR ratio 1.130 with active-cell corr 0.706, but only 9/24 active cells and full-horizon MR fail; pathwise max-jump KS 0.481.
+
+### Mechanism
+This is not a frontier score, but it is a materially cleaner signal than 319. The scalar chain-rule model restores surface validity and aggregate coverage calibration while preserving a meaningful amount of MR and improving dependence relative to independent/direct-path families. Its failures are concentrated in per-cell calibration, marginal daily/level KS, tail profile, and not-quite-strong-enough cross-cell dependence. The model is learning the right objects but appears under-conditioned/underfit at the cell-time level.
+
+### Decision
+Keep 320 alive. The next minimal move should stay inside the scalar chain-rule paradigm and improve optimization/conditioning rather than adding financial correction paths. Candidate repairs: longer training/capacity if validation is still improving, or a direct previous-same-cell skip feature because that variable is already in the chain-rule conditioning set for day `t>1` and should make same-cell dynamics easier to learn without adding a separate path.
+
+### Artifacts
+- model: `diffusion/block_ar/future_scalar_ar_mixture_density_model.py`
+- trainer: `experiments/backfill/block_ar/train_320a_future_scalar_ar_mixture_density_model.py`
+- checkpoint: `models/backfill/320a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320a_v0_s42/full11.json`
+- eval MD: `results/block_ar/320a_v0_s42/full11.md`
+
+---
