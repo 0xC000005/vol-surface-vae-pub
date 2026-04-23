@@ -87722,3 +87722,34 @@ This is principled because energy score is a proper scoring rule for the conditi
 - If the experiment merely broadens paths and degrades change/correlation law, treat it as falsification of this objective-alignment variant.
 
 ---
+## 2026-04-23: 303d rollout-objective fine-tune experiment
+
+### Context
+
+`303d-v0` tested the objective-alignment idea from the prior ideation. It kept the `303b` recurrent token architecture and fine-tuned from the `303b` checkpoint with the original teacher-forced transition-FM anchor plus a small differentiable free-run rollout energy score on generated levels at horizons `1,7,14,30`.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `block_ar`, `cross_cell_correlation`, `mean_reversion`.
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`.
+- Key metrics: cov90 `0.510`, calibration error `0.245`, conditional MAE reduction `2.3%`, turb/calm `1.030`, change KS `17/25`, level KS `3/25`, window-floor bad rate `42.7%`, corr ratio `0.884`, rank ratio `1.620`, MR ratio `0.940`, MR h30 `1.069`, full-horizon MR active pass rate `91.8%`, max-jump KS `0.544`, q99 jump ratio `0.926`, q99 jump cells `23/25`.
+
+### Mechanism Read
+
+The objective-alignment hypothesis was only partially right. The rollout objective successfully fixed full-horizon mean reversion, including active-cell pass rate, but it badly narrowed or biased the generated path law. Coverage collapsed, many windows fell below the coverage floor, time-series tails failed again, and pathwise max-jump shape worsened.
+
+This is a falsification of the naive constrained rollout-energy fine-tune, not a validation. Small-sample/reduced-step rollout scoring changed the path center and MR more than it calibrated the conditional distribution.
+
+### Decision
+
+Do not keep tuning rollout weight, sample count, or integration steps blindly. Run a focused `303b/303c/303d` postmortem. Unless a clean implementation/scaling bug is found, treat naive rollout-energy fine-tuning as a dead end and decide whether the whole 303 recurrent-token branch is capped at `4/11` or needs a more substantial paradigm shift.
+
+Artifacts:
+
+- `experiments/backfill/block_ar/train_303d_rollout_objective_finetune.py`
+- `models/backfill/303d_v0_s42/best_model.pt`
+- `results/block_ar/303d_v0_s42/full11.json`
+- `results/block_ar/303d_v0_s42/full11.md`
+
+---
