@@ -87892,3 +87892,27 @@ Artifacts:
 - `results/block_ar/304b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 305 latent bottleneck paradigm
+
+### Context
+
+`304b` completed the minimal causal repair to `304a`: it exposed the implied future level state to each transition token. The repair worked directionally but did not move the frontier. This iteration decides whether to keep stacking 304 variants or shift to the next clean first-principles bias.
+
+### Findings
+
+- State exposure is necessary: `304a` had MR h1 `0.021` and h30 `-0.019`; `304b` moved these to h1 `0.533` and h30 `0.671`.
+- State exposure is not sufficient: `304b` still has level KS `0/25`, corr ratio `0.456`, rank ratio `3.068`, turb/calm `0.871`, and q99 jump cells `15/25`.
+- Recursive `303b` remains much better at dependence: corr ratio `0.911`, rank ratio `1.559`, change KS `24/25`, because its recurrent state naturally propagates shared geometry.
+- Plain one-shot transition flow has now failed in multiple forms: `301a`, `302a`, `304a`, and `304b` all miss level marginals and/or state-dependent shared structure.
+
+### Mechanism Read
+
+The remaining failure is shared stochastic geometry. The model has enough support-validity machinery and now sees the right Markov state, but its sampled paths are too weakly coupled and too high-rank. A generic transformer velocity over independent path noise is not reliably learning the low-dimensional common shocks from the current data and FM objective.
+
+The clean next bias is a narrow stochastic bottleneck inside the generative core. This aligns with the reset doctrine: a bottleneck is defensible as compression/representation learning, while hard low-rank readouts, retrieval layers, bounded side paths, hand volatility regimes, and evaluator-specific losses remain excluded.
+
+### Decision
+
+Shift from plain 304 to `305`: latent-augmented state-aware joint path flow. `305a` should keep the support-valid logit-transition coordinate and vanilla flow matching, but augment the flow state with a small number of stochastic latent prefix tokens. Training maps standard Gaussian path noise plus latent-token noise to target transitions plus zero terminal latent tokens. The latent tokens give the velocity a learned shared-noise channel without imposing a fixed factor/readout structure.
+
+---
