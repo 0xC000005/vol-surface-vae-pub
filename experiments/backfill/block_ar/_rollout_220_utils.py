@@ -1055,6 +1055,12 @@ def load_one_day_kernel(
         )
 
         return load_317a_model(checkpoint_path, device)
+    if model_type == "318a":
+        from diffusion.block_ar.daily_joint_cholesky_transition_model import (
+            load_model as load_318a_model,
+        )
+
+        return load_318a_model(checkpoint_path, device)
     if model_type == "296d":
         from diffusion.block_ar.probabilistic_backbone_student_t_zero_mean_coarse_shell_model import (
             load_model as load_296d_model,

@@ -90057,3 +90057,77 @@ Run `318a-v0`:
 The decisive question is whether putting cross-cell dependence directly in the daily likelihood restores corr/rank without losing surface validity, cointegration, and marginal realism.
 
 ---
+## 2026-04-23: 318a daily full-covariance joint-law experiment
+
+### Context
+`318a-v0` was the first chain-rule daily joint-law experiment after retiring `317`.
+
+Design:
+- GRU history encoder
+- recurrent future decoder over daily transitions
+- full 25-cell Cholesky Gaussian likelihood per future day
+- teacher-forced NLL training
+- ancestral 30-day sampling
+- no low-rank covariance, no bounded idio/EC path, no posterior/prior, no two-stage scaffold
+
+### Result
+The model trained quickly but overfit validation NLL early.
+
+- best epoch: `3`
+- best validation NLL: `2.2008`
+- suite score: `2/11`
+- passing suites: `block_ar`, `cointegration`
+
+High-signal metrics:
+- surface validity: `FAIL`
+- coverage90: `0.993`
+- calibration error: `0.340`
+- conditional MAE reduction: `1.9%`
+- turb/calm width ratio: `0.974`
+- ACF corr: `0.948`
+- kurtosis ratio: `0.293`
+- cointegration ratio: `0.844`
+- worst-cell cointegration ratio: `0.289`
+- daily-change KS pass cells: `5/25`
+- level KS pass cells: `0/25`
+- corr ratio: `0.257`
+- rank ratio: `3.670`
+- MR ratio: `-0.058`
+- active MR cells: `0/24`
+- pathwise jump KS: `0.432`
+- jump q90 ratio: `0.838`
+- jump q99 ratio: `0.993`
+- extreme-jump incidence ratio: `0.998`
+
+### Mechanism Read
+`318a` partially moved the intended dependence metric, but at the cost of losing anchoring and realism:
+- corr ratio improved over `317b`: `0.217 -> 0.257`
+- effective-rank ratio improved: `3.940 -> 3.670`
+- but the model became far too wide and level law collapsed
+- mean reversion essentially vanished
+- surface validity failed due wide, poorly anchored sampled paths
+
+The likely root cause is a clean state omission. The decoder conditioned on history and previous transition, but not on the current generated level. For a transition law, `p(delta_t | history, x_<t)` must know the current level. Without that feedback, ancestral sampling cannot maintain level-dependent reversion or surface anchoring.
+
+### Decision
+Keep `318` alive for one minimal repair.
+
+This is not a knob addition. Current-level feedback is required by the probability chain rule for a transition model.
+
+### Next Step
+Run `318b-v0`:
+- same daily full-covariance likelihood
+- feed current logit level plus previous transition into the recurrent decoder
+- train with teacher forcing using true current levels
+- sample ancestrally using generated current levels
+
+Falsifier: if level feedback does not restore surface validity, MR, and level/daily fidelity while improving corr/rank, then the daily Gaussian chain-rule family is likely not the right route.
+
+### Artifacts
+- model: `diffusion/block_ar/daily_joint_cholesky_transition_model.py`
+- trainer: `experiments/backfill/block_ar/train_318a_daily_joint_cholesky_transition_model.py`
+- checkpoint: `models/backfill/318a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/318a_v0_s42/full11.json`
+- eval MD: `results/block_ar/318a_v0_s42/full11.md`
+
+---
