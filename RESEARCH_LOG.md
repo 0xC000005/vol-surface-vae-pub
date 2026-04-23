@@ -86401,3 +86401,41 @@ Design rule:
 - change only horizon/regime-sensitive scale allocation
 
 ---
+## 2026-04-22: 296c hybrid scale-allocation ideation
+
+### Context
+`296b` validated the hybrid direction, but the remaining miss is now narrow:
+- h1 coverage is still too low
+- regime differentiation is slightly weak
+- the shell scale allocation appears too flat across horizons
+
+### Result
+Selected `296c-v0` as the next refinement.
+
+Core idea:
+- keep the `296b` zero-mean coarse shell geometry
+- keep the frozen `277d` backbone
+- change only shell scale allocation by adding a **shared query-conditioned knot
+  profile** on top of the existing per-cell scales
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296c_hybrid_ideation/memo.md`
+
+### Mechanism Read
+The next move should not be a global temperature or another decomposition change.
+The bottleneck is horizon allocation.
+
+A shared query-conditioned knot profile is the cleanest response because it can:
+- widen early horizons coherently
+- react to query/regime state
+- avoid turning the shell back into a free-form path corrector
+
+### Decision
+Implement `296c-v0` next.
+
+Constraints:
+- zero-mean shell stays intact
+- coarse knot-control support stays intact
+- only the scale-allocation head changes
+
+---
