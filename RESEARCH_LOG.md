@@ -86659,3 +86659,41 @@ Constraint:
 - do not add another global scale factor or global tail factor
 
 ---
+## 2026-04-22: 296e hybrid multiresolution shell ideation
+
+### Context
+The `296c` vs `296d` comparison showed that the hybrid line is not missing another
+global scale factor or another global tail factor.
+
+The miss is narrower:
+- h1 coverage
+- regime-sensitive width
+- pathwise jump timing
+
+### Result
+`296e` ideation selected a targeted short-horizon allocation mechanism:
+- keep frozen `277d`
+- keep the zero-mean shell
+- keep paired symmetric sampling
+- return to the cleaner Gaussian shell law from `296c`
+- replace the single coarse shell basis with a multiresolution shell basis
+- add a fast local basis for the first few days
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296e_hybrid_ideation/memo.md`
+
+### Mechanism Read
+The hybrid line still looks alive, but only if the shell can allocate mass more
+locally at short horizons without becoming a second center path.
+
+That makes early-horizon shell geometry the next decisive question.
+
+### Decision
+Next step:
+- run `296e-v0` as a multiresolution zero-mean Gaussian shell baseline
+
+Constraint:
+- do not add a mean-corrective branch
+- do not add another global scale factor or global tail factor
+
+---
