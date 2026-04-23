@@ -88119,3 +88119,33 @@ Artifacts:
 - `results/block_ar/307a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 307a versus 303b and 296c postmortem
+
+### Context
+
+`307a-v0` was the first recurrent path-latent model. Its score stayed at `2/11`, but the metric pattern was different enough from `303b` and `296c` that a focused comparison was needed before choosing another experiment.
+
+### Findings
+
+- `307a` is materially better than `303b` on several local metrics: surface validity, calibration error (`0.036` vs `0.085`), daily-change KS (`24/25` vs `24/25` tie), and aggregate MR ratio (`0.764` vs `0.832`) with full-horizon aggregate profile pass.
+- `307a` is materially worse than `303b` on the decisive joint-law metric: cross-cell correlation collapsed (`0.079` vs `0.911`), with effective rank `4.293` vs `1.559` ratio.
+- `296c` remains the best overall frontier result at `5/11`, but it obtains that with a frozen hybrid center path rather than a clean end-to-end generative core.
+- `307a` therefore is not random underperformance. It isolated a specific tradeoff: better path-level center behavior, weaker stepwise shared stochasticity.
+
+### Mechanism Read
+
+The `307` branch has a clean two-part decomposition now:
+- one global path latent `z` captures scenario-level regime/center uncertainty well enough to improve surface validity, calibration, and aggregate MR
+- but the per-step likelihood is conditionally diagonal, so once `z` is fixed the cells are still too independent at each daily update
+
+That means the remaining missing mechanism is not another path latent, not another covariance head, and not another evaluator-facing adjustment. It is one low-dimensional shared daily innovation channel.
+
+### Decision
+
+Do not stack arbitrary latent knobs. The next HEAD step should be research ideation on exactly one question:
+- Is adding one shared low-dimensional daily innovation on top of the global path latent still a clean principled move?
+- Or is that already too much hierarchy, meaning the 307 branch should be closed as scientifically legible but capped?
+
+If the answer is yes, run only one such experiment. If the answer is no, abandon 307 rather than accumulate latent structure.
+
+---
