@@ -88086,3 +88086,36 @@ Shift to `307`: recurrent path-level latent bottleneck.
 This is the cleanest next test of whether a narrow learned bottleneck can recover shared path geometry without returning to hybrid retrieval scaffolding.
 
 ---
+## 2026-04-23: 307a recurrent path-latent token likelihood experiment
+
+### Context
+
+`307a-v0` tested the recurrent path-latent reset. It kept support-valid AR logit transitions and token mixing across cells, but added one global latent `z` for the whole 30-day future path. Training used a standard-normal prior, a teacher-forced posterior encoder `q(z | history, future)`, and ELBO loss with per-step diagonal Student-t likelihood.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `surface`, `block_ar`.
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Training: best epoch `22`, val total `-1.30671`.
+- Key metrics: calendar `9.8%`, cov90 `0.912`, calibration error `0.036`, conditional MAE reduction `3.8%`, turb/calm `0.869`, change KS `24/25`, level KS `4/25`, corr ratio `0.079`, rank ratio `4.293`, MR ratio `0.764`, full-horizon aggregate MR pass, active-cell mean pass `59.6%`, max-jump KS `0.318`, q99 jump cells `15/25`.
+
+### Mechanism Read
+
+The global latent repaired several local path metrics at once: surface validity, calibration, daily-change law, and aggregate mean reversion. That confirms the postmortem diagnosis that path-level shared uncertainty matters.
+
+But a single global latent is not sufficient. Cross-cell correlation collapsed even further than in prior branches because the per-step likelihood remained conditionally diagonal. The model learned a coherent path-level center/regime variable, but not a strong enough shared stochastic innovation at each step. In other words: global path uncertainty without joint stepwise stochasticity produces good center paths and bad joint geometry.
+
+### Decision
+
+Do not tune latent dimension or df bounds blindly. Run a focused 307 postmortem next. The key question is whether one extra clean repair is justified: add a low-dimensional shared per-step innovation on top of the global path latent. If that is still too weak or starts to look like knob accumulation, the latent-AR branch should be abandoned.
+
+Artifacts:
+
+- `diffusion/block_ar/recurrent_path_latent_token_likelihood.py`
+- `experiments/backfill/block_ar/train_307a_recurrent_path_latent_token_likelihood.py`
+- `models/backfill/307a_v0_s42/best_model.pt`
+- `results/block_ar/307a_v0_s42/full11.json`
+- `results/block_ar/307a_v0_s42/full11.md`
+
+---
