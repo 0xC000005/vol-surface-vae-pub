@@ -90692,3 +90692,18 @@ State-conditional transport helps relative to 323c: cointegration passes, daily-
 Close 323 as capped. Do not add more empirical-transport knobs. The next principled shift is a larger learned joint sequence model: model the future path as one conditional token sequence with a transformer-style joint density or flow objective, so marginal calibration and dependence are learned together rather than stitched by post-hoc marginal transport.
 
 ---
+## 2026-04-23: 324 joint learned future-sequence model paradigm shift
+
+### Context
+The 323 marginal-copula family is capped. Gaussian marginals (323a), learned quantile marginals (323b), unconditional empirical transport (323c), and state-conditional empirical transport (323d) all failed to solve level KS/per-cell coverage and pathwise realism. The best 323 result is 4/11, below the old 5/11 frontier and not materially ahead of the clean 320/321 scalar chain-rule line.
+
+### Diagnosis
+The failure is not one missing calibration knob. Splitting the problem into a fixed 321c copula plus separately calibrated marginals creates a brittle interface: marginal transports improve some scalar tests but distort path geometry; learned tokenwise marginals do not learn the validation level law; empirical transports do not create enough conditional width response. The suite is asking for a conditional joint future law whose marginals, dependence, volatility response, and path extremes are learned together.
+
+### Principle
+Shift to a larger, simpler learned joint sequence model. This is closer to the Bitter Lesson than more hand-built transports: use a high-capacity sequence model over the full future path and train it on a proper joint/scoring objective, with history as context and future tokens as the object being modeled. Avoid low-rank, bounded paths, posterior/prior language, and correction stages.
+
+### Decision
+Open 324: learned joint future-sequence model. The first implementation should reuse the strongest clean lessons from 320/321 only as coordinates and baselines, not as a fixed copula. A valid 324a falsifier should learn future-token marginals and dependence together and be evaluated on the same 11-suite. If the first implementation is too slow or underpowered, adapt capacity/objective within this paradigm before returning to calibration.
+
+---
