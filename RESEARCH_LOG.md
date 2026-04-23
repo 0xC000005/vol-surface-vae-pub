@@ -88958,3 +88958,55 @@ Keep the `313` family alive, but kill the deterministic latent-target variant.
 Next step: `313b` should keep the same unified latent-token future-path architecture, but make the latent tokens explicitly stochastic with a learned conditional prior and training-time posterior. Diversity must live in the latent law rather than being inferred from a single latent target point.
 
 ---
+## 2026-04-23: 313b probabilistic latent-token future-path model
+
+### Context
+
+`313b-v0` was the minimal stochastic repair to `313a`. It kept the same unified latent-token future-path architecture, but replaced the deterministic latent target with a learned conditional prior and training-time posterior over latent tokens.
+
+### Result
+
+`313b` also scored `2/11`.
+
+Passes:
+- `surface`
+- `block_ar`
+
+Key metrics:
+- overall 90% coverage: `1.0%`
+- calibration error: `0.495`
+- corr ratio: `0.300`
+- rank ratio: `2.531`
+- pathwise q90 ratio: `0.035`
+- pathwise q99 ratio: `0.047`
+- extreme-jump incidence ratio: `0.000`
+
+Training read:
+- KL stayed effectively `0.00000` through the whole run
+- prior/post std stayed at `1.001`
+- best validation was driven entirely by reconstruction
+
+Artifacts:
+- `diffusion/block_ar/unified_probabilistic_latent_token_future_logit_path_model.py`
+- `experiments/backfill/block_ar/train_313b_unified_probabilistic_latent_token_future_logit_path_model.py`
+- `results/block_ar/313b_v0_s42/full11.json`
+- `results/block_ar/313b_v0_s42/full11.md`
+
+### Mechanism Read
+
+This is a clean posterior-collapse / latent-ignore failure.
+
+`313a` failed because the latent bottleneck was deterministic and collapsed to a near-point attractor.
+`313b` made the latent law stochastic on paper, but the model learned to ignore it:
+- posterior and prior stayed at the unit Gaussian
+- KL stayed near zero
+- decoder reconstruction improved while sample diversity remained near zero
+
+So the problem is not just missing stochasticity in the abstract. The problem is that the shared stochastic state is optional to the decoder, and the model takes the shortcut of ignoring it.
+
+### Decision
+
+Do not keep iterating inside naive latent bottleneck variants.
+The next HEAD step should be `research_ideation`, focused on how to make shared stochastic state structurally relevant to the generated path while keeping direct output-path supervision and avoiding local anti-collapse knobs.
+
+---
