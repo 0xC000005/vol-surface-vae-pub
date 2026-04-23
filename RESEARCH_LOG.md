@@ -88473,3 +88473,53 @@ So `310a` is not a random miss. It reveals a clean tradeoff:
 Do not start a new paradigm from this result alone. The next HEAD step should be post-experiment analysis comparing `309a` and `310a` directly, because the family now appears to have a clean coordinate tradeoff rather than an incoherent pathology.
 
 ---
+## 2026-04-23: 309a versus 310a coordinate tradeoff analysis
+
+### Context
+
+`309a-v0` and `310a-v0` used the same learned deterministic center and the same vanilla joint flow core. The only meaningful difference was the residual coordinate:
+- `309a`: residual transition paths
+- `310a`: residual future logit-level paths
+
+Because both still scored `2/11`, the next question was whether the family had become obscure or whether these two runs exposed a clean tradeoff.
+
+### Findings
+
+The tradeoff is real and structured.
+
+`309a` is better on local dependence and move geometry:
+- corr ratio closer to gate: `0.492` vs `0.377`
+- rank ratio better: `2.984` vs `3.445`
+- active MR cells better: `18/24` vs `16/24`
+- move-size profile better balanced
+- jump max-KS better: `0.277` vs `0.335`
+
+`310a` is better on calibration and long-horizon anchoring:
+- h1 coverage better: `86.5%` -> `90.8%`
+- calibration error far better: `0.119` -> `0.015`
+- kurtosis/skewness gates turned from fail to pass
+- cointegration ratio improved: `0.537` -> `0.858`
+- level KS improved: `0/25` -> `2/25`
+- median-bias gate improved: `13/25` -> `20/25`
+
+### Mechanism Read
+
+This family is still scientifically legible.
+- Transition-residual coordinates expose local move structure directly, so they preserve residual dependence and jump geometry better.
+- Level-residual coordinates anchor the cumulative future path directly, so they preserve calibration and unconditional level behavior better.
+
+That means the remaining gap is not "more capacity" or "more stochasticity".
+It is missing state exposure inside the level-residual formulation.
+
+`310a` forces the model to infer local move information only implicitly from level paths. That appears to cost it cross-cell dependence and tail-balance.
+
+### Decision
+
+Do not abandon the family yet, and do not add shell engineering back in. The next clean test is:
+- keep the `310a` level-residual target
+- keep the vanilla joint flow core
+- expose implied total daily transitions as an extra token feature/state channel
+
+Next step: `311a` as a state-aware level-residual flow.
+
+---
