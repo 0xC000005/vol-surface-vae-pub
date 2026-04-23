@@ -89806,3 +89806,28 @@ The next clean family should keep the direct path coordinates but replace determ
 Choose a paradigm shift next and start `317` as a direct future-path flow with sampled shared stochastic tokens.
 
 ---
+## 2026-04-23: 317 shared-stochastic direct-path paradigm shift
+
+### Context
+The `316a` postmortem narrowed the remaining clean failure mode. Direct future-path coordinates still preserve anchor better than the explicit posterior-latent line, but deterministic global mixer tokens do not create sampled panel-wide common shocks.
+
+### Decision
+Start `317` as a one-stage direct future-logit path flow with narrow sampled shared stochastic channels.
+
+The core specification is intentionally minimal:
+- direct future-logit path coordinates
+- vanilla flow matching objective
+- local IID base path noise plus a narrow shared Gaussian base-noise component
+- shared stochastic prefix tokens exposed to the velocity network
+- no posterior/prior training
+- no multiscale coordinate split
+- no deterministic center/residual decomposition
+- no hard low-rank decoder or bounded idio/EC path
+
+### Mechanism Read
+A sampled token independent of the FM base noise would be ignored by the optimal velocity. Therefore the shared stochastic channel must be part of the base noise itself and must be visible to the velocity. This tests the actual missing ingredient: scenario-level shared stochastic degrees of freedom, not more deterministic mixer capacity.
+
+### Next Step
+Run `317a-v0` as the decisive experiment. The key falsifier is whether shared coupling improves relative to `316a` without destroying the direct-path anchoring strengths: correlation ratio should move toward the gated range, rank ratio should fall, level KS should improve, and cointegration/MR/calibration should not collapse.
+
+---
