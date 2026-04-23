@@ -89010,3 +89010,57 @@ Do not keep iterating inside naive latent bottleneck variants.
 The next HEAD step should be `research_ideation`, focused on how to make shared stochastic state structurally relevant to the generated path while keeping direct output-path supervision and avoiding local anti-collapse knobs.
 
 ---
+## 2026-04-23: 313 collapse ideation and 314a selection
+
+### Context
+`313a` and `313b` cleanly closed the naive latent-bottleneck line inside the unified future-path program.
+
+The key mechanism is now explicit:
+- `312` showed that a unified one-stage path law can preserve useful joint structure
+- `313a` showed that a deterministic shared bottleneck collapses diversity
+- `313b` showed that making the bottleneck probabilistic is still not enough when the decoder can ignore it
+- the same basic failure already appeared in `267a/267b`
+
+So the active question is no longer whether a shared stochastic state is useful. The active question is how to make that state structurally necessary without adding KL warmup, free bits, retrieval scaffolds, or other anti-collapse rescue knobs.
+
+### Decision
+Select `314a` as the next family.
+
+`314a` will be a **history-conditioned probabilistic token-state future-path model**:
+- history encoder -> compact conditioning context `h`
+- posterior `q(z_t | x_t, h)` over latent token states for each future step
+- transition prior `p(z_t | z_{t-1}, h)` as the actual stochastic future-time law
+- decoder `p(x_t | z_t, h)` back to future logit levels
+- training by direct path-space reconstruction plus adjacent-step KL
+
+This differs from `313` in one decisive way: the latent state is no longer an optional side bottleneck for a separate path decoder. It is the sequential object that generates the path.
+
+### Why This Is The Most Principled Next Step
+This is the smallest move that directly addresses the failure mechanism.
+
+It keeps:
+- a learned parametric backbone
+- a narrow latent bottleneck as the only strong core bias
+- support-valid logit coordinates
+- direct supervision on the generated future path
+
+It still avoids:
+- low-rank output structure
+- bounded side paths
+- retrieval scaffolds
+- KL warmup / free bits / beta schedules as first response
+- evaluator-specific hacks
+
+The relevant precedent is `274a/274b`, where the latent state did not collapse because it was part of the sequential generative model rather than an ignorable auxiliary code.
+
+### Kill Criteria
+Kill `314` quickly if either of these happens:
+- KL again collapses to ~0 with prior/posterior stds pinned near the unit Gaussian
+- sampled scenario width remains near zero despite good reconstruction
+
+If that happens, the broader explicit-latent route is likely wrong for this objective and the next move should return to direct path-space laws.
+
+### Next Step
+Implement `314a-v0` in fresh files and run the full train/eval loop.
+
+---
