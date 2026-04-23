@@ -89380,3 +89380,137 @@ The next HEAD step should be `research_ideation`, not `314d`.
 - eval MD: `results/block_ar/314c_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 315 multiscale path-flow ideation
+
+### Context
+The `314` explicit-latent token-state family is now closed as a local mechanism class:
+- `314a`: anchor without enough stochastic scale
+- `314b`: local stochastic scale without enough long-run anchor
+- `314c`: level-aware repair that over-corrected back toward the anchored side
+
+That leaves a broader design question.
+
+Recent evidence from the repo now points to two complementary lessons:
+- the direct one-stage path-space line (`312`) kept the generative core clean, but it lacked an explicit low-frequency path controller
+- the older fixed-horizon support/scaffold line (`293`/`294`) showed that explicit coarse path-shape coordinates are directionally useful, especially for level KS, calibration, and structural anchoring, but the old token/control implementations were underpowered and locally capped
+
+### Decision
+Select `315a` as the next family.
+
+`315a` will be a **one-stage multiscale future-logit path flow** in an explicit coordinate system:
+- coarse knot-path coordinates at a small set of future knot horizons
+- fine residual coordinates on the non-knot horizons relative to the linearly interpolated knot scaffold
+- one conditional vanilla flow over the joint multiscale coordinates
+- deterministic decode back to the full future logit path by interpolation plus residual injection
+
+This is not a deterministic center-plus-residual split.
+It is a generic multiscale change of variables inside one stochastic model.
+
+### Why This Is The Most Principled Next Step
+This direction keeps the clean parts of the current reset doctrine:
+- one-stage conditional scenario generator
+- generative core remains vanilla flow matching
+- no explicit posterior latent state
+- no retrieval bank
+- no frozen deterministic backbone
+- no learned center path that the stochastic layer must preserve
+
+It also uses the strongest surviving evidence from the older path-shape line:
+- explicit coarse path coordinates help with level-law structure
+- local stochastic law still needs its own freedom at finer resolution
+
+So the next move is not to choose between “anchor” and “scale” families. It is to make those two scales explicit inside one coordinate system.
+
+### Concrete 315a Design
+- history encoder: simple GRU bottleneck, as in the cleaner unified families
+- future coordinate transform:
+  - choose fixed knot horizons, e.g. `1, 4, 8, 14, 21, 30`
+  - target coarse state = future logits at those knots
+  - target fine state = non-knot future logits minus the linear interpolation of the coarse knot path
+- velocity network:
+  - reconstruct the current full path from the current multiscale state
+  - expose reconstructed level and implied transition internally
+  - predict velocities for knot coordinates and fine residual coordinates jointly
+- sample decode:
+  - sample coarse and fine coordinates jointly
+  - decode to the full path through interpolation plus residual insertion
+
+### Why This Is Better Than Reopening 314 Or 296
+- better than `314`: no optional latent bottleneck, no KL/collapse question, no latent-state-versus-level-state interface search
+- better than `296`: no fixed deterministic backbone, no frozen center path, no shell-interface problem
+- better than reopening old `293/294`: same multiscale path-shape idea, but now with a cleaner direct flow core instead of the older token/control scaffolds
+
+### Next Step
+Implement `315a-v0` in fresh files and run the full train/eval loop.
+
+---
+## 2026-04-23: 315a multiscale future-logit path flow experiment
+
+### Context
+`315a-v0` was the first experiment in the new multiscale one-stage path-flow family. The idea was to keep the generative core vanilla and one-stage, but change coordinates explicitly:
+- coarse future knot logits at a small set of horizons
+- fine residual logits on the non-knot horizons relative to the interpolated knot scaffold
+- one conditional flow over the joint multiscale coordinates
+
+This was the cleanest synthesis of the surviving evidence from `312`, `314`, and the older `293/294` scaffold line.
+
+### Result
+`315a-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `28`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal metrics:
+- coverage90: `0.903`
+- calibration error: `0.042`
+- conditional MAE reduction: `3.3%`
+- turb/calm width ratio: `1.076`
+- ACF corr: `0.938`
+- kurtosis ratio: `0.768`
+- cointegration ratio: `0.844`
+- worst-cell cointegration ratio: `0.184`
+- daily-change KS pass cells: `11/25`
+- level KS pass cells: `0/25`
+- corr ratio: `0.259`
+- rank ratio: `3.847`
+- MR ratio: `0.946`
+- active MR pass rate: `50.0%`
+- pathwise jump KS: `0.473`
+- jump q90 ratio: `0.854`
+- jump q99 ratio: `1.061`
+- extreme-jump incidence ratio: `0.951`
+
+### Mechanism Read
+This is not a dead-on-arrival result. It is a clean multiscale coupling failure.
+
+What `315a` got right immediately:
+- aggregate coverage is almost exactly on target
+- calibration is strong
+- aggregate mean reversion is back in gate
+- jump scale and extreme-jump incidence are both alive without a latent-state scaffold
+- surface validity stays clean
+
+What `315a` got badly wrong:
+- shared cross-cell geometry collapsed
+- effective rank overshot badly
+- level KS stayed at `0/25`
+- worst-cell cointegration stayed below gate
+- conditionality and regime-width timing remained too weak
+
+So the current read is not “multiscale coordinates are useless.”
+The read is that the current per-point coupling geometry inside the multiscale flow is too weak to preserve the shared panel structure once coarse and fine coordinates are sampled jointly.
+
+### Decision
+Do not run another blind experiment immediately.
+
+The next HEAD step should be `post_experiment_analysis`, focused on whether the family should stay alive with a stronger shared coupling mechanism for the coarse scaffold states, or whether the multiscale factorization itself is already too geometry-diffusing to justify more work.
+
+### Artifacts
+- model: `diffusion/block_ar/multiscale_future_logit_path_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_315a_multiscale_future_logit_path_flow_matching.py`
+- checkpoint: `models/backfill/315a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/315a_v0_s42/full11.json`
+- eval MD: `results/block_ar/315a_v0_s42/full11.md`
+
+---
