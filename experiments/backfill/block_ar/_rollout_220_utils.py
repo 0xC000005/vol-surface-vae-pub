@@ -1013,6 +1013,12 @@ def load_one_day_kernel(
         )
 
         return load_313b_model(checkpoint_path, device)
+    if model_type == "314a":
+        from diffusion.block_ar.history_conditioned_probabilistic_token_state_logit_path_model import (
+            load_model as load_314a_model,
+        )
+
+        return load_314a_model(checkpoint_path, device)
     if model_type == "296d":
         from diffusion.block_ar.probabilistic_backbone_student_t_zero_mean_coarse_shell_model import (
             load_model as load_296d_model,

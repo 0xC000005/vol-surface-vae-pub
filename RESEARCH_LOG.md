@@ -89064,3 +89064,78 @@ If that happens, the broader explicit-latent route is likely wrong for this obje
 Implement `314a-v0` in fresh files and run the full train/eval loop.
 
 ---
+## 2026-04-23: 314a history-conditioned probabilistic token-state logit path model
+
+### Context
+`314a-v0` was the first experiment after the `313` latent-bottleneck postmortem. The design goal was to keep a narrow shared stochastic state, but make that state part of the sequential generative law rather than an optional side bottleneck.
+
+Core design:
+- history encoder -> conditioning context
+- posterior `q(z_t | x_t, h)` over token states for each observed future step
+- transition prior `p(z_t | z_{t-1}, h)`
+- decoder `p(x_t | z_t)` back to future logit levels
+- training with direct path reconstruction plus adjacent-step KL
+
+### Result
+`314a-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `20`
+- suite score: `4/11`
+- passing suites: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.446`
+- calibration error: `0.285`
+- conditional MAE reduction: `0.7%`
+- turb/calm width ratio: `0.891`
+- ACF corr: `0.943`
+- kurtosis ratio: `0.176`
+- cointegration ratio: `0.821`
+- worst-cell cointegration ratio: `0.318`
+- daily-change KS pass cells: `7/25`
+- level KS pass cells: `2/25`
+- corr ratio: `1.099`
+- rank ratio: `0.759`
+- MR ratio: `2.454`
+- active MR pass rate: `29.2%`
+- pathwise jump KS: `1.000`
+- jump q90 ratio: `0.226`
+- jump q99 ratio: `0.288`
+- extreme-jump incidence ratio: `0.001`
+
+Training diagnostics:
+- KL stayed active and grew to `~1.23`
+- prior std stabilized around `0.42`
+- posterior std stabilized around `0.13`
+- this is explicitly *not* a posterior-collapse run
+
+### Mechanism Read
+This is the first explicit-latent family since `313` that is clearly alive.
+
+The good news is decisive:
+- the latent state is being used
+- shared cross-cell structure passes again
+- cointegration survives cleanly
+- support validity remains clean
+
+The remaining pathology is also clean:
+- the model is under-dispersed in level space
+- mean reversion is too strong, especially early in the horizon
+- jump and tail realism are still far too weak
+- regime-sensitive width is inverted rather than merely noisy
+
+So the current issue is no longer “can we force latent usage?” The current issue is that absolute-level emission from a Gaussian latent transition produces a path law that is too smooth and too attractor-like.
+
+### Decision
+Keep the `314` family alive.
+
+The next principled step is `314b`: keep the same history-conditioned token-state prior/posterior structure, but move the observation coordinate from absolute future levels to future logit transitions and integrate those transitions from the last observed logit. That targets the current undercoverage / jump / mean-reversion pathology without adding anti-collapse machinery.
+
+### Artifacts
+- model: `diffusion/block_ar/history_conditioned_probabilistic_token_state_logit_path_model.py`
+- trainer: `experiments/backfill/block_ar/train_314a_history_conditioned_probabilistic_token_state_logit_path_model.py`
+- checkpoint: `models/backfill/314a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/314a_v0_s42/full11.json`
+- eval MD: `results/block_ar/314a_v0_s42/full11.md`
+
+---
