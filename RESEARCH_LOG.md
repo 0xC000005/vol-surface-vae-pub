@@ -86744,3 +86744,42 @@ Question:
   giving back structure?
 
 ---
+## 2026-04-22: 296c vs 296d vs 296e hybrid comparison analysis
+
+### Context
+`296e-v0` was the first run that clearly moved the local bottleneck:
+- h1 coverage
+- regime-sensitive width
+- jump scale
+
+So the next question became whether the hybrid line should follow the multiresolution
+shell direction or treat it as another dead-end local tweak.
+
+### Result
+The `296c` vs `296d` vs `296e` comparison is now clear:
+- `296d` showed global tail-law changes are too blunt
+- `296e` showed early-horizon shell geometry is directionally right
+- but `296e` was too unconstrained and turned local gains into global overdispersion
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296cde_comparison/summary.md`
+
+### Mechanism Read
+The hybrid line is still alive.
+
+The open problem is no longer "more expressivity".
+It is:
+- how to make the fast shell **redistribute** shell mass early,
+- instead of simply adding more shell mass everywhere
+
+### Decision
+Next step:
+- `296f` ideation
+
+Constraint:
+- keep the frozen `277d` backbone
+- keep the zero-mean shell
+- keep the multiresolution shell direction
+- add a variance-budget / redistribution constraint on the fast shell
+
+---
