@@ -88766,3 +88766,45 @@ The next clean repair is to strengthen history access generically:
 Next step: `312b` unified future-path flow with history-memory conditioning.
 
 ---
+## 2026-04-23: 312b unified history-memory future-path flow
+
+### Context
+
+`312b-v0` tested the most direct follow-up to `312a`: keep the unified single-stage future-logit path law and implied-transition exposure, but replace the single GRU history bottleneck with explicit history-memory prefix tokens inside the same transformer mixer.
+
+### Result
+
+`312b` stayed at `3/11`.
+
+Key metric moves versus `312a`:
+- calibration error improved `0.037 -> 0.014`
+- daily-change KS pass cells improved `15/25 -> 21/25`
+- median-bias pass cells improved `17 -> 18`
+- pathwise max-jump KS improved `0.451 -> 0.385`
+- cointegration stayed passing and strengthened (`1.031 -> 1.242`)
+- but cross-cell corr ratio collapsed `0.446 -> 0.174`
+- rank ratio worsened `3.157 -> 4.058`
+- conditional MAE reduction fell `3.6% -> 2.5%`
+- active MR pass count fell `13 -> 11`
+
+Artifacts:
+- `diffusion/block_ar/unified_history_memory_state_aware_future_logit_path_flow_matching.py`
+- `experiments/backfill/block_ar/train_312b_unified_history_memory_state_aware_future_logit_path_flow_matching.py`
+- `results/block_ar/312b_v0_s42/full11.json`
+- `results/block_ar/312b_v0_s42/full11.md`
+
+### Mechanism Read
+
+The unified future-path family is still alive, but the naive history-memory repair is not monotone. Pure prefix memory improves local marginal realism and calibration, yet it removes too much shared global conditioning and the model loses the cross-cell dependence structure that `312a` was still retaining.
+
+So the bottleneck is now more specific:
+- `312a` under-used history but preserved shared structure
+- `312b` used richer history but over-localized the law and decorrelated the surface
+
+### Decision
+
+Do not abandon the unified `312` family yet.
+Do not run another blind experiment immediately.
+The next HEAD step should be a post-experiment analysis iteration on the `312a/312b` tradeoff before deciding whether to test a hybrid shared-global-plus-memory history conditioner or cap this branch.
+
+---
