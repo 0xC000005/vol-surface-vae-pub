@@ -88855,3 +88855,55 @@ Do not keep stacking more history-conditioning variants inside the `312` family.
 The next HEAD step should be `research_ideation`, focused on a cleaner generic dependence mechanism for the unified law rather than another local conditioner tweak.
 
 ---
+## 2026-04-23: 312 family coupling ideation and 313a selection
+
+### Context
+
+`312a`, `312b`, and `312c` are now three clean experiments inside the same unified one-stage future-path family. All remained at `3/11`, but with different tradeoffs between local fidelity and shared dependence.
+
+That forced a family-level question: what is the smallest next paradigm shift that still respects the reset doctrine?
+
+### Findings
+
+The common lesson from `312a/312b/312c` is that changing the history-conditioning topology is not enough.
+
+Observed pattern:
+- `312a` kept the strongest shared cross-cell structure but under-used history
+- `312b` improved calibration and daily-change fidelity but collapsed shared dependence
+- `312c` partially repaired the collapse, improving regime width and jump realism, but still could not break the `3/11` plateau
+
+So the limiting factor is no longer the history interface. It is the lack of an explicit generic mechanism for shared stochastic coupling across the future grid.
+
+### Ideation
+
+Candidate next families considered:
+- keep iterating on `312` conditioners: rejected, because the current subfamily is already capped and further variants would just accumulate knobs
+- return to center/residual or learned-shell ideas: rejected, because that would move away from the cleaner unified line we just earned
+- autoregressive restart: rejected for now, because the current evidence does not suggest the main issue is one-shot factorization itself
+- unified latent-token future-path law: selected
+
+Selected direction:
+- use a small set of shared latent future tokens as the only core bottleneck
+- condition those latent tokens on history in one stage
+- decode jointly from latent tokens to the full future horizon-cell grid
+- keep the law unified and support-valid
+- do not add center/residual structure, low-rank readouts, or retrieval machinery
+
+### Mechanism Read
+
+This is the most principled next move because it introduces exactly one new capability the `312` family lacked: a direct shared stochastic state that all future cells and horizons can couple through.
+
+It also fits the reset doctrine:
+- narrow bottleneck only
+- no finance-specific factor handcrafting
+- no explicit low-rank structural assumption in the output law
+- still a single conditional scenario generator rather than a two-level evaluator hack
+
+### Decision
+
+Promote a new active family:
+`313a` unified latent-token future-path law with a narrow shared stochastic bottleneck.
+
+Next step: implement the smallest `313a` baseline before any further tuning.
+
+---
