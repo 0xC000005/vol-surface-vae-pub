@@ -86904,3 +86904,34 @@ Constraint:
 - do not add another global budget or support factor
 
 ---
+## 2026-04-22: 296g hybrid gated fast-shell ideation
+
+### Context
+`296e` and `296f` together narrowed the multiresolution hybrid bottleneck:
+- the fast shell is useful
+- the fast shell also needs budget control
+- but the remaining miss is still about **when** the fast shell should activate
+
+### Result
+`296g` ideation selected the smallest clean next mechanism:
+- keep the `296f` budget-plus-redistribution factorization
+- add one learned scalar gate per window/query
+- apply that gate only to the fast shell knots before budget renormalization
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296g_hybrid_ideation/memo.md`
+
+### Mechanism Read
+This is the narrowest remaining live question inside the hybrid line:
+- can the fast shell be made selectively active,
+- instead of globally active but budgeted
+
+### Decision
+Next step:
+- run `296g-v0` as a gated budgeted multiresolution shell baseline
+
+Constraint:
+- do not add per-cell gating yet
+- do not add a side-task regime classifier
+
+---
