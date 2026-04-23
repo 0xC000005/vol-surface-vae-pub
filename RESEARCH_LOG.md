@@ -89514,3 +89514,41 @@ The next HEAD step should be `post_experiment_analysis`, focused on whether the 
 - eval MD: `results/block_ar/315a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 315a multiscale coupling analysis
+
+### Context
+`315a-v0` needed a post-experiment family decision rather than another blind run. The relevant comparison set was:
+- `312a`: strongest recent unified direct-path baseline
+- `314b`: strongest recent explicit shared-state / coupling baseline
+- `315a`: new multiscale coordinate baseline
+
+### Findings
+The three models now define a clean tradeoff:
+- `312a` is still the strongest structural direct-path baseline: `3/11`, cointegration pass, level KS `5/25`, corr ratio `0.446`, worst-cell cointegration `0.455`.
+- `314b` is still the strongest shared-coupling baseline: `3/11`, daily-change KS `19/25`, level KS `8/25`, corr ratio `1.173`, rank ratio `0.719`; but it loses long-run anchor badly with worst-cell cointegration `0.171`, MR ratio `0.296`, and overall coverage `0.798`.
+- `315a` is uniquely best on aggregate uncertainty scale and jump scale without a latent posterior scaffold: coverage90 `0.903`, calibration error `0.042`, MR ratio `0.946`, jump q99 ratio `1.061`, extreme-jump incidence `0.951`.
+
+But `315a` is also structurally the weakest of the three where the 11-suite still needs help:
+- level KS `0/25`
+- corr ratio `0.259`
+- rank ratio `3.847`
+- worst-cell cointegration `0.184`
+- daily-change KS only `11/25`
+
+### Mechanism Read
+This comparison says the multiscale family is not dead because the coordinate change clearly recovered aggregate scale, jump realism, and aggregate mean reversion. But it also says the current `315a` implementation is not competitive as-is: the coarse-knot plus fine-residual factorization diffused too much shared geometry.
+
+So the live hypothesis is now very specific: the multiscale coordinates may still be valid, but only if the velocity network gets a stronger generic shared-coupling path. If that cannot restore shared structure quickly, the family should be retired.
+
+### Decision
+Keep `315` alive for exactly one minimal repair and no more:
+- preserve the multiscale coordinate system unchanged
+- preserve the one-stage vanilla flow objective
+- add only a small bank of learned global mixer tokens inside the transformer so coarse and fine coordinates can couple through shared internal state
+
+If that single `315b` repair does not materially improve corr ratio, level KS, and worst-cell cointegration while preserving the scale/jump gains, retire `315` immediately.
+
+### Next Step
+Implement `315b-v0` with generic global mixer tokens in the multiscale velocity network.
+
+---
