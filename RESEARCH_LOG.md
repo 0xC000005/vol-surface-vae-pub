@@ -87119,3 +87119,32 @@ Constraint:
 - do not return to top-k weighting, daily residual correction, or per-cell shell knobs
 
 ---
+## 2026-04-23: 298a stochastic structural-center experiment
+
+### Context
+
+`298a-v0` is the first stochastic structural-center experiment after `297a` falsified the fixed-center shell interface. It freezes the trained `277d` representation, learns a small conditional diagonal Gaussian over future embeddings, samples future structural codes, decodes sampled codes through the training future-library nearest neighbor, and replays the selected normalized-change path from the query current state.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: cov90 `0.694`, h1 cov90 `0.745`, calibration error `0.131`, conditional MAE reduction `3.3%`, turb/calm `1.043`, change KS `23/25`, level KS `1/25`, corr ratio `0.979`, rank ratio `1.207`, MR h1 ratio `1.003`, MR h30 ratio `0.635`, jump KS `0.515`, q99 jump cells `18/25`.
+
+### Mechanism Read
+
+This is a clean negative result. Sampling structural future embeddings improves the daily change law and preserves cross-cell structure, but hard nearest-neighbor decoding plus anchoring still does not move the unconditional level law enough. The model is also weakly conditional beyond short horizons: regime width is nearly flat and long-horizon mean reversion under-shoots.
+
+### Decision
+
+Do not repair this by adding another shell, bounded path, or evaluator-specific knob. The next clean step is to test whether the hard nearest-neighbor structural decoder is the bottleneck. A principled `298b` should keep the same learned embedding density but replace hard one-neighbor decoding with a soft/mixture library decoder over structural future paths.
+
+Artifacts:
+
+- `models/backfill/298a_v0_s42/best_model.pt`
+- `results/block_ar/298a_v0_s42/full11.json`
+- `results/block_ar/298a_v0_s42/full11.md`
+- `results/validations/2026-04-22/analysis/298a_postmortem/summary.md`
+
+---
