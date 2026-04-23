@@ -90131,3 +90131,74 @@ Falsifier: if level feedback does not restore surface validity, MR, and level/da
 - eval MD: `results/block_ar/318a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 318b level-feedback transition joint-law experiment
+
+### Context
+`318b-v0` was the minimal repair to `318a`: keep the daily transition full-covariance likelihood, but feed the current logit level into the recurrent decoder state.
+
+This tested whether the poor MR/level anchoring in `318a` was mainly caused by an incomplete chain-rule state.
+
+### Result
+`318b-v0` trained stably and improved validation NLL, but the full suite remained `2/11`.
+
+- best epoch: `8`
+- best validation NLL: `0.2524`
+- suite score: `2/11`
+- passing suites: `block_ar`, `cointegration`
+
+High-signal metrics:
+- surface validity: `FAIL`
+- coverage90: `0.993`
+- calibration error: `0.321`
+- conditional MAE reduction: `0.2%`
+- turb/calm width ratio: `1.002`
+- ACF corr: `0.947`
+- kurtosis ratio: `0.332`
+- cointegration ratio: `0.727`
+- worst-cell cointegration ratio: `0.276`
+- daily-change KS pass cells: `5/25`
+- level KS pass cells: `0/25`
+- corr ratio: `0.286`
+- rank ratio: `3.576`
+- MR ratio: `0.083`
+- active MR cells: `3/24`
+- pathwise jump KS: `0.352`
+- jump q90 ratio: `0.893`
+- jump q99 ratio: `1.037`
+- extreme-jump incidence ratio: `0.999`
+
+### Mechanism Read
+Level feedback helped but did not fix the transition-coordinate problem:
+- corr ratio improved `0.257 -> 0.286`
+- rank ratio improved `3.670 -> 3.576`
+- validation NLL improved sharply
+- but the model stayed far too wide, with coverage90 `0.993`
+- level KS stayed `0/25`
+- MR stayed near absent
+- surface validity still failed
+
+So the issue is not only missing current-level state. A transition-coordinate Gaussian chain law accumulates too much variance over 30 ancestral steps and does not preserve the level law.
+
+### Decision
+Retire transition-coordinate `318`.
+
+The chain-rule joint-law idea remains alive, but the coordinate should change. The old direct-path evidence already said level/path coordinates anchor better than transition coordinates.
+
+### Next Step
+Choose a paradigm shift to a level-coordinate chain-rule joint law:
+- predict next future logit level directly, not the daily transition
+- condition on history and prior generated levels
+- keep full 25-cell covariance per day
+- keep teacher-forced likelihood training and ancestral sampling
+- no low-rank decoder, no bounded idio/EC path, no posterior/prior scaffold
+
+This keeps the explicit joint-likelihood principle while avoiding transition random-walk variance accumulation.
+
+### Artifacts
+- model: `diffusion/block_ar/daily_joint_cholesky_transition_model.py`
+- trainer: `experiments/backfill/block_ar/train_318a_daily_joint_cholesky_transition_model.py --use_level_feedback`
+- checkpoint: `models/backfill/318b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/318b_v0_s42/full11.json`
+- eval MD: `results/block_ar/318b_v0_s42/full11.md`
+
+---

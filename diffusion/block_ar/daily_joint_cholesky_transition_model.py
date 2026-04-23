@@ -33,6 +33,7 @@ class DailyJointCholeskyTransitionConfig:
     diag_floor: float = 1e-3
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
+    use_level_feedback: bool = False
 
 
 def _mlp(
@@ -69,7 +70,8 @@ class DailyJointCholeskyTransitionModel(nn.Module):
             nn.Linear(cfg.context_dim, cfg.decoder_hidden),
             nn.Tanh(),
         )
-        self.transition_in = nn.Linear(cfg.n_cells, cfg.decoder_hidden)
+        decoder_input_dim = cfg.n_cells * 2 if cfg.use_level_feedback else cfg.n_cells
+        self.transition_in = nn.Linear(decoder_input_dim, cfg.decoder_hidden)
         self.step_embed = nn.Embedding(cfg.future_len, cfg.decoder_hidden)
         self.decoder = nn.GRUCell(cfg.decoder_hidden, cfg.decoder_hidden)
         n_tril = cfg.n_cells * (cfg.n_cells + 1) // 2
@@ -132,6 +134,15 @@ class DailyJointCholeskyTransitionModel(nn.Module):
         chol = chol + torch.diag_embed(diag)
         return mean, chol
 
+    def _decoder_input(
+        self,
+        prev_transition: torch.Tensor,
+        current_logit: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.cfg.use_level_feedback:
+            return torch.cat([prev_transition, current_logit], dim=-1)
+        return prev_transition
+
     @staticmethod
     def gaussian_nll(
         target: torch.Tensor,
@@ -152,6 +163,7 @@ class DailyJointCholeskyTransitionModel(nn.Module):
         history_norm = self._flatten(history_norm)
         future_norm = self._flatten(future_norm)
         context = self.encode_history(history_norm)
+        current_logit = self.to_logits(history_norm)[:, -1]
         prev_transition, future_trans = self.future_transitions(history_norm, future_norm)
         state = self.init_state(context)
         losses = []
@@ -165,7 +177,9 @@ class DailyJointCholeskyTransitionModel(nn.Module):
                 dtype=torch.long,
                 device=history_norm.device,
             )
-            dec_in = self.transition_in(prev_transition) + self.step_embed(step_idx)
+            dec_in = self.transition_in(
+                self._decoder_input(prev_transition, current_logit)
+            ) + self.step_embed(step_idx)
             state = self.decoder(dec_in, state)
             mean, chol = self._distribution_params(state)
             target = future_trans[:, step]
@@ -174,6 +188,7 @@ class DailyJointCholeskyTransitionModel(nn.Module):
             diag_means.append(diag.mean())
             offdiag_abs.append((chol - torch.diag_embed(diag)).abs().mean())
             mean_abs_err.append((mean - target).abs().mean())
+            current_logit = current_logit + target
             prev_transition = target
         nll = torch.stack(losses, dim=1).mean()
         metrics = {
@@ -223,7 +238,9 @@ class DailyJointCholeskyTransitionModel(nn.Module):
                     dtype=torch.long,
                     device=history_norm.device,
                 )
-                dec_in = self.transition_in(prev_transition) + self.step_embed(step_idx)
+                dec_in = self.transition_in(
+                    self._decoder_input(prev_transition, current_logit)
+                ) + self.step_embed(step_idx)
                 state = self.decoder(dec_in, state)
                 mean, chol = self._distribution_params(state)
                 eps = temp * torch.randn(
