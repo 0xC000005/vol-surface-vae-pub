@@ -88185,3 +88185,61 @@ Shift to `308`: learned center path plus residual shell.
 This is a cleaner, more defensible version of the practical hierarchy that has worked best so far.
 
 ---
+## 2026-04-23: 308a learned world-center profiled shell experiment
+
+### Context
+
+`308` kept the practical center-plus-shell decomposition from the hybrid frontier, but replaced the frozen retrieval center with a learned deterministic world model trained from scratch. `308a-v0` tested that idea directly:
+- train a learned `289c`-style deterministic center path
+- train a profiled zero-mean coarse shell around that learned center
+- keep the shell simple and symmetric rather than adding more latent hierarchy
+
+### Implementation
+
+- added learned-world profiled shell model:
+  - `diffusion/block_ar/probabilistic_obs_world_profiled_zero_mean_coarse_shell_model.py`
+- added trainer:
+  - `experiments/backfill/block_ar/train_308a_probabilistic_obs_world_profiled_zero_mean_coarse_shell_model.py`
+- registered loader/eval support in:
+  - `experiments/backfill/block_ar/_rollout_220_utils.py`
+  - `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- trained Stage A backbone:
+  - `models/backfill/308a_stage1_289c_v0_s42/best_model.pt`
+- trained Stage B shell:
+  - `models/backfill/308a_v0_s42/best_model.pt`
+
+### Result
+
+- `308a-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - `results/block_ar/308a_v0_s42/full11.json`
+  - `results/block_ar/308a_v0_s42/full11.md`
+- key metrics:
+  - overall 90% coverage: `93.2%`, but h1 coverage only `70.2%`
+  - conditional MAE reduction: `2.8%`
+  - turb/calm width ratio: `1.004`
+  - cross-cell correlation ratio: `0.032`
+  - rank ratio: `4.343`
+  - aggregate mean-reversion ratio: `0.936`, but active cells only `11/24`
+  - pathwise max-jump KS: `1.000`
+  - pathwise q99 jump ratio: `0.324`
+
+### Mechanism Read
+
+This result is now clean enough to describe causally.
+- The learned deterministic center path is strong enough to keep the rollout in a support-valid basin, which is why surface validity and aggregate MR stay respectable.
+- But once the center is deterministic, Stage B is responsible for essentially all scenario diversity.
+- The current profiled zero-mean shell is conditionally diagonal across cells and too smooth across time, so it improves raw interval width without preserving shared residual geometry.
+- That is why coverage rises while correlation structure collapses and jump realism stays far too weak.
+
+### Decision
+
+Do not tune profile amplitude, scale floors, or knot positions blindly. The next HEAD iteration should be post-experiment analysis:
+- evaluate the learned Stage A center alone
+- compare Stage A versus `308a`
+- decide whether the `308` family remains alive only if Stage B is replaced by a cleaner joint residual generator rather than another shell tweak
+
+---
