@@ -88523,3 +88523,73 @@ Do not abandon the family yet, and do not add shell engineering back in. The nex
 Next step: `311a` as a state-aware level-residual flow.
 
 ---
+## 2026-04-23: 311a state-aware learned center-conditioned level residual flow experiment
+
+### Context
+
+`309a` and `310a` exposed a clean tradeoff inside the learned-center residual family:
+- transition residuals preserved dependence and local move geometry better
+- level residuals preserved calibration and long-horizon anchoring better
+
+`311a-v0` tested the smallest possible repair inside that family:
+- keep the learned deterministic center
+- keep the level-residual target from `310a`
+- expose implied total daily transitions as an extra state channel so the flow sees both cumulative and local move structure
+
+### Implementation
+
+- added state-aware level-residual flow model:
+  - `diffusion/block_ar/center_conditioned_state_aware_residual_logit_level_flow_matching.py`
+- added trainer:
+  - `experiments/backfill/block_ar/train_311a_state_aware_center_conditioned_residual_logit_level_flow_matching.py`
+- registered loader/eval support in:
+  - `experiments/backfill/block_ar/_rollout_220_utils.py`
+  - `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- trained with learned Stage A center from:
+  - `models/backfill/308a_stage1_289c_v0_s42/best_model.pt`
+- trained flow checkpoint:
+  - `models/backfill/311a_v0_s42/best_model.pt`
+
+### Result
+
+- `311a-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - `results/block_ar/311a_v0_s42/full11.json`
+  - `results/block_ar/311a_v0_s42/full11.md`
+- key metrics:
+  - overall 90% coverage: `87.8%`
+  - h1 90% coverage: `93.2%`
+  - calibration error: `0.019`
+  - conditional MAE reduction: `2.9%`
+  - turb/calm width ratio: `0.987`
+  - ACF correlation: `0.930`
+  - kurtosis ratio: `0.812`
+  - daily-change KS pass cells: `13/25`
+  - IV level KS pass cells: `1/25`
+  - cointegration gen/GT ratio: `1.165`
+  - corr ratio: `0.386`
+  - rank ratio: `3.424`
+  - aggregate MR ratio: `1.107`
+  - active MR cells: `19/24`
+  - pathwise q90 ratio: `0.906`
+  - pathwise q99 ratio: `1.040`
+  - pathwise max-jump KS: `0.320`
+
+### Mechanism Read
+
+This did not close the 309a/310a tradeoff.
+- The added transition-state channel helped some anchoring-side metrics and restored active mean-reversion cells.
+- But it did not recover shared cross-cell dependence.
+- It also did not stabilize daily-change or level-distribution fidelity enough to move any new suites across the line.
+
+So the evidence is no longer pointing to a missing state channel inside this family.
+It is pointing to a structural limit of the learned deterministic center plus additive residual decomposition.
+
+### Decision
+
+Do not keep stacking small local repairs inside this family blindly. The next HEAD step should be post-experiment analysis on whether this line is now capped and should be abandoned in favor of a new paradigm.
+
+---
