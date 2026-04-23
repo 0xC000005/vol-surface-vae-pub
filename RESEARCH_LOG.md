@@ -87403,3 +87403,33 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/301a_postmortem/summary.md`
 
 ---
+## 2026-04-23: 301a state-dependence diagnostic
+
+### Context
+
+`301a` was support-valid and structurally stable, but mean reversion was nearly absent. The diagnostic tested whether generated expected transitions depend on current level with the same sign/strength as the ground truth.
+
+### Result
+
+- Ground-truth h1 change slope vs current level mean: `-0.2260`.
+- `301a` generated h1 mean-change slope vs current level mean: `-0.0017`.
+- Generated/GT level-slope ratio: `0.008`.
+- Ground-truth h1 change slope vs current logit mean: `-0.0342`.
+- `301a` generated h1 mean-change slope vs current logit mean: `-0.0003`.
+- Generated/GT logit-slope ratio: `0.009`.
+- Active cells with |slope| >= 0.05: GT `24`, generated `2`.
+
+### Mechanism Read
+
+The failure is quantitatively state-dependence collapse. `301a` samples plausible transition noise on support, but its expected transition law barely reacts to current level. This explains the dead mean-reversion suite and persistent level-KS failure.
+
+### Decision
+
+Implement `302a`: state-aware rolling logit-transition flow. Keep the same vanilla flow and support-valid transition coordinate, but feed the velocity network the implied rolling logit level path `logit(IV_0) + cumsum(z_t)` alongside the transition tensor. This is not a new branch or post-hoc correction; it is the coordinate-consistent state variable needed for a transition law.
+
+Artifacts:
+
+- `results/validations/2026-04-22/analysis/301a_state_dependence_diagnostic/summary.json`
+- `results/validations/2026-04-22/analysis/301a_state_dependence_diagnostic/summary.md`
+
+---
