@@ -87316,3 +87316,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/300a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-23: 300a support-valid logit-IV level flow experiment
+
+### Context
+
+`300a-v0` tested whether the continuous-flow family mainly needed support-valid observation coordinates. It trained vanilla one-shot flow matching over future IV levels in logit space and inverted sampled logits through sigmoid.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: explosion `0.0%`, cov90 `0.819`, calibration error `0.085`, conditional MAE reduction `1.9%`, turb/calm `0.907`, change KS `8/25`, level KS `0/25`, window-floor bad rate `2.6%`, corr ratio `0.683`, rank ratio `2.287`, MR h1 ratio `1.979`, MR h7/h14/h30 ratios `1.186/0.995/0.836`, jump KS `0.456`, q99 jump ratio `0.960`, q99 jump cells `12/25`.
+
+### Mechanism Read
+
+The support-valid coordinate removed explosion and preserved structural suites, but absolute future-level flow lost the local innovation law and conditional regime spread. This creates a clean coordinate tradeoff with `299a`: local-scale innovations learned changes but exploded; logit levels are safe but too absolute and weakly conditional.
+
+### Decision
+
+Do not repair with shells or support replay. The next clean hypothesis is a bounded transition coordinate: keep vanilla continuous flow, but generate rolling support-valid innovations rather than absolute future logits.
+
+Artifacts:
+
+- `models/backfill/300a_v0_s42/best_model.pt`
+- `results/block_ar/300a_v0_s42/full11.json`
+- `results/block_ar/300a_v0_s42/full11.md`
+- `results/validations/2026-04-22/analysis/300a_postmortem/summary.md`
+
+---

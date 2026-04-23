@@ -887,6 +887,12 @@ def load_one_day_kernel(
         )
 
         return load_299a_model(checkpoint_path, device)
+    if model_type == "300a":
+        from diffusion.block_ar.logit_level_flow_matching import (
+            load_model as load_300a_model,
+        )
+
+        return load_300a_model(checkpoint_path, device)
     if model_type == "296d":
         from diffusion.block_ar.probabilistic_backbone_student_t_zero_mean_coarse_shell_model import (
             load_model as load_296d_model,
