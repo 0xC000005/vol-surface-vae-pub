@@ -87695,3 +87695,30 @@ This is not evidence for adding a low-rank decoder, slow latent side channel, re
 Stop local conditioning-architecture tweaks inside `303` for now. The next HEAD step should ideate a minimal path-objective alignment experiment: keep `303b` as the architectural base, preserve the teacher-forced transition FM anchor, and add the smallest principled free-run path scoring or self-conditioning mechanism that trains the recursive generated level/regime law.
 
 ---
+## 2026-04-23: 303d path-objective ideation
+
+### Context
+
+The `303b/303c` postmortem showed that local conditioning-architecture changes trade metrics but do not move beyond `4/11`. The remaining failure is not local transition law capacity: change KS, surface validity, cross-cell dependence, and aggregate MR are all mostly solved in the recurrent-token family.
+
+### Candidate Moves Considered
+
+- More conditioning architecture: rejected for now because `303c` improved conditionality/jump shape but hurt dependence and active-cell MR.
+- Explicit volatility/regime features: rejected as too hand-engineered and likely to become a research knob.
+- Temperature tuning: rejected as an inference knob that trades coverage against fidelity without changing the learned law.
+- Rollout objective alignment: selected, because the model is evaluated as a recursive scenario generator but trained only with teacher-forced one-step FM.
+
+### Selected Experiment
+
+`303d`: keep `303b` as the architecture base and fine-tune with a small differentiable free-run rollout energy score on generated levels at selected horizons, while preserving the teacher-forced transition-FM anchor.
+
+This is principled because energy score is a proper scoring rule for the conditional path distribution. It is not a side channel, retrieval layer, low-rank readout, bounded idio/EC component, or evaluator-specific correction.
+
+### Guardrails
+
+- Use a constrained fine-tune from `303b`, not a new architecture.
+- Keep teacher-forced FM as the anchor so local change law and cross-cell dependence are not sacrificed.
+- Use small rollout samples and reduced integration steps only for computational feasibility.
+- If the experiment merely broadens paths and degrades change/correlation law, treat it as falsification of this objective-alignment variant.
+
+---
