@@ -35,6 +35,7 @@ class FutureScalarARMixtureConfig:
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
     use_same_cell_feedback: bool = False
+    use_history_delta_features: bool = False
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -44,7 +45,7 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         super().__init__()
         self.cfg = cfg
         hist_cfg = EncoderConfig(
-            input_dim=cfg.n_cells,
+            input_dim=cfg.n_cells * (2 if cfg.use_history_delta_features else 1),
             gru_hidden_dim=cfg.history_hidden,
             bottleneck_dim=cfg.context_dim,
             dropout=cfg.encoder_dropout,
@@ -83,7 +84,14 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         return x
 
     def encode_history(self, history_norm: torch.Tensor) -> torch.Tensor:
-        return self.history_encoder(self._flatten(history_norm))
+        history_flat = self._flatten(history_norm)
+        if not self.cfg.use_history_delta_features:
+            return self.history_encoder(history_flat)
+        history_logits = self.to_logits(history_flat)
+        deltas = torch.zeros_like(history_logits)
+        deltas[:, 1:] = history_logits[:, 1:] - history_logits[:, :-1]
+        history_features = torch.cat([history_flat, deltas], dim=-1)
+        return self.history_encoder(history_features)
 
     def to_logits(self, levels_norm: torch.Tensor) -> torch.Tensor:
         levels_norm = self._flatten(levels_norm)

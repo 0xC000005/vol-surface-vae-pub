@@ -66,6 +66,7 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--max_sample_chunk", type=int, default=8)
     parser.add_argument("--use_same_cell_feedback", action="store_true")
+    parser.add_argument("--use_history_delta_features", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -134,6 +135,7 @@ def main() -> None:
         sample_temperature=args.sample_temperature,
         max_sample_chunk=args.max_sample_chunk,
         use_same_cell_feedback=args.use_same_cell_feedback,
+        use_history_delta_features=args.use_history_delta_features,
     )
     model = FutureScalarARMixtureDensityModel(cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

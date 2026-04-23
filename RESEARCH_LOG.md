@@ -90450,3 +90450,25 @@ Keep 320 active. The next principled change should improve history-state represe
 - eval MD: `results/block_ar/320d_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 320e history-delta state feature experiment
+
+### Context
+320e tested whether the remaining conditional scale/regime failures were due to poor history-state representation. It kept the 320d capacity and same-cell conditioning but added generic history delta features to the encoder input (`--use_history_delta_features`).
+
+### Result
+320e-v0 trained stably and reached validation NLL `-1.570`, slightly better than 320d (`-1.565`), but the full 11-suite score dropped to 3/11. It passed surface validity, block_ar, and cross_cell_correlation, but mean_reversion no longer passed because the active-cell count fell to 16/24 despite good aggregate/correlation profile.
+
+Key metrics: coverage90 0.884, calibration error 0.011, conditional MAE improvement 2.7%, turb/calm width ratio 0.977, ACF corr 0.955, kurtosis ratio 1.050 but skewness fails, daily KS 12/25, level KS 3/25, cross-cell corr ratio 0.716, rank ratio 2.126, MR h1 ratio 1.059 with active-cell corr 0.837 but active cells 16/24, pathwise max-jump KS 0.268, cointegration worst-cell ratio 0.139.
+
+### Mechanism
+History deltas did not solve the conditional regime problem. They slightly improved NLL and pathwise KS but weakened active-cell MR and cointegration worst-cell behavior. This suggests the current bottleneck is not simply missing recent-change features in the encoder. The more persistent issue is per-cell coordinate/marginal calibration: several cells are systematically over- or under-covered and level KS remains poor even when daily-change KS improves.
+
+### Decision
+Close 320e as non-frontier. Keep 320d/320c as the live evidence for the paradigm. The next clean move should address coordinate scaling: model standardized per-cell logit levels inside the same scalar chain-rule likelihood, then denormalize for sampling. This is generic statistical preprocessing, not an output correction path, and directly targets per-cell marginal imbalance.
+
+### Artifacts
+- checkpoint: `models/backfill/320e_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320e_v0_s42/full11.json`
+- eval MD: `results/block_ar/320e_v0_s42/full11.md`
+
+---
