@@ -1072,10 +1072,16 @@ def load_one_day_kernel(
         "321b",
         "321c",
         "322a",
+        "323a",
     }:
-        from diffusion.block_ar.future_scalar_ar_mixture_density_model import (
-            load_model as load_320a_model,
-        )
+        if model_type == "323a":
+            from diffusion.block_ar.conditional_marginal_copula_model import (
+                load_model as load_320a_model,
+            )
+        else:
+            from diffusion.block_ar.future_scalar_ar_mixture_density_model import (
+                load_model as load_320a_model,
+            )
 
         return load_320a_model(checkpoint_path, device)
     if model_type == "296d":

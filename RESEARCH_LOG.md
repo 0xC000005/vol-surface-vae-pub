@@ -90604,3 +90604,25 @@ Pivot to 323: conditional marginal + learned dependence factorization. The gener
 323 must improve the currently stubborn failures: level KS, per-cell coverage/regime coverage, pathwise/tail cell counts, and cointegration worst-cell, while preserving the 320/321 passes on surface, cross-cell correlation, and mean reversion. If it cannot improve marginal tests without destroying dependence, the test suite may require either more data or a substantially larger attention-based density model.
 
 ---
+## 2026-04-23: 323a conditional Gaussian marginal-copula prototype
+
+### Context
+323a tested the cleanest marginal-copula instantiation after the 320-322 scalar AR map: a learned one-shot conditional Gaussian marginal law in standardized logit space, with dependence supplied only by the rank/copula structure of the clean 321c transition-coordinate scalar AR model.
+
+### Result
+`323a_v0_s42` scored `3/11`, passing surface validity, block-AR boundary smoothness, and cross-cell correlation. It failed coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: overall 90% coverage `0.921`, calibration error `0.115`, h1/h7/h14/h30 coverage all pass in aggregate but per-cell coverage still fails with best cells at `100%` and worst h30 cell `50%`; turb/calm width ratio `1.000`; daily-change KS `15/25` pass; level KS `0/25` pass; corr ratio `0.798`; rank ratio `1.815`; MR active profile fails; pathwise max-jump KS `0.272`; per-cell q99 jump pass `14/25`; cointegration overall ratio `1.821` but worst-cell ratio `0.000`.
+
+Artifacts:
+- model: `models/backfill/323a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/323a_v0_s42/full11.json`
+- eval MD: `results/block_ar/323a_v0_s42/full11.md`
+
+### Mechanism Read
+The factorization is principled, but the Gaussian marginal family is too restrictive. It widens aggregate intervals and preserves some copula correlation, but distorts cell-specific level distributions, produces excessive/insufficient per-cell jump tails, and erodes long-horizon mean-reversion geometry. This is a marginal-law misspecification, not evidence against copula factorization itself.
+
+### Decision
+Close Gaussian 323a as non-frontier. Continue the 323 family only if the marginal side becomes nonparametric/quantile-based rather than another Gaussian/scale tweak. The next clean falsifier is 323b: keep the same copula interface, but map ranks through empirical per-cell/horizon conditional quantile marginals so the model can match fat tails and level KS without inventing extra residual paths.
+
+---
