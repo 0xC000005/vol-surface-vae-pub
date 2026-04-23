@@ -86165,3 +86165,63 @@ improving at least one stochastic suite such as coverage, conditionality, regime
 coverage, or jump realism.
 
 ---
+## 2026-04-22: 296a hybrid residual shell baseline
+
+### Context
+`296a-v0` was the first direct test of the hybrid reset:
+- freeze `277d` as the structural center path
+- train a learned stochastic residual shell on top
+- condition the shell on history plus the backbone future path
+
+The goal was to preserve the `277d` structural passes while restoring at least part
+of the stochastic adequacy learned in the `293` to `295` line.
+
+### Result
+`296a-v0` scored `2/11`.
+
+Passes:
+- `block_ar`
+- `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.483`
+- calibration error: `0.299`
+- change KS: `1/25`
+- level KS: `0/25`
+- corr ratio: `0.900`
+- rank ratio: `1.291`
+- cointegration ratio: `0.440`
+- worst-cell cointegration ratio: `0.083`
+- MR ratio: `1.605`
+- max-jump KS: `0.723`
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_296a_probabilistic_backbone_residual_shell_model.py`
+- model: `diffusion/block_ar/probabilistic_backbone_residual_shell_model.py`
+- eval: `results/block_ar/296a_v0_s42/full11.json`
+- postmortem: `results/validations/2026-04-22/analysis/296a_postmortem/summary.md`
+
+### Mechanism Read
+The hybrid decomposition was **not** validated by this implementation.
+
+The failure is specific:
+- the daily residual-token shell collapsed toward a near-deterministic corrective law
+- the shell then dragged the frozen `277d` path away from its structural validity
+- coverage and calibration still collapsed, so the shell also failed at stochastic
+  adequacy
+
+So the current shell interface is wrong:
+- too local
+- too deterministic under cross-entropy training
+- too free to distort the backbone path
+
+### Decision
+Do **not** continue directly to another hybrid shell experiment.
+
+Next step:
+- run post-experiment analysis comparing `277d`, `295a`, and `296a`
+- decide whether `296b` should change the shell objective to prevent deterministic
+  collapse, or change the residual representation/path granularity instead of using
+  direct daily token corrections
+
+---

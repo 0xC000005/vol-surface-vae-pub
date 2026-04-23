@@ -1,0 +1,42 @@
+{
+  "result": {
+    "score": "2/11",
+    "passes": [
+      "block_ar",
+      "cross_cell_correlation"
+    ]
+  },
+  "key_metrics": {
+    "coverage90": 0.483,
+    "calibration_error": 0.299,
+    "cov90_h1": 0.182,
+    "cov90_h30": 0.531,
+    "change_ks_pass": 1,
+    "level_ks_pass": 0,
+    "corr_ratio": 0.9,
+    "rank_ratio": 1.291,
+    "cointegration_ratio": 0.44,
+    "cointegration_worst_cell_ratio": 0.083,
+    "mr_ratio": 1.605,
+    "active_pass_count": 19,
+    "active_cell_slope_corr": 0.748,
+    "max_jump_ks": 0.723,
+    "acf_corr": 0.924
+  },
+  "training_read": {
+    "best_epoch": 24,
+    "best_val_total": 0.14255779342991964,
+    "val_token_acc": 0.9695,
+    "val_token_entropy": 0.13,
+    "val_residual_raw_mae": 0.0395
+  },
+  "mechanism_read": [
+    "The hybrid decomposition was not validated by this implementation.",
+    "The daily residual-token shell collapsed toward a near-deterministic corrective shell under cross-entropy training.",
+    "That shell dragged the 277d center path away from its structural validity without restoring usable stochastic adequacy."
+  ],
+  "decision": {
+    "status": "hybrid_alive_but_interface_failed",
+    "next_step": "post_experiment_analysis comparing 277d, 295a, and 296a before specifying 296b"
+  }
+}
