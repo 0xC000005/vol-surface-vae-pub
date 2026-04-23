@@ -87977,3 +87977,36 @@ A full-covariance Student-t transition law is a clean baseline: it directly lear
 Shift to `306`: recurrent full-covariance Student-t likelihood. `306a` should train by exact NLL under teacher forcing, then sample autoregressively in logit-transition coordinates. If this cannot beat the AR-flow family, the blocker is likely data/test difficulty rather than one-shot-vs-AR plumbing.
 
 ---
+## 2026-04-23: 306a recurrent Student-t transition likelihood experiment
+
+### Context
+
+`306a-v0` tested the recurrent-likelihood reset after the capped one-shot flow branches. It kept support-valid logit-transition autoregression, but replaced flow matching with exact multivariate Student-t NLL. At each step the model conditioned on recurrent state and current logit, then predicted transition location, full covariance Cholesky, and degrees of freedom.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `block_ar`, `cointegration`.
+- Failed: `surface`, `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Training: best epoch `32`, val NLL `-31.22490`.
+- Key metrics: calendar `20.8%`, cov90 `0.995`, calibration error `0.311`, conditional MAE reduction `0.7%`, turb/calm `0.988`, change KS `5/25`, level KS `0/25`, corr ratio `0.174`, rank ratio `3.955`, MR h1 `0.042`, MR h30 `0.169`, max-jump KS `0.493`, q99 jump cells `4/25`, worst-cell ceiling `25.14%`.
+
+### Mechanism Read
+
+This is a clean falsification of naive full-covariance Student-t AR likelihood in this form. Exact likelihood training did not improve calibration; it massively over-broadened the conditional law, broke surface validity, and still failed to learn useful shared geometry. Despite parameterizing full covariance, the generated paths became effectively too independent and too high-rank in free run.
+
+Compared with `303b`, the problem is not AR factorization itself. `303b` preserved dependence and change law because the token-mixing velocity imposed structured joint transitions. `306a` asked an unrestricted covariance head to learn that geometry directly, and the resulting likelihood preferred diffuse, weakly informative transitions.
+
+### Decision
+
+Do not tune df floors, covariance jitter, or scale clamps blindly. Run a focused comparison analysis next across `303b`, `306a`, and the current `296c` frontier. The next move should decide whether to return to the hybrid frontier or to keep AR but with a more structured conditional transition law than naive full-cov Student-t.
+
+Artifacts:
+
+- `diffusion/block_ar/recurrent_student_t_transition_likelihood.py`
+- `experiments/backfill/block_ar/train_306a_recurrent_student_t_transition_likelihood.py`
+- `models/backfill/306a_v0_s42/best_model.pt`
+- `results/block_ar/306a_v0_s42/full11.json`
+- `results/block_ar/306a_v0_s42/full11.md`
+
+---
