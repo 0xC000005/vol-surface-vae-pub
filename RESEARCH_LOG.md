@@ -89896,3 +89896,46 @@ The next HEAD step should be `post_experiment_analysis`: decide whether the clea
 - eval MD: `results/block_ar/317a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 317a source-coupling postmortem
+
+### Context
+`317a` answered the narrow shared-stochastic question. A shared random source component was present in the base path and was exposed to the velocity, but the generated panel still had too little common movement.
+
+### Findings
+The result separates two mechanisms:
+- shared stochasticity being available is not enough
+- the source stochasticity must be data-aligned or the FM velocity can simply denoise it away
+
+The evidence:
+- `317a` improved worst-cell cointegration over `316a`: `0.250 -> 0.539`
+- but corr ratio only moved `0.122 -> 0.177`, still below `312a` at `0.446`
+- rank ratio stayed too high: `4.054`
+- level KS stayed `3/25`
+- daily KS fell from `21/25` to `15/25`
+
+This suggests the arbitrary fixed shared source subspace is not being transported into realistic common shocks.
+
+### Mechanism Read
+The likely bottleneck is the independent source-target coupling in the flow-matching objective. In `317a`, each target future path is paired with arbitrary local and shared Gaussian source noise. For high-dimensional panel paths, that creates a hard denoising/transport problem. The model can fit local marginals and anchor while still failing to learn a realistic low-dimensional common movement law.
+
+A sampled token independent of the data target is not enough; a random shared source basis is also not enough if the source-target pairing is unstructured.
+
+### Decision
+Keep `317` alive for exactly one principled repair: minibatch OT source-target coupling.
+
+This is not a finance-specific knob and not an architecture complication. It is a generic conditional flow-matching training-coupling change intended to align source noise with target future paths and reduce the burden on the velocity field.
+
+### Next Step
+Run `317b-v0`:
+- same direct future-logit path coordinates
+- same narrow shared stochastic base-noise channel
+- same one-stage FM core
+- add minibatch OT pairing between sampled source paths and target future paths during training
+- no posterior/prior
+- no multiscale split
+- no center/residual split
+- no low-rank decoder
+
+Hard falsifier: if `317b` does not materially improve corr ratio/rank ratio and level KS without destroying cointegration/MR/calibration, retire the `317` family.
+
+---
