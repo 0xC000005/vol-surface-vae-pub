@@ -66,6 +66,7 @@ def main() -> None:
     parser.add_argument("--max_sample_chunk", type=int, default=8)
     parser.add_argument("--use_level_feedback", action="store_true")
     parser.add_argument("--target_mode", type=str, default="transition", choices=["transition", "level"])
+    parser.add_argument("--level_mean_residual", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -134,6 +135,7 @@ def main() -> None:
         max_sample_chunk=args.max_sample_chunk,
         use_level_feedback=args.use_level_feedback,
         target_mode=args.target_mode,
+        level_mean_residual=args.level_mean_residual,
     )
     model = DailyJointCholeskyTransitionModel(cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

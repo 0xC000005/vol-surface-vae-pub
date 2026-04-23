@@ -35,6 +35,7 @@ class DailyJointCholeskyTransitionConfig:
     max_sample_chunk: int = 8
     use_level_feedback: bool = False
     target_mode: str = "transition"
+    level_mean_residual: bool = False
 
 
 def _mlp(
@@ -125,9 +126,16 @@ class DailyJointCholeskyTransitionModel(nn.Module):
     def _distribution_params(
         self,
         state: torch.Tensor,
+        current_logit: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.head(state)
         mean = raw[:, : self.cfg.n_cells]
+        if (
+            self.cfg.target_mode == "level"
+            and self.cfg.level_mean_residual
+            and current_logit is not None
+        ):
+            mean = current_logit + mean
         packed = raw[:, self.cfg.n_cells :]
         batch = raw.shape[0]
         chol = raw.new_zeros(batch, self.cfg.n_cells, self.cfg.n_cells)
@@ -187,7 +195,7 @@ class DailyJointCholeskyTransitionModel(nn.Module):
                 self._decoder_input(prev_transition, current_logit)
             ) + self.step_embed(step_idx)
             state = self.decoder(dec_in, state)
-            mean, chol = self._distribution_params(state)
+            mean, chol = self._distribution_params(state, current_logit)
             target = target_seq[:, step]
             losses.append(self.gaussian_nll(target, mean, chol))
             diag = torch.diagonal(chol, dim1=-2, dim2=-1)
@@ -252,7 +260,7 @@ class DailyJointCholeskyTransitionModel(nn.Module):
                     self._decoder_input(prev_transition, current_logit)
                 ) + self.step_embed(step_idx)
                 state = self.decoder(dec_in, state)
-                mean, chol = self._distribution_params(state)
+                mean, chol = self._distribution_params(state, current_logit)
                 eps = temp * torch.randn(
                     bsz * k,
                     self.cfg.n_cells,

@@ -90323,3 +90323,18 @@ Falsifier: `319b` must preserve the cross-cell pass while materially improving s
 - eval MD: `results/block_ar/319a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 319b residual-level equivalence experiment
+
+### Context
+319a showed the first clean reset-line cross-cell pass by modeling the next-day 25-cell level vector with a full conditional covariance, but it broke level anchoring, coverage, surface validity, daily/level KS, MR, and pathwise realism. 319b tested the minimal anchoring repair: keep the same level-coordinate joint law, but write the next-level mean as current_logit plus a learned residual mean.
+
+### Result
+319b-v0 trained stably with `--target_mode level --use_level_feedback --level_mean_residual`, best epoch 8, and scored 2/11 on the common full suite, passing only block_ar and cointegration. It produced coverage90 0.993, calibration error 0.322, conditional MAE improvement 2.6%, turb/calm width ratio 1.001, ACF corr 0.950, kurtosis ratio 0.336, daily KS 5/25, level KS 0/25, corr ratio 0.291, rank ratio 3.544, MR ratio 0.032 with 1/24 active cells, and pathwise max-jump KS 0.357.
+
+### Mechanism
+This was a useful negative result because the repair is not actually a distinct model class. For a Gaussian next-level likelihood, `mean_level = current + residual_mean` with target `next_level` is algebraically equivalent to a transition likelihood on `next_level - current` with residual mean. The training trace and metrics confirm the collapse back toward 318b behavior: anchoring/over-wide transition dynamics return, and the cross-cell pass from 319a disappears.
+
+### Decision
+Close 319b as non-frontier and non-distinct. The key live pathology is now explicit: full-covariance level likelihood can learn cross-cell dependence, but its unconstrained level mean breaks anchoring; residual anchoring restores the old transition model and loses dependence. The next iteration should be analysis/paradigm selection, not another small 319 knob.
+
+---
