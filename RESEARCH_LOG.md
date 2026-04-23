@@ -87580,3 +87580,35 @@ Artifacts:
 - `results/block_ar/303a_v0_s42/full11.json`
 
 ---
+## 2026-04-23: 303b recurrent token-mixing logit-transition flow experiment
+
+### Context
+
+`303b-v0` tested the direct repair implied by the `303a` postmortem. It kept the recurrent support-valid logit-transition factorization, but replaced the flat one-step MLP velocity with a generic cell-token self-attention velocity so the 25D transition law can learn shared shocks and cross-cell dependence.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `time_series`, `block_ar`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: cov90 `0.832`, calibration error `0.063`, conditional MAE reduction `2.7%`, turb/calm `0.955`, change KS `24/25`, level KS `3/25`, corr ratio `0.911`, rank ratio `1.559`, MR ratio `1.044`, MR h30 `0.832`, full-horizon MR active pass rate `64.9%`, max-jump KS `0.330`, q99 jump ratio `1.007`, q99 jump cells `21/25`.
+
+### Mechanism Read
+
+The 303a diagnosis was correct. Token mixing repaired the dependence geometry without adding a financial side path: corr ratio improved `0.297 -> 0.911`, rank ratio `3.610 -> 1.559`, change KS `3/25 -> 24/25`, q99 cells `8/25 -> 21/25`, and surface validity recovered.
+
+The remaining pathology has shifted. The model still does not adapt width to volatility regime (`turb/calm 0.955`), conditionality remains too weak (`2.7%` MAE reduction), level KS remains poor (`3/25`), and mean reversion is a near miss because active-cell pass rate is `64.9%` versus the gate, despite aggregate slopes being in range.
+
+### Decision
+
+Do not abandon the recurrent-token support-valid family yet. It has now recovered support validity, change law, cross-cell dependence, and aggregate mean reversion in one clean architecture. The next step should be a postmortem to decide the minimal principled repair for regime/level calibration, without adding retrieval, low-rank readouts, bounded idio/EC paths, slow-latent side channels, or evaluator-specific losses.
+
+Artifacts:
+
+- `diffusion/block_ar/recurrent_logit_transition_token_flow_matching.py`
+- `experiments/backfill/block_ar/train_303b_recurrent_logit_transition_token_flow_matching.py`
+- `models/backfill/303b_v0_s42/best_model.pt`
+- `results/block_ar/303b_v0_s42/full11.json`
+- `results/block_ar/303b_v0_s42/full11.md`
+
+---
