@@ -86535,3 +86535,35 @@ Constraint:
 - change shell support or shell objective, not just scale allocation
 
 ---
+## 2026-04-22: 296d hybrid support-law ideation
+
+### Context
+`296c` tied the `5/11` frontier, so the next question became whether the shell support law itself is too Gaussian and too smooth in the tails.
+
+### Result
+`296d` ideation selected a clean support change inside the validated hybrid geometry:
+- keep frozen `277d`
+- keep the zero-mean coarse shell
+- keep paired symmetric sampling
+- keep the `296c` scale geometry
+- replace the Gaussian coarse-control law with a Student-t law
+- add one shared query-conditioned degrees-of-freedom scalar
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296d_hybrid_ideation/memo.md`
+
+### Mechanism Read
+The scale-allocation branch is near a local cap.
+The remaining misses look more like tail-allocation and jump-mass misses than missing global width.
+
+So the clean next move is to change shell support, not shell mean or another scale head.
+
+### Decision
+Next step:
+- run `296d-v0` as a heavy-tailed zero-mean coarse shell baseline
+
+Constraint:
+- do not add a mean-corrective shell branch
+- do not revisit the backbone yet
+
+---
