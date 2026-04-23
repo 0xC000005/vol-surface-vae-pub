@@ -1,0 +1,34 @@
+{
+  "model": "296f",
+  "score": 4,
+  "passes": [
+    "block_ar",
+    "cointegration",
+    "cross_cell_correlation",
+    "mean_reversion"
+  ],
+  "metrics": {
+    "coverage90": 0.9283333333333333,
+    "calibration_error": 0.076,
+    "h1_cov90": 0.8620833333333333,
+    "h30_cov90": 0.955625,
+    "change_ks_pass": 17,
+    "level_ks_pass": 0,
+    "corr_ratio": 0.772,
+    "rank_ratio": 1.912,
+    "cointegration_ratio": 0.739,
+    "worst_cointegration_ratio": 0.263,
+    "mr_ratio": 1.113,
+    "active_mr_corr": 0.800,
+    "turb_calm_ratio": 1.117,
+    "max_jump_ks": 0.389,
+    "q99_ratio": 1.188
+  },
+  "training": {
+    "best_epoch": 16,
+    "best_val_total": -0.029374595199312483,
+    "val_pred_scale_daily_mean": 0.4831417841570718,
+    "val_budget_mean": 0.4831418182168688
+  },
+  "decision": "compare 296e and 296f before another hybrid experiment"
+}

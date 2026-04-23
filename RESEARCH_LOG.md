@@ -86819,3 +86819,52 @@ Constraint:
 - do not revisit the backbone
 
 ---
+## 2026-04-22: 296f budgeted multiresolution shell baseline
+
+### Context
+`296f-v0` was the budgeted follow-up to `296e`:
+- keep the multiresolution shell basis
+- keep the zero-mean Gaussian shell law
+- add an explicit per-cell shell budget
+- renormalize the fast shell so it redistributes width instead of inventing more
+  width globally
+
+### Result
+`296f-v0` scored `4/11`.
+
+Passes:
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+- `mean_reversion`
+
+Artifacts:
+- `results/block_ar/296f_v0_s42/full11.json`
+- `results/validations/2026-04-22/analysis/296f_postmortem/summary.md`
+
+### Mechanism Read
+The budget factorization did part of what it was supposed to do:
+- kept the strong h1 coverage from `296e`
+- improved calibration and structure relative to `296e`
+- preserved jump gains
+
+But it did not restore the balanced profile of `296c`:
+- score stayed `4/11`
+- surface validity still failed
+- regime-sensitive width stayed below gate
+- level KS stayed dead
+
+So the multiresolution family is still alive, but the next missing ingredient is
+probably not another global budget tweak.
+It is likely a **gating / activation** mechanism for when the fast shell should turn on.
+
+### Decision
+Next step:
+- post-experiment analysis comparing `296e` and `296f`
+
+Question:
+- does `296f` validate constrained multiresolution shell as the right family,
+- and if so, is the next mechanism local activation rather than another global
+  factorization?
+
+---
