@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -36,6 +37,22 @@ class ConditionalMarginalCopulaConfig:
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
     base_checkpoint: str = "models/backfill/321c_v0_s42/best_model.pt"
+    marginal_family: str = "gaussian"
+    quantile_levels: tuple[float, ...] = (
+        0.01,
+        0.025,
+        0.05,
+        0.10,
+        0.20,
+        0.35,
+        0.50,
+        0.65,
+        0.80,
+        0.90,
+        0.95,
+        0.975,
+        0.99,
+    )
 
 
 class ConditionalMarginalCopulaModel(nn.Module):
@@ -53,6 +70,10 @@ class ConditionalMarginalCopulaModel(nn.Module):
     ):
         super().__init__()
         self.cfg = cfg
+        if cfg.marginal_family not in {"gaussian", "quantile"}:
+            raise ValueError("marginal_family must be 'gaussian' or 'quantile'")
+        if cfg.marginal_family == "quantile":
+            _validate_quantile_levels(cfg.quantile_levels)
         hist_cfg = EncoderConfig(
             input_dim=cfg.n_cells,
             gru_hidden_dim=cfg.history_hidden,
@@ -65,13 +86,14 @@ class ConditionalMarginalCopulaModel(nn.Module):
         self.day_embed = nn.Embedding(cfg.future_len, cfg.marginal_hidden)
         self.cell_embed = nn.Embedding(cfg.n_cells, cfg.marginal_hidden)
         self.last_level_proj = nn.Linear(1, cfg.marginal_hidden)
+        head_dim = 2 if cfg.marginal_family == "gaussian" else len(cfg.quantile_levels)
         self.head = nn.Sequential(
             nn.GELU(),
             nn.Dropout(cfg.encoder_dropout),
             nn.Linear(cfg.marginal_hidden, cfg.marginal_hidden),
             nn.GELU(),
             nn.Dropout(cfg.encoder_dropout),
-            nn.Linear(cfg.marginal_hidden, 2),
+            nn.Linear(cfg.marginal_hidden, head_dim),
         )
         token_idx = torch.arange(cfg.future_len * cfg.n_cells)
         self.register_buffer("token_day", token_idx // cfg.n_cells)
@@ -108,7 +130,29 @@ class ConditionalMarginalCopulaModel(nn.Module):
         return coord * self.cell_logit_std + self.cell_logit_mean
 
     def marginal_params(self, history_norm: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.cfg.marginal_family != "gaussian":
+            raise RuntimeError("marginal_params is only valid for gaussian marginals")
         history_norm = self._flatten(history_norm)
+        token_state = self._token_state(history_norm)
+        raw = self.head(token_state)
+        mean = raw[..., 0].view(history_norm.shape[0], self.cfg.future_len, self.cfg.n_cells)
+        scale = (F.softplus(raw[..., 1]) + self.cfg.scale_floor).view_as(mean)
+        return mean, scale
+
+    def marginal_quantiles(self, history_norm: torch.Tensor) -> torch.Tensor:
+        if self.cfg.marginal_family != "quantile":
+            raise RuntimeError("marginal_quantiles is only valid for quantile marginals")
+        history_norm = self._flatten(history_norm)
+        token_state = self._token_state(history_norm)
+        raw = self.head(token_state).view(
+            history_norm.shape[0],
+            self.cfg.future_len,
+            self.cfg.n_cells,
+            len(self.cfg.quantile_levels),
+        )
+        return torch.sort(raw, dim=-1).values
+
+    def _token_state(self, history_norm: torch.Tensor) -> torch.Tensor:
         context = self.history_encoder(history_norm)
         history_coord = self._to_model_coord(self.to_logits(history_norm))
         last_cell = history_coord[:, -1, self.token_cell].unsqueeze(-1)
@@ -116,10 +160,7 @@ class ConditionalMarginalCopulaModel(nn.Module):
         token_state = token_state + self.day_embed(self.token_day)[None]
         token_state = token_state + self.cell_embed(self.token_cell)[None]
         token_state = token_state + self.last_level_proj(last_cell)
-        raw = self.head(token_state)
-        mean = raw[..., 0].view(history_norm.shape[0], self.cfg.future_len, self.cfg.n_cells)
-        scale = (F.softplus(raw[..., 1]) + self.cfg.scale_floor).view_as(mean)
-        return mean, scale
+        return token_state
 
     def training_loss(
         self,
@@ -129,17 +170,40 @@ class ConditionalMarginalCopulaModel(nn.Module):
         history_norm = self._flatten(history_norm)
         future_norm = self._flatten(future_norm)
         target = self._to_model_coord(self.to_logits(future_norm))
-        mean, scale = self.marginal_params(history_norm)
-        z = (target - mean) / scale
-        nll_grid = 0.5 * z.pow(2) + torch.log(scale) + 0.5 * math.log(2.0 * math.pi)
-        nll = nll_grid.mean()
+        if self.cfg.marginal_family == "gaussian":
+            mean, scale = self.marginal_params(history_norm)
+            z = (target - mean) / scale
+            nll_grid = 0.5 * z.pow(2) + torch.log(scale) + 0.5 * math.log(2.0 * math.pi)
+            loss = nll_grid.mean()
+            scale_metric = scale.mean()
+            mean_abs_err = (mean - target).abs().mean()
+        else:
+            quantiles = self.marginal_quantiles(history_norm)
+            loss = self.quantile_loss(target, quantiles, self.cfg.quantile_levels)
+            q_levels = self.cfg.quantile_levels
+            median_idx = min(range(len(q_levels)), key=lambda idx: abs(q_levels[idx] - 0.5))
+            lo_idx = min(range(len(q_levels)), key=lambda idx: abs(q_levels[idx] - 0.05))
+            hi_idx = min(range(len(q_levels)), key=lambda idx: abs(q_levels[idx] - 0.95))
+            scale_metric = (quantiles[..., hi_idx] - quantiles[..., lo_idx]).mean()
+            mean_abs_err = (quantiles[..., median_idx] - target).abs().mean()
         metrics = {
-            "nll": nll.detach(),
+            "nll": loss.detach(),
             "target_std": target.std(unbiased=False).detach(),
-            "scale_mean": scale.mean().detach(),
-            "mean_abs_err": (mean - target).abs().mean().detach(),
+            "scale_mean": scale_metric.detach(),
+            "mean_abs_err": mean_abs_err.detach(),
         }
-        return nll, metrics
+        return loss, metrics
+
+    @staticmethod
+    def quantile_loss(
+        target: torch.Tensor,
+        quantiles: torch.Tensor,
+        levels: Sequence[float],
+    ) -> torch.Tensor:
+        level_tensor = torch.tensor(levels, device=target.device, dtype=target.dtype)
+        err = target.unsqueeze(-1) - quantiles
+        loss = torch.maximum(level_tensor * err, (level_tensor - 1.0) * err)
+        return loss.mean()
 
     @torch.no_grad()
     def sample_batched(
@@ -158,7 +222,11 @@ class ConditionalMarginalCopulaModel(nn.Module):
             raise RuntimeError("ConditionalMarginalCopulaModel requires a base copula model")
         history_norm = history if history_is_normalized else normalize_iv(history)
         history_norm = self._flatten(history_norm)
-        mean, scale = self.marginal_params(history_norm)
+        mean = scale = quantiles = None
+        if self.cfg.marginal_family == "gaussian":
+            mean, scale = self.marginal_params(history_norm)
+        else:
+            quantiles = self.marginal_quantiles(history_norm)
         temp = float(self.cfg.sample_temperature if temperature is None else temperature)
         base_samples = self.base_model.sample_batched(
             history_norm,
@@ -181,7 +249,26 @@ class ConditionalMarginalCopulaModel(nn.Module):
         u = (ranks + 0.5) / float(n_samples)
         eps = 1.0 / (2.0 * float(n_samples) + 2.0)
         z = torch.special.ndtri(u.clamp(eps, 1.0 - eps))
-        future_coord = mean[:, None] + temp * scale[:, None] * z
+        if self.cfg.marginal_family == "gaussian":
+            future_coord = mean[:, None] + temp * scale[:, None] * z
+        else:
+            if quantiles is None:
+                raise RuntimeError("quantile marginals were not computed")
+            if temp != 1.0:
+                median = self._interp_quantiles(
+                    torch.full_like(u, 0.5),
+                    quantiles,
+                    self.cfg.quantile_levels,
+                )
+                future_coord = median + temp * (
+                    self._interp_quantiles(u, quantiles, self.cfg.quantile_levels) - median
+                )
+            else:
+                future_coord = self._interp_quantiles(
+                    u,
+                    quantiles,
+                    self.cfg.quantile_levels,
+                )
         future_01 = logit_to_iv(self._from_model_coord(future_coord))
         if self.cfg.n_cells == 25:
             return future_01.view(
@@ -192,6 +279,42 @@ class ConditionalMarginalCopulaModel(nn.Module):
                 5,
             )
         return future_01
+
+    @staticmethod
+    def _interp_quantiles(
+        u: torch.Tensor,
+        quantiles: torch.Tensor,
+        levels: Sequence[float],
+    ) -> torch.Tensor:
+        level_tensor = torch.tensor(levels, device=u.device, dtype=u.dtype)
+        q = quantiles[:, None]
+        out = q[..., 0] + (u - level_tensor[0]) * (
+            (q[..., 1] - q[..., 0]) / (level_tensor[1] - level_tensor[0])
+        )
+        for idx in range(len(levels) - 1):
+            lo = level_tensor[idx]
+            hi = level_tensor[idx + 1]
+            weight = (u - lo) / (hi - lo)
+            value = q[..., idx] + weight * (q[..., idx + 1] - q[..., idx])
+            mask = (u >= lo) & (u <= hi)
+            out = torch.where(mask, value, out)
+        high = q[..., -1] + (u - level_tensor[-1]) * (
+            (q[..., -1] - q[..., -2]) / (level_tensor[-1] - level_tensor[-2])
+        )
+        out = torch.where(u > level_tensor[-1], high, out)
+        return out
+
+
+def _validate_quantile_levels(levels: Sequence[float]) -> None:
+    if len(levels) < 3:
+        raise ValueError("quantile_levels must contain at least three levels")
+    prev = 0.0
+    for level in levels:
+        if not 0.0 < float(level) < 1.0:
+            raise ValueError("quantile levels must be strictly inside (0, 1)")
+        if float(level) <= prev:
+            raise ValueError("quantile levels must be strictly increasing")
+        prev = float(level)
 
 
 def load_model(

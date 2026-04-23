@@ -41,6 +41,12 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--max_sample_chunk", type=int, default=8)
     parser.add_argument("--base_checkpoint", type=str, default="models/backfill/321c_v0_s42/best_model.pt")
+    parser.add_argument(
+        "--marginal_family",
+        type=str,
+        default="gaussian",
+        choices=["gaussian", "quantile"],
+    )
 
     parser.add_argument("--epochs", type=int, default=48)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -107,6 +113,7 @@ def main() -> None:
         sample_temperature=args.sample_temperature,
         max_sample_chunk=args.max_sample_chunk,
         base_checkpoint=args.base_checkpoint,
+        marginal_family=args.marginal_family,
     )
     model = ConditionalMarginalCopulaModel(cfg).to(device)
     logit_mean, logit_std = compute_level_logit_stats(

@@ -90626,3 +90626,25 @@ The factorization is principled, but the Gaussian marginal family is too restric
 Close Gaussian 323a as non-frontier. Continue the 323 family only if the marginal side becomes nonparametric/quantile-based rather than another Gaussian/scale tweak. The next clean falsifier is 323b: keep the same copula interface, but map ranks through empirical per-cell/horizon conditional quantile marginals so the model can match fat tails and level KS without inventing extra residual paths.
 
 ---
+## 2026-04-23: 323b conditional quantile marginal-copula prototype
+
+### Context
+323b kept the 323 marginal-copula factorization but removed the restrictive Gaussian marginal assumption from 323a. The model predicts monotone conditional quantiles in standardized logit space and maps 321c copula ranks through those quantiles.
+
+### Result
+`323b_v0_s42` scored `3/11`, passing surface validity, block-AR boundary smoothness, and cross-cell correlation. It failed coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: overall 90% coverage `0.858`, calibration error `0.021`, aggregate horizon coverage passes but per-cell coverage fails at every tested horizon; turb/calm width ratio `0.951`; daily-change KS `19/25` pass; level KS `1/25` pass; corr ratio `0.608`; rank ratio `2.444`; MR aggregate h1 ratio `1.551` and active-cell profile fail; pathwise max-jump KS `0.507`; per-cell q99 jump pass `12/25`; cointegration overall ratio `1.418` but worst-cell ratio `0.094`.
+
+Artifacts:
+- model: `models/backfill/323b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/323b_v0_s42/full11.json`
+- eval MD: `results/block_ar/323b_v0_s42/full11.md`
+
+### Mechanism Read
+Quantile marginals are better than Gaussian for daily-change calibration, but the learned one-shot marginal network still misses the unconditional level distribution and does not create regime-responsive widths. Mapping ranks through poorly learned tokenwise quantiles also distorts the path geometry enough to hurt mean reversion and pathwise jump realism.
+
+### Decision
+Do not add more quantile-network knobs. The clean next falsifier is empirical marginal transport: keep the same 321c copula samples, but learn/store direct per-cell/horizon source-to-target quantile maps from training data. This tests whether marginal CDF mismatch is the real bottleneck before spending more complexity on a learned marginal network.
+
+---
