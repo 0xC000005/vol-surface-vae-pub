@@ -88593,3 +88593,55 @@ It is pointing to a structural limit of the learned deterministic center plus ad
 Do not keep stacking small local repairs inside this family blindly. The next HEAD step should be post-experiment analysis on whether this line is now capped and should be abandoned in favor of a new paradigm.
 
 ---
+## 2026-04-23: Learned-center additive-residual family capped; shift to unified future-path law
+
+### Context
+
+The learned-center family was given three clean chances after the shell line died:
+- `309a`: transition-residual flow around the learned center
+- `310a`: level-residual flow around the learned center
+- `311a`: state-aware level-residual flow around the learned center
+
+All three preserved the same high-level doctrine:
+- learned deterministic center from scratch
+- vanilla joint stochastic law for the remaining uncertainty
+- no retrieval, no shell engineering, no low-rank side structure
+
+### Finding
+
+This family now looks capped.
+
+The evidence is not just the unchanged `2/11` score. It is the repeated structured tradeoff:
+- `309a` was best on dependence preservation and local move geometry
+- `310a` was best on calibration, unconditional shape, and level anchoring
+- `311a` did not reconcile them; it mostly mixed the weaknesses while staying at `2/11`
+
+That means the problem is no longer a missing state feature or the wrong residual coordinate.
+It is the decomposition itself.
+
+### Mechanism Read
+
+A deterministic center plus additive residual appears too restrictive for this task.
+- If the residual law is optimized for local move structure, cumulative path anchoring drifts.
+- If it is optimized for level/path anchoring, shared residual dependence weakens.
+- Even exposing both level and implied transition state inside the residual model does not escape that tradeoff.
+
+So the likely limitation is that the future law should be modeled as one unified stochastic object, not as:
+- deterministic center
+- plus additive stochastic correction
+
+### Decision
+
+Abandon the learned-center additive-residual family as the active line.
+
+Next paradigm:
+- move to a single-stage unified stochastic future-path law in future logit space
+- condition on history only
+- expose both cumulative future state and implied daily transitions inside the same vanilla joint model
+- no explicit deterministic center path
+- no shell/residual split
+- no extra latent hierarchy
+
+Next step: `312a` ideation/implementation for a unified future-logit path flow.
+
+---
