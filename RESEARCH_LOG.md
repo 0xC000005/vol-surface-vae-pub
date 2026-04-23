@@ -86131,3 +86131,37 @@ Do research ideation for `296a-v0`:
 - define the interface between backbone and shell before implementation
 
 ---
+## 2026-04-22: 296a hybrid backbone plus stochastic shell ideation
+
+### Context
+The fixed-horizon one-stage joint-law line (`293` through `295`) reached its local cap.
+`295a` showed the family can allocate stochastic width well, but it still failed the
+structural center-path suites. Earlier reset work still indicates that `277d` is the
+strongest structural backbone in the program.
+
+### Result
+Selected `296a-v0` as the next concrete hybrid baseline:
+- freeze `277d` as the structural center path
+- train a learned stochastic residual shell around that path
+- condition the shell on history plus the backbone future path / implied daily changes
+- model residual future normalized-change coordinates rather than reweighting stored
+  scenario candidates
+
+### Mechanism Read
+The program no longer needs another all-in-one model. The evidence supports a clean
+split:
+- backbone owns structural center-path validity
+- shell owns spread and stochastic deviations
+
+This is intentionally different from the old Stage-B retrieval-weighting branch:
+- no top-k candidate reweighting
+- no expected-distance collapse objective
+- no requirement that the shell relearn the center path
+
+### Decision
+Implement `296a-v0` next as the first direct test of the hybrid decomposition.
+Kill criterion: it must preserve the main `277d` structural passes while materially
+improving at least one stochastic suite such as coverage, conditionality, regime
+coverage, or jump realism.
+
+---
