@@ -88399,3 +88399,77 @@ Do not add more capacity, shell heads, or temperature-style knobs first. The nex
 Next step: `310a` ideation/implementation for a center-conditioned residual level-path flow.
 
 ---
+## 2026-04-23: 310a learned center-conditioned level residual flow experiment
+
+### Context
+
+`309a` suggested that the residual flow had fixed the missing-stochasticity problem, but the remaining failures still clustered around unconditional level distribution and long-horizon path anchoring. `310a-v0` tested the cleanest possible coordinate change:
+- keep the learned deterministic `289c` center path
+- keep the same vanilla joint flow core
+- move Stage B from residual transition paths to residual future logit-level paths around the center
+
+### Implementation
+
+- added center-conditioned level-residual flow model:
+  - `diffusion/block_ar/center_conditioned_residual_logit_level_flow_matching.py`
+- added trainer:
+  - `experiments/backfill/block_ar/train_310a_center_conditioned_residual_logit_level_flow_matching.py`
+- registered loader/eval support in:
+  - `experiments/backfill/block_ar/_rollout_220_utils.py`
+  - `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- trained with learned Stage A center from:
+  - `models/backfill/308a_stage1_289c_v0_s42/best_model.pt`
+- trained flow checkpoint:
+  - `models/backfill/310a_v0_s42/best_model.pt`
+
+### Result
+
+- `310a-v0` scored `2/11`
+- passes:
+  - `surface`
+  - `block_ar`
+- eval:
+  - `results/block_ar/310a_v0_s42/full11.json`
+  - `results/block_ar/310a_v0_s42/full11.md`
+- key metrics:
+  - overall 90% coverage: `85.5%`
+  - h1 90% coverage: `90.8%`
+  - calibration error: `0.015`
+  - conditional MAE reduction: `4.3%`
+  - turb/calm width ratio: `0.958`
+  - ACF correlation: `0.938`
+  - kurtosis ratio: `0.891`
+  - skewness ratio: `0.635`
+  - daily-change KS pass cells: `17/25`
+  - IV level KS pass cells: `2/25`
+  - cointegration gen/GT ratio: `0.858`
+  - corr ratio: `0.377`
+  - rank ratio: `3.445`
+  - aggregate MR ratio: `1.128`
+  - active MR cells: `16/24`
+  - pathwise q90 ratio: `0.909`
+  - pathwise q99 ratio: `1.034`
+  - pathwise max-jump KS: `0.335`
+
+### Mechanism Read
+
+This coordinate change did exactly one important thing: it improved anchoring-related metrics.
+- Calibration improved sharply.
+- Unconditional level fidelity improved modestly.
+- Cointegration moved much closer to target.
+- Higher-order time-series shape improved enough for the kurtosis/skewness gates to pass.
+
+But it also exposed the complementary cost of this coordinate:
+- shared cross-cell dependence weakened materially versus `309a`
+- per-cell tail scales became less balanced
+- the regime-width signal is still absent
+
+So `310a` is not a random miss. It reveals a clean tradeoff:
+- transition-residual flow preserves dependence and local move geometry better
+- level-residual flow preserves calibration and long-horizon level anchoring better
+
+### Decision
+
+Do not start a new paradigm from this result alone. The next HEAD step should be post-experiment analysis comparing `309a` and `310a` directly, because the family now appears to have a clean coordinate tradeoff rather than an incoherent pathology.
+
+---
