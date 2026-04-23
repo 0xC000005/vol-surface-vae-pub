@@ -89684,3 +89684,69 @@ So the next move is not to add more scaffolding. It is to keep the cleaner direc
 Implement `316a-v0` by taking the `312a` state-aware direct path model and adding learned global mixer tokens inside the transformer.
 
 ---
+## 2026-04-23: 316a unified global-token state-aware future-logit path flow experiment
+
+### Context
+`316a-v0` was the first experiment after retiring the multiscale family. The design was the clean synthesis picked in the `316` paradigm shift:
+- direct unified future-logit path coordinates, as in `312a`
+- implied daily transitions exposed internally
+- no posterior/prior, no multiscale factorization, no center/residual split
+- only one new mechanism: a small bank of learned global mixer tokens inside the transformer
+
+### Result
+`316a-v0` trained stably and evaluated successfully on the full 11-suite.
+
+- best epoch: `23`
+- suite score: `3/11`
+- passing suites: `surface`, `block_ar`, `cointegration`
+
+High-signal metrics:
+- coverage90: `0.880`
+- calibration error: `0.017`
+- conditional MAE reduction: `2.8%`
+- turb/calm width ratio: `1.026`
+- ACF corr: `0.922`
+- kurtosis ratio: `0.717`
+- cointegration ratio: `0.856`
+- worst-cell cointegration ratio: `0.250`
+- daily-change KS pass cells: `21/25`
+- level KS pass cells: `3/25`
+- corr ratio: `0.122`
+- rank ratio: `4.199`
+- MR ratio: `1.148`
+- active MR cells: `11/24`
+- pathwise jump KS: `0.328`
+- jump q90 ratio: `0.892`
+- jump q99 ratio: `1.043`
+- extreme-jump incidence ratio: `0.989`
+
+### Mechanism Read
+This result is informative because it separates two different needs.
+
+What improved strongly:
+- calibration became the cleanest of the recent families
+- daily-change distributional fidelity improved sharply
+- jump-shape realism improved relative to `312a`
+- direct-path anchoring remained good enough to keep cointegration passing
+
+What failed badly:
+- cross-cell structure collapsed even harder than `312a`
+- effective rank overshot further
+- level KS got worse, not better
+- active mean-reversion coverage weakened
+
+That means the added global-token mechanism did not actually solve shared panel coupling. The current tokens are deterministic functions of history/time plus learned embeddings; they improve internal feature mixing, but they do not create shared stochastic degrees of freedom across sampled trajectories.
+
+### Decision
+Do not keep tweaking deterministic global-token mixers locally.
+
+The next HEAD step should be `post_experiment_analysis`, focused on whether the direct-path family itself is still correct but needs sampled shared stochastic tokens rather than deterministic global tokens.
+
+### Artifacts
+- model: `diffusion/block_ar/unified_global_token_state_aware_future_logit_path_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_316a_unified_global_token_state_aware_future_logit_path_flow_matching.py`
+- checkpoint: `models/backfill/316a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/316a_v0_s42/full11.json`
+- eval MD: `results/block_ar/316a_v0_s42/full11.md`
+
+---
