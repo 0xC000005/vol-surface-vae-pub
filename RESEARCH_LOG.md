@@ -86567,3 +86567,53 @@ Constraint:
 - do not revisit the backbone yet
 
 ---
+## 2026-04-22: 296d Student-t coarse shell baseline
+
+### Context
+`296d-v0` was the first hybrid support-law experiment after the `296b -> 296c`
+comparison showed the scale-allocation branch was near a local cap.
+
+The goal was to keep the validated `296c` geometry and change only the shell support:
+- frozen `277d` backbone
+- zero-mean coarse shell
+- paired symmetric sampling
+- Student-t coarse-control law instead of Gaussian
+
+### Result
+`296d-v0` scored `4/11`.
+
+Passes:
+- `block_ar`
+- `cointegration`
+- `cross_cell_correlation`
+- `mean_reversion`
+
+Artifacts:
+- `results/block_ar/296d_v0_s42/full11.json`
+- `results/validations/2026-04-22/analysis/296d_postmortem/summary.md`
+
+### Mechanism Read
+The support change was real:
+- best-epoch val `nu_mean ~ 5.66`
+- max-jump KS improved slightly
+- broad calibration improved slightly
+
+But it did **not** improve the real bottleneck:
+- h1 coverage got worse
+- regime-sensitive width got worse
+- surface validity was lost narrowly
+- structural carryover weakened slightly
+
+So heavier tails alone are not enough.
+The remaining problem is still **where** shell mass is allocated, not just how heavy
+the tails are globally.
+
+### Decision
+Next step:
+- post-experiment analysis comparing `296c` and `296d`
+
+Question:
+- is the hybrid support-law branch still alive but underdirected,
+- or are simple support changes already near a local cap?
+
+---
