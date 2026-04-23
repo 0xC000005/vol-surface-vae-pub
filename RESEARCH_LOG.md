@@ -87462,3 +87462,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/302a_postmortem/summary.md`
 
 ---
+## 2026-04-23: 301a/302a one-shot transition-flow cap analysis
+
+### Context
+
+`301a` was support-valid rolling logit-transition one-shot flow. `302a` kept the same coordinate and vanilla flow but exposed the implied rolling logit-state path to the velocity network. This post-experiment analysis checks whether the explicit state exposure is enough to justify continuing the one-shot branch.
+
+### Findings
+
+- Score moved backward: `301a` scored `4/11`, while `302a` scored `3/11`.
+- State exposure helped the intended bottleneck but did not solve it: MR ratio improved from `0.031` to `0.332`, and MR h30 improved from `0.166` to `0.417`, but mean reversion still failed.
+- Robustness cost appeared immediately: `302a` lost the cointegration pass because worst-cell ratio fell from `0.316` to `0.179`, and q99 jump cells fell from `18/25` to `14/25`.
+- Distributional support remained fundamentally weak: level KS stayed near dead (`0/25 -> 1/25`), while change KS stayed only mid-pack (`16/25 -> 15/25`).
+- Safety was preserved: both kept explosion at `0.0%`, so the support-valid logit coordinate remains useful.
+
+### Mechanism Read
+
+The pathology is now clear. The one-shot transition flow can sample support-safe transition noise, and explicit implied-state features increase state dependence, but the generated expected transition law is still too weak and unstable. The issue is not missing another one-shot feature; it is that state dependence is being inferred from a noised full future path instead of being native to the generative process.
+
+### Decision
+
+Abandon additional one-shot state-exposure tweaks. The next clean move is a recurrent support-valid transition generator: sample one logit-IV transition, update the generated state on support, then condition the next transition on the actual generated history/state. Keep the core vanilla and do not reintroduce low-rank readouts, bounded idio/EC paths, retrieval replay, or evaluator-specific losses.
+
+Artifacts:
+
+- `results/block_ar/301a_v0_s42/full11.json`
+- `results/block_ar/302a_v0_s42/full11.json`
+- `results/validations/2026-04-22/analysis/301a_state_dependence_diagnostic/summary.json`
+
+---
