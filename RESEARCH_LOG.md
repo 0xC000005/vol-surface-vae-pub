@@ -87433,3 +87433,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/301a_state_dependence_diagnostic/summary.md`
 
 ---
+## 2026-04-23: 302a state-aware logit-transition flow experiment
+
+### Context
+
+`302a-v0` tested the minimal state-dependence fix for `301a`: keep the support-valid rolling logit-transition coordinate and vanilla flow, but expose the implied rolling logit-level path to the velocity network.
+
+### Result
+
+- Full 11-suite score: `3/11`.
+- Passed: `surface`, `block_ar`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: explosion `0.0%`, cov90 `0.920`, calibration error `0.087`, conditional MAE reduction `3.6%`, turb/calm `1.034`, change KS `15/25`, level KS `1/25`, corr ratio `0.798`, rank ratio `1.818`, MR ratio `0.332`, MR h30 `0.417`, jump KS `0.373`, q99 jump ratio `1.037`, q99 jump cells `14/25`.
+
+### Mechanism Read
+
+State exposure helps but does not solve the bottleneck. Mean reversion improves materially from `301a` (`0.031 -> 0.332`), but remains far below target and comes with a score drop because worst-cell cointegration and per-cell jump scale worsen.
+
+### Decision
+
+The one-shot support-valid transition-flow branch is near a local cap. Do a focused `301a` vs `302a` analysis next. The likely next paradigm is recurrent support-valid transition flow, where state dependence is native to the generative process rather than inferred from a noised one-shot path.
+
+Artifacts:
+
+- `models/backfill/302a_v0_s42/best_model.pt`
+- `results/block_ar/302a_v0_s42/full11.json`
+- `results/block_ar/302a_v0_s42/full11.md`
+- `results/validations/2026-04-22/analysis/302a_postmortem/summary.md`
+
+---
