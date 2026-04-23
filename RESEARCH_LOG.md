@@ -90244,3 +90244,82 @@ Run `319a-v0`:
 The decisive question is whether level-coordinate full-covariance chain modeling restores surface validity/MR/level KS while improving corr/rank beyond the direct-FM line.
 
 ---
+## 2026-04-23: 319a daily joint-level full-covariance experiment
+
+### Context
+`319a-v0` tested the level-coordinate chain-rule model:
+- predict next future logit level directly
+- condition on history and prior generated levels
+- full 25-cell Cholesky Gaussian likelihood per day
+- teacher-forced training and ancestral level sampling
+- no low-rank decoder, no bounded idio/EC path, no posterior/prior scaffold
+
+### Result
+`319a-v0` trained stably but overfit validation NLL after the early best checkpoint.
+
+- best epoch: `5`
+- best validation NLL: `6.6237`
+- suite score: `3/11`
+- passing suites: `block_ar`, `cointegration`, `cross_cell_correlation`
+
+High-signal metrics:
+- surface validity: `FAIL`
+- coverage90: `0.470`
+- calibration error: `0.338`
+- conditional MAE reduction: `-0.2%`
+- turb/calm width ratio: `1.004`
+- ACF corr: `0.907`
+- kurtosis ratio: `0.012`
+- cointegration ratio: `2.682`
+- worst-cell cointegration ratio: `1.000`
+- daily-change KS pass cells: `0/25`
+- level KS pass cells: `0/25`
+- corr ratio: `1.365`
+- rank ratio: `0.911`
+- MR ratio: `3.705`
+- active MR cells: `0/24`
+- pathwise jump KS: `0.756`
+- jump q90 ratio: `1.073`
+- jump q99 ratio: `1.143`
+- extreme-jump incidence ratio: `1.000`
+
+### Mechanism Read
+This is the first clean reset-line model in this phase to pass cross-cell correlation:
+- corr ratio `1.365` is inside the gate
+- rank ratio `0.911` is inside the gate
+- PC1 variance is close in spirit to the GT common-shock geometry
+
+But it achieved that by learning a badly biased level law:
+- median level is persistently above GT for nearly every cell/window
+- daily and level KS collapse to `0/25`
+- MR is far too strong and wrong at the cell level
+- coverage is poor despite wide-looking samples because the distribution is centered in the wrong place
+- pathwise jumps are extreme in many cells
+
+So the paradigm now has the opposite failure of 317/318: dependence is solved, anchoring is broken.
+
+### Decision
+Keep `319` alive for one minimal repair.
+
+The next fix should not add a side model or bounded path. The clean issue is mean parameterization. Directly predicting the next absolute level gives the decoder too much freedom to learn a biased attractor. The principled repair is to parameterize the next-level mean as persistence plus a learned residual mean:
+
+`mean_level_t = current_logit + residual_mean_t`
+
+This is a coordinate/initialization choice for the same chain-rule likelihood, not a separate center/residual architecture.
+
+### Next Step
+Run `319b-v0`:
+- same full-covariance next-level likelihood
+- same current-level feedback
+- mean head predicts residual from current level
+- sample next level from `N(current_logit + residual, Sigma_t)`
+
+Falsifier: `319b` must preserve the cross-cell pass while materially improving surface validity, level KS, daily KS, MR, and calibration.
+
+### Artifacts
+- model/trainer: `diffusion/block_ar/daily_joint_cholesky_transition_model.py`, `experiments/backfill/block_ar/train_318a_daily_joint_cholesky_transition_model.py --target_mode level --use_level_feedback`
+- checkpoint: `models/backfill/319a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/319a_v0_s42/full11.json`
+- eval MD: `results/block_ar/319a_v0_s42/full11.md`
+
+---

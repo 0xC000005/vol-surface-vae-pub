@@ -34,6 +34,7 @@ class DailyJointCholeskyTransitionConfig:
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
     use_level_feedback: bool = False
+    target_mode: str = "transition"
 
 
 def _mlp(
@@ -58,6 +59,8 @@ class DailyJointCholeskyTransitionModel(nn.Module):
     def __init__(self, cfg: DailyJointCholeskyTransitionConfig):
         super().__init__()
         self.cfg = cfg
+        if cfg.target_mode not in {"transition", "level"}:
+            raise ValueError("target_mode must be 'transition' or 'level'")
         hist_cfg = EncoderConfig(
             input_dim=cfg.n_cells,
             gru_hidden_dim=cfg.history_hidden,
@@ -163,8 +166,11 @@ class DailyJointCholeskyTransitionModel(nn.Module):
         history_norm = self._flatten(history_norm)
         future_norm = self._flatten(future_norm)
         context = self.encode_history(history_norm)
-        current_logit = self.to_logits(history_norm)[:, -1]
+        history_logits = self.to_logits(history_norm)
+        future_logits = self.to_logits(future_norm)
+        current_logit = history_logits[:, -1]
         prev_transition, future_trans = self.future_transitions(history_norm, future_norm)
+        target_seq = future_trans if self.cfg.target_mode == "transition" else future_logits
         state = self.init_state(context)
         losses = []
         diag_means = []
@@ -182,14 +188,18 @@ class DailyJointCholeskyTransitionModel(nn.Module):
             ) + self.step_embed(step_idx)
             state = self.decoder(dec_in, state)
             mean, chol = self._distribution_params(state)
-            target = future_trans[:, step]
+            target = target_seq[:, step]
             losses.append(self.gaussian_nll(target, mean, chol))
             diag = torch.diagonal(chol, dim1=-2, dim2=-1)
             diag_means.append(diag.mean())
             offdiag_abs.append((chol - torch.diag_embed(diag)).abs().mean())
             mean_abs_err.append((mean - target).abs().mean())
-            current_logit = current_logit + target
-            prev_transition = target
+            if self.cfg.target_mode == "transition":
+                current_logit = current_logit + target
+                prev_transition = target
+            else:
+                prev_transition = target - current_logit
+                current_logit = target
         nll = torch.stack(losses, dim=1).mean()
         metrics = {
             "total": nll.detach(),
@@ -249,8 +259,14 @@ class DailyJointCholeskyTransitionModel(nn.Module):
                     device=history_norm.device,
                     dtype=history_norm.dtype,
                 )
-                transition = mean + torch.bmm(chol, eps.unsqueeze(-1)).squeeze(-1)
-                current_logit = current_logit + transition
+                draw = mean + torch.bmm(chol, eps.unsqueeze(-1)).squeeze(-1)
+                if self.cfg.target_mode == "transition":
+                    transition = draw
+                    current_logit = current_logit + transition
+                else:
+                    next_logit = draw
+                    transition = next_logit - current_logit
+                    current_logit = next_logit
                 frames.append(logit_to_iv(current_logit))
                 prev_transition = transition
             future_01 = torch.stack(frames, dim=1)
