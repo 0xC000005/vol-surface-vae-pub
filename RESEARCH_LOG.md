@@ -87219,3 +87219,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/299a_paradigm_shift/memo.md`
 
 ---
+## 2026-04-23: 299a continuous local-scale joint change flow experiment
+
+### Context
+
+`299a-v0` tested the post-298 pivot: a learned/generative support object instead of historical future replay. It uses vanilla one-shot flow matching over the full future path in rolling asinh-local-scale innovation coordinates, then sequentially inverts sampled innovations back to levels.
+
+### Result
+
+- Full 11-suite score: `2/11`.
+- Passed: `block_ar`, `cross_cell_correlation`.
+- Failed: `surface`, `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: surface explosion `95.5%`, IV range `[−162.6, 135.0]`, cov90 `0.903`, calibration error `0.040`, conditional MAE reduction `4.3%`, turb/calm `1.347`, change KS `24/25`, level KS `3/25`, corr ratio `0.900`, rank ratio `1.487`, MR ratio `-0.091`, jump KS `0.430`, q99 jump ratio `9.236`, q99 jump cells `22/25`.
+
+### Mechanism Read
+
+The local-scale innovation coordinate is live: it recovers daily-change fidelity, broad coverage, regime-dependent width, and cross-cell structure. The failure is the unbounded inverse: sampled asinh coordinates go through `sinh(coord) * local_scale`, producing extreme paths that destroy surface validity, jump realism, and mean-reversion center dynamics.
+
+### Decision
+
+Do not patch this by adding residual shells, support replay, or evaluator-specific losses. The next analysis should test whether simple sample-temperature reduction only hides the explosion by under-dispersing. If that tradeoff holds, the next model should preserve the vanilla continuous flow core but move to a physically support-valid observation coordinate, such as logit-IV level space or a bounded transition transform.
+
+Artifacts:
+
+- `models/backfill/299a_v0_s42/best_model.pt`
+- `results/block_ar/299a_v0_s42/full11.json`
+- `results/block_ar/299a_v0_s42/full11.md`
+- `results/validations/2026-04-22/analysis/299a_postmortem/summary.md`
+
+---
