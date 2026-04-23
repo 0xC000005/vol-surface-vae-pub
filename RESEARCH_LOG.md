@@ -90428,3 +90428,25 @@ Keep 320 as the active paradigm. The next move should not add a new financial pa
 - eval MD: `results/block_ar/320c_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 320d capacity-scaled scalar chain-rule experiment
+
+### Context
+320d tests capacity scaling inside the same 320c methodology: same scalar chain-rule objective, same previous-same-cell conditioning, but larger context/history/recurrent dimensions and more mixture components (`context_dim=256`, `history_hidden=160`, `ar_hidden=384`, `n_mixtures=9`, 64 epochs). This is a Bitter-Lesson-aligned capacity test, not a new financial path.
+
+### Result
+320d-v0 reached best validation NLL around epoch 64 (`val_total=-1.565`), improving substantially over 320c (`-1.317`). The full 11-suite score remained 4/11, passing surface validity, block_ar, cross_cell_correlation, and mean_reversion.
+
+Important metrics: coverage90 0.887 with calibration error 0.008; conditional MAE improvement 2.4%; turb/calm width ratio 0.953; ACF corr 0.949; kurtosis ratio 0.966 but skewness still fails; daily KS 12/25, close to the 15/25 gate; level KS 4/25; cross-cell corr ratio 0.734 and rank ratio 2.082 pass; mean reversion fully passes with h1 ratio 1.111, active cells 19/24, active-cell corr 0.824, and full-horizon profile pass; pathwise max-jump KS improves to 0.288 with q90/q99 passing, but per-cell jump scale is 15/25; cointegration aggregate ratio passes at 0.761, but worst-cell ratio is 0.224, just below the 0.25 gate.
+
+### Mechanism
+Capacity scaling improves the density and several validation-aligned suite metrics: daily-change KS, cross-cell structure, tail-scale cell count, pathwise jump KS, and MR. It does not solve level marginal bias or conditional regime scaling. The model still makes calm and turbulent widths too similar, and some cells remain over/under-covered across horizons.
+
+### Decision
+Keep 320 active. The next principled change should improve history-state representation, not add a new output correction path. Current history encoder sees only level sequences; a conditional scenario generator needs the state to include recent changes/volatility information. Add generic history delta features to the encoder input so scale/regime information is easier to learn from data while preserving the same one-stage chain-rule likelihood.
+
+### Artifacts
+- checkpoint: `models/backfill/320d_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320d_v0_s42/full11.json`
+- eval MD: `results/block_ar/320d_v0_s42/full11.md`
+
+---
