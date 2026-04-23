@@ -833,6 +833,12 @@ def load_one_day_kernel(
         )
 
         return load_294b_model(checkpoint_path, device)
+    if model_type == "295a":
+        from diffusion.block_ar.probabilistic_joint_token_future_control_model import (
+            load_model as load_295a_model,
+        )
+
+        return load_295a_model(checkpoint_path, device)
     if model_type.startswith("253"):
         from diffusion.block_ar.dynamic_change_factor_ssm import load_model as load_253a_model
 

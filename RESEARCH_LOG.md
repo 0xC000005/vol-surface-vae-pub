@@ -86066,3 +86066,42 @@ It is a compositional, future-time-local controller for the daily law.
 Treat `295a` as the last justified in-paradigm shift. If it fails to improve short-horizon allocation while preserving the family's local-law strengths, then the whole fixed-horizon joint-law paradigm should be treated as near a broader cap and a paradigm shift should follow.
 
 ---
+## 2026-04-22: 295a future control-state sequence baseline
+
+### Context
+`295a-v0` was the last justified in-paradigm experiment for the current fixed-horizon one-stage joint-law line. It replaced direct support/scaffold objects with a future control-state sequence that conditions the daily joint token law.
+
+### Result
+- model: `295a`
+- score: `3/11`
+- passes:
+  - `surface`
+  - `block_ar`
+  - `cross_cell_correlation`
+- artifacts:
+  - `diffusion/block_ar/probabilistic_joint_token_future_control_model.py`
+  - `experiments/backfill/block_ar/train_295a_probabilistic_joint_token_future_control_model.py`
+  - `results/block_ar/295a_v0_s42/full11.json`
+  - `results/validations/2026-04-22/analysis/295a_postmortem/summary.md`
+
+### Mechanism read
+`295a` is the strongest evidence yet that the fixed-horizon joint-law family can learn conditional spread allocation.
+
+What improved versus `294a`:
+- coverage90: `0.782 -> 0.910`
+- h1 coverage90: `0.603 -> 0.841`
+- calibration error: `0.087 -> 0.044`
+- cointegration ratio: `2.247 -> 0.681`
+- max-jump KS: `0.662 -> 0.620`
+
+What stayed structurally wrong:
+- level KS: `9/25 -> 2/25`
+- MR ratio: `0.163 -> -0.005`
+- active MR pass count: `4/24 -> 0/24`
+
+So the future control-state sequence behaved more like a volatility allocator than a path-shape controller.
+
+### Decision
+Treat `295a` as the last justified in-paradigm experiment for the current fixed-horizon one-stage joint-law line. Next step: paradigm-shift analysis rather than another local family tweak.
+
+---

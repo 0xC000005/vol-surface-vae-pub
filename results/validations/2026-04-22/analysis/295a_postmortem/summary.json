@@ -1,0 +1,38 @@
+{
+  "model": "295a",
+  "checkpoint": "models/backfill/295a_v0_s42/best_model.pt",
+  "eval": "results/block_ar/295a_v0_s42/full11.json",
+  "score": 3,
+  "passes": [
+    "surface",
+    "block_ar",
+    "cross_cell_correlation"
+  ],
+  "high_signal_metrics": {
+    "coverage90": 0.9098611111111111,
+    "calibration_error": 0.04405555555555556,
+    "h1_cov90": 0.840625,
+    "h30_cov90": 0.9445833333333333,
+    "change_ks_pass": 25,
+    "level_ks_pass": 2,
+    "corr_ratio": 1.2133871464202496,
+    "rank_ratio": 0.902618260661981,
+    "cointegration_ratio": 0.6806451612903226,
+    "worst_cell_cointegration_ratio": 0.22368421052631576,
+    "mr_ratio": -0.005189905262525101,
+    "active_mr_pass_count": 0,
+    "active_mr_cell_count": 24,
+    "active_cell_slope_corr": 0.7600433380381861,
+    "max_jump_ks": 0.6203125,
+    "jump_q90_ratio": 0.8695402895229368,
+    "jump_q99_ratio": 1.2099345125197993,
+    "acf_corr": 0.9579790053999922
+  },
+  "training": {
+    "best_epoch": 1,
+    "best_val_total": 5.4079340526035855,
+    "read": "Token NLL improved quickly while control MAE barely moved; later epochs overfit hard."
+  },
+  "mechanism_read": "The future control-state sequence restored conditional spread allocation and short-horizon coverage, but it did not become a usable path-shape controller. It behaved more like a volatility allocator than a mean/path allocator, leaving mean reversion and level-law structure effectively dead.",
+  "decision": "Treat 295a as the last justified in-paradigm experiment for the fixed-horizon one-stage joint-law line. Next step: paradigm-shift analysis."
+}
