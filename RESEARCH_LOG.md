@@ -87775,3 +87775,33 @@ The branch is scientifically clean but capped. Recursive one-step generation giv
 Stop stacking local `303` variants. Shift paradigm away from one-step recursive rollout to a joint full-path conditional law in support-valid logit-transition coordinates. The next clean family should sample the whole 30-day transition path jointly with a generic time-cell token flow: encode history, construct future time/cell tokens, model dependencies across all future points, and decode by cumulative logit transitions. This keeps the vanilla generative core and avoids retrieval, low-rank readouts, bounded idio/EC paths, and evaluator-specific losses.
 
 ---
+## 2026-04-23: 304 joint time-cell token path-flow paradigm
+
+### Context
+
+The `303` branch showed that recursive one-step generation can recover state dependence, but it creates a free-run path calibration bottleneck. The next paradigm removes that axis by modeling the whole future path jointly.
+
+### Hypothesis
+
+A support-valid one-shot joint path flow can combine the strengths of the recent branches:
+
+- `301/302`: support-valid rolling logit-transition coordinate and one-shot path sampling.
+- `303b`: generic token mixing over cells to learn shared shocks and cross-cell dependence.
+- Avoid `303`: no recursive exposure-bias accumulation during generation.
+
+### Spec
+
+`304a-v0` should model the complete transition tensor:
+
+`z[t, c] = logit(IV[t, c]) - logit(IV[t-1, c])`
+
+with vanilla flow matching over all future time/cell tokens. The velocity network encodes history, adds learned future time/cell token embeddings, mixes all future variables with a generic transformer, and predicts tokenwise velocity. Samples are decoded by cumulative logit transitions and sigmoid inversion.
+
+### Guardrails
+
+- Keep the generative core vanilla flow matching.
+- Keep support validity through logit-transition decoding.
+- Do not add low-rank readouts, retrieval, bounded idio/EC paths, slow-latent side channels, or evaluator-specific losses.
+- Treat this as a paradigm reset, not another 303 tweak.
+
+---
