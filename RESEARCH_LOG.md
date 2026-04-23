@@ -89621,3 +89621,66 @@ Choose a paradigm shift next. The evidence now points back toward a direct futur
 - eval MD: `results/block_ar/315b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 316 direct-path global-token paradigm shift
+
+### Context
+`315b` closed the multiscale family. The global-token repair improved structure only modestly, and it worsened calibration enough that the family remained at `2/11`.
+
+At this point the relevant evidence base is:
+- `312a`: best anchored direct-path baseline
+- `314b`: strongest explicit shared-state baseline
+- `315a/315b`: multiscale coordinate baselines with and without generic global mixer tokens
+
+### Comparative Read
+These lines now tell a coherent story.
+
+`312a` still has the best direct structural anchor in the current reset program:
+- `3/11`
+- cointegration pass
+- worst-cell cointegration `0.455`
+- level KS `5/25`
+- calibration error `0.037`
+
+But it under-couples the panel:
+- corr ratio `0.446`
+- rank ratio `3.157`
+- active MR cells `13/24`
+
+`314b` proves that stronger shared-state machinery can recover coupling and local distributional realism:
+- corr ratio `1.173`
+- level KS `8/25`
+- daily KS `19/25`
+
+But its explicit posterior-latent route destroys long-run anchor and mean reversion:
+- worst-cell cointegration `0.171`
+- MR ratio `0.296`
+- active MR cells `0/24`
+- coverage90 `0.798`
+
+`315a/315b` prove that multiscale coordinates recover aggregate uncertainty scale and jump scale, but even after the one allowed shared-token repair they still diffuse too much geometry and long-run anchor.
+
+### Paradigm Shift
+Retire multiscale coordinates and return to a direct future-path law.
+
+Select `316` as the next family:
+- one-stage unified future-logit path flow
+- future levels modeled directly in path coordinates, as in `312a`
+- implied daily transitions still exposed internally
+- add only a small bank of learned global mixer tokens inside the transformer to create generic shared coupling
+- no posterior/prior machinery
+- no multiscale coordinate factorization
+- no deterministic center/residual decomposition
+
+### Why This Is The Most Principled Next Step
+This is the clean synthesis of the surviving evidence:
+- from `312a`: direct path coordinates preserve anchor best
+- from `314b`: shared internal/global state is useful for coupling and distributional realism
+- from `315b`: generic global tokens can help coupling directionally without needing posterior-latent machinery
+- from the full `315` failure: multiscale factorization itself is the wrong extra assumption here
+
+So the next move is not to add more scaffolding. It is to keep the cleaner direct-path law and add the smallest generic shared-coupling mechanism that the recent evidence justifies.
+
+### Next Step
+Implement `316a-v0` by taking the `312a` state-aware direct path model and adding learned global mixer tokens inside the transformer.
+
+---
