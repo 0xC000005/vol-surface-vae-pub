@@ -90538,3 +90538,25 @@ Close 321b as non-frontier. Keep 321a as the cleaner transition-coordinate evide
 - eval MD: `results/block_ar/321b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 321c regularized transition-coordinate experiment
+
+### Context
+321c tested whether 321a's transition-coordinate level drift was an overfitting problem. It kept the 321a architecture and target coordinate but increased regularization (`encoder_dropout=0.15`, `ar_dropout=0.20`, `weight_decay=1e-3`).
+
+### Result
+321c-v0 again early-stopped in the first part of training and scored 4/11, passing surface validity, block_ar, cross_cell_correlation, and mean_reversion.
+
+Key metrics: coverage90 0.904, calibration error 0.043, conditional MAE improvement 2.7%, turb/calm width ratio 1.004, ACF corr 0.949, kurtosis ratio 1.234 but skewness fails, daily KS 24/25 passes, level KS 4/25 fails, cross-cell corr ratio 0.934 and rank ratio 1.289 pass, full MR passes with active cells 17/24 and active-cell corr 0.843, pathwise max-jump KS 0.336, and cointegration worst-cell ratio 0.224 fails just below the gate.
+
+### Mechanism
+Regularization helps aggregate coverage and preserves the desirable transition-coordinate properties: daily-change KS, move-size profile, cross-cell structure, and MR. It does not solve the persistent level marginal failures. The tradeoff is now clear: level-coordinate 320 variants control levels better but struggle with daily/path tails; transition-coordinate 321 variants control daily/path shape better but drift in level marginals.
+
+### Decision
+Stop feature/regularization tweaks inside 321. The next principled move is a joint level+transition objective using one shared autoregressive state. Level and transition views are invertible descriptions of the same path law; training both views can regularize finite-sample learning without adding a second generator or evaluator-specific correction.
+
+### Artifacts
+- checkpoint: `models/backfill/321c_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/321c_v0_s42/full11.json`
+- eval MD: `results/block_ar/321c_v0_s42/full11.md`
+
+---
