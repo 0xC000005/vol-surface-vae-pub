@@ -90707,3 +90707,25 @@ Shift to a larger, simpler learned joint sequence model. This is closer to the B
 Open 324: learned joint future-sequence model. The first implementation should reuse the strongest clean lessons from 320/321 only as coordinates and baselines, not as a fixed copula. A valid 324a falsifier should learn future-token marginals and dependence together and be evaluated on the same 11-suite. If the first implementation is too slow or underpowered, adapt capacity/objective within this paradigm before returning to calibration.
 
 ---
+## 2026-04-23: 324a standardized global-token joint flow feasibility test
+
+### Context
+324a tested whether the older global-token future-logit path flow (316a family) improves when trained in standardized per-cell logit coordinates. Larger transformer settings were too slow for the in-session loop, so the evaluated run used a feasible tiny standardized configuration as a falsifier of the coordinate-change hypothesis.
+
+### Result
+`324a_tiny_v0_s42` scored `3/11`, passing surface validity, block-AR boundary smoothness, and cointegration. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+
+Key metrics: overall 90% coverage `0.708`, calibration error `0.153`, per-cell coverage severely fails; turb/calm width ratio `0.924`; daily-change KS `9/25`; level KS `4/25`; move-size profile fails 3/4 thresholds; cointegration passes with gen/GT ratio `3.005` and worst-cell ratio `0.408`; cross-cell corr ratio `0.031` and rank ratio `4.363` fail; aggregate MR ratio `1.779` fail; pathwise max-jump KS `0.924`.
+
+Artifacts:
+- model: `models/backfill/324a_tiny_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/324a_tiny_v0_s42/full11.json`
+- eval MD: `results/block_ar/324a_tiny_v0_s42/full11.md`
+
+### Mechanism Read
+Standardizing the joint path flow is not enough. The flow learns plausible bounded surfaces and very strong cointegration-like smoothness, but it collapses cross-cell stochastic dependence and under-covers the realized future path. Useful-capacity full-token transformers are also too slow for this loop, so simply scaling the same quadratic-token architecture is not the right near-term move.
+
+### Decision
+Keep the 324 principle (learn the joint future law together), but change the implementation to an efficient joint model. The next candidate should avoid full 750-token quadratic attention while still modeling cross-cell/time dependence jointly, e.g. a daily joint transition likelihood with learned state-dependent covariance or an efficient recurrent latent sequence model.
+
+---

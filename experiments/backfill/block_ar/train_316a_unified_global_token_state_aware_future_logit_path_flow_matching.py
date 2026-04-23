@@ -24,6 +24,9 @@ from experiments.backfill.block_ar.train_169a_transformed_student_t import norma
 from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
     build_multistep_windows,
 )
+from experiments.backfill.block_ar.train_320a_future_scalar_ar_mixture_density_model import (
+    compute_level_logit_stats,
+)
 
 
 def make_dataset(
@@ -68,6 +71,8 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--max_sample_chunk", type=int, default=2)
     parser.add_argument("--n_global_tokens", type=int, default=4)
+    parser.add_argument("--standardize_logits", action="store_true")
+    parser.add_argument("--logit_std_floor", type=float, default=1e-3)
 
     parser.add_argument("--epochs", type=int, default=28)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -138,8 +143,18 @@ def main() -> None:
         sample_temperature=args.sample_temperature,
         max_sample_chunk=args.max_sample_chunk,
         n_global_tokens=args.n_global_tokens,
+        standardize_logits=args.standardize_logits,
+        logit_std_floor=args.logit_std_floor,
     )
     model = UnifiedGlobalTokenStateAwareFutureLogitPathFlowMatching(cfg).to(device)
+    if args.standardize_logits:
+        logit_mean, logit_std = compute_level_logit_stats(
+            train_hist,
+            train_future,
+            logit_eps=args.logit_eps,
+            std_floor=args.logit_std_floor,
+        )
+        model.set_logit_stats(logit_mean.to(device), logit_std.to(device))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

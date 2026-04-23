@@ -21,6 +21,8 @@ from experiments.backfill.block_ar.train_169a_transformed_student_t import (
 @dataclass
 class UnifiedGlobalTokenStateAwareFutureLogitPathFMConfig(JointTokenLogitTransitionFMConfig):
     n_global_tokens: int = 4
+    standardize_logits: bool = False
+    logit_std_floor: float = 1e-3
 
 
 class UnifiedGlobalTokenStateAwareFutureLogitPathVelocity(nn.Module):
@@ -94,11 +96,31 @@ class UnifiedGlobalTokenStateAwareFutureLogitPathFlowMatching(
         if cfg.n_global_tokens <= 0:
             raise ValueError("n_global_tokens must be positive")
         self.velocity = UnifiedGlobalTokenStateAwareFutureLogitPathVelocity(cfg)
+        self.register_buffer("cell_logit_mean", torch.zeros(cfg.n_cells))
+        self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
+
+    def set_logit_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        if mean.shape != (self.cfg.n_cells,) or std.shape != (self.cfg.n_cells,):
+            raise ValueError("Expected per-cell logit stats with shape (n_cells,)")
+        self.cell_logit_mean.copy_(mean.to(self.cell_logit_mean))
+        self.cell_logit_std.copy_(
+            std.clamp_min(self.cfg.logit_std_floor).to(self.cell_logit_std)
+        )
+
+    def _to_model_coord(self, logits: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return logits
+        return (logits - self.cell_logit_mean) / self.cell_logit_std
+
+    def _from_model_coord(self, coord: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return coord
+        return coord * self.cell_logit_std + self.cell_logit_mean
 
     def target_future_logits(self, future_norm: torch.Tensor) -> torch.Tensor:
         future_norm = self._flatten(future_norm)
         future_01 = denormalize_iv(future_norm)
-        return iv_to_logit(future_01, self.cfg.logit_eps)
+        return self._to_model_coord(iv_to_logit(future_01, self.cfg.logit_eps))
 
     def implied_transitions(
         self,
@@ -106,7 +128,7 @@ class UnifiedGlobalTokenStateAwareFutureLogitPathFlowMatching(
         future_logits: torch.Tensor,
     ) -> torch.Tensor:
         history_norm = self._flatten(history_norm)
-        last_logit = self.history_last_logit(history_norm)
+        last_logit = self._to_model_coord(self.history_last_logit(history_norm))
         return torch.cat(
             [
                 future_logits[:, :1] - last_logit[:, None, :],
@@ -192,7 +214,7 @@ class UnifiedGlobalTokenStateAwareFutureLogitPathFlowMatching(
                     dtype=context.dtype,
                 )
                 x = x + dt * self.predict_velocity(x, hist, ctx, t)
-            future_01 = logit_to_iv(x)
+            future_01 = logit_to_iv(self._from_model_coord(x))
             if self.cfg.n_cells == 25:
                 future_01 = future_01.view(bsz, k, self.cfg.future_len, 5, 5)
             else:
@@ -210,7 +232,16 @@ def load_model(
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     cfg = UnifiedGlobalTokenStateAwareFutureLogitPathFMConfig(**payload["config"])
     model = UnifiedGlobalTokenStateAwareFutureLogitPathFlowMatching(cfg)
-    model.load_state_dict(payload["model_state_dict"], strict=True)
+    result = model.load_state_dict(payload["model_state_dict"], strict=False)
+    allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    missing = set(result.missing_keys) - allowed_missing
+    if missing or result.unexpected_keys:
+        raise RuntimeError(
+            f"Checkpoint state mismatch: missing={sorted(missing)}, "
+            f"unexpected={sorted(result.unexpected_keys)}"
+        )
+    if cfg.standardize_logits and allowed_missing.intersection(result.missing_keys):
+        raise RuntimeError("Standardized-logit checkpoint is missing saved logit stats")
     model.to(device).eval()
     return model, payload
 
