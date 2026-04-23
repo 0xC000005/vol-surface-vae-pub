@@ -1,0 +1,31 @@
+{
+  "experiment": "296g-v0",
+  "score": "4/11",
+  "passes": [
+    "block_ar",
+    "cointegration",
+    "cross_cell_correlation",
+    "mean_reversion"
+  ],
+  "failed": [
+    "surface",
+    "coverage",
+    "conditionality",
+    "time_series",
+    "regime_coverage",
+    "distributional_fidelity",
+    "pathwise_jump_realism"
+  ],
+  "mechanism_read": "The scalar fast-shell gate trained but became nearly constant and regime-insensitive, so 296g mostly reproduces 296f with a mild static fast-shell rescaling.",
+  "gate_diagnostic": {
+    "gate_mean": 0.778102695941925,
+    "gate_std": 0.004288308788090944,
+    "gate_p10": 0.773117184638977,
+    "gate_p50": 0.7784184217453003,
+    "gate_p90": 0.7830542922019958,
+    "spearman_gate_rv": -0.004898204161354204,
+    "calm_gate_mean": 0.7770995497703552,
+    "turb_gate_mean": 0.777807891368866
+  },
+  "decision": "Run post-experiment analysis of the broader 296 hybrid family before adding any new shell mechanism."
+}

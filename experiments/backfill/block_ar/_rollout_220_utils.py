@@ -869,6 +869,12 @@ def load_one_day_kernel(
         )
 
         return load_296f_model(checkpoint_path, device)
+    if model_type == "296g":
+        from diffusion.block_ar.probabilistic_backbone_gated_budgeted_multiresolution_zero_mean_coarse_shell_model import (
+            load_model as load_296g_model,
+        )
+
+        return load_296g_model(checkpoint_path, device)
     if model_type == "296d":
         from diffusion.block_ar.probabilistic_backbone_student_t_zero_mean_coarse_shell_model import (
             load_model as load_296d_model,
