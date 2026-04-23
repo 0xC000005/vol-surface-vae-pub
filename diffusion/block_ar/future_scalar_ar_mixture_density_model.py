@@ -36,6 +36,8 @@ class FutureScalarARMixtureConfig:
     max_sample_chunk: int = 8
     use_same_cell_feedback: bool = False
     use_history_delta_features: bool = False
+    standardize_logits: bool = False
+    logit_std_floor: float = 1e-3
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -76,6 +78,8 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         token_idx = torch.arange(cfg.future_len * cfg.n_cells)
         self.register_buffer("token_day", token_idx // cfg.n_cells)
         self.register_buffer("token_cell", token_idx % cfg.n_cells)
+        self.register_buffer("cell_logit_mean", torch.zeros(cfg.n_cells))
+        self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
 
     @staticmethod
     def _flatten(x: torch.Tensor) -> torch.Tensor:
@@ -97,6 +101,22 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         levels_norm = self._flatten(levels_norm)
         levels_01 = denormalize_iv(levels_norm)
         return iv_to_logit(levels_01, self.cfg.logit_eps)
+
+    def set_logit_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        if mean.shape != (self.cfg.n_cells,) or std.shape != (self.cfg.n_cells,):
+            raise ValueError("Expected per-cell logit stats with shape (n_cells,)")
+        self.cell_logit_mean.copy_(mean.to(self.cell_logit_mean))
+        self.cell_logit_std.copy_(std.clamp_min(self.cfg.logit_std_floor).to(self.cell_logit_std))
+
+    def _to_model_coord(self, logits: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return logits
+        return (logits - self.cell_logit_mean) / self.cell_logit_std
+
+    def _from_model_coord(self, coord: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return coord
+        return coord * self.cell_logit_std + self.cell_logit_mean
 
     def _initial_hidden(self, context: torch.Tensor) -> torch.Tensor:
         hidden = self.init_hidden(context)
@@ -153,18 +173,20 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         context = self.encode_history(history_norm)
         history_logits = self.to_logits(history_norm)
         future_logits = self.to_logits(future_norm)
-        target = future_logits.reshape(future_logits.shape[0], -1)
+        history_coord = self._to_model_coord(history_logits)
+        future_coord = self._to_model_coord(future_logits)
+        target = future_coord.reshape(future_coord.shape[0], -1)
 
         prev_scalar = torch.empty_like(target)
-        prev_scalar[:, 0] = history_logits[:, -1, self.token_cell[0]]
+        prev_scalar[:, 0] = history_coord[:, -1, self.token_cell[0]]
         prev_scalar[:, 1:] = target[:, :-1]
-        anchor_scalar = history_logits[:, -1, self.token_cell]
+        anchor_scalar = history_coord[:, -1, self.token_cell]
         same_cell_scalar = None
         if self.cfg.use_same_cell_feedback:
-            same_cell = torch.empty_like(future_logits)
-            same_cell[:, 0] = history_logits[:, -1]
-            same_cell[:, 1:] = future_logits[:, :-1]
-            same_cell_scalar = same_cell.reshape(future_logits.shape[0], -1)
+            same_cell = torch.empty_like(future_coord)
+            same_cell[:, 0] = history_coord[:, -1]
+            same_cell[:, 1:] = future_coord[:, :-1]
+            same_cell_scalar = same_cell.reshape(future_coord.shape[0], -1)
 
         inputs = self._token_inputs(prev_scalar, anchor_scalar, same_cell_scalar)
         states, _ = self.ar(inputs, self._initial_hidden(context))
@@ -200,6 +222,7 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         history_norm = history if history_is_normalized else normalize_iv(history)
         history_norm = self._flatten(history_norm)
         history_logits = self.to_logits(history_norm)
+        history_coord = self._to_model_coord(history_logits)
         context = self.encode_history(history_norm)
         bsz = history_norm.shape[0]
         n_tokens = self.cfg.future_len * self.cfg.n_cells
@@ -210,15 +233,15 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         for start in range(0, n_samples, chunk_size):
             k = min(chunk_size, n_samples - start)
             ctx = context.repeat_interleave(k, dim=0)
-            hist_logits = history_logits.repeat_interleave(k, dim=0)
+            hist_coord = history_coord.repeat_interleave(k, dim=0)
             hidden = self._initial_hidden(ctx)
-            prev_scalar = hist_logits[:, -1, self.token_cell[0]]
-            last_cell_values = hist_logits[:, -1].clone()
+            prev_scalar = hist_coord[:, -1, self.token_cell[0]]
+            last_cell_values = hist_coord[:, -1].clone()
             draws: list[torch.Tensor] = []
             for token in range(n_tokens):
                 cell = int(self.token_cell[token].item())
                 day = int(self.token_day[token].item())
-                anchor = hist_logits[:, -1, cell]
+                anchor = hist_coord[:, -1, cell]
                 if self.cfg.use_same_cell_feedback:
                     scalar_feat = torch.stack([prev_scalar, anchor, last_cell_values[:, cell]], dim=-1)
                 else:
@@ -235,11 +258,12 @@ class FutureScalarARMixtureDensityModel(nn.Module):
                 draws.append(draw)
                 last_cell_values[:, cell] = draw
                 prev_scalar = draw
-            future_logits = torch.stack(draws, dim=1).view(
+            future_coord = torch.stack(draws, dim=1).view(
                 bsz * k,
                 self.cfg.future_len,
                 self.cfg.n_cells,
             )
+            future_logits = self._from_model_coord(future_coord)
             future_01 = logit_to_iv(future_logits)
             if self.cfg.n_cells == 25:
                 future_01 = future_01.view(bsz, k, self.cfg.future_len, 5, 5)
@@ -256,7 +280,17 @@ def load_model(
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     cfg = FutureScalarARMixtureConfig(**payload["config"])
     model = FutureScalarARMixtureDensityModel(cfg)
-    model.load_state_dict(payload["model_state_dict"], strict=True)
+    state_dict = payload["model_state_dict"]
+    result = model.load_state_dict(state_dict, strict=False)
+    allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    missing = set(result.missing_keys) - allowed_missing
+    if missing or result.unexpected_keys:
+        raise RuntimeError(
+            f"Checkpoint state mismatch: missing={sorted(missing)}, "
+            f"unexpected={sorted(result.unexpected_keys)}"
+        )
+    if cfg.standardize_logits and allowed_missing.intersection(result.missing_keys):
+        raise RuntimeError("Standardized-logit checkpoint is missing saved logit stats")
     model.to(device).eval()
     return model, payload
 

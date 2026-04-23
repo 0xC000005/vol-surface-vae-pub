@@ -90472,3 +90472,25 @@ Close 320e as non-frontier. Keep 320d/320c as the live evidence for the paradigm
 - eval MD: `results/block_ar/320e_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 320f standardized-logit coordinate experiment
+
+### Context
+320f tested whether the persistent per-cell marginal failures were caused by raw logit coordinate imbalance. It kept the 320d capacity and same-cell conditioning but trained the scalar chain-rule likelihood in per-cell standardized logit coordinates, denormalizing only at sampling.
+
+### Result
+320f-v0 trained stably but scored 3/11, passing surface validity, block_ar, and cross_cell_correlation. It did not retain the 320d/320c mean-reversion pass because the h1 active-cell count fell to 14/24 despite good aggregate and full-horizon profile metrics.
+
+Key metrics: coverage90 0.875, calibration error 0.009, conditional MAE improvement 3.5%, turb/calm width ratio 1.008, ACF corr 0.955, kurtosis ratio 0.867 and skewness ratio 2.140 both pass, daily KS 23/25 passes, level KS 6/25 fails, cross-cell corr ratio 0.850 and rank ratio 1.654 pass, MR active cells 14/24 fail, pathwise max-jump KS 0.332, and cointegration worst-cell ratio 0.197 fails.
+
+### Mechanism
+Per-cell standardization is a valuable ablation. It largely fixes daily-change marginal shape and aggregate skew/kurtosis while improving cross-cell structure, but it does not fix unconditional level marginals and it weakens active-cell MR. This suggests the remaining problem is not simply raw coordinate weighting; it is the interaction between level targeting and path dynamics.
+
+### Decision
+Close 320f as non-frontier. The next clean test is a transition-coordinate scalar chain-rule model: keep the same autoregressive likelihood and same-cell conditioning, but target per-cell standardized logit increments and update levels through accumulation at sampling. This directly models the daily-change law that 320f can match while testing whether recurrence/current-level conditioning can preserve levels and MR.
+
+### Artifacts
+- checkpoint: `models/backfill/320f_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320f_v0_s42/full11.json`
+- eval MD: `results/block_ar/320f_v0_s42/full11.md`
+
+---
