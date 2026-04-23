@@ -38,6 +38,7 @@ class FutureScalarARMixtureConfig:
     use_history_delta_features: bool = False
     standardize_logits: bool = False
     logit_std_floor: float = 1e-3
+    target_mode: str = "level"
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -46,6 +47,8 @@ class FutureScalarARMixtureDensityModel(nn.Module):
     def __init__(self, cfg: FutureScalarARMixtureConfig):
         super().__init__()
         self.cfg = cfg
+        if cfg.target_mode not in {"level", "transition"}:
+            raise ValueError("target_mode must be 'level' or 'transition'")
         hist_cfg = EncoderConfig(
             input_dim=cfg.n_cells * (2 if cfg.use_history_delta_features else 1),
             gru_hidden_dim=cfg.history_hidden,
@@ -118,6 +121,11 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             return coord
         return coord * self.cell_logit_std + self.cell_logit_mean
 
+    def _scalar_from_model_coord(self, coord: torch.Tensor, cell: int) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return coord
+        return coord * self.cell_logit_std[cell] + self.cell_logit_mean[cell]
+
     def _initial_hidden(self, context: torch.Tensor) -> torch.Tensor:
         hidden = self.init_hidden(context)
         hidden = hidden.view(context.shape[0], self.cfg.ar_layers, self.cfg.ar_hidden)
@@ -173,20 +181,44 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         context = self.encode_history(history_norm)
         history_logits = self.to_logits(history_norm)
         future_logits = self.to_logits(future_norm)
-        history_coord = self._to_model_coord(history_logits)
-        future_coord = self._to_model_coord(future_logits)
-        target = future_coord.reshape(future_coord.shape[0], -1)
+        if self.cfg.target_mode == "level":
+            history_coord = self._to_model_coord(history_logits)
+            future_coord = self._to_model_coord(future_logits)
+            target_seq = future_coord
+            first_prev = history_coord[:, -1, self.token_cell[0]]
+            anchor_scalar = history_coord[:, -1, self.token_cell]
+            same_cell_source = future_coord
+            same_cell_initial = history_coord[:, -1]
+        else:
+            future_trans = torch.cat(
+                [
+                    future_logits[:, :1] - history_logits[:, -1:, :],
+                    future_logits[:, 1:] - future_logits[:, :-1],
+                ],
+                dim=1,
+            )
+            history_trans = torch.zeros_like(history_logits)
+            history_trans[:, 1:] = history_logits[:, 1:] - history_logits[:, :-1]
+            target_seq = self._to_model_coord(future_trans)
+            history_trans_coord = self._to_model_coord(history_trans)
+            first_prev = history_trans_coord[:, -1, self.token_cell[0]]
+            current_level = torch.empty_like(future_logits)
+            current_level[:, 0] = history_logits[:, -1]
+            current_level[:, 1:] = future_logits[:, :-1]
+            anchor_scalar = current_level.reshape(future_logits.shape[0], -1)
+            same_cell_source = target_seq
+            same_cell_initial = history_trans_coord[:, -1]
+        target = target_seq.reshape(target_seq.shape[0], -1)
 
         prev_scalar = torch.empty_like(target)
-        prev_scalar[:, 0] = history_coord[:, -1, self.token_cell[0]]
+        prev_scalar[:, 0] = first_prev
         prev_scalar[:, 1:] = target[:, :-1]
-        anchor_scalar = history_coord[:, -1, self.token_cell]
         same_cell_scalar = None
         if self.cfg.use_same_cell_feedback:
-            same_cell = torch.empty_like(future_coord)
-            same_cell[:, 0] = history_coord[:, -1]
-            same_cell[:, 1:] = future_coord[:, :-1]
-            same_cell_scalar = same_cell.reshape(future_coord.shape[0], -1)
+            same_cell = torch.empty_like(same_cell_source)
+            same_cell[:, 0] = same_cell_initial
+            same_cell[:, 1:] = same_cell_source[:, :-1]
+            same_cell_scalar = same_cell.reshape(same_cell_source.shape[0], -1)
 
         inputs = self._token_inputs(prev_scalar, anchor_scalar, same_cell_scalar)
         states, _ = self.ar(inputs, self._initial_hidden(context))
@@ -222,8 +254,13 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         history_norm = history if history_is_normalized else normalize_iv(history)
         history_norm = self._flatten(history_norm)
         history_logits = self.to_logits(history_norm)
-        history_coord = self._to_model_coord(history_logits)
         context = self.encode_history(history_norm)
+        if self.cfg.target_mode == "level":
+            history_coord = self._to_model_coord(history_logits)
+        else:
+            history_trans = torch.zeros_like(history_logits)
+            history_trans[:, 1:] = history_logits[:, 1:] - history_logits[:, :-1]
+            history_coord = self._to_model_coord(history_trans)
         bsz = history_norm.shape[0]
         n_tokens = self.cfg.future_len * self.cfg.n_cells
         chunk_size = max(1, min(int(chunk_size), int(n_samples), int(self.cfg.max_sample_chunk)))
@@ -234,14 +271,20 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             k = min(chunk_size, n_samples - start)
             ctx = context.repeat_interleave(k, dim=0)
             hist_coord = history_coord.repeat_interleave(k, dim=0)
+            hist_logits = history_logits.repeat_interleave(k, dim=0)
             hidden = self._initial_hidden(ctx)
             prev_scalar = hist_coord[:, -1, self.token_cell[0]]
             last_cell_values = hist_coord[:, -1].clone()
+            current_logits = hist_logits[:, -1].clone()
             draws: list[torch.Tensor] = []
+            level_frames: list[torch.Tensor] = []
             for token in range(n_tokens):
                 cell = int(self.token_cell[token].item())
                 day = int(self.token_day[token].item())
-                anchor = hist_coord[:, -1, cell]
+                if self.cfg.target_mode == "level":
+                    anchor = hist_coord[:, -1, cell]
+                else:
+                    anchor = current_logits[:, cell]
                 if self.cfg.use_same_cell_feedback:
                     scalar_feat = torch.stack([prev_scalar, anchor, last_cell_values[:, cell]], dim=-1)
                 else:
@@ -258,12 +301,22 @@ class FutureScalarARMixtureDensityModel(nn.Module):
                 draws.append(draw)
                 last_cell_values[:, cell] = draw
                 prev_scalar = draw
-            future_coord = torch.stack(draws, dim=1).view(
-                bsz * k,
-                self.cfg.future_len,
-                self.cfg.n_cells,
-            )
-            future_logits = self._from_model_coord(future_coord)
+                if self.cfg.target_mode == "transition":
+                    current_logits[:, cell] = current_logits[:, cell] + self._scalar_from_model_coord(
+                        draw,
+                        cell,
+                    )
+                    if cell == self.cfg.n_cells - 1:
+                        level_frames.append(current_logits.clone())
+            if self.cfg.target_mode == "level":
+                future_coord = torch.stack(draws, dim=1).view(
+                    bsz * k,
+                    self.cfg.future_len,
+                    self.cfg.n_cells,
+                )
+                future_logits = self._from_model_coord(future_coord)
+            else:
+                future_logits = torch.stack(level_frames, dim=1)
             future_01 = logit_to_iv(future_logits)
             if self.cfg.n_cells == 25:
                 future_01 = future_01.view(bsz, k, self.cfg.future_len, 5, 5)

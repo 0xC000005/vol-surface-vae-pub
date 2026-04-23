@@ -56,17 +56,26 @@ def compute_train_logit_stats(
     train_future: torch.Tensor,
     logit_eps: float,
     std_floor: float,
+    target_mode: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    levels = torch.cat(
-        [
-            train_hist.view(train_hist.shape[0], train_hist.shape[1], -1),
-            train_future.view(train_future.shape[0], train_future.shape[1], -1),
-        ],
-        dim=1,
-    ).reshape(-1, train_hist.shape[-2] * train_hist.shape[-1])
-    logits = iv_to_logit(levels, logit_eps)
-    mean = logits.mean(dim=0)
-    std = logits.std(dim=0, unbiased=False).clamp_min(std_floor)
+    hist = train_hist.view(train_hist.shape[0], train_hist.shape[1], -1)
+    future = train_future.view(train_future.shape[0], train_future.shape[1], -1)
+    hist_logits = iv_to_logit(hist, logit_eps)
+    future_logits = iv_to_logit(future, logit_eps)
+    if target_mode == "level":
+        target = torch.cat([hist_logits, future_logits], dim=1).reshape(-1, hist.shape[-1])
+    elif target_mode == "transition":
+        target = torch.cat(
+            [
+                future_logits[:, :1] - hist_logits[:, -1:, :],
+                future_logits[:, 1:] - future_logits[:, :-1],
+            ],
+            dim=1,
+        ).reshape(-1, hist.shape[-1])
+    else:
+        raise ValueError("target_mode must be 'level' or 'transition'")
+    mean = target.mean(dim=0)
+    std = target.std(dim=0, unbiased=False).clamp_min(std_floor)
     return mean, std
 
 
@@ -89,6 +98,7 @@ def main() -> None:
     parser.add_argument("--use_history_delta_features", action="store_true")
     parser.add_argument("--standardize_logits", action="store_true")
     parser.add_argument("--logit_std_floor", type=float, default=1e-3)
+    parser.add_argument("--target_mode", type=str, default="level", choices=["level", "transition"])
 
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -160,6 +170,7 @@ def main() -> None:
         use_history_delta_features=args.use_history_delta_features,
         standardize_logits=args.standardize_logits,
         logit_std_floor=args.logit_std_floor,
+        target_mode=args.target_mode,
     )
     model = FutureScalarARMixtureDensityModel(cfg).to(device)
     if args.standardize_logits:
@@ -168,6 +179,7 @@ def main() -> None:
             train_future,
             logit_eps=args.logit_eps,
             std_floor=args.logit_std_floor,
+            target_mode=args.target_mode,
         )
         model.set_logit_stats(logit_mean.to(device), logit_std.to(device))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)

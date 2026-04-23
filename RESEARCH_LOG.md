@@ -90494,3 +90494,25 @@ Close 320f as non-frontier. The next clean test is a transition-coordinate scala
 - eval MD: `results/block_ar/320f_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 321a transition-coordinate scalar chain-rule experiment
+
+### Context
+321a tests the transition-coordinate version of the scalar chain-rule model. It keeps the 320-style recurrent scalar mixture density, same-cell conditioning, per-cell standardized targets, and 320d capacity, but targets future logit increments rather than next logit levels. Sampling accumulates generated increments into future levels.
+
+### Result
+321a-v0 overfit transition likelihood after the early epochs, so the best validation checkpoint came from the early-stopped minimum. It scored 4/11, passing surface validity, block_ar, cross_cell_correlation, and mean_reversion.
+
+Key metrics: coverage90 0.861, calibration error 0.020, conditional MAE improvement 3.3%, turb/calm width ratio 1.002, ACF corr 0.953, kurtosis ratio 1.071 but skewness fails, daily KS 21/25 passes, level KS 4/25 fails, cross-cell corr ratio 0.891 and rank ratio 1.335 pass, full MR passes with h1 ratio 1.034, active cells 22/24, active-cell corr 0.862, pathwise max-jump KS 0.331, move-size profile passes all four thresholds, and cointegration worst-cell ratio fails at 0.132.
+
+### Mechanism
+The transition coordinate solves several path-dynamics problems: daily-change KS passes, move-size profile passes, cross-cell dependence is strong, and mean reversion is clean. The cost is level drift/bias: many level marginals are shifted down, level KS remains poor, and per-cell coverage worsens with horizon for specific cells. This means transition targeting is useful but needs better current-level conditioning, not another financial correction path.
+
+### Decision
+Keep the transition-coordinate scalar chain-rule line alive. The next minimal fix should standardize the current-level conditioning feature separately from the transition target statistics. In 321a, transition targets are standardized but current-level anchors are raw logits; normalizing that feature may reduce level drift while preserving daily-change and MR gains.
+
+### Artifacts
+- checkpoint: `models/backfill/321a_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/321a_v0_s42/full11.json`
+- eval MD: `results/block_ar/321a_v0_s42/full11.md`
+
+---
