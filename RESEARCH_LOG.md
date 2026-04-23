@@ -90384,3 +90384,25 @@ Keep 320 alive. The next minimal move should stay inside the scalar chain-rule p
 - eval MD: `results/block_ar/320a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 320b longer scalar chain-rule training experiment
+
+### Context
+320a validation NLL was still improving near the 24-epoch cutoff, so 320b kept the exact same scalar chain-rule mixture-density architecture and only extended training to 48 epochs. This tested whether the current paradigm was undertrained before adding any new conditioning features.
+
+### Result
+320b-v0 reached best validation NLL around epoch 45 (`val_total=-0.900`), improving substantially over 320a (`-0.791`). The full 11-suite score remained 3/11, passing surface validity, block_ar, and cointegration.
+
+Important metric deltas versus 320a: coverage90 improved 0.857 -> 0.863 and calibration error 0.022 -> 0.013; turb/calm width ratio improved 1.074 -> 1.146, just below the 1.15 conditionality gate; daily KS improved 3/25 -> 6/25; level KS improved 3/25 -> 6/25; cross-cell corr ratio improved 0.405 -> 0.488, just below the 0.5 gate, and rank ratio improved 3.076 -> 2.781, now passing the rank subgate; h1 MR ratio improved to 1.267 with active-cell corr 0.787, and the full-horizon aggregate MR profile now passes, but active-cell coverage/correlation still fails. Pathwise max-jump KS worsened 0.481 -> 0.527.
+
+### Mechanism
+This is a strong keep-alive signal for 320. More likelihood training improved cross-cell dependence, marginal KS counts, regime sensitivity, and MR structure without any extra financial machinery. The remaining failures are still mostly cell-local calibration and tail-profile failures, not an architectural collapse.
+
+### Decision
+Continue inside 320. The next change should be a minimal allowed conditioning skip: give each scalar token direct access to the previous generated/teacher-forced same-cell level. That variable is already in the chain-rule conditioning set for day `t>1`; exposing it directly should improve same-cell daily dynamics, move-size profile, and per-cell coverage without introducing a center/residual path or low-rank structure.
+
+### Artifacts
+- checkpoint: `models/backfill/320b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/320b_v0_s42/full11.json`
+- eval MD: `results/block_ar/320b_v0_s42/full11.md`
+
+---

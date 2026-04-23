@@ -1061,7 +1061,7 @@ def load_one_day_kernel(
         )
 
         return load_318a_model(checkpoint_path, device)
-    if model_type == "320a":
+    if model_type in {"320a", "320b"}:
         from diffusion.block_ar.future_scalar_ar_mixture_density_model import (
             load_model as load_320a_model,
         )
