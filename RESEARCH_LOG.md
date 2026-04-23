@@ -86617,3 +86617,45 @@ Question:
 - or are simple support changes already near a local cap?
 
 ---
+## 2026-04-22: 296c vs 296d hybrid comparison analysis
+
+### Context
+`296d-v0` was the first hybrid support-law experiment after `296c` tied the frontier.
+
+So the immediate question became:
+- is the hybrid branch still asking for a support-law change,
+- or did `296d` show that simple support changes are already near a local cap?
+
+### Result
+The `296c` vs `296d` comparison is now clear:
+- `296d` improved broad calibration and pathwise tail scale
+- but it worsened:
+  - h1 coverage
+  - regime-sensitive width
+  - surface validity
+  - structural carryover
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296cd_comparison/summary.md`
+
+### Mechanism Read
+The hybrid decomposition remains alive.
+
+But both of these local branches are now near a cap:
+- pure scale-allocation refinements
+- simple global support-law changes
+
+The remaining miss is more targeted:
+- conditional shell mass allocation at early horizons and stressed regimes
+
+### Decision
+Next step:
+- `296e` ideation
+
+Constraint:
+- keep the hybrid decomposition
+- keep the zero-mean shell geometry
+- change shell objective or a targeted short-horizon allocation mechanism
+- do not add another global scale factor or global tail factor
+
+---
