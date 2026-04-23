@@ -89301,3 +89301,82 @@ It simply says that if transitions need to know where the process currently is, 
 Implement `314c-v0` with level-aware transition dynamics and run the full train/eval loop.
 
 ---
+## 2026-04-23: 314c level-aware token-state logit transition model
+
+### Context
+`314c-v0` was the direct falsifier for the `314a/314b` mechanism read.
+
+It kept the `314b` transition-emission family and its healthy latent usage, but added one explicit state variable to the probabilistic law:
+- posterior now sees `(Δx_t, x_{t-1}, h)`
+- prior now evolves `(z_{t-1}, x_{t-1}, h)`
+- decoder emits `Δx_t` from `(z_t, x_{t-1})`
+
+This was the smallest level-aware repair that could have restored long-run anchoring and mean reversion without reintroducing a center/residual split.
+
+### Result
+`314c-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `23`
+- suite score: `2/11`
+- passing suites: `block_ar`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.581`
+- calibration error: `0.203`
+- conditional MAE reduction: `3.1%`
+- turb/calm width ratio: `0.933`
+- ACF corr: `0.952`
+- kurtosis ratio: `0.312`
+- cointegration ratio: `0.506`
+- worst-cell cointegration ratio: `0.092`
+- daily-change KS pass cells: `15/25`
+- level KS pass cells: `7/25`
+- corr ratio: `1.189`
+- rank ratio: `0.736`
+- MR ratio: `1.116`
+- active MR pass rate: `41.7%`
+- pathwise jump KS: `0.993`
+- jump q99 ratio: `0.399`
+- extreme-jump incidence ratio: `0.040`
+
+Training diagnostics:
+- KL stayed active at `~0.71`
+- prior std stabilized around `0.42`
+- posterior std stabilized around `0.23`
+- again, this is not a collapse failure
+
+### Mechanism Read
+This is a decisive negative result for the simple `314` repair program.
+
+What improved versus `314b`:
+- aggregate mean reversion came back near target
+- daily-change KS stayed at the pass threshold
+- the family remained support-valid in most senses and cross-cell structure still passed
+
+What regressed:
+- coverage fell back sharply
+- calibration degraded
+- surface validity even slipped below gate
+- worst-cell cointegration remained broken
+- jump realism stayed fundamentally dead
+
+So the missing-state-variable diagnosis was not enough. Making the transition law level-aware simply over-corrected toward the anchored side of the tradeoff without solving tails or local regime width.
+
+### Decision
+Do not keep iterating inside local `314` coordinate/state-conditioning variants.
+
+At this point the explicit-latent token-state family is scientifically useful, but locally capped:
+- `314a`: anchor without scale
+- `314b`: scale without anchor
+- `314c`: partial anchor recovery by sacrificing too much scale again
+
+The next HEAD step should be `research_ideation`, not `314d`.
+
+### Artifacts
+- model: `diffusion/block_ar/history_conditioned_level_aware_probabilistic_token_state_logit_transition_model.py`
+- trainer: `experiments/backfill/block_ar/train_314c_history_conditioned_level_aware_probabilistic_token_state_logit_transition_model.py`
+- checkpoint: `models/backfill/314c_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/314c_v0_s42/full11.json`
+- eval MD: `results/block_ar/314c_v0_s42/full11.md`
+
+---
