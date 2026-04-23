@@ -39,6 +39,7 @@ class FutureScalarARMixtureConfig:
     standardize_logits: bool = False
     logit_std_floor: float = 1e-3
     target_mode: str = "level"
+    standardize_level_features: bool = False
 
 
 class FutureScalarARMixtureDensityModel(nn.Module):
@@ -83,6 +84,8 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         self.register_buffer("token_cell", token_idx % cfg.n_cells)
         self.register_buffer("cell_logit_mean", torch.zeros(cfg.n_cells))
         self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
+        self.register_buffer("cell_level_mean", torch.zeros(cfg.n_cells))
+        self.register_buffer("cell_level_std", torch.ones(cfg.n_cells))
 
     @staticmethod
     def _flatten(x: torch.Tensor) -> torch.Tensor:
@@ -111,6 +114,12 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         self.cell_logit_mean.copy_(mean.to(self.cell_logit_mean))
         self.cell_logit_std.copy_(std.clamp_min(self.cfg.logit_std_floor).to(self.cell_logit_std))
 
+    def set_level_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        if mean.shape != (self.cfg.n_cells,) or std.shape != (self.cfg.n_cells,):
+            raise ValueError("Expected per-cell level stats with shape (n_cells,)")
+        self.cell_level_mean.copy_(mean.to(self.cell_level_mean))
+        self.cell_level_std.copy_(std.clamp_min(self.cfg.logit_std_floor).to(self.cell_level_std))
+
     def _to_model_coord(self, logits: torch.Tensor) -> torch.Tensor:
         if not self.cfg.standardize_logits:
             return logits
@@ -125,6 +134,16 @@ class FutureScalarARMixtureDensityModel(nn.Module):
         if not self.cfg.standardize_logits:
             return coord
         return coord * self.cell_logit_std[cell] + self.cell_logit_mean[cell]
+
+    def _level_feature(self, logits: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_level_features:
+            return logits
+        return (logits - self.cell_level_mean) / self.cell_level_std
+
+    def _scalar_level_feature(self, logit: torch.Tensor, cell: int) -> torch.Tensor:
+        if not self.cfg.standardize_level_features:
+            return logit
+        return (logit - self.cell_level_mean[cell]) / self.cell_level_std[cell]
 
     def _initial_hidden(self, context: torch.Tensor) -> torch.Tensor:
         hidden = self.init_hidden(context)
@@ -205,7 +224,10 @@ class FutureScalarARMixtureDensityModel(nn.Module):
             current_level = torch.empty_like(future_logits)
             current_level[:, 0] = history_logits[:, -1]
             current_level[:, 1:] = future_logits[:, :-1]
-            anchor_scalar = current_level.reshape(future_logits.shape[0], -1)
+            anchor_scalar = self._level_feature(current_level).reshape(
+                future_logits.shape[0],
+                -1,
+            )
             same_cell_source = target_seq
             same_cell_initial = history_trans_coord[:, -1]
         target = target_seq.reshape(target_seq.shape[0], -1)
@@ -284,7 +306,7 @@ class FutureScalarARMixtureDensityModel(nn.Module):
                 if self.cfg.target_mode == "level":
                     anchor = hist_coord[:, -1, cell]
                 else:
-                    anchor = current_logits[:, cell]
+                    anchor = self._scalar_level_feature(current_logits[:, cell], cell)
                 if self.cfg.use_same_cell_feedback:
                     scalar_feat = torch.stack([prev_scalar, anchor, last_cell_values[:, cell]], dim=-1)
                 else:
@@ -335,7 +357,7 @@ def load_model(
     model = FutureScalarARMixtureDensityModel(cfg)
     state_dict = payload["model_state_dict"]
     result = model.load_state_dict(state_dict, strict=False)
-    allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    allowed_missing = {"cell_logit_mean", "cell_logit_std", "cell_level_mean", "cell_level_std"}
     missing = set(result.missing_keys) - allowed_missing
     if missing or result.unexpected_keys:
         raise RuntimeError(
@@ -343,7 +365,13 @@ def load_model(
             f"unexpected={sorted(result.unexpected_keys)}"
         )
     if cfg.standardize_logits and allowed_missing.intersection(result.missing_keys):
-        raise RuntimeError("Standardized-logit checkpoint is missing saved logit stats")
+        missing_stats = {"cell_logit_mean", "cell_logit_std"}.intersection(result.missing_keys)
+        if missing_stats:
+            raise RuntimeError("Standardized-logit checkpoint is missing saved logit stats")
+    if cfg.standardize_level_features and {"cell_level_mean", "cell_level_std"}.intersection(
+        result.missing_keys
+    ):
+        raise RuntimeError("Checkpoint is missing saved level feature stats")
     model.to(device).eval()
     return model, payload
 

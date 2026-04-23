@@ -79,6 +79,21 @@ def compute_train_logit_stats(
     return mean, std
 
 
+def compute_level_logit_stats(
+    train_hist: torch.Tensor,
+    train_future: torch.Tensor,
+    logit_eps: float,
+    std_floor: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    hist = train_hist.view(train_hist.shape[0], train_hist.shape[1], -1)
+    future = train_future.view(train_future.shape[0], train_future.shape[1], -1)
+    levels = torch.cat([hist, future], dim=1).reshape(-1, hist.shape[-1])
+    logits = iv_to_logit(levels, logit_eps)
+    mean = logits.mean(dim=0)
+    std = logits.std(dim=0, unbiased=False).clamp_min(std_floor)
+    return mean, std
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="320a-v0 scalar chain-rule mixture-density future path model"
@@ -99,6 +114,7 @@ def main() -> None:
     parser.add_argument("--standardize_logits", action="store_true")
     parser.add_argument("--logit_std_floor", type=float, default=1e-3)
     parser.add_argument("--target_mode", type=str, default="level", choices=["level", "transition"])
+    parser.add_argument("--standardize_level_features", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=24)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -171,6 +187,7 @@ def main() -> None:
         standardize_logits=args.standardize_logits,
         logit_std_floor=args.logit_std_floor,
         target_mode=args.target_mode,
+        standardize_level_features=args.standardize_level_features,
     )
     model = FutureScalarARMixtureDensityModel(cfg).to(device)
     if args.standardize_logits:
@@ -182,6 +199,14 @@ def main() -> None:
             target_mode=args.target_mode,
         )
         model.set_logit_stats(logit_mean.to(device), logit_std.to(device))
+    if args.standardize_level_features:
+        level_mean, level_std = compute_level_logit_stats(
+            train_hist,
+            train_future,
+            logit_eps=args.logit_eps,
+            std_floor=args.logit_std_floor,
+        )
+        model.set_level_stats(level_mean.to(device), level_std.to(device))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 

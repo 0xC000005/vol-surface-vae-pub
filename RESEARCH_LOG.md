@@ -90516,3 +90516,25 @@ Keep the transition-coordinate scalar chain-rule line alive. The next minimal fi
 - eval MD: `results/block_ar/321a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 321b standardized level-feature transition experiment
+
+### Context
+321b tested a targeted repair for 321a: keep standardized transition targets, same-cell conditioning, and the same capacity, but standardize the current-level conditioning feature with separate per-cell level statistics. The goal was to reduce level drift while preserving the transition-coordinate gains.
+
+### Result
+321b-v0 trained stably but scored 3/11, passing surface validity, block_ar, and cross_cell_correlation. It did not preserve the 321a mean-reversion pass; active cells dropped to 10/24 even though aggregate MR and active-cell correlation were acceptable.
+
+Key metrics: coverage90 0.861, calibration error 0.016, conditional MAE improvement 4.3%, turb/calm width ratio 0.974, ACF corr 0.952, daily KS 24/25 passes, level KS 6/25 fails, median-bias fraction 20/25 passes, cross-cell corr ratio 0.820 and rank ratio 1.499 pass, MR active cells 10/24 fail, pathwise max-jump KS 0.363, and cointegration worst-cell ratio 0.167 fails.
+
+### Mechanism
+Standardizing the level feature helps some marginal-bias diagnostics, especially the median-bias fraction, but it weakens the active MR profile and does not solve the level KS or per-cell coverage failures. The transition-coordinate family still has the right daily-change/move-size behavior, but the level distribution remains hard to control through transition likelihood alone.
+
+### Decision
+Close 321b as non-frontier. Keep 321a as the cleaner transition-coordinate evidence and 320d/320c as the stronger level-coordinate evidence. The next move should not keep adding feature normalizations. We need either a regularized transition run to reduce level drift/overfit, or a principled joint objective that keeps level and transition laws aligned without becoming a hand-tuned evaluator patch.
+
+### Artifacts
+- checkpoint: `models/backfill/321b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/321b_v0_s42/full11.json`
+- eval MD: `results/block_ar/321b_v0_s42/full11.md`
+
+---
