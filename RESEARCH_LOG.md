@@ -89552,3 +89552,72 @@ If that single `315b` repair does not materially improve corr ratio, level KS, a
 Implement `315b-v0` with generic global mixer tokens in the multiscale velocity network.
 
 ---
+## 2026-04-23: 315b multiscale global-token future-logit path flow experiment
+
+### Context
+`315b-v0` was the single allowed repair for the multiscale family after the `315a` postmortem. The coordinate system stayed fixed:
+- coarse knot-path logits at selected horizons
+- fine residual logits on non-knot horizons
+- one-stage vanilla flow over the joint state
+
+The only change was architectural: prepend a small bank of learned global mixer tokens inside the transformer so coarse and fine coordinates could communicate through shared internal state.
+
+### Result
+`315b-v0` trained stably and beat `315a` on validation loss, but the full 11-suite stayed at `2/11`.
+
+- best epoch: `23`
+- suite score: `2/11`
+- passing suites: `surface`, `block_ar`
+
+High-signal metrics:
+- coverage90: `0.925`
+- calibration error: `0.092`
+- conditional MAE reduction: `2.9%`
+- turb/calm width ratio: `1.018`
+- ACF corr: `0.941`
+- kurtosis ratio: `0.761`
+- cointegration ratio: `0.868`
+- worst-cell cointegration ratio: `0.194`
+- daily-change KS pass cells: `12/25`
+- level KS pass cells: `3/25`
+- corr ratio: `0.342`
+- rank ratio: `3.555`
+- MR ratio: `1.154`
+- active MR cells: `12/24`
+- pathwise jump KS: `0.344`
+- jump q90 ratio: `0.902`
+- jump q99 ratio: `1.053`
+- extreme-jump incidence ratio: `0.983`
+
+### Mechanism Read
+The global-token repair worked only weakly and only locally:
+- shared structure improved directionally relative to `315a`
+- level KS moved off zero
+- jump-shape realism improved
+
+But the move did not recover the actual missing gates:
+- cross-cell structure still failed badly
+- worst-cell cointegration still failed
+- daily-change fidelity barely moved
+- conditionality stayed weak
+- coverage calibration became materially worse
+- mean-reversion still failed at suite level because active-cell behavior stayed too weak
+
+So the verdict is clean. The `315` family is not failing just because its mixer lacked a shared path. It is failing because the multiscale coordinate split itself still diffuses too much geometry and long-run anchor.
+
+### Decision
+Retire `315`.
+
+The one justified local repair has now been spent. Further multiscale-local tweaks would be knob accumulation rather than principled progress.
+
+### Next Step
+Choose a paradigm shift next. The evidence now points back toward a direct future-path law with a generic internal shared-coupling mechanism, but without multiscale factorization and without posterior latent machinery.
+
+### Artifacts
+- model: `diffusion/block_ar/multiscale_global_token_future_logit_path_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_315b_multiscale_global_token_future_logit_path_flow_matching.py`
+- checkpoint: `models/backfill/315b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/315b_v0_s42/full11.json`
+- eval MD: `results/block_ar/315b_v0_s42/full11.md`
+
+---
