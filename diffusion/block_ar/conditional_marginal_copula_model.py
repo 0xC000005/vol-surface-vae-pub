@@ -66,6 +66,19 @@ class EmpiricalMarginalTransportConfig:
     n_quantiles: int = 101
 
 
+@dataclass
+class StateConditionalEmpiricalTransportConfig:
+    history_len: int = 30
+    future_len: int = 30
+    n_cells: int = 25
+    logit_eps: float = 1e-4
+    max_sample_chunk: int = 8
+    base_checkpoint: str = "models/backfill/321c_v0_s42/best_model.pt"
+    n_quantiles: int = 101
+    n_level_bins: int = 5
+    n_vol_bins: int = 3
+
+
 class ConditionalMarginalCopulaModel(nn.Module):
     """323a: conditional scalar marginals plus an empirical neural copula.
 
@@ -405,6 +418,137 @@ class EmpiricalMarginalTransportCopulaModel(nn.Module):
         return out
 
 
+class StateConditionalEmpiricalTransportCopulaModel(nn.Module):
+    """323d: empirical marginal transport conditioned on current state."""
+
+    def __init__(
+        self,
+        cfg: StateConditionalEmpiricalTransportConfig,
+        source_quantiles: torch.Tensor,
+        target_quantiles: torch.Tensor,
+        quantile_levels: torch.Tensor,
+        level_edges: torch.Tensor,
+        vol_edges: torch.Tensor,
+        base_model: FutureScalarARMixtureDensityModel | None = None,
+    ):
+        super().__init__()
+        self.cfg = cfg
+        n_bins = cfg.n_level_bins * cfg.n_vol_bins
+        expected_q = (cfg.n_cells, n_bins, cfg.future_len, cfg.n_quantiles)
+        if tuple(source_quantiles.shape) != expected_q or tuple(target_quantiles.shape) != expected_q:
+            raise ValueError(f"Expected conditional quantile tensors with shape {expected_q}")
+        if tuple(level_edges.shape) != (cfg.n_cells, cfg.n_level_bins - 1):
+            raise ValueError("Unexpected level_edges shape")
+        if tuple(vol_edges.shape) != (cfg.n_vol_bins - 1,):
+            raise ValueError("Unexpected vol_edges shape")
+        self.register_buffer("source_quantiles", source_quantiles.float())
+        self.register_buffer("target_quantiles", target_quantiles.float())
+        self.register_buffer("quantile_levels", quantile_levels.float())
+        self.register_buffer("level_edges", level_edges.float())
+        self.register_buffer("vol_edges", vol_edges.float())
+        self.__dict__["base_model"] = base_model
+
+    @torch.no_grad()
+    def sample_batched(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 50,
+        n_steps: int = 30,
+        chunk_size: int = 8,
+        history_is_normalized: bool = True,
+        **kwargs: object,
+    ) -> torch.Tensor:
+        if n_steps != self.cfg.future_len:
+            raise ValueError(f"Expected n_steps={self.cfg.future_len}, got {n_steps}")
+        if self.base_model is None:
+            raise RuntimeError("StateConditionalEmpiricalTransportCopulaModel requires a base model")
+        history_norm = history if history_is_normalized else normalize_iv(history)
+        history_norm = history_norm.view(history_norm.shape[0], history_norm.shape[1], -1)
+        bin_idx = self._state_bins(history_norm)
+        base_samples = self.base_model.sample_batched(
+            history_norm,
+            n_samples=n_samples,
+            n_steps=n_steps,
+            chunk_size=chunk_size,
+            history_is_normalized=True,
+            **kwargs,
+        )
+        base_flat = base_samples.view(
+            base_samples.shape[0],
+            base_samples.shape[1],
+            self.cfg.future_len,
+            self.cfg.n_cells,
+        )
+        base_logits = iv_to_logit(base_flat, self.cfg.logit_eps)
+        source, target = self._select_maps(bin_idx)
+        transported = self._transport_selected(base_logits, source, target)
+        future_01 = logit_to_iv(transported)
+        if self.cfg.n_cells == 25:
+            return future_01.view(
+                history_norm.shape[0],
+                n_samples,
+                self.cfg.future_len,
+                5,
+                5,
+            )
+        return future_01
+
+    def _state_bins(self, history_norm: torch.Tensor) -> torch.Tensor:
+        history_01 = denormalize_iv(history_norm)
+        history_logits = iv_to_logit(history_01, self.cfg.logit_eps)
+        last_logits = history_logits[:, -1]
+        level_bins = torch.empty_like(last_logits, dtype=torch.long)
+        for cell in range(self.cfg.n_cells):
+            level_bins[:, cell] = torch.bucketize(last_logits[:, cell], self.level_edges[cell])
+        daily = history_01[:, 1:] - history_01[:, :-1]
+        realized_var = daily.pow(2).mean(dim=(1, 2))
+        vol_bins = torch.bucketize(realized_var, self.vol_edges)
+        return level_bins * self.cfg.n_vol_bins + vol_bins[:, None]
+
+    def _select_maps(self, bin_idx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        bsz = bin_idx.shape[0]
+        source = torch.empty(
+            bsz,
+            self.cfg.future_len,
+            self.cfg.n_cells,
+            self.cfg.n_quantiles,
+            device=bin_idx.device,
+        )
+        target = torch.empty_like(source)
+        src = self.source_quantiles.to(bin_idx.device)
+        tgt = self.target_quantiles.to(bin_idx.device)
+        for cell in range(self.cfg.n_cells):
+            source[:, :, cell] = src[cell, bin_idx[:, cell]]
+            target[:, :, cell] = tgt[cell, bin_idx[:, cell]]
+        return source, target
+
+    @staticmethod
+    def _transport_selected(
+        x: torch.Tensor,
+        source_quantiles: torch.Tensor,
+        target_quantiles: torch.Tensor,
+    ) -> torch.Tensor:
+        src = source_quantiles[:, None]
+        tgt = target_quantiles[:, None]
+        low_denom = (src[..., 1] - src[..., 0]).abs().clamp_min(1e-6)
+        out = tgt[..., 0] + (x - src[..., 0]) * (tgt[..., 1] - tgt[..., 0]) / low_denom
+        for idx in range(source_quantiles.shape[-1] - 1):
+            src_lo = src[..., idx]
+            src_hi = src[..., idx + 1]
+            tgt_lo = tgt[..., idx]
+            tgt_hi = tgt[..., idx + 1]
+            denom = (src_hi - src_lo).abs().clamp_min(1e-6)
+            weight = (x - src_lo) / denom
+            value = tgt_lo + weight * (tgt_hi - tgt_lo)
+            mask = (x >= src_lo) & (x <= src_hi)
+            out = torch.where(mask, value, out)
+        high_denom = (src[..., -1] - src[..., -2]).abs().clamp_min(1e-6)
+        high = tgt[..., -1] + (x - src[..., -1]) * (
+            tgt[..., -1] - tgt[..., -2]
+        ) / high_denom
+        return torch.where(x > src[..., -1], high, out)
+
+
 def _validate_quantile_levels(levels: Sequence[float]) -> None:
     if len(levels) < 3:
         raise ValueError("quantile_levels must contain at least three levels")
@@ -430,6 +574,21 @@ def load_model(
             source_quantiles=payload["source_quantiles"],
             target_quantiles=payload["target_quantiles"],
             quantile_levels=payload["quantile_levels"],
+            base_model=base_model,
+        )
+        model.to(device).eval()
+        model.base_model.to(device).eval()
+        return model, payload
+    if payload.get("model_class") == "state_conditional_transport":
+        cfg = StateConditionalEmpiricalTransportConfig(**payload["config"])
+        base_model, _ = load_scalar_ar_model(cfg.base_checkpoint, device)
+        model = StateConditionalEmpiricalTransportCopulaModel(
+            cfg,
+            source_quantiles=payload["source_quantiles"],
+            target_quantiles=payload["target_quantiles"],
+            quantile_levels=payload["quantile_levels"],
+            level_edges=payload["level_edges"],
+            vol_edges=payload["vol_edges"],
             base_model=base_model,
         )
         model.to(device).eval()
@@ -478,6 +637,31 @@ def save_transport_checkpoint(
             "source_quantiles": source_quantiles.cpu(),
             "target_quantiles": target_quantiles.cpu(),
             "quantile_levels": quantile_levels.cpu(),
+        },
+        path,
+    )
+
+
+def save_state_conditional_transport_checkpoint(
+    path: str,
+    cfg: StateConditionalEmpiricalTransportConfig,
+    source_quantiles: torch.Tensor,
+    target_quantiles: torch.Tensor,
+    quantile_levels: torch.Tensor,
+    level_edges: torch.Tensor,
+    vol_edges: torch.Tensor,
+) -> None:
+    torch.save(
+        {
+            "model_class": "state_conditional_transport",
+            "config": asdict(cfg),
+            "epoch": 0,
+            "best_val": 0.0,
+            "source_quantiles": source_quantiles.cpu(),
+            "target_quantiles": target_quantiles.cpu(),
+            "quantile_levels": quantile_levels.cpu(),
+            "level_edges": level_edges.cpu(),
+            "vol_edges": vol_edges.cpu(),
         },
         path,
     )

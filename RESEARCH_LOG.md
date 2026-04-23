@@ -90670,3 +90670,25 @@ Unconditional empirical transport preserves much more of 321c's path structure t
 Continue only one more clean 323 variant: state-conditional empirical marginal transport using current level and historical realized variance bins. This is still a conditional CDF estimator inside the same Sklar factorization. If that fails to move level KS/per-cell coverage materially, abandon 323 and shift to a larger learned joint sequence model rather than adding more calibration knobs.
 
 ---
+## 2026-04-23: 323d state-conditional empirical transport falsifier
+
+### Context
+323d was the final planned 323 falsifier. It kept the same 321c copula/path sampler but made empirical marginal transport state-conditional using current same-cell level bins and historical realized-variance bins. This targeted the specific 323c failure mode: unconditional transport was too blunt under state-dependent level regimes.
+
+### Result
+`323d_v0_s42` scored `4/11`, passing surface validity, block-AR boundary smoothness, cointegration, and cross-cell correlation. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: overall 90% coverage `0.871`, calibration error `0.011`, per-cell coverage fails at all horizons; turb/calm width ratio `1.066`; daily-change KS `24/25` pass; level KS `4/25` pass; median-bias fraction and magnitude pass; move-size profile passes all four thresholds; corr ratio `0.773`; rank ratio `1.763`; cointegration gen/GT ratio `0.732` and worst-cell ratio `0.250` pass; aggregate MR ratio `1.027` pass but active-cell profile fails; pathwise max-jump KS `0.398`; per-cell q99 jump pass `17/25`.
+
+Artifacts:
+- model: `models/backfill/323d_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/323d_v0_s42/full11.json`
+- eval MD: `results/block_ar/323d_v0_s42/full11.md`
+
+### Mechanism Read
+State-conditional transport helps relative to 323c: cointegration passes, daily-change KS improves, median bias passes, and move-size profile remains calibrated. But the central obstacles remain: validation level marginals and per-cell coverage do not become correct, volatility-conditioned width response remains too weak, and marginal transport deforms pathwise jump geometry. This says the 323 path is not failing due to one missing bin or one marginal-family detail; it is capped by separating marginals and dependence around a fixed 321c copula.
+
+### Decision
+Close 323 as capped. Do not add more empirical-transport knobs. The next principled shift is a larger learned joint sequence model: model the future path as one conditional token sequence with a transformer-style joint density or flow objective, so marginal calibration and dependence are learned together rather than stitched by post-hoc marginal transport.
+
+---
