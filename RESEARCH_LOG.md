@@ -89139,3 +89139,82 @@ The next principled step is `314b`: keep the same history-conditioned token-stat
 - eval MD: `results/block_ar/314a_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 314b history-conditioned probabilistic token-state logit transition model
+
+### Context
+`314b-v0` was the first follow-up to `314a`. The family was now clearly alive, but `314a` still emitted absolute future levels and therefore produced a path law that was too smooth, too attractor-like, and too under-dispersed.
+
+The minimal repair in `314b` was a coordinate change only:
+- keep the same history-conditioned latent token state
+- keep the same posterior and transition prior structure
+- keep the same narrow bottleneck and plain KL objective
+- change the observation model from absolute future logit levels to future logit transitions
+- integrate sampled transitions from the last observed logit at generation time
+
+### Result
+`314b-v0` trained stably and evaluated successfully on the common 11-suite.
+
+- best epoch: `23`
+- suite score: `3/11`
+- passing suites: `surface`, `block_ar`, `cross_cell_correlation`
+
+High-signal metrics:
+- coverage90: `0.798`
+- calibration error: `0.032`
+- conditional MAE reduction: `4.1%`
+- turb/calm width ratio: `1.061`
+- ACF corr: `0.950`
+- kurtosis ratio: `0.281`
+- move-size ratios: `1.015`, `0.985`, `0.986`, `1.007` across the four thresholds
+- cointegration ratio: `0.687`
+- worst-cell cointegration ratio: `0.171`
+- daily-change KS pass cells: `19/25`
+- level KS pass cells: `8/25`
+- corr ratio: `1.173`
+- rank ratio: `0.719`
+- MR ratio: `0.296`
+- active MR pass rate: `0.0%`
+- pathwise jump KS: `0.998`
+- jump q90 ratio: `0.308`
+- jump q99 ratio: `0.393`
+- extreme-jump incidence ratio: `0.048`
+
+Training diagnostics:
+- KL stayed active at `~0.70`
+- prior std stabilized around `0.53`
+- posterior std stabilized around `0.29`
+- again, this is not a posterior-collapse run
+
+### Mechanism Read
+This is a clean coordinate tradeoff, not a dead family.
+
+What `314b` fixed versus `314a`:
+- calibration and overall coverage improved sharply
+- move-size realism moved from fail to pass across all four thresholds
+- daily-change KS crossed the suite gate
+- per-window coverage floor now passes
+- the latent state remained active without heuristic rescue machinery
+
+What `314b` broke versus `314a`:
+- worst-cell cointegration fell back below gate
+- mean reversion collapsed in the opposite direction, with almost no active cells left
+- regime layer 1 improved, but layer 2 still failed and widths remained only weakly regime-sensitive
+- jump realism is still far below target despite better local move-size shape
+
+So the current `314` lesson is now explicit:
+- level emission gives long-run anchor but under-disperses
+- transition emission restores local stochastic scale but loses long-run anchor
+
+### Decision
+Do not guess the next repair from intuition alone.
+
+The next HEAD step should be `post_experiment_analysis` on the `314a/314b` tradeoff. The likely `314c` direction is some minimal way to restore long-run anchoring and mean reversion inside the transition-emission family without quietly reintroducing a center/residual split, but that needs to be chosen from the evidence, not from habit.
+
+### Artifacts
+- model: `diffusion/block_ar/history_conditioned_probabilistic_token_state_logit_transition_model.py`
+- trainer: `experiments/backfill/block_ar/train_314b_history_conditioned_probabilistic_token_state_logit_transition_model.py`
+- checkpoint: `models/backfill/314b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/314b_v0_s42/full11.json`
+- eval MD: `results/block_ar/314b_v0_s42/full11.md`
+
+---
