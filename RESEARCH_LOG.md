@@ -87753,3 +87753,25 @@ Artifacts:
 - `results/block_ar/303d_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 303 recurrent-token branch cap postmortem
+
+### Context
+
+The recurrent-token branch now has four decisive observations: `303a` isolated recurrence, `303b` repaired dependence with token mixing, `303c` tested stronger conditioning injection, and `303d` tested a first rollout-objective alignment fine-tune.
+
+### Findings
+
+- `303b` is best for dependence/change law: corr ratio `0.911`, rank ratio `1.559`, change KS `24/25`, q99 cells `21/25`.
+- `303c` is best for conditioning/jump-shape: conditional MAE reduction `4.3%`, max-jump KS `0.209`, but weaker dependence/MR.
+- `303d` is best for mean reversion: full-horizon MR passes with active pass `91.8%`, but coverage collapses to cov90 `0.510` and window-floor bad rate `42.7%`.
+- All variants remain `4/11` or below and fail some combination of coverage, conditionality/regime, level distribution, and pathwise realism.
+
+### Mechanism Read
+
+The branch is scientifically clean but capped. Recursive one-step generation gives native state dependence, and token velocity gives joint local transition geometry, but the free-run 30-day law remains hard to calibrate without damaging another suite. Local architecture changes and the naive rollout-energy objective are now both falsified as score-improving moves.
+
+### Decision
+
+Stop stacking local `303` variants. Shift paradigm away from one-step recursive rollout to a joint full-path conditional law in support-valid logit-transition coordinates. The next clean family should sample the whole 30-day transition path jointly with a generic time-cell token flow: encode history, construct future time/cell tokens, model dependencies across all future points, and decode by cumulative logit transitions. This keeps the vanilla generative core and avoids retrieval, low-rank readouts, bounded idio/EC paths, and evaluator-specific losses.
+
+---
