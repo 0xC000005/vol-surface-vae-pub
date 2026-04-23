@@ -87491,3 +87491,29 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/301a_state_dependence_diagnostic/summary.json`
 
 ---
+## 2026-04-23: 303 recurrent support-valid logit-transition paradigm
+
+### Context
+
+The `301a/302a` comparison capped the one-shot support-valid transition-flow branch. The key failure is not numerical support or lack of stochasticity; it is weak native state dependence. Prior recurrent work (`220d/e/f/g`) cannot be copied directly because those branches used the older local-scale/asinh one-day law with clipping, rollout-loss tuning, and optional slow-state adapters.
+
+### Hypothesis
+
+Use the clean autoregressive factorization of the conditional joint law:
+
+`p(future | history) = product_t p(logit(IV_t) - logit(IV_{t-1}) | generated history/state)`.
+
+This keeps the core generative model vanilla while making state dependence native: after each sampled transition, the model updates the actual generated state on support and conditions the next transition on that updated history/state.
+
+### Design Guardrails
+
+- Keep the observation coordinate support-valid: sample logit-IV transitions and decode with sigmoid.
+- Keep the transition law vanilla: conditional flow over the next 25D transition, not a low-rank decoder or hand-built factor path.
+- Use recurrence as factorization, not as an added correction shell.
+- Do not add slow-latent adapters, bounded idio/EC paths, retrieval replay, low-rank readouts, or evaluator-specific losses in v0.
+
+### Decision
+
+Implement `303a-v0`: recurrent support-valid logit-transition flow. Train with teacher-forced 30-step one-day transition objectives, then evaluate by recursive multi-day sampling under the same full 11-suite. This directly tests whether native recurrent state dependence closes the mean-reversion/level-law gap without sacrificing the support-valid safety recovered by `300a-302a`.
+
+---
