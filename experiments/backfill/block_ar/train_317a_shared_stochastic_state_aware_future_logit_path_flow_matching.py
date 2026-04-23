@@ -69,6 +69,7 @@ def main() -> None:
     parser.add_argument("--max_sample_chunk", type=int, default=2)
     parser.add_argument("--shared_noise_tokens", type=int, default=4)
     parser.add_argument("--shared_noise_dim", type=int, default=16)
+    parser.add_argument("--ot_source_coupling", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=28)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -142,6 +143,7 @@ def main() -> None:
         max_sample_chunk=args.max_sample_chunk,
         shared_noise_tokens=args.shared_noise_tokens,
         shared_noise_dim=args.shared_noise_dim,
+        ot_source_coupling=args.ot_source_coupling,
     )
     model = SharedStochasticStateAwareFutureLogitPathFlowMatching(cfg).to(device)
     optimizer = torch.optim.AdamW(
@@ -203,12 +205,19 @@ def main() -> None:
             "lr": optimizer.param_groups[0]["lr"],
             "sec": time.time() - t0,
         }
+        if "ot_source_cost" in val_avg:
+            rec["val_ot_source_cost"] = val_avg["ot_source_cost"]
         history.append(rec)
+        ot_text = (
+            f" ot_cost={rec['val_ot_source_cost']:.3f}"
+            if "val_ot_source_cost" in rec
+            else ""
+        )
         print(
             f"[ep {epoch:03d}] train={rec['train_total']:.5f} val={rec['val_total']:.5f} "
             f"logit_std={rec['val_future_logit_std']:.3f} logit_abs={rec['val_future_logit_abs']:.3f} "
             f"trans_std={rec['val_implied_transition_std']:.3f} trans_abs={rec['val_implied_transition_abs']:.3f} "
-            f"base_std={rec['val_base_noise_std']:.3f} shared_std={rec['val_shared_field_std']:.3f} "
+            f"base_std={rec['val_base_noise_std']:.3f} shared_std={rec['val_shared_field_std']:.3f}{ot_text} "
             f"lr={rec['lr']:.2e} time={rec['sec']:.1f}s"
         )
         if val_avg["total"] < best_val:

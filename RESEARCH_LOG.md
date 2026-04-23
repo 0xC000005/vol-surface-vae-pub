@@ -89939,3 +89939,75 @@ Run `317b-v0`:
 Hard falsifier: if `317b` does not materially improve corr ratio/rank ratio and level KS without destroying cointegration/MR/calibration, retire the `317` family.
 
 ---
+## 2026-04-23: 317b OT-coupled shared-stochastic flow experiment
+
+### Context
+`317b-v0` was the single allowed repair after the `317a` postmortem. It kept the same architecture and sampler:
+- direct future-logit path coordinates
+- narrow shared stochastic base-noise channel
+- shared stochastic prefix tokens
+- one-stage FM objective
+
+The only change was the source-target coupling during training: minibatch OT pairs sampled source paths with target future paths before building the FM interpolation.
+
+### Result
+`317b-v0` trained stably and reduced validation FM loss relative to `317a`, but the full suite remained `3/11`.
+
+- best epoch: `25`
+- best validation loss: `0.3155`
+- suite score: `3/11`
+- passing suites: `surface`, `block_ar`, `cointegration`
+
+High-signal metrics:
+- coverage90: `0.881`
+- calibration error: `0.021`
+- conditional MAE reduction: `2.6%`
+- turb/calm width ratio: `1.024`
+- ACF corr: `0.939`
+- kurtosis ratio: `0.739`
+- cointegration ratio: `1.202`
+- worst-cell cointegration ratio: `0.500`
+- daily-change KS pass cells: `19/25`
+- level KS pass cells: `4/25`
+- corr ratio: `0.217`
+- rank ratio: `3.940`
+- MR ratio: `1.470`
+- active MR cells: `11/24`
+- pathwise jump KS: `0.346`
+- jump q90 ratio: `0.887`
+- jump q99 ratio: `1.034`
+- extreme-jump incidence ratio: `0.978`
+
+### Mechanism Read
+The OT coupling helped the training objective and local daily law, but it did not solve the structural bottleneck:
+- corr ratio improved only `0.177 -> 0.217`, still far below the `0.5` gate and below `312a` at `0.446`
+- rank ratio improved only `4.054 -> 3.940`, still above the `3.0` gate
+- level KS improved only `3/25 -> 4/25`
+- aggregate MR broke: `1.234 -> 1.470`
+- pathwise jump KS worsened: `0.319 -> 0.346`
+
+So the remaining failure is not just poor source-target pairing. The 317 direct-path FM family still does not put enough explicit pressure on the learned law to represent cross-cell dependence.
+
+### Decision
+Retire `317`.
+
+The family had one principled repair after `317a`; spending more variants here would become knob accumulation.
+
+### Next Step
+Choose a paradigm shift. The next clean direction should model the joint scenario law through the likelihood/factorization itself, not through post-hoc source noise:
+- chain-rule model over future daily logit transitions
+- full 25-cell conditional covariance per day
+- recurrent or transformer state across future days
+- no low-rank decoder
+- no bounded idio/EC path
+- no two-stage/posterior-prior scaffold
+
+This keeps the model first-principles: a multivariate conditional law factorized by the probability chain rule.
+
+### Artifacts
+- model/trainer: `diffusion/block_ar/shared_stochastic_state_aware_future_logit_path_flow_matching.py`, `experiments/backfill/block_ar/train_317a_shared_stochastic_state_aware_future_logit_path_flow_matching.py --ot_source_coupling`
+- checkpoint: `models/backfill/317b_v0_s42/best_model.pt`
+- eval JSON: `results/block_ar/317b_v0_s42/full11.json`
+- eval MD: `results/block_ar/317b_v0_s42/full11.md`
+
+---

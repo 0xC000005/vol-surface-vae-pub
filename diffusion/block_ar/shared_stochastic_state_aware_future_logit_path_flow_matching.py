@@ -25,6 +25,7 @@ class SharedStochasticStateAwareFutureLogitPathFMConfig(
 ):
     shared_noise_tokens: int = 4
     shared_noise_dim: int = 16
+    ot_source_coupling: bool = False
 
 
 class SharedStochasticFutureLogitPathVelocity(nn.Module):
@@ -160,6 +161,28 @@ class SharedStochasticStateAwareFutureLogitPathFlowMatching(
         base_noise = (local_noise + shared_field) / math.sqrt(2.0)
         return base_noise, shared_noise, shared_field
 
+    @staticmethod
+    def _source_permutation_from_ot(
+        source: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        from scipy.optimize import linear_sum_assignment
+
+        cost = torch.cdist(
+            source.detach().flatten(1).float(),
+            target.detach().flatten(1).float(),
+        )
+        source_idx, target_idx = linear_sum_assignment(cost.cpu().numpy())
+        source_for_target = torch.empty(
+            target.shape[0],
+            dtype=torch.long,
+            device=target.device,
+        )
+        source_for_target[
+            torch.as_tensor(target_idx, dtype=torch.long, device=target.device)
+        ] = torch.as_tensor(source_idx, dtype=torch.long, device=target.device)
+        return source_for_target
+
     def predict_velocity(
         self,
         future_logits_t: torch.Tensor,
@@ -183,6 +206,11 @@ class SharedStochasticStateAwareFutureLogitPathFlowMatching(
         x0, shared_noise, shared_field = self.sample_base_noise(
             history_norm.shape[0], x1.device, x1.dtype
         )
+        if self.cfg.ot_source_coupling and history_norm.shape[0] > 1:
+            source_perm = self._source_permutation_from_ot(x0, x1)
+            x0 = x0[source_perm]
+            shared_noise = shared_noise[source_perm]
+            shared_field = shared_field[source_perm]
         bsz = history_norm.shape[0]
         t = torch.rand(bsz, device=history_norm.device, dtype=history_norm.dtype)
         x_t = (1.0 - t)[:, None, None] * x0 + t[:, None, None] * x1
@@ -202,6 +230,10 @@ class SharedStochasticStateAwareFutureLogitPathFlowMatching(
             "base_noise_std": x0.std(unbiased=False).detach(),
             "shared_field_std": shared_field.std(unbiased=False).detach(),
         }
+        if self.cfg.ot_source_coupling:
+            metrics["ot_source_cost"] = (
+                x0.detach().flatten(1).float() - x1.detach().flatten(1).float()
+            ).pow(2).mean(dim=1).sqrt().mean().detach()
         return fm_loss, metrics
 
     @torch.no_grad()
