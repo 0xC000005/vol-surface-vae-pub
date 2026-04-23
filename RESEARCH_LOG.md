@@ -87374,3 +87374,32 @@ Artifacts:
 - `results/validations/2026-04-22/analysis/299a_300a_coordinate_comparison/summary.md`
 
 ---
+## 2026-04-23: 301a support-valid rolling logit-transition flow experiment
+
+### Context
+
+`301a-v0` tested the clean coordinate synthesis from `299a` and `300a`: support-valid rolling logit transitions with vanilla one-shot flow matching.
+
+### Result
+
+- Full 11-suite score: `4/11`.
+- Passed: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`.
+- Failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: explosion `0.0%`, cov90 `0.923`, calibration error `0.102`, conditional MAE reduction `3.0%`, turb/calm `1.061`, change KS `16/25`, level KS `0/25`, window-floor bad rate `0.5%`, corr ratio `0.794`, rank ratio `1.787`, MR ratio `0.031`, MR h30 `0.166`, jump KS `0.418`, q99 jump ratio `1.014`, q99 jump cells `18/25`.
+
+### Mechanism Read
+
+The coordinate synthesis is real but incomplete. It keeps support validity, broad coverage, cross-cell/cointegration structure, and some local change fidelity, but the generated transition law is weakly state-dependent. Mean reversion is nearly absent and level KS remains dead.
+
+### Decision
+
+Do not add shells or post-hoc corrections. Analyze whether the history encoder is carrying current-level state strongly enough. If not, the next minimal model is the same support-valid transition flow with explicit current-logit state exposed to the velocity network.
+
+Artifacts:
+
+- `models/backfill/301a_v0_s42/best_model.pt`
+- `results/block_ar/301a_v0_s42/full11.json`
+- `results/block_ar/301a_v0_s42/full11.md`
+- `results/validations/2026-04-22/analysis/301a_postmortem/summary.md`
+
+---
