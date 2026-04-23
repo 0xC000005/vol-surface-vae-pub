@@ -88047,3 +88047,42 @@ Do not tune 306 covariance details. Shift to `307`: recurrent path-level latent 
 This is closer to the reset doctrine than the hybrid frontier and addresses the concrete missing mechanism: persistent shared path-level uncertainty.
 
 ---
+## 2026-04-23: 307 path latent paradigm
+
+### Context
+
+The `306a` postmortem showed that neither one-shot path flow nor naive recurrent exact likelihood solved the clean restart objective. The strongest evidence now points to a missing path-level latent variable: local transition structure alone is not enough to keep a coherent shared scenario geometry over 30 days.
+
+### Findings
+
+- `303b` preserves daily dependence with token mixing, but lacks a persistent latent driver for the whole path.
+- `306a` learns nontrivial one-step covariance under teacher forcing, yet free-run recursion still diffuses and loses geometry.
+- `296c` keeps geometry only through a frozen hybrid center path, which is not aligned with the current reset doctrine.
+
+### Mechanism Read
+
+The next clean inductive bias is a narrow global latent bottleneck for the future path. This is exactly the kind of compression bias already accepted in the reset doctrine: one compact latent should capture shared regime/path uncertainty, while an autoregressive decoder handles local state evolution.
+
+This is cleaner than:
+- hard low-rank readouts
+- retrieval backbones
+- bounded side paths
+- unconstrained full covariance heads
+- rollout-loss tuning
+
+### Decision
+
+Shift to `307`: recurrent path-level latent bottleneck.
+
+`307a` should use:
+- support-valid AR logit transitions
+- recurrent state propagation
+- one global latent `z` per 30-day path
+- standard-normal prior
+- token-mixing decoder conditioned on `state`, `current_logit`, and `z`
+- teacher-forced posterior encoder `q(z | history, future)`
+- ELBO training with a simple per-step likelihood
+
+This is the cleanest next test of whether a narrow learned bottleneck can recover shared path geometry without returning to hybrid retrieval scaffolding.
+
+---
