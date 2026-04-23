@@ -87805,3 +87805,33 @@ with vanilla flow matching over all future time/cell tokens. The velocity networ
 - Treat this as a paradigm reset, not another 303 tweak.
 
 ---
+## 2026-04-23: 304a joint time-cell token path-flow experiment
+
+### Context
+
+`304a-v0` tested the clean one-shot reset after the capped `303` recurrent branch. It modeled the full 30x25 future logit-transition tensor jointly with a GRU history encoder, learned time/cell tokens, a generic token transformer velocity, and vanilla flow matching. It kept support validity by decoding cumulative logit transitions through sigmoid, with no retrieval, low-rank readout, bounded idio/EC path, rollout loss, or evaluator-specific correction.
+
+### Result
+
+- Full 11-suite score: `1/11`.
+- Passed: `block_ar`.
+- Failed: `surface`, `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+- Key metrics: cov90 `0.963`, calibration error `0.165`, conditional MAE reduction `2.9%`, turb/calm `0.982`, ACF corr `0.955`, change KS `15/25`, level KS `0/25`, corr ratio `0.466`, rank ratio `2.980`, MR ratio h1 `0.021`, MR ratio h30 `-0.019`, max-jump KS `0.289`, q99 jump cells `16/25`.
+
+### Mechanism Read
+
+The joint-path hypothesis was falsified in this naive form. Removing recursive exposure bias did not automatically recover the conditional 30-day law. The model learned broad support-valid paths, but over-dispersed with horizon, lost state-dependent mean reversion, weakened cross-cell correlation, and failed every level KS cell. This is not a small calibration issue; the conditional center/geometry of the path law is wrong.
+
+### Decision
+
+Do not stack local 304 token-flow knobs blindly. The next HEAD step should be a post-experiment analysis comparing `303b`, `303d`, and `304a`: recursive recurrent flows preserve dependence/MR better but suffer free-run calibration tradeoffs, while naive one-shot joint flow avoids recursion but loses conditional path structure. If that analysis does not identify a clean causal repair, switch to research ideation or paradigm shift.
+
+Artifacts:
+
+- `diffusion/block_ar/joint_token_logit_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_304a_joint_token_logit_transition_flow_matching.py`
+- `models/backfill/304a_v0_s42/best_model.pt`
+- `results/block_ar/304a_v0_s42/full11.json`
+- `results/block_ar/304a_v0_s42/full11.md`
+
+---
