@@ -90011,3 +90011,49 @@ This keeps the model first-principles: a multivariate conditional law factorized
 - eval MD: `results/block_ar/317b_v0_s42/full11.md`
 
 ---
+## 2026-04-23: 318 chain-rule daily joint-law paradigm shift
+
+### Context
+`317` is now retired. Both shared-stochastic direct-path FM variants preserved the anchor but failed the cross-cell dependence bottleneck:
+- `317a`: corr ratio `0.177`, rank ratio `4.054`
+- `317b`: corr ratio `0.217`, rank ratio `3.940`
+
+OT coupling improved validation loss and daily-change KS but did not make the sampled paths share realistic panel-wide movement, and it broke aggregate MR.
+
+### Paradigm Shift
+Move from direct future-path FM to an explicit chain-rule joint-law model.
+
+The new `318` family models:
+- history-conditioned future daily logit transitions
+- recurrent future state across the 30-day horizon
+- a full 25-cell conditional covariance per future day
+- teacher-forced likelihood training
+- ancestral 30-day sampling
+
+### Why This Is Principled
+This is the probability chain rule, not a hand-engineered finance decomposition:
+
+`p(x_1, ..., x_30 | history) = product_t p(x_t | history, x_<t)`
+
+Each daily conditional is a 25-dimensional joint law, so cross-cell dependence is represented directly by the likelihood rather than hoped-for through source noise. Full covariance over 25 cells is generic and avoids the old hard low-rank decoder assumption.
+
+### Guardrails
+Keep the architecture clean:
+- no low-rank covariance in the core spec
+- no bounded idio/EC path
+- no posterior/prior scaffold
+- no two-stage model
+- no evaluator-specific correction
+- no explicit center/residual split
+
+### Next Step
+Run `318a-v0`:
+- GRU history encoder
+- GRU future decoder over 30 daily steps
+- full Cholesky Gaussian NLL for each 25-cell logit transition
+- teacher forcing during training
+- ancestral multivariate sampling during evaluation
+
+The decisive question is whether putting cross-cell dependence directly in the daily likelihood restores corr/rank without losing surface validity, cointegration, and marginal realism.
+
+---
