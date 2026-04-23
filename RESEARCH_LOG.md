@@ -88808,3 +88808,50 @@ Do not run another blind experiment immediately.
 The next HEAD step should be a post-experiment analysis iteration on the `312a/312b` tradeoff before deciding whether to test a hybrid shared-global-plus-memory history conditioner or cap this branch.
 
 ---
+## 2026-04-23: 312c pooled history-memory future-path flow
+
+### Context
+
+`312c-v0` was the minimal repair to the `312a/312b` tradeoff. It kept the unified single-stage future-logit path law and history-memory prefix tokens from `312b`, but added one learned pooled global history token so the model would have both explicit memory access and a shared global history signal.
+
+### Result
+
+`312c` also stayed at `3/11`.
+
+Relative to `312b`, it improved some of the intended compromise metrics:
+- worst-cell h30 coverage `0.589 -> 0.625`
+- turb/calm width ratio `1.025 -> 1.070`
+- cross-cell corr ratio `0.174 -> 0.238`
+- pathwise max-jump KS `0.385 -> 0.327`
+- full-horizon active mean-reversion pass `48.5% -> 75.4%`
+
+But it did not recover the lost suite passes, and several metrics moved the wrong way:
+- calibration error worsened `0.014 -> 0.047`
+- level KS fell `5/25 -> 4/25`
+- conditional MAE reduction stayed weak at `2.4%`
+- aggregate MR ratio overshot to `1.424`
+- cross-cell corr remained far below `312a` (`0.238` vs `0.446`)
+
+Artifacts:
+- `diffusion/block_ar/unified_pooled_history_memory_state_aware_future_logit_path_flow_matching.py`
+- `experiments/backfill/block_ar/train_312c_unified_pooled_history_memory_state_aware_future_logit_path_flow_matching.py`
+- `results/block_ar/312c_v0_s42/full11.json`
+- `results/block_ar/312c_v0_s42/full11.md`
+
+### Mechanism Read
+
+The conditioning-topology subfamily inside `312` now looks capped.
+
+Across three clean variants:
+- `312a` preserved the most shared cross-cell structure but under-used history
+- `312b` improved local marginal fidelity but collapsed shared dependence
+- `312c` split the difference, improving some path/regime metrics without breaking the `3/11` ceiling
+
+That means the next bottleneck is probably not just how history enters the network. It is the stochastic coupling mechanism of the unified future-path law itself. The current token-wise flow parameterization appears too weak or too isotropic to preserve both local fidelity and global dependence at the same time.
+
+### Decision
+
+Do not keep stacking more history-conditioning variants inside the `312` family.
+The next HEAD step should be `research_ideation`, focused on a cleaner generic dependence mechanism for the unified law rather than another local conditioner tweak.
+
+---
