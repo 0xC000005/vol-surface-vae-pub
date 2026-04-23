@@ -86225,3 +86225,46 @@ Next step:
   direct daily token corrections
 
 ---
+## 2026-04-22: 296a hybrid comparison analysis
+
+### Context
+`296a-v0` failed as the first hybrid baseline. That left one immediate question:
+- is the hybrid split itself wrong?
+- or is only the `296a` shell interface wrong?
+
+To answer that, compare the two parent strengths directly against `296a`:
+- `277d` structural backbone
+- `295a` stochastic shell lesson
+
+### Result
+The comparison is decisive:
+- `277d`: `5/11`, strong structure, no stochastic adequacy
+- `295a`: `3/11`, strong coverage/calibration, weak structure
+- `296a`: `2/11`, worse than both parents
+
+So `296a` is not a blended version of the two strengths. It is a failure of the
+**interface**.
+
+Artifact:
+- `results/validations/2026-04-22/analysis/296a_vs_277d_295a_comparison/summary.md`
+
+### Mechanism Read
+Two things went wrong in `296a`:
+- direct daily residual corrections gave the shell too much freedom to distort the
+  `277d` center path
+- exact token reconstruction collapsed the shell toward a near-deterministic
+  corrective law instead of a usable scenario law
+
+That means the hybrid decomposition is still plausible, but the current shell
+parameterization is not.
+
+### Decision
+Next step:
+- `296b` ideation
+
+Hard constraints for `296b`:
+- shell must be **mean-preserving** relative to the frozen backbone
+- shell freedom must move to a **coarser pathwise granularity** than direct daily token
+  correction
+
+---
