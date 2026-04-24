@@ -1,0 +1,24 @@
+{
+  "best_epoch": 29,
+  "best_val_total": 0.6847823063532511,
+  "adaptation_start_index": 3569,
+  "adaptation_end_index": 4009,
+  "n_train": 353,
+  "n_val": 88,
+  "config": {
+    "history_len": 30,
+    "future_len": 30,
+    "n_cells": 25,
+    "token_dim": 128,
+    "token_layers": 4,
+    "token_ff": 256,
+    "model_dropout": 0.1,
+    "global_mixer": true,
+    "flow_time_dim": 32,
+    "n_quantiles": 401,
+    "cdf_eps": 0.0001,
+    "flow_steps": 32,
+    "sample_temperature": 1.0,
+    "max_sample_chunk": 16
+  }
+}

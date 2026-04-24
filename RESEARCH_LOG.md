@@ -95302,3 +95302,46 @@ Run 421a as one decisive falsifier: implement a joint normal-score transition-pa
 - `experiments/backfill/block_ar/IDEA_420a_joint_score_transition_path_flow.md`
 
 ---
+## 2026-04-24: Autoresearch 421 joint transition-path flow
+
+### Context
+420a selected a middle paradigm between recursive AR transitions and direct future-level path flow: train a joint flow over the full 30-day empirical-normal-score transition tensor, reconstructing future levels by cumulative summation from the last history score. The goal was to make full-horizon stochastic coupling native while keeping the target closer to the daily move law.
+
+### Result
+Added:
+- `diffusion/block_ar/empirical_normal_score_transition_path_flow_matching.py`
+- `experiments/backfill/block_ar/train_421a_joint_score_transition_path_flow.py`
+- evaluator wiring for `model_type=421a`
+
+Training:
+- output: `models/backfill/421a_joint_score_transition_path_fm_s42/best_model.pt`
+- data: recent block `3569..4009`, train/holdout `353/88`
+- best epoch: `29`
+- best internal validation total: `0.68478`
+
+Official full 11-suite:
+- artifact: `results/block_ar/421a_joint_score_transition_path_fm_s42/full11.json`
+- score: `4/11`
+- passed: `surface`, `time_series`, `block_ar`, `cointegration`
+- failed: `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`
+
+Key metrics: cov90 `0.946` with per-cell overcoverage up to `1.000`; conditionality `4.95%`; regime layer2 `0/8`; level KS `5/25`; median-bias fraction `19/25`; coint worst-cell `0.329` pass; corr ratio `0.189`; rank ratio `3.734`; MR active `62.5%`; pathwise max-jump KS `0.500`.
+
+### Mechanism Read
+The joint transition-path target repaired neither side of the core tradeoff. It preserved daily-change distribution and cointegration, and it kept the move-size profile valid, but it did not learn the shared cross-cell stochastic geometry: correlation collapsed and effective rank became too high. It also remained overbroad at longer horizons and did not improve level occupancy.
+
+This falsifies the simple "joint transition path is enough" hypothesis. The missing piece is not just whether the target is future levels or future transitions; the model needs a persistent path-level stochastic state that remains coherent across the 30-day rollout while preserving AR transition structure.
+
+### Decision
+Keep 392a as the active `8/11` frontier. Close joint transition-path flow as the primary route. Do not tune axial depth, temperature, or training epochs. The next HEAD step should ideate a true path-level latent/world-model architecture with persistent shared scenario state, not another direct or transition path-flow variant.
+
+### Artifacts
+- `diffusion/block_ar/empirical_normal_score_transition_path_flow_matching.py`
+- `experiments/backfill/block_ar/train_421a_joint_score_transition_path_flow.py`
+- `models/backfill/421a_joint_score_transition_path_fm_s42/args.json`
+- `models/backfill/421a_joint_score_transition_path_fm_s42/train_summary.json`
+- `models/backfill/421a_joint_score_transition_path_fm_s42/training_history.json`
+- `results/block_ar/421a_joint_score_transition_path_fm_s42/full11.json`
+- `results/block_ar/421a_joint_score_transition_path_fm_s42/full11.md`
+
+---

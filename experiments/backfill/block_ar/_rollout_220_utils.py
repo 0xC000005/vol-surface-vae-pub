@@ -947,6 +947,12 @@ def load_one_day_kernel(
         )
 
         return load_339a_model(checkpoint_path, device)
+    if model_type == "421a":
+        from diffusion.block_ar.empirical_normal_score_transition_path_flow_matching import (
+            load_model as load_421a_model,
+        )
+
+        return load_421a_model(checkpoint_path, device)
     if model_type == "345a":
         from diffusion.block_ar.empirical_normal_score_masked_future_path_flow_matching import (
             load_model as load_345a_model,
