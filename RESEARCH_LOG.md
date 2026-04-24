@@ -95345,3 +95345,25 @@ Keep 392a as the active `8/11` frontier. Close joint transition-path flow as the
 - `results/block_ar/421a_joint_score_transition_path_fm_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 422 persistent source-noise FM
+
+### Context
+421a falsified the simple joint transition-path flow. It preserved daily-change/time-series/coint behavior but collapsed cross-cell stochastic geometry (`corr ratio 0.189`, rank ratio `3.734`), remained overbroad, and did not improve level occupancy (`5/25`). The active frontier remains 392a at `8/11`.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_422a_persistent_source_noise_fm.md`.
+
+Selected next route: persistent source-noise flow matching inside the 392a AR transition model. Instead of IID per-step source noise, use `x0_t = sqrt(rho) * g_path + sqrt(1-rho) * eps_t`, where one Gaussian 25-cell vector is shared across the 30-day scenario.
+
+### Mechanism Read
+The useful lesson from old path-latent work is not to add a VAE-style posterior/prior scaffold. The useful lesson is that persistent path-level uncertainty matters. The cleanest way to introduce it into the current strongest architecture is through the flow source distribution itself, while keeping the 392a token transition velocity and AR state propagation.
+
+This is still vanilla flow matching: only the source distribution changes. It avoids low-rank readouts, bounded side paths, post-hoc calibration, regime tables, retrieval, and diagonal likelihood collapse.
+
+### Decision
+Run 423a from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`: add a `path_source_corr` config field, fine-tune on the recent block with one fixed moderate correlation, and evaluate unchanged on the official full 11-suite. If it behaves like another width actuator or breaks 392a's structural passes, close persistent source-noise FM.
+
+### Artifacts
+- `experiments/backfill/block_ar/IDEA_422a_persistent_source_noise_fm.md`
+
+---
