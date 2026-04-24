@@ -93901,3 +93901,29 @@ The failure mechanism is clean: the local transition sampler is not the bottlene
 Do not continue with local sampler-core swaps inside the same 340c shell. The next HEAD step should be post-experiment analysis or research ideation focused on the higher-level representation/data-decomposition problem, not another diffusion schedule, temperature, likelihood head, regime label, calibration trick, retrieval variant, low-rank readout, or bounded side path.
 
 ---
+## 2026-04-24: Autoresearch 353a full-rollout proper-score selection
+
+### Context
+352a closed the local sampler-core branch: replacing 340c's rectified-flow transition sampler with VP/DDIM diffusion scored 3/11 and damaged structural passes. Prior branches also falsified full-path generic FM, exact full-path likelihood, transition exact likelihood, direct level density, stationary local location, generated-prefix one-step fine-tuning, and fixed common-source noise.
+
+The remaining clean pathology is objective-placement mismatch. The current frontier, 340c, is trained one teacher-forced transition at a time but evaluated as a recursively generated 30-day conditional path law. One-step energy fine-tuning in 342a was still myopic because it sampled a teacher-forced horizon rather than the rollout distribution.
+
+### Selected Test
+Run 353a: initialize from 340c and fine-tune the actual generated 30-day rollout distribution with a multivariate energy score in empirical normal-score path coordinates, anchored by the original teacher-forced FM loss.
+
+Keep fixed:
+- empirical normal-score coordinate;
+- causal-memory AR transition factorization;
+- 340c checkpoint initialization;
+- vanilla rectified-flow transition sampler;
+- no retrieval, low-rank readout, bounded side path, explicit regime feature, calibration temperature, or evaluator-specific loss.
+
+Change only objective placement:
+- sample differentiable multi-sample rollouts under the model's own generated prefixes;
+- compare the full generated path to the observed future path with a proper multivariate energy score;
+- retain a teacher-forced FM anchor so the known 340c structural passes are not immediately destroyed.
+
+### Falsifier
+If 353a cannot improve coverage, conditionality, regime width, level-law, or pathwise jump shape while preserving 340c's six structural passes, then the bottleneck is not merely teacher-forced objective placement. The next paradigm should then move to a larger representation/data-framing change rather than another fine-tune or loss-weight sweep.
+
+---
