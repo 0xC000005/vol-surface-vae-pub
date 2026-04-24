@@ -94222,3 +94222,29 @@ The recent calibration window does not provide a transferable validation level l
 Close post-hoc calibration ladders for now. The next step should be a paradigm/data-framing decision: either a legitimate rolling-adaptation training setup that learns from recent regimes before evaluation, or a transparent statement that exact `11/11` requires an operational stress/calibration layer outside the learned conditional law.
 
 ---
+## 2026-04-24: Autoresearch iteration 377 — recent FM adaptation
+
+### Context
+Iteration 377 tested the data-framing hypothesis that the remaining 340c failures are partly nonstationary-adaptation failures rather than architecture failures. The model architecture and objective were unchanged: load 340c, fine-tune on the 441 immediately preceding pre-validation windows using the vanilla teacher-forced FM loss, then evaluate forward on the official revised 11-suite.
+
+### Result
+- Trainer: `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py`
+- Checkpoint: `models/backfill/377a_recent_fm_s42/best_model.pt`
+- Evaluation: `results/block_ar/377a_recent_fm_s42/full11.json`
+- Official revised-suite score: `8/11`.
+- Passed: surface, conditionality, time_series, block_ar, cointegration, cross_cell_correlation, mean_reversion, pathwise_jump_realism.
+- Failed: coverage, regime_coverage, distributional_fidelity.
+
+Key diagnostics:
+- Conditionality now passes: MAE reduction `5.05%`, worst-cell MAE reduction `-2.2%`, worst-cell width ratio `1.025`.
+- Coverage is close: overall 90% `0.892`, calibration error `0.001`, worst per-cell coverages all above `70%`; failure is now overcoverage above `95%` in the best cells at h7/h14/h30.
+- Regime coverage improves but remains weak: layer2 `1/8`.
+- Distributional fidelity shifts: daily KS improves to `25/25`, but level KS falls to `5/25` and median-bias fraction is `19/25`.
+
+### Mechanism Read
+Recent-window FM adaptation is the first clear improvement past the 7/11 plateau. It fixes official conditionality and keeps the structural 340c passes, which supports the nonstationary data-framing hypothesis. The new pathology is adaptation strength: the model becomes more conditionally useful and better covered, but its validation level occupancy drifts enough to hurt level KS and some cells become too conservative.
+
+### Decision
+Continue this line. The next iteration should run a controlled adaptation-strength ladder, evaluating earlier/weaker recent-adaptation checkpoints. Keep the architecture unchanged and avoid post-hoc sample mapping; the objective is to retain conditionality while reducing overcoverage and recovering level-KS/median-bias alignment.
+
+---
