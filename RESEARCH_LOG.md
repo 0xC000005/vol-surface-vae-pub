@@ -93561,3 +93561,56 @@ No regime labels, no tail loss, no temperature calibration, no low-rank readout,
 If 349a does not improve kurtosis/max-jump shape without sacrificing 348a's mean reversion and covariance, then the remaining issue is not a simple base-law tail problem. The next branch should revisit level-stationarity directly rather than keep changing innovation tails.
 
 ---
+## 2026-04-24: Autoresearch 349a Student-t innovation likelihood
+
+### Context
+349a tested whether 348a's remaining innovation-shape failures were caused by an overly Gaussian base law. It kept 348a's causal prefix encoder, explicit transition location, and coupling innovation flow, but used a Student-t base with learned global degrees of freedom.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_349a_empirical_normal_score_student_t_location_transition_density.py --output_dir models/backfill/349a_v0_s42 --epochs 30 --batch_size 64 --memory_dim 128 --memory_layers 3 --memory_heads 4 --memory_ff 256 --coupling_layers 6 --coupling_hidden 256 --location_hidden 256 --student_df_init 8.0 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 349a --checkpoint models/backfill/349a_v0_s42/best_model.pt --output_json results/block_ar/349a_v0_s42/full11.json --output_md results/block_ar/349a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Best checkpoint: epoch 13, `val_total=-0.56214`. Learned df stayed near `7.9`, so the model selected moderate heavy tails rather than an extreme-tail base.
+
+### Result
+349a scored `4/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cointegration;
+- cross-cell correlation.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- regime coverage;
+- distributional fidelity;
+- mean reversion;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.900`, calibration error `0.033`;
+- conditional MAE reduction approximately `5.0%` but still failed threshold, turb/calm width ratio `0.957`;
+- daily-change KS pass `25/25`, level KS pass `5/25`;
+- median-bias fraction pass `22/25`, bias magnitude pass `23/25`;
+- kurtosis ratio `1.192` and tail q99 `21/25`, but skew still fails;
+- cross-cell correlation ratio `1.017`, effective-rank ratio `1.254`;
+- full-horizon mean-reversion active mean `36.4%`;
+- pathwise max-jump KS `0.345`, per-cell q99 jump pass `21/25`.
+
+### Mechanism Read
+The Student-t base fixed parts of the local innovation law: daily-change KS became perfect and kurtosis moved into range. But it did not solve the path law. It weakened the learned location effect, destroyed 348a's mean-reversion breadth, inverted regime width again, and worsened max-jump shape.
+
+This falsifies the simple hypothesis that a heavy-tailed base is the missing ingredient. The live failure is not just innovation tail thickness. It is interaction between level-stationary location dynamics and stochastic innovation shape under recursive rollout.
+
+### Decision
+Close 349a as non-frontier. Do not tune df initialization, df floor, or sample temperature.
+
+Run post-experiment analysis next. The analysis should treat 348a as the best transition-likelihood branch so far and identify why 349a improved local daily/kurtosis metrics while breaking mean reversion and regime response.
+
+---

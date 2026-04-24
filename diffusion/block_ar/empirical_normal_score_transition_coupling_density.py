@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from diffusion.block_ar.empirical_normal_score_path_coupling_density import CouplingLayer
 from experiments.backfill.block_ar.train_169a_transformed_student_t import (
@@ -32,6 +33,9 @@ class EmpiricalNormalScoreTransitionCouplingConfig:
     scale_clip: float = 2.0
     use_location: bool = False
     location_hidden: int = 256
+    base_distribution: str = "normal"
+    student_df_init: float = 8.0
+    student_df_min: float = 2.1
 
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
@@ -47,6 +51,8 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         self.cfg = cfg
         if cfg.prefix_feature_mode not in {"basic", "scale"}:
             raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
+        if cfg.base_distribution not in {"normal", "student_t"}:
+            raise ValueError("base_distribution must be 'normal' or 'student_t'")
         feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -89,6 +95,11 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             if isinstance(last, nn.Linear):
                 nn.init.zeros_(last.weight)
                 nn.init.zeros_(last.bias)
+        self.student_df_raw: nn.Parameter | None = None
+        if cfg.base_distribution == "student_t":
+            df_offset = max(float(cfg.student_df_init) - float(cfg.student_df_min), 1e-4)
+            raw = math.log(math.expm1(df_offset))
+            self.student_df_raw = nn.Parameter(torch.tensor(raw, dtype=torch.float32))
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -228,6 +239,25 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             return torch.zeros_like(current_score)
         return self.location_head(self._context(memory_state, current_score))
 
+    def student_df(self) -> torch.Tensor:
+        if self.student_df_raw is None:
+            return torch.tensor(float("inf"), device=self.level_quantiles.device)
+        return float(self.cfg.student_df_min) + F.softplus(self.student_df_raw)
+
+    def base_nll(self, z: torch.Tensor) -> torch.Tensor:
+        if self.cfg.base_distribution == "normal":
+            return 0.5 * z.square().sum(dim=-1) + 0.5 * z.shape[-1] * math.log(2.0 * math.pi)
+        df = self.student_df().to(device=z.device, dtype=z.dtype)
+        dist = torch.distributions.StudentT(df)
+        return -dist.log_prob(z).sum(dim=-1)
+
+    def sample_base_like(self, ref: torch.Tensor, temperature: float) -> torch.Tensor:
+        if self.cfg.base_distribution == "normal":
+            return temperature * torch.randn_like(ref)
+        df = self.student_df().to(device=ref.device, dtype=ref.dtype)
+        dist = torch.distributions.StudentT(df)
+        return temperature * dist.sample(ref.shape)
+
     def forward_to_base(
         self,
         transition: torch.Tensor,
@@ -270,8 +300,7 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         location = self.transition_location(flat_memory, flat_current)
         residual = flat_transition - location
         z, log_det = self.forward_to_base(residual, flat_memory, flat_current)
-        base_nll = 0.5 * z.square().sum(dim=-1) + 0.5 * n_cells * math.log(2.0 * math.pi)
-        nll = (base_nll - log_det) / float(n_cells)
+        nll = (self.base_nll(z) - log_det) / float(n_cells)
         loss = nll.mean()
         metrics = {
             "total": loss.detach(),
@@ -283,6 +312,7 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             "log_det_per_dim": (log_det / float(n_cells)).mean().detach(),
             "location_abs": location.abs().mean().detach(),
             "location_std": location.std(unbiased=False).detach(),
+            "base_df": self.student_df().detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
         return loss, metrics
@@ -322,7 +352,7 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             for _step in range(n_steps):
                 memory_state = self._encode_prefix_scores(prefix)[:, -1]
                 current_score = prefix[:, -1]
-                base = temp * torch.randn_like(current_score)
+                base = self.sample_base_like(current_score, temp)
                 location = self.transition_location(memory_state, current_score)
                 transition = location + self.inverse_from_base(
                     base,
