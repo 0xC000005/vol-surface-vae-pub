@@ -91470,3 +91470,31 @@ Iteration 306 implemented 333c, the planned coordinate/interface repair after th
 Do not stack another local/global coordinate tweak immediately. The 333 family is alive but still below the clean 330a/330c 5/11 frontier. The next HEAD step should be post-experiment analysis over 333a/b/c to decide whether a principled next repair exists or whether masked full-path flow is capped by the same one-shot tradeoff.
 
 ---
+## 2026-04-24: Autoresearch 333 family postmortem and scale test
+
+### Context
+333a/b/c tested the masked full-path flow paradigm:
+- 333a: masked path flow with local axial mixing.
+- 333b: add global scenario mixer.
+- 333c: keep global mixer and add level+transition token features.
+
+### Findings
+The family is not a frontier yet, but it is scientifically alive:
+- 333a learned useful aggregate coverage, daily KS, median bias, and cointegration, but under-coupled common shocks.
+- 333b fixed cross-cell coupling and h1 active MR, but damaged local distributional fidelity and worst-cell cointegration.
+- 333c combined the useful parts better: 4/11 with surface, block-AR, cointegration, and cross-cell correlation passing.
+
+The remaining 333c failures are concentrated in local/per-cell fidelity and tails: daily KS 12/25, level KS 3/25, median-bias fraction 19/25, time-series skew/tail-cell failures, active MR below the full-horizon gate, and pathwise max-jump KS 0.442.
+
+### Mechanism Read
+333c has the right generic ingredients for this branch: full-path training, global communication, and local transition features. Adding another specialized component now would become knob accumulation. The unresolved question is whether the evaluated 333c is simply too small for the full path law. The first default 333a capacity OOMed, so the current results are from a smaller feasible model.
+
+### Decision
+Run one Bitter-Lesson-aligned scale falsifier before closing 333:
+- same 333c architecture and objective;
+- no new losses, side paths, retrieval, low-rank readouts, or calibration knobs;
+- larger token capacity within the 8GB GPU budget (`token_dim=128`, `token_layers=4`, `token_ff=256`, `batch_size=48` if it fits).
+
+If scaled 333c does not materially improve local fidelity or suite count, close the masked path family and return to broader paradigm ideation.
+
+---
