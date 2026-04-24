@@ -76,6 +76,12 @@ def main() -> None:
     parser.add_argument("--chunk_size", type=int, default=8)
     parser.add_argument("--conditionality_max_batches", type=int, default=8)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--sample_temperature_override",
+        type=float,
+        default=None,
+        help="Optionally override cfg.sample_temperature at evaluation time.",
+    )
     parser.add_argument("--output_json", type=str, required=True)
     parser.add_argument("--output_md", type=str, required=True)
     parser.add_argument("--force_native_anchor", action="store_true",
@@ -86,6 +92,18 @@ def main() -> None:
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_one_day_kernel(args.model_type, args.checkpoint, device)
+    if args.sample_temperature_override is not None:
+        if hasattr(model, "cfg") and hasattr(model.cfg, "sample_temperature"):
+            model.cfg.sample_temperature = float(args.sample_temperature_override)
+        elif hasattr(model, "sample_temperature"):
+            model.sample_temperature = float(args.sample_temperature_override)
+        else:
+            raise ValueError(
+                f"Model type {args.model_type} does not expose sample_temperature"
+            )
+        print(
+            f"[eval override] sample_temperature={float(args.sample_temperature_override):.4f}"
+        )
 
     # Keep inference-time anchor overrides aligned with evaluate_220b so the 11-suite
     # uses the same rollout regime as the 7-suite comparisons.
@@ -207,6 +225,7 @@ def main() -> None:
             "n_windows": int(batch.history_norm.shape[0]),
             "samples": args.samples,
             "conditionality_samples": args.conditionality_samples,
+            "sample_temperature_override": args.sample_temperature_override,
             "rollout_start": int(rollout_start),
         },
         "surface": surface,

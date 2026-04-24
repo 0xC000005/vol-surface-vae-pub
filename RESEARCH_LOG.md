@@ -94267,3 +94267,26 @@ The 441-window, 8-epoch recent adaptation is not a random lucky point; it is the
 Keep 377a as the current best (`8/11`). Next, test a minimal inference-temperature ladder on 377a because its coverage failure is mostly overcoverage above the 95% upper cap. If scalar temperature cannot fix the residual failures without breaking conditionality, close scalar calibration and move to a more structural solution.
 
 ---
+## 2026-04-24: Autoresearch iteration 379 — temperature ladder
+
+### Context
+Iteration 379 tested the smallest possible inference calibration on the current best `377a` checkpoint. The residual coverage failure was mostly upper-cap overcoverage, so a scalar sample-temperature reduction was a clean falsifier before introducing any richer calibration or architecture.
+
+### Result
+- Evaluator change: `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py` now supports `--sample_temperature_override`.
+- `377a` baseline remains `8/11`.
+- `temp=0.98`: `6/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- `temp=0.95`: `6/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+
+Key diagnostics:
+- `temp=0.98` improves h1 upper coverage but still has h30 undercoverage (`0.693`) and h7/h14/h30 overcoverage; conditionality MAE reduction drops to `3.5%`.
+- `temp=0.95` further reduces spread but also fails conditionality (`3.7%`) and worst-cell cointegration.
+- Level KS remains `5/25` at both tested temperatures, so scalar temperature does not repair distributional fidelity.
+
+### Mechanism Read
+The 377a residual failures are not a scalar spread problem. Reducing all noise narrows conservative cells but also destroys the official conditionality gain and weakens cointegration. The failure is sliced and state-dependent: some cells/regimes need less spread while others still need enough coverage.
+
+### Decision
+Close scalar inference-temperature calibration. Keep `377a` as current best. The next move must be structural but clean: either learn uncertainty shaping inside the recent-adaptation path law, or explicitly separate a policy/stress overlay from the base learned generator.
+
+---
