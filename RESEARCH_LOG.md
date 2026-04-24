@@ -91498,3 +91498,21 @@ Run one Bitter-Lesson-aligned scale falsifier before closing 333:
 If scaled 333c does not materially improve local fidelity or suite count, close the masked path family and return to broader paradigm ideation.
 
 ---
+## 2026-04-24: Autoresearch 333c scale falsifier
+
+### Context
+Iteration 308 ran the planned Bitter-Lesson scale falsifier for 333c: same masked full-path flow architecture and objective, no new components, but larger token capacity (`token_dim=128`, `token_layers=4`, `token_ff=256`, batch 48). The run fit the 8GB GPU and trained stably.
+
+### Result
+- Artifact: `results/block_ar/333c_v1_mid_s42/full11.json`
+- Score: 3/11, passing surface validity, block-AR smoothness, and cross-cell correlation.
+- Compared with small 333c, scaling improved some intended local/coupling metrics: daily KS 12/25 -> 17/25, per-cell q99 tail cells 17/25 -> 20/25, corr ratio 0.693 -> 0.736, rank ratio 2.115 -> 1.987, and kurtosis ratio 0.899 -> 0.925.
+- But the suite count fell because worst-cell cointegration dropped 0.355 -> 0.222, coverage/window-floor worsened, level KS stayed weak at 2/25, median-bias fraction stayed weak at 17/25, active MR fell to 45.8%, and pathwise max-jump KS remained high at 0.450.
+
+### Mechanism Read
+Capacity helped some local and coupling diagnostics, but it did not solve the 333 family bottleneck. The masked full-path flow still cannot keep level-law fidelity, per-cell calibration, common-shock geometry, cointegration, and pathwise jump shape together. This is not a simple under-capacity problem.
+
+### Decision
+Close or sharply deprioritize 333 after a post-experiment analysis. The next productive move should be paradigm ideation using the mechanism map: 330 causal AR remains the clean 5/11 frontier; 333 full-path flow improves aggregate calibration but repeats a one-shot shared/local tradeoff.
+
+---
