@@ -91536,3 +91536,64 @@ Close or sharply deprioritize 333.
 Open 334 as a minimal return to the 330c frontier. Keep the 330c architecture and objective, but change only the rectified-flow source law: draw each future path's transition source from a fixed Gaussian with one path-common component shared across all future steps plus local step noise. This tests whether persistent path stochasticity can improve per-cell coverage/regime/pathwise shape while preserving 330c's local transition, time-series, cointegration, and cross-cell strengths.
 
 ---
+## 2026-04-24: Autoresearch 334a path-common source flow
+
+### Context
+334a returned to the clean 330c causal-memory AR flow-matching base and changed only the FM source law. Instead of iid per-step Gaussian source noise, each sampled future path used a fixed path-common Gaussian component shared across all future steps plus local step noise:
+
+`x0 = (local_step_noise + path_common_noise) / sqrt(2)`.
+
+This was meant to test whether missing persistent path-level stochasticity was the narrow failure object in 330c, without adding retrieval, low-rank structure, residual shells, posterior/prior machinery, evaluator losses, or a tunable common-source weight.
+
+### Result
+Artifacts:
+- model: `models/backfill/334a_v0_s42/best_model.pt`
+- train summary: `models/backfill/334a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/334a_v0_s42/full11.json`
+- markdown: `results/block_ar/334a_v0_s42/full11.md`
+
+Training completed 36 epochs. Best validation FM loss was epoch 32 with `val_total=0.35020`.
+
+Full 11-suite score: `3/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series tails
+- cointegration worst-cell
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- h1/h30 coverage: `0.860 / 0.996`
+- calibration error: `0.184`
+- turb/calm width ratio: `0.877`
+- ACF correlation: `0.937`
+- kurtosis ratio: `1.501`
+- daily-change KS cells: `22/25`
+- level KS cells: `0/25`
+- median-bias cells: `14/25`
+- bias magnitude cells: `22/25`
+- corr/rank ratio: `1.049 / 1.348`
+- cointegration gen/GT: `0.579`, worst-cell `0.154`
+- aggregate MR ratio: `0.978`, h30 MR ratio `0.692`
+- max-jump KS: `0.853`
+
+### Mechanism Read
+The fixed path-common source law is not the missing object by itself. It produced a useful narrow gain in daily-change KS and cross-cell covariance, but the shared source component was too blunt and horizon-persistent: it over-widened long-horizon intervals, did not become regime-adaptive, collapsed level-distribution fidelity, distorted per-cell tail scale, weakened worst-cell cointegration, and badly worsened pathwise max-jump shape.
+
+This means 330c's failures are not solved by simply injecting persistent common path noise at the source. A fixed covariance source can add common variation, but it cannot learn when that variation should be calm, turbulent, mean-reverting, or level-consistent.
+
+### Decision
+Do not tune a common-source weight as the next move; that would add a research knob without resolving the methodological issue.
+
+Run post-experiment analysis next. Decide whether 334 should be closed as another over-broad source-law intervention, or reframed into a learned but non-ad-hoc stochastic process objective that keeps the architecture clean while letting the data learn horizon/regime-dependent uncertainty.
+
+---
