@@ -92171,3 +92171,37 @@ The failure is concentrated in conditional width response and level/path extreme
 Run post-experiment analysis next. The live question is whether 339 should be repaired by a single principled change to the stochastic coupling/regime-conditioning mechanism inside the same rank-space joint law, or whether this confirms the broader one-shot shared/local tradeoff and should trigger another paradigm shift.
 
 ---
+## 2026-04-24: Autoresearch 339a postmortem and 339b selection
+
+### Context
+339a tested the empirical normal-score full-path rectified flow selected in 339 ideation. It scored `4/11`, below the 5/11 frontier, but its mechanism is informative when compared with 330c and 333c.
+
+### Findings
+339a improves several path-law diagnostics relative to the earlier masked full-path branch:
+- daily-change KS improves versus 333c small (`12/25 -> 18/25`);
+- level KS improves versus 333c small/mid (`3/25` or `2/25` -> `8/25`);
+- median bias and bias magnitude pass (`22/25`, `22/25`);
+- cointegration and cross-cell geometry both pass;
+- aggregate MR profile passes at all checked horizons.
+
+But it does not beat the 330c frontier:
+- score is `4/11`, not `5/11`;
+- daily KS is worse than 330c (`18/25` vs `24/25`);
+- cross-cell rank is weaker than 330c (`2.199` vs `1.288`);
+- conditional MAE reduction is only `2.5%`;
+- regime width response remains nearly flat (`turb/calm=1.009`);
+- pathwise max-jump KS worsens (`0.522` vs 330c `0.315`).
+
+### Mechanism Read
+The empirical rank coordinate is a useful coordinate, not a sufficient model. It solves or softens support, aggregate coverage, median bias, daily-change fidelity, and common correlation compared with weak one-shot flows. The remaining failure is conditional stochastic coupling: the model produces a broadly plausible unconditional path cloud, but the cloud is not enough modulated by history/regime, and the path extreme distribution is still wrong.
+
+This points at the axial path mixer rather than the marginal transform. 339a conditions through clean history tokens in a 60x25 axial MLP field. That is efficient, but it may be too weak a conditional sequence model: history information has to diffuse through time/cell MLPs, and scenario-level stochastic coupling is mostly learned by broadcast global pooling. Tuning quantile count, sample temperature, or mixer strength would be a knob branch, not a first-principles repair.
+
+### Decision
+Keep 339 alive for one clean architecture repair: 339b rank-space Transformer path flow.
+
+339b should keep the empirical normal-score coordinate and vanilla rectified-flow objective, but replace the axial 60x25 path mixer with a future-token Transformer/DiT-style joint path generator conditioned by a narrow GRU history bottleneck plus flow-time token. This is a generic sequence-density model with self-attention over all future time-cell tokens. It is not retrieval, fixed copula reuse, low-rank readout, bounded side path, source-noise scaling, evaluator loss, or posterior/prior machinery.
+
+The falsifier is whether a stronger learned joint sequence model improves conditionality/regime width and pathwise jump shape while preserving 339a's coverage, cointegration, daily KS, and cross-cell passes. If 339b does not improve the score or mechanism, close 339 rather than tuning Transformer depth/heads/temperature.
+
+---
