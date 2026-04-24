@@ -93281,3 +93281,33 @@ Close 346a as a non-frontier result. Do not tune coupling depth, hidden size, LR
 Run post-experiment analysis next. The next decision should compare what 340c uniquely preserves against what exact likelihood and path-flow families destroy, then decide whether to return to a transition-family backbone with a cleaner joint-path objective or change the representation/data framing.
 
 ---
+## 2026-04-24: Autoresearch 346a postmortem
+
+### Context
+346a tested whether the path-flow family mainly lacked exact density pressure. It used an empirical-normal-score full-future conditional coupling flow over all 750 future coordinates.
+
+### Comparative Read
+Against the current 340c frontier:
+
+| model | pass | cov90 | daily KS cells | level KS cells | tail q99 cells | corr ratio | rank ratio | full-horizon MR active | jump KS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 340c | 6/11 | 0.876 | 24/25 | 12/25 | 20/25 | 0.816 | 1.697 | 0.890 | 0.309 |
+| 345a | 3/11 | 0.823 | 16/25 | 4/25 | 19/25 | 0.705 | 2.022 | 0.518 | 0.557 |
+| 346a | 3/11 | 0.734 | 3/25 | 3/25 | 5/25 | 0.003 | 4.382 | 0.461 | 0.495 |
+
+The decisive observation is not just that 346a scored badly. It failed in a different, informative way: exact path likelihood over a flattened vector destroys the cross-cell geometry and daily-change law that 340c preserved.
+
+### Mechanism Read
+The suite rewards a conditional path law whose local transition geometry remains realistic under rollout. 340c's causal-memory transition factorization gives this structure. Path-primary models have not learned it from generic objectives alone:
+- rectified-flow path models (`339/345`) can preserve some joint-path cloud geometry but lose active mean reversion and level fidelity;
+- scalar exact likelihood (`343`) applies density pressure but breaks vector geometry;
+- full-vector exact likelihood (`346`) applies density pressure and vector coupling, but the validation-selected solution behaves close to weakly conditioned independent normal scores and loses cross-cell dependence.
+
+This means the current bottleneck is not simply sampler-vs-likelihood. It is where the joint-law factorization is placed. The factorization must preserve 340c's causal transition geometry while improving distributional/path coverage.
+
+### Decision
+Do not continue full-path-first objectives for the next iteration. Also do not tune 346a capacity, LR, regularization, or early stopping; that would be a knob search inside a falsified placement of the objective.
+
+The next ideation should start from 340c's strongest evidence: use a causal transition-law backbone, but replace one-step FM with an exact vector transition likelihood in empirical normal-score coordinates. That would test density pressure at the daily 25-cell transition level, where 340c already demonstrated the right geometry, rather than at the flattened full-path level where 346a failed.
+
+---
