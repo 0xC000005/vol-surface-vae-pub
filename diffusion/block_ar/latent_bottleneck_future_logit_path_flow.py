@@ -23,6 +23,7 @@ from experiments.backfill.block_ar.train_169a_transformed_student_t import (
 class LatentBottleneckFutureLogitPathFlowConfig(JointTokenLogitTransitionFMConfig):
     latent_tokens: int = 8
     latent_dim: int = 32
+    target_mode: str = "level"
     standardize_logits: bool = True
     logit_std_floor: float = 1e-3
     recon_weight: float = 1.0
@@ -225,13 +226,57 @@ class LatentBottleneckFutureLogitPathFlow(nn.Module):
         future_01 = denormalize_iv(future_norm)
         return self._to_model_coord(iv_to_logit(future_01, self.cfg.logit_eps))
 
+    def history_last_coord(self, history_norm: torch.Tensor) -> torch.Tensor:
+        history_norm = self._flatten(history_norm)
+        last_01 = denormalize_iv(history_norm[:, -1])
+        return self._to_model_coord(iv_to_logit(last_01, self.cfg.logit_eps))
+
+    def target_model_coord(
+        self,
+        history_norm: torch.Tensor,
+        future_norm: torch.Tensor,
+    ) -> torch.Tensor:
+        future_coord = self.target_future_logits(future_norm)
+        if self.cfg.target_mode == "level":
+            return future_coord
+        if self.cfg.target_mode == "transition":
+            last_coord = self.history_last_coord(history_norm)
+            return torch.cat(
+                [
+                    future_coord[:, :1] - last_coord[:, None, :],
+                    future_coord[:, 1:] - future_coord[:, :-1],
+                ],
+                dim=1,
+            )
+        raise ValueError(f"Unknown target_mode={self.cfg.target_mode!r}")
+
+    def model_coord_to_future_iv(
+        self,
+        history_norm: torch.Tensor,
+        coord: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.cfg.target_mode == "level":
+            future_coord = coord
+        elif self.cfg.target_mode == "transition":
+            current = self.history_last_coord(history_norm)
+            if coord.ndim == 4:
+                current = current[:, None, :]
+            frames: list[torch.Tensor] = []
+            for step in range(coord.shape[-2]):
+                current = current + coord[..., step, :]
+                frames.append(current)
+            future_coord = torch.stack(frames, dim=-2)
+        else:
+            raise ValueError(f"Unknown target_mode={self.cfg.target_mode!r}")
+        return logit_to_iv(self._from_model_coord(future_coord))
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
         future_norm: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_norm = self._flatten(history_norm)
-        target = self.target_future_logits(future_norm)
+        target = self.target_model_coord(history_norm, future_norm)
         context = self.encode_history(history_norm)
         z1 = self.future_encoder(target, context)
         recon = self.decoder(z1, context)
@@ -317,7 +362,7 @@ class LatentBottleneckFutureLogitPathFlow(nn.Module):
         for start in range(0, n_samples, chunk_size):
             k = min(chunk_size, n_samples - start)
             coord = self.generate_model_coord(history_norm, k)
-            future_01 = logit_to_iv(self._from_model_coord(coord))
+            future_01 = self.model_coord_to_future_iv(history_norm, coord)
             if self.cfg.n_cells == 25:
                 future_01 = future_01.view(
                     history_norm.shape[0],

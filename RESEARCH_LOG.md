@@ -90970,3 +90970,24 @@ Widening the bottleneck materially improved the training proxy but did not fix t
 Do not continue width-only capacity scaling. The next clean falsifier should keep the 327 bottleneck idea but change the modeled coordinate: encode/generate future logit increments and integrate back to levels for evaluation. This directly targets the smoothing/MR pathology without adding auxiliary losses, residual branches, retrieval, or post-hoc calibration.
 
 ---
+## 2026-04-23: 327c transition-coordinate bottleneck test
+
+### Context
+327b showed that widening the level-coordinate bottleneck improved validation loss but did not solve smoothing, coverage, or mean reversion. 327c kept the same 12x48 learned bottleneck and changed only the modeled coordinate: encode/generate standardized logit increments, then integrate them back to levels for the 11-suite.
+
+### Result
+327c_v0_s42 scored 3/11, passing surface validity, block_ar, and cross_cell_correlation. It failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 27, best val total 0.4636, coverage90 0.577, calibration error 0.212, turb/calm width ratio 1.015, ACF corr 0.770, kurtosis ratio 1.336, daily-change KS 12/25, level KS 7/25, median-bias fraction 24/25, bias magnitude 24/25, per-window coverage bad rate 26.6%, cross-cell corr ratio 1.135, rank ratio 1.018, cointegration gen/GT 0.684 with worst-cell 0.111, MR ratio -0.196, pathwise q90 ratio 0.670, q99 ratio 0.915, extreme-jump incidence 0.551.
+
+Artifacts: `models/backfill/327c_v0_s42/best_model.pt`, `models/backfill/327c_v0_s42/train_summary.json`, `results/block_ar/327c_v0_s42/full11.json`, `results/block_ar/327c_v0_s42/full11.md`.
+
+### Mechanism Read
+The coordinate change worked exactly where expected: daily-change KS, move-size profile, median bias, tail scale, and pathwise q90/q99 improved sharply. But it removed level anchoring and mean reversion. Generated first-step slopes became near zero or positive instead of negative, coverage collapsed, and per-window undercoverage exploded.
+
+This makes the 327 pathology clean: level-coordinate bottlenecks preserve anchoring/common structure but suppress increments; transition-coordinate bottlenecks restore increments/jumps but lose level anchoring and mean reversion.
+
+### Decision
+Do not run another level-only or transition-only bottleneck variant. The next HEAD step should be research ideation: find a single clean 327 object that keeps transition realism while preserving level anchoring/mean reversion, without adding auxiliary loss knobs, residual branches, retrieval, or evaluator-specific calibration.
+
+---
