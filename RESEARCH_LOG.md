@@ -95130,3 +95130,39 @@ Suite-union pass count is `9/11`: coverage and regime coverage are the only suit
 Run one bounded diagnostic mixture, not as the final architecture but as a mechanism test. A fixed mostly-AR sample mixture can test whether the two learned laws contain complementary support that could later be distilled into one clean model. If the mixture cannot improve beyond `8/11` or damages structural passes, close mixture/ensemble work immediately.
 
 ---
+## 2026-04-24: Autoresearch 415 AR direct-path mixture diagnostic
+
+### Context
+414a found a real complementarity: 392a supplies structural/local validity, while 413a supplies level occupancy. 415a ran exactly one bounded diagnostic mixture to test whether a mostly-AR sample law with a small direct-path component could improve the full suite.
+
+### Result
+Added `experiments/backfill/block_ar/evaluate_415a_392a_413a_mixture.py`.
+
+Configuration:
+- AR model: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`
+- direct path model: `models/backfill/413a_recent_score_path_fm_s42/best_model.pt`
+- direct-path sample weight: `0.125` (`6/48` samples)
+
+Official full 11-suite:
+- artifact: `results/block_ar/415a_392a_413a_mix0125/full11.json`
+- score: `7/11`
+- failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`
+
+Key metrics:
+- cov90 `0.870`; under70/over95 cells `0/6`
+- conditionality `5.37%`, passing
+- time-series passes
+- cointegration worst-cell ratio `0.175`, failing
+- regime layer2 `1/8`
+- daily KS `25/25`; level KS `12/25`
+- cross-cell corr ratio `0.962`, passing
+- mean reversion passes
+- pathwise max-jump KS `0.374`, passing
+
+### Mechanism Read
+The mixture preserved most of the AR structural behavior and reduced coverage edge failures relative to 392a, but the small direct-path component was enough to break worst-cell cointegration while not enough to pass level KS. This makes the complementarity useful diagnostically but not directly usable as an ensemble route.
+
+### Decision
+Close mixture/ensemble work as a primary route. Keep 392a as the active `8/11` frontier. The next analysis should decide the next clean paradigm: one model must learn path-level occupancy natively while preserving AR structural constraints, rather than mixing two separately flawed generators.
+
+---
