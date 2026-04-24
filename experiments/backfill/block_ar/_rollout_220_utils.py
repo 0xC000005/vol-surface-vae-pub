@@ -977,6 +977,12 @@ def load_one_day_kernel(
         )
 
         return load_352a_model(checkpoint_path, device)
+    if model_type == "354a":
+        from diffusion.block_ar.empirical_normal_score_path_diffusion import (
+            load_model as load_354a_model,
+        )
+
+        return load_354a_model(checkpoint_path, device)
     if model_type == "343a":
         from diffusion.block_ar.empirical_normal_score_scalar_ar_mixture_density import (
             load_model as load_343a_model,

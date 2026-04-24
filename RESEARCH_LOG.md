@@ -93990,3 +93990,42 @@ Change only the vanilla generative core:
 If 354a does not materially improve the path-primary 339/345 branch while preserving 340c's structural strengths, then path-primary vanilla diffusion is also capped at this data/model scale. The next paradigm should stop rotating between FM/diffusion/NLL/proper-score cores and revisit the data framing or conditional information content directly.
 
 ---
+## 2026-04-24: Autoresearch 354a path diffusion result
+
+### Context
+354a tested the remaining clean vanilla-core falsifier after 352a and 353a: keep the 339 one-shot empirical-normal-score full future-path representation, but replace rectified flow matching with a VP/DDIM denoising diffusion core. This is the clean comparison to a plain path-level diffusion/DiT-style baseline.
+
+### Result
+Artifacts:
+- model: `diffusion/block_ar/empirical_normal_score_path_diffusion.py`
+- trainer: `experiments/backfill/block_ar/train_354a_empirical_normal_score_path_diffusion.py`
+- checkpoint: `models/backfill/354a_v0_s42/best_model.pt`
+- evaluation JSON: `results/block_ar/354a_v0_s42/full11.json`
+- evaluation markdown: `results/block_ar/354a_v0_s42/full11.md`
+
+The run completed 46 epochs before interruption; the best saved checkpoint is epoch 44 with validation denoising loss 0.184004. The checkpoint used the transformer path mixer.
+
+Full 11-suite result: 3/11.
+Passed suites: surface validity, block-AR smoothness, IV-EWMA cointegration.
+Failed suites: coverage, conditionality, time-series properties, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, pathwise jump realism.
+
+Key diagnostics:
+- overall 90% coverage was 99.5%, but per-cell upper coverage exceeded the 95% gate, so coverage failed by over-dispersion;
+- conditional MAE reduction was 2.1% and turbulent/calm width ratio was 0.923;
+- kurtosis ratio was 0.329 and move-size profile failed all thresholds;
+- daily-change KS passed only 5/25 and level KS 0/25;
+- cross-cell correlation ratio collapsed to 0.201 and rank ratio rose to 4.034;
+- mean reversion failed with aggregate ratio 0.655 and only 6/24 active cells;
+- pathwise max-jump KS was 0.387 and per-cell q99 jump cells passed only 3/25.
+
+### Mechanism Read
+Path-primary diffusion did not repair the path-primary family. It learned a very broad unconditional path cloud that covers almost everything and preserves aggregate cointegration incidence, but it does not learn the conditional joint geometry: cross-cell dependence, level marginals, daily move-size profile, mean reversion, and regime-responsive width all fail.
+
+This is a clean negative result. The issue is not rectified flow versus diffusion for either the local transition shell or the full future path. Vanilla path diffusion is defensible as a baseline, but at this data/model scale it is less useful than the 340c causal AR transition factorization.
+
+### Decision
+Close path-primary vanilla diffusion as non-frontier. Do not tune DDIM steps, temperature, transformer depth, or diffusion schedule around 354a.
+
+The next step should be a post-354 synthesis. Current evidence has falsified the obvious core rotations: local FM, local diffusion, full-path FM, full-path diffusion, exact likelihood at path and transition levels, generated-prefix one-step repair, fixed common source noise, and full-rollout proper-score fine-tuning. The next move must address what conditional information is learnable from the data or change the representation more fundamentally; it should not be another objective-core swap.
+
+---
