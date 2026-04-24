@@ -94578,3 +94578,20 @@ Weak free-running path-energy fine-tuning is useful. It keeps the architecture u
 Promote 392a to the active frontier tie. Run one intermediate energy strength, such as `energy_weight=0.1`, to test whether level KS can approach the gate without sacrificing coverage or cointegration. If it regresses, stop tuning energy weight and analyze the 392a residuals.
 
 ---
+## 2026-04-24: Autoresearch 393 intermediate rollout energy
+
+### Context
+Autoresearch 392 showed that weak free-running path-energy fine-tuning from the 385a recent-quantile FM checkpoint can improve level occupancy while preserving the 8/11 frontier. The decisive next test was an intermediate energy strength to see whether level KS could approach the 15/25 gate without losing the clean conditional-law properties.
+
+### Result
+393a used `train_391a_recent_rollout_energy_finetune.py` from `models/backfill/385a_recent_quantiles_fm_s42/best_model.pt` with `energy_weight=0.1`, `fm_anchor_weight=1.0`, `train_sample_count=2`, and 4 rollout flow steps. Official full-11 output is `results/block_ar/393a_recent_rollout_energy_w01_s42/full11.json`.
+
+Score: 7/11. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity. Level KS improved from 392a's 10/25 to 12/25 and daily-change KS stayed 25/25. Cointegration still passed with worst-cell ratio 0.25. The regression was cov90 falling to 0.847 and conditionality MAE reduction falling to 3.96%, below the 5% gate.
+
+### Mechanism Read
+The path-energy direction remains meaningful, but raw energy strength is now a clean tradeoff rather than a monotone path to 11/11. Increasing the weight improves some unconditional level occupancy diagnostics while shrinking or distorting enough conditional variation that conditionality and coverage deteriorate. This is not a reason to add architecture knobs; it is evidence that the objective estimator or scoring geometry needs analysis.
+
+### Decision
+Keep 392a as the active 8/11 frontier: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`. Close raw energy-weight tuning for now. The next iteration should be post-experiment analysis comparing 385a, 392a, and 393a to decide whether the principled next experiment is a better Monte Carlo estimate of the same proper score, a variance-preserving scoring variant, or a different clean objective.
+
+---
