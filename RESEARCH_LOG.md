@@ -92585,3 +92585,58 @@ Run one same-method Bitter-Lesson scale test, 340d: keep the exact 340c model ob
 If 340d does not improve the `6/11` frontier or if it preserves only aggregate calibration while worsening structural passes, close capacity scaling and move to a new research-ideation step rather than adding calibration or regime-specific knobs.
 
 ---
+## 2026-04-24: Autoresearch 340d capacity-scaled prefix normal-score AR
+
+### Context
+340d tested the same-method capacity falsifier selected after 340c: keep the 340c normal-score causal-memory AR transition FM and prefix-token conditioning, but moderately increase generic token/memory Transformer capacity.
+
+Artifacts:
+- loader update: `experiments/backfill/block_ar/_rollout_220_utils.py`
+- trainer: `experiments/backfill/block_ar/train_340a_empirical_normal_score_causal_memory_transition_flow.py`
+- model: `models/backfill/340d_v0_s42/best_model.pt`
+- train summary: `models/backfill/340d_v0_s42/train_summary.json`
+- full suite: `results/block_ar/340d_v0_s42/full11.json`
+- markdown: `results/block_ar/340d_v0_s42/full11.md`
+
+Training completed 48 epochs with `token_dim=160`, `token_layers=4`, `memory_dim=160`, `memory_layers=4`, and `batch_size=48`. Best validation was epoch 9 with `val_total=0.42537`, substantially lower than 340c's `0.43696`, but the training curve overfit sharply afterward.
+
+### Result
+Full 11-suite score: `3/11`, decisively below the 340a/340c `6/11` frontier.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- IV-EWMA cointegration
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90 `0.864`, calibration error `0.016`;
+- MAE reduction passes at `7.6%`, but turb/calm remains inverted at `0.953`;
+- daily-change KS improves to `25/25`;
+- time-series fails because per-cell q99 tail scale falls to `15/25`;
+- cointegration aggregate improves to `0.737`, but worst cell fails at `0.246`;
+- level KS collapses to `0/25`;
+- median-bias fraction collapses to `14/25`;
+- active mean reversion collapses to `39.5%`;
+- pathwise max-jump KS passes at `0.193`, but pathwise suite still fails because per-cell q99 tail scale is only `15/25`.
+
+### Mechanism Read
+340d falsifies the simple capacity-limited interpretation. More generic capacity improves teacher-forced FM loss and produces stronger sampled movement, enough to pass max-jump KS and MAE reduction, but it destroys level-law fidelity, per-cell tail calibration, worst-cell cointegration, and active mean reversion.
+
+This is the same structural warning seen in earlier capacity/on-policy branches: lowering local teacher-forced loss is not equivalent to improving the recursive 30-day scenario law. The 340 family's remaining failures are not solved by scale alone.
+
+### Decision
+Close 340d as a negative capacity result. Keep 340c and 340a as the active `6/11` co-frontiers.
+
+Run post-experiment analysis next. The next move should not be another capacity sweep or feature/scale knob. The analysis should decide whether 340 can be repaired by changing the learning objective/path-law semantics, or whether the branch is capped and should move to research ideation.
+
+---
