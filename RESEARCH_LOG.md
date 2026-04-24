@@ -93002,3 +93002,59 @@ This is still first-principles and Bitter Lesson aligned: the model learns from 
 344a must beat the `6/11` frontier or at least preserve 340c's structural passes while materially improving coverage/regime/path metrics. If it repeats the 338 pattern of improved free-run path behavior at the cost of daily/tail/level fidelity, close on-policy fine-tuning as a branch and move to a true paradigm shift rather than tuning roll-in knobs.
 
 ---
+## 2026-04-24: Autoresearch 344a on-policy normal-score result
+
+### Context
+344a tested the selected training-distribution-mismatch hypothesis: initialize from the `340c` empirical-normal-score causal-memory transition FM and fine-tune with a conservative mixture of teacher-forced FM and generated-prefix one-step FM.
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_344a_on_policy_normal_score_transition_flow.py`
+- eval routing: `experiments/backfill/block_ar/_rollout_220_utils.py`, `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- model: `models/backfill/344a_v0_s42/best_model.pt`
+- train summary: `models/backfill/344a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/344a_v0_s42/full11.json`
+- markdown: `results/block_ar/344a_v0_s42/full11.md`
+
+Training ran 6 epochs from `340c`; best checkpoint was epoch 5 with validation objective `0.78924`.
+
+### Result
+Full 11-suite score: `4/11`, below the `340a/340c` frontier at `6/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key deltas versus `340c`:
+- aggregate cov90 stayed high (`0.876 -> 0.869`) but per-cell coverage still failed;
+- conditional MAE improved (`3.9% -> 1.9%` is still failed) and turb/calm width remained inverted (`0.934 -> 0.970`);
+- cointegration improved strongly (`0.632 -> 1.392`, worst cell `0.303 -> 0.421`);
+- cross-cell geometry stayed passing (`corr ratio 0.816 -> 0.952`);
+- time-series collapsed: kurtosis ratio `1.147 -> 0.553`, tail-scale cells `20/25 -> 6/25`;
+- daily-change KS collapsed `24/25 -> 6/25`;
+- level KS collapsed `12/25 -> 0/25`;
+- median-bias cells collapsed `20/25 -> 12/25`;
+- mean reversion lost pass despite full-horizon active mean `76.7%` because h1 active-cell pass fell below gate;
+- pathwise q99 cells collapsed `20/25 -> 6/25` and max-jump KS stayed failed (`0.309 -> 0.288`).
+
+### Mechanism Read
+344a confirms the 338 failure mode in the stronger 340c coordinate. Generated-prefix fine-tuning improves some free-run dependence/path diagnostics, especially cointegration, but it distorts the one-day empirical change law and level marginals too severely. The branch trades local statistical validity for recursive path correction instead of learning both together.
+
+This is not an implementation failure: smoke loss/backprop passed, full training completed, and the full suite produced the same coherent tradeoff seen in 338a/b.
+
+### Decision
+Close on-policy/generated-prefix fine-tuning as a non-frontier branch. Do not tune roll-in depth, loss weight, temperature, or epoch count as local knobs.
+
+The active frontier remains `340a/340c` at `6/11`. Run post-experiment analysis next and treat 338/344 together: direct on-policy repair is no longer a clean route unless embedded in a genuinely different generative objective rather than bolted onto one-step transition FM.
+
+---

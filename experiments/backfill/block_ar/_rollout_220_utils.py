@@ -947,7 +947,7 @@ def load_one_day_kernel(
         )
 
         return load_339a_model(checkpoint_path, device)
-    if model_type in {"340a", "340b", "340c", "340d", "342a"}:
+    if model_type in {"340a", "340b", "340c", "340d", "342a", "344a"}:
         from diffusion.block_ar.empirical_normal_score_causal_memory_transition_flow_matching import (
             load_model as load_340a_model,
         )
