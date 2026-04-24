@@ -92726,3 +92726,34 @@ Close 341a as a non-frontier result. Do not tune block length immediately.
 Run post-experiment analysis next. The next step should decide whether to move to broader research ideation around conditional uncertainty allocation, because 340/341 now rule out feature state, capacity scaling, and simple block granularity as sufficient repairs.
 
 ---
+## 2026-04-24: Autoresearch 341a postmortem and objective-level ideation
+
+### Context
+341a tested whether the 340 frontier was capped by one-day AR semantics. It replaced one-day transitions with a block-causal normal-score path law over 5-day blocks, while keeping a vanilla rectified-flow objective and causal sampling.
+
+### Findings
+341a did not beat the frontier:
+- 341a: `4/11`;
+- 340a/340c: `6/11`.
+
+The result is mechanistically mixed:
+- positive: MAE reduction passed (`5.1%`), daily-change KS reached `25/25`, mean reversion passed, and cross-cell correlation passed;
+- negative: time-series failed through per-cell tail scale (`18/25`), cointegration failed worst-cell (`0.211`), level KS stayed below gate (`12/25`), median-bias was `19/25`, max-jump KS stayed poor (`0.420`), and regime layer 2 stayed `0/8`.
+
+### Mechanism Read
+The current evidence now rules out the clean architecture-side explanations:
+- simple realized-scale state was not enough (`340b`);
+- generic prefix conditioning helped but capped at `6/11` (`340c`);
+- larger generic capacity worsened the scenario law (`340d`);
+- block-causal path factorization did not solve conditional/regime allocation (`341a`).
+
+The persistent failure is not support, local daily-change law, cross-cell geometry, or mean reversion. It is conditional uncertainty allocation: the model does not put the right amount of spread in the right cells/regimes while preserving level-law and pathwise-tail shape.
+
+### Decision
+Pause 341 and do not tune block length.
+
+Run research ideation next around objective-level training for conditional uncertainty allocation. The most defensible direction is a proper-scoring-rule repair on top of the clean 340c frontier, because the architecture is already adequate enough to preserve structural passes but the vanilla teacher-forced FM objective is not producing the correct conditional spread allocation.
+
+The next ideation must stay clean: no evaluator-specific gates, no calibration layer, no regime hand labels, no retrieval, no residual shell, no low-rank readout, no bounded side path. Candidate class: generic sample-based proper scoring rules for the learned conditional law, such as one-step or path-level energy score / variogram score, applied in normal-score or IV space with the 340c sampler.
+
+---
