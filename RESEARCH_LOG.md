@@ -94248,3 +94248,22 @@ Recent-window FM adaptation is the first clear improvement past the 7/11 plateau
 Continue this line. The next iteration should run a controlled adaptation-strength ladder, evaluating earlier/weaker recent-adaptation checkpoints. Keep the architecture unchanged and avoid post-hoc sample mapping; the objective is to retain conditionality while reducing overcoverage and recovering level-KS/median-bias alignment.
 
 ---
+## 2026-04-24: Autoresearch iteration 378 — adaptation strength ladder
+
+### Context
+Iteration 378 tested whether the 377a improvement was just an adaptation-strength issue. 377a scored `8/11` after 8 epochs on the 441-window recent adaptation block, but failed coverage, regime coverage, and distributional fidelity. The ladder evaluated weaker, narrower, and broader variants.
+
+### Result
+- `377a_recent_fm_s42`: `8/11`; failures `coverage`, `regime_coverage`, `distributional_fidelity`; coverage90 `0.892`, h30 worst/best `0.714/0.990`, conditionality MAE reduction `5.05%`, regime layer2 `1/8`, level KS `5/25`, median-bias fraction `19/25`.
+- `378a_recent_fm_e2_lr5e5_s42`: `7/11`; conditionality failed (`4.26%` MAE reduction), level KS improved to `10/25`, median-bias fraction `22/25`, but coverage overcoverage remained severe.
+- `378a_recent_fm_e4_lr5e5_s42`: `6/11`; lost conditionality and cointegration.
+- `378a_recent_fm_e8_w192_lr5e5_s42`: `6/11`; narrower recent window lost conditionality and time-series.
+- `378a_recent_fm_e8_w882_lr5e5_s42`: `7/11`; broader recent window still failed conditionality via worst-cell MAE and did not recover level KS.
+
+### Mechanism Read
+The 441-window, 8-epoch recent adaptation is not a random lucky point; it is the best tested tradeoff. Weaker variants preserve level KS somewhat but lose official conditionality. Narrower/broader adaptation windows do not repair the regime/cell coverage geometry. The remaining issue is not adaptation amount alone.
+
+### Decision
+Keep 377a as the current best (`8/11`). Next, test a minimal inference-temperature ladder on 377a because its coverage failure is mostly overcoverage above the 95% upper cap. If scalar temperature cannot fix the residual failures without breaking conditionality, close scalar calibration and move to a more structural solution.
+
+---
