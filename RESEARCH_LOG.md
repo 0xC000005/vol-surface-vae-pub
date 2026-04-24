@@ -95277,3 +95277,28 @@ Keep 392a as the active `8/11` frontier. Do not run a blind student-weight sweep
 - `results/block_ar/419a_student_forced_transition_fm_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 420 joint transition-path paradigm
+
+### Context
+419a tested the one clean off-policy AR transition repair and scored `6/11`. It removed most undercoverage but acted like a learned width actuator: high-coverage cells overcovered, conditionality fell to `3.17%`, small-move realism failed, and level KS worsened to `7/25`. A weaker student weight could interpolate, but the endpoint moved level occupancy in the wrong direction, so a weight sweep is not a principled next move.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_420a_joint_score_transition_path_flow.md`.
+
+Selected paradigm: joint empirical normal-score transition-path flow. Model the full 30-day tensor of score transitions `(z_t - z_{t-1})` as the flow target, reconstruct future score levels by cumulative summation from the observed last history score, and decode through the empirical quantile table.
+
+### Mechanism Read
+The evidence now brackets the missing object:
+- 392a AR transition FM has the best structural/local behavior but recursive one-step sampling does not learn the 30-day level/regime law strongly enough.
+- 413/417 direct future-level path FM makes level occupancy more native but loses structural coupling, conditionality, and mean reversion.
+- 419a off-policy AR fine-tuning preserves some structure but behaves mainly as width calibration and worsens level occupancy.
+
+The clean middle target is the joint future transition path: full-horizon stochastic coupling is native, but the learned variable remains the daily move law rather than the absolute future level law.
+
+### Decision
+Run 421a as one decisive falsifier: implement a joint normal-score transition-path flow with the existing efficient path mixer scale and unchanged official evaluation. If it cannot combine 392a's structural passes with a level-KS/regime-layer2 gain, close this paradigm and move to a true path-level latent/world-model architecture.
+
+### Artifacts
+- `experiments/backfill/block_ar/IDEA_420a_joint_score_transition_path_flow.md`
+
+---
