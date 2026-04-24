@@ -94438,3 +94438,28 @@ Longer recent quantiles are not better. They reduce the adaptation-loss shock re
 Keep 385a as the active frontier. Do not lengthen the recent window further. Next test a blended checkpoint/recent quantile table at the 441-window horizon to soften coordinate replacement without losing local marginal alignment.
 
 ---
+## 2026-04-24: Autoresearch 387 blended quantiles
+
+### Context
+Iteration 387 tested the next data-framing repair after 386: a convex blend between checkpoint empirical quantiles and the 441-window recent quantiles. The goal was to reduce abrupt coordinate replacement while preserving enough recent marginal alignment to keep 385a's useful improvements.
+
+### Result
+- Added `--quantile_source blend` and `--quantile_blend_weight` to `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py`.
+- Command used `--quantile_source blend --quantile_blend_weight 0.5`.
+- Model: `models/backfill/387a_quantile_blend05_fm_s42/best_model.pt`.
+- Full suite: `results/block_ar/387a_quantile_blend05_fm_s42/full11.json`.
+- Official score: `7/11`.
+- Failures: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- Conditional MAE reduction was `5.09%`.
+- Daily-change KS passed `25/25`.
+- Level KS fell to `3/25`.
+- Cointegration worst-cell ratio fell to `0.175`, below the `0.25` gate.
+- Coverage geometry improved: all worst-cell per-horizon checks passed, and remaining coverage failures were best-cell overcoverage.
+
+### Mechanism Read
+Midpoint blending improves interval placement but damages the transition/level law enough to lose cointegration and level KS. This means the quantile coordinate is not a harmless post-processing table; it interacts with the learned transition law. The active 385a signal appears recent-coordinate-specific rather than a simple average with the old coordinate.
+
+### Decision
+Keep 385a as the active frontier. Do not pursue midpoint blending. A recent-heavy blend might still be a small interpolation around 385a, but the next step should be chosen carefully because quantile blending is becoming a knob.
+
+---

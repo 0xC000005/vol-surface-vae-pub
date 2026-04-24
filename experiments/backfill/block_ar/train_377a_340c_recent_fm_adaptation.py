@@ -85,9 +85,15 @@ def main() -> None:
     parser.add_argument("--noise_scale_max", type=float, default=4.0)
     parser.add_argument(
         "--quantile_source",
-        choices=["checkpoint", "recent"],
+        choices=["checkpoint", "recent", "blend"],
         default="checkpoint",
-        help="Use checkpoint empirical quantiles or recompute them from the recent adaptation block.",
+        help="Use checkpoint, recent, or convex-blended empirical quantiles.",
+    )
+    parser.add_argument(
+        "--quantile_blend_weight",
+        type=float,
+        default=0.5,
+        help="Recent-quantile weight when --quantile_source=blend.",
     )
     parser.add_argument(
         "--trainable_scope",
@@ -169,12 +175,15 @@ def main() -> None:
         adaptation_windows=args.adaptation_windows,
         device=device,
     )
-    if args.quantile_source == "recent":
+    if args.quantile_source in {"recent", "blend"}:
         quantiles, quantile_levels = compute_shared_level_quantiles(
             hist_01,
             fut_01,
             n_quantiles=model.cfg.n_quantiles,
         )
+        if args.quantile_source == "blend":
+            w = float(np.clip(args.quantile_blend_weight, 0.0, 1.0))
+            quantiles = (1.0 - w) * model.level_quantiles.detach() + w * quantiles
         model.set_empirical_quantiles(quantiles, quantile_levels)
     loader = DataLoader(
         TensorDataset(hist_01, fut_01),
@@ -201,6 +210,8 @@ def main() -> None:
     print(f"Trainable params: {n_trainable:,}  scope={args.trainable_scope}")
     print(f"Anchor weight: {args.anchor_weight:.3g}")
     print(f"Quantile source: {args.quantile_source}")
+    if args.quantile_source == "blend":
+        print(f"Quantile blend recent weight: {args.quantile_blend_weight:.3f}")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
@@ -287,6 +298,7 @@ def main() -> None:
         "noise_scale_min": args.noise_scale_min,
         "noise_scale_max": args.noise_scale_max,
         "quantile_source": args.quantile_source,
+        "quantile_blend_weight": args.quantile_blend_weight,
         "config": asdict(model.cfg),
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
