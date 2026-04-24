@@ -91279,3 +91279,24 @@ Change:
 Implement 331a as the minimal falsifier. If exact likelihood improves coverage/conditionality/regime without destroying 330's structural passes, continue. If it becomes diffuse like 306a or loses cross-cell geometry, close exact daily likelihood and ideate a different path-law objective.
 
 ---
+## 2026-04-24: 331a exact transition density instability
+
+### Context
+331a tested the exact-density paradigm from the prior ideation: keep causal future-prefix memory and standardized logit coordinates, but replace transition FM with an exact conditional affine-coupling likelihood over each 25D daily transition.
+
+### Result
+Training completed: `331a_v0_s42` reached best validation NLL `-13.64` at epoch 17. However, the model did not produce a valid full 11-suite result. Native recursive sampling generated NaNs by the conditionality/time-series stage, and `evaluate_220h_full_multihorizon_v2_suite.py` crashed when the time-series tail-ratio diagnostic encountered an all-NaN slice.
+
+Partial evaluation before the crash showed surface validity passing and aggregate horizon coverage looking superficially acceptable, but conditionality and time-series diagnostics already contained NaNs. Therefore the model is not a valid conditional scenario generator in this form.
+
+Artifacts: `models/backfill/331a_v0_s42/best_model.pt`, `models/backfill/331a_v0_s42/train_summary.json`. No valid `full11.json` was produced because evaluation crashed.
+
+### Mechanism Read
+Exact daily likelihood did not solve the 330 calibration problem. The coupling flow can assign high likelihood under teacher forcing, but recursive sampling leaves the training-support region in standardized logit-prefix space. Once the generated prefix becomes too large, the coupling nets emit unstable shifts and subsequent generated paths produce NaNs.
+
+This is the same broad lesson as prior exact-likelihood attempts, but in a sharper form: teacher-forced daily likelihood is not sufficient unless the sampled recurrent state remains stable. Adding a post-hoc clamp would be a numerical patch, not yet a principled model object.
+
+### Decision
+Treat 331a as a negative result. Do post-experiment analysis next and decide whether to close exact daily likelihood outright or to formulate a bounded/invertible transition coordinate that is stable by construction. Do not tune flow layers, NLL learning rate, or sample temperature blindly.
+
+---

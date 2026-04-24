@@ -923,6 +923,12 @@ def load_one_day_kernel(
         )
 
         return load_330a_model(checkpoint_path, device)
+    if model_type == "331a":
+        from diffusion.block_ar.causal_memory_exact_transition_density import (
+            load_model as load_331a_model,
+        )
+
+        return load_331a_model(checkpoint_path, device)
     if model_type == "303d":
         from diffusion.block_ar.recurrent_logit_transition_token_flow_matching import (
             load_model as load_303d_model,
