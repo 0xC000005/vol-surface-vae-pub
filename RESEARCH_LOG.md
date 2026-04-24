@@ -94554,3 +94554,27 @@ The proper-scoring-rule direction is real: it directly improves level occupancy.
 Do not close the proper-scoring-rule path. Next run a weaker energy fine-tune from 385a, such as `energy_weight=0.05`, to test whether the level-KS gain can be retained without sacrificing coverage and cointegration.
 
 ---
+## 2026-04-24: Autoresearch 392 weak rollout energy
+
+### Context
+Iteration 392 tested the strength hypothesis from 391: path-energy fine-tuning improves level occupancy but energy weight `0.2` narrows paths too much. This run reduced path-energy weight to `0.05` while keeping the FM anchor at `1.0`.
+
+### Result
+- Model: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`.
+- Full suite: `results/block_ar/392a_recent_rollout_energy_w005_s42/full11.json`.
+- Objective: FM anchor weight `1.0`, path-energy weight `0.05`, train samples `2`, rollout flow steps `4`.
+- Official score: `8/11`.
+- Failures: `coverage`, `regime_coverage`, `distributional_fidelity`.
+- Level KS improved from 385a's `5/25` to `10/25`.
+- Median-bias fraction improved to `20/25`; bias magnitude stayed `25/25`; daily KS stayed `25/25`.
+- Conditionality passed at `5.14%`.
+- Cointegration passed; worst-cell ratio was `0.278`.
+- Coverage geometry improved relative to 385a, although the suite still fails coverage.
+
+### Mechanism Read
+Weak free-running path-energy fine-tuning is useful. It keeps the architecture unchanged, preserves the one-step FM law, improves long-horizon level occupancy, and avoids the severe narrowing/cointegration failure of the stronger `0.2` run. The remaining gap is strength: level KS is closer to the `15/25` gate but not there.
+
+### Decision
+Promote 392a to the active frontier tie. Run one intermediate energy strength, such as `energy_weight=0.1`, to test whether level KS can approach the gate without sacrificing coverage or cointegration. If it regresses, stop tuning energy weight and analyze the 392a residuals.
+
+---
