@@ -93088,3 +93088,35 @@ Close the 340-style one-step transition-FM repair branch as an active research f
 Run a paradigm-shift iteration next. The new route should not be a 340c fine-tune, source-law tweak, scalar likelihood swap, or on-policy schedule. It must model the future path as the primary object while preserving local daily/level consistency inside the same generative objective.
 
 ---
+## 2026-04-24: Autoresearch 345a masked future-path paradigm
+
+### Context
+The 340 one-step transition-FM repair branch is now closed as active research. The next model must be future-path-first while keeping local daily/level consistency inside the same generative objective.
+
+Prior path-first branches matter:
+- `333`/`339` trained full future-path flows, but only with clean history and a fully noised future path. They learned plausible aggregate path clouds but did not sufficiently bind local conditional consistency, level marginals, and regime-dependent uncertainty.
+- `341a` trained block-causal path flows, but it did not preserve the 340 structural passes.
+- `343a` learned scalar chain-rule likelihood, but the scalar factorization smoothed/warped per-cell dynamics.
+
+### Paradigm Shift
+Open `345a`: empirical-normal-score masked future-path flow.
+
+The key change from `339` is the training objective, not a larger architecture. Train one path generator to solve random future inpainting problems:
+- history is always observed;
+- a random subset of future time-cell tokens is also observed during training;
+- the model denoises only the unobserved future tokens;
+- sampling is the all-unobserved case.
+
+This is a single conditional path-law objective. It asks the model to learn the full future path distribution and all lower-dimensional future conditionals with one shared network, instead of learning a one-step kernel and then bolting on path repairs.
+
+### Minimal Spec
+- Use empirical normal-score coordinates, as in 339/340.
+- Use a vanilla rectified-flow objective over future scores.
+- Add only a generic observed-mask indicator to distinguish true observed future tokens from noised unknown tokens.
+- Keep the architecture close to the 339 axial path flow with global mixing and transition features.
+- No retrieval, residual correction shell, low-rank readout, bounded path, posterior/prior scaffold, explicit regime scale, calibration layer, or evaluator-specific loss.
+
+### Falsifier
+345a must beat the `6/11` frontier or show a materially different mechanism that preserves local daily/level fidelity while improving path/regime behavior. If it behaves like 339 with only small metric reshuffling, close masked path inpainting and move to a different family rather than tuning mask schedules or architecture depth.
+
+---
