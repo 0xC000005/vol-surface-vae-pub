@@ -94530,3 +94530,27 @@ Scalar temperature is not sufficient because narrowing worsens the undercovered 
 Next experiment should be a proper-scoring-rule fine-tune on free-running 30-day paths starting from 385a, with FM retained as an anchor. This directly targets the residual pathology without changing the architecture or adding evaluator-specific cell/regime gates.
 
 ---
+## 2026-04-24: Autoresearch 391 rollout energy finetune
+
+### Context
+Iteration 391 tested the 390 decision: fine-tune from 385a using a proper scoring rule on free-running 30-day paths while retaining the FM loss as an anchor. This directly targets long-horizon level occupancy without changing architecture.
+
+### Result
+- Added `experiments/backfill/block_ar/train_391a_recent_rollout_energy_finetune.py`.
+- Model: `models/backfill/391a_recent_rollout_energy_w02_s42/best_model.pt`.
+- Full suite: `results/block_ar/391a_recent_rollout_energy_w02_s42/full11.json`.
+- Objective: FM anchor weight `1.0`, path-energy weight `0.2`, train samples `2`, rollout flow steps `4`.
+- Official score: `7/11`.
+- Failures: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- Level KS improved sharply from 385a's `5/25` to `13/25`.
+- Median-bias fraction improved to `21/25`; bias magnitude stayed `25/25`; daily KS stayed `25/25`.
+- Overall 90% coverage fell to `83.1%`.
+- Cointegration worst-cell ratio fell to `0.222`.
+
+### Mechanism Read
+The proper-scoring-rule direction is real: it directly improves level occupancy. The failure is strength/calibration, not direction. Energy weight `0.2` narrows paths too much, removing overcoverage but creating undercoverage and weakening cointegration.
+
+### Decision
+Do not close the proper-scoring-rule path. Next run a weaker energy fine-tune from 385a, such as `energy_weight=0.05`, to test whether the level-KS gain can be retained without sacrificing coverage and cointegration.
+
+---
