@@ -94861,3 +94861,26 @@ The monotone marginal quantile map is too broad. It helps the worst cointegratio
 Close marginal quantile-map calibration. If calibrated-system work continues, the next falsifier should be narrower: interval-width scaling around each sample cloud's own median, so the central path and rank/level location are less disturbed while coverage/regime intervals are adjusted.
 
 ---
+## 2026-04-24: Autoresearch 405 interval-scale calibration
+
+### Context
+404a closed marginal quantile-map calibration and selected one narrower calibrated-system falsifier: scale intervals around each sample cloud's own median so the central path and rank/location are less disturbed.
+
+### Result
+Added `experiments/backfill/block_ar/evaluate_405a_interval_scale_calibrated_system.py`.
+
+Run:
+
+`results/block_ar/405a_interval_scale_regime_392a/full11.json`
+
+Configuration: frozen 392a base checkpoint, pre-validation interval-scale calibration, history vol-of-vol regime bins, `alpha=1.0`, target coverage `0.9`, fitted scale range `0.65 / 1.20 / 1.45`.
+
+Score: 6/11. Failed suites: coverage, conditionality, time_series, regime_coverage, distributional_fidelity. Main metrics: cov90 `0.922`, coverage under/over counts `0/27`, conditionality MAE reduction `3.75%`, very-small-move ratio `0.838`, cointegration worst-cell ratio `0.298`, level KS `11/25`, median-bias fraction `20/25`, regime layer2 `1/8`, pathwise max-jump KS `0.170`.
+
+### Mechanism Read
+Interval scaling is safer than full marginal quantile mapping for level geometry: level KS is `11/25` versus 403a's `3/25`, and cointegration remains valid. But full-strength target-90 scaling over-widens intervals, creates overcoverage, reduces conditionality, and fails the very-small-move time-series profile. The calibrated-system actuator is real, but the current calibration target is too aggressive.
+
+### Decision
+Keep 392a base as the active learned 8/11 frontier. Do not claim calibrated-system progress yet. The next iteration should analyze whether a weaker alpha or lower target is a principled risk-policy calibration, or whether calibration should be closed because it keeps trading off official suites.
+
+---
