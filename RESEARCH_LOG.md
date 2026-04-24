@@ -94161,3 +94161,23 @@ The revised result sharpens the pathology. `340c` is no longer blocked by pathwi
 Keep `340c` as the active learned backbone. Do not start another raw architecture reset or one-step objective fine-tune yet. The next principled iteration is a frozen-model calibration feasibility test: determine whether a small auditable calibration map can repair per-cell coverage, regime coverage, and level KS while preserving all seven revised-suite passes.
 
 ---
+## 2026-04-24: Autoresearch iteration 374 — frozen 340c calibration ladder
+
+### Context
+Iteration 374 tested the most conservative calibration hypothesis after the revised-suite 340c baseline: freeze `models/backfill/340c_v0_s42/best_model.pt`, generate one validation sample array, and apply tiny cross-fitted logit-space calibration maps before the sample-array suites. The intent was to falsify whether the remaining failures are mostly post-hoc calibration-feasible rather than backbone/model-family failures.
+
+### Result
+- Artifact: `results/validations/2026-04-24/analysis/374a_frozen_340c_calibration_ladder/summary.md`
+- Best variant remained `raw` at `7/11` proxy score.
+- `raw`: coverage90 `0.877`, h30 worst/best cell coverage `0.635/0.995`, conditionality proxy MAE reduction `17.2%`, regime layer2 `0/8`, level KS `11/25`, daily KS `24/25`, max-jump KS `0.316`.
+- `global_logit_affine`: `6/11`; level KS worsened to `7/25` and mean reversion failed.
+- `horizon_cell_logit_affine`: `6/11`; level KS improved to `21/25`, but coverage dropped to `0.811`, time-series failed, mean reversion failed, and cointegration worsened.
+- `regime_horizon_cell_logit_affine`: `6/11`; conditionality proxy improved to `21.4%`, but coverage dropped to `0.797`, time-series failed, mean reversion failed, cointegration worsened, and regime layer2 stayed `0/8`.
+
+### Mechanism Read
+Simple post-hoc affine calibration is capped. It can move marginal level distributions toward the validation target, but it does so by distorting the generated path law rather than repairing the conditional scenario generator. The key evidence is that level KS improves while coverage, time-series shape, mean-reversion geometry, and cointegration degrade, and regime coverage remains unchanged at `0/8`.
+
+### Decision
+Do not continue accumulating post-hoc affine calibration knobs. The next principled step is post-experiment analysis / ideation around the remaining failure geometry: per-cell interval undercoverage and regime coverage need to be learned inside the conditional path law, not patched after sampling.
+
+---
