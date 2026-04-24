@@ -92974,3 +92974,31 @@ Run research ideation next. The next experiment must have a genuinely different 
 The active frontier remains `340a/340c` at `6/11`.
 
 ---
+## 2026-04-24: Autoresearch 344a on-policy normal-score selection
+
+### Context
+After the 343a postmortem, the active frontier is still `340a/340c` at `6/11`. The unsolved pathology is conditional uncertainty allocation under recursive generation: the model must learn state/regime/cell-dependent future-law shape without losing 340c's structural passes.
+
+Nearby branches are closed:
+- local teacher-forced transition repair (`342a`) is not enough;
+- scalar exact likelihood (`343a`) is not enough;
+- capacity scaling, fixed source-law changes, one-shot path flows, and block-causal path flows are non-frontier.
+
+### Ideation
+The only still-clean mechanism that directly targets the current pathology is training-distribution mismatch. `340c` is trained under teacher-forced prefixes but evaluated under generated prefixes. Earlier `338a/b` tested generated-prefix fine-tuning in the older standardized-logit coordinate: it improved some free-run path metrics but damaged daily/tail fidelity. That does not fully close the idea for the current frontier because `340c` changed the coordinate to empirical normal scores and is materially stronger on local/statistical structure.
+
+### Decision
+Open `344a`: generated-prefix on-policy fine-tuning of the `340c` empirical-normal-score causal-memory transition FM.
+
+Minimal spec:
+- initialize from `models/backfill/340c_v0_s42/best_model.pt`;
+- keep the architecture, empirical quantile transform, vanilla transition FM, and sampling procedure unchanged;
+- mix the original teacher-forced FM loss with a generated-prefix one-step FM loss at a random horizon;
+- use one conservative run only, not a sweep of roll-in depths, weights, or temperatures.
+
+This is still first-principles and Bitter Lesson aligned: the model learns from its own sampled state distribution instead of receiving a hand-coded regime scale, retrieval correction, low-rank readout, bounded path, or evaluator-specific calibration layer.
+
+### Falsifier
+344a must beat the `6/11` frontier or at least preserve 340c's structural passes while materially improving coverage/regime/path metrics. If it repeats the 338 pattern of improved free-run path behavior at the cost of daily/tail/level fidelity, close on-policy fine-tuning as a branch and move to a true paradigm shift rather than tuning roll-in knobs.
+
+---
