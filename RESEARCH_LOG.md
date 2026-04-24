@@ -94328,3 +94328,22 @@ Targeted freezing trades off the failure set rather than accumulating passes. It
 Close trainable-scope freezing as the primary path. The next clean experiment is anchored full adaptation: same 340c architecture and vanilla FM loss, but with a simple weight-space anchor to the base checkpoint during recent adaptation. That tests whether 377a's conditional gain can be retained while reducing level-law drift, without adding evaluator-specific calibration.
 
 ---
+## 2026-04-24: Autoresearch 382 anchored adaptation
+
+### Context
+Iteration 382 tested the cleanest alternative to trainable-scope freezing: keep the full 340c model trainable under the same recent-window vanilla FM objective, but add an optional L2 anchor to the source checkpoint. This is still architecturally clean: no decoder split, no retrieval, no evaluator-specific calibration, and no new generative head.
+
+### Result
+- Added `--anchor_weight` to `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py`.
+- A pilot `anchor_weight=0.1` trained at `models/backfill/382a_recent_fm_anchor0p1_s42/`; the loss-scale contribution was only about `0.0025`, likely too weak to materially constrain adaptation.
+- Official evaluation of `anchor_weight=1.0` at `results/block_ar/382a_recent_fm_anchor1p0_s42/full11.json` scored `7/11`.
+- Failures: `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`.
+- Key metrics: overall 90% coverage `88.8%`; conditional MAE reduction `3.56%`; level KS `9/25`; daily-change KS `24/25`; median-bias fraction `18/25`; regime layer2 `0/8`; cointegration passed with worst-cell ratio `0.303`.
+
+### Mechanism Read
+Anchoring does not dominate 377a. It keeps the model close enough to preserve cointegration but also suppresses the conditional update that made 377a pass conditionality. It does not improve level KS enough to pass distributional fidelity, and it leaves the same per-regime per-cell coverage geometry unsolved.
+
+### Decision
+Do not add more adaptation knobs immediately. The evidence from full adaptation, trainable-scope freezing, and anchoring now points to a clean unresolved mechanism: the remaining failures are likely a geometry/data-framing issue around level occupancy and per-cell width allocation, not merely overfitting from recent adaptation. Next iteration should be post-experiment analysis to isolate whether the failures come from validation endpoint level drift, per-cell heteroskedastic width geometry, or official-suite sample/test instability.
+
+---

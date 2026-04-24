@@ -65,6 +65,12 @@ def main() -> None:
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--clip_grad", type=float, default=1.0)
     parser.add_argument(
+        "--anchor_weight",
+        type=float,
+        default=0.0,
+        help="Optional L2 penalty that keeps trainable weights near the source checkpoint.",
+    )
+    parser.add_argument(
         "--trainable_scope",
         choices=["all", "conditioning", "conditioning_memory_proj"],
         default="all",
@@ -101,7 +107,12 @@ def main() -> None:
         )
         for name, param in model.named_parameters():
             param.requires_grad = name.startswith(trainable_prefixes)
-    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    trainable_named_params = [(name, p) for name, p in model.named_parameters() if p.requires_grad]
+    n_trainable = sum(p.numel() for _, p in trainable_named_params)
+    anchor_params = {
+        name: p.detach().clone()
+        for name, p in trainable_named_params
+    } if args.anchor_weight > 0 else {}
 
     hist_01, fut_01, indices = build_recent_block(
         data_path=args.data_path,
@@ -135,6 +146,7 @@ def main() -> None:
     print(f"Adaptation windows: {len(loader.dataset)}  index range: {indices[0]}..{indices[-1]}")
     print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Trainable params: {n_trainable:,}  scope={args.trainable_scope}")
+    print(f"Anchor weight: {args.anchor_weight:.3g}")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
@@ -149,6 +161,11 @@ def main() -> None:
                 fut_batch.shape[0], fut_batch.shape[1], -1
             )
             loss, metrics = model.training_loss(hist_norm, fut_norm)
+            anchor_penalty = loss.new_zeros(())
+            if anchor_params:
+                for name, param in trainable_named_params:
+                    anchor_penalty = anchor_penalty + torch.sum((param - anchor_params[name]) ** 2)
+                loss = loss + args.anchor_weight * anchor_penalty
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             if args.clip_grad > 0:
@@ -156,6 +173,7 @@ def main() -> None:
             optimizer.step()
             for key, value in metrics.items():
                 sums[key] = sums.get(key, 0.0) + float(value.item())
+            sums["anchor_penalty"] = sums.get("anchor_penalty", 0.0) + float(anchor_penalty.item())
             n_batches += 1
         scheduler.step()
         avg = {key: value / max(n_batches, 1) for key, value in sums.items()}
@@ -166,6 +184,7 @@ def main() -> None:
             "transition_abs": avg["transition_abs"],
             "target_velocity_std": avg["target_velocity_std"],
             "memory_abs": avg["memory_abs"],
+            "anchor_penalty": avg["anchor_penalty"],
             "lr": optimizer.param_groups[0]["lr"],
             "sec": time.time() - t0,
         }
@@ -173,7 +192,8 @@ def main() -> None:
         print(
             f"[ep {epoch:03d}] adapt={rec['adapt_total']:.5f} "
             f"trans_std={rec['transition_std']:.3f} trans_abs={rec['transition_abs']:.3f} "
-            f"vel_std={rec['target_velocity_std']:.3f} lr={rec['lr']:.2e} "
+            f"vel_std={rec['target_velocity_std']:.3f} anchor={rec['anchor_penalty']:.3e} "
+            f"lr={rec['lr']:.2e} "
             f"time={rec['sec']:.1f}s"
         )
         if rec["adapt_total"] < best_loss:
@@ -192,6 +212,7 @@ def main() -> None:
         "best_adaptation_loss": best_loss,
         "trainable_scope": args.trainable_scope,
         "n_trainable_params": n_trainable,
+        "anchor_weight": args.anchor_weight,
         "config": payload["config"],
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
