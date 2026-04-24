@@ -93058,3 +93058,33 @@ Close on-policy/generated-prefix fine-tuning as a non-frontier branch. Do not tu
 The active frontier remains `340a/340c` at `6/11`. Run post-experiment analysis next and treat 338/344 together: direct on-policy repair is no longer a clean route unless embedded in a genuinely different generative objective rather than bolted onto one-step transition FM.
 
 ---
+## 2026-04-24: Autoresearch 344a postmortem
+
+### Context
+344a tested whether the 340c frontier was limited by teacher-forced versus generated-prefix state-distribution mismatch. It initialized from `340c`, kept the empirical-normal-score causal-memory transition FM architecture unchanged, and fine-tuned with generated-prefix one-step FM.
+
+It scored `4/11`, below the `340a/340c` frontier at `6/11`.
+
+### Mechanism Read
+344a should be read with 338a/b:
+- 338a/b: generated-prefix fine-tuning in standardized-logit space improved some free-run metrics but collapsed daily/tail fidelity.
+- 344a: the same generated-prefix mechanism in the stronger empirical-normal-score 340c coordinate again improved some free-run dependence/path diagnostics, especially cointegration, but collapsed daily-change KS, level KS, per-cell q99 jump cells, median-bias cells, and h1 active mean reversion.
+
+This closes the simple state-distribution-mismatch explanation. The issue is deeper than teacher-forcing alone: forcing a one-step transition FM to correct its own generated prefixes creates an unstable compromise between local statistical validity and recursive path correction.
+
+### Pathology Update
+The 340 family remains valuable as a baseline because it cleanly preserves six structural/statistical suites. But as a research path it is now capped:
+- capacity scaling (`340d`) worsened the law;
+- block-causal path factorization (`341a`) did not preserve structural passes;
+- local sampled proper scoring (`342a`) distorted recursive levels;
+- scalar exact likelihood (`343a`) smoothed/warped per-cell level and tail behavior;
+- generated-prefix fine-tuning (`344a`, with 338 as precedent) repeats the daily/tail collapse.
+
+The common failure is not a missing scalar, loss term, temperature, or roll-in schedule. It is the decomposition itself: a one-step transition kernel can learn local geometry, but all tested bolt-on repairs fail to make it a full conditional 30-day path law without damaging other suites.
+
+### Decision
+Close the 340-style one-step transition-FM repair branch as an active research family. Keep `340a/340c` as the current `6/11` frontier baseline.
+
+Run a paradigm-shift iteration next. The new route should not be a 340c fine-tune, source-law tweak, scalar likelihood swap, or on-policy schedule. It must model the future path as the primary object while preserving local daily/level consistency inside the same generative objective.
+
+---
