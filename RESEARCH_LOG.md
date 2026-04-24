@@ -94029,3 +94029,36 @@ Close path-primary vanilla diffusion as non-frontier. Do not tune DDIM steps, te
 The next step should be a post-354 synthesis. Current evidence has falsified the obvious core rotations: local FM, local diffusion, full-path FM, full-path diffusion, exact likelihood at path and transition levels, generated-prefix one-step repair, fixed common source noise, and full-rollout proper-score fine-tuning. The next move must address what conditional information is learnable from the data or change the representation more fundamentally; it should not be another objective-core swap.
 
 ---
+## 2026-04-24: Autoresearch post-354 conditional signal audit
+
+### Context
+After 352a, 353a, and 354a, rotating the vanilla generative core is no longer a plausible next move. The persistent failed gate is regime-responsive uncertainty: the suite expects turbulent-history scenarios to be wider than calm-history scenarios. Before adding another architecture, I audited whether the validation futures themselves show that signal under the suite's history vol-of-vol split.
+
+### Audit
+Using the same validation rollout windows as the 11-suite (`max_windows=192`, `history_len=30`, `future_len=30`, `test_start=4511`) and the same history vol-of-vol definition:
+- calm windows: 39 at Q20, threshold 0.012600;
+- turbulent windows: 39 at Q80, threshold 0.016890.
+
+Measured realized future movement statistics from ground-truth futures:
+- mean future absolute move: turb/calm = 0.989;
+- future q90 absolute move: turb/calm = 0.901;
+- future path range: turb/calm = 1.034;
+- mean absolute future level deviation from last history: turb/calm = 1.012.
+
+Per-horizon realized absolute move ratios:
+- h1: 0.982;
+- h7: 0.943;
+- h14: 1.014;
+- h30: 1.026.
+
+### Mechanism Read
+This is a major pathology clarification. On this validation slice, the suite's history vol-of-vol split does not correspond to materially larger realized future movement. A model trained only from historical conditional likelihood/proper-score signals has little reason to learn a >1.15 turbulent/calm width ratio from this slice without an explicit conservative risk-management prior or calibration rule.
+
+This explains why clean learned models repeatedly keep turb/calm near 1.0 or below. It also explains why path-primary diffusion can over-cover broadly without passing conditionality: broad unconditional spread is not the same as history-vol-of-vol-specific spread.
+
+### Decision
+Do not immediately add an explicit regime scale as a model component; that would violate the clean-pathology guard. But the next research step must acknowledge that the regime-width gate may be a risk-management stress requirement rather than a learnable conditional law from the available validation data.
+
+The next principled move is a test/data-framing analysis or oracle audit, not another architecture. If the objective remains the exact 11-suite, then any model that passes the regime-width gate may need an explicit risk-prior mechanism; if the objective is publishable learned conditional generation, the test may need to distinguish learned conditional law from conservative stress widening.
+
+---
