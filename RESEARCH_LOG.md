@@ -92670,3 +92670,59 @@ This is not a return to residual shells, retrieval, low-rank readouts, bounded p
 The falsifier is whether block-level path likelihood preserves 340a/340c's local support/daily/cross-cell strengths while improving level KS, pathwise extremes, and regime/per-cell coverage. If it cannot beat the `6/11` frontier, move to research ideation rather than tuning block length.
 
 ---
+## 2026-04-24: Autoresearch 341a block-causal normal-score path flow
+
+### Context
+341a implemented the post-340d semantic shift: empirical normal-score block-causal flow matching. It factors the 30-day future into contiguous 5-day blocks, trains a vanilla rectified flow over the next block conditioned on history plus prior teacher-forced blocks, and samples blocks autoregressively.
+
+Artifacts:
+- module: `diffusion/block_ar/empirical_normal_score_block_causal_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_341a_empirical_normal_score_block_causal_flow.py`
+- eval wiring: `experiments/backfill/block_ar/_rollout_220_utils.py`, `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- model: `models/backfill/341a_v0_s42/best_model.pt`
+- train summary: `models/backfill/341a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/341a_v0_s42/full11.json`
+- markdown: `results/block_ar/341a_v0_s42/full11.md`
+
+Training completed 30 epochs. Best validation was epoch 15 with `val_total=0.49544`.
+
+### Result
+Full 11-suite score: `4/11`, below the 340a/340c `6/11` frontier.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+- mean reversion
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- IV-EWMA cointegration
+- regime coverage
+- distributional fidelity
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90 `0.871`, calibration error `0.008`;
+- MAE reduction passes at `5.1%`, but turb/calm remains inverted at `0.944`;
+- daily-change KS improves to `25/25`;
+- level KS stays at `12/25`, not enough for the `15/25` gate;
+- median-bias fraction is `19/25`, one cell short;
+- cointegration aggregate is strong (`0.863`), but worst cell fails at `0.211`;
+- mean reversion passes with full-horizon active mean `75.9%`;
+- pathwise max-jump KS remains poor at `0.420`;
+- per-cell q99 tail scale is only `18/25`, causing both time-series and pathwise weakness.
+
+### Mechanism Read
+Block-causal path flow is not the missing repair in this first clean form. It improves conditional MAE and daily-change KS while preserving mean reversion and cross-cell structure, but it does not repair regime width, level fidelity, or pathwise max-jump shape, and it loses the 340 frontier's time-series and cointegration passes.
+
+This is a useful negative result: moving from one-day transitions to 5-day block likelihood alone does not solve conditional/regime uncertainty allocation. The persistent bottleneck remains the model's allocation of spread across regimes and cells, not just the temporal factorization granularity.
+
+### Decision
+Close 341a as a non-frontier result. Do not tune block length immediately.
+
+Run post-experiment analysis next. The next step should decide whether to move to broader research ideation around conditional uncertainty allocation, because 340/341 now rule out feature state, capacity scaling, and simple block granularity as sufficient repairs.
+
+---

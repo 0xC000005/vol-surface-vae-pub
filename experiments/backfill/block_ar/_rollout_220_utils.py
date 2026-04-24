@@ -953,6 +953,12 @@ def load_one_day_kernel(
         )
 
         return load_340a_model(checkpoint_path, device)
+    if model_type == "341a":
+        from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
+            load_model as load_341a_model,
+        )
+
+        return load_341a_model(checkpoint_path, device)
     if model_type == "334a":
         from diffusion.block_ar.causal_memory_path_common_source_transition_flow_matching import (
             load_model as load_334a_model,
