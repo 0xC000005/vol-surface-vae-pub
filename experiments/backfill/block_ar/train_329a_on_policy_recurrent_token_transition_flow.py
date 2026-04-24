@@ -94,8 +94,10 @@ def collect_rollin_states(
 def transition_fm_loss_from_states(
     model: RecurrentLogitTransitionTokenFlowMatching,
     future_logits: torch.Tensor,
+    true_prev_logits: torch.Tensor,
     states: list[torch.Tensor],
     current_logits: list[torch.Tensor],
+    target_mode: str,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     bsz = future_logits.shape[0]
     losses: list[torch.Tensor] = []
@@ -104,7 +106,12 @@ def transition_fm_loss_from_states(
     rollin_error = torch.tensor(0.0, device=future_logits.device, dtype=future_logits.dtype)
     for step, (state_stack, current_logit) in enumerate(zip(states, current_logits)):
         next_logit = future_logits[:, step]
-        x1 = next_logit - current_logit
+        if target_mode == "level":
+            x1 = next_logit - current_logit
+        elif target_mode == "innovation":
+            x1 = next_logit - true_prev_logits[:, step]
+        else:
+            raise ValueError(f"Unknown roll-in target mode: {target_mode}")
         x0 = torch.randn_like(x1)
         t = torch.rand(bsz, device=future_logits.device, dtype=future_logits.dtype)
         x_t = (1.0 - t)[:, None] * x0 + t[:, None] * x1
@@ -131,9 +138,16 @@ def on_policy_training_loss(
     future_norm: torch.Tensor,
     rollin_flow_steps: int,
     rollin_temperature: float,
+    rollin_target_mode: str,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     teacher_loss, teacher_metrics = model.training_loss(history_norm, future_norm)
     future_logits = model.target_future_logits(future_norm)
+    with torch.no_grad():
+        _state_stack, history_last_logit = model.encode_history(history_norm)
+        true_prev_logits = torch.cat(
+            [history_last_logit[:, None, :], future_logits[:, :-1]],
+            dim=1,
+        ).detach()
     states, current_logits = collect_rollin_states(
         model,
         history_norm,
@@ -144,8 +158,10 @@ def on_policy_training_loss(
     on_policy_loss, on_policy_metrics = transition_fm_loss_from_states(
         model,
         future_logits,
+        true_prev_logits,
         states,
         current_logits,
+        target_mode=rollin_target_mode,
     )
     total = 0.5 * (teacher_loss + on_policy_loss)
     metrics = {
@@ -178,6 +194,15 @@ def main() -> None:
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--rollin_flow_steps", type=int, default=8)
     parser.add_argument("--rollin_temperature", type=float, default=1.0)
+    parser.add_argument(
+        "--rollin_target_mode",
+        choices=["level", "innovation"],
+        default="level",
+        help=(
+            "level reproduces 329a's corrective target true_next - generated_current; "
+            "innovation uses the observed one-day transition true_next - true_prev."
+        ),
+    )
     parser.add_argument("--clip_grad", type=float, default=1.0)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
@@ -224,7 +249,8 @@ def main() -> None:
     print(f"  train_windows={train_hist.shape[0]} val_windows={val_hist.shape[0]}")
     print(
         f"  rollin_flow_steps={args.rollin_flow_steps} "
-        f"rollin_temperature={args.rollin_temperature}"
+        f"rollin_temperature={args.rollin_temperature} "
+        f"rollin_target_mode={args.rollin_target_mode}"
     )
 
     def run_epoch(loader: DataLoader, train_mode: bool) -> dict[str, float]:
@@ -245,6 +271,7 @@ def main() -> None:
                     fut_norm,
                     rollin_flow_steps=args.rollin_flow_steps,
                     rollin_temperature=args.rollin_temperature,
+                    rollin_target_mode=args.rollin_target_mode,
                 )
                 if train_mode:
                     optimizer.zero_grad(set_to_none=True)
@@ -292,6 +319,7 @@ def main() -> None:
         "init_epoch": int(payload.get("epoch", -1)),
         "rollin_flow_steps": args.rollin_flow_steps,
         "rollin_temperature": args.rollin_temperature,
+        "rollin_target_mode": args.rollin_target_mode,
         "config": asdict(cfg),
     }
     (out_dir / "train_summary.json").write_text(json.dumps(summary, indent=2))

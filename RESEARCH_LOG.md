@@ -91100,3 +91100,24 @@ Keep 329 alive for one minimal target-mode falsifier, not a knob sweep. Run 329b
 If 329b does not preserve 303b's daily-change law while improving free-run structure, close on-policy roll-in and shift to a cleaner sequence likelihood/path-law object.
 
 ---
+## 2026-04-23: 329b innovation-target roll-in falsifier
+
+### Context
+329b tested the single repair implied by the 329a postmortem. It kept the 303b/329a recurrent token architecture and equal teacher/on-policy transition-flow objective, but changed the generated-state label from the corrective target `true_next - generated_current` to the observed innovation `true_next - true_prev`.
+
+### Result
+`329b_v0_s42` scored 2/11, passing surface validity and block_ar only. It failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, cross_cell_correlation, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 8, best val total 0.2768, coverage90 0.935 with calibration error 0.073, turb/calm width ratio 0.989, ACF corr 0.949, kurtosis ratio 1.459, daily-change KS 23/25, level KS 0/25, median-bias fraction 17/25, bias magnitude 24/25, per-window coverage floor 1.0%, corr ratio 0.448, rank ratio 3.048, cointegration gen/GT 0.605 but worst-cell 0.228, MR ratio 0.263, pathwise max-jump KS 0.163, q90 ratio 0.950, q99 ratio 1.051.
+
+Artifacts: `models/backfill/329b_v0_s42/best_model.pt`, `models/backfill/329b_v0_s42/train_summary.json`, `results/block_ar/329b_v0_s42/full11.json`, `results/block_ar/329b_v0_s42/full11.md`.
+
+### Mechanism Read
+The repair did exactly what the postmortem predicted locally: it removed the corrective-jump contamination. Daily-change KS returned to the 303b regime and aggregate pathwise jump scale became realistic. But it also removed the only signal that made generated off-path states reconnect to the conditional level geometry. Cross-cell dependence collapsed, effective rank became too high, cointegration lost its worst-cell gate, and mean reversion nearly disappeared.
+
+The 329 family now has a clean two-point falsification: corrective roll-in targets preserve structure by over-recentering; innovation roll-in targets preserve marginal transitions but stop learning the state-dependent shared path law.
+
+### Decision
+Close 329. Do not tune roll-in flow steps, epoch counts, or mixtures between corrective and innovation targets. The next HEAD step should be paradigm-shift ideation: find a model object that learns state-dependent shared path law directly rather than repairing a one-step AR transition with target engineering.
+
+---

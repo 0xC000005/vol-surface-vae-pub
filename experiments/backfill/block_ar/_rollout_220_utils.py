@@ -911,7 +911,7 @@ def load_one_day_kernel(
         )
 
         return load_303a_model(checkpoint_path, device)
-    if model_type in {"303b", "329a"}:
+    if model_type in {"303b", "329a", "329b"}:
         from diffusion.block_ar.recurrent_logit_transition_token_flow_matching import (
             load_model as load_303b_model,
         )
