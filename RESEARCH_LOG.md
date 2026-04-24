@@ -90896,3 +90896,22 @@ This makes the 326 pathology clean: shared-only bottleneck gives correct common 
 Close the immediate 326 variant pair. More attempts to balance shared/local noise by weights, gates, or annealing would become knob tuning. The next HEAD step should be research ideation or a paradigm shift that preserves common-shock structural necessity while providing local variation in a less shortcut-prone way.
 
 ---
+## 2026-04-23: 326c demeaned local innovation generator
+
+### Context
+326a showed that shared-only latent tokens can preserve cross-cell geometry but over-smooth the future path. 326b restored spread and surface validity by adding local future noise, but that gave the decoder an independent-noise shortcut and destroyed common-shock geometry. 326c tested the cleanest non-gated repair: subtract the per-horizon cross-cell mean from local noise so shared tokens must still carry the common movement.
+
+### Result
+326c_v0_s42 scored 3/11, passing surface validity, block_ar, and cointegration. It failed coverage, conditionality, time_series, regime_coverage, distributional_fidelity, cross_cell_correlation, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: coverage90 0.763, calibration error 0.043, turb/calm 0.958, daily KS 7/25, level KS 0/25, cross-cell corr ratio -0.064, rank ratio 3.596, MR ratio 1.994, pathwise jump KS 0.996.
+
+Artifacts: `models/backfill/326c_v0_s42/best_model.pt`, `models/backfill/326c_v0_s42/train_summary.json`, `results/block_ar/326c_v0_s42/full11.json`, `results/block_ar/326c_v0_s42/full11.md`.
+
+### Mechanism Read
+Demeaning local innovations did not solve the shortcut. The local path noise still dominates cell-level geometry and the generator remains high-rank/weakly coupled, while 326a's shared-only cross-cell pass is not preserved. This is a structural failure of the shared-plus-local implicit decoder family, not a missing scalar setting.
+
+### Decision
+Close 326. Do not add gates, annealing schedules, loss weights, or more local-noise preprocessing. The next HEAD step should be research ideation/paradigm shift: keep common shocks structurally necessary while adding local variation without giving the decoder an independent-noise shortcut.
+
+---

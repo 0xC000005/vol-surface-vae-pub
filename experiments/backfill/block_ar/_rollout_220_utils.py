@@ -1061,7 +1061,7 @@ def load_one_day_kernel(
         )
 
         return load_325a_model(checkpoint_path, device)
-    if model_type in {"326a", "326b"}:
+    if model_type in {"326a", "326b", "326c"}:
         from diffusion.block_ar.shared_latent_implicit_future_logit_path_generator import (
             load_model as load_326a_model,
         )

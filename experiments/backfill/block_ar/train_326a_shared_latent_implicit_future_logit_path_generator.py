@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--latent_tokens", type=int, default=8)
     parser.add_argument("--latent_dim", type=int, default=64)
     parser.add_argument("--use_local_noise", action="store_true")
+    parser.add_argument("--demean_local_noise", action="store_true")
     parser.add_argument("--token_dim", type=int, default=96)
     parser.add_argument("--token_layers", type=int, default=4)
     parser.add_argument("--token_heads", type=int, default=4)
@@ -119,6 +120,7 @@ def main() -> None:
         latent_tokens=args.latent_tokens,
         latent_dim=args.latent_dim,
         use_local_noise=args.use_local_noise,
+        demean_local_noise=args.demean_local_noise,
         token_dim=args.token_dim,
         token_layers=args.token_layers,
         token_heads=args.token_heads,

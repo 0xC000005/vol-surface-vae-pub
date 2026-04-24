@@ -22,6 +22,7 @@ class SharedLatentImplicitPathGeneratorConfig(JointTokenLogitTransitionFMConfig)
     latent_tokens: int = 8
     latent_dim: int = 64
     use_local_noise: bool = False
+    demean_local_noise: bool = False
     standardize_logits: bool = True
     logit_std_floor: float = 1e-3
     train_sample_count: int = 4
@@ -166,6 +167,8 @@ class SharedLatentImplicitFutureLogitPathGenerator(nn.Module):
                 device=history_norm.device,
                 dtype=history_norm.dtype,
             )
+            if self.cfg.demean_local_noise:
+                local_noise = local_noise - local_noise.mean(dim=2, keepdim=True)
         ctx = context.repeat_interleave(k, dim=0)
         out = self.decoder(latent, ctx, local_noise=local_noise)
         return out.view(bsz, k, self.cfg.future_len, self.cfg.n_cells)
