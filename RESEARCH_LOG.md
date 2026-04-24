@@ -93640,3 +93640,28 @@ Close 349a as non-frontier. Do not tune df initialization, df floor, or temperat
 The next ideation should target level stationarity more directly. A clean candidate is to keep the same causal AR density backbone but model the next normal-score level directly instead of modeling the transition increment. That tests whether transition-coordinate likelihood is the source of poor level KS, without adding regime labels, tail losses, or calibration knobs.
 
 ---
+## 2026-04-24: Autoresearch 350a next-level density selection
+
+### Context
+The transition-likelihood branch isolated a clean tradeoff. 348a gives the best transition-likelihood result (`5/11`) by adding explicit conditional location, but level KS remains poor. 349a shows that changing innovation tails can improve local daily statistics while breaking recursive location dynamics.
+
+### Candidate Families Considered
+1. Further innovation-tail variants. Rejected: 349a shows tail-base changes do not solve level stationarity.
+2. Global calibration/temperature. Rejected: coverage has mixed under/over cells and this would be a knob.
+3. Model next normal-score level directly with the same causal AR density backbone. Selected: it targets level stationarity directly while keeping the model a vanilla conditional density.
+
+### Selected Test
+Run `350a`: empirical-normal-score causal next-level location-coupling density. It uses the same prefix encoder and explicit learned location mechanism as 348a, but the stochastic target is the next 25-cell normal-score level, not the transition increment.
+
+Sampling:
+1. encode current prefix;
+2. predict next-level location from `(memory_state, current_score)`;
+3. sample level innovation from a Gaussian-base coupling flow;
+4. set the next score directly to `location + innovation`.
+
+This is a standard autoregressive conditional density over the next state, not a deterministic anchor or residual correction shell.
+
+### Falsifier
+If 350a improves level KS while losing daily-change realism, cointegration, or mean reversion, then the transition-vs-level coordinate tradeoff is real and the next move should seek a stationary transition parameterization rather than direct level density.
+
+---
