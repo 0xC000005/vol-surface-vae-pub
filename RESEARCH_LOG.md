@@ -93966,3 +93966,27 @@ Close 353a as a non-frontier result. Do not continue by sweeping energy weights,
 The next step should be post-experiment analysis or paradigm ideation. The current evidence says the missing object is not local sampler type, exact likelihood placement, one-step on-policy repair, fixed common noise, or full-rollout proper-score fine-tuning. A new move must change the representation/data framing more substantially while preserving the few robust facts from 340c.
 
 ---
+## 2026-04-24: Autoresearch 354a path diffusion selection
+
+### Context
+352a falsified local transition diffusion inside the 340c AR shell. 353a falsified full-rollout proper-score fine-tuning of 340c. The evidence now says the current bottleneck is not a one-step sampler, exact-likelihood placement, on-policy one-step repair, fixed common noise, or rollout proper-score objective.
+
+A remaining clean falsifier is a vanilla path-primary diffusion model. The 339 path-primary branch used rectified flow matching and scored 4/11. It is still possible that the path-primary representation was not the issue, but the rectified-flow core was too weak for the high-dimensional future path law. This is also the most defensible comparison against a plain DiT/diffusion baseline.
+
+### Selected Test
+Run 354a: empirical-normal-score full future-path denoising diffusion.
+
+Keep from 339:
+- one-shot 30-day future path as the generated object;
+- empirical normal-score coordinate;
+- generic history encoder plus future token mixer;
+- no AR rollout, no retrieval, no low-rank readout, no bounded side path, no regime labels, no calibration temperature, no evaluator-specific loss.
+
+Change only the vanilla generative core:
+- train a variance-preserving epsilon-denoising objective over the full future score path;
+- sample with deterministic DDIM-style reverse steps.
+
+### Falsifier
+If 354a does not materially improve the path-primary 339/345 branch while preserving 340c's structural strengths, then path-primary vanilla diffusion is also capped at this data/model scale. The next paradigm should stop rotating between FM/diffusion/NLL/proper-score cores and revisit the data framing or conditional information content directly.
+
+---
