@@ -94834,3 +94834,30 @@ The calibration layer fixed worst-cell cointegration but damaged conditionality,
 Keep 392a base as the active learned 8/11 frontier. Do not tune calibration alpha or regime bins blindly. The next iteration should analyze whether marginal quantile calibration is structurally incompatible with preserving time/path dynamics, and whether a narrower interval-only policy calibration could help without damaging level law.
 
 ---
+## 2026-04-24: Autoresearch 404 calibration failure analysis
+
+### Context
+403a made the first calibrated-risk-system attempt but regressed the official suite. 404a analyzed whether marginal quantile-map calibration failed because of tuning or because the transform is too broad.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_404a_calibration_failure.py`.
+
+Artifacts:
+
+- `results/block_ar/404a_calibration_failure/summary.json`
+- `results/block_ar/404a_calibration_failure/summary.md`
+
+Key comparison:
+
+| system | score | cov90 | under70 | over95 | cond MAE | very-small moves | level KS | coint worst |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 392a base | 8/11 | 0.868 | 1 | 10 | 5.14% | 0.949 | 10/25 | 0.278 |
+| 403a quantile-cal | 6/11 | 0.866 | 2 | 9 | 4.37% | 0.894 | 3/25 | 0.314 |
+
+### Mechanism Read
+The monotone marginal quantile map is too broad. It helps the worst cointegration cell, but its horizon/cell nonlinear maps alter increments and validation level occupancy. The result is lower conditionality, failed very-small-move profile, and level KS collapse from 10/25 to 3/25.
+
+### Decision
+Close marginal quantile-map calibration. If calibrated-system work continues, the next falsifier should be narrower: interval-width scaling around each sample cloud's own median, so the central path and rank/level location are less disturbed while coverage/regime intervals are adjusted.
+
+---
