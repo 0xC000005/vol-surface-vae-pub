@@ -93448,3 +93448,60 @@ Clean constraints:
 If 348a does not restore mean-reversion breadth/level marginals while retaining 347a's cross-cell covariance, then explicit conditional location is not the missing anchoring mechanism. The next branch should abandon transition likelihood repairs rather than add more heads.
 
 ---
+## 2026-04-24: Autoresearch 348a location transition coupling likelihood
+
+### Context
+348a tested whether 347a's anchoring failure came from burying the conditional first moment inside coupling layers. It kept the 347a causal prefix encoder and transition coupling innovation density, but added a learned transition location as a standard conditional-density parameterization.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_348a_empirical_normal_score_location_transition_coupling_density.py --output_dir models/backfill/348a_v0_s42 --epochs 30 --batch_size 64 --memory_dim 128 --memory_layers 3 --memory_heads 4 --memory_ff 256 --coupling_layers 6 --coupling_hidden 256 --location_hidden 256 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 348a --checkpoint models/backfill/348a_v0_s42/best_model.pt --output_json results/block_ar/348a_v0_s42/full11.json --output_md results/block_ar/348a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Best checkpoint: epoch 4, `val_total=-0.04226`. The learned location remained modest (`val_location_abs≈0.098`, `val_location_std≈0.164` at best epoch), so this was not a hard deterministic center path.
+
+### Result
+348a scored `5/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cointegration;
+- cross-cell correlation;
+- mean reversion.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- regime coverage;
+- distributional fidelity;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.913`, calibration error `0.056`;
+- conditional MAE reduction `3.9%`, turb/calm width ratio `1.232`;
+- daily-change KS pass `21/25`, level KS pass `3/25`;
+- median-bias fraction pass `20/25`, bias magnitude pass `22/25`;
+- tail q99 cells `22/25`, but kurtosis/skew still fail;
+- cross-cell correlation ratio `0.753`, effective-rank ratio `1.990`;
+- full-horizon mean reversion passes with active mean `80.7%`;
+- pathwise max-jump KS `0.292`, but per-cell q99 jump pass `22/25`.
+
+### Mechanism Read
+The explicit conditional location hypothesis was correct for mean reversion and partially correct for regime response. 348a restored active mean-reversion breadth and produced a real turb/calm width ratio without explicit regime labels.
+
+The remaining failures are now more localized:
+- per-cell coverage still has simultaneous undercoverage and overcoverage;
+- level KS remains poor despite better median-bias gates;
+- pathwise jump q99 scale is mostly right, but the max-jump distribution shape is wrong;
+- time-series failure is now kurtosis/skew shape, not q99 tail scale.
+
+### Decision
+348a is not a new frontier (`5/11` vs 340c `6/11`), but it is the strongest post-340 transition-likelihood branch and clarified the path: explicit conditional location is valid and useful, while the innovation distribution/level marginal shape remains wrong.
+
+Run post-experiment analysis next. The next step should compare 348a against 340c and decide whether a clean innovation-law change can fix level/jump shape without losing mean reversion and covariance.
+
+---

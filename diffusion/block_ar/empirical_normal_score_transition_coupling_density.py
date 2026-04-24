@@ -30,6 +30,8 @@ class EmpiricalNormalScoreTransitionCouplingConfig:
     coupling_hidden: int = 256
     coupling_dropout: float = 0.1
     scale_clip: float = 2.0
+    use_location: bool = False
+    location_hidden: int = 256
 
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
@@ -75,6 +77,18 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
                 for idx in range(cfg.coupling_layers)
             ]
         )
+        self.location_head: nn.Module | None = None
+        if cfg.use_location:
+            self.location_head = nn.Sequential(
+                nn.Linear(context_dim, cfg.location_hidden),
+                nn.GELU(),
+                nn.Dropout(cfg.coupling_dropout),
+                nn.Linear(cfg.location_hidden, cfg.n_cells),
+            )
+            last = self.location_head[-1]
+            if isinstance(last, nn.Linear):
+                nn.init.zeros_(last.weight)
+                nn.init.zeros_(last.bias)
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -205,6 +219,15 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
     def _context(memory_state: torch.Tensor, current_score: torch.Tensor) -> torch.Tensor:
         return torch.cat([memory_state, current_score], dim=-1)
 
+    def transition_location(
+        self,
+        memory_state: torch.Tensor,
+        current_score: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.location_head is None:
+            return torch.zeros_like(current_score)
+        return self.location_head(self._context(memory_state, current_score))
+
     def forward_to_base(
         self,
         transition: torch.Tensor,
@@ -244,7 +267,9 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         flat_transition = transitions.reshape(bsz * horizon, n_cells)
         flat_memory = memory_states.reshape(bsz * horizon, self.cfg.memory_dim)
         flat_current = current_scores.reshape(bsz * horizon, n_cells)
-        z, log_det = self.forward_to_base(flat_transition, flat_memory, flat_current)
+        location = self.transition_location(flat_memory, flat_current)
+        residual = flat_transition - location
+        z, log_det = self.forward_to_base(residual, flat_memory, flat_current)
         base_nll = 0.5 * z.square().sum(dim=-1) + 0.5 * n_cells * math.log(2.0 * math.pi)
         nll = (base_nll - log_det) / float(n_cells)
         loss = nll.mean()
@@ -256,6 +281,8 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             "base_std": z.std(unbiased=False).detach(),
             "base_abs": z.abs().mean().detach(),
             "log_det_per_dim": (log_det / float(n_cells)).mean().detach(),
+            "location_abs": location.abs().mean().detach(),
+            "location_std": location.std(unbiased=False).detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
         return loss, metrics
@@ -296,7 +323,12 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
                 memory_state = self._encode_prefix_scores(prefix)[:, -1]
                 current_score = prefix[:, -1]
                 base = temp * torch.randn_like(current_score)
-                transition = self.inverse_from_base(base, memory_state, current_score)
+                location = self.transition_location(memory_state, current_score)
+                transition = location + self.inverse_from_base(
+                    base,
+                    memory_state,
+                    current_score,
+                )
                 next_score = current_score + transition
                 next_iv = self._scores_to_values(next_score)
                 if self.cfg.n_cells == 25:
