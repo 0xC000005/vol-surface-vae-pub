@@ -94103,3 +94103,27 @@ A conservative prior is justifiable only if documented as policy calibration, no
 Do not treat another vanilla core swap as the next principled move. If the target remains exact 11/11, the next model should keep the generative core clean but allow a small, auditable risk-policy calibration layer for regime/tail width. If the target is publishable learned conditional generation without policy overlays, the 11-suite should be reported as including conservative risk-management gates rather than purely learnable statistical requirements.
 
 ---
+## 2026-04-24: Coverage cap framing and policy calibration
+
+### Context
+After the 11-suite data-framing audit, we clarified why the per-cell 90% coverage upper cap exists. The concern is not that a risk manager intrinsically dislikes conservative overcoverage. The concern is that a model claiming to be a calibrated conditional scenario generator should not pass by producing an unconditional or bloated envelope that covers nearly everything.
+
+### Clarification
+The 95% upper cap is defensible for the learned conditional distribution claim:
+- if the model reports a 90% conditional interval, empirical coverage near 100% is miscalibration, not success;
+- broad overcoverage can hide lack of conditioning, because an unconditional wide cloud can cover many outcomes without adapting to history;
+- the cap is therefore an anti-cheating / informativeness gate: it distinguishes calibrated conditional scenarios from generic stress envelopes.
+
+This is separate from a risk-management stress product. If the target is explicitly a conservative stress envelope, overcoverage should not be a hard failure; it should be reported as conservatism, capital cost, or interval inefficiency. The current 11-suite is stricter because it evaluates a conditional distribution generator, not only a stress envelope.
+
+### Implication
+A conservative risk prior can be justified, but only as a transparent policy-calibration layer on top of the learned generator. It should not be described as learned conditional law. It also cannot simply widen everything, because the same suite penalizes per-cell and per-regime overcoverage above 95%.
+
+The clean framing is therefore two-object:
+- base generator: learned conditional scenario distribution, judged by calibration, conditionality, joint law, dynamics, and tail realism;
+- policy calibration layer: small, auditable risk overlay that may widen regime/tail scenarios for risk-management conservatism while remaining constrained by calibration/efficiency gates.
+
+### Decision
+Keep the 95% cap as a conditional-generator calibration guard. If we add a conservative regime/tail overlay, document it as policy calibration and evaluate both the base learned generator and the final risk-calibrated generator separately. This preserves scientific honesty: the learned model is not credited for hand-imposed conservatism, while the final system can still satisfy a risk manager's operational requirement.
+
+---
