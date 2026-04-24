@@ -93228,3 +93228,56 @@ Clean constraints:
 If 346a cannot preserve or improve the 340c structural passes while applying exact full-path likelihood pressure, then the issue is not merely the lack of density pressure in FM. The next paradigm would need to revisit representation/data sufficiency or the evaluation target, not keep adding path-flow knobs.
 
 ---
+## 2026-04-24: Autoresearch 346a full-path coupling likelihood
+
+### Context
+346a tested the objective-class hypothesis from the 345a postmortem: keep the model future-path-primary, but replace rectified-flow MSE with exact likelihood while retaining vector dependence. The architecture is a conditional normalizing flow over the flattened 30-day x 25-cell future path in empirical normal-score coordinates, conditioned by a GRU history encoder.
+
+Clean-pathology constraints were preserved: no retrieval, no center/residual split, no low-rank readout, no bounded EC/idio path, no explicit regime scale, no evaluator-specific calibration loss, and no posterior/prior scaffold.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_346a_empirical_normal_score_path_coupling_density.py --output_dir models/backfill/346a_v0_s42 --epochs 48 --batch_size 64 --context_dim 256 --history_hidden 160 --coupling_layers 8 --coupling_hidden 768 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 346a --checkpoint models/backfill/346a_v0_s42/best_model.pt --output_json results/block_ar/346a_v0_s42/full11.json --output_md results/block_ar/346a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Training selected epoch 1 as best (`val_total=0.8052`). Later epochs overfit sharply: validation NLL climbed while train NLL kept improving.
+
+### Result
+346a scored `3/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cointegration.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- regime coverage;
+- distributional fidelity;
+- cross-cell correlation;
+- mean reversion;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.734`, calibration error `0.104`;
+- conditional MAE reduction `0.2%`, turb/calm width ratio `0.915`;
+- daily-change KS pass `3/25`, level KS pass `3/25`;
+- cross-cell correlation ratio `0.003`, effective-rank ratio `4.382`;
+- mean-reversion aggregate ratio `2.634`, full-horizon active mean `46.1%`;
+- pathwise max-jump KS `0.495`, per-cell q99 jump pass `5/25`.
+
+### Mechanism Read
+The exact full-path likelihood did not recover the 340c structural geometry. At the validation-selected checkpoint the flow is close to a weakly conditioned normal-score sampler: it preserves support and avoids explosions, but cross-cell dependence is almost absent and state-dependent uncertainty is still weak. The later overfit suggests the coupling flow has enough capacity to memorize likelihood locally, but not in a way that improves the suite's conditional path law.
+
+This falsifies the narrow hypothesis that FM failed mainly because it lacked exact density pressure. Naive full-vector coupling likelihood adds density pressure, but without a better path/state representation it destroys the cross-cell geometry that 340c preserved.
+
+### Decision
+Close 346a as a non-frontier result. Do not tune coupling depth, hidden size, LR, or early-stopping window as local knobs.
+
+Run post-experiment analysis next. The next decision should compare what 340c uniquely preserves against what exact likelihood and path-flow families destroy, then decide whether to return to a transition-family backbone with a cleaner joint-path objective or change the representation/data framing.
+
+---
