@@ -93865,3 +93865,39 @@ This is a clean FM-vs-diffusion falsifier inside the strongest known structural 
 If 352a does not improve the 340c failed suites while preserving its six structural passes, then the issue is not rectified-flow-vs-diffusion. The next paradigm should stop changing the local transition sampler and revisit data/evaluation decomposition or a larger world-model representation.
 
 ---
+## 2026-04-24: Autoresearch 352a transition diffusion result
+
+### Context
+352a tested the cleanest local falsifier available after the 347-351 transition-density branch capped below 340c: keep 340c's empirical-normal-score causal-memory AR transition factorization, but replace the rectified-flow transition core with a VP/DDIM denoising diffusion core.
+
+### Result
+Artifacts:
+- checkpoint: `models/backfill/352a_v0_s42/best_model.pt`
+- training summary: `models/backfill/352a_v0_s42/train_summary.json`
+- evaluation JSON: `results/block_ar/352a_v0_s42/full11.json`
+- evaluation markdown: `results/block_ar/352a_v0_s42/full11.md`
+
+Training finished 48 epochs; best epoch was 42 with validation denoising loss 0.157317.
+
+Full 11-suite result: 3/11.
+Passed suites: surface validity, block-AR smoothness, cross-cell correlation.
+Failed suites: coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key diagnostics:
+- overall 90% coverage 85.3%, but worst per-cell coverage fails at h7/h14/h30;
+- conditional MAE reduction 2.7% vs >5% gate;
+- turbulent/calm width ratio 0.911 vs >1.15 gate;
+- daily-change KS passes 25/25, but level KS passes only 7/25;
+- cross-cell ratio 0.597 and rank ratio 2.563 both pass;
+- mean-reversion h1 ratio 1.507 fails;
+- pathwise jump KS 0.217 fails and per-cell q99 jump cells pass 17/25.
+
+### Mechanism Read
+Replacing rectified flow with VP/DDIM diffusion in the same causal AR coordinate did not repair the 340c frontier failures. It preserved local daily-change fidelity and enough cross-cell covariance, but it degraded several structural passes that made 340c strong: time-series, cointegration, and mean reversion.
+
+The failure mechanism is clean: the local transition sampler is not the bottleneck by itself. The empirical-normal-score causal AR factorization can model one-step innovation shape, but changing FM to diffusion does not supply the missing conditional regime adaptation or stationary level-law alignment.
+
+### Decision
+Do not continue with local sampler-core swaps inside the same 340c shell. The next HEAD step should be post-experiment analysis or research ideation focused on the higher-level representation/data-decomposition problem, not another diffusion schedule, temperature, likelihood head, regime label, calibration trick, retrieval variant, low-rank readout, or bounded side path.
+
+---
