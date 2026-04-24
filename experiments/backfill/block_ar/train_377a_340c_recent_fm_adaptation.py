@@ -64,6 +64,12 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--clip_grad", type=float, default=1.0)
+    parser.add_argument(
+        "--trainable_scope",
+        choices=["all", "conditioning", "conditioning_memory_proj"],
+        default="all",
+        help="Use conditioning to adapt only feature/memory conditioning parameters.",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--output_dir", required=True)
     parser.add_argument("--seed", type=int, default=42)
@@ -81,6 +87,21 @@ def main() -> None:
     model.train()
     if model.cfg.history_len != args.history_len or model.cfg.future_len != args.future_len:
         raise ValueError("Checkpoint horizon configuration does not match requested data")
+    if args.trainable_scope == "conditioning":
+        trainable_prefixes = ("feature_proj.", "pos_embed.", "memory.", "memory_norm.")
+        for name, param in model.named_parameters():
+            param.requires_grad = name.startswith(trainable_prefixes)
+    elif args.trainable_scope == "conditioning_memory_proj":
+        trainable_prefixes = (
+            "feature_proj.",
+            "pos_embed.",
+            "memory.",
+            "memory_norm.",
+            "velocity.memory_proj.",
+        )
+        for name, param in model.named_parameters():
+            param.requires_grad = name.startswith(trainable_prefixes)
+    n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     hist_01, fut_01, indices = build_recent_block(
         data_path=args.data_path,
@@ -98,7 +119,11 @@ def main() -> None:
         drop_last=True,
         num_workers=0,
     )
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad],
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     best_loss = float("inf")
@@ -109,6 +134,7 @@ def main() -> None:
     print(f"Source epoch: {payload.get('epoch')}  source best_val: {payload.get('best_val')}")
     print(f"Adaptation windows: {len(loader.dataset)}  index range: {indices[0]}..{indices[-1]}")
     print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Trainable params: {n_trainable:,}  scope={args.trainable_scope}")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
@@ -164,6 +190,8 @@ def main() -> None:
         "adaptation_end_index": int(indices[-1]),
         "best_epoch_by_adaptation_loss": best_epoch,
         "best_adaptation_loss": best_loss,
+        "trainable_scope": args.trainable_scope,
+        "n_trainable_params": n_trainable,
         "config": payload["config"],
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")

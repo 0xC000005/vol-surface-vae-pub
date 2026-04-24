@@ -94309,3 +94309,22 @@ Model averaging does not combine the useful properties. The mixtures preserve at
 Close ensemble-weight search. The next clean step is targeted recent adaptation: freeze the transition velocity law more tightly and adapt only conditioning/memory parameters. That tests whether we can get 377a's conditionality without disturbing level/transition geometry as much as full-model fine-tuning.
 
 ---
+## 2026-04-24: Autoresearch 381 targeted adaptation scopes
+
+### Context
+Iteration 381 tested whether the 377a recent-window FM adaptation could preserve more of the base 340c transition law by adapting only a targeted subset of parameters. The motivation was clean: keep the architecture and vanilla FM objective unchanged, avoid post-hoc calibration, and test whether level-law drift comes from full-model fine-tuning.
+
+### Result
+- Added `--trainable_scope` to `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py`.
+- `conditioning` trains only feature/position/memory conditioning parameters: official 7/11 at `results/block_ar/381a_recent_fm_conditioning_s42/full11.json`.
+- `conditioning_memory_proj` also trains `velocity.memory_proj`: official 7/11 at `results/block_ar/381a_recent_fm_conditioning_memory_proj_s42/full11.json`.
+- Conditioning-only failed coverage, cointegration, regime_coverage, and distributional_fidelity. It improved level KS to 13/25 but cointegration worst-cell ratio fell to 0.211.
+- Conditioning+memory_proj failed coverage, conditionality, regime_coverage, and distributional_fidelity. MAE reduction was 4.12%, level KS was 11/25, and regime layer2 remained 0/8.
+
+### Mechanism Read
+Targeted freezing trades off the failure set rather than accumulating passes. It partially preserves level occupancy, but gives up the full-adaptation conditional signal or cointegration needed for the current best 8/11. The bottleneck is not simply "too many trainable weights"; it is controlled recent adaptation without distorting the unconditional level law.
+
+### Decision
+Close trainable-scope freezing as the primary path. The next clean experiment is anchored full adaptation: same 340c architecture and vanilla FM loss, but with a simple weight-space anchor to the base checkpoint during recent adaptation. That tests whether 377a's conditional gain can be retained while reducing level-law drift, without adding evaluator-specific calibration.
+
+---
