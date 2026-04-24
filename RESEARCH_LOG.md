@@ -92640,3 +92640,33 @@ Close 340d as a negative capacity result. Keep 340c and 340a as the active `6/11
 Run post-experiment analysis next. The next move should not be another capacity sweep or feature/scale knob. The analysis should decide whether 340 can be repaired by changing the learning objective/path-law semantics, or whether the branch is capped and should move to research ideation.
 
 ---
+## 2026-04-24: Autoresearch 340d postmortem and 341a selection
+
+### Context
+340d was the one allowed same-method scale falsifier after 340c. It kept the normal-score causal-memory AR transition FM and prefix-token conditioning, but increased generic token/memory capacity. The result dropped to `3/11`.
+
+### Findings
+340d separates three facts that were ambiguous after 340c:
+- Lower teacher-forced FM validation loss does not imply a better recursive scenario law (`0.42537` val loss, but `3/11`);
+- stronger sampled movement can repair some isolated diagnostics: MAE reduction passed (`7.6%`) and max-jump KS passed (`0.193`);
+- the same stronger movement breaks the path law globally: level KS collapsed to `0/25`, per-cell q99 tail scale collapsed to `15/25`, active mean reversion collapsed to `39.5%`, and worst-cell cointegration missed the gate.
+
+### Mechanism Read
+The 340 one-day AR factorization has now been tested along three clean axes:
+- 340b: add simple scale statistics to the prefix state -> worse (`4/11`);
+- 340c: improve generic conditioning interface -> useful but capped (`6/11`);
+- 340d: scale the 340c generic capacity -> worse (`3/11`).
+
+This says the remaining failure is not solved by more hand state, more capacity, or lower one-step teacher-forced FM loss. The model needs an objective/factorization that learns a multi-day path law directly while retaining causal conditioning, rather than hoping a one-day transition objective composes correctly for 30 days.
+
+### Decision
+Close 340b/340d and keep 340a/340c only as `6/11` baselines.
+
+Open 341a as a path-law semantic shift: empirical normal-score block-causal flow matching. Factor the 30-day future into short contiguous blocks, train a vanilla rectified flow over the next block conditioned on history plus prior generated/teacher-forced blocks, and sample blocks autoregressively.
+
+This is not a return to residual shells, retrieval, low-rank readouts, bounded paths, posterior/prior scaffolds, evaluator losses, or calibration layers. It is the probability chain rule at a block granularity:
+`p(y_1:T | h) = product_b p(y_block_b | h, y_previous_blocks)`.
+
+The falsifier is whether block-level path likelihood preserves 340a/340c's local support/daily/cross-cell strengths while improving level KS, pathwise extremes, and regime/per-cell coverage. If it cannot beat the `6/11` frontier, move to research ideation rather than tuning block length.
+
+---
