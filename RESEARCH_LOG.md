@@ -91423,3 +91423,33 @@ Do not tune global-mixer depth, strength, or capacity. The 333 family now has a 
 Next HEAD step should be post-experiment analysis. The central question is whether a cleaner single path-flow object can combine 333a local fidelity with 333b shared coupling, or whether this is the same one-shot shared/local tradeoff seen in earlier branches.
 
 ---
+## 2026-04-24: Autoresearch 333b postmortem and 333c selection
+
+### Context
+333a and 333b now form a clean pair inside the masked full-path flow family:
+- 333a: local axial masked path flow, no global mixer.
+- 333b: same path law plus a global scenario mixer inside each axial block.
+
+### Analysis
+333b validated the intended global-coupling hypothesis:
+- cross-cell corr ratio improved 0.469 -> 0.584 and passed;
+- rank ratio improved 2.983 -> 2.517 and passed more comfortably;
+- h1 active mean-reversion pass improved 41.7% -> 83.3%;
+- aggregate coverage and persistent window-floor improved.
+
+But 333b damaged local path fidelity:
+- daily KS fell 16/25 -> 13/25;
+- level KS fell 8/25 -> 2/25;
+- median-bias fraction fell 23/25 -> 17/25;
+- kurtosis/skewness no longer passed;
+- worst-cell cointegration fell 0.361 -> 0.237.
+
+### Mechanism Read
+This is not a reason to tune global-mixer strength. The global path is useful, but the token value interface is too level-only. The model must infer local increments and tail shape from noised levels alone, and the global communication path then smooths/distorts the local path law. A cleaner next repair is to give the same generator an explicit invertible local coordinate view: level plus implied transition.
+
+### Decision
+Keep 333 alive for one coordinate/interface repair: 333c.
+
+333c should keep 333b's global mixer and the same masked rectified-flow objective, but feed each token both standardized logit level and the implied one-step transition from the previous time step. This is not a residual decomposition, not a low-rank readout, and not an auxiliary evaluator loss. It is an invertible representation of the same path intended to preserve 333b shared coupling while restoring 333a local fidelity.
+
+---
