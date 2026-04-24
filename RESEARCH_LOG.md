@@ -91145,3 +91145,24 @@ It differs from `303b` because `303b` compresses the entire generated prefix int
 Run 330a as the next falsifier. Success requires preserving 303b's support validity, daily-change law, and cross-cell geometry while improving the free-run level/regime/MR failures. If it only reproduces the 303b/329 tradeoff, close this direction and move to a different sequence likelihood/path-law family.
 
 ---
+## 2026-04-23: 330a causal future-memory transition flow
+
+### Context
+330a tested the new causal future-memory paradigm. It models the future as support-valid logit transitions, but conditions each daily 25D token-mixing flow on a causal Transformer memory over history plus the generated/teacher-forced future prefix.
+
+### Result
+`330a_v0_s42` scored 5/11, passing surface validity, time_series, block_ar, IV-EWMA cointegration, and cross_cell_correlation. It failed coverage, conditionality, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 35, best val total 0.2480, coverage90 0.871, calibration error 0.009, turb/calm width ratio 0.932, ACF corr 0.956, kurtosis ratio 1.108, daily-change KS 24/25, level KS 7/25, median-bias fraction 18/25, bias magnitude 22/25, per-window coverage floor 1.0%, corr ratio 0.845, rank ratio 1.759, cointegration gen/GT 0.740 with worst-cell 0.263, aggregate MR ratio 1.020, h30 MR ratio 0.861, active-cell mean pass 47.4%, pathwise q90 ratio 0.870, q99 ratio 0.994, max-jump KS 0.323.
+
+Artifacts: `models/backfill/330a_v0_s42/best_model.pt`, `models/backfill/330a_v0_s42/train_summary.json`, `results/block_ar/330a_v0_s42/full11.json`, `results/block_ar/330a_v0_s42/full11.md`.
+
+### Mechanism Read
+This is the cleanest post-reset positive signal. Causal future-prefix memory preserved the strong parts of 303b/329b (support validity, daily transition law, time-series moments, pathwise q90/q99) while also restoring cointegration and cross-cell geometry. It ties the older 5/11 frontier without retrieval, residual shells, low-rank readouts, bounded paths, posterior/prior scaffolds, or evaluator-specific losses.
+
+The remaining bottleneck is now narrower and legible: regime-dependent width is still weak, per-cell level distributions are still off, active-cell MR is underpowered despite correct aggregate MR, and pathwise max-jump shape still fails even though jump scale ratios pass.
+
+### Decision
+Keep 330 alive, but do post-experiment analysis before another run. The next decision should identify whether the smallest clean repair is better conditioning of causal memory, a level-coordinate component inside the same sequence density, or a pathwise sample-shape objective. Do not tune memory depth/width, sample temperature, or flow steps blindly.
+
+---
