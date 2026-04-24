@@ -92009,3 +92009,59 @@ Run exactly one conservative 338b falsifier. It should reduce roll-in pressure w
 This is not a sweep. If 338b cannot preserve 330c's local daily/time-series strengths while keeping some 338a path-calibration gains, close or pause the on-policy branch and ideate a different path-law objective.
 
 ---
+## 2026-04-24: Autoresearch 338b conservative on-policy flow
+
+### Context
+338b was the single conservative falsifier allowed after 338a: initialize from 330c, keep the same on-policy trainer, but reduce roll-in pressure with 2 epochs, lower lr (`2e-5`), and 2 roll-in flow steps.
+
+Artifacts:
+- model: `models/backfill/338b_v0_s42/best_model.pt`
+- train summary: `models/backfill/338b_v0_s42/train_summary.json`
+- full suite: `results/block_ar/338b_v0_s42/full11.json`
+- markdown: `results/block_ar/338b_v0_s42/full11.md`
+
+### Result
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.886`
+- calibration error: `0.014`
+- turb/calm width ratio: `0.884`
+- ACF correlation: `0.945`
+- kurtosis ratio: `0.513`
+- daily-change KS cells: `7/25`
+- level KS cells: `1/25`
+- median-bias cells: `13/25`
+- bias magnitude cells: `21/25`
+- corr/rank ratio: `0.938 / 1.555`
+- cointegration gen/GT: `1.035`, worst-cell `0.333`
+- aggregate MR ratio: `1.382`
+- full-horizon active MR mean: `71.5%`, but aggregate profile failed
+- max-jump KS: `0.249`
+
+### Mechanism Read
+Conservative roll-in did not fix the 338a tradeoff. It preserved cross-cell and cointegration but still destroyed daily-change KS and per-cell tail scale. It also worsened level KS relative to both 330c and 338a. The free-run MR activity improved, but aggregate h1 MR became too strong.
+
+This suggests the problem is not merely too much roll-in pressure. Generated-prefix corrective training changes the local transition law in a way that is hard to keep compatible with unconditional daily-change and tail-scale tests.
+
+### Decision
+Close or pause 338. Do not continue tuning roll-in pressure.
+
+Run post-experiment analysis next. The next paradigm should avoid another one-step local objective or on-policy tweak. The unresolved object remains a joint 30-day path law that simultaneously preserves local daily transitions, level marginals, common-shock geometry, and regime/path calibration.
+
+---
