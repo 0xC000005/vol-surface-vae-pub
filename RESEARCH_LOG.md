@@ -95065,3 +95065,40 @@ The current AR transition model learns excellent one-day/local mechanics, but re
 Implement `413a`: an efficient axial direct future-score path FM. Reuse the efficient structure from the `324c` family, replace logit coordinates with empirical normal-score transforms from the `340/385` family, train in recent-score framing, and evaluate on the official full 11-suite.
 
 ---
+## 2026-04-24: Autoresearch 413 recent score path flow
+
+### Context
+412a selected a direct future normal-score path flow as the next base-representation falsifier. The existing `339a` infrastructure already implements empirical normal-score full-path FM, but it was trained in old full-training quantile framing. 413a tested the new point: use the 339a checkpoint, replace the quantile table with the same recent pre-validation framing that helped the 385/392 AR frontier, adapt on the 441-window recent block, then evaluate forward.
+
+### Result
+Added `experiments/backfill/block_ar/train_413a_recent_score_path_flow_adaptation.py`.
+
+Training:
+- source: `models/backfill/339a_v0_s42/best_model.pt`
+- output: `models/backfill/413a_recent_score_path_fm_s42/best_model.pt`
+- adaptation block: indices `3569..4009`
+- best epoch: `3`
+- best validation total: `0.70828`
+
+Official full 11-suite:
+- artifact: `results/block_ar/413a_recent_score_path_fm_s42/full11.json`
+- score: `4/11`
+- failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `cross_cell_correlation`, `mean_reversion`
+
+Key metrics:
+- cov90 `0.811`; under70/over95 cells `7/1`
+- conditionality `3.98%`, failing
+- time-series fails via kurtosis ratio `0.798`
+- cointegration worst-cell ratio `0.132`, failing
+- regime layer2 `0/8`
+- cross-cell corr ratio `0.486`, just below gate
+- distributional fidelity passes: daily KS `25/25`, level KS `20/25`, median fraction `25/25`, bias magnitude `23/25`
+- pathwise max-jump KS `0.290`, passing
+
+### Mechanism Read
+413a is not competitive with the 392a frontier, but it is the clearest mechanism split so far. The direct path law plus recent score framing solves the level-occupancy suite that the AR frontier cannot solve: level KS is `20/25` versus 392a's `10/25`. The cost is that the direct path model loses the structural/local properties learned by AR transition models: conditionality, time-series tail shape, worst-cell cointegration, cross-cell correlation, and mean-reversion support.
+
+### Decision
+Keep 392a as the active best `8/11` model. Run post-experiment analysis next. The key question is whether there is a principled base representation that can combine 392a's local/structural transition law with 413a's direct level-occupancy ability without becoming a hand-built two-stage or calibration system.
+
+---
