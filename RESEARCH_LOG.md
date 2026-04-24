@@ -91121,3 +91121,27 @@ The 329 family now has a clean two-point falsification: corrective roll-in targe
 Close 329. Do not tune roll-in flow steps, epoch counts, or mixtures between corrective and innovation targets. The next HEAD step should be paradigm-shift ideation: find a model object that learns state-dependent shared path law directly rather than repairing a one-step AR transition with target engineering.
 
 ---
+## 2026-04-23: 330 causal future-memory transition-flow paradigm
+
+### Context
+329 is capped. The two roll-in targets give a clean tradeoff: corrective targets preserve structural geometry by learning recentering jumps, while innovation targets preserve daily-change realism but lose cross-cell dependence and mean reversion. This says the missing object is not another on-policy target tweak.
+
+### Paradigm Shift
+Open 330: causal future-memory transition flow.
+
+Core object:
+- model the future as an autoregressive sequence of support-valid logit transitions;
+- encode history plus the generated future prefix with a causal sequence model;
+- condition each day's 25D token-mixing transition flow on current logit level and the causal prefix-memory state;
+- train with the same vanilla transition flow-matching objective under teacher forcing;
+- sample recursively, so the causal memory is built from generated future prefixes at inference.
+
+### Why This Is Clean
+This is a standard continuous analogue of an autoregressive Transformer density model. It does not use residual shells, retrieval, low-rank readouts, bounded idio/EC paths, posterior/prior scaffolds, or evaluator-specific losses. The extra capacity is not a financial hand-engineered factor; it is generic sequence memory so persistent shared shocks and state-dependent path regimes can be represented directly.
+
+It differs from `303b` because `303b` compresses the entire generated prefix into a GRU state updated one step at a time. It differs from `304/305` because it is still autoregressive and conditions each transition on the actual generated prefix instead of asking a one-shot flow to infer future levels from a noised full path.
+
+### Decision
+Run 330a as the next falsifier. Success requires preserving 303b's support validity, daily-change law, and cross-cell geometry while improving the free-run level/regime/MR failures. If it only reproduces the 303b/329 tradeoff, close this direction and move to a different sequence likelihood/path-law family.
+
+---
