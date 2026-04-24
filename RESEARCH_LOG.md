@@ -94906,3 +94906,33 @@ Artifacts:
 - `results/block_ar/406a_interval_scale_tradeoff/summary.md`
 
 ---
+## 2026-04-24: Autoresearch 407 deadband interval calibration
+
+### Context
+406a showed that target-90 interval scaling was too aggressive: it proved width was an actuator but over-widened already-safe cells. 407a tested the minimal calibrated-system variant: a deadband interval-scale objective that leaves cells unchanged when calibration coverage is already inside the evaluator/risk band `[0.70, 0.95]`, and otherwise selects the smallest scale change needed to enter the band.
+
+### Result
+407a scored `7/11`, below the 392a base frontier (`8/11`). It failed `coverage`, `conditionality`, `regime_coverage`, and `distributional_fidelity`.
+
+Key metrics:
+- cov90 `0.870`; under70 cells `0`; over95 cells `6` across the 4-horizon per-cell grid.
+- conditionality MAE reduction `4.20%`, below the `>5%` gate.
+- very-small-move ratio `0.949`, so the 405a time-series regression was fixed.
+- cointegration worst-cell ratio `0.263`, still passing.
+- regime layer2 `1/8`, improved from base `0/8` but still failing.
+- level KS `12/25`, improved from base `10/25` but still below the `15/25` gate.
+- pathwise max-jump KS `0.372`, passing.
+- scale table min/median/max `0.80 / 1.00 / 1.30`, confirming the policy was much narrower than 405a target-90 scaling.
+
+### Mechanism Read
+Deadband calibration is directionally cleaner than target-90 calibration. It removes undercoverage, reduces overcoverage from 27 to 6 cells, preserves time-series realism, preserves cointegration, and improves level KS. However, even this minimal intervention nudges conditionality below the gate and does not repair regime coverage or level distribution enough to beat the 392a base.
+
+### Decision
+Keep 392a as the active learned frontier. Do not add another calibration knob immediately. The next iteration should analyze whether 407a leaves a principled narrow calibration path open, or whether the separate calibrated-system layer is capped because it cannot fix level/regime failures without weakening conditionality.
+
+Artifacts:
+- `experiments/backfill/block_ar/evaluate_405a_interval_scale_calibrated_system.py`
+- `results/block_ar/407a_interval_deadband_regime_392a/full11.json`
+- `results/block_ar/407a_interval_deadband_regime_392a/full11.md`
+
+---

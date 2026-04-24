@@ -56,7 +56,10 @@ class ScaleTables:
     vov_q80: float
     alpha: float
     regime_bins: bool
+    scale_objective: str
     target_coverage: float
+    coverage_lo: float
+    coverage_hi: float
 
 
 def compute_vov(history_01: np.ndarray) -> np.ndarray:
@@ -87,7 +90,10 @@ def fit_scale_tables(
     scale_min: float,
     scale_max: float,
     scale_steps: int,
+    scale_objective: str,
     target_coverage: float,
+    coverage_lo: float,
+    coverage_hi: float,
 ) -> ScaleTables:
     vov = compute_vov(calib_history)
     vov_q20 = float(np.quantile(vov, 0.2))
@@ -111,10 +117,21 @@ def fit_scale_tables(
                     best_obj = float("inf")
                     for scale in candidates:
                         cov = interval_coverage_at_scale(samples, target, float(scale))
-                        # Target 90% while mildly discouraging evaluator edge violations.
-                        obj = abs(cov - target_coverage)
-                        obj += 0.25 * max(0.0, cov - 0.95)
-                        obj += 0.25 * max(0.0, 0.70 - cov)
+                        if scale_objective == "target":
+                            # Target 90% while mildly discouraging evaluator edge violations.
+                            obj = abs(cov - target_coverage)
+                            obj += 0.25 * max(0.0, cov - coverage_hi)
+                            obj += 0.25 * max(0.0, coverage_lo - cov)
+                        elif scale_objective == "deadband":
+                            # Minimal policy intervention: do nothing if already inside the risk band.
+                            if coverage_lo <= cov <= coverage_hi:
+                                obj = 0.001 * abs(float(scale) - 1.0)
+                            elif cov < coverage_lo:
+                                obj = (coverage_lo - cov) + 0.001 * abs(float(scale) - 1.0)
+                            else:
+                                obj = (cov - coverage_hi) + 0.001 * abs(float(scale) - 1.0)
+                        else:
+                            raise ValueError(f"Unknown scale_objective: {scale_objective}")
                         if obj < best_obj:
                             best_obj = obj
                             best_scale = float(scale)
@@ -126,7 +143,10 @@ def fit_scale_tables(
         vov_q80=vov_q80,
         alpha=float(alpha),
         regime_bins=bool(regime_bins),
+        scale_objective=str(scale_objective),
         target_coverage=float(target_coverage),
+        coverage_lo=float(coverage_lo),
+        coverage_hi=float(coverage_hi),
     )
 
 
@@ -205,7 +225,10 @@ def main() -> None:
     parser.add_argument("--calibration_windows", type=int, default=441)
     parser.add_argument("--calibration_samples", type=int, default=48)
     parser.add_argument("--alpha", type=float, default=1.0)
+    parser.add_argument("--scale_objective", choices=("target", "deadband"), default="target")
     parser.add_argument("--target_coverage", type=float, default=0.9)
+    parser.add_argument("--coverage_lo", type=float, default=0.70)
+    parser.add_argument("--coverage_hi", type=float, default=0.95)
     parser.add_argument("--scale_min", type=float, default=0.65)
     parser.add_argument("--scale_max", type=float, default=1.45)
     parser.add_argument("--scale_steps", type=int, default=33)
@@ -249,7 +272,10 @@ def main() -> None:
         scale_min=args.scale_min,
         scale_max=args.scale_max,
         scale_steps=args.scale_steps,
+        scale_objective=args.scale_objective,
         target_coverage=args.target_coverage,
+        coverage_lo=args.coverage_lo,
+        coverage_hi=args.coverage_hi,
     )
     print(
         "Scale summary:",
@@ -330,7 +356,10 @@ def main() -> None:
                 "calibration_windows": args.calibration_windows,
                 "calibration_samples": args.calibration_samples,
                 "alpha": args.alpha,
+                "scale_objective": args.scale_objective,
                 "target_coverage": args.target_coverage,
+                "coverage_lo": args.coverage_lo,
+                "coverage_hi": args.coverage_hi,
                 "regime_bins": bool(args.regime_bins),
                 "scale_min": args.scale_min,
                 "scale_median": float(np.median(tables.scales)),
@@ -365,7 +394,7 @@ def main() -> None:
     lines = [
         f"- base model: `{args.model_type}`",
         f"- checkpoint: `{args.checkpoint}`",
-        f"- calibration: `pre-validation interval scale, regime_bins={bool(args.regime_bins)}, alpha={args.alpha}`",
+        f"- calibration: `pre-validation interval scale, objective={args.scale_objective}, regime_bins={bool(args.regime_bins)}, alpha={args.alpha}`",
         f"- scale range: `{float(tables.scales.min()):.3f} / {float(np.median(tables.scales)):.3f} / {float(tables.scales.max()):.3f}`",
         f"- windows: `{batch.history_norm.shape[0]}`",
         f"- samples per window: `{args.samples}`",
