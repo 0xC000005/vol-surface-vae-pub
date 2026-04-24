@@ -92065,3 +92065,32 @@ Close or pause 338. Do not continue tuning roll-in pressure.
 Run post-experiment analysis next. The next paradigm should avoid another one-step local objective or on-policy tweak. The unresolved object remains a joint 30-day path law that simultaneously preserves local daily transitions, level marginals, common-shock geometry, and regime/path calibration.
 
 ---
+## 2026-04-24: Autoresearch 338 closure and 339 ideation
+
+### Context
+338 tested whether the 330c free-run failures were caused by teacher-forced state-distribution mismatch. 338a used a generated-prefix roll-in objective; 338b reduced roll-in pressure as the single conservative follow-up.
+
+### Findings
+338 is useful but capped:
+- 338a improved aggregate calibration, active MR, and pathwise max-jump shape, but collapsed daily-change KS and per-cell tail scale.
+- 338b preserved the same structural passes but still collapsed daily-change KS and tail scale, worsened level KS, and did not beat the 5/11 frontier.
+
+The branch confirms that generated-prefix training attacks the right free-run object, but the one-step corrective objective changes the local transition law too much.
+
+### Mechanism Read
+The recent evidence is now consistent:
+- Transition FM: strong local/cross-cell/time-series structure, weak level/regime/path calibration.
+- Source-law variants: add or learn noise scale but distort level/coverage.
+- Capacity scaling: overfits and worsens level/coverage.
+- Level FM: does not retain structural passes.
+- Exact one-step level likelihood: overfits and collapses common-shock geometry.
+- On-policy roll-in: improves free-run path metrics but damages daily/tail law.
+
+The capped object is not a single missing knob. It is the mismatch between one-step local objectives and the full 30-day joint path law.
+
+### Decision
+Close or pause 338.
+
+Next iteration should be research ideation / paradigm selection for 339. Do not run another local 330/338 variant by default. The next experiment needs a genuinely joint path-law objective or first-principles sequence density that preserves local daily transitions, level marginals, common-shock geometry, and regime/path calibration together without evaluator-specific losses, retrieval replay, low-rank readouts, residual side paths, source-noise knobs, or posterior/prior scaffolds.
+
+---
