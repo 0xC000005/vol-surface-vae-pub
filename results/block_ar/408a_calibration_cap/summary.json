@@ -1,0 +1,89 @@
+{
+  "runs": {
+    "392a_base": {
+      "score": 8,
+      "failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8675486111111111,
+      "under70": 1,
+      "over95": 10,
+      "coverage_gate_failures": 11,
+      "conditional_mae_reduction_pct": 5.14416655957236,
+      "very_small_move_ratio": 0.9487837218236118,
+      "cointegration_worst_cell_ratio": 0.2777777777777778,
+      "regime_layer2_passing": 0,
+      "level_ks_passing": 10,
+      "level_ks_gap_to_gate": 5,
+      "median_fraction_passing": 20,
+      "bias_magnitude_passing": 25,
+      "pathwise_max_jump_ks": 0.3729166666666667,
+      "scale_min": null,
+      "scale_median": null,
+      "scale_max": null
+    },
+    "405a_target90": {
+      "score": 6,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.9218194444444444,
+      "under70": 0,
+      "over95": 27,
+      "coverage_gate_failures": 27,
+      "conditional_mae_reduction_pct": 3.7516833773202896,
+      "very_small_move_ratio": 0.8378626219066384,
+      "cointegration_worst_cell_ratio": 0.29824561403508776,
+      "regime_layer2_passing": 1,
+      "level_ks_passing": 11,
+      "level_ks_gap_to_gate": 4,
+      "median_fraction_passing": 20,
+      "bias_magnitude_passing": 25,
+      "pathwise_max_jump_ks": 0.1703125,
+      "scale_min": 0.6499999761581421,
+      "scale_median": 1.2000000476837158,
+      "scale_max": 1.4500000476837158
+    },
+    "407a_deadband": {
+      "score": 7,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8697152777777778,
+      "under70": 0,
+      "over95": 6,
+      "coverage_gate_failures": 6,
+      "conditional_mae_reduction_pct": 4.198689272514265,
+      "very_small_move_ratio": 0.9487837218236118,
+      "cointegration_worst_cell_ratio": 0.2631578947368421,
+      "regime_layer2_passing": 1,
+      "level_ks_passing": 12,
+      "level_ks_gap_to_gate": 3,
+      "median_fraction_passing": 20,
+      "bias_magnitude_passing": 24,
+      "pathwise_max_jump_ks": 0.3723958333333333,
+      "scale_min": 0.800000011920929,
+      "scale_median": 1.0,
+      "scale_max": 1.2999999523162842
+    }
+  },
+  "mechanism_read": "The interval calibration branch is directionally meaningful but capped as a primary route. Deadband scaling improves the coverage edge count, level KS, and regime layer2 relative to the base while preserving time-series and cointegration, but the same width-only actuator lowers conditional MAE below the gate and still leaves six coverage violations, seven regime layer2 failures, and a three-cell level-KS deficit.",
+  "cap_evidence": {
+    "does_deadband_beat_base_score": false,
+    "deadband_improves_level_ks_cells": 2,
+    "deadband_improves_coverage_gate_failures": 5,
+    "deadband_conditionality_margin_to_gate": -0.8013107274857347,
+    "deadband_level_ks_gap_to_gate": 3,
+    "deadband_regime_layer2_gap_to_gate": 7
+  },
+  "decision": "Close interval calibration as the primary autoresearch path. It can remain a reportable policy-calibration ablation, but continuing it would require more cell/regime-specific knobs. The next principled route should return to the learned base law and attack long-horizon level occupancy/regime allocation during training, not by post-hoc width manipulation."
+}

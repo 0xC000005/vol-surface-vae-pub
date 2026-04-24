@@ -94936,3 +94936,30 @@ Artifacts:
 - `results/block_ar/407a_interval_deadband_regime_392a/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 408 calibration cap
+
+### Context
+407a tested the narrowest interval-calibration policy so far: deadband scaling around each sample cloud's median, with no change when calibration coverage was already inside `[0.70, 0.95]`. It improved several risk metrics but still scored below the 392a base. 408a audited whether interval calibration remains a clean primary route.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_408a_calibration_cap.py`.
+
+Artifacts:
+- `results/block_ar/408a_calibration_cap/summary.json`
+- `results/block_ar/408a_calibration_cap/summary.md`
+
+Key comparison:
+
+| run | score | cov cells fail | cond MAE | level KS | regime L2 | coint worst |
+|---|---:|---:|---:|---:|---:|---:|
+| 392a base | 8/11 | 11 | 5.14% | 10/25 | 0/8 | 0.278 |
+| 405a target90 | 6/11 | 27 | 3.75% | 11/25 | 1/8 | 0.298 |
+| 407a deadband | 7/11 | 6 | 4.20% | 12/25 | 1/8 | 0.263 |
+
+### Mechanism Read
+Interval calibration is directionally meaningful but capped as a primary path. Deadband scaling improves the coverage edge count, level KS, and regime layer2 relative to the base while preserving time-series and cointegration. But the same width-only actuator lowers conditional MAE below the gate and still leaves six coverage violations, seven regime layer2 failures, and a three-cell level-KS deficit.
+
+### Decision
+Close interval calibration as the primary autoresearch route. It can remain a reportable policy-calibration ablation, but continuing it would require more cell/regime-specific knobs. The next principled route should return to the learned base law and attack long-horizon level occupancy/regime allocation during training, not through post-hoc width manipulation.
+
+---
