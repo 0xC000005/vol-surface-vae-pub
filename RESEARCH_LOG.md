@@ -91919,3 +91919,62 @@ Open 338 as an on-policy causal-memory AR-FM fine-tune.
 This is a generic sequence-modeling repair for train/test state-distribution mismatch. It is not retrieval, not a residual path, not a low-rank readout, not a source-noise knob, not posterior/prior machinery, and not an evaluator loss. The falsifier is whether on-policy conditioning improves coverage, level law, active MR, regime behavior, and pathwise shape while preserving 330c's daily-change, time-series, cointegration, and cross-cell strengths.
 
 ---
+## 2026-04-24: Autoresearch 338a on-policy causal memory flow
+
+### Context
+338a tested the post-337 decision: start from the clean 330c frontier and fine-tune with a generated-prefix roll-in objective. The architecture and vanilla transition-FM core stayed unchanged. Each batch mixed teacher-forced transition FM with one no-grad generated-prefix transition target.
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_338a_on_policy_causal_memory_transition_flow.py`
+- model: `models/backfill/338a_v0_s42/best_model.pt`
+- train summary: `models/backfill/338a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/338a_v0_s42/full11.json`
+- markdown: `results/block_ar/338a_v0_s42/full11.md`
+
+Training used 6 epochs, batch 32, roll-in flow steps 4, lr `4e-5`, initialized from `models/backfill/330c_v0_s42/best_model.pt`. Best validation was epoch 3.
+
+### Result
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.895`
+- calibration error: `0.006`
+- turb/calm width ratio: `0.869`
+- ACF correlation: `0.937`
+- kurtosis ratio: `0.577`
+- daily-change KS cells: `7/25`
+- level KS cells: `6/25`
+- median-bias cells: `14/25`
+- bias magnitude cells: `22/25`
+- corr/rank ratio: `0.966 / 1.407`
+- cointegration gen/GT: `1.227`, worst-cell `0.447`
+- aggregate MR ratio: `1.280`
+- full-horizon active MR mean: `64.4%`
+- max-jump KS: `0.211`
+
+### Mechanism Read
+The on-policy idea is directionally useful. Compared with 330c, 338a substantially improves aggregate calibration, full-horizon MR activity, and pathwise max-jump shape. It nearly passes pathwise max-jump KS (`0.211` vs gate `<0.20`) and raises active MR close to the 70% gate.
+
+But the generated-prefix objective is too blunt in this configuration. It badly damages daily-change KS and per-cell tail-scale counts, causing time-series and distributional fidelity to fail harder than 330c. This repeats the 329-style tradeoff: on-policy training attacks free-run path failures but can distort the local transition law.
+
+### Decision
+Do not close 338 yet. It is the first recent move that directly improves the free-run path metrics that have blocked 330c.
+
+Run post-experiment analysis next. If continuing 338, use exactly one conservative falsifier: reduce the roll-in pressure enough to preserve the local transition law while testing whether the path-calibration gains survive. Do not start sweeping roll-in weights, temperatures, horizons, and losses; that would become a research-knob branch.
+
+---
