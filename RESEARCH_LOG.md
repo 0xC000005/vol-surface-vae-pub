@@ -91375,3 +91375,30 @@ Iteration 302 implemented 333a, the first masked full-path flow after the 332a p
 Keep 333 alive for post-experiment analysis, not immediate knob tuning. The next HEAD step should decide whether one generic shared stochastic coupling mechanism inside the same masked path law is justified, or whether 333 is repeating the old one-shot under-coupling ceiling. Do not tune temperature, depth, batch size, or flow steps blindly.
 
 ---
+## 2026-04-24: Autoresearch 333a postmortem and 333b selection
+
+### Context
+333a tested the new masked full-path flow paradigm. It did not beat the 5/11 frontier, but it changed the failure profile enough to decide the next step from mechanism rather than score.
+
+### Analysis
+333a's positives are exactly what the paradigm was meant to test:
+- full-path training improved aggregate horizon coverage and reduced median bias;
+- daily-change KS passed at 16/25 cells;
+- cointegration passed cleanly with gen/GT ratio 1.226 and worst-cell ratio 0.361;
+- global ACF, kurtosis, and skewness were all acceptable.
+
+The failures are concentrated:
+- cross-cell corr ratio is 0.469, just below the 0.5 gate, while rank ratio is 2.983 near the high edge;
+- turb/calm width remains inverted at 0.902;
+- per-cell coverage balance and window-floor still fail;
+- per-cell q99 tail scale passes only 17/25 cells, and pathwise max-jump KS is 0.505.
+
+### Mechanism Read
+This is the same broad under-coupling problem seen in earlier one-shot/direct-path branches, but less severe. The masked path objective is learning a useful conditional level law, but IID future source tokens plus local axial mixing do not make common shocks strong enough. The next repair should therefore target shared stochastic coupling inside the same path law, not source temperature, more epochs, or another one-step AR repair.
+
+### Decision
+Keep 333 alive for one focused repair: 333b global scenario mixer.
+
+333b should keep the same standardized-logit masked rectified-flow objective, but add a generic global mixing path inside each axial block: pool the hidden field over all time-cell tokens, transform that scenario state, and broadcast it back to the grid. This is not a low-rank readout, retrieval layer, residual shell, or evaluator loss; it is a standard learned global communication path inside the same generator. The falsifier is whether it improves cross-cell coupling, regime width, and per-cell tail balance without losing 333a's coverage and cointegration gains.
+
+---
