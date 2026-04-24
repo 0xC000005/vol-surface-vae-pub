@@ -91249,3 +91249,33 @@ This keeps the 330 family alive but says coordinate scaling alone is not the mis
 Do a focused 330a/330b/330c postmortem next. The next repair should address the persistent regime-width and level-law failures without sacrificing the clean passes. Do not combine prefix conditioning, standardization, and temperature tuning blindly.
 
 ---
+## 2026-04-24: 331 exact causal-memory density shift
+
+### Context
+330a and 330c are clean 5/11 co-frontiers. 330b showed that explicit prefix-token conditioning is not the missing repair. The remaining failures are stable across the useful variants: conditionality/regime width, per-cell level law, active-cell MR, and pathwise max-jump shape.
+
+### Postmortem
+The 330 family has solved enough pieces that the live bottleneck is no longer generic architecture capacity:
+- support validity, block smoothness, daily-change KS, time-series moments, cointegration, cross-cell geometry, and aggregate MR are all achievable in the causal-memory AR factorization;
+- 330c's standardized coordinate improves correlation/rank, median-bias gate, and active-cell MR, but does not flip a suite;
+- 330b's conditioning-path change worsens the balance, so more token-conditioning variants are likely knob accumulation.
+
+The remaining weakness is conditional density calibration. Flow matching can learn the transition transport field, but the validation proxy does not directly maximize conditional likelihood or penalize weak regime-dependent widths. A proper exact conditional density objective is the clean next object.
+
+### Paradigm Shift
+Open 331: causal memory exact transition density.
+
+Keep:
+- support-valid autoregressive logit-transition factorization;
+- causal future-prefix memory over history plus generated prefix;
+- per-cell standardized logit coordinate from 330c.
+
+Change:
+- replace transition flow-matching velocity with an exact conditional normalizing flow likelihood for each 25D daily transition;
+- train by negative log likelihood under teacher forcing;
+- sample recursively from the learned conditional flow.
+
+### Decision
+Implement 331a as the minimal falsifier. If exact likelihood improves coverage/conditionality/regime without destroying 330's structural passes, continue. If it becomes diffuse like 306a or loses cross-cell geometry, close exact daily likelihood and ideate a different path-law objective.
+
+---
