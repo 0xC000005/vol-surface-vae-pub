@@ -91188,3 +91188,24 @@ This is analogous to the 303b/303c question, but the evidence is stronger now be
 Run 330b: keep the same causal future-memory sequence model and vanilla transition flow-matching objective, but give the daily token mixer explicit memory and time prefix tokens instead of additive broadcast conditioning. The falsifier is whether regime/conditionality, active-cell MR, and level calibration improve without losing 330a's daily KS, time-series, cointegration, and cross-cell passes.
 
 ---
+## 2026-04-24: 330b prefix-conditioning falsifier
+
+### Context
+330b tested the conditioning-path repair suggested by the 330a postmortem. It kept the same causal future-memory sequence model and transition FM objective, but changed the daily token mixer so memory and diffusion time enter as explicit prefix tokens instead of additive broadcast biases.
+
+### Result
+`330b_v0_s42` scored 3/11, passing surface validity, block_ar, and cross_cell_correlation. It failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 25, best val total 0.2455, coverage90 0.807, calibration error 0.067, turb/calm width ratio 0.924, ACF corr 0.951, kurtosis ratio 0.888 but skewness failed, daily-change KS 24/25, level KS 1/25, median-bias fraction 12/25, bias magnitude 23/25, per-window coverage floor 4.7%, corr ratio 0.792, rank ratio 1.850, cointegration gen/GT 0.674 but worst-cell 0.167, aggregate MR ratio 1.071, active-cell mean pass 32.3%, pathwise max-jump KS 0.163, q90 ratio 0.926, q99 ratio 1.017, per-cell q99 19/25.
+
+Artifacts: `models/backfill/330b_v0_s42/best_model.pt`, `models/backfill/330b_v0_s42/train_summary.json`, `results/block_ar/330b_v0_s42/full11.json`, `results/block_ar/330b_v0_s42/full11.md`.
+
+### Mechanism Read
+The prefix-token change did not solve the conditioning bottleneck. Regime width remained inverted, conditionality still missed, and active-cell MR weakened. It also traded away several 330a strengths: time_series no longer passed because skewness failed, cointegration lost the worst-cell gate, level KS worsened from 7/25 to 1/25, and pathwise realism lost the per-cell q99 gate even though max-jump KS passed.
+
+This is the same qualitative warning seen in 303c: stronger explicit conditioning tokens can move some local shape diagnostics but does not necessarily preserve the coupled state-path law. For the 330 family, additive conditioning is currently the better base.
+
+### Decision
+Close 330b as a negative local conditioning-path test. Return to 330a as the active 5/11 clean frontier. Do post-experiment analysis before selecting the next 330 repair; do not stack more token-conditioning variants without a new mechanism.
+
+---

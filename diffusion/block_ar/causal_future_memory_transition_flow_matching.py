@@ -23,6 +23,7 @@ class CausalFutureMemoryTransitionFMConfig(RecurrentLogitTransitionTokenFMConfig
     memory_layers: int = 3
     memory_heads: int = 4
     memory_ff: int = 256
+    conditioning_mode: str = "additive"
 
 
 class MemoryConditionedTokenTransitionVelocity(nn.Module):
@@ -61,11 +62,17 @@ class MemoryConditionedTokenTransitionVelocity(nn.Module):
         cell_ids = torch.arange(n_cells, device=x_t.device)
         cell = self.cell_embed(cell_ids)[None, :, :].expand(bsz, -1, -1)
         values = torch.stack([x_t, current_logit], dim=-1)
-        token = self.value_proj(values)
+        token = self.value_proj(values) + cell
         memory = self.memory_proj(memory_state)[:, None, :]
         time = self.time_proj(_time_features(t, self.cfg.time_dim))[:, None, :]
-        hidden = token + cell + memory + time
-        hidden = self.mixer(hidden)
+        if self.cfg.conditioning_mode == "additive":
+            hidden = token + memory + time
+            hidden = self.mixer(hidden)
+        elif self.cfg.conditioning_mode == "prefix":
+            hidden = torch.cat([memory, time, token], dim=1)
+            hidden = self.mixer(hidden)[:, 2:]
+        else:
+            raise ValueError(f"Unknown conditioning_mode={self.cfg.conditioning_mode!r}")
         return self.out(hidden).squeeze(-1)
 
 

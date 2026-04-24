@@ -67,6 +67,11 @@ def main() -> None:
     parser.add_argument("--memory_layers", type=int, default=3)
     parser.add_argument("--memory_heads", type=int, default=4)
     parser.add_argument("--memory_ff", type=int, default=256)
+    parser.add_argument(
+        "--conditioning_mode",
+        choices=["additive", "prefix"],
+        default="additive",
+    )
     parser.add_argument("--logit_eps", type=float, default=1e-4)
     parser.add_argument("--flow_steps", type=int, default=32)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
@@ -140,6 +145,7 @@ def main() -> None:
         memory_layers=args.memory_layers,
         memory_heads=args.memory_heads,
         memory_ff=args.memory_ff,
+        conditioning_mode=args.conditioning_mode,
         logit_eps=args.logit_eps,
         flow_steps=args.flow_steps,
         sample_temperature=args.sample_temperature,
