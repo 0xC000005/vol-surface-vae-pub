@@ -92293,3 +92293,70 @@ This is not a return to residual shells, retrieval, fixed copulas, low-rank read
 The falsifier is whether 340a preserves 330c's daily/time-series/cross-cell/cointegration strengths while improving level KS, median/per-cell coverage, conditionality, and pathwise extremes. If it simply reproduces 330c failures or 339 path-flow failures, close the rank-coordinate branch.
 
 ---
+## 2026-04-24: Autoresearch 340a normal-score causal-memory AR
+
+### Context
+340a tested the post-339 decision: keep the proven 330c causal future-prefix AR transition factorization, but replace standardized logits with a shared per-cell empirical normal-score coordinate estimated from training history+future levels. The objective remains vanilla rectified-flow transition matching under the probability chain rule.
+
+Artifacts:
+- module: `diffusion/block_ar/empirical_normal_score_causal_memory_transition_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_340a_empirical_normal_score_causal_memory_transition_flow.py`
+- model: `models/backfill/340a_v0_s42/best_model.pt`
+- train summary: `models/backfill/340a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/340a_v0_s42/full11.json`
+- markdown: `results/block_ar/340a_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation was epoch 26 with `val_total=0.44232`.
+
+### Result
+Full 11-suite score: `6/11`, a new frontier.
+
+Passed:
+- surface validity
+- time-series properties
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+- mean reversion
+
+Failed:
+- coverage
+- conditionality
+- regime coverage
+- distributional fidelity
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.835`, calibration error `0.054`
+- h1/h30 coverage: `0.838 / 0.821`
+- conditional MAE reduction: `3.1%`
+- turb/calm width ratio: `0.965`
+- ACF correlation: `0.957`
+- kurtosis/skewness ratios: `1.246 / 2.596`
+- daily-change KS cells: `24/25`
+- level KS cells: `8/25`
+- median-bias cells: `18/25`, bias-magnitude cells `23/25`
+- corr/rank ratio: `0.901 / 1.462`
+- cointegration gen/GT: `0.576`, worst-cell `0.250`
+- aggregate MR h1/h30 ratios: `1.151 / 0.903`
+- full-horizon active MR mean: `90.9%`, mean corr `0.853`
+- max-jump KS: `0.429`
+- per-cell q99 tail cells: `21/25`
+
+### Mechanism Read
+This validates the 340 thesis. The empirical normal-score coordinate was not enough inside one-shot path flow, but it combines well with the causal-memory AR factorization. Compared with the 330c 5/11 frontier, 340a keeps support validity, daily-change fidelity, block smoothness, cointegration, and cross-cell geometry, while adding time-series and full mean-reversion passes.
+
+The remaining failures are now sharply concentrated:
+- per-cell coverage fails despite acceptable aggregate coverage;
+- conditional/regime width response is still too flat or inverted (`turb/calm=0.965`);
+- level KS remains `8/25`, better than 330c but below gate;
+- pathwise max-jump KS remains too high (`0.429`) even though per-cell q99 tail scale passes.
+
+This is a cleaner pathology than the one-shot 339 failures. The active bottleneck is not local daily law, cross-cell geometry, or mean-reversion dynamics anymore; it is conditional dispersion/regime response plus level/path extreme calibration inside the same AR rank-coordinate law.
+
+### Decision
+Promote 340a to the current frontier (`6/11`).
+
+Run post-experiment analysis next. Do not stack calibration hacks. The next move should be one principled repair to conditional stochastic dispersion in the 340 AR rank-coordinate law, ideally preserving the new time-series and mean-reversion passes.
+
+---
