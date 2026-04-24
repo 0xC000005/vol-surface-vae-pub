@@ -95046,3 +95046,22 @@ Simple free-running proper-score fine-tuning is capped as a primary route. Weak 
 Keep 392a as the active `8/11` frontier. Close simple proper-score fine-tune losses as the primary route. The next iteration should be a base likelihood/representation paradigm shift, not another energy/CRPS weight or post-hoc calibration branch.
 
 ---
+## 2026-04-24: Autoresearch 412 direct score path paradigm
+
+### Context
+411a closed simple proper-score fine-tunes on the 392a frontier. The remaining failures are long-horizon level/regime allocation, not local path mechanics. The next step must change the base likelihood/representation rather than add another fine-tune weight or calibration layer.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_412a_direct_future_score_path_fm.md`.
+
+Selected paradigm: direct full-future path flow matching in empirical normal-score coordinates.
+
+This is not a naive return to old one-shot logit models. The key difference is data framing: old `312/324` direct path models used logit or standardized-logit coordinates and underperformed, while the later `340/385/392` frontier showed that empirical normal-score coordinates plus recent quantile framing are much stronger. The selected falsifier combines direct 30-day path likelihood with the stronger coordinate.
+
+### Mechanism Read
+The current AR transition model learns excellent one-day/local mechanics, but relies on recursive rollout to produce the 30-day level law. Calibration and proper-score fine-tunes can move margins but cannot make the joint 30-day level/regime law native. A direct future-score path FM makes long-horizon level occupancy the object of the generative likelihood rather than an emergent rollout property.
+
+### Decision
+Implement `413a`: an efficient axial direct future-score path FM. Reuse the efficient structure from the `324c` family, replace logit coordinates with empirical normal-score transforms from the `340/385` family, train in recent-score framing, and evaluate on the official full 11-suite.
+
+---
