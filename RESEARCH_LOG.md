@@ -90932,3 +90932,22 @@ A learned future-path bottleneck can make common and local structure part of the
 Run 327a as the minimal falsifier: deterministic future-path autoencoder plus conditional latent flow. If reconstruction is poor, the bottleneck is too narrow. If reconstruction is good but the 11-suite still fails, the blocker is the conditional latent law rather than path decoding.
 
 ---
+## 2026-04-23: 327a latent bottleneck future-path flow
+
+### Context
+327a tested the minimal learned future-bottleneck paradigm: encode the realized 30x25 future standardized-logit path into 8 latent tokens of width 32, reconstruct through a learned decoder, and learn a vanilla conditional flow in that latent code space. This was meant to keep stochasticity inside one learned compressed representation, avoiding both per-cell IID noise and hand-split shared/local paths.
+
+### Result
+327a_v0_s42 scored 3/11. It passed surface validity, block_ar, and cross_cell_correlation. It failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 64, best val total 0.5585, coverage90 0.757, calibration error 0.093, turb/calm width ratio 0.995, daily-change KS 0/25, level KS 3/25, cross-cell corr ratio 0.898, rank ratio 1.210, PC1 0.519, cointegration gen/GT 0.460, MR ratio 2.131, pathwise q90 ratio 0.060, pathwise q99 ratio 0.083, extreme-jump incidence 0.000.
+
+Artifacts: `models/backfill/327a_v0_s42/best_model.pt`, `models/backfill/327a_v0_s42/train_summary.json`, `results/block_ar/327a_v0_s42/full11.json`, `results/block_ar/327a_v0_s42/full11.md`.
+
+### Mechanism Read
+The paradigm did solve the specific 326b/326c failure: cross-cell common-shock geometry passed without a low-rank readout or a local-noise gate. But the first bottleneck was too smooth. The decoder reconstruction std stayed below target std during training, daily-change KS collapsed to 0/25, and pathwise jump q99 was only 8.3% of ground truth.
+
+### Decision
+Keep 327 alive for one clean capacity falsifier. The next step is 327b: widen only the learned latent bottleneck and test whether jump realism and daily changes recover while preserving the cross-cell pass. Do not add auxiliary losses, residual branches, retrieval, or evaluator-specific calibration.
+
+---
