@@ -91300,3 +91300,25 @@ This is the same broad lesson as prior exact-likelihood attempts, but in a sharp
 Treat 331a as a negative result. Do post-experiment analysis next and decide whether to close exact daily likelihood outright or to formulate a bounded/invertible transition coordinate that is stable by construction. Do not tune flow layers, NLL learning rate, or sample temperature blindly.
 
 ---
+## 2026-04-24: 332 conditional source-scale FM ideation
+
+### Context
+331a closed the exact daily likelihood branch for now. It optimized teacher-forced NLL but became numerically invalid under recursive sampling. The clean viable base remains 330a/330c causal-memory flow matching.
+
+### Analysis
+The stable 330 variants use a fixed unit Gaussian source for every history and horizon. The remaining failures are exactly where fixed-source conditional FM can be weak: regime-dependent width, conditionality, per-cell coverage, and level-law calibration. The vector field can in principle map a fixed source to condition-dependent spread, but empirically 330a/330c keep turb/calm width inverted.
+
+A learned conditional source scale is a direct noise-modulated diffusion/FM idea. It does not add a residual shell, retrieval, low-rank readout, bounded idio path, or evaluator-specific loss. The model still learns one transition law; it just samples its FM source noise from a history/current-state dependent diagonal Gaussian before integrating to the transition.
+
+### Decision
+Open 332: causal memory conditional-source FM.
+
+Minimal 332a specification:
+- keep 330c's standardized logit coordinate and additive causal future-memory architecture;
+- predict a per-cell source scale from causal memory and current logit;
+- train the same FM objective, but draw `x0 = scale(history,prefix,current) * epsilon`;
+- at sampling, start the ODE from the same learned conditional source scale.
+
+The falsifier is whether conditionality/regime/coverage improve without destroying 330c's daily KS, cross-cell geometry, cointegration, aggregate MR, and support validity.
+
+---
