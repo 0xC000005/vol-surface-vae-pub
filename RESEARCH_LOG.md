@@ -91339,3 +91339,22 @@ Iteration 300 executed the planned 332a falsifier: keep the clean 330c standardi
 Do not continue tuning 332a as a knob family. The next HEAD step should be post-experiment analysis: close or sharply reinterpret conditional source scaling, and return to the 330a/330c causal-memory FM frontier unless there is a more principled way to model regime-dependent uncertainty without distorting the level law.
 
 ---
+## 2026-04-24: Autoresearch 332a postmortem and 333 shift
+
+### Context
+332a was the minimal conditional-source repair to the 330c causal-memory FM frontier. It failed decisively: 3/11 versus the 330a/330c 5/11 frontier, with collapsed coverage and strong upward level bias.
+
+### Comparative Read
+- 330a/330c preserve the important local/structural passes: surface validity, time-series moments, block-AR smoothness, cointegration, and cross-cell geometry.
+- 331a exact daily likelihood optimized teacher-forced NLL but became invalid under recursive sampling, so one-step likelihood is not enough.
+- 332a learned conditional source scale but made the free-run law too narrow and level-biased, so source-noise modulation is not the missing repair.
+
+### Mechanism Read
+The active bottleneck is no longer generic transition capacity. The stable failures across 330a/330c/332a are full-path failures: level KS, regime-responsive width, active-cell mean reversion, and pathwise max-jump shape. These are properties of the 30-day conditional path law, not properties that a locally good teacher-forced one-step transition objective reliably implies under recursive sampling.
+
+### Decision
+Close 332. Do not tune source-scale floors, temperatures, NLL weights, or more one-step likelihood variants.
+
+Open 333 as a clean paradigm shift: a standard conditional masked path diffusion/flow model over the whole future path. The model should condition on observed history tokens and generate the 30-day future logit path jointly with a vanilla diffusion/FM core. This directly tests whether a DiT/CSDI-style inpainting objective can learn the full conditional path law without retrieval, low-rank readouts, bounded side paths, residual shells, posterior/prior scaffolds, or evaluator-specific losses.
+
+---
