@@ -94745,3 +94745,22 @@ Soft-PIT moment matching moved the internal PIT mean toward 0.5, but it did so t
 Close low-order PIT-moment fine-tuning. A safer calibration objective would require cell/horizon-local interval constraints plus explicit median anchoring, but that is now close to optimizing the evaluator rather than learning the conditional law. The next principled step is objective/paradigm review around the 392a frontier: decide whether the remaining failures are mostly evaluator-policy calibration constraints or require a larger base-model likelihood paradigm.
 
 ---
+## 2026-04-24: Autoresearch 400 checkpoint-selection review
+
+### Context
+399a closed low-order PIT-moment fine-tuning. The next question was whether to immediately open a larger paradigm or first exploit the repeated finding that internal validation objectives are poor selectors for the official 11-suite.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_400a_frontier_checkpoint_selection.md`.
+
+The selected next step is to evaluate the already trained endpoint of the active frontier trajectory:
+
+`models/backfill/392a_recent_rollout_energy_w005_s42/final_model.pt`
+
+### Mechanism Read
+This is a checkpoint-selection audit, not a new model knob. 396a showed that internal validation ordering can disagree with official full-11 ordering. 392a's best checkpoint was selected by the training objective, but its final checkpoint may have different residual geometry across coverage, regime layer2, and level KS.
+
+### Decision
+Run the official full-11 suite on the 392a final checkpoint. If it improves beyond 8/11 or materially improves the three residual failed suites without losing the core passes, continue checkpoint/proxy-selection work. If it is worse or equivalent, close this route and move to a true paradigm-level review rather than inventing another local fine-tune loss.
+
+---
