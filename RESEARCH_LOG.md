@@ -93311,3 +93311,28 @@ Do not continue full-path-first objectives for the next iteration. Also do not t
 The next ideation should start from 340c's strongest evidence: use a causal transition-law backbone, but replace one-step FM with an exact vector transition likelihood in empirical normal-score coordinates. That would test density pressure at the daily 25-cell transition level, where 340c already demonstrated the right geometry, rather than at the flattened full-path level where 346a failed.
 
 ---
+## 2026-04-24: Autoresearch 347a transition-law likelihood selection
+
+### Context
+Post-346 analysis says the problem is not simply lack of likelihood pressure. The placement of the factorization matters. 340c remains the only clean frontier because its causal-memory transition factorization preserves daily-change law, cross-cell geometry, cointegration, and mean reversion under rollout.
+
+### Candidate Families Considered
+1. Continue full-path likelihood or path FM. Rejected: 339/345/346 show this placement loses 340c's structural geometry.
+2. Add explicit regime scales/calibration to 340c. Rejected: this is a research-knob patch and violates the clean-pathology guard.
+3. Keep 340c's causal transition factorization but replace one-step FM with an exact vector transition likelihood. Selected: this changes the objective class at the level where 340c already works.
+
+### Selected Test
+Run `347a`: an empirical-normal-score causal-memory autoregressive transition density. At each rollout day, the model encodes the observed/generated prefix exactly as 340c does, then models the 25-cell next-day score transition with a conditional affine coupling flow and exact NLL.
+
+This is still a vanilla conditional density model:
+- causal prefix encoder;
+- 25-dimensional transition coupling flow;
+- standard Gaussian base;
+- recursive sampling.
+
+No retrieval, low-rank readout, deterministic center/residual split, bounded path, explicit regime scale, evaluator loss, or posterior/prior scaffold.
+
+### Falsifier
+If 347a cannot retain 340c's structural passes while improving coverage/distributional fidelity, then exact likelihood at the transition-law level is not sufficient. The next move should revisit the transition representation or data/evaluation framing, not add auxiliary losses.
+
+---
