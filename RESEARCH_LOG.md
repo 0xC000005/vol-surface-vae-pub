@@ -91322,3 +91322,20 @@ Minimal 332a specification:
 The falsifier is whether conditionality/regime/coverage improve without destroying 330c's daily KS, cross-cell geometry, cointegration, aggregate MR, and support validity.
 
 ---
+## 2026-04-24: Autoresearch 332a conditional source scale
+
+### Context
+Iteration 300 executed the planned 332a falsifier: keep the clean 330c standardized causal-memory transition FM, but replace fixed unit source noise with a learned memory/current-logit conditional diagonal source scale. A smoke run showed plain FM MSE made the source scale collapse, so the committed implementation identifies the scale head with a transition-scale likelihood and detaches the learned scale from the FM source path.
+
+### Result
+- Artifact: `results/block_ar/332a_v0_s42/full11.json`
+- Score: 3/11, passing only surface validity, block-AR smoothness, and cross-cell correlation.
+- Key metrics: coverage90 0.372, calibration error 0.351, conditional MAE reduction 1.8%, turb/calm width 0.865, daily KS 5/25, level KS 0/25, median-bias fraction 2/25, bias-magnitude 10/25, cointegration ratio 0.387, active MR pass 29.2%, h30 MR ratio 0.247, pathwise max-jump KS 0.390.
+
+### Mechanism Read
+332a is negative. The learned conditional source scale preserves some geometry but makes free-run scenarios too narrow and strongly upward level-biased. It damages coverage, level fidelity, cointegration, and long-horizon mean reversion rather than repairing 330c's conditional width/regime failures.
+
+### Decision
+Do not continue tuning 332a as a knob family. The next HEAD step should be post-experiment analysis: close or sharply reinterpret conditional source scaling, and return to the 330a/330c causal-memory FM frontier unless there is a more principled way to model regime-dependent uncertainty without distorting the level law.
+
+---
