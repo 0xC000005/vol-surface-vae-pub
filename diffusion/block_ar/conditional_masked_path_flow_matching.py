@@ -23,6 +23,7 @@ class ConditionalMaskedPathFMConfig:
     token_layers: int = 6
     token_ff: int = 256
     model_dropout: float = 0.1
+    global_mixer: bool = False
     flow_time_dim: int = 32
     logit_eps: float = 1e-4
     standardize_logits: bool = True
@@ -35,7 +36,15 @@ class ConditionalMaskedPathFMConfig:
 class MaskedPathAxialBlock(nn.Module):
     """Efficient mixing over time, cells, and channels for a 60x25 path grid."""
 
-    def __init__(self, seq_len: int, n_cells: int, token_dim: int, token_ff: int, dropout: float):
+    def __init__(
+        self,
+        seq_len: int,
+        n_cells: int,
+        token_dim: int,
+        token_ff: int,
+        dropout: float,
+        global_mixer: bool,
+    ):
         super().__init__()
         self.time_norm = nn.LayerNorm(seq_len)
         self.time_mlp = nn.Sequential(
@@ -58,6 +67,15 @@ class MaskedPathAxialBlock(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(token_ff, token_dim),
         )
+        self.use_global_mixer = bool(global_mixer)
+        if self.use_global_mixer:
+            self.global_norm = nn.LayerNorm(token_dim)
+            self.global_mlp = nn.Sequential(
+                nn.Linear(token_dim, token_ff),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(token_ff, token_dim),
+            )
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -69,6 +87,9 @@ class MaskedPathAxialBlock(nn.Module):
         x = x + self.dropout(self.cell_mlp(y).permute(0, 1, 3, 2))
 
         x = x + self.dropout(self.channel_mlp(self.channel_norm(x)))
+        if self.use_global_mixer:
+            global_state = self.global_norm(x.mean(dim=(1, 2)))
+            x = x + self.dropout(self.global_mlp(global_state))[:, None, None, :]
         return x
 
 
@@ -90,6 +111,7 @@ class ConditionalMaskedPathVelocity(nn.Module):
                     token_dim=cfg.token_dim,
                     token_ff=cfg.token_ff,
                     dropout=cfg.model_dropout,
+                    global_mixer=cfg.global_mixer,
                 )
                 for _ in range(cfg.token_layers)
             ]

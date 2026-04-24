@@ -91402,3 +91402,24 @@ Keep 333 alive for one focused repair: 333b global scenario mixer.
 333b should keep the same standardized-logit masked rectified-flow objective, but add a generic global mixing path inside each axial block: pool the hidden field over all time-cell tokens, transform that scenario state, and broadcast it back to the grid. This is not a low-rank readout, retrieval layer, residual shell, or evaluator loss; it is a standard learned global communication path inside the same generator. The falsifier is whether it improves cross-cell coupling, regime width, and per-cell tail balance without losing 333a's coverage and cointegration gains.
 
 ---
+## 2026-04-24: Autoresearch 333b global masked path flow
+
+### Context
+Iteration 304 implemented the planned 333b repair to 333a: keep the same standardized-logit masked full-path rectified-flow objective, but add a generic global scenario mixer inside each axial block. The intent was to improve common-shock coupling without adding retrieval, low-rank readouts, residual shells, or evaluator losses.
+
+### Result
+- Artifact: `results/block_ar/333b_v0_small_s42/full11.json`
+- Score: 3/11, passing surface validity, block-AR smoothness, and cross-cell correlation.
+- Key metrics: coverage90 0.828, calibration error 0.040, conditional MAE reduction 3.2%, turb/calm width 1.007, daily KS 13/25, level KS 2/25, median-bias fraction 17/25, bias-magnitude 22/25, window-floor bad rate 4.2%, cointegration ratio 0.977 but worst-cell 0.237, corr ratio 0.584, rank ratio 2.517, aggregate MR ratio 1.062, h1 active MR pass 83.3%, full-horizon active mean 50.8%, pathwise max-jump KS 0.459, q99 tail cells 18/25.
+
+### Mechanism Read
+The global mixer did exactly one intended thing: it moved cross-cell correlation into the pass gate and improved active mean reversion at h1. It also improved aggregate coverage calibration and the persistent undercoverage floor. But it traded away 333a's better local distributional fidelity: daily KS, level KS, median-bias fraction, global kurtosis/skewness, and worst-cell cointegration all worsened.
+
+### Decision
+Do not tune global-mixer depth, strength, or capacity. The 333 family now has a clean two-point tradeoff:
+- 333a: better local fidelity and cointegration, but under-coupled common shocks.
+- 333b: better shared geometry and h1 MR, but worse local/level/time-series fidelity.
+
+Next HEAD step should be post-experiment analysis. The central question is whether a cleaner single path-flow object can combine 333a local fidelity with 333b shared coupling, or whether this is the same one-shot shared/local tradeoff seen in earlier branches.
+
+---
