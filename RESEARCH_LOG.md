@@ -92887,3 +92887,61 @@ This is not a residual shell, retrieval/copula reuse, low-rank readout, bounded 
 If it fails, close this synthesis rather than adding more scalar-chain feature knobs.
 
 ---
+## 2026-04-24: Autoresearch 343a normal-score scalar chain-rule result
+
+### Context
+343a tested the synthesis selected after the 342a postmortem: combine the empirical normal-score coordinate from the `340c` frontier with the scalar chain-rule mixture likelihood from the 320 family.
+
+Artifacts:
+- module: `diffusion/block_ar/empirical_normal_score_scalar_ar_mixture_density.py`
+- trainer: `experiments/backfill/block_ar/train_343a_empirical_normal_score_scalar_ar_mixture_density.py`
+- eval routing: `experiments/backfill/block_ar/_rollout_220_utils.py`, `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- model: `models/backfill/343a_v0_s42/best_model.pt`
+- train summary: `models/backfill/343a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/343a_v0_s42/full11.json`
+- markdown: `results/block_ar/343a_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation NLL was epoch 27 with `val_total=-0.56452`.
+
+### Result
+Full 11-suite score: `3/11`, below the `340a/340c` frontier at `6/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- IV-EWMA cointegration
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- aggregate coverage was good: cov90 `0.865`, calibration error `0.015`, all tested horizons passed;
+- per-cell coverage still failed at every tested horizon, so coverage suite failed;
+- window-floor improved strongly: bad windows `2.6%`, passing the floor gate;
+- conditionality stayed flat/inverted: MAE reduction `2.2%`, turb/calm width `0.995`;
+- time-series failed: kurtosis ratio `0.696`, tail-scale cells only `11/25`;
+- cointegration aggregate passed (`0.702`) but worst cell failed (`0.111`);
+- daily-change KS was near gate but failed (`13/25`);
+- level KS was poor (`1/25`) despite normal-score training;
+- cross-cell correlation passed (`0.865`, rank `1.639`);
+- mean reversion aggregate profile passed, but active full-horizon mean failed (`36.5%`);
+- pathwise max-jump KS remained poor (`0.345`), and per-cell q99 jump cells were `11/25`.
+
+### Mechanism Read
+The empirical normal-score scalar chain-rule density learned broad unconditional coverage and realistic cross-cell dependence, but it did not preserve the structural passes that make `340c` the frontier. The scalar likelihood smoothed active-cell mean reversion, left regime width nearly flat, and produced uneven per-cell tails/level marginals.
+
+This falsifies the clean 320+340 synthesis as implemented. The problem is not simply that the 340 coordinate needed an exact scalar likelihood; the scalar chain-rule factorization still trades per-cell level fidelity, time-series tails, cointegration worst-cell behavior, and active MR against aggregate calibration.
+
+### Decision
+Close 343a as a non-frontier result. Keep `340a/340c` as the `6/11` frontier.
+
+Run post-experiment analysis next. The analysis should treat 342a and 343a together: local proper scoring and scalar exact likelihood both failed to improve the 340 frontier, so the next move should not be another small objective/coordinate synthesis unless it has a clearly different mechanism.
+
+---
