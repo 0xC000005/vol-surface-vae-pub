@@ -91516,3 +91516,23 @@ Capacity helped some local and coupling diagnostics, but it did not solve the 33
 Close or sharply deprioritize 333 after a post-experiment analysis. The next productive move should be paradigm ideation using the mechanism map: 330 causal AR remains the clean 5/11 frontier; 333 full-path flow improves aggregate calibration but repeats a one-shot shared/local tradeoff.
 
 ---
+## 2026-04-24: Autoresearch 333 closure and 334 selection
+
+### Context
+The scaled 333c-v1 falsifier completed the masked full-path flow branch:
+- 333a showed full-path training improves aggregate calibration and cointegration but under-couples.
+- 333b showed global mixing repairs cross-cell coupling but damages local fidelity and cointegration.
+- 333c combined those better and reached 4/11.
+- scaled 333c improved some local/coupling diagnostics but fell back to 3/11.
+
+### Mechanism Read
+333 is not failing because the evaluated model was simply too small. Scaling helped daily KS and per-cell q99 tail scale, but did not fix level KS, median-bias fraction, regime width, active-cell MR, pathwise max-jump shape, or per-cell coverage. It also lost worst-cell cointegration. This repeats the broader one-shot shared/local tradeoff.
+
+The clean frontier remains 330c: causal future-memory autoregressive flow matching with standardized logit coordinates. Its stable failures are not generic local transition failure; they look like missing persistent path-level stochasticity and regime-sensitive uncertainty.
+
+### Decision
+Close or sharply deprioritize 333.
+
+Open 334 as a minimal return to the 330c frontier. Keep the 330c architecture and objective, but change only the rectified-flow source law: draw each future path's transition source from a fixed Gaussian with one path-common component shared across all future steps plus local step noise. This tests whether persistent path stochasticity can improve per-cell coverage/regime/pathwise shape while preserving 330c's local transition, time-series, cointegration, and cross-cell strengths.
+
+---
