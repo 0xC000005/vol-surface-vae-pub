@@ -91209,3 +91209,22 @@ This is the same qualitative warning seen in 303c: stronger explicit conditionin
 Close 330b as a negative local conditioning-path test. Return to 330a as the active 5/11 clean frontier. Do post-experiment analysis before selecting the next 330 repair; do not stack more token-conditioning variants without a new mechanism.
 
 ---
+## 2026-04-24: 330 coordinate-balance postmortem
+
+### Context
+330b falsified explicit prefix-token conditioning as the next repair. It did not improve regime/conditionality and traded away several 330a passes. The active base should revert to 330a.
+
+### Analysis
+The 330a failure pattern is now more consistent with coordinate/per-cell balance than with missing generic sequence capacity:
+- daily transition law passes strongly (`24/25` daily KS), so the local innovation family is learned;
+- aggregate coverage calibration is excellent (`0.009`), but per-cell/horizon coverage remains uneven;
+- level KS is better than most transition-only lines (`7/25`) but still below gate;
+- aggregate MR passes all horizons, but active-cell MR is weak, meaning slopes are directionally right but uneven across cells;
+- pathwise q90/q99 and per-cell q99 pass, but max-jump KS fails, pointing to distributional shape imbalance rather than raw jump scale.
+
+330a currently models raw logit levels. High-scale cells can dominate the transition loss and causal memory state. A per-cell standardized logit coordinate is a generic statistical coordinate choice, not a financial side path. It directly targets the observed per-cell imbalance while preserving the same causal-memory architecture and vanilla transition-FM objective.
+
+### Decision
+Run 330c: same additive causal future-memory transition flow as 330a, but train/sample in per-cell standardized logit coordinates, then denormalize logits before sigmoid decoding. Do not change depth, width, temperature, or conditioning path. If 330c improves level/coverage/active MR without losing daily/corr/cointegration, keep 330; if it trades away the 330a structural passes, return to 330a and ideate a different repair.
+
+---
