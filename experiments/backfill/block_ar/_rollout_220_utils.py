@@ -917,7 +917,7 @@ def load_one_day_kernel(
         )
 
         return load_303b_model(checkpoint_path, device)
-    if model_type in {"330a", "330b", "330c"}:
+    if model_type in {"330a", "330b", "330c", "335a"}:
         from diffusion.block_ar.causal_future_memory_transition_flow_matching import (
             load_model as load_330a_model,
         )

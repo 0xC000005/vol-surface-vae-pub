@@ -91629,3 +91629,76 @@ Open 335 as a same-method Bitter-Lesson falsifier: scale the 330c causal-memory 
 - no source covariance knobs, residual shells, low-rank readouts, retrieval, posterior/prior scaffolds, or evaluator losses.
 
 ---
+## 2026-04-24: Autoresearch 335a scaled causal memory flow
+
+### Context
+335a tested the same-method Bitter-Lesson hypothesis after 334 was closed: keep the 330c causal-memory AR-FM family exactly, but scale generic token/memory capacity and training budget.
+
+Configuration:
+- base trainer: `experiments/backfill/block_ar/train_330a_causal_future_memory_transition_flow.py`
+- output: `models/backfill/335a_v0_s42`
+- standardized logits: enabled
+- memory/token dim: `192`
+- memory/token layers: `4`
+- memory/token FF: `384`
+- epochs: `64`
+- batch: `48`
+- flow steps: `32`
+
+Only evaluator/loader alias wiring was added for `335a`; no new architecture, side path, source covariance knob, retrieval, low-rank readout, posterior/prior scaffold, or evaluator-specific loss was introduced.
+
+### Result
+Artifacts:
+- model: `models/backfill/335a_v0_s42/best_model.pt`
+- train summary: `models/backfill/335a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/335a_v0_s42/full11.json`
+- markdown: `results/block_ar/335a_v0_s42/full11.md`
+
+Training overfit early. Best validation was epoch 12 with `val_total=0.35671`, worse than 330c's best validation around `0.34426`.
+
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- overall coverage: `0.813`
+- calibration error: `0.074`
+- turb/calm width ratio: `0.891`
+- ACF correlation: `0.951`
+- kurtosis ratio: `0.947`, but skew failed
+- daily-change KS cells: `23/25`
+- level KS cells: `3/25`
+- median-bias cells: `9/25`
+- bias magnitude cells: `23/25`
+- corr/rank ratio: `1.088 / 1.105`
+- cointegration gen/GT: `0.705`, worst-cell `0.250`
+- aggregate MR ratio: `1.023`, h30 MR ratio `0.774`
+- full-horizon active MR mean: `40.4%`
+- max-jump KS: `0.383`
+
+### Mechanism Read
+Scaling generic capacity preserved the structural strengths of the 330 family and improved cointegration/tail-scale counts, but it did not repair the core level/regime calibration failures. It made level KS and median-bias fraction worse and materially worsened coverage relative to 330c. The training curve shows classic overfit to teacher-forced FM loss: train loss kept improving while validation deteriorated after the early checkpoint.
+
+This falsifies simple same-method capacity scaling as the missing ingredient. The remaining failures are not explained by insufficient transformer width/depth alone.
+
+### Decision
+Run post-experiment analysis next. The evidence now rules out two tempting but clean local moves around 330c:
+- fixed path-common source covariance;
+- simple capacity/training scaling.
+
+The next move should identify a different clean objective or factorization for level/regime calibration while preserving the first-principles constraints: vanilla generative core, support-valid coordinates, no evaluator-specific losses, no retrieval, no hard low-rank readout, and no hand-engineered financial side path.
+
+---
