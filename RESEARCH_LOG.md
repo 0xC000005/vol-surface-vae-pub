@@ -92394,3 +92394,64 @@ Open 340b: scale-state causal memory.
 The falsifier is whether explicit realized-scale state improves conditionality/regime width, per-cell coverage, level KS, and pathwise max-jump shape while preserving 340a's six passing suites. If it loses the new 6/11 frontier or does not improve the bottleneck, close this repair and analyze again rather than adding more state features.
 
 ---
+## 2026-04-24: Autoresearch 340b scale-state causal memory
+
+### Context
+340b tested the single scale-state repair selected after the 340a postmortem. It kept the shared empirical normal-score coordinate, causal-memory AR factorization, and vanilla transition FM objective, changing only prefix memory features from `[score, delta]` to `[score, delta, |delta|, delta^2]`.
+
+Artifacts:
+- module: `diffusion/block_ar/empirical_normal_score_causal_memory_transition_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_340a_empirical_normal_score_causal_memory_transition_flow.py` with `--prefix_feature_mode scale`
+- model: `models/backfill/340b_v0_s42/best_model.pt`
+- train summary: `models/backfill/340b_v0_s42/train_summary.json`
+- full suite: `results/block_ar/340b_v0_s42/full11.json`
+- markdown: `results/block_ar/340b_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation was epoch 13 with `val_total=0.44949`.
+
+### Result
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+- mean reversion
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- cointegration
+- regime coverage
+- distributional fidelity
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.874`, calibration error `0.008`
+- h1/h30 coverage: `0.858 / 0.856`
+- conditional MAE reduction: `3.4%`
+- turb/calm width ratio: `0.972`
+- ACF correlation: `0.950`
+- kurtosis/skewness ratios: `1.283 / -5.259`
+- daily-change KS cells: `24/25`
+- level KS cells: `5/25`
+- median-bias cells: `17/25`, bias-magnitude cells `22/25`
+- corr/rank ratio: `0.921 / 1.512`
+- cointegration gen/GT: `0.795`, worst-cell `0.167`
+- aggregate MR h1/h30 ratios: `0.943 / 0.821`
+- full-horizon active MR mean: `85.8%`, mean corr `0.829`
+- max-jump KS: `0.348`
+- per-cell q99 tail cells: `21/25`
+
+### Mechanism Read
+Scale-state features are not the clean repair. They improved aggregate calibration error and slightly improved pathwise max-jump KS relative to 340a (`0.429 -> 0.348`), but the suite count fell from `6/11` to `4/11`. The change disturbed global skew/kurtosis and worst-cell cointegration, worsened level KS and median-bias counts, and did not materially repair conditionality or regime width.
+
+This means the 340a bottleneck is not solved by exposing simple realized-scale statistics to the memory. The added state features give the model a shortcut that changes tail shape and cointegration without learning the needed conditional dispersion law.
+
+### Decision
+Close 340b as a negative repair. Keep 340a as the active `6/11` frontier.
+
+Run post-experiment analysis next. Do not add more prefix state features. The next repair must preserve 340a's six passes while addressing the remaining per-cell coverage / regime-width / level-KS / max-jump failures more directly and cleanly.
+
+---

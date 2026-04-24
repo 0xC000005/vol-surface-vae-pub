@@ -23,6 +23,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFMConfig(
 ):
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
+    prefix_feature_mode: str = "basic"
 
 
 class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
@@ -31,7 +32,10 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
     def __init__(self, cfg: EmpiricalNormalScoreCausalMemoryTransitionFMConfig):
         super().__init__()
         self.cfg = cfg
-        self.feature_proj = nn.Linear(2 * cfg.n_cells, cfg.memory_dim)
+        if cfg.prefix_feature_mode not in {"basic", "scale"}:
+            raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
+        feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
+        self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
         layer = nn.TransformerEncoderLayer(
             d_model=cfg.memory_dim,
@@ -128,6 +132,8 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
     def _score_features_from_scores(self, scores: torch.Tensor) -> torch.Tensor:
         deltas = torch.zeros_like(scores)
         deltas[:, 1:] = scores[:, 1:] - scores[:, :-1]
+        if self.cfg.prefix_feature_mode == "scale":
+            return torch.cat([scores, deltas, deltas.abs(), deltas.square()], dim=-1)
         return torch.cat([scores, deltas], dim=-1)
 
     def _encode_prefix_scores(self, prefix_scores: torch.Tensor) -> torch.Tensor:

@@ -72,6 +72,11 @@ def main() -> None:
     )
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
+    parser.add_argument(
+        "--prefix_feature_mode",
+        choices=["basic", "scale"],
+        default="basic",
+    )
     parser.add_argument("--flow_steps", type=int, default=32)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
 
@@ -150,6 +155,7 @@ def main() -> None:
         sample_temperature=args.sample_temperature,
         n_quantiles=args.n_quantiles,
         cdf_eps=args.cdf_eps,
+        prefix_feature_mode=args.prefix_feature_mode,
     )
     model = EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(cfg).to(device)
     quantiles, quantile_levels = compute_shared_level_quantiles(
