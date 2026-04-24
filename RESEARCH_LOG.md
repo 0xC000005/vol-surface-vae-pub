@@ -94764,3 +94764,29 @@ This is a checkpoint-selection audit, not a new model knob. 396a showed that int
 Run the official full-11 suite on the 392a final checkpoint. If it improves beyond 8/11 or materially improves the three residual failed suites without losing the core passes, continue checkpoint/proxy-selection work. If it is worse or equivalent, close this route and move to a true paradigm-level review rather than inventing another local fine-tune loss.
 
 ---
+## 2026-04-24: Autoresearch 401 final checkpoint audit
+
+### Context
+400a selected one non-knob checkpoint-selection audit before opening another paradigm: evaluate the already trained endpoint of the active 392a weak path-energy trajectory.
+
+### Result
+Official artifact:
+
+`results/block_ar/401a_392a_final_checkpoint/full11.json`
+
+The 392a final checkpoint scored 7/11. Failed suites: coverage, cointegration, regime_coverage, distributional_fidelity.
+
+Comparison against active 392a best checkpoint:
+
+| checkpoint | score | cov90 | under70 | over95 | cond MAE | level KS | coint worst |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 392a best | 8/11 | 0.868 | 1 | 10 | 5.14% | 10/25 | 0.278 |
+| 392a final | 7/11 | 0.857 | 0 | 5 | 5.32% | 10/25 | 0.175 |
+
+### Mechanism Read
+Endpoint selection improves some coverage edge counts and keeps level KS unchanged, but it loses the worst-cell cointegration gate. This is another example of tradeoff movement inside the current family rather than a path to 11/11.
+
+### Decision
+Keep `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt` as the active 8/11 frontier. Close simple endpoint checkpoint selection. The next iteration should be a paradigm-level review: either frame a reportable base-model plus policy-calibrated risk system, or open a genuinely new base likelihood/representation path rather than another local fine-tune objective.
+
+---
