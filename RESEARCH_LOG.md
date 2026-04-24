@@ -93535,3 +93535,29 @@ Do not tune sample temperature, location hidden size, or coupling depth. Do not 
 Run research ideation next. The next candidate should change the innovation law in a generic way that can alter kurtosis/skew/max-jump shape while preserving 348a's location-driven mean reversion and covariance. A standard heavy-tailed or more expressive base law is more principled than an evaluator-specific tail loss.
 
 ---
+## 2026-04-24: Autoresearch 349a Student-t innovation selection
+
+### Context
+348a made the conditional transition location explicit and restored mean reversion, but the remaining failures are innovation-shape failures: kurtosis/skew, pathwise max-jump KS, level KS, and mixed per-cell coverage. Tail scale mostly passes, so global temperature is not the right repair.
+
+### Candidate Families Considered
+1. Sample-temperature or coverage calibration. Rejected: coverage has both undercovered and overcovered cells, and this would be a knob.
+2. Tail/evaluator auxiliary loss. Rejected: too targeted and likely to overfit the suite.
+3. More expressive/heavy-tailed innovation base inside the same exact likelihood. Selected: a standard base-law change is generic and keeps the model a vanilla conditional density.
+
+### Selected Test
+Run `349a`: same as 348a, but replace the standard Gaussian base for the 25-cell innovation coupling flow with an independent Student-t base with a learned global degrees-of-freedom parameter.
+
+This preserves the clean structure:
+- causal prefix encoder;
+- explicit conditional transition location;
+- conditional coupling innovation flow;
+- exact NLL;
+- recursive sampling.
+
+No regime labels, no tail loss, no temperature calibration, no low-rank readout, no bounded side path, no retrieval.
+
+### Falsifier
+If 349a does not improve kurtosis/max-jump shape without sacrificing 348a's mean reversion and covariance, then the remaining issue is not a simple base-law tail problem. The next branch should revisit level-stationarity directly rather than keep changing innovation tails.
+
+---
