@@ -24,6 +24,8 @@ class CausalFutureMemoryTransitionFMConfig(RecurrentLogitTransitionTokenFMConfig
     memory_heads: int = 4
     memory_ff: int = 256
     conditioning_mode: str = "additive"
+    standardize_logits: bool = False
+    logit_std_floor: float = 1e-3
 
 
 class MemoryConditionedTokenTransitionVelocity(nn.Module):
@@ -96,6 +98,8 @@ class CausalFutureMemoryTransitionFlowMatching(nn.Module):
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
         self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        self.register_buffer("cell_logit_mean", torch.zeros(cfg.n_cells))
+        self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
 
     @staticmethod
     def _flatten(x: torch.Tensor) -> torch.Tensor:
@@ -107,6 +111,24 @@ class CausalFutureMemoryTransitionFlowMatching(nn.Module):
         deltas = torch.zeros_like(logits)
         deltas[:, 1:] = logits[:, 1:] - logits[:, :-1]
         return torch.cat([logits, deltas], dim=-1)
+
+    def set_logit_stats(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        if mean.shape != (self.cfg.n_cells,) or std.shape != (self.cfg.n_cells,):
+            raise ValueError("Expected per-cell logit stats with shape (n_cells,)")
+        self.cell_logit_mean.copy_(mean.to(self.cell_logit_mean))
+        self.cell_logit_std.copy_(
+            std.clamp_min(self.cfg.logit_std_floor).to(self.cell_logit_std)
+        )
+
+    def _to_model_coord(self, logits: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return logits
+        return (logits - self.cell_logit_mean) / self.cell_logit_std
+
+    def _from_model_coord(self, coord: torch.Tensor) -> torch.Tensor:
+        if not self.cfg.standardize_logits:
+            return coord
+        return coord * self.cell_logit_std + self.cell_logit_mean
 
     def _encode_prefix_logits(self, prefix_logits: torch.Tensor) -> torch.Tensor:
         seq_len = prefix_logits.shape[1]
@@ -126,11 +148,13 @@ class CausalFutureMemoryTransitionFlowMatching(nn.Module):
 
     def target_future_logits(self, future_norm: torch.Tensor) -> torch.Tensor:
         future_norm = self._flatten(future_norm)
-        return iv_to_logit(denormalize_iv(future_norm), self.cfg.logit_eps)
+        logits = iv_to_logit(denormalize_iv(future_norm), self.cfg.logit_eps)
+        return self._to_model_coord(logits)
 
     def history_logits(self, history_norm: torch.Tensor) -> torch.Tensor:
         history_norm = self._flatten(history_norm)
-        return iv_to_logit(denormalize_iv(history_norm), self.cfg.logit_eps)
+        logits = iv_to_logit(denormalize_iv(history_norm), self.cfg.logit_eps)
+        return self._to_model_coord(logits)
 
     def teacher_forced_memory(
         self,
@@ -235,7 +259,7 @@ class CausalFutureMemoryTransitionFlowMatching(nn.Module):
                         t,
                     )
                 next_logit = current_logit + x
-                next_iv = logit_to_iv(next_logit)
+                next_iv = logit_to_iv(self._from_model_coord(next_logit))
                 frames.append(next_iv.view(bsz, k, 5, 5))
                 prefix = torch.cat([prefix, next_logit[:, None, :]], dim=1)
             outs.append(torch.stack(frames, dim=2))
@@ -265,7 +289,16 @@ def load_model(
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     cfg = CausalFutureMemoryTransitionFMConfig(**payload["config"])
     model = CausalFutureMemoryTransitionFlowMatching(cfg)
-    model.load_state_dict(payload["model_state_dict"], strict=True)
+    result = model.load_state_dict(payload["model_state_dict"], strict=False)
+    allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    missing = set(result.missing_keys) - allowed_missing
+    if missing or result.unexpected_keys:
+        raise RuntimeError(
+            f"Checkpoint state mismatch: missing={sorted(missing)}, "
+            f"unexpected={sorted(result.unexpected_keys)}"
+        )
+    if cfg.standardize_logits and allowed_missing.intersection(result.missing_keys):
+        raise RuntimeError("Standardized-logit checkpoint is missing saved logit stats")
     model.to(device).eval()
     return model, payload
 

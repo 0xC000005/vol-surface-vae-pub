@@ -91228,3 +91228,24 @@ The 330a failure pattern is now more consistent with coordinate/per-cell balance
 Run 330c: same additive causal future-memory transition flow as 330a, but train/sample in per-cell standardized logit coordinates, then denormalize logits before sigmoid decoding. Do not change depth, width, temperature, or conditioning path. If 330c improves level/coverage/active MR without losing daily/corr/cointegration, keep 330; if it trades away the 330a structural passes, return to 330a and ideate a different repair.
 
 ---
+## 2026-04-24: 330c standardized-coordinate causal memory flow
+
+### Context
+330c tested the coordinate-balance hypothesis from the prior postmortem. It kept 330a's additive causal future-memory architecture and transition FM objective, but modeled per-cell standardized logit coordinates internally and denormalized only for IV sampling.
+
+### Result
+`330c_v0_s42` scored 5/11, passing surface validity, time_series, block_ar, IV-EWMA cointegration, and cross_cell_correlation. It failed coverage, conditionality, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 33, best val total 0.3443, coverage90 0.863, calibration error 0.027, turb/calm width ratio 0.926, ACF corr 0.953, kurtosis ratio 1.141, daily-change KS 24/25, level KS 6/25, median-bias fraction 20/25, bias magnitude 22/25, per-window coverage floor 0.5%, corr ratio 0.983, rank ratio 1.288, cointegration gen/GT 0.621 with worst-cell 0.250, aggregate MR ratio 1.026, active-cell mean pass 53.5%, pathwise q90 ratio 0.915, q99 ratio 1.057, max-jump KS 0.315.
+
+Artifacts: `models/backfill/330c_v0_s42/best_model.pt`, `models/backfill/330c_v0_s42/train_summary.json`, `results/block_ar/330c_v0_s42/full11.json`, `results/block_ar/330c_v0_s42/full11.md`.
+
+### Mechanism Read
+Standardization helped some of the intended per-cell balance diagnostics: median-bias fraction reached the gate, cross-cell correlation/rank moved closer to GT, active-cell MR improved from 47.4% in 330a to 53.5%, and the worst-cell cointegration gate still barely passed. But it did not change the suite count. Level KS stayed below gate, regime width stayed inverted, and pathwise max-jump KS remained too high.
+
+This keeps the 330 family alive but says coordinate scaling alone is not the missing mechanism. It is a useful base variant, not a reason to stack more coordinate/temperature knobs.
+
+### Decision
+Do a focused 330a/330b/330c postmortem next. The next repair should address the persistent regime-width and level-law failures without sacrificing the clean passes. Do not combine prefix conditioning, standardization, and temperature tuning blindly.
+
+---

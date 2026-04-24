@@ -20,6 +20,7 @@ from diffusion.block_ar.causal_future_memory_transition_flow_matching import (
     CausalFutureMemoryTransitionFlowMatching,
     save_checkpoint,
 )
+from diffusion.block_ar.logit_level_flow_matching import iv_to_logit
 from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv
 from experiments.backfill.block_ar.train_169c_shape_scale_student_t import (
     build_multistep_windows,
@@ -50,6 +51,27 @@ def make_dataset(
     return (train_hist, train_future, val_hist, val_future), h, w, h * w
 
 
+def compute_logit_stats(
+    train_hist_01: torch.Tensor,
+    train_future_01: torch.Tensor,
+    logit_eps: float,
+    std_floor: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    def flatten_cells(x: torch.Tensor) -> torch.Tensor:
+        if x.ndim == 4:
+            return x.reshape(-1, x.shape[-2] * x.shape[-1])
+        if x.ndim == 3:
+            return x.reshape(-1, x.shape[-1])
+        raise ValueError(f"Expected 3D or 4D window tensor, got shape {tuple(x.shape)}")
+
+    train_hist = flatten_cells(train_hist_01)
+    train_future = flatten_cells(train_future_01)
+    logits = iv_to_logit(torch.cat([train_hist, train_future], dim=0), logit_eps)
+    mean = logits.mean(dim=0)
+    std = logits.std(dim=0, unbiased=False).clamp_min(std_floor)
+    return mean, std
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="330a causal future-memory transition flow")
     parser.add_argument("--hidden_dim", type=int, default=128)
@@ -73,6 +95,8 @@ def main() -> None:
         default="additive",
     )
     parser.add_argument("--logit_eps", type=float, default=1e-4)
+    parser.add_argument("--standardize_logits", action="store_true")
+    parser.add_argument("--logit_std_floor", type=float, default=1e-3)
     parser.add_argument("--flow_steps", type=int, default=32)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
 
@@ -146,11 +170,21 @@ def main() -> None:
         memory_heads=args.memory_heads,
         memory_ff=args.memory_ff,
         conditioning_mode=args.conditioning_mode,
+        standardize_logits=args.standardize_logits,
+        logit_std_floor=args.logit_std_floor,
         logit_eps=args.logit_eps,
         flow_steps=args.flow_steps,
         sample_temperature=args.sample_temperature,
     )
     model = CausalFutureMemoryTransitionFlowMatching(cfg).to(device)
+    if args.standardize_logits:
+        mean, std = compute_logit_stats(
+            train_hist,
+            train_future,
+            logit_eps=args.logit_eps,
+            std_floor=args.logit_std_floor,
+        )
+        model.set_logit_stats(mean, std)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
