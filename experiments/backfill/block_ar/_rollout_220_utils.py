@@ -935,6 +935,12 @@ def load_one_day_kernel(
         )
 
         return load_332a_model(checkpoint_path, device)
+    if model_type == "333a":
+        from diffusion.block_ar.conditional_masked_path_flow_matching import (
+            load_model as load_333a_model,
+        )
+
+        return load_333a_model(checkpoint_path, device)
     if model_type == "303d":
         from diffusion.block_ar.recurrent_logit_transition_token_flow_matching import (
             load_model as load_303d_model,

@@ -91358,3 +91358,20 @@ Close 332. Do not tune source-scale floors, temperatures, NLL weights, or more o
 Open 333 as a clean paradigm shift: a standard conditional masked path diffusion/flow model over the whole future path. The model should condition on observed history tokens and generate the 30-day future logit path jointly with a vanilla diffusion/FM core. This directly tests whether a DiT/CSDI-style inpainting objective can learn the full conditional path law without retrieval, low-rank readouts, bounded side paths, residual shells, posterior/prior scaffolds, or evaluator-specific losses.
 
 ---
+## 2026-04-24: Autoresearch 333a masked path flow
+
+### Context
+Iteration 302 implemented 333a, the first masked full-path flow after the 332a postmortem. The model treats history plus future as one standardized-logit time-cell field: history tokens are clean observations, future tokens are noised, and a vanilla rectified-flow objective learns the full 30-day future path jointly. The first default-capacity run OOMed on the 8GB GPU, so the evaluated falsifier used a smaller axial masked-path model (`token_dim=96`, `token_layers=4`, batch 64).
+
+### Result
+- Artifact: `results/block_ar/333a_v0_small_s42/full11.json`
+- Score: 3/11, passing surface validity, block-AR smoothness, and IV-EWMA cointegration.
+- Key metrics: coverage90 0.809, calibration error 0.055, conditional MAE reduction 3.6%, turb/calm width 0.902, ACF 0.906, kurtosis ratio 0.867, daily KS 16/25, level KS 8/25, median-bias fraction 23/25, bias-magnitude 22/25, per-window floor bad rate 8.3%, cointegration ratio 1.226 with worst-cell 0.361, corr ratio 0.469, rank ratio 2.983, aggregate MR ratio 1.187, h30 MR ratio 0.706, active MR pass 41.7%, pathwise max-jump KS 0.505.
+
+### Mechanism Read
+333a is not a frontier score, but it is informative. The masked full-path objective directly improves the failures that one-step AR did not train against: aggregate horizon coverage is much stronger, median bias is mostly controlled, daily-change KS passes, and cointegration passes cleanly. The failure is also clean: the model under-couples common shocks and keeps regime widths nearly flat/inverted. Cross-cell correlation is just below gate while effective rank is at the upper gate edge, and per-cell coverage/window-floor/pathwise max-jump shape remain weak.
+
+### Decision
+Keep 333 alive for post-experiment analysis, not immediate knob tuning. The next HEAD step should decide whether one generic shared stochastic coupling mechanism inside the same masked path law is justified, or whether 333 is repeating the old one-shot under-coupling ceiling. Do not tune temperature, depth, batch size, or flow steps blindly.
+
+---
