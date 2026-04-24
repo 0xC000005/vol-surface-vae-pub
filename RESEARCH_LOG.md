@@ -90991,3 +90991,27 @@ This makes the 327 pathology clean: level-coordinate bottlenecks preserve anchor
 Do not run another level-only or transition-only bottleneck variant. The next HEAD step should be research ideation: find a single clean 327 object that keeps transition realism while preserving level anchoring/mean reversion, without adding auxiliary loss knobs, residual branches, retrieval, or evaluator-specific calibration.
 
 ---
+## 2026-04-23: 328 recurrent latent state decoder ideation
+
+### Context
+327a/327b/327c now give a clean map. Level-coordinate bottlenecks preserve cross-cell common-shock geometry and level anchoring, but suppress increments, jumps, and realistic path movement. Transition-coordinate bottlenecks restore daily-change shape and jump scale, but lose level anchoring and mean reversion.
+
+### Ideation
+The missing object is generated-state feedback, not another width setting or auxiliary loss. A path generator that emits increments should condition each increment on the current generated level, so mean reversion and level-dependent drift can be learned from data instead of hard-coded. The stochasticity can still pass through one learned future-path latent bottleneck.
+
+Open 328: recurrent latent state decoder.
+
+Minimal 328a specification:
+- encode the observed future path into shared latent tokens as in 327;
+- train a vanilla conditional latent flow over those tokens;
+- decode by starting from the last observed standardized-logit level and recurrently generating future increments;
+- feed the recurrent decoder current generated level, history context, horizon/cell embeddings, and shared latent tokens;
+- train by MSE reconstruction of future levels plus latent flow matching, with no auxiliary evaluator losses.
+
+### Why This Is Clean
+This preserves the allowed bottleneck bias and adds only a general state-space readout. It does not assume low rank, bounded idiosyncratic paths, retrieval/copula reuse, post-hoc calibration, or hand-set mean-reversion coefficients. Mean reversion is possible because current level is an input, not because a coefficient is imposed.
+
+### Decision
+Run 328a as the next falsifier. If it keeps 327c's transition/jump gains while restoring mean reversion and coverage, 328 becomes the active family. If it collapses back to smoothing or loses cross-cell geometry, close the learned-bottleneck line and ideate a new paradigm.
+
+---
