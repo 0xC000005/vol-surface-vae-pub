@@ -94668,3 +94668,26 @@ The bottleneck is objective alignment, not just estimator variance or undertrain
 Keep 392a as the active 8/11 frontier. Close the path-energy fine-tune family as a primary route. The next iteration should be research ideation for a target-aligned but still clean objective that directly addresses conditional calibration, level occupancy, and regime-cell coverage without adding architecture complexity.
 
 ---
+## 2026-04-24: Autoresearch 397 target-aligned calibration ideation
+
+### Context
+396a closed path-energy fine-tuning as a primary route because the internal objective was not aligned with the official full-11 target. The next step was research ideation for a target-aligned objective that remains architecturally clean.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_397a_target_aligned_calibration_objective.md`.
+
+The new family is sampled calibration fine-tuning of the existing generative core:
+
+1. Generate multiple free-running paths from the model.
+2. Convert sampled normal-score paths to IV space through the model's empirical quantile map.
+3. Estimate soft PIT values, `u = mean_k sigmoid((y - sample_k) / tau)`.
+4. Penalize PIT moment deviations from uniformity: mean near `0.5`, variance near `1/12`.
+5. Keep flow matching as the anchor.
+
+### Mechanism Read
+This is the direct calibration identity for a conditional scenario generator: if `Y | history ~ F_theta(. | history)`, then `F_theta(Y | history)` should be uniform over held-out history/outcome pairs. It is more target-aligned than path-energy for coverage and level occupancy, but it does not add a post-hoc correction layer, low-rank decoder, regime head, or bounded residual path.
+
+### Decision
+Adopt this as the next active family for one decisive probe. Start from the active best 392a and run a recent-window soft-PIT fine-tune with a small calibration weight and enough samples to estimate ranks. If it does not improve beyond the 8/11 frontier, or if it damages conditionality/cointegration, close sampled calibration fine-tuning and move to a paradigm-level objective review.
+
+---
