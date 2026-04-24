@@ -90767,3 +90767,28 @@ Artifacts: `models/backfill/324c_v0_small_s42/best_model.pt`, `models/backfill/3
 Do not tune axial mixer depth, temperature, or flow steps blindly. The 324 evidence now shows a clean tradeoff: Cholesky transition likelihood preserves cross-cell dependence but misses path law, while direct path flow preserves path drift/MR but loses cross-cell stochastic geometry. The next HEAD step should be research ideation or a paradigm shift focused on a single-stage law where shared stochastic coupling is structurally learned rather than appended as a covariance or calibration knob.
 
 ---
+## 2026-04-23: 325 proper-score implicit joint path generator paradigm
+
+### Context
+324b and 324c now make the family-level bottleneck explicit. One-step likelihood with full daily covariance preserves cross-cell geometry but does not imply the right 30-day path law. Direct flow matching on the whole path learns useful path drift and mean reversion, but independent source-target coupling and weak shared stochastic learning leave the generated panel too high-rank and under-coupled.
+
+### Ideation
+The next clean move is not another covariance head, temperature, flow-step count, depth setting, or marginal transport. It is to change the training objective to directly score the conditional sample distribution produced by the generator.
+
+Selected family: `325`, a single-stage implicit future-logit path generator trained with a multivariate proper scoring objective.
+
+Principle:
+- history encoder plus IID base noise generates the full 30-day future logit path in one pass
+- no deterministic center/residual split
+- no low-rank decoder or fixed factor structure
+- no posterior/prior latent scaffold
+- no retrieval or empirical marginal transport
+- train samples directly against the observed future path using a proper distributional score, starting with the energy score in standardized logit coordinates
+
+### Mechanism Read
+This addresses the specific 317/324 failure mechanism. Flow matching pairs each observed future path with arbitrary source noise and optimizes a velocity surrogate; in high-dimensional panels, the model can learn local drift while failing to learn the common-shock sample geometry. A proper-score implicit generator instead makes the sampled conditional law itself the training object. If it cannot recover dependence and coverage, the failure is more decisive than another FM architecture miss.
+
+### Decision
+Open `325`. The first falsifier should be minimal: an axial-mixer generator using the same standardized future-logit coordinate system as 324c, but with direct sample generation and energy-score training. Do not add CRPS/variogram/tail auxiliary losses in the first run; those would be research knobs unless the pure proper-score baseline establishes a clear mechanism.
+
+---
