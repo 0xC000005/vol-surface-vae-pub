@@ -91729,3 +91729,61 @@ Open 336 as a clean causal-memory level-flow falsifier.
 This is not a residual path, retrieval variant, low-rank readout, learned posterior/prior scaffold, or evaluator-specific loss. It is the probability chain rule applied to levels rather than increments. The falsifier is whether explicit next-level modeling improves level KS, coverage, and regime behavior while preserving enough of 330c's daily-change/cross-cell/cointegration strengths.
 
 ---
+## 2026-04-24: Autoresearch 336a causal memory level flow
+
+### Context
+336a tested the coordinate/factorization hypothesis selected after 335a. It kept the 330 causal future-prefix memory and vanilla FM core, but modeled the next standardized logit level directly instead of the next transition.
+
+Artifacts:
+- model: `models/backfill/336a_v0_s42/best_model.pt`
+- train summary: `models/backfill/336a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/336a_v0_s42/full11.json`
+- markdown: `results/block_ar/336a_v0_s42/full11.md`
+
+Training completed 36 epochs. Best validation was epoch 33 with `val_total=0.35129`.
+
+### Result
+Full 11-suite score: `3/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series
+- cointegration
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.870`
+- calibration error: `0.023`
+- turb/calm width ratio: `0.866`
+- ACF correlation: `0.953`
+- kurtosis ratio: `1.257`, skew failed
+- daily-change KS cells: `24/25`
+- level KS cells: `6/25`
+- median-bias cells: `13/25`
+- bias magnitude cells: `22/25`
+- corr/rank ratio: `0.898 / 1.521`
+- cointegration gen/GT: `0.690`, worst-cell `0.094`
+- aggregate MR ratio: `0.990`, h30 MR ratio `0.820`
+- full-horizon active MR mean: `48.5%`
+- max-jump KS: `0.297`
+
+### Mechanism Read
+Direct next-level FM partially did what it was supposed to do: level KS matched 330c's `6/25`, calibration error stayed decent, and max-jump KS improved slightly versus 330c. But it did not improve enough to flip distributional fidelity, and it damaged structural passes: time-series and cointegration no longer pass.
+
+This confirms the coordinate tradeoff rather than solving it. Pure transition modeling preserves local dynamics and structure but drifts in levels/regime calibration. Pure level modeling makes the level object explicit but does not preserve enough transition/cointegration/tail structure.
+
+### Decision
+Do not stack level-FM variants immediately.
+
+Run post-experiment analysis next. The next paradigm should align level and transition laws in a single first-principles density/objective, without adding evaluator-specific losses or a hand-engineered two-path residual decomposition. Candidate direction: an exact chain-rule density or invertible coordinate that treats next state and increment consistently instead of choosing one and hoping the other emerges under free run.
+
+---
