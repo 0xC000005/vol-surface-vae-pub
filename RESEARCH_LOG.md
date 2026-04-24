@@ -94718,3 +94718,30 @@ Soft-PIT moment matching is target-aligned in principle, but this implementation
 Keep 392a as the active 8/11 frontier. Do not tune PIT weight blindly. The next iteration should be post-experiment analysis of why PIT moment matching regressed the official suite, then decide whether a safer calibration objective exists or whether sampled calibration fine-tuning should be closed.
 
 ---
+## 2026-04-24: Autoresearch 399 soft-PIT regression analysis
+
+### Context
+398a was a hard regression despite internal PIT mechanism activation. 399a analyzed 398a against the active 392a frontier to understand whether sampled calibration fine-tuning has a clean next step.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_399a_soft_pit_regression.py`.
+
+Artifacts:
+
+- `results/block_ar/399a_soft_pit_regression/summary.json`
+- `results/block_ar/399a_soft_pit_regression/summary.md`
+
+Key comparison:
+
+| model | score | cov90 | over95 | cond MAE | kurt ratio | level KS | median pass | coint worst |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 392a | 8/11 | 0.868 | 10 | 5.14% | 0.847 | 10/25 | 20/25 | 0.278 |
+| 398a | 5/11 | 0.876 | 13 | 4.85% | 0.785 | 5/25 | 17/25 | 0.158 |
+
+### Mechanism Read
+Soft-PIT moment matching moved the internal PIT mean toward 0.5, but it did so through distortions that the official suite correctly penalizes: medians shifted upward across many cells, tail/kurtosis fell below the gate, worst-cell cointegration collapsed, and level KS worsened by 5 cells. The loss matched low-order rank moments without preserving the full level distribution.
+
+### Decision
+Close low-order PIT-moment fine-tuning. A safer calibration objective would require cell/horizon-local interval constraints plus explicit median anchoring, but that is now close to optimizing the evaluator rather than learning the conditional law. The next principled step is objective/paradigm review around the 392a frontier: decide whether the remaining failures are mostly evaluator-policy calibration constraints or require a larger base-model likelihood paradigm.
+
+---
