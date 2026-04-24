@@ -93816,3 +93816,28 @@ Close 351a as non-frontier. Do not tune alpha initialization or add more locatio
 Run post-experiment analysis next. The analysis should decide whether this transition-likelihood family is capped below the 340c frontier or whether one clean synthesis remains justified.
 
 ---
+## 2026-04-24: Autoresearch 351a postmortem
+
+### Context
+351a was the last clean local repair inside the 348a transition-likelihood family: keep transition coordinates, but make the location stable by AR/state-space parameterization.
+
+### Comparative Read
+- 348a (`5/11`) is the best transition-likelihood branch: free explicit location + Gaussian innovation. It passes mean reversion, cross-cell, cointegration, surface, and block-AR.
+- 349a (`4/11`) fixes local daily-change KS and kurtosis with Student-t innovations, but breaks mean-reversion breadth and regime response.
+- 350a (`3/11`) attacks level KS directly through next-level density, but destroys transition geometry and cross-cell dependence.
+- 351a (`4/11`) restores stable mean-reversion through AR location, but worsens coverage, bias, worst-cell cointegration, and max-jump shape.
+
+### Mechanism Read
+The local branch is capped by a three-way tradeoff:
+1. Free location preserves enough flexibility for 348a's mean reversion and covariance, but level marginals remain poor.
+2. Heavy-tailed innovation fixes local innovation statistics but weakens location-driven dynamics.
+3. More explicit stationarity in the location improves/stabilizes mean reversion but creates cell-wise undercoverage and bias.
+
+This is a clean pathology: transition-likelihood parameterization can recover pieces of the suite, but the exact-NLL pressure and recursive rollout requirements are pulling different parts of the law in incompatible directions at this model scale.
+
+### Decision
+Close the 347-351 transition-likelihood repair branch as capped below the 340c frontier. Do not add more local heads, gates, temperatures, df knobs, or auxiliary losses.
+
+Run research ideation next. The next candidate should return to the 340c frontier or change paradigm; it should not continue incremental transition-density variants.
+
+---
