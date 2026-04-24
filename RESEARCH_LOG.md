@@ -94414,3 +94414,27 @@ Recent quantile framing is useful but not sufficient. It improved conditionality
 Keep the recent-quantile data-framing path active. Next test a less abrupt coordinate update, such as longer recent quantiles or blended train+recent quantiles, to reduce transfer shock while keeping validation-marginal alignment. This is cleaner than adding another architecture component because it targets the stable level-occupancy pathology directly.
 
 ---
+## 2026-04-24: Autoresearch 386 longer recent quantiles
+
+### Context
+Iteration 386 tested whether the 385a recent-quantile gain could improve with a longer recent window. The hypothesis was that 882 windows might reduce score-coordinate transfer shock while still aligning the empirical normal-score table to the pre-validation marginal regime.
+
+### Result
+- Command used `--quantile_source recent --adaptation_windows 882`.
+- Model: `models/backfill/386a_recent_quantiles_w882_fm_s42/best_model.pt`.
+- Full suite: `results/block_ar/386a_recent_quantiles_w882_fm_s42/full11.json`.
+- Official score: `7/11`.
+- Failures: `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`.
+- Conditional MAE reduction was `4.97%`, just below the `>5%` gate.
+- Daily-change KS passed `25/25`.
+- Level KS was `4/25`, below 385a's `5/25`.
+- Median-bias fraction was `18/25`; bias magnitude was `23/25`.
+- Regime layer2 remained `0/8`.
+
+### Mechanism Read
+Longer recent quantiles are not better. They reduce the adaptation-loss shock relative to 385a, but they dilute the local marginal alignment that helped 385a. The useful data-framing signal appears local to the immediately preceding 441-window block.
+
+### Decision
+Keep 385a as the active frontier. Do not lengthen the recent window further. Next test a blended checkpoint/recent quantile table at the 441-window horizon to soften coordinate replacement without losing local marginal alignment.
+
+---
