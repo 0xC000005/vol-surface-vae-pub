@@ -94811,3 +94811,26 @@ The remaining failures are exactly the ones a risk system may require as policy 
 Implement one standalone evaluator for 392a plus pre-validation marginal/regime quantile calibration in IV space. If it improves beyond 8/11 without destroying conditionality, continue calibrated-system work. If it reaches 11/11, mark the final calibrated system as achieving the suite while preserving separate base and calibrated metrics in documentation.
 
 ---
+## 2026-04-24: Autoresearch 403 calibrated risk evaluator
+
+### Context
+402a opened a separate calibrated-risk-system branch, explicitly separating learned base-model metrics from final policy/statistical calibration metrics. 403a implemented the first calibrated-system evaluator.
+
+### Result
+Added `experiments/backfill/block_ar/evaluate_403a_calibrated_risk_system.py`.
+
+Run:
+
+`results/block_ar/403a_regime_quantile_calibrated_392a/full11.json`
+
+Configuration: frozen 392a base checkpoint, pre-validation adaptation block calibration, empirical monotone quantile maps in IV space, history vol-of-vol regime bins, `alpha=1.0`.
+
+Score: 6/11. Failed suites: coverage, conditionality, time_series, regime_coverage, distributional_fidelity. Main metrics: cov90 `0.866`, coverage under/over counts `2/9`, conditionality MAE reduction `4.37%`, very-small-move ratio `0.894`, cointegration worst-cell ratio `0.314`, daily-change KS `25/25`, level KS `3/25`, regime layer2 `0/8`.
+
+### Mechanism Read
+The calibration layer fixed worst-cell cointegration but damaged conditionality, time-series move-size profile, and level occupancy. Monotone marginal quantile maps are too blunt: they alter path increments and cell/horizon level geometry even though they are fit only on the pre-validation block. This is not a simple route to 11/11.
+
+### Decision
+Keep 392a base as the active learned 8/11 frontier. Do not tune calibration alpha or regime bins blindly. The next iteration should analyze whether marginal quantile calibration is structurally incompatible with preserving time/path dynamics, and whether a narrower interval-only policy calibration could help without damaging level law.
+
+---
