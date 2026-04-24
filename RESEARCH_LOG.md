@@ -93387,3 +93387,32 @@ This is not a failure of causal AR factorization. It is a failure of the conditi
 Run post-experiment analysis next. Compare 347a to 340c: 347a improves coverage width and cross-cell ratio but loses some 340c distributional/time-series gates. The next step should decide whether to merge FM's transition geometry with likelihood's calibrated scale in one clean objective, or whether this branch is capped by weak state-dependent conditioning.
 
 ---
+## 2026-04-24: Autoresearch 347a postmortem
+
+### Context
+347a was the clean transition-level likelihood test after 346a showed that flattened full-path likelihood destroys structural geometry.
+
+### Comparative Read
+Against 340c:
+
+| model | pass | cov90 | daily KS | level KS | tail q99 | corr ratio | rank ratio | MR ratio | MR active | jump KS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 340c | 6/11 | 0.876 | 24/25 | 12/25 | 20/25 | 0.816 | 1.697 | 1.104 | 0.890 | 0.309 |
+| 347a | 4/11 | 0.908 | 22/25 | 2/25 | 17/25 | 0.961 | 1.335 | 1.108 | 0.354 | 0.228 |
+
+347a is much better than 346a and validates the daily transition-law placement. It restores cross-cell geometry and preserves realistic daily changes. But it is not a frontier because it loses 340c's active mean-reversion breadth and level marginal fidelity.
+
+### Mechanism Read
+The causal AR transition factorization is still the right structural backbone. The live pathology is narrower:
+- the conditional transition law learns broad, well-correlated one-day moves;
+- aggregate calibration and aggregate mean reversion are reasonable;
+- but the rollout level distribution drifts cell-wise, active mean reversion is too sparse, and regime width remains almost flat (`turb/calm=1.003`).
+
+So the bottleneck is not cross-cell dependence anymore. It is conditional state-use and long-horizon anchoring. Exact NLL at the transition level improves scale and dependence, but it does not force the learned transition law to use prefix state strongly enough across all cells/horizons.
+
+### Decision
+Do not tune 347a temperature, coupling depth, hidden size, or dropout. Those are local knobs around a non-frontier result.
+
+The next step should be ideation around a clean way to preserve 340c's mean-reverting transition geometry while gaining 347a's joint covariance/coverage benefits. Avoid explicit center/residual shells unless the next hypothesis can justify them as a standard probabilistic parameterization rather than a hand-engineered patch.
+
+---
