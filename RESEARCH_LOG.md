@@ -91060,3 +91060,24 @@ This is a train/test state-distribution alignment test. It targets the specific 
 Implement 329a next. The falsifier is whether on-policy roll-in training improves free-run coverage, regime/conditionality, level law, MR, and pathwise jump realism while preserving 303b's support validity, daily-change law, and cross-cell geometry.
 
 ---
+## 2026-04-23: 329a on-policy recurrent token transition flow
+
+### Context
+329a tested the exposure-bias hypothesis from the 303b/328 evidence. It kept the 303b support-valid recurrent token transition architecture and vanilla transition-flow objective, initialized from `303b_v0_s42`, and fine-tuned on both teacher-forced states and no-grad generated roll-in states.
+
+### Result
+`329a_v0_s42` scored 4/11. It passed surface validity, block_ar, IV-EWMA cointegration, and cross_cell_correlation. It failed coverage, conditionality, time_series, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 8, best val total 0.3882, coverage90 0.776, calibration error 0.140, turb/calm width ratio 0.937, ACF corr 0.938, kurtosis ratio 0.464, daily-change KS 6/25, level KS 0/25, median-bias fraction 3/25, bias magnitude 18/25, per-window coverage floor 0.0%, corr ratio 1.172, rank ratio 1.048, cointegration gen/GT 0.831 with worst-cell 0.278, MR ratio 1.580, h30 MR ratio 0.935, pathwise q90 ratio 0.881, q99 ratio 0.997, max-jump KS 0.301.
+
+Artifacts: `models/backfill/329a_v0_s42/best_model.pt`, `models/backfill/329a_v0_s42/train_summary.json`, `results/block_ar/329a_v0_s42/full11.json`, `results/block_ar/329a_v0_s42/full11.md`.
+
+### Mechanism Read
+The on-policy hypothesis was partly right but not sufficient. Generated-state training changed the free-run law materially: cointegration and cross-cell structure both passed, pathwise q90/q99 moved near GT, and horizon coverage passed. But the repair over-corrected local transitions. Daily per-cell KS collapsed from the 303b level, per-cell tail scale overshot badly in many cells, and mean reversion became too strong at h1/h7.
+
+This is not a reason to tune roll-in flow steps or epochs blindly. The clean mechanism is that the generated-state target `true_next_logit - generated_current_logit` becomes a corrective jump target when the roll-in state is off the realized path, so the model learns aggressive recentering rather than the conditional transition law.
+
+### Decision
+Do post-experiment analysis next. The next decision should be whether 329 can be repaired by changing the generated-state target/object, or whether on-policy roll-in should be closed in favor of a cleaner sequence likelihood/path-law formulation.
+
+---
