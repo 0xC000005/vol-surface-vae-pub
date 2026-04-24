@@ -41,6 +41,7 @@ class EmpiricalNormalScoreTransitionCouplingConfig:
     cdf_eps: float = 1e-4
     sample_temperature: float = 1.0
     max_sample_chunk: int = 8
+    target_mode: str = "transition"
 
 
 class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
@@ -53,6 +54,8 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
         if cfg.base_distribution not in {"normal", "student_t"}:
             raise ValueError("base_distribution must be 'normal' or 'student_t'")
+        if cfg.target_mode not in {"transition", "level"}:
+            raise ValueError("target_mode must be 'transition' or 'level'")
         feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -215,7 +218,7 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         self,
         history_norm: torch.Tensor,
         future_norm: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         history_scores = self.history_scores(history_norm)
         future_scores = self.target_future_scores(future_norm)
         prefix_scores = torch.cat([history_scores, future_scores[:, :-1]], dim=1)
@@ -224,7 +227,8 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         memory_states = hidden[:, start : start + self.cfg.future_len]
         current_scores = prefix_scores[:, start : start + self.cfg.future_len]
         transitions = future_scores - current_scores
-        return memory_states, current_scores, transitions
+        target = transitions if self.cfg.target_mode == "transition" else future_scores
+        return memory_states, current_scores, target, transitions
 
     @staticmethod
     def _context(memory_state: torch.Tensor, current_score: torch.Tensor) -> torch.Tensor:
@@ -289,16 +293,16 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         history_norm: torch.Tensor,
         future_norm: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        memory_states, current_scores, transitions = self.teacher_forced_states(
+        memory_states, current_scores, target, transitions = self.teacher_forced_states(
             history_norm,
             future_norm,
         )
-        bsz, horizon, n_cells = transitions.shape
-        flat_transition = transitions.reshape(bsz * horizon, n_cells)
+        bsz, horizon, n_cells = target.shape
+        flat_target = target.reshape(bsz * horizon, n_cells)
         flat_memory = memory_states.reshape(bsz * horizon, self.cfg.memory_dim)
         flat_current = current_scores.reshape(bsz * horizon, n_cells)
         location = self.transition_location(flat_memory, flat_current)
-        residual = flat_transition - location
+        residual = flat_target - location
         z, log_det = self.forward_to_base(residual, flat_memory, flat_current)
         nll = (self.base_nll(z) - log_det) / float(n_cells)
         loss = nll.mean()
@@ -354,12 +358,15 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
                 current_score = prefix[:, -1]
                 base = self.sample_base_like(current_score, temp)
                 location = self.transition_location(memory_state, current_score)
-                transition = location + self.inverse_from_base(
+                target = location + self.inverse_from_base(
                     base,
                     memory_state,
                     current_score,
                 )
-                next_score = current_score + transition
+                if self.cfg.target_mode == "transition":
+                    next_score = current_score + target
+                else:
+                    next_score = target
                 next_iv = self._scores_to_values(next_score)
                 if self.cfg.n_cells == 25:
                     frames.append(next_iv.view(bsz, k, 5, 5))

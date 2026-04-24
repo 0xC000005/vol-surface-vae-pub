@@ -93665,3 +93665,54 @@ This is a standard autoregressive conditional density over the next state, not a
 If 350a improves level KS while losing daily-change realism, cointegration, or mean reversion, then the transition-vs-level coordinate tradeoff is real and the next move should seek a stationary transition parameterization rather than direct level density.
 
 ---
+## 2026-04-24: Autoresearch 350a next-level density
+
+### Context
+350a tested the level-stationarity hypothesis from the 349a postmortem: keep the same causal AR density backbone, but model the next normal-score level directly instead of the transition increment.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_350a_empirical_normal_score_next_level_density.py --output_dir models/backfill/350a_v0_s42 --epochs 30 --batch_size 64 --memory_dim 128 --memory_layers 3 --memory_heads 4 --memory_ff 256 --coupling_layers 6 --coupling_hidden 256 --location_hidden 256 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 350a --checkpoint models/backfill/350a_v0_s42/best_model.pt --output_json results/block_ar/350a_v0_s42/full11.json --output_md results/block_ar/350a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Best checkpoint: epoch 2, `val_total=0.67157`. Validation NLL degraded rapidly afterward, suggesting direct level density overfits early.
+
+### Result
+350a scored `3/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cointegration.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- regime coverage;
+- distributional fidelity;
+- cross-cell correlation;
+- mean reversion;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.735`, calibration error `0.102`;
+- conditional MAE reduction `0.9%`, turb/calm width ratio `1.088`;
+- daily-change KS pass `9/25`, level KS pass `7/25`;
+- cross-cell correlation ratio `0.176`, effective-rank ratio `3.945`;
+- full-horizon mean-reversion overall failed despite later-horizon active recovery;
+- pathwise max-jump KS `0.407`, per-cell q99 jump pass `18/25`.
+
+### Mechanism Read
+Direct next-level density is not the missing level-stationarity fix. It slightly improved level KS relative to 348/349 but destroyed the transition geometry that keeps the model realistic: daily-change law, cross-cell covariance, coverage, and h1 mean reversion all degraded.
+
+This confirms the coordinate tradeoff: transition-coordinate modeling preserves realistic local dynamics; level-coordinate likelihood attacks level marginals but loses joint transition geometry.
+
+### Decision
+Close 350a as non-frontier. Do not tune level-density capacity or early stopping.
+
+Run post-experiment analysis next. Treat 348a as the strongest transition-likelihood branch and 340c as the overall frontier. The next move should not be direct next-level likelihood; it should seek a stationary transition parameterization if continuing this family.
+
+---
