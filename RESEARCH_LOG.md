@@ -94982,3 +94982,39 @@ Marginal CRPS is still a proper scoring rule, but it directly trains the distrib
 Run `410a`: start from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`, retain the FM anchor, add small free-running marginal CRPS, and evaluate on the official full 11-suite. If it does not improve the failed suites without losing conditionality/cointegration/time-series realism, treat proper-score fine-tuning as capped and move to a base likelihood/representation paradigm shift.
 
 ---
+## 2026-04-24: Autoresearch 410 marginal CRPS fine-tune
+
+### Context
+409a selected a clean learned-objective falsifier after closing interval calibration: keep the 392a architecture fixed, retain the teacher-forced FM anchor, and add a small free-running marginal CRPS term over normal-score future paths.
+
+### Result
+Added `experiments/backfill/block_ar/train_410a_recent_rollout_marginal_crps_finetune.py`.
+
+Training:
+- source: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`
+- output: `models/backfill/410a_recent_rollout_marginal_crps_w005_s42/best_model.pt`
+- objective: FM anchor `1.0`, marginal CRPS weight `0.05`, train samples `4`, rollout flow steps `4`
+- best epoch: `3`
+- best internal validation total: `0.49262`
+
+Official full 11-suite:
+- artifact: `results/block_ar/410a_recent_rollout_marginal_crps_w005_s42/full11.json`
+- score: `7/11`
+- failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`
+
+Key comparison versus 392a:
+- cov90 `0.874` vs `0.868`; under70 `0` vs `1`; over95 `15` vs `10`
+- conditionality `5.60%` vs `5.14%`, still passing
+- very-small-move ratio `0.935` vs `0.949`, still passing
+- cointegration worst-cell ratio `0.219` vs `0.278`, now failing
+- regime layer2 `1/8` vs `0/8`
+- level KS `10/25` vs `10/25`, unchanged
+- pathwise max-jump KS `0.375`, passing
+
+### Mechanism Read
+Marginal CRPS did not collapse the conditional generator: conditionality, time-series, cross-cell correlation, mean reversion, and pathwise jump realism all remain valid. But it did not repair level KS, and the small improvement in aggregate/per-regime coverage came with more overcoverage and a worst-cell cointegration failure. This falsifies marginal CRPS as an immediate route beyond the 392a frontier.
+
+### Decision
+Keep 392a as the active `8/11` learned frontier. Run post-experiment analysis next. If no clean learned-objective variant remains, pivot to a base likelihood/representation paradigm shift rather than adding another fine-tune loss.
+
+---
