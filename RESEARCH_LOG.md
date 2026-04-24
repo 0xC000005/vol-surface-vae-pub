@@ -94691,3 +94691,30 @@ This is the direct calibration identity for a conditional scenario generator: if
 Adopt this as the next active family for one decisive probe. Start from the active best 392a and run a recent-window soft-PIT fine-tune with a small calibration weight and enough samples to estimate ranks. If it does not improve beyond the 8/11 frontier, or if it damages conditionality/cointegration, close sampled calibration fine-tuning and move to a paradigm-level objective review.
 
 ---
+## 2026-04-24: Autoresearch 398 soft-PIT calibration probe
+
+### Context
+397a proposed a target-aligned sampled calibration objective based on the conditional PIT identity. 398a implemented one decisive probe rather than tuning architecture: start from active-best 392a, keep the generative core unchanged, add a soft-PIT moment loss in IV space, and retain the FM anchor.
+
+### Result
+Added `experiments/backfill/block_ar/train_398a_recent_soft_pit_finetune.py`.
+
+Run:
+
+`models/backfill/398a_recent_soft_pit_w10_s8_s42/best_model.pt`
+
+Training used `pit_weight=10`, `train_sample_count=8`, `pit_temperature=0.01`, `fm_anchor_weight=1.0`, and 4 rollout flow steps. The internal mechanism activated: holdout PIT mean moved from `0.590` at epoch 1 to `0.524` at selected epoch 3.
+
+Official artifact:
+
+`results/block_ar/398a_recent_soft_pit_w10_s8_s42/full11.json`
+
+Score: 5/11. Failed suites: coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity. Main metrics: cov90 `0.876`, conditionality MAE reduction `4.85%`, kurtosis ratio `0.785`, cointegration worst-cell ratio `0.158`, daily-change KS `25/25`, level KS `5/25`, median-bias fraction `17/25`, bias magnitude `24/25`, regime layer2 `0/8`, pathwise max-jump KS `0.301`.
+
+### Mechanism Read
+Soft-PIT moment matching is target-aligned in principle, but this implementation is not aligned enough with the official suite. It pushed sampled ranks toward uniformity on the recent holdout block while damaging level occupancy, tail/kurtosis, conditionality, and worst-cell cointegration. This is likely because low-order PIT moments can be improved through mean/scale distortions that are not distributionally faithful at the cell/horizon level.
+
+### Decision
+Keep 392a as the active 8/11 frontier. Do not tune PIT weight blindly. The next iteration should be post-experiment analysis of why PIT moment matching regressed the official suite, then decide whether a safer calibration objective exists or whether sampled calibration fine-tuning should be closed.
+
+---
