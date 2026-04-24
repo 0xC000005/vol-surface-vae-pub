@@ -1,0 +1,53 @@
+
+============================================================
+TEST SUITE 7: REGIME COVERAGE (THREE-LAYER)
+============================================================
+  Windows: 192 total, 39 calm (Q20), 39 turb (Q80)
+  Vol-of-vol thresholds: Q20=0.01260, Q80=0.01689
+
+  --- Layer 1: Per-Regime Per-Horizon Coverage ---
+    calm  h= 1: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    calm  h= 7: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    calm  h=14: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    calm  h=30: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    turb  h= 1: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    turb  h= 7: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    turb  h=14: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+    turb  h=30: 100.0% (target >65%) PASS  bias=DOWN (gt>upper=0.0%, gt<lower=0.0%)
+
+  --- Path-Level Directional Bias (>80% same-sign) ---
+    calm : 0.0% windows persistently LOW (median<GT >80%% of steps), 100.0% persistently HIGH, avg frac_below=0.0%
+    turb : 0.0% windows persistently LOW (median<GT >80%% of steps), 100.0% persistently HIGH, avg frac_below=0.0%
+
+  --- CI Width Turb/Calm Ratio (informational) ---
+    h= 1: turb/calm=1.000x (calm=0.0000, turb=0.0000)
+    h= 7: turb/calm=1.000x (calm=0.0000, turb=0.0000)
+    h=14: turb/calm=1.000x (calm=0.0000, turb=0.0000)
+    h=30: turb/calm=1.000x (calm=0.0000, turb=0.0000)
+
+  CI Width ~ Vol-of-Vol Correlation:
+/home/max/Documents/vol-surface-vae-pub/experiments/backfill/block_ar/test_block_ar_requirements_v2.py:1879: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  rho, pval = spearmanr(vol_of_vol, per_window_width)
+    h= 1: Spearman=nan (p=nan), P90/P10 width=1.000x (P10=0.0000, P90=0.0000)
+    h= 7: Spearman=nan (p=nan), P90/P10 width=1.000x (P10=0.0000, P90=0.0000)
+    h=14: Spearman=nan (p=nan), P90/P10 width=1.000x (P10=0.0000, P90=0.0000)
+    h=30: Spearman=nan (p=nan), P90/P10 width=1.000x (P10=0.0000, P90=0.0000)
+
+  --- Layer 2: Per-Regime Per-Cell Coverage [70%, 95%] ---
+    calm  h= 1: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    calm  h= 7: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    calm  h=14: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    calm  h=30: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    turb  h= 1: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    turb  h= 7: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    turb  h=14: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+    turb  h=30: worst (0,0) = 100.0% PASS | best (0,0) = 100.0% FAIL
+
+  Layer 2 summary: 0/8 combinations pass (gate: all) FAIL
+
+  --- Layer 3: Persistent Severe Undercoverage ---
+  Persistently undercovered (window,cell) pairs: 0/4800 (0.0%)
+  Definition: average 90% CI coverage across horizons < 30%
+  Gate: < 5% persistently undercovered PASS
+
+  Overall: FAIL

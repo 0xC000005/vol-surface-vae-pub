@@ -1,0 +1,22 @@
+
+============================================================
+TEST SUITE 2: CI COVERAGE
+============================================================
+  Overall 90% CI Coverage: 88.2%
+    50% CI: 57.3%
+    80% CI: 80.9%
+    90% CI: 88.2%
+    95% CI: 92.0%
+
+  Per-Horizon Coverage (90% CI):
+    h= 1: 88.4% (target >80%) PASS
+    h= 7: 88.7% (target >75%) PASS
+    h=14: 87.9% (target >70%) PASS
+    h=30: 87.9% (target >65%) PASS
+
+  Per-Cell Coverage (90% CI) — gate: [70%, 95%]:
+    h= 1: worst (1,3) = 33.9% FAIL | best (1,0) = 100.0% FAIL
+    h= 7: worst (1,3) = 31.2% FAIL | best (1,0) = 100.0% FAIL
+    h=14: worst (1,3) = 30.2% FAIL | best (0,1) = 100.0% FAIL
+    h=30: worst (1,3) = 29.2% FAIL | best (1,0) = 100.0% FAIL
+  Calibration Error: 0.046

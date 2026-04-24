@@ -1,0 +1,55 @@
+
+============================================================
+TEST SUITE 7: REGIME COVERAGE (THREE-LAYER)
+============================================================
+  Windows: 192 total, 39 calm (Q20), 39 turb (Q80)
+  Vol-of-vol thresholds: Q20=0.01260, Q80=0.01689
+
+  --- Layer 1: Per-Regime Per-Horizon Coverage ---
+    calm  h= 1: 89.0% (target >65%) PASS  bias=UP (gt>upper=2.6%, gt<lower=8.4%)
+    calm  h= 7: 89.3% (target >65%) PASS  bias=UP (gt>upper=1.9%, gt<lower=8.7%)
+    calm  h=14: 88.5% (target >65%) PASS  bias=UP (gt>upper=3.2%, gt<lower=8.3%)
+    calm  h=30: 85.9% (target >65%) PASS  bias=UP (gt>upper=4.3%, gt<lower=9.7%)
+    turb  h= 1: 90.8% (target >65%) PASS  bias=UP (gt>upper=2.1%, gt<lower=7.2%)
+    turb  h= 7: 91.1% (target >65%) PASS  bias=UP (gt>upper=1.4%, gt<lower=7.5%)
+    turb  h=14: 90.2% (target >65%) PASS  bias=UP (gt>upper=1.7%, gt<lower=8.1%)
+    turb  h=30: 87.1% (target >65%) PASS  bias=UP (gt>upper=3.3%, gt<lower=9.6%)
+
+  --- Path-Level Directional Bias (>80% same-sign) ---
+    calm : 0.0% windows persistently LOW (median<GT >80%% of steps), 25.6% persistently HIGH, avg frac_below=32.5%
+    turb : 2.6% windows persistently LOW (median<GT >80%% of steps), 43.6% persistently HIGH, avg frac_below=27.3%
+
+  --- CI Width Turb/Calm Ratio (informational) ---
+    h= 1: turb/calm=1.012x (calm=0.2095, turb=0.2120)
+    h= 7: turb/calm=1.019x (calm=0.2103, turb=0.2142)
+    h=14: turb/calm=1.008x (calm=0.2117, turb=0.2135)
+    h=30: turb/calm=1.027x (calm=0.2084, turb=0.2140)
+
+  CI Width ~ Vol-of-Vol Correlation:
+    h= 1: Spearman=-0.038 (p=6.0e-01), P90/P10 width=1.060x (P10=0.2069, P90=0.2193)
+    h= 7: Spearman=-0.005 (p=9.4e-01), P90/P10 width=1.023x (P10=0.2107, P90=0.2155)
+    h=14: Spearman=-0.021 (p=7.7e-01), P90/P10 width=1.016x (P10=0.2109, P90=0.2144)
+    h=30: Spearman=0.019 (p=7.9e-01), P90/P10 width=1.069x (P10=0.2063, P90=0.2205)
+
+  --- Layer 2: Per-Regime Per-Cell Coverage [70%, 95%] ---
+    calm  h= 1: worst (1,3) = 25.6% FAIL | best (0,1) = 100.0% FAIL
+    calm  h= 7: worst (1,3) = 17.9% FAIL | best (0,4) = 100.0% FAIL
+    calm  h=14: worst (1,3) = 23.1% FAIL | best (0,1) = 100.0% FAIL
+    calm  h=30: worst (1,3) = 20.5% FAIL | best (0,1) = 100.0% FAIL
+    turb  h= 1: worst (2,4) = 48.7% FAIL | best (1,0) = 100.0% FAIL
+    turb  h= 7: worst (2,3) = 48.7% FAIL | best (0,1) = 100.0% FAIL
+    turb  h=14: worst (2,3) = 56.4% FAIL | best (0,1) = 100.0% FAIL
+    turb  h=30: worst (1,3) = 30.8% FAIL | best (0,1) = 100.0% FAIL
+
+  Layer 2 summary: 0/8 combinations pass (gate: all) FAIL
+
+  --- Layer 3: Persistent Severe Undercoverage ---
+  Persistently undercovered (window,cell) pairs: 251/4800 (5.2%)
+  Definition: average 90% CI coverage across horizons < 30%
+  Gate: < 5% persistently undercovered FAIL
+  Worst windows:
+    Window 33: 4 persistently undercovered cells, vol_of_vol=0.01372, cells=[(np.int64(1), np.int64(3)), (np.int64(2), np.int64(3)), (np.int64(2), np.int64(4)), (np.int64(3), np.int64(4))]
+    Window 31: 4 persistently undercovered cells, vol_of_vol=0.01285, cells=[(np.int64(1), np.int64(3)), (np.int64(2), np.int64(3)), (np.int64(2), np.int64(4)), (np.int64(3), np.int64(4))]
+    Window 125: 4 persistently undercovered cells, vol_of_vol=0.01659, cells=[(np.int64(0), np.int64(2)), (np.int64(1), np.int64(3)), (np.int64(2), np.int64(3)), (np.int64(2), np.int64(4))]
+
+  Overall: FAIL

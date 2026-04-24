@@ -94062,3 +94062,44 @@ Do not immediately add an explicit regime scale as a model component; that would
 The next principled move is a test/data-framing analysis or oracle audit, not another architecture. If the objective remains the exact 11-suite, then any model that passes the regime-width gate may need an explicit risk-prior mechanism; if the objective is publishable learned conditional generation, the test may need to distinguish learned conditional law from conservative stress widening.
 
 ---
+## 2026-04-24: 11-suite data-framing and oracle audit
+
+### Context
+After the post-354 conditional signal audit showed weak validation support for the turb/calm width gate, I audited the whole 11-suite rather than only regime width. The goal was to distinguish contradictory tests from valid risk-manager requirements and to identify which persistent failures are learnable from the available conditional signal versus likely needing an explicit conservative risk prior.
+
+### Artifact
+- script: `experiments/backfill/block_ar/audit_11_suite_data_framing_oracles.py`
+- audit JSON: `results/validations/2026-04-24/analysis/11_suite_data_framing_audit/audit.json`
+- summary: `results/validations/2026-04-24/analysis/11_suite_data_framing_audit/summary.md`
+- suite logs: `results/validations/2026-04-24/analysis/11_suite_data_framing_audit/suite_logs/`
+
+The audit used the standard 11-suite validation framing: `history_len=30`, `future_len=30`, `test_start=4511`, `val_size=441`, first `192` validation windows, and `48` samples per window.
+
+### Findings
+Empirical/oracle sample-array scores, excluding official conditionality because that gate requires a model/shuffled-history API:
+- exact deterministic GT replay: `7/10`; fails coverage, regime coverage, and distributional fidelity because anti-overcoverage and median-bias gates require genuine diversity, not just correct center;
+- train-marginal oracle: `4/10`;
+- validation-marginal oracle: `8/10`; this shows most sample-array gates are mutually satisfiable when the target validation marginal law is known;
+- history-kNN oracle: `4/10`;
+- regime-bucket oracle: `4/10`;
+- persistence-plus-train-residual oracle: `4/10`.
+
+Conditionality proxy results were decisive: no oracle passed the turb/calm width proxy. Ratios were `1.044` for train marginal, `1.004` for validation marginal, `0.939` for history-kNN, `0.966` for regime bucket, and `0.996` for persistence residual. Validation realized future movement also does not support the official `>1.15` width gate: under full-surface history realized-variance split, future step_abs_mean turb/calm was `1.011`; under mean-IV vol-of-vol split it was `0.989`.
+
+Data-framing diagnostics also matter:
+- train-vs-val level KS passes only `1/25` cells at D<0.15;
+- validation split-half level KS passes only `5/25` cells;
+- daily-change KS is much more stable: `15/25` train-vs-val and `20/25` split-half;
+- path max-jump KS is unstable even within validation: split-half KS `0.542` against a `0.20` gate.
+
+Conditional center is learnable: persistence improves MAE by `24.3%` versus train-median unconditional, kNN mean by `28.9%`, and kNN median by `31.5%`. The hard part is not the center; it is calibrated conditional diversity, regime-specific width, level marginal alignment, and pathwise tail behavior.
+
+### Assessment
+The 11-suite is not globally contradictory. The validation-marginal oracle reaching `8/10` demonstrates that the sample-array requirements are mostly compatible. But the suite is not a pure learned conditional likelihood test. Coverage, regime coverage, conditionality, and pathwise jump realism encode risk-manager calibration preferences. In particular, the regime-width gate is weakly supported by available validation conditional signal and is better interpreted as a conservative risk-prior/stress-calibration requirement.
+
+A conservative prior is justifiable only if documented as policy calibration, not as learned conditional law. It must also be controlled: broad unconditional widening is not acceptable because coverage and regime-coverage upper bounds penalize overcoverage above `95%`.
+
+### Decision
+Do not treat another vanilla core swap as the next principled move. If the target remains exact 11/11, the next model should keep the generative core clean but allow a small, auditable risk-policy calibration layer for regime/tail width. If the target is publishable learned conditional generation without policy overlays, the 11-suite should be reported as including conservative risk-management gates rather than purely learnable statistical requirements.
+
+---

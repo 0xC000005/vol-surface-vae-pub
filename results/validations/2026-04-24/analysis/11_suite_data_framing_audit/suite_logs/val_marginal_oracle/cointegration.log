@@ -1,0 +1,25 @@
+
+============================================================
+TEST SUITE 6: IV-EWMA COINTEGRATION
+============================================================
+
+  Windows tested: 192
+  --- MacKinnon coint() (proper critical values) ---
+  GT cointegration pass rate:  12.9%
+  Gen cointegration pass rate: 14.0%
+  Gen/GT ratio: 1.081 (target >=0.50) PASS
+  Worst cell (4,1): gen/GT=0.313 (target >=0.25) PASS
+  --- Legacy ADF on residuals (informational, inflated FPR) ---
+  GT legacy pass rate:  57.9%
+  Gen legacy pass rate: 67.7%
+  Legacy Gen/GT ratio:  1.169
+  --- R² diagnostics ---
+  GT mean R²:  0.2170
+  Gen mean R²: 0.1841
+
+  Per-grid gen pass rates — MacKinnon (%):
+    [ 17.2   7.3   8.3  15.6  17.7]
+    [ 15.1  10.4   7.8  30.2  20.3]
+    [ 14.6   8.9   6.2  30.7  27.1]
+    [  7.3  11.5  13.5  13.5  11.5]
+    [ 11.5   5.2   7.3  11.5  18.8]

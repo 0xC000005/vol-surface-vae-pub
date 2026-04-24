@@ -1,0 +1,17 @@
+
+============================================================
+TEST SUITE 5: BLOCK-AR SPECIFIC
+============================================================
+
+  --- Test 5a: Block Boundary Smoothness ---
+  NOTE: Boundary smoothness is architecture-specific (meaningful for AR, trivial for non-AR)
+  Avg boundary jump:    0.020561
+  Avg intra-block jump: 0.019452
+  Boundary/Intra ratio: 1.057 (target <2.0) PASS
+
+  --- Test 5b: Growing Uncertainty Monotonicity ---
+    Var(h= 1): 0.005996
+    Var(h=10): 0.006089
+    Var(h=20): 0.006140
+    Var(h=30): 0.006051
+  Monotonically increasing: FAIL (informational, not gated)

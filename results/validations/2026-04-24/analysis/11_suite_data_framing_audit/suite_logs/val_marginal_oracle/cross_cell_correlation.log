@@ -1,0 +1,15 @@
+
+============================================================
+TEST SUITE 9: CROSS-CELL CORRELATION STRUCTURE
+============================================================
+
+  GT mean cross-cell correlation: 0.436
+  Gen mean cross-cell correlation: 0.437
+  Correlation ratio: 1.002 (target [0.5, 2.0]) PASS
+
+  GT effective rank: 5.70
+  Gen effective rank: 5.69
+  Rank ratio: 0.998 (target [0.5, 3.0]) PASS
+
+  Frobenius distance: 0.070 (informational)
+  GT PC1 variance: 55.9%, Gen PC1 variance: 56.0%

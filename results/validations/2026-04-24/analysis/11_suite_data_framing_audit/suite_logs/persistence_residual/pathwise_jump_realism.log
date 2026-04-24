@@ -1,0 +1,19 @@
+
+============================================================
+TEST SUITE 11: PATHWISE JUMP REALISM
+============================================================
+  Pathwise max-|ΔIV| KS: 0.586 (gate < 0.20) FAIL
+  Pathwise q90 ratio:    0.774 (gate [0.5, 2.0]) PASS
+  Pathwise q99 ratio:    0.969 (gate [0.5, 2.0]) PASS
+
+  --- Test 11b: Per-Cell Extreme Jump Scale ---
+  Per-cell q99(|ΔIV|) ratio grid (gate [0.5, 2.0]):
+     0.85   2.47*  1.26   0.78   2.06*
+     4.26*  2.75*  1.54   0.17*  2.28*
+     5.77*  2.56*  1.81   1.65   0.78
+     7.04*  2.79*  2.19*  1.99   2.49*
+    12.21*  4.28*  2.90*  2.27*  2.45*
+  Cells passing: 8/25 (gate >= 20) FAIL
+
+  --- Test 11c: Extreme Jump Window Incidence ---
+  Extreme-jump incidence ratio: 0.843 (GT=100.0%, Gen=84.3%, gate [0.5, 2.0]) PASS

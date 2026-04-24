@@ -1,0 +1,11 @@
+
+============================================================
+TEST SUITE 1: SURFACE VALIDITY
+============================================================
+  Total generated trajectories: 9216
+  Ground truth windows: 192
+  Explosion rate: 0.0% (target <5%) PASS
+  Calendar arbitrage: 9.2% (target <15%) PASS
+  Butterfly arbitrage: 25.9% (target <40%) PASS
+  Calendar worst strike: 25.9% (GT: 25.9%, gate <GT+10pp=35.9%) PASS
+  Butterfly worst tenor: 49.1% (target <50%) PASS

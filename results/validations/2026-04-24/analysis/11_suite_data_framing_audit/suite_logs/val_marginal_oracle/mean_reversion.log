@@ -1,0 +1,31 @@
+
+============================================================
+TEST SUITE 10: MEAN REVERSION
+============================================================
+  GT aggregate slope:   -0.198
+  Gen aggregate slope:  -0.409
+  Gen/GT ratio:         2.066 (target [0.70, 1.30]) FAIL
+  Active cells:         0/24 (gate >=70%) FAIL
+  Active-cell corr:     -0.778 (target >=0.70) FAIL
+  Active slope threshold: |GT slope| >= 0.05
+  GT per-cell slopes:
+    -0.545 -0.301 -0.079 -0.295 -0.446
+    -0.520 -0.140 -0.060 -0.642 -0.504
+    -0.416 -0.105 -0.059 -0.061 -0.599
+    -0.183 -0.085 -0.064 -0.065 -0.107
+    -0.093 -0.065 -0.050 -0.053 -0.114
+  Gen per-cell slopes:
+    -1.015 -1.013 -1.032 -1.002 -0.991
+    -0.996 -1.025 -1.029 -1.004 -0.997
+    -1.005 -1.031 -1.029 -1.027 -1.012
+    -1.014 -1.027 -1.031 -1.031 -1.040
+    -1.012 -1.018 -1.021 -1.022 -1.023
+
+  --- Test 10b: Full-Horizon Mean Reversion Profile ---
+    h= 1: ratio=2.066 (target [0.70, 1.30]) FAIL | active=0.0%, corr=-0.778
+    h= 7: ratio=1.246 (target [0.70, 1.30]) PASS | active=32.0%, corr=-0.742
+    h=14: ratio=1.020 (target [0.70, 1.30]) PASS | active=52.0%, corr=-0.157
+    h=30: ratio=0.779 (target [0.70, 1.30]) PASS | active=92.0%, corr=-0.436
+  Full-horizon aggregate profile: FAIL
+  Full-horizon active mean pass: 44.0%, mean corr: -0.528 FAIL
+  Full-horizon overall: FAIL

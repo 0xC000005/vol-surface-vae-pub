@@ -1,0 +1,46 @@
+
+============================================================
+TEST SUITE 4: TIME SERIES PROPERTIES
+============================================================
+
+  --- Test 4a: ACF Preservation ---
+  ACF correlation: 0.954 (target >0.5) PASS
+  ACF MAE: 0.0578
+
+  --- Test 4b: Kurtosis Matching ---
+  GT kurtosis:  57.044
+  Gen kurtosis: 47.737
+  Kurtosis ratio: 0.837 (target 0.80-1.25) PASS
+  GT skewness:  -0.107
+  Gen skewness: 0.122
+  Skewness ratio: -1.132 (target >=0.25) FAIL
+
+  --- Test 4c: Per-Cell Kurtosis ---
+  Worst cell (1,3): 0.649, Best cell (1,0): 36.637
+  Per-cell kurtosis range: [0.649, 36.637] (informational)
+
+  --- Test 4d: Per-Cell Skewness ---
+  Worst cell (3,4): -2.514, Best cell (3,0): 18.002
+  Per-cell skewness grid:
+    -2.416 -0.901  0.253 -0.349  0.007
+    -0.582 -1.076  0.202  5.542 -0.301
+     0.660 -0.040  0.137  0.500 -2.398
+    18.002 -0.123  0.093  0.187 -2.514
+    -1.677  0.096 -0.177 -0.016  1.512
+  Per-cell skewness range: [-2.514, 18.002] (informational)
+
+  --- Test 4e: Per-Cell Tail Scale (|ΔIV| q99) ---
+  Per-cell q99(|ΔIV|) ratio grid (gate [0.5, 2.0]):
+     0.85   2.47*  1.26   0.78   2.06*
+     4.26*  2.75*  1.54   0.17*  2.28*
+     5.77*  2.56*  1.81   1.65   0.78
+     7.04*  2.79*  2.19*  1.99   2.49*
+    12.21*  4.28*  2.90*  2.27*  2.45*
+  Cells passing: 8/25 (gate >= 20) FAIL
+  Worst: (1,3)=0.17, Best: (4,0)=12.21
+
+  --- Test 4f: Move-Size Profile (|ΔIV|) ---
+  Share |ΔIV| <= 0.005   : 0.811 (GT=58.0%, gen=47.0%, gate [0.90, 1.10]) FAIL
+  Share |ΔIV| <= 0.010   : 0.911 (GT=73.1%, gen=66.6%, gate [0.90, 1.10]) PASS
+  Share |ΔIV| <= 0.020   : 0.971 (GT=83.5%, gen=81.1%, gate [0.90, 1.10]) PASS
+  Share |ΔIV| <= 0.050   : 0.990 (GT=93.2%, gen=92.2%, gate [0.90, 1.10]) PASS

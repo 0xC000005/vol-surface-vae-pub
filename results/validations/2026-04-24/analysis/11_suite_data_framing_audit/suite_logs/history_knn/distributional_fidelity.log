@@ -1,0 +1,67 @@
+
+============================================================
+TEST SUITE 8: DISTRIBUTIONAL FIDELITY
+============================================================
+
+  --- Test 8a: Per-Cell Daily Change Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.049  0.068  0.100  0.085  0.053
+    0.053  0.081  0.098  0.057  0.072
+    0.089  0.105  0.104  0.092  0.118
+    0.074  0.096  0.103  0.112  0.090
+    0.096  0.167* 0.101  0.119  0.160*
+  Cells passing: 23/25 (gate >= 15) PASS
+  Worst: (4,1) D=0.167, median D=0.096
+
+  --- Test 8a2: Per-Cell IV Level Distribution (KS Test) ---
+  KS statistic grid (lower = better, gate < 0.15):
+    0.080  0.116  0.117  0.188* 0.115
+    0.091  0.256* 0.098  0.299* 0.156*
+    0.378* 0.379* 0.165* 0.269* 0.316*
+    0.427* 0.337* 0.240* 0.194* 0.364*
+    0.336* 0.194* 0.119  0.396* 0.294*
+  Cells passing: 7/25 (gate >= 15) FAIL
+  Worst: (3,0) D=0.427, median D=0.240
+
+  --- Test 8b: Per-Cell Median Bias ---
+  Fraction where median > GT (50% = unbiased, gate [30%, 70%]):
+    47.0%  55.3%  57.6%  39.2%  59.6%
+    52.2%  32.4%  51.4%  81.5%* 50.4%
+    26.8%* 23.1%* 42.9%  77.8%* 27.9%*
+    23.9%* 22.7%* 34.9%  69.1%  85.6%*
+    30.3%  33.7%  52.7%  80.1%* 73.3%*
+  Fraction gate: 15/25 (gate >= 20) FAIL
+  Mean bias (IV points × 100):
+    -11.99*  +0.14   +0.10   -4.01*  +0.39
+     +0.31   -0.69   -0.15   +1.53   -0.27
+     -0.79   -0.73   -0.20   +1.22   -3.08*
+     -0.81   -0.54   -0.15   +0.61   +1.38
+     -0.49   -0.24   +0.11   +0.66   +0.59
+  Bias magnitude: 22/25 cells < 3 IV pts (gate >= 22) PASS
+
+  --- Test 8c: Per-Window Coverage Floor ---
+  Windows with <50% coverage: 3/192 (1.6%, gate < 5%) PASS
+  Worst window 16: 39.9% coverage
+  P10 window coverage: 71.2%
+  Coverage distribution: [39.9%, P25=84.5%, P50=89.3%, P75=93.1%, 96.7%]
+
+  --- Test 8d: Sample Explosion/Ceiling Rate ---
+  Samples at ceiling (>=0.99): 0.000% (gate < 2%) PASS
+  Samples at floor (<=0.001):  0.000% (gate < 2%) PASS
+  Worst cell ceiling: (0,0) = 0.00% (gate < 5%) PASS
+  Per-cell ceiling rate (%):
+     0.00   0.00   0.00   0.00   0.00
+     0.00   0.00   0.00   0.00   0.00
+     0.00   0.00   0.00   0.00   0.00
+     0.00   0.00   0.00   0.00   0.00
+     0.00   0.00   0.00   0.00   0.00
+
+  --- Test 8e: Per-Cell Absolute MAE ---
+  Per-cell MAE (IV points, gate < 10%):
+    19.19*  2.26   1.89   9.87   4.41
+     2.79   1.29   1.27   3.01   2.85
+     1.47   1.18   1.05   1.54   8.54
+     1.30   1.02   0.90   0.92   1.48
+     0.99   0.76   0.61   0.83   0.83
+  Cells passing: 24/25 (gate >= 20) PASS
+  Worst: (0,0) MAE=19.19%
