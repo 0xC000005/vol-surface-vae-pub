@@ -24,6 +24,7 @@ class ConditionalMaskedPathFMConfig:
     token_ff: int = 256
     model_dropout: float = 0.1
     global_mixer: bool = False
+    transition_features: bool = False
     flow_time_dim: int = 32
     logit_eps: float = 1e-4
     standardize_logits: bool = True
@@ -98,7 +99,7 @@ class ConditionalMaskedPathVelocity(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.seq_len = cfg.history_len + cfg.future_len
-        self.value_proj = nn.Linear(1, cfg.token_dim)
+        self.value_proj = nn.Linear(2 if cfg.transition_features else 1, cfg.token_dim)
         self.flow_time_proj = nn.Linear(cfg.flow_time_dim, cfg.token_dim)
         self.time_embed = nn.Embedding(self.seq_len, cfg.token_dim)
         self.cell_embed = nn.Embedding(cfg.n_cells, cfg.token_dim)
@@ -139,7 +140,12 @@ class ConditionalMaskedPathVelocity(nn.Module):
             ],
             dim=0,
         )
-        x = self.value_proj(path_t[..., None])
+        if self.cfg.transition_features:
+            prev = torch.cat([path_t[:, :1], path_t[:, :-1]], dim=1)
+            values = torch.stack([path_t, path_t - prev], dim=-1)
+        else:
+            values = path_t[..., None]
+        x = self.value_proj(values)
         x = x + self.time_embed(time_ids)[None, :, None, :]
         x = x + self.cell_embed(cell_ids)[None, None, :, :]
         x = x + self.type_embed(type_ids)[None, :, None, :]

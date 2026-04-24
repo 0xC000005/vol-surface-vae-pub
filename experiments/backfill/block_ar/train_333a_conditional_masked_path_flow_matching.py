@@ -36,6 +36,7 @@ def main() -> None:
     parser.add_argument("--token_ff", type=int, default=256)
     parser.add_argument("--model_dropout", type=float, default=0.1)
     parser.add_argument("--global_mixer", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--transition_features", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--flow_time_dim", type=int, default=32)
     parser.add_argument("--logit_eps", type=float, default=1e-4)
     parser.add_argument("--standardize_logits", action=argparse.BooleanOptionalAction, default=True)
@@ -104,6 +105,7 @@ def main() -> None:
         token_ff=args.token_ff,
         model_dropout=args.model_dropout,
         global_mixer=args.global_mixer,
+        transition_features=args.transition_features,
         flow_time_dim=args.flow_time_dim,
         logit_eps=args.logit_eps,
         standardize_logits=args.standardize_logits,

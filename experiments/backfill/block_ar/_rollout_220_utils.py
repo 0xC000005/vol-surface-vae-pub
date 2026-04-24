@@ -935,7 +935,7 @@ def load_one_day_kernel(
         )
 
         return load_332a_model(checkpoint_path, device)
-    if model_type in {"333a", "333b"}:
+    if model_type in {"333a", "333b", "333c"}:
         from diffusion.block_ar.conditional_masked_path_flow_matching import (
             load_model as load_333a_model,
         )

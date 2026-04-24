@@ -91453,3 +91453,20 @@ Keep 333 alive for one coordinate/interface repair: 333c.
 333c should keep 333b's global mixer and the same masked rectified-flow objective, but feed each token both standardized logit level and the implied one-step transition from the previous time step. This is not a residual decomposition, not a low-rank readout, and not an auxiliary evaluator loss. It is an invertible representation of the same path intended to preserve 333b shared coupling while restoring 333a local fidelity.
 
 ---
+## 2026-04-24: Autoresearch 333c transition-feature masked path flow
+
+### Context
+Iteration 306 implemented 333c, the planned coordinate/interface repair after the 333b postmortem. It kept the masked full-path rectified-flow objective and global scenario mixer, but fed each token both standardized logit level and implied one-step transition.
+
+### Result
+- Artifact: `results/block_ar/333c_v0_small_s42/full11.json`
+- Score: 4/11, passing surface validity, block-AR smoothness, IV-EWMA cointegration, and cross-cell correlation.
+- Key metrics: coverage90 0.823, calibration error 0.038, conditional MAE reduction 3.8%, turb/calm width 0.961, ACF 0.926, kurtosis ratio 0.899, daily KS 12/25, level KS 3/25, median-bias fraction 19/25, bias-magnitude 22/25, window-floor bad rate 6.2%, cointegration ratio 0.995 with worst-cell 0.355, corr ratio 0.693, rank ratio 2.115, aggregate MR ratio 1.065, active MR pass 58.3%, h30 MR ratio 0.786, pathwise max-jump KS 0.442, q99 tail cells 17/25.
+
+### Mechanism Read
+333c is the best 333 variant so far. Transition features did preserve 333b's global coupling and restored cointegration, giving the family its first 4/11 result. But it did not restore 333a's local distributional fidelity: daily KS, level KS, median-bias fraction, tail-cell q99, and pathwise max-jump shape remain weak. Regime width is still below gate, although some width-vs-vol-of-vol diagnostics improved at later horizons.
+
+### Decision
+Do not stack another local/global coordinate tweak immediately. The 333 family is alive but still below the clean 330a/330c 5/11 frontier. The next HEAD step should be post-experiment analysis over 333a/b/c to decide whether a principled next repair exists or whether masked full-path flow is capped by the same one-shot tradeoff.
+
+---
