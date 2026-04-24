@@ -95218,3 +95218,25 @@ Close direct future normal-score path flow as the primary path. The best active 
 - `results/block_ar/417a_recent_transformer_score_path_fm_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 418 student-forced transition FM
+
+### Context
+417a closed the direct future normal-score path-flow branch. The active frontier remains 392a at `8/11`: it passes the structural/local suites but fails coverage, regime coverage, and distributional fidelity. The failed direct-path repairs showed the complementary mechanism clearly: direct recent-score path flow can improve level occupancy, but it does not preserve the AR transition geometry needed for conditionality, cointegration, mean reversion, and cross-cell structure.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_418a_student_forced_transition_fm.md`.
+
+Selected next paradigm: keep the empirical normal-score AR transition flow core from 392a, but train it on model-generated prefixes with a student-forced transition FM loss while retaining the teacher-forced FM anchor.
+
+### Mechanism Read
+The clean remaining mismatch is training distribution versus evaluation distribution. 392a is evaluated as a self-generated 30-day AR scenario generator, but its transition operator is learned mostly under ground-truth prefixes. Weak rollout energy and CRPS losses score generated paths globally, but they do not directly teach the transition law to act correctly when the prefix already contains generated states.
+
+Student-forced FM keeps the AR factorization and vanilla flow core, but adds training mass on the model-induced state distribution: `p(next | generated prefix)`, not only `p(next | true prefix)`. This is a general exposure-bias correction, not a low-rank/bounded path, post-hoc calibration table, or evaluator-specific KS objective.
+
+### Decision
+Run 419a from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`: teacher-forced FM anchor plus student-forced transition FM on generated prefixes. Evaluate unchanged on the official full 11-suite. If it cannot improve level KS / regime layer2 while preserving conditionality, cointegration, and mean reversion, close off-policy transition fine-tuning and move to a deeper base-likelihood paradigm.
+
+### Artifacts
+- `experiments/backfill/block_ar/IDEA_418a_student_forced_transition_fm.md`
+
+---
