@@ -93841,3 +93841,27 @@ Close the 347-351 transition-likelihood repair branch as capped below the 340c f
 Run research ideation next. The next candidate should return to the 340c frontier or change paradigm; it should not continue incremental transition-density variants.
 
 ---
+## 2026-04-24: Autoresearch 352a transition diffusion selection
+
+### Context
+The 347-351 transition-likelihood branch is capped below 340c. The strongest evidence is still 340c's empirical-normal-score causal-memory AR transition factorization. The next clean move is not another likelihood head; it is to return to the frontier structure and swap only the vanilla generative core.
+
+### Selected Test
+Run `352a`: empirical-normal-score causal-memory transition diffusion.
+
+Keep from 340c:
+- shared empirical normal-score coordinate;
+- causal prefix memory over history/generated future;
+- one-day AR transition factorization;
+- same transition network interface.
+
+Change only the training/sampling core:
+- train a variance-preserving denoising objective on the 25-cell next-score transition;
+- sample with deterministic DDIM-style reverse steps.
+
+This is a clean FM-vs-diffusion falsifier inside the strongest known structural factorization. No retrieval, low-rank readout, bounded side path, explicit regime scale, evaluator loss, posterior/prior scaffold, or calibration temperature.
+
+### Falsifier
+If 352a does not improve the 340c failed suites while preserving its six structural passes, then the issue is not rectified-flow-vs-diffusion. The next paradigm should stop changing the local transition sampler and revisit data/evaluation decomposition or a larger world-model representation.
+
+---
