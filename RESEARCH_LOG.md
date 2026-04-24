@@ -94641,3 +94641,30 @@ This falsifies the simple "energy score was just too noisy" explanation. A clean
 Keep 392a as the active 8/11 frontier. Close further scalar energy-weight and sample-count variants. The next iteration should be post-experiment analysis or research ideation focused on why the proper-score fine-tune improves path-level training loss but does not solve the official residual failures, before adding any new knob or architecture component.
 
 ---
+## 2026-04-24: Autoresearch 396 energy objective alignment
+
+### Context
+395a falsified the simple estimator-noise explanation for path-energy fine-tuning. 396a audited whether the internal path-energy holdout objective is aligned with the official full-11 target.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_396a_energy_objective_alignment.py`. Artifacts:
+
+- `results/block_ar/396a_energy_objective_alignment/summary.json`
+- `results/block_ar/396a_energy_objective_alignment/summary.md`
+
+Key comparison:
+
+| run | w | samples | val total | val energy | std gap | score | cond MAE | level KS | coint worst |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 392a | 0.05 | 2 | 0.5087 | 0.7813 | -0.084 | 8/11 | 5.14% | 10/25 | 0.278 |
+| 395a | 0.05 | 4 | 0.4990 | 0.6450 | -0.037 | 6/11 | 3.55% | 9/25 | 0.158 |
+
+395a has the best internal validation total, best validation energy, and sample standard deviation closest to the target standard deviation, but it has the worst official score among the audited energy runs.
+
+### Mechanism Read
+The bottleneck is objective alignment, not just estimator variance or undertraining. The free-running path-energy score is a valid proper path score, but optimizing it on the recent adaptation block does not target the official conditional-law checks tightly enough. It can improve path-distance geometry while harming conditionality and worst-cell cointegration.
+
+### Decision
+Keep 392a as the active 8/11 frontier. Close the path-energy fine-tune family as a primary route. The next iteration should be research ideation for a target-aligned but still clean objective that directly addresses conditional calibration, level occupancy, and regime-cell coverage without adding architecture complexity.
+
+---
