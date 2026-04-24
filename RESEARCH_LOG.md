@@ -91787,3 +91787,41 @@ Do not stack level-FM variants immediately.
 Run post-experiment analysis next. The next paradigm should align level and transition laws in a single first-principles density/objective, without adding evaluator-specific losses or a hand-engineered two-path residual decomposition. Candidate direction: an exact chain-rule density or invertible coordinate that treats next state and increment consistently instead of choosing one and hoping the other emerges under free run.
 
 ---
+## 2026-04-24: Autoresearch 336 postmortem and 337 selection
+
+### Context
+336a tested pure next-level causal-memory FM after transition/source/capacity variants failed to repair 330c. It confirmed that coordinate choice matters, but did not solve the suite.
+
+### Findings
+336a scored `3/11`, below the 330c frontier. It passed surface validity, block-AR smoothness, and cross-cell correlation. It failed coverage, conditionality, time-series, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Mechanistically:
+- daily-change KS remained strong (`24/25`), so direct level FM did not destroy local increments;
+- level KS matched 330c (`6/25`) but did not improve enough to flip distributional fidelity;
+- median-bias cells worsened to `13/25`;
+- max-jump KS improved slightly (`0.297`) but still failed;
+- cointegration and time-series no longer passed.
+
+### Mechanism Read
+The problem is not simply choosing levels instead of transitions. FM in either coordinate leaves one side of the state/change law implicit:
+- transition FM preserves local changes and structure but drifts in level/regime calibration;
+- level FM makes next-state levels explicit but still fails level distribution and loses structural passes.
+
+This suggests an objective issue rather than a pure coordinate issue. A proper chain-rule density over next levels gives an exact likelihood for the state variable used in recursive sampling. If that also fails, then exact one-step likelihood itself is likely insufficient and the loop should move to a true path-law objective.
+
+### Decision
+Open 337a: causal-memory exact next-level density.
+
+337a should keep:
+- causal future-prefix memory;
+- per-cell standardized logit coordinates;
+- autoregressive support-valid sampling;
+- generic conditional affine-coupling likelihood over the 25D next logit level.
+
+337a should change:
+- replace FM with exact likelihood for `p(level_t | history, generated prefix)`;
+- sample the next generated level directly, then append it to the prefix.
+
+This is a first-principles chain-rule density, not an evaluator loss, source-noise knob, residual split, retrieval model, low-rank readout, or posterior/prior scaffold.
+
+---
