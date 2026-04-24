@@ -91825,3 +91825,60 @@ Open 337a: causal-memory exact next-level density.
 This is a first-principles chain-rule density, not an evaluator loss, source-noise knob, residual split, retrieval model, low-rank readout, or posterior/prior scaffold.
 
 ---
+## 2026-04-24: Autoresearch 337a exact level density
+
+### Context
+337a tested the exact chain-rule density selected after 336a. It kept causal future-prefix memory and standardized logit levels, but replaced FM with a conditional affine-coupling likelihood over the 25D next logit level.
+
+Artifacts:
+- model: `models/backfill/337a_v0_s42/best_model.pt`
+- train summary: `models/backfill/337a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/337a_v0_s42/full11.json`
+- markdown: `results/block_ar/337a_v0_s42/full11.md`
+
+Training completed 36 epochs, but validation NLL was best at epoch 1 (`val_total=17.249`) and then deteriorated while train NLL kept improving. The best checkpoint is therefore very early.
+
+### Result
+Full 11-suite score: `3/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cointegration
+
+Failed:
+- coverage
+- conditionality
+- time-series
+- regime coverage
+- distributional fidelity
+- cross-cell correlation
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.735`
+- calibration error: `0.080`
+- turb/calm width ratio: `0.936`
+- ACF correlation: `0.926`
+- kurtosis ratio: `0.532`
+- daily-change KS cells: `8/25`
+- level KS cells: `6/25`
+- median-bias cells: `19/25`
+- bias magnitude cells: `22/25`
+- corr/rank ratio: `0.150 / 3.945`
+- cointegration gen/GT: `2.185`, worst-cell `0.438`
+- aggregate MR ratio: `1.825`
+- max-jump KS: `0.399`
+
+### Mechanism Read
+Exact next-level likelihood is valid in the sense that it did not produce NaNs like 331a, but it is not a good scenario generator. The affine coupling density quickly overfits teacher-forced next levels and loses common-shock geometry. Cross-cell correlation collapses, rank inflates, daily-change KS collapses, and mean reversion becomes too strong.
+
+This means exact one-step likelihood is not sufficient. Modeling `p(level_t | prefix)` with a flexible daily coupling density does not automatically produce a correct 30-day path law under recursive sampling. It also confirms that the coupling-flow density can optimize local likelihood while missing joint path geometry.
+
+### Decision
+Close 337a as non-frontier.
+
+Run post-experiment analysis next. The evidence now rules out the clean one-step teacher-forced variants around 330/336/337. The next paradigm should be a true path-law objective or a better joint sequence likelihood that preserves common shocks, level calibration, and transition realism together, rather than relying on one-step local likelihood or FM coordinate choice.
+
+---
