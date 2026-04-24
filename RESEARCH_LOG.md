@@ -92848,3 +92848,42 @@ Close 342a as a negative result and keep `340a/340c` as the `6/11` frontier.
 Run post-experiment analysis next. The analysis should decide whether any objective-level repair remains defensible without becoming a loss-stack knob, or whether the clean frontier requires a paradigm shift away from one-step teacher-forced transition training.
 
 ---
+## 2026-04-24: Autoresearch 342a postmortem and 343a selection
+
+### Context
+342a tested the remaining local objective-level repair on top of the `340c` frontier. It failed decisively: `4/11`, with worse coverage, level KS, median bias, cointegration, and pathwise max-jump shape than `340c`.
+
+The recent mechanism map is now consistent:
+- one-step teacher-forced transition FM is structurally strong but capped (`340a/340c`, `6/11`);
+- one-step exact likelihood can optimize local density but is unstable or overfits under recursive sampling (`331a`, `337a`);
+- generated-prefix/on-policy repair attacks free-run behavior but distorts daily/tail law (`338a/b`);
+- one-shot full-path flow learns a plausible unconditional cloud but misses regime-conditioned stochasticity (`333`, `339`);
+- sample-score proper objectives either fail dependence directly (`325`) or distort recursive level law (`303d`, `342a`);
+- latent bottleneck lines preserve some common geometry but smooth or lose level dynamics (`327/328`).
+
+### Mechanism Read
+The failure is not a missing calibration loss, capacity knob, or hand state statistic. The suite requires a conditional joint path law whose marginal level behavior, daily-change behavior, dependence, mean reversion, and path extremes are all learned together.
+
+The strongest positive pieces are split:
+- `340c`: empirical normal-score coordinate plus causal AR memory gives the current `6/11` frontier and preserves structural passes.
+- `320d/321c`: scalar chain-rule mixture likelihood learns exact conditional densities and can pass cross-cell/MR/daily substructures, but logit/transition coordinate choices create level-vs-change tradeoffs.
+
+This suggests a clean synthesis that has not been tested: scalar chain-rule density in the empirical normal-score coordinate.
+
+### Decision
+Open `343a`: empirical-normal-score scalar chain-rule mixture density.
+
+Minimal spec:
+- estimate the same shared per-cell empirical normal-score transform from training history+future levels;
+- train a one-stage scalar autoregressive mixture likelihood over the flattened 30x25 future level scores;
+- condition on history through a learned sequence encoder and expose previous scalar plus previous same-cell score, exactly as the 320 chain-rule model exposes variables already in the chain-rule sigma-field;
+- sample sequentially in score space and invert through the empirical CDF to IV levels.
+
+This is not a residual shell, retrieval/copula reuse, low-rank readout, bounded side path, posterior/prior scaffold, evaluator loss, or calibration layer. It is just the probability integral transform plus the probability chain rule with a flexible scalar likelihood.
+
+### Falsifier
+343a must beat or materially improve the `340c` frontier without sacrificing its structural passes. The specific targets are level KS, per-cell coverage/window floor, conditionality/regime width, and pathwise max-jump shape while preserving time-series, cointegration, cross-cell correlation, and mean reversion.
+
+If it fails, close this synthesis rather than adding more scalar-chain feature knobs.
+
+---
