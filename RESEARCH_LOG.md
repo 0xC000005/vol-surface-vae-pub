@@ -92112,3 +92112,62 @@ This is a coordinate/factorization choice, not a post-hoc correction: the neural
 Open 339a as a learned rank-space joint path-law falsifier. Reuse the 333 masked full-path implementation pattern only as infrastructure, but change the modeled variable to empirical normal-score coordinates. Do not add low-rank readouts, bounded idio/EC paths, posterior/prior scaffolds, retrieval, fixed copula reuse, source-noise knobs, or evaluator-specific losses. The falsifier is whether rank-space joint flow improves level KS, per-cell coverage, and regime/path calibration while retaining at least the structural passes needed to beat the 5/11 frontier.
 
 ---
+## 2026-04-24: Autoresearch 339a empirical normal-score path flow
+
+### Context
+339a implemented the selected rank-space joint path-law falsifier. It uses empirical probability-integral-transform normal-score coordinates estimated from training windows only, then trains a vanilla conditional full-path rectified flow with the 333-style axial path mixer, global communication, and transition token features.
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_339a_empirical_normal_score_path_flow.py`
+- model: `models/backfill/339a_v0_s42/best_model.pt`
+- train summary: `models/backfill/339a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/339a_v0_s42/full11.json`
+- markdown: `results/block_ar/339a_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation was epoch 38 with `val_total=0.58928`.
+
+### Result
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.851`, calibration error `0.023`
+- h1/h30 coverage: `0.881 / 0.852`
+- turb/calm width ratio: `1.009`
+- ACF correlation: `0.918`
+- kurtosis ratio: `0.805`, skewness ratio `-0.916`
+- daily-change KS cells: `18/25`
+- level KS cells: `8/25`
+- median-bias cells: `22/25`, bias-magnitude cells `22/25`
+- corr/rank ratio: `0.649 / 2.199`
+- cointegration gen/GT: `0.935`, worst-cell `0.250`
+- aggregate MR h1/h30 ratios: `1.116 / 0.864`
+- full-horizon active MR mean: `58.8%`
+- max-jump KS: `0.522`
+- per-cell q99 tail cells: `19/25`
+
+### Mechanism Read
+The rank-space coordinate is useful but not sufficient. It substantially improves aggregate calibration, daily-change KS, median bias, cointegration, cross-cell geometry, and aggregate mean-reversion shape compared with the weak one-shot path-flow variants. It also avoids support explosions.
+
+The failure is concentrated in conditional width response and level/path extremes. The empirical marginal coordinate makes unconditional coverage broad enough, but the learned path law still does not make volatility/regime-dependent width expand (`turb/calm=1.009`) and does not reproduce pathwise max-jump distribution (`KS=0.522`). Level KS improves over many failed branches but remains only `8/25`, so inverse empirical marginals alone do not guarantee validation-level fidelity under generated rank dynamics.
+
+### Decision
+339a is non-frontier at `4/11`, below the 5/11 co-frontier. Do not declare success and do not tune quantile count, temperature, or mixer strength as local knobs.
+
+Run post-experiment analysis next. The live question is whether 339 should be repaired by a single principled change to the stochastic coupling/regime-conditioning mechanism inside the same rank-space joint law, or whether this confirms the broader one-shot shared/local tradeoff and should trigger another paradigm shift.
+
+---
