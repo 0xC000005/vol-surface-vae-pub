@@ -93764,3 +93764,55 @@ where `alpha` and `anchor` are learned from `(memory_state, current_score)`. Thi
 If 351a does not improve level KS/per-cell coverage while retaining 348a's mean reversion and cross-cell geometry, then the stationary-location idea is not enough. The next move should leave this transition-likelihood branch rather than add more location gates.
 
 ---
+## 2026-04-24: Autoresearch 351a stationary transition location
+
+### Context
+351a tested whether 348a's level-stationarity failures came from an unconstrained free transition-location head. It kept transition-coordinate likelihood and Gaussian-base coupling innovations, but parameterized the conditional mean as a stable AR pull in normal-score space.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_351a_empirical_normal_score_stationary_transition_location.py --output_dir models/backfill/351a_v0_s42 --epochs 30 --batch_size 64 --memory_dim 128 --memory_layers 3 --memory_heads 4 --memory_ff 256 --coupling_layers 6 --coupling_hidden 256 --location_hidden 256 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 351a --checkpoint models/backfill/351a_v0_s42/best_model.pt --output_json results/block_ar/351a_v0_s42/full11.json --output_md results/block_ar/351a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Best checkpoint: epoch 4, `val_total=-0.01618`.
+
+### Result
+351a scored `4/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cross-cell correlation;
+- mean reversion.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- cointegration;
+- regime coverage;
+- distributional fidelity;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.794`, calibration error `0.071`;
+- conditional MAE reduction `3.0%`, turb/calm width ratio `1.197`;
+- daily-change KS pass `21/25`, level KS pass `4/25`;
+- cross-cell correlation ratio `0.781`, effective-rank ratio `1.902`;
+- mean reversion passes with full-horizon active mean `66.8%`;
+- cointegration aggregate passes but worst-cell ratio fails (`0.194`);
+- pathwise max-jump KS `0.334`, q99 jump pass `21/25`.
+
+### Mechanism Read
+Stationary AR location is not enough. It preserves mean reversion and some regime width response, but it undercovers, worsens level bias, and damages worst-cell cointegration. The stable location form appears too restrictive in certain cells while still not fixing the generated level marginal.
+
+The strongest result in this local family remains 348a (`5/11`): free explicit location plus Gaussian innovation. Stationary location and Student-t innovation each improve one local statistic but break another structural property.
+
+### Decision
+Close 351a as non-frontier. Do not tune alpha initialization or add more location gates.
+
+Run post-experiment analysis next. The analysis should decide whether this transition-likelihood family is capped below the 340c frontier or whether one clean synthesis remains justified.
+
+---

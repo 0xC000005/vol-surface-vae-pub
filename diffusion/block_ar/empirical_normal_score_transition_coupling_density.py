@@ -33,6 +33,7 @@ class EmpiricalNormalScoreTransitionCouplingConfig:
     scale_clip: float = 2.0
     use_location: bool = False
     location_hidden: int = 256
+    location_mode: str = "free"
     base_distribution: str = "normal"
     student_df_init: float = 8.0
     student_df_min: float = 2.1
@@ -56,6 +57,8 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
             raise ValueError("base_distribution must be 'normal' or 'student_t'")
         if cfg.target_mode not in {"transition", "level"}:
             raise ValueError("target_mode must be 'transition' or 'level'")
+        if cfg.location_mode not in {"free", "stationary"}:
+            raise ValueError("location_mode must be 'free' or 'stationary'")
         feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -88,16 +91,20 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
         )
         self.location_head: nn.Module | None = None
         if cfg.use_location:
+            location_out = 2 * cfg.n_cells if cfg.location_mode == "stationary" else cfg.n_cells
             self.location_head = nn.Sequential(
                 nn.Linear(context_dim, cfg.location_hidden),
                 nn.GELU(),
                 nn.Dropout(cfg.coupling_dropout),
-                nn.Linear(cfg.location_hidden, cfg.n_cells),
+                nn.Linear(cfg.location_hidden, location_out),
             )
             last = self.location_head[-1]
             if isinstance(last, nn.Linear):
-                nn.init.zeros_(last.weight)
-                nn.init.zeros_(last.bias)
+                with torch.no_grad():
+                    last.weight.zero_()
+                    last.bias.zero_()
+                    if cfg.location_mode == "stationary":
+                        last.bias[cfg.n_cells :].fill_(math.log(0.1 / 0.9))
         self.student_df_raw: nn.Parameter | None = None
         if cfg.base_distribution == "student_t":
             df_offset = max(float(cfg.student_df_init) - float(cfg.student_df_min), 1e-4)
@@ -241,7 +248,12 @@ class EmpiricalNormalScoreTransitionCouplingDensity(nn.Module):
     ) -> torch.Tensor:
         if self.location_head is None:
             return torch.zeros_like(current_score)
-        return self.location_head(self._context(memory_state, current_score))
+        raw = self.location_head(self._context(memory_state, current_score))
+        if self.cfg.location_mode == "free":
+            return raw
+        anchor, alpha_raw = raw.chunk(2, dim=-1)
+        alpha = torch.sigmoid(alpha_raw)
+        return alpha * (anchor - current_score)
 
     def student_df(self) -> torch.Tensor:
         if self.student_df_raw is None:
