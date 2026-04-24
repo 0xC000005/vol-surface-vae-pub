@@ -93203,3 +93203,28 @@ Close masked path inpainting as a non-frontier branch. Do not tune mask schedule
 Run research ideation next. The next candidate should change the objective class more directly: a future-path-primary model with exact likelihood/density pressure while retaining vector dependence, rather than scalar chain-rule likelihood or rectified-flow MSE.
 
 ---
+## 2026-04-24: Autoresearch 346a objective-class selection
+
+### Context
+The 340c frontier and the 339/345 path-flow failures now give a clean separation. One-step AR transition FM preserves local structural dynamics but does not match the full evaluated future-path law. Full-path rectified FM produces plausible path clouds but lacks exact density pressure on sampled marginals. Scalar exact likelihood adds density pressure but breaks vector/path geometry.
+
+### Candidate Families Considered
+1. Tune 340c with more on-policy or transition losses. Rejected: 338 and 344 already showed this collapses distributional fidelity without solving regime responsiveness.
+2. Tune 339/345 path-flow architecture or masks. Rejected: this would add knobs inside a capped FM objective family.
+3. Use a future-path-primary exact-likelihood model with vector dependence. Selected: it is a single objective-class change that directly targets the observed gap.
+
+### Selected Test
+Run `346a`: an empirical-normal-score conditional full-future normalizing flow. The model should map the entire 30-day 25-cell future path to a base Gaussian with exact likelihood, using history-conditioned affine coupling layers over the flattened future path.
+
+Clean constraints:
+- no retrieval;
+- no deterministic center/residual split;
+- no low-rank readout;
+- no bounded EC/idio path;
+- no explicit regime scale or evaluator-specific calibration loss;
+- no posterior/prior scaffold.
+
+### Falsifier
+If 346a cannot preserve or improve the 340c structural passes while applying exact full-path likelihood pressure, then the issue is not merely the lack of density pressure in FM. The next paradigm would need to revisit representation/data sufficiency or the evaluation target, not keep adding path-flow knobs.
+
+---
