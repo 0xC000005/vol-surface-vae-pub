@@ -90792,3 +90792,22 @@ This addresses the specific 317/324 failure mechanism. Flow matching pairs each 
 Open `325`. The first falsifier should be minimal: an axial-mixer generator using the same standardized future-logit coordinate system as 324c, but with direct sample generation and energy-score training. Do not add CRPS/variogram/tail auxiliary losses in the first run; those would be research knobs unless the pure proper-score baseline establishes a clear mechanism.
 
 ---
+## 2026-04-23: 325a energy-score implicit path generator
+
+### Context
+325a tested the new proper-score paradigm: a single-stage implicit generator that maps history plus IID base noise directly to the full 30-day future logit path. It used the same standardized future-logit coordinate system as 324c, axial time/cell/channel mixing, and energy-score training only. The first attempted configuration (`batch_size=64`, `train_sample_count=8`) hit CUDA OOM because the generated-path batch expands by `batch_size * train_sample_count`; the evaluated run used the same architecture with `batch_size=32` and `train_sample_count=4`.
+
+### Result
+`325a_v0_small_s42` scored 3/11, passing surface validity, block-AR smoothness, and IV-EWMA cointegration. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+
+Key metrics: coverage90 0.748 with calibration error 0.046, turb/calm width ratio 0.943, daily-change KS 7/25, level KS 0/25, median-bias fraction gate 15/25, cross-cell correlation ratio 0.037, effective-rank ratio 3.528, MR ratio 1.969, pathwise max-jump KS 0.980, jump q99 ratio 0.483.
+
+Artifacts: `models/backfill/325a_v0_small_s42/best_model.pt`, `models/backfill/325a_v0_small_s42/train_summary.json`, `results/block_ar/325a_v0_small_s42/full11.json`, and `results/block_ar/325a_v0_small_s42/full11.md`.
+
+### Mechanism Read
+The pure energy-score objective did not collapse to a deterministic path, but it did not learn the shared common-shock geometry. This is the known high-dimensional energy-score weakness showing up empirically: it can reward aggregate distance and broad calibration while remaining weak on dependence, cell-specific level law, and path-extreme structure. The result is not a failure of support validity or the generator mechanics; it is a failure of the scoring objective to sufficiently identify the joint panel dependence with one future realization per condition.
+
+### Decision
+Keep the 325 proper-score family alive for exactly one principled repair: add a dependence-sensitive multivariate score rather than tuning architecture or adding latent/covariance scaffolding. The clean candidate is a variogram-style score over future path coordinates, because it directly targets pairwise joint increments while staying within proper-score distributional training. Do not tune many weights; run one fixed-normalized 325b variant as the decisive test.
+
+---
