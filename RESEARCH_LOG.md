@@ -91036,3 +91036,27 @@ This cleanly separates the mechanisms: transition-coordinate one-shot decoding g
 Do not continue plain level-MSE recurrent decoding. The next HEAD step should be research ideation: find a single objective/model object that preserves 327c's transition realism and 328a's state-feedback mean reversion without adding an ad hoc weighted auxiliary loss or evaluator-specific correction.
 
 ---
+## 2026-04-23: 329 on-policy recurrent token transition ideation
+
+### Context
+328a closed the plain learned-bottleneck decoder path. It restored mean reversion through generated-state feedback, but the level-reconstruction decoder selected smooth, weakly coupled paths. The earlier 327 variants show the complementary tradeoff: level-coordinate bottlenecks anchor but smooth, while transition-coordinate bottlenecks jump but lose level anchoring and MR.
+
+The strongest clean evidence remains `303b`: support-valid recurrent token transition flow scored 4/11, with daily-change KS 24/25, corr ratio 0.911, rank ratio 1.559, and strong time-series behavior. Its remaining failures are free-run coverage, conditionality/regime, level marginal fidelity, cointegration edge cases, MR, and pathwise jumps.
+
+### Ideation
+Open 329: on-policy recurrent token transition flow. Keep the 303b architecture and vanilla one-step flow-matching core, but train the transition law on states the model actually visits during recursive sampling, not only teacher-forced ground-truth states.
+
+Minimal 329a specification:
+- initialize from the 303b checkpoint;
+- generate no-grad roll-in states by recursively sampling the current model;
+- apply the same transition-flow objective from those generated current states toward the realized next logit level;
+- keep the teacher-forced transition objective as the anchor by using the same objective on both state distributions;
+- do not add residual shells, low-rank readouts, retrieval, posterior/prior scaffolds, or evaluator-weighted losses.
+
+### Mechanism Read
+This is a train/test state-distribution alignment test. It targets the specific failure that 303b has a good local transition law under teacher forcing but drifts under free-run rollout. It is different from 303d: 303d added a weighted free-run energy score on evaluator-like path summaries, while 329 keeps the same proper one-step flow target and only changes the state distribution used for training.
+
+### Decision
+Implement 329a next. The falsifier is whether on-policy roll-in training improves free-run coverage, regime/conditionality, level law, MR, and pathwise jump realism while preserving 303b's support validity, daily-change law, and cross-cell geometry.
+
+---
