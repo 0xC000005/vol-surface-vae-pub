@@ -91702,3 +91702,30 @@ Run post-experiment analysis next. The evidence now rules out two tempting but c
 The next move should identify a different clean objective or factorization for level/regime calibration while preserving the first-principles constraints: vanilla generative core, support-valid coordinates, no evaluator-specific losses, no retrieval, no hard low-rank readout, and no hand-engineered financial side path.
 
 ---
+## 2026-04-24: Autoresearch 335 postmortem and 336 selection
+
+### Context
+335a completed the same-method scale falsifier around the 330c frontier. It showed that a larger causal-memory transition FM overfits the teacher-forced FM objective and does not repair the level/regime failures.
+
+### Mechanism Read
+The post-330 evidence is now narrow enough to act on:
+- 330c remains the clean 5/11 frontier and preserves support, daily-change law, time-series structure, cointegration, cross-cell geometry, and aggregate mean reversion.
+- 332a learned source scale and 334a fixed path-common source covariance both damaged level/coverage rather than repairing regime width.
+- 335a capacity scaling preserved structural passes but worsened coverage, level KS, median-bias fraction, and active-cell mean reversion.
+- Earlier scalar chain-rule level models (320c/320d) could pass mean reversion and cross-cell structure but were weak on daily/path tails.
+- Transition-coordinate models (321/330) preserve daily changes better but drift in unconditional level marginals and regime calibration.
+
+This points to a coordinate/factorization issue, not a need for another source-noise or capacity knob. Transition-target AR flow learns local increments well, but free-run level calibration is only implicit. Level-coordinate scalar likelihood makes level calibration explicit but loses some local path geometry.
+
+### Decision
+Open 336 as a clean causal-memory level-flow falsifier.
+
+336a should keep the 330 causal future-prefix memory and vanilla flow-matching core, but change the modeled random variable from next transition to next standardized logit level:
+- train FM from Gaussian source to the next future logit level;
+- condition on the current generated/teacher-forced logit and causal prefix memory;
+- sample autoregressively by setting the generated next logit directly;
+- decode through sigmoid for support validity.
+
+This is not a residual path, retrieval variant, low-rank readout, learned posterior/prior scaffold, or evaluator-specific loss. It is the probability chain rule applied to levels rather than increments. The falsifier is whether explicit next-level modeling improves level KS, coverage, and regime behavior while preserving enough of 330c's daily-change/cross-cell/cointegration strengths.
+
+---
