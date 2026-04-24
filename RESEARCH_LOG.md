@@ -91597,3 +91597,35 @@ Do not tune a common-source weight as the next move; that would add a research k
 Run post-experiment analysis next. Decide whether 334 should be closed as another over-broad source-law intervention, or reframed into a learned but non-ad-hoc stochastic process objective that keeps the architecture clean while letting the data learn horizon/regime-dependent uncertainty.
 
 ---
+## 2026-04-24: Autoresearch 334 postmortem and 335 selection
+
+### Context
+334a tested the narrow hypothesis that 330c was missing persistent path-level stochasticity. It kept the 330c causal-memory AR-FM architecture and changed only the source law to fixed equal-variance local plus path-common Gaussian noise.
+
+### Findings
+334a scored `3/11`, below the 330c `5/11` frontier. The result is mechanistically clear:
+- fixed path-common source noise improved daily-change KS (`22/25`) and cross-cell covariance (`corr=1.049`, `rank=1.348`);
+- but it over-widened long-horizon uncertainty (`h30 cov90=0.996`, calibration error `0.184`);
+- it failed to become regime-adaptive (`turb/calm=0.877`);
+- it destroyed level-law fidelity (`level KS=0/25`);
+- it distorted tails (`kurtosis ratio=1.501`, per-cell q99 cells `11/25`);
+- it weakened worst-cell cointegration (`0.154`);
+- it worsened h30 mean reversion (`0.692`) and pathwise max-jump shape (`KS=0.853`).
+
+### Mechanism Read
+The missing object is not simply persistent common noise. A fixed source covariance can inject shared variation, but it cannot learn when that variation should be calm, turbulent, mean-reverting, or level-consistent. Tuning the common-source weight would be a research knob, not a principled repair.
+
+The cleanest frontier remains 330c: standardized-logit causal-memory autoregressive flow matching. Its failures are narrower than 334a's and it still preserves support validity, daily-change law, time-series structure, cointegration, cross-cell geometry, and aggregate mean reversion.
+
+### Decision
+Close 334 rather than stack source-law variants.
+
+Open 335 as a same-method Bitter-Lesson falsifier: scale the 330c causal-memory AR-FM capacity and training budget while preserving the same model class and objective. This tests whether the remaining level/regime/path calibration failures are due to insufficient generic sequence capacity rather than missing hand-engineered structure.
+
+335a should use:
+- the existing 330c standardized-logit transition coordinate;
+- the same vanilla FM objective and causal future-prefix AR factorization;
+- larger token/memory capacity and longer training;
+- no source covariance knobs, residual shells, low-rank readouts, retrieval, posterior/prior scaffolds, or evaluator losses.
+
+---
