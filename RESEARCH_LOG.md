@@ -92548,3 +92548,40 @@ Promote 340c to a co-frontier with 340a because it keeps the `6/11` pass set and
 Run post-experiment analysis next. The next move should explain why 340c improves aggregate/level/path metrics but still fails conditional/regime allocation before adding any new architectural component.
 
 ---
+## 2026-04-24: Autoresearch 340c postmortem and 340d selection
+
+### Context
+340c tied the 340a `6/11` frontier by replacing additive conditioning in the transition velocity with prefix-token conditioning. It kept the same shared empirical normal-score coordinate, causal-memory AR transition factorization, basic `[score, delta]` state, and vanilla transition FM objective.
+
+### Findings
+340c is a positive-but-incomplete repair.
+
+What improved relative to 340a:
+- teacher-forced validation FM loss improved (`0.44232 -> 0.43696`);
+- aggregate coverage and calibration improved (`coverage90 0.835 -> 0.876`, calibration error `0.054 -> 0.008`);
+- level KS improved (`8/25 -> 12/25`);
+- median-bias fraction reached the gate (`18/25 -> 20/25`);
+- cointegration margin improved (`worst-cell 0.250 -> 0.303`);
+- pathwise max-jump KS improved (`0.429 -> 0.309`).
+
+What did not improve enough:
+- the suite score stayed `6/11`;
+- coverage still fails because h14/h30 have both undercovered and overcovered cells;
+- conditionality still fails: MAE reduction is `3.9%` versus the `5%` gate, and the conditionality turb/calm ratio is still inverted at `0.934`;
+- regime coverage layer 2 remains `0/8`, so the model still misallocates uncertainty across cells inside calm/turbulent regimes;
+- level KS is still below the `15/25` distributional-fidelity gate;
+- max-jump KS is still above the `<0.20` pathwise gate.
+
+### Mechanism Read
+The 340c result supports the current methodology more than it falsifies it. Generic conditioning expressivity matters: changing only the conditioning interface improved likelihood, level-law fidelity, coverage calibration, cointegration margin, and jump-shape diagnostics without adding a domain-specific state statistic or calibration layer.
+
+The remaining failure is still concentrated in conditional/regime allocation, not in support, local daily-change law, ACF, cross-cell geometry, cointegration, or mean reversion. The prefix interface lets the velocity use the condition more flexibly, but the model is still small and may be averaging regime-specific uncertainty because the one-realization-per-history teacher-forced FM loss gives weak gradient for heteroscedastic conditional spread.
+
+### Decision
+Keep the 340 family alive and use 340c as the active co-frontier for the next falsifier.
+
+Run one same-method Bitter-Lesson scale test, 340d: keep the exact 340c model object and objective, but moderately increase generic token/memory capacity and train with early validation selection. This is not a new inductive component, not a scale-state feature branch, and not a hyperparameter sweep. It tests whether the positive 340c direction is capacity-limited before declaring the factorization capped.
+
+If 340d does not improve the `6/11` frontier or if it preserves only aggregate calibration while worsening structural passes, close capacity scaling and move to a new research-ideation step rather than adding calibration or regime-specific knobs.
+
+---
