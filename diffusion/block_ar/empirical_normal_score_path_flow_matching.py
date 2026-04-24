@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from diffusion.block_ar.conditional_masked_path_flow_matching import MaskedPathAxialBlock
+from diffusion.block_ar.gru_encoder import EncoderConfig, GRUEncoder
 from diffusion.block_ar.joint_token_logit_transition_flow_matching import _flow_time_features
 from experiments.backfill.block_ar.train_169a_transformed_student_t import (
     denormalize_iv,
@@ -24,6 +25,11 @@ class EmpiricalNormalScorePathFMConfig:
     token_layers: int = 4
     token_ff: int = 256
     model_dropout: float = 0.1
+    mixer_type: str = "axial"
+    context_dim: int = 128
+    history_hidden: int = 128
+    encoder_dropout: float = 0.1
+    token_heads: int = 4
     global_mixer: bool = True
     transition_features: bool = True
     flow_time_dim: int = 32
@@ -98,13 +104,90 @@ class EmpiricalNormalScorePathVelocity(nn.Module):
         return self.out(future).squeeze(-1)
 
 
+class EmpiricalNormalScoreTransformerPathVelocity(nn.Module):
+    def __init__(self, cfg: EmpiricalNormalScorePathFMConfig):
+        super().__init__()
+        self.cfg = cfg
+        input_dim = 2 if cfg.transition_features else 1
+        self.value_proj = nn.Linear(input_dim, cfg.token_dim)
+        self.context_proj = nn.Linear(cfg.context_dim, cfg.token_dim)
+        self.flow_time_proj = nn.Linear(cfg.flow_time_dim, cfg.token_dim)
+        self.horizon_embed = nn.Embedding(cfg.future_len, cfg.token_dim)
+        self.cell_embed = nn.Embedding(cfg.n_cells, cfg.token_dim)
+        self.prefix_embed = nn.Parameter(torch.zeros(2, cfg.token_dim))
+        layer = nn.TransformerEncoderLayer(
+            d_model=cfg.token_dim,
+            nhead=cfg.token_heads,
+            dim_feedforward=cfg.token_ff,
+            dropout=cfg.model_dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.mixer = nn.TransformerEncoder(layer, num_layers=cfg.token_layers)
+        self.out = nn.Sequential(
+            nn.LayerNorm(cfg.token_dim),
+            nn.Linear(cfg.token_dim, cfg.token_dim),
+            nn.GELU(),
+            nn.Linear(cfg.token_dim, 1),
+        )
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        context: torch.Tensor,
+        flow_t: torch.Tensor,
+        last_history: torch.Tensor,
+    ) -> torch.Tensor:
+        bsz, horizon, n_cells = x_t.shape
+        if horizon != self.cfg.future_len or n_cells != self.cfg.n_cells:
+            raise ValueError(
+                f"Expected future path shape (*,{self.cfg.future_len},{self.cfg.n_cells}), "
+                f"got {tuple(x_t.shape)}"
+            )
+        if self.cfg.transition_features:
+            prev = torch.cat([last_history[:, None, :], x_t[:, :-1]], dim=1)
+            values = torch.stack([x_t, x_t - prev], dim=-1)
+        else:
+            values = x_t[..., None]
+        h_idx = torch.arange(horizon, device=x_t.device)
+        c_idx = torch.arange(n_cells, device=x_t.device)
+        pos = (
+            self.horizon_embed(h_idx)[:, None, :]
+            + self.cell_embed(c_idx)[None, :, :]
+        ).reshape(horizon * n_cells, self.cfg.token_dim)
+        token = self.value_proj(values.reshape(bsz, horizon * n_cells, -1)) + pos[None]
+        ctx_token = self.context_proj(context) + self.prefix_embed[0][None]
+        time_token = (
+            self.flow_time_proj(_flow_time_features(flow_t, self.cfg.flow_time_dim))
+            + self.prefix_embed[1][None]
+        )
+        hidden = torch.cat([torch.stack([ctx_token, time_token], dim=1), token], dim=1)
+        hidden = self.mixer(hidden)
+        return self.out(hidden[:, 2:, :]).squeeze(-1).view(bsz, horizon, n_cells)
+
+
 class EmpiricalNormalScorePathFlowMatching(nn.Module):
     """339a: full-path rectified flow in empirical normal-score coordinates."""
 
     def __init__(self, cfg: EmpiricalNormalScorePathFMConfig):
         super().__init__()
         self.cfg = cfg
-        self.velocity = EmpiricalNormalScorePathVelocity(cfg)
+        if cfg.mixer_type not in {"axial", "transformer"}:
+            raise ValueError("mixer_type must be 'axial' or 'transformer'")
+        self.history_encoder: GRUEncoder | None = None
+        if cfg.mixer_type == "transformer":
+            hist_cfg = EncoderConfig(
+                input_dim=cfg.n_cells,
+                gru_hidden_dim=cfg.history_hidden,
+                bottleneck_dim=cfg.context_dim,
+                dropout=cfg.encoder_dropout,
+                cond_aug_sigma=0.0,
+            )
+            self.history_encoder = GRUEncoder(hist_cfg)
+            self.velocity = EmpiricalNormalScoreTransformerPathVelocity(cfg)
+        else:
+            self.velocity = EmpiricalNormalScorePathVelocity(cfg)
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -197,6 +280,11 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
         future_01 = denormalize_iv(self._flatten(future_norm))
         return self._values_to_scores(future_01, self.future_quantiles)
 
+    def encode_history_scores(self, history_z: torch.Tensor) -> torch.Tensor:
+        if self.history_encoder is None:
+            raise RuntimeError("History encoder is only available for transformer mixer")
+        return self.history_encoder(history_z)
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
@@ -208,9 +296,13 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
         bsz = x1.shape[0]
         t = torch.rand(bsz, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t)[:, None, None] * x0 + t[:, None, None] * x1
-        path_t = torch.cat([history_z, x_t], dim=1)
         target_velocity = x1 - x0
-        pred_velocity = self.velocity(path_t, t)
+        if self.cfg.mixer_type == "transformer":
+            context = self.encode_history_scores(history_z)
+            pred_velocity = self.velocity(x_t, context, t, history_z[:, -1])
+        else:
+            path_t = torch.cat([history_z, x_t], dim=1)
+            pred_velocity = self.velocity(path_t, t)
         fm_loss = F.mse_loss(pred_velocity, target_velocity)
         transitions = x1 - torch.cat([history_z[:, -1:], x1[:, :-1]], dim=1)
         metrics = {
@@ -238,6 +330,9 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
             raise ValueError(f"Expected n_steps in [1,{self.cfg.future_len}], got {n_steps}")
         history_norm = history if history_is_normalized else normalize_iv(history)
         history_z = self.history_scores(history_norm)
+        context = None
+        if self.cfg.mixer_type == "transformer":
+            context = self.encode_history_scores(history_z)
         bsz = history_z.shape[0]
         chunk_size = max(
             1, min(int(chunk_size), int(n_samples), int(self.cfg.max_sample_chunk))
@@ -255,6 +350,7 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
                 dtype=history_z.dtype,
             )
             hist = history_z.repeat_interleave(k, dim=0)
+            ctx = context.repeat_interleave(k, dim=0) if context is not None else None
             for step in range(self.cfg.flow_steps):
                 t = torch.full(
                     (bsz * k,),
@@ -262,7 +358,12 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
                     device=history_z.device,
                     dtype=history_z.dtype,
                 )
-                x = x + dt * self.velocity(torch.cat([hist, x], dim=1), t)
+                if self.cfg.mixer_type == "transformer":
+                    if ctx is None:
+                        raise RuntimeError("Missing transformer context")
+                    x = x + dt * self.velocity(x, ctx, t, hist[:, -1])
+                else:
+                    x = x + dt * self.velocity(torch.cat([hist, x], dim=1), t)
             future_01 = self._scores_to_values(x[:, :n_steps], self.future_quantiles)
             if self.cfg.n_cells == 25:
                 future_01 = future_01.view(bsz, k, n_steps, 5, 5)

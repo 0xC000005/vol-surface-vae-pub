@@ -57,6 +57,11 @@ def main() -> None:
     parser.add_argument("--token_layers", type=int, default=4)
     parser.add_argument("--token_ff", type=int, default=256)
     parser.add_argument("--model_dropout", type=float, default=0.1)
+    parser.add_argument("--mixer_type", choices=["axial", "transformer"], default="axial")
+    parser.add_argument("--context_dim", type=int, default=128)
+    parser.add_argument("--history_hidden", type=int, default=128)
+    parser.add_argument("--encoder_dropout", type=float, default=0.1)
+    parser.add_argument("--token_heads", type=int, default=4)
     parser.add_argument("--global_mixer", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--transition_features", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--flow_time_dim", type=int, default=32)
@@ -125,6 +130,11 @@ def main() -> None:
         token_layers=args.token_layers,
         token_ff=args.token_ff,
         model_dropout=args.model_dropout,
+        mixer_type=args.mixer_type,
+        context_dim=args.context_dim,
+        history_hidden=args.history_hidden,
+        encoder_dropout=args.encoder_dropout,
+        token_heads=args.token_heads,
         global_mixer=args.global_mixer,
         transition_features=args.transition_features,
         flow_time_dim=args.flow_time_dim,

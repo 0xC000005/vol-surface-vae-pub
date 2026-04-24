@@ -92205,3 +92205,63 @@ Keep 339 alive for one clean architecture repair: 339b rank-space Transformer pa
 The falsifier is whether a stronger learned joint sequence model improves conditionality/regime width and pathwise jump shape while preserving 339a's coverage, cointegration, daily KS, and cross-cell passes. If 339b does not improve the score or mechanism, close 339 rather than tuning Transformer depth/heads/temperature.
 
 ---
+## 2026-04-24: Autoresearch 339b rank-space Transformer path flow
+
+### Context
+339b was the single architecture repair selected after the 339a postmortem. It kept the empirical normal-score coordinate and vanilla full-path rectified-flow objective, but replaced the axial 60x25 path mixer with a future-token Transformer conditioned by a narrow GRU history bottleneck and a flow-time token.
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_339a_empirical_normal_score_path_flow.py` with `--mixer_type transformer`
+- model: `models/backfill/339b_v0_s42/best_model.pt`
+- train summary: `models/backfill/339b_v0_s42/train_summary.json`
+- full suite: `results/block_ar/339b_v0_s42/full11.json`
+- markdown: `results/block_ar/339b_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation was epoch 31 with `val_total=0.60472`.
+
+### Result
+Full 11-suite score: `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- coverage90: `0.837`, calibration error `0.045`
+- h1/h30 coverage: `0.925 / 0.797`
+- conditional MAE reduction: `4.4%`
+- turb/calm width ratio: `0.893`
+- ACF correlation: `0.944`
+- kurtosis/skewness ratios: `0.854 / 1.033`
+- daily-change KS cells: `19/25`
+- level KS cells: `5/25`
+- median-bias cells: `21/25`, bias-magnitude cells `22/25`
+- corr/rank ratio: `0.776 / 1.969`
+- cointegration gen/GT: `0.892`, worst-cell `0.289`
+- aggregate MR h1/h30 ratios: `1.026 / 0.835`
+- full-horizon active MR mean: `49.5%`
+- max-jump KS: `0.499`
+- per-cell q99 tail cells: `17/25`
+
+### Mechanism Read
+The Transformer repair was partially useful but not decisive. It improved global skewness and conditional MAE reduction relative to 339a, and it preserved surface, block smoothness, cointegration, cross-cell structure, daily-change KS, and aggregate mean-reversion profile.
+
+However it did not solve the core 339 bottleneck. Regime width response became more inverted (`0.893`), level KS worsened (`5/25`), tail-cell count worsened (`17/25`), and pathwise max-jump KS stayed far from the gate (`0.499`). This means the issue is not just insufficient generic token mixing inside the one-shot rank-space path flow. The model still learns a plausible unconditional path cloud but does not learn the conditional/regime-dependent stochastic law strongly enough.
+
+### Decision
+339b is non-frontier and does not justify a Transformer depth/head/capacity sweep.
+
+Run post-experiment analysis next. The 339 family now has a clean two-point result: empirical rank-space coordinates help unconditional calibration and local daily fidelity, but one-shot joint path flow still misses regime-dependent width and path extreme geometry. Decide whether one final principled 339 repair exists, or close 339 and return to a different sequence factorization.
+
+---

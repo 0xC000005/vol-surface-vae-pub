@@ -941,7 +941,7 @@ def load_one_day_kernel(
         )
 
         return load_333a_model(checkpoint_path, device)
-    if model_type == "339a":
+    if model_type in {"339a", "339b"}:
         from diffusion.block_ar.empirical_normal_score_path_flow_matching import (
             load_model as load_339a_model,
         )
