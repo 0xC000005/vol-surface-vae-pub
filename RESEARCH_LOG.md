@@ -93176,3 +93176,30 @@ Close 345a as a non-frontier result. Do not tune mask schedule, depth, or sample
 Run post-experiment analysis next. The analysis should compare 339/345 against 340c: path-first flows can improve some distributional/daily summaries but have not preserved the structural/mean-reversion/level behavior that makes 340c the frontier.
 
 ---
+## 2026-04-24: Autoresearch 345a postmortem
+
+### Context
+345a was the first post-340 paradigm shift: a future-path-first empirical-normal-score rectified flow trained with random future inpainting masks. It scored `3/11`.
+
+### Mechanism Read
+The result separates two families cleanly:
+- `340c` one-step AR transition FM preserves the structural suites: time-series, cointegration, cross-cell geometry, mean reversion, surface validity, and block smoothness. It fails mainly on coverage/conditionality/regime coverage, level marginals, and pathwise max-jump shape.
+- `339/345` path-first flows learn plausible unconditional path clouds and can improve daily-change KS/tail-scale cells, but they do not preserve 340c's level/mean-reversion/cointegration-worst-cell behavior and remain weak on regime-responsive uncertainty.
+
+The masked objective did what it was supposed to test: it exposed the path generator to future inpainting conditionals. The negative result means the missing piece is not simply future-prefix conditioning or local inpainting regularization.
+
+### Pathology Update
+The shared bottleneck across the frontier and failed path flows is still state-dependent uncertainty allocation. The models do not learn enough widening/reshaping from history volatility/regime information; turb/calm width ratios remain near or below 1.0. But adding explicit regime scales or calibration would violate the clean-pathology guard.
+
+The problem now looks objective-class-level:
+- flow matching gives a flexible sampler but no exact pressure on the sampled path density/marginals;
+- scalar exact likelihood gives density pressure but breaks vector/path geometry;
+- one-step AR gives local structure but not the evaluated joint path law;
+- full-path FM gives joint paths but not enough conditional/local level fidelity.
+
+### Decision
+Close masked path inpainting as a non-frontier branch. Do not tune mask schedule, depth, or temperature.
+
+Run research ideation next. The next candidate should change the objective class more directly: a future-path-primary model with exact likelihood/density pressure while retaining vector dependence, rather than scalar chain-rule likelihood or rectified-flow MSE.
+
+---
