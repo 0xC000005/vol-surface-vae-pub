@@ -91882,3 +91882,40 @@ Close 337a as non-frontier.
 Run post-experiment analysis next. The evidence now rules out the clean one-step teacher-forced variants around 330/336/337. The next paradigm should be a true path-law objective or a better joint sequence likelihood that preserves common shocks, level calibration, and transition realism together, rather than relying on one-step local likelihood or FM coordinate choice.
 
 ---
+## 2026-04-24: Autoresearch 337 postmortem and 338 selection
+
+### Context
+337a tested exact one-step next-level likelihood after pure transition FM, source-law variants, capacity scaling, and pure level FM failed to repair the 330c frontier.
+
+### Findings
+337a is valid but non-frontier. It scored `3/11`, passing surface validity, block-AR smoothness, and cointegration. It failed coverage, conditionality, time-series, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+
+Mechanistically:
+- validation NLL was best at epoch 1 and then deteriorated while train NLL improved, so the exact density overfit immediately;
+- cross-cell correlation collapsed (`corr=0.150`, `rank=3.945`);
+- daily-change KS collapsed (`8/25`);
+- aggregate mean reversion became too strong (`1.825`);
+- level KS stayed at `6/25`, so exact next-level likelihood did not solve level fidelity either.
+
+### Mechanism Read
+The capped object is now one-step teacher-forced training, not a particular coordinate:
+- 330c transition FM is the clean frontier but its failures are free-run level/regime/path failures.
+- 334/332 source-law changes hurt level/coverage.
+- 335 capacity scaling overfit and worsened coverage/level behavior.
+- 336 level FM did not retain structural passes.
+- 337 exact level likelihood overfit and destroyed common-shock geometry.
+
+A one-step local objective can look good under teacher-forced prefixes while still failing under generated prefixes. The next clean move should train the model on the state distribution it creates, without adding evaluator-specific losses.
+
+### Decision
+Open 338 as an on-policy causal-memory AR-FM fine-tune.
+
+338a should:
+- start from the 330c checkpoint;
+- keep the same architecture, standardized-logit transition coordinate, and vanilla FM transition objective;
+- mix teacher-forced transitions with no-grad generated-prefix roll-in transitions;
+- train the model to map generated current states back toward true next states under the observed future path.
+
+This is a generic sequence-modeling repair for train/test state-distribution mismatch. It is not retrieval, not a residual path, not a low-rank readout, not a source-noise knob, not posterior/prior machinery, and not an evaluator loss. The falsifier is whether on-policy conditioning improves coverage, level law, active MR, regime behavior, and pathwise shape while preserving 330c's daily-change, time-series, cointegration, and cross-cell strengths.
+
+---
