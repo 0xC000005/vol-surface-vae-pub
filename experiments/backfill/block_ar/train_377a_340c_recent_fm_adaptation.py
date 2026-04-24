@@ -30,6 +30,9 @@ from diffusion.block_ar.empirical_normal_score_causal_memory_transition_flow_mat
 )
 from experiments.backfill.block_ar._rollout_220_utils import build_multistep_windows  # noqa: E402
 from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv  # noqa: E402
+from experiments.backfill.block_ar.train_340a_empirical_normal_score_causal_memory_transition_flow import (  # noqa: E402
+    compute_shared_level_quantiles,
+)
 
 
 def build_recent_block(
@@ -80,6 +83,12 @@ def main() -> None:
     )
     parser.add_argument("--noise_scale_min", type=float, default=0.25)
     parser.add_argument("--noise_scale_max", type=float, default=4.0)
+    parser.add_argument(
+        "--quantile_source",
+        choices=["checkpoint", "recent"],
+        default="checkpoint",
+        help="Use checkpoint empirical quantiles or recompute them from the recent adaptation block.",
+    )
     parser.add_argument(
         "--trainable_scope",
         choices=["all", "conditioning", "conditioning_memory_proj"],
@@ -160,6 +169,13 @@ def main() -> None:
         adaptation_windows=args.adaptation_windows,
         device=device,
     )
+    if args.quantile_source == "recent":
+        quantiles, quantile_levels = compute_shared_level_quantiles(
+            hist_01,
+            fut_01,
+            n_quantiles=model.cfg.n_quantiles,
+        )
+        model.set_empirical_quantiles(quantiles, quantile_levels)
     loader = DataLoader(
         TensorDataset(hist_01, fut_01),
         batch_size=args.batch_size,
@@ -184,6 +200,7 @@ def main() -> None:
     print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Trainable params: {n_trainable:,}  scope={args.trainable_scope}")
     print(f"Anchor weight: {args.anchor_weight:.3g}")
+    print(f"Quantile source: {args.quantile_source}")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
@@ -269,6 +286,7 @@ def main() -> None:
         "enable_conditional_noise_scale": args.enable_conditional_noise_scale,
         "noise_scale_min": args.noise_scale_min,
         "noise_scale_max": args.noise_scale_max,
+        "quantile_source": args.quantile_source,
         "config": asdict(model.cfg),
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")

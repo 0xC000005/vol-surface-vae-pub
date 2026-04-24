@@ -94390,3 +94390,27 @@ Naive learned base-prior scaling is not automatically valid under the current FM
 Close naive conditional noise scaling. The next principled move should be data framing rather than another architecture knob: test rolling/recent empirical normal-score quantiles for adaptation and decoding. The evidence says daily transition shape is already good, while level occupancy is the stable failure under validation marginal shift.
 
 ---
+## 2026-04-24: Autoresearch 385 recent quantile framing
+
+### Context
+Iteration 385 tested the data-framing hypothesis from 384: the stable level-occupancy failure may come from using stale empirical normal-score quantiles while the validation marginal has shifted. The model architecture and vanilla FM objective were unchanged; only the empirical normal-score quantile table was recomputed from the immediately preceding adaptation block before recent-window adaptation.
+
+### Result
+- Added `--quantile_source recent` to `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py`.
+- Model: `models/backfill/385a_recent_quantiles_fm_s42/best_model.pt`.
+- Full suite: `results/block_ar/385a_recent_quantiles_fm_s42/full11.json`.
+- Official score: `8/11`.
+- Failures: `coverage`, `regime_coverage`, `distributional_fidelity`.
+- Conditional MAE reduction improved to `6.08%`.
+- Daily-change KS passed `25/25`.
+- Bias magnitude passed `25/25`.
+- h1 and h7 per-cell coverage passed the `[70%, 95%]` band; h14 and h30 still failed.
+- Level KS remained weak at `5/25`.
+
+### Mechanism Read
+Recent quantile framing is useful but not sufficient. It improved conditionality, skewness, short-horizon coverage, bias magnitude, and preserved structural passes, but it did not fix long-horizon level occupancy. The much higher adaptation loss shows that directly replacing the score coordinate creates transfer shock for the 340c weights; despite that, the official metrics improve in the right places.
+
+### Decision
+Keep the recent-quantile data-framing path active. Next test a less abrupt coordinate update, such as longer recent quantiles or blended train+recent quantiles, to reduce transfer shock while keeping validation-marginal alignment. This is cleaner than adding another architecture component because it targets the stable level-occupancy pathology directly.
+
+---
