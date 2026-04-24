@@ -93336,3 +93336,54 @@ No retrieval, low-rank readout, deterministic center/residual split, bounded pat
 If 347a cannot retain 340c's structural passes while improving coverage/distributional fidelity, then exact likelihood at the transition-law level is not sufficient. The next move should revisit the transition representation or data/evaluation framing, not add auxiliary losses.
 
 ---
+## 2026-04-24: Autoresearch 347a transition coupling likelihood
+
+### Context
+347a tested the post-346 decision: keep 340c's causal prefix/rollout factorization, but replace one-step FM with exact vector density pressure at the daily 25-cell transition level.
+
+### Run
+Train command:
+`python experiments/backfill/block_ar/train_347a_empirical_normal_score_transition_coupling_density.py --output_dir models/backfill/347a_v0_s42 --epochs 30 --batch_size 64 --memory_dim 128 --memory_layers 3 --memory_heads 4 --memory_ff 256 --coupling_layers 6 --coupling_hidden 256 --lr 2e-4 --device cuda --seed 42`
+
+Evaluation command:
+`python experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py --model_type 347a --checkpoint models/backfill/347a_v0_s42/best_model.pt --output_json results/block_ar/347a_v0_s42/full11.json --output_md results/block_ar/347a_v0_s42/full11.md --max_windows 192 --samples 48 --conditionality_samples 32 --batch_size 32 --chunk_size 8 --conditionality_max_batches 8 --device cuda`
+
+Best checkpoint: epoch 12, `val_total=-0.06884`.
+
+### Result
+347a scored `4/11`.
+
+Passed:
+- surface validity;
+- block-AR smoothness;
+- cointegration;
+- cross-cell correlation.
+
+Failed:
+- coverage;
+- conditionality;
+- time-series properties;
+- regime coverage;
+- distributional fidelity;
+- mean reversion;
+- pathwise jump realism.
+
+Key diagnostics:
+- cov90 `0.908`, calibration error `0.039`;
+- conditional MAE reduction `3.3%`, turb/calm width ratio `1.003`;
+- daily-change KS pass `22/25`, level KS pass `2/25`;
+- cross-cell correlation ratio `0.961`, effective-rank ratio `1.335`;
+- aggregate mean-reversion ratio `1.108`, but full-horizon active mean pass only `35.4%`;
+- pathwise max-jump KS `0.228`, per-cell q99 jump pass `17/25`.
+
+### Mechanism Read
+The placement hypothesis was partly right. Moving exact likelihood from flattened full path to daily transition law restored cross-cell geometry and daily-change fidelity relative to 346a, and preserved cointegration. However, the model still does not allocate uncertainty by regime and still fails level marginals and active mean-reversion breadth.
+
+This is not a failure of causal AR factorization. It is a failure of the conditional transition likelihood to learn enough state-dependent scale/shape from the prefix while maintaining level calibration across cells.
+
+### Decision
+347a is not a frontier, but it is mechanistically useful and cleaner than path-primary likelihood. Do not tune coupling depth or hidden size immediately.
+
+Run post-experiment analysis next. Compare 347a to 340c: 347a improves coverage width and cross-cell ratio but loses some 340c distributional/time-series gates. The next step should decide whether to merge FM's transition geometry with likelihood's calibrated scale in one clean objective, or whether this branch is capped by weak state-dependent conditioning.
+
+---
