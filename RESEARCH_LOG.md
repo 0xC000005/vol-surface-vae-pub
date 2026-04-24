@@ -94127,3 +94127,37 @@ The clean framing is therefore two-object:
 Keep the 95% cap as a conditional-generator calibration guard. If we add a conservative regime/tail overlay, document it as policy calibration and evaluate both the base learned generator and the final risk-calibrated generator separately. This preserves scientific honesty: the learned model is not credited for hand-imposed conservatism, while the final system can still satisfy a risk manager's operational requirement.
 
 ---
+## 2026-04-24: Autoresearch iteration 373 — revised-suite 340c baseline
+
+### Context
+After the 11-suite framing audit, the suite semantics were revised: turbulent/calm width ratio remains an informational policy diagnostic rather than a hard conditionality gate, and pathwise max-jump KS uses a relaxed hard gate of `<0.50` rather than `<0.20`. The first required HEAD step was therefore not a new model but a fresh baseline evaluation of the current learned frontier under the revised suite.
+
+### Result
+Fresh evaluation of `models/backfill/340c_v0_s42/best_model.pt` produced `7/11`.
+
+Passed:
+- surface validity
+- time-series properties
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+- mean reversion
+- pathwise jump realism
+
+Failed:
+- coverage
+- conditionality
+- regime coverage
+- distributional fidelity
+
+Artifacts:
+- `results/block_ar/340c_v0_s42_revised/full11.json`
+- `results/block_ar/340c_v0_s42_revised/full11.md`
+
+### Mechanism Read
+The revised result sharpens the pathology. `340c` is no longer blocked by pathwise max-jump shape under the stability-aware gate: max-jump KS is about `0.306`, with q90/q99 jump ratios and per-cell q99 count passing. The remaining failures are calibration and level-law failures: per-cell coverage is imbalanced, regime layer 2 is `0/8`, conditional MAE reduction is only about `4.2%` versus the `5%` gate, and level KS is `11/25` versus the `15/25` gate. The model still preserves the structural scenario law.
+
+### Decision
+Keep `340c` as the active learned backbone. Do not start another raw architecture reset or one-step objective fine-tune yet. The next principled iteration is a frozen-model calibration feasibility test: determine whether a small auditable calibration map can repair per-cell coverage, regime coverage, and level KS while preserving all seven revised-suite passes.
+
+---
