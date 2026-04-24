@@ -92360,3 +92360,37 @@ Promote 340a to the current frontier (`6/11`).
 Run post-experiment analysis next. Do not stack calibration hacks. The next move should be one principled repair to conditional stochastic dispersion in the 340 AR rank-coordinate law, ideally preserving the new time-series and mean-reversion passes.
 
 ---
+## 2026-04-24: Autoresearch 340a postmortem and 340b selection
+
+### Context
+340a is the new `6/11` frontier. It validates the combination of a shared empirical normal-score coordinate with the 330-style causal-memory AR transition factorization.
+
+### Findings
+340a solved or preserved the core structural suites:
+- surface validity passes;
+- time-series passes, including ACF, kurtosis, skewness, per-cell q99 tail count, and move-size profile;
+- daily-change KS is `24/25`;
+- cointegration passes with worst-cell exactly at the gate (`0.250`);
+- cross-cell correlation/rank passes (`0.901 / 1.462`);
+- mean reversion fully passes with active mean `90.9%` and mean corr `0.853`.
+
+The remaining failures are concentrated:
+- aggregate coverage is reasonable (`0.835`) but per-cell coverage still fails;
+- conditional MAE reduction is only `3.1%`;
+- turb/calm width response is too flat (`0.965`);
+- level KS is `8/25`, not enough for distributional fidelity;
+- max-jump KS is `0.429`, though per-cell q99 tail cells pass (`21/25`).
+
+### Mechanism Read
+The active bottleneck is now conditional stochastic dispersion, not local daily dynamics or common geometry. The model sees prefix levels and first differences, but it may not have an easy state representation of realized local scale/volatility. The causal memory can theoretically infer this from deltas, but empirically width remains nearly regime-invariant across 330/339/340 variants.
+
+A calibration layer, temperature, learned source scale, or evaluator-specific loss would be a knob branch. The cleaner repair is to enrich the state representation itself with generic scale statistics while leaving the generative objective unchanged.
+
+### Decision
+Open 340b: scale-state causal memory.
+
+340b should keep 340a's shared normal-score coordinate, causal-memory AR factorization, and vanilla transition FM objective. The only change is the prefix state representation: encode each prefix step with score, first difference, absolute first difference, and squared first difference. These are generic time-series state statistics, not a residual path, calibration head, source-noise scaling, low-rank readout, retrieval, or evaluator loss.
+
+The falsifier is whether explicit realized-scale state improves conditionality/regime width, per-cell coverage, level KS, and pathwise max-jump shape while preserving 340a's six passing suites. If it loses the new 6/11 frontier or does not improve the bottleneck, close this repair and analyze again rather than adding more state features.
+
+---
