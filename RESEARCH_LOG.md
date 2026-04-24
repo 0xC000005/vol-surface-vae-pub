@@ -92094,3 +92094,21 @@ Close or pause 338.
 Next iteration should be research ideation / paradigm selection for 339. Do not run another local 330/338 variant by default. The next experiment needs a genuinely joint path-law objective or first-principles sequence density that preserves local daily transitions, level marginals, common-shock geometry, and regime/path calibration together without evaluator-specific losses, retrieval replay, low-rank readouts, residual side paths, source-noise knobs, or posterior/prior scaffolds.
 
 ---
+## 2026-04-24: Autoresearch 339 rank-space joint path-law selection
+
+### Context
+After 338b, the current state called for research ideation rather than another local 330/338 variant. The recent mechanism map is stable: one-step transition/level objectives preserve some local structure but miss full 30-day level/regime/path calibration, while one-shot masked path flow improves some path-law quantities but remains weak on level-law fidelity and local tails.
+
+### Ideation
+The next clean paradigm should learn one joint future path law, not stitch together deterministic centers, residual shells, retrieval paths, fixed copulas, or evaluator losses. The most principled candidate is a probability-integral-transform normal-score path model:
+- estimate monotone per-cell/horizon empirical CDF coordinates from training windows only;
+- map history and future levels into normal-score/rank space;
+- train a vanilla conditional rectified-flow full-path generator in that coordinate;
+- decode with the inverse empirical CDF.
+
+This is a coordinate/factorization choice, not a post-hoc correction: the neural generator still learns the conditional joint path law and all dependence/regime behavior. The empirical monotone transform only removes arbitrary marginal scale and bounded-support geometry, and it is generic to other financial factor panels.
+
+### Decision
+Open 339a as a learned rank-space joint path-law falsifier. Reuse the 333 masked full-path implementation pattern only as infrastructure, but change the modeled variable to empirical normal-score coordinates. Do not add low-rank readouts, bounded idio/EC paths, posterior/prior scaffolds, retrieval, fixed copula reuse, source-noise knobs, or evaluator-specific losses. The falsifier is whether rank-space joint flow improves level KS, per-cell coverage, and regime/path calibration while retaining at least the structural passes needed to beat the 5/11 frontier.
+
+---
