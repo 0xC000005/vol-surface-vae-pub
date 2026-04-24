@@ -93716,3 +93716,29 @@ Close 350a as non-frontier. Do not tune level-density capacity or early stopping
 Run post-experiment analysis next. Treat 348a as the strongest transition-likelihood branch and 340c as the overall frontier. The next move should not be direct next-level likelihood; it should seek a stationary transition parameterization if continuing this family.
 
 ---
+## 2026-04-24: Autoresearch 350a postmortem
+
+### Context
+350a tested direct next-level density as the level-stationarity repair. It scored `3/11`.
+
+### Mechanism Read
+Direct next-level likelihood did not solve the problem. It improved level KS only marginally (`7/25`) and did so at a large cost:
+- daily-change KS fell to `9/25`;
+- cross-cell correlation collapsed (`corr ratio=0.176`, rank ratio `3.945`);
+- coverage collapsed to cov90 `0.735` with severe per-cell undercoverage;
+- h1 mean reversion became too strong (`ratio=1.842`) and the full mean-reversion suite failed;
+- pathwise max-jump KS worsened to `0.407`.
+
+This closes the direct-level branch. The transition coordinate is necessary for realistic local dynamics and dependence, even though transition likelihood alone struggles with level marginals.
+
+### Pathology Update
+The clean bottleneck is now more specific: we need a transition-coordinate model whose conditional location is level-stationary by construction or strong parameterization, rather than hoping unconstrained location/coupling layers discover the right long-run marginal under rollout.
+
+348a remains the best transition-likelihood branch because it demonstrates that explicit conditional location plus innovation covariance can pass mean reversion and cross-cell suites. Its failure is not that location is wrong; it is that the free location is not stationary enough cell-wise.
+
+### Decision
+Do not continue direct next-level density. Do not tune 350a early stopping or capacity.
+
+Run research ideation next. The next candidate should keep the 348a transition likelihood but replace the free transition-location head with a standard stable AR/state-space location parameterization in normal-score coordinates.
+
+---
