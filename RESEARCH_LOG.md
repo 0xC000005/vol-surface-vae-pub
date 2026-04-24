@@ -90830,3 +90830,27 @@ The variogram term did what it was expected to do locally: daily-change KS impro
 Close the 325 branch rather than adding more score weights, pair samplers, CRPS terms, or tail auxiliaries. The next HEAD step should be a paradigm shift. The evidence now rules out the clean variants of: direct full-path FM, one-step likelihood, and direct proper-score implicit generation as sufficient on this data/model scale. The next paradigm must make common shocks structural without returning to hard low-rank readouts, retrieval, or evaluator-specific calibration.
 
 ---
+## 2026-04-23: 326 shared-latent implicit path generator paradigm
+
+### Context
+The clean 324 and 325 branches now give a consistent mechanism map. Direct path flow and direct proper-score implicit generation can learn some drift, support validity, and daily-change structure, but when every future cell has its own independent base noise the learned map does not reliably discover the historical common-shock geometry. Adding deterministic global tokens, shared source components, OT pairing, energy score, or a variogram score did not make common shocks structurally necessary.
+
+### Paradigm Shift
+Open `326`: a shared-latent implicit future-path generator.
+
+Core idea:
+- sample only a narrow set of shared latent tokens per scenario
+- condition those latent tokens on history through a learned decoder
+- decode the full 30-day future logit path jointly from the shared latent tokens and history
+- do not inject independent per-cell future noise
+- train the resulting conditional sample law directly with the same proper-score objective family
+
+### Why This Is Still Clean
+This is not a hard low-rank readout and not a hand-built factor model. The decoder is a learned nonlinear map from a compact stochastic state to the full future path. The only structural bias is a narrow stochastic bottleneck, which was explicitly accepted in the complete reset as the most defensible way to force compression/common shocks without specifying financial factors by hand.
+
+This differs from earlier latent-token attempts (`313`) because stochasticity is not optional and there is no posterior/prior scaffold: generation is directly `history + sampled shared latent tokens -> full path`, trained against sample-law scores.
+
+### Decision
+Run `326a` as the minimal falsifier: shared latent tokens plus learned axial/cross-attention decoder, standardized future-logit coordinates, energy-score training first. If it improves cross-cell/rank without catastrophic coverage collapse, the family is alive; if it collapses diversity or remains under-coupled, the shared-bottleneck route is likely capped under the current data scale.
+
+---
