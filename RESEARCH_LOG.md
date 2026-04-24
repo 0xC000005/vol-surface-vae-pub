@@ -92455,3 +92455,39 @@ Close 340b as a negative repair. Keep 340a as the active `6/11` frontier.
 Run post-experiment analysis next. Do not add more prefix state features. The next repair must preserve 340a's six passes while addressing the remaining per-cell coverage / regime-width / level-KS / max-jump failures more directly and cleanly.
 
 ---
+## 2026-04-24: Autoresearch 340b postmortem and 340c selection
+
+### Context
+340b was the single allowed scale-state repair after the 340a frontier. It changed only the prefix representation from `[score, delta]` to `[score, delta, |delta|, delta^2]` while keeping the shared empirical normal-score coordinate, causal-memory AR factorization, and vanilla transition FM objective.
+
+### Findings
+340b scored `4/11`, below the 340a `6/11` frontier.
+
+The useful signal is narrow:
+- aggregate calibration improved (`0.054 -> 0.008`);
+- pathwise max-jump KS improved but stayed failing (`0.429 -> 0.348`);
+- per-cell q99 tail scale stayed passing (`21/25`).
+
+The damage is more important:
+- time-series failed through skew collapse (`2.596 -> -5.259`);
+- worst-cell cointegration fell below the gate (`0.250 -> 0.167`);
+- level KS worsened (`8/25 -> 5/25`);
+- median-bias count worsened (`18/25 -> 17/25`);
+- conditionality and regime width barely moved (`turb/calm 0.965 -> 0.972`, still below `1.15`).
+
+### Mechanism Read
+The failure is not missing simple realized-scale features in the prefix. Those features changed aggregate width and jump shape, but they did not teach the conditional dispersion law and they perturbed global skew/cointegration/level fidelity.
+
+The clean pathology is now:
+- 340a already models support, daily changes, ACF, block smoothness, cointegration, cross-cell geometry, and mean reversion;
+- the remaining failures are per-cell/regime coverage, conditional MAE reduction, validation level law, and pathwise max-jump distribution;
+- these failures require stronger conditional use of history/current state, not another hand-added state statistic.
+
+### Decision
+Keep 340a as the active `6/11` frontier and close 340b.
+
+Open 340c as the next minimal falsifier: use the same 340a normal-score causal-memory AR transition FM, but switch the transition velocity conditioning interface from `additive` to `prefix`. Memory and flow-time become separate tokens attended by the per-cell transition mixer instead of being collapsed into an additive bias shared across all cell tokens.
+
+This is a generic Transformer conditioning change, not a scale knob, residual shell, retrieval variant, low-rank readout, bounded path, learned posterior/prior scaffold, evaluator loss, or post-hoc calibration. The falsifier is whether stronger generic conditioning improves conditionality/regime/per-cell coverage and level/path fidelity while preserving 340a's six structural passes.
+
+---
