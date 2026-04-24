@@ -94347,3 +94347,24 @@ Anchoring does not dominate 377a. It keeps the model close enough to preserve co
 Do not add more adaptation knobs immediately. The evidence from full adaptation, trainable-scope freezing, and anchoring now points to a clean unresolved mechanism: the remaining failures are likely a geometry/data-framing issue around level occupancy and per-cell width allocation, not merely overfitting from recent adaptation. Next iteration should be post-experiment analysis to isolate whether the failures come from validation endpoint level drift, per-cell heteroskedastic width geometry, or official-suite sample/test instability.
 
 ---
+## 2026-04-24: Autoresearch 383 adaptation failure geometry
+
+### Context
+Iteration 383 was a post-experiment analysis after three adaptation variants failed to beat 377a. The goal was to identify the stable failure geometry before adding another model component.
+
+### Result
+- Added and ran `experiments/backfill/block_ar/analyze_383a_adaptation_family_failure_geometry.py`.
+- Artifact: `results/block_ar/383a_adaptation_family_failure_geometry/summary.json`.
+- Artifact: `results/block_ar/383a_adaptation_family_failure_geometry/summary.md`.
+- Compared `340c_revised`, `377a_full_adapt`, `381_conditioning`, `381_conditioning_memory`, and `382_anchor1`.
+- Daily-change KS is stable at `24/25` or `25/25`; the hard distribution failure is level occupancy, with level KS only `5/25` to `13/25`.
+- Regime layer2 remains `0/8` or `1/8` across the family.
+- Undercoverage concentrates in cells `(0,3)` and `(1,3)`, while overcoverage concentrates in different cells such as `(4,0)`, `(4,1)`, and `(4,4)`.
+
+### Mechanism Read
+The residual failures are not generic path realism failures. They are conditional per-cell uncertainty geometry failures: the model can generate plausible one-day moves, preserve broad time-series properties, and often pass cointegration, but it misallocates long-horizon level mass and interval width across cells/regimes. This explains why scalar temperature, sample mixtures, trainable-scope freezing, and checkpoint anchoring all fail.
+
+### Decision
+The next clean experiment should target conditional per-cell uncertainty inside the model rather than post-hoc scalar calibration. Candidate: a learned conditional diagonal noise-scale/readout in normal-score transition space, trained with the same FM objective and sampled by scaling the base noise before flow integration.
+
+---
