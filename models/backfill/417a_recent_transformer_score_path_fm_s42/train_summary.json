@@ -1,0 +1,20 @@
+{
+  "source_checkpoint": "models/backfill/339b_v0_s42/best_model.pt",
+  "source_epoch": 31,
+  "source_best_val": 0.6047192918402808,
+  "adaptation_start_index": 3569,
+  "adaptation_end_index": 4009,
+  "n_train": 353,
+  "n_val": 88,
+  "best_epoch": 7,
+  "best_val_total": 0.6564648946126302,
+  "objective": "recent_quantile_full_path_fm",
+  "config": {
+    "mixer_type": "transformer",
+    "token_dim": 128,
+    "token_layers": 3,
+    "global_mixer": true,
+    "transition_features": true,
+    "n_quantiles": 401
+  }
+}

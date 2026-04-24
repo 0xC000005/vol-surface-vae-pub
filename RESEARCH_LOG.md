@@ -95194,3 +95194,27 @@ The mixture diagnostic should be closed, but 413a should not be discarded as mer
 Run one final direct-path repair: recent-quantile adaptation of the 339b Transformer path-flow checkpoint. This is not a depth/head sweep; it is the single missing cross of two known mechanisms: 339b's stronger joint mixer and 413a's recent score framing. If it fails to beat the frontier or at least preserve distributional fidelity while improving structural suites, close direct path flow.
 
 ---
+## 2026-04-24: Autoresearch 417 recent transformer score path
+
+### Context
+Iteration 416 selected one final direct-path repair before closing the family: adapt the older 339b Transformer path-flow checkpoint under the newer 413a recent-normal-score framing. The reason was that 339b historically had better structural coupling than 339a, while 413a had demonstrated much better distributional occupancy under recent-score framing.
+
+### Result
+417a trained from `models/backfill/339b_v0_s42/best_model.pt` into `models/backfill/417a_recent_transformer_score_path_fm_s42/best_model.pt` and evaluated with the official full-11 suite at 192 validation windows and 48 samples. It scored `4/11`, failing `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, and `mean_reversion`.
+
+Key metrics: h1 cov90 `0.884`, h30 cov90 `0.829`, conditionality `3.25%`, turbulent/calm width ratio `0.972`, coint worst-cell `0.214` fail despite aggregate gen/GT ratio `0.626` pass, regime layer2 `0/8`, daily KS `25/25`, level KS `7/25`, median fraction `24/25`, bias magnitude `24/25`, corr ratio `0.829` pass, max-jump KS `0.405` pass.
+
+### Mechanism Read
+The final direct-path repair did not combine the complementary properties. 413a had improved unconditional level occupancy but lost structural coupling; 417a recovered some cross-cell correlation/rank behavior but lost level KS and still failed conditionality, cointegration worst-cell, regime response, and mean reversion. This suggests the direct one-shot path-flow family is not merely under-tuned; its representation is not preserving the transition geometry needed by the suite while learning path-level occupancy.
+
+### Decision
+Close direct future normal-score path flow as the primary path. The best active learned frontier remains 392a at `8/11`. The next iteration should be post-experiment analysis / ideation for a clean paradigm that keeps AR transition structure while learning path-level marginal occupancy natively, not via mixture, post-hoc calibration, or another direct-path tuning variant.
+
+### Artifacts
+- `models/backfill/417a_recent_transformer_score_path_fm_s42/args.json`
+- `models/backfill/417a_recent_transformer_score_path_fm_s42/train_summary.json`
+- `models/backfill/417a_recent_transformer_score_path_fm_s42/training_history.json`
+- `results/block_ar/417a_recent_transformer_score_path_fm_s42/full11.json`
+- `results/block_ar/417a_recent_transformer_score_path_fm_s42/full11.md`
+
+---
