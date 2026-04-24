@@ -93120,3 +93120,59 @@ This is a single conditional path-law objective. It asks the model to learn the 
 345a must beat the `6/11` frontier or show a materially different mechanism that preserves local daily/level fidelity while improving path/regime behavior. If it behaves like 339 with only small metric reshuffling, close masked path inpainting and move to a different family rather than tuning mask schedules or architecture depth.
 
 ---
+## 2026-04-24: Autoresearch 345a masked future-path result
+
+### Context
+345a tested the paradigm-shift selected after closing the 340 one-step transition-FM repair branch: empirical-normal-score full future-path rectified flow trained with random future inpainting masks.
+
+Artifacts:
+- module: `diffusion/block_ar/empirical_normal_score_masked_future_path_flow_matching.py`
+- trainer: `experiments/backfill/block_ar/train_345a_masked_future_path_flow.py`
+- eval routing: `experiments/backfill/block_ar/_rollout_220_utils.py`, `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- model: `models/backfill/345a_v0_s42/best_model.pt`
+- train summary: `models/backfill/345a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/345a_v0_s42/full11.json`
+- markdown: `results/block_ar/345a_v0_s42/full11.md`
+
+Training completed 48 epochs. Best checkpoint was epoch 45 with validation objective `0.55038`.
+
+### Result
+Full 11-suite score: `3/11`, below the `340a/340c` frontier at `6/11` and below the older 339 full-path variants at `4/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- IV-EWMA cointegration
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Key diagnostics:
+- aggregate cov90 was `0.823`, with calibration error `0.044`; per-cell coverage failed;
+- conditionality remained failed: MAE reduction `4.1%`, turb/calm width `1.010`;
+- daily-change KS passed (`16/25` cells), but level KS remained poor (`4/25` cells);
+- median-bias cells were `17/25`, below gate;
+- tail-scale cells were `19/25`, one cell short of the `20/25` gate;
+- cointegration aggregate was good (`0.994`), but worst-cell ratio failed (`0.222`);
+- cross-cell correlation passed (`corr ratio 0.705`, rank ratio `2.022`);
+- full-horizon active mean reversion failed (`51.8%` active mean pass);
+- pathwise max-jump KS worsened to `0.557`, while per-cell q99 jump cells were `19/25`.
+
+### Mechanism Read
+Masked future inpainting is not enough. It improved the local daily-change law relative to many failed path-first branches, but it still behaves like the 339 path-flow family: plausible path cloud, weak regime responsiveness, poor level marginals, weak active mean reversion over horizons, and bad pathwise max-jump shape.
+
+The result suggests the missing ingredient is not simply exposing the path model to future inpainting conditionals. The full-path flow still does not allocate state-dependent uncertainty across cells/horizons in the way required by the suite.
+
+### Decision
+Close 345a as a non-frontier result. Do not tune mask schedule, depth, or sample temperature as local knobs.
+
+Run post-experiment analysis next. The analysis should compare 339/345 against 340c: path-first flows can improve some distributional/daily summaries but have not preserved the structural/mean-reversion/level behavior that makes 340c the frontier.
+
+---
