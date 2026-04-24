@@ -94507,3 +94507,26 @@ Recent-heavy blending keeps the improved global coverage shape but damages the t
 Close quantile blending. Keep 385a as the active `8/11` frontier. Next step should be analysis of the residual 385a failures rather than another quantile-weight experiment.
 
 ---
+## 2026-04-24: Autoresearch 390 385a residual audit
+
+### Context
+Iteration 390 audited the active frontier, 385a, to decide whether its remaining `coverage`, `regime_coverage`, and `distributional_fidelity` failures are fixable by simple calibration or require a model-side long-horizon repair.
+
+### Result
+- Added and ran `experiments/backfill/block_ar/analyze_390a_385a_residual_failures.py`.
+- Artifact: `results/block_ar/390a_385a_residual_failure_audit/summary.json`.
+- Artifact: `results/block_ar/390a_385a_residual_failure_audit/summary.md`.
+- 385a has both undercoverage and overcoverage: `2` global under-70 cell-horizon violations and `12` over-95 violations.
+- Undercoverage appears only at h30, while overcoverage is concentrated at h14/h30.
+- Daily-change KS passes `25/25`.
+- Level KS is only `5/25`.
+- Bias magnitude passes `25/25`, so the level-KS problem is not a simple mean-shift problem.
+- Regime layer2 fails through the same cellwise width allocation problem, with both under-70 and over-95 cells inside regime subsamples.
+
+### Mechanism Read
+Scalar temperature is not sufficient because narrowing worsens the undercovered cells and widening worsens the overcovered cells. Mean-shift calibration is also weakly justified because mean-bias magnitude already passes every cell. The remaining pathology is long-horizon free-running level occupancy and cellwise width allocation.
+
+### Decision
+Next experiment should be a proper-scoring-rule fine-tune on free-running 30-day paths starting from 385a, with FM retained as an anchor. This directly targets the residual pathology without changing the architecture or adding evaluator-specific cell/regime gates.
+
+---
