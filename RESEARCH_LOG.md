@@ -93614,3 +93614,29 @@ Close 349a as non-frontier. Do not tune df initialization, df floor, or sample t
 Run post-experiment analysis next. The analysis should treat 348a as the best transition-likelihood branch so far and identify why 349a improved local daily/kurtosis metrics while breaking mean reversion and regime response.
 
 ---
+## 2026-04-24: Autoresearch 349a postmortem
+
+### Context
+349a tested a learned Student-t base for the 348a explicit-location transition likelihood. It scored `4/11`, below both 348a and the 340c frontier.
+
+### Comparative Read
+
+| model | pass | cov90 | daily KS | level KS | median frac | tail q99 | kurtosis ratio | corr ratio | MR active | jump KS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 340c | 6/11 | 0.876 | 24/25 | 12/25 | 20/25 | 20/25 | 1.147 | 0.816 | 0.890 | 0.309 |
+| 348a | 5/11 | 0.913 | 21/25 | 3/25 | 20/25 | 22/25 | 0.702 | 0.753 | 0.807 | 0.292 |
+| 349a | 4/11 | 0.900 | 25/25 | 5/25 | 22/25 | 21/25 | 1.192 | 1.017 | 0.364 | 0.345 |
+
+349a improved local innovation summaries: daily-change KS, median-bias counts, bias magnitude, kurtosis, and cross-cell correlation. But it broke the two things that made 348a promising: active mean reversion and regime width response.
+
+### Mechanism Read
+The heavy-tailed base changes the innovation law, but it also changes how the model allocates responsibility between location and innovation. The Student-t branch learned a broader/heavier innovation distribution and relied less on the location mechanism, which weakened recursive mean-reversion breadth. This is why local daily-change statistics improved while rollout path law worsened.
+
+The remaining blocker is not a scalar tail parameter. It is level-stationary recursive dynamics: the model must keep the generated level distribution close to the historical marginal while still producing realistic daily innovations.
+
+### Decision
+Close 349a as non-frontier. Do not tune df initialization, df floor, or temperature.
+
+The next ideation should target level stationarity more directly. A clean candidate is to keep the same causal AR density backbone but model the next normal-score level directly instead of modeling the transition increment. That tests whether transition-coordinate likelihood is the source of poor level KS, without adding regime labels, tail losses, or calibration knobs.
+
+---
