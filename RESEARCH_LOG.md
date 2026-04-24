@@ -93505,3 +93505,33 @@ The remaining failures are now more localized:
 Run post-experiment analysis next. The next step should compare 348a against 340c and decide whether a clean innovation-law change can fix level/jump shape without losing mean reversion and covariance.
 
 ---
+## 2026-04-24: Autoresearch 348a postmortem
+
+### Context
+348a added an explicit learned transition location to the 347a causal transition coupling likelihood. It scored `5/11`, below the 340c frontier but with a different and informative failure profile.
+
+### Comparative Read
+
+| model | pass | cov90 | daily KS | level KS | tail q99 | kurtosis ratio | corr ratio | rank ratio | MR active | jump KS | jump q99 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 340c | 6/11 | 0.876 | 24/25 | 12/25 | 20/25 | 1.147 | 0.816 | 1.697 | 0.890 | 0.309 | 20/25 |
+| 347a | 4/11 | 0.908 | 22/25 | 2/25 | 17/25 | 0.917 | 0.961 | 1.335 | 0.354 | 0.228 | 17/25 |
+| 348a | 5/11 | 0.913 | 21/25 | 3/25 | 22/25 | 0.702 | 0.753 | 1.990 | 0.807 | 0.292 | 22/25 |
+
+348a confirms that explicit conditional location is not just a patch: it restores active mean reversion and produces real turb/calm width separation without regime labels. It also keeps joint covariance valid enough to pass cross-cell correlation and cointegration.
+
+### Mechanism Read
+The remaining failures now concentrate in innovation-law and level-marginal shape:
+- level KS is still poor (`3/25`), so the long-run generated level distribution is not stationary enough cell-wise;
+- time-series q99 tail scale passes, but kurtosis/skew fail, so the move distribution shape is wrong rather than merely too narrow/wide;
+- pathwise q99 scale passes, but max-jump KS fails, again pointing to shape/incidence rather than scale;
+- coverage has both undercovered and overcovered cells, so global temperature would be the wrong repair.
+
+This argues against simple calibration or capacity tuning. The causal transition backbone plus explicit location is valid; the stochastic innovation law is the next clean bottleneck.
+
+### Decision
+Do not tune sample temperature, location hidden size, or coupling depth. Do not ensemble 340c and 348a.
+
+Run research ideation next. The next candidate should change the innovation law in a generic way that can alter kurtosis/skew/max-jump shape while preserving 348a's location-driven mean reversion and covariance. A standard heavy-tailed or more expressive base law is more principled than an evaluator-specific tail loss.
+
+---
