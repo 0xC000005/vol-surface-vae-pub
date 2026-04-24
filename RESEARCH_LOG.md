@@ -94963,3 +94963,22 @@ Interval calibration is directionally meaningful but capped as a primary path. D
 Close interval calibration as the primary autoresearch route. It can remain a reportable policy-calibration ablation, but continuing it would require more cell/regime-specific knobs. The next principled route should return to the learned base law and attack long-horizon level occupancy/regime allocation during training, not through post-hoc width manipulation.
 
 ---
+## 2026-04-24: Autoresearch 409 marginal CRPS objective
+
+### Context
+408a closed interval calibration as the primary route. The next step needed to return to the learned base law while staying clean: no architecture branch, no post-hoc cell/regime policy, and no evaluator-specific table.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_409a_free_running_marginal_crps.md`.
+
+Selected next experiment: fine-tune the 392a checkpoint with the original teacher-forced FM anchor plus a small-weight free-running marginal CRPS over generated future normal-score paths.
+
+### Mechanism Read
+The previous free-running path-energy objective was directionally right but too blunt: it improved level occupancy, yet stronger variants traded away conditionality, coverage, or cointegration before level KS reached the gate. Energy score is a multivariate path-distance score; it can improve average path geometry without precisely repairing per-cell/per-horizon marginal level occupancy.
+
+Marginal CRPS is still a proper scoring rule, but it directly trains the distributions behind the persistent failures: per-cell coverage, level KS, median-bias fraction, and regime-cell coverage. This keeps the 392a generative core unchanged and applies one uniform objective across all future variables and horizons.
+
+### Decision
+Run `410a`: start from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`, retain the FM anchor, add small free-running marginal CRPS, and evaluate on the official full 11-suite. If it does not improve the failed suites without losing conditionality/cointegration/time-series realism, treat proper-score fine-tuning as capped and move to a base likelihood/representation paradigm shift.
+
+---
