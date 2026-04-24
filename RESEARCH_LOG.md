@@ -94790,3 +94790,24 @@ Endpoint selection improves some coverage edge counts and keeps level KS unchang
 Keep `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt` as the active 8/11 frontier. Close simple endpoint checkpoint selection. The next iteration should be a paradigm-level review: either frame a reportable base-model plus policy-calibrated risk system, or open a genuinely new base likelihood/representation path rather than another local fine-tune objective.
 
 ---
+## 2026-04-24: Autoresearch 402 calibrated risk-system paradigm
+
+### Context
+401a closed simple endpoint checkpoint selection. The current learned base-law frontier remains 392a at 8/11, and the recent clean base-law repair attempts all show tradeoffs rather than a route to 11/11.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_402a_calibrated_risk_system.md`.
+
+This opens a separate calibrated-risk-system branch:
+
+- base model: report 392a as the learned conditional generator;
+- calibration layer: fit statistical monotone quantile calibration on the pre-validation adaptation block only;
+- final system: evaluate base + calibration for risk-manager usability.
+
+### Mechanism Read
+The remaining failures are exactly the ones a risk system may require as policy calibration: per-cell interval coverage, regime-cell coverage, and unconditional level occupancy. The paper/system must not claim this layer is learned conditional-law evidence. It should be reported separately from the base model.
+
+### Decision
+Implement one standalone evaluator for 392a plus pre-validation marginal/regime quantile calibration in IV space. If it improves beyond 8/11 without destroying conditionality, continue calibrated-system work. If it reaches 11/11, mark the final calibrated system as achieving the suite while preserving separate base and calibrated metrics in documentation.
+
+---
