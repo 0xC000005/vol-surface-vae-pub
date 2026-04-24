@@ -91166,3 +91166,25 @@ The remaining bottleneck is now narrower and legible: regime-dependent width is 
 Keep 330 alive, but do post-experiment analysis before another run. The next decision should identify whether the smallest clean repair is better conditioning of causal memory, a level-coordinate component inside the same sequence density, or a pathwise sample-shape objective. Do not tune memory depth/width, sample temperature, or flow steps blindly.
 
 ---
+## 2026-04-23: 330a conditioning-path postmortem
+
+### Context
+330a tied the 5/11 frontier with a clean sequence-density model. The postmortem question is whether the remaining failures justify continuing 330 or require another paradigm shift.
+
+### Findings
+The remaining failures are narrow, not broad:
+- coverage has excellent aggregate calibration (`calibration_error=0.009`) but uneven per-cell horizon coverage;
+- conditionality nearly passes on MAE reduction (`4.6%` vs `5%`) and per-cell conditionality passes, but turb/calm width is inverted (`0.932`);
+- distributional fidelity fails mainly on level KS (`7/25`) and median-bias fraction (`18/25`), while daily KS (`24/25`), bias magnitude (`22/25`), per-window floor, explosion/floor/ceiling, and absolute MAE all pass;
+- mean reversion has correct aggregate ratios at h1/h7/h14/h30, but active-cell coverage is too weak;
+- pathwise jump realism fails only max-jump KS; q90/q99, per-cell q99, and extreme incidence pass.
+
+### Mechanism Read
+330a has enough path-law capacity to preserve transitions, tails, autocorrelation, cointegration, and cross-cell geometry. The live bottleneck is how causal memory conditions the daily transition law. In 330a, memory and diffusion time are projected and added as broadcast biases to every cell token. That is a plausible conditioning bottleneck: the model can learn unconditional/prefix-average transition geometry, but width/regime and per-cell level-dependent drift do not modulate strongly enough.
+
+This is analogous to the 303b/303c question, but the evidence is stronger now because 330a already solved several 303-family failures. The next test should be one conditioning-path change, not depth/width/temperature tuning.
+
+### Decision
+Run 330b: keep the same causal future-memory sequence model and vanilla transition flow-matching objective, but give the daily token mixer explicit memory and time prefix tokens instead of additive broadcast conditioning. The falsifier is whether regime/conditionality, active-cell MR, and level calibration improve without losing 330a's daily KS, time-series, cointegration, and cross-cell passes.
+
+---
