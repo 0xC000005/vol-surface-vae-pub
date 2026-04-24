@@ -93416,3 +93416,35 @@ Do not tune 347a temperature, coupling depth, hidden size, or dropout. Those are
 The next step should be ideation around a clean way to preserve 340c's mean-reverting transition geometry while gaining 347a's joint covariance/coverage benefits. Avoid explicit center/residual shells unless the next hypothesis can justify them as a standard probabilistic parameterization rather than a hand-engineered patch.
 
 ---
+## 2026-04-24: Autoresearch 348a location-transition likelihood selection
+
+### Context
+347a restored cross-cell dependence and daily-change realism by putting exact likelihood at the daily transition level, but it lost 340c's active mean-reversion breadth and level marginal fidelity. The failure is now about conditional state-use and anchoring, not about covariance geometry.
+
+### Candidate Families Considered
+1. Tune 347a temperature/depth/dropout. Rejected: local knob search around a non-frontier.
+2. Add regime or volatility scale heads. Rejected: too hand-engineered and likely to become evaluator-specific.
+3. Use a standard conditional-density location-plus-innovation parameterization. Selected: every conditional density has a first moment/location; making it explicit is a probabilistic parameterization, not a deterministic center/residual path shell.
+
+### Selected Test
+Run `348a`: empirical-normal-score causal transition likelihood with explicit transition location. It keeps 347a's causal prefix encoder and 25-cell coupling innovation density, but predicts a learned 25-cell transition location from `(memory_state, current_score)` and trains exact NLL on the residual innovation.
+
+Sampling remains vanilla:
+1. encode prefix;
+2. predict transition location;
+3. sample innovation from conditional coupling flow;
+4. add location to get next score.
+
+Clean constraints:
+- no retrieval;
+- no low-rank readout;
+- no bounded side path;
+- no explicit regime scale;
+- no evaluator loss;
+- no posterior/prior scaffold;
+- no temperature calibration.
+
+### Falsifier
+If 348a does not restore mean-reversion breadth/level marginals while retaining 347a's cross-cell covariance, then explicit conditional location is not the missing anchoring mechanism. The next branch should abandon transition likelihood repairs rather than add more heads.
+
+---
