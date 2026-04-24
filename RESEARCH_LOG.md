@@ -94622,3 +94622,22 @@ The path-energy direction is real but scalar strength is capped. It improves unc
 Keep 392a as the active 8/11 frontier. Close scalar energy-weight sweeps. The next principled experiment is to keep the same proper free-running path-energy score at `energy_weight=0.05` and reduce Monte Carlo noise with more training samples per condition, e.g. `train_sample_count=4`, before adding any new loss or calibration knob.
 
 ---
+## 2026-04-24: Autoresearch 395 energy sample-count falsifier
+
+### Context
+394a identified one clean falsifier for the free-running path-energy family: keep the same architecture and `energy_weight=0.05` as 392a, but reduce Monte Carlo noise in the proper-score estimate by increasing `train_sample_count` from 2 to 4.
+
+### Result
+395a trained from `models/backfill/385a_recent_quantiles_fm_s42/best_model.pt` with `energy_weight=0.05`, `fm_anchor_weight=1.0`, `train_sample_count=4`, and 4 rollout flow steps. Training selected epoch 3 with best holdout total `0.4990`.
+
+Official full-11 artifact: `results/block_ar/395a_recent_rollout_energy_w005_s4_s42/full11.json`.
+
+Score: 6/11. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity. Main metrics: cov90 `0.877`, conditionality MAE reduction `3.55%`, level KS `9/25`, daily-change KS `25/25`, cointegration worst-cell ratio `0.158`, regime layer2 `0/8`, pathwise max-jump KS `0.369`.
+
+### Mechanism Read
+This falsifies the simple "energy score was just too noisy" explanation. A cleaner Monte Carlo estimate improved the internal holdout objective but degraded the official conditional-law checks, especially conditionality and worst-cell cointegration. The issue is objective alignment/geometry, not only estimator variance.
+
+### Decision
+Keep 392a as the active 8/11 frontier. Close further scalar energy-weight and sample-count variants. The next iteration should be post-experiment analysis or research ideation focused on why the proper-score fine-tune improves path-level training loss but does not solve the official residual failures, before adding any new knob or architecture component.
+
+---
