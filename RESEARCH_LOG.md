@@ -94290,3 +94290,22 @@ The 377a residual failures are not a scalar spread problem. Reducing all noise n
 Close scalar inference-temperature calibration. Keep `377a` as current best. The next move must be structural but clean: either learn uncertainty shaping inside the recent-adaptation path law, or explicitly separate a policy/stress overlay from the base learned generator.
 
 ---
+## 2026-04-24: Autoresearch iteration 380 — 340c 377a mixture
+
+### Context
+Iteration 380 tested a clean nonstationarity hedge: model averaging between the original long-history 340c generator and the recent-adapted 377a generator. The hypothesis was that raw 340c might contribute better level law while 377a contributes official conditionality and coverage.
+
+### Result
+- Script: `experiments/backfill/block_ar/evaluate_380a_340c_377a_mixture.py`
+- Artifact: `results/block_ar/380a_340c_377a_mixture/summary.md`
+- `adapted_weight_0.50`: `8/11`; failed `coverage`, `regime_coverage`, `distributional_fidelity`; level KS `4/25`, regime layer2 `0/8`, conditionality passes at `5.05%`.
+- `adapted_weight_0.75`: `7/11`; failed `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`; level KS `4/25`, regime layer2 `0/8`.
+- `adapted_weight_0.90`: `7/11`; failed `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`; level KS `3/25`, regime layer2 `0/8`.
+
+### Mechanism Read
+Model averaging does not combine the useful properties. The mixtures preserve at most the same headline score as 377a while worsening level KS and keeping regime layer2 at `0/8`. This suggests the useful 377a gain is not a linear blend of old and recent laws.
+
+### Decision
+Close ensemble-weight search. The next clean step is targeted recent adaptation: freeze the transition velocity law more tightly and adapt only conditioning/memory parameters. That tests whether we can get 377a's conditionality without disturbing level/transition geometry as much as full-model fine-tuning.
+
+---
