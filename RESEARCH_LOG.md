@@ -93927,3 +93927,42 @@ Change only objective placement:
 If 353a cannot improve coverage, conditionality, regime width, level-law, or pathwise jump shape while preserving 340c's six structural passes, then the bottleneck is not merely teacher-forced objective placement. The next paradigm should then move to a larger representation/data-framing change rather than another fine-tune or loss-weight sweep.
 
 ---
+## 2026-04-24: Autoresearch 353a full-rollout proper-score result
+
+### Context
+353a tested whether the 340c frontier is capped because it is trained one teacher-forced transition at a time while evaluated as a generated 30-day conditional path law. The experiment kept the 340c empirical-normal-score causal AR transition FM architecture and checkpoint initialization, and changed only objective placement: differentiable generated-prefix full-rollout energy score plus the original teacher-forced FM anchor.
+
+### Result
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_353a_340c_full_rollout_energy_finetune.py`
+- checkpoint: `models/backfill/353a_v0_s42/best_model.pt`
+- args: `models/backfill/353a_v0_s42/args.json`
+- evaluation JSON: `results/block_ar/353a_v0_s42/full11.json`
+- evaluation markdown: `results/block_ar/353a_v0_s42/full11.md`
+
+The first full-data run was interrupted after four completed epochs because each epoch took about 107s. The best saved checkpoint is epoch 2 with validation objective 1.205618. No final `train_summary.json` was written because the run was intentionally interrupted after observing the runtime.
+
+Full 11-suite result: 4/11.
+Passed suites: surface validity, block-AR smoothness, cross-cell correlation, mean reversion.
+Failed suites: coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, pathwise jump realism.
+
+Key diagnostics:
+- overall 90% coverage fell to 72.1%, worse than 340c;
+- conditional MAE reduction improved to 4.8%, close to the 5% gate but still failing;
+- turbulent/calm width ratio improved only to 0.992, still below the 1.15 gate;
+- daily-change KS passed 23/25 and per-cell tail q99 passed 23/25;
+- level KS passed only 5/25 and median-bias fraction passed 15/25;
+- mean reversion passed cleanly with h1 ratio 1.047;
+- pathwise max-jump KS worsened to 0.495.
+
+### Mechanism Read
+Full-rollout energy fine-tuning did move the model in the intended direction on one narrow axis: conditional MAE and regime width improved relative to 340c, while mean reversion and cross-cell geometry survived. But it paid for that by shrinking/misallocating coverage and badly worsening level-law and pathwise max-jump shape.
+
+The clean read is that proper-score rollout pressure alone is not enough. With only one realized future per condition, full-path energy score gives a noisy high-dimensional gradient that encourages center/path alignment more than calibrated conditional spread. This repeats the older proper-score pattern: it can improve some forecast-error metrics while sacrificing distributional validity.
+
+### Decision
+Close 353a as a non-frontier result. Do not continue by sweeping energy weights, rollout flow steps, train sample counts, or epochs; that would become objective-tuning knob search around a model below the 340c frontier.
+
+The next step should be post-experiment analysis or paradigm ideation. The current evidence says the missing object is not local sampler type, exact likelihood placement, one-step on-policy repair, fixed common noise, or full-rollout proper-score fine-tuning. A new move must change the representation/data framing more substantially while preserving the few robust facts from 340c.
+
+---
