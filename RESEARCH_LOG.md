@@ -93742,3 +93742,25 @@ Do not continue direct next-level density. Do not tune 350a early stopping or ca
 Run research ideation next. The next candidate should keep the 348a transition likelihood but replace the free transition-location head with a standard stable AR/state-space location parameterization in normal-score coordinates.
 
 ---
+## 2026-04-24: Autoresearch 351a stationary transition-location selection
+
+### Context
+350a showed direct next-level likelihood loses transition geometry. 348a remains the strongest transition-likelihood branch, but its free location head is not stationary enough cell-wise under rollout. The next test should keep transition coordinates while making the conditional location stable by parameterization.
+
+### Selected Test
+Run `351a`: empirical-normal-score stationary transition-location coupling density.
+
+It keeps 348a's causal prefix encoder and Gaussian-base innovation coupling, but replaces the free transition-location head with a learned stable AR form:
+
+`E[next_score | prefix] = (1 - alpha) * current_score + alpha * anchor`
+
+Equivalently, the transition location is:
+
+`alpha * (anchor - current_score)`
+
+where `alpha` and `anchor` are learned from `(memory_state, current_score)`. This is a standard conditional state-space/AR parameterization in the stationary normal-score coordinate. It is not a separate deterministic scenario path, residual shell, low-rank readout, regime label, or evaluator calibration layer.
+
+### Falsifier
+If 351a does not improve level KS/per-cell coverage while retaining 348a's mean reversion and cross-cell geometry, then the stationary-location idea is not enough. The next move should leave this transition-likelihood branch rather than add more location gates.
+
+---
