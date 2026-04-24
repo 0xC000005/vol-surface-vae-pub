@@ -74,6 +74,9 @@ def main() -> None:
     parser.add_argument("--logit_std_floor", type=float, default=1e-3)
     parser.add_argument("--train_sample_count", type=int, default=8)
     parser.add_argument("--score_eps", type=float, default=1e-6)
+    parser.add_argument("--variogram_weight", type=float, default=0.0)
+    parser.add_argument("--variogram_power", type=float, default=0.5)
+    parser.add_argument("--variogram_pair_count", type=int, default=4096)
 
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -147,6 +150,9 @@ def main() -> None:
         logit_std_floor=args.logit_std_floor,
         train_sample_count=args.train_sample_count,
         score_eps=args.score_eps,
+        variogram_weight=args.variogram_weight,
+        variogram_power=args.variogram_power,
+        variogram_pair_count=args.variogram_pair_count,
     )
     model = EnergyScoreImplicitFutureLogitPathGenerator(cfg).to(device)
     if args.standardize_logits:
@@ -208,6 +214,8 @@ def main() -> None:
             "epoch": epoch,
             "train_total": train_avg["total"],
             "val_total": val_avg["total"],
+            "val_energy": val_avg["energy"],
+            "val_variogram": val_avg["variogram"],
             "val_target_dist": val_avg["target_dist"],
             "val_pair_dist": val_avg["pair_dist"],
             "val_target_std": val_avg["target_std"],
@@ -219,7 +227,8 @@ def main() -> None:
         history.append(rec)
         print(
             f"[ep {epoch:03d}] train={rec['train_total']:.5f} "
-            f"val={rec['val_total']:.5f} target={rec['val_target_dist']:.3f} "
+            f"val={rec['val_total']:.5f} energy={rec['val_energy']:.5f} "
+            f"vg={rec['val_variogram']:.5f} target={rec['val_target_dist']:.3f} "
             f"pair={rec['val_pair_dist']:.3f} target_std={rec['val_target_std']:.3f} "
             f"sample_std={rec['val_sample_std']:.3f} "
             f"lr={rec['lr']:.2e} time={rec['sec']:.1f}s"

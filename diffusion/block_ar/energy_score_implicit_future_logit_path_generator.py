@@ -23,6 +23,9 @@ class EnergyScoreImplicitPathGeneratorConfig(JointTokenLogitTransitionFMConfig):
     logit_std_floor: float = 1e-3
     train_sample_count: int = 8
     score_eps: float = 1e-6
+    variogram_weight: float = 0.0
+    variogram_power: float = 0.5
+    variogram_pair_count: int = 4096
 
 
 class AxialImplicitPathGenerator(nn.Module):
@@ -71,6 +74,18 @@ class EnergyScoreImplicitFutureLogitPathGenerator(nn.Module):
         self.generator = AxialImplicitPathGenerator(cfg)
         self.register_buffer("cell_logit_mean", torch.zeros(cfg.n_cells))
         self.register_buffer("cell_logit_std", torch.ones(cfg.n_cells))
+        pair_i, pair_j = self._make_variogram_pairs()
+        self.register_buffer("variogram_i", pair_i)
+        self.register_buffer("variogram_j", pair_j)
+
+    def _make_variogram_pairs(self) -> tuple[torch.Tensor, torch.Tensor]:
+        dim = self.cfg.future_len * self.cfg.n_cells
+        pair_count = max(1, int(self.cfg.variogram_pair_count))
+        gen = torch.Generator(device="cpu").manual_seed(325_001)
+        i = torch.randint(0, dim, (pair_count,), generator=gen, dtype=torch.long)
+        j = torch.randint(0, dim - 1, (pair_count,), generator=gen, dtype=torch.long)
+        j = j + (j >= i).long()
+        return i, j
 
     @staticmethod
     def _flatten(x: torch.Tensor) -> torch.Tensor:
@@ -141,6 +156,31 @@ class EnergyScoreImplicitFutureLogitPathGenerator(nn.Module):
         score = target_dist - 0.5 * pair_dist
         return score.mean(), target_dist.mean(), pair_dist.mean()
 
+    def variogram_score(
+        self,
+        samples: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        bsz, k, horizon, n_cells = samples.shape
+        sample_flat = samples.reshape(bsz, k, horizon * n_cells)
+        target_flat = target.reshape(bsz, horizon * n_cells)
+        i = self.variogram_i.to(sample_flat.device)
+        j = self.variogram_j.to(sample_flat.device)
+        sample_v = (
+            (sample_flat[:, :, i] - sample_flat[:, :, j])
+            .abs()
+            .clamp_min(self.cfg.score_eps)
+            .pow(self.cfg.variogram_power)
+            .mean(dim=1)
+        )
+        target_v = (
+            (target_flat[:, i] - target_flat[:, j])
+            .abs()
+            .clamp_min(self.cfg.score_eps)
+            .pow(self.cfg.variogram_power)
+        )
+        return (sample_v - target_v).pow(2).mean()
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
@@ -149,9 +189,13 @@ class EnergyScoreImplicitFutureLogitPathGenerator(nn.Module):
         history_norm = self._flatten(history_norm)
         target = self.target_future_logits(future_norm)
         samples = self.generate_model_coord(history_norm, self.cfg.train_sample_count)
-        total, target_dist, pair_dist = self.energy_score(samples, target)
+        energy, target_dist, pair_dist = self.energy_score(samples, target)
+        variogram = self.variogram_score(samples, target)
+        total = energy + float(self.cfg.variogram_weight) * variogram
         metrics = {
             "total": total.detach(),
+            "energy": energy.detach(),
+            "variogram": variogram.detach(),
             "target_dist": target_dist.detach(),
             "pair_dist": pair_dist.detach(),
             "target_std": target.std(unbiased=False).detach(),
@@ -202,7 +246,12 @@ def load_model(
     cfg = EnergyScoreImplicitPathGeneratorConfig(**payload["config"])
     model = EnergyScoreImplicitFutureLogitPathGenerator(cfg)
     result = model.load_state_dict(payload["model_state_dict"], strict=False)
-    allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    allowed_missing = {
+        "cell_logit_mean",
+        "cell_logit_std",
+        "variogram_i",
+        "variogram_j",
+    }
     missing = set(result.missing_keys) - allowed_missing
     if missing or result.unexpected_keys:
         raise RuntimeError(

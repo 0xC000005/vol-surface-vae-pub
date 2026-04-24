@@ -1055,7 +1055,7 @@ def load_one_day_kernel(
         )
 
         return load_324c_model(checkpoint_path, device)
-    if model_type == "325a":
+    if model_type in {"325a", "325b"}:
         from diffusion.block_ar.energy_score_implicit_future_logit_path_generator import (
             load_model as load_325a_model,
         )

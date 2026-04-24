@@ -90811,3 +90811,22 @@ The pure energy-score objective did not collapse to a deterministic path, but it
 Keep the 325 proper-score family alive for exactly one principled repair: add a dependence-sensitive multivariate score rather than tuning architecture or adding latent/covariance scaffolding. The clean candidate is a variogram-style score over future path coordinates, because it directly targets pairwise joint increments while staying within proper-score distributional training. Do not tune many weights; run one fixed-normalized 325b variant as the decisive test.
 
 ---
+## 2026-04-23: 325b energy plus variogram implicit path generator
+
+### Context
+325a showed that pure energy-score training of an implicit full-path generator was not enough to identify shared common-shock geometry in the high-dimensional future path. 325b made the single planned repair inside the 325 family: keep the same generator and add a fixed variogram-style dependence score over standardized future-logit path coordinate pairs.
+
+### Result
+`325b_v0_s42` scored 3/11, again passing surface validity, block-AR smoothness, and IV-EWMA cointegration. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+
+Key metrics: coverage90 0.480 with calibration error 0.282, turb/calm width ratio 0.811, daily-change KS 18/25, level KS 0/25, median-bias fraction gate 9/25, cross-cell correlation ratio 0.070, effective-rank ratio 3.623, MR ratio 1.782, pathwise max-jump KS 0.979, jump q99 ratio 0.542.
+
+Artifacts: `models/backfill/325b_v0_s42/best_model.pt`, `models/backfill/325b_v0_s42/train_summary.json`, `results/block_ar/325b_v0_s42/full11.json`, and `results/block_ar/325b_v0_s42/full11.md`.
+
+### Mechanism Read
+The variogram term did what it was expected to do locally: daily-change KS improved from 7/25 to 18/25 and some per-cell jump scale diagnostics improved. But it did not solve the core pathology. Cross-cell common-shock geometry stayed far below gate, rank stayed too high, coverage became badly under-dispersed, and level marginals remained wrong. This says dependence-sensitive proper-score training, at least in this direct implicit one-pass generator form, is still not making shared stochastic coupling structurally necessary.
+
+### Decision
+Close the 325 branch rather than adding more score weights, pair samplers, CRPS terms, or tail auxiliaries. The next HEAD step should be a paradigm shift. The evidence now rules out the clean variants of: direct full-path FM, one-step likelihood, and direct proper-score implicit generation as sufficient on this data/model scale. The next paradigm must make common shocks structural without returning to hard low-rank readouts, retrieval, or evaluator-specific calibration.
+
+---
