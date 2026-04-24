@@ -94483,3 +94483,27 @@ The quantile table is not harmless post-processing. It is part of the model coor
 Keep 385a as the active frontier. Avoid blind quantile-weight sweeps. A recent-heavy blend could still be a one-shot falsifier around 385a, but it should not become a ladder unless it shows a clear mechanism.
 
 ---
+## 2026-04-24: Autoresearch 389 recent-heavy quantile blend
+
+### Context
+Iteration 389 ran the one allowed recent-heavy blend after 388. This was framed as a bounded falsifier around the 385a frontier, not a blend-weight sweep.
+
+### Result
+- Command used `--quantile_source blend --quantile_blend_weight 0.75`.
+- Model: `models/backfill/389a_quantile_blend075_fm_s42/best_model.pt`.
+- Full suite: `results/block_ar/389a_quantile_blend075_fm_s42/full11.json`.
+- Official score: `7/11`.
+- Failures: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- Conditional MAE reduction passed at `5.05%`.
+- Daily-change KS passed `25/25`.
+- Level KS fell to `2/25`.
+- Cointegration worst-cell ratio fell to `0.140`.
+- Regime layer2 remained `0/8`.
+
+### Mechanism Read
+Recent-heavy blending keeps the improved global coverage shape but damages the transition/level law even more than the 0.50 blend. The failure is monotone enough to close this branch: blending away from the pure recent coordinate is not preserving the useful 385a behavior.
+
+### Decision
+Close quantile blending. Keep 385a as the active `8/11` frontier. Next step should be analysis of the residual 385a failures rather than another quantile-weight experiment.
+
+---
