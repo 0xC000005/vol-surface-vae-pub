@@ -1,0 +1,99 @@
+{
+  "runs": {
+    "339a_axial_old": {
+      "score": 4,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion",
+        "pathwise_jump_realism"
+      ],
+      "conditionality": 2.5473795159858392,
+      "time_series_pass": false,
+      "kurtosis_ratio": 0.8050495582963076,
+      "cointegration_worst": 0.25,
+      "daily_ks": 18,
+      "level_ks": 8,
+      "median_fraction": 22,
+      "bias_magnitude": 22,
+      "corr_ratio": 0.6490844657693416,
+      "rank_ratio": 2.198795922355719,
+      "mean_reversion_pass": false,
+      "pathwise_ks": 0.521875
+    },
+    "339b_transformer_old": {
+      "score": 4,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion",
+        "pathwise_jump_realism"
+      ],
+      "conditionality": 4.404785280217718,
+      "time_series_pass": false,
+      "kurtosis_ratio": 0.8536843437084198,
+      "cointegration_worst": 0.2894736842105263,
+      "daily_ks": 19,
+      "level_ks": 5,
+      "median_fraction": 21,
+      "bias_magnitude": 22,
+      "corr_ratio": 0.7763400672388499,
+      "rank_ratio": 1.9693246743874429,
+      "mean_reversion_pass": false,
+      "pathwise_ks": 0.49895833333333334
+    },
+    "413a_axial_recent": {
+      "score": 4,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "cointegration",
+        "regime_coverage",
+        "cross_cell_correlation",
+        "mean_reversion"
+      ],
+      "conditionality": 3.9762360417785763,
+      "time_series_pass": false,
+      "kurtosis_ratio": 0.797896595267438,
+      "cointegration_worst": 0.13157894736842107,
+      "daily_ks": 25,
+      "level_ks": 20,
+      "median_fraction": 25,
+      "bias_magnitude": 23,
+      "corr_ratio": 0.4862751496704728,
+      "rank_ratio": 2.7117668952194776,
+      "mean_reversion_pass": false,
+      "pathwise_ks": 0.29010416666666666
+    },
+    "415a_mix": {
+      "score": 7,
+      "failed": [
+        "coverage",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "conditionality": 5.373348752986123,
+      "time_series_pass": true,
+      "kurtosis_ratio": 0.8382117244690197,
+      "cointegration_worst": 0.1754385964912281,
+      "daily_ks": 25,
+      "level_ks": 12,
+      "median_fraction": 20,
+      "bias_magnitude": 23,
+      "corr_ratio": 0.9617821243118544,
+      "rank_ratio": 1.4965666318898285,
+      "mean_reversion_pass": true,
+      "pathwise_ks": 0.37447916666666664
+    }
+  },
+  "mechanism_read": "The mixture diagnostic should be closed, but 413a should not be discarded as mere failure. Recent quantile framing plus direct path FM solved level occupancy. The missing piece is structural coupling. The old 339b Transformer path mixer had better cointegration and cross-cell structure than old 339a, but it never received the recent-score framing that made 413a's level KS jump to 20/25.",
+  "decision": "Run one final direct-path repair: recent-quantile adaptation of the 339b Transformer path-flow checkpoint. This is not a depth/head sweep; it is the single missing cross of two known mechanisms: 339b's stronger joint mixer and 413a's recent score framing. If it fails to beat the frontier or at least preserve distributional fidelity while improving structural suites, close direct path flow."
+}

@@ -95166,3 +95166,31 @@ The mixture preserved most of the AR structural behavior and reduced coverage ed
 Close mixture/ensemble work as a primary route. Keep 392a as the active `8/11` frontier. The next analysis should decide the next clean paradigm: one model must learn path-level occupancy natively while preserving AR structural constraints, rather than mixing two separately flawed generators.
 
 ---
+## 2026-04-24: Autoresearch 416 direct-path repair selection
+
+### Context
+415a closed the direct mixture route: the small direct-path component reduced coverage edge failures but broke worst-cell cointegration and did not pass level KS. The next question was whether direct path flow itself still has one clean repair left.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_416a_next_direct_path_repair.py`.
+
+Artifacts:
+- `results/block_ar/416a_next_direct_path_repair/summary.json`
+- `results/block_ar/416a_next_direct_path_repair/summary.md`
+
+Key comparison:
+
+| run | score | cond | coint worst | level KS | corr ratio | path KS |
+|---|---:|---:|---:|---:|---:|---:|
+| 339a axial old framing | 4/11 | 2.55% | 0.250 | 8/25 | 0.649 | 0.522 |
+| 339b Transformer old framing | 4/11 | 4.40% | 0.289 | 5/25 | 0.776 | 0.499 |
+| 413a axial recent framing | 4/11 | 3.98% | 0.132 | 20/25 | 0.486 | 0.290 |
+| 415a 392/413 mixture | 7/11 | 5.37% | 0.175 | 12/25 | 0.962 | 0.374 |
+
+### Mechanism Read
+The mixture diagnostic should be closed, but 413a should not be discarded as mere failure. Recent quantile framing plus direct path FM solved level occupancy. The missing piece is structural coupling. The old 339b Transformer path mixer had better cointegration and cross-cell structure than old 339a, but it never received the recent-score framing that made 413a's level KS jump to `20/25`.
+
+### Decision
+Run one final direct-path repair: recent-quantile adaptation of the 339b Transformer path-flow checkpoint. This is not a depth/head sweep; it is the single missing cross of two known mechanisms: 339b's stronger joint mixer and 413a's recent score framing. If it fails to beat the frontier or at least preserve distributional fidelity while improving structural suites, close direct path flow.
+
+---
