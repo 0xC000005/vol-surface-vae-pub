@@ -90875,3 +90875,24 @@ But the same bottleneck made the path law too smooth and too narrow. Coverage co
 Keep 326 alive for one clean repair: add local innovation noise back inside the same learned decoder while retaining the shared latent tokens. This is not a center/residual split or low-rank readout; it is the minimal base-noise decomposition required by the evidence: common shock tokens plus local path innovation noise, both consumed by one generator.
 
 ---
+## 2026-04-23: 326b shared latent plus local innovation generator
+
+### Context
+326a proved that making stochasticity pass only through shared latent tokens can recover common-shock geometry, but it also made the path law too smooth and under-dispersed. 326b made the single planned repair: keep the shared latent tokens and add local future noise as another input to the same learned decoder, with no separate residual path or covariance head.
+
+### Result
+`326b_v0_s42` scored 3/11, passing surface validity, block-AR smoothness, and IV-EWMA cointegration. It failed coverage, conditionality, time-series properties, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+
+Key metrics: coverage90 0.764 with calibration error 0.043, turb/calm width ratio 0.960, daily-change KS 7/25, level KS 0/25, cross-cell correlation ratio 0.015, effective-rank ratio 3.670, MR ratio 1.995, pathwise max-jump KS 0.997, jump q99 ratio 0.394.
+
+Artifacts: `models/backfill/326b_v0_s42/best_model.pt`, `models/backfill/326b_v0_s42/train_summary.json`, `results/block_ar/326b_v0_s42/full11.json`, and `results/block_ar/326b_v0_s42/full11.md`.
+
+### Mechanism Read
+The local innovation repair restored some spread and surface validity, but it destroyed the mechanism 326a had fixed. The decoder mostly used local noise, so the generated law reverted to the same under-coupled, high-rank geometry as the independent-noise implicit generators. Cross-cell correlation fell from 1.024 in 326a to 0.015 in 326b.
+
+This makes the 326 pathology clean: shared-only bottleneck gives correct common geometry but too little idiosyncratic path variation; adding unconstrained local noise gives variation but lets the model ignore shared coupling.
+
+### Decision
+Close the immediate 326 variant pair. More attempts to balance shared/local noise by weights, gates, or annealing would become knob tuning. The next HEAD step should be research ideation or a paradigm shift that preserves common-shock structural necessity while providing local variation in a less shortcut-prone way.
+
+---

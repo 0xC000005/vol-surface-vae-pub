@@ -21,6 +21,7 @@ from experiments.backfill.block_ar.train_169a_transformed_student_t import (
 class SharedLatentImplicitPathGeneratorConfig(JointTokenLogitTransitionFMConfig):
     latent_tokens: int = 8
     latent_dim: int = 64
+    use_local_noise: bool = False
     standardize_logits: bool = True
     logit_std_floor: float = 1e-3
     train_sample_count: int = 4
@@ -33,6 +34,7 @@ class SharedLatentPathDecoder(nn.Module):
         self.cfg = cfg
         self.latent_proj = nn.Linear(cfg.latent_dim, cfg.token_dim)
         self.context_proj = nn.Linear(cfg.context_dim, cfg.token_dim)
+        self.local_noise_proj = nn.Linear(1, cfg.token_dim)
         self.horizon_embed = nn.Embedding(cfg.future_len, cfg.token_dim)
         self.cell_embed = nn.Embedding(cfg.n_cells, cfg.token_dim)
         self.latent_pos = nn.Embedding(cfg.latent_tokens, cfg.token_dim)
@@ -52,7 +54,12 @@ class SharedLatentPathDecoder(nn.Module):
             nn.Linear(cfg.token_dim, 1),
         )
 
-    def forward(self, latent: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        latent: torch.Tensor,
+        context: torch.Tensor,
+        local_noise: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         bsz, n_latent, _ = latent.shape
         h_idx = torch.arange(self.cfg.future_len, device=latent.device)
         c_idx = torch.arange(self.cfg.n_cells, device=latent.device)
@@ -67,6 +74,10 @@ class SharedLatentPathDecoder(nn.Module):
         query = self.horizon_embed(h_idx)[:, None, :] + self.cell_embed(c_idx)[None, :, :]
         query = query.reshape(self.cfg.future_len * self.cfg.n_cells, self.cfg.token_dim)
         query = query[None, :, :] + ctx[:, None, :]
+        if local_noise is not None:
+            query = query + self.local_noise_proj(
+                local_noise.reshape(bsz, self.cfg.future_len * self.cfg.n_cells, 1)
+            )
         attn, _ = self.cross_attn(
             self.query_norm(query),
             latent_tokens,
@@ -146,8 +157,17 @@ class SharedLatentImplicitFutureLogitPathGenerator(nn.Module):
             device=history_norm.device,
             dtype=history_norm.dtype,
         )
+        local_noise = None
+        if self.cfg.use_local_noise:
+            local_noise = torch.randn(
+                bsz * k,
+                self.cfg.future_len,
+                self.cfg.n_cells,
+                device=history_norm.device,
+                dtype=history_norm.dtype,
+            )
         ctx = context.repeat_interleave(k, dim=0)
-        out = self.decoder(latent, ctx)
+        out = self.decoder(latent, ctx, local_noise=local_noise)
         return out.view(bsz, k, self.cfg.future_len, self.cfg.n_cells)
 
     def energy_score(
@@ -223,6 +243,10 @@ def load_model(
     model = SharedLatentImplicitFutureLogitPathGenerator(cfg)
     result = model.load_state_dict(payload["model_state_dict"], strict=False)
     allowed_missing = {"cell_logit_mean", "cell_logit_std"}
+    if not cfg.use_local_noise:
+        allowed_missing.update(
+            {"decoder.local_noise_proj.weight", "decoder.local_noise_proj.bias"}
+        )
     missing = set(result.missing_keys) - allowed_missing
     if missing or result.unexpected_keys:
         raise RuntimeError(
