@@ -94368,3 +94368,25 @@ The residual failures are not generic path realism failures. They are conditiona
 The next clean experiment should target conditional per-cell uncertainty inside the model rather than post-hoc scalar calibration. Candidate: a learned conditional diagonal noise-scale/readout in normal-score transition space, trained with the same FM objective and sampled by scaling the base noise before flow integration.
 
 ---
+## 2026-04-24: Autoresearch 384 conditional noise scale
+
+### Context
+Iteration 384 tested the 383 decision: target per-cell uncertainty geometry inside the model rather than scalar post-hoc calibration. The model change was intentionally small: add an optional learned conditional diagonal base-noise scale in normal-score transition space, initialized to scale `1.0`, then train with the same recent-window FM objective.
+
+### Result
+- Modified `diffusion/block_ar/empirical_normal_score_causal_memory_transition_flow_matching.py` to support `conditional_noise_scale`.
+- Modified `experiments/backfill/block_ar/train_377a_340c_recent_fm_adaptation.py` to enable the scale head when adapting a 340c checkpoint.
+- Model: `models/backfill/384a_recent_fm_cond_noise_s42/best_model.pt`.
+- Full suite: `results/block_ar/384a_recent_fm_cond_noise_s42/full11.json`.
+- Training learned average noise scale about `0.75` and reduced adaptation loss to `0.263`, much lower than the no-scale adaptation loss.
+- Official score fell to `6/11`.
+- Failures: `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`.
+- Key metrics: overall 90% coverage `86.7%`; conditional MAE reduction `3.68%`; daily KS `25/25`; level KS `3/25`; regime layer2 `0/8`; active mean-reversion pass rate `62.5%`.
+
+### Mechanism Read
+Naive learned base-prior scaling is not automatically valid under the current FM training objective. The scale head found an easy lower-loss solution by shrinking base noise, but that damaged calibrated scenario quality and level occupancy. This is an important falsifier: "learned prior" language needs a likelihood-correct or otherwise constrained objective, not a free conditional scale attached to FM loss.
+
+### Decision
+Close naive conditional noise scaling. The next principled move should be data framing rather than another architecture knob: test rolling/recent empirical normal-score quantiles for adaptation and decoding. The evidence says daily transition shape is already good, while level occupancy is the stable failure under validation marginal shift.
+
+---

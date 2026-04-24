@@ -24,6 +24,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFMConfig(
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
     prefix_feature_mode: str = "basic"
+    conditional_noise_scale: bool = False
+    noise_scale_min: float = 0.25
+    noise_scale_max: float = 4.0
 
 
 class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
@@ -49,6 +52,13 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
         self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        if cfg.conditional_noise_scale:
+            self.noise_log_scale = nn.Sequential(
+                nn.LayerNorm(cfg.memory_dim),
+                nn.Linear(cfg.memory_dim, cfg.n_cells),
+            )
+            nn.init.zeros_(self.noise_log_scale[-1].weight)
+            nn.init.zeros_(self.noise_log_scale[-1].bias)
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -183,6 +193,14 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
     ) -> torch.Tensor:
         return self.velocity(x_t, current_score, memory_state, t)
 
+    def _conditional_noise_scale(self, memory_state: torch.Tensor) -> torch.Tensor | None:
+        if not self.cfg.conditional_noise_scale:
+            return None
+        log_scale = self.noise_log_scale(memory_state)
+        lo = math.log(float(self.cfg.noise_scale_min))
+        hi = math.log(float(self.cfg.noise_scale_max))
+        return torch.exp(log_scale.clamp(lo, hi))
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
@@ -194,6 +212,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         )
         x1 = future_scores - current_scores
         x0 = torch.randn_like(x1)
+        noise_scale = self._conditional_noise_scale(memory_states)
+        if noise_scale is not None:
+            x0 = x0 * noise_scale
         bsz, horizon, n_cells = x1.shape
         t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
@@ -213,6 +234,15 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             "target_velocity_std": target_velocity.std(unbiased=False).detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
+        if noise_scale is not None:
+            metrics.update(
+                {
+                    "noise_scale_mean": noise_scale.mean().detach(),
+                    "noise_scale_std": noise_scale.std(unbiased=False).detach(),
+                    "noise_scale_min": noise_scale.min().detach(),
+                    "noise_scale_max": noise_scale.max().detach(),
+                }
+            )
         return fm_loss, metrics
 
     @torch.no_grad()
@@ -249,6 +279,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                 memory_state = self._encode_prefix_scores(prefix)[:, -1]
                 current_score = prefix[:, -1]
                 x = temp * torch.randn_like(current_score)
+                noise_scale = self._conditional_noise_scale(memory_state)
+                if noise_scale is not None:
+                    x = x * noise_scale
                 for flow_step in range(self.cfg.flow_steps):
                     t = torch.full(
                         (bsz * k,),

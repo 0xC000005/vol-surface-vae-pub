@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,8 @@ import sys
 sys.path.insert(0, ".")
 
 from diffusion.block_ar.empirical_normal_score_causal_memory_transition_flow_matching import (  # noqa: E402
+    EmpiricalNormalScoreCausalMemoryTransitionFMConfig,
+    EmpiricalNormalScoreCausalMemoryTransitionFlowMatching,
     load_model,
     save_checkpoint,
 )
@@ -71,6 +74,13 @@ def main() -> None:
         help="Optional L2 penalty that keeps trainable weights near the source checkpoint.",
     )
     parser.add_argument(
+        "--enable_conditional_noise_scale",
+        action="store_true",
+        help="Initialize a learned conditional diagonal scale for the FM base noise.",
+    )
+    parser.add_argument("--noise_scale_min", type=float, default=0.25)
+    parser.add_argument("--noise_scale_max", type=float, default=4.0)
+    parser.add_argument(
         "--trainable_scope",
         choices=["all", "conditioning", "conditioning_memory_proj"],
         default="all",
@@ -89,7 +99,34 @@ def main() -> None:
     (out_dir / "args.json").write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
-    model, payload = load_model(args.checkpoint, device)
+    if args.enable_conditional_noise_scale:
+        payload = torch.load(args.checkpoint, map_location=device, weights_only=False)
+        cfg_dict = dict(payload["config"])
+        cfg_dict.update(
+            {
+                "conditional_noise_scale": True,
+                "noise_scale_min": args.noise_scale_min,
+                "noise_scale_max": args.noise_scale_max,
+            }
+        )
+        cfg = EmpiricalNormalScoreCausalMemoryTransitionFMConfig(**cfg_dict)
+        model = EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(cfg)
+        result = model.load_state_dict(payload["model_state_dict"], strict=False)
+        allowed_missing = {
+            "noise_log_scale.0.weight",
+            "noise_log_scale.0.bias",
+            "noise_log_scale.1.weight",
+            "noise_log_scale.1.bias",
+        }
+        missing = set(result.missing_keys) - allowed_missing
+        if missing or result.unexpected_keys:
+            raise RuntimeError(
+                f"Checkpoint state mismatch: missing={sorted(missing)}, "
+                f"unexpected={sorted(result.unexpected_keys)}"
+            )
+        model.to(device)
+    else:
+        model, payload = load_model(args.checkpoint, device)
     model.train()
     if model.cfg.history_len != args.history_len or model.cfg.future_len != args.future_len:
         raise ValueError("Checkpoint horizon configuration does not match requested data")
@@ -188,12 +225,28 @@ def main() -> None:
             "lr": optimizer.param_groups[0]["lr"],
             "sec": time.time() - t0,
         }
+        if "noise_scale_mean" in avg:
+            rec.update(
+                {
+                    "noise_scale_mean": avg["noise_scale_mean"],
+                    "noise_scale_std": avg["noise_scale_std"],
+                    "noise_scale_min": avg["noise_scale_min"],
+                    "noise_scale_max": avg["noise_scale_max"],
+                }
+            )
         records.append(rec)
+        scale_msg = ""
+        if "noise_scale_mean" in rec:
+            scale_msg = (
+                f" scale={rec['noise_scale_mean']:.3f}"
+                f"+/-{rec['noise_scale_std']:.3f}"
+                f"[{rec['noise_scale_min']:.3f},{rec['noise_scale_max']:.3f}]"
+            )
         print(
             f"[ep {epoch:03d}] adapt={rec['adapt_total']:.5f} "
             f"trans_std={rec['transition_std']:.3f} trans_abs={rec['transition_abs']:.3f} "
             f"vel_std={rec['target_velocity_std']:.3f} anchor={rec['anchor_penalty']:.3e} "
-            f"lr={rec['lr']:.2e} "
+            f"lr={rec['lr']:.2e}{scale_msg} "
             f"time={rec['sec']:.1f}s"
         )
         if rec["adapt_total"] < best_loss:
@@ -213,7 +266,10 @@ def main() -> None:
         "trainable_scope": args.trainable_scope,
         "n_trainable_params": n_trainable,
         "anchor_weight": args.anchor_weight,
-        "config": payload["config"],
+        "enable_conditional_noise_scale": args.enable_conditional_noise_scale,
+        "noise_scale_min": args.noise_scale_min,
+        "noise_scale_max": args.noise_scale_max,
+        "config": asdict(model.cfg),
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
     (out_dir / "train_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
