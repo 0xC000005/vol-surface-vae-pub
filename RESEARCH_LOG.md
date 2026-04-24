@@ -94463,3 +94463,23 @@ Midpoint blending improves interval placement but damages the transition/level l
 Keep 385a as the active frontier. Do not pursue midpoint blending. A recent-heavy blend might still be a small interpolation around 385a, but the next step should be chosen carefully because quantile blending is becoming a knob.
 
 ---
+## 2026-04-24: Autoresearch 388 quantile tradeoff
+
+### Context
+Iteration 388 analyzed the quantile-coordinate tradeoff after 387a improved coverage geometry but lost cointegration and level KS. The goal was to decide whether another blend weight is principled or just knob search.
+
+### Result
+- Added and ran `experiments/backfill/block_ar/analyze_388a_quantile_coordinate_tradeoff.py`.
+- Artifact: `results/block_ar/388a_quantile_coordinate_tradeoff/summary.json`.
+- Artifact: `results/block_ar/388a_quantile_coordinate_tradeoff/summary.md`.
+- Compared `377a_checkpoint_quantiles`, `385a_recent_quantiles`, `386a_recent_quantiles_w882`, and `387a_blend05`.
+- 385a remains the active best: `8/11`, conditional MAE reduction `6.08%`, daily KS `25/25`, level KS `5/25`, cointegration worst-cell ratio `0.333`.
+- 387a removed 385a's two global undercoverage violations, but increased overcoverage by five, reduced level-KS passes from `5/25` to `3/25`, and reduced cointegration worst-cell ratio from `0.333` to `0.175`.
+
+### Mechanism Read
+The quantile table is not harmless post-processing. It is part of the model coordinate system and interacts with the learned transition law. Midpoint blending improves interval placement but damages the level/transition law. Longer-window recent quantiles dilute local marginal alignment and also underperform.
+
+### Decision
+Keep 385a as the active frontier. Avoid blind quantile-weight sweeps. A recent-heavy blend could still be a one-shot falsifier around 385a, but it should not become a ladder unless it shows a clear mechanism.
+
+---
