@@ -91081,3 +91081,22 @@ This is not a reason to tune roll-in flow steps or epochs blindly. The clean mec
 Do post-experiment analysis next. The next decision should be whether 329 can be repaired by changing the generated-state target/object, or whether on-policy roll-in should be closed in favor of a cleaner sequence likelihood/path-law formulation.
 
 ---
+## 2026-04-23: 329a target-contamination postmortem
+
+### Context
+329a gave a mixed but mechanistically useful result. Compared with 303b, it preserved support validity and cross-cell structure, flipped cointegration to pass, and made pathwise q90/q99 realistic. But it broke the local daily transition law, weakened time-series tails, and made mean reversion too strong at short horizons.
+
+### Analysis
+The issue is not simply too many epochs or roll-in flow steps. The direct on-policy label was `true_next_logit - generated_current_logit`. When a generated roll-in state is off the realized path, that target is no longer an observed one-day innovation; it is a corrective jump back toward the realized future. That explains the metric pattern:
+- stronger structural coupling and cointegration because paths are repeatedly pulled back toward the realized level basin;
+- too-strong h1/h7 mean reversion because off-path states get corrective drift labels;
+- daily KS collapse and extreme per-cell q99 overshoot because the corrective targets are larger and less like historical one-day increments.
+
+This differs from the original 303b failure. 303b's teacher-forced objective learns a good one-day transition law but sees only realized states. 329a exposes generated states, but contaminates the target by asking the model to recover the realized path from those generated states.
+
+### Decision
+Keep 329 alive for one minimal target-mode falsifier, not a knob sweep. Run 329b with the same architecture and equal teacher/on-policy objective, but label generated roll-in states with the observed transition innovation `true_next_logit - true_prev_logit`. The model still sees generated states, but the target remains a historical one-day innovation rather than a corrective recentering jump.
+
+If 329b does not preserve 303b's daily-change law while improving free-run structure, close on-policy roll-in and shift to a cleaner sequence likelihood/path-law object.
+
+---
