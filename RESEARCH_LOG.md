@@ -90951,3 +90951,22 @@ The paradigm did solve the specific 326b/326c failure: cross-cell common-shock g
 Keep 327 alive for one clean capacity falsifier. The next step is 327b: widen only the learned latent bottleneck and test whether jump realism and daily changes recover while preserving the cross-cell pass. Do not add auxiliary losses, residual branches, retrieval, or evaluator-specific calibration.
 
 ---
+## 2026-04-23: 327b wider learned bottleneck capacity test
+
+### Context
+327a preserved cross-cell geometry but made paths far too smooth. 327b tested the single clean capacity falsifier promised by the 327a decision: widen only the learned future-path bottleneck from 8x32 latent tokens to 12x48, keeping the deterministic autoencoder plus conditional latent flow otherwise unchanged.
+
+### Result
+327b_v0_s42 scored 3/11, again passing surface validity, block_ar, and cross_cell_correlation. It failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: best epoch 61, best val total 0.4568 versus 327a's 0.5585, coverage90 0.691, calibration error 0.125, turb/calm width ratio 0.915, ACF corr 0.468, kurtosis ratio 0.884, daily-change KS 1/25, level KS 1/25, median-bias fraction 9/25, cross-cell corr ratio 0.876, rank ratio 1.425, cointegration gen/GT 0.610 with worst-cell 0.158, MR ratio 2.702, pathwise q90 ratio 0.060, pathwise q99 ratio 0.106.
+
+Artifacts: `models/backfill/327b_v0_s42/best_model.pt`, `models/backfill/327b_v0_s42/train_summary.json`, `results/block_ar/327b_v0_s42/full11.json`, `results/block_ar/327b_v0_s42/full11.md`.
+
+### Mechanism Read
+Widening the bottleneck materially improved the training proxy but did not fix the suite. It slightly improved pathwise q99, but coverage worsened and short-horizon mean reversion became stronger. The deterministic level-path bottleneck is preserving common-shock geometry while suppressing realistic increments and jumps.
+
+### Decision
+Do not continue width-only capacity scaling. The next clean falsifier should keep the 327 bottleneck idea but change the modeled coordinate: encode/generate future logit increments and integrate back to levels for evaluation. This directly targets the smoothing/MR pathology without adding auxiliary losses, residual branches, retrieval, or post-hoc calibration.
+
+---

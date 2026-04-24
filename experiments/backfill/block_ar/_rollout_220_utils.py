@@ -1067,7 +1067,7 @@ def load_one_day_kernel(
         )
 
         return load_326a_model(checkpoint_path, device)
-    if model_type == "327a":
+    if model_type in {"327a", "327b"}:
         from diffusion.block_ar.latent_bottleneck_future_logit_path_flow import (
             load_model as load_327a_model,
         )
