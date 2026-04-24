@@ -92791,3 +92791,60 @@ This is a principled falsifier because it changes the training objective to scor
 If `342a` cannot beat the `6/11` frontier or if it improves coverage by sacrificing 340c's structural passes, close this objective-level local-energy repair. Do not tune many sample counts, loss weights, or horizon subsets; the point is to test whether sampled transition-law scoring is the missing alignment, not to build another loss-stack.
 
 ---
+## 2026-04-24: Autoresearch 342a transition-energy fine-tune result
+
+### Context
+342a tested the objective-level repair selected in the prior ideation. It kept the `340c` empirical normal-score causal-memory transition FM architecture unchanged, initialized from `models/backfill/340c_v0_s42/best_model.pt`, and fine-tuned with:
+- the original teacher-forced FM loss as an anchor;
+- an unweighted normalized one-step energy score on sampled next-score transitions under teacher-forced prefixes;
+- no variogram/tail/regime/evaluator loss, calibration layer, retrieval, low-rank readout, bounded side path, or posterior/prior scaffold.
+
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_342a_340c_transition_energy_finetune.py`
+- eval routing: `experiments/backfill/block_ar/_rollout_220_utils.py`, `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- model: `models/backfill/342a_v0_s42/best_model.pt`
+- train summary: `models/backfill/342a_v0_s42/train_summary.json`
+- full suite: `results/block_ar/342a_v0_s42/full11.json`
+- markdown: `results/block_ar/342a_v0_s42/full11.md`
+
+Training ran 12 epochs from 340c. Best checkpoint was epoch 2 with combined validation objective `0.79961`.
+
+### Result
+Full 11-suite score: `4/11`, below the `340a/340c` frontier at `6/11`.
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cross-cell correlation
+- mean reversion
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- IV-EWMA cointegration
+- regime coverage
+- distributional fidelity
+- pathwise jump realism
+
+Key deltas versus `340c`:
+- coverage calibration worsened sharply: calibration error `0.008 -> 0.165`, cov90 `0.876 -> 0.679`;
+- conditionality stayed failed: MAE reduction `3.9% -> 2.1%`, turb/calm width `0.934 -> 0.864`;
+- time-series lost pass despite tail-scale cells improving slightly (`20/25 -> 21/25`) because kurtosis/skew and move-size profile failed;
+- cointegration lost pass: aggregate ratio `0.632 -> 0.292`, worst cell `0.303 -> 0.053`;
+- level KS collapsed: `12/25 -> 3/25`;
+- median-bias fraction collapsed: `20/25 -> 7/25`;
+- window-floor bad rate worsened: `0.0% -> 10.4%`;
+- pathwise max-jump KS worsened: `0.309 -> 0.564`.
+
+### Mechanism Read
+The local energy term is not the missing repair. It made the sampled one-step next-score distribution look more locally plausible in some daily-change and jump-scale summaries, but it pulled the recursive generator toward a myopic transition equilibrium: narrower long-horizon uncertainty, worse level marginals, weaker cointegration, and persistent regime-width inversion.
+
+This is different from a pure implementation failure: the smoke run, full train, and full evaluation all executed correctly, and the result has a coherent tradeoff. The failure is objective-level: teacher-forced one-step proper scoring is still not the same as learning the evaluated 30-day conditional scenario law.
+
+### Decision
+Close 342a as a negative result and keep `340a/340c` as the `6/11` frontier.
+
+Run post-experiment analysis next. The analysis should decide whether any objective-level repair remains defensible without becoming a loss-stack knob, or whether the clean frontier requires a paradigm shift away from one-step teacher-forced transition training.
+
+---
