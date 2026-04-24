@@ -94595,3 +94595,30 @@ The path-energy direction remains meaningful, but raw energy strength is now a c
 Keep 392a as the active 8/11 frontier: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`. Close raw energy-weight tuning for now. The next iteration should be post-experiment analysis comparing 385a, 392a, and 393a to decide whether the principled next experiment is a better Monte Carlo estimate of the same proper score, a variance-preserving scoring variant, or a different clean objective.
 
 ---
+## 2026-04-24: Autoresearch 394 energy tradeoff audit
+
+### Context
+After 393a, the raw path-energy strength path needed an explicit mechanism audit. The question was whether the clean proper-score family should continue, or whether energy tuning had become another research knob.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_394a_energy_tradeoff.py`. Artifacts:
+
+- `results/block_ar/394a_energy_tradeoff/summary.json`
+- `results/block_ar/394a_energy_tradeoff/summary.md`
+
+The ordered comparison was:
+
+| model | w | score | cov90 | under70 | over95 | cond MAE | level KS | coint worst |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 385a recent FM | 0.00 | 8/11 | 0.879 | 2 | 12 | 6.08% | 5/25 | 0.333 |
+| 392a weak energy | 0.05 | 8/11 | 0.868 | 1 | 10 | 5.14% | 10/25 | 0.278 |
+| 393a intermediate energy | 0.10 | 7/11 | 0.847 | 0 | 2 | 3.96% | 12/25 | 0.250 |
+| 391a strong energy | 0.20 | 7/11 | 0.831 | 3 | 0 | 5.17% | 13/25 | 0.222 |
+
+### Mechanism Read
+The path-energy direction is real but scalar strength is capped. It improves unconditional level occupancy, but stronger weights increasingly degrade conditional variation, coverage, and eventually cointegration before level KS reaches the 15/25 gate. This is a clean objective-estimation/geometry bottleneck, not evidence for adding architecture complexity.
+
+### Decision
+Keep 392a as the active 8/11 frontier. Close scalar energy-weight sweeps. The next principled experiment is to keep the same proper free-running path-energy score at `energy_weight=0.05` and reduce Monte Carlo noise with more training samples per condition, e.g. `train_sample_count=4`, before adding any new loss or calibration knob.
+
+---
