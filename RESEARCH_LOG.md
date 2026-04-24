@@ -90854,3 +90854,24 @@ This differs from earlier latent-token attempts (`313`) because stochasticity is
 Run `326a` as the minimal falsifier: shared latent tokens plus learned axial/cross-attention decoder, standardized future-logit coordinates, energy-score training first. If it improves cross-cell/rank without catastrophic coverage collapse, the family is alive; if it collapses diversity or remains under-coupled, the shared-bottleneck route is likely capped under the current data scale.
 
 ---
+## 2026-04-23: 326a shared-latent implicit path generator
+
+### Context
+326a tested whether common shocks must be structural rather than hoped for from independent per-cell future noise. The model sampled only shared latent tokens per scenario, conditioned them on history through a learned cross-attention/axial decoder, decoded the full standardized future-logit path, and trained with energy score.
+
+### Result
+`326a_v0_s42` scored 2/11, passing block-AR smoothness and cross-cell correlation structure. It failed surface validity, coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics: coverage90 0.530 with calibration error 0.230, turb/calm width ratio 0.810, daily-change KS 12/25, level KS 3/25, cross-cell correlation ratio 1.024, effective-rank ratio 1.227, MR ratio 1.825, pathwise max-jump KS 1.000, jump q99 ratio 0.080.
+
+Artifacts: `models/backfill/326a_v0_s42/best_model.pt`, `models/backfill/326a_v0_s42/train_summary.json`, `results/block_ar/326a_v0_s42/full11.json`, and `results/block_ar/326a_v0_s42/full11.md`.
+
+### Mechanism Read
+This is the cleanest evidence so far that the common-shock diagnosis is real. Removing independent per-cell future noise and forcing stochasticity through shared latent tokens immediately fixed cross-cell geometry: correlation and effective rank both passed, with PC1 variance close to ground truth.
+
+But the same bottleneck made the path law too smooth and too narrow. Coverage collapsed, pathwise jumps disappeared, small-move shares became too high, surface worst-strike arbitrage failed, and mean reversion became too strong. Shared latent stochasticity alone gives the right common geometry but not enough local/idiosyncratic innovation.
+
+### Decision
+Keep 326 alive for one clean repair: add local innovation noise back inside the same learned decoder while retaining the shared latent tokens. This is not a center/residual split or low-rank readout; it is the minimal base-noise decomposition required by the evidence: common shock tokens plus local path innovation noise, both consumed by one generator.
+
+---
