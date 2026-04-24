@@ -94181,3 +94181,24 @@ Simple post-hoc affine calibration is capped. It can move marginal level distrib
 Do not continue accumulating post-hoc affine calibration knobs. The next principled step is post-experiment analysis / ideation around the remaining failure geometry: per-cell interval undercoverage and regime coverage need to be learned inside the conditional path law, not patched after sampling.
 
 ---
+## 2026-04-24: Autoresearch iteration 375 — 340c failure geometry
+
+### Context
+Iteration 375 was a post-experiment analysis step after the 374 frozen-calibration ladder showed that post-hoc affine calibration is capped. The goal was to make the remaining 340c failure geometry explicit before choosing the next model-side experiment.
+
+### Result
+- Artifact: `results/validations/2026-04-24/analysis/375a_340c_failure_geometry/summary.md`
+- Full revised 340c score remains `7/11`, failing `coverage`, `conditionality`, `regime_coverage`, and `distributional_fidelity`.
+- Aggregate 90% coverage is close at `0.880` with calibration error `0.0067`, but the per-cell gate fails: h30 worst/best cell coverage is `0.604/1.000`.
+- Conditionality is front-loaded: MAE reduction is `34.8%` at h1, `6.0%` at h7, `0.7%` at h14, and `1.0%` at h30.
+- Regime aggregate behavior is not the issue: layer1 and layer3 pass, but regime/cell/horizon layer2 is `0/8`.
+- Daily KS passes `24/25`; IV level KS passes only `11/25`.
+- The 374 ladder confirms post-hoc affine calibration is not the right knob: it can improve level KS but loses coverage/time-series/mean-reversion/cointegration.
+
+### Mechanism Read
+The learned backbone is not globally broken. It has plausible local increments and path mechanics, but the long-horizon conditional path law is not learning state occupancy and per-cell/regime uncertainty geometry strongly enough. This is why aggregate calibration looks close while sliced risk diagnostics fail.
+
+### Decision
+Move to a model-side experiment that keeps the generative core vanilla but aligns training with a proper distributional score for the future path. Do not continue with post-hoc affine calibrators or evaluator-specific corrections.
+
+---
