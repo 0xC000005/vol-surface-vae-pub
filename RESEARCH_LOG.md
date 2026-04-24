@@ -90915,3 +90915,20 @@ Demeaning local innovations did not solve the shortcut. The local path noise sti
 Close 326. Do not add gates, annealing schedules, loss weights, or more local-noise preprocessing. The next HEAD step should be research ideation/paradigm shift: keep common shocks structurally necessary while adding local variation without giving the decoder an independent-noise shortcut.
 
 ---
+## 2026-04-23: 327 learned future-bottleneck latent path law paradigm
+
+### Context
+326 is now capped. Shared-only stochasticity recovered common-shock geometry but over-smoothed the path; adding local noise restored surface/spread behavior but gave the decoder an independent-noise shortcut. 324 and 325 showed the complementary failure: direct high-dimensional path flow/proper-score generators can learn some drift and support, but do not reliably discover shared stochastic geometry from per-cell future noise.
+
+### Paradigm
+Open 327: a learned future-bottleneck latent path law. The model first learns a compressed representation of the entire 30x25 future path in standardized logit coordinates, then learns a vanilla conditional generative model in that latent code space and decodes sampled codes back to paths.
+
+This keeps the only default inductive bias the user explicitly allowed: a narrow encoder-decoder bottleneck. It does not assume hard low-rank readouts, bounded idiosyncratic paths, retrieval/copula reuse, posterior-prior VAE language, or evaluator-specific corrections.
+
+### Hypothesis
+A learned future-path bottleneck can make common and local structure part of the same compressed object. Unlike 326, local variation cannot bypass the shared representation through independent cell noise. Unlike 324/325, the generative core does not need to learn the full 750-dimensional path geometry directly from IID per-cell noise.
+
+### Decision
+Run 327a as the minimal falsifier: deterministic future-path autoencoder plus conditional latent flow. If reconstruction is poor, the bottleneck is too narrow. If reconstruction is good but the 11-suite still fails, the blocker is the conditional latent law rather than path decoding.
+
+---
