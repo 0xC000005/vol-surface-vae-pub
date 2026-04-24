@@ -92491,3 +92491,60 @@ Open 340c as the next minimal falsifier: use the same 340a normal-score causal-m
 This is a generic Transformer conditioning change, not a scale knob, residual shell, retrieval variant, low-rank readout, bounded path, learned posterior/prior scaffold, evaluator loss, or post-hoc calibration. The falsifier is whether stronger generic conditioning improves conditionality/regime/per-cell coverage and level/path fidelity while preserving 340a's six structural passes.
 
 ---
+## 2026-04-24: Autoresearch 340c prefix-conditioned normal-score AR
+
+### Context
+340c tested the post-340b decision: keep 340a's shared empirical normal-score coordinate, causal-memory AR transition factorization, basic `[score, delta]` prefix state, and vanilla transition FM objective, but switch the transition velocity conditioning interface from additive conditioning to prefix-token conditioning.
+
+Artifacts:
+- loader update: `experiments/backfill/block_ar/_rollout_220_utils.py`
+- trainer: `experiments/backfill/block_ar/train_340a_empirical_normal_score_causal_memory_transition_flow.py` with `--conditioning_mode prefix`
+- model: `models/backfill/340c_v0_s42/best_model.pt`
+- train summary: `models/backfill/340c_v0_s42/train_summary.json`
+- full suite: `results/block_ar/340c_v0_s42/full11.json`
+- markdown: `results/block_ar/340c_v0_s42/full11.md`
+
+Training completed 48 epochs. Best validation was epoch 13 with `val_total=0.43696`, better than 340a's `0.44232`.
+
+### Result
+Full 11-suite score: `6/11`, tied with 340a.
+
+Passed:
+- surface validity
+- time-series properties
+- block-AR smoothness
+- IV-EWMA cointegration
+- cross-cell correlation
+- mean reversion
+
+Failed:
+- coverage
+- conditionality
+- regime coverage
+- distributional fidelity
+- pathwise jump realism
+
+Key diagnostics versus 340a:
+- coverage90 improved `0.835 -> 0.876`, calibration error `0.054 -> 0.008`;
+- worst-cell coverage improved at all tracked horizons, but h14/h30 still fail the `[70%,95%]` cell gate and some cells over-cover;
+- conditional MAE reduction improved `3.1% -> 3.9%`, still below `5%`;
+- conditionality turb/calm worsened `0.965 -> 0.934`, but regime-suite horizon width ratios improved to about `1.07-1.09`;
+- daily-change KS stayed `24/25`;
+- level KS improved `8/25 -> 12/25`;
+- median-bias fraction improved `18/25 -> 20/25`, and bias magnitude stayed passing (`22/25`);
+- cointegration stayed passing and improved worst-cell ratio `0.250 -> 0.303`;
+- cross-cell stayed passing but rank ratio worsened `1.462 -> 1.697`;
+- mean reversion stayed passing;
+- max-jump KS improved `0.429 -> 0.309`, still above the `<0.20` gate.
+
+### Mechanism Read
+Prefix-token conditioning is useful but not sufficient. It preserves the 340a structural passes while materially improving aggregate calibration, level-law fidelity, median-bias count, cointegration margin, and pathwise max-jump shape. This validates the postmortem claim that the bottleneck is not local daily dynamics or support validity.
+
+However, the same five suites still fail. The remaining bottleneck is still per-cell/regime allocation of uncertainty: some cells remain undercovered while others overcover, and the conditionality suite still does not see enough turb/calm width separation or MAE gain.
+
+### Decision
+Promote 340c to a co-frontier with 340a because it keeps the `6/11` pass set and improves several failing diagnostics, but do not treat it as solved.
+
+Run post-experiment analysis next. The next move should explain why 340c improves aggregate/level/path metrics but still fails conditional/regime allocation before adding any new architectural component.
+
+---
