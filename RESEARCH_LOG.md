@@ -92945,3 +92945,32 @@ Close 343a as a non-frontier result. Keep `340a/340c` as the `6/11` frontier.
 Run post-experiment analysis next. The analysis should treat 342a and 343a together: local proper scoring and scalar exact likelihood both failed to improve the 340 frontier, so the next move should not be another small objective/coordinate synthesis unless it has a clearly different mechanism.
 
 ---
+## 2026-04-24: Autoresearch 343a postmortem
+
+### Context
+343a completed the clean synthesis test selected after 342a: empirical normal-score coordinates plus a scalar chain-rule mixture likelihood. It scored `3/11`, below the `340a/340c` frontier at `6/11`.
+
+This postmortem reads 342a and 343a together because both were deliberately narrow tests of whether the 340 frontier was missing only an objective or likelihood alignment.
+
+### Mechanism Read
+The evidence is now coherent:
+- `342a` kept the 340c architecture and added one-step sampled energy scoring. It made some local transition summaries look different, but collapsed long-horizon coverage, level marginals, cointegration, and max-jump shape. This falsifies myopic teacher-forced proper-score repair.
+- `343a` used exact scalar likelihood in the empirical normal-score coordinate. It restored broad aggregate coverage and cross-cell dependence, but lost time-series tails, level KS, worst-cell cointegration, active mean reversion, and per-cell jump realism. This falsifies the idea that exact scalar density alone is the missing piece.
+- `340c` remains the frontier because it is the only recent model that jointly preserves support, block-AR smoothness, time-series structure, cointegration, cross-cell geometry, and mean reversion.
+
+The remaining pathology is conditional uncertainty allocation under recursive generation: the model must widen and shape the full future law by state/regime and cell without losing the structural geometry that 340c learned. The failure is not a single missing calibration scalar, not capacity alone, and not a coordinate/likelihood swap.
+
+### Decision
+Close local objective repair and scalar chain-rule synthesis as non-frontier branches.
+
+Run research ideation next. The next experiment must have a genuinely different mechanism from:
+- one-step teacher-forced FM tuning;
+- one-step sampled proper scoring;
+- scalar exact likelihood;
+- fixed source-law changes;
+- retrieval/residual/correction shells;
+- evaluator-specific calibration.
+
+The active frontier remains `340a/340c` at `6/11`.
+
+---
