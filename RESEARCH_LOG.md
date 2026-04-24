@@ -91015,3 +91015,24 @@ This preserves the allowed bottleneck bias and adds only a general state-space r
 Run 328a as the next falsifier. If it keeps 327c's transition/jump gains while restoring mean reversion and coverage, 328 becomes the active family. If it collapses back to smoothing or loses cross-cell geometry, close the learned-bottleneck line and ideate a new paradigm.
 
 ---
+## 2026-04-23: 328a recurrent latent state decoder
+
+### Context
+327c restored transition realism and jump scale but lost level anchoring and mean reversion. 328a tested the minimal state-feedback repair: keep the learned latent bottleneck and conditional latent flow, but decode recurrently from the last observed standardized-logit level so each generated increment can depend on the current generated state.
+
+### Result
+328a_v0_s42 scored 2/11, passing block_ar and mean_reversion. It failed surface validity, coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, cross_cell_correlation, and pathwise_jump_realism.
+
+Key metrics: best epoch 8, best val total 0.4610, coverage90 0.477, calibration error 0.260, turb/calm width ratio 0.884, ACF corr 0.569, kurtosis ratio 4.879, daily-change KS 1/25, level KS 9/25, median-bias fraction 20/25, bias magnitude 22/25, per-window coverage bad rate 52.6%, cross-cell corr ratio 0.454, rank ratio 2.176, cointegration gen/GT 0.734 with worst-cell 0.000, MR ratio 0.984 with 17/24 active cells and active corr 0.853, pathwise q90 ratio 0.047, q99 ratio 0.148.
+
+Artifacts: `models/backfill/328a_v0_s42/best_model.pt`, `models/backfill/328a_v0_s42/train_summary.json`, `results/block_ar/328a_v0_s42/full11.json`, `results/block_ar/328a_v0_s42/full11.md`.
+
+### Mechanism Read
+State feedback worked for mean reversion. The full MR suite passed across h=1/7/14/30, which 327c could not do. But the decoder selected by validation remained extremely smooth: decoded increment std during training was around 0.055-0.075 against target 0.512, pathwise q99 was only 14.8% of GT, and cross-cell correlation fell below gate.
+
+This cleanly separates the mechanisms: transition-coordinate one-shot decoding gives jumps/common geometry but no MR; recurrent state-feedback decoding gives MR but suppresses jumps/common-shock geometry under plain level reconstruction.
+
+### Decision
+Do not continue plain level-MSE recurrent decoding. The next HEAD step should be research ideation: find a single objective/model object that preserves 327c's transition realism and 328a's state-feedback mean reversion without adding an ad hoc weighted auxiliary loss or evaluator-specific correction.
+
+---
