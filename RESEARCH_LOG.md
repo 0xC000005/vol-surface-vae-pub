@@ -90748,3 +90748,22 @@ The experiment is useful because it cleanly falsifies the narrow claim that lear
 Do not add more calibration knobs to 324b. The next step should stay in the learned single-stage family but change the modeling target/objective so the model learns the joint future path law more directly, rather than relying on one-step Gaussian/Student-t transition likelihood to imply the 30-day path distribution.
 
 ---
+## 2026-04-23: 324c axial-mixer direct future-logit path flow
+
+### Context
+324b showed that one-step Student-t Cholesky transition likelihood can recover cross-cell dependence but becomes too diffuse and weakly conditional. The next clean test was to keep the generative core as vanilla flow matching and train directly on the whole 30-day future logit path, replacing 324a's slow quadratic global-token transformer with an efficient axial mixer over time and cells.
+
+### Result
+The oversized first 324c configuration was interrupted because it was too slow for the in-session loop. The evaluated feasible run, `324c_v0_small_s42`, used a 260k-parameter standardized future-logit path flow with factorized time/cell/channel mixing. It scored 2/11, passing only surface validity and block-AR smoothness.
+
+Key metrics: coverage90 0.790 with calibration error 0.058, turb/calm width ratio 0.946, daily-change KS 11/25, level KS 5/25, median-bias fraction gate 18/25, cross-cell correlation ratio 0.286, effective-rank ratio 3.585, aggregate MR ratio 1.269 with 18/24 active cells, full-horizon aggregate MR profile pass but active profile fail, pathwise max-jump KS 0.533.
+
+Artifacts: `models/backfill/324c_v0_small_s42/best_model.pt`, `models/backfill/324c_v0_small_s42/train_summary.json`, `results/block_ar/324c_v0_small_s42/full11.json`, and `results/block_ar/324c_v0_small_s42/full11.md`.
+
+### Mechanism Read
+324c is useful because it cleanly separates two mechanisms. Direct path flow plus standardized level coordinates learns strong mean reversion and avoids 324b's overcoverage, but the axial mixer does not create enough shared stochastic coupling across cells. The generated law is too factorized: mean paths are reasonable, but joint noise geometry is weak, rank is too high, and distributional/jump shape remains uneven by cell.
+
+### Decision
+Do not tune axial mixer depth, temperature, or flow steps blindly. The 324 evidence now shows a clean tradeoff: Cholesky transition likelihood preserves cross-cell dependence but misses path law, while direct path flow preserves path drift/MR but loses cross-cell stochastic geometry. The next HEAD step should be research ideation or a paradigm shift focused on a single-stage law where shared stochastic coupling is structurally learned rather than appended as a covariance or calibration knob.
+
+---
