@@ -91978,3 +91978,34 @@ Do not close 338 yet. It is the first recent move that directly improves the fre
 Run post-experiment analysis next. If continuing 338, use exactly one conservative falsifier: reduce the roll-in pressure enough to preserve the local transition law while testing whether the path-calibration gains survive. Do not start sweeping roll-in weights, temperatures, horizons, and losses; that would become a research-knob branch.
 
 ---
+## 2026-04-24: Autoresearch 338a postmortem and 338b selection
+
+### Context
+338a tested on-policy generated-prefix fine-tuning from 330c. It is the first recent branch to materially improve the free-run path metrics that had been stuck, but it damaged local transition fidelity.
+
+### Findings
+338a remained below the 5/11 frontier at `4/11`, but the mechanism is constructive:
+- aggregate calibration improved strongly (`coverage90=0.895`, calibration error `0.006`);
+- pathwise max-jump KS nearly passed (`0.211`, gate `<0.20`);
+- full-horizon active MR mean improved to `64.4%`, closer to the 70% gate;
+- cross-cell and cointegration still passed.
+
+The cost was severe local-law distortion:
+- daily-change KS collapsed to `7/25`;
+- per-cell q99 tail-scale cells collapsed to `4/25`;
+- time-series and distributional fidelity failed harder than 330c.
+
+### Mechanism Read
+On-policy training is attacking the right failure mode: generated-prefix path behavior. The problem is strength, not direction. Too much roll-in pressure makes the model learn large corrective transitions from generated states, which improves path-level recovery but distorts the unconditional local transition law.
+
+### Decision
+Run exactly one conservative 338b falsifier. It should reduce roll-in pressure while keeping the same method:
+- initialize from 330c;
+- shorter fine-tune;
+- fewer roll-in integration steps;
+- lower learning rate;
+- same teacher-forced plus generated-prefix FM objective.
+
+This is not a sweep. If 338b cannot preserve 330c's local daily/time-series strengths while keeping some 338a path-calibration gains, close or pause the on-policy branch and ideate a different path-law objective.
+
+---
