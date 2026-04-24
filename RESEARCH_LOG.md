@@ -92757,3 +92757,37 @@ Run research ideation next around objective-level training for conditional uncer
 The next ideation must stay clean: no evaluator-specific gates, no calibration layer, no regime hand labels, no retrieval, no residual shell, no low-rank readout, no bounded side path. Candidate class: generic sample-based proper scoring rules for the learned conditional law, such as one-step or path-level energy score / variogram score, applied in normal-score or IV space with the 340c sampler.
 
 ---
+## 2026-04-24: Autoresearch 342a objective-level transition-law selection
+
+### Context
+340/341 have now ruled out the clean architecture-side explanations for the remaining failures:
+- simple realized-scale state did not help (`340b`);
+- prefix-token conditioning helped but capped at `6/11` (`340c`);
+- same-method capacity scaling worsened the law (`340d`);
+- block-causal path factorization did not beat the frontier (`341a`).
+
+The frontier remains `340a/340c` at `6/11`. The open pathology is conditional uncertainty allocation: the model preserves support, local change structure, cross-cell geometry, and mean reversion, but still misses coverage/conditionality/regime coverage, level-law cells, and pathwise max-jump shape.
+
+### Prior Evidence
+Older proper-score branches are relevant but not decisive against a more local objective repair:
+- `303d` added a sparse free-run path energy score and fixed mean reversion, but collapsed coverage/level law. That argues against naive path-summary energy fine-tuning.
+- `325a/325b` trained direct full-path implicit generators with energy/variogram scores and failed common-shock geometry. That argues against replacing the 340c recurrent law with a one-shot proper-score generator.
+- Multiple earlier CRPS/ES stacks became research-knob heavy or objective-misaligned when they used tail/regime/evaluator-style terms.
+
+The clean remaining gap is narrower: 340c already has the best structural scenario law, but its sampled one-step conditional transition distribution is not aligned enough with the empirical next-step conditional law.
+
+### Decision
+Open `342a`: a constrained objective-level fine-tune of the existing `340c` checkpoint.
+
+Keep the architecture unchanged. Train from `models/backfill/340c_v0_s42/best_model.pt` with:
+- the original teacher-forced flow-matching loss as an anchor;
+- one generic sample-based energy score on the generated one-step transition/next-score law under teacher-forced prefixes;
+- normalized 25-dimensional normal-score coordinates so no cell or evaluator gate receives special weighting;
+- no variogram term, no tail CRPS, no regime labels, no calibration layer, no retrieval, no low-rank readout, no bounded side path, and no posterior/prior scaffold.
+
+This is a principled falsifier because it changes the training objective to score the actual sampled local conditional law while preserving the clean 340c factorization that already passes the structural suites.
+
+### Falsifier
+If `342a` cannot beat the `6/11` frontier or if it improves coverage by sacrificing 340c's structural passes, close this objective-level local-energy repair. Do not tune many sample counts, loss weights, or horizon subsets; the point is to test whether sampled transition-law scoring is the missing alignment, not to build another loss-stack.
+
+---
