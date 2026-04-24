@@ -94202,3 +94202,23 @@ The learned backbone is not globally broken. It has plausible local increments a
 Move to a model-side experiment that keeps the generative core vanilla but aligns training with a proper distributional score for the future path. Do not continue with post-hoc affine calibrators or evaluator-specific corrections.
 
 ---
+## 2026-04-24: Autoresearch iteration 376 — recent quantile calibration
+
+### Context
+Iteration 376 tested the remaining defensible calibration route after affine calibration failed: a small monotone horizon/cell quantile map fit on the immediately preceding pre-validation calibration window, then applied forward to validation. This avoids validation leakage and frames the layer as rolling policy calibration rather than learned conditional law.
+
+### Result
+- Artifact: `results/validations/2026-04-24/analysis/376a_recent_quantile_policy_calibration/summary.md`
+- Best variant remained `raw` at `8/11` sample-array/proxy score; official best remains the 340c revised `7/11` because official conditionality is model-API based and still fails for raw 340c.
+- `raw`: coverage90 `0.877`, h30 worst/best `0.620/0.995`, conditionality proxy MAE reduction `17.1%`, regime layer2 `0/8`, level KS `11/25`, daily KS `24/25`.
+- The mild global quantile map `a0.25` reached only `8/11` and improved level KS by just one cell (`12/25`).
+- Stronger global maps damaged level KS (`4/25`, `1/25`, `0/25`) while regime layer2 stayed `0/8`.
+- Regime-specific maps did not help: `0/8` regime layer2 throughout, worse cointegration, and the strongest map broke mean reversion.
+
+### Mechanism Read
+The recent calibration window does not provide a transferable validation level law. Monotone quantile maps can move sample levels, but they do not learn conditional state occupancy; they also distort economic/dynamic structure as calibration strength increases. The persistent regime layer2 `0/8` confirms that per-cell/regime coverage is not fixed by a marginal quantile map.
+
+### Decision
+Close post-hoc calibration ladders for now. The next step should be a paradigm/data-framing decision: either a legitimate rolling-adaptation training setup that learns from recent regimes before evaluation, or a transparent statement that exact `11/11` requires an operational stress/calibration layer outside the learned conditional law.
+
+---
