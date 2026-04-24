@@ -94884,3 +94884,25 @@ Interval scaling is safer than full marginal quantile mapping for level geometry
 Keep 392a base as the active learned 8/11 frontier. Do not claim calibrated-system progress yet. The next iteration should analyze whether a weaker alpha or lower target is a principled risk-policy calibration, or whether calibration should be closed because it keeps trading off official suites.
 
 ---
+## 2026-04-24: Autoresearch 406 interval-scale tradeoff
+
+### Context
+After 405a, the key unresolved question was whether median-preserving interval scaling was a viable calibrated risk-system layer or just another harmful post-hoc distortion. I compared the official 392a base result against 405a target-90 interval scaling.
+
+### Result
+- 392a base remains the active frontier at 8/11: cov90 0.868, under70 1, over95 10, conditionality 5.14%, very-small-move ratio 0.949, level KS 10/25, regime layer2 0/8, coint worst 0.278.
+- 405a target-90 scaling scored 6/11: cov90 0.922, under70 0, over95 27, conditionality 3.75%, very-small-move ratio 0.838, level KS 11/25, regime layer2 1/8, coint worst 0.298.
+- Linear interpolation from base to full 405a implies conditionality would force alpha <= 0.104 and the very-small-move gate would force alpha <= 0.440.
+
+### Mechanism Read
+Full target-90 interval scaling proves width is a real actuator: it removes undercoverage, improves regime layer2 from 0/8 to 1/8, preserves cointegration, and slightly improves level KS. The failure is that it widens already-safe cells toward 90% anyway, creating broad overcoverage and damaging conditionality plus the small-move profile.
+
+### Decision
+Do not treat alpha tuning as the primary next move. The more principled calibrated risk objective is a deadband policy: leave a cell unchanged when calibration coverage is already inside the evaluator/risk band, and otherwise use the smallest scale change needed to enter the band. This keeps the calibrated-system layer narrow and preserves the learned base dynamics better than global target-90 scaling.
+
+Artifacts:
+- `experiments/backfill/block_ar/analyze_406a_interval_scale_tradeoff.py`
+- `results/block_ar/406a_interval_scale_tradeoff/summary.json`
+- `results/block_ar/406a_interval_scale_tradeoff/summary.md`
+
+---

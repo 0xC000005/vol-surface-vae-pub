@@ -1,0 +1,59 @@
+{
+  "base_392a": {
+    "score": 8,
+    "failed": [
+      "coverage",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "coverage90": 0.8675486111111111,
+    "under70": 1,
+    "over95": 10,
+    "conditional_mae": 5.14416655957236,
+    "very_small_move_ratio": 0.9487837218236118,
+    "cointegration_worst": 0.2777777777777778,
+    "level_ks": 10,
+    "level_ks_median": 0.1663541666666667,
+    "regime_l2": 0,
+    "pathwise_ks": 0.3729166666666667
+  },
+  "interval_405a": {
+    "score": 6,
+    "failed": [
+      "coverage",
+      "conditionality",
+      "time_series",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "coverage90": 0.9218194444444444,
+    "under70": 0,
+    "over95": 27,
+    "conditional_mae": 3.7516833773202896,
+    "very_small_move_ratio": 0.8378626219066384,
+    "cointegration_worst": 0.29824561403508776,
+    "level_ks": 11,
+    "level_ks_median": 0.16197916666666665,
+    "regime_l2": 1,
+    "pathwise_ks": 0.1703125
+  },
+  "deltas_405a_minus_392a": {
+    "score": -2,
+    "coverage90": 0.05427083333333327,
+    "under70": -1,
+    "over95": 17,
+    "conditional_mae": -1.3924831822520707,
+    "very_small_move_ratio": -0.11092109991697341,
+    "cointegration_worst": 0.020467836257309968,
+    "level_ks": 1,
+    "level_ks_median": -0.0043750000000000455,
+    "regime_l2": 1,
+    "pathwise_ks": -0.20260416666666667
+  },
+  "linear_alpha_limits_from_392a_to_405a": {
+    "conditionality_gate_gt_5": 0.10353199335535161,
+    "very_small_move_gate_gt_0p9": 0.4398056083119204
+  },
+  "mechanism_read": "Full target-90 interval scaling proves width is an effective actuator: undercoverage disappears, regime layer2 improves from 0/8 to 1/8, cointegration remains valid, and level KS improves slightly. But because the objective targets 90% everywhere, it over-widens many already-safe cells and breaks conditionality plus the small-move profile.",
+  "decision": "Do not tune alpha as the primary next move. The principled calibrated risk objective is a deadband policy: leave cells unchanged if calibration coverage is already inside the evaluator/risk band and use the smallest scale change needed to enter the band. This is narrower than target-90 scaling and should preserve base dynamics better."
+}
