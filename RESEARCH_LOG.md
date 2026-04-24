@@ -95240,3 +95240,40 @@ Run 419a from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt
 - `experiments/backfill/block_ar/IDEA_418a_student_forced_transition_fm.md`
 
 ---
+## 2026-04-24: Autoresearch 419 student-forced transition FM
+
+### Context
+418a selected a clean off-policy AR experiment: keep the 392a empirical normal-score transition-flow core and fine-tune it with student-forced transition FM on generated prefixes, while retaining the teacher-forced FM anchor. This targeted the train/eval mismatch directly rather than adding post-hoc calibration or a direct one-shot path model.
+
+### Result
+Added `experiments/backfill/block_ar/train_419a_student_forced_transition_fm.py`.
+
+Training:
+- source: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`
+- output: `models/backfill/419a_student_forced_transition_fm_s42/best_model.pt`
+- objective: teacher-forced FM anchor `1.0`, student-forced FM weight `0.1`, generated-prefix flow steps `4`, selected horizons `6`
+- best epoch: `2`
+- best internal validation total: `0.58314`
+
+Official full 11-suite:
+- artifact: `results/block_ar/419a_student_forced_transition_fm_s42/full11.json`
+- score: `6/11`
+- failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`
+
+Key metrics: cov90 `0.909`; worst per-horizon cell coverage `>=0.745`; best per-horizon cell coverage up to `0.995`; conditionality `3.17%`; time-series kurtosis ratio `0.737`; very-small/small move ratios `0.817/0.898`; coint worst-cell `0.298` pass; regime layer2 `1/8`; level KS `7/25`; median-bias fraction `19/25`; corr ratio `1.010`; MR active `70.8%`; max-jump KS `0.307`.
+
+### Mechanism Read
+Student-forced transition FM is a real learned actuator, but the first conservative setting moved the wrong joint direction. It removed most undercoverage and preserved cointegration/correlation/mean-reversion, yet it over-widened high-coverage cells, reduced conditional MAE improvement below the gate, made the move-size profile too jumpy, and worsened level occupancy. This resembles the interval-calibration tradeoff, but learned inside the transition law rather than applied post-hoc.
+
+### Decision
+Keep 392a as the active `8/11` frontier. Do not run a blind student-weight sweep. The next iteration must analyze whether one weaker/local off-policy variant is principled, or whether student-forced transition FM should be closed as another width-only tradeoff.
+
+### Artifacts
+- `experiments/backfill/block_ar/train_419a_student_forced_transition_fm.py`
+- `models/backfill/419a_student_forced_transition_fm_s42/args.json`
+- `models/backfill/419a_student_forced_transition_fm_s42/train_summary.json`
+- `models/backfill/419a_student_forced_transition_fm_s42/training_history.json`
+- `results/block_ar/419a_student_forced_transition_fm_s42/full11.json`
+- `results/block_ar/419a_student_forced_transition_fm_s42/full11.md`
+
+---

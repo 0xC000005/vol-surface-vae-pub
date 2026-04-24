@@ -1,0 +1,62 @@
+[
+  {
+    "epoch": 1,
+    "train_total": 0.651921502568505,
+    "train_fm_loss": 0.5364876464009285,
+    "train_student_fm_loss": 1.1543385521932081,
+    "train_student_off_policy_abs": 0.7766256792978807,
+    "val_total": 0.5918047699061307,
+    "val_fm_loss": 0.4773981137709184,
+    "val_student_fm_loss": 1.1440665342591025,
+    "val_student_off_policy_abs": 0.7740267786112699,
+    "val_transition_std": 0.5672377673062411,
+    "student_horizon_count": 6.0,
+    "lr": 8.535533905932739e-06,
+    "sec": 6.715080976486206
+  },
+  {
+    "epoch": 2,
+    "train_total": 0.6491744667291641,
+    "train_fm_loss": 0.5334723415699872,
+    "train_student_fm_loss": 1.1570212177254937,
+    "train_student_off_policy_abs": 0.7879512919621035,
+    "val_total": 0.5831432234157216,
+    "val_fm_loss": 0.4726796096021479,
+    "val_student_fm_loss": 1.1046361923217773,
+    "val_student_off_policy_abs": 0.7861444354057312,
+    "val_transition_std": 0.5672377673062411,
+    "student_horizon_count": 6.0,
+    "lr": 5e-06,
+    "sec": 6.462676048278809
+  },
+  {
+    "epoch": 3,
+    "train_total": 0.6491640738465569,
+    "train_fm_loss": 0.5321699516339735,
+    "train_student_fm_loss": 1.169941170649095,
+    "train_student_off_policy_abs": 0.7923870547251268,
+    "val_total": 0.6002348119562323,
+    "val_fm_loss": 0.4832692877812819,
+    "val_student_fm_loss": 1.169655209237879,
+    "val_student_off_policy_abs": 0.8070320541208441,
+    "val_transition_std": 0.5672377673062411,
+    "student_horizon_count": 6.0,
+    "lr": 1.4644660940672628e-06,
+    "sec": 6.4344377517700195
+  },
+  {
+    "epoch": 4,
+    "train_total": 0.6414530859752134,
+    "train_fm_loss": 0.5305182215842333,
+    "train_student_fm_loss": 1.1093486073342236,
+    "train_student_off_policy_abs": 0.7656940614635294,
+    "val_total": 0.5923224633390253,
+    "val_fm_loss": 0.48084252259948035,
+    "val_student_fm_loss": 1.1147994290698657,
+    "val_student_off_policy_abs": 0.7814081419597972,
+    "val_transition_std": 0.5672377673062411,
+    "student_horizon_count": 6.0,
+    "lr": 0.0,
+    "sec": 6.439271688461304
+  }
+]
