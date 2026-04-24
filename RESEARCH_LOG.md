@@ -92265,3 +92265,31 @@ However it did not solve the core 339 bottleneck. Regime width response became m
 Run post-experiment analysis next. The 339 family now has a clean two-point result: empirical rank-space coordinates help unconditional calibration and local daily fidelity, but one-shot joint path flow still misses regime-dependent width and path extreme geometry. Decide whether one final principled 339 repair exists, or close 339 and return to a different sequence factorization.
 
 ---
+## 2026-04-24: Autoresearch 339 closure and 340 selection
+
+### Context
+339a and 339b tested empirical normal-score one-shot joint path flow:
+- 339a: axial full-path mixer, `4/11`;
+- 339b: future-token Transformer path mixer with GRU history bottleneck, `4/11`.
+
+Both preserved support, block smoothness, cointegration, and cross-cell structure. Neither beat the `5/11` frontier.
+
+### Mechanism Read
+The empirical rank coordinate is useful, but one-shot rank-space path flow is capped. It improves aggregate coverage, daily-change KS, median bias, and support behavior relative to weak one-shot path models, but it still learns a mostly unconditional path cloud. The persistent failures are conditional/regime width response, validation level KS, active full-horizon mean reversion, and pathwise max-jump shape.
+
+339b rules out the simplest explanation that 339a merely had weak axial token mixing. A Transformer/DiT-style future-token generator improved skewness and conditional MAE but worsened regime width response and did not improve the score. Sweeping depth, heads, quantile count, temperature, or mixer variants would turn into a knob branch.
+
+The clean positive evidence remains split:
+- 330c causal-memory AR preserves local daily law, time-series pass, cross-cell geometry, and the 5/11 frontier;
+- 339 rank-space coordinates improve unconditional coverage, median bias, and some level-law behavior inside a generic monotone coordinate.
+
+### Decision
+Close or sharply pause one-shot 339.
+
+Open 340a: shared empirical normal-score causal-memory AR transition flow. It should keep the 330c causal future-prefix memory and vanilla transition rectified-flow objective, but replace standardized logits with a single per-cell empirical normal-score coordinate estimated from training history+future levels. Sampling decodes each generated score through the inverse empirical CDF.
+
+This is not a return to residual shells, retrieval, fixed copulas, low-rank readouts, bounded idio paths, source-noise scaling, evaluator losses, or posterior/prior scaffolds. It is the probability integral transform plus the chain rule: model the conditional sequence one step at a time in a generic coordinate.
+
+The falsifier is whether 340a preserves 330c's daily/time-series/cross-cell/cointegration strengths while improving level KS, median/per-cell coverage, conditionality, and pathwise extremes. If it simply reproduces 330c failures or 339 path-flow failures, close the rank-coordinate branch.
+
+---
