@@ -1,0 +1,96 @@
+{
+  "runs": {
+    "392a_ar_frontier": {
+      "score": 8,
+      "failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "coverage90": 0.8675486111111111,
+      "under70": 1,
+      "over95": 10,
+      "conditionality": 5.14416655957236,
+      "kurtosis_ratio": 0.8469187069001778,
+      "cointegration_worst": 0.2777777777777778,
+      "regime_layer2": 0,
+      "daily_ks": 25,
+      "level_ks": 10,
+      "median_fraction": 20,
+      "bias_magnitude": 25,
+      "corr_ratio": 0.9627225915502032,
+      "rank_ratio": 1.4954762959119774,
+      "mean_reversion_pass": true,
+      "pathwise_ks": 0.3729166666666667,
+      "suite_passes": {
+        "surface": true,
+        "coverage": false,
+        "conditionality": true,
+        "time_series": true,
+        "block_ar": true,
+        "cointegration": true,
+        "regime_coverage": false,
+        "distributional_fidelity": false,
+        "cross_cell_correlation": true,
+        "mean_reversion": true,
+        "pathwise_jump_realism": true
+      }
+    },
+    "413a_direct_path": {
+      "score": 4,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "cointegration",
+        "regime_coverage",
+        "cross_cell_correlation",
+        "mean_reversion"
+      ],
+      "coverage90": 0.8108680555555555,
+      "under70": 7,
+      "over95": 1,
+      "conditionality": 3.9762360417785763,
+      "kurtosis_ratio": 0.797896595267438,
+      "cointegration_worst": 0.13157894736842107,
+      "regime_layer2": 0,
+      "daily_ks": 25,
+      "level_ks": 20,
+      "median_fraction": 25,
+      "bias_magnitude": 23,
+      "corr_ratio": 0.4862751496704728,
+      "rank_ratio": 2.7117668952194776,
+      "mean_reversion_pass": false,
+      "pathwise_ks": 0.29010416666666666,
+      "suite_passes": {
+        "surface": true,
+        "coverage": false,
+        "conditionality": false,
+        "time_series": false,
+        "block_ar": true,
+        "cointegration": false,
+        "regime_coverage": false,
+        "distributional_fidelity": true,
+        "cross_cell_correlation": false,
+        "mean_reversion": false,
+        "pathwise_jump_realism": true
+      }
+    }
+  },
+  "union_passes": {
+    "surface": true,
+    "coverage": false,
+    "conditionality": true,
+    "time_series": true,
+    "block_ar": true,
+    "cointegration": true,
+    "regime_coverage": false,
+    "distributional_fidelity": true,
+    "cross_cell_correlation": true,
+    "mean_reversion": true,
+    "pathwise_jump_realism": true
+  },
+  "union_n_pass": 9,
+  "mechanism_read": "392a and 413a expose a genuine factorization split. The AR model owns local/structural dynamics: conditionality, time-series, cointegration, cross-cell correlation, mean reversion, and pathwise realism. The direct path model owns level occupancy: daily KS, level KS, median fraction, and bias magnitude all pass strongly. Both still fail coverage and regime layer2, but their coverage errors have opposite geometry: 392a has mostly over-95 cells, while 413a has mostly under-70 cells.",
+  "decision": "Do one bounded diagnostic mixture, not as the final architecture but as a mechanism test. A fixed mostly-AR sample mixture can test whether the two learned laws contain complementary support that could later be distilled into one clean model. If the mixture cannot improve beyond 8/11 or damages structural passes, close mixture/ensemble work immediately."
+}

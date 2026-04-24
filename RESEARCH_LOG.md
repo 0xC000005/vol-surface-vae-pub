@@ -95102,3 +95102,31 @@ Key metrics:
 Keep 392a as the active best `8/11` model. Run post-experiment analysis next. The key question is whether there is a principled base representation that can combine 392a's local/structural transition law with 413a's direct level-occupancy ability without becoming a hand-built two-stage or calibration system.
 
 ---
+## 2026-04-24: Autoresearch 414 AR direct-path complementarity
+
+### Context
+413a was not competitive with 392a, but it solved the exact suite that 392a cannot: distributional fidelity, especially level KS. 414a audited whether this is a useful mechanism split or just another bad tradeoff.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_414a_ar_vs_direct_path_complementarity.py`.
+
+Artifacts:
+- `results/block_ar/414a_ar_vs_direct_path_complementarity/summary.json`
+- `results/block_ar/414a_ar_vs_direct_path_complementarity/summary.md`
+
+Key comparison:
+
+| run | score | cov under/over | cond | coint worst | level KS | corr ratio | MR | path KS |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| 392a AR frontier | 8/11 | 1/10 | 5.14% | 0.278 | 10/25 | 0.963 | pass | 0.373 |
+| 413a direct path | 4/11 | 7/1 | 3.98% | 0.132 | 20/25 | 0.486 | fail | 0.290 |
+
+Suite-union pass count is `9/11`: coverage and regime coverage are the only suites neither model passes.
+
+### Mechanism Read
+392a and 413a expose a genuine factorization split. The AR model owns local/structural dynamics: conditionality, time-series, cointegration, cross-cell correlation, mean reversion, and pathwise realism. The direct path model owns level occupancy: daily KS, level KS, median fraction, and bias magnitude all pass strongly. Both still fail coverage and regime layer2, but their coverage errors have opposite geometry: 392a has mostly over-95 cells, while 413a has mostly under-70 cells.
+
+### Decision
+Run one bounded diagnostic mixture, not as the final architecture but as a mechanism test. A fixed mostly-AR sample mixture can test whether the two learned laws contain complementary support that could later be distilled into one clean model. If the mixture cannot improve beyond `8/11` or damages structural passes, close mixture/ensemble work immediately.
+
+---
