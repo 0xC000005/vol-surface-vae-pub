@@ -95018,3 +95018,31 @@ Marginal CRPS did not collapse the conditional generator: conditionality, time-s
 Keep 392a as the active `8/11` learned frontier. Run post-experiment analysis next. If no clean learned-objective variant remains, pivot to a base likelihood/representation paradigm shift rather than adding another fine-tune loss.
 
 ---
+## 2026-04-24: Autoresearch 411 proper-score cap
+
+### Context
+410a tested the clean marginal-CRPS alternative after energy-score fine-tuning and interval calibration had both shown tradeoffs. Because 410a scored below 392a, 411a audited the full simple proper-score fine-tune family before adding another weight knob.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_411a_proper_score_cap.py`.
+
+Artifacts:
+- `results/block_ar/411a_proper_score_cap/summary.json`
+- `results/block_ar/411a_proper_score_cap/summary.md`
+
+Key comparison:
+
+| run | score | cov90 | under/over | cond MAE | coint worst | level KS | regime L2 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 385a recent FM | 8/11 | 0.879 | 2/12 | 6.08% | 0.333 | 5/25 | 0/8 |
+| 392a energy w0.05 | 8/11 | 0.868 | 1/10 | 5.14% | 0.278 | 10/25 | 0/8 |
+| 393a energy w0.10 | 7/11 | 0.847 | 0/2 | 3.96% | 0.250 | 12/25 | 0/8 |
+| 410a marginal CRPS | 7/11 | 0.874 | 0/15 | 5.60% | 0.219 | 10/25 | 1/8 |
+
+### Mechanism Read
+Simple free-running proper-score fine-tuning is capped as a primary route. Weak multivariate energy gave the best score by trading part of 385a's conditionality margin for better level occupancy. Stronger energy improved level KS further but lost conditionality/coverage. Marginal CRPS preserved conditionality and improved calibration error, but did not move level KS and lost worst-cell cointegration. The common pattern is objective geometry, not architecture collapse: scalar fine-tune losses can move one failed suite but do not produce the joint conditional level/regime law needed for 11/11.
+
+### Decision
+Keep 392a as the active `8/11` frontier. Close simple proper-score fine-tune losses as the primary route. The next iteration should be a base likelihood/representation paradigm shift, not another energy/CRPS weight or post-hoc calibration branch.
+
+---

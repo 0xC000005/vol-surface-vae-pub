@@ -1,0 +1,92 @@
+{
+  "runs": {
+    "385a_recent_fm": {
+      "score": 8,
+      "failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8791111111111111,
+      "under70": 2,
+      "over95": 12,
+      "calibration_error": 0.011520061728395063,
+      "conditional_mae": 6.084875817048347,
+      "very_small_move_ratio": 0.9224134726198,
+      "cointegration_worst": 0.3333333333333333,
+      "regime_layer2": 0,
+      "level_ks": 5,
+      "level_ks_median": 0.19052083333333336,
+      "median_fraction": 18,
+      "bias_magnitude": 25,
+      "pathwise_ks": 0.3697916666666667
+    },
+    "392a_energy_w005": {
+      "score": 8,
+      "failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8675486111111111,
+      "under70": 1,
+      "over95": 10,
+      "calibration_error": 0.023957561728395076,
+      "conditional_mae": 5.14416655957236,
+      "very_small_move_ratio": 0.9487837218236118,
+      "cointegration_worst": 0.2777777777777778,
+      "regime_layer2": 0,
+      "level_ks": 10,
+      "level_ks_median": 0.1663541666666667,
+      "median_fraction": 20,
+      "bias_magnitude": 25,
+      "pathwise_ks": 0.3729166666666667
+    },
+    "393a_energy_w01": {
+      "score": 7,
+      "failed": [
+        "coverage",
+        "conditionality",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8472777777777778,
+      "under70": 0,
+      "over95": 2,
+      "calibration_error": 0.042796296296296304,
+      "conditional_mae": 3.9598050222219467,
+      "very_small_move_ratio": 0.9905324857181803,
+      "cointegration_worst": 0.25,
+      "regime_layer2": 0,
+      "level_ks": 12,
+      "level_ks_median": 0.1534375,
+      "median_fraction": 20,
+      "bias_magnitude": 24,
+      "pathwise_ks": 0.41354166666666664
+    },
+    "410a_marginal_crps_w005": {
+      "score": 7,
+      "failed": [
+        "coverage",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8736180555555556,
+      "under70": 0,
+      "over95": 15,
+      "calibration_error": 0.014425925925925925,
+      "conditional_mae": 5.6017652778816664,
+      "very_small_move_ratio": 0.9348922512608895,
+      "cointegration_worst": 0.21875000000000003,
+      "regime_layer2": 1,
+      "level_ks": 10,
+      "level_ks_median": 0.1763541666666667,
+      "median_fraction": 20,
+      "bias_magnitude": 25,
+      "pathwise_ks": 0.375
+    }
+  },
+  "mechanism_read": "Simple free-running proper-score fine-tuning is capped as a primary route. Weak multivariate energy gave the best score by trading part of 385a's conditionality margin for better level occupancy. Stronger energy improved level KS further but lost conditionality/coverage. Marginal CRPS preserved conditionality and improved calibration error, but did not move level KS and lost worst-cell cointegration. The common pattern is objective geometry, not architecture collapse: scalar fine-tune losses can move one failed suite but do not produce the joint conditional level/regime law needed for 11/11.",
+  "decision": "Keep 392a as the active 8/11 frontier and close simple proper-score fine-tune losses as the primary route. The next iteration should be a paradigm shift in the base likelihood/representation, not another energy/CRPS weight or post-hoc calibration branch."
+}
