@@ -98447,3 +98447,43 @@ This changes loop control only. It does not change the scientific frontier:
 Continue autoresearch without a numeric iteration hard cap. The next iteration should follow `PLAN_518a_next_learned_law_program.md` and begin the new learned-law program path with a data/pretraining readiness or scaffold iteration, not another local objective/source/wrapper tweak around `392a`.
 
 ---
+## 2026-04-25: Autoresearch 521a next-program data readiness
+
+### Context
+
+After `520a` removed the hard cap, the loop resumed on the new learned-law program path. The first required check was whether the repo already has usable broader-panel data for a local pretraining/prototype step.
+
+### Execution
+
+Ran:
+
+```bash
+python experiments/backfill/baselines/data_loader_38d.py
+```
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_521a_next_program_data_readiness.md`.
+
+### Result
+
+- aligned 38-d loader passes;
+- SPX return alignment correlation `1.000000`;
+- IV reconstruction max error `1.11e-16`;
+- `joint_changes_38` shape `(5821, 38)`;
+- test windows from surface index `4540+`: `1222`;
+- baseline split has only about `4039` train changes.
+
+Existing 38-d baselines remain weak:
+
+- CSDI is strongest at `3/7` reduced IV suites;
+- TimeGrad, DeepVAR, FilteredHS, HistoricalSim reach `2/7`;
+- factor KS is `0/13` for all baselines.
+
+### Mechanism
+
+The data infrastructure is usable, but local data scale is not foundation-model scale. A local new-core prototype can test mechanics, but it should not be expected to solve `11/11` by scale alone.
+
+### Decision
+
+Proceed only with a minimal new-core mechanics prototype under the `518a` acceptance gate: it must approach the `392a` structural passes before any coverage/regime/distributional optimization. Do not resume local `392a` repair knobs.
+
+---
