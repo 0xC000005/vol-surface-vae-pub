@@ -96970,3 +96970,33 @@ Lowering the critic weight avoids the worst structural damage, but it still beha
 Stop scalar critic-weight sweeps. The next step should be post-experiment analysis or a different learned objective that is local/center-preserving by construction, not another global critic variant.
 
 ---
+## 2026-04-25: Autoresearch 469a conditional critic branch postmortem
+
+### Context
+467a and 468a tested the learned conditional path critic idea after calibration-table variants capped below `392a`. Both kept the 392a-family generator and changed only the training objective.
+
+### Findings
+The global critic branch is also capped below `392a`:
+
+- `467a` (`adv_weight=0.01`) scored `6/11`: average coverage improved, but conditionality, cointegration worst-cell, level KS, and median-bias fraction degraded.
+- `468a` (`adv_weight=0.002`) scored `7/11`: cointegration recovered and coverage shape improved, but conditionality fell to `3.12%`, level KS stayed `11/25`, and regime layer-2 stayed `0/8`.
+
+Mechanism: the global path critic is too blunt. It learns broad generated-vs-real path differences, but the generator update is not constrained to preserve the conditional center or local structural features that `392a` already gets right. It behaves like a learned marginal calibration pressure.
+
+### Decision
+Stop global critic variants and scalar critic-weight sweeps. Do not add critic depth or complexity without changing the objective structure.
+
+### Next Paradigm
+Move to a frozen-center residual-law model:
+
+- use `392a` to estimate a conditional center per history;
+- freeze or heavily anchor that center;
+- train a generic learned residual path law around the center;
+- no regime labels, no retrieval, no validation oracle, and no empirical calibration table.
+
+This preserves the strongest part of `392a` by construction while giving the model capacity to learn residual spread/shape as a proper generative law rather than as posthoc calibration.
+
+### Artifact
+- Postmortem: `experiments/backfill/block_ar/ANALYSIS_469a_critic_branch_postmortem.md`
+
+---
