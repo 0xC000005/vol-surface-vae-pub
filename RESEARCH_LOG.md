@@ -96301,3 +96301,66 @@ free-running path-energy anchor. This is a narrow falsifier for whether the miss
 component is conditional uncertainty allocation rather than learned center transport.
 
 ---
+## 2026-04-24: Autoresearch 448 conditional noise scale result
+
+### Context
+
+`447a` proposed moving conditional uncertainty allocation into the generative core by
+enabling the existing conditional source-noise scale head.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/train_448a_conditional_noise_scale_path_energy.py`.
+
+Configuration:
+
+- source: `392a`
+- trainable scope: `noise_log_scale_only`
+- noise scale clamp: `[0.5, 2.0]`
+- objective: FM anchor `1.0` + path-energy `0.05` + scale L2 `0.001`
+- best epoch: `5`
+
+Artifact paths:
+
+- `models/backfill/448a_cond_noise_scale_only_energy_w005_s42/`
+- `results/block_ar/448a_cond_noise_scale_only_energy_w005_s42/full11.json`
+- `results/block_ar/448a_cond_noise_scale_only_energy_w005_s42/full11.md`
+
+### Result
+
+Score: `4/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `time_series`
+- `cointegration`
+- `regime_coverage`
+- `distributional_fidelity`
+- `pathwise_jump_realism`
+
+Key metrics:
+
+- learned scale collapsed near the lower clamp: validation mean `0.512` by epoch 5
+- overall 90% coverage: `0.499`
+- daily-change KS: `1/25`
+- level KS: `12/25`
+- pathwise max-jump KS: `0.977`
+
+### Mechanism Read
+
+Conditional source scale is a real core lever, but training only the scale head under
+the FM-dominated objective learns to suppress source noise. That sharpens paths, destroys
+coverage and movement realism, and fails the risk objective.
+
+This falsifies unconstrained scale-head-only fine-tuning. It does not falsify conditional
+scale as a core concept; it shows the scale objective must not reward noise collapse.
+
+### Decision
+
+Do not continue this exact branch. If conditional scale is retried, it needs a different
+constraint, such as widening-only scale, or the transport must be trained jointly with a
+proper path-law objective. Otherwise move to a larger learned-core architecture.
+
+---
