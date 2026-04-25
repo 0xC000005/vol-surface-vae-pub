@@ -1,0 +1,122 @@
+[
+  {
+    "epoch": 1,
+    "train_total": 1.653716878457503,
+    "train_residual_score_std": 0.8483035835352811,
+    "val_total": 1.4442801078160603,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.00029265847744427303,
+    "sec": 0.8028688430786133
+  },
+  {
+    "epoch": 2,
+    "train_total": 1.4505594860423694,
+    "train_residual_score_std": 0.8526066541671753,
+    "val_total": 1.467176914215088,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.0002713525491562421,
+    "sec": 0.6807942390441895
+  },
+  {
+    "epoch": 3,
+    "train_total": 1.3635847189209678,
+    "train_residual_score_std": 0.8512497246265411,
+    "val_total": 1.43974773089091,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.00023816778784387096,
+    "sec": 0.6795587539672852
+  },
+  {
+    "epoch": 4,
+    "train_total": 1.3469915335828608,
+    "train_residual_score_std": 0.8529508059675043,
+    "val_total": 1.3441979090372722,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.0001963525491562421,
+    "sec": 0.6812276840209961
+  },
+  {
+    "epoch": 5,
+    "train_total": 1.3227024999531833,
+    "train_residual_score_std": 0.8538564524867318,
+    "val_total": 1.281122585137685,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.00015,
+    "sec": 0.6797544956207275
+  },
+  {
+    "epoch": 6,
+    "train_total": 1.2502578713677146,
+    "train_residual_score_std": 0.8506824157454751,
+    "val_total": 1.2720627586046855,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.0001036474508437579,
+    "sec": 0.6805617809295654
+  },
+  {
+    "epoch": 7,
+    "train_total": 1.2405158985744824,
+    "train_residual_score_std": 0.8495130024173043,
+    "val_total": 1.3433293104171753,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 6.183221215612905e-05,
+    "sec": 0.6808152198791504
+  },
+  {
+    "epoch": 8,
+    "train_total": 1.2511510523882778,
+    "train_residual_score_std": 0.8520178740674799,
+    "val_total": 1.3009279767672222,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 2.86474508437579e-05,
+    "sec": 0.6787080764770508
+  },
+  {
+    "epoch": 9,
+    "train_total": 1.2092235684394836,
+    "train_residual_score_std": 0.8512035581198606,
+    "val_total": 1.2440205216407776,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 7.341522555726971e-06,
+    "sec": 0.6790542602539062
+  },
+  {
+    "epoch": 10,
+    "train_total": 1.2192892161282627,
+    "train_residual_score_std": 0.8511497595093467,
+    "val_total": 1.2898558775583904,
+    "val_residual_score_std": 0.7513377467791239,
+    "val_residual_score_abs": 0.6830818752447764,
+    "val_center_score_std": 0.4934914956490199,
+    "val_future_score_std": 0.8145814339319865,
+    "lr": 0.0,
+    "sec": 0.680311918258667
+  }
+]

@@ -97000,3 +97000,27 @@ This preserves the strongest part of `392a` by construction while giving the mod
 - Postmortem: `experiments/backfill/block_ar/ANALYSIS_469a_critic_branch_postmortem.md`
 
 ---
+## 2026-04-25: Autoresearch 470a frozen-center residual flow
+
+### Context
+The active recommendation after 469 was to preserve the strong 392a conditional center and learn only a generic residual path law around it, avoiding retrieval, validation-oracle futures, low-rank constraints, bounded idio paths, and empirical calibration tables.
+
+### Execute
+Implemented `470a` as a deployable frozen-center residual empirical-score flow:
+- base center: frozen `392a` median path estimated from base samples per history
+- residual law: vanilla rectified flow in empirical normal-score residual space
+- source noise: iid Gaussian residual path
+- artifacts: `diffusion/block_ar/frozen_center_residual_score_flow.py`, `experiments/backfill/block_ar/train_470a_frozen_center_residual_score_flow.py`, `models/backfill/470a_frozen_center_residual_score_flow_s42/best_model.pt`, `results/block_ar/470a_frozen_center_residual_score_flow_s42/full11.json`
+
+### Result
+Full revised 11-suite score: `3/11`.
+Passed only surface, block-AR boundary, and cointegration. Failed coverage, conditionality, time-series, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism.
+Key metrics: coverage90 `0.7567`, calibration error `0.1111`, conditionality MAE reduction `1.39%`, daily KS `7/25`, level KS `11/25`, cross-cell corr ratio `0.018`, rank ratio `4.378`, max-jump KS `0.536`.
+
+### Mechanism Read
+The frozen center is not enough. Starting the residual generator from iid Gaussian destroys the stochastic geometry that made 392a usable: generated cross-cell dependence is nearly zero and effective rank is too high. 470a is therefore worse than 392a, despite using 392a as a center.
+
+### Decision
+Do not tune 470a temperature or capacity first. The principled next falsifier is a source-transport residual law: use frozen 392a sample residuals as the flow source distribution and learn a conditional transport correction to the realized residual. This keeps the architecture clean while preserving the learned 392a residual geometry instead of replacing it with iid noise.
+
+---
