@@ -97118,3 +97118,33 @@ Stop scalar wrapper/fine-tune routes around `392a` for now. The current deployab
 - Postmortem: `experiments/backfill/block_ar/ANALYSIS_474_source_transport_postmortem.md`
 
 ---
+## 2026-04-25: Autoresearch 475 latent path manifold paradigm
+
+### Context
+474 closed the source-transport branch. The evidence now says scalar wrappers,
+marginal maps, quantile fine-tunes, scale heads, and source/noise transport around
+392a cannot learn the missing conditional level/regime allocation without damaging
+structural suites.
+
+### Result
+Selected a new learned-core paradigm: a learned future-path latent manifold flow.
+The model first learns a deterministic empirical-normal-score future-path
+encoder-decoder, then trains a vanilla conditional latent flow from history to the
+compact future-path latent.
+
+Artifact: `experiments/backfill/block_ar/IDEA_475a_latent_path_manifold_flow.md`.
+
+### Mechanism Read
+Prior raw full-path/direct likelihood models were too high-dimensional and lost
+path geometry. The 392a wrappers preserved geometry but could not move conditional
+level allocation. A learned narrow path bottleneck is the cleanest remaining
+first-principles bias: it lets the data learn the path manifold while keeping the
+generative core vanilla.
+
+### Decision
+Stop wrapper and scalar-knob experiments. Next iteration should implement the
+first minimal latent path-manifold flow falsifier and evaluate reconstruction plus
+the unchanged full 11-suite. Kill the branch if reconstruction cannot preserve
+path geometry or conditional latent sampling repeats direct-path collapse.
+
+---
