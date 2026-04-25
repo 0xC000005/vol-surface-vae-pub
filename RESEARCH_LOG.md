@@ -97604,3 +97604,47 @@ coordinates. This targets conditional marginal level occupancy without using cal
 tables, regime labels, validation futures, or evaluator-specific KS losses.
 
 ---
+## 2026-04-25: Autoresearch 487 marginal-CRPS objective falsifier
+
+### Context
+486 closed frozen-proposal density-ratio correction and selected one clean objective-level
+falsifier: initialize from `392a`, keep the architecture and sampler unchanged, keep the
+FM anchor, and add a small marginal CRPS proper scoring term over free-running samples for
+every horizon/cell in empirical score coordinates.
+
+### Execute
+- Added `experiments/backfill/block_ar/train_487a_recent_marginal_crps_finetune.py`.
+- Trained `models/backfill/487a_recent_marginal_crps_w005_s42/best_model.pt` from the
+  active `392a` checkpoint with `crps_weight=0.05`, `train_sample_count=4`, and 4 rollout
+  flow steps.
+- Evaluated `results/block_ar/487a_recent_marginal_crps_w005_s42/full11.json` using the
+  unchanged empirical-score AR loader.
+
+### Result
+487a reached 6/11. It failed coverage, conditionality, cointegration, regime coverage,
+and distributional fidelity.
+
+Key metrics:
+- Coverage90 `0.8765`, calibration error `0.0120`; lower coverage floors passed but
+  multiple best-cell caps remained above `95%`.
+- Conditionality MAE reduction `4.71%`, below the `>5%` gate and worse than 392a.
+- Cointegration aggregate ratio passed, but worst-cell ratio fell to `0.211`.
+- Daily-change KS `25/25`; level KS stayed at `10/25`; median-bias `20/25`;
+  bias magnitude `25/25`.
+- Mean reversion, cross-cell correlation, and pathwise jumps stayed valid.
+
+### Mechanism Read
+Marginal CRPS did not solve the level-occupancy bottleneck. It improved average calibration
+but behaved like another marginal pressure: conditionality dropped below gate, one
+cointegration cell broke, and level KS did not improve beyond the 392a baseline. This is
+the same broad failure pattern as PIT/critic/density-ratio variants: marginal calibration
+pressure moves coverage but does not learn the missing conditional level allocation.
+
+### Decision
+Do not tune CRPS weight or sample count next. The 392a-objective neighborhood has now
+failed through energy-weight sweeps, PIT moments, critic fine-tuning, density-ratio
+reweighting, and marginal CRPS. The next HEAD step should be a broader paradigm synthesis
+focused on whether the remaining gates require a different representation of conditional
+state rather than another marginal/proper-score wrapper around 392a.
+
+---
