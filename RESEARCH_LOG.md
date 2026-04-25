@@ -98094,3 +98094,27 @@ Full-path energy can overpressure global geometry, marginal CRPS/interval/PIT ca
 Run one 509a patch-energy fine-tune from `392a`: unchanged AR transition core, FM anchor retained, free-running rollouts, overlapping `5`-day future patches across all cells, one fixed small patch-energy weight, official 11-suite evaluation. If it fails below frontier, close MMPD-inspired local objectives without patch-length or weight sweeps.
 
 ---
+## 2026-04-25: Autoresearch 509a patch energy objective
+
+### Context
+508a selected one final MMPD-inspired local objective falsifier: keep the `392a` AR transition core unchanged, retain the FM anchor, and add an energy score over overlapping `5`-day future patches.
+
+### Result
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_509a_recent_patch_energy_finetune.py`
+- model: `models/backfill/509a_recent_patch_energy_l5_w005_s42/best_model.pt`
+- full suite: `results/block_ar/509a_recent_patch_energy_l5_w005_s42/full11.json`
+- markdown: `results/block_ar/509a_recent_patch_energy_l5_w005_s42/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_509a_patch_energy_result.md`
+
+Score: `6/11`. Passed surface, time_series, block_ar, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, conditionality, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8736`, conditionality MAE reduction `3.88%`, daily KS `25/25`, level KS `10/25`, median-bias cells `20/25`, bias magnitude `25/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.211`, corr ratio `0.970`, MR ratio `0.965`, path KS `0.388`.
+
+### Mechanism Read
+Patch energy preserves local path realism and improves/keeps median-bias diagnostics, but it does not move the coupled level/regime allocation. Level KS remains at `10/25`, regime layer2 remains `0/8`, and the added patch pressure weakens conditionality and worst-cell cointegration.
+
+### Decision
+Close MMPD-inspired local patch objectives as below-frontier. Do not sweep patch length or patch-energy weight. The literature-derived local tests are now covered and remain below `392a`.
+
+---
