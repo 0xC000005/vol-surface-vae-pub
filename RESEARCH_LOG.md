@@ -98573,3 +98573,26 @@ Smoke train from 392a with 64 adaptation windows and one epoch succeeded: factor
 525a is a mechanics pass. Next iteration should run a non-smoke short adaptation and official 192-window, 48-sample evaluation. Acceptance remains: recover the 392a/510a structural passes before adding losses or knobs.
 
 ---
+## 2026-04-25: Autoresearch 526a factor-conditioned full evaluation
+
+### Context
+525a implemented factor-conditioned surface-level mechanics. 526a ran the actual short adaptation from 392a and official 192-window, 48-sample full-suite evaluation.
+
+### Result
+Training: `models/backfill/525a_factor_conditioned_surface_fm_e4_s525/best_model.pt`. Evaluation: `results/autoresearch/526a_factor_conditioned_surface_fm_e4_s525/full11.json`.
+
+Score: `7/11`. Passed `surface`, `time_series`, `block_ar`, `cointegration`, `cross_cell_correlation`, `mean_reversion`, and `pathwise_jump_realism`. Failed `coverage`, `conditionality`, `regime_coverage`, and `distributional_fidelity`.
+
+Key metrics: cov90 overall `0.865`, h30 cov90 `0.878`, conditional MAE reduction `4.74%`, turb/calm ratio `1.063`, cointegration ratio `0.726`, cointegration worst-cell ratio `0.298`, daily KS `25/25`, level KS `12/25`, mean-reversion active pass `0.833`, and path max-jump KS `0.374`.
+
+### Mechanism Read
+The factor side-channel is not a collapse. It preserves almost all 392a structural behavior, improves level KS from `10/25` to `12/25`, and improves cointegration margin. It also avoids the 522a daily-change-coordinate pathology.
+
+The missed acceptance gate is thin: conditionality is `4.74%` versus `>5%`. Coverage failure is mostly an overcoverage cap issue rather than undercoverage: per-horizon coverage passes and h30 cov90 is `0.878`.
+
+### Decision
+Do not add a new objective or architecture knob yet. Next iteration should run a repeatability/sampling-seed audit of the same checkpoint. If it remains `7/11`, treat the branch as promising but below-frontier. If it reaches `8/11`, compare against 392a/510a before modifying anything.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_526a_factor_conditioned_surface_full_eval.md`.
+
+---
