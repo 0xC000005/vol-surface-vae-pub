@@ -98077,3 +98077,20 @@ Shared source geometry repaired the intended gross geometry defects versus 505a:
 Close shared-source direct-path flow as below-frontier. Do not run a `rho` sweep by default. Return to the AR transition frontier for the next ideation step; direct full-path cores remain below `392a` unless they can inherit 392a's conditional transition structure.
 
 ---
+## 2026-04-25: Autoresearch 508a remaining literature route
+
+### Context
+After 504a/505a/507a, the recent-literature routes from DistDF-style joint alignment and MixLinear/Minkowski-linear efficient architectures have both been tested in minimal form and failed below the `392a` frontier. The older log also already covers 421a joint transition-path flow, 423a persistent source-noise AR, and 415a AR/direct mixture.
+
+### Result
+Artifact: `experiments/backfill/block_ar/IDEA_508a_remaining_literature_route.md`.
+
+The only non-redundant recent-literature route still not directly represented is an MMPD-style patch view: train distributions of local future patches rather than full paths or independent marginals.
+
+### Mechanism Read
+Full-path energy can overpressure global geometry, marginal CRPS/interval/PIT can miss joint local path modes, and joint MMD/SW can damage structure. Patch-level energy is intermediate: more local than full-path alignment, more joint than cell/horizon marginal losses.
+
+### Decision
+Run one 509a patch-energy fine-tune from `392a`: unchanged AR transition core, FM anchor retained, free-running rollouts, overlapping `5`-day future patches across all cells, one fixed small patch-energy weight, official 11-suite evaluation. If it fails below frontier, close MMPD-inspired local objectives without patch-length or weight sweeps.
+
+---
