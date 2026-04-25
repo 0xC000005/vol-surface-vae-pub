@@ -96118,3 +96118,68 @@ the `392a` frontier without damaging conditionality/time-series/structure, treat
 fine-tune loss family as capped and move to a larger learned-core change.
 
 ---
+## 2026-04-24: Autoresearch 444 quantile coverage pathlaw result
+
+### Context
+
+`443a` proposed a learned fine-tune objective targeting the persistent level-KS and
+coverage failures directly, without post-hoc calibration.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/train_444a_recent_quantile_coverage_pathlaw.py`.
+Training configuration:
+
+- source: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`
+- epochs: `4`
+- train samples: `8`
+- FM anchor: `1.0`
+- path-energy weight: `0.05`
+- IV-level quantile weight: `2.0`
+- interval pinball weight: `2.0`
+- best epoch: `2`
+
+Artifact paths:
+
+- `models/backfill/444a_recent_quantile_coverage_pathlaw_w2_s8_s42/`
+- `results/block_ar/444a_recent_quantile_coverage_pathlaw_w2_s8_s42/full11.json`
+- `results/block_ar/444a_recent_quantile_coverage_pathlaw_w2_s8_s42/full11.md`
+
+### Result
+
+Score: `5/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `time_series`
+- `cointegration`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- overall 90% coverage: `0.872`
+- conditionality MAE reduction: `4.2%`
+- regime layer2: `1/8`
+- daily-change KS: `25/25`
+- level KS: `4/25`
+- median-bias fraction: `17/25`
+- pathwise max-jump KS: `0.318`
+
+### Mechanism Read
+
+The explicit quantile/coverage objective increased spread and improved some aggregate
+coverage diagnostics, but it shifted the level law in the wrong direction. It damaged
+level KS, median-bias fraction, time-series kurtosis/move profile, and cointegration.
+
+The issue is not lack of a coverage penalty; the current architecture/objective cannot
+absorb this penalty without losing learned conditional structure.
+
+### Decision
+
+Treat this fine-tune loss family as capped. The next step should not be another weight
+tweak. A larger learned-core change is needed if the goal remains deployable `11/11`.
+
+---
