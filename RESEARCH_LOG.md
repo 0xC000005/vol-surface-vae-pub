@@ -96364,3 +96364,56 @@ constraint, such as widening-only scale, or the transport must be trained jointl
 proper path-law objective. Otherwise move to a larger learned-core architecture.
 
 ---
+## 2026-04-24: Autoresearch 449 widening-only conditional scale result
+
+### Context
+
+`448a` showed that unconstrained conditional source-scale training collapses noise to
+the lower clamp. The clean follow-up was to test whether widening-only scale can learn
+useful conditional extra uncertainty without corrupting the 392a transport.
+
+### Experiment
+
+Reused `experiments/backfill/block_ar/train_448a_conditional_noise_scale_path_energy.py`
+with `noise_scale_min=1.0` and `noise_scale_max=2.0`.
+
+Artifact paths:
+
+- `models/backfill/449a_cond_noise_widen_only_energy_w005_s42/`
+- `results/block_ar/449a_cond_noise_widen_only_energy_w005_s42/full11.json`
+- `results/block_ar/449a_cond_noise_widen_only_energy_w005_s42/full11.md`
+
+### Result
+
+Score: `7/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- learned scale stayed exactly at `1.0`
+- overall 90% coverage: `0.867`
+- conditionality MAE reduction: `4.4%`
+- regime layer2: `0/8`
+- daily-change KS: `25/25`
+- level KS: `12/25`
+- pathwise max-jump KS: `0.364`
+
+### Mechanism Read
+
+The widening-only constraint prevented the noise collapse seen in `448a`, but the scale
+head did not learn useful widening. The objective still prefers no additional noise
+under the constraint, so the result is effectively a stochastic variant of the 392a core,
+not a solved conditional uncertainty model.
+
+### Decision
+
+Scale-head-only training is capped. Further progress requires modifying/training the
+transport/backbone jointly or changing the learned core, not just the source-noise scale.
+
+---
