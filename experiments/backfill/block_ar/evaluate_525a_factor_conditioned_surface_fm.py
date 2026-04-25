@@ -40,7 +40,7 @@ from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_s
 def sample_factor_conditioned(
     model: Any,
     history_norm: torch.Tensor,
-    factor_history: torch.Tensor,
+    factor_history: torch.Tensor | None,
     n_samples: int,
     n_steps: int,
     batch_size: int,
@@ -55,7 +55,7 @@ def sample_factor_conditioned(
             n_steps=n_steps,
             chunk_size=chunk_size,
             history_is_normalized=True,
-            factor_history=factor_history[start:end],
+            factor_history=None if factor_history is None else factor_history[start:end],
         )
         outs.append(samples.detach().cpu().numpy())
         print(f"  sampled windows {end}/{history_norm.shape[0]}", flush=True)
@@ -113,28 +113,6 @@ def main() -> None:
     set_seed(args.seed)
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_model(args.checkpoint, device)
-    factor_mean = payload.get("factor_mean")
-    factor_std = payload.get("factor_std")
-    if factor_mean is None or factor_std is None:
-        raise ValueError("525a checkpoints must contain factor_mean and factor_std")
-
-    _, val_indices = official_train_val_indices(
-        test_start=args.test_start,
-        val_size=args.val_size,
-        history_len=args.history_len,
-        future_len=args.future_len,
-    )
-    if args.max_windows is not None:
-        val_indices = val_indices[: args.max_windows]
-    factor_block = build_factor_history_block(
-        data_path=args.data_path,
-        indices=val_indices,
-        history_len=args.history_len,
-        future_len=args.future_len,
-        device=device,
-        factor_mean=factor_mean,
-        factor_std=factor_std,
-    )
     batch = build_rollout_windows(
         data_path=args.data_path,
         history_len=args.history_len,
@@ -145,22 +123,60 @@ def main() -> None:
         device=device,
         split="val",
     )
-    max_hist_err = float(
-        torch.max(torch.abs(factor_block.history_01 - batch.history_01)).detach().cpu().item()
-    )
-    max_future_err = float(
-        torch.max(torch.abs(factor_block.future_01 - batch.future_01)).detach().cpu().item()
-    )
-    if max_hist_err > 1e-6 or max_future_err > 1e-6:
-        raise RuntimeError(
-            f"Official/factor block alignment failed: history={max_hist_err}, future={max_future_err}"
+
+    factor_dim = int(getattr(model.cfg, "factor_dim", 0))
+    factor_history = None
+    block_summary = {
+        "n_windows": int(batch.history_norm.shape[0]),
+        "history_shape": list(batch.history_01.shape),
+        "future_shape": list(batch.future_01.shape),
+        "factor_history_shape": [int(batch.history_01.shape[0]), args.history_len, 0],
+        "index_start": None,
+        "index_end": None,
+        "factor_dim": 0,
+    }
+    max_hist_err = 0.0
+    max_future_err = 0.0
+    if factor_dim > 0:
+        factor_mean = payload.get("factor_mean")
+        factor_std = payload.get("factor_std")
+        if factor_mean is None or factor_std is None:
+            raise ValueError("factor-conditioned checkpoints must contain factor_mean and factor_std")
+        _, val_indices = official_train_val_indices(
+            test_start=args.test_start,
+            val_size=args.val_size,
+            history_len=args.history_len,
+            future_len=args.future_len,
         )
+        if args.max_windows is not None:
+            val_indices = val_indices[: args.max_windows]
+        factor_block = build_factor_history_block(
+            data_path=args.data_path,
+            indices=val_indices,
+            history_len=args.history_len,
+            future_len=args.future_len,
+            device=device,
+            factor_mean=factor_mean,
+            factor_std=factor_std,
+        )
+        max_hist_err = float(
+            torch.max(torch.abs(factor_block.history_01 - batch.history_01)).detach().cpu().item()
+        )
+        max_future_err = float(
+            torch.max(torch.abs(factor_block.future_01 - batch.future_01)).detach().cpu().item()
+        )
+        if max_hist_err > 1e-6 or max_future_err > 1e-6:
+            raise RuntimeError(
+                f"Official/factor block alignment failed: history={max_hist_err}, future={max_future_err}"
+            )
+        factor_history = factor_block.factor_history
+        block_summary = tensor_dict_summary(factor_block)
 
     t0 = time.time()
     cond_samples = sample_factor_conditioned(
         model=model,
         history_norm=batch.history_norm,
-        factor_history=factor_block.factor_history,
+        factor_history=factor_history,
         n_samples=args.samples,
         n_steps=args.future_len,
         batch_size=args.batch_size,
@@ -184,7 +200,6 @@ def main() -> None:
         conditionality_max_batches=args.conditionality_max_batches,
         device=device,
     )
-    block_summary = tensor_dict_summary(factor_block)
     results["config"] = {
         "model_type": "525a",
         "checkpoint": args.checkpoint,

@@ -98624,3 +98624,27 @@ Do not claim an `8/11` tie and do not add a new loss or architecture knob yet. N
 Artifact: `experiments/backfill/block_ar/ANALYSIS_527a_factor_conditioned_seed_audit.md`.
 
 ---
+## 2026-04-25: Autoresearch 528a fixed-sampler parity audit
+
+### Context
+526a/527a evaluated the factor-conditioned checkpoint through a fixed precomputed-sample protocol. 528a evaluated original 392a through the same protocol and seed to separate side-channel effect from evaluator/sampling-protocol effect.
+
+### Result
+Result artifact: `results/autoresearch/528a_392a_fixed_sampler_parity_seed42/full11.json`.
+
+Original 392a under the same fixed protocol scored `6/11`, not its historical `8/11`. It failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, and `distributional_fidelity`.
+
+Under fixed seed42 protocol:
+
+- 392a fixed: conditional MAE reduction `4.79%`, cointegration worst-cell ratio `0.246`, level KS `11/25`, score `6/11`
+- factor fixed: conditional MAE reduction `4.91%`, cointegration worst-cell ratio `0.263`, level KS `12/25`, score `7/11`
+
+### Mechanism Read
+The factor side-channel is not causing the apparent drop versus historical 392a. Under matched fixed-sample protocol it improves over 392a. The main issue is evaluator protocol: fixed precomputed conditionality is not equivalent to the standard live-sampler conditionality path, and thin gates move around the threshold.
+
+### Decision
+Do not close the factor-conditioned branch. Next iteration should correct the evaluator by adding live conditionality sampling with matched factor histories, then rerun the factor checkpoint under this closer-to-standard protocol.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_528a_fixed_sampler_parity.md`.
+
+---
