@@ -167,14 +167,103 @@ class EmpiricalNormalScoreTransformerPathVelocity(nn.Module):
         return self.out(hidden[:, 2:, :]).squeeze(-1).view(bsz, horizon, n_cells)
 
 
+class _MixLinearBlock(nn.Module):
+    def __init__(self, cfg: EmpiricalNormalScorePathFMConfig):
+        super().__init__()
+        self.time_norm = nn.LayerNorm(cfg.token_dim)
+        self.time_mixer = nn.Linear(cfg.future_len, cfg.future_len)
+        self.cell_norm = nn.LayerNorm(cfg.token_dim)
+        self.cell_mixer = nn.Linear(cfg.n_cells, cfg.n_cells)
+        self.channel_norm = nn.LayerNorm(cfg.token_dim)
+        self.channel_mlp = nn.Sequential(
+            nn.Linear(cfg.token_dim, cfg.token_ff),
+            nn.GELU(),
+            nn.Dropout(cfg.model_dropout),
+            nn.Linear(cfg.token_ff, cfg.token_dim),
+        )
+        self.dropout = nn.Dropout(cfg.model_dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [batch, future, cells, channels]
+        y = self.time_norm(x).permute(0, 2, 3, 1)
+        y = self.time_mixer(y).permute(0, 3, 1, 2)
+        x = x + self.dropout(y)
+        y = self.cell_norm(x).permute(0, 1, 3, 2)
+        y = self.cell_mixer(y).permute(0, 1, 3, 2)
+        x = x + self.dropout(y)
+        return x + self.dropout(self.channel_mlp(self.channel_norm(x)))
+
+
+class EmpiricalNormalScoreMixLinearPathVelocity(nn.Module):
+    """Small separable linear-mixer velocity for direct future-path flow."""
+
+    def __init__(self, cfg: EmpiricalNormalScorePathFMConfig):
+        super().__init__()
+        self.cfg = cfg
+        input_dim = 5 if cfg.transition_features else 4
+        self.history_level_proj = nn.Linear(cfg.history_len, cfg.future_len)
+        self.history_delta_proj = nn.Linear(cfg.history_len, cfg.future_len)
+        self.input_proj = nn.Linear(input_dim, cfg.token_dim)
+        self.flow_time_proj = nn.Linear(cfg.flow_time_dim, cfg.token_dim)
+        self.horizon_embed = nn.Embedding(cfg.future_len, cfg.token_dim)
+        self.cell_embed = nn.Embedding(cfg.n_cells, cfg.token_dim)
+        self.blocks = nn.ModuleList([_MixLinearBlock(cfg) for _ in range(cfg.token_layers)])
+        self.out = nn.Sequential(
+            nn.LayerNorm(cfg.token_dim),
+            nn.Linear(cfg.token_dim, cfg.token_dim),
+            nn.GELU(),
+            nn.Linear(cfg.token_dim, 1),
+        )
+
+    def _history_features(self, history_z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        hist_by_cell = history_z.transpose(1, 2)
+        deltas = torch.zeros_like(history_z)
+        deltas[:, 1:] = history_z[:, 1:] - history_z[:, :-1]
+        delta_by_cell = deltas.transpose(1, 2)
+        level = self.history_level_proj(hist_by_cell).transpose(1, 2)
+        delta = self.history_delta_proj(delta_by_cell).transpose(1, 2)
+        return level, delta
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        history_z: torch.Tensor,
+        flow_t: torch.Tensor,
+    ) -> torch.Tensor:
+        bsz, horizon, n_cells = x_t.shape
+        if horizon != self.cfg.future_len or n_cells != self.cfg.n_cells:
+            raise ValueError(
+                f"Expected future path shape (*,{self.cfg.future_len},{self.cfg.n_cells}), "
+                f"got {tuple(x_t.shape)}"
+            )
+        hist_level, hist_delta = self._history_features(history_z)
+        last = history_z[:, -1:, :].expand(bsz, horizon, n_cells)
+        if self.cfg.transition_features:
+            prev = torch.cat([history_z[:, -1:], x_t[:, :-1]], dim=1)
+            values = torch.stack([x_t, x_t - prev, hist_level, hist_delta, last], dim=-1)
+        else:
+            values = torch.stack([x_t, hist_level, hist_delta, last], dim=-1)
+        h_idx = torch.arange(horizon, device=x_t.device)
+        c_idx = torch.arange(n_cells, device=x_t.device)
+        x = self.input_proj(values)
+        x = x + self.horizon_embed(h_idx)[None, :, None, :]
+        x = x + self.cell_embed(c_idx)[None, None, :, :]
+        x = x + self.flow_time_proj(_flow_time_features(flow_t, self.cfg.flow_time_dim))[
+            :, None, None, :
+        ]
+        for block in self.blocks:
+            x = block(x)
+        return self.out(x).squeeze(-1)
+
+
 class EmpiricalNormalScorePathFlowMatching(nn.Module):
     """339a: full-path rectified flow in empirical normal-score coordinates."""
 
     def __init__(self, cfg: EmpiricalNormalScorePathFMConfig):
         super().__init__()
         self.cfg = cfg
-        if cfg.mixer_type not in {"axial", "transformer"}:
-            raise ValueError("mixer_type must be 'axial' or 'transformer'")
+        if cfg.mixer_type not in {"axial", "transformer", "mixlinear"}:
+            raise ValueError("mixer_type must be 'axial', 'transformer', or 'mixlinear'")
         self.history_encoder: GRUEncoder | None = None
         if cfg.mixer_type == "transformer":
             hist_cfg = EncoderConfig(
@@ -186,6 +275,8 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
             )
             self.history_encoder = GRUEncoder(hist_cfg)
             self.velocity = EmpiricalNormalScoreTransformerPathVelocity(cfg)
+        elif cfg.mixer_type == "mixlinear":
+            self.velocity = EmpiricalNormalScoreMixLinearPathVelocity(cfg)
         else:
             self.velocity = EmpiricalNormalScorePathVelocity(cfg)
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
@@ -300,6 +391,8 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
         if self.cfg.mixer_type == "transformer":
             context = self.encode_history_scores(history_z)
             pred_velocity = self.velocity(x_t, context, t, history_z[:, -1])
+        elif self.cfg.mixer_type == "mixlinear":
+            pred_velocity = self.velocity(x_t, history_z, t)
         else:
             path_t = torch.cat([history_z, x_t], dim=1)
             pred_velocity = self.velocity(path_t, t)
@@ -362,6 +455,8 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
                     if ctx is None:
                         raise RuntimeError("Missing transformer context")
                     x = x + dt * self.velocity(x, ctx, t, hist[:, -1])
+                elif self.cfg.mixer_type == "mixlinear":
+                    x = x + dt * self.velocity(x, hist, t)
                 else:
                     x = x + dt * self.velocity(torch.cat([hist, x], dim=1), t)
             future_01 = self._scores_to_values(x[:, :n_steps], self.future_quantiles)

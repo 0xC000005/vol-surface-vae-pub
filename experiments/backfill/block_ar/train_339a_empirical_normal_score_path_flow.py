@@ -57,7 +57,7 @@ def main() -> None:
     parser.add_argument("--token_layers", type=int, default=4)
     parser.add_argument("--token_ff", type=int, default=256)
     parser.add_argument("--model_dropout", type=float, default=0.1)
-    parser.add_argument("--mixer_type", choices=["axial", "transformer"], default="axial")
+    parser.add_argument("--mixer_type", choices=["axial", "transformer", "mixlinear"], default="axial")
     parser.add_argument("--context_dim", type=int, default=128)
     parser.add_argument("--history_hidden", type=int, default=128)
     parser.add_argument("--encoder_dropout", type=float, default=0.1)

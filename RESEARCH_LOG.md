@@ -98010,3 +98010,28 @@ The sliced-Wasserstein term was active and did not collapse the generator, but i
 Close weak joint sliced-Wasserstein fine-tuning as below-frontier. Do not run a scalar SW-weight sweep by default. The next principled branch should use the new literature in the architecture direction: a minimal MixLinear/Minkowski-linear style efficient future-path backbone, evaluated as a new learned core against the `392a` frontier.
 
 ---
+## 2026-04-25: Autoresearch 505a MixLinear path core
+
+### Context
+After 504a showed that another joint distribution-loss around `392a` is below-frontier, 505a tested the architecture-side implication from the recent MixLinear/Minkowski-linear direction: a very small direct future-path flow with separable linear mixing over time, cells, and channels.
+
+### Result
+Artifacts:
+- core: `diffusion/block_ar/empirical_normal_score_path_flow_matching.py`
+- trainer update: `experiments/backfill/block_ar/train_339a_empirical_normal_score_path_flow.py`
+- model: `models/backfill/505a_mixlinear_path_fm_s42/best_model.pt`
+- full suite: `results/block_ar/505a_mixlinear_path_fm_s42/full11.json`
+- markdown: `results/block_ar/505a_mixlinear_path_fm_s42/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_505a_mixlinear_path_result.md`
+
+Score: `2/11`. Passed surface and block_ar only. Failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, cross-cell correlation, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: params `67,849`, coverage90 `0.7640`, conditionality MAE reduction `2.29%`, daily KS `10/25`, level KS `2/25`, median-bias cells `16/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.171`, corr ratio `0.376`, rank ratio `3.337`, MR ratio `0.917`, path KS `0.573`.
+
+### Mechanism Read
+The model is fast and trainable, but it over-fragments surface geometry. The generated surfaces have too low cross-cell correlation, too high effective rank, broken move-size tails, weak conditionality, and poor level occupancy. Parameter efficiency alone is not the missing mechanism for this risk scenario generator.
+
+### Decision
+Close minimal MixLinear direct-path flow as below-frontier. Do not scale this exact architecture by width/layers by default. Next iteration should be post-experiment architecture analysis: decide whether the one allowed core bias, a narrow learned bottleneck/shared-factor geometry, is necessary, or whether direct-path new-core experiments should be closed and the 392a AR transition frontier retained.
+
+---
