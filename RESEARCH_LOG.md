@@ -98775,3 +98775,18 @@ Close small global-Gaussian panel variants. The larger panel-law route remains a
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_535a_panel_gaussian_score_path_result.md`, `results/autoresearch/535a_panel_gaussian_score_path_s535/full11.json`.
 
 ---
+## 2026-04-25: Autoresearch 536a recent TS literature synthesis
+
+### Context
+535a showed that simply adding the 13 aligned market factors as one-shot panel targets does not fix the weak global-Gaussian score-path family. The user asked to explicitly fetch recent ICLR/AAAI/NeurIPS-style time-series work before choosing the next move, with attention to GCGNet, EMAformer, ShifTS, APN, FreqCycle, DLinear/NLinear, and M2FMoE.
+
+### Result
+I created `experiments/backfill/block_ar/IDEA_536a_recent_ts_literature_synthesis.md`. The common useful signal is not to stack all paper modules, but to learn conditional channel dependence with stable channel identities and shift-aware normalization while preserving temporal order and high-frequency path realism.
+
+### Mechanism Read
+The global-Gaussian panel path failed because its dependence structure is too static: it adds more variables but does not learn a conditional daily joint innovation law. Most named papers are deterministic forecasting papers, so their transferable value is architectural discipline around channel/shift/frequency handling, not their losses or modules as-is.
+
+### Decision / Next Step
+Close one-shot global-Gaussian panel variants. The next decisive falsifier is 537a: a small autoregressive 51-variable panel transition density/flow trained on next-day empirical-score innovations, rolled out for 30 days, and evaluated through the unchanged IV 11-suite. If it cannot exceed the old transition-likelihood branch, the local panel-law route is likely data/capacity limited rather than missing another small patch.
+
+---
