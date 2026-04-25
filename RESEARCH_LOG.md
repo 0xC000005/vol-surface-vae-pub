@@ -97148,3 +97148,59 @@ the unchanged full 11-suite. Kill the branch if reconstruction cannot preserve
 path geometry or conditional latent sampling repeats direct-path collapse.
 
 ---
+## 2026-04-25: Autoresearch 476 latent path manifold flow
+
+### Context
+475 selected the learned future-path latent manifold paradigm: deterministic
+empirical-normal-score future-path autoencoder plus vanilla conditional latent
+flow from history to the compact future-path latent.
+
+### Execute
+Implemented and trained `476a_latent_path_manifold_flow_s42`.
+
+Artifacts:
+- model code: `diffusion/block_ar/latent_path_manifold_flow.py`
+- train script: `experiments/backfill/block_ar/train_476a_latent_path_manifold_flow.py`
+- checkpoint: `models/backfill/476a_latent_path_manifold_flow_s42/best_model.pt`
+- result: `results/block_ar/476a_latent_path_manifold_flow_s42/full11.json`
+
+Training summary: AE best validation loss `0.4615` at epoch 51; flow best
+validation loss `0.3975` at epoch 19. The AE reconstruction diagnostic already
+showed variance loss: reconstructed score std around `0.68` versus target score
+std around `0.95`.
+
+### Result
+Full revised 11-suite score: `4/11`.
+Passed: surface, block-AR, cointegration, cross-cell correlation.
+Failed: coverage, conditionality, time-series, regime coverage, distributional
+fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- coverage90 `0.6803`, calibration error `0.1299`;
+- per-cell coverage worst/best remains highly uneven: h30 worst `0.073`, best `0.969`;
+- conditionality MAE reduction `-4.23%`, worst-cell MAE reduction `-29.39%`;
+- daily-change KS `14/25`, level KS `2/25`, median-bias fraction `11/25`;
+- cross-cell corr ratio `1.453`, rank ratio `0.743`;
+- mean-reversion aggregate ratio `2.27`, active pass rate `8.3%`;
+- pathwise max-jump KS `0.905`.
+
+### Mechanism Read
+The latent path manifold did preserve cross-cell correlation/rank better than many
+raw direct path models, so the representation idea is not instantly degenerate.
+But the first bottleneck is too lossy and weakly conditional: the AE
+under-reconstructs path variance, the conditional flow does not improve
+history-conditioned MAE, and the decoded paths over-mean-revert while losing level
+occupancy and pathwise jump distribution.
+
+This is not a 392a-wrapper failure; it is a learned-representation failure. The
+next principled question is whether the deterministic path autoencoder itself can
+preserve the target scenario properties before blaming the conditional latent
+flow.
+
+### Decision
+Keep `392a` as the deployable frontier at `8/11`. Do not tune latent-flow
+temperature or add calibration. Next iteration should run a reconstruction-oracle
+diagnostic for the 476a autoencoder, or otherwise analyze whether the latent
+bottleneck is too lossy before increasing model capacity.
+
+---

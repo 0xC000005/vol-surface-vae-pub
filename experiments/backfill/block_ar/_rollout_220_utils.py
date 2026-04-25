@@ -1013,6 +1013,12 @@ def load_one_day_kernel(
         )
 
         return load_471a_model(checkpoint_path, device)
+    if model_type == "476a":
+        from diffusion.block_ar.latent_path_manifold_flow import (
+            load_model as load_476a_model,
+        )
+
+        return load_476a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,
