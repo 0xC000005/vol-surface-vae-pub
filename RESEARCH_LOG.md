@@ -96183,3 +96183,35 @@ Treat this fine-tune loss family as capped. The next step should not be another 
 tweak. A larger learned-core change is needed if the goal remains deployable `11/11`.
 
 ---
+## 2026-04-24: Autoresearch 445 stationary history marginal policy
+
+### Context
+
+`444a` showed that direct quantile/coverage fine-tuning from `392a` damages too many
+other suites. Before a larger architecture rewrite, there is one suite-framing aligned
+deployable policy worth isolating.
+
+### Idea
+
+Added `experiments/backfill/block_ar/IDEA_445a_stationary_history_marginal_policy.md`.
+
+Level KS is a stationarity sanity check. A deployable policy may therefore use
+pre-validation observed history-level marginals as a stationary prior, without using
+validation futures.
+
+This differs from failed calibration branches:
+
+- not a residual-error bank;
+- not nearest-neighbor residual transfer;
+- not `403a` future-level quantile mapping;
+- no validation-future information;
+- no per-window oracle correction.
+
+### Decision
+
+Run one conservative `392a` stationarity map: fit generated quantiles from calibration
+samples, fit target quantiles from pre-validation observed history levels, apply a
+partial monotone map, and evaluate the unchanged full suite. If it does not beat `392a`,
+consider this stationarity-calibration route capped too.
+
+---
