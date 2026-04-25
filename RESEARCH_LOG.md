@@ -96570,3 +96570,25 @@ Do not ship this calibrated system. Calibration may be reported as a separate ri
 - Suite report: `results/block_ar/456a_preval_quantile_alpha025_392a/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 457 - weaker deployable quantile calibration
+
+### Context
+456 showed alpha 0.25 pre-validation quantile calibration was deployable but still weakened conditionality. The next calibration falsifier reduced intervention strength to alpha 0.10.
+
+### Experiment
+Ran `457a_preval_quantile_alpha010_392a`: same 392a base model and pre-validation quantile calibration as 456, with regime bins enabled and alpha reduced from 0.25 to 0.10.
+
+### Result
+Full 11-suite score: 6/11. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity. Level KS was 12/25, slightly better than 456, but still below gate. Conditionality worsened to 3.3% MAE reduction. Cointegration worst-cell failed. Regime layer-2 remained 0/8.
+
+### Mechanism Read
+The calibration family is not simply over-strong; weaker alpha still weakens conditional dependence and cannot solve level/regime fidelity. This suggests the quantile map is changing the conditional geometry in ways the conditionality test detects, while remaining too marginal to solve the hard suites.
+
+### Decision
+Stop simple alpha tuning of this calibration layer. The deployable calibration branch needs a different design if continued; otherwise return to learned-law/data-framing changes.
+
+### Artifacts
+- Suite output: `results/block_ar/457a_preval_quantile_alpha010_392a/full11.json`
+- Suite report: `results/block_ar/457a_preval_quantile_alpha010_392a/full11.md`
+
+---
