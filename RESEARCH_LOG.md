@@ -97747,3 +97747,28 @@ The separable marginal map is not path-law neutral. It slightly improved aggrega
 Close 492a as a falsifier. Do not add more marginal/cell knobs to this branch. Return to the 392a frontier and choose a path-law-preserving intervention for the remaining coverage/regime/distributional failures, or run a focused post-experiment analysis if that intervention is not yet clean enough to state in one sentence.
 
 ---
+## 2026-04-25: Autoresearch 493a path-level shift oracle
+
+### Context
+After 492a showed that independently learned horizon/cell marginal quantiles are not path-law neutral, 493a tested the narrowest path-preserving alternative: keep 392a samples and apply one oracle constant logit-level shift per validation window/cell across the whole 30-day future.
+
+### Result
+Artifacts:
+- script: `experiments/backfill/block_ar/analyze_493a_392a_path_level_shift_oracle.py`
+- result: `results/block_ar/493a_392a_path_level_shift_oracle/oracle.json`
+- markdown: `results/block_ar/493a_392a_path_level_shift_oracle/oracle.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_493a_path_level_shift_oracle.md`
+
+The audit omits conditionality because it operates on already generated sample tensors.
+
+Same-seed 392a resample: `7/10` ex-conditionality, failing coverage, regime_coverage, and distributional_fidelity. Coverage90 `0.8661`, level KS `12/25`, daily KS `25/25`, regime layer2 `0/8`, MR active `83.3%`, path KS `0.394`.
+
+Oracle constant logit shift: `7/10` ex-conditionality, failing coverage, regime_coverage, and mean_reversion. Coverage90 `0.9209`, level KS `22/25`, daily KS `25/25`, regime layer2 `0/8`, MR active `45.8%`, path KS `0.474`.
+
+### Mechanism Read
+The oracle shift confirms that much of the level-distribution failure is location-like, but it also proves that location correction alone is insufficient. Even with future information, regime layer2 remains `0/8`, coverage still fails through horizon/cell imbalance, and mean-reversion degrades sharply.
+
+### Decision
+Do not implement a learned constant-shift adapter. The remaining pathology is horizon/cell/regime interval allocation under a valid path law, not just center/location. Next step should be a clean paradigm decision: either optimize the 392a-style path law itself with coverage/level-occupancy-aware proper scores, or close the repair family if that objective cannot be stated without evaluator-specific knobs.
+
+---
