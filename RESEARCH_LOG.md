@@ -97796,3 +97796,26 @@ The interval score behaves as expected: it widens intervals and removes most und
 Close 494a as below-frontier and stop tuning local 392a score weights. The repeated pattern across energy, marginal CRPS, critic, density-ratio, source-transport, marginal maps, oracle shifts, and interval score is now clear: local repair can move average calibration but cannot learn the missing conditional level/regime allocation while preserving every structural suite. Next iteration should be a paradigm decision, not another 392a-local objective tweak.
 
 ---
+## 2026-04-25: Autoresearch 495a learned stress ensemble
+
+### Context
+After 494a interval-score fine-tuning improved aggregate coverage but fell below the 392a frontier, 495a tested one no-validation-tuning learned-law ensemble: `32` samples from 392a plus `16` samples from the 494a interval-score stress member.
+
+### Result
+Artifacts:
+- evaluator: `experiments/backfill/block_ar/evaluate_442a_learned_checkpoint_ensemble.py`
+- result: `results/block_ar/495a_392a_494a_stress_ensemble_32_16/full11.json`
+- markdown: `results/block_ar/495a_392a_494a_stress_ensemble_32_16/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_495a_stress_ensemble_result.md`
+
+Score: `7/11`. Passed surface, time_series, block_ar, cointegration, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, conditionality, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.888`, calibration error `0.004`, conditional MAE reduction `4.5%`, daily KS `25/25`, level KS `12/25`, median-bias cells `20/25`, regime layer2 `1/8`, cointegration worst-cell ratio `0.278`, corr ratio `0.956`, MR ratio `1.001`, path KS `0.382`.
+
+### Mechanism Read
+The ensemble gives a useful intermediate law and preserves structural suites, but it does not beat the frontier. It reduces undercoverage and improves aggregate calibration, but still fails late-horizon overcoverage caps, dilutes conditionality, and does not move level KS or regime layer2 far enough.
+
+### Decision
+Close learned-law averaging as a primary route. Do not tune ensemble weights. The next iteration should be a real paradigm decision: either define a genuinely new core with native joint level-allocation dynamics, or state that pure learned conditional laws appear capped below `11/11` and that the remaining target requires separately reported policy calibration.
+
+---
