@@ -98648,3 +98648,29 @@ Do not close the factor-conditioned branch. Next iteration should correct the ev
 Artifact: `experiments/backfill/block_ar/ANALYSIS_528a_fixed_sampler_parity.md`.
 
 ---
+## 2026-04-25: Autoresearch 529a live factor conditionality
+
+### Context
+528a showed the fixed-sample protocol was not comparable to historical 392a. 529a corrected the 525 evaluator so conditionality can use live model sampling with factor histories matched by history key.
+
+### Implementation
+`evaluate_525a_factor_conditioned_surface_fm.py` now supports `--conditionality_mode live|fixed`, no-factor checkpoints for parity audits, and factor checkpoints with matched factor histories for shuffled-history conditionality.
+
+Verification passed: `python -m py_compile experiments/backfill/block_ar/evaluate_525a_factor_conditioned_surface_fm.py` and `pytest test_code/test_factor_conditioned_surface_law.py -q` -> `3 passed`.
+
+### Result
+Result artifact: `results/autoresearch/529a_factor_conditioned_surface_fm_live_cond_seed42/full11.json`.
+
+Score remains `7/11`, failing `coverage`, `conditionality`, `regime_coverage`, and `distributional_fidelity`.
+
+Key metrics: cov90 overall `0.863`, h30 cov90 `0.882`, conditional MAE reduction `4.93%`, turb/calm ratio `1.058`, cointegration ratio `0.681`, cointegration worst-cell ratio `0.263`, level KS `12/25`, mean-reversion active pass `0.833`, and path max-jump KS `0.396`.
+
+### Mechanism Read
+The live conditionality correction does not recover `8/11`. The side-channel remains constructive relative to same-protocol 392a, but conditionality stays just under the hard gate. The improvement signal is level occupancy/cointegration, not regime differentiation.
+
+### Decision
+Do not add a new loss or branch. One minimal convergence audit is justified because the factor side-channel trained only four epochs and its learned context scale remains small. Train the same architecture/objective longer; if it remains below `8/11`, close this branch as below-frontier.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_529a_live_factor_conditionality.md`.
+
+---

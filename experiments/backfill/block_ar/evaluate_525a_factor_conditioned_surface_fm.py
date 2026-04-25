@@ -37,6 +37,58 @@ from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_s
 )
 
 
+class HistoryKeyedFactorLiveSampler:
+    """Live conditionality sampler with factor histories matched by history key."""
+
+    def __init__(
+        self,
+        model: Any,
+        history_norm_np: np.ndarray,
+        factor_history: torch.Tensor | None,
+    ):
+        self.model = model
+        self.factor_by_key: dict[bytes, np.ndarray] = {}
+        self.fallback: np.ndarray | None = None
+        if factor_history is not None:
+            factor_np = factor_history.detach().cpu().numpy().astype(np.float32)
+            self.factor_by_key = {
+                history_key(history_norm_np[i]): factor_np[i]
+                for i in range(history_norm_np.shape[0])
+            }
+            self.fallback = factor_np[0]
+
+    def eval(self) -> "HistoryKeyedFactorLiveSampler":
+        self.model.eval()
+        return self
+
+    def sample_batched(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 48,
+        n_steps: int = 30,
+        chunk_size: int = 4,
+        history_is_normalized: bool = True,
+        **kwargs: object,
+    ) -> torch.Tensor:
+        factor_history = None
+        if self.factor_by_key:
+            hist_np = history.detach().cpu().numpy()
+            rows = [
+                self.factor_by_key.get(history_key(hist), self.fallback)
+                for hist in hist_np
+            ]
+            factor_history = torch.from_numpy(np.stack(rows, axis=0)).to(history.device)
+        return self.model.sample_batched(
+            history,
+            n_samples=n_samples,
+            n_steps=n_steps,
+            chunk_size=chunk_size,
+            history_is_normalized=history_is_normalized,
+            factor_history=factor_history,
+            **kwargs,
+        )
+
+
 def sample_factor_conditioned(
     model: Any,
     history_norm: torch.Tensor,
@@ -74,6 +126,7 @@ def summary_lines(results: dict[str, Any], block_summary: dict[str, Any], checkp
         f"- checkpoint: `{checkpoint}`",
         f"- windows: `{block_summary['n_windows']}`",
         f"- factor dim: `{block_summary['factor_history_shape'][-1]}`",
+        f"- conditionality mode: `{results['config']['conditionality_mode']}`",
         f"- suite score: `{summary['n_pass']}/11`",
         f"- failed suites: `{', '.join(summary['failed_suites']) if summary['failed_suites'] else 'none'}`",
         "",
@@ -102,6 +155,12 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=48)
     parser.add_argument("--conditionality_samples", type=int, default=32)
     parser.add_argument("--conditionality_max_batches", type=int, default=8)
+    parser.add_argument(
+        "--conditionality_mode",
+        choices=["live", "fixed"],
+        default="live",
+        help="Use live model sampling for conditionality or reuse precomputed fixed samples.",
+    )
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--chunk_size", type=int, default=4)
     parser.add_argument("--seed", type=int, default=525)
@@ -184,12 +243,19 @@ def main() -> None:
     )
     sample_time = time.time() - t0
     hist_norm_np = batch.history_norm.detach().cpu().numpy()
-    samples_by_key = {history_key(hist_norm_np[i]): cond_samples[i] for i in range(hist_norm_np.shape[0])}
-    fixed_model = FixedDeployableSampler(samples_by_key).eval()
+    if args.conditionality_mode == "fixed":
+        samples_by_key = {history_key(hist_norm_np[i]): cond_samples[i] for i in range(hist_norm_np.shape[0])}
+        suite_model = FixedDeployableSampler(samples_by_key).eval()
+    else:
+        suite_model = HistoryKeyedFactorLiveSampler(
+            model=model,
+            history_norm_np=hist_norm_np,
+            factor_history=factor_history,
+        ).eval()
     results = run_suite(
         cond_samples=cond_samples,
         batch=batch,
-        model=fixed_model,
+        model=suite_model,
         data_path=args.data_path,
         test_start=args.test_start,
         val_size=args.val_size,
@@ -208,6 +274,7 @@ def main() -> None:
         "samples": int(args.samples),
         "conditionality_samples": int(args.conditionality_samples),
         "sample_time_s": float(sample_time),
+        "conditionality_mode": args.conditionality_mode,
         "factor_block": block_summary,
         "alignment": {
             "history_max_abs_error": max_hist_err,
