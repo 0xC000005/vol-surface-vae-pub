@@ -95410,3 +95410,30 @@ Keep 392a as the active `8/11` frontier. Do not run a rho sweep. The next iterat
 - `results/block_ar/423a_persistent_source_noise_r035_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 424 persistent source-noise cap
+
+### Context
+423a tested fixed persistent source-noise FM (`rho=0.35`) and scored `6/11`, below the 392a `8/11` frontier. The question was whether a weaker rho is a principled single follow-up or whether this route should be closed.
+
+### Result
+Added `experiments/backfill/block_ar/ANALYSIS_424a_persistent_source_noise_cap.md`.
+
+Key comparison:
+
+| run | score | cov90 | conditionality | level KS | median-bias cells | coint worst | regime L2 | corr ratio | MR active | path KS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 392a | 8/11 | 0.868 | 5.14% | 10/25 | 20/25 | 0.278 | 0/8 | 0.963 | 83.3% | 0.373 |
+| 423a rho=0.35 | 6/11 | 0.967 | 6.40% | 0/25 | 11/25 | 0.228 | 1/8 | 0.923 | 79.2% | 0.748 |
+
+### Mechanism Read
+Persistent source noise preserved important structural suites, but it moved the decisive failed suites in the wrong direction. It became a broad upward-biased path source: severe overcoverage, level-KS collapse, median-bias failure, worst-cell cointegration failure, and pathwise KS failure.
+
+A weaker rho would mostly interpolate back toward 392a. The only failed-suite gain was regime layer2 `0/8 -> 1/8`, too small to justify a rho sweep when distributional fidelity collapsed.
+
+### Decision
+Close fixed persistent source-noise FM as a primary route. Keep 392a as the active `8/11` frontier. The next step should be a broader synthesis/oracle-system decomposition: identify what the learned conditional law can plausibly learn from available history versus what must be reported separately as risk-policy calibration.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_424a_persistent_source_noise_cap.md`
+
+---
