@@ -28,6 +28,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFMConfig(
     noise_scale_min: float = 0.25
     noise_scale_max: float = 4.0
     path_source_corr: float = 0.0
+    path_source_ar: float = 0.0
 
 
 class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
@@ -202,10 +203,33 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         hi = math.log(float(self.cfg.noise_scale_max))
         return torch.exp(log_scale.clamp(lo, hi))
 
+    @staticmethod
+    def _ar1_source_noise(shape: torch.Size, rho: float, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        if len(shape) != 3:
+            raise ValueError("AR(1) source noise expects shape (batch,horizon,cells)")
+        base = torch.randn(shape, device=device, dtype=dtype)
+        rho = float(max(0.0, min(0.999, rho)))
+        if rho <= 0.0 or shape[1] <= 1:
+            return base
+        innovation_scale = math.sqrt(max(1.0 - rho * rho, 1e-8))
+        states = [base[:, 0]]
+        state = base[:, 0]
+        for step in range(1, shape[1]):
+            state = rho * state + innovation_scale * base[:, step]
+            states.append(state)
+        return torch.stack(states, dim=1)
+
     def _source_noise_like(self, target: torch.Tensor) -> torch.Tensor:
+        ar_rho = float(max(0.0, min(0.999, self.cfg.path_source_ar)))
+        temporal_noise = self._ar1_source_noise(
+            target.shape,
+            ar_rho,
+            target.device,
+            target.dtype,
+        )
         rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
         if rho <= 0.0:
-            return torch.randn_like(target)
+            return temporal_noise
         if target.ndim != 3:
             raise ValueError("Persistent source noise expects shape (batch,horizon,cells)")
         path_noise = torch.randn(
@@ -215,8 +239,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             device=target.device,
             dtype=target.dtype,
         )
-        local_noise = torch.randn_like(target)
-        return math.sqrt(rho) * path_noise + math.sqrt(1.0 - rho) * local_noise
+        return math.sqrt(rho) * path_noise + math.sqrt(1.0 - rho) * temporal_noise
 
     def training_loss(
         self,
@@ -252,6 +275,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             "memory_abs": memory_states.abs().mean().detach(),
             "path_source_corr": torch.tensor(
                 float(self.cfg.path_source_corr), device=x1.device, dtype=x1.dtype
+            ),
+            "path_source_ar": torch.tensor(
+                float(self.cfg.path_source_ar), device=x1.device, dtype=x1.dtype
             ),
         }
         if noise_scale is not None:
@@ -295,6 +321,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                 .clone()
             )
             rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
+            ar_rho = float(max(0.0, min(0.999, self.cfg.path_source_ar)))
             path_source = None
             if rho > 0.0:
                 path_source = torch.randn(
@@ -303,17 +330,22 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                     device=history_scores.device,
                     dtype=history_scores.dtype,
                 )
+            temporal_source = self._ar1_source_noise(
+                torch.Size((bsz * k, n_steps, self.cfg.n_cells)),
+                ar_rho,
+                history_scores.device,
+                history_scores.dtype,
+            )
             frames: list[torch.Tensor] = []
             for _step in range(n_steps):
                 memory_state = self._encode_prefix_scores(prefix)[:, -1]
                 current_score = prefix[:, -1]
                 if path_source is None:
-                    x = temp * torch.randn_like(current_score)
+                    x = temp * temporal_source[:, _step]
                 else:
-                    local = torch.randn_like(current_score)
                     x = temp * (
                         math.sqrt(rho) * path_source
-                        + math.sqrt(1.0 - rho) * local
+                        + math.sqrt(1.0 - rho) * temporal_source[:, _step]
                     )
                 noise_scale = self._conditional_noise_scale(memory_state)
                 if noise_scale is not None:

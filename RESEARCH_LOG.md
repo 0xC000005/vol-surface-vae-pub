@@ -98209,3 +98209,45 @@ The current `340c` source prior is either i.i.d. white transition noise or one c
 Run one deployable temporal-source-prior experiment from `392a`: add one `path_source_ar` config field for AR(1)-correlated Gaussian source increments, fine-tune with the existing recent rollout energy objective, and evaluate on the official 11-suite. If this does not beat `8/11`, close this source-prior route.
 
 ---
+## 2026-04-25: Autoresearch 514a temporal source prior
+
+### Context
+
+`513a` selected a TSFlow-inspired source-prior falsifier: keep the `392a` AR flow core and recent rollout-energy objective, but replace i.i.d. future-step source noise with AR(1)-correlated Gaussian source increments.
+
+### Execution
+
+Added `path_source_ar` to `diffusion/block_ar/empirical_normal_score_causal_memory_transition_flow_matching.py` and verified it with `test_code/test_empirical_normal_score_source_prior.py`.
+
+Trainer: `experiments/backfill/block_ar/train_514a_temporal_source_prior_energy_finetune.py`.
+
+Artifacts:
+
+- model: `models/backfill/514a_temporal_source_ar085_energy_w005_s42/`
+- best suite: `results/block_ar/514a_temporal_source_ar085_energy_w005_s42/full11.json`
+- final suite: `results/block_ar/514a_temporal_source_ar085_energy_w005_s42/full11_final.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_514a_temporal_source_prior_result.md`
+
+### Result
+
+Best checkpoint scored `4/11`; final checkpoint scored `5/11`, both below the `392a`/`510a` deployable frontier at `8/11`.
+
+Final checkpoint key metrics:
+
+- coverage90 `0.9773`, calibration error `0.1734`
+- conditionality MAE reduction `5.61%`
+- daily-change KS `16/25`
+- level KS `1/25`
+- regime layer2 `0/8`
+- worst-cell cointegration ratio `0.193`
+- path max-jump KS `0.969`
+
+### Mechanism
+
+AR(1)-correlated source increments over-broaden the long-horizon path law and make paths too smooth/too diffuse. The change preserves a thin conditionality pass but destroys the local jump, level, and cointegration geometry that kept `392a` deployable.
+
+### Decision
+
+Close temporal-source-prior changes without sweeping `path_source_ar`. The deployable frontier remains the `392a`/`510a` `8/11` tie. Next step should be post-experiment analysis or paradigm selection, not another source-prior knob.
+
+---
