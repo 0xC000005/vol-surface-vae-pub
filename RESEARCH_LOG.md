@@ -97722,3 +97722,28 @@ This directly targets the clean pathology: 392a's rank/path geometry is deployab
 Implement one decisive falsifier next: `492a`, a lightweight conditional quantile marginal model plus frozen 392a rank-copula sampler. If it cannot exceed 392a without losing structural passes, close separable marginal/copula factorization around 392a and move to a truly joint learned future-law model.
 
 ---
+## 2026-04-25: Autoresearch 492a rank-copula conditional marginal falsifier
+
+### Context
+Iteration 491 selected a Sklar-style test: preserve frozen 392a sample ranks as the conditional copula/path geometry, then train a lightweight learned conditional quantile marginal law `Q_j(u | history)` for each future horizon/cell.
+
+### Result
+Implemented and evaluated 492a.
+
+Artifacts:
+- model: `models/backfill/492a_392a_rank_copula_cond_marginals_s42/best_model.pt`
+- train summary: `models/backfill/492a_392a_rank_copula_cond_marginals_s42/train_summary.json`
+- full suite: `results/block_ar/492a_392a_rank_copula_cond_marginals_s42/full11.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_492a_rank_copula_conditional_marginal_result.md`
+
+Score: `3/11`. Passed only surface, block_ar, and cross-cell correlation. Failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key comparison to 392a: level KS `10/25 -> 1/25`, daily KS `25/25 -> 16/25`, mean-reversion ratio `1.024 -> 1.362`, pathwise max-jump KS `0.373 -> 0.551`, and per-cell q99 pass `22/25 -> 10/25`.
+
+### Mechanism Read
+The separable marginal map is not path-law neutral. It slightly improved aggregate coverage (`0.8675 -> 0.8723`) but made per-cell coverage uneven and damaged path diagnostics that 392a already passed. Mapping sample ranks through independently trained horizon/cell quantiles changed realized daily-change, extreme-jump, mean-reversion, and cointegration behavior instead of only correcting marginal occupancy.
+
+### Decision
+Close 492a as a falsifier. Do not add more marginal/cell knobs to this branch. Return to the 392a frontier and choose a path-law-preserving intervention for the remaining coverage/regime/distributional failures, or run a focused post-experiment analysis if that intervention is not yet clean enough to state in one sentence.
+
+---

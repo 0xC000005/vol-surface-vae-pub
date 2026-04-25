@@ -1031,6 +1031,12 @@ def load_one_day_kernel(
         )
 
         return load_483a_model(checkpoint_path, device)
+    if model_type == "492a":
+        from diffusion.block_ar.rank_copula_conditional_marginal_model import (
+            load_model as load_492a_model,
+        )
+
+        return load_492a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,
