@@ -96506,3 +96506,21 @@ Do not continue with marginal-only CRPS variants. The next objective must preser
 - Suite report: `results/block_ar/453a_recent_rollout_iv_crps_w05_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 454 - conditional joint-MMD rollout objective
+
+### Context
+453 showed that IV-space marginal CRPS improves average calibration but weakens conditionality and does not solve level KS. Together with 452, this says the issue is objective alignment: marginal pressure is too unconditional, while teacher-forced FM likelihood is not enough for free-running scenario law.
+
+### Idea
+Shift the rollout objective from marginal future matching to joint `(history, future_path)` matching. A kernel MMD on pairs `(H, Y)` is generic and first-principled: it does not name regimes, low-rank factors, tails, or evaluator gates, and matching the joint law preserves conditional dependence through the history kernel.
+
+### Proposed Falsifier
+Fine-tune 392a with the FM anchor plus a light differentiable joint-MMD loss between real pairs `(history, realized_future)` and generated pairs `(history, sampled_future)`. Use fixed median-heuristic RBF bandwidths inside each batch. At inference the sampler is unchanged and deployable: history plus random source noise only.
+
+### Decision
+Run this as the next experiment. If conditionality remains above gate and level/regime metrics improve, the branch is alive. If it behaves like marginal CRPS, the one-realization-per-history objective is too noisy and the next paradigm must change data framing or likelihood estimation.
+
+### Artifact
+- Decision note: `experiments/backfill/block_ar/IDEA_454a_conditional_joint_mmd_rollout_score.md`
+
+---
