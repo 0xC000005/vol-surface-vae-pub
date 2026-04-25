@@ -96671,3 +96671,29 @@ The failure is clean. The full-covariance Gaussian day transition gives the mode
 Keep the explicit conditional-density paradigm alive, but reject this specific day-Gaussian transition as a deployable core. The next HEAD step should be post-experiment analysis or a new density factorization that can recover conditional structure without adding calibration knobs.
 
 ---
+## 2026-04-25: Autoresearch 461a center-preserving residual calibration pivot
+
+### Context
+460a falsified the first day-vector conditional density reset: exact NLL with a full-covariance Gaussian transition scored `2/11` and over-broadened paths while under-learning conditional drift/correlation. Together with the old `343a` scalar chain-rule density at `3/11`, the direct likelihood-density branch is currently weaker than the deployable `392a` learned sampler.
+
+### Evidence
+The comparison is sharp:
+
+- `392a`: `8/11`, fails only coverage, regime_coverage, and distributional_fidelity; preserves conditionality, daily KS, cross-cell structure, mean reversion, and pathwise realism.
+- `343a`: `3/11`; scalar exact density loses conditionality, time-series, regime, fidelity, mean reversion, and pathwise tests.
+- `460a`: `2/11`; day-vector Gaussian density overcovers with coverage90 `0.987`, level KS `0/25`, cross-cell corr ratio `0.428`, mean-reversion active pass `22.2%`, and pathwise max-jump KS `0.588`.
+
+### Decision
+Pivot back to the strongest learned conditional law (`392a`) and separate calibration from generation. The next clean family is a deployable center-preserving residual calibration system:
+
+- neural base law: unchanged `392a`;
+- calibration data: pre-validation only, no validation-future oracle;
+- transform: adjust residuals around the base conditional center, not unconditional levels;
+- objective: fix coverage/regime reliability while disturbing conditionality, mean reversion, correlation, and path geometry as little as possible.
+
+This differs from 456-458 because those were marginal level-quantile maps that weakened conditionality. The new falsifier calibrates residual spread around each history-conditioned center.
+
+### Artifact
+- Decision note: `experiments/backfill/block_ar/IDEA_461a_center_preserving_residual_calibration.md`
+
+---
