@@ -98321,3 +98321,36 @@ Observable state adds incremental linear signal for some per-cell future level t
 Do not add an exogenous-state branch as a quick in-session experiment. The next HEAD step should be a paradigm decision: either define a separately reported policy calibration layer for deployable risk use, or stop local IV-only learned-law research at the `8/11` frontier and plan a larger new-core/data program.
 
 ---
+## 2026-04-25: Autoresearch 517a paradigm decision after frontier closure
+
+### Context
+
+`516a` found that broader observable state does not provide enough quick linear predictability to justify another local conditioning branch. The deployable frontier remains `392a`/`510a` at `8/11`; `435a` remains a non-deployable oracle feasibility proof at `11/11`.
+
+### Literature Check
+
+Artifact: `experiments/backfill/block_ar/DECISION_517a_paradigm_after_frontier_closure.md`.
+
+Recent foundation-model directions checked:
+
+- Lag-Llama: pretrained probabilistic decoder-only forecasting model.
+- Chronos: tokenized time-series transformer trained with cross-entropy on large multi-domain data.
+- Time-MoE: sparse mixture-of-experts pretraining for large-scale time-series forecasting.
+- Moirai 2.0: simpler decoder-only foundation model with quantile forecasting / multi-token prediction.
+
+The shared implication is data/pretraining scale plus simple probabilistic sequence objectives, not another small local post-hoc knob.
+
+### Decision
+
+The local IV-only in-session autoresearch line is exhausted as a path to deployable learned `11/11`.
+
+Two honest paths remain:
+
+- deployable risk system: report base learned model metrics separately from a policy calibration layer;
+- new learned-law program: larger probabilistic sequence model over broader factor panels or pretraining histories, then fine-tune to IV scenario generation.
+
+### Next
+
+Do not run more local `392a` objective/source/wrapper experiments. Use remaining in-session iterations to leave a clean handoff: summarize closed branches, define acceptance criteria for a larger learned-law program, and preserve `392a`/`510a` as deployable base checkpoints plus `435a` as oracle feasibility evidence.
+
+---
