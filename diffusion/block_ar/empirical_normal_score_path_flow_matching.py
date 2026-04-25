@@ -38,6 +38,7 @@ class EmpiricalNormalScorePathFMConfig:
     flow_steps: int = 32
     sample_temperature: float = 1.0
     max_sample_chunk: int = 16
+    path_source_corr: float = 0.0
 
 
 class EmpiricalNormalScorePathVelocity(nn.Module):
@@ -376,6 +377,20 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
             raise RuntimeError("History encoder is only available for transformer mixer")
         return self.history_encoder(history_z)
 
+    def _source_noise_like(self, target: torch.Tensor) -> torch.Tensor:
+        rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
+        local = torch.randn_like(target)
+        if rho <= 0.0:
+            return local
+        common = torch.randn(
+            target.shape[0],
+            target.shape[1],
+            1,
+            device=target.device,
+            dtype=target.dtype,
+        ).expand_as(target)
+        return math.sqrt(rho) * common + math.sqrt(1.0 - rho) * local
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
@@ -383,7 +398,7 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_z = self.history_scores(history_norm)
         x1 = self.target_future_scores(future_norm)
-        x0 = torch.randn_like(x1)
+        x0 = self._source_noise_like(x1)
         bsz = x1.shape[0]
         t = torch.rand(bsz, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t)[:, None, None] * x0 + t[:, None, None] * x1
@@ -405,6 +420,9 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
             "future_score_abs": x1.abs().mean().detach(),
             "implied_transition_std": transitions.std(unbiased=False).detach(),
             "implied_transition_abs": transitions.abs().mean().detach(),
+            "path_source_corr": torch.tensor(
+                float(self.cfg.path_source_corr), device=x1.device, dtype=x1.dtype
+            ),
         }
         return fm_loss, metrics
 
@@ -435,12 +453,14 @@ class EmpiricalNormalScorePathFlowMatching(nn.Module):
         outs: list[torch.Tensor] = []
         for start in range(0, n_samples, chunk_size):
             k = min(chunk_size, n_samples - start)
-            x = temp * torch.randn(
-                bsz * k,
-                self.cfg.future_len,
-                self.cfg.n_cells,
-                device=history_z.device,
-                dtype=history_z.dtype,
+            x = temp * self._source_noise_like(
+                torch.empty(
+                    bsz * k,
+                    self.cfg.future_len,
+                    self.cfg.n_cells,
+                    device=history_z.device,
+                    dtype=history_z.dtype,
+                )
             )
             hist = history_z.repeat_interleave(k, dim=0)
             ctx = context.repeat_interleave(k, dim=0) if context is not None else None

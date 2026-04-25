@@ -98052,3 +98052,28 @@ The small linear mixer has local capacity but not enough shared surface geometry
 Run one direct-path shared-source-noise falsifier next. Keep the empirical normal-score full-path FM objective and axial direct-path core, but replace independent `x0` source noise with a shared-factor/local-noise mixture used consistently in training and sampling. If this cannot improve structure without losing level occupancy, close direct-path new-core work again.
 
 ---
+## 2026-04-25: Autoresearch 507a shared source path flow
+
+### Context
+506a selected a direct-path source-geometry falsifier: keep the empirical normal-score full-path FM objective and axial direct-path core, but use shared-factor/local source noise consistently in training and sampling.
+
+### Result
+Artifacts:
+- core: `diffusion/block_ar/empirical_normal_score_path_flow_matching.py`
+- trainer update: `experiments/backfill/block_ar/train_339a_empirical_normal_score_path_flow.py`
+- model: `models/backfill/507a_axial_path_sourcecorr05_s42/best_model.pt`
+- full suite: `results/block_ar/507a_axial_path_sourcecorr05_s42/full11.json`
+- markdown: `results/block_ar/507a_axial_path_sourcecorr05_s42/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_507a_shared_source_path_result.md`
+
+Score: `3/11`. Passed surface, block_ar, and cross-cell correlation. Failed coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key metrics: coverage90 `0.8162`, conditionality MAE reduction `3.57%`, daily KS `16/25`, level KS `1/25`, median-bias cells `16/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.194`, corr ratio `0.719`, rank ratio `2.117`, MR ratio `1.205`, path KS `0.467`.
+
+### Mechanism Read
+Shared source geometry repaired the intended gross geometry defects versus 505a: corr ratio rose from `0.376` to `0.719`, rank ratio improved from `3.337` to `2.117`, and path KS improved from `0.573` to `0.467`. But it did not recover conditionality or level fidelity; level KS collapsed to `1/25` and regime layer2 stayed `0/8`. Runtime was also poor during conditionality evaluation.
+
+### Decision
+Close shared-source direct-path flow as below-frontier. Do not run a `rho` sweep by default. Return to the AR transition frontier for the next ideation step; direct full-path cores remain below `392a` unless they can inherit 392a's conditional transition structure.
+
+---

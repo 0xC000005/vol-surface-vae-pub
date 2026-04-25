@@ -70,6 +70,7 @@ def main() -> None:
     parser.add_argument("--flow_steps", type=int, default=32)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--max_sample_chunk", type=int, default=16)
+    parser.add_argument("--path_source_corr", type=float, default=0.0)
 
     parser.add_argument("--epochs", type=int, default=48)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -143,6 +144,7 @@ def main() -> None:
         flow_steps=args.flow_steps,
         sample_temperature=args.sample_temperature,
         max_sample_chunk=args.max_sample_chunk,
+        path_source_corr=args.path_source_corr,
     )
     model = EmpiricalNormalScorePathFlowMatching(cfg).to(device)
     history_q, future_q, quantile_levels = compute_empirical_quantiles(
@@ -200,6 +202,7 @@ def main() -> None:
             "val_future_score_abs": val_avg["future_score_abs"],
             "val_implied_transition_std": val_avg["implied_transition_std"],
             "val_implied_transition_abs": val_avg["implied_transition_abs"],
+            "path_source_corr": val_avg["path_source_corr"],
             "lr": optimizer.param_groups[0]["lr"],
             "sec": time.time() - t0,
         }
@@ -211,6 +214,7 @@ def main() -> None:
             f"score_abs={rec['val_future_score_abs']:.3f} "
             f"trans_std={rec['val_implied_transition_std']:.3f} "
             f"trans_abs={rec['val_implied_transition_abs']:.3f} "
+            f"src_corr={rec['path_source_corr']:.2f} "
             f"lr={rec['lr']:.2e} time={rec['sec']:.1f}s"
         )
         if val_avg["total"] < best_val:
