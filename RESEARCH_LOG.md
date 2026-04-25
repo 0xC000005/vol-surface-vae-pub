@@ -97772,3 +97772,27 @@ The oracle shift confirms that much of the level-distribution failure is locatio
 Do not implement a learned constant-shift adapter. The remaining pathology is horizon/cell/regime interval allocation under a valid path law, not just center/location. Next step should be a clean paradigm decision: either optimize the 392a-style path law itself with coverage/level-occupancy-aware proper scores, or close the repair family if that objective cannot be stated without evaluator-specific knobs.
 
 ---
+## 2026-04-25: Autoresearch 494a interval-score fine-tune
+
+### Context
+493a showed that oracle path-level centering can repair much of level KS but still fails coverage/regime layer2 and can break mean reversion. Before closing the 392a repair family, 494a tested one clean proper-score objective: central 90% interval score on free-running 392a rollouts, anchored by the original FM loss.
+
+### Result
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_494a_recent_interval_score_finetune.py`
+- model: `models/backfill/494a_recent_interval_score_w002_s42/best_model.pt`
+- train summary: `models/backfill/494a_recent_interval_score_w002_s42/train_summary.json`
+- full suite: `results/block_ar/494a_recent_interval_score_w002_s42/full11.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_494a_interval_score_result.md`
+
+Score: `6/11`. Passed surface, block_ar, cointegration, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, conditionality, time_series, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.9092`, conditional MAE reduction `4.93%`, turb/calm width ratio `1.147` informational, daily KS `25/25`, level KS `4/25`, median-bias cells `16/25`, regime layer2 `1/8`, cointegration worst-cell ratio `0.263`, corr ratio `0.995`, MR ratio `0.958`, path KS `0.275`.
+
+### Mechanism Read
+The interval score behaves as expected: it widens intervals and removes most undercoverage. But it does not solve the hard gate. Coverage still fails from overcoverage caps, regime layer2 remains essentially failed, and the calibration pressure again weakens conditionality and level/median fidelity.
+
+### Decision
+Close 494a as below-frontier and stop tuning local 392a score weights. The repeated pattern across energy, marginal CRPS, critic, density-ratio, source-transport, marginal maps, oracle shifts, and interval score is now clear: local repair can move average calibration but cannot learn the missing conditional level/regime allocation while preserving every structural suite. Next iteration should be a paradigm decision, not another 392a-local objective tweak.
+
+---
