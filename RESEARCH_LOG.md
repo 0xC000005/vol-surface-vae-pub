@@ -97097,3 +97097,24 @@ Partial transport confirms the source-transport family is structurally useful bu
 Stop scalar source-transport knob tuning. The best deployable model remains 392a at `8/11`; the best source-transport result is `7/11`. Next step should be a postmortem comparing 392a versus source-transport variants and then either return to the 392a line with a targeted level/regime allocation fix or shift paradigm.
 
 ---
+## 2026-04-25: Autoresearch 474 source-transport postmortem
+
+### Context
+After 470a-473b, the source-transport branch needed a postmortem before adding more knobs. The comparison set was `392a`, `470a`, `471a`, `472a`, `473a/b`, plus prior direct level/coverage and scale-head branches (`444a`, `446a`, `448a-450a`).
+
+### Findings
+Added `experiments/backfill/block_ar/ANALYSIS_474_source_transport_postmortem.md`.
+
+Main conclusions:
+- preserving the frozen 392a residual source law is necessary; iid Gaussian residuals destroy cross-cell geometry (`470a`);
+- preserving source geometry is not sufficient; `471a`/`473a` still fail level/regime allocation and remain below the `392a` frontier;
+- coverage/regime failures are bidirectional by cell and horizon, not one scalar width error;
+- earlier direct quantile, stationary marginal, calibration, and scale-head branches show the same tradeoff: coverage can be moved, but conditional structure is damaged.
+
+### Decision
+Stop scalar wrapper/fine-tune routes around `392a` for now. The current deployable frontier remains `392a` at `8/11`. The next HEAD step should be a paradigm-shift ideation cycle for a stronger learned core that models the conditional future level law directly while preserving the path geometry that 392a gets right.
+
+### Artifact
+- Postmortem: `experiments/backfill/block_ar/ANALYSIS_474_source_transport_postmortem.md`
+
+---
