@@ -96778,3 +96778,42 @@ Regime-aware center-preserving residual scaling is directionally better than glo
 The residual-calibration route remains alive for one more minimal falsifier. The next change should not add a new architecture; it should adjust the calibration target/penalty or add a center-preserving residual quantile step specifically to reduce late-horizon high-side overcoverage and improve level KS while preserving conditionality.
 
 ---
+## 2026-04-25: Autoresearch 464a wide-bound regime residual scale falsifier
+
+### Context
+463a improved the residual-calibration branch to `7/11`, but the fitted scale table hit both scale bounds (`0.65`, `1.35`). The next minimal falsifier kept the same model and calibration mechanism, but relaxed the candidate scale range to test whether the remaining coverage/regime failures were bound-limited.
+
+### Experiment
+Ran `464a_regime_wide_center_residual_scale_392a`:
+
+- base model: unchanged `392a` loaded as `340c`;
+- calibration panel: 441 recent pre-validation windows, 48 samples per history;
+- regime bins: calibration-history realized variance Q20/Q80;
+- transform: center-preserving per-regime/per-horizon/per-cell residual scale;
+- scale candidates: widened from `[0.65, 1.35]` to `[0.45, 1.60]`.
+
+Artifacts:
+
+- result: `results/block_ar/464a_regime_wide_center_residual_scale_392a/full11.json`
+- scale map: `results/block_ar/464a_regime_wide_center_residual_scale_392a/scale_map.json`
+
+### Result
+`464a` scored `6/11`. Failed suites: coverage, conditionality, time_series, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- fitted scale range `0.575` to `1.600`, mean `1.097`;
+- coverage90 `0.8968`, calibration error `0.0094`;
+- h1 and h7 per-cell coverage passed; h14/h30 still failed by high-side overcoverage;
+- conditionality MAE reduction `4.85%`, still below the `5%` gate;
+- level KS improved to `13/25`, median stat `0.1499`, still below the `15/25` gate;
+- regime layer-2 stayed `1/8`;
+- time_series failed again, so the broader scale table harmed path distribution shape.
+
+### Mechanism Read
+The remaining problem is not just scale bounds. Wider bounds help level KS and some coverage cells, but they trade off against time-series shape and still do not solve conditionality or regime-cell coverage. Scalar residual width calibration is now capped as a standalone mechanism.
+
+### Decision
+Stop simple scale-table tuning. The next step should be post-experiment analysis or a different center-preserving calibration mechanism, likely residual quantile/shape calibration rather than scalar width calibration, if the calibrated-system route continues.
+
+---
