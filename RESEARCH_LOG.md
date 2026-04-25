@@ -98118,3 +98118,26 @@ Patch energy preserves local path realism and improves/keeps median-bias diagnos
 Close MMPD-inspired local patch objectives as below-frontier. Do not sweep patch length or patch-energy weight. The literature-derived local tests are now covered and remain below `392a`.
 
 ---
+## 2026-04-25: Autoresearch 510a patch final checkpoint
+
+### Context
+509a best-by-validation checkpoint scored `6/11`, but prior experiments showed that internal validation ordering can disagree with the official suite. 510a evaluated the already-trained 509a final checkpoint. This is a checkpoint audit, not a new training knob.
+
+### Result
+Artifacts:
+- model: `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`
+- full suite: `results/block_ar/510a_509a_patch_energy_final_checkpoint/full11.json`
+- markdown: `results/block_ar/510a_509a_patch_energy_final_checkpoint/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_510a_patch_energy_final_checkpoint.md`
+
+Score: `8/11`. Failed coverage, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8732`, per-cell coverage range `0.714-0.979`, conditionality MAE reduction `5.12%`, daily KS `25/25`, level KS `10/25`, median-bias cells `20/25`, bias magnitude `25/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.257`, corr ratio `0.968`, MR ratio `0.986`, path KS `0.361`.
+
+### Mechanism Read
+The final checkpoint recovers the same `8/11` failure set as 392a. It improves coverage geometry and path KS, but leaves the hard bottlenecks unchanged: level KS `10/25` and regime layer2 `0/8`. Conditionality and cointegration pass with thinner margins.
+
+### Decision
+Promote 510a as an active `8/11` frontier tie, not a strict replacement for 392a. Next step should compare 392a versus 510a to decide whether the improved coverage geometry is a better anchor or whether 392a remains safer due to stronger structural margins.
+
+---
