@@ -97450,3 +97450,51 @@ construction while directly testing whether learned probability reallocation can
 remaining coverage/regime/level failures.
 
 ---
+## 2026-04-25: Autoresearch 483 frozen-proposal density-ratio resampler
+
+### Context
+Iteration 482 identified the clean support-vs-allocation falsifier: freeze the `392a`
+proposal law, train a conditional density-ratio scorer on realized futures versus
+same-history `392a` proposal futures, then resample frozen proposal candidates by
+learned weights. This tests whether the remaining level/regime/coverage failures are
+mostly probability-allocation errors rather than missing support.
+
+### Execute
+- Added `diffusion/block_ar/frozen_proposal_density_ratio_resampler.py`.
+- Added `experiments/backfill/block_ar/train_483a_frozen_proposal_density_ratio_resampler.py`.
+- Wired native `483a` loading/sampling into the rollout utility and full 11-suite evaluator.
+- Trained `models/backfill/483a_frozen_proposal_density_ratio_s42/best_model.pt`.
+- Evaluated `results/block_ar/483a_frozen_proposal_density_ratio_s42/full11.json`.
+
+### Result
+483a reached 6/11. It passed surface validity, time-series properties, block-AR,
+cross-cell correlation, mean reversion, and pathwise jump realism. It failed coverage,
+conditionality, cointegration, regime coverage, and distributional fidelity.
+
+Key metrics:
+- Coverage90 `0.8658`, calibration error `0.0242`; coverage almost passed, failing only
+  the h30 best-cell cap (`96.9%` versus `95%`).
+- Conditionality MAE reduction fell to `3.47%` versus the `>5%` gate.
+- Cointegration aggregate ratio was `0.706`, but worst-cell ratio fell to `0.175`.
+- Daily-change KS passed `25/25`; level KS improved to `12/25` but stayed below the
+  `15/25` gate; median-bias and bias-magnitude passed (`20/25`, `25/25`).
+- Correlation ratio `0.947`, rank ratio `1.527`, full-horizon mean-reversion active
+  pass `87.8%`, pathwise max-jump KS `0.339`.
+
+### Mechanism Read
+The density-ratio resampler is directionally useful but not sufficient. It preserves most
+of `392a`'s stochastic geometry and improves probability allocation enough to nearly fix
+coverage and raise level KS from `10/25` to `12/25`. However, the learned weights also
+weaken the conditional MAE advantage and undercut one cointegration cell. This says `392a`
+has some usable support for the missing outcomes, but frozen-proposal reallocation alone
+does not produce the full conditional law required by the suite.
+
+### Decision
+Do not promote 483a; `392a` remains the best deployable frontier at 8/11. The density-ratio
+branch is not dead, but another architecture change is not justified before a controlled
+post-experiment decision: either test one principled reweighting-strength ablation to see
+whether the density-ratio signal can improve 392a without losing conditionality/cointegration,
+or close the frozen-proposal branch if the goal is only to pursue paths with plausible
+11/11 upside.
+
+---

@@ -1025,6 +1025,12 @@ def load_one_day_kernel(
         )
 
         return load_481a_model(checkpoint_path, device)
+    if model_type == "483a":
+        from diffusion.block_ar.frozen_proposal_density_ratio_resampler import (
+            load_model as load_483a_model,
+        )
+
+        return load_483a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,
