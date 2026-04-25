@@ -95598,3 +95598,30 @@ Path-center correction preserves the conditional and residual geometry much bett
 Keep `392a` as the active `8/11` frontier. Run post-experiment analysis next: the oracle family now has a clean split, so decide whether to close calibration entirely or run one final explicit feasibility upper-bound.
 
 ---
+## 2026-04-24: Autoresearch 430 oracle family closure
+
+### Context
+
+The oracle-calibration family now has three results: nonlinear marginal quantile (`426a`), affine horizon/cell correction (`427a`), and path-constant center shift (`429a`).
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_430a_oracle_family_closure.md`.
+
+Summary:
+
+- marginal corrections can fix level/coverage symptoms but break conditionality, cointegration, and mean reversion;
+- path-center correction preserves conditionality and residual geometry but fails coverage/regime/distribution;
+- raw `392a` remains best at `8/11`.
+
+### Mechanism Read
+
+The remaining failures cannot be cleanly repaired after generation. Post-hoc correction operates on the wrong object: it changes samples after the transition law has produced them, so it trades off the structural suites against marginal level occupancy.
+
+### Decision
+
+Close oracle calibration as a primary publishable route. Shift to a new learned paradigm: a single-stage conditional likelihood model over the full 30-day future path, with no posterior/prior scaffold, no low-rank decoder, no bounded idio path, and no post-hoc evaluator correction.
+
+Next experiment: select and implement one minimal conditional normalizing-flow baseline over flattened future paths.
+
+---
