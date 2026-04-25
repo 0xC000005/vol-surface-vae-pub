@@ -95653,3 +95653,30 @@ This is the cleanest remaining learned route because level occupancy is modeled 
 Next iteration: implement and run `432a` as one minimal exact-likelihood joint future path flow. Do not start with coupling-depth/mask sweeps.
 
 ---
+## 2026-04-24: Autoresearch 432 duplicate likelihood-flow audit
+
+### Context
+
+431a selected a minimal exact-likelihood joint future path flow. Before implementing it, I audited the existing code and results to avoid duplicating a closed experiment.
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_432a_duplicate_likelihood_flow_audit.md`.
+
+The 431a idea already exists as `346a`:
+
+- `diffusion/block_ar/empirical_normal_score_path_coupling_density.py`
+- `experiments/backfill/block_ar/train_346a_empirical_normal_score_path_coupling_density.py`
+- `results/block_ar/346a_v0_s42/full11.json`
+
+`346a` scored `3/11`: coverage, conditionality, time-series, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, and pathwise jump realism failed. The transition-level exact-likelihood follow-up `347a` scored `4/11`.
+
+### Mechanism Read
+
+Exact likelihood over the flattened future path has already been falsified: it applies density pressure but destroys the cross-cell/path geometry. Moving exact likelihood to daily transitions restores some geometry but still fails the key suites.
+
+### Decision
+
+Do not implement a duplicate 432a flow. Next iteration should audit the post-340 frontier more broadly before selecting another paradigm. Active best remains `392a` at `8/11`.
+
+---
