@@ -95537,3 +95537,28 @@ Affine correction is less destructive than the nonlinear quantile map for time-s
 Keep `392a` as the active `8/11` learned frontier. Run post-experiment analysis next: decide whether a small interpolation diagnostic between raw `392a` and oracle-corrected samples is still principled, or whether oracle calibration should be closed as a primary route.
 
 ---
+## 2026-04-24: Autoresearch 428 oracle calibration failure modes
+
+### Context
+
+426a and 427a tested validation-oracle calibration on top of frozen `392a`: a nonlinear marginal quantile map and an affine median-shift/interval-scale map. Both were meant to determine whether the remaining failures were only marginal calibration failures.
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_428a_oracle_calibration_failure_modes.md`.
+
+Summary:
+
+- raw `392a`: `8/11`, structural passes but coverage/regime/distribution failures;
+- `426a` quantile oracle: `7/11`, coverage/distribution pass but conditionality, cointegration, regime coverage, and mean reversion fail;
+- `427a` affine oracle: `5/11`, regime layer2 improves to `4/8` but coverage, distribution, conditionality, cointegration, regime coverage, and mean reversion fail.
+
+### Mechanism Read
+
+Per-horizon/cell marginal calibration is the wrong object. It repairs level symptoms by remapping the generated path after the transition law has produced it, which breaks the structural signatures that make `392a` useful. The structural pass margins are also thin, so an interpolation sweep is likely to expose a tradeoff curve rather than a clean path to `11/11`.
+
+### Decision
+
+Close per-horizon/cell marginal oracle calibration as the primary route. Next diagnostic: preserve residual path geometry more aggressively by applying a low-dimensional validation-oracle vertical center shift to whole generated paths, then rerun the unchanged full 11-suite.
+
+---
