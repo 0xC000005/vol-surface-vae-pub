@@ -95501,3 +95501,39 @@ The validation-oracle marginal map proves that the level-distribution failure is
 Keep `392a` as the active learned frontier at `8/11`. The next diagnostic should preserve transition geometry better: test an affine residual/coverage oracle around the `392a` path center rather than a nonlinear marginal quantile map.
 
 ---
+## 2026-04-24: Autoresearch 427 validation-oracle affine diagnostic
+
+### Context
+
+426a showed that a validation-oracle nonlinear marginal quantile map can repair coverage and distributional fidelity but damages conditionality, cointegration, and mean reversion. 427a tested the cleaner geometry-preserving alternative: an affine median-shift plus interval-scale oracle around the frozen `392a` samples.
+
+### Result
+
+Added and ran `experiments/backfill/block_ar/evaluate_427a_validation_oracle_affine_system.py`.
+
+Artifacts:
+
+- `results/block_ar/427a_validation_oracle_affine_392a/full11.json`
+- `results/block_ar/427a_validation_oracle_affine_392a/full11.md`
+
+Score: `5/11`.
+
+Key metrics:
+
+- coverage overall 90%: `0.856`, but h1 worst cell was `0.693`, just below the `0.70` floor;
+- conditionality failed: MAE reduction `4.83%`, turb/calm width ratio `1.025`;
+- cointegration failed: worst-cell gen/GT ratio `0.185`;
+- regime layer2 improved to `4/8`, still failed;
+- level KS improved to `22/25`, but distributional fidelity still failed through the explosion/floor subcheck;
+- mean reversion failed: active-cell pass rate `41.7%`;
+- time-series, cross-cell correlation, and pathwise jump realism passed.
+
+### Mechanism Read
+
+Affine correction is less destructive than the nonlinear quantile map for time-series and pathwise realism and gives a real regime-layer2 improvement. But it still disrupts structural behavior enough to fall below the raw `392a` frontier. The core problem remains: per-horizon/cell oracle corrections can make marginals look better, but they are not compatible with the transition law that gives `392a` its conditionality, cointegration, and mean-reversion passes.
+
+### Decision
+
+Keep `392a` as the active `8/11` learned frontier. Run post-experiment analysis next: decide whether a small interpolation diagnostic between raw `392a` and oracle-corrected samples is still principled, or whether oracle calibration should be closed as a primary route.
+
+---
