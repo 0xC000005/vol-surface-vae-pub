@@ -96459,3 +96459,26 @@ Run a larger 340a-family empirical normal-score causal-memory transition flow fr
 - Decision note: `experiments/backfill/block_ar/IDEA_451a_scaled_ar_score_transition_core.md`
 
 ---
+## 2026-04-24: Autoresearch 452 - scaled vanilla AR core falsifier
+
+### Context
+451 selected a clean Bitter-Lesson falsifier: keep the successful AR empirical normal-score transition family, but scale the learned core directly instead of adding wrappers or calibration knobs.
+
+### Experiment
+Trained `452a_scaled_340a_score_transition_s42` from scratch with a 2.88M-parameter 340a-family model: larger GRU/history memory, token/memory transformers, and velocity network. Objective remained vanilla teacher-forced rectified-flow matching in empirical normal-score coordinates.
+
+### Result
+Full 11-suite score: 4/11. Failed suites: coverage, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, pathwise_jump_realism. Validation FM loss improved to 0.4477, but scenario quality worsened. Coverage90 fell to 77.7%, level KS passed 0/25 cells, regime layer-2 stayed 0/8, persistent severe undercoverage rose to 7.4%, and per-cell jump-scale realism passed only 18/25 cells.
+
+### Mechanism Read
+The negative result is informative: better teacher-forced FM loss did not translate into better conditional scenarios. The larger model learned sharper/biased future levels with worse unconditional level fidelity and weak per-cell mean-reversion activity, while retaining only aggregate serial shape. This falsifies simple capacity scaling inside the vanilla teacher-forced AR transition objective as the route to deployable 11/11.
+
+### Decision
+Do not continue by simply making the 340a core larger. The next principled move must change the training target/scoring rule so that rollout-level scenario law, level distribution, and regime-cell calibration are trained as first-class distributional properties without posthoc oracle calibration.
+
+### Artifacts
+- Model metadata: `models/backfill/452a_scaled_340a_score_transition_s42/`
+- Suite output: `results/block_ar/452a_scaled_340a_score_transition_s42/full11.json`
+- Suite report: `results/block_ar/452a_scaled_340a_score_transition_s42/full11.md`
+
+---
