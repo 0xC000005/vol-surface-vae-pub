@@ -95680,3 +95680,32 @@ Exact likelihood over the flattened future path has already been falsified: it a
 Do not implement a duplicate 432a flow. Next iteration should audit the post-340 frontier more broadly before selecting another paradigm. Active best remains `392a` at `8/11`.
 
 ---
+## 2026-04-24: Autoresearch 433 post-340 frontier audit
+
+### Context
+
+432a found that the 431a exact-likelihood path-flow idea was a duplicate of already-falsified `346a`. I audited the post-340 frontier before selecting another mechanism.
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_433a_post340_frontier_audit.md`.
+
+Main frontier:
+
+- recent-adapted empirical normal-score causal transition FM (`377`, `385`, `392`) is the only robust learned family and reaches `8/11`;
+- proper-score fine-tunes score `5-7/11`;
+- calibration/oracle systems score `5-7/11`;
+- direct path FM/diffusion score `3-4/11`;
+- full-path exact likelihood scores `3/11`;
+- transition exact likelihood scores `3-5/11`;
+- student-forced/source-noise/joint variants score `4-6/11`.
+
+### Mechanism Read
+
+The remaining bottleneck is not a missing architecture block. The model can learn a strong local conditional transition law, but the remaining level/regime/coverage suites are weakly identified and post-hoc repairs trade them off against structure.
+
+### Decision
+
+Do not select another learned architecture from memory. If the loop must continue toward `11/11`, the next honest step is a feasibility upper-bound diagnostic: determine whether any controlled risk-system sample law can satisfy the suite, without claiming it is a learned conditional law.
+
+---
