@@ -1,0 +1,18 @@
+{
+  "source_checkpoint": "models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt",
+  "source_epoch": 1,
+  "source_best_val": 0.5086598016998984,
+  "adaptation_start_index": 3569,
+  "adaptation_end_index": 4009,
+  "n_train": 353,
+  "n_val": 88,
+  "best_epoch": 3,
+  "best_val_total": 0.5261928141117096,
+  "objective": {
+    "fm_anchor_weight": 1.0,
+    "mmd_weight": 0.5,
+    "train_sample_count": 4,
+    "rollout_flow_steps": 4,
+    "kernel": "joint_history_future_rbf_mmd"
+  }
+}

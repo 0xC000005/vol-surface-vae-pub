@@ -96524,3 +96524,27 @@ Run this as the next experiment. If conditionality remains above gate and level/
 - Decision note: `experiments/backfill/block_ar/IDEA_454a_conditional_joint_mmd_rollout_score.md`
 
 ---
+## 2026-04-24: Autoresearch 455 - conditional joint-MMD rollout falsifier
+
+### Context
+454 proposed moving from marginal future matching to joint `(history, future_path)` rollout matching so the distributional pressure remains conditional rather than unconditional.
+
+### Experiment
+Implemented and ran `455a_recent_joint_mmd_w05_s42`: 392a checkpoint, recent 441-window block, 4 epochs, FM anchor 1.0, joint history/future RBF-MMD weight 0.5, 4 rollout samples, 4 rollout flow steps. The inference sampler is unchanged and deployable.
+
+### Result
+Full 11-suite score: 6/11. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity. Coverage geometry improved relative to 453: h1 and h7 per-cell coverage passed, but h14/h30 still had high-side overcoverage. Conditionality missed narrowly at 4.7% MAE reduction. Cointegration failed the worst-cell gate. Regime layer-2 stayed 0/8. Level KS remained 7/25 cells.
+
+### Mechanism Read
+The joint-MMD score is directionally better for coverage shape than marginal IV CRPS, but it still does not fix the core level/regime problem and still weakens conditionality below the gate. The history-kernel MMD is likely too weak/noisy with one realized future per history and small rollout sample count.
+
+### Decision
+Do not keep stacking kernel-score variants. The evidence now says lightweight rollout scoring around 392a is capped: score-energy best preserves conditionality, marginal CRPS improves calibration but loses conditionality, and joint-MMD only partially improves coverage shape. Next step should reconsider the model/data framing or a deployable calibration layer explicitly separated from the base learned law.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/train_455a_recent_joint_mmd_rollout_finetune.py`
+- Model metadata: `models/backfill/455a_recent_joint_mmd_w05_s42/`
+- Suite output: `results/block_ar/455a_recent_joint_mmd_w05_s42/full11.json`
+- Suite report: `results/block_ar/455a_recent_joint_mmd_w05_s42/full11.md`
+
+---
