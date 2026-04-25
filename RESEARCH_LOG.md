@@ -97885,3 +97885,27 @@ The policy preserved conditionality, which validates median locking as a protect
 Close residual-width-only policy calibration as capped. The next step must target level occupancy explicitly while preserving the 498a lesson: any level movement must be deployable, history-only, low-dimensional, and separately reported as policy calibration. Pure median locking cannot pass distributional fidelity.
 
 ---
+## 2026-04-25: Autoresearch 499a center occupancy tail policy
+
+### Context
+498a showed that median-locked residual-width policy can preserve conditionality but cannot fix level KS because it keeps the 392a center law fixed. 499a added a deployable level-occupancy policy: a pre-validation quantile map from 392a sample medians to realized futures, followed by asymmetric residual-tail calibration.
+
+### Result
+Artifacts:
+- evaluator: `experiments/backfill/block_ar/evaluate_499a_center_occupancy_tail_policy.py`
+- result: `results/block_ar/499a_center_occupancy_tail_policy/full11.json`
+- markdown: `results/block_ar/499a_center_occupancy_tail_policy/full11.md`
+- policy: `results/block_ar/499a_center_occupancy_tail_policy/policy.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_499a_center_occupancy_tail_policy_result.md`
+
+Score: `5/11`. Passed surface, conditionality, block_ar, cross-cell correlation, and pathwise_jump_realism. Failed coverage, time_series, cointegration, regime_coverage, distributional_fidelity, and mean_reversion.
+
+Key metrics: coverage90 `0.8192`, conditional MAE reduction `7.28%`, daily KS `23/25`, level KS `1/25`, median-bias cells `14/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.105`, MR ratio `0.628`, center mean/p95 abs shift `0.0155/0.0631`, path KS `0.367`.
+
+### Mechanism Read
+The center map was harmful. It preserved conditionality because centers remained history-dependent, but pre-validation unconditional center distribution matching did not transfer to validation: level KS collapsed, median bias became strongly upward, later-horizon coverage undercovered, mean reversion weakened, and distributional floor/ceiling/window-floor checks regressed.
+
+### Decision
+Close naive pre-validation center quantile mapping. The next step should be post-experiment ideation, not another global marginal map. Any future level movement must be much more conservative and state-conditional, or the product conclusion should accept `392a` as the deployable learned frontier with separately reported failed policy-calibration attempts.
+
+---
