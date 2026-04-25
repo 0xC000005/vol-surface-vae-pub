@@ -95902,3 +95902,39 @@ than raw forecast-error paths, or whether the route should return to improving t
 learned conditional center.
 
 ---
+## 2026-04-24: Autoresearch 439 deployable calibration object analysis
+
+### Context
+
+`438a` showed that a global pre-validation residual-error bank is deployable but worse
+than the learned `392a` frontier. The loop therefore needed a post-experiment decision
+before adding more knobs.
+
+### Analysis
+
+Added `experiments/backfill/block_ar/ANALYSIS_439a_deployable_calibration_object.md`.
+
+Mechanism summary:
+
+- `392a`: best learned/deployable frontier at `8/11`, with good structure but remaining
+  coverage/regime/distribution failures.
+- `403a`: quantile-map calibration moved marginals too aggressively and fell to `6/11`.
+- `405a/407a`: interval scaling preserved structure but could not fix level law or
+  regime layer2.
+- `438a`: global residual paths improved some tail/path behavior but were too
+  unconditional and damaged level KS/small-move realism.
+- `435a`: oracle future center reaches `11/11` but is not deployable.
+
+### Decision
+
+The next clean falsifier is a history-local residual-error calibration policy:
+fit forecast errors on pre-validation windows, retrieve a local residual neighborhood
+using generic history features, and apply those frozen local errors around the `392a`
+validation median. This tests whether the deployable policy route only failed because
+`438a` was too unconditional.
+
+If local residual calibration fails to beat `392a`, the residual-calibration route should
+be considered capped and the loop should return to improving the learned conditional
+center/path model.
+
+---
