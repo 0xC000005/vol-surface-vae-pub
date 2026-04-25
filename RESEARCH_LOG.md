@@ -96857,3 +96857,37 @@ Residual shape calibration is not the missing piece. It lowers some overcoverage
 Stop this calibration branch unless a new theoretical reason appears. The best deployable learned system remains uncalibrated `392a` at `8/11`. The next HEAD step should be post-experiment analysis and a new learned-law/objective idea, not more calibration-table variants.
 
 ---
+## 2026-04-25: Autoresearch 466a calibration branch postmortem
+
+### Context
+After 465a, the deployable calibration branch has enough evidence to analyze rather than keep tuning. The branch tested both marginal level maps and center-preserving residual maps on top of the strongest learned base model, `392a`.
+
+### Findings
+The calibration variants are capped below the uncalibrated `392a` frontier:
+
+- `392a`: `8/11`, fails coverage, regime_coverage, distributional_fidelity.
+- `456a`/`457a`/`458a`: marginal level quantile maps score `6-7/11` and weaken conditionality.
+- `462a`: center residual scale scores `6/11`.
+- `463a`: regime residual scale scores `7/11`, best calibration variant, but conditionality is `4.86%`, level KS `12/25`, regime layer2 `1/8`.
+- `464a`: wider scale bounds score `6/11`; level improves to `13/25` but time-series fails.
+- `465a`: residual magnitude quantile map scores `6/11`; coverage is lower but cointegration and level/regime still fail.
+
+Mechanism: calibration tables can move widths and marginal residual shape, but the remaining gates are coupled. Per-regime/per-cell/per-horizon empirical maps are noisy with one realized future per history and behave like marginal corrections rather than learned conditional laws.
+
+### Decision
+Stop calibration-table variants as the main path. They are deployable, but they are not elegant or strong enough because they do not exceed the `392a` learned-law frontier.
+
+### Next Direction
+Return to a learned-law/objective change around the `392a` generator. The next clean falsifier is a learned conditional distribution critic:
+
+- keep the `392a` generator architecture and sampler;
+- train a compact critic on `(history, future path)` pairs to distinguish realized paths from generated paths;
+- fine-tune the generator with a small adversarial/critic loss anchored by the original FM loss;
+- use no regime labels, no retrieval, no validation oracle, and no posthoc calibration map.
+
+This is a general conditional two-sample matching objective, more flexible than fixed MMD/CRPS and cleaner than hand-written gate losses.
+
+### Artifact
+- Postmortem: `experiments/backfill/block_ar/ANALYSIS_466a_calibration_branch_postmortem.md`
+
+---
