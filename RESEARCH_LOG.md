@@ -96548,3 +96548,25 @@ Do not keep stacking kernel-score variants. The evidence now says lightweight ro
 - Suite report: `results/block_ar/455a_recent_joint_mmd_w05_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 456 - small-alpha deployable quantile calibration
+
+### Context
+After 455, lightweight learned rollout objectives around 392a looked capped. The next branch tested a clearly separated deployable calibration layer, with base-model metrics kept conceptually separate from calibrated-system metrics.
+
+### Experiment
+Ran `456a_preval_quantile_alpha025_392a`: 392a base model plus pre-validation empirical quantile calibration, regime bins enabled, alpha 0.25, 441 calibration windows, 48 calibration samples. The calibration uses only pre-validation histories/futures and no validation-future oracle information.
+
+### Result
+Full 11-suite score: 7/11. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity. Coverage improved in some cells: h1 and h7 per-cell coverage passed, but h14/h30 still had high-side overcoverage. Cointegration passed. Level KS improved modestly to 11/25 cells, still below the 15/25 gate. Conditionality MAE reduction fell to 4.6%, below the 5% gate. Regime layer-2 remained 0/8.
+
+### Mechanism Read
+Small-alpha quantile calibration is safer than full calibration and remains deployable, but it still behaves like a marginal correction layer: it nudges level distribution and coverage, while weakening conditionality and not solving regime-cell coverage. It does not produce a deployable 11/11 system.
+
+### Decision
+Do not ship this calibrated system. Calibration may be reported as a separate risk-policy layer, but the current implementation still fails the risk-manager requirements. Further progress needs either a stronger conditional calibration design or a different learned conditional law/data framing.
+
+### Artifacts
+- Suite output: `results/block_ar/456a_preval_quantile_alpha025_392a/full11.json`
+- Suite report: `results/block_ar/456a_preval_quantile_alpha025_392a/full11.md`
+
+---
