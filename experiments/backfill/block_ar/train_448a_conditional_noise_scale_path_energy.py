@@ -55,6 +55,7 @@ def load_with_conditional_noise_scale(
     device: torch.device,
     noise_scale_min: float,
     noise_scale_max: float,
+    noise_scale_init: float,
 ) -> tuple[EmpiricalNormalScoreCausalMemoryTransitionFlowMatching, dict]:
     payload = torch.load(checkpoint, map_location=device, weights_only=False)
     cfg_dict = dict(payload["config"])
@@ -80,20 +81,31 @@ def load_with_conditional_noise_scale(
             f"Checkpoint state mismatch: missing={sorted(missing)}, "
             f"unexpected={sorted(result.unexpected_keys)}"
         )
+    init = float(noise_scale_init)
+    if init <= 0.0:
+        raise ValueError("--noise_scale_init must be positive")
+    with torch.no_grad():
+        model.noise_log_scale[-1].bias.fill_(math.log(init))
     model.to(device)
     return model, payload
 
 
-def freeze_except_noise_scale(
+def select_trainable_parameters(
     model: EmpiricalNormalScoreCausalMemoryTransitionFlowMatching,
+    trainable_scope: str,
 ) -> list[torch.nn.Parameter]:
     trainable: list[torch.nn.Parameter] = []
     for name, param in model.named_parameters():
-        param.requires_grad = name.startswith("noise_log_scale.")
+        if trainable_scope == "noise_log_scale_only":
+            param.requires_grad = name.startswith("noise_log_scale.")
+        elif trainable_scope == "all":
+            param.requires_grad = True
+        else:
+            raise ValueError(f"Unknown trainable_scope: {trainable_scope}")
         if param.requires_grad:
             trainable.append(param)
     if not trainable:
-        raise RuntimeError("No noise_log_scale parameters are trainable")
+        raise RuntimeError("No parameters are trainable")
     return trainable
 
 
@@ -220,6 +232,12 @@ def main() -> None:
     parser.add_argument("--scale_l2_weight", type=float, default=0.001)
     parser.add_argument("--noise_scale_min", type=float, default=0.5)
     parser.add_argument("--noise_scale_max", type=float, default=2.0)
+    parser.add_argument("--noise_scale_init", type=float, default=1.0)
+    parser.add_argument(
+        "--trainable_scope",
+        choices=("noise_log_scale_only", "all"),
+        default="noise_log_scale_only",
+    )
     parser.add_argument("--max_train_batches", type=int, default=0)
     parser.add_argument("--max_val_batches", type=int, default=0)
     parser.add_argument("--device", default="cuda")
@@ -240,8 +258,9 @@ def main() -> None:
         device,
         noise_scale_min=args.noise_scale_min,
         noise_scale_max=args.noise_scale_max,
+        noise_scale_init=args.noise_scale_init,
     )
-    trainable = freeze_except_noise_scale(model)
+    trainable = select_trainable_parameters(model, args.trainable_scope)
     model.train()
     if model.cfg.history_len != args.history_len or model.cfg.future_len != args.future_len:
         raise ValueError("Checkpoint horizon configuration does not match requested data")
@@ -321,8 +340,10 @@ def main() -> None:
     print(f"Source epoch: {payload.get('epoch')}  source best_val: {payload.get('best_val')}")
     print(f"Recent windows: {n_total} index range: {indices[0]}..{indices[-1]}")
     print(f"Train/holdout: {n_train}/{n_val}")
-    print(f"Trainable noise-scale params: {sum(p.numel() for p in trainable):,}")
+    print(f"Trainable params: {sum(p.numel() for p in trainable):,}")
+    print(f"Trainable scope: {args.trainable_scope}")
     print(f"Noise scale clamp: [{args.noise_scale_min}, {args.noise_scale_max}]")
+    print(f"Noise scale init: {args.noise_scale_init}")
 
     best_val = float("inf")
     best_epoch = -1
@@ -366,7 +387,7 @@ def main() -> None:
         "n_val": int(n_val),
         "best_epoch": best_epoch,
         "best_val_total": best_val,
-        "trainable_scope": "noise_log_scale_only",
+        "trainable_scope": args.trainable_scope,
         "objective": {
             "fm_anchor_weight": args.fm_anchor_weight,
             "energy_weight": args.energy_weight,
@@ -376,6 +397,7 @@ def main() -> None:
             "energy_eps": args.energy_eps,
             "noise_scale_min": args.noise_scale_min,
             "noise_scale_max": args.noise_scale_max,
+            "noise_scale_init": args.noise_scale_init,
         },
     }
     (out_dir / "train_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

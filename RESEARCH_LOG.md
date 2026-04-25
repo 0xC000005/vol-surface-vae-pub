@@ -96417,3 +96417,27 @@ Scale-head-only training is capped. Further progress requires modifying/training
 transport/backbone jointly or changing the learned core, not just the source-noise scale.
 
 ---
+## 2026-04-24: Autoresearch 450 - joint conditional noise-scale core falsifier
+
+### Context
+Iteration 449 showed the widening-only conditional noise-scale head stayed at identity and did not learn the missing conditional width allocation. The clean next falsifier was to train the transport/backbone jointly with the conditional scale, while keeping the mechanism deployable: no retrieval, no validation-future oracle, and no posthoc per-window correction.
+
+### Experiment
+Ran `450a_joint_cond_noise_widen_energy_init105_s42` from the 392a frontier checkpoint with `trainable_scope=all`, `noise_scale_min=1.0`, `noise_scale_max=2.0`, `noise_scale_init=1.05`, FM anchor 1.0, and path-energy weight 0.05.
+
+### Result
+Full 11-suite score: 7/11. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity. Coverage90 was 87.4% but one h30 cell exceeded the 95% per-cell cap. Conditionality MAE reduction fell to 3.7%, below the 5% gate. Regime layer-2 remained 0/8. Level KS passed 13/25 cells, below the 15/25 gate. Pathwise jump realism passed with max-jump KS 0.372.
+
+### Mechanism Read
+Joint training did not activate the conditional scale: the learned scale decayed back to the lower clamp near 1.000 across epochs. The model preserved most 392a geometry, but the transport update slightly weakened conditionality and did not solve regime-cell calibration or unconditional level fidelity. This falsifies the current conditional-scale core branch as a likely route to deployable 11/11 unless the core architecture itself changes.
+
+### Decision
+Do not add another scale-head or wrapper knob. The next principled step is post-experiment analysis / ideation toward a stronger learned single-stage path-law core that can model conditional future-level distribution directly, not a calibration shell around 392a.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/train_448a_conditional_noise_scale_path_energy.py`
+- Checkpoint metadata: `models/backfill/450a_joint_cond_noise_widen_energy_init105_s42/`
+- Suite output: `results/block_ar/450a_joint_cond_noise_widen_energy_init105_s42/full11.json`
+- Suite report: `results/block_ar/450a_joint_cond_noise_widen_energy_init105_s42/full11.md`
+
+---
