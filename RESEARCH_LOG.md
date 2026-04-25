@@ -97819,3 +97819,26 @@ The ensemble gives a useful intermediate law and preserves structural suites, bu
 Close learned-law averaging as a primary route. Do not tune ensemble weights. The next iteration should be a real paradigm decision: either define a genuinely new core with native joint level-allocation dynamics, or state that pure learned conditional laws appear capped below `11/11` and that the remaining target requires separately reported policy calibration.
 
 ---
+## 2026-04-25: Autoresearch 496a centered stress ensemble
+
+### Context
+495a showed that a 392a/494a learned stress ensemble preserved structural suites but failed conditionality. 496a tested whether the failure was mostly center drift by recentering the ensemble residual shape around the 392a sample median.
+
+### Result
+Artifacts:
+- evaluator: `experiments/backfill/block_ar/evaluate_496a_centered_stress_ensemble.py`
+- result: `results/block_ar/496a_centered_392a_494a_stress_ensemble/full11.json`
+- markdown: `results/block_ar/496a_centered_392a_494a_stress_ensemble/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_496a_centered_stress_ensemble_result.md`
+
+Score: `6/11`. Passed surface, time_series, block_ar, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, conditionality, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8909`, conditional MAE reduction `3.43%`, daily KS `25/25`, level KS `13/25`, median-bias cells `20/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.246`, corr ratio `0.940`, MR ratio `1.017`, path KS `0.331`.
+
+### Mechanism Read
+Center preservation did not solve the ensemble failure. Conditionality worsened rather than recovered, level KS still missed the gate, regime layer2 returned to `0/8`, and worst-cell cointegration slipped below threshold.
+
+### Decision
+Close center-preserving stress ensembling. Do not tune sample ratios or recentering variants. The next step must be a true paradigm decision, not another wrapper, ensemble, or calibration layer around 392a.
+
+---
