@@ -98691,3 +98691,19 @@ Close the 525/530 factor side-channel branch as below-frontier. The next HEAD st
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_530a_factor_conditioned_convergence_audit.md`, `results/autoresearch/530a_factor_conditioned_surface_fm_e16_live_seed42/full11.json`.
 
 ---
+## 2026-04-25: 531a Marginalization-Consistent Joint Density Idea
+
+### Context
+530a closed the factor-conditioned side-channel branch. The remaining learned frontier failures are mostly marginal queries of the generated future IV-level path: per-cell coverage, regime layer2 coverage, and level KS.
+
+### Ideation
+A literature check points away from another small objective knob. MMPD supports distributional future modeling over deterministic MSE, MixLinear supports clean parameter-efficient temporal structure, and marginalization-consistent flow work highlights the exact pathology that joint path samplers can give unreliable marginal predictions.
+
+### Decision
+Open a new coherent-density falsifier rather than another separable marginal/copula remap. `532a` should model the 30x25 future IV-level path in empirical normal-score coordinates with one conditional Gaussian-copula law: history encoder, future-path mean/scale heads, full global residual correlation, exact NLL training, and one-shot deployable sampling.
+
+This differs from `323`/`492` because the marginals and dependence come from the same density instead of a fixed copula plus independently trained marginal transport.
+
+Artifact: `experiments/backfill/block_ar/IDEA_531a_marginalization_consistent_joint_density.md`.
+
+---
