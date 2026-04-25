@@ -96592,3 +96592,25 @@ Stop simple alpha tuning of this calibration layer. The deployable calibration b
 - Suite report: `results/block_ar/457a_preval_quantile_alpha010_392a/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 458 - larger-window deployable quantile calibration
+
+### Context
+457 falsified simple alpha weakening for the pre-validation quantile calibration layer. The next deployable data-framing test increased the calibration window from 441 to 882 histories to see whether regime/level tables were unstable due to sample size.
+
+### Experiment
+Ran `458a_preval882_quantile_alpha025_392a`: 392a base model, pre-validation empirical quantile calibration, regime bins enabled, alpha 0.25, 882 calibration windows, 48 calibration samples.
+
+### Result
+Full 11-suite score: 7/11. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity. Conditionality remained below gate at 4.6%. Level KS stayed 11/25. Regime layer-2 remained 0/8. Coverage still failed all tested horizons by high-side per-cell overcoverage. Time-series skewness failed internally, but the suite still passed time_series overall due the current aggregate gates.
+
+### Mechanism Read
+The larger calibration panel does not change the core mechanism. The quantile map remains a marginal correction: it can nudge level distribution and keep most structure intact, but it cannot learn/preserve the conditional geometry needed for conditionality and regime-cell coverage.
+
+### Decision
+Stop this quantile-calibration family. Further progress requires a different conditional calibration design or a new learned-law/data framing, not alpha/window tuning.
+
+### Artifacts
+- Suite output: `results/block_ar/458a_preval882_quantile_alpha025_392a/full11.json`
+- Suite report: `results/block_ar/458a_preval882_quantile_alpha025_392a/full11.md`
+
+---
