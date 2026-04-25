@@ -96031,3 +96031,61 @@ If the ensemble does not beat `392a`, simple learned-law averaging is insufficie
 the loop should move to directly training a better conditional path-law objective.
 
 ---
+## 2026-04-24: Autoresearch 442 learned ensemble result
+
+### Context
+
+`441a` shifted from deployable residual calibration to learned-law model averaging.
+The first falsifier was an equal ensemble of nearby learned checkpoints with no
+validation-tuned weights.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/evaluate_442a_learned_checkpoint_ensemble.py`.
+The ensemble drew `16` samples each from:
+
+- `391a_recent_rollout_energy_w02_s42`
+- `392a_recent_rollout_energy_w005_s42`
+- `393a_recent_rollout_energy_w01_s42`
+
+Artifact paths:
+
+- `results/block_ar/442a_learned_391_392_393_equal_ensemble/full11.json`
+- `results/block_ar/442a_learned_391_392_393_equal_ensemble/full11.md`
+
+### Result
+
+Score: `7/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- overall 90% coverage: `0.852`
+- conditionality MAE reduction: `3.8%`
+- regime layer2: `0/8`
+- daily-change KS: `25/25`
+- level KS: `12/25`
+- median-bias fraction/magnitude: `20/25`, `25/25`
+- pathwise max-jump KS: `0.453`
+
+### Mechanism Read
+
+Learned-law averaging helped time-series realism and kept structure intact, but it did
+not beat the `392a` frontier. The ensemble broadened and diversified the sample law
+enough to improve some coverage cells, yet it diluted conditional accuracy and still
+did not repair the unconditional level distribution or regime layer2.
+
+### Decision
+
+Do not tune ensemble weights against validation. Equal learned-law averaging is not the
+solution. The next step should directly train a learned conditional path-law objective
+that targets level distribution and calibrated coverage while preserving the `392a`
+conditional structure.
+
+---
