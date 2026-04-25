@@ -97665,3 +97665,24 @@ Next run exactly one H60 empirical-normal-score causal-memory AR experiment usin
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_488_context_frame_signal_audit.md`, `results/block_ar/488_context_frame_audit/context_signal_audit.json`.
 
 ---
+## 2026-04-25: Autoresearch 489 H60 empirical-score AR
+
+### Context
+488 found generic aligned-state signal for H60, so 489 tested the cleanest model-side falsifier: same empirical-normal-score causal-memory transition FM, same vanilla teacher-forced objective, but `history_len=60`.
+
+### Result
+Trained `models/backfill/489a_h60_empirical_score_transition_s42/best_model.pt` and evaluated `results/block_ar/489a_h60_empirical_score_transition_s42/full11.json`. Score was `4/11`, passing only surface, block_ar, cross-cell correlation, and mean reversion. Failures were coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, and pathwise_jump_realism.
+
+Key metrics: best epoch `12`, teacher-forced val loss `0.4492`, coverage90 `0.8511`, conditional MAE reduction `2.63%`, daily-change KS `24/25`, level KS `6/25`, median-bias fraction `17/25`, cointegration worst-cell ratio `0.172`, regime layer2 `1/8`, pathwise per-cell q99 `19/25`.
+
+### Mechanism Read
+Longer context alone is not enough. It worsens the structural margins that made 392a deployable: conditionality drops below gate, one cointegration cell fails, tail-scale/pathwise per-cell gates fail, and level KS remains far below 15/25.
+
+This does not fully close H60 yet because the H30 frontier was not raw 340c. It required 385a recent-quantile coordinate adaptation and then weak rollout-energy fine-tuning.
+
+### Decision
+Run one fair H60 analog of 385a next: recent-quantile FM adaptation from 489a on the same 441-window pre-validation block. If that cannot recover structural passes and approach the 8/11 frontier, close H60 as a primary bottleneck.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_489_h60_empirical_score_result.md`, `models/backfill/489a_h60_empirical_score_transition_s42/best_model.pt`, `results/block_ar/489a_h60_empirical_score_transition_s42/full11.json`.
+
+---
