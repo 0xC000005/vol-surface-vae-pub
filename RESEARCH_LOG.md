@@ -97071,3 +97071,29 @@ Global shrinkage improves aggregate coverage calibration but does not solve the 
 Do not continue scalar temperature tuning. Keep 471a as the best source-transport evidence (`6/11`) but treat 472a as a negative falsifier. The next step should analyze or correct level allocation without destroying the source residual geometry that fixed 470a.
 
 ---
+## 2026-04-25: Autoresearch 473 partial-transport falsifier
+
+### Context
+Strength `0` in the source-transport family is effectively the frozen 392a base sampler, while strength `1` is full 471a transport. Since 471a preserved geometry but over/underallocated levels, the cleanest remaining scalar test was partial ODE transport rather than additional calibration tables.
+
+### Execute
+Added `transport_strength` support to source transport and evaluated the existing 471a checkpoint at strengths `0.50` and `0.25`.
+Artifacts:
+- `results/block_ar/473a_471a_transport_strength050_s42/full11.json`
+- `results/block_ar/473b_471a_transport_strength025_s42/full11.json`
+
+### Result
+Best partial result was `473a` at strength `0.50`: `7/11`.
+Passed: surface, conditionality, time-series, block-AR, cointegration, cross-cell correlation, pathwise jump realism.
+Failed: coverage, regime coverage, distributional fidelity, mean reversion.
+Key metrics: coverage90 `0.8911`, calibration error `0.0031`, level KS `11/25`, median-bias fraction `20/25`, mean-reversion active pass rate `62.5%`, cross-cell corr ratio `0.954`, max-jump KS `0.310`.
+
+The lower strength `473b` at `0.25` scored `5/11`, losing conditionality and cointegration despite slightly improving level KS to `13/25`.
+
+### Mechanism Read
+Partial transport confirms the source-transport family is structurally useful but not sufficient. It can interpolate between 392a and 471a without destroying correlation geometry, but scalar transport strength still cannot jointly solve the per-cell coverage cap, regime layer-2 coverage, level KS, and h1 active-cell mean-reversion gates.
+
+### Decision
+Stop scalar source-transport knob tuning. The best deployable model remains 392a at `8/11`; the best source-transport result is `7/11`. Next step should be a postmortem comparing 392a versus source-transport variants and then either return to the 392a line with a targeted level/regime allocation fix or shift paradigm.
+
+---

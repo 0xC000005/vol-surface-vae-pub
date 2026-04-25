@@ -82,6 +82,12 @@ def main() -> None:
         default=None,
         help="Optionally override cfg.sample_temperature at evaluation time.",
     )
+    parser.add_argument(
+        "--transport_strength_override",
+        type=float,
+        default=None,
+        help="Optionally override cfg.transport_strength at evaluation time.",
+    )
     parser.add_argument("--output_json", type=str, required=True)
     parser.add_argument("--output_md", type=str, required=True)
     parser.add_argument("--force_native_anchor", action="store_true",
@@ -103,6 +109,16 @@ def main() -> None:
             )
         print(
             f"[eval override] sample_temperature={float(args.sample_temperature_override):.4f}"
+        )
+    if args.transport_strength_override is not None:
+        if hasattr(model, "cfg") and hasattr(model.cfg, "transport_strength"):
+            model.cfg.transport_strength = float(args.transport_strength_override)
+        else:
+            raise ValueError(
+                f"Model type {args.model_type} does not expose transport_strength"
+            )
+        print(
+            f"[eval override] transport_strength={float(args.transport_strength_override):.4f}"
         )
 
     # Keep inference-time anchor overrides aligned with evaluate_220b so the 11-suite
@@ -226,6 +242,7 @@ def main() -> None:
             "samples": args.samples,
             "conditionality_samples": args.conditionality_samples,
             "sample_temperature_override": args.sample_temperature_override,
+            "transport_strength_override": args.transport_strength_override,
             "rollout_start": int(rollout_start),
         },
         "surface": surface,

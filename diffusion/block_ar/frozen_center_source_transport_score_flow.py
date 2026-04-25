@@ -54,6 +54,7 @@ def transport_residual_scores(
     center_scores: torch.Tensor,
     source_residual_scores: torch.Tensor,
     chunk_size: int,
+    transport_strength: float | None = None,
 ) -> torch.Tensor:
     bsz, n_samples, horizon, n_cells = source_residual_scores.shape
     if horizon != model.cfg.future_len or n_cells != model.cfg.n_cells:
@@ -64,7 +65,16 @@ def transport_residual_scores(
     chunk_size = max(
         1, min(int(chunk_size), int(n_samples), int(model.cfg.max_sample_chunk))
     )
-    dt = 1.0 / float(model.cfg.flow_steps)
+    strength = float(
+        model.cfg.transport_strength
+        if transport_strength is None
+        else transport_strength
+    )
+    strength = max(0.0, min(1.0, strength))
+    if strength == 0.0:
+        return source_residual_scores
+    n_flow_steps = max(1, int(math.ceil(float(model.cfg.flow_steps) * strength)))
+    dt = strength / float(n_flow_steps)
     context = model.encode_condition(history_scores, center_scores)
     outs: list[torch.Tensor] = []
     for start in range(0, n_samples, chunk_size):
@@ -76,7 +86,7 @@ def transport_residual_scores(
         )
         center = center_scores.repeat_interleave(k, dim=0)
         ctx = context.repeat_interleave(k, dim=0)
-        for step in range(model.cfg.flow_steps):
+        for step in range(n_flow_steps):
             t = torch.full(
                 (bsz * k,),
                 (step + 0.5) * dt,
@@ -161,6 +171,7 @@ class FrozenCenterSourceTransportScenarioGenerator(nn.Module):
             center_scores=center_scores,
             source_residual_scores=source_residual,
             chunk_size=chunk_size,
+            transport_strength=self.cfg.transport_strength,
         )
         future_scores = center_scores[:, None, :, :] + transported
         flat = future_scores.reshape(

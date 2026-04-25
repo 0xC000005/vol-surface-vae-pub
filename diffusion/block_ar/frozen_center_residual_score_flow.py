@@ -32,6 +32,7 @@ class FrozenCenterResidualScoreFMConfig:
     flow_time_dim: int = 32
     flow_steps: int = 24
     sample_temperature: float = 1.0
+    transport_strength: float = 1.0
     max_sample_chunk: int = 16
     center_samples: int = 8
     center_chunk_size: int = 4
