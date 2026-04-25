@@ -1007,6 +1007,12 @@ def load_one_day_kernel(
         )
 
         return load_470a_model(checkpoint_path, device)
+    if model_type == "471a":
+        from diffusion.block_ar.frozen_center_source_transport_score_flow import (
+            load_model as load_471a_model,
+        )
+
+        return load_471a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,

@@ -97024,3 +97024,28 @@ The frozen center is not enough. Starting the residual generator from iid Gaussi
 Do not tune 470a temperature or capacity first. The principled next falsifier is a source-transport residual law: use frozen 392a sample residuals as the flow source distribution and learn a conditional transport correction to the realized residual. This keeps the architecture clean while preserving the learned 392a residual geometry instead of replacing it with iid noise.
 
 ---
+## 2026-04-25: Autoresearch 471a source-transport residual flow
+
+### Context
+470a proved that a frozen 392a center plus iid-Gaussian residual flow is not enough: the iid source destroyed cross-cell residual geometry. The next clean falsifier was to preserve 392a's stochastic residual geometry by using frozen 392a residual samples as the source distribution for a learned residual transport.
+
+### Execute
+Implemented `471a` source-transport residual empirical-score flow:
+- center/source: frozen `392a` sample paths per history
+- source residual: base sample scores minus base median-center scores
+- learned component: vanilla conditional rectified flow transporting source residuals toward realized residuals
+- artifacts: `diffusion/block_ar/frozen_center_source_transport_score_flow.py`, `experiments/backfill/block_ar/train_471a_frozen_center_source_transport_score_flow.py`, `models/backfill/471a_frozen_center_source_transport_score_flow_s42/best_model.pt`, `results/block_ar/471a_frozen_center_source_transport_score_flow_s42/full11.json`
+
+### Result
+Full revised 11-suite score: `6/11`.
+Passed: surface, conditionality, block-AR, cointegration, cross-cell correlation, pathwise jump realism.
+Failed: coverage, time-series, regime coverage, distributional fidelity, mean reversion.
+Key metrics: coverage90 `0.9061`, calibration error `0.0236`, conditionality MAE reduction `5.63%`, daily KS `25/25`, level KS `10/25`, median-bias fraction `19/25`, cross-cell corr ratio `0.943`, rank ratio `1.570`, mean-reversion active pass rate `54.2%`, full-horizon MR pass `true`, max-jump KS `0.243`.
+
+### Mechanism Read
+The source-transport idea is materially better than 470a: preserving frozen 392a residual samples fixes the cross-cell/rank collapse and recovers daily-change/pathwise realism. The remaining failure is not source geometry; it is mostly width/level allocation. Coverage is high and selected cells exceed the 95% cap, while level KS and median-bias fraction remain below gate.
+
+### Decision
+Keep this family alive for one controlled falsifier. Do not add regime-specific rules or calibration tables. The next minimal test is a global source residual temperature below 1.0 during source transport, because 471a's failure pattern is overcoverage and too-wide source residuals in selected cells while core geometry is now correct.
+
+---
