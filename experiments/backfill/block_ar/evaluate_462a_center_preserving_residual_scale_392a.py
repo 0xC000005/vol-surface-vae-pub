@@ -218,6 +218,57 @@ def fit_binned_center_residual_scales(
     return scales.astype(np.float32), fit_summary
 
 
+def fit_binned_abs_residual_quantiles(
+    samples: np.ndarray,
+    ground_truth: np.ndarray,
+    bins: np.ndarray,
+    n_bins: int,
+    quantile_levels: np.ndarray,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    center = np.median(samples, axis=1)
+    gen_abs = np.abs(samples - center[:, None])
+    real_abs = np.abs(ground_truth - center)
+    horizon, height, width = ground_truth.shape[1:]
+    gen_q = np.zeros((n_bins, horizon, height, width, len(quantile_levels)), dtype=np.float32)
+    real_q = np.zeros_like(gen_q)
+    bin_summaries: list[dict[str, Any]] = []
+    for bin_idx in range(n_bins):
+        mask = bins == bin_idx
+        if int(mask.sum()) < 16:
+            mask = np.ones_like(bins, dtype=bool)
+            fallback = "global"
+        else:
+            fallback = None
+        for t in range(horizon):
+            for i in range(height):
+                for j in range(width):
+                    gen_vals = gen_abs[mask, :, t, i, j].reshape(-1)
+                    real_vals = real_abs[mask, t, i, j].reshape(-1)
+                    gq = np.maximum.accumulate(np.quantile(gen_vals, quantile_levels))
+                    rq = np.maximum.accumulate(np.quantile(real_vals, quantile_levels))
+                    gq = gq + np.arange(len(gq), dtype=np.float32) * 1e-8
+                    gen_q[bin_idx, t, i, j] = gq
+                    real_q[bin_idx, t, i, j] = rq
+        bin_summaries.append(
+            {
+                "bin": bin_idx,
+                "n_windows": int((bins == bin_idx).sum()),
+                "fallback": fallback,
+                "gen_abs_q90_mean": float(gen_q[bin_idx, ..., int(0.9 * (len(quantile_levels) - 1))].mean()),
+                "real_abs_q90_mean": float(real_q[bin_idx, ..., int(0.9 * (len(quantile_levels) - 1))].mean()),
+            }
+        )
+    fit_summary = {
+        "calibration_mode": "abs_residual_quantile",
+        "n_bins": int(n_bins),
+        "n_quantiles": int(len(quantile_levels)),
+        "gen_abs_q90_mean": float(gen_q[..., int(0.9 * (len(quantile_levels) - 1))].mean()),
+        "real_abs_q90_mean": float(real_q[..., int(0.9 * (len(quantile_levels) - 1))].mean()),
+        "bin_summaries": bin_summaries,
+    }
+    return {"gen_q": gen_q, "real_q": real_q, "levels": quantile_levels.astype(np.float32)}, fit_summary
+
+
 def apply_center_residual_scales(
     samples: np.ndarray,
     scales: np.ndarray,
@@ -234,16 +285,49 @@ def apply_center_residual_scales(
     return np.clip(scaled, 0.0, 1.0)
 
 
+def apply_abs_residual_quantiles(
+    samples: np.ndarray,
+    quantile_map: dict[str, np.ndarray],
+    bins: np.ndarray,
+) -> np.ndarray:
+    center = np.median(samples, axis=1, keepdims=True)
+    residual = samples - center
+    sign = np.sign(residual)
+    magnitude = np.abs(residual)
+    mapped = np.empty_like(magnitude)
+    gen_q = quantile_map["gen_q"]
+    real_q = quantile_map["real_q"]
+    n_bins = gen_q.shape[0]
+    for bin_idx in range(n_bins):
+        row_mask = bins == bin_idx
+        if not np.any(row_mask):
+            continue
+        for t in range(samples.shape[2]):
+            for i in range(samples.shape[3]):
+                for j in range(samples.shape[4]):
+                    x = magnitude[row_mask, :, t, i, j].reshape(-1)
+                    xp = gen_q[bin_idx, t, i, j]
+                    fp = real_q[bin_idx, t, i, j]
+                    mapped_vals = np.interp(x, xp, fp, left=fp[0], right=fp[-1])
+                    mapped[row_mask, :, t, i, j] = mapped_vals.reshape(
+                        magnitude[row_mask, :, t, i, j].shape
+                    )
+    calibrated = center + sign * mapped
+    return np.clip(calibrated, 0.0, 1.0)
+
+
 class CenterResidualScaleWrapper:
     def __init__(
         self,
         base_model: torch.nn.Module,
         scales: np.ndarray,
         thresholds: tuple[float, float] | None = None,
+        quantile_map: dict[str, np.ndarray] | None = None,
     ):
         self.base_model = base_model
         self.scales_np = scales.astype(np.float32)
         self.thresholds = thresholds
+        self.quantile_map = quantile_map
         self.scales: torch.Tensor | None = None
 
     def eval(self):
@@ -290,6 +374,16 @@ class CenterResidualScaleWrapper:
             history_is_normalized=history_is_normalized,
             **kwargs,
         )
+        if self.quantile_map is not None:
+            history_01 = denormalize_iv(history) if history_is_normalized else history
+            bins = _assign_bins(history_01.detach().cpu().numpy(), self.thresholds)
+            calibrated = apply_abs_residual_quantiles(
+                samples.detach().cpu().numpy(),
+                self.quantile_map,
+                bins=bins,
+            )
+            return torch.from_numpy(calibrated).to(device=samples.device, dtype=samples.dtype)
+
         scales = self._scales_for(samples)[: samples.shape[2]]
         center = samples.median(dim=1, keepdim=True).values
         if scales.ndim == 3:
@@ -329,6 +423,12 @@ def main() -> None:
     parser.add_argument("--n_scale_candidates", type=int, default=29)
     parser.add_argument("--scale_penalty", type=float, default=0.002)
     parser.add_argument(
+        "--calibration_mode",
+        choices=["scale", "abs_quantile"],
+        default="scale",
+    )
+    parser.add_argument("--n_abs_quantiles", type=int, default=101)
+    parser.add_argument(
         "--regime_bins",
         choices=["none", "history_vov_q20_q80"],
         default="none",
@@ -367,11 +467,33 @@ def main() -> None:
         calib_vov = _history_variance(calib_history_np)
         thresholds = (float(np.quantile(calib_vov, 0.2)), float(np.quantile(calib_vov, 0.8)))
         calib_bins = _assign_bins(calib_history_np, thresholds)
+        n_bins = 3
+    else:
+        calib_bins = np.zeros(calib_history_np.shape[0], dtype=np.int64)
+        n_bins = 1
+
+    quantile_map = None
+    if args.calibration_mode == "abs_quantile":
+        quantile_levels = np.linspace(
+            0.005,
+            0.995,
+            args.n_abs_quantiles,
+            dtype=np.float32,
+        )
+        quantile_map, fit_summary = fit_binned_abs_residual_quantiles(
+            calib_samples,
+            calib_future.detach().cpu().numpy(),
+            bins=calib_bins,
+            n_bins=n_bins,
+            quantile_levels=quantile_levels,
+        )
+        scales = np.ones((n_bins, args.future_len, 5, 5), dtype=np.float32)
+    elif n_bins > 1:
         scales, fit_summary = fit_binned_center_residual_scales(
             calib_samples,
             calib_future.detach().cpu().numpy(),
             bins=calib_bins,
-            n_bins=3,
+            n_bins=n_bins,
             candidates=candidates,
             target_coverage=args.target_coverage,
             scale_penalty=args.scale_penalty,
@@ -397,12 +519,20 @@ def main() -> None:
                 "regime_thresholds": list(thresholds) if thresholds is not None else None,
                 "fit_summary": fit_summary,
                 "scales": scales.tolist(),
+                "quantile_map": {
+                    key: value.tolist() for key, value in quantile_map.items()
+                } if quantile_map is not None else None,
             },
             indent=2,
         )
     )
 
-    wrapper = CenterResidualScaleWrapper(base_model, scales, thresholds=thresholds).eval()
+    wrapper = CenterResidualScaleWrapper(
+        base_model,
+        scales,
+        thresholds=thresholds,
+        quantile_map=quantile_map,
+    ).eval()
     batch = build_rollout_windows(
         data_path=args.data_path,
         history_len=args.history_len,
@@ -422,7 +552,14 @@ def main() -> None:
         chunk_size=args.chunk_size,
     )
     val_bins = _assign_bins(batch.history_01.detach().cpu().numpy(), thresholds)
-    cond_samples = apply_center_residual_scales(val_base_samples, scales, bins=val_bins)
+    if quantile_map is not None:
+        cond_samples = apply_abs_residual_quantiles(
+            val_base_samples,
+            quantile_map,
+            bins=val_bins,
+        )
+    else:
+        cond_samples = apply_center_residual_scales(val_base_samples, scales, bins=val_bins)
     ground_truth = batch.future_01.detach().cpu().numpy()
     history_01 = batch.history_01.detach().cpu().numpy()
 
@@ -475,6 +612,7 @@ def main() -> None:
             "calibration_end": calib_end,
             "fit_summary": fit_summary,
             "regime_thresholds": list(thresholds) if thresholds is not None else None,
+            "calibration_mode": args.calibration_mode,
             "rollout_start": int(rollout_start),
         },
         "surface": surface,
@@ -518,8 +656,9 @@ def main() -> None:
         f"- failed suites: `{', '.join(failed) if failed else 'none'}`",
         "",
         "**Calibration Fit**",
-        f"- scale range: `{fit_summary['scale_min']:.3f}` to `{fit_summary['scale_max']:.3f}`",
-        f"- scale mean: `{fit_summary['scale_mean']:.3f}`",
+        f"- mode: `{args.calibration_mode}`",
+        f"- scale range: `{fit_summary.get('scale_min', float('nan')):.3f}` to `{fit_summary.get('scale_max', float('nan')):.3f}`",
+        f"- scale mean: `{fit_summary.get('scale_mean', float('nan')):.3f}`",
         f"- calibration coverage mean: `{fit_cov_before:.3f}` -> `{fit_cov_after:.3f}`",
         "",
         "**Key Metrics**",

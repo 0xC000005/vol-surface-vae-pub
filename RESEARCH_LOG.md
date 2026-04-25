@@ -96817,3 +96817,43 @@ The remaining problem is not just scale bounds. Wider bounds help level KS and s
 Stop simple scale-table tuning. The next step should be post-experiment analysis or a different center-preserving calibration mechanism, likely residual quantile/shape calibration rather than scalar width calibration, if the calibrated-system route continues.
 
 ---
+## 2026-04-25: Autoresearch 465a residual magnitude quantile calibration falsifier
+
+### Context
+464a showed scalar residual scale calibration is capped: wider scale bounds improved some coverage/level metrics but broke time-series and did not recover conditionality or regime layer-2. The next center-preserving falsifier changed the calibration mechanism rather than tuning the scale table: map residual magnitudes by empirical quantiles while preserving residual signs and the conditional center.
+
+### Experiment
+Ran `465a_regime_abs_residual_quantile_392a`:
+
+- base model: unchanged `392a` loaded as `340c`;
+- calibration panel: 441 recent pre-validation windows, 48 samples per history;
+- regime bins: calibration-history realized variance Q20/Q80;
+- transform: per-regime/per-horizon/per-cell empirical quantile map from generated absolute residuals to realized absolute residuals;
+- center/sign preservation: `x_cal = center + sign(x-center) * q_abs(|x-center|)`.
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/evaluate_462a_center_preserving_residual_scale_392a.py`
+- result: `results/block_ar/465a_regime_abs_residual_quantile_392a/full11.json`
+- calibration map: `results/block_ar/465a_regime_abs_residual_quantile_392a/calibration_map.json`
+
+### Result
+`465a` scored `6/11`. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- coverage90 `0.8818`, calibration error `0.0137`;
+- h14 now fails by undercoverage, while h30 still has high-side overcoverage;
+- conditionality MAE reduction `4.91%`, still below `5%`;
+- level KS `11/25`, worse than 464a and still below gate;
+- regime layer-2 `1/8`;
+- cointegration failed by worst-cell ratio `0.194`;
+- time-series, cross-cell, mean-reversion, and pathwise realism passed.
+
+### Mechanism Read
+Residual shape calibration is not the missing piece. It lowers some overcoverage but creates localized undercoverage and breaks cointegration in a worst cell, while failing to solve the persistent conditionality/regime/level gates. The one-realization-per-history residual quantile map is too noisy and too marginal even though it preserves the center.
+
+### Decision
+Stop this calibration branch unless a new theoretical reason appears. The best deployable learned system remains uncalibrated `392a` at `8/11`. The next HEAD step should be post-experiment analysis and a new learned-law/objective idea, not more calibration-table variants.
+
+---
