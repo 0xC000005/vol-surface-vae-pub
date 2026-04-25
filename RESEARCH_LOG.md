@@ -95738,3 +95738,51 @@ This separates two questions that have been conflated:
 Next iteration: implement and run `435a` suite feasibility upper-bound diagnostic. If it cannot reach `11/11`, stop architecture search and audit the suite/product definition before more modeling.
 
 ---
+## 2026-04-24: Autoresearch 435 suite feasibility upper bound
+
+### Context
+
+434a selected a suite feasibility upper-bound diagnostic after the post-340 audit found no clean learned architecture route past the `392a` `8/11` frontier.
+
+### Result
+
+Added and ran `experiments/backfill/block_ar/evaluate_435a_suite_feasibility_upper_bound.py`.
+
+Artifacts:
+
+- `results/block_ar/435a_suite_feasibility_upper_bound/full11.json`
+- `results/block_ar/435a_suite_feasibility_upper_bound/full11.md`
+
+Score: `11/11`.
+
+Important provenance:
+
+- `oracle_uses_validation_future=true`;
+- `not_deployable=true`;
+- `not_learned_conditional_law=true`;
+- base residual source: `392a` samples minus sample median;
+- residual scale: `0.10`;
+- controlled horizon-distributed miss rate: target `0.12`, realized `0.125`;
+- balanced center jitter: `1e-5`.
+
+Key metrics:
+
+- cov90 overall `0.875`;
+- regime layer2 `8/8`;
+- daily-change KS `25/25`;
+- level KS `25/25`;
+- conditionality MAE reduction `95.75%`;
+- cointegration worst-cell ratio `0.727`;
+- corr/rank ratios `0.931` / `1.225`;
+- mean-reversion active pass `1.000`;
+- max-jump KS `0.115`.
+
+### Mechanism Read
+
+The suite is not internally contradictory: a controlled sample law can satisfy all 11 gates. But the construction uses validation futures and explicit miss-rate control, so it is an oracle feasibility bound, not a learned or deployable generator.
+
+### Decision
+
+Do not update the learned frontier. `392a` remains the valid learned model at `8/11`. Next step should document the implication clearly: reaching `11/11` currently requires oracle/policy control, so future work must separate learned-law performance from calibrated risk-system performance.
+
+---
