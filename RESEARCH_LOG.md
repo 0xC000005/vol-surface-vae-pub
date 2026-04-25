@@ -97343,3 +97343,32 @@ Candidate for next ideation: endpoint / bridge factorization
 `p(Y_1:T | H) = p(endpoint or coarse knots | H) * p(path | H, endpoint/coarse knots)`.
 
 ---
+## 2026-04-25: Autoresearch 480 endpoint-conditioned AR bridge paradigm
+
+### Context
+479 closed deterministic latent future-path compression. The next step had to
+avoid repeating old coarse-knot/scaffold experiments while preserving the two
+strong lessons: `392a` learns local AR geometry; full-path compression loses
+level/jump detail.
+
+### Result
+Selected a new paradigm: endpoint-conditioned AR bridge.
+
+Artifact: `experiments/backfill/block_ar/IDEA_480a_endpoint_conditioned_ar_bridge.md`.
+
+Core factorization:
+`p(Y_1:T | H) = p(Y_T | H) * product_t p(Y_t | H, Y_<t, Y_T)`.
+
+### Mechanism Read
+This differs from old `293/294/315` support-object work because the endpoint is
+not a side scaffold or support code. It is a native sampled variable in an exact
+probability decomposition, while the local transition bridge remains explicit and
+level-aware through current state plus remaining endpoint gap.
+
+### Decision
+Run one endpoint-conditioned AR bridge falsifier next. First implementation
+should use empirical-normal-score coordinates, a vanilla endpoint flow, and a
+vanilla endpoint-conditioned one-step transition flow. Do not add support
+codebooks, coarse-knot sequences, calibration layers, or endpoint hard projection.
+
+---
