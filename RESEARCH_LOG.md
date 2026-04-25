@@ -98158,3 +98158,26 @@ Both 392a and 510a score `8/11` and fail the same suites: coverage, regime_cover
 Keep 392a as the safer structural anchor and 510a as a risk-coverage frontier tie. Run one midpoint checkpoint interpolation between 392a and 510a final as 512a. If it does not beat `8/11` or materially improve the remaining failures, close interpolation immediately.
 
 ---
+## 2026-04-25: Autoresearch 512a midpoint checkpoint
+
+### Context
+511a selected one checkpoint-trajectory audit: parameter-space midpoint between the `392a` frontier checkpoint and the `510a` patch-energy final checkpoint.
+
+### Result
+Artifacts:
+- checkpoint: `models/backfill/512a_midpoint_392a_510a_s42/model.pt`
+- full suite: `results/block_ar/512a_midpoint_392a_510a_s42/full11.json`
+- markdown: `results/block_ar/512a_midpoint_392a_510a_s42/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_512a_midpoint_checkpoint_result.md`
+
+Score: `6/11`. Failed coverage, conditionality, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8691`, per-cell coverage range `0.703-0.984`, under70 `0`, over95 `9`, conditionality MAE reduction `4.39%`, daily KS `25/25`, level KS `11/25`, median-bias cells `20/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.193`, corr ratio `0.960`, MR ratio `0.993`, path KS `0.377`.
+
+### Mechanism Read
+The midpoint improves some coverage geometry and nudges level KS to `11/25`, but loses conditionality and worst-cell cointegration. There is no simple parameter-space bridge through the 392a/510a frontier tie.
+
+### Decision
+Close checkpoint interpolation. Keep the deployable frontier as the `8/11` 392a/510a tie. Do not run interpolation-alpha sweeps.
+
+---
