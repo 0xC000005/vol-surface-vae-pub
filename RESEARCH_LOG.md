@@ -97969,3 +97969,20 @@ The remaining gates are coupled: level KS requires center/level movement, while 
 Close deployable calibration and wrapper research around 392a. Under the current data and suite, no clean immediate local experiment remains that is both deployable and plausibly on path to `11/11`. The defensible product framing is to report `392a` as the deployable learned-law frontier, report oracle feasibility separately, and avoid claiming the policy-calibrated system is learned conditional-law progress.
 
 ---
+## 2026-04-25: Autoresearch 503a new core candidate audit
+
+### Context
+502a closed deployable calibration/wrapper research around `392a`. Since the user objective remains `11/11`, the only non-redundant path would be a genuinely new learned core, so 503a audited whether the repo already falsified the obvious candidates.
+
+### Result
+Artifact: `experiments/backfill/block_ar/ANALYSIS_503a_new_core_candidate_audit.md`.
+
+The audit found that CSDI/TimeGrad baselines, DiT-style denoisers, direct full-path FM/diffusion, exact full-path likelihood, conditional future-token density, and latent full-path bottleneck routes have already been tested or falsified below the `392a` frontier.
+
+### Mechanism Read
+The remaining blocker is not simply model capacity. It is weakly identified future level/regime allocation under one realized future per history. Larger generic sequence models may fit training likelihood better, but prior local evidence says they lose conditionality, mean reversion, cross-cell geometry, or path law relative to `392a`.
+
+### Decision
+No clean immediate in-session experiment remains. Continuing local autoresearch without new data, changed product framing, or a separately scoped new-core compute program would be brute-force knob search, not first-principles research. Current status remains: `392a` deployable learned frontier `8/11`; `435a` oracle feasibility `11/11` but nondeployable.
+
+---
