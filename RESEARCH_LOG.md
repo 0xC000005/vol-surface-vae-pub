@@ -97986,3 +97986,27 @@ The remaining blocker is not simply model capacity. It is weakly identified futu
 No clean immediate in-session experiment remains. Continuing local autoresearch without new data, changed product framing, or a separately scoped new-core compute program would be brute-force knob search, not first-principles research. Current status remains: `392a` deployable learned frontier `8/11`; `435a` oracle feasibility `11/11` but nondeployable.
 
 ---
+## 2026-04-25: Autoresearch 504a joint sliced Wasserstein
+
+### Context
+After the 503a new-core audit and the literature fetch around DistDF/MMPD, 504a tested the cleanest non-wrapper objective swap: keep the deployable `392a` AR flow core unchanged and fine-tune with a joint history/future sliced-Wasserstein alignment in IV space.
+
+### Result
+Artifacts:
+- trainer: `experiments/backfill/block_ar/train_504a_recent_joint_sliced_wasserstein_finetune.py`
+- model: `models/backfill/504a_recent_joint_sw_w005_s42/best_model.pt`
+- full suite: `results/block_ar/504a_recent_joint_sw_w005_s42/full11.json`
+- markdown: `results/block_ar/504a_recent_joint_sw_w005_s42/full11.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_504a_joint_sliced_wasserstein_result.md`
+
+Score: `7/11`. Passed surface, conditionality, time_series, block_ar, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8566`, conditionality MAE reduction `5.2%`, daily KS `25/25`, level KS `11/25`, median-bias cells `19/25`, regime layer2 `0/8`, cointegration worst-cell ratio `0.211`, corr ratio `0.938`, MR ratio `1.015`, path KS `0.379`.
+
+### Mechanism Read
+The sliced-Wasserstein term was active and did not collapse the generator, but it reproduced the known tradeoff. It moved level KS only slightly beyond `392a` (`10/25` to `11/25`) while losing worst-cell cointegration and leaving regime layer2 at `0/8`.
+
+### Decision
+Close weak joint sliced-Wasserstein fine-tuning as below-frontier. Do not run a scalar SW-weight sweep by default. The next principled branch should use the new literature in the architecture direction: a minimal MixLinear/Minkowski-linear style efficient future-path backbone, evaluated as a new learned core against the `392a` frontier.
+
+---
