@@ -95437,3 +95437,28 @@ Close fixed persistent source-noise FM as a primary route. Keep 392a as the acti
 - `experiments/backfill/block_ar/ANALYSIS_424a_persistent_source_noise_cap.md`
 
 ---
+## 2026-04-24: Autoresearch 425 frontier oracle-system decomposition
+
+### Context
+
+The active learned frontier remains `392a` at `8/11`, failing only coverage, regime coverage, and distributional fidelity. Recent repairs (`405a`, `407a`, `419a`, `421a`, `423a`) all regressed or failed to improve those suites cleanly.
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_425a_frontier_oracle_system_decomposition.md`.
+
+The synthesis separates the problem:
+
+- `392a` is still the best learned conditional transition law and passes the local/structural suites.
+- The remaining failures are long-horizon level/regime occupancy and worst-cell coverage.
+- Width scaling, student-forcing, joint path flow, and persistent source noise did not solve that mismatch without breaking other requirements.
+
+### Mechanism Read
+
+The remaining issue is not a missing scalar knob or another small architecture variant. The clean question is whether an `11/11` risk system is feasible when the base learned law is reported separately from a controlled calibration/oracle layer.
+
+### Decision
+
+Next iteration should implement an oracle feasibility diagnostic: freeze `392a`, apply the least invasive validation-oracle monotone correction aimed at the three failed suites, evaluate the unchanged full 11-suite, and keep learned-law metrics separate from oracle/calibrated-system metrics.
+
+---
