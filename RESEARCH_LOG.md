@@ -95462,3 +95462,42 @@ The remaining issue is not a missing scalar knob or another small architecture v
 Next iteration should implement an oracle feasibility diagnostic: freeze `392a`, apply the least invasive validation-oracle monotone correction aimed at the three failed suites, evaluate the unchanged full 11-suite, and keep learned-law metrics separate from oracle/calibrated-system metrics.
 
 ---
+## 2026-04-24: Autoresearch 426 validation-oracle quantile diagnostic
+
+### Context
+
+425a selected an oracle feasibility diagnostic instead of another learned AR/path-flow variant. The question was whether fixing the unconditional level marginal through a monotone oracle layer is sufficient to beat the `392a` 8/11 frontier.
+
+### Result
+
+Added and ran `experiments/backfill/block_ar/evaluate_426a_validation_oracle_quantile_system.py`.
+
+Artifact:
+
+- `results/block_ar/426a_validation_oracle_quantile_392a/full11.json`
+- `results/block_ar/426a_validation_oracle_quantile_392a/full11.md`
+
+Score: `7/11`.
+
+Passed repairs:
+
+- coverage passed: overall 90% coverage `0.831`, all checked worst/best cells within `[70%, 95%]`;
+- distributional fidelity passed: daily KS `25/25`, level KS `25/25`, median-bias fraction `25/25`, median-bias magnitude `23/25`;
+- cross-cell correlation and pathwise realism stayed valid.
+
+New/remaining failures:
+
+- conditionality failed: MAE reduction `4.70%`, turb/calm width ratio `0.968`;
+- cointegration failed: worst-cell gen/GT ratio `0.200`;
+- regime coverage still failed: layer2 `1/8`;
+- mean reversion failed: active-cell pass rate `45.8%`.
+
+### Mechanism Read
+
+The validation-oracle marginal map proves that the level-distribution failure is mechanically correctable. But the nonlinear per-horizon/cell CDF map is too destructive: it fixes marginal levels while weakening conditional signal, local mean-reversion slopes, and worst-cell EWMA coupling.
+
+### Decision
+
+Keep `392a` as the active learned frontier at `8/11`. The next diagnostic should preserve transition geometry better: test an affine residual/coverage oracle around the `392a` path center rather than a nonlinear marginal quantile map.
+
+---
