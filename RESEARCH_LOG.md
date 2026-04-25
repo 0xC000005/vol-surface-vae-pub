@@ -95709,3 +95709,32 @@ The remaining bottleneck is not a missing architecture block. The model can lear
 Do not select another learned architecture from memory. If the loop must continue toward `11/11`, the next honest step is a feasibility upper-bound diagnostic: determine whether any controlled risk-system sample law can satisfy the suite, without claiming it is a learned conditional law.
 
 ---
+## 2026-04-24: Autoresearch 434 suite feasibility upper-bound idea
+
+### Context
+
+433a found no clean untested learned architecture route beyond the `392a` `8/11` frontier. The next question is whether the full 11-suite is satisfiable at all by a controlled risk-system sample law.
+
+### Result
+
+Added `experiments/backfill/block_ar/IDEA_434a_suite_feasibility_upper_bound.md`.
+
+The proposed diagnostic is explicitly not a learned model:
+
+- uses validation future information;
+- reports `oracle_uses_validation_future=true`;
+- is marked non-deployable and not a learned conditional law;
+- does not update the learned-model frontier.
+
+### Mechanism Read
+
+This separates two questions that have been conflated:
+
+- learned conditional-law frontier: currently `392a` at `8/11`;
+- suite/product feasibility: whether any controlled sample law can satisfy all gates.
+
+### Decision
+
+Next iteration: implement and run `435a` suite feasibility upper-bound diagnostic. If it cannot reach `11/11`, stop architecture search and audit the suite/product definition before more modeling.
+
+---
