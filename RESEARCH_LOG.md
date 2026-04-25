@@ -98251,3 +98251,35 @@ AR(1)-correlated source increments over-broaden the long-horizon path law and ma
 Close temporal-source-prior changes without sweeping `path_source_ar`. The deployable frontier remains the `392a`/`510a` `8/11` tie. Next step should be post-experiment analysis or paradigm selection, not another source-prior knob.
 
 ---
+## 2026-04-25: Autoresearch 515a post source-prior synthesis
+
+### Context
+
+`514a` closed the temporal source-prior route below frontier. The deployable best remains the `392a`/`510a` `8/11` tie; `435a` remains only an oracle feasibility proof.
+
+### Synthesis
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_515a_post_source_prior_synthesis.md`.
+
+The following local repair classes are now capped:
+
+- proper-score / objective swaps around `392a`;
+- persistent and AR(1) source-prior changes;
+- learned-law ensembles and checkpoint interpolation;
+- source/residual transport and density-ratio wrappers;
+- separable marginal/copula decomposition;
+- compact direct path cores.
+
+### Mechanism
+
+The repeated failure pattern is not local path validity. The frontier already passes surface, conditionality, time-series, block-AR, cross-cell correlation, mean reversion, and usually cointegration. The unsolved part is future absolute level/regime occupancy and coverage balance.
+
+Attempts to force occupancy through post-hoc maps, source smoothing, or proper-score pressure either over-broaden the law or break local jump/cointegration geometry.
+
+### Decision
+
+Do not run another 392a-local objective/source/ensemble knob. The next principled HEAD step is an observable-state predictability audit: test whether `ret`, `price`, `slopes`, `skews`, and `levels` in `data/vol_surface_with_ret.npz` contain usable signal for the failing future level/regime quantities beyond IV-history summaries.
+
+If no signal exists, the honest conclusion is that IV-history-only learned-law search is capped under this suite and deployable `11/11` would require either broader data, a separately reported policy calibration layer, or changed product framing.
+
+---
