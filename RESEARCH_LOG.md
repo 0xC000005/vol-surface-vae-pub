@@ -97952,3 +97952,20 @@ The holdout rejected center movement: all nonzero shrinkage values worsened pre-
 Close state-conditional linear center policy as a deployable level-occupancy fix. The available pre-validation history summaries do not predict center residuals well enough to justify moving the 392a median. Next step should be a paradigm/product decision, not another center/residual calibration variant.
 
 ---
+## 2026-04-25: Autoresearch 502a deployable frontier closure
+
+### Context
+501a closed the last clean state-conditional center-policy falsifier: pre-validation holdout selected center alpha `0.0`, so no deployable history-feature center residual signal justified moving the 392a median.
+
+### Result
+Artifact: `experiments/backfill/block_ar/DECISION_502a_deployable_frontier_closure.md`.
+
+Current deployable frontier remains `392a` at `8/11`. Oracle feasibility remains `435a` at `11/11`, but it uses validation futures and is not deployable. Post-frontier proper-score, critic, density-ratio, source-transport, rank-copula, H60, ensemble, residual-width policy, global center map, and state-conditional center policy routes are all below frontier.
+
+### Mechanism Read
+The remaining gates are coupled: level KS requires center/level movement, while conditionality and mean reversion are thin-margin structural passes in 392a. Keeping the center preserves structure but leaves level KS stuck; moving the center enough to matter damages bias, coverage, or mean reversion.
+
+### Decision
+Close deployable calibration and wrapper research around 392a. Under the current data and suite, no clean immediate local experiment remains that is both deployable and plausibly on path to `11/11`. The defensible product framing is to report `392a` as the deployable learned-law frontier, report oracle feasibility separately, and avoid claiming the policy-calibrated system is learned conditional-law progress.
+
+---
