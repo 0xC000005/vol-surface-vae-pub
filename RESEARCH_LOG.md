@@ -97049,3 +97049,25 @@ The source-transport idea is materially better than 470a: preserving frozen 392a
 Keep this family alive for one controlled falsifier. Do not add regime-specific rules or calibration tables. The next minimal test is a global source residual temperature below 1.0 during source transport, because 471a's failure pattern is overcoverage and too-wide source residuals in selected cells while core geometry is now correct.
 
 ---
+## 2026-04-25: Autoresearch 472a source-temperature falsifier
+
+### Context
+471a restored cross-cell and pathwise geometry by transporting frozen 392a residual samples, but failed coverage, time-series, regime coverage, level distributional fidelity, and mean-reversion active-cell gates. The cleanest follow-up was a one-parameter source residual temperature, not a regime-specific or cell-specific calibration table.
+
+### Execute
+Added `sample_temperature` support to the source-transport sampler by scaling source residuals before transport. Evaluated the existing `471a` checkpoint at temperature `0.95`.
+Artifact: `results/block_ar/472a_471a_source_temp095_s42/full11.json`.
+
+### Result
+Full revised 11-suite score: `4/11`.
+Passed: surface, block-AR, cross-cell correlation, pathwise jump realism.
+Failed: coverage, conditionality, time-series, cointegration, regime coverage, distributional fidelity, mean reversion.
+Key metrics: coverage90 `0.8902`, calibration error `0.0072`, conditionality MAE reduction `4.57%`, daily KS `25/25`, level KS `9/25`, cross-cell corr ratio `0.945`, rank ratio `1.562`, cointegration worst-cell ratio `0.222`, mean-reversion active pass rate `54.2%`, max-jump KS `0.314`.
+
+### Mechanism Read
+Global shrinkage improves aggregate coverage calibration but does not solve the per-cell/regime coverage cap and damages conditionality plus cointegration. The 471a residual source geometry is useful, but the remaining problem is not a scalar width problem. It is a level/allocation problem concentrated in specific cells and regimes.
+
+### Decision
+Do not continue scalar temperature tuning. Keep 471a as the best source-transport evidence (`6/11`) but treat 472a as a negative falsifier. The next step should analyze or correct level allocation without destroying the source residual geometry that fixed 470a.
+
+---

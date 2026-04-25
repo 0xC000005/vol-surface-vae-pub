@@ -139,6 +139,7 @@ class FrozenCenterSourceTransportScenarioGenerator(nn.Module):
         n_steps: int = 30,
         chunk_size: int = 8,
         history_is_normalized: bool = True,
+        temperature: float | None = None,
         **_: object,
     ) -> torch.Tensor:
         if n_steps != self.cfg.future_len:
@@ -152,7 +153,8 @@ class FrozenCenterSourceTransportScenarioGenerator(nn.Module):
             n_steps=n_steps,
             chunk_size=chunk_size,
         )
-        source_residual = source_scores - center_scores[:, None, :, :]
+        temp = float(self.cfg.sample_temperature if temperature is None else temperature)
+        source_residual = temp * (source_scores - center_scores[:, None, :, :])
         transported = transport_residual_scores(
             model=self.residual_flow,
             history_scores=history_scores,
