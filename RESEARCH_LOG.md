@@ -95844,3 +95844,61 @@ and run the full 11-suite with explicit provenance fields showing no validation-
 use.
 
 ---
+## 2026-04-24: Autoresearch 438 deployable residual bootstrap result
+
+### Context
+
+`437a` defined the deployable target and selected a frozen residual-error bootstrap
+as the first non-oracle translation of the `435a` feasibility construction.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/evaluate_438a_deployable_residual_bootstrap_system.py`.
+The policy uses frozen `392a`, fits forecast errors on the pre-validation calibration
+block, and applies them to validation histories without validation-future access:
+
+`validation 392a median + sampled pre-validation forecast error + 0.10 * 392a residual shape`
+
+Artifact paths:
+
+- `results/block_ar/438a_deployable_residual_bootstrap_392a/full11.json`
+- `results/block_ar/438a_deployable_residual_bootstrap_392a/full11.md`
+
+### Result
+
+Score: `7/11`.
+
+Failed suites:
+
+- `coverage`
+- `time_series`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- overall 90% coverage: `0.855`
+- regime layer2: `0/8`
+- daily-change KS: `23/25`
+- level KS: `4/25`
+- median-bias fraction: `18/25`
+- pathwise max-jump KS: `0.424` (pass)
+
+### Mechanism Read
+
+The policy is deployable, but the pre-validation forecast-error bank is not a stable
+replacement for the validation-future oracle center. It transfers some tail and
+pathwise-jump realism, but it damages level marginals, leaves per-cell/per-regime
+coverage unresolved, and creates too few very-small moves.
+
+Compared with the `392a` learned frontier, this is not an improvement: `392a` remains
+the deployable learned-core frontier at `8/11`.
+
+### Decision
+
+Do not tune residual-bank knobs blindly. The next step should be a short post-experiment
+analysis to decide whether a deployable calibration policy needs a different object
+than raw forecast-error paths, or whether the route should return to improving the
+learned conditional center.
+
+---
