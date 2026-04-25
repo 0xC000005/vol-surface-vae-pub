@@ -98596,3 +98596,31 @@ Do not add a new objective or architecture knob yet. Next iteration should run a
 Artifact: `experiments/backfill/block_ar/ANALYSIS_526a_factor_conditioned_surface_full_eval.md`.
 
 ---
+## 2026-04-25: Autoresearch 527a factor-conditioned seed audit
+
+### Context
+526a scored `7/11`, with conditionality narrowly below the `>5%` gate. 527a re-evaluated the same factor-conditioned checkpoint with seed `42` to test whether the miss was sampling noise.
+
+### Result
+Result artifact: `results/autoresearch/527a_factor_conditioned_surface_fm_e4_s525_seed42/full11.json`.
+
+Score stayed `7/11` with the same failed suites: `coverage`, `conditionality`, `regime_coverage`, and `distributional_fidelity`.
+
+Key comparison:
+
+- conditional MAE reduction: `4.74%` -> `4.91%`, still below `>5%`
+- cov90 overall: `0.865` -> `0.863`
+- h30 cov90: `0.878` -> `0.882`
+- level KS: `12/25` -> `12/25`
+- mean-reversion active pass: `0.833` -> `0.833`
+- path max-jump KS: `0.374` -> `0.396`
+
+### Mechanism Read
+The factor-conditioned branch is not a single-seed artifact. It consistently preserves structural behavior and improves level KS versus the `10/25` 392a/510a frontier, but it consistently remains below the conditionality gate.
+
+### Decision
+Do not claim an `8/11` tie and do not add a new loss or architecture knob yet. Next run an evaluator-parity audit: score the original 392a checkpoint through the same fixed-sample evaluation protocol to separate side-channel effect from evaluator/sampling-protocol effect.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_527a_factor_conditioned_seed_audit.md`.
+
+---
