@@ -97861,3 +97861,27 @@ Shift from "new learned wrapper" to a two-report deployable risk-system paradigm
 Next experiment: one constrained policy-calibration falsifier that preserves the 392a conditional median, transforms only residual/sample allocation using pre-validation calibration windows, uses no validation future or oracle center, and evaluates as a deployable system.
 
 ---
+## 2026-04-25: Autoresearch 498a asymmetric tail policy
+
+### Context
+497a shifted the active route to a separately reported deployable risk-policy layer around the `392a` base learned law. 498a tested the narrowest such policy: pre-validation asymmetric lower/upper residual scales by regime/horizon/cell, applied around the frozen 392a sample median and median-locked back to that center.
+
+### Result
+Artifacts:
+- evaluator: `experiments/backfill/block_ar/evaluate_498a_asymmetric_tail_policy.py`
+- result: `results/block_ar/498a_asymmetric_tail_policy/full11.json`
+- markdown: `results/block_ar/498a_asymmetric_tail_policy/full11.md`
+- policy: `results/block_ar/498a_asymmetric_tail_policy/policy.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_498a_asymmetric_tail_policy_result.md`
+
+Score: `6/11`. Passed surface, conditionality, block_ar, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, time_series, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8923`, conditional MAE reduction `5.04%`, regime layer2 `0/8`, daily KS `25/25`, level KS `10/25`, median-bias cells `20/25`, cointegration worst-cell ratio `0.246`, corr ratio `0.952`, MR ratio `1.058`, path KS `0.176`.
+
+### Mechanism Read
+The policy preserved conditionality, which validates median locking as a protection mechanism. But this also preserved the level-law defect: level KS stayed `10/25`, the same bottleneck as 392a. Asymmetric residual scaling can move interval coverage but cannot fix unconditional level occupancy, and it introduced a small-move time-series failure (`|dIV|<=0.005` ratio `0.866`).
+
+### Decision
+Close residual-width-only policy calibration as capped. The next step must target level occupancy explicitly while preserving the 498a lesson: any level movement must be deployable, history-only, low-dimensional, and separately reported as policy calibration. Pure median locking cannot pass distributional fidelity.
+
+---
