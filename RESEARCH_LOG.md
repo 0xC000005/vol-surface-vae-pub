@@ -97254,3 +97254,55 @@ latent bottleneck while keeping the same first-principles architecture and test
 the autoencoder geometry before committing to full conditional-flow training.
 
 ---
+## 2026-04-25: Autoresearch 478 latent capacity falsifier
+
+### Context
+477 showed that 476a failed before conditional sampling: the 96-dimensional
+deterministic autoencoder could not reconstruct validation future-path geometry
+well enough. The clean next falsifier was representation capacity, not another
+calibration or flow-temperature knob.
+
+### Execute
+Trained a larger deterministic latent-path autoencoder using the same architecture
+and objective:
+
+- latent dimension `96 -> 256`;
+- AE hidden width `512 -> 768`;
+- AE epochs `100`;
+- no meaningful conditional-flow training (`flow_epochs=1`, ignored for this
+  diagnostic);
+- checkpoint: `models/backfill/478a_latent_path_ae256_s42/best_ae_model.pt`;
+- oracle geometry result: `results/block_ar/478a_latent_path_ae256_oracle/full_geometry.json`.
+
+### Result
+The larger bottleneck improved reconstruction but did not restore deployable path
+geometry:
+
+- IV MAE `0.0160` versus `0.0174` for 476a oracle;
+- score std ratio `0.867` versus `0.834`;
+- daily-change std ratio `0.702` versus `0.555`;
+- daily-change KS `21/25`;
+- level KS `10/25`;
+- median-bias fraction `15/25`;
+- cross-cell corr ratio `1.017`, rank ratio `1.219`;
+- mean-reversion ratio `1.59`, active pass rate `25.0%`;
+- pathwise max-jump KS `0.875`.
+
+Geometry passes: surface, time-series, block-AR, and cross-cell correlation. It
+still fails distributional fidelity, mean reversion, and pathwise jump realism.
+
+### Mechanism Read
+Increasing latent capacity helps local move scale and correlation, but validation
+level occupancy and first-step mean-reversion geometry remain wrong even in an
+oracle reconstruction setting. This means the deterministic MLP latent-manifold
+line is not merely too narrow at 96 dimensions; it is learning a smoothed path
+projection that does not generalize the hard validation level/path geometry.
+
+### Decision
+Do not continue by sweeping latent dimension, flow temperature, or decoder width.
+The latent-manifold idea is capped in this deterministic autoencoder form. Next
+step should be post-experiment analysis and likely paradigm shift, because both
+392a wrappers and deterministic latent path compression now fail for different
+but clean reasons.
+
+---
