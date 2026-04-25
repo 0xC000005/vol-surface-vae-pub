@@ -96697,3 +96697,43 @@ This differs from 456-458 because those were marginal level-quantile maps that w
 - Decision note: `experiments/backfill/block_ar/IDEA_461a_center_preserving_residual_calibration.md`
 
 ---
+## 2026-04-25: Autoresearch 462a center-preserving residual scale falsifier
+
+### Context
+461a pivoted back to the strongest deployable learned law, `392a`, and proposed a separated calibration layer that preserves the model's conditional center while scaling residuals. This was meant to avoid the conditionality damage from 456-458 marginal level quantile maps.
+
+### Experiment
+Implemented `462a_center_residual_scale_392a`:
+
+- base model: unchanged `392a` checkpoint loaded as `340c`;
+- calibration panel: 441 recent pre-validation windows, 48 samples per history;
+- calibration transform: per-horizon/per-cell scale around the sample median center;
+- target: move pre-validation 90% coverage toward `0.88` with a small scale-shrink penalty;
+- validation: standard 192-window, 48-sample 11-suite.
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/evaluate_462a_center_preserving_residual_scale_392a.py`
+- result: `results/block_ar/462a_center_residual_scale_392a/full11.json`
+- scale map: `results/block_ar/462a_center_residual_scale_392a/scale_map.json`
+
+### Result
+`462a` scored `6/11`. Failed suites: coverage, conditionality, time_series, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- fitted scale range `0.900` to `1.350`, mean `1.146`;
+- calibration-panel coverage mean moved `0.831 -> 0.879`;
+- validation coverage90 improved to `0.909`, calibration error `0.023`, but high-side per-cell overcoverage remained at h1/h14/h30;
+- conditionality MAE reduction fell to `4.16%`, below the `5%` gate;
+- daily KS stayed `25/25`, level KS stayed `10/25` with median stat `0.155`;
+- regime layer-2 remained `0/8`;
+- cross-cell, mean-reversion, cointegration, and pathwise realism passed; pathwise max-jump KS improved to `0.263`.
+
+### Mechanism Read
+This is safer than marginal level quantile calibration, but still not enough. Center-preserving residual scaling keeps most structural geometry intact and improves average coverage, but a single horizon-cell scale table cannot handle regime-specific under/overcoverage or the level marginal mismatch. It also weakens conditionality slightly because the median-preserving scale changes the sample distribution used in the conditionality comparison.
+
+### Decision
+Do not tune this global scale table further. The next calibration falsifier, if pursued, must be regime-aware and/or residual-quantile based while preserving the conditional center. Otherwise the path should return to learned-law changes rather than stacking calibration knobs.
+
+---
