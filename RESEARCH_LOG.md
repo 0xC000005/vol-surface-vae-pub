@@ -98741,3 +98741,20 @@ Run a data/model readiness audit before implementation: enumerate aligned IV/fac
 Artifact: `experiments/backfill/block_ar/DECISION_533a_post_coherent_density_paradigm.md`.
 
 ---
+## 2026-04-25: 534a Multi-Factor Panel Readiness Audit
+
+### Context
+533a made the paradigm decision that the remaining clean route is a broader learned financial-panel sequence law rather than another IV-only patch.
+
+### Findings
+The local data does contain a clean aligned panel: `5822` IV surface dates, `5825` factor dates, and `5822` common dates, with no IV date missing from the factor panel. Primary usable tokens are 25 IV levels plus 13 factor levels and 13 factor returns/diffs. The current 30/30 official split gives about `4010` training windows and `441` validation windows.
+
+### Mechanism Read
+This is enough for a real local feasibility prototype, but not enough to claim a foundation-scale Bitter Lesson program. There is only one IV surface universe and a modest 13-factor panel, so the next prototype must be framed honestly as panel-law feasibility, not as a guaranteed route to 11/11.
+
+### Decision
+Continue only with a genuine multi-factor panel-law prototype: train on aligned IV+factor panel tokens with one probabilistic sequence objective and evaluate generated IV subpanel samples through the unchanged 11-suite. Do not return to IV-only local repairs unless the objective changes.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_534a_multifactor_panel_readiness.md`.
+
+---
