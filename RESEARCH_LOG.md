@@ -98707,3 +98707,23 @@ This differs from `323`/`492` because the marginals and dependence come from the
 Artifact: `experiments/backfill/block_ar/IDEA_531a_marginalization_consistent_joint_density.md`.
 
 ---
+## 2026-04-25: 532a Coherent Gaussian Score-Path Density
+
+### Context
+531a selected a clean marginalization-consistent density falsifier: one explicit conditional Gaussian law over the 30x25 future IV-level path in empirical normal-score coordinates.
+
+### Implementation
+Added the 532a model, train/eval scripts, and unit tests. The model uses a GRU history encoder, future horizon/cell token heads for `mu(H)` and `scale(H)`, a fixed full global residual Cholesky estimated from training future score paths, exact Gaussian NLL, and one-shot deployable sampling.
+
+### Result
+The full run selected epoch `1` by validation NLL and scored `3/11`, passing only `surface`, `block_ar`, and `cointegration`. Key metrics: cov90 `0.760`, h30 cov90 `0.745`, conditional MAE reduction `1.24%`, turb/calm `1.143`, daily-change KS `10/25`, level KS `2/25`, cross-cell corr ratio `0.230`, mean-reversion active pass `0.083`, and path max-jump KS `0.748`.
+
+### Mechanism Read
+The density is coherent but too weak. A single global Gaussian residual copula plus per-token conditional mean/scale under-conditions, loses cross-cell rank structure, over-mean-reverts, and still fails validation level occupancy. Marginalization consistency alone is not enough; the model needs learned conditional dependence.
+
+### Decision
+Close the simple Gaussian-copula density route. Do not add hand-set state-dependent covariance bins or posthoc damping. The next HEAD step should be a paradigm decision: larger learned conditional dependence with explicit likelihood, or honest frontier closure around `392a`/`510a`.
+
+Artifacts: `diffusion/block_ar/coherent_gaussian_score_path_model.py`, `experiments/backfill/block_ar/ANALYSIS_532a_coherent_gaussian_score_path_result.md`, `results/autoresearch/532a_coherent_gaussian_score_path_s532/full11.json`.
+
+---
