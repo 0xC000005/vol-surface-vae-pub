@@ -1,0 +1,20 @@
+{
+  "best_epoch": 4,
+  "best_val_total": 13.427569934300013,
+  "config": {
+    "history_len": 30,
+    "future_len": 30,
+    "n_cells": 25,
+    "memory_dim": 128,
+    "memory_layers": 3,
+    "memory_heads": 4,
+    "memory_ff": 256,
+    "dropout": 0.1,
+    "n_quantiles": 401,
+    "cdf_eps": 0.0001,
+    "prefix_feature_mode": "basic",
+    "chol_diag_floor": 0.001,
+    "sample_temperature": 1.0,
+    "max_sample_chunk": 8
+  }
+}

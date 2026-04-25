@@ -995,6 +995,12 @@ def load_one_day_kernel(
         )
 
         return load_343a_model(checkpoint_path, device)
+    if model_type == "460a":
+        from diffusion.block_ar.empirical_normal_score_day_vector_density import (
+            load_model as load_460a_model,
+        )
+
+        return load_460a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,

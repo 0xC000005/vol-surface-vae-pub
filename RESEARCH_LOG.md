@@ -96632,3 +96632,42 @@ Implement a small baseline conditional future-token density in empirical normal-
 - Decision note: `experiments/backfill/block_ar/IDEA_459a_conditional_future_token_density.md`
 
 ---
+## 2026-04-25: Autoresearch 460a day-vector density falsifier
+
+### Context
+459a selected an explicit conditional future-token density as the next clean paradigm. Before building a larger token decoder, I audited the old 343a scalar chain-rule mixture density and found it already tested the naive scalar-token likelihood idea; it scored only 3/11. The next principled falsifier was therefore a day-level vector factorization rather than another scalar-token rerun.
+
+### Experiment
+Implemented `460a`, a deployable empirical-normal-score conditional density:
+
+- factorization: `p(Y_1:T | H) = prod_t p(delta S_t | H, S_<t)`;
+- causal prefix Transformer over history plus generated future scores;
+- exact full-rank 25-dimensional Gaussian NLL per future day;
+- ancestral 30-step sampling with no retrieval, oracle, posthoc calibration, low-rank readout, or bounded path rules.
+
+Artifacts:
+
+- model: `diffusion/block_ar/empirical_normal_score_day_vector_density.py`
+- train script: `experiments/backfill/block_ar/train_460a_empirical_normal_score_day_vector_density.py`
+- checkpoint: `models/backfill/460a_day_vector_density_s42/best_model.pt`
+- result: `results/block_ar/460a_day_vector_density_s42/full11.json`
+
+### Result
+`460a` scored `2/11` on the common 11-suite.
+
+Key metrics:
+
+- coverage90 `0.987`, calibration error `0.262`; per-cell best coverage reaches `1.000`, so coverage fails by severe overcoverage.
+- conditionality MAE reduction `3.47%`, below the `5%` gate; turb/calm width ratio `0.974` informational.
+- daily-change KS `8/25`; level KS `0/25`, median level KS `0.341`.
+- cross-cell correlation ratio `0.428`, rank ratio `3.156`; learned covariance does not recover surface correlation structure.
+- mean-reversion h1 ratio `0.388`, full-horizon active pass rate `22.2%`.
+- pathwise max-jump KS `0.588`; per-cell q99 jump scale `4/25`.
+
+### Mechanism Read
+The failure is clean. The full-covariance Gaussian day transition gives the model an easy likelihood route: broaden conditional transitions enough to cover realized futures, but without learning the conditional drift, correlation, mean-reversion, and level distribution tightly enough for deployable risk scenarios. The learned path law is wide and weakly conditional rather than calibrated and structurally realistic.
+
+### Decision
+Keep the explicit conditional-density paradigm alive, but reject this specific day-Gaussian transition as a deployable core. The next HEAD step should be post-experiment analysis or a new density factorization that can recover conditional structure without adding calibration knobs.
+
+---
