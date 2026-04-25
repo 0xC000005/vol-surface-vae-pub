@@ -97705,3 +97705,20 @@ Close H60 as the primary bottleneck. Do not add an H60 weak-energy knob next; th
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_490_h60_recent_quantile_result.md`, `models/backfill/490a_h60_recent_quantiles_fm_s42/best_model.pt`, `results/block_ar/490a_h60_recent_quantiles_fm_s42/full11.json`.
 
 ---
+## 2026-04-25: Autoresearch 491 rank-copula marginal paradigm
+
+### Context
+490 closed H60 as the primary bottleneck. The broader evidence now says 392a has the strongest learned path/rank geometry, but its conditional marginal level occupancy and per-cell/regime interval allocation are wrong. Local objective pressure, reweighting, calibration, longer context, and replacement path laws all remain below the 8/11 frontier.
+
+### Result
+Added `experiments/backfill/block_ar/IDEA_491a_392a_rank_copula_conditional_marginals.md`.
+
+The selected paradigm is a Sklar-style factorization around the current frontier: preserve frozen 392a sample ranks as the conditional copula/path geometry, train a learned conditional quantile marginal law `Q_j(u | H)` for every future horizon/cell, and map 392a ranks through those quantiles at inference.
+
+### Mechanism Read
+This directly targets the clean pathology: 392a's rank/path geometry is deployable, but its marginal level law is not. It differs from the old 323 copula branch because 323 used a weak fixed scalar-AR copula; 491a uses the current 392a frontier as the copula supplier. It also differs from 403/426 quantile maps because the marginal law is learned conditionally from history rather than an unconditional posthoc map over generated samples.
+
+### Decision
+Implement one decisive falsifier next: `492a`, a lightweight conditional quantile marginal model plus frozen 392a rank-copula sampler. If it cannot exceed 392a without losing structural passes, close separable marginal/copula factorization around 392a and move to a truly joint learned future-law model.
+
+---
