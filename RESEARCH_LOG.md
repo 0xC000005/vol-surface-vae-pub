@@ -98511,3 +98511,22 @@ The 38-d baseline learns plausible daily-change marginal shape and cross-cell de
 Do not tune the existing 38-d CSDI bridge as the main route. Keep 522a as a reproducible baseline/falsifier for naive joint-change diffusion. Next iteration should compare 392a/510a versus 522a to isolate what preserves the extra structural passes, then design a new learned core around direct future IV-level law/proper-score training rather than only daily-change realism.
 
 ---
+## 2026-04-25: Autoresearch 523a frontier vs 38-d bridge postmortem
+
+### Context
+522a scored the official-aligned 38-d CSDI bridge at `4/11`. 523a compared that result against the active `8/11` frontier (`392a`, `510a`) to identify the actual mechanism gap.
+
+### Findings
+392a/510a preserve the four suites that 522a loses: conditionality, cointegration, mean reversion, and pathwise jump realism. They also keep h30 cov90 around `0.89`, conditional MAE reduction around `5.1%`, cointegration ratio `0.60-0.70`, level KS `10/25`, mean-reversion active pass `0.833`, and path max-jump KS around `0.36-0.37`.
+
+522a keeps local daily-change realism and cross-cell geometry: daily-change KS `24/25`, cross-cell corr ratio `1.101`, and rank ratio `1.035`. But it fails the level-path requirements: h30 cov90 `0.508`, conditional MAE reduction `0.77%`, cointegration ratio `0.205`, level KS `0/25`, mean-reversion active pass `0.042`, and path max-jump KS `0.678`.
+
+### Mechanism Read
+The suite is asking for a conditional law over future IV levels, not only realistic standardized daily changes. The 38-d daily-change CSDI can match local move distributions while cumulative-sum reconstruction and clipping place the generated level distribution in the wrong region. The 392a/510a frontier is IV-only but models closer to the surface-level path being evaluated, so long-horizon level occupancy remains visible to the learned law.
+
+### Decision
+Do not switch the main program to generic 38-d daily-change diffusion. The next executable route should keep the generative target in future IV-level space with a proper distributional objective, optionally adding broader factor conditioning. First acceptance gate: recover the 392a/510a structural passes before optimizing the remaining three failures.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_523a_frontier_vs_38d_bridge_postmortem.md`.
+
+---
