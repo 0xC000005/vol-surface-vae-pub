@@ -97928,3 +97928,27 @@ Run one state-conditional center residual falsifier. Fit a low-dimensional ridge
 If that cannot improve level KS beyond `10/25` without structural damage, close center-policy calibration and return to the product conclusion: `392a` is the deployable learned frontier; `11/11` remains oracle-feasible but not deployably learned under the current data/suite.
 
 ---
+## 2026-04-25: Autoresearch 501a state conditional center policy
+
+### Context
+500a proposed the cleanest remaining level-occupancy policy: predict `future - 392a_median` from low-dimensional history summaries using a ridge model fit on pre-validation data, choose shrinkage on a chronological pre-validation holdout by MAE, then reattach asymmetric residual tails.
+
+### Result
+Artifacts:
+- evaluator: `experiments/backfill/block_ar/evaluate_501a_state_conditional_center_policy.py`
+- result: `results/block_ar/501a_state_conditional_center_policy/full11.json`
+- markdown: `results/block_ar/501a_state_conditional_center_policy/full11.md`
+- policy: `results/block_ar/501a_state_conditional_center_policy/policy.json`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_501a_state_conditional_center_policy_result.md`
+
+Score: `5/11`. Passed surface, block_ar, cross-cell correlation, mean_reversion, and pathwise_jump_realism. Failed coverage, conditionality, time_series, cointegration, regime_coverage, and distributional_fidelity.
+
+Key metrics: selected center alpha `0.0`; holdout base/best MAE `0.03107/0.03107`; validation shift `0.0`; coverage90 `0.8933`; conditional MAE reduction `3.97%`; daily KS `25/25`; level KS `11/25`; median-bias cells `20/25`; regime layer2 `0/8`; cointegration worst-cell ratio `0.222`; MR ratio `1.056`; path KS `0.191`.
+
+### Mechanism Read
+The holdout rejected center movement: all nonzero shrinkage values worsened pre-validation holdout MAE. The final system was therefore effectively a residual-tail policy under a new random draw, and it remained below the 392a frontier while missing conditionality.
+
+### Decision
+Close state-conditional linear center policy as a deployable level-occupancy fix. The available pre-validation history summaries do not predict center residuals well enough to justify moving the 392a median. Next step should be a paradigm/product decision, not another center/residual calibration variant.
+
+---
