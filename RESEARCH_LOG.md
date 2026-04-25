@@ -98181,3 +98181,31 @@ The midpoint improves some coverage geometry and nudges level KS to `11/25`, but
 Close checkpoint interpolation. Keep the deployable frontier as the `8/11` 392a/510a tie. Do not run interpolation-alpha sweeps.
 
 ---
+## 2026-04-25: Autoresearch 513a recent literature source-prior route
+
+### Context
+
+`512a` closed checkpoint interpolation between the `392a` and `510a` frontier tie. The deployable best remains `8/11`, failing coverage, regime coverage, and distributional fidelity.
+
+### Research Read
+
+Artifact: `experiments/backfill/block_ar/IDEA_513a_recent_literature_source_prior_route.md`.
+
+Recent ICLR signals were mapped back to the local falsification history:
+
+- DistDF-style joint Wasserstein alignment was tested locally by `504a` and stayed below frontier.
+- MMPD-style patch energy was tested by `509a`/`510a` and returned to `8/11` without breaking the hard failures.
+- MixLinear/Minkowski-linear compact direct paths were tested by `505a`/`507a` and failed below frontier.
+- Learned-law ensembling was already capped by `442a`, `495a`, and `496a`.
+
+The remaining non-redundant source is TSFlow-style source-prior geometry: fixed white priors may be mismatched to time-series transport.
+
+### Mechanism
+
+The current `340c` source prior is either i.i.d. white transition noise or one constant persistent path component. The failed `423a` persistent-source experiment does not test temporally correlated but non-constant source increments.
+
+### Decision
+
+Run one deployable temporal-source-prior experiment from `392a`: add one `path_source_ar` config field for AR(1)-correlated Gaussian source increments, fine-tune with the existing recent rollout energy objective, and evaluate on the official 11-suite. If this does not beat `8/11`, close this source-prior route.
+
+---
