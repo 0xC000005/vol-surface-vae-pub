@@ -96891,3 +96891,43 @@ This is a general conditional two-sample matching objective, more flexible than 
 - Postmortem: `experiments/backfill/block_ar/ANALYSIS_466a_calibration_branch_postmortem.md`
 
 ---
+## 2026-04-25: Autoresearch 467a conditional critic fine-tune falsifier
+
+### Context
+466a concluded that calibration-table variants are capped below the uncalibrated `392a` frontier and proposed returning to learned-law/objective changes. The first learned-law falsifier was a compact conditional path critic trained on `(history, future path)` pairs, with the generator still anchored by the original FM loss.
+
+### Experiment
+Implemented and ran `467a_recent_condcritic_w001_s42`:
+
+- generator: initialized from `392a` checkpoint;
+- critic: compact MLP over empirical-normal-score `(history, future)` paths;
+- training panel: 441 recent pre-validation windows, same 353/88 train/holdout split as 392a;
+- objective: FM anchor `1.0` plus generator adversarial loss weight `0.01`;
+- rollout during training: one generated path per history, 4 flow steps.
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/train_467a_recent_conditional_critic_finetune.py`
+- model metadata: `models/backfill/467a_recent_condcritic_w001_s42/`
+- result: `results/block_ar/467a_recent_condcritic_w001_s42/full11.json`
+
+### Result
+`467a` scored `6/11`. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- coverage90 `0.885`, calibration error `0.0029`;
+- conditionality MAE reduction `4.55%`, below gate;
+- level KS `8/25`, worse than `392a`;
+- median-bias fraction `19/25`, below gate;
+- cointegration worst-cell ratio `0.222`, below `0.25` gate;
+- regime layer-2 `0/8`;
+- time-series, cross-cell, mean-reversion, and pathwise realism passed.
+
+### Mechanism Read
+The critic signal is too blunt in this first form. It improves average interval calibration, but it does so by shifting the learned path law in a way that damages conditionality, cointegration, and level/bias fidelity. This behaves like a learned marginal pressure rather than a precise conditional discrepancy objective.
+
+### Decision
+Do not increase critic complexity blindly. Either the critic needs locality/normalization so it targets the specific residual defects without moving the conditional center, or this learned-critic branch should be abandoned.
+
+---
