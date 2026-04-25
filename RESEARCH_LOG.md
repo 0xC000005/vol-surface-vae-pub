@@ -97842,3 +97842,22 @@ Center preservation did not solve the ensemble failure. Conditionality worsened 
 Close center-preserving stress ensembling. Do not tune sample ratios or recentering variants. The next step must be a true paradigm decision, not another wrapper, ensemble, or calibration layer around 392a.
 
 ---
+## 2026-04-25: Autoresearch 497a post-wrapper paradigm decision
+
+### Context
+496a closed center-preserving stress ensembling below the 392a frontier. The accumulated post-392 evidence now shows that wrappers, calibration maps, density-ratio reweighting, source transport, critic losses, proper-score fine-tunes, and learned averaging do not exceed the `8/11` deployable learned-law frontier.
+
+### Result
+Artifact: `experiments/backfill/block_ar/ANALYSIS_497a_post_wrapper_paradigm_decision.md`.
+
+The suite audit remains coherent: coverage and regime coverage penalize both undercoverage and overcoverage through per-cell `[70%, 95%]` interval gates; turbulent/calm width is now informational; pathwise max-jump is relaxed to `0.50`; and the remaining hard distributional gate is level KS `>=15/25`.
+
+### Mechanism Read
+The remaining failures are not local path geometry failures. They are coupled per-cell/per-regime interval allocation and unconditional level occupancy failures. 392a already has the cleanest learned conditional path law, but the data/model family has not learned the missing allocation signal without damaging conditionality or structure.
+
+### Decision
+Shift from "new learned wrapper" to a two-report deployable risk-system paradigm: report `392a` as the base learned conditional law, and separately report a deployable pre-validation risk-policy calibrator. This is not a Bitter-Lesson claim for the core model; it is a risk-management policy layer.
+
+Next experiment: one constrained policy-calibration falsifier that preserves the 392a conditional median, transforms only residual/sample allocation using pre-validation calibration windows, uses no validation future or oracle center, and evaluates as a deployable system.
+
+---
