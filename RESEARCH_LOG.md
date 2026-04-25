@@ -98283,3 +98283,41 @@ Do not run another 392a-local objective/source/ensemble knob. The next principle
 If no signal exists, the honest conclusion is that IV-history-only learned-law search is capped under this suite and deployable `11/11` would require either broader data, a separately reported policy calibration layer, or changed product framing.
 
 ---
+## 2026-04-25: Autoresearch 516a observable-state predictability audit
+
+### Context
+
+`515a` selected an observable-state audit before adding any broader conditioning branch. The question was whether the remaining level/regime failures are weakly identifiable from IV history alone, and whether `ret`, `price`, `slopes`, `skews`, and `levels` add usable signal.
+
+### Execution
+
+Added and ran `experiments/backfill/block_ar/analyze_516a_observable_state_predictability.py`.
+
+Artifacts:
+
+- result: `results/block_ar/516a_observable_state_predictability/audit.json`
+- markdown: `results/block_ar/516a_observable_state_predictability/audit.md`
+- analysis: `experiments/backfill/block_ar/ANALYSIS_516a_observable_state_predictability.md`
+
+The audit used pre-validation windows only, index range `2410..4009`, with a time-ordered `1200/400` train/holdout split.
+
+### Result
+
+Holdout R2 comparison:
+
+- future mean level scalar: IV `-0.3143`, IV+state `-0.5951`, delta `-0.2808`
+- future mean level cells: IV `-0.7351`, IV+state `-0.3173`, delta `+0.4178`
+- future h30 level cells: IV `-0.9031`, IV+state `-0.5040`, delta `+0.3991`
+- future vol-of-vol scalar: IV `-0.2720`, IV+state `-0.1340`, delta `+0.1381`
+- future max absolute jump scalar: IV `-0.1783`, IV+state `-0.2020`, delta `-0.0237`
+- future q90 absolute jump cells: IV `-0.7672`, IV+state `-0.9337`, delta `-0.1665`
+
+### Mechanism
+
+Observable state adds incremental linear signal for some per-cell future level targets, but every audited target remains negative-R2 on holdout. This does not justify a quick exogenous-state branch as the next local path to deployable `11/11`.
+
+### Decision
+
+Do not add an exogenous-state branch as a quick in-session experiment. The next HEAD step should be a paradigm decision: either define a separately reported policy calibration layer for deployable risk use, or stop local IV-only learned-law research at the `8/11` frontier and plan a larger new-core/data program.
+
+---
