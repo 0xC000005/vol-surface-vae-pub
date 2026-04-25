@@ -95625,3 +95625,31 @@ Close oracle calibration as a primary publishable route. Shift to a new learned 
 Next experiment: select and implement one minimal conditional normalizing-flow baseline over flattened future paths.
 
 ---
+## 2026-04-24: Autoresearch 431 joint future likelihood flow idea
+
+### Context
+
+430a closed oracle calibration as a primary route and selected a learned single-stage joint future likelihood direction.
+
+### Result
+
+Added `experiments/backfill/block_ar/IDEA_431a_joint_future_likelihood_flow.md`.
+
+Selected falsifier:
+
+- empirical normal-score transform of the full 30-day future path;
+- conditional RealNVP-style affine coupling flow over `750` future variables;
+- compact history encoder context;
+- exact conditional likelihood objective;
+- one-shot joint sampling;
+- no posterior/prior scaffold, low-rank decoder, bounded idio path, or post-hoc validation correction.
+
+### Mechanism Read
+
+This is the cleanest remaining learned route because level occupancy is modeled directly by the likelihood rather than emerging from recursive one-day rollout or being repaired by calibration. The main risk is that it repeats direct-path failures by losing `392a`'s structural transition behavior.
+
+### Decision
+
+Next iteration: implement and run `432a` as one minimal exact-likelihood joint future path flow. Do not start with coupling-depth/mask sweeps.
+
+---
