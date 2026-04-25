@@ -98758,3 +98758,20 @@ Continue only with a genuine multi-factor panel-law prototype: train on aligned 
 Artifact: `experiments/backfill/block_ar/ANALYSIS_534a_multifactor_panel_readiness.md`.
 
 ---
+## 2026-04-25: 535a Panel Gaussian Score-Path Law
+
+### Context
+534a showed that a clean aligned IV+factor panel exists locally. 535a implemented the smallest genuine panel-law feasibility prototype: train one probabilistic model over 25 IV levels, 13 factor levels, and 13 factor returns/diffs, then evaluate only the generated IV subpanel with the unchanged 11-suite.
+
+### Result
+535a selected epoch `2` by panel validation NLL and scored `3/11`, passing `surface`, `block_ar`, and `cointegration`. Key IV-suite metrics: cov90 `0.725`, h30 cov90 `0.704`, conditional MAE reduction `1.17%`, turb/calm `1.057`, daily KS `10/25`, level KS `1/25`, cross-cell corr ratio `0.227`, mean-reversion active pass `0.125`, and path max-jump KS `0.636`.
+
+### Mechanism Read
+Adding factor variables as panel targets does not repair the IV scenario generator when the model family is still a global Gaussian score-path density. The failure pattern matches 532a: weak conditionality, poor level occupancy, diffuse cross-cell structure, over-strong mean reversion, and uneven coverage.
+
+### Decision
+Close small global-Gaussian panel variants. The larger panel-law route remains alive only if the next model changes the sequence dependence class, e.g. autoregressive panel-token density/flow, or if data acquisition/pretraining expands beyond this single SPX IV panel plus 13 factors.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_535a_panel_gaussian_score_path_result.md`, `results/autoresearch/535a_panel_gaussian_score_path_s535/full11.json`.
+
+---
