@@ -96614,3 +96614,21 @@ Stop this quantile-calibration family. Further progress requires a different con
 - Suite report: `results/block_ar/458a_preval882_quantile_alpha025_392a/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 459 - paradigm shift to future-token density
+
+### Context
+458 capped the current deployable quantile-calibration family: larger calibration windows still scored 7/11 and failed coverage, conditionality, regime_coverage, and distributional_fidelity. Together with 452-455, the recent evidence says neither simple scaling, lightweight rollout scores, nor marginal calibration is enough.
+
+### Paradigm Shift
+Move from flow-matching scenario sampling plus calibration to an explicit conditional future-token density model: factorize `p(future_path | history)` over future time/cell tokens, train by exact conditional likelihood, and sample ancestrally. This keeps the model first-principled and deployable: history encoder, causal future-token decoder, simple per-token density, no low-rank readout, no bounded idio path, no regime labels, no retrieval, no validation oracle.
+
+### Why This Is Different
+Prior one-shot path flows transported the whole future path from noise and lost serial geometry. A future-token density is still a joint future-path model, but it learns dependency structure through causal token conditioning and has a direct likelihood objective instead of relying on rollout-score patches around a transition FM model.
+
+### Next Step
+Implement a small baseline conditional future-token density in empirical normal-score or logit-IV coordinates, train with teacher-forced NLL, sample ancestrally, and evaluate on the same 11-suite. The first success criterion is to beat old one-shot path flows while preserving time-series, mean-reversion, and pathwise realism; immediate 11/11 is not required for the branch to stay alive.
+
+### Artifact
+- Decision note: `experiments/backfill/block_ar/IDEA_459a_conditional_future_token_density.md`
+
+---
