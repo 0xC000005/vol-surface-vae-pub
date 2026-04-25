@@ -97578,3 +97578,29 @@ either return to the 392a training objective with a stronger proper scoring rule
 conditional level occupancy, or abandon frozen-proposal correction as a primary route.
 
 ---
+## 2026-04-25: Autoresearch 486 density-ratio branch postmortem
+
+### Context
+The 483-485 density-ratio branch tested whether frozen `392a` support was enough and only
+needed learned probability reallocation. Strengths `1.0`, `0.5`, and `0.25` all stayed
+below the `392a` frontier.
+
+### Result
+Added `experiments/backfill/block_ar/ANALYSIS_486_density_ratio_postmortem.md`.
+
+Main findings:
+- Frozen-proposal reweighting is directionally useful: level KS moved from `10/25` to
+  `12-13/25`, and coverage moved close to passing.
+- It is not sufficient: conditionality fell below gate, regime layer-2 coverage remained
+  failed, and no strength exceeded `392a`'s 8/11.
+- The support-versus-allocation answer is mixed: `392a` has useful support, but changing
+  only sample probabilities cannot produce the needed conditional law.
+
+### Decision
+Close density-ratio resampling as a primary route. The next clean falsifier is a
+`392a`-initialized marginal-CRPS fine-tune: keep the FM anchor and train free-running
+samples with a proper univariate CRPS averaged over every horizon/cell in empirical score
+coordinates. This targets conditional marginal level occupancy without using calibration
+tables, regime labels, validation futures, or evaluator-specific KS losses.
+
+---
