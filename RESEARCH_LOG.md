@@ -96276,3 +96276,28 @@ The stationarity-calibration route is capped. The current deployable frontier re
 not another wrapper around `392a`.
 
 ---
+## 2026-04-24: Autoresearch 447 conditional noise scale core shift
+
+### Context
+
+`446a` capped the last 392a wrapper route. The persistent failure is now clean:
+`392a` has useful conditional center/path structure, but its conditional uncertainty
+allocation across cells/regimes/horizons is not strong enough.
+
+### Paradigm Shift
+
+Added `experiments/backfill/block_ar/IDEA_447a_conditional_noise_scale_core_shift.md`.
+
+New hypothesis: make conditional entropy part of the learned core by enabling the
+existing conditional base-noise scale head in the flow model. This is a core generative
+change, not post-hoc calibration: the flow source distribution becomes history/memory
+dependent.
+
+### Decision
+
+Next experiment: fine-tune from `392a` with `conditional_noise_scale` enabled, identity
+initialized, and only the new `noise_log_scale` head trainable. Use FM plus the
+free-running path-energy anchor. This is a narrow falsifier for whether the missing
+component is conditional uncertainty allocation rather than learned center transport.
+
+---
