@@ -98354,3 +98354,37 @@ Two honest paths remain:
 Do not run more local `392a` objective/source/wrapper experiments. Use remaining in-session iterations to leave a clean handoff: summarize closed branches, define acceptance criteria for a larger learned-law program, and preserve `392a`/`510a` as deployable base checkpoints plus `435a` as oracle feasibility evidence.
 
 ---
+## 2026-04-25: Autoresearch 518a next learned-law program handoff
+
+### Context
+
+`517a` closed the local IV-only in-session research line as a path to deployable learned `11/11`. The remaining task is to leave a clean handoff rather than continue brute-force local knobs.
+
+### Artifact
+
+Wrote `experiments/backfill/block_ar/PLAN_518a_next_learned_law_program.md`.
+
+### Program Definition
+
+The next learned-law program should be separately scoped and should use:
+
+- broader observable/factor history rather than IV surface history alone;
+- a single-stage probabilistic sequence model;
+- no low-rank/readout/bounded-idio/EC assumptions in the base core;
+- pretraining or larger data scale before fine-tuning to 30-day IV scenarios;
+- separate reporting for base learned generator, optional policy-calibrated risk system, and `435a` oracle feasibility.
+
+### Acceptance Gates
+
+Continue the new program only if an early checkpoint:
+
+- reaches at least `8/11` without policy calibration;
+- preserves the structural passes already achieved by `392a`/`510a`;
+- improves at least one frontier failure without materially worsening another;
+- shows positive pre-validation signal on future level/regime proxies, unlike the negative-R2 `516a` audit.
+
+### Decision
+
+Do not run more local `392a` objective/source/wrapper experiments. At hard-cap iteration `519`, write the final in-session closure checkpoint with the current frontier, artifacts, and exact resume path for either a new learned-law branch or a policy-calibrated risk-system branch.
+
+---
