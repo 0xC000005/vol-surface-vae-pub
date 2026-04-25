@@ -97686,3 +97686,22 @@ Run one fair H60 analog of 385a next: recent-quantile FM adaptation from 489a on
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_489_h60_empirical_score_result.md`, `models/backfill/489a_h60_empirical_score_transition_s42/best_model.pt`, `results/block_ar/489a_h60_empirical_score_transition_s42/full11.json`.
 
 ---
+## 2026-04-25: Autoresearch 490 H60 recent quantile falsifier
+
+### Context
+489a showed raw H60 training is not enough, but the H30 frontier was not raw 340c. It required 385a recent-quantile coordinate adaptation before weak rollout-energy fine-tuning. 490 therefore ran the fair H60 analogue of 385a: recent empirical-normal-score quantiles from the same 441-window pre-validation block, unchanged architecture, unchanged FM objective.
+
+### Result
+Trained `models/backfill/490a_h60_recent_quantiles_fm_s42/best_model.pt` and evaluated `results/block_ar/490a_h60_recent_quantiles_fm_s42/full11.json`. Score was `7/11`, passing surface, time_series, block_ar, cointegration, cross-cell correlation, mean reversion, and pathwise jump realism. It failed coverage, conditionality, regime_coverage, and distributional_fidelity.
+
+Key metrics: coverage90 `0.8440`, conditional MAE reduction `3.9%`, daily-change KS `25/25`, level KS `2/25`, median-bias fraction `15/25`, cointegration worst-cell ratio `0.303`, regime layer2 `1/8`, pathwise KS `0.315`.
+
+### Mechanism Read
+Recent quantiles recover most H60 structural suites, but H60 remains below the H30 392a frontier. The decisive regression is conditional state allocation and level occupancy: conditionality remains below gate, level KS is much worse than 392a (`2/25` versus `10/25`), and median-bias fraction falls to `15/25`.
+
+### Decision
+Close H60 as the primary bottleneck. Do not add an H60 weak-energy knob next; the known energy direction tends to trade conditionality for level occupancy, and 490a already fails conditionality before energy is added. Next run a post-490 synthesis/paradigm decision.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_490_h60_recent_quantile_result.md`, `models/backfill/490a_h60_recent_quantiles_fm_s42/best_model.pt`, `results/block_ar/490a_h60_recent_quantiles_fm_s42/full11.json`.
+
+---
