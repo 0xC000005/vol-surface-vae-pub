@@ -97204,3 +97204,53 @@ diagnostic for the 476a autoencoder, or otherwise analyze whether the latent
 bottleneck is too lossy before increasing model capacity.
 
 ---
+## 2026-04-25: Autoresearch 477 latent autoencoder reconstruction oracle
+
+### Context
+476a scored `4/11` and showed two possible failure sources: the learned
+autoencoder path coordinate might be too lossy, or the conditional latent flow
+might be unable to learn `p(latent | history)`. The clean diagnostic is to give
+the autoencoder the true validation future, decode it, and measure geometry
+without blaming conditional sampling.
+
+### Execute
+Implemented and ran a reconstruction-oracle diagnostic for the 476a autoencoder.
+
+Artifacts:
+- script: `experiments/backfill/block_ar/analyze_477a_latent_path_autoencoder_oracle.py`
+- result: `results/block_ar/477a_476a_autoencoder_oracle/full_geometry.json`
+
+The diagnostic repeats each deterministic reconstruction only to satisfy existing
+sample-axis APIs; coverage/regime-coverage are not interpreted.
+
+### Result
+The 476a autoencoder preserves some geometry but is not lossless enough:
+
+- IV MAE `0.0174`, p95 absolute error `0.0677`;
+- score std ratio `0.834`;
+- daily-change std ratio `0.555`;
+- daily-change KS `20/25`;
+- level KS `9/25`;
+- median-bias fraction `18/25`;
+- cross-cell corr ratio `1.274`, rank ratio `0.921`;
+- mean-reversion ratio `1.53`, active pass rate `33.3%`;
+- pathwise max-jump KS `0.969`.
+
+Geometry passes: surface, time-series, block-AR, and cross-cell correlation. It
+fails distributional fidelity, mean reversion, and pathwise jump realism.
+
+### Mechanism Read
+The latent manifold idea is not degenerate: it can reconstruct daily-change shape
+and cross-cell dependence better than many raw direct generators. But the
+96-dimensional deterministic bottleneck removes too much level/path detail and
+over-regularizes first-step mean reversion and jump geometry. Therefore 476a's
+conditional generator could not have reached 11/11 even with a perfect conditional
+latent sampler.
+
+### Decision
+Do not tune latent-flow temperature or add calibration. The next clean falsifier
+is representation capacity, not conditional sampling: loosen the deterministic
+latent bottleneck while keeping the same first-principles architecture and test
+the autoencoder geometry before committing to full conditional-flow training.
+
+---
