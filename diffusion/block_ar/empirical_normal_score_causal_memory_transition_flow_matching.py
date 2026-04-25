@@ -29,6 +29,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFMConfig(
     noise_scale_max: float = 4.0
     path_source_corr: float = 0.0
     path_source_ar: float = 0.0
+    factor_dim: int = 0
 
 
 class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
@@ -54,6 +55,16 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
         self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        if cfg.factor_dim < 0:
+            raise ValueError("factor_dim must be non-negative")
+        if cfg.factor_dim > 0:
+            self.factor_encoder = nn.GRU(
+                input_size=cfg.factor_dim,
+                hidden_size=cfg.memory_dim,
+                batch_first=True,
+            )
+            self.factor_context_norm = nn.LayerNorm(cfg.memory_dim)
+            self.factor_context_scale = nn.Parameter(torch.zeros(cfg.memory_dim))
         if cfg.conditional_noise_scale:
             self.noise_log_scale = nn.Sequential(
                 nn.LayerNorm(cfg.memory_dim),
@@ -148,7 +159,39 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             return torch.cat([scores, deltas, deltas.abs(), deltas.square()], dim=-1)
         return torch.cat([scores, deltas], dim=-1)
 
-    def _encode_prefix_scores(self, prefix_scores: torch.Tensor) -> torch.Tensor:
+    def _factor_context(
+        self,
+        factor_history: torch.Tensor | None,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor | None:
+        if self.cfg.factor_dim <= 0:
+            return None
+        if factor_history is None:
+            raise ValueError("factor_history is required when factor_dim > 0")
+        if factor_history.ndim != 3:
+            raise ValueError(
+                "factor_history must have shape (batch, history_len, factor_dim)"
+            )
+        if factor_history.shape[1] != self.cfg.history_len:
+            raise ValueError(
+                f"Expected factor_history history_len={self.cfg.history_len}, "
+                f"got {factor_history.shape[1]}"
+            )
+        if factor_history.shape[2] != self.cfg.factor_dim:
+            raise ValueError(
+                f"Expected factor_dim={self.cfg.factor_dim}, got {factor_history.shape[2]}"
+            )
+        factor_history = factor_history.to(device=device, dtype=dtype)
+        _, hidden = self.factor_encoder(factor_history)
+        return self.factor_context_norm(hidden[-1])
+
+    def _encode_prefix_scores(
+        self,
+        prefix_scores: torch.Tensor,
+        factor_context: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         seq_len = prefix_scores.shape[1]
         if seq_len > self.cfg.history_len + self.cfg.future_len:
             raise ValueError(
@@ -158,6 +201,13 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         pos = torch.arange(seq_len, device=prefix_scores.device)
         x = self.feature_proj(self._score_features_from_scores(prefix_scores))
         x = x + self.pos_embed(pos)[None, :, :]
+        if factor_context is not None:
+            if factor_context.shape != (prefix_scores.shape[0], self.cfg.memory_dim):
+                raise ValueError(
+                    "factor_context must have shape (batch, memory_dim), got "
+                    f"{tuple(factor_context.shape)}"
+                )
+            x = x + factor_context[:, None, :] * self.factor_context_scale.view(1, 1, -1)
         mask = torch.triu(
             torch.ones(seq_len, seq_len, device=prefix_scores.device, dtype=torch.bool),
             diagonal=1,
@@ -176,11 +226,17 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         self,
         history_norm: torch.Tensor,
         future_norm: torch.Tensor,
+        factor_history: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         history_scores = self.history_scores(history_norm)
         future_scores = self.target_future_scores(future_norm)
         prefix_scores = torch.cat([history_scores, future_scores[:, :-1]], dim=1)
-        hidden = self._encode_prefix_scores(prefix_scores)
+        factor_context = self._factor_context(
+            factor_history,
+            device=prefix_scores.device,
+            dtype=prefix_scores.dtype,
+        )
+        hidden = self._encode_prefix_scores(prefix_scores, factor_context=factor_context)
         start = self.cfg.history_len - 1
         memory_states = hidden[:, start : start + self.cfg.future_len]
         current_scores = prefix_scores[:, start : start + self.cfg.future_len]
@@ -245,11 +301,23 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         self,
         history_norm: torch.Tensor,
         future_norm: torch.Tensor,
+        factor_history: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        memory_states, current_scores, future_scores = self.teacher_forced_memory(
-            history_norm,
-            future_norm,
+        history_scores = self.history_scores(history_norm)
+        future_scores = self.target_future_scores(future_norm)
+        prefix_scores = torch.cat([history_scores, future_scores[:, :-1]], dim=1)
+        factor_context = self._factor_context(
+            factor_history,
+            device=prefix_scores.device,
+            dtype=prefix_scores.dtype,
         )
+        hidden = self._encode_prefix_scores(
+            prefix_scores,
+            factor_context=factor_context,
+        )
+        start = self.cfg.history_len - 1
+        memory_states = hidden[:, start : start + self.cfg.future_len]
+        current_scores = prefix_scores[:, start : start + self.cfg.future_len]
         x1 = future_scores - current_scores
         x0 = self._source_noise_like(x1)
         noise_scale = self._conditional_noise_scale(memory_states)
@@ -280,6 +348,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                 float(self.cfg.path_source_ar), device=x1.device, dtype=x1.dtype
             ),
         }
+        if factor_context is not None:
+            metrics["factor_context_abs"] = factor_context.abs().mean().detach()
+            metrics["factor_context_scale_abs"] = self.factor_context_scale.abs().mean().detach()
         if noise_scale is not None:
             metrics.update(
                 {
@@ -300,12 +371,18 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         chunk_size: int = 8,
         history_is_normalized: bool = True,
         temperature: float | None = None,
+        factor_history: torch.Tensor | None = None,
         **_: object,
     ) -> torch.Tensor:
         if n_steps < 1 or n_steps > self.cfg.future_len:
             raise ValueError(f"Expected n_steps in [1,{self.cfg.future_len}], got {n_steps}")
         history_norm = history if history_is_normalized else normalize_iv(history)
         history_scores = self.history_scores(history_norm)
+        factor_context = self._factor_context(
+            factor_history,
+            device=history_scores.device,
+            dtype=history_scores.dtype,
+        )
         bsz = history_scores.shape[0]
         chunk_size = max(1, min(int(chunk_size), int(n_samples)))
         temp = float(self.cfg.sample_temperature if temperature is None else temperature)
@@ -320,6 +397,13 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                 .reshape(bsz * k, self.cfg.history_len, self.cfg.n_cells)
                 .clone()
             )
+            chunk_factor_context = None
+            if factor_context is not None:
+                chunk_factor_context = (
+                    factor_context.unsqueeze(1)
+                    .expand(bsz, k, self.cfg.memory_dim)
+                    .reshape(bsz * k, self.cfg.memory_dim)
+                )
             rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
             ar_rho = float(max(0.0, min(0.999, self.cfg.path_source_ar)))
             path_source = None
@@ -338,7 +422,10 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             )
             frames: list[torch.Tensor] = []
             for _step in range(n_steps):
-                memory_state = self._encode_prefix_scores(prefix)[:, -1]
+                memory_state = self._encode_prefix_scores(
+                    prefix,
+                    factor_context=chunk_factor_context,
+                )[:, -1]
                 current_score = prefix[:, -1]
                 if path_source is None:
                     x = temp * temporal_source[:, _step]

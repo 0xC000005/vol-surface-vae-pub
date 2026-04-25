@@ -98547,3 +98547,29 @@ Explicitly excluded generated factor paths, low-rank decoders, deterministic cen
 Proceed to one executable 525a prototype only if it can be implemented as a small 340c extension with `factor_history` conditioning. Acceptance gate: recover the 392a/510a structural passes and approach `8/11` before adding any additional knobs.
 
 ---
+## 2026-04-25: Autoresearch 525a factor-conditioned surface mechanics
+
+### Context
+524a selected the clean route: preserve the future IV-level empirical-normal-score target and add broader market state only as observed factor-history conditioning.
+
+### Implementation
+Added optional `factor_history` support to `EmpiricalNormalScoreCausalMemoryTransitionFlowMatching` with `factor_dim`, a GRU factor-history encoder, and a zero-gated factor context added to the existing memory stream. The zero gate lets a 392a checkpoint be extended without immediate random perturbation.
+
+Added mechanics scripts:
+
+- `experiments/backfill/block_ar/_factor_conditioning_525_utils.py`
+- `experiments/backfill/block_ar/train_525a_factor_conditioned_surface_fm.py`
+- `experiments/backfill/block_ar/evaluate_525a_factor_conditioned_surface_fm.py`
+- `test_code/test_factor_conditioned_surface_law.py`
+
+### Verification
+Focused tests passed: `pytest test_code/test_factor_conditioned_surface_law.py test_code/test_522a_38d_alignment.py -q` -> `4 passed`.
+
+Compile check passed for the new 525 scripts and modified model file.
+
+Smoke train from 392a with 64 adaptation windows and one epoch succeeded: factor dim `26`, train loss `0.48260`, factor context scale moved to `0.00064`. Smoke full-suite integration on 16 windows and 8 samples completed; its `3/11` score is not scientifically meaningful and is only an integration check.
+
+### Decision
+525a is a mechanics pass. Next iteration should run a non-smoke short adaptation and official 192-window, 48-sample evaluation. Acceptance remains: recover the 392a/510a structural passes before adding losses or knobs.
+
+---
