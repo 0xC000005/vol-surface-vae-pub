@@ -97540,3 +97540,41 @@ and a lower strength may pass conditionality while retaining enough coverage/lev
 improvement. If `0.25` cannot exceed the 8/11 frontier, stop scalar strength tuning.
 
 ---
+## 2026-04-25: Autoresearch 485 density-ratio strength 0.25 ablation
+
+### Context
+484a at density-ratio logit strength `0.5` recovered cointegration and moved
+conditionality near the gate (`4.8%`), but remained below the 392a frontier. The agreed
+final scalar ablation was strength `0.25`.
+
+### Execute
+- Created `models/backfill/485a_density_ratio_strength025_s42/best_model.pt` by copying
+  the trained 483a checkpoint and setting `logit_strength=0.25`.
+- Evaluated `results/block_ar/485a_density_ratio_strength025_s42/full11.json`.
+
+### Result
+485a reached 7/11. It failed coverage, conditionality, regime coverage, and distributional
+fidelity.
+
+Key metrics:
+- Coverage90 `0.8675`, calibration error `0.0233`; all lower coverage floors passed, but
+  h1/h14/h30 best-cell caps still exceeded `95%`.
+- Conditionality MAE reduction fell to `4.10%`, below both 484a (`4.8%`) and 392a (`5.14%`).
+- Cointegration passed with worst-cell ratio `0.361`.
+- Daily-change KS `25/25`; level KS `12/25`; median-bias `20/25`; bias magnitude `25/25`.
+- Regime layer-2 improved only to `1/8` combinations, still failing the all-pass gate.
+
+### Mechanism Read
+The scalar strength sweep does not expose a better deployable model. Lower strength
+preserves geometry and cointegration but does not recover conditionality, does not pass
+coverage, and does not move level KS close to `15/25`. The density-ratio branch confirms
+that frozen 392a support contains some useful allocation signal, but probability
+reweighting alone is capped below the current 8/11 frontier.
+
+### Decision
+Stop scalar density-ratio tuning. Do not run more strengths unless the evaluation objective
+changes. The next HEAD step should be a post-experiment synthesis / paradigm decision:
+either return to the 392a training objective with a stronger proper scoring rule for
+conditional level occupancy, or abandon frozen-proposal correction as a primary route.
+
+---
