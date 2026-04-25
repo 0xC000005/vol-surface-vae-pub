@@ -96000,3 +96000,34 @@ return to improving the learned conditional center/path law rather than adding m
 post-hoc residual calibration.
 
 ---
+## 2026-04-24: Autoresearch 441 learned-law ensemble shift
+
+### Context
+
+`438a` and `440a` falsified residual calibration as the main deployable route. Continuing
+that branch would mean tuning neighbor counts, residual scales, or bins after the method
+has already fallen below the `392a` frontier.
+
+### Paradigm Shift
+
+Added `experiments/backfill/block_ar/IDEA_441a_learned_law_ensemble_shift.md`.
+
+New route: equal-weight ensemble of learned conditional generators. This uses model
+averaging over learned laws rather than post-hoc residual or interval correction.
+
+Rationale:
+
+- `391a` has stronger level KS (`13/25`) but weaker structure.
+- `392a` is the best balanced learned frontier (`8/11`).
+- `393a` has nearby level behavior but different failure tradeoffs.
+- Equal weights avoid validation tuning and keep deployability clean.
+
+### Decision
+
+Next iteration: implement `442a` as a no-validation-future learned checkpoint ensemble:
+`16` samples each from `391a`, `392a`, and `393a`, then run the unchanged full 11-suite.
+
+If the ensemble does not beat `392a`, simple learned-law averaging is insufficient and
+the loop should move to directly training a better conditional path-law objective.
+
+---
