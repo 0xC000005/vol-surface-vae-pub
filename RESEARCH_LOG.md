@@ -98487,3 +98487,27 @@ The data infrastructure is usable, but local data scale is not foundation-model 
 Proceed only with a minimal new-core mechanics prototype under the `518a` acceptance gate: it must approach the `392a` structural passes before any coverage/regime/distributional optimization. Do not resume local `392a` repair knobs.
 
 ---
+## 2026-04-25: Autoresearch 522a 38-d official full-suite bridge
+
+### Context
+521a showed the aligned 38-d IV+factor panel is usable, but existing 38-d baselines had only reduced-suite scores. 522a tested whether the strongest existing 38-d daily-change model is near the official full 11-suite frontier once aligned correctly.
+
+### Result
+Added an official-aligned bridge evaluator and a focused regression test:
+
+- `experiments/backfill/block_ar/evaluate_522a_38d_full11_bridge.py`
+- `test_code/test_522a_38d_alignment.py`
+- result JSON: `results/autoresearch/522a_38d_full11_bridge/csdi_full11.json`
+- result summary: `results/autoresearch/522a_38d_full11_bridge/csdi_full11.md`
+
+The CSDI 38-d baseline scored `4/11`. It passed `surface`, `time_series`, `block_ar`, and `cross_cell_correlation`; it failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, and `pathwise_jump_realism`.
+
+Key metrics: cov90 overall `0.707`, h30 cov90 `0.507`, conditional MAE reduction `0.77%`, turb/calm ratio `1.009`, daily-change KS `24/25`, level KS `0/25`, mean-reversion active pass `0.042`, and pathwise max-jump KS `0.678`.
+
+### Mechanism Read
+The 38-d baseline learns plausible daily-change marginal shape and cross-cell dependence, but not a usable conditional IV-level path law. Local change realism does not imply long-horizon level anchoring, conditional risk width, IV/EWMA cointegration, or mean-reversion structure.
+
+### Decision
+Do not tune the existing 38-d CSDI bridge as the main route. Keep 522a as a reproducible baseline/falsifier for naive joint-change diffusion. Next iteration should compare 392a/510a versus 522a to isolate what preserves the extra structural passes, then design a new learned core around direct future IV-level law/proper-score training rather than only daily-change realism.
+
+---
