@@ -98727,3 +98727,17 @@ Close the simple Gaussian-copula density route. Do not add hand-set state-depend
 Artifacts: `diffusion/block_ar/coherent_gaussian_score_path_model.py`, `experiments/backfill/block_ar/ANALYSIS_532a_coherent_gaussian_score_path_result.md`, `results/autoresearch/532a_coherent_gaussian_score_path_s532/full11.json`.
 
 ---
+## 2026-04-25: 533a Post-Coherent-Density Paradigm Decision
+
+### Context
+532a falsified the simple marginalization-consistent Gaussian density route at `3/11`. Prior exact-likelihood, future-token, H60, rank-copula, factor-side-channel, local objective, and calibration routes are also below the `392a`/`510a` `8/11` learned frontier.
+
+### Decision
+Stop recycling local repairs around IV-only 392a or the failed Gaussian density. The remaining clean route is a larger learned financial-panel sequence law: `p(future financial panel | history financial panel)`, with IV-surface scenario generation as one conditional query of that model.
+
+### Next Step
+Run a data/model readiness audit before implementation: enumerate aligned IV/factor channels, define no-lookahead tokenization, identify whether the repository contains enough panel data for a real multi-factor probabilistic sequence prototype, and specify how its IV samples will feed the same 11-suite.
+
+Artifact: `experiments/backfill/block_ar/DECISION_533a_post_coherent_density_paradigm.md`.
+
+---
