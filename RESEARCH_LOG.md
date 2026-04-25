@@ -96482,3 +96482,27 @@ Do not continue by simply making the 340a core larger. The next principled move 
 - Suite report: `results/block_ar/452a_scaled_340a_score_transition_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 453 - IV-space rollout CRPS falsifier
+
+### Context
+452 showed that larger vanilla teacher-forced FM capacity does not solve the suite. The next objective-alignment falsifier kept the 392a AR geometry but added a mild rollout marginal CRPS computed in actual IV level space, anchored by the FM loss.
+
+### Experiment
+Implemented and ran `453a_recent_rollout_iv_crps_w05_s42`: 392a checkpoint, recent 441-window block, 4 epochs, FM anchor 1.0, IV-space marginal CRPS weight 0.5, 4 rollout samples, 4 rollout flow steps.
+
+### Result
+Full 11-suite score: 6/11. Failed suites: coverage, conditionality, cointegration, regime_coverage, distributional_fidelity. Aggregate calibration improved materially: 90% coverage was 87.9% and calibration error was 0.007. However conditionality MAE reduction fell to 3.6%, cointegration worst-cell ratio failed, regime layer-2 remained 0/8, and level KS passed only 7/25 cells.
+
+### Mechanism Read
+The IV-space marginal CRPS objective is still too unconditional. It improves average interval calibration but weakens history dependence and does not correct level marginal fidelity. This is consistent with prior calibration-wrapper failures: marginal distributional pressure alone can move widths/bias but does not learn the conditional law needed by risk scenarios.
+
+### Decision
+Do not continue with marginal-only CRPS variants. The next objective must preserve conditional dependence explicitly while correcting level/regime distribution, likely through a conditional rollout scoring target rather than unconditional marginal matching.
+
+### Artifacts
+- Script: `experiments/backfill/block_ar/train_453a_recent_rollout_iv_marginal_crps_finetune.py`
+- Model metadata: `models/backfill/453a_recent_rollout_iv_crps_w05_s42/`
+- Suite output: `results/block_ar/453a_recent_rollout_iv_crps_w05_s42/full11.json`
+- Suite report: `results/block_ar/453a_recent_rollout_iv_crps_w05_s42/full11.md`
+
+---
