@@ -98674,3 +98674,20 @@ Do not add a new loss or branch. One minimal convergence audit is justified beca
 Artifact: `experiments/backfill/block_ar/ANALYSIS_529a_live_factor_conditionality.md`.
 
 ---
+## 2026-04-25: 530a Factor-Conditioned Convergence Audit
+
+### Context
+529a showed the factor-conditioned surface law could improve same-protocol parity but still sat below the historical `8/11` frontier. 530a tested the only clean convergence question: train the same factor side-channel longer with no added loss, calibration policy, decoder structure, or evaluator-specific knob.
+
+### Result
+The 16-epoch factor run scored `7/11`, failing `coverage`, `cointegration`, `regime_coverage`, and `distributional_fidelity`. Key metrics were cov90 `0.857`, h30 cov90 `0.876`, conditional MAE reduction `5.21%`, turb/calm width ratio `1.063`, level KS `10/25`, regime layer2 `0/8`, and path max-jump KS `0.410`.
+
+### Mechanism Read
+Longer adaptation makes the model condition enough to pass the hard conditionality gate, but it does not repair the future IV-level law. Level occupancy, per-cell/regime coverage geometry, and cointegration are not fixed by broader observed factor history.
+
+### Decision
+Close the 525/530 factor side-channel branch as below-frontier. The next HEAD step should be research ideation from the frontier artifacts, targeting the future IV-level law directly while keeping the single-stage learned-generator framing clean.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_530a_factor_conditioned_convergence_audit.md`, `results/autoresearch/530a_factor_conditioned_surface_fm_e16_live_seed42/full11.json`.
+
+---
