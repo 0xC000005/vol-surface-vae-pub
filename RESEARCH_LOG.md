@@ -96441,3 +96441,21 @@ Do not add another scale-head or wrapper knob. The next principled step is post-
 - Suite report: `results/block_ar/450a_joint_cond_noise_widen_energy_init105_s42/full11.md`
 
 ---
+## 2026-04-24: Autoresearch 451 - scaled AR score-transition core decision
+
+### Context
+450 falsified the conditional-noise-scale branch as a clean route: joint transport/backbone training still drove the scale to the lower clamp and scored only 7/11. A new step was needed without stacking more wrapper knobs.
+
+### Evidence Review
+Full one-shot empirical-score path laws remain weak in the historical record: 339/345/346/354/413/417/421 generally scored 3-4/11 and lost serial/path geometry. The empirical normal-score AR transition family is the only deployable learned family that reached the 8/11 frontier: 377a, 385a, and 392a. 392a preserves daily-change KS, cointegration, cross-cell correlation, mean reversion, and pathwise jump realism, but fails coverage, regime coverage, and level KS.
+
+### Decision
+Do not revert blindly to old one-shot path flow and do not add another calibration shell around 392a. The next clean branch is a scaled vanilla AR empirical-score transition core: same conditional generator semantics and same flow objective, but larger learned capacity/training scale. This is the most Bitter-Lesson-aligned deployable falsifier before changing likelihood targets.
+
+### Next Step
+Run a larger 340a-family empirical normal-score causal-memory transition flow from scratch. If it improves level KS/regime coverage without damaging conditionality, continue with rollout-energy fine-tuning. If it stays at or below 392a, the bottleneck is not simple capacity and the next paradigm must change the score/likelihood target rather than add local knobs.
+
+### Artifact
+- Decision note: `experiments/backfill/block_ar/IDEA_451a_scaled_ar_score_transition_core.md`
+
+---
