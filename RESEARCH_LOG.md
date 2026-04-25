@@ -97648,3 +97648,20 @@ focused on whether the remaining gates require a different representation of con
 state rather than another marginal/proper-score wrapper around 392a.
 
 ---
+## 2026-04-25: Autoresearch 488 context-frame signal audit
+
+### Context
+After 487a, the 392a objective neighborhood looked capped: marginal/proper-score pressure moved average calibration but did not solve conditional level allocation. I audited whether the 30-day conditioning frame itself is a bottleneck before adding another objective or architecture component.
+
+### Result
+Aligned validation forecast starts across H=30/60/90/120/180/252, then fit chronological ridge probes on generic history summaries. H60 improved future mean-level R2 from 0.3445 to 0.4905, path-abs-move R2 from 0.4883 to 0.5095, and future-vov R2 from 0.5766 to 0.5954. H90+ did not add a clean incremental benefit. Simple history vol-of-vol still did not consistently imply larger future movement; the future abs-move turbulent/calm ratio was 0.853 at H60.
+
+### Mechanism Read
+Longer context is not a regime-width solution, which matches the earlier width-gate oracle audit. But H60 provides a clean amount of extra state information without adding a new model component, so it is a principled data-framing falsifier rather than a research knob.
+
+### Decision
+Next run exactly one H60 empirical-normal-score causal-memory AR experiment using the same vanilla transition-FM core. If H60 cannot improve the 392a frontier, stop treating history length as the primary bottleneck.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_488_context_frame_signal_audit.md`, `results/block_ar/488_context_frame_audit/context_signal_audit.json`.
+
+---
