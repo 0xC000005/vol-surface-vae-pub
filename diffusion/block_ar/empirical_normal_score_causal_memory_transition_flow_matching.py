@@ -27,6 +27,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFMConfig(
     conditional_noise_scale: bool = False
     noise_scale_min: float = 0.25
     noise_scale_max: float = 4.0
+    path_source_corr: float = 0.0
 
 
 class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
@@ -201,6 +202,22 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
         hi = math.log(float(self.cfg.noise_scale_max))
         return torch.exp(log_scale.clamp(lo, hi))
 
+    def _source_noise_like(self, target: torch.Tensor) -> torch.Tensor:
+        rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
+        if rho <= 0.0:
+            return torch.randn_like(target)
+        if target.ndim != 3:
+            raise ValueError("Persistent source noise expects shape (batch,horizon,cells)")
+        path_noise = torch.randn(
+            target.shape[0],
+            1,
+            target.shape[2],
+            device=target.device,
+            dtype=target.dtype,
+        )
+        local_noise = torch.randn_like(target)
+        return math.sqrt(rho) * path_noise + math.sqrt(1.0 - rho) * local_noise
+
     def training_loss(
         self,
         history_norm: torch.Tensor,
@@ -211,7 +228,7 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             future_norm,
         )
         x1 = future_scores - current_scores
-        x0 = torch.randn_like(x1)
+        x0 = self._source_noise_like(x1)
         noise_scale = self._conditional_noise_scale(memory_states)
         if noise_scale is not None:
             x0 = x0 * noise_scale
@@ -233,6 +250,9 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
             "transition_abs": x1.abs().mean().detach(),
             "target_velocity_std": target_velocity.std(unbiased=False).detach(),
             "memory_abs": memory_states.abs().mean().detach(),
+            "path_source_corr": torch.tensor(
+                float(self.cfg.path_source_corr), device=x1.device, dtype=x1.dtype
+            ),
         }
         if noise_scale is not None:
             metrics.update(
@@ -274,11 +294,27 @@ class EmpiricalNormalScoreCausalMemoryTransitionFlowMatching(nn.Module):
                 .reshape(bsz * k, self.cfg.history_len, self.cfg.n_cells)
                 .clone()
             )
+            rho = float(max(0.0, min(0.999, self.cfg.path_source_corr)))
+            path_source = None
+            if rho > 0.0:
+                path_source = torch.randn(
+                    bsz * k,
+                    self.cfg.n_cells,
+                    device=history_scores.device,
+                    dtype=history_scores.dtype,
+                )
             frames: list[torch.Tensor] = []
             for _step in range(n_steps):
                 memory_state = self._encode_prefix_scores(prefix)[:, -1]
                 current_score = prefix[:, -1]
-                x = temp * torch.randn_like(current_score)
+                if path_source is None:
+                    x = temp * torch.randn_like(current_score)
+                else:
+                    local = torch.randn_like(current_score)
+                    x = temp * (
+                        math.sqrt(rho) * path_source
+                        + math.sqrt(1.0 - rho) * local
+                    )
                 noise_scale = self._conditional_noise_scale(memory_state)
                 if noise_scale is not None:
                     x = x * noise_scale

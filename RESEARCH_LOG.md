@@ -95367,3 +95367,46 @@ Run 423a from `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt
 - `experiments/backfill/block_ar/IDEA_422a_persistent_source_noise_fm.md`
 
 ---
+## 2026-04-24: Autoresearch 423 persistent source-noise FM
+
+### Context
+422a selected persistent source-noise flow matching as the minimal path-level stochastic state compatible with the 392a AR transition core. The test used one fixed moderate source correlation, avoiding a rho sweep.
+
+### Result
+Added:
+- `path_source_corr` to `EmpiricalNormalScoreCausalMemoryTransitionFMConfig`
+- correlated source noise in teacher-forced FM training and autoregressive sampling
+- `experiments/backfill/block_ar/train_423a_persistent_source_noise_fm.py`
+
+Training:
+- source: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`
+- output: `models/backfill/423a_persistent_source_noise_r035_s42/best_model.pt`
+- fixed `path_source_corr=0.35`
+- best epoch: `1`
+- best internal validation total: `0.47036`
+
+Official full 11-suite:
+- artifact: `results/block_ar/423a_persistent_source_noise_r035_s42/full11.json`
+- score: `6/11`
+- failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`
+
+Key metrics: cov90 `0.967`; best per-horizon cell coverage up to `1.000`; conditionality `6.40%` pass; time-series pass with kurtosis ratio `1.161` and skew ratio `5.225`; coint aggregate `0.576` pass but worst-cell `0.228` fail; regime layer2 `1/8`; level KS `0/25`; median-bias fraction `11/25` with broad upward bias; corr ratio `0.923`; rank ratio `1.748`; MR active `79.2%`; pathwise max-jump KS `0.748`.
+
+### Mechanism Read
+Persistent source noise is a real mechanism, not a code no-op. It preserved conditionality, time-series, cross-cell correlation, and mean reversion together, and it improved tail/skew behavior. But `rho=0.35` is too strong for the level law: it over-widened and shifted the generated scenarios upward, causing severe overcoverage, level-KS collapse, median-bias failure, and pathwise max-jump KS failure.
+
+This is not the same failure as 421a: shared geometry survived. The failure is amplitude/location of the persistent source, not loss of stochastic coupling.
+
+### Decision
+Keep 392a as the active `8/11` frontier. Do not run a rho sweep. The next iteration must decide whether one weaker persistent-source setting is a principled single falsifier, or whether this route should be closed as another overcoverage/level-bias actuator.
+
+### Artifacts
+- `diffusion/block_ar/empirical_normal_score_causal_memory_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_423a_persistent_source_noise_fm.py`
+- `models/backfill/423a_persistent_source_noise_r035_s42/args.json`
+- `models/backfill/423a_persistent_source_noise_r035_s42/train_summary.json`
+- `models/backfill/423a_persistent_source_noise_r035_s42/training_history.json`
+- `results/block_ar/423a_persistent_source_noise_r035_s42/full11.json`
+- `results/block_ar/423a_persistent_source_noise_r035_s42/full11.md`
+
+---

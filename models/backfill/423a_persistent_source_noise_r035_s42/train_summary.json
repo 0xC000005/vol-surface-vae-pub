@@ -1,0 +1,12 @@
+{
+  "source_checkpoint": "models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt",
+  "source_epoch": 1,
+  "source_best_val": 0.5086598016998984,
+  "adaptation_start_index": 3569,
+  "adaptation_end_index": 4009,
+  "n_train": 353,
+  "n_val": 88,
+  "best_epoch": 1,
+  "best_val_total": 0.4703552375237147,
+  "path_source_corr": 0.35
+}
