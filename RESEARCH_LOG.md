@@ -97306,3 +97306,40 @@ step should be post-experiment analysis and likely paradigm shift, because both
 but clean reasons.
 
 ---
+## 2026-04-25: Autoresearch 479 latent-manifold postmortem
+
+### Context
+After 476-478, the latent-manifold branch needed closure before adding more
+capacity knobs. The branch tested a clean deterministic future-path autoencoder
+plus vanilla conditional latent flow, then isolated the autoencoder with
+reconstruction-oracle diagnostics.
+
+### Findings
+Added `experiments/backfill/block_ar/ANALYSIS_479_latent_manifold_postmortem.md`.
+
+Main conclusions:
+- `476a` conditional latent flow scored `4/11`;
+- 476a reconstruction oracle preserved daily/correlation geometry but failed
+  level KS, mean reversion, and pathwise jumps;
+- larger `478a` latent capacity improved local move reconstruction but still
+  failed level KS (`10/25`), median-bias (`15/25`), mean reversion, and pathwise
+  max-jump KS (`0.875`);
+- deterministic full-path compression behaves like a smoothing projection on the
+  validation future paths.
+
+### Mechanism Read
+The branch is cleanly capped: the model can learn shared path geometry, but the
+deterministic bottleneck drops exactly the localized level/jump details that the
+hard suites require. This is not solved by latent-width or decoder-width sweeps.
+
+### Decision
+Close deterministic latent future-path autoencoding as a primary route. Keep
+`392a` as the deployable `8/11` frontier. The next paradigm should not be another
+smoothed full-path bottleneck or wrapper; it should ideate an exact law
+decomposition that keeps local AR path evolution explicit while making
+long-horizon level occupancy native.
+
+Candidate for next ideation: endpoint / bridge factorization
+`p(Y_1:T | H) = p(endpoint or coarse knots | H) * p(path | H, endpoint/coarse knots)`.
+
+---
