@@ -95562,3 +95562,39 @@ Per-horizon/cell marginal calibration is the wrong object. It repairs level symp
 Close per-horizon/cell marginal oracle calibration as the primary route. Next diagnostic: preserve residual path geometry more aggressively by applying a low-dimensional validation-oracle vertical center shift to whole generated paths, then rerun the unchanged full 11-suite.
 
 ---
+## 2026-04-24: Autoresearch 429 validation-oracle path-shift diagnostic
+
+### Context
+
+428a closed per-horizon/cell marginal oracle calibration as the primary route and selected a path-preserving oracle diagnostic: shift whole generated paths vertically while preserving within-future residual geometry.
+
+### Result
+
+Added and ran `experiments/backfill/block_ar/evaluate_429a_validation_oracle_path_shift_system.py`.
+
+Artifacts:
+
+- `results/block_ar/429a_validation_oracle_path_shift_392a/full11.json`
+- `results/block_ar/429a_validation_oracle_path_shift_392a/full11.md`
+
+Score: `6/11`.
+
+Key metrics:
+
+- conditionality passed strongly: MAE reduction `15.8%`;
+- time-series, block-AR, cross-cell correlation, and pathwise realism passed;
+- coverage failed: h1 coverage `71.9%`, h1 worst cell `49.5%`, later horizons overcovered;
+- cointegration failed narrowly: worst-cell gen/GT ratio `0.246` versus gate `0.25`;
+- regime coverage failed: layer2 `0/8`;
+- distributional fidelity failed despite level KS `22/25` and median-bias `25/25` / `24/25`;
+- mean reversion failed on active-cell pass rate.
+
+### Mechanism Read
+
+Path-center correction preserves the conditional and residual geometry much better than the marginal quantile/affine maps, but it cannot satisfy the horizon/regime coverage geometry. The failure mode moved from structural collapse back to coverage/regime imbalance.
+
+### Decision
+
+Keep `392a` as the active `8/11` frontier. Run post-experiment analysis next: the oracle family now has a clean split, so decide whether to close calibration entirely or run one final explicit feasibility upper-bound.
+
+---
