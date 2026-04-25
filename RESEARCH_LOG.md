@@ -96931,3 +96931,42 @@ The critic signal is too blunt in this first form. It improves average interval 
 Do not increase critic complexity blindly. Either the critic needs locality/normalization so it targets the specific residual defects without moving the conditional center, or this learned-critic branch should be abandoned.
 
 ---
+## 2026-04-25: Autoresearch 468a weak conditional critic falsifier
+
+### Context
+467a showed that a compact conditional path critic with adversarial weight `0.01` was too blunt: it improved average calibration but damaged conditionality, cointegration, and distributional fidelity. 468a tested the minimal ablation: same critic setup, lower generator adversarial weight `0.002`.
+
+### Experiment
+Ran `468a_recent_condcritic_w0002_s42`:
+
+- generator initialized from `392a`;
+- same compact `(history, future path)` critic as 467a;
+- FM anchor `1.0`;
+- adversarial weight reduced from `0.01` to `0.002`;
+- same recent 441-window training panel and 353/88 split.
+
+Artifacts:
+
+- model metadata: `models/backfill/468a_recent_condcritic_w0002_s42/`
+- result: `results/block_ar/468a_recent_condcritic_w0002_s42/full11.json`
+
+### Result
+`468a` scored `7/11`. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- coverage90 `0.893`, calibration error `0.0091`;
+- h1 and h7 per-cell coverage pass, but h14/h30 still fail high-side overcoverage;
+- conditionality MAE reduction fell to `3.12%`, worse than 467a and 392a;
+- level KS `11/25`, still below gate;
+- regime layer-2 `0/8`;
+- cointegration restored to pass with worst-cell ratio `0.25`;
+- time-series, cross-cell, mean-reversion, and pathwise realism passed.
+
+### Mechanism Read
+Lowering the critic weight avoids the worst structural damage, but it still behaves like a marginal calibration pressure. It improves average coverage while weakening the conditional signal and failing level/regime gates. The global path critic is not precise enough in this form.
+
+### Decision
+Stop scalar critic-weight sweeps. The next step should be post-experiment analysis or a different learned objective that is local/center-preserving by construction, not another global critic variant.
+
+---
