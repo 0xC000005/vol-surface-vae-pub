@@ -98530,3 +98530,20 @@ Do not switch the main program to generic 38-d daily-change diffusion. The next 
 Artifact: `experiments/backfill/block_ar/ANALYSIS_523a_frontier_vs_38d_bridge_postmortem.md`.
 
 ---
+## 2026-04-25: Autoresearch 524a factor-conditioned surface-level law idea
+
+### Context
+523a showed the official suite rewards a conditional law over future IV levels, not generic daily-change realism. The next branch must add broader market state without changing the generated target away from IV-level paths.
+
+### Idea
+Defined a minimal factor-conditioned surface-level law in `experiments/backfill/block_ar/IDEA_524a_factor_conditioned_surface_level_law.md`.
+
+Start from `EmpiricalNormalScoreCausalMemoryTransitionFlowMatching` and add one optional observed-history side-channel: a learned encoder over aligned factor history, projected into the existing IV memory state. The generated object remains future IV levels in empirical normal-score coordinates, and the objective remains vanilla flow matching.
+
+### Clean Pathology Guard
+Explicitly excluded generated factor paths, low-rank decoders, deterministic center/residual splits, bounded residual rules, policy calibration, regime hand-label branches, and extra CRPS/MMD/coverage/KS losses for the first prototype.
+
+### Decision
+Proceed to one executable 525a prototype only if it can be implemented as a small 340c extension with `factor_history` conditioning. Acceptance gate: recover the 392a/510a structural passes and approach `8/11` before adding any additional knobs.
+
+---
