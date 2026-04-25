@@ -95810,3 +95810,37 @@ Do not mark the learned generator goal reached. The next step is a product/scien
 - if a paper requires one learned model to pass `11/11`, current evidence does not yet support that objective.
 
 ---
+## 2026-04-24: Autoresearch 437 deployable 11x11 policy target
+
+### Context
+
+The user tightened the target from oracle-feasible `11/11` to deployable `11/11`.
+`435a` is therefore not a solution: it uses validation futures as the center and
+explicit validation-window miss placement.
+
+### Result
+
+Added `experiments/backfill/block_ar/IDEA_437a_deployable_11x11_policy_target.md`.
+The deployability rule is now explicit: a candidate may use history, checkpoints
+trained before validation, calibration tables/residual banks fit on pre-validation
+outcomes, and random noise. It may not use validation futures or any correction fit
+after seeing each validation target.
+
+### Mechanism Read
+
+The cleanest deployable translation of the `435a` feasibility proof is not another
+oracle; it is a frozen split-calibration policy. Use `392a` as the learned core,
+fit a forecast-error residual bank on pre-validation calibration windows, then apply:
+
+`validation 392a median + sampled calibration residual error + small 392a residual shape`
+
+This is a calibrated risk system, not a claim that the base neural model alone has
+learned the full conditional law.
+
+### Decision
+
+Next iteration: implement `438a` as the deployable residual-error bootstrap evaluator
+and run the full 11-suite with explicit provenance fields showing no validation-future
+use.
+
+---
