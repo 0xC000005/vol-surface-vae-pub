@@ -97909,3 +97909,22 @@ The center map was harmful. It preserved conditionality because centers remained
 Close naive pre-validation center quantile mapping. The next step should be post-experiment ideation, not another global marginal map. Any future level movement must be much more conservative and state-conditional, or the product conclusion should accept `392a` as the deployable learned frontier with separately reported failed policy-calibration attempts.
 
 ---
+## 2026-04-25: Autoresearch 500a state conditional center policy ideation
+
+### Context
+499a showed that full pre-validation center quantile mapping is harmful: level KS collapsed to `1/25`, median bias worsened, and mean reversion failed. 498a showed the opposite failure: median locking preserves conditionality but leaves level KS at `10/25`.
+
+### Result
+Artifact: `experiments/backfill/block_ar/IDEA_500a_state_conditional_center_policy.md`.
+
+The evidence isolates the remaining deployable-policy question: can level occupancy be moved by a state-conditional predictive center residual, rather than by unconditional distribution matching?
+
+### Mechanism Read
+Width-only policies are capped because they leave the 392a center law unchanged. Global center maps are unstable because pre-validation marginal level distributions do not transfer cleanly to validation. Any plausible next policy must use history-state information and must remain low-dimensional enough to be defensible.
+
+### Decision
+Run one state-conditional center residual falsifier. Fit a low-dimensional ridge model for `future - 392a_median` from history features on pre-validation data, choose shrinkage on a pre-validation holdout by predictive MAE, shift the 392a center by that predicted residual, and reattach asymmetric residual tails.
+
+If that cannot improve level KS beyond `10/25` without structural damage, close center-policy calibration and return to the product conclusion: `392a` is the deployable learned frontier; `11/11` remains oracle-feasible but not deployably learned under the current data/suite.
+
+---
