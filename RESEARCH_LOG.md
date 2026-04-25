@@ -95938,3 +95938,65 @@ be considered capped and the loop should return to improving the learned conditi
 center/path model.
 
 ---
+## 2026-04-24: Autoresearch 440 local residual bootstrap result
+
+### Context
+
+`439a` selected the cleanest remaining deployable calibration falsifier: history-local
+residual errors around the frozen `392a` median.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/evaluate_440a_deployable_local_residual_bootstrap_system.py`.
+The policy uses only pre-validation outcomes and validation histories:
+
+- fit `392a` forecast errors on pre-validation windows;
+- encode histories with generic panel-history features;
+- sample residual paths from the `64` nearest calibration histories;
+- generate validation scenarios around the frozen `392a` median with residual-shape
+  scale `0.10`.
+
+Artifact paths:
+
+- `results/block_ar/440a_deployable_local_residual_bootstrap_392a/full11.json`
+- `results/block_ar/440a_deployable_local_residual_bootstrap_392a/full11.md`
+
+### Result
+
+Score: `6/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `time_series`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- overall 90% coverage: `0.838`
+- conditionality MAE reduction: `4.9%` (gate `>5%`)
+- regime layer2: `0/8`
+- daily-change KS: `23/25`
+- level KS: `10/25`
+- median-bias fraction: `22/25`
+- pathwise max-jump KS: `0.282` (pass)
+
+### Mechanism Read
+
+History-local residual sampling is more state-aware than `438a`, but it is still not a
+solution. It preserves or improves pathwise jump realism and median-bias counts, yet it
+does not move level KS beyond the `392a` frontier and still cannot satisfy regime
+layer2 coverage. It also tips conditionality just below the MAE gate and keeps too few
+very-small moves.
+
+### Decision
+
+The residual-calibration policy route is now likely capped. Further tuning of neighbor
+counts, feature windows, or residual-shape scale would be knob accumulation, not a
+principled path to deployable `11/11`. The next iteration should be a paradigm decision:
+return to improving the learned conditional center/path law rather than adding more
+post-hoc residual calibration.
+
+---
