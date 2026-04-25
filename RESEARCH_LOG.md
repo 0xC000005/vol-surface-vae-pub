@@ -96215,3 +96215,64 @@ partial monotone map, and evaluate the unchanged full suite. If it does not beat
 consider this stationarity-calibration route capped too.
 
 ---
+## 2026-04-24: Autoresearch 446 stationary history marginal result
+
+### Context
+
+`445a` proposed one stationarity-aligned deployable policy before abandoning calibration
+routes completely.
+
+### Experiment
+
+Added and ran `experiments/backfill/block_ar/evaluate_446a_stationary_history_marginal_policy.py`.
+
+Configuration:
+
+- base: frozen `392a`
+- target marginal: pre-validation observed history levels
+- alpha: `0.25`
+- regime bins: enabled
+- validation futures: not used by the sampler or calibration table
+
+Artifact paths:
+
+- `results/block_ar/446a_stationary_history_marginal_alpha025_392a/full11.json`
+- `results/block_ar/446a_stationary_history_marginal_alpha025_392a/full11.md`
+
+### Result
+
+Score: `6/11`.
+
+Failed suites:
+
+- `coverage`
+- `conditionality`
+- `cointegration`
+- `regime_coverage`
+- `distributional_fidelity`
+
+Key metrics:
+
+- overall 90% coverage: `0.870`
+- conditionality MAE reduction: `4.3%`
+- cointegration worst-cell ratio: `0.175`
+- regime layer2: `0/8`
+- daily-change KS: `25/25`
+- level KS: `11/25`
+- median-bias fraction/magnitude: `20/25`, `25/25`
+- pathwise max-jump KS: `0.362`
+
+### Mechanism Read
+
+The stationary history-marginal map improves some coverage and preserves time-series
+move realism, but it does not solve level KS and it damages conditionality/cointegration.
+This is the same fundamental tradeoff seen in earlier calibration routes: moving the
+marginal law post hoc weakens the learned conditional structure.
+
+### Decision
+
+The stationarity-calibration route is capped. The current deployable frontier remains
+`392a` at `8/11`. Further progress likely requires a genuinely stronger learned core,
+not another wrapper around `392a`.
+
+---
