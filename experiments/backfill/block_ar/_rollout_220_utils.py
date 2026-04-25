@@ -1019,6 +1019,12 @@ def load_one_day_kernel(
         )
 
         return load_476a_model(checkpoint_path, device)
+    if model_type == "481a":
+        from diffusion.block_ar.endpoint_conditioned_ar_bridge_flow import (
+            load_model as load_481a_model,
+        )
+
+        return load_481a_model(checkpoint_path, device)
     if model_type == "341a":
         from diffusion.block_ar.empirical_normal_score_block_causal_flow_matching import (
             load_model as load_341a_model,

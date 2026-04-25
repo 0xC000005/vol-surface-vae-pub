@@ -97372,3 +97372,50 @@ vanilla endpoint-conditioned one-step transition flow. Do not add support
 codebooks, coarse-knot sequences, calibration layers, or endpoint hard projection.
 
 ---
+## 2026-04-25: Autoresearch 481 endpoint-conditioned AR bridge falsifier
+
+### Context
+Iteration 480 selected a minimal endpoint-conditioned AR bridge as the next clean falsifier:
+sample the terminal future surface natively, then sample one-step transitions conditioned on history,
+current level, endpoint, endpoint gap, and remaining time. This tests whether long-horizon level
+occupancy should be represented as a sampled endpoint rather than as an external support object or
+deterministic center/residual split.
+
+### Execute
+- Added `diffusion/block_ar/endpoint_conditioned_ar_bridge_flow.py`.
+- Added `experiments/backfill/block_ar/train_481a_endpoint_conditioned_ar_bridge.py`.
+- Wired native `481a` loading/sampling through `_rollout_220_utils.py` and the full 11-suite evaluator.
+- Trained `models/backfill/481a_endpoint_bridge_s42/best_model.pt`.
+- Evaluated `results/block_ar/481a_endpoint_bridge_s42/full11.json`.
+
+### Result
+481a reached 4/11. It passed surface validity, block-AR smoothness, IV/EWMA cointegration, and
+cross-cell correlation. It failed coverage, conditionality, time-series properties, regime coverage,
+distributional fidelity, mean reversion, and pathwise jump realism.
+
+Key metrics:
+- Coverage90 89.8%, calibration error 0.071, but per-cell coverage had both severe undercoverage
+  and 100% overcoverage cells.
+- Conditionality MAE reduction 0.7%; h1 was useful but h7/h14/h30 were flat to negative.
+- Kurtosis ratio 0.415 and per-cell tail-scale cells passing 7/25.
+- Daily-change KS cells passing 7/25; level KS cells passing 1/25; median-bias cells passing 19/25.
+- Correlation ratio 0.525 and rank ratio 2.895 passed but sat near the high-rank edge.
+- Mean-reversion active-cell pass was 13/24 for h1 and 47.5% averaged across horizons.
+- Pathwise max-jump KS was 0.784, with per-cell extreme-jump cells passing 7/25.
+
+### Mechanism Read
+The bridge factorization is mathematically valid, but this implementation does not learn a usable
+conditional future-path law. Endpoint conditioning improves global uncertainty and keeps surfaces
+valid, yet the local transition model allocates move scale unevenly across cells, loses conditional
+advantage after the first day, and badly misses unconditional level occupancy. The failure is not
+an endpoint-temperature issue alone: level KS 1/25 plus daily tail-scale 7/25 means the sampled
+transition field itself is not representing the historical path geometry.
+
+### Decision
+Do not add bridge-specific knobs such as hard endpoint projection, coarse knots, support codebooks,
+or per-cell temperature patches. Treat 481a as a falsifier for the minimal endpoint-conditioned
+bridge as a primary route. The next HEAD step should be post-experiment analysis / ideation around
+the surviving evidence: 392a remains the deployable frontier at 8/11, while oracle results show
+11/11 feasibility only when future information is injected.
+
+---
