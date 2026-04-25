@@ -97419,3 +97419,34 @@ the surviving evidence: 392a remains the deployable frontier at 8/11, while orac
 11/11 feasibility only when future information is injected.
 
 ---
+## 2026-04-25: Autoresearch 482 post-481 frontier synthesis
+
+### Context
+After the 481a endpoint-conditioned AR bridge scored 4/11, the loop needed a synthesis
+before launching another experiment. The comparison set was the current frontier (`392a`),
+source-preserving variants (`471a`, `473a`), and clean learned-path replacements
+(`476a`, `481a`).
+
+### Result
+Added `experiments/backfill/block_ar/ANALYSIS_482_post_481_frontier_synthesis.md`.
+
+Main findings:
+- `392a` remains the deployable frontier at 8/11 because it preserves daily-change shape,
+  cross-cell dependence, mean reversion, pathwise jumps, and conditionality.
+- Clean learned path-law replacements are not currently competitive: `476a` and `481a`
+  both scored 4/11 and lost local path geometry or level occupancy.
+- Source-preserving branches are better than replacing the path law, but scalar transport,
+  scalar temperature, and global critic pressure cannot solve per-cell/regime allocation.
+- The unresolved question is support versus allocation: does `392a` already generate
+  candidate paths that cover the missing level/regime outcomes, but assign them wrong
+  probability, or is new support generation required?
+
+### Decision
+Run one minimal frozen-proposal density-ratio resampling falsifier next (`483a`):
+freeze `392a`, train a conditional density-ratio scorer to distinguish realized futures
+from frozen 392a proposal futures for the same history, then resample candidate paths by
+learned weights. This keeps the path law deployable and preserves 392a geometry by
+construction while directly testing whether learned probability reallocation can fix the
+remaining coverage/regime/level failures.
+
+---
