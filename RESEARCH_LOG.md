@@ -96089,3 +96089,32 @@ that targets level distribution and calibrated coverage while preserving the `39
 conditional structure.
 
 ---
+## 2026-04-24: Autoresearch 443 quantile coverage pathlaw objective
+
+### Context
+
+`442a` showed that equal learned-law ensembling does not beat `392a`. The remaining
+failures are still level KS, coverage, and regime layer2, so the next move must improve
+the learned path law directly.
+
+### Idea
+
+Added `experiments/backfill/block_ar/IDEA_443a_quantile_coverage_pathlaw_objective.md`.
+
+The proposed `444a` objective starts from `392a` and combines:
+
+- FM anchor;
+- path-energy anchor;
+- IV-level quantile matching across batch/horizon/cell;
+- interval pinball loss for generated q05/q95 boundaries.
+
+This is different from `410a` marginal CRPS because it directly targets level quantiles
+and interval boundaries in IV space, not only univariate CRPS in score space.
+
+### Decision
+
+Implement and run `444a` as one modest-weight learned fine-tune. If it does not improve
+the `392a` frontier without damaging conditionality/time-series/structure, treat this
+fine-tune loss family as capped and move to a larger learned-core change.
+
+---
