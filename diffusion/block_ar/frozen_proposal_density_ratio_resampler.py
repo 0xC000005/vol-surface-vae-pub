@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import asdict, dataclass
 
 import torch
@@ -26,6 +25,7 @@ class FrozenProposalDensityRatioConfig:
     candidate_multiplier: int = 4
     candidate_chunk_size: int = 8
     max_score_chunk: int = 64
+    logit_strength: float = 1.0
 
 
 class FrozenProposalDensityRatioScorer(nn.Module):
@@ -242,6 +242,7 @@ class FrozenProposalDensityRatioScenarioGenerator(nn.Module):
             future_scores,
             score_chunk=self.cfg.max_score_chunk,
         )
+        logits = float(self.cfg.logit_strength) * logits
         probs = torch.softmax(logits.float(), dim=1)
         replacement = candidate_count < int(n_samples)
         index = torch.multinomial(probs, num_samples=int(n_samples), replacement=replacement)

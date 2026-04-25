@@ -97498,3 +97498,45 @@ or close the frozen-proposal branch if the goal is only to pursue paths with pla
 11/11 upside.
 
 ---
+## 2026-04-25: Autoresearch 484 density-ratio strength 0.5 ablation
+
+### Context
+483a showed that frozen-proposal density-ratio resampling was directionally useful but
+too strong: it nearly fixed coverage and improved level KS, but weakened conditionality
+and failed one cointegration worst-cell gate. The clean follow-up was a single
+probability-tempering ablation, not a new architecture.
+
+### Execute
+- Added `logit_strength` to `FrozenProposalDensityRatioConfig`.
+- Created `models/backfill/484a_density_ratio_strength050_s42/best_model.pt` by copying
+  the trained 483a checkpoint and setting `logit_strength=0.5`.
+- Evaluated `results/block_ar/484a_density_ratio_strength050_s42/full11.json`.
+
+### Result
+484a reached 7/11. It passed surface validity, time-series properties, block-AR,
+cointegration, cross-cell correlation, mean reversion, and pathwise jump realism. It
+failed coverage, conditionality, regime coverage, and distributional fidelity.
+
+Key metrics:
+- Coverage90 `0.863`, calibration error `0.026`; h1/h7/h14/h30 lower coverage floors
+  passed, but h14 and h30 best cells were still above the `95%` cap.
+- Conditionality MAE reduction improved from 483a's `3.47%` to `4.8%`, but remained
+  below the `>5%` gate.
+- Cointegration recovered: aggregate ratio `0.773`, worst-cell ratio `0.281`.
+- Daily-change KS `25/25`; level KS `13/25`; median-bias `20/25`; bias magnitude `25/25`.
+- Correlation ratio `0.967`, rank ratio `1.498`, mean-reversion active pass `86.8%`,
+  pathwise max-jump KS `0.358`.
+
+### Mechanism Read
+Tempering the density-ratio weights repaired the most obvious damage from 483a while
+keeping some allocation benefit. The branch is now close to the 392a frontier but still
+not better: conditionality is just under gate, level KS remains below `15/25`, and
+regime layer-2 coverage remains the persistent hard failure.
+
+### Decision
+Run one lower-strength ablation (`0.25`) before closing the branch. This is justified
+because strength `0.5` moved conditionality and cointegration in the right direction,
+and a lower strength may pass conditionality while retaining enough coverage/level
+improvement. If `0.25` cannot exceed the 8/11 frontier, stop scalar strength tuning.
+
+---
