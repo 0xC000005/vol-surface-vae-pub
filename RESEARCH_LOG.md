@@ -98388,3 +98388,35 @@ Continue the new program only if an early checkpoint:
 Do not run more local `392a` objective/source/wrapper experiments. At hard-cap iteration `519`, write the final in-session closure checkpoint with the current frontier, artifacts, and exact resume path for either a new learned-law branch or a policy-calibrated risk-system branch.
 
 ---
+## 2026-04-25: Autoresearch 519a in-session hard-cap closure
+
+### Context
+
+The configured in-session hard cap is iteration `519`. The target was deployable `11/11`; the current deployable learned frontier remains `8/11`.
+
+### Closure Artifact
+
+Wrote `experiments/backfill/block_ar/DECISION_519a_in_session_closure_checkpoint.md`.
+
+### Frontier
+
+- `392a`: `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt`, `8/11`, failed coverage, regime coverage, distributional fidelity.
+- `510a`: `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`, `8/11`, same failed suites, better aggregate coverage/path geometry but thinner structural margins.
+- `435a`: `11/11` oracle feasibility only, non-deployable because it uses validation futures.
+
+### Mechanism
+
+The learned generator models local shape, serial behavior, correlation, and conditional response well enough for eight suites. It fails on future absolute level/regime occupancy while preserving conditionality, cointegration, and jump realism.
+
+The oracle proves the suite is mechanically satisfiable, but the current local IV-only learned-law setup has not made that occupancy learnable.
+
+### Stop Reason
+
+Stop because the configured hard cap was reached, not because the goal was reached. Continuing the same local `392a`/`510a` repair line would be brute-force knob search and would violate the clean-pathology guard.
+
+### Resume Paths
+
+- New learned-law program: start from `experiments/backfill/block_ar/PLAN_518a_next_learned_law_program.md`.
+- Deployable risk-system branch: report base learned metrics separately from a policy calibration layer and do not claim policy calibration as learned conditional-law improvement.
+
+---
