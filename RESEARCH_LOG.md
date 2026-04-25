@@ -98141,3 +98141,20 @@ The final checkpoint recovers the same `8/11` failure set as 392a. It improves c
 Promote 510a as an active `8/11` frontier tie, not a strict replacement for 392a. Next step should compare 392a versus 510a to decide whether the improved coverage geometry is a better anchor or whether 392a remains safer due to stronger structural margins.
 
 ---
+## 2026-04-25: Autoresearch 511a frontier comparison
+
+### Context
+510a recovered an `8/11` frontier tie from the patch-energy final checkpoint. 511a compared it directly against the prior active 392a frontier.
+
+### Result
+Artifact: `experiments/backfill/block_ar/ANALYSIS_511a_392a_vs_510a_frontier.md`.
+
+Both 392a and 510a score `8/11` and fail the same suites: coverage, regime_coverage, and distributional_fidelity. 510a has coverage90 `0.8732` versus `0.8675`, zero under-70 cells versus one, and path KS `0.361` versus `0.373`. But 510a has more over-95 cells (`13` versus `10`) and thinner cointegration margin (`0.257` versus `0.278`).
+
+### Mechanism Read
+510a is a frontier tie, not a strict replacement. The hard bottlenecks are unchanged: level KS `10/25` and regime layer2 `0/8`. The patch-energy trajectory moved along the frontier rather than breaking through it.
+
+### Decision
+Keep 392a as the safer structural anchor and 510a as a risk-coverage frontier tie. Run one midpoint checkpoint interpolation between 392a and 510a final as 512a. If it does not beat `8/11` or materially improve the remaining failures, close interpolation immediately.
+
+---
