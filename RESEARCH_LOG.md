@@ -98035,3 +98035,20 @@ The model is fast and trainable, but it over-fragments surface geometry. The gen
 Close minimal MixLinear direct-path flow as below-frontier. Do not scale this exact architecture by width/layers by default. Next iteration should be post-experiment architecture analysis: decide whether the one allowed core bias, a narrow learned bottleneck/shared-factor geometry, is necessary, or whether direct-path new-core experiments should be closed and the 392a AR transition frontier retained.
 
 ---
+## 2026-04-25: Autoresearch 506a post MixLinear architecture decision
+
+### Context
+505a falsified the naive parameter-efficient MixLinear/Minkowski-linear transfer: the `67,849` parameter direct path model trained quickly but scored only `2/11`.
+
+### Result
+Artifact: `experiments/backfill/block_ar/ANALYSIS_506a_post_mixlinear_architecture_decision.md`.
+
+The analysis isolates the mechanism: 505a over-fragments the generated surface law. Cross-cell corr ratio is `0.376`, rank ratio is `3.337`, daily KS is `10/25`, level KS is `2/25`, path KS is `0.573`, and conditionality MAE reduction is only `2.29%`.
+
+### Mechanism Read
+The small linear mixer has local capacity but not enough shared surface geometry. The reset doctrine permits one core bias: a narrow learned bottleneck/shared-factor geometry. For a flow, the least intrusive version is the source distribution, not a decoder constraint or post-hoc policy.
+
+### Decision
+Run one direct-path shared-source-noise falsifier next. Keep the empirical normal-score full-path FM objective and axial direct-path core, but replace independent `x0` source noise with a shared-factor/local-noise mixture used consistently in training and sampling. If this cannot improve structure without losing level occupancy, close direct-path new-core work again.
+
+---
