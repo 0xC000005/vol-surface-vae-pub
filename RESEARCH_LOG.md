@@ -96737,3 +96737,44 @@ This is safer than marginal level quantile calibration, but still not enough. Ce
 Do not tune this global scale table further. The next calibration falsifier, if pursued, must be regime-aware and/or residual-quantile based while preserving the conditional center. Otherwise the path should return to learned-law changes rather than stacking calibration knobs.
 
 ---
+## 2026-04-25: Autoresearch 463a regime-aware residual scale falsifier
+
+### Context
+462a showed that center-preserving residual scale calibration is safer than marginal level calibration but too global: it improved average coverage and preserved geometry, yet failed coverage, conditionality, time_series, regime_coverage, and level KS. The next direct falsifier added only one structural refinement: separate residual scale tables for calm/mid/turb history-variance buckets fit on the same pre-validation panel.
+
+### Experiment
+Ran `463a_regime_center_residual_scale_392a`:
+
+- base model: unchanged `392a` loaded as `340c`;
+- calibration panel: 441 recent pre-validation windows, 48 samples per history;
+- regime bins: calibration-history realized variance Q20/Q80 buckets;
+- transform: per-regime/per-horizon/per-cell residual scaling around the sample median center;
+- validation: standard 192-window, 48-sample 11-suite.
+
+Artifacts:
+
+- script: `experiments/backfill/block_ar/evaluate_462a_center_preserving_residual_scale_392a.py`
+- result: `results/block_ar/463a_regime_center_residual_scale_392a/full11.json`
+- scale map: `results/block_ar/463a_regime_center_residual_scale_392a/scale_map.json`
+
+### Result
+`463a` scored `7/11`. Failed suites: coverage, conditionality, regime_coverage, distributional_fidelity.
+
+Key metrics:
+
+- scale range `0.65` to `1.35`, mean `1.085`;
+- coverage90 `0.8965`, calibration error `0.0061`;
+- per-cell coverage still fails by high-side overcoverage at h7/h14/h30; h1 now passes;
+- conditionality MAE reduction `4.86%`, just below the `5%` gate;
+- time_series restored to pass;
+- level KS improved to `12/25`, still below the `15/25` gate;
+- regime layer-2 improved only to `1/8`;
+- cross-cell, mean-reversion, cointegration, and pathwise realism still pass.
+
+### Mechanism Read
+Regime-aware center-preserving residual scaling is directionally better than global scaling: it fixes average calibration and time-series while mostly preserving the learned geometry. The remaining miss is not average width; it is localized late-horizon/regime-cell overcoverage plus the persistent level-KS mismatch. Conditionality is borderline rather than structurally collapsed.
+
+### Decision
+The residual-calibration route remains alive for one more minimal falsifier. The next change should not add a new architecture; it should adjust the calibration target/penalty or add a center-preserving residual quantile step specifically to reduce late-horizon high-side overcoverage and improve level KS while preserving conditionality.
+
+---

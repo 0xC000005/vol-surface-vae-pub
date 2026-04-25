@@ -152,16 +152,98 @@ def fit_center_residual_scales(
     return scales, fit_summary
 
 
-def apply_center_residual_scales(samples: np.ndarray, scales: np.ndarray) -> np.ndarray:
+def _history_variance(history_01: np.ndarray) -> np.ndarray:
+    dhist = np.diff(history_01, axis=1)
+    return (dhist**2).mean(axis=(1, 2, 3))
+
+
+def _assign_bins(history_01: np.ndarray, thresholds: tuple[float, float] | None) -> np.ndarray:
+    if thresholds is None:
+        return np.zeros(history_01.shape[0], dtype=np.int64)
+    vov = _history_variance(history_01)
+    lo, hi = thresholds
+    return np.where(vov <= lo, 0, np.where(vov >= hi, 2, 1)).astype(np.int64)
+
+
+def fit_binned_center_residual_scales(
+    samples: np.ndarray,
+    ground_truth: np.ndarray,
+    bins: np.ndarray,
+    n_bins: int,
+    candidates: np.ndarray,
+    target_coverage: float,
+    scale_penalty: float,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    global_scales, global_summary = fit_center_residual_scales(
+        samples,
+        ground_truth,
+        candidates=candidates,
+        target_coverage=target_coverage,
+        scale_penalty=scale_penalty,
+    )
+    scales = np.repeat(global_scales[None], n_bins, axis=0)
+    bin_summaries: list[dict[str, Any]] = []
+    for bin_idx in range(n_bins):
+        mask = bins == bin_idx
+        if int(mask.sum()) < 16:
+            bin_summaries.append(
+                {
+                    "bin": bin_idx,
+                    "n_windows": int(mask.sum()),
+                    "fallback": "global",
+                }
+            )
+            continue
+        bin_scales, bin_summary = fit_center_residual_scales(
+            samples[mask],
+            ground_truth[mask],
+            candidates=candidates,
+            target_coverage=target_coverage,
+            scale_penalty=scale_penalty,
+        )
+        scales[bin_idx] = bin_scales
+        bin_summary = dict(bin_summary)
+        bin_summary.update({"bin": bin_idx, "n_windows": int(mask.sum())})
+        bin_summaries.append(bin_summary)
+    fit_summary = {
+        "target_coverage": float(target_coverage),
+        "scale_penalty": float(scale_penalty),
+        "n_bins": int(n_bins),
+        "scale_min": float(scales.min()),
+        "scale_max": float(scales.max()),
+        "scale_mean": float(scales.mean()),
+        "global_summary": global_summary,
+        "bin_summaries": bin_summaries,
+    }
+    return scales.astype(np.float32), fit_summary
+
+
+def apply_center_residual_scales(
+    samples: np.ndarray,
+    scales: np.ndarray,
+    bins: np.ndarray | None = None,
+) -> np.ndarray:
     center = np.median(samples, axis=1, keepdims=True)
-    scaled = center + scales[None, None] * (samples - center)
+    if scales.ndim == 3:
+        scale_arr = scales[None, None]
+    else:
+        if bins is None:
+            raise ValueError("bins are required for binned scales")
+        scale_arr = scales[bins][:, None]
+    scaled = center + scale_arr * (samples - center)
     return np.clip(scaled, 0.0, 1.0)
 
 
 class CenterResidualScaleWrapper:
-    def __init__(self, base_model: torch.nn.Module, scales: np.ndarray):
+    def __init__(
+        self,
+        base_model: torch.nn.Module,
+        scales: np.ndarray,
+        thresholds: tuple[float, float] | None = None,
+    ):
         self.base_model = base_model
         self.scales_np = scales.astype(np.float32)
+        self.thresholds = thresholds
         self.scales: torch.Tensor | None = None
 
     def eval(self):
@@ -176,6 +258,19 @@ class CenterResidualScaleWrapper:
         if self.scales is None or self.scales.device != samples.device:
             self.scales = torch.from_numpy(self.scales_np).to(samples.device)
         return self.scales.to(dtype=samples.dtype)
+
+    def _bins_for_history(self, history: torch.Tensor, history_is_normalized: bool) -> torch.Tensor:
+        if self.thresholds is None:
+            return torch.zeros(history.shape[0], device=history.device, dtype=torch.long)
+        history_01 = denormalize_iv(history) if history_is_normalized else history
+        dhist = history_01[:, 1:] - history_01[:, :-1]
+        vov = dhist.square().mean(dim=(1, 2, 3))
+        lo, hi = self.thresholds
+        return torch.where(
+            vov <= lo,
+            torch.zeros_like(vov, dtype=torch.long),
+            torch.where(vov >= hi, torch.full_like(vov, 2, dtype=torch.long), torch.ones_like(vov, dtype=torch.long)),
+        )
 
     @torch.no_grad()
     def sample_batched(
@@ -197,7 +292,12 @@ class CenterResidualScaleWrapper:
         )
         scales = self._scales_for(samples)[: samples.shape[2]]
         center = samples.median(dim=1, keepdim=True).values
-        return (center + scales[None, None] * (samples - center)).clamp(0.0, 1.0)
+        if scales.ndim == 3:
+            scale_arr = scales[None, None]
+        else:
+            bins = self._bins_for_history(history, history_is_normalized)
+            scale_arr = scales[bins, : samples.shape[2]][:, None]
+        return (center + scale_arr * (samples - center)).clamp(0.0, 1.0)
 
 
 def main() -> None:
@@ -228,6 +328,11 @@ def main() -> None:
     parser.add_argument("--max_scale", type=float, default=1.35)
     parser.add_argument("--n_scale_candidates", type=int, default=29)
     parser.add_argument("--scale_penalty", type=float, default=0.002)
+    parser.add_argument(
+        "--regime_bins",
+        choices=["none", "history_vov_q20_q80"],
+        default="none",
+    )
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--output_json", type=str, required=True)
     parser.add_argument("--output_md", type=str, required=True)
@@ -256,13 +361,29 @@ def main() -> None:
         chunk_size=args.chunk_size,
     )
     candidates = np.linspace(args.min_scale, args.max_scale, args.n_scale_candidates)
-    scales, fit_summary = fit_center_residual_scales(
-        calib_samples,
-        calib_future.detach().cpu().numpy(),
-        candidates=candidates,
-        target_coverage=args.target_coverage,
-        scale_penalty=args.scale_penalty,
-    )
+    calib_history_np = calib_hist.detach().cpu().numpy()
+    thresholds = None
+    if args.regime_bins == "history_vov_q20_q80":
+        calib_vov = _history_variance(calib_history_np)
+        thresholds = (float(np.quantile(calib_vov, 0.2)), float(np.quantile(calib_vov, 0.8)))
+        calib_bins = _assign_bins(calib_history_np, thresholds)
+        scales, fit_summary = fit_binned_center_residual_scales(
+            calib_samples,
+            calib_future.detach().cpu().numpy(),
+            bins=calib_bins,
+            n_bins=3,
+            candidates=candidates,
+            target_coverage=args.target_coverage,
+            scale_penalty=args.scale_penalty,
+        )
+    else:
+        scales, fit_summary = fit_center_residual_scales(
+            calib_samples,
+            calib_future.detach().cpu().numpy(),
+            candidates=candidates,
+            target_coverage=args.target_coverage,
+            scale_penalty=args.scale_penalty,
+        )
 
     scale_path = Path(args.scale_map_json)
     scale_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +394,7 @@ def main() -> None:
                 "checkpoint_epoch": int(payload.get("epoch", -1)),
                 "calibration_start": calib_start,
                 "calibration_end": calib_end,
+                "regime_thresholds": list(thresholds) if thresholds is not None else None,
                 "fit_summary": fit_summary,
                 "scales": scales.tolist(),
             },
@@ -280,7 +402,7 @@ def main() -> None:
         )
     )
 
-    wrapper = CenterResidualScaleWrapper(base_model, scales).eval()
+    wrapper = CenterResidualScaleWrapper(base_model, scales, thresholds=thresholds).eval()
     batch = build_rollout_windows(
         data_path=args.data_path,
         history_len=args.history_len,
@@ -299,7 +421,8 @@ def main() -> None:
         batch_size=args.batch_size,
         chunk_size=args.chunk_size,
     )
-    cond_samples = apply_center_residual_scales(val_base_samples, scales)
+    val_bins = _assign_bins(batch.history_01.detach().cpu().numpy(), thresholds)
+    cond_samples = apply_center_residual_scales(val_base_samples, scales, bins=val_bins)
     ground_truth = batch.future_01.detach().cpu().numpy()
     history_01 = batch.history_01.detach().cpu().numpy()
 
@@ -351,6 +474,7 @@ def main() -> None:
             "calibration_start": calib_start,
             "calibration_end": calib_end,
             "fit_summary": fit_summary,
+            "regime_thresholds": list(thresholds) if thresholds is not None else None,
             "rollout_start": int(rollout_start),
         },
         "surface": surface,
@@ -376,6 +500,14 @@ def main() -> None:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(make_serializable(results), indent=2))
 
+    fit_cov_before = fit_summary.get(
+        "coverage_before_mean",
+        fit_summary.get("global_summary", {}).get("coverage_before_mean", float("nan")),
+    )
+    fit_cov_after = fit_summary.get(
+        "coverage_after_mean",
+        fit_summary.get("global_summary", {}).get("coverage_after_mean", float("nan")),
+    )
     lines = [
         "- model: `462a_center_residual_scale_392a`",
         f"- base checkpoint: `{args.checkpoint}`",
@@ -388,7 +520,7 @@ def main() -> None:
         "**Calibration Fit**",
         f"- scale range: `{fit_summary['scale_min']:.3f}` to `{fit_summary['scale_max']:.3f}`",
         f"- scale mean: `{fit_summary['scale_mean']:.3f}`",
-        f"- calibration coverage mean: `{fit_summary['coverage_before_mean']:.3f}` -> `{fit_summary['coverage_after_mean']:.3f}`",
+        f"- calibration coverage mean: `{fit_cov_before:.3f}` -> `{fit_cov_after:.3f}`",
         "",
         "**Key Metrics**",
         f"- coverage90: `{coverage['overall'][0.9]:.3f}`",
