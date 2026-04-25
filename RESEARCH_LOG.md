@@ -95786,3 +95786,27 @@ The suite is not internally contradictory: a controlled sample law can satisfy a
 Do not update the learned frontier. `392a` remains the valid learned model at `8/11`. Next step should document the implication clearly: reaching `11/11` currently requires oracle/policy control, so future work must separate learned-law performance from calibrated risk-system performance.
 
 ---
+## 2026-04-24: Autoresearch 436 feasibility versus learned objective
+
+### Context
+
+435a reached `11/11` as a suite feasibility upper bound, but it is explicitly validation-oracle, non-deployable, and not a learned conditional law.
+
+### Result
+
+Added `experiments/backfill/block_ar/ANALYSIS_436a_feasibility_vs_learned_objective.md`.
+
+### Mechanism Read
+
+435a proves the suite is jointly satisfiable, so the 11 gates are not contradictory. It does not prove that the conditional law is learnable from history. The learned-model frontier remains `392a` at `8/11`.
+
+### Decision
+
+Do not mark the learned generator goal reached. The next step is a product/scientific decision:
+
+- report `392a` as learned `8/11`;
+- report `435a` only as oracle feasibility upper bound;
+- if a risk product requires `11/11`, build a separately reported deployable calibration policy;
+- if a paper requires one learned model to pass `11/11`, current evidence does not yet support that objective.
+
+---
