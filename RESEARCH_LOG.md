@@ -98420,3 +98420,30 @@ Stop because the configured hard cap was reached, not because the goal was reach
 - Deployable risk-system branch: report base learned metrics separately from a policy calibration layer and do not claim policy calibration as learned conditional-law improvement.
 
 ---
+## 2026-04-25: Autoresearch 520a remove iteration hard cap
+
+### Context
+
+The previous in-session loop stopped at iteration `519` because `state_11x11.json` had `hard_stop_iteration: 519`. The user explicitly requested removal of the iteration hard cap and continuation.
+
+### Change
+
+Removed the persisted iteration hard cap:
+
+- `autoresearch-session/goal_11x11.json`: changed `hard_stop_policy.type` from `absolute_iteration_cap` to `none`;
+- `autoresearch-session/state_11x11.json`: changed `hard_stop_iteration` from `519` to `null`;
+- advanced persistent state to iteration `520`.
+
+### Mechanism
+
+This changes loop control only. It does not change the scientific frontier:
+
+- current deployable learned frontier remains `392a`/`510a` at `8/11`;
+- `435a` remains an oracle-only `11/11` feasibility proof;
+- the local `392a`/`510a` repair line remains exhausted.
+
+### Decision
+
+Continue autoresearch without a numeric iteration hard cap. The next iteration should follow `PLAN_518a_next_learned_law_program.md` and begin the new learned-law program path with a data/pretraining readiness or scaffold iteration, not another local objective/source/wrapper tweak around `392a`.
+
+---

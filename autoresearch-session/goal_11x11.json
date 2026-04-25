@@ -32,9 +32,9 @@
   "primary_execution_mode": "in_session",
   "stop_file": "autoresearch-session/STOP",
   "hard_stop_policy": {
-    "type": "absolute_iteration_cap",
-    "current_iteration_at_policy_set": 63,
-    "max_additional_iterations": 200,
-    "stop_at_iteration": 263
+    "type": "none",
+    "removed_at_iteration": 520,
+    "removed_on": "2026-04-25",
+    "reason": "User requested removal of the iteration hard cap; continue until goal, STOP file, manual stop, or session/runtime limits."
   }
 }
