@@ -99064,3 +99064,23 @@ Removing overcoverage as a failure does not make the current system deployable. 
 Use `510a` only as the current IV-only prototype core. The next research step should not tune overcoverage or width. It should test whether existing non-IV factors contain stress-state signal and then move toward factor-conditioned or joint IV+factor scenario generation if that signal is material.
 
 ---
+## 2026-04-26: Autoresearch 553a factor-state signal audit
+
+### Context
+552a showed that removing high-side overcoverage as a failure does not make the current IV-only candidates fully presentable. The remaining blocker is conditional/regime stress inclusion plus missing factor linkage. The next principled question was whether the existing non-IV data contains stress-state signal.
+
+### Experiment
+Added `experiments/backfill/block_ar/audit_553a_factor_state_signal.py` and tests in `test_code/test_553a_factor_state_signal_audit.py`. The audit computed history-only summaries for `ret`, `price`, `slopes`, `skews`, and `levels`, then compared their rank correlations against future IV and return stress targets over the official validation framing.
+
+Artifacts: `results/autoresearch/553a_factor_state_signal/factor_signal.json`, `results/autoresearch/553a_factor_state_signal/factor_signal.md`, and `experiments/backfill/block_ar/ANALYSIS_553a_factor_state_signal.md`.
+
+### Result
+The factor signal is material. Best IV-history absolute Spearman was `0.576`, while best factor-history absolute Spearman was `0.799`. Strong signals included `price_hist_last` vs `future_ret_abs_mean` (`-0.799`), `levels_hist_last` vs `future_ret_abs_mean` (`0.757`), `levels_hist_last` vs `future_iv_level_mean` (`0.731`), and `price_hist_last` vs `future_iv_level_mean` (`-0.724`).
+
+### Mechanism Read
+The IV-only generator is missing observable state information that risk managers care about. Factor histories carry stronger signal for future stress states than IV history alone, so the persistent regime under-inclusion is not just a width/calibration problem.
+
+### Decision
+Stop focusing on overcoverage and IV-only width wrappers. The next serious model direction should be a factor-conditioned or joint IV+factor scenario generator. Keep `510a` as the current IV-only prototype core, but the next model should condition on observed return/price/level/slope/skew history and eventually generate factor-consistent paths.
+
+---
