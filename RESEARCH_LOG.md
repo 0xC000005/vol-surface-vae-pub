@@ -99352,3 +99352,37 @@ The smoke failure still shows that a weak synthetic prior plus a low-capacity un
 Keep the TimePFN-style branch alive. Do not compare the 560a smoke checkpoint to `510a` as a candidate model. The next HEAD iteration should run a scaled 561a experiment with 340c/392a-sized capacity, thousands of synthetic windows, full 441-window real adaptation, and official validation if runtime permits. The decisive question is whether synthetic-prior exposure improves lower stress/regime inclusion without sacrificing conditionality, dependence, mean reversion, and path realism.
 
 ---
+## 2026-04-26: Autoresearch 561a Scaled TimePFN Synthetic Prior
+
+### Context
+560a implemented and smoke-tested the TimePFN-style synthetic-prior scaffold. 561a scaled it to the 340c/392a-sized empirical-score AR flow backbone to test whether synthetic regime exposure helps the actual frontier-scale model.
+
+### Result
+Synthetic pretraining used `4096` synthetic windows for `8` epochs and reached best synthetic validation loss `0.2106`. Real-data adaptation used the full `441` recent windows for `8` epochs and reached best adaptation loss `0.7845`.
+
+Official-size full-suite artifact:
+- `results/autoresearch/561a_timepfn_synthetic_prior_scaled/full11.json`
+
+Score: `4/11`.
+Passed: `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`.
+Failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, `pathwise_jump_realism`.
+
+Key metrics:
+- coverage90 `0.888`, h30 worst-cell coverage `0.646`;
+- conditionality MAE reduction `3.1%`;
+- cointegration gen/GT ratio `0.869`, worst-cell ratio `0.263`;
+- regime layer2 `0/8`;
+- daily-change KS `10/25`, level KS `2/25`;
+- cross-cell correlation ratio `0.901`, rank ratio `1.965`;
+- mean-reversion aggregate ratio `0.444`;
+- pathwise max-jump KS `0.911`.
+
+### Mechanism Read
+The scaled synthetic prior improves basic support and dependence versus the tiny 560a smoke run, but it does not recover the real IV path law. Compared with `510a`, it is too weak on conditionality, lower long-horizon coverage, mean reversion, pathwise jump realism, and distributional fidelity.
+
+The likely failure is the training path: 392a/510a inherit a full real-data transition law before recent-window tuning, while 561a used synthetic pretraining followed only by 441 recent real windows. The recent adaptation window alone is too small to overwrite synthetic prior geometry and relearn real IV dynamics.
+
+### Decision / Next Step
+Close synthetic pretrain + recent-only adaptation as below frontier. Continue the TimePFN branch only in a more faithful form: synthetic pretrain, then broad real-data fine-tuning over a much larger pre-validation window set, then recent adaptation/evaluation. The next iteration is 562a using the 561a synthetic checkpoint with broad real fine-tuning.
+
+---
