@@ -99528,3 +99528,34 @@ The softer policy preserves most risk-system strengths but does not fix the depe
 Do not promote 565a. Keep 564a as the current best risk-manager prototype. If continuing policy-count tuning, run one opposite-bracket check at `256` candidates; if that does not improve cointegration/regime concerns, stop this tuning and package 564a with caveats.
 
 ---
+## 2026-04-26: Autoresearch 566a Stronger Stress Selection
+
+### Context
+
+After 564a established the strongest risk-manager prototype and 565a showed that a softer `96`-candidate policy did not repair the dependence/regime concerns, 566a tested the opposite bracket: `256` candidate paths per history, still selecting `48` severity-stratified scenarios from the `510a` base law.
+
+### Result
+
+- Artifact: `results/autoresearch/566a_510a_stress_selected_policy_c256/full11.json`
+- Score: `7/11`
+- Passed: `surface`, `conditionality`, `time_series`, `block_ar`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`
+- Failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`
+- coverage90: `0.900`
+- conditionality MAE reduction: `5.6%`
+- daily-change KS: `25/25`
+- level KS: `1/25`
+- cointegration gen/GT ratio: `0.627`
+- cointegration worst-cell ratio: `0.222`
+- regime layer2: `0/8`
+- mean-reversion ratio: `0.986`
+- pathwise max-jump KS: `0.492`
+
+### Mechanism Read
+
+Increasing candidate support improves aggregate cointegration relative to 564a, but the decisive worst-cell ratio remains unchanged at `0.222` and regime layer2 worsens from `1/8` to `0/8`. The same failure set persists across `96`, `192`, and `256` candidates.
+
+### Decision
+
+Do not promote 566a over 564a. Stop candidate-count tuning. The next principled step is to package 564a as the current risk-manager stress scenario prototype with explicit separation between the `510a` learned base law and the conservative stress-selection policy, plus clear caveats around non-calibrated frequencies, level KS, regime layer2, and the near-miss cointegration worst-cell.
+
+---
