@@ -98845,3 +98845,23 @@ The suite is not mainly bottlenecked on the one-step innovation family. It is bo
 Shift from panel likelihood heads to a targeted frontier-core synthesis: `392a` empirical-score AR transition flow plus aligned factor history conditioning plus patch/path proper scoring. Acceptance gate: recover at least `8/11` before further work, and improve level/regime behavior without losing conditionality or cointegration. If this falls below frontier, close this synthesis and stop returning to local `392a` variants.
 
 ---
+## 2026-04-25: Autoresearch 540a factor patch energy synthesis
+
+### Context
+539a selected one targeted synthesis of the only constructive learned ingredients seen so far: the 392a/525 empirical-score AR transition flow, aligned factor history conditioning, and 509a-style patch-energy proper scoring. The acceptance gate was at least the `8/11` frontier before any further work.
+
+### Result
+Implemented `experiments/backfill/block_ar/train_540a_factor_patch_energy_finetune.py` with tested factor-aware differentiable rollout sampling and combined FM + patch-energy loss. Focused tests passed (`5 passed` across 540a and 538a), py_compile passed, smoke train/eval ran, and the full live-factor 192-window suite scored `5/11`.
+
+Artifacts: `test_code/test_540a_factor_patch_energy.py`, `models/backfill/540a_factor_patch_energy_s540/best_model.pt`, `results/autoresearch/540a_factor_patch_energy_s540/full11.json`, `experiments/backfill/block_ar/ANALYSIS_540a_factor_patch_energy_result.md`.
+
+### Metrics
+Passes: surface, block_ar, cross_cell_correlation, mean_reversion, pathwise_jump_realism. Failures: coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity. Key metrics: cov90 `0.879`, conditional MAE reduction `4.2%`, daily KS `25/25`, level KS `9/25`, median-bias cells `20/25`, cointegration worst-cell ratio `0.246`, cross-cell corr ratio `0.970`, mean-reversion active cells `20/24`, pathwise max-jump KS `0.348`.
+
+### Mechanism Read
+The synthesis preserved structural geometry and daily-change realism but did not improve the hard future-level/regime bottleneck. It missed several thin gates, but the score remained below the `8/11` frontier and level KS fell below the best factor branch.
+
+### Decision / Next Step
+Close factor-plus-patch synthesis without sweeping patch length, weight, checkpoint epoch, or adaptation length. The local `392a` repair neighborhood has been re-tested with the strongest constructive ingredients and remains below frontier. Next step should be larger data/pretraining or frontier/deployability closure, not another local fine-tune knob.
+
+---
