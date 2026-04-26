@@ -99006,3 +99006,21 @@ Local learned-law objectives can move one hard suite but break another: local-sh
 Close further local learned-law architecture/objective mutation as the default route. If continuing without external data, pivot honestly to a deployable calibrated risk-system iteration: report the base learned model separately and add only training-data calibration/policy artifacts, with no validation oracle.
 
 ---
+## 2026-04-25: 550a data-framing causal-state audit
+
+### Context
+After 549a closed further local learned-law architecture mutation as the default route, the most principled next step was a diagnostic audit rather than another model change. The question was whether the deployable frontier is failing because of architecture, split/data framing, or missing state-aware reliability.
+
+### Execute
+Added `experiments/backfill/block_ar/audit_550a_data_framing_causal_state.py` and focused tests in `test_code/test_550a_data_framing_causal_state_audit.py`. Ran the current 392a/340c frontier checkpoint `models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt` on 192 official validation windows with 48 samples per window. Artifacts: `results/autoresearch/550a_data_framing_causal_state_audit_s550/audit.json`, `results/autoresearch/550a_data_framing_causal_state_audit_s550/audit.md`, and `experiments/backfill/block_ar/ANALYSIS_550a_data_framing_causal_state_audit.md`.
+
+### Result
+Mean 90% coverage was `0.867`, mean 90% width was `0.0904`, median MAE was `0.0259`, unconditional median MAE proxy was `0.0423`, and mean MAE reduction was `38.2%`. The official validation block has 441 rolling windows but only about `14.7` non-overlap-equivalent 30-day paths; the 192-window audit subset has about `6.4`.
+
+### Mechanism Read
+The model has real conditional center skill, but its dispersion is not reliably aligned with risk state. `history_abs_move_q90` strongly predicts realized future path max jump (`Spearman 0.609`) while being negatively associated with model width (`Spearman -0.312`). High `history_vov` windows had lower coverage (`0.840`) than low `history_vov` windows (`0.884`). High `history_abs_move_mean` windows also had lower coverage (`0.846`) than mid buckets (`0.893`).
+
+### Decision
+Do not reset architecture now. The next principled experiment should keep the generative backbone fixed and add a minimal, predeclared state-aware reliability protocol using history-only strata such as `history_abs_move_q90`, `history_vov`, and `last_mean`. Report base learned-law metrics separately from calibrated-system metrics.
+
+---
