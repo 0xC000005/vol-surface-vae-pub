@@ -99585,3 +99585,31 @@ The report separates:
 Treat `564a` as the current constrained deployable risk prototype: `510a` learned conditional IV law plus an explicitly disclosed conservative stress-selection policy. Do not continue candidate-count tuning. Further research should either move to a true joint multi-factor learned generator or add only transparent policy diagnostics that are not misrepresented as learned conditional probabilities.
 
 ---
+## 2026-04-26: Autoresearch 568a Risk Scenario Deck CLI
+
+### Context
+
+567a made the risk-manager deployment boundary explicit, but it was still a report. 568a added the operational artifact generator for the constrained 564a product.
+
+### Result
+
+Added:
+
+- `experiments/backfill/block_ar/generate_568a_risk_scenario_deck.py`
+- `test_code/test_568a_risk_scenario_deck_cli.py`
+- `experiments/backfill/block_ar/ANALYSIS_568a_risk_scenario_deck_cli.md`
+
+The CLI loads the `510a` learned base law, uses the 564a severity-stratified calm/central/stress policy, writes a compressed scenario deck, and writes a manifest that explicitly states the selected deck is a stress scenario set rather than calibrated probabilities.
+
+### Verification
+
+- TDD red check: initial focused test failed because the CLI module did not exist.
+- Focused regression: `pytest test_code/test_564a_stress_selection_policy.py test_code/test_568a_risk_scenario_deck_cli.py -q` -> `4 passed`.
+- Smoke generation artifact: `results/autoresearch/568a_564a_risk_scenario_deck/smoke_manifest.json`
+- Smoke shape: `(6, 30, 5, 5)` with `2` calm, `2` central, and `2` stress labels.
+
+### Decision
+
+Under the constrained risk-manager framing, the current system is now both presentable and runnable: 567a is the deployment contract, and 568a is the artifact generator. This does not solve the original 11/11 learned-law objective. Further research should move to a true joint multi-factor generator rather than more IV-only selection-policy tuning.
+
+---
