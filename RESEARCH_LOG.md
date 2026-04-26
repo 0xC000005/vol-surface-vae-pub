@@ -98991,3 +98991,18 @@ Artifacts: `models/backfill/548a_local_shift_unpaired_raw_iv_sw_s548/best_model.
 Close the local-shift objective family. Pure local shift misses level/reversion, paired raw-IV energy collapses support, and unpaired raw-IV SW is too weak to recover frontier. Next HEAD step should be a postmortem/paradigm decision, not SW-weight/projection/window/checkpoint sweeps.
 
 ---
+## 2026-04-25: Autoresearch 549a local learned-law boundary
+
+### Context
+548a closed the local-shift objective family below frontier. The loop needed a postmortem rather than another local objective knob.
+
+### Result
+Created `experiments/backfill/block_ar/DECISION_549a_local_learned_law_boundary.md`. The deployable learned frontier remains `392a`/`510a` at `8/11`; newer clean branches did not break the long-horizon level/support/conditionality tradeoff.
+
+### Mechanism Read
+Local learned-law objectives can move one hard suite but break another: local-shift modeling preserves support but misses level/reversion, paired raw-IV energy improves level/reversion but collapses support, and unpaired raw-IV SW preserves support but is too weak. The remaining requirements appear too much for the single-SPX learned law without more data or a policy layer.
+
+### Decision / Next Step
+Close further local learned-law architecture/objective mutation as the default route. If continuing without external data, pivot honestly to a deployable calibrated risk-system iteration: report the base learned model separately and add only training-data calibration/policy artifacts, with no validation oracle.
+
+---
