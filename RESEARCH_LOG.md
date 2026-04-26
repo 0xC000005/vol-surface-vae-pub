@@ -98942,3 +98942,20 @@ The 544a local frame over-optimized the normalized short-horizon motion law whil
 Run one decisive 546a falsifier: local-score flow-matching anchor plus differentiable raw-IV rollout path energy/Wasserstein-style alignment. Acceptance gate: recover at least `8/11`, improve level KS and mean-reversion strength relative to 544a, and preserve daily-change KS, cross-cell correlation, and pathwise jump realism.
 
 ---
+## 2026-04-25: Autoresearch 546a raw-IV path energy result
+
+### Context
+545a selected one decisive local-data falsifier: keep the 544a local-shift empirical-score AR generator, but add differentiable raw-IV path energy alignment so the generator is trained in the same coordinate where risk scenarios are consumed.
+
+### Result
+Implemented `experiments/backfill/block_ar/train_546a_local_shift_raw_iv_energy_finetune.py` and `test_code/test_546a_raw_iv_energy_finetune.py`. Focused tests passed (`5 passed` across 546a/544a), py_compile passed, full fine-tune selected epoch 2, and the official 192-window 11-suite scored `4/11`.
+
+Artifacts: `models/backfill/546a_local_shift_raw_iv_energy_s546/best_model.pt`, `results/autoresearch/546a_local_shift_raw_iv_energy_s546/full11.json`, and `experiments/backfill/block_ar/ANALYSIS_546a_local_shift_raw_iv_energy_result.md`.
+
+### Mechanism Read
+The objective moved intended metrics but damaged deployability. Level KS improved from `4/25` to `14/25`, mean-reversion ratio improved from `0.360` to `0.453`, and turb/calm width improved to `1.194`. But aggregate coverage collapsed to `0.721`, pathwise max-jump KS worsened to `0.772`, and the score dropped below 544a.
+
+### Decision / Next Step
+Close the local-shift plus raw-IV-energy branch without sweeping weights or epochs. The branch now shows a support-vs-level tradeoff: tightening toward raw realized paths helps level/reversion but removes too much conditional support and jump diversity. Next HEAD step should be a paradigm decision/postmortem, not another local objective knob.
+
+---
