@@ -98910,3 +98910,20 @@ Recent clean branches through 540a confirm the same bottleneck: local models can
 Do not continue local autoresearch by mutating temperatures, source noise, mixture heads, patch weights, factor branches, or calibration wrappers. Further principled progress requires external multi-underlying option-surface data and a canonical pretraining panel, or a revised deployment framing that reports `392a`/`510a` as the honest local learned frontier.
 
 ---
+## 2026-04-25: Autoresearch 544a local shift-normalized AR flow
+
+### Context
+The user ruled out external data, so 544a tested the one remaining clean local-data idea from the recent time-series synthesis: keep the empirical-score AR flow core but model in a causal shift-normalized coordinate frame. The model centers by the last history level, scales by trailing history movement, conditions on the removed center/log-scale, and inverts samples back to IV levels.
+
+### Result
+Implemented `diffusion/block_ar/local_shift_normalized_empirical_score_transition_flow_matching.py`, `experiments/backfill/block_ar/train_544a_local_shift_normalized_ar_flow.py`, evaluator wiring, and focused tests. Full training selected epoch 23 and the official 192-window 11-suite scored `5/11`.
+
+Artifacts: `models/backfill/544a_local_shift_normalized_ar_flow_s544/best_model.pt`, `results/autoresearch/544a_local_shift_normalized_ar_flow_s544/full11.json`, and `experiments/backfill/block_ar/ANALYSIS_544a_local_shift_normalized_result.md`.
+
+### Mechanism Read
+544a passed `surface`, `block_ar`, `cointegration`, `cross_cell_correlation`, and `pathwise_jump_realism`. It failed `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, and `mean_reversion`. The local frame repaired daily-change shape (`25/25` KS cells), cross-cell ratio (`1.004`), and path jumps (`0.359` max-jump KS), but level KS stayed poor (`4/25`) and mean-reversion strength was too weak (`0.360` aggregate ratio).
+
+### Decision / Next Step
+Do not sweep local scale floors, temperatures, or feature modes. 544a is below the `392a`/`510a` `8/11` learned frontier. The next HEAD step should be post-experiment ideation on learning long-horizon conditional level allocation/reversion without returning to hand-engineered center/residual splits or post-hoc policy calibration.
+
+---
