@@ -1,0 +1,438 @@
+{
+  "min_cell": 0.7,
+  "max_cell": 0.95,
+  "worst_undercovered_value": 0.38461538461538464,
+  "candidate_summaries": [
+    {
+      "name": "510a_patch_energy",
+      "original_n_pass": 8,
+      "failed_suites": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "layer1_pass": true,
+      "layer3_pass": true,
+      "layer2_n_passing": 0,
+      "layer2_n_total": 8,
+      "n_undercovered_layer2": 6,
+      "n_overcovered_layer2": 8,
+      "worst_layer2": {
+        "candidate": "510a_patch_energy",
+        "regime": "turb",
+        "horizon": "30",
+        "worst": 0.5384615384615384,
+        "best": 0.9743589743589743,
+        "worst_cell": [
+          2,
+          3
+        ],
+        "best_cell": [
+          2,
+          0
+        ],
+        "undercovered": true,
+        "overcovered": true
+      },
+      "rows": [
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "turb",
+          "horizon": "30",
+          "worst": 0.5384615384615384,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            2,
+            3
+          ],
+          "best_cell": [
+            2,
+            0
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "calm",
+          "horizon": "30",
+          "worst": 0.5641025641025641,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            3,
+            4
+          ],
+          "best_cell": [
+            0,
+            2
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "turb",
+          "horizon": "7",
+          "worst": 0.5641025641025641,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            4,
+            3
+          ],
+          "best_cell": [
+            0,
+            3
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "turb",
+          "horizon": "14",
+          "worst": 0.5641025641025641,
+          "best": 1.0,
+          "worst_cell": [
+            4,
+            3
+          ],
+          "best_cell": [
+            1,
+            1
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "calm",
+          "horizon": "1",
+          "worst": 0.6153846153846154,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            1,
+            0
+          ],
+          "best_cell": [
+            3,
+            1
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "calm",
+          "horizon": "14",
+          "worst": 0.6410256410256411,
+          "best": 1.0,
+          "worst_cell": [
+            0,
+            3
+          ],
+          "best_cell": [
+            2,
+            2
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "turb",
+          "horizon": "1",
+          "worst": 0.717948717948718,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            1,
+            3
+          ],
+          "best_cell": [
+            4,
+            0
+          ],
+          "undercovered": false,
+          "overcovered": true
+        },
+        {
+          "candidate": "510a_patch_energy",
+          "regime": "calm",
+          "horizon": "7",
+          "worst": 0.7435897435897436,
+          "best": 1.0,
+          "worst_cell": [
+            1,
+            0
+          ],
+          "best_cell": [
+            2,
+            1
+          ],
+          "undercovered": false,
+          "overcovered": true
+        }
+      ]
+    },
+    {
+      "name": "555a_local_factor_core",
+      "original_n_pass": 8,
+      "failed_suites": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "layer1_pass": true,
+      "layer3_pass": true,
+      "layer2_n_passing": 0,
+      "layer2_n_total": 8,
+      "n_undercovered_layer2": 5,
+      "n_overcovered_layer2": 7,
+      "worst_layer2": {
+        "candidate": "555a_local_factor_core",
+        "regime": "turb",
+        "horizon": "30",
+        "worst": 0.38461538461538464,
+        "best": 1.0,
+        "worst_cell": [
+          2,
+          3
+        ],
+        "best_cell": [
+          4,
+          0
+        ],
+        "undercovered": true,
+        "overcovered": true
+      },
+      "rows": [
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "turb",
+          "horizon": "30",
+          "worst": 0.38461538461538464,
+          "best": 1.0,
+          "worst_cell": [
+            2,
+            3
+          ],
+          "best_cell": [
+            4,
+            0
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "turb",
+          "horizon": "7",
+          "worst": 0.5384615384615384,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            4,
+            3
+          ],
+          "best_cell": [
+            0,
+            3
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "calm",
+          "horizon": "1",
+          "worst": 0.6153846153846154,
+          "best": 0.9743589743589743,
+          "worst_cell": [
+            1,
+            0
+          ],
+          "best_cell": [
+            3,
+            3
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "calm",
+          "horizon": "30",
+          "worst": 0.6666666666666666,
+          "best": 1.0,
+          "worst_cell": [
+            0,
+            3
+          ],
+          "best_cell": [
+            1,
+            1
+          ],
+          "undercovered": true,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "turb",
+          "horizon": "1",
+          "worst": 0.6666666666666666,
+          "best": 0.9230769230769231,
+          "worst_cell": [
+            1,
+            3
+          ],
+          "best_cell": [
+            4,
+            0
+          ],
+          "undercovered": true,
+          "overcovered": false
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "turb",
+          "horizon": "14",
+          "worst": 0.7435897435897436,
+          "best": 1.0,
+          "worst_cell": [
+            4,
+            3
+          ],
+          "best_cell": [
+            3,
+            1
+          ],
+          "undercovered": false,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "calm",
+          "horizon": "7",
+          "worst": 0.7692307692307693,
+          "best": 1.0,
+          "worst_cell": [
+            0,
+            4
+          ],
+          "best_cell": [
+            4,
+            0
+          ],
+          "undercovered": false,
+          "overcovered": true
+        },
+        {
+          "candidate": "555a_local_factor_core",
+          "regime": "calm",
+          "horizon": "14",
+          "worst": 0.7948717948717948,
+          "best": 1.0,
+          "worst_cell": [
+            0,
+            3
+          ],
+          "best_cell": [
+            0,
+            2
+          ],
+          "undercovered": false,
+          "overcovered": true
+        }
+      ]
+    }
+  ],
+  "stable_undercovered_cells": [
+    {
+      "regime": "turb",
+      "horizon": "30",
+      "cell": [
+        2,
+        3
+      ],
+      "candidate_count": 2,
+      "min_worst": 0.38461538461538464,
+      "mean_worst": 0.46153846153846156
+    },
+    {
+      "regime": "turb",
+      "horizon": "7",
+      "cell": [
+        4,
+        3
+      ],
+      "candidate_count": 2,
+      "min_worst": 0.5384615384615384,
+      "mean_worst": 0.5512820512820513
+    },
+    {
+      "regime": "calm",
+      "horizon": "1",
+      "cell": [
+        1,
+        0
+      ],
+      "candidate_count": 2,
+      "min_worst": 0.6153846153846154,
+      "mean_worst": 0.6153846153846154
+    },
+    {
+      "regime": "calm",
+      "horizon": "30",
+      "cell": [
+        3,
+        4
+      ],
+      "candidate_count": 1,
+      "min_worst": 0.5641025641025641,
+      "mean_worst": 0.5641025641025641
+    },
+    {
+      "regime": "turb",
+      "horizon": "14",
+      "cell": [
+        4,
+        3
+      ],
+      "candidate_count": 1,
+      "min_worst": 0.5641025641025641,
+      "mean_worst": 0.5641025641025641
+    },
+    {
+      "regime": "calm",
+      "horizon": "14",
+      "cell": [
+        0,
+        3
+      ],
+      "candidate_count": 1,
+      "min_worst": 0.6410256410256411,
+      "mean_worst": 0.6410256410256411
+    },
+    {
+      "regime": "calm",
+      "horizon": "30",
+      "cell": [
+        0,
+        3
+      ],
+      "candidate_count": 1,
+      "min_worst": 0.6666666666666666,
+      "mean_worst": 0.6666666666666666
+    },
+    {
+      "regime": "turb",
+      "horizon": "1",
+      "cell": [
+        1,
+        3
+      ],
+      "candidate_count": 1,
+      "min_worst": 0.6666666666666666,
+      "mean_worst": 0.6666666666666666
+    }
+  ],
+  "decision": "The blocker is localized regime/horizon/cell occupancy, not global width or persistent scenario collapse. Broadening every path would be a blunt fix and would likely damage authenticity. The next clean move should target hard conditional stress states through a learned objective or sampling law that allocates mass to sparse regime cells without evaluator-time cell tables."
+}

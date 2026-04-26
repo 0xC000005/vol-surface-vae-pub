@@ -99155,3 +99155,33 @@ Do not promote 555a over 510a. Keep it as evidence that local factors can enter 
 - `test_code/test_555a_local_factor_conditioning.py`
 
 ---
+## 2026-04-26: Autoresearch 556a regime under-inclusion geometry
+
+### Context
+555a tied the `8/11` frontier but did not become risk-manager deployable because regime lower-only inclusion remained the blocker. 556a analyzed whether that blocker is global width, persistent scenario collapse, or localized regime/horizon/cell occupancy.
+
+### Result
+Added `audit_556a_regime_underinclusion_geometry.py` and a focused parser test.
+
+Candidate comparison:
+- 510a: `8/11`, regime layer2 `0/8`, `6` undercovered layer2 combinations, `8` overcovered combinations, layer3 persistent severe undercoverage pass, worst row turb h30 cell `[2,3]` = `0.538`.
+- 555a: `8/11`, regime layer2 `0/8`, `5` undercovered layer2 combinations, `7` overcovered combinations, layer3 persistent severe undercoverage pass, worst row turb h30 cell `[2,3]` = `0.385`.
+
+Stable undercovered cells across candidates:
+- turbulent h30 cell `[2,3]`
+- turbulent h7 cell `[4,3]`
+- calm h1 cell `[1,0]`
+
+### Mechanism Read
+The deployability blocker is localized regime/horizon/cell occupancy, not global width and not persistent scenario collapse. Broadening every path is likely to damage authenticity and worsen high-side overcoverage. Factor conditioning helps conditionality but does not allocate enough probability mass to the sparse hard stress cells.
+
+### Decision
+The next clean move should target hard conditional stress states through a learned objective or sampling law that allocates mass to localized regime cells without evaluator-time cell tables. Do not add another factor side-channel, global widening policy, or post-hoc factor score calibration.
+
+### Artifacts
+- `experiments/backfill/block_ar/audit_556a_regime_underinclusion_geometry.py`
+- `experiments/backfill/block_ar/ANALYSIS_556a_regime_underinclusion_geometry.md`
+- `results/block_ar/556a_regime_underinclusion_geometry/audit.json`
+- `test_code/test_556a_regime_underinclusion_geometry.py`
+
+---
