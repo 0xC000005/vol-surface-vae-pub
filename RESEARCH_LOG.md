@@ -99559,3 +99559,29 @@ Increasing candidate support improves aggregate cointegration relative to 564a, 
 Do not promote 566a over 564a. Stop candidate-count tuning. The next principled step is to package 564a as the current risk-manager stress scenario prototype with explicit separation between the `510a` learned base law and the conservative stress-selection policy, plus clear caveats around non-calibrated frequencies, level KS, regime layer2, and the near-miss cointegration worst-cell.
 
 ---
+## 2026-04-26: Autoresearch 567a Risk-Manager Deployability Package
+
+### Context
+
+After 564a/565a/566a established that candidate-count tuning does not solve the remaining dependence/regime caveats, 567a moved from experimentation to product-boundary analysis. The goal was to determine whether the current system is risk-manager deployable under the revised stress-scenario framing.
+
+### Result
+
+Created `experiments/backfill/block_ar/REPORT_567a_564a_risk_manager_deployability_package.md`.
+
+The report separates:
+
+- base learned law: `510a` final checkpoint, `8/11`;
+- risk-policy stress deck: `564a`, `7/11`, severity-stratified selection from the 510a candidate law;
+- acceptable use: IV-surface stress exploration and risk committee challenge scenarios;
+- non-acceptable use: calibrated probabilities, capital model approval, or full multi-factor portfolio stress.
+
+### Mechanism Read
+
+`564a` is more useful to a risk manager than raw `510a` as a stress deck because it increases conditionality (`6.85%` vs `5.12%`) and keeps lower stress inclusion, daily-change realism, cross-cell dependence, mean reversion, and pathwise realism acceptable. The cost is deliberate distortion of level frequencies (`1/25` level KS), a near-miss in cointegration worst-cell ratio (`0.222` vs `0.25`), and incomplete regime layer2 (`1/8`).
+
+### Decision
+
+Treat `564a` as the current constrained deployable risk prototype: `510a` learned conditional IV law plus an explicitly disclosed conservative stress-selection policy. Do not continue candidate-count tuning. Further research should either move to a true joint multi-factor learned generator or add only transparent policy diagnostics that are not misrepresented as learned conditional probabilities.
+
+---
