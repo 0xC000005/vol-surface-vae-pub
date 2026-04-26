@@ -98927,3 +98927,18 @@ Artifacts: `models/backfill/544a_local_shift_normalized_ar_flow_s544/best_model.
 Do not sweep local scale floors, temperatures, or feature modes. 544a is below the `392a`/`510a` `8/11` learned frontier. The next HEAD step should be post-experiment ideation on learning long-horizon conditional level allocation/reversion without returning to hand-engineered center/residual splits or post-hoc policy calibration.
 
 ---
+## 2026-04-25: Autoresearch 545a dual-coordinate alignment idea
+
+### Context
+544a clarified that causal local shift-normalization is useful but incomplete: it fixed local motion, cross-cell structure, and path jumps, but still failed raw IV-level occupancy, mean-reversion strength, conditionality, and regime layer2 coverage.
+
+### Result
+Created `experiments/backfill/block_ar/IDEA_545a_dual_coordinate_joint_distribution_alignment.md`. A targeted literature refresh points toward objective/framing, not module stacking: DistDF motivates joint-distribution alignment, TimeBridge motivates preserving long-term non-stationary/cointegrating structure while mitigating short-term shift, and EvoMSN reinforces that normalization statistics are multi-scale state.
+
+### Mechanism Read
+The 544a local frame over-optimized the normalized short-horizon motion law while the deployment/evaluation target is the raw 30-day IV-level path law. The next clean move is therefore not another graph/frequency/expert module and not a local-scale sweep; it is to train the same single-stage generator under both coordinates.
+
+### Decision / Next Step
+Run one decisive 546a falsifier: local-score flow-matching anchor plus differentiable raw-IV rollout path energy/Wasserstein-style alignment. Acceptance gate: recover at least `8/11`, improve level KS and mean-reversion strength relative to 544a, and preserve daily-change KS, cross-cell correlation, and pathwise jump realism.
+
+---
