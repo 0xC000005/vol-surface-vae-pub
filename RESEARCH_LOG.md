@@ -99418,3 +99418,40 @@ Broad real fine-tuning recovered real dynamics that 561a lacked: daily-change KS
 Do not promote 562a. Keep the synthetic-prior branch alive for one final clean falsifier: initialize from 562a and apply the same patch-energy final adaptation used by the `510a` frontier. If that cannot recover lower coverage and pathwise realism without breaking recovered dynamics, close the local TimePFN-style synthetic-prior branch.
 
 ---
+## 2026-04-26: Autoresearch 563a TimePFN Patch-Energy Closure
+
+### Context
+562a recovered some real dynamics after broad real-data fine-tuning but stayed far below the `510a` risk prototype. 563a applied the same patch-energy final adaptation pattern that produced the `510a` frontier, initialized from the synthetic-pretrained + broad-real 562a checkpoint.
+
+### Result
+Patch-energy adaptation completed for `4` epochs from `models/backfill/562a_timepfn_synthetic_broad_real/best_model.pt`.
+
+Artifacts:
+- `models/backfill/563a_timepfn_synthetic_broad_real_patch_energy/final_model.pt`
+- `models/backfill/563a_timepfn_synthetic_broad_real_patch_energy/best_model.pt`
+- `results/autoresearch/563a_timepfn_synthetic_broad_real_patch_energy/full11_final.json`
+- `results/autoresearch/563a_timepfn_synthetic_broad_real_patch_energy/full11_best.json`
+- `experiments/backfill/block_ar/ANALYSIS_563a_timepfn_patch_energy_closure.md`
+
+Final checkpoint: `4/11`.
+Validation-best checkpoint: `5/11`.
+
+Best-checkpoint metrics:
+- coverage90 `0.856`, h30 worst-cell coverage `0.344`;
+- conditionality MAE reduction `3.9%`;
+- regime layer2 `0/8`;
+- daily-change KS `22/25`, level KS `7/25`;
+- cointegration ratio `0.800`, worst-cell ratio `0.278`;
+- cross-cell correlation ratio `0.698`;
+- mean-reversion aggregate ratio `0.672`;
+- pathwise max-jump KS `0.711`.
+
+### Mechanism Read
+Patch-energy recovered some local distributional shape and time-series behavior, but it did not fix the risk-manager blocker. Lower coverage is much worse than `510a`, conditionality is below gate, regime layer2 remains `0/8`, and pathwise realism remains below the relaxed gate.
+
+The local TimePFN-style synthetic-prior branch is now falsified for this data setting: scaffold works, scaled pretraining works technically, broad real fine-tuning works technically, but none approaches the `510a` risk prototype.
+
+### Decision / Next Step
+Close local synthetic-prior tuning. The next deployability path should be a separated risk-manager system around `510a`: keep `510a` as the base learned conditional law, then test an explicitly disclosed conservative stress-scenario selection policy that oversamples adverse but authentic candidate paths. Report it separately from calibrated-law metrics.
+
+---
