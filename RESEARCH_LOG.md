@@ -99084,3 +99084,29 @@ The IV-only generator is missing observable state information that risk managers
 Stop focusing on overcoverage and IV-only width wrappers. The next serious model direction should be a factor-conditioned or joint IV+factor scenario generator. Keep `510a` as the current IV-only prototype core, but the next model should condition on observed return/price/level/slope/skew history and eventually generate factor-consistent paths.
 
 ---
+## 2026-04-26: Autoresearch 554a factor failure-signal audit
+
+### Context
+553a showed local non-IV factors carry material future stress signal. 554a tested the sharper deployability question: do those factor histories predict where the frozen IV-only frontier actually under-includes scenarios?
+
+### Result
+- Added `experiments/backfill/block_ar/audit_554a_factor_failure_signal.py` and `test_code/test_554a_factor_failure_signal_audit.py`.
+- Frozen 510a/340c checkpoint: `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`.
+- Sampled 192 pre-validation calibration windows and 192 validation windows with 32 paths per window.
+- Validation mean coverage90: `0.859`; upper stress miss rate: `0.054`; lower miss rate: `0.087`.
+- Factor histories had material validation failure signal: `levels_hist_mean` vs `coverage_under_target` Spearman `0.534`; factor signals also tracked realized path max jump up to abs Spearman `0.661`.
+- A chronological factor ridge score trained only on calibration undercoverage did not transfer: validation Spearman `-0.108`, high-low lift `-0.0116`; the IV-only ridge score was `0.146` with lift `0.0250`.
+
+### Mechanism Read
+The factor variables are real state information, but simple post-hoc factor calibration is not stable enough. The failure signal needs to enter the learned scenario law rather than becoming another policy/calibration knob.
+
+### Decision
+Continue with a minimal factor-conditioned core, not an IV-only wrapper and not a factor post-hoc score policy. The next experiment should extend the 340c/392a empirical-normal-score path law with observed factor conditioning and test whether the learned core improves regime/stress under-inclusion while preserving authenticity.
+
+### Artifacts
+- `experiments/backfill/block_ar/audit_554a_factor_failure_signal.py`
+- `experiments/backfill/block_ar/ANALYSIS_554a_factor_failure_signal.md`
+- `results/block_ar/554a_factor_failure_signal/audit.json`
+- `test_code/test_554a_factor_failure_signal_audit.py`
+
+---
