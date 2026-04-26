@@ -98865,3 +98865,18 @@ The synthesis preserved structural geometry and daily-change realism but did not
 Close factor-plus-patch synthesis without sweeping patch length, weight, checkpoint epoch, or adaptation length. The local `392a` repair neighborhood has been re-tested with the strongest constructive ingredients and remains below frontier. Next step should be larger data/pretraining or frontier/deployability closure, not another local fine-tune knob.
 
 ---
+## 2026-04-25: Autoresearch 541a local data expansion audit
+
+### Context
+540a closed the strongest local synthesis below frontier. The remaining principled route was a larger data/pretraining program or a frontier/deployability closure, so 541a audited whether a larger data-scale move is executable from files already in the workspace.
+
+### Result
+Created `experiments/backfill/block_ar/ANALYSIS_541a_local_data_expansion_audit.md`. Local data remains one SPX IV surface panel, the 13-factor panel, AMZN/MSFT/SP500 OHLCV/return side data, caches, and synthetic rates. There is no hidden multi-underlying option-surface corpus.
+
+### Mechanism Read
+The local failure pattern is consistent: daily-change realism, cross-cell geometry, and path scoring can be improved, but future IV-level occupancy and regime layer2 remain hard. Without more independent option-surface histories/regimes, continuing local architecture/loss search is likely knob search rather than Bitter-Lesson scale.
+
+### Decision / Next Step
+A true data-scale pretraining breakthrough is not executable locally without new data. If external data acquisition is allowed, the next step is a multi-underlying option-surface ingestion/pretraining scaffold. Otherwise the principled next step is a frontier/deployability closure around `392a`/`510a` (`8/11`), `435a` oracle feasibility, and the failed local routes through 540a.
+
+---
