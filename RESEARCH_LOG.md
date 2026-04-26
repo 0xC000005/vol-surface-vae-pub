@@ -99254,3 +99254,35 @@ Close this exact hard-state replay patch-energy implementation as below-frontier
 - `test_code/test_558a_hard_state_replay.py`
 
 ---
+## 2026-04-26: Autoresearch 559a post hard-state synthesis
+
+### Context
+558a falsified hard-state replay, and the immediate fallback idea was a small routed source-prior expert. Before implementing another sampling-law knob, 559a checked prior source/sampling-law evidence.
+
+### Finding
+The routed source-prior path is not fresh enough to justify an immediate implementation:
+- 448a-450a conditional noise-scale heads scored `4/11` to `7/11` or stayed near identity.
+- 507a shared-source direct-path flow scored `3/11`.
+- 514a AR(1) temporal source prior scored `4/11` best and `5/11` final.
+- 558a hard-state replay scored `7/11` and risk-readiness `1/4`.
+
+Current frontier:
+- 510a remains best risk prototype: `8/11`, risk-readiness `3/4`.
+- 555a ties `8/11` but is not better; regime worst cell is worse than 510a.
+- 558a is below frontier.
+
+### Mechanism Read
+The learned IV-only frontier can produce realistic conditional paths, but it cannot allocate enough mass to sparse future IV-level/regime cells without damaging another structural property. The repeated tradeoff now looks like an identifiability/product-boundary issue, not an optimizer issue.
+
+### Decision
+Do not implement another immediate source-prior or hard-replay knob. The next principal move must be explicit:
+1. Product path: package 510a as an honest IV-only risk prototype with regime-undercoverage warnings.
+2. Data/model path: shift to a true joint multi-factor scenario generator.
+3. Policy path: accept a separately reported conservative risk overlay.
+
+For a publishable learned generator, the principled path is the joint multi-factor data/model shift. For near-term risk-manager presentation, 510a is the honest prototype, not a finished deployable system.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_559a_post_hard_state_synthesis.md`
+
+---
