@@ -98959,3 +98959,18 @@ The objective moved intended metrics but damaged deployability. Level KS improve
 Close the local-shift plus raw-IV-energy branch without sweeping weights or epochs. The branch now shows a support-vs-level tradeoff: tightening toward raw realized paths helps level/reversion but removes too much conditional support and jump diversity. Next HEAD step should be a paradigm decision/postmortem, not another local objective knob.
 
 ---
+## 2026-04-25: Autoresearch 547a raw-IV alignment paradigm decision
+
+### Context
+546a showed that paired raw-IV path energy has the wrong pressure: it improved level KS and mean-reversion direction, but collapsed support and broke pathwise jump realism.
+
+### Result
+Created `experiments/backfill/block_ar/DECISION_547a_after_raw_iv_energy_tradeoff.md`. Prior 504a sliced-Wasserstein around 392a was reviewed: it scored `7/11` and did not justify repeating a 392a objective repair, but it supports one sharper distinction from 546a.
+
+### Mechanism Read
+With one realized future per condition, paired path energy tells the generator to tighten each conditional cloud toward a single realization. The desired level-KS target is instead an aggregate raw future level law across many conditions. This suggests unpaired batch-level raw-IV joint-law alignment, not paired conditional path matching.
+
+### Decision / Next Step
+Open one 548a falsifier: start from 544a, keep local-score FM anchoring, and add unpaired raw-IV joint sliced-Wasserstein alignment over batch `(history, future)` paths. Acceptance gate: at least `8/11`, improved level KS relative to 544a, and no loss of daily KS, cross-cell, cointegration, or pathwise jump realism.
+
+---
