@@ -99044,3 +99044,23 @@ The state score is useful but width-only calibration is not enough. It moves ave
 Do not tune alpha, bin thresholds, target coverage, or scale bounds in this branch. 551a closes minimal state-score width calibration. The next principled move is post-experiment ideation for a reliability objective that can learn conditional level/regime allocation without posthoc width tables, or to accept the `392a`/`510a` `8/11` learned frontier unless broader data or a clearly separate policy layer is allowed.
 
 ---
+## 2026-04-26: Autoresearch 552a risk-manager readiness reframing
+
+### Context
+The product framing changed: for risk stress testing, high-side overcoverage is not a primary failure. The relevant questions are lower-tail inclusion, conditional responsiveness, individual scenario realism, dependence preservation, and whether the model can include non-IV factors.
+
+### Experiment
+Added `experiments/backfill/block_ar/audit_552a_risk_manager_readiness.py` and tests in `test_code/test_552a_risk_readiness_audit.py`. The audit re-scored `392a`, `510a`, and `551a` under a risk-manager lens: ignore high-side overcoverage caps but keep lower inclusion, conditionality, scenario authenticity, and factor readiness.
+
+Artifacts: `results/autoresearch/552a_risk_manager_readiness/risk_readiness.json`, `results/autoresearch/552a_risk_manager_readiness/risk_readiness.md`, and `experiments/backfill/block_ar/ANALYSIS_552a_risk_manager_readiness.md`.
+
+### Result
+No candidate fully passed the stress-readiness gate. `510a_patch_energy` ranked best with stress score `3/4`: lower-only coverage passed (`cov90=0.873`, worst cell `0.714`), conditionality passed (`5.123%` MAE reduction), and scenario authenticity passed, but lower-only regime inclusion failed with worst regime cell `0.538`. `392a` scored `2/4`; `551a` scored `1/4`.
+
+### Mechanism Read
+Removing overcoverage as a failure does not make the current system deployable. The blocker is conditional/regime under-inclusion plus missing factor linkage. 551a widened the envelope but damaged conditionality and cointegration; 510a is a better IV-only prototype but still misses regime stress inclusion.
+
+### Decision
+Use `510a` only as the current IV-only prototype core. The next research step should not tune overcoverage or width. It should test whether existing non-IV factors contain stress-state signal and then move toward factor-conditioned or joint IV+factor scenario generation if that signal is material.
+
+---
