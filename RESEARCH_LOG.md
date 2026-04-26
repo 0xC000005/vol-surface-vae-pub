@@ -99750,3 +99750,107 @@ Next principled step:
 - define separate long-horizon realism metrics for `60/90/152/252`-day IV-plus-factor use.
 
 ---
+## 2026-04-26: Autoresearch 572 joint panel quality audit
+
+### Context
+
+571 only proved that the 51-channel IV-plus-factor model can train and sample at h30/h90. The user asked whether the joint scenarios are actually acceptable quality for risk-manager use.
+
+### Verification
+
+Ran the official IV 11-suite on the new h30 joint checkpoint:
+
+- checkpoint: `models/backfill/571a_joint_panel_h30_probe_s57130/best_model.pt`;
+- artifact: `results/autoresearch/571c_joint_panel_h30_full11/full11.json`;
+- score: `3/11`;
+- failed suites: coverage, conditionality, time-series, regime coverage, distributional fidelity, cross-cell correlation, mean reversion, pathwise jump realism;
+- conditionality MAE reduction: `1.8%`;
+- cross-cell correlation ratio: `0.152`;
+- pathwise max-jump KS: `0.579`.
+
+Added a reusable joint-panel quality audit:
+
+- script: `experiments/backfill/block_ar/audit_572a_joint_panel_quality.py`;
+- tests: `test_code/test_572a_joint_panel_quality_audit.py`;
+- analysis: `experiments/backfill/block_ar/ANALYSIS_572a_joint_panel_quality_audit.md`.
+
+The audit checks factor marginal KS, factor return/level scale, IV-factor co-movement, and optional IV 11-suite gates.
+
+### Raw 571 Result
+
+Raw h30 audit:
+
+- artifact: `results/autoresearch/572a_joint_panel_h30_quality/quality.json`;
+- acceptable: `false`;
+- failed checks: factor level marginals, factor level move scale, IV conditionality, IV cross-cell structure, IV pathwise realism;
+- factor level KS median/worst: `0.577` / `0.807`;
+- factor level delta q99 worst-fold error: `19.058`.
+
+Raw h90 audit:
+
+- artifact: `results/autoresearch/572b_joint_panel_h90_quality/quality.json`;
+- acceptable: `false`;
+- failed checks: factor level marginals, factor level move scale;
+- factor level KS median/worst: `0.598` / `0.877`;
+- factor level delta q99 worst-fold error: `18.239`.
+
+Mechanism read: the model was asked to generate both factor levels and factor returns/diffs independently. That duplicates the same economic state and lets factor levels violate the accounting identity implied by the generated increments.
+
+### Reconstruction Fix
+
+Added deterministic factor-level reconstruction:
+
+- keep generated returns/diffs as stochastic factor increments;
+- derive factor levels from the last observed level plus cumulative generated log returns/diffs;
+- leave IV channels unchanged.
+
+This fixed factor level move-scale failures:
+
+- h30 reconstructed factor level delta q99 worst-fold error improved from `19.058` to `2.137`;
+- h90 reconstructed factor level delta q99 worst-fold error improved from `18.239` to `1.505`.
+
+But 571 remained unacceptable:
+
+- h30 still failed factor level marginals plus IV conditionality, IV cross-cell structure, and IV pathwise realism;
+- h90 still failed factor level marginals.
+
+### Best Existing Joint Candidate
+
+Audited the older full-sized `537a` checkpoint with reconstructed factor levels:
+
+- checkpoint: `models/backfill/537a_panel_daily_cholesky_transition_s537/best_model.pt`;
+- artifact: `results/autoresearch/572e_537a_joint_panel_reconstructed_quality/quality.json`;
+- acceptable: `false`;
+- failed checks: IV conditionality, IV pathwise realism.
+
+What passes for `537a` plus reconstruction:
+
+- finite panel;
+- factor level marginals;
+- factor return marginals;
+- factor level move scale;
+- factor return scale;
+- IV-factor co-movement;
+- IV surface validity;
+- IV lower coverage;
+- IV cross-cell structure.
+
+Remaining blockers:
+
+- conditionality MAE reduction: `3.826%`, below the `5%` gate;
+- h1/h7 conditionality is useful but h14/h30 is weak;
+- aggregate pathwise max-jump passes under the relaxed `0.50` gate, but per-cell IV q99 jump scale is uneven.
+
+### Decision
+
+Raw 571 is not risk-manager acceptable.
+
+The best current joint candidate is `537a` plus deterministic factor-level reconstruction. It is reviewable as a joint stress-scenario prototype, but not acceptable as a full conditional joint scenario generator.
+
+Next principled move:
+
+- do not deploy raw 571;
+- for a risk review deck, use `537a` plus reconstructed factor levels only with clear prototype caveats;
+- for a deployable joint system, either combine the stronger `510a/568a` IV stress deck with reconstructed factor overlays, or train a native joint model that outputs factor increments only instead of independently outputting duplicate factor levels.
+
+---
