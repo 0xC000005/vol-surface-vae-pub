@@ -98830,3 +98830,18 @@ The mixture innovation fixed local daily-move law but not the 30-day free-rollou
 Stop adding daily innovation variants. Next iteration should analyze or prototype horizon-aware proper scoring for the same AR panel transition family, unless that becomes evaluator-specific. The clean target is a general path-level objective, not post-hoc calibration.
 
 ---
+## 2026-04-25: Autoresearch 539a panel likelihood closure
+
+### Context
+538a showed that a better one-step innovation likelihood can improve daily-change KS and kurtosis but still fails the 30-day future IV-level law. This repeated the old 522a pathology and left the panel likelihood branch far below the `392a`/`510a` `8/11` frontier.
+
+### Result
+Created `experiments/backfill/block_ar/DECISION_539a_after_panel_likelihood_failures.md`. The decision closes one-step panel likelihood variants as the active route and identifies one last clean synthesis experiment from prior evidence.
+
+### Mechanism Read
+The suite is not mainly bottlenecked on the one-step innovation family. It is bottlenecked on free-rollout future IV-level occupancy under a conditional path law. The only learned family that consistently preserves structural passes is the `392a` empirical-score AR transition flow; the only constructive state signal was factor conditioning; the only constructive horizon-aware objective was rollout/patch energy.
+
+### Decision / Next Step
+Shift from panel likelihood heads to a targeted frontier-core synthesis: `392a` empirical-score AR transition flow plus aligned factor history conditioning plus patch/path proper scoring. Acceptance gate: recover at least `8/11` before further work, and improve level/regime behavior without losing conditionality or cointegration. If this falls below frontier, close this synthesis and stop returning to local `392a` variants.
+
+---
