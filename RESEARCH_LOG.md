@@ -99680,3 +99680,73 @@ The system is operationally extendable beyond 30 days through repeated blockwise
 For near-term risk review, 60/90/252-day decks can be generated as extrapolated stress scenarios with explicit caveats. For a defensible research model, the next move should be native long-horizon training/evaluation or a true 51-channel joint multi-factor panel generator, not more wrapper tuning.
 
 ---
+## 2026-04-26: Autoresearch 571 joint panel h30/h90 training probe
+
+### Context
+
+The user asked whether the current scenario-generator direction can extend beyond IV-only surfaces in two dimensions:
+
+- stack implied-volatility cells with additional financial factors;
+- train both the regular 30-day horizon and a longer horizon to expose any joint-data preprocessing blockers.
+
+### Method
+
+Ran a controlled feasibility probe with the existing `537a` 51-channel daily panel transition law rather than introducing a new architecture:
+
+- `25` IV cells;
+- `13` broad factor levels;
+- `13` factor returns/differences;
+- h30 and h90 future horizons;
+- 512 recent training windows and 441 validation windows;
+- short 2-epoch CUDA probes to test data path, tensor shape, checkpointing, and sampling.
+
+### Results
+
+30-day joint-panel probe:
+
+- output: `models/backfill/571a_joint_panel_h30_probe_s57130`;
+- train shape: `(512, 30, 51)` history, `(512, 30, 51)` future;
+- validation shape: `(441, 30, 51)` history, `(441, 30, 51)` future;
+- params: `193935`;
+- best epoch: `2`;
+- best validation NLL: `1.1407808321`.
+
+90-day joint-panel probe:
+
+- output: `models/backfill/571b_joint_panel_h90_probe_s57190`;
+- train shape: `(512, 30, 51)` history, `(512, 90, 51)` future;
+- validation shape: `(441, 30, 51)` history, `(441, 90, 51)` future;
+- params: `199695`;
+- best epoch: `2`;
+- best validation NLL: `1.0971591096`.
+
+Sampling smoke:
+
+- h30 sample shape: `(1, 4, 30, 51)`, finite rate `1.0`;
+- h90 sample shape: `(1, 4, 90, 51)`, finite rate `1.0`;
+- IV sample range stayed finite and inside broad historical support;
+- factor channels sampled finite values.
+
+### Preprocessing Read
+
+The joint data path is mechanically viable. It can train, checkpoint, and sample at both 30-day and 90-day horizons.
+
+The unresolved issue is not whether the joint model can run. The unresolved issue is whether the factor preprocessing policy is defensible enough for a full risk-manager model:
+
+- current `537a` utilities align factor data to IV dates and use `ffill().fillna(0.0)`;
+- `569a` already showed nontrivial missingness in the broad factor panel before fill;
+- the short recent-window probes likely avoid most early-start missingness and therefore do not certify full historical curation;
+- silent zero fill for missing factor levels is not a principled economic assumption unless zero is a meaningful value for that factor.
+
+### Decision
+
+No extra data curation is required just to make the joint version train. Extra curation is required before claiming the joint version is research-grade or risk-manager deployable.
+
+Next principled step:
+
+- make the factor preprocessing manifest explicit: source, transform, unit, missing policy, and valid start date per factor;
+- avoid silent structural zero fills for factor levels;
+- run the official 30-day IV-subpanel suite on the h30 joint checkpoint;
+- define separate long-horizon realism metrics for `60/90/152/252`-day IV-plus-factor use.
+
+---
