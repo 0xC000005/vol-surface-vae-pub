@@ -98810,3 +98810,23 @@ The autoregressive panel transition frame is useful: it repaired cross-cell depe
 Keep the causal panel transition frame, but replace the daily Gaussian innovation with a small likelihood-based non-Gaussian innovation law in 538a. This is the minimal principled move; do not add a separate calibration layer or evaluator-specific correction.
 
 ---
+## 2026-04-25: Autoresearch 538a panel daily mixture transition
+
+### Context
+537a showed that the causal panel transition frame improved cross-cell dependence and aggregate path jump realism, but a single Gaussian daily innovation could not match per-cell move tails, level occupancy, or active mean-reversion geometry. 538a tested the minimal non-Gaussian extension: a three-component conditional mixture innovation inside the same AR panel frame.
+
+### Result
+Implemented 538a with per-component means/scales and a shared full daily Cholesky correlation. Focused tests passed (`6 passed` across 538a and 537a), py_compile passed, smoke train/eval ran, and the full 192-window 11-suite scored `3/11`.
+
+Artifacts: `diffusion/block_ar/panel_daily_mixture_transition_model.py`, `experiments/backfill/block_ar/train_538a_panel_daily_mixture_transition.py`, `experiments/backfill/block_ar/evaluate_538a_panel_daily_mixture_transition.py`, `test_code/test_538a_panel_daily_mixture_transition.py`, `models/backfill/538a_panel_daily_mixture_transition_s538/best_model.pt`, `results/autoresearch/538a_panel_daily_mixture_transition_s538/full11.json`, `experiments/backfill/block_ar/ANALYSIS_538a_panel_daily_mixture_transition_result.md`.
+
+### Metrics
+Passes: surface, block_ar, cross_cell_correlation. Key improvements versus 537a: daily-change KS improved to `20/25`, kurtosis ratio reached `0.818`, cross-cell corr ratio stayed valid at `0.856`, and pathwise max-jump KS stayed valid at `0.231`. Key failures: level KS stayed `1/25`, conditional MAE reduction was only `2.0%`, cointegration worst-cell ratio missed at `0.214`, mean-reversion active cells were `3/24`, and per-cell extreme jump scale cells were `14/25`.
+
+### Mechanism Read
+The mixture innovation fixed local daily-move law but not the 30-day free-rollout level law. This is strong evidence that the remaining bottleneck is not another one-step innovation density head; it is the mismatch between teacher-forced one-step likelihood and the path-level conditional scenario law demanded by the suite.
+
+### Decision / Next Step
+Stop adding daily innovation variants. Next iteration should analyze or prototype horizon-aware proper scoring for the same AR panel transition family, unless that becomes evaluator-specific. The clean target is a general path-level objective, not post-hoc calibration.
+
+---
