@@ -16,7 +16,7 @@ from experiments.backfill.block_ar._rollout_220_utils import load_one_day_kernel
 from experiments.backfill.block_ar.evaluate_564a_stress_selected_510a import (
     StressSelectedScenarioModel,
 )
-from experiments.backfill.block_ar.train_169a_transformed_student_t import normalize_iv
+from experiments.backfill.block_ar.train_169a_transformed_student_t import denormalize_iv, normalize_iv
 
 
 def severity_bucket_labels(n_select: int) -> np.ndarray:
@@ -34,6 +34,83 @@ def _rounded_float(value: float) -> float:
     return round(float(value), 6)
 
 
+def scenario_diagnostics(scenarios: np.ndarray) -> dict[str, float]:
+    scenarios = np.asarray(scenarios, dtype=np.float32)
+    if scenarios.ndim != 4:
+        raise ValueError("scenarios must have shape (samples, future_len, height, width)")
+    finite_mask = np.isfinite(scenarios)
+    if not finite_mask.any():
+        raise ValueError("scenarios contain no finite values")
+    terminal = scenarios[:, -1]
+    return {
+        "finite_rate": _rounded_float(finite_mask.mean()),
+        "min_iv": _rounded_float(np.nanmin(scenarios)),
+        "max_iv": _rounded_float(np.nanmax(scenarios)),
+        "terminal_mean_iv": _rounded_float(np.nanmean(terminal)),
+    }
+
+
+class BlockwiseLongHorizonModel(torch.nn.Module):
+    """Extend a capped AR sampler by rolling repeated blocks and updating history."""
+
+    def __init__(self, base_model: torch.nn.Module, *, max_block_steps: int | None = None) -> None:
+        super().__init__()
+        self.base_model = base_model
+        cfg_future_len = getattr(getattr(base_model, "cfg", None), "future_len", None)
+        self.max_block_steps = int(max_block_steps or cfg_future_len or 30)
+
+    def eval(self) -> "BlockwiseLongHorizonModel":
+        self.base_model.eval()
+        return self
+
+    @torch.no_grad()
+    def sample_batched(
+        self,
+        history: torch.Tensor,
+        n_samples: int = 48,
+        n_steps: int = 30,
+        chunk_size: int = 8,
+        history_is_normalized: bool = True,
+        **kwargs: object,
+    ) -> torch.Tensor:
+        if n_steps <= self.max_block_steps:
+            return self.base_model.sample_batched(
+                history,
+                n_samples=n_samples,
+                n_steps=n_steps,
+                chunk_size=chunk_size,
+                history_is_normalized=history_is_normalized,
+                **kwargs,
+            )
+
+        history_01 = denormalize_iv(history) if history_is_normalized else history
+        batch_size, history_len = history_01.shape[:2]
+        path_history = (
+            history_01.unsqueeze(1)
+            .expand(batch_size, n_samples, history_len, 5, 5)
+            .reshape(batch_size * n_samples, history_len, 5, 5)
+            .clone()
+        )
+
+        blocks: list[torch.Tensor] = []
+        remaining = int(n_steps)
+        while remaining > 0:
+            block_steps = min(self.max_block_steps, remaining)
+            block = self.base_model.sample_batched(
+                path_history,
+                n_samples=1,
+                n_steps=block_steps,
+                chunk_size=1,
+                history_is_normalized=False,
+                **kwargs,
+            ).squeeze(1)
+            blocks.append(block)
+            path_history = torch.cat([path_history, block], dim=1)[:, -history_len:]
+            remaining -= block_steps
+
+        return torch.cat(blocks, dim=1).view(batch_size, n_samples, n_steps, 5, 5)
+
+
 def build_manifest(
     *,
     model_type: str,
@@ -48,6 +125,7 @@ def build_manifest(
     seed: int,
     scenario_shape: tuple[int, ...],
     path_mean_iv: np.ndarray,
+    scenario_diagnostics: dict[str, float] | None = None,
     output_npz: str | None = None,
 ) -> dict[str, Any]:
     labels = severity_bucket_labels(samples)
@@ -76,6 +154,7 @@ def build_manifest(
             "median": _rounded_float(np.median(path_mean_iv)),
             "max": _rounded_float(path_mean_iv.max()),
         },
+        "scenario_diagnostics": scenario_diagnostics,
         "output_npz": output_npz,
         "deployment_boundary": {
             "acceptable_use": "IV-surface stress exploration and risk challenge scenarios",
@@ -113,6 +192,9 @@ def generate_deck(args: argparse.Namespace) -> dict[str, Any]:
     history_norm = normalize_iv(history_tensor)
 
     base_model, _payload = load_one_day_kernel(args.model_type, args.checkpoint, device)
+    max_native_steps = int(getattr(getattr(base_model, "cfg", None), "future_len", args.future_len))
+    if args.future_len > max_native_steps:
+        base_model = BlockwiseLongHorizonModel(base_model, max_block_steps=max_native_steps).eval()
     policy_model = StressSelectedScenarioModel(
         base_model,
         candidate_count=args.candidate_count,
@@ -152,6 +234,7 @@ def generate_deck(args: argparse.Namespace) -> dict[str, Any]:
         seed=args.seed,
         scenario_shape=tuple(scenarios_np.shape),
         path_mean_iv=path_mean_iv,
+        scenario_diagnostics=scenario_diagnostics(scenarios_np),
         output_npz=str(output_npz),
     )
     output_manifest = Path(args.output_manifest)

@@ -99647,3 +99647,36 @@ Focused tests: `pytest test_code/test_569a_factor_panel_readiness.py -q` -> `4 p
 The factor-extension data blocker is removed. This does not prove a joint model will work. It only shows that a true 51-channel joint panel generator is mechanically feasible, with a documented missing-value preprocessing requirement.
 
 ---
+## 2026-04-26: Autoresearch 570a Long-Horizon Rollout Smoke
+
+### Context
+
+The user asked whether the current risk prototype can extend beyond 30 days to 60, 90, or 252 trading days. 570a tested that mechanically using the existing `510a/564a/568a` stress-deck path.
+
+### Result
+
+The initial direct 60-day run failed because the `340c/510a` sampler enforces `n_steps <= 30`.
+
+Added:
+
+- `BlockwiseLongHorizonModel` in `experiments/backfill/block_ar/generate_568a_risk_scenario_deck.py`;
+- `test_code/test_570a_long_horizon_smoke.py`;
+- `experiments/backfill/block_ar/ANALYSIS_570a_long_horizon_rollout_smoke.md`.
+
+Focused tests: `pytest test_code/test_568a_risk_scenario_deck_cli.py test_code/test_570a_long_horizon_smoke.py -q` -> `5 passed`.
+
+### Smoke Artifacts
+
+- 60-day deck: `results/autoresearch/570a_long_horizon_rollout_smoke/h60_manifest.json`, shape `(6, 60, 5, 5)`, finite rate `1.0`, max IV `0.907568`;
+- 90-day deck: `results/autoresearch/570a_long_horizon_rollout_smoke/h90_manifest.json`, shape `(6, 90, 5, 5)`, finite rate `1.0`, max IV `0.812864`;
+- 252-day deck: `results/autoresearch/570a_long_horizon_rollout_smoke/h252_manifest.json`, shape `(3, 252, 5, 5)`, finite rate `1.0`, max IV `0.902535`.
+
+### Mechanism Read
+
+The system is operationally extendable beyond 30 days through repeated blockwise AR rollout. It is not natively trained or validated for those horizons. Cross-block stochastic persistence and long-horizon statistical realism remain unvalidated.
+
+### Decision
+
+For near-term risk review, 60/90/252-day decks can be generated as extrapolated stress scenarios with explicit caveats. For a defensible research model, the next move should be native long-horizon training/evaluation or a true 51-channel joint multi-factor panel generator, not more wrapper tuning.
+
+---
