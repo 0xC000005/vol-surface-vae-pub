@@ -98895,3 +98895,18 @@ The missing ingredient is not another local head/loss. It is independent option-
 Do not continue local model search as if data scale has happened. Proceed only if external data exports/credentials are available; otherwise the principled next step is a frontier/deployability closure around `392a`/`510a` (`8/11`), `435a` oracle feasibility, and failed local routes through 540a.
 
 ---
+## 2026-04-25: Autoresearch 543a frontier closure
+
+### Context
+542a established that data-scale continuation requires external option-surface data not present in the workspace. The loop therefore needed a frontier/deployability closure rather than another local architecture or loss mutation.
+
+### Result
+Created `experiments/backfill/block_ar/REPORT_543a_frontier_deployability_closure.md`. The deployable learned frontier remains `392a`/`510a` at `8/11`; `435a` remains a non-deployable oracle feasibility proof at `11/11`.
+
+### Mechanism Read
+Recent clean branches through 540a confirm the same bottleneck: local models can preserve daily changes, path geometry, cross-cell structure, and mean reversion, but they do not break future IV-level/regime occupancy. There is no hidden local multi-surface corpus to make a true Bitter-Lesson scale move.
+
+### Decision / Next Step
+Do not continue local autoresearch by mutating temperatures, source noise, mixture heads, patch weights, factor branches, or calibration wrappers. Further principled progress requires external multi-underlying option-surface data and a canonical pretraining panel, or a revised deployment framing that reports `392a`/`510a` as the honest local learned frontier.
+
+---
