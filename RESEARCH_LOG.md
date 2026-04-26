@@ -99613,3 +99613,37 @@ The CLI loads the `510a` learned base law, uses the 564a severity-stratified cal
 Under the constrained risk-manager framing, the current system is now both presentable and runnable: 567a is the deployment contract, and 568a is the artifact generator. This does not solve the original 11/11 learned-law objective. Further research should move to a true joint multi-factor generator rather than more IV-only selection-policy tuning.
 
 ---
+## 2026-04-26: Autoresearch 569a Factor Panel Readiness
+
+### Context
+
+The user asked whether the current IV-only risk prototype can extend to broader financial factors and longer horizons. 569a tests the factor-stacking/data-framing half only.
+
+### Result
+
+Added:
+
+- `experiments/backfill/block_ar/audit_569a_factor_panel_readiness.py`
+- `test_code/test_569a_factor_panel_readiness.py`
+- `experiments/backfill/block_ar/ANALYSIS_569a_factor_panel_readiness.md`
+
+Artifacts:
+
+- `results/autoresearch/569a_factor_panel_readiness/readiness.json`
+- `results/autoresearch/569a_factor_panel_readiness/readiness.md`
+
+Focused tests: `pytest test_code/test_569a_factor_panel_readiness.py -q` -> `4 passed`.
+
+### Findings
+
+- local factor stack is mechanically ready: `(5822, 30)` = `25` IV channels plus `ret`, `price`, `slopes`, `skews`, `levels`;
+- broad factor stack is mechanically ready after explicit missing-value preprocessing: `(5822, 51)` = `25` IV channels plus `13` factor levels plus `13` factor returns/diffs;
+- broad factor levels are `spx`, `usdcad`, `usdjpy`, `dxy`, `copper`, `wheat`, `crude_oil`, `us2y`, `us10y`, `aaa_oas`, `bbb_oas`, `nikkei`, `gold`;
+- broad returns/diffs are `spx_logret`, `usdcad_logret`, `usdjpy_logret`, `dxy_logret`, `copper_logret`, `wheat_logret`, `crude_oil_logret`, `us2y_diff`, `us10y_diff`, `aaa_oas_diff`, `bbb_oas_diff`, `nikkei_logret`, `gold_logret`;
+- 30/60/90/252-day labels all fit the official split without test leakage.
+
+### Decision
+
+The factor-extension data blocker is removed. This does not prove a joint model will work. It only shows that a true 51-channel joint panel generator is mechanically feasible, with a documented missing-value preprocessing requirement.
+
+---
