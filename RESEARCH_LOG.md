@@ -98974,3 +98974,20 @@ With one realized future per condition, paired path energy tells the generator t
 Open one 548a falsifier: start from 544a, keep local-score FM anchoring, and add unpaired raw-IV joint sliced-Wasserstein alignment over batch `(history, future)` paths. Acceptance gate: at least `8/11`, improved level KS relative to 544a, and no loss of daily KS, cross-cell, cointegration, or pathwise jump realism.
 
 ---
+## 2026-04-25: Autoresearch 548a unpaired raw-IV SW result
+
+### Context
+547a selected one clean falsifier after paired raw-IV energy collapsed support: keep 544a local-shift AR, keep local-score FM anchoring, and align generated/realized raw-IV futures as unpaired batch laws rather than paired condition-level paths.
+
+### Result
+Implemented `experiments/backfill/block_ar/train_548a_local_shift_unpaired_raw_iv_sw_finetune.py` and `test_code/test_548a_unpaired_raw_iv_sw.py`. Focused tests passed (`7 passed` across 548a/546a/544a), py_compile passed, full fine-tune selected epoch 1, and the official 192-window 11-suite scored `5/11`.
+
+Artifacts: `models/backfill/548a_local_shift_unpaired_raw_iv_sw_s548/best_model.pt`, `results/autoresearch/548a_local_shift_unpaired_raw_iv_sw_s548/full11.json`, and `experiments/backfill/block_ar/ANALYSIS_548a_local_shift_unpaired_raw_iv_sw_result.md`.
+
+### Mechanism Read
+548a avoided the 546a support collapse: pathwise max-jump KS passed at `0.335`, daily KS stayed `25/25`, cross-cell ratio was `0.953`, and cointegration passed. But level KS reached only `10/25`, conditional MAE reduction fell to `3.3%`, and mean-reversion ratio stayed weak at `0.414`.
+
+### Decision / Next Step
+Close the local-shift objective family. Pure local shift misses level/reversion, paired raw-IV energy collapses support, and unpaired raw-IV SW is too weak to recover frontier. Next HEAD step should be a postmortem/paradigm decision, not SW-weight/projection/window/checkpoint sweeps.
+
+---
