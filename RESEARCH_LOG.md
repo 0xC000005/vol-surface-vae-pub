@@ -99110,3 +99110,48 @@ Continue with a minimal factor-conditioned core, not an IV-only wrapper and not 
 - `test_code/test_554a_factor_failure_signal_audit.py`
 
 ---
+## 2026-04-26: Autoresearch 555a local factor core
+
+### Context
+554a showed local factors predict validation miss geometry, but a pre-validation factor-score calibration policy did not transfer. 555a tested the cleaner alternative: put the local factors into the learned empirical-normal-score core itself.
+
+### Execute
+- Added local factor utilities for the factors already present in `data/vol_surface_with_ret.npz`: `ret`, `price`, `slopes`, `skews`, `levels`.
+- Added `train_555a_local_factor_core_finetune.py` and `evaluate_555a_local_factor_core_finetune.py`.
+- Started from `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`.
+- Fine-tuned all core parameters for 4 epochs on the 441 pre-validation windows with local factor history.
+- Evaluated 192 validation windows with 48 samples and live conditionality.
+
+### Result
+555a scored `8/11`, failing `coverage`, `regime_coverage`, and `distributional_fidelity`.
+
+Key metrics:
+- cov90 overall: `0.873`
+- conditionality MAE reduction: `6.20%`
+- cointegration ratio / worst-cell ratio: `0.705` / `0.263`
+- regime layer2: `0/8`
+- risk lower-only regime worst cell: `0.385`
+- daily-change KS: `25/25`
+- level KS: `9/25`
+- mean-reversion: pass
+- pathwise max-jump KS: `0.346`
+
+Risk-readiness comparison against 510a: both score `3/4` under the 552a stress framing; 555a improves conditionality but worsens regime lower-only worst cell (`0.385` vs `0.538`). It is not more deployable.
+
+### Mechanism Read
+Local factor conditioning is mechanically safe and helps conditionality, but the factor context scale remained tiny (`0.00046`) and the future IV-level/regime occupancy problem remains. The deployability blocker is still sparse regime/cell under-inclusion, not just missing observed factor features.
+
+### Decision
+Do not promote 555a over 510a. Keep it as evidence that local factors can enter the core cleanly, but the next HEAD step should analyze and target regime under-inclusion directly. Avoid another factor side-channel or post-hoc factor calibration knob.
+
+### Artifacts
+- `experiments/backfill/block_ar/_local_factor_conditioning_555_utils.py`
+- `experiments/backfill/block_ar/train_555a_local_factor_core_finetune.py`
+- `experiments/backfill/block_ar/evaluate_555a_local_factor_core_finetune.py`
+- `experiments/backfill/block_ar/ANALYSIS_555a_local_factor_core_result.md`
+- `experiments/backfill/block_ar/ANALYSIS_555a_risk_readiness.md`
+- `results/block_ar/555a_local_factor_core_e4_s555/full11.json`
+- `results/block_ar/555a_local_factor_core_e4_s555/risk_readiness.json`
+- `test_code/test_555a_local_factor_conditioning.py`
+
+---
