@@ -99286,3 +99286,69 @@ For a publishable learned generator, the principled path is the joint multi-fact
 - `experiments/backfill/block_ar/ANALYSIS_559a_post_hard_state_synthesis.md`
 
 ---
+## 2026-04-26: Risk-Manager Reframing of Evaluation Suite
+
+### Context
+After reviewing the full 11-suite and the experiment history from the early Block-AR/DDPM work through the current 392a/510a/555a frontier, we reframed the product objective from a fully calibrated conditional law to a conditional stress scenario generator for risk-manager use.
+
+### Reframing
+For a risk stress generator, exact historical marginal frequencies are not the primary product requirement. High-side overcoverage and marginal level-KS mismatch can be treated as diagnostic warnings rather than hard deployability blockers, provided the system is explicitly presented as conservative stress sampling rather than calibrated probability forecasting.
+
+Level KS per cell still has interpretive value: it indicates whether the model is spending historically realistic time in each absolute IV-level region. But for risk use, the more important requirement is not exact frequency matching; it is that calm, normal, and anomalous/stress regions are reachable with enough mass to be useful.
+
+### Relaxable Metrics
+- High-side overcoverage can be acceptable if disclosed as conservative stress sampling.
+- Marginal level KS per cell is a warning, not a hard blocker, under the stress-generator framing.
+- Exact historical regime frequencies are not required if the model is not marketed as a calibrated conditional law.
+- Strict pathwise max-jump KS can be softened if generated jumps remain plausible and non-explosive.
+
+### Non-Negotiable Metrics
+- Conditionality must remain: scenarios must depend on the current/history state, not become unconditional stress noise.
+- Lower stress inclusion must remain: stressed regimes cannot be systematically under-sampled.
+- Surface validity and no explosions must remain.
+- Temporal/path realism must remain: paths should evolve coherently rather than jump arbitrarily.
+- Cross-cell dependence, cointegration/correlation, and mean-reversion structure must remain credible.
+- Scenario diversity must remain: the sampler cannot collapse to one path or one narrow band.
+
+### Current Frontier Read
+Under this reframing, 510a is the most shippable non-oracle artifact as a risk-manager prototype. It passes lower-only coverage, conditionality, and scenario authenticity, and its remaining level-KS failure is now a warning rather than a hard blocker.
+
+However, 510a is still not a fully risk-manager deployable generator if lower stress-regime inclusion is treated as non-negotiable. Its main remaining blocker is localized regime under-inclusion, not generic overcoverage. 555a is useful evidence that local factors can be integrated cleanly, but it worsens the regime lower-inclusion margin relative to 510a. 392a remains a strong structural anchor but is slightly less shippable than 510a under the relaxed stress framing.
+
+### Decision
+Report the base learned-law metrics separately from the risk-stress-system metrics. It is acceptable to show 510a as an IV-only conditional stress prototype with explicit caveats. Do not claim calibrated conditional probabilities unless level/regime frequencies are fixed. If continuing research, target conditional stress allocation and lower regime inclusion, not high-side overcoverage or marginal level-KS matching as primary objectives.
+
+---
+## 2026-04-26: Autoresearch 560a TimePFN-Style Synthetic Prior Pilot
+
+### Context
+After reframing the suite for risk-manager stress use, the remaining model blocker is lower stress/regime inclusion under a realistic conditional IV path law. 560a tested the smallest local TimePFN-style move: synthetic-prior pretraining before real SPX adaptation, while reusing the existing empirical-normal-score causal-memory AR flow backbone.
+
+### Result
+Implemented a deterministic synthetic IV-surface prior generator and a 340c-compatible synthetic pretraining script.
+
+Artifacts:
+- `experiments/backfill/block_ar/synthetic_iv_prior.py`
+- `experiments/backfill/block_ar/train_560a_synthetic_prior_pretrain.py`
+- `test_code/test_560a_synthetic_iv_prior.py`
+- `test_code/test_560a_synthetic_pretrain_smoke.py`
+- `experiments/backfill/block_ar/ANALYSIS_560a_timepfn_synthetic_prior_pilot.md`
+- `models/backfill/560a_timepfn_synthetic_prior_smoke/best_model.pt`
+- `models/backfill/560a_timepfn_synthetic_prior_smoke_adapt/best_model.pt`
+- `results/autoresearch/560a_timepfn_synthetic_prior_smoke/full11_smoke.json`
+
+Verification:
+- `pytest test_code/test_560a_synthetic_iv_prior.py test_code/test_560a_synthetic_pretrain_smoke.py -q` -> `4 passed, 1 warning`.
+- Synthetic smoke pretraining on 512 windows for 2 epochs reduced validation loss from `0.9385` to `0.8483`.
+- Short real-data adaptation on 128 recent windows completed with adaptation loss `1.2105`.
+- Small 11-suite smoke evaluation scored `1/11`; only `block_ar` passed.
+
+### Mechanism Read
+The `1/11` smoke score is not a fair falsification of the TimePFN-style idea. The checkpoint was intentionally tiny, trained on only 512 synthetic windows for 2 epochs, and adapted on only 128 real windows for 1 epoch. The useful 560a finding is that the full synthetic-pretrain -> real-adapt -> 11-suite plumbing works.
+
+The smoke failure still shows that a weak synthetic prior plus a low-capacity undertrained model does not preserve cross-cell dependence, mean reversion, or path realism after adaptation.
+
+### Decision / Next Step
+Keep the TimePFN-style branch alive. Do not compare the 560a smoke checkpoint to `510a` as a candidate model. The next HEAD iteration should run a scaled 561a experiment with 340c/392a-sized capacity, thousands of synthetic windows, full 441-window real adaptation, and official validation if runtime permits. The decisive question is whether synthetic-prior exposure improves lower stress/regime inclusion without sacrificing conditionality, dependence, mean reversion, and path realism.
+
+---
