@@ -98880,3 +98880,18 @@ The local failure pattern is consistent: daily-change realism, cross-cell geomet
 A true data-scale pretraining breakthrough is not executable locally without new data. If external data acquisition is allowed, the next step is a multi-underlying option-surface ingestion/pretraining scaffold. Otherwise the principled next step is a frontier/deployability closure around `392a`/`510a` (`8/11`), `435a` oracle feasibility, and the failed local routes through 540a.
 
 ---
+## 2026-04-25: Autoresearch 542a external data program
+
+### Context
+541a showed that a true scale-based data program is not executable from local files alone. The user had asked to use online research when stuck, so 542a checked practical external option-surface data routes.
+
+### Result
+Created `experiments/backfill/block_ar/IDEA_542a_external_option_surface_data_program.md`. Viable routes are OptionMetrics IvyDB, ORATS Data API, and ThetaData OPRA options data. OptionMetrics is the cleanest research-grade route because standardized constant-maturity surfaces are part of the product; ORATS is likely the quickest API route; ThetaData requires building surfaces from raw options/Greeks.
+
+### Mechanism Read
+The missing ingredient is not another local head/loss. It is independent option-surface universes and regimes. The required pretraining artifact is a canonical multi-universe daily panel `(date, universe_id, features, iv_surface_grid)` with no lookahead and SPX evaluation kept comparable to the current 11-suite.
+
+### Decision / Next Step
+Do not continue local model search as if data scale has happened. Proceed only if external data exports/credentials are available; otherwise the principled next step is a frontier/deployability closure around `392a`/`510a` (`8/11`), `435a` oracle feasibility, and failed local routes through 540a.
+
+---
