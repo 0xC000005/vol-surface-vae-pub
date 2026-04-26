@@ -99212,3 +99212,45 @@ Protocol:
 - `experiments/backfill/block_ar/IDEA_557a_hard_state_routed_training.md`
 
 ---
+## 2026-04-26: Autoresearch 558a hard-state replay
+
+### Context
+557a selected a training-only hard-state replay experiment to target sparse regime/cell under-inclusion without post-hoc inference tables or global widening.
+
+### Execute
+- Added `train_558a_hard_state_replay_patch_energy.py` and `test_code/test_558a_hard_state_replay.py`.
+- Source checkpoint: `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`.
+- Calibration block: 441 pre-validation windows.
+- Frozen-source hard-score sampling: 32 samples per window.
+- Replay weights: mean-one rank-smoothed weights, min `0.600`, max `1.799`.
+- Fine-tuned with FM anchor plus weighted patch-energy; best checkpoint was epoch 1.
+
+### Result
+558a scored `7/11`, failing `coverage`, `cointegration`, `regime_coverage`, and `distributional_fidelity`.
+
+Key metrics:
+- cov90 overall: `0.874`
+- conditionality MAE reduction: `5.96%`
+- cointegration ratio / worst-cell ratio: `0.560` / `0.139`
+- regime layer2: `0/8`
+- risk lower-only regime worst cell: `0.513`
+- daily-change KS: `25/25`
+- level KS: `11/25`
+- pathwise max-jump KS: `0.320`
+- risk-readiness score: `1/4`
+
+### Mechanism Read
+Hard-state replay moved level occupancy in the intended direction but broke a structural dependence gate before regime coverage became acceptable. This repeats the prior proper-score tradeoff: marginal/distributional pressure helps one axis while eroding cointegration/scenario authenticity.
+
+### Decision
+Close this exact hard-state replay patch-energy implementation as below-frontier. Do not sweep replay weights. If continuing this line, the next clean move must change the sampling law itself, e.g. a small history-routed source-prior expert, rather than reweighting the same objective.
+
+### Artifacts
+- `experiments/backfill/block_ar/train_558a_hard_state_replay_patch_energy.py`
+- `experiments/backfill/block_ar/ANALYSIS_558a_hard_state_replay_result.md`
+- `experiments/backfill/block_ar/ANALYSIS_558a_risk_readiness.md`
+- `results/block_ar/558a_hard_state_replay_patch_energy_s558/full11.json`
+- `results/block_ar/558a_hard_state_replay_patch_energy_s558/risk_readiness.json`
+- `test_code/test_558a_hard_state_replay.py`
+
+---

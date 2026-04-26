@@ -1,0 +1,218 @@
+{
+  "ranked_candidates": [
+    {
+      "name": "510a_patch_energy",
+      "original_n_pass": 8,
+      "original_failed_suites": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "stress_pass": false,
+      "stress_score": 3,
+      "stress_score_total": 4,
+      "coverage_lower_only": {
+        "cov90": 0.8731527777777778,
+        "min_overall_90": 0.85,
+        "worst_cell": 0.7135416666666666,
+        "min_worst_cell": 0.7,
+        "horizon_pass": true,
+        "pass": true,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "regime_lower_only": {
+        "layer1_pass": true,
+        "layer3_pass": true,
+        "worst_regime_cell": 0.5384615384615384,
+        "min_regime_cell": 0.7,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "scenario_authenticity": {
+        "suite_passes": {
+          "surface": true,
+          "time_series": true,
+          "block_ar": true,
+          "cointegration": true,
+          "cross_cell_correlation": true,
+          "mean_reversion": true,
+          "pathwise_jump_realism": true,
+          "distributional_required_parts": true
+        },
+        "pass": true
+      },
+      "conditionality": {
+        "mae_reduction_pct": 5.1234954131311135,
+        "original_pass": true,
+        "borderline": false,
+        "pass": true
+      },
+      "distributional_authenticity": {
+        "required_parts": {
+          "daily_change_ks": true,
+          "median_bias": true,
+          "window_floor": true,
+          "explosion": true,
+          "cell_mae": true
+        },
+        "pass": true,
+        "level_ks_n_pass": 10,
+        "level_ks_pass": false,
+        "level_ks_treated_as_warning_for_stress": true
+      },
+      "warnings": [
+        "level_ks_warning",
+        "regime_undercoverage_warning"
+      ]
+    },
+    {
+      "name": "555a_local_factor_core",
+      "original_n_pass": 8,
+      "original_failed_suites": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "stress_pass": false,
+      "stress_score": 3,
+      "stress_score_total": 4,
+      "coverage_lower_only": {
+        "cov90": 0.8727152777777778,
+        "min_overall_90": 0.85,
+        "worst_cell": 0.71875,
+        "min_worst_cell": 0.7,
+        "horizon_pass": true,
+        "pass": true,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "regime_lower_only": {
+        "layer1_pass": true,
+        "layer3_pass": true,
+        "worst_regime_cell": 0.38461538461538464,
+        "min_regime_cell": 0.7,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "scenario_authenticity": {
+        "suite_passes": {
+          "surface": true,
+          "time_series": true,
+          "block_ar": true,
+          "cointegration": true,
+          "cross_cell_correlation": true,
+          "mean_reversion": true,
+          "pathwise_jump_realism": true,
+          "distributional_required_parts": true
+        },
+        "pass": true
+      },
+      "conditionality": {
+        "mae_reduction_pct": 6.203580576886909,
+        "original_pass": true,
+        "borderline": false,
+        "pass": true
+      },
+      "distributional_authenticity": {
+        "required_parts": {
+          "daily_change_ks": true,
+          "median_bias": true,
+          "window_floor": true,
+          "explosion": true,
+          "cell_mae": true
+        },
+        "pass": true,
+        "level_ks_n_pass": 9,
+        "level_ks_pass": false,
+        "level_ks_treated_as_warning_for_stress": true
+      },
+      "warnings": [
+        "level_ks_warning",
+        "regime_undercoverage_warning"
+      ]
+    },
+    {
+      "name": "558a_hard_state_replay",
+      "original_n_pass": 7,
+      "original_failed_suites": [
+        "coverage",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "stress_pass": false,
+      "stress_score": 1,
+      "stress_score_total": 4,
+      "coverage_lower_only": {
+        "cov90": 0.8742986111111111,
+        "min_overall_90": 0.85,
+        "worst_cell": 0.6927083333333334,
+        "min_worst_cell": 0.7,
+        "horizon_pass": true,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "regime_lower_only": {
+        "layer1_pass": true,
+        "layer3_pass": true,
+        "worst_regime_cell": 0.5128205128205128,
+        "min_regime_cell": 0.7,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "scenario_authenticity": {
+        "suite_passes": {
+          "surface": true,
+          "time_series": true,
+          "block_ar": true,
+          "cointegration": false,
+          "cross_cell_correlation": true,
+          "mean_reversion": true,
+          "pathwise_jump_realism": true,
+          "distributional_required_parts": true
+        },
+        "pass": false
+      },
+      "conditionality": {
+        "mae_reduction_pct": 5.958344213857566,
+        "original_pass": true,
+        "borderline": false,
+        "pass": true
+      },
+      "distributional_authenticity": {
+        "required_parts": {
+          "daily_change_ks": true,
+          "median_bias": true,
+          "window_floor": true,
+          "explosion": true,
+          "cell_mae": true
+        },
+        "pass": true,
+        "level_ks_n_pass": 11,
+        "level_ks_pass": false,
+        "level_ks_treated_as_warning_for_stress": true
+      },
+      "warnings": [
+        "level_ks_warning",
+        "regime_undercoverage_warning",
+        "coverage_underinclusion_warning"
+      ]
+    }
+  ],
+  "factor_readiness": {
+    "available_non_iv_factors": [
+      "ret",
+      "price",
+      "slopes",
+      "skews",
+      "levels"
+    ],
+    "current_generator_scope": "iv_surface_only",
+    "multifactor_ready": false,
+    "recommended_factor_bridge": [
+      "condition on observed return/price/level/slope/skew history",
+      "generate IV scenarios jointly with factor-consistent return/level paths",
+      "evaluate factor-scenario coherence before claiming portfolio stress readiness"
+    ]
+  },
+  "decision": "No current candidate is fully presentable as a risk-manager stress system. The closest candidate can be shown as a prototype, but the next research step must target conditionality and regime under-inclusion, not overcoverage."
+}
