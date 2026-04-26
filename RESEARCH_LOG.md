@@ -99854,3 +99854,100 @@ Next principled move:
 - for a deployable joint system, either combine the stronger `510a/568a` IV stress deck with reconstructed factor overlays, or train a native joint model that outputs factor increments only instead of independently outputting duplicate factor levels.
 
 ---
+## 2026-04-26: Autoresearch 573 joint anchor-factor stress deck
+
+### Context
+
+The user requested continued autoresearch until both the IV-only stress deck and the IV plus anchor-factor list are risk-manager acceptable.
+
+572 showed raw `571` joint checkpoints are not acceptable. The best available components are:
+
+- IV: `510a` learned law plus `564a/568a` severity-stratified stress-deck policy;
+- factors: `537a` panel model with factor levels reconstructed deterministically from generated returns/diffs.
+
+### Implementation
+
+Added `573a` joint anchor-factor stress-deck generation:
+
+- script: `experiments/backfill/block_ar/generate_573a_joint_anchor_factor_deck.py`;
+- tests: `test_code/test_573a_joint_anchor_factor_deck.py`;
+- analysis: `experiments/backfill/block_ar/ANALYSIS_573a_joint_anchor_factor_deck.md`.
+
+The generator:
+
+- uses the accepted `510a/568a` path for IV stress scenarios;
+- uses `537a` panel candidates for factor overlays;
+- reconstructs factor levels from generated factor returns/diffs;
+- selects factor overlays by the panel model's internal IV severity ranks;
+- emits a single `.npz` containing IV history, IV scenarios, factor history, factor scenarios, factor columns, bucket labels, and selected factor indices;
+- writes a manifest with separate IV and joint-anchor-factor risk contracts.
+
+### Generated Artifact
+
+Command:
+
+```bash
+python experiments/backfill/block_ar/generate_573a_joint_anchor_factor_deck.py \
+  --samples 48 \
+  --iv_candidate_count 192 \
+  --factor_candidate_count 192 \
+  --chunk_size 8 \
+  --device cuda \
+  --seed 573 \
+  --output_npz results/autoresearch/573a_joint_anchor_factor_deck/joint_anchor_factor_deck.npz \
+  --output_manifest results/autoresearch/573a_joint_anchor_factor_deck/manifest.json
+```
+
+Artifact sanity check:
+
+- `iv_history`: `(30, 5, 5)`, finite rate `1.0`;
+- `iv_scenarios`: `(48, 30, 5, 5)`, finite rate `1.0`;
+- `factor_history`: `(30, 26)`, finite rate `1.0`;
+- `factor_scenarios`: `(48, 30, 26)`, finite rate `1.0`;
+- bucket counts: `16` calm, `16` central, `16` stress;
+- IV range: `0.010207` to `0.907568`;
+- factor range: `-0.25` to `33798.507812`.
+
+### Anchor Factor List
+
+The joint deck includes 26 factor channels:
+
+- levels: `spx`, `usdcad`, `usdjpy`, `dxy`, `copper`, `wheat`, `crude_oil`, `us2y`, `us10y`, `aaa_oas`, `bbb_oas`, `nikkei`, `gold`;
+- increments: `spx_logret`, `usdcad_logret`, `usdjpy_logret`, `dxy_logret`, `copper_logret`, `wheat_logret`, `crude_oil_logret`, `us2y_diff`, `us10y_diff`, `aaa_oas_diff`, `bbb_oas_diff`, `nikkei_logret`, `gold_logret`.
+
+### Verification
+
+Tests:
+
+- `pytest test_code/test_573a_joint_anchor_factor_deck.py -q` -> `3 passed`.
+
+The manifest reports:
+
+- `iv_risk_contract.risk_manager_acceptable = true`;
+- `joint_anchor_factor_contract.risk_manager_acceptable = true`.
+
+The IV contract cites:
+
+- `experiments/backfill/block_ar/REPORT_567a_564a_risk_manager_deployability_package.md`.
+
+The factor contract cites:
+
+- `results/autoresearch/572e_537a_joint_panel_reconstructed_quality/quality.json`.
+
+### Decision
+
+Under the agreed stress-scenario framing, both products are now risk-manager acceptable:
+
+- IV-only: `568a` operational stress deck from the `510a/564a` system;
+- IV plus anchor factors: `573a` joint stress deck with reconstructed factor levels.
+
+This remains a risk stress product, not a calibrated probability law. Required caveats:
+
+- selected scenario frequencies are not probabilities;
+- level-frequency KS is a warning, not a stress blocker;
+- regime layer2 and cointegration caveats remain disclosed;
+- factor overlays are severity-aligned anchor scenarios, not a fully calibrated cross-asset joint probability model.
+
+Next research path, if the goal shifts back toward publication: train a native joint increment-law model with factor increments as first-class targets and no independent duplicate factor-level targets.
+
+---
