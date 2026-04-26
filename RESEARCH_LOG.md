@@ -99455,3 +99455,46 @@ The local TimePFN-style synthetic-prior branch is now falsified for this data se
 Close local synthetic-prior tuning. The next deployability path should be a separated risk-manager system around `510a`: keep `510a` as the base learned conditional law, then test an explicitly disclosed conservative stress-scenario selection policy that oversamples adverse but authentic candidate paths. Report it separately from calibrated-law metrics.
 
 ---
+## 2026-04-26: Autoresearch 564a 510a Stress-Selected Risk Policy
+
+### Context
+After closing the local TimePFN-style synthetic-prior branch, 564a shifted to the risk-manager deployment framing. The base learned law remains `510a`; the new question is whether a separated conservative scenario-selection policy can make the system risk-manager presentable without claiming calibrated probabilities.
+
+### Result
+Implemented `evaluate_564a_stress_selected_510a.py`: sample many authentic `510a` candidate paths per history, score candidates by average future IV severity, and select a calm/central/stress-stratified scenario set.
+
+Focused test:
+- `pytest test_code/test_564a_stress_selection_policy.py -q` -> `2 passed`.
+
+Official full-suite artifact:
+- `results/autoresearch/564a_510a_stress_selected_policy/full11.json`
+
+Configuration:
+- base checkpoint: `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`;
+- candidate paths per history: `192`;
+- selected scenarios: `48`.
+
+Score: `7/11`.
+Passed: `surface`, `conditionality`, `time_series`, `block_ar`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+Failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+
+Key metrics:
+- coverage90 `0.897`;
+- h1/h7/h14/h30 worst-cell coverage `0.745`, `0.740`, `0.740`, `0.760`;
+- conditionality MAE reduction `6.8%`;
+- daily-change KS `25/25`, level KS `1/25`, median-bias pass `20/25`;
+- cointegration gen/GT ratio `0.568`, worst-cell ratio `0.222`;
+- regime layer2 `1/8`, persistent severe undercoverage `0.6%`;
+- cross-cell correlation ratio `0.878`, rank ratio `1.604`;
+- mean-reversion aggregate ratio `1.003`;
+- pathwise max-jump KS `0.488`.
+
+### Mechanism Read
+564a is the first clearly risk-manager-presentable system prototype under the revised framing. It fixes lower per-cell coverage while preserving conditionality, daily-change realism, mean reversion, cross-cell dependence, and pathwise realism. The formal coverage failure is high-side overcoverage, which is acceptable only if disclosed as conservative stress sampling.
+
+The main remaining non-negotiable concern is cointegration worst-cell ratio `0.222`, slightly below the `0.25` gate. Regime layer2 remains incomplete, but the system no longer has a persistent severe-undercoverage problem.
+
+### Decision / Next Step
+Promote 564a as the current best risk-manager system prototype, not a calibrated learned law. Run one softer stress-selection policy setting to test whether cointegration can recover while preserving lower stress inclusion and conditionality. Avoid a broad policy-knob sweep.
+
+---
