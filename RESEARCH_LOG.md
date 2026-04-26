@@ -99024,3 +99024,23 @@ The model has real conditional center skill, but its dispersion is not reliably 
 Do not reset architecture now. The next principled experiment should keep the generative backbone fixed and add a minimal, predeclared state-aware reliability protocol using history-only strata such as `history_abs_move_q90`, `history_vov`, and `last_mean`. Report base learned-law metrics separately from calibrated-system metrics.
 
 ---
+## 2026-04-25: Autoresearch 551a state-score interval scaling
+
+### Context
+550a showed a clean causal-state signal: `history_abs_move_q90` predicts realized future path jumps while the frontier model's dispersion is not reliably state-aligned. The most principled direct falsifier was therefore a minimal deployable state-aware reliability layer, not a new architecture.
+
+### Experiment
+Implemented `experiments/backfill/block_ar/evaluate_551a_state_score_interval_scale_calibrated_system.py` and focused tests in `test_code/test_551a_state_score_interval_scale.py`. The experiment froze the `392a` / `340c` generator, fit three pre-validation calibration bins using only `history_abs_move_q90`, and applied one median-preserving residual scale per state bin and horizon. No per-cell calibration table, validation-future oracle, retrieval, or model-weight update was used.
+
+Artifacts: result `results/block_ar/551a_state_score_interval_scale_392a/full11.json`, report `results/block_ar/551a_state_score_interval_scale_392a/full11.md`, analysis `experiments/backfill/block_ar/ANALYSIS_551a_state_score_interval_scale_result.md`.
+
+### Result
+551a scored `6/11`, below the `392a`/`510a` learned frontier at `8/11`. Coverage90 improved from `0.8675` to `0.9020`, calibration error improved from `0.0240` to `0.0139`, level KS improved from `10/25` to `13/25`, and pathwise max-jump KS improved from `0.373` to `0.208`. But the failed suites were coverage, conditionality, cointegration, regime_coverage, and distributional_fidelity.
+
+### Mechanism Read
+The state score is useful but width-only calibration is not enough. It moves average intervals toward the target, but creates localized overcoverage above the 95% cap, leaves regime layer2 at `0/8`, drops conditional MAE reduction to `4.99%`, and damages a cointegration worst cell. The learned scale means by bin were `[1.147, 1.189, 1.129]`, so the fitted policy was not even cleanly monotone in the risk score.
+
+### Decision
+Do not tune alpha, bin thresholds, target coverage, or scale bounds in this branch. 551a closes minimal state-score width calibration. The next principled move is post-experiment ideation for a reliability objective that can learn conditional level/regime allocation without posthoc width tables, or to accept the `392a`/`510a` `8/11` learned frontier unless broader data or a clearly separate policy layer is allowed.
+
+---
