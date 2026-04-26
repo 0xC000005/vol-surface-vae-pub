@@ -99185,3 +99185,30 @@ The next clean move should target hard conditional stress states through a learn
 - `test_code/test_556a_regime_underinclusion_geometry.py`
 
 ---
+## 2026-04-26: Autoresearch 557a hard-state replay ideation
+
+### Context
+556a localized the deployability blocker to sparse regime/horizon/cell occupancy. The next move was underdetermined, so 557a did research ideation using local evidence plus recent routed-expert/frequency/exogenous-generator time-series work.
+
+### Research Signals
+- M2FMoE / AAAI 2026: sparse high-impact extremes can be handled with multi-resolution frequency mixture-of-experts without explicit extreme labels.
+- Super-Linear and MoLE: small routed linear/frequency experts can specialize to temporal patterns without making the whole model huge.
+- GCGNet: joint temporal/channel consistency and exogenous conditioning matter, but graph alignment is less urgent here because cross-cell correlation already passes.
+
+### Mechanism Read
+The transferable idea is not to add a large conference architecture. It is to make training specialize on sparse hard conditional states while keeping the deployed sampler clean. The current failure is too localized for global broadening and too stable for another generic factor side-channel.
+
+### Decision
+Next experiment: training-only hard-state replay patch-energy fine-tune from 510a.
+
+Protocol:
+- sample the pre-validation calibration block with frozen 510a;
+- compute hard-state scores from calibration-only undercoverage, upper stress misses, and path jump misses;
+- fine-tune the existing empirical-normal-score core with patch-energy-style loss reweighted toward hard windows;
+- store no per-cell/regime inference tables;
+- evaluate on the official full suite and risk-readiness framing.
+
+### Artifacts
+- `experiments/backfill/block_ar/IDEA_557a_hard_state_routed_training.md`
+
+---
