@@ -99498,3 +99498,33 @@ The main remaining non-negotiable concern is cointegration worst-cell ratio `0.2
 Promote 564a as the current best risk-manager system prototype, not a calibrated learned law. Run one softer stress-selection policy setting to test whether cointegration can recover while preserving lower stress inclusion and conditionality. Avoid a broad policy-knob sweep.
 
 ---
+## 2026-04-26: Autoresearch 565a Softer Stress Selection
+
+### Context
+564a was the strongest risk-manager system prototype so far but had a cointegration worst-cell near miss (`0.222` vs `0.25`) and incomplete regime layer2. 565a tested one softer policy by reducing candidate count from `192` to `96` while keeping 48 selected scenarios.
+
+### Result
+Artifact:
+- `results/autoresearch/565a_510a_stress_selected_policy_c96/full11.json`
+
+Score: `7/11`.
+Passed: `surface`, `conditionality`, `time_series`, `block_ar`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+Failed: `coverage`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+
+Key metrics:
+- coverage90 `0.898`;
+- h1/h7/h14/h30 worst-cell coverage `0.714`, `0.755`, `0.781`, `0.740`;
+- conditionality MAE reduction `6.6%`;
+- daily-change KS `25/25`, level KS `1/25`, median-bias pass `20/25`;
+- cointegration gen/GT ratio `0.574`, worst-cell ratio `0.193`;
+- regime layer2 `0/8`, persistent severe undercoverage `0.5%`;
+- mean-reversion aggregate ratio `0.980`;
+- pathwise max-jump KS `0.482`.
+
+### Mechanism Read
+The softer policy preserves most risk-system strengths but does not fix the dependence/regime concern. Cointegration worst-cell ratio worsens relative to 564a (`0.193` vs `0.222`), and regime layer2 drops from `1/8` to `0/8`. The only improvement is a small pathwise KS gain.
+
+### Decision / Next Step
+Do not promote 565a. Keep 564a as the current best risk-manager prototype. If continuing policy-count tuning, run one opposite-bracket check at `256` candidates; if that does not improve cointegration/regime concerns, stop this tuning and package 564a with caveats.
+
+---
