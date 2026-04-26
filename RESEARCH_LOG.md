@@ -98790,3 +98790,23 @@ The global-Gaussian panel path failed because its dependence structure is too st
 Close one-shot global-Gaussian panel variants. The next decisive falsifier is 537a: a small autoregressive 51-variable panel transition density/flow trained on next-day empirical-score innovations, rolled out for 30 days, and evaluated through the unchanged IV 11-suite. If it cannot exceed the old transition-likelihood branch, the local panel-law route is likely data/capacity limited rather than missing another small patch.
 
 ---
+## 2026-04-25: Autoresearch 537a panel daily Cholesky transition
+
+### Context
+536a selected a clean falsifier from the recent time-series literature synthesis: keep the panel-law framing, but replace the failed one-shot global Gaussian path with a causal autoregressive 51-variable daily transition density.
+
+### Result
+Implemented 537a with empirical normal-score coordinates, a GRU prefix encoder, and a full conditional daily Cholesky Gaussian innovation law. Focused tests passed (`5 passed` across 537a and 535a panel tests), py_compile passed, smoke train/eval ran, and the full 192-window 11-suite scored `4/11`.
+
+Artifacts: `diffusion/block_ar/panel_daily_cholesky_transition_model.py`, `experiments/backfill/block_ar/train_537a_panel_daily_cholesky_transition.py`, `experiments/backfill/block_ar/evaluate_537a_panel_daily_cholesky_transition.py`, `test_code/test_537a_panel_daily_transition_density.py`, `models/backfill/537a_panel_daily_cholesky_transition_s537/best_model.pt`, `results/autoresearch/537a_panel_daily_cholesky_transition_s537/full11.json`, `experiments/backfill/block_ar/ANALYSIS_537a_panel_daily_cholesky_transition_result.md`.
+
+### Metrics
+Passes: surface, block_ar, cointegration, cross_cell_correlation. Failures: coverage, conditionality, time_series, regime_coverage, distributional_fidelity, mean_reversion, pathwise_jump_realism. Key metrics: cov90 `0.957`, conditional MAE reduction `3.83%`, daily KS `4/25`, level KS `1/25`, cross-cell corr ratio `0.827`, effective-rank ratio `1.719`, mean-reversion active cells `8/24`, pathwise max-jump KS `0.270`, per-cell extreme-jump scale cells `7/25`.
+
+### Mechanism Read
+The autoregressive panel transition frame is useful: it repaired cross-cell dependence and aggregate path-jump realism relative to global Gaussian panel models. The remaining failure is the daily innovation family. A single conditional Gaussian is too broad and too symmetric cellwise, so it overcovers many cells while still missing level occupancy, per-cell tail scale, long-horizon conditionality, and active mean-reversion geometry.
+
+### Decision / Next Step
+Keep the causal panel transition frame, but replace the daily Gaussian innovation with a small likelihood-based non-Gaussian innovation law in 538a. This is the minimal principled move; do not add a separate calibration layer or evaluator-specific correction.
+
+---
