@@ -99386,3 +99386,35 @@ The likely failure is the training path: 392a/510a inherit a full real-data tran
 Close synthetic pretrain + recent-only adaptation as below frontier. Continue the TimePFN branch only in a more faithful form: synthetic pretrain, then broad real-data fine-tuning over a much larger pre-validation window set, then recent adaptation/evaluation. The next iteration is 562a using the 561a synthetic checkpoint with broad real fine-tuning.
 
 ---
+## 2026-04-26: Autoresearch 562a TimePFN Broad Real Fine-Tune
+
+### Context
+561a showed that synthetic pretraining plus only 441 recent real windows is below frontier. 562a tested the more faithful TimePFN-style path: synthetic pretraining, then broad real-data fine-tuning over a much larger pre-validation window set.
+
+### Result
+562a reused `models/backfill/561a_timepfn_synthetic_prior_scaled/best_model.pt` and fine-tuned on `2400` real pre-validation windows for `12` epochs. Best adaptation loss reached `0.4246`, comparable to the historical 340c real-data loss range.
+
+Official full-suite artifact:
+- `results/autoresearch/562a_timepfn_synthetic_broad_real/full11.json`
+
+Score: `4/11`.
+Passed: `surface`, `block_ar`, `cross_cell_correlation`, `mean_reversion`.
+Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`.
+
+Key metrics:
+- coverage90 `0.832`, h30 worst-cell coverage `0.224`;
+- conditionality MAE reduction `4.2%`;
+- daily-change KS `21/25`, level KS `5/25`;
+- cointegration gen/GT ratio `0.852`, worst-cell ratio `0.083`;
+- regime layer2 `0/8`;
+- cross-cell correlation ratio `0.603`, rank ratio `2.485`;
+- mean-reversion aggregate ratio `0.743`;
+- pathwise max-jump KS `0.673`.
+
+### Mechanism Read
+Broad real fine-tuning recovered real dynamics that 561a lacked: daily-change KS, mean reversion, and time-series kurtosis improved substantially. But the result became locally underinclusive and still misses the risk-manager objective. It does not improve stress/regime support versus `510a` and remains below the current prototype.
+
+### Decision / Next Step
+Do not promote 562a. Keep the synthetic-prior branch alive for one final clean falsifier: initialize from 562a and apply the same patch-energy final adaptation used by the `510a` frontier. If that cannot recover lower coverage and pathwise realism without breaking recovered dynamics, close the local TimePFN-style synthetic-prior branch.
+
+---
