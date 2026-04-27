@@ -78,6 +78,7 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--distribution_family", choices=["gaussian", "student_t"], default="gaussian")
     parser.add_argument("--student_t_df", type=float, default=5.0)
+    parser.add_argument("--mean_loss_weight", type=float, default=0.0)
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="basic")
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
@@ -125,6 +126,7 @@ def main() -> None:
         sample_temperature=float(args.sample_temperature),
         distribution_family=args.distribution_family,
         student_t_df=float(args.student_t_df),
+        mean_loss_weight=float(args.mean_loss_weight),
     )
     model = GenericGaussianTransitionLaw(cfg).to(device)
     model.set_empirical_quantiles(

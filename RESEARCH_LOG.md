@@ -102856,3 +102856,74 @@ Next: target conditional mean/placement directly while staying in the likelihood
 - `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp090_full11.md`
 
 ---
+## 2026-04-27: Autoresearch 618 Student-t mean placement loss
+
+### Context
+617a showed Student-t temperature improves the likelihood path to `5/11`, but level occupancy, mean reversion, and per-cell tail geometry remain broken. 618a tested whether the likelihood model needs a direct one-step conditional mean placement signal.
+
+### Change
+Updated:
+- `diffusion/block_ar/generic_gaussian_transition_law.py`
+- `experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py`
+- `test_code/test_614a_generic_gaussian_transition.py`
+
+The loss is now:
+- Student-t NLL;
+- plus `mean_loss_weight * smooth_l1(predicted_transition_mean, realized_increment)`.
+
+For 618a, `mean_loss_weight=1.0`.
+
+Verification:
+- `python -m py_compile diffusion/block_ar/generic_gaussian_transition_law.py experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py experiments/backfill/block_ar/evaluate_614a_unified_ar_gaussian_likelihood.py`
+- `pytest test_code/test_614a_generic_gaussian_transition.py -q`
+- result: `4 passed`
+
+### Result
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- Student-t df `5`;
+- mean loss weight `1.0`;
+- best epoch `4`;
+- best validation objective `-8.938077`;
+- final validation objective `-4.028872`;
+- finite sample rate `1.0`.
+
+Official IV bridge on 441 windows / 48 samples:
+- score: `4/11`;
+- passed: conditionality, block-AR, cointegration, cross-cell correlation;
+- failed: surface, coverage, time-series properties, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- cov90 overall `92.0%`;
+- conditional MAE reduction `6.0%`;
+- persistent severe undercoverage `404/11025 = 3.7%`;
+- daily KS `14/25`;
+- level KS `0/25`;
+- median-bias cells `15/25`;
+- kurtosis ratio `0.460`;
+- cointegration worst-cell `0.269`;
+- cross-cell corr/rank `0.695 / 1.945`;
+- mean-reversion ratio `0.404`;
+- pathwise max-jump KS `0.397`;
+- per-cell q99 jump-scale `6/25`.
+
+### Mechanism Read
+Mean-placement loss at weight `1.0` is a falsifier. It does not fix the level/mean-reversion problem and regresses important structure relative to 617a temp `0.90`: surface validity, daily KS, median-bias cells, cointegration worst-cell, and cross-cell rank all worsen.
+
+The likely problem is that one-step mean placement is not the same as multi-step conditional level occupancy. The likelihood model still places broad probability mass poorly across cells and horizons.
+
+### Decision
+Close mean-loss weight `1.0` as a deployable fix.
+
+Next: do a post-experiment analysis / ideation pass before adding more knobs. The active question is why level occupancy and mean reversion remain broken under likelihood training despite passing conditionality, cointegration, cross-cell structure, and persistent-undercoverage.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_618a_joint38_ar_studentt_mean_nll.md`
+- `models/backfill/618a_joint38_ar_studentt_mean_nll_e8_w2048_s618/train_summary.json`
+- `models/backfill/618a_joint38_ar_studentt_mean_nll_e8_w2048_s618/training_history.json`
+- `results/autoresearch/618a_joint38_ar_studentt_mean_nll_e8_w2048/full11.json`
+- `results/autoresearch/618a_joint38_ar_studentt_mean_nll_e8_w2048/full11.md`
+
+---

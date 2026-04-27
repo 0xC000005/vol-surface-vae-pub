@@ -30,6 +30,7 @@ class GenericGaussianTransitionConfig:
     sample_temperature: float = 1.0
     distribution_family: str = "gaussian"
     student_t_df: float = 5.0
+    mean_loss_weight: float = 0.0
 
 
 class GenericGaussianTransitionLaw(nn.Module):
@@ -253,10 +254,13 @@ class GenericGaussianTransitionLaw(nn.Module):
         )
         target_flat = target.reshape(bsz * horizon, n_vars)
         nll = -self._log_prob(target_flat, mean, tril).mean()
+        mean_loss = F.smooth_l1_loss(mean, target_flat, beta=0.5)
+        total = nll + float(self.cfg.mean_loss_weight) * mean_loss
         pred_error = target_flat - mean
         metrics = {
-            "total": nll.detach(),
+            "total": total.detach(),
             "nll": nll.detach(),
+            "mean_loss": mean_loss.detach(),
             "transition_std": target.std(unbiased=False).detach(),
             "transition_abs": target.abs().mean().detach(),
             "pred_error_abs": pred_error.abs().mean().detach(),
@@ -264,7 +268,7 @@ class GenericGaussianTransitionLaw(nn.Module):
             "diag_std": diag.std(unbiased=False).detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
-        return nll, metrics
+        return total, metrics
 
     @torch.no_grad()
     def sample_batched(
