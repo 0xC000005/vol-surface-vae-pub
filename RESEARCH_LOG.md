@@ -102092,3 +102092,30 @@ Close asymmetric postforecast tail calibration. The postforecast overlay route n
 - `results/autoresearch/604a_510a_asymmetric_tail_postforecast_adapter/risk_readiness.md`
 
 ---
+## 2026-04-27: Autoresearch 605 hard-window support audit
+
+### Context
+602a-604a closed postforecast interval adapters as deployability fixes. The remaining question is whether the hard validation stress windows are outside observable conditioning support, or whether their futures are extreme but in-support. 605a audited the repeatedly failing windows around cell `(3,3)`.
+
+### Implementation
+Added `experiments/backfill/block_ar/audit_605a_hard_window_support.py` and focused tests in `test_code/test_605a_hard_window_support_audit.py`. The audit uses no model sampling. It compares hard validation windows against training support using standardized nearest-neighbor distances in IV-history features, factor-history features (`ret`, `price`, `slopes`, `skews`, `levels`), and joint IV+factor features. Focused tests passed: `pytest test_code/test_605a_hard_window_support_audit.py -q` -> `4 passed in 1.34s`.
+
+### Result
+Hard windows `420`, `421`, and `423` are near the edge of training-history support. IV NN percentiles versus train self-support were `0.961 / 0.956 / 0.992`; joint IV+factor percentiles were `0.948 / 0.942 / 0.988`; factor percentiles were `0.820 / 0.812 / 0.879`.
+
+But the realized h30 `(3,3)` future moves are not extreme relative to training futures: deltas were `-0.0140 / -0.0115 / -0.0058`, corresponding to training percentiles `0.219 / 0.271 / 0.412`. Training p05/p50/p95 for that delta are `[-0.03173, -0.00231, 0.03921]`.
+
+### Mechanism Read
+The failure is not an unseen future amplitude. It is a conditional path-location/allocation error under low-support history states. The model sees a history state near the edge of local training support and places center/tail mass in the wrong location for the future path. This explains why widening-only and asymmetric postforecast adapters fail: residual scaling cannot fix the wrong path location.
+
+### Decision
+Do not run another postforecast width adapter. The next branch must either alter conditional path-location allocation for low-support states or document the data requirement for new state variables that make these regimes locally supported/predictable before claiming deployable conditional risk scenarios.
+
+### Artifacts
+- `experiments/backfill/block_ar/audit_605a_hard_window_support.py`
+- `test_code/test_605a_hard_window_support_audit.py`
+- `experiments/backfill/block_ar/ANALYSIS_605a_hard_window_support.md`
+- `results/autoresearch/605a_hard_window_support/audit.json`
+- `results/autoresearch/605a_hard_window_support/audit.md`
+
+---
