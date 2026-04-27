@@ -103173,3 +103173,26 @@ Do not change paradigm. 629a is the current most principled native joint learned
 - results/autoresearch/629a_joint38_statecond_increment_e8_w2048/joint_panel.md
 
 ---
+## 2026-04-27: Autoresearch 630a all-window scale falsifier
+
+### Context
+629a established the clean native joint state-conditioned increment architecture but still failed IV calibration/regime/tail behavior. 630a tested whether this was mainly a data-scale problem by training the same model on all 4010 available training windows instead of the recent 2048-window subset.
+
+### Result
+Teacher-forced validation loss improved from 1.1323 to 1.0587, but free-running IV scenario quality worsened. IV full-suite score fell from 3/11 to 2/11. Surface explosion worsened from 45.1% to 72.5%; conditionality MAE reduction fell from 7.9% to 4.4%; daily-change KS fell from 25/25 to 22/25; level KS fell from 5/25 to 1/25; median-bias pass fell from 13/25 to 5/25; pathwise max-jump KS worsened from 0.464 to 0.711; and per-cell q99 tail pass fell from 19/25 to 7/25.
+
+The joint-panel audit improved dependence but did not compensate for IV damage: factor-factor correlation shape rose from 0.823 to 0.907, IV-factor correlation shape rose from 0.883 to 0.891, and factor q99 pass stayed 13/13.
+
+### Mechanism Read
+Naive data scale is not the bottleneck. More historical windows improve average one-step loss and joint factor dependence, but they worsen current validation-regime IV free-run behavior. This is consistent with nonstationary financial levels and regime mixing: older regimes distort the level coordinate and jump scale needed for deployable 30-day IV scenarios. One-step validation loss is not enough for scenario quality.
+
+### Decision
+Keep the 629a architecture and recent-window training frame as the active base. Do not keep all-window training as the frontier. Next: add a generic volatility-state memory feature to the same state-conditioned increment law, so the memory sees encoded levels, increments, absolute increments, and squared increments. This targets weak turbulent widening and state-dependent scale without IV/factor-specific branches.
+
+### Artifacts
+- experiments/backfill/block_ar/ANALYSIS_630a_all_window_scale.md
+- models/backfill/630a_joint38_statecond_increment_e8_all_s630/best_model.pt
+- results/autoresearch/630a_joint38_statecond_increment_e8_all/full11.md
+- results/autoresearch/630a_joint38_statecond_increment_e8_all/joint_panel.md
+
+---
