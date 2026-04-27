@@ -102560,3 +102560,72 @@ The next principled move should be objective-level: keep the same generic state-
 - `results/autoresearch/613a_joint38_ar_scalefeat_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 614 Gaussian likelihood transition
+
+### Context
+613a falsified the simple scale-prefix feature hypothesis. The recurring issue looked objective-level: flow-matching MSE was not reliably optimizing calibrated conditional probability mass. 614a therefore kept the same generic state-panel framing but replaced velocity MSE with exact conditional likelihood.
+
+### Implementation
+Added:
+- `diffusion/block_ar/generic_gaussian_transition_law.py`
+- `experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py`
+- `experiments/backfill/block_ar/evaluate_614a_unified_ar_gaussian_likelihood.py`
+- `test_code/test_614a_generic_gaussian_transition.py`
+
+The model uses one shared causal memory and one full-covariance Gaussian transition density over empirical-score increments. It supports IV-only and joint38 by changing `state_scope`, not architecture.
+
+Verification:
+- `python -m py_compile diffusion/block_ar/generic_gaussian_transition_law.py experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py experiments/backfill/block_ar/evaluate_614a_unified_ar_gaussian_likelihood.py`
+- `pytest test_code/test_614a_generic_gaussian_transition.py -q`
+- result: `2 passed`
+
+### Result
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- best epoch `2`;
+- best validation NLL `15.682419`;
+- final validation NLL `47.916576`;
+- finite sample rate `1.0`.
+
+Official IV bridge on 441 windows / 48 samples:
+- score: `4/11`;
+- passed: conditionality, block-AR, cointegration, cross-cell correlation;
+- failed: surface, coverage, time-series properties, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- cov90 overall `90.9%`;
+- conditional MAE reduction `6.7%`;
+- turbulent/calm width ratio `0.926`;
+- persistent severe undercoverage `445/11025 = 4.0%` pass;
+- regime layer2 `0/8`;
+- daily-change KS `12/25`;
+- level KS `0/25`;
+- median-bias cells `8/25`;
+- bad coverage windows `0/441`;
+- kurtosis ratio `0.305`;
+- cointegration gen/GT `0.766`, worst-cell ratio `0.299`;
+- cross-cell corr/rank `0.822 / 1.611`;
+- mean-reversion ratio `0.304`;
+- pathwise max-jump KS `0.646`;
+- per-cell q99 jump-scale `6/25`.
+
+### Mechanism Read
+The likelihood objective is promising in one specific way: it solves the severe undercoverage pathology better than the flow path. Aggregate coverage becomes high, window-floor coverage passes, and persistent severe undercoverage drops below the 5% gate.
+
+The plain Gaussian transition is not deployable. It is too diffuse and too smooth: level KS collapses, kurtosis is far too low, per-cell tail scale is uneven, and mean reversion is washed out.
+
+### Decision
+Keep the likelihood-trained AR transition paradigm alive, but close plain uncalibrated Gaussian sampling as a deployable model.
+
+Next: run a controlled down-temperature diagnostic on 614a. If moderate sampler temperature restores level/tail/mean-reversion realism while preserving the persistent-undercoverage gains, the NLL path is viable. If not, the next likelihood family should be heavier-tailed or mixture-based.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_614a_joint38_ar_gaussian_nll.md`
+- `models/backfill/614a_joint38_ar_gaussian_nll_e8_w2048_s614/train_summary.json`
+- `models/backfill/614a_joint38_ar_gaussian_nll_e8_w2048_s614/training_history.json`
+- `results/autoresearch/614a_joint38_ar_gaussian_nll_e8_w2048/full11.json`
+- `results/autoresearch/614a_joint38_ar_gaussian_nll_e8_w2048/full11.md`
+
+---
