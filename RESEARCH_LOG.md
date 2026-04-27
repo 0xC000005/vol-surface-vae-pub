@@ -103967,3 +103967,52 @@ objective toward a proper sample-based conditional law objective that sees
 multiple generated paths per history.
 
 ---
+## 2026-04-27: Autoresearch 648a path energy fine-tune
+
+### Context
+
+647a kept the model architecturally clean and native-joint, but failed IV
+coverage, conditionality, tails, and pathwise realism under plain
+flow-matching MSE. 648a tested the most direct objective-level fix without
+changing architecture: fine-tune the same 647 mixed-coordinate path model using
+a full-path energy score in generated mixed-coordinate space, anchored by the
+original FM loss.
+
+### Result
+
+- Code/artifacts:
+  `experiments/backfill/block_ar/train_648a_mixed_coordinate_path_energy_finetune.py`,
+  `test_code/test_648a_mixed_coordinate_path_energy_finetune.py`,
+  `models/backfill/648a_joint38_mixed_path_energy_ft_e3_w2048_s648/best_model.pt`.
+- Focused tests passed:
+  `pytest test_code/test_648a_mixed_coordinate_path_energy_finetune.py test_code/test_647a_mixed_coordinate_path_flow.py -q`.
+- IV 11-suite remained 4/11 at
+  `results/autoresearch/648a_joint38_mixed_path_energy_ft_e3_w2048_s648/full11.json`.
+- Important regressions versus 647a: cov90 66.3% -> 54.0%; conditional MAE
+  reduction -0.7% -> -12.7%; level-KS pass 10/25 -> 1/25; median-bias pass
+  14/25 -> 3/25.
+- Pathwise max-jump KS improved slightly from 0.618 to 0.575 but still failed
+  the relaxed 0.50 gate.
+- Joint audit also regressed at
+  `results/autoresearch/648a_joint38_mixed_path_energy_ft_e3_w2048_s648/joint_panel.json`:
+  factor KS mean 0.087 -> 0.115, factor KS pass 13/13 -> 12/13, factor q99
+  pass 11/13 -> 10/13. Factor-factor and IV-factor correlations remained high
+  at 0.836 and 0.838.
+
+### Mechanism Read
+
+The energy-score fine-tune pushed movement amplitude but did not fix
+conditional probability allocation. It created upward IV level bias, damaged
+coverage, and slightly damaged anchor-factor marginal realism. This is not a
+support issue, a gluing issue, or a one-step rollout issue. It is a conditional
+location/dispersion calibration issue inside the path law.
+
+### Decision
+
+Close 648a as a negative result. Do not continue by increasing scalar energy
+weight or running a temperature sweep. The next step should be post-experiment
+analysis/ideation on a clean parameterization that learns conditional location
+and dispersion together inside the path model, without factor-specific branches
+or policy calibration overlays.
+
+---
