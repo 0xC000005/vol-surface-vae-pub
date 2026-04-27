@@ -103865,3 +103865,18 @@ Scalar temperature is not the missing deployability layer. It widens intervals a
 Close scalar sample temperature for 641a. The next step is research ideation around objective/calibration changes for the unified path law. Do not add more sampling knobs or separate IV/factor treatments.
 
 ---
+## 2026-04-27: Autoresearch 644a objective ideation after 641
+
+### Context
+After 641a solved native IV-plus-anchor-factor generation and 643a falsified scalar sample temperature, 644a revisited objective-level ideas using recent time-series research signals and repo evidence.
+
+### Findings
+- Recent signals checked: DistDF (ICLR 2026), TSFlow (ICLR 2025), Local Geometry Attention (ICLR 2026), and MixLinear (ICLR 2026).
+- The useful common theme is not architectural complexity. It is future-path distribution alignment and local temporal geometry.
+- Existing repo evidence closes several tempting fixes as sufficient: global temperature, naive learned source scale, one-realization final-path loss, and one-step Gaussian/Student-t likelihood family changes.
+- The remaining statistical problem is sparse conditional supervision: each history has one realized future, so standard FM or one-realization path objectives do not estimate enough conditional future-path mass.
+
+### Decision
+Next experiment: 645a local conditional distribution alignment finetune for 641a. For each history, use nearby histories in score space to form an empirical local conditional future distribution, align generated futures to that local target with a sliced-Wasserstein-style loss, and keep an FM anchor. This is a training objective only: no retrieval at inference, no separate IV/factor loss, one shared 38-channel model.
+
+---
