@@ -101985,3 +101985,24 @@ Do not escalate local-geometry attention into the generator as the next architec
 - `results/autoresearch/600a_lga_iv_history_signal/audit.json`
 
 ---
+## 2026-04-27: Autoresearch 601 recent time-series literature boundary
+
+### Context
+After 599a showed current anchor factors do not explain the hard IV failures and 600a showed local-geometry IV-history features hurt out-of-sample failure probes, the next HEAD step is research ideation rather than another architecture tweak. The goal was to check recent time-series DNN directions and decide what is still principled.
+
+### Literature Boundary
+Recent external directions do not justify another blind module. Local Geometry Attention (ICLR 2026, `https://openreview.net/forum?id=NCQPCxN7ds`) was cheaply falsified locally by 600a. DistDF (ICLR 2026, `https://openreview.net/forum?id=VrdLwUmzBy`) and vLinear/WFMLoss (`https://arxiv.org/abs/2601.13768`) support joint/final-series distribution objectives, but local analogues 504a and 596a were below-frontier or narrowed the deck. FACT (`https://openreview.net/forum?id=j3gNYqrHtl`) and MixLinear-style structure are useful for future panel backbones but not an immediate sparse-tail fix. The Forecast After the Forecast (`https://openreview.net/forum?id=syfWdclGE1`) is the best fit to current evidence: small bounded post-forecast adapters and calibration around a frozen backbone.
+
+### Local Evidence
+Native-law repair has already covered AR, one-shot, hierarchical, joint panel, local-shift flows, common latent wrappers, joint energy/Wasserstein objectives, scalar temperature, factor histories, and local geometry. 392a/510a remain the short-frame learned frontier at 8/11, but broad-frame 510a is 5/11 and 574a remains the best risk-manager stress product.
+
+### Decision
+Do not start another learned core just because a recent paper has a module. The clean next step is a bounded frozen-postforecast adapter audit: keep base generator metrics separate as the learned conditional law, fit a disclosed calibration/risk-policy layer on historical calibration splits, and evaluate whether the final system becomes more risk-manager usable without hiding base-law failures.
+
+### Next Step
+Run 602a as a frozen-postforecast adapter audit on the 510a broad-frame generator. If a bounded adapter cannot improve coverage/pathwise realism without destroying conditionality, then deployability needs new data/state variables rather than another neural architecture.
+
+### Artifact
+- `experiments/backfill/block_ar/IDEA_601a_recent_ts_literature_boundary.md`
+
+---
