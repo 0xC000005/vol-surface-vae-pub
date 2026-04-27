@@ -143,6 +143,59 @@ def test_path_flow_terminal_path_loss_is_finite() -> None:
     assert torch.isfinite(metrics["terminal_tail_rate"])
 
 
+def test_path_flow_sampled_energy_loss_is_finite() -> None:
+    torch.manual_seed(655)
+    cfg = GenericMixedCoordinatePathFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=5,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=31,
+        conditioning_mode="prefix",
+        prefix_feature_mode="scale",
+        level_score_channels=[0, 1],
+        path_energy_loss_weight=0.01,
+        path_energy_samples=3,
+        path_energy_tail_weight=1.0,
+        path_energy_tail_threshold=0.5,
+    )
+    model = GenericMixedCoordinatePathFlowMatching(cfg)
+    level_quantiles = torch.linspace(-1.0, 1.0, cfg.n_quantiles).repeat(cfg.n_cells, 1)
+    increment_quantiles = torch.linspace(-0.5, 0.5, cfg.n_quantiles).repeat(
+        cfg.n_cells, 1
+    )
+    quantile_levels = (
+        torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5
+    ) / cfg.n_quantiles
+    model.set_empirical_quantiles(level_quantiles, increment_quantiles, quantile_levels)
+    history_state = 0.2 * torch.randn(2, cfg.history_len, cfg.n_cells)
+    history_increment = 0.05 * torch.randn(2, cfg.history_len, cfg.n_cells)
+    future_increment = 0.05 * torch.randn(2, cfg.future_len, cfg.n_cells)
+    future_state = history_state[:, -1:, :] + torch.cumsum(future_increment, dim=1)
+
+    loss, metrics = model.training_loss(
+        history_state,
+        history_increment,
+        future_state,
+        future_increment,
+    )
+
+    assert torch.isfinite(loss)
+    assert torch.isfinite(metrics["path_energy_loss"])
+    assert torch.isfinite(metrics["path_energy_target_dist"])
+    assert torch.isfinite(metrics["path_energy_pair_dist"])
+    assert torch.isfinite(metrics["path_energy_tail_rate"])
+
+
 def test_path_flow_rejects_out_of_range_level_score_channels() -> None:
     cfg = GenericMixedCoordinatePathFMConfig(
         history_len=2,

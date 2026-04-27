@@ -104300,3 +104300,54 @@ continued locally, should be a true sampled distribution score such as energy or
 sliced-Wasserstein over multiple generated futures, not another pointwise loss.
 
 ---
+## 2026-04-27: Autoresearch 655a sampled path-energy objective
+
+### Context
+
+655a followed the 654a terminal-loss falsification. The goal was to test a true
+sampled distribution score rather than another pointwise loss. The architecture
+remained the 652a shared-source multi-head native joint path model.
+
+### Implementation
+
+- Added optional sampled path-energy training to the mixed-coordinate path flow.
+- The objective samples multiple source paths per history inside training,
+  predicts terminal mixed-coordinate paths at `t=0`, and applies an energy
+  score against the realized future path.
+- Added controls for energy weight, number of samples, and tail-coordinate
+  weighting.
+- The objective is disabled by default.
+
+### Results
+
+- `655a_joint38`: `4/11` on the IV suite.
+- Pathwise max-jump KS improved to `0.556`, better than 652a `0.619` and 654a
+  `0.570`, but still failed the `<0.50` gate.
+- Conditionality worsened to `-0.3%` MAE reduction.
+- Daily-change KS fell to `10/25`.
+- Level KS fell to `5/25`.
+- Tail-scale fell to `9/25`.
+- Joint audit remained coherent but not superior: factor KS mean `0.0979`,
+  factor KS pass `13/13`, factor q99 pass `12/13`, factor-factor correlation
+  `0.859`, and IV-factor correlation `0.834`.
+
+### Interpretation
+
+The sampled proper score can move pathwise jump shape, but this global
+mixed-coordinate energy score is too blunt. It damages conditionality, level
+occupancy, and per-cell tail allocation more than it helps pathwise realism.
+
+### Decision
+
+Keep the sampled path-energy objective as optional disabled-by-default code, but
+close `655a` as below 652a. The clean frontier is now:
+
+- IV-only learned frontier: historical 510a/392a family.
+- Native joint-law backbone: 652a shared-source multi-head path flow.
+- Optional positive-support joint preprocessing: 653a `observed_positive`.
+
+Further local work should either package this frontier for risk-manager review
+or design a more targeted proper-score objective, not add more global objective
+knobs.
+
+---

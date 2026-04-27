@@ -100,6 +100,10 @@ def main() -> None:
     parser.add_argument("--terminal_path_loss_weight", type=float, default=0.0)
     parser.add_argument("--terminal_tail_weight", type=float, default=0.0)
     parser.add_argument("--terminal_tail_threshold", type=float, default=1.5)
+    parser.add_argument("--path_energy_loss_weight", type=float, default=0.0)
+    parser.add_argument("--path_energy_samples", type=int, default=0)
+    parser.add_argument("--path_energy_tail_weight", type=float, default=0.0)
+    parser.add_argument("--path_energy_tail_threshold", type=float, default=1.5)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -184,6 +188,10 @@ def main() -> None:
         terminal_path_loss_weight=float(args.terminal_path_loss_weight),
         terminal_tail_weight=float(args.terminal_tail_weight),
         terminal_tail_threshold=float(args.terminal_tail_threshold),
+        path_energy_loss_weight=float(args.path_energy_loss_weight),
+        path_energy_samples=int(args.path_energy_samples),
+        path_energy_tail_weight=float(args.path_energy_tail_weight),
+        path_energy_tail_threshold=float(args.path_energy_tail_threshold),
     )
     if args.head_mode == "multihead":
         cfg = GenericMultiHeadMixedCoordinatePathFMConfig(
@@ -266,6 +274,10 @@ def main() -> None:
             "terminal_path_loss_weight": float(args.terminal_path_loss_weight),
             "terminal_tail_weight": float(args.terminal_tail_weight),
             "terminal_tail_threshold": float(args.terminal_tail_threshold),
+            "path_energy_loss_weight": float(args.path_energy_loss_weight),
+            "path_energy_samples": int(args.path_energy_samples),
+            "path_energy_tail_weight": float(args.path_energy_tail_weight),
+            "path_energy_tail_threshold": float(args.path_energy_tail_threshold),
         },
     }
     for epoch in range(1, int(args.epochs) + 1):

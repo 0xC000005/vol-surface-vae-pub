@@ -29,6 +29,10 @@ class GenericMixedCoordinatePathFMConfig(CausalFutureMemoryTransitionFMConfig):
     terminal_path_loss_weight: float = 0.0
     terminal_tail_weight: float = 0.0
     terminal_tail_threshold: float = 1.5
+    path_energy_loss_weight: float = 0.0
+    path_energy_samples: int = 0
+    path_energy_tail_weight: float = 0.0
+    path_energy_tail_threshold: float = 1.5
 
 
 class GenericMixedCoordinatePathFlowMatching(nn.Module):
@@ -392,6 +396,64 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
                 terminal_loss = terminal_error.mean()
             loss = loss + float(self.cfg.terminal_path_loss_weight) * terminal_loss
             metrics["terminal_path_loss"] = terminal_loss.detach()
+            metrics["total"] = loss.detach()
+        if (
+            float(self.cfg.path_energy_loss_weight) > 0.0
+            and int(self.cfg.path_energy_samples) >= 2
+        ):
+            k = int(self.cfg.path_energy_samples)
+            bsz, horizon, n_cells = x1.shape
+            source = torch.randn(
+                bsz * k,
+                horizon,
+                n_cells,
+                device=x1.device,
+                dtype=x1.dtype,
+            )
+            if source_loc is not None and source_scale is not None:
+                source = (
+                    source_loc[:, None]
+                    .expand(bsz, k, horizon, n_cells)
+                    .reshape(bsz * k, horizon, n_cells)
+                    + source_scale[:, None]
+                    .expand(bsz, k, horizon, n_cells)
+                    .reshape(bsz * k, horizon, n_cells)
+                    * source
+                )
+            context_energy = (
+                context[:, None]
+                .expand(bsz, k, self.cfg.memory_dim)
+                .reshape(bsz * k, self.cfg.memory_dim)
+            )
+            t0 = torch.zeros(bsz * k, device=x1.device, dtype=x1.dtype)
+            samples = source + self.predict_velocity(source, context_energy, t0)
+            samples = samples.view(bsz, k, horizon, n_cells)
+            target = x1[:, None, :, :]
+            if float(self.cfg.path_energy_tail_weight) > 0.0:
+                tail_gate = (x1.abs() > float(self.cfg.path_energy_tail_threshold)).to(
+                    x1
+                )
+                dim_weight = torch.sqrt(
+                    1.0 + float(self.cfg.path_energy_tail_weight) * tail_gate
+                )[:, None, :, :]
+                samples_for_score = samples * dim_weight
+                target_for_score = target * dim_weight
+                metrics["path_energy_tail_rate"] = tail_gate.mean().detach()
+            else:
+                samples_for_score = samples
+                target_for_score = target
+            sample_flat = samples_for_score.reshape(bsz, k, horizon * n_cells)
+            target_flat = target_for_score.reshape(bsz, 1, horizon * n_cells)
+            target_dist = torch.linalg.vector_norm(
+                sample_flat - target_flat,
+                dim=-1,
+            ).mean()
+            pair_dist = torch.cdist(sample_flat, sample_flat, p=2).mean()
+            path_energy = target_dist - 0.5 * pair_dist
+            loss = loss + float(self.cfg.path_energy_loss_weight) * path_energy
+            metrics["path_energy_loss"] = path_energy.detach()
+            metrics["path_energy_target_dist"] = target_dist.detach()
+            metrics["path_energy_pair_dist"] = pair_dist.detach()
             metrics["total"] = loss.detach()
         if source_loc is not None and source_scale is not None:
             metrics.update(
