@@ -102927,3 +102927,42 @@ Next: do a post-experiment analysis / ideation pass before adding more knobs. Th
 - `results/autoresearch/618a_joint38_ar_studentt_mean_nll_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 619 likelihood pathology
+
+### Context
+After 614a-618a, the likelihood path had a stable but different pathology from the flow path. 619a is a post-experiment analysis iteration before adding more knobs.
+
+### Finding
+Best likelihood-family result so far:
+- 617a Student-t temp `0.90`;
+- score `5/11`;
+- passed: surface, conditionality, block-AR, cointegration, cross-cell correlation;
+- failed: coverage, time-series properties, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Stable failures across Gaussian NLL, Student-t NLL, temperature diagnostics, and one-step mean loss:
+- level KS remains `0/25` or near `0/25`;
+- mean reversion remains weak;
+- regime layer2 remains `0/8`;
+- per-cell q99 tail scale remains imbalanced;
+- broad coverage can pass persistent-undercoverage, but does not produce correct level occupancy.
+
+### Mechanism Read
+The core pathology is teacher-forced one-step AR likelihood. Training conditions on the true prior future prefix, while sampling conditions on the model's own generated prefix. A one-step likelihood can therefore look acceptable while its free-running multi-step level process drifts into the wrong regions.
+
+618a supports this diagnosis: a one-step mean-placement loss still operates under teacher forcing, so it regressed surface/daily KS/median bias without fixing level KS or mean reversion.
+
+### Decision
+Do not keep adding scalar temperature or width knobs.
+
+Next: add a differentiable multi-step mean-rollout placement loss to the likelihood model:
+- keep Student-t NLL as the probabilistic core;
+- free-run the predicted transition mean through selected horizons during training;
+- compare predicted mean score levels to realized future score levels;
+- backpropagate through the recursive mean path.
+
+This targets train/sample mismatch directly while preserving one shared state-panel model.
+
+### Artifact
+- `experiments/backfill/block_ar/ANALYSIS_619_likelihood_pathology_and_next.md`
+
+---
