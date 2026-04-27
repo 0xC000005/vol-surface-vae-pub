@@ -102208,3 +102208,78 @@ The next principled route is a native unified learned law: IV and anchor factors
 - `results/autoresearch/608a_support_path_fallback_frac075/risk_readiness.md`
 
 ---
+## 2026-04-27: Autoresearch 609 unified AR transition smoke
+
+### Context
+The composed IV-plus-anchor stress deck is scientifically unsatisfying because IV paths and factor paths are generated separately and paired by severity rank. 609a implements the missing native route: one empirical-score AR transition-flow model over a generic state panel.
+
+### Implementation
+Added:
+- `diffusion/block_ar/generic_empirical_score_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_609a_unified_ar_transition_flow.py`
+- `experiments/backfill/block_ar/evaluate_609a_unified_ar_transition_flow.py`
+- `test_code/test_609a_generic_empirical_score_transition.py`
+
+The same model class supports:
+- `D=25` IV-only state generation;
+- `D=38` joint IV plus 13 anchor factor state generation.
+
+The model has no separate IV head and no separate factor head. The preprocessing selects state variables; the network sees one panel, one memory, one transition law, and one source-randomness mechanism.
+
+### Verification
+Compile passed:
+
+```bash
+python -m py_compile \
+  diffusion/block_ar/generic_empirical_score_transition_flow_matching.py \
+  experiments/backfill/block_ar/train_609a_unified_ar_transition_flow.py \
+  experiments/backfill/block_ar/evaluate_609a_unified_ar_transition_flow.py
+```
+
+Focused tests:
+
+```bash
+pytest test_code/test_609a_generic_empirical_score_transition.py -q
+```
+
+Result: `2 passed`.
+
+### Smoke Result
+Joint38 smoke training:
+- 2 epochs;
+- 512 recent train windows;
+- validation loss improved `0.930 -> 0.868`;
+- finite sample rate `1.0`;
+- IV sample range `0.0121` to `0.9233`;
+- factor sample range `0.54` to `20522.76`.
+
+Official IV bridge on 128 windows / 24 samples:
+- score: `3/11`;
+- passed: surface, block-AR, cross-cell correlation;
+- failed: coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, pathwise_jump_realism.
+
+Key diagnostics:
+- cov90 overall `83.2%`;
+- conditional MAE reduction `3.1%`;
+- turbulent/calm width ratio `0.906`;
+- daily-change KS `21/25`;
+- level KS `6/25`;
+- cross-cell corr/rank `0.630 / 2.965`;
+- h30 mean-reversion ratio `0.913`, but h1 ratio `0.665`;
+- pathwise max-jump KS `0.891`.
+
+### Mechanism Read
+609a answers the architecture question: the native shared-state/shared-randomness joint route is mechanically viable. It is not a glued deck, and it is generalizable to IV-only or IV+anchor by changing the state panel.
+
+The smoke checkpoint is undertrained and non-deployable. Its failure pattern is still useful: daily-change shape, surface validity, and cross-cell structure are already sane, while regime-responsive width, conditionality, level occupancy, h1 mean reversion, and pathwise max-jump distribution are not yet recovered.
+
+### Decision
+Keep this branch alive. The next move should be a stronger 609-family training run with more epochs and more recent windows, not a new architecture knob. If the stronger run remains far below the frontier, then the exact hybrid is falsified; the 2-epoch smoke is not enough to make that judgment.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_609a_unified_ar_transition_smoke.md`
+- `models/backfill/609a_joint38_ar_transition_smoke_s609/train_summary.json`
+- `results/autoresearch/609a_joint38_ar_transition_smoke/full11_smoke.json`
+- `results/autoresearch/609a_joint38_ar_transition_smoke/full11_smoke.md`
+
+---
