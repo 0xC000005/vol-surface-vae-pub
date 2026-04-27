@@ -33,6 +33,8 @@ from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  
     UnifiedIncrementBlock,
     build_unified_increment_block,
     clean_nonpositive_log_level_factors,
+    decode_state,
+    encode_state,
 )
 
 
@@ -49,11 +51,24 @@ def _spec_to_dict(spec: Any) -> dict[str, Any]:
     }
 
 
-def select_scope(block: UnifiedIncrementBlock, scope: str, iv_count: int) -> tuple[np.ndarray, np.ndarray, list[Any]]:
+def select_scope(
+    block: UnifiedIncrementBlock,
+    scope: str,
+    iv_count: int,
+    value_coordinate: str = "raw",
+) -> tuple[np.ndarray, np.ndarray, list[Any]]:
+    if value_coordinate == "raw":
+        history = block.history_state
+        future = block.future_state
+    elif value_coordinate == "encoded":
+        history = encode_state(block.history_state, block.specs).astype(np.float32)
+        future = encode_state(block.future_state, block.specs).astype(np.float32)
+    else:
+        raise ValueError(f"unknown value_coordinate {value_coordinate!r}")
     if scope == "joint38":
-        return block.history_state, block.future_state, block.specs
+        return history, future, block.specs
     if scope == "iv_only":
-        return block.history_state[..., :iv_count], block.future_state[..., :iv_count], block.specs[:iv_count]
+        return history[..., :iv_count], future[..., :iv_count], block.specs[:iv_count]
     raise ValueError(f"unknown state_scope {scope!r}")
 
 
@@ -150,22 +165,26 @@ def sample_smoke(
     chunk_size: int,
     device: torch.device,
     iv_count: int,
+    specs: list[Any],
+    value_coordinate: str,
 ) -> dict[str, Any]:
     model.eval()
     hist = torch.from_numpy(history[: min(4, history.shape[0])]).to(device)
     out = model.sample_batched(hist, n_samples=int(samples), n_steps=int(steps), chunk_size=int(chunk_size))
     arr = out.detach().cpu().numpy()
+    report_arr = decode_state(arr, specs).astype(np.float32) if value_coordinate == "encoded" else arr
     report: dict[str, Any] = {
         "sample_shape": list(arr.shape),
         "finite_rate": float(np.isfinite(arr).mean()),
-        "iv_min": float(np.nanmin(arr[..., :iv_count])),
-        "iv_max": float(np.nanmax(arr[..., :iv_count])),
+        "decoded": bool(value_coordinate == "encoded"),
+        "iv_min": float(np.nanmin(report_arr[..., :iv_count])),
+        "iv_max": float(np.nanmax(report_arr[..., :iv_count])),
     }
-    if arr.shape[-1] > iv_count:
+    if report_arr.shape[-1] > iv_count:
         report.update(
             {
-                "factor_min": float(np.nanmin(arr[..., iv_count:])),
-                "factor_max": float(np.nanmax(arr[..., iv_count:])),
+                "factor_min": float(np.nanmin(report_arr[..., iv_count:])),
+                "factor_max": float(np.nanmax(report_arr[..., iv_count:])),
             }
         )
     return report
@@ -174,6 +193,7 @@ def sample_smoke(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state_scope", choices=["iv_only", "joint38"], default="joint38")
+    parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--test_start", type=int, default=4511)
@@ -221,8 +241,18 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     columns, panel_metadata, train_block, val_block = build_blocks(args)
-    train_history, train_future, train_specs = select_scope(train_block, args.state_scope, int(args.iv_count))
-    val_history, val_future, val_specs = select_scope(val_block, args.state_scope, int(args.iv_count))
+    train_history, train_future, train_specs = select_scope(
+        train_block,
+        args.state_scope,
+        int(args.iv_count),
+        args.value_coordinate,
+    )
+    val_history, val_future, val_specs = select_scope(
+        val_block,
+        args.state_scope,
+        int(args.iv_count),
+        args.value_coordinate,
+    )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
         raise RuntimeError("train/val state specs differ")
 
@@ -284,6 +314,7 @@ def main() -> None:
     t0 = time.time()
     extra = {
         "state_scope": args.state_scope,
+        "value_coordinate": args.value_coordinate,
         "iv_count": int(args.iv_count),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "panel_metadata": panel_metadata,
@@ -338,11 +369,14 @@ def main() -> None:
         chunk_size=int(args.chunk_size),
         device=device,
         iv_count=int(args.iv_count),
+        specs=train_specs,
+        value_coordinate=args.value_coordinate,
     )
     summary = {
         "args": vars(args),
         "config": asdict(cfg),
         "state_scope": args.state_scope,
+        "value_coordinate": args.value_coordinate,
         "n_state_vars": int(train_history.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "train_shape": list(train_history.shape),

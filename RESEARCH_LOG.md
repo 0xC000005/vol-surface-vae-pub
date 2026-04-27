@@ -103002,3 +103002,25 @@ Run a minimal encoded-coordinate falsifier next. Add `value_coordinate=raw|encod
 Artifact: `experiments/backfill/block_ar/IDEA_621a_encoded_state_coordinate_reset.md`.
 
 ---
+## 2026-04-27: Autoresearch 622a: encoded-state joint AR result
+
+### Context
+621a found that the unified panel builder already defines log-level/diff-level encoded coordinates, but recent native joint AR scripts trained on raw states. 622a implemented and tested the minimal coordinate switch without adding a new architecture or separate IV/factor path.
+
+### Change
+Added `value_coordinate=raw|encoded` to the generic AR flow train/eval path. In encoded mode, training uses `encode_state(...)`, generated panel samples are decoded with `decode_state(...)`, and decoded IV cells are scored by the official IV suite. Focused test passed: `pytest test_code/test_622a_encoded_state_coordinate.py -q` -> `3 passed`.
+
+### Result
+622a trained the 610a-style joint38 AR transition-flow in encoded coordinates. Official broad-frame score: `4/11`. Passed: `surface`, `block_ar`, `cross_cell_correlation`, `mean_reversion`. Failed: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`.
+
+Key metrics: cov90 `49.0%`, h1/h30 cov90 `75.3% / 33.9%`, conditionality MAE reduction `-2.4%`, turb/calm ratio `0.973`, daily KS `11/25`, level KS `0/25`, median-bias `1/25`, persistent severe undercoverage `34.0%`, cointegration gen/GT `0.426`, mean-reversion ratio `0.920` with active corr `0.903`, pathwise max-jump KS `0.403`, per-cell q99 jump-scale `14/25`.
+
+### Mechanism Read
+Encoded coordinates are useful but not sufficient. They restore mean reversion cleanly and preserve surface/cross-cell structure, but the model now reverts too aggressively toward the training encoded-state center. Generated medians are above realized futures in most cells, so lower-side coverage collapses over the horizon.
+
+### Decision
+Keep the encoded-coordinate implementation as a general preprocessing option for IV-only and joint38. Do not promote 622a. Next run one encoded-coordinate temperature diagnostic to decide whether this is mostly a width problem or a path-location problem; if widening cannot fix it without breaking the recovered structure, close this route as a primary deployable path.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_622a_encoded_state_coordinate_result.md`, `models/backfill/622a_joint38_ar_transition_encoded_e8_w2048_s622/`, `results/autoresearch/622a_joint38_ar_transition_encoded_e8_w2048/full11.md`.
+
+---

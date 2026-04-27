@@ -28,6 +28,7 @@ from experiments.backfill.block_ar._rollout_220_utils import (  # noqa: E402
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
     build_unified_increment_block,
     clean_nonpositive_log_level_factors,
+    decode_state,
 )
 from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_system import (  # noqa: E402
     FixedDeployableSampler,
@@ -38,7 +39,7 @@ from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_s
 from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import select_scope  # noqa: E402
 
 
-def build_val_history(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, Any]:
+def build_val_history(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, list[Any], Any]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
@@ -63,12 +64,13 @@ def build_val_history(args: argparse.Namespace, payload: dict[str, Any]) -> tupl
         iv_count=int(args.iv_count),
     )
     scope = payload.get("state_scope", args.state_scope)
-    history, future, specs = select_scope(block, scope, int(args.iv_count))
+    value_coordinate = payload.get("value_coordinate", args.value_coordinate)
+    history, future, specs = select_scope(block, scope, int(args.iv_count), value_coordinate)
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]
     if expected and expected != actual:
         raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
-    return history.astype(np.float32), future.astype(np.float32), block
+    return history.astype(np.float32), future.astype(np.float32), specs, block
 
 
 def alignment_diagnostics(block: Any, batch: Any, n_windows: int) -> dict[str, float]:
@@ -96,6 +98,8 @@ def generate_iv_samples(
     device: torch.device,
     iv_count: int,
     sample_temperature: float,
+    specs: list[Any],
+    value_coordinate: str,
 ) -> np.ndarray:
     chunks: list[np.ndarray] = []
     for start in range(0, int(history.shape[0]), int(batch_size)):
@@ -108,7 +112,10 @@ def generate_iv_samples(
             chunk_size=int(chunk_size),
             temperature=float(sample_temperature),
         )
-        arr = panel_samples.detach().cpu().numpy()[..., :iv_count]
+        panel_arr = panel_samples.detach().cpu().numpy()
+        if value_coordinate == "encoded":
+            panel_arr = decode_state(panel_arr, specs).astype(np.float32)
+        arr = panel_arr[..., :iv_count]
         chunks.append(arr.reshape(end - start, int(samples), int(n_steps), 5, 5).astype(np.float32))
         print(f"  generated windows {end}/{history.shape[0]}", flush=True)
     return np.concatenate(chunks, axis=0)
@@ -151,6 +158,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data_path", default="data/vol_surface_with_ret.npz")
     parser.add_argument("--state_scope", choices=["iv_only", "joint38"], default="joint38")
+    parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
@@ -172,8 +180,9 @@ def main() -> None:
     set_seed(int(args.seed))
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_model(args.checkpoint, device)
-    history, _future, block = build_val_history(args, payload)
+    history, _future, specs, block = build_val_history(args, payload)
     cfg = payload["config"]
+    value_coordinate = payload.get("value_coordinate", args.value_coordinate)
     n_windows = min(int(args.max_windows), int(history.shape[0]))
     history = history[:n_windows]
     batch = build_rollout_windows(
@@ -202,6 +211,8 @@ def main() -> None:
         device=device,
         iv_count=int(args.iv_count),
         sample_temperature=float(args.sample_temperature),
+        specs=specs,
+        value_coordinate=value_coordinate,
     )
     generation_time = time.time() - t0
     hist_norm_np = batch.history_norm.detach().cpu().numpy()[:n_windows]
@@ -228,6 +239,7 @@ def main() -> None:
         "checkpoint_best_val": float(payload.get("best_val", float("nan"))),
         "checkpoint_config": cfg,
         "state_scope": payload.get("state_scope", args.state_scope),
+        "value_coordinate": value_coordinate,
         "n_windows": int(n_windows),
         "samples": int(args.samples),
         "n_steps": int(args.n_steps),
