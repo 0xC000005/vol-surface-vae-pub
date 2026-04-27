@@ -104109,3 +104109,45 @@ should be post-experiment ideation or a new geometry-preserving paradigm, not
 another source-affine variant.
 
 ---
+## 2026-04-27: Autoresearch 651a joint wide-panel data audit
+
+### Context
+
+Before implementing the shared-stochastic multi-head IV + anchor-factor model,
+651a audited whether the data actually supports co-modeling a wide daily market
+state panel. The concern was that IV and anchor factors might not exist as
+aligned one-day market levels/movements.
+
+### Result
+
+- Audit artifact:
+  `results/autoresearch/651a_joint_wide_panel_audit/unified_increment_audit.json`.
+- Source panel shape is `5822 x 51`.
+- Modeled state panel is `38` channels: `25` IV surface cells plus `13`
+  anchor-factor state variables.
+- The extra `13` source columns are reference return/diff diagnostics, not
+  duplicated generated targets.
+- For 30/60/90/152-day horizons, validation windows all end exactly at
+  `test_start=4511`; no test leakage was detected.
+- History/future/increment finite rates were all `1.0`.
+- Future state reconstruction from modeled encoded one-day increments had max
+  absolute error `0.0` for every audited horizon.
+- Cleaning was required for stale/nonpositive level-like factor fields: copper
+  `167`, wheat `135`, Nikkei `1`, gold `167`. Crude oil is diff-level fallback
+  because it contains negative values.
+
+### Mechanism Read
+
+The wide state panel is suitable for co-modeling. The reference-increment max
+discrepancy around `0.08` is concentrated in diagnostic reference columns such
+as rates, not in the modeled target reconstruction. The model target is the
+one-day encoded movement implied by adjacent wide-panel state levels, and that
+reconstructs exactly.
+
+### Decision
+
+Proceed with the shared-stochastic multi-head model. It should keep one shared
+history encoder and one sampled latent/source path, while giving IV-surface
+channels and generic scalar anchor-factor channels separate readout heads.
+
+---
