@@ -102769,3 +102769,90 @@ Next: run a controlled Student-t sampler-temperature diagnostic. Because Student
 - `results/autoresearch/616a_joint38_ar_studentt_nll_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 617 Student-t temperature diagnostic
+
+### Context
+616a Student-t likelihood improved the Gaussian likelihood family but remained too wide and uneven. 617a tested whether sampler down-temperature could recover surface, coverage caps, and per-cell tail balance while preserving the Student-t gains.
+
+### Runs
+Checkpoint:
+- `models/backfill/616a_joint38_ar_studentt_nll_e8_w2048_s616/best_model.pt`
+
+Diagnostics:
+- temp `0.75`: `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp075_full11.json`
+- temp `0.85`: `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp085_full11.json`
+- temp `0.90`: `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp090_full11.json`
+
+### Result
+Baseline 616a temp `1.00`:
+- score `4/11`;
+- surface failed;
+- cov90 `92.2%`;
+- conditional MAE `7.9%`;
+- persistent severe undercoverage `3.6%`;
+- daily KS `14/25`;
+- level KS `0/25`;
+- median-bias cells `21/25`;
+- mean-reversion ratio `0.427`;
+- pathwise KS `0.403`;
+- per-cell q99 jump-scale `6/25`.
+
+Temp `0.75`:
+- score `5/11`;
+- surface passed;
+- cov90 `90.4%`;
+- conditional MAE `8.4%`;
+- persistent severe undercoverage `4.0%`;
+- daily KS `19/25`;
+- level KS `1/25`;
+- median-bias cells `20/25`;
+- mean-reversion ratio `0.324`;
+- pathwise KS `0.551`;
+- per-cell q99 jump-scale `9/25`.
+
+Temp `0.85`:
+- score `5/11`;
+- surface passed;
+- cov90 `91.3%`;
+- conditional MAE `5.9%`;
+- persistent severe undercoverage `3.8%`;
+- daily KS `17/25`;
+- level KS `0/25`;
+- median-bias cells `21/25`;
+- mean-reversion ratio `0.369`;
+- pathwise KS `0.500`;
+- per-cell q99 jump-scale `8/25`.
+
+Temp `0.90`:
+- score `5/11`;
+- surface passed;
+- cov90 `91.6%`;
+- conditional MAE `9.2%`;
+- persistent severe undercoverage `3.7%`;
+- daily KS `17/25`;
+- level KS `0/25`;
+- median-bias cells `21/25`;
+- mean-reversion ratio `0.370`;
+- pathwise KS `0.479`;
+- per-cell q99 jump-scale `6/25`.
+
+### Mechanism Read
+Student-t temperature improves the best likelihood-path score from `4/11` to `5/11`, but does not solve the core pathology. Surface, conditionality, daily-change KS, median bias, cointegration, cross-cell structure, and persistent undercoverage are simultaneously passable. The remaining failures are stable across temperatures: coverage upper caps/layer2, level KS, weak mean reversion, low aggregate kurtosis, and per-cell q99 tail imbalance.
+
+This means the bottleneck is conditional placement and per-cell scale geometry, not global innovation amplitude.
+
+### Decision
+Close Student-t sampler-temperature as a deployable fix.
+
+Next: target conditional mean/placement directly while staying in the likelihood-trained one-model paradigm. Add a small one-step residual mean objective alongside NLL, using the same predicted transition mean and no separate IV/factor path.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_617a_616a_studentt_temperature_diagnostic.md`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp075_full11.json`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp075_full11.md`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp085_full11.json`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp085_full11.md`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp090_full11.json`
+- `results/autoresearch/617a_616a_studentt_temperature_diagnostic/temp090_full11.md`
+
+---
