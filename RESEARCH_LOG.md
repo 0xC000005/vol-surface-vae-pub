@@ -102140,3 +102140,33 @@ Run 607a as a support-aware path-location fallback audit against broad 510a, 602
 - `experiments/backfill/block_ar/IDEA_606a_low_support_path_location_paradigm.md`
 
 ---
+## 2026-04-27: Autoresearch 607 support-aware path fallback
+
+### Context
+606a selected a low-support path-location fallback as the next paradigm after 605a showed hard futures are not extreme but hard histories are near the edge of training support. 607a implemented the first falsifier: keep frozen 510a as base, but for low-support histories replace a bounded fraction of samples with anchored historical training future-increment paths.
+
+### Implementation
+Added `experiments/backfill/block_ar/evaluate_607a_support_aware_path_fallback.py` and focused tests in `test_code/test_607a_support_aware_path_fallback.py`. Focused tests passed: `pytest test_code/test_607a_support_aware_path_fallback.py -q` -> `2 passed in 1.31s`. The run used IV-history support q95 threshold `8.244`, stress-increment pool q80 with `802` training paths, fallback fraction `0.50`, and triggered fallback on `127/441` validation windows.
+
+### Result
+607a scored `4/11`, so it is not deployable. However, it changed the failure profile in the intended direction. Worst lower-only cell improved to `0.644`; worst regime cell improved to `0.472`; regime layer2 improved to `1/8`; daily-change KS reached `25/25`; level KS improved to `5/25`; turbulent/calm width ratio was `1.163`; and mean-reversion core passed. Coverage was `79.8%`, h1/h7/h14/h30 coverage was `86.5% / 81.4% / 79.8% / 76.6%`, and pathwise max-jump KS was `0.431`.
+
+### Risk-Manager Readiness
+Stress readiness still failed with score `1/4`. Compared with 510a and interval adapters, 607a improved inclusion geometry but did not clear lower-only gates: worst lower-only cell `0.644` remains below `0.70`, and worst regime cell `0.472` remains below `0.70`. Scenario authenticity also remains incomplete due tail-shape/per-cell extreme-jump failures.
+
+### Mechanism Read
+Path-location fallback is the first branch to move sparse stress inclusion materially in the right direction, supporting the 606a diagnosis. The failure is that the fallback is still too blunt: it improves inclusion and daily-change realism, but not enough to pass risk gates, and it creates conditionality/tail-scale edge failures.
+
+### Decision
+Keep this branch alive for one controlled follow-up. Do not return to interval scaling and do not run a broad knob sweep. Test one more aggressive fallback fraction with the same support trigger and increment-pool definition. If sparse inclusion does not improve without destroying authenticity, close the path-location fallback branch.
+
+### Artifacts
+- `experiments/backfill/block_ar/evaluate_607a_support_aware_path_fallback.py`
+- `test_code/test_607a_support_aware_path_fallback.py`
+- `experiments/backfill/block_ar/ANALYSIS_607a_support_aware_path_fallback.md`
+- `results/autoresearch/607a_support_aware_path_fallback/full11.json`
+- `results/autoresearch/607a_support_aware_path_fallback/full11.md`
+- `results/autoresearch/607a_support_aware_path_fallback/risk_readiness.json`
+- `results/autoresearch/607a_support_aware_path_fallback/risk_readiness.md`
+
+---
