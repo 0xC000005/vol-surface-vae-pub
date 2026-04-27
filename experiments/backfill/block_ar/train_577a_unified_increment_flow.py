@@ -45,6 +45,7 @@ class UnifiedIncrementFlowConfig:
     depth: int = 4
     dropout: float = 0.05
     source_mode: str = "independent"
+    conditional_source_topk: int = 64
 
 
 class UnifiedIncrementFlow(nn.Module):
@@ -78,6 +79,7 @@ class UnifiedIncrementFlow(nn.Module):
         self.register_buffer("source_mean", torch.zeros(self.path_dim), persistent=True)
         self.register_buffer("source_cholesky", torch.eye(self.path_dim), persistent=True)
         self.register_buffer("source_bank", torch.empty(0, self.path_dim), persistent=True)
+        self.register_buffer("source_keys", torch.empty(0, cfg.n_vars), persistent=True)
 
     def set_source_gaussian(self, mean: torch.Tensor, cholesky: torch.Tensor) -> None:
         if mean.shape != (self.path_dim,):
@@ -89,21 +91,45 @@ class UnifiedIncrementFlow(nn.Module):
         self.source_mean.copy_(mean.to(device=self.source_mean.device, dtype=self.source_mean.dtype))
         self.source_cholesky.copy_(cholesky.to(device=self.source_cholesky.device, dtype=self.source_cholesky.dtype))
 
-    def set_source_bank(self, bank: torch.Tensor) -> None:
+    def set_source_bank(self, bank: torch.Tensor, keys: torch.Tensor | None = None) -> None:
         if bank.ndim != 2 or bank.shape[1] != self.path_dim:
             raise ValueError(f"bank shape must be (n, {self.path_dim}), got {tuple(bank.shape)}")
         self.source_bank = bank.to(device=self.source_mean.device, dtype=self.source_mean.dtype).contiguous()
+        if keys is not None:
+            if keys.ndim != 2 or keys.shape[0] != bank.shape[0] or keys.shape[1] != self.cfg.n_vars:
+                raise ValueError(f"keys shape must be ({bank.shape[0]}, {self.cfg.n_vars}), got {tuple(keys.shape)}")
+            self.source_keys = keys.to(device=self.source_mean.device, dtype=self.source_mean.dtype).contiguous()
 
-    def draw_source(self, batch_size: int, *, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-        if self.cfg.source_mode == "empirical_path":
+    def draw_source(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        history: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.cfg.source_mode in {"empirical_path", "empirical_conditional"}:
             if self.source_bank.numel() == 0:
-                raise RuntimeError("empirical_path source requires a non-empty source_bank")
-            indices = torch.randint(
-                0,
-                self.source_bank.shape[0],
-                (int(batch_size),),
-                device=device,
-            )
+                raise RuntimeError(f"{self.cfg.source_mode} source requires a non-empty source_bank")
+            if self.cfg.source_mode == "empirical_conditional":
+                if history is None:
+                    raise RuntimeError("empirical_conditional source requires history")
+                if self.source_keys.numel() == 0:
+                    raise RuntimeError("empirical_conditional source requires source_keys")
+                query = history[:, -1, :].to(device=device, dtype=dtype)
+                keys = self.source_keys.to(device=device, dtype=dtype)
+                distance = torch.cdist(query, keys)
+                k = min(int(self.cfg.conditional_source_topk), int(keys.shape[0]))
+                nearest = torch.topk(distance, k=k, largest=False).indices
+                pick = torch.randint(0, k, (int(batch_size),), device=device)
+                indices = nearest[torch.arange(int(batch_size), device=device), pick]
+            else:
+                indices = torch.randint(
+                    0,
+                    self.source_bank.shape[0],
+                    (int(batch_size),),
+                    device=device,
+                )
             flat = self.source_bank.to(device=device, dtype=dtype).index_select(0, indices)
             return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
         eps = torch.randn(int(batch_size), self.path_dim, device=device, dtype=dtype)
@@ -124,7 +150,7 @@ class UnifiedIncrementFlow(nn.Module):
         return velocity.reshape_as(x_t)
 
     def training_loss(self, history: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        noise = self.draw_source(target.shape[0], device=target.device, dtype=target.dtype)
+        noise = self.draw_source(target.shape[0], device=target.device, dtype=target.dtype, history=history)
         t = torch.rand(target.shape[0], device=target.device, dtype=target.dtype)
         shape = (target.shape[0],) + (1,) * (target.ndim - 1)
         x_t = (1.0 - t.reshape(shape)) * noise + t.reshape(shape) * target
@@ -143,7 +169,12 @@ class UnifiedIncrementFlow(nn.Module):
         self.eval()
         bsz = history.shape[0]
         repeated_history = history.repeat_interleave(int(n_samples), dim=0)
-        x = self.draw_source(bsz * int(n_samples), device=history.device, dtype=history.dtype)
+        x = self.draw_source(
+            bsz * int(n_samples),
+            device=history.device,
+            dtype=history.dtype,
+            history=repeated_history,
+        )
         dt = 1.0 / float(n_steps)
         for step in range(int(n_steps)):
             t_value = torch.full((x.shape[0],), (step + 0.5) * dt, device=x.device, dtype=x.dtype)
@@ -418,9 +449,10 @@ def main() -> None:
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument(
         "--source_mode",
-        choices=["independent", "path_gaussian", "empirical_path"],
+        choices=["independent", "path_gaussian", "empirical_path", "empirical_conditional"],
         default="independent",
     )
+    parser.add_argument("--conditional_source_topk", type=int, default=64)
     parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
     parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
     parser.add_argument("--increment_transform", choices=["standard", "normal_score"], default="standard")
@@ -478,6 +510,7 @@ def main() -> None:
         depth=args.depth,
         dropout=args.dropout,
         source_mode=args.source_mode,
+        conditional_source_topk=args.conditional_source_topk,
     )
     model = UnifiedIncrementFlow(cfg).to(device)
     source_diagnostics: dict[str, Any] = {"source_mode": args.source_mode}
@@ -500,14 +533,18 @@ def main() -> None:
                 "source_cov_jitter": float(args.source_cov_jitter),
             }
         )
-    elif args.source_mode == "empirical_path":
+    elif args.source_mode in {"empirical_path", "empirical_conditional"}:
         source_bank = train_inc.reshape(train_inc.shape[0], -1).detach().cpu()
-        model.set_source_bank(source_bank.to(device))
+        source_keys = train_hist[:, -1, :].detach().cpu() if args.source_mode == "empirical_conditional" else None
+        model.set_source_bank(source_bank.to(device), None if source_keys is None else source_keys.to(device))
         source_diagnostics.update(
             {
                 "source_bank_rows": int(source_bank.shape[0]),
                 "source_bank_dim": int(source_bank.shape[1]),
                 "source_bank_std": float(source_bank.std().item()),
+                "conditional_source_topk": int(args.conditional_source_topk)
+                if args.source_mode == "empirical_conditional"
+                else None,
             }
         )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
