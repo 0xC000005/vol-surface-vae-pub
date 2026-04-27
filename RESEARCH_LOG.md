@@ -101689,3 +101689,36 @@ Added
 `experiments/backfill/block_ar/ANALYSIS_592a_ar_common_latent_feasibility.md`.
 
 ---
+## 2026-04-27: Autoresearch 593 AR common latent wrapper
+
+### Context
+
+592a concluded that a naive AR common-source implementation would duplicate already-falsified fixed path-noise experiments. 593a tested the cleaner remaining version: freeze the 510a/392a AR transition frontier, add one scenario-level stochastic latent, project it into the transition memory, and train only that small wrapper through rollout patch-energy loss.
+
+### Result
+
+- Implementation: `experiments/backfill/block_ar/train_593a_ar_common_latent_wrapper.py`
+- Test: `test_code/test_593a_ar_common_latent_wrapper.py`
+- Training output: `models/backfill/593a_ar_common_latent_wrapper_s593/`
+- Evaluation output: `results/autoresearch/593a_ar_common_latent_wrapper/full11.json`
+- Official score: `4/11`
+- Passes: `surface`, `block_ar`, `cross_cell_correlation`, `pathwise_jump_realism`
+- Fails: `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`
+- Coverage90 overall: `69.7%`
+- Conditionality aggregate MAE reduction: `6.55%`
+- Daily-change KS: `25/25`
+- Level KS: `3/25`
+- Regime layer2: `0/8`
+- Cross-cell corr/rank ratios: `1.062 / 1.229`
+- Mean-reversion active-cell pass/correlation: `9/12 / 0.560`
+- Pathwise max-jump KS: `0.475`
+
+### Mechanism Read
+
+The wrapper is not a no-op: the latent projection learned nonzero weights and preserved strong local/path properties from the AR base. But it is not useful as a suite-level improvement. The persistent scenario factor damaged the fine balance that made 510a/392a the frontier: level KS collapsed, kurtosis/skew failed, one cointegration cell fell below the hard floor, regime layer2 remained dead, and active mean-reversion correlation failed.
+
+### Decision
+
+593a falsifies the small learned common-latent wrapper as a direct path beyond the 8/11 frontier. The next step should be a focused 593a-vs-510a postmortem before any further experiment, to decide whether a single constrained repair can preserve 510a's 8/11 behavior or whether the learned-wrapper branch should be closed.
+
+---
