@@ -77,6 +77,7 @@ class UnifiedIncrementFlow(nn.Module):
         self.net = nn.Sequential(*layers)
         self.register_buffer("source_mean", torch.zeros(self.path_dim), persistent=True)
         self.register_buffer("source_cholesky", torch.eye(self.path_dim), persistent=True)
+        self.register_buffer("source_bank", torch.empty(0, self.path_dim), persistent=True)
 
     def set_source_gaussian(self, mean: torch.Tensor, cholesky: torch.Tensor) -> None:
         if mean.shape != (self.path_dim,):
@@ -88,7 +89,23 @@ class UnifiedIncrementFlow(nn.Module):
         self.source_mean.copy_(mean.to(device=self.source_mean.device, dtype=self.source_mean.dtype))
         self.source_cholesky.copy_(cholesky.to(device=self.source_cholesky.device, dtype=self.source_cholesky.dtype))
 
+    def set_source_bank(self, bank: torch.Tensor) -> None:
+        if bank.ndim != 2 or bank.shape[1] != self.path_dim:
+            raise ValueError(f"bank shape must be (n, {self.path_dim}), got {tuple(bank.shape)}")
+        self.source_bank = bank.to(device=self.source_mean.device, dtype=self.source_mean.dtype).contiguous()
+
     def draw_source(self, batch_size: int, *, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        if self.cfg.source_mode == "empirical_path":
+            if self.source_bank.numel() == 0:
+                raise RuntimeError("empirical_path source requires a non-empty source_bank")
+            indices = torch.randint(
+                0,
+                self.source_bank.shape[0],
+                (int(batch_size),),
+                device=device,
+            )
+            flat = self.source_bank.to(device=device, dtype=dtype).index_select(0, indices)
+            return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
         eps = torch.randn(int(batch_size), self.path_dim, device=device, dtype=dtype)
         flat = self.source_mean.to(device=device, dtype=dtype) + eps @ self.source_cholesky.to(
             device=device,
@@ -399,7 +416,11 @@ def main() -> None:
     parser.add_argument("--time_embed_dim", type=int, default=32)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.05)
-    parser.add_argument("--source_mode", choices=["independent", "path_gaussian"], default="independent")
+    parser.add_argument(
+        "--source_mode",
+        choices=["independent", "path_gaussian", "empirical_path"],
+        default="independent",
+    )
     parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
     parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
     parser.add_argument("--increment_transform", choices=["standard", "normal_score"], default="standard")
@@ -477,6 +498,16 @@ def main() -> None:
                 "source_cholesky_diag_max": float(np.max(np.diag(source_chol))),
                 "source_cov_shrinkage": float(args.source_cov_shrinkage),
                 "source_cov_jitter": float(args.source_cov_jitter),
+            }
+        )
+    elif args.source_mode == "empirical_path":
+        source_bank = train_inc.reshape(train_inc.shape[0], -1).detach().cpu()
+        model.set_source_bank(source_bank.to(device))
+        source_diagnostics.update(
+            {
+                "source_bank_rows": int(source_bank.shape[0]),
+                "source_bank_dim": int(source_bank.shape[1]),
+                "source_bank_std": float(source_bank.std().item()),
             }
         )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -575,6 +606,10 @@ def main() -> None:
         normal_levels=normal_levels,
         specs=train_block.specs,
     )
+    best_path = out_dir / "best_model.pt"
+    if best_path.exists():
+        best_payload = torch.load(best_path, map_location=device, weights_only=False)
+        model.load_state_dict(best_payload["model_state_dict"])
     sample_audit = _sample_audit(
         model,
         val_hist,

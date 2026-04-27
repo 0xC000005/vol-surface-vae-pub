@@ -80,6 +80,27 @@ def test_unified_increment_flow_accepts_path_gaussian_source() -> None:
     assert torch.isfinite(source).all()
 
 
+def test_unified_increment_flow_accepts_empirical_path_source() -> None:
+    cfg = UnifiedIncrementFlowConfig(
+        history_len=4,
+        future_len=3,
+        n_vars=5,
+        hidden_dim=16,
+        time_embed_dim=8,
+        depth=2,
+        dropout=0.0,
+        source_mode="empirical_path",
+    )
+    model = UnifiedIncrementFlow(cfg)
+    bank = torch.randn(7, 15)
+    model.set_source_bank(bank)
+
+    source = model.draw_source(4, device=torch.device("cpu"), dtype=torch.float32)
+
+    assert source.shape == (4, 3, 5)
+    assert torch.isfinite(source).all()
+
+
 def test_normal_score_increment_transform_is_bounded_and_invertible_on_quantiles() -> None:
     target = torch.linspace(-2.0, 2.0, steps=40).reshape(4, 2, 5).numpy()
     quantiles, _levels, normal_levels = fit_increment_normal_score(
