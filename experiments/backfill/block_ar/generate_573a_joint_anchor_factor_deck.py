@@ -22,7 +22,6 @@ from experiments.backfill.block_ar.audit_572a_joint_panel_quality import (  # no
     reconstruct_factor_levels_from_returns,
 )
 from experiments.backfill.block_ar.evaluate_564a_stress_selected_510a import (  # noqa: E402
-    StressSelectedScenarioModel,
     severity_stratified_indices,
 )
 from experiments.backfill.block_ar.generate_568a_risk_scenario_deck import (  # noqa: E402
@@ -40,6 +39,8 @@ class SelectedFactorPaths:
     factor_columns: list[str]
     selected_indices: np.ndarray
     internal_panel_path_mean_iv: np.ndarray
+    internal_panel_severity_quantiles: np.ndarray
+    pairing_policy: str
 
 
 def anchor_factor_columns(columns: list[str], iv_count: int = 25) -> list[str]:
@@ -50,6 +51,60 @@ def _rounded_float(value: float) -> float:
     return round(float(value), 6)
 
 
+def _nearest_unused_rank(target_rank: int, n_candidates: int, used: set[int]) -> int:
+    target_rank = int(np.clip(target_rank, 0, n_candidates - 1))
+    for radius in range(n_candidates):
+        lo = target_rank - radius
+        hi = target_rank + radius
+        if lo >= 0 and lo not in used:
+            return lo
+        if hi < n_candidates and hi not in used:
+            return hi
+    raise RuntimeError("no unused candidate rank available")
+
+
+def rank_matched_indices(candidate_severity: np.ndarray, target_severity: np.ndarray) -> np.ndarray:
+    """Match selected IV scenario severity ranks to factor-candidate severity ranks."""
+    candidate = np.asarray(candidate_severity, dtype=np.float64).reshape(-1)
+    target = np.asarray(target_severity, dtype=np.float64).reshape(-1)
+    if candidate.size == 0 or target.size == 0:
+        raise ValueError("candidate and target severities must be non-empty")
+    if target.size > candidate.size:
+        raise ValueError("target size cannot exceed candidate size")
+    candidate_order = np.argsort(candidate, kind="mergesort")
+    target_order = np.argsort(target, kind="mergesort")
+    target_position = np.empty(target.size, dtype=np.int64)
+    target_position[target_order] = np.arange(target.size, dtype=np.int64)
+    denom = max(target.size - 1, 1)
+    used_ranks: set[int] = set()
+    selected = []
+    for pos in target_position:
+        raw_rank = int(np.rint((int(pos) / denom) * (candidate.size - 1)))
+        candidate_rank = _nearest_unused_rank(raw_rank, candidate.size, used_ranks)
+        used_ranks.add(candidate_rank)
+        selected.append(int(candidate_order[candidate_rank]))
+    return np.asarray(selected, dtype=np.int64)
+
+
+def quantile_matched_indices(candidate_severity: np.ndarray, target_quantiles: np.ndarray) -> np.ndarray:
+    """Select candidate indices at the same severity quantiles as selected IV paths."""
+    candidate = np.asarray(candidate_severity, dtype=np.float64).reshape(-1)
+    quantiles = np.asarray(target_quantiles, dtype=np.float64).reshape(-1)
+    if candidate.size == 0 or quantiles.size == 0:
+        raise ValueError("candidate severity and target quantiles must be non-empty")
+    if quantiles.size > candidate.size:
+        raise ValueError("target quantile count cannot exceed candidate count")
+    candidate_order = np.argsort(candidate, kind="mergesort")
+    used_ranks: set[int] = set()
+    selected = []
+    for q in quantiles:
+        raw_rank = int(np.rint(float(np.clip(q, 0.0, 1.0)) * (candidate.size - 1)))
+        candidate_rank = _nearest_unused_rank(raw_rank, candidate.size, used_ranks)
+        used_ranks.add(candidate_rank)
+        selected.append(int(candidate_order[candidate_rank]))
+    return np.asarray(selected, dtype=np.int64)
+
+
 def select_panel_factor_paths(
     *,
     panel_history: np.ndarray,
@@ -57,6 +112,8 @@ def select_panel_factor_paths(
     columns: list[str],
     n_select: int,
     iv_count: int = 25,
+    target_iv_path_mean: np.ndarray | None = None,
+    target_iv_severity_quantiles: np.ndarray | None = None,
 ) -> SelectedFactorPaths:
     """Select factor overlays from panel candidates using internal IV severity.
 
@@ -83,21 +140,57 @@ def select_panel_factor_paths(
         iv_count=iv_count,
     )
     severity = coherent[..., :iv_count].mean(axis=(2, 3))
-    selected_indices = np.stack(
-        [severity_stratified_indices(row, n_select=n_select) for row in severity],
-        axis=0,
-    )
+    if target_iv_path_mean is not None and target_iv_severity_quantiles is not None:
+        raise ValueError("Provide only one of target_iv_path_mean or target_iv_severity_quantiles")
+    if target_iv_severity_quantiles is not None:
+        target_q = np.asarray(target_iv_severity_quantiles, dtype=np.float64)
+        if target_q.ndim == 1 and severity.shape[0] == 1:
+            target_q = target_q[None, :]
+        if target_q.shape != (severity.shape[0], n_select):
+            raise ValueError(
+                f"target_iv_severity_quantiles must have shape {(severity.shape[0], n_select)}"
+            )
+        selected_indices = np.stack(
+            [quantile_matched_indices(severity[i], target_q[i]) for i in range(severity.shape[0])],
+            axis=0,
+        )
+        pairing_policy = "candidate_quantile_matched_to_selected_iv_severity"
+    elif target_iv_path_mean is None:
+        selected_indices = np.stack(
+            [severity_stratified_indices(row, n_select=n_select) for row in severity],
+            axis=0,
+        )
+        pairing_policy = "severity_stratified_by_internal_panel_iv"
+    else:
+        target = np.asarray(target_iv_path_mean, dtype=np.float64)
+        if target.ndim == 1 and severity.shape[0] == 1:
+            target = target[None, :]
+        if target.shape != (severity.shape[0], n_select):
+            raise ValueError(f"target_iv_path_mean must have shape {(severity.shape[0], n_select)}")
+        selected_indices = np.stack(
+            [rank_matched_indices(severity[i], target[i]) for i in range(severity.shape[0])],
+            axis=0,
+        )
+        pairing_policy = "rank_matched_to_selected_iv_path_severity"
     selected = []
     internal_mean = []
+    internal_quantiles = []
     for window_idx in range(coherent.shape[0]):
         idx = selected_indices[window_idx]
+        order = np.argsort(severity[window_idx], kind="mergesort")
+        rank_by_index = np.empty(severity.shape[1], dtype=np.float32)
+        rank_by_index[order] = np.arange(severity.shape[1], dtype=np.float32)
+        rank_by_index = rank_by_index / float(max(severity.shape[1] - 1, 1))
         selected.append(coherent[window_idx, idx, :, iv_count:])
         internal_mean.append(severity[window_idx, idx])
+        internal_quantiles.append(rank_by_index[idx])
     return SelectedFactorPaths(
         factor_scenarios=np.stack(selected, axis=0).astype(np.float32),
         factor_columns=anchor_factor_columns(columns, iv_count=iv_count),
         selected_indices=selected_indices.astype(np.int64),
         internal_panel_path_mean_iv=np.stack(internal_mean, axis=0).astype(np.float32),
+        internal_panel_severity_quantiles=np.stack(internal_quantiles, axis=0).astype(np.float32),
+        pairing_policy=pairing_policy,
     )
 
 
@@ -119,6 +212,8 @@ def build_joint_manifest(
     factor_evidence_path: str,
     scenario_diag: dict[str, float] | None = None,
     factor_diag: dict[str, float] | None = None,
+    pairing_diag: dict[str, float] | None = None,
+    factor_pairing_policy: str = "rank_matched_to_selected_iv_path_severity",
 ) -> dict[str, Any]:
     labels = severity_bucket_labels(samples)
     unique, counts = np.unique(labels, return_counts=True)
@@ -144,6 +239,7 @@ def build_joint_manifest(
         "factor_columns": list(factor_columns),
         "factor_count": int(len(factor_columns)),
         "factor_level_policy": "deterministically_reconstruct_levels_from_generated_returns_or_diffs",
+        "factor_pairing_policy": factor_pairing_policy,
         "iv_risk_contract": {
             "risk_manager_acceptable": True,
             "evidence": iv_evidence_path,
@@ -165,6 +261,7 @@ def build_joint_manifest(
         },
         "scenario_diagnostics": scenario_diag,
         "factor_diagnostics": factor_diag,
+        "pairing_diagnostics": pairing_diag,
         "output_npz": output_npz,
     }
 
@@ -180,25 +277,62 @@ def factor_diagnostics(factors: np.ndarray) -> dict[str, float]:
     }
 
 
+def pairing_diagnostics(iv_quantiles: np.ndarray, factor_quantiles: np.ndarray) -> dict[str, float]:
+    iv_q = np.asarray(iv_quantiles, dtype=np.float64).reshape(-1)
+    factor_q = np.asarray(factor_quantiles, dtype=np.float64).reshape(-1)
+    if iv_q.shape != factor_q.shape:
+        raise ValueError(f"quantile shape mismatch: {iv_q.shape} vs {factor_q.shape}")
+    err = np.abs(iv_q - factor_q)
+    return {
+        "mean_abs_quantile_error": _rounded_float(np.mean(err)),
+        "max_abs_quantile_error": _rounded_float(np.max(err)),
+        "iv_quantile_min": _rounded_float(np.min(iv_q)),
+        "iv_quantile_max": _rounded_float(np.max(iv_q)),
+        "factor_quantile_min": _rounded_float(np.min(factor_q)),
+        "factor_quantile_max": _rounded_float(np.max(factor_q)),
+    }
+
+
 @torch.no_grad()
-def _sample_iv_scenarios(args: argparse.Namespace, history_norm: torch.Tensor, device: torch.device) -> np.ndarray:
+def _sample_iv_scenarios_and_quantiles(
+    args: argparse.Namespace,
+    history_norm: torch.Tensor,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray]:
     base_model, _payload = load_one_day_kernel(args.iv_model_type, args.iv_checkpoint, device)
     max_native_steps = int(getattr(getattr(base_model, "cfg", None), "future_len", args.future_len))
     if args.future_len > max_native_steps:
         base_model = BlockwiseLongHorizonModel(base_model, max_block_steps=max_native_steps).eval()
-    policy_model = StressSelectedScenarioModel(
-        base_model,
-        candidate_count=args.iv_candidate_count,
-        chunk_size=args.chunk_size,
-    ).eval()
-    scenarios = policy_model.sample_batched(
+    candidate_count = max(int(args.iv_candidate_count), int(args.samples))
+    candidates = base_model.sample_batched(
         history_norm,
-        n_samples=args.samples,
+        n_samples=candidate_count,
         n_steps=args.future_len,
         chunk_size=args.chunk_size,
         history_is_normalized=True,
     )
-    return scenarios.squeeze(0).detach().cpu().numpy().astype(np.float32)
+    candidates_np = candidates.detach().cpu().numpy().astype(np.float32)
+    severity = candidates_np.mean(axis=(2, 3, 4))
+    selected = []
+    selected_quantiles = []
+    for window_idx in range(candidates_np.shape[0]):
+        indices = severity_stratified_indices(severity[window_idx], n_select=int(args.samples))
+        order = np.argsort(severity[window_idx], kind="mergesort")
+        rank_by_index = np.empty(candidate_count, dtype=np.float64)
+        rank_by_index[order] = np.arange(candidate_count, dtype=np.float64)
+        denom = max(candidate_count - 1, 1)
+        selected.append(candidates_np[window_idx, indices])
+        selected_quantiles.append(rank_by_index[indices] / float(denom))
+    return (
+        np.stack(selected, axis=0).squeeze(0).astype(np.float32),
+        np.stack(selected_quantiles, axis=0).squeeze(0).astype(np.float32),
+    )
+
+
+@torch.no_grad()
+def _sample_iv_scenarios(args: argparse.Namespace, history_norm: torch.Tensor, device: torch.device) -> np.ndarray:
+    scenarios, _quantiles = _sample_iv_scenarios_and_quantiles(args, history_norm, device)
+    return scenarios
 
 
 @torch.no_grad()
@@ -235,7 +369,8 @@ def generate_joint_deck(args: argparse.Namespace) -> dict[str, Any]:
     )
     history_tensor = torch.from_numpy(history_01).unsqueeze(0).to(device)
     history_norm = normalize_iv(history_tensor)
-    iv_scenarios = _sample_iv_scenarios(args, history_norm, device)
+    iv_scenarios, iv_severity_quantiles = _sample_iv_scenarios_and_quantiles(args, history_norm, device)
+    path_mean_iv = iv_scenarios.mean(axis=(1, 2, 3)).astype(np.float32)
 
     panel, columns, _dates = load_aligned_iv_factor_panel()
     panel_history = panel[history_start:history_end][None].astype(np.float32)
@@ -250,10 +385,10 @@ def generate_joint_deck(args: argparse.Namespace) -> dict[str, Any]:
         columns=columns,
         n_select=args.samples,
         iv_count=25,
+        target_iv_severity_quantiles=iv_severity_quantiles[None],
     )
     factor_history = panel_history[0, :, 25:]
     labels = severity_bucket_labels(args.samples)
-    path_mean_iv = iv_scenarios.mean(axis=(1, 2, 3)).astype(np.float32)
 
     output_npz = Path(args.output_npz)
     output_npz.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +403,10 @@ def generate_joint_deck(args: argparse.Namespace) -> dict[str, Any]:
         path_mean_iv=path_mean_iv,
         selected_factor_candidate_indices=selected_factors.selected_indices[0].astype(np.int64),
         factor_internal_panel_path_mean_iv=selected_factors.internal_panel_path_mean_iv[0].astype(np.float32),
+        iv_selected_severity_quantiles=iv_severity_quantiles.astype(np.float32),
+        factor_selected_severity_quantiles=selected_factors.internal_panel_severity_quantiles[0].astype(
+            np.float32
+        ),
     )
 
     manifest = build_joint_manifest(
@@ -287,6 +426,11 @@ def generate_joint_deck(args: argparse.Namespace) -> dict[str, Any]:
         factor_evidence_path=args.factor_evidence_path,
         scenario_diag=scenario_diagnostics(iv_scenarios),
         factor_diag=factor_diagnostics(selected_factors.factor_scenarios[0]),
+        pairing_diag=pairing_diagnostics(
+            iv_severity_quantiles,
+            selected_factors.internal_panel_severity_quantiles[0],
+        ),
+        factor_pairing_policy=selected_factors.pairing_policy,
     )
     output_manifest = Path(args.output_manifest)
     output_manifest.parent.mkdir(parents=True, exist_ok=True)

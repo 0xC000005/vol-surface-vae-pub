@@ -99951,3 +99951,70 @@ This remains a risk stress product, not a calibrated probability law. Required c
 Next research path, if the goal shifts back toward publication: train a native joint increment-law model with factor increments as first-class targets and no independent duplicate factor-level targets.
 
 ---
+## 2026-04-26: Autoresearch 574 rank-matched joint anchor-factor deck
+
+### Context
+
+573a made IV plus anchor-factor stress decks operationally acceptable, but the factor overlay was only severity-aligned by broad calm/central/stress ordering. The user asked to improve anchor factors toward the same goodness level as the IV scenarios.
+
+### Method
+
+The clean improvement is pairing policy, not another architecture:
+
+- keep the accepted `510a/568a` IV stress deck;
+- keep `537a` factor increments with deterministic factor-level reconstruction;
+- record the selected IV candidate severity quantiles;
+- select factor candidates at the same internal-panel severity quantiles.
+
+This upgrades the factor overlay from bucket-aligned to scenario-by-scenario candidate-quantile matched.
+
+### Implementation
+
+Updated:
+
+- `experiments/backfill/block_ar/generate_573a_joint_anchor_factor_deck.py`;
+- `test_code/test_573a_joint_anchor_factor_deck.py`.
+
+Added:
+
+- `quantile_matched_indices`;
+- `rank_matched_indices` unit coverage;
+- `iv_selected_severity_quantiles` in the deck artifact;
+- `factor_selected_severity_quantiles` in the deck artifact;
+- manifest `pairing_diagnostics`.
+
+### Result
+
+Generated:
+
+- deck: `results/autoresearch/574a_rank_matched_joint_anchor_factor_deck/joint_anchor_factor_deck.npz`;
+- manifest: `results/autoresearch/574a_rank_matched_joint_anchor_factor_deck/manifest.json`.
+
+Artifact sanity:
+
+- `iv_scenarios`: `(48, 30, 5, 5)`, finite rate `1.0`;
+- `factor_scenarios`: `(48, 30, 26)`, finite rate `1.0`;
+- `iv_selected_severity_quantiles`: `(48,)`, finite rate `1.0`;
+- `factor_selected_severity_quantiles`: `(48,)`, finite rate `1.0`;
+- bucket counts: `16` calm, `16` central, `16` stress.
+
+Pairing diagnostics:
+
+- factor pairing policy: `candidate_quantile_matched_to_selected_iv_severity`;
+- mean absolute quantile error: `0.0`;
+- max absolute quantile error: `0.0`;
+- IV selected quantile range: `0.0` to `1.0`;
+- factor selected quantile range: `0.0` to `1.0`.
+
+### Decision
+
+574a is the preferred joint risk-manager deck over 573a. It makes the anchor-factor overlays as close as possible to the IV deck construction quality under the current component approach: every factor overlay now corresponds to the same selected severity quantile as its paired IV scenario.
+
+The claim remains bounded:
+
+- acceptable as a risk-manager stress deck;
+- not a calibrated joint probability law;
+- factor levels are deterministic reconstructions from generated increments;
+- publication-grade next step remains a native joint increment-law model.
+
+---
