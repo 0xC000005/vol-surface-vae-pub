@@ -101963,3 +101963,25 @@ The current factor panel does not explain the core hard risk failures. Factors h
 Do not train another native joint-factor generator merely because factors are available. The current learned-law path is constrained: IV-only methods are capped, source-noise/temperature is capped, and available factors do not add enough predictive signal for the hard IV failures. The honest next move is to report base learned-model metrics separately from any disclosed risk-policy overlay, or add genuinely informative state variables before claiming a calibrated learned conditional law.
 
 ---
+## 2026-04-27: Autoresearch 600 LGA IV history signal audit
+
+### Context
+600a tested whether local-geometry-attention-style IV history features are a principled next architecture move after 599a showed current anchor factors do not explain the hard 510a broad-frame IV failures. The audit uses a cheap falsifier before adding another learned attention block.
+
+### Result
+Focused tests passed: `pytest test_code/test_600a_lga_iv_history_signal.py -q` -> `3 passed in 1.30s`. On 441 broad-frame validation windows with 48 510a samples, deterministic LGA features underperformed simple IV-history summaries on the core targets. LGA lift versus IV summaries was negative for bad-window <50% coverage (R2 -0.9025, AUC -0.1235), window coverage (R2 -1.0685), persistent-undercoverage count (R2 -1.1746), and level absolute error (R2 -3.7238). Adding LGA to the summary features also hurt these core targets. The only weak lift was median-bias fraction (summary+LGA R2 +0.3725), but that target is not the main hard risk failure and remains negative in absolute R2.
+
+### Mechanism Read
+The current bottleneck is not fixed by nearest-history geometry around the last IV surface. The simple IV summary remains more stable out of sample, while LGA-style local matching appears noisy or misoriented for broad-frame undercoverage and level-error prediction.
+
+### Decision
+Do not escalate local-geometry attention into the generator as the next architecture change. 600a closes LGA as an unhelpful feature source for the present bottleneck. The next principled move is research ideation or a boundary decision: separate learned-law metrics from a disclosed risk-policy overlay for deployment, or identify genuinely new signal/objective framing before another architecture variant.
+
+### Artifacts
+- `experiments/backfill/block_ar/audit_600a_lga_iv_history_signal.py`
+- `test_code/test_600a_lga_iv_history_signal.py`
+- `experiments/backfill/block_ar/ANALYSIS_600a_lga_iv_history_signal.md`
+- `results/autoresearch/600a_lga_iv_history_signal/audit.md`
+- `results/autoresearch/600a_lga_iv_history_signal/audit.json`
+
+---
