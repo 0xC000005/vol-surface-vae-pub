@@ -101722,3 +101722,46 @@ The wrapper is not a no-op: the latent projection learned nonzero weights and pr
 593a falsifies the small learned common-latent wrapper as a direct path beyond the 8/11 frontier. The next step should be a focused 593a-vs-510a postmortem before any further experiment, to decide whether a single constrained repair can preserve 510a's 8/11 behavior or whether the learned-wrapper branch should be closed.
 
 ---
+## 2026-04-27: Autoresearch 594 same-frame frontier postmortem
+
+### Context
+
+593a scored `4/11`, apparently far below the prior 510a frontier score of `8/11`. Before treating this as a collapse, 594a checked whether the comparison was frame-matched. The stored 510a frontier artifact used `192` validation windows, while 593a used `441` windows.
+
+### Result
+
+Reran 510a on the same `441` validation-window frame used by 593a:
+
+- Command artifact: `results/autoresearch/594a_510a_same441/full11.json`
+- Same-frame 510a score: `5/11`
+- Same-frame 593a score: `4/11`
+- 510a failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`
+- 593a failed: same set plus `cointegration`
+
+Key same-frame comparison:
+
+- Coverage90: `69.6%` vs `69.7%`
+- Conditional MAE reduction: `7.61%` vs `6.55%`
+- Worst-cell MAE reduction: `-13.1%` vs `-12.8%`
+- Kurtosis ratio: `0.618` vs `0.623`
+- Skewness ratio: `0.458` vs `-0.133`
+- Cointegration worst-cell ratio: `0.283` vs `0.239`
+- Regime layer2: `0/8` vs `0/8`
+- Persistent undercoverage: `16.2%` vs `16.2%`
+- Daily-change KS: `25/25` vs `25/25`
+- Level KS: `3/25` vs `3/25`
+- Cross-cell corr/rank: `1.070 / 1.225` vs `1.062 / 1.229`
+- Mean-reversion active pass/corr: `75.0% / 0.531` vs `75.0% / 0.560`
+- Pathwise max-jump KS: `0.463` vs `0.475`
+
+### Mechanism Read
+
+The historical `8/11` 510a frontier is frame-sensitive. On the broader 441-window frame, 510a itself drops to `5/11`. Therefore 593a did not collapse from a robust `8/11`; it mostly reproduces the broader-frame 510a behavior.
+
+However, the learned common-latent wrapper is still not a useful improvement. It does not fix the shared failures: long-horizon undercoverage, regime layer2 `0/8`, persistent undercoverage around `16%`, level KS `3/25`, bad-window coverage near `23-24%`, insufficient aggregate kurtosis, and weak active-cell mean-reversion correlation. It also costs one suite by failing worst-cell cointegration and flips aggregate skewness negative.
+
+### Decision
+
+Close the learned common-latent wrapper branch as an improvement route. The next move should target the common broad-frame failure mechanism directly: conditional path-distribution calibration, especially per-window coverage floors, regime-cell coverage, level location, and active-cell mean-reversion geometry. Future score claims must distinguish the historical 192-window short-frame score from the 441-window broad-frame score.
+
+---
