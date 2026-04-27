@@ -101798,3 +101798,42 @@ Run 596 as a clean final-path joint-distribution objective experiment:
 This targets the actual failure mechanism: level location, per-window coverage floors, regime-cell coverage, aggregate kurtosis, and active-cell mean-reversion geometry. Do not add regime labels, per-cell hand corrections, low-rank decoders, bounded paths, or separate factor branches.
 
 ---
+## 2026-04-27: Autoresearch 596 final path joint objective
+
+### Context
+
+595a identified a clean literature-aligned direction: keep the native 510a AR flow architecture and change the objective toward final-path joint-distribution alignment. 596a implemented this without a wrapper.
+
+### Result
+
+- Script: `experiments/backfill/block_ar/train_596a_final_path_joint_objective.py`
+- Test: `test_code/test_596a_joint_path_objective.py`
+- Checkpoint: `models/backfill/596a_final_path_joint_objective_s596/best_model.pt`
+- Evaluation: `results/autoresearch/596a_final_path_joint_objective/full11.json`
+- Focused test: `2 passed in 1.44s`
+- Broad-frame score: `5/11`
+- Failed suites: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`
+
+Same-frame comparison against 510a:
+
+- Coverage90: `69.6% -> 65.7%`
+- h30 coverage90: `66.2% -> 61.2%`
+- Conditional MAE reduction: `7.61% -> 5.58%`
+- Worst-cell MAE reduction: `-13.1% -> -18.1%`
+- Kurtosis ratio: `0.618 -> 0.584`
+- Persistent undercoverage: `16.2% -> 18.8%`
+- Level KS: `3/25 -> 2/25`
+- Median-bias cells: `10/25 -> 6/25`
+- Bad-window rate: `24.0% -> 29.7%`
+- Mean-reversion active corr: `0.531 -> 0.581`
+- Pathwise max-jump KS: `0.463 -> 0.456`
+
+### Mechanism Read
+
+The final-path objective improves a few path-geometry metrics, but it worsens the risk scenario law. The one-realization final-path joint objective appears to pull the sampled path cloud toward realized paths and batch marginals without adding the missing conditional variance. The result is narrower coverage, worse level distribution, worse median bias, and higher persistent undercoverage.
+
+### Decision
+
+596a is not deployable and should not be weight-swept by default. The next principled step is to diagnose whether the missing uncertainty is an inference/sampling calibration issue in the existing AR flow or a learned transition-law limitation. Prefer a small noise-calibration diagnostic over another architecture change.
+
+---
