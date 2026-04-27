@@ -104016,3 +104016,50 @@ and dispersion together inside the path model, without factor-specific branches
 or policy calibration overlays.
 
 ---
+## 2026-04-27: Autoresearch 649a conditional source affine path flow
+
+### Context
+
+648a showed that full-path energy fine-tuning pushes movement but creates IV
+level bias and damages coverage. 649a tested a cleaner conditional-flow idea:
+keep the 647 native joint path architecture but let the base source noise have
+a learned history-conditioned location and scale before flow transport.
+
+### Result
+
+- Code/artifacts:
+  `diffusion/block_ar/generic_mixed_coordinate_path_flow_matching.py`,
+  `experiments/backfill/block_ar/train_647a_mixed_coordinate_path_flow.py`,
+  `models/backfill/649a_joint38_mixed_path_affine_source_e8_w2048_s649/best_model.pt`.
+- Focused tests passed:
+  `pytest test_code/test_647a_mixed_coordinate_path_flow.py test_code/test_648a_mixed_coordinate_path_energy_finetune.py -q`.
+- IV 11-suite fell to 3/11 at
+  `results/autoresearch/649a_joint38_mixed_path_affine_source_e8_w2048_s649/full11.json`.
+- Positive signal: conditionality improved. Overall MAE reduction moved from
+  -0.7% on 647a to 3.3%; per-cell conditionality passed with worst cell -4.7%;
+  turbulent/calm widths became >1 at h1/h7/h14.
+- Negative signal: cross-cell correlation failed with ratio 0.464; daily-change
+  KS pass dropped to 5/25; level-KS pass was 3/25; q99 tail-scale pass was
+  9/25; long-horizon mean reversion weakened.
+- Joint audit at
+  `results/autoresearch/649a_joint38_mixed_path_affine_source_e8_w2048_s649/joint_panel.json`:
+  factor KS mean 0.113, factor KS pass 13/13, factor q99 pass 9/13,
+  factor-factor corr 0.822, IV-factor corr 0.811.
+
+### Mechanism Read
+
+The conditional source-affine idea is informative: it is the first 647-family
+change that clearly improves conditionality and regime-width signal. But the
+free per-horizon/per-channel source affine breaks shared geometry. It gives the
+model enough freedom to condition location/scale, but that freedom fragments
+cross-cell correlation and over-amplifies tails.
+
+### Decision
+
+Close 649a as a non-baseline result. The next clean direction is not another
+free affine or scalar temperature sweep. Preserve the source-conditioning
+insight, but constrain it to shared/global or low-dimensional geometry-preserving
+source tokens so conditional width can change without independently distorting
+each cell and horizon.
+
+---

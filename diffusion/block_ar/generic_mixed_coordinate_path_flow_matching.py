@@ -21,6 +21,10 @@ class GenericMixedCoordinatePathFMConfig(CausalFutureMemoryTransitionFMConfig):
     cdf_eps: float = 1e-4
     prefix_feature_mode: str = "scale"
     level_score_channels: list[int] = field(default_factory=list)
+    conditional_source_affine: bool = False
+    source_scale_min: float = 0.5
+    source_scale_max: float = 2.0
+    source_loc_clip: float = 3.0
 
 
 class GenericMixedCoordinatePathFlowMatching(nn.Module):
@@ -54,6 +58,15 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
             num_layers=cfg.memory_layers,
         )
         self.history_norm = nn.LayerNorm(cfg.memory_dim)
+        if cfg.conditional_source_affine:
+            self.source_affine = nn.Sequential(
+                nn.LayerNorm(cfg.memory_dim),
+                nn.Linear(cfg.memory_dim, 2 * cfg.future_len * cfg.n_cells),
+            )
+            nn.init.zeros_(self.source_affine[-1].weight)
+            nn.init.zeros_(self.source_affine[-1].bias)
+        else:
+            self.source_affine = None
 
         self.future_value_proj = nn.Linear(cfg.n_cells, cfg.token_dim)
         self.future_pos = nn.Embedding(cfg.future_len, cfg.token_dim)
@@ -237,6 +250,28 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
         hidden = self.history_norm(self.history_encoder(x))
         return hidden[:, -1], level_scores[:, -1]
 
+    def conditional_source_affine(
+        self,
+        context: torch.Tensor,
+        horizon: int,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        if self.source_affine is None:
+            return None, None
+        raw = self.source_affine(context).view(
+            context.shape[0],
+            self.cfg.future_len,
+            self.cfg.n_cells,
+            2,
+        )
+        loc_raw = raw[:, :horizon, :, 0]
+        log_scale_raw = raw[:, :horizon, :, 1]
+        loc_clip = float(self.cfg.source_loc_clip)
+        loc = loc_raw.clamp(-loc_clip, loc_clip) if loc_clip > 0 else loc_raw
+        lo = math.log(float(self.cfg.source_scale_min))
+        hi = math.log(float(self.cfg.source_scale_max))
+        scale = torch.exp(log_scale_raw.clamp(lo, hi))
+        return loc, scale
+
     def target_mixed_coordinates(
         self,
         history_level_values: torch.Tensor,
@@ -286,6 +321,12 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
             future_increment_values,
         )
         x0 = torch.randn_like(x1)
+        source_loc, source_scale = self.conditional_source_affine(
+            context,
+            int(x1.shape[1]),
+        )
+        if source_loc is not None and source_scale is not None:
+            x0 = source_loc + source_scale * x0
         bsz = int(x1.shape[0])
         t = torch.rand(bsz, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[:, None, None]) * x0 + t[:, None, None] * x1
@@ -300,6 +341,16 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
             "target_velocity_std": target_velocity.std(unbiased=False).detach(),
             "context_abs": context.abs().mean().detach(),
         }
+        if source_loc is not None and source_scale is not None:
+            metrics.update(
+                {
+                    "source_loc_abs": source_loc.abs().mean().detach(),
+                    "source_scale_mean": source_scale.mean().detach(),
+                    "source_scale_std": source_scale.std(unbiased=False).detach(),
+                    "source_scale_min": source_scale.min().detach(),
+                    "source_scale_max": source_scale.max().detach(),
+                }
+            )
         return fm_loss, metrics
 
     def mixed_coordinates_to_increment_values(
@@ -371,13 +422,31 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
                 .expand(bsz, k, self.cfg.memory_dim)
                 .reshape(bsz * k, self.cfg.memory_dim)
             )
-            x = temp * torch.randn(
+            noise = torch.randn(
                 bsz * k,
                 int(n_steps),
                 self.cfg.n_cells,
                 device=history_level_values.device,
                 dtype=history_level_values.dtype,
             )
+            source_loc, source_scale = self.conditional_source_affine(
+                context,
+                int(n_steps),
+            )
+            if source_loc is not None and source_scale is not None:
+                loc = (
+                    source_loc.unsqueeze(1)
+                    .expand(bsz, k, int(n_steps), self.cfg.n_cells)
+                    .reshape(bsz * k, int(n_steps), self.cfg.n_cells)
+                )
+                scale = (
+                    source_scale.unsqueeze(1)
+                    .expand(bsz, k, int(n_steps), self.cfg.n_cells)
+                    .reshape(bsz * k, int(n_steps), self.cfg.n_cells)
+                )
+                x = loc + temp * scale * noise
+            else:
+                x = temp * noise
             for flow_step in range(self.cfg.flow_steps):
                 t = torch.full(
                     (bsz * k,),

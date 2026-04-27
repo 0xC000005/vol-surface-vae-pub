@@ -74,6 +74,10 @@ def main() -> None:
     parser.add_argument(
         "--prefix_feature_mode", choices=["basic", "scale"], default="scale"
     )
+    parser.add_argument("--conditional_source_affine", action="store_true")
+    parser.add_argument("--source_scale_min", type=float, default=0.5)
+    parser.add_argument("--source_scale_max", type=float, default=2.0)
+    parser.add_argument("--source_loc_clip", type=float, default=3.0)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -150,6 +154,10 @@ def main() -> None:
         prefix_feature_mode=args.prefix_feature_mode,
         conditioning_mode="prefix",
         level_score_channels=level_score_channels,
+        conditional_source_affine=bool(args.conditional_source_affine),
+        source_scale_min=float(args.source_scale_min),
+        source_scale_max=float(args.source_scale_max),
+        source_loc_clip=float(args.source_loc_clip),
     )
     model = GenericMixedCoordinatePathFlowMatching(cfg).to(device)
     model.set_empirical_quantiles(
@@ -199,6 +207,12 @@ def main() -> None:
             "increment_channels": [
                 idx for idx in range(n_vars) if idx not in set(level_score_channels)
             ],
+        },
+        "source_policy": {
+            "conditional_source_affine": bool(args.conditional_source_affine),
+            "source_scale_min": float(args.source_scale_min),
+            "source_scale_max": float(args.source_scale_max),
+            "source_loc_clip": float(args.source_loc_clip),
         },
     }
     for epoch in range(1, int(args.epochs) + 1):
