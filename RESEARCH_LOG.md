@@ -103058,3 +103058,25 @@ Implement and run 625a on `joint38` in raw empirical-score state coordinates. Ac
 Artifact: `experiments/backfill/block_ar/IDEA_624a_conditional_transition_flow_likelihood.md`.
 
 ---
+## 2026-04-27: Autoresearch 625a: conditional RealNVP transition likelihood result
+
+### Context
+624a selected a conditional normalizing-flow transition likelihood as the clean next learned-law falsifier: keep one shared AR/state-feedback panel model, but replace Gaussian/Student-t increments with an exact RealNVP-style conditional density over empirical-score increments.
+
+### Change
+Implemented `diffusion/block_ar/generic_realnvp_transition_law.py`, trainer/evaluator scripts for 625a, and focused tests. Also fixed `sample_smoke(...)` backward compatibility after the encoded-coordinate change. Verification passed: `pytest test_code/test_625a_generic_realnvp_transition.py test_code/test_622a_encoded_state_coordinate.py -q` -> `6 passed`.
+
+### Result
+625a trained stably and selected epoch 5 with validation NLL `-7.123185`. Official broad-frame score: `3/11`. Passed: `surface`, `block_ar`, `cointegration`. Failed: `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `cross_cell_correlation`, `mean_reversion`, `pathwise_jump_realism`.
+
+Key metrics: cov90 `81.6%`, h1/h30 cov90 `77.8% / 81.7%`, conditionality MAE reduction `4.2%`, turb/calm ratio `1.099`, daily KS `22/25`, level KS `4/25`, median-bias `11/25`, persistent severe undercoverage `7.2%`, cointegration gen/GT `0.747`, cross-cell corr/rank `0.426 / 2.658`, mean-reversion ratio `0.684`, pathwise max-jump KS `0.534`, per-cell q99 jump-scale `15/25`.
+
+### Mechanism Read
+Flexible exact transition likelihood learns local marginal increment density and average coverage better than the raw AR flow, but it still lacks coherent free-running joint path geometry. The common failure is now clear across flow matching, Gaussian/Student-t likelihood, deterministic mean rollout, encoded preprocessing, and RealNVP likelihood: local one-step improvements do not solve multi-cell path dependence, level occupancy, and regime allocation together.
+
+### Decision
+Do not promote 625a and do not sweep RealNVP depth/scale/temperature yet. Next run a synthesis of 610-625 to decide whether any clean learned-law route remains plausible locally, or whether the risk-manager-deployable path needs to be framed as a base native joint law plus disclosed scenario-set/risk-policy calibration.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_625a_joint38_realnvp_likelihood_result.md`, `models/backfill/625a_joint38_ar_realnvp_nll_e8_w2048_s625/`, `results/autoresearch/625a_joint38_ar_realnvp_nll_e8_w2048/full11.md`.
+
+---

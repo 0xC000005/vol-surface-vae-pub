@@ -165,14 +165,14 @@ def sample_smoke(
     chunk_size: int,
     device: torch.device,
     iv_count: int,
-    specs: list[Any],
-    value_coordinate: str,
+    specs: list[Any] | None = None,
+    value_coordinate: str = "raw",
 ) -> dict[str, Any]:
     model.eval()
     hist = torch.from_numpy(history[: min(4, history.shape[0])]).to(device)
     out = model.sample_batched(hist, n_samples=int(samples), n_steps=int(steps), chunk_size=int(chunk_size))
     arr = out.detach().cpu().numpy()
-    report_arr = decode_state(arr, specs).astype(np.float32) if value_coordinate == "encoded" else arr
+    report_arr = decode_state(arr, specs).astype(np.float32) if value_coordinate == "encoded" and specs is not None else arr
     report: dict[str, Any] = {
         "sample_shape": list(arr.shape),
         "finite_rate": float(np.isfinite(arr).mean()),
