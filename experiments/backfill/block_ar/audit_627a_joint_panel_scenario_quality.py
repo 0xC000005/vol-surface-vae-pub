@@ -32,6 +32,9 @@ from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import 
 from experiments.backfill.block_ar.train_628a_unified_ar_increment_transition_flow import (  # noqa: E402
     select_increment_scope,
 )
+from experiments.backfill.block_ar.train_629a_state_conditioned_increment_flow import (  # noqa: E402
+    select_state_increment_scope,
+)
 
 
 def ks_statistic(a: np.ndarray, b: np.ndarray) -> float:
@@ -85,7 +88,10 @@ def corr_similarity(gt: np.ndarray, gen: np.ndarray) -> dict[str, float]:
     }
 
 
-def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, list[Any], Any]:
+HistoryInput = np.ndarray | tuple[np.ndarray, np.ndarray]
+
+
+def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[HistoryInput, np.ndarray, list[Any], Any]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
@@ -101,6 +107,32 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
     )
     if int(args.max_windows) > 0:
         val_indices = val_indices[: int(args.max_windows)]
+    if payload.get("model_coordinate") == "state_conditioned_encoded_increment" or args.model_type == "629a":
+        block = build_increment_coordinate_block(
+            panel,
+            columns,
+            val_indices,
+            history_len=int(payload["config"]["history_len"]),
+            future_len=int(payload["config"]["future_len"]),
+            iv_count=int(args.iv_count),
+        )
+        scope = payload.get("state_scope", args.state_scope)
+        history_level, history_increment, _future_level, future_increment, _history_state, specs = (
+            select_state_increment_scope(
+                block,
+                scope,
+                int(args.iv_count),
+            )
+        )
+        expected = [spec["name"] for spec in payload.get("state_specs", [])]
+        actual = [spec.name for spec in specs]
+        if expected and expected != actual:
+            raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+        return (
+            history_level.astype(np.float32),
+            history_increment.astype(np.float32),
+        ), future_increment.astype(np.float32), specs, block
+
     if payload.get("model_coordinate") == "encoded_increment" or args.model_type == "628a":
         block = build_increment_coordinate_block(
             panel,
@@ -145,6 +177,10 @@ def load_native_model(model_type: str, checkpoint: str, device: torch.device) ->
         from diffusion.block_ar.generic_empirical_score_transition_flow_matching import load_model
 
         return load_model(checkpoint, device)
+    if model_type == "629a":
+        from diffusion.block_ar.generic_state_conditioned_increment_flow_matching import load_model
+
+        return load_model(checkpoint, device)
     if model_type == "625a":
         from diffusion.block_ar.generic_realnvp_transition_law import load_model
 
@@ -155,7 +191,7 @@ def load_native_model(model_type: str, checkpoint: str, device: torch.device) ->
 @torch.no_grad()
 def generate_panel_samples(
     model: Any,
-    history: np.ndarray,
+    history: HistoryInput,
     specs: list[Any],
     raw_history: np.ndarray,
     *,
@@ -169,23 +205,35 @@ def generate_panel_samples(
     model_coordinate: str,
 ) -> np.ndarray:
     chunks: list[np.ndarray] = []
-    for start in range(0, int(history.shape[0]), int(batch_size)):
-        end = min(start + int(batch_size), int(history.shape[0]))
-        hist = torch.from_numpy(history[start:end]).to(device)
-        panel_samples = model.sample_batched(
-            hist,
-            n_samples=int(samples),
-            n_steps=int(n_steps),
-            chunk_size=int(chunk_size),
-            temperature=float(sample_temperature),
-        )
+    n_history = int(history[0].shape[0] if isinstance(history, tuple) else history.shape[0])
+    for start in range(0, n_history, int(batch_size)):
+        end = min(start + int(batch_size), n_history)
+        if model_coordinate == "state_conditioned_encoded_increment":
+            history_level, history_increment = history
+            panel_samples = model.sample_batched(
+                torch.from_numpy(history_level[start:end]).to(device),
+                torch.from_numpy(history_increment[start:end]).to(device),
+                n_samples=int(samples),
+                n_steps=int(n_steps),
+                chunk_size=int(chunk_size),
+                temperature=float(sample_temperature),
+            )
+        else:
+            hist = torch.from_numpy(history[start:end]).to(device)
+            panel_samples = model.sample_batched(
+                hist,
+                n_samples=int(samples),
+                n_steps=int(n_steps),
+                chunk_size=int(chunk_size),
+                temperature=float(sample_temperature),
+            )
         arr = panel_samples.detach().cpu().numpy()
-        if model_coordinate == "encoded_increment":
+        if model_coordinate in {"encoded_increment", "state_conditioned_encoded_increment"}:
             arr = reconstruct_state_from_increments(raw_history[start:end, -1, :], arr, specs)
         elif value_coordinate == "encoded":
             arr = decode_state(arr, specs).astype(np.float32)
         chunks.append(arr.astype(np.float32))
-        print(f"  generated windows {end}/{history.shape[0]}", flush=True)
+        print(f"  generated windows {end}/{n_history}", flush=True)
     return np.concatenate(chunks, axis=0)
 
 
@@ -309,7 +357,7 @@ def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model_type", choices=["609a", "625a", "628a"], required=True)
+    parser.add_argument("--model_type", choices=["609a", "625a", "628a", "629a"], required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
     parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
@@ -335,8 +383,12 @@ def main() -> None:
     history, future, specs, block = build_history_future(args, payload)
     value_coordinate = payload.get("value_coordinate", args.value_coordinate)
     model_coordinate = payload.get("model_coordinate", "state")
-    n_windows = min(int(args.max_windows), int(history.shape[0]))
-    history = history[:n_windows]
+    history_n = int(history[0].shape[0] if isinstance(history, tuple) else history.shape[0])
+    n_windows = min(int(args.max_windows), history_n)
+    if isinstance(history, tuple):
+        history = (history[0][:n_windows], history[1][:n_windows])
+    else:
+        history = history[:n_windows]
     future = future[:n_windows]
     raw_history = block.history_state[:n_windows]
     raw_future = block.future_state[:n_windows]

@@ -103147,3 +103147,29 @@ Do not ship 628a. It is a decisive coordinate milestone, not a deployable risk m
 - results/autoresearch/628a_joint38_ar_increment_e8_w2048/joint_panel.md
 
 ---
+## 2026-04-27: Autoresearch 629a state-conditioned increment law
+
+### Context
+628a proved that encoded daily changes are the right generated object for native 25+13 joint modeling, but pure increment conditioning lost level anchoring and caused explosive IV paths. 629a implemented the clean state-space form: generate encoded daily changes for every channel while conditioning on recent encoded levels and recent encoded changes, then integrate generated changes back to raw levels.
+
+### Result
+The IV full 11-suite still scored 3/11, but the mechanism improved materially. Surface explosion fell from 76.6% to 45.1%; daily-change KS improved from 22/25 to 25/25; sample ceiling fell from 2.106% to 0.154%; cross-cell corr/rank ratio improved from 0.719/1.397 to 0.967/1.167; h1 mean-reversion ratio improved from -0.149 to 0.976; and pathwise max-jump KS improved from 0.724 to 0.464. Remaining IV failures are coverage, regime/turbulent scaling, level occupancy, and a few jump-tail cells.
+
+The joint-panel audit is the best native joint result so far: factor daily-change KS mean 0.095, 12/13 factor KS pass, median q99 abs-change ratio 1.164, 13/13 q99 pass, factor-factor correlation shape 0.823, and IV-factor correlation shape 0.883. Generated mean absolute IV-factor correlation is 0.123 versus validation 0.149.
+
+### Mechanism Read
+629a confirms the clean pathology: state-path models anchor levels but suppress joint changes; pure increment models learn joint changes but lose level anchoring; state-conditioned increment models keep the joint-change benefit and restore much of the level anchoring. The remaining issue is not paradigm failure but calibration/state-dependent scale: undercoverage, weak turbulent widening, biased level occupancy, and a few excessive IV jump-tail cells.
+
+### Decision
+Do not change paradigm. 629a is the current most principled native joint learned law: one model, one transition, generated changes, deterministic integration, no IV/factor branch, and no post-hoc deck gluing. Next: scale the same architecture to all available training windows before adding mechanism. This is the clean Bitter-Lesson test for whether the remaining calibration/regime/level-occupancy failures are data-limited rather than architectural.
+
+### Artifacts
+- diffusion/block_ar/generic_state_conditioned_increment_flow_matching.py
+- experiments/backfill/block_ar/train_629a_state_conditioned_increment_flow.py
+- experiments/backfill/block_ar/evaluate_629a_state_conditioned_increment_flow.py
+- experiments/backfill/block_ar/ANALYSIS_629a_state_conditioned_increment.md
+- models/backfill/629a_joint38_statecond_increment_e8_w2048_s629/best_model.pt
+- results/autoresearch/629a_joint38_statecond_increment_e8_w2048/full11.md
+- results/autoresearch/629a_joint38_statecond_increment_e8_w2048/joint_panel.md
+
+---
