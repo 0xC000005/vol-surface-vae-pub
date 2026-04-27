@@ -102985,3 +102985,20 @@ Close this branch. Do not stack more auxiliary mean-placement losses onto the on
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_620a_joint38_ar_studentt_rollmean_nll.md`, `models/backfill/620a_joint38_ar_studentt_rollmean_nll_e8_w2048_s620/`, `results/autoresearch/620a_joint38_ar_studentt_rollmean_nll_e8_w2048/full11.md`.
 
 ---
+## 2026-04-27: Autoresearch 621a: encoded-state coordinate reset
+
+### Context
+620a closed the deterministic recursive mean-rollout loss branch. The next review focused on whether the native joint AR route is failing because of architecture, objective, or data/state framing.
+
+### Finding
+The unified panel builder from 576a already defines principled per-variable coordinates: IV cells and positive anchor levels use `log_level`, while signed/nonpositive factors use `diff_level`; it also builds encoded increments and reconstructs raw future states exactly. But the recent 609-620 native joint AR train/eval scripts select raw `history_state` and `future_state`, so the model learns empirical-score increments of raw values rather than the intended transformed state coordinate.
+
+### Mechanism Read
+This may explain the repeated pattern where native joint AR models preserve daily-change shape, cointegration, and cross-cell structure but misplace long-horizon levels, mean reversion, and regime/tail occupancy. State coordinate is a first-principles lever, not a new architecture knob or evaluator-specific correction.
+
+### Decision
+Run a minimal encoded-coordinate falsifier next. Add `value_coordinate=raw|encoded` to the generic AR flow train/eval path, train the same 610a-style joint38 AR transition model in encoded log-level/diff-level coordinates, decode samples back to raw IV/factor levels for evaluation, and compare against 610a/612a on the broad 441-window bridge.
+
+Artifact: `experiments/backfill/block_ar/IDEA_621a_encoded_state_coordinate_reset.md`.
+
+---
