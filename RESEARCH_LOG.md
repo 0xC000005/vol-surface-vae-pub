@@ -103848,3 +103848,20 @@ The IV side did not improve beyond the 4/11 native-joint frontier. Daily-change 
 Do not abandon 641a if the target is a defensible joint scenario generator. The next lowest-risk falsifier is an evaluation-only sample-temperature sweep on 641a. This is a disclosed risk-policy calibration diagnostic, not a learned-law claim. If it improves coverage/pathwise KS without breaking daily-change KS, cross-cell structure, or native joint factor audit, continue from there. If it fails, move to objective-level conditional density/calibration rather than adding more sampling knobs.
 
 ---
+## 2026-04-27: Autoresearch 643a 641a temperature diagnostic
+
+### Context
+643a tested the lowest-risk calibration hypothesis for 641a: maybe the support-valid mixed-coordinate model is simply underdispersed at sampling time. This was evaluation-only on the same checkpoint with sample temperatures `1.10` and `1.25`.
+
+### Result
+- Baseline temp `1.00`: `4/11`, cov90 `0.647`, conditional MAE reduction `4.51%`, kurtosis ratio `0.946`, q99 cells `23/25`, cross corr `0.949`, path KS `0.610`.
+- Temp `1.10`: `3/11`, cov90 `0.679`, conditional MAE reduction `2.46%`, kurtosis ratio `0.739`, q99 cells `20/25`, cross corr `0.766`, path KS `0.518`.
+- Temp `1.25`: `3/11`, cov90 `0.710`, conditional MAE reduction approximately `0%`, daily KS `16/25`, level KS `2/25`, median pass `5/25`, kurtosis ratio `0.515`, q99 cells `11/25`, cross corr `0.513`, path KS `0.314`.
+
+### Mechanism Read
+Scalar temperature is not the missing deployability layer. It widens intervals and improves pathwise max-jump KS, but it does so by making paths less conditional, less tail-balanced, less level-calibrated, and less cross-cell coherent. The problem is state/cell/horizon-specific conditional probability allocation, not global spread.
+
+### Decision
+Close scalar sample temperature for 641a. The next step is research ideation around objective/calibration changes for the unified path law. Do not add more sampling knobs or separate IV/factor treatments.
+
+---
