@@ -101066,3 +101066,47 @@ DNN work, with focus on stronger conditional transport or proper multivariate
 likelihood objectives rather than more source-selection knobs.
 
 ---
+## 2026-04-27: Autoresearch 585 recent time-series reset
+
+### Context
+
+584a confirmed that the current unified source-conditioned flow path is capped:
+conditional empirical source selection controls most sample quality, and the
+learned flow changes samples only marginally. More top-k tuning or tiny realism
+penalties would make the method less defensible.
+
+### Ideation
+
+Added `experiments/backfill/block_ar/IDEA_585a_recent_ts_dnn_path_reset.md`.
+
+The recent time-series DNN signal was mapped to the local failure:
+
+- Sundial / TimeFlow supports continuous flow matching for probabilistic time
+  series;
+- CW-Gen supports using conditional mean/covariance information as a prior rather
+  than starting from an unconditional Gaussian or a retrieval bank;
+- vLinear / WFMLoss supports final-series-oriented flow training;
+- MixLinear warns that the missing ingredient is not necessarily a larger
+  Transformer;
+- GCGNet, FreqCycle, and M2FMoE reinforce joint time-channel dynamics and
+  high-frequency/extreme behavior, but their module stacks should not be imported
+  wholesale yet.
+
+### Decision
+
+Open one clean falsifier:
+
+- `586a = conditional-affine-source unified increment flow`;
+- one shared 38-variable IV-plus-anchor-factor increment panel;
+- one history-conditioned Gaussian prior over the full future increment tensor;
+- one shared flow transport;
+- no empirical future-path source bank;
+- no IV/factor-specific heads;
+- a small conditional-prior NLL only to make the source distribution a learned
+  prior rather than a free retrieval substitute.
+
+The audit criterion is whether post-flow samples move materially beyond the
+learned prior. If not, the next paradigm should move to a final-series-oriented
+path-token model rather than more source tricks.
+
+---
