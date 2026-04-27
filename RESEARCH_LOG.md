@@ -103080,3 +103080,22 @@ Do not promote 625a and do not sweep RealNVP depth/scale/temperature yet. Next r
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_625a_joint38_realnvp_likelihood_result.md`, `models/backfill/625a_joint38_ar_realnvp_nll_e8_w2048_s625/`, `results/autoresearch/625a_joint38_ar_realnvp_nll_e8_w2048/full11.md`.
 
 ---
+## 2026-04-27: Autoresearch 626a: native joint learned-law synthesis
+
+### Context
+625a showed that exact flexible transition likelihood improves average coverage and daily-change marginals, but still fails free-running joint-path dependence, h1 mean reversion, level/regime allocation, and pathwise jump balance. 626a synthesized the full native joint branch from 610-625.
+
+### Finding
+The branch has a stable causal map: AR/state-feedback geometry is necessary, but local one-step objectives are not sufficient. Flow matching, Gaussian/Student-t NLL, RealNVP NLL, deterministic mean-rollout loss, scalar temperature, learned source scale, and encoded coordinates each improve one symptom while breaking another structural requirement.
+
+Clean native joint candidates remain below deployability: 610a is structurally clean at `5/11`, 612a has the best broad count at `6/11` but source-scale collapse, and 625a improves local marginal likelihood/coverage but fails cross-cell dependence and mean reversion.
+
+### Decision
+Do not keep adding learned-law knobs locally. Because the target product explicitly includes 25+13 joint scenarios, the immediate missing evidence is a generic joint-panel audit. The official bridge scores IV only; before selecting a deployable base or policy layer we need anchor-factor marginal realism, factor autocorrelation, factor-factor correlation, IV-factor cross-correlation, finite/range sanity, and scenario-level dependence checks.
+
+### Next
+Implement 627a as a joint-panel scenario audit for 610a, 612a, and 625a. Use it to select the best native joint base before any risk-policy calibration or new architecture.
+
+Artifact: `experiments/backfill/block_ar/ANALYSIS_626a_native_joint_synthesis.md`.
+
+---
