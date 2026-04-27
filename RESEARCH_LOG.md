@@ -102119,3 +102119,24 @@ Do not run another postforecast width adapter. The next branch must either alter
 - `results/autoresearch/605a_hard_window_support/audit.md`
 
 ---
+## 2026-04-27: Autoresearch 606 low-support path-location paradigm
+
+### Context
+605a clarified the active bottleneck: hard validation histories are near the edge of training support, but their future h30 `(3,3)` moves are not extreme. This means the remaining problem is conditional path-location allocation under low-support history states, not generic width.
+
+### Synthesis
+The recent branches are now cleanly closed or constrained. 599a showed current anchor factors do not add enough missing signal. 600a showed local-geometry IV history features hurt the hard-failure probes. 602a-604a showed bounded postforecast interval adapters improve selected coverage diagnostics but cannot clear sparse regime/cell inclusion and often damage authenticity. 605a showed why: the path location is wrong under low support.
+
+### Paradigm Shift
+The next candidate must change future path location, not just interval width. The cleanest falsifier is a support-aware path-location fallback: keep frozen 510a for in-support histories, and for low-support histories inject a bounded fraction of historically observed future-increment paths anchored to the current surface. The fallback trigger must depend only on history support distance, not validation futures.
+
+### Risk Framing
+This is not a base learned-law win and must be reported separately. It is a disclosed low-support risk-policy fallback. It is acceptable only if base 510a metrics remain separate, injected paths come from training/calibration futures only, and the method materially improves lower-only regime/cell inclusion without destroying scenario authenticity.
+
+### Next Step
+Run 607a as a support-aware path-location fallback audit against broad 510a, 602a, 603a, and 604a. Acceptance is not 11/11; the falsifier is whether path-location fallback improves sparse stress inclusion in a way interval scaling could not.
+
+### Artifact
+- `experiments/backfill/block_ar/IDEA_606a_low_support_path_location_paradigm.md`
+
+---
