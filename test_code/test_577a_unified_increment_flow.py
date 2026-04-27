@@ -58,6 +58,28 @@ def test_unified_increment_flow_training_loss_and_sampling_are_finite() -> None:
     assert torch.isfinite(samples).all()
 
 
+def test_unified_increment_flow_supports_cumulative_state_loss() -> None:
+    cfg = UnifiedIncrementFlowConfig(
+        history_len=4,
+        future_len=3,
+        n_vars=5,
+        hidden_dim=16,
+        time_embed_dim=8,
+        depth=2,
+        dropout=0.0,
+    )
+    model = UnifiedIncrementFlow(cfg)
+    history = torch.randn(2, 4, 5)
+    target = torch.randn(2, 3, 5)
+
+    loss, metrics = model.training_loss(history, target, fm_loss_mode="cumulative_state")
+
+    assert torch.isfinite(loss)
+    assert torch.isfinite(metrics["cumulative_mse"])
+    assert torch.isfinite(metrics["velocity_mse"])
+    assert metrics["cumulative_mse"] >= 0
+
+
 def test_unified_increment_flow_accepts_path_gaussian_source() -> None:
     cfg = UnifiedIncrementFlowConfig(
         history_len=4,

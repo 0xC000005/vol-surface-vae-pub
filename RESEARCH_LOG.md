@@ -101209,3 +101209,106 @@ state error while keeping the same unified panel and conditional-affine source.
 This directly targets the compounding failure without separating IV and factors.
 
 ---
+## 2026-04-27: Autoresearch 587 cumulative unified flow loss
+
+### Context
+
+586a proved that learned conditional source priors can make the unified flow do
+real work, but it also exposed a sharper failure: pointwise increment/velocity
+loss can look good while reconstructed IV levels explode through cumulative
+log-level compounding.
+
+### Implementation
+
+Extended `UnifiedIncrementFlow.training_loss` with:
+
+- `fm_loss_mode=velocity`: previous pointwise velocity MSE;
+- `fm_loss_mode=cumulative_state`: MSE of cumulative velocity residuals across
+  the future path, corresponding to encoded-state path error.
+
+This keeps:
+
+- the same learned conditional-affine source;
+- one unified 38-variable IV-plus-anchor-factor panel;
+- one shared flow;
+- no empirical source bank;
+- no IV/factor-specific heads or clamps.
+
+### Run
+
+```bash
+python experiments/backfill/block_ar/train_577a_unified_increment_flow.py \
+  --clean_nonpositive_log_levels \
+  --hidden_dim 384 \
+  --depth 5 \
+  --source_mode conditional_affine \
+  --source_prior_nll_weight 0.05 \
+  --fm_loss_mode cumulative_state \
+  --epochs 20 \
+  --batch_size 64 \
+  --lr 7e-4 \
+  --sample_windows 128 \
+  --n_samples 8 \
+  --sample_steps 16 \
+  --output_dir models/backfill/587a_conditional_affine_cumulative_flow_s587 \
+  --seed 587 \
+  --device cuda
+```
+
+Full audit:
+
+```bash
+python experiments/backfill/block_ar/audit_583a_unified_flow_sample_quality.py \
+  --checkpoint models/backfill/587a_conditional_affine_cumulative_flow_s587/best_model.pt \
+  --sample_windows 441 \
+  --n_samples 32 \
+  --sample_steps 16 \
+  --seed 587 \
+  --device cuda \
+  --output results/autoresearch/587a_conditional_affine_cumulative_flow/audit.json
+```
+
+Focused tests: `12 passed`.
+
+### Result
+
+Full audit post-flow:
+
+- IV max: `15.08` versus `455.48` for 586a;
+- IV q99.9%: `0.978`;
+- IV 90% coverage: `0.543`;
+- factor 90% coverage: `0.480`;
+- IV sample std / GT std: `1.198`;
+- IV endpoint corr: `0.605`;
+- factor endpoint corr: `0.263`.
+
+Source-only versus post-flow:
+
+- IV coverage improved from `0.529` to `0.543`;
+- factor coverage improved from `0.244` to `0.480`;
+- IV endpoint corr improved from `0.559` to `0.605`;
+- factor endpoint corr improved from `0.027` to `0.263`;
+- increment effective rank reduced from `807.8` to `494.9`.
+
+### Mechanism Read
+
+The final-series-oriented loss fixed the compounding pathology cleanly. The model
+is no longer exploding IV levels, and it is substantially more conditional than
+586a for both IV and factors.
+
+The new failure is undercoverage rather than scale/pathology:
+
+- state 90% coverage is only `0.521`;
+- IV/factor 90% coverages are both far below nominal.
+
+This is a better bottleneck because it can be attacked by uncertainty calibration
+under the same cumulative objective rather than by another architecture reset.
+
+### Decision
+
+587a is the current clean unified learned-prior prototype. Next step is to build
+an official IV 11-suite bridge for unified-increment-flow checkpoints and score
+587a against the same gates as 392a/510a. Do not change architecture again before
+that official audit.
+
+---

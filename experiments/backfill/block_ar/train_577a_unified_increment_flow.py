@@ -209,6 +209,7 @@ class UnifiedIncrementFlow(nn.Module):
         history: torch.Tensor,
         target: torch.Tensor,
         *,
+        fm_loss_mode: str = "velocity",
         source_prior_nll_weight: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         source_prior_nll = target.new_tensor(0.0)
@@ -233,11 +234,21 @@ class UnifiedIncrementFlow(nn.Module):
         x_t = (1.0 - t.reshape(shape)) * noise + t.reshape(shape) * target
         target_velocity = target - noise
         pred_velocity = self.forward(history, x_t, t)
-        fm_loss = torch.mean((pred_velocity - target_velocity) ** 2)
+        velocity_residual = pred_velocity - target_velocity
+        velocity_mse = torch.mean(velocity_residual.square())
+        cumulative_mse = torch.mean(torch.cumsum(velocity_residual, dim=1).square())
+        if fm_loss_mode == "velocity":
+            fm_loss = velocity_mse
+        elif fm_loss_mode == "cumulative_state":
+            fm_loss = cumulative_mse
+        else:
+            raise ValueError(f"unknown fm_loss_mode {fm_loss_mode}")
         loss = fm_loss + float(source_prior_nll_weight) * source_prior_nll
         return loss, {
             "loss": loss.detach(),
             "fm_loss": fm_loss.detach(),
+            "velocity_mse": velocity_mse.detach(),
+            "cumulative_mse": cumulative_mse.detach(),
             "source_prior_nll": source_prior_nll.detach(),
             "target_std": target.detach().std(),
             "velocity_std": target_velocity.detach().std(),
@@ -534,6 +545,7 @@ def main() -> None:
     )
     parser.add_argument("--conditional_source_topk", type=int, default=64)
     parser.add_argument("--source_prior_nll_weight", type=float, default=0.0)
+    parser.add_argument("--fm_loss_mode", choices=["velocity", "cumulative_state"], default="velocity")
     parser.add_argument("--source_loc_clip", type=float, default=5.0)
     parser.add_argument("--source_log_scale_min", type=float, default=-3.0)
     parser.add_argument("--source_log_scale_max", type=float, default=2.0)
@@ -601,6 +613,7 @@ def main() -> None:
     )
     model = UnifiedIncrementFlow(cfg).to(device)
     source_diagnostics: dict[str, Any] = {"source_mode": args.source_mode}
+    source_diagnostics["fm_loss_mode"] = args.fm_loss_mode
     if args.source_mode == "path_gaussian":
         source_mean, source_chol = fit_path_gaussian(
             train_inc.detach().cpu().numpy(),
@@ -669,6 +682,7 @@ def main() -> None:
                 loss, metrics = model.training_loss(
                     history,
                     target,
+                    fm_loss_mode=args.fm_loss_mode,
                     source_prior_nll_weight=float(args.source_prior_nll_weight),
                 )
                 if train_mode:
@@ -700,6 +714,10 @@ def main() -> None:
             "val_loss": val_avg["loss"],
             "train_fm_loss": train_avg.get("fm_loss", train_avg["loss"]),
             "val_fm_loss": val_avg.get("fm_loss", val_avg["loss"]),
+            "train_velocity_mse": train_avg.get("velocity_mse", train_avg["loss"]),
+            "val_velocity_mse": val_avg.get("velocity_mse", val_avg["loss"]),
+            "train_cumulative_mse": train_avg.get("cumulative_mse", train_avg["loss"]),
+            "val_cumulative_mse": val_avg.get("cumulative_mse", val_avg["loss"]),
             "train_source_prior_nll": train_avg.get("source_prior_nll", 0.0),
             "val_source_prior_nll": val_avg.get("source_prior_nll", 0.0),
             "val_target_std": val_avg["target_std"],
