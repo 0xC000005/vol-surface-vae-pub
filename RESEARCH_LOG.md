@@ -102170,3 +102170,41 @@ Keep this branch alive for one controlled follow-up. Do not return to interval s
 - `results/autoresearch/607a_support_aware_path_fallback/risk_readiness.md`
 
 ---
+## 2026-04-27: Autoresearch 608 support fallback fraction audit
+
+### Context
+608a was the single controlled follow-up to 607a. It kept the same frozen 340c/510a backbone, support trigger, and q80 stressed historical-increment pool, changing only the fallback fraction from `0.50` to `0.75`.
+
+### Result
+- Full 11-suite score stayed at `4/11`.
+- Failed suites: coverage, conditionality, time_series, regime_coverage, distributional_fidelity, mean_reversion, pathwise_jump_realism.
+- Fallback trigger: `127/441` validation windows at train support q95 threshold `8.244`.
+- 90% coverage: `80.2%` overall; h1/h7/h14/h30 = `86.5% / 82.0% / 80.2% / 76.3%`.
+- Conditional MAE reduction: `4.98%`, just below the risk-readiness cutoff.
+- Turbulent/calm width ratio: `1.171`.
+- Regime layer2: `0/8`, worse than 607a's `1/8`.
+- Daily-change KS: `25/25`; level KS: `3/25`; median-bias cells: `16/25`.
+- Pathwise max-jump KS: `0.430`; per-cell q99 jump-scale cells: `14/25`.
+- Persistent severe undercoverage: `811/11025 = 7.4%`.
+
+Risk-readiness comparison:
+- 510a base broad: stress score `1/4`, worst lower-only cell `0.478`, worst regime cell `0.213`.
+- 607a: stress score `1/4`, worst lower-only cell `0.644`, worst regime cell `0.472`, conditionality passes the risk cutoff.
+- 608a: stress score `0/4`, worst lower-only cell `0.646`, worst regime cell `0.472`, conditionality falls to `4.98%`.
+
+### Mechanism Read
+The support-aware path-location fallback identifies a real missing axis: sparse out-of-support validation windows need larger and differently located paths than the frozen learned law emits. However, the current fallback is a blunt replacement rule. Increasing the replacement fraction mostly trades away conditional model behavior for stressed historical increments. It marginally lifts some coverage and median-bias counts but does not solve regime-cell inclusion and weakens the conditionality/authenticity argument.
+
+### Decision
+Close aggressive fallback-fraction tuning as non-deployable. Keep 607a as evidence that support-aware path location matters, but do not continue sweeping replacement fractions or adding more deck-selection knobs.
+
+The next principled route is a native unified learned law: IV and anchor factors should share state, randomness, and transition dynamics, rather than being separately generated and severity-matched after the fact.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_608a_support_path_fallback_frac075.md`
+- `results/autoresearch/608a_support_path_fallback_frac075/full11.json`
+- `results/autoresearch/608a_support_path_fallback_frac075/full11.md`
+- `results/autoresearch/608a_support_path_fallback_frac075/risk_readiness.json`
+- `results/autoresearch/608a_support_path_fallback_frac075/risk_readiness.md`
+
+---
