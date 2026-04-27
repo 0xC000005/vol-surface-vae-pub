@@ -133,6 +133,7 @@ def main() -> None:
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=48)
     parser.add_argument("--sample_steps", type=int, default=16)
+    parser.add_argument("--source_temperature", type=float, default=1.0)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--conditionality_samples", type=int, default=32)
     parser.add_argument("--conditionality_max_batches", type=int, default=8)
@@ -149,6 +150,7 @@ def main() -> None:
         args=args,
         device=device,
     )
+    model.source_temperature = float(args.source_temperature)
     cfg = payload["config"]
     batch = build_rollout_windows(
         data_path=args.data_path,
@@ -204,6 +206,7 @@ def main() -> None:
         "n_windows": int(n_windows),
         "samples": int(args.samples),
         "sample_steps": int(args.sample_steps),
+        "source_temperature": float(args.source_temperature),
         "generation_time_s": float(generation_time),
         "device": str(device),
         "seed": int(args.seed),

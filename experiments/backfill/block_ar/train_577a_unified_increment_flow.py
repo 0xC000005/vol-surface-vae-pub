@@ -84,6 +84,7 @@ class UnifiedIncrementFlow(nn.Module):
         self.register_buffer("source_cholesky", torch.eye(self.path_dim), persistent=True)
         self.register_buffer("source_bank", torch.empty(0, self.path_dim), persistent=True)
         self.register_buffer("source_keys", torch.empty(0, cfg.n_vars), persistent=True)
+        self.source_temperature = 1.0
         if cfg.source_mode == "conditional_affine":
             self.source_head = nn.Sequential(
                 nn.Linear(cfg.hidden_dim, cfg.hidden_dim),
@@ -159,7 +160,7 @@ class UnifiedIncrementFlow(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         loc, log_scale = self.conditional_source_params(history.to(device=device, dtype=dtype))
         eps = torch.randn(loc.shape, device=device, dtype=dtype)
-        flat = loc + eps * torch.exp(log_scale)
+        flat = loc + float(self.source_temperature) * eps * torch.exp(log_scale)
         return flat, loc, log_scale
 
     def conditional_latent_params(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -194,7 +195,7 @@ class UnifiedIncrementFlow(nn.Module):
         z = latent_loc + torch.randn_like(latent_loc) * torch.exp(latent_log_scale)
         path_loc = self.latent_path_loc(context)
         residual = self.latent_path_decoder(torch.cat([context, z], dim=-1))
-        return path_loc + residual
+        return path_loc + float(self.source_temperature) * residual
 
     def draw_source(
         self,
@@ -251,10 +252,10 @@ class UnifiedIncrementFlow(nn.Module):
             flat = self.source_bank.to(device=device, dtype=dtype).index_select(0, indices)
             return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
         eps = torch.randn(int(batch_size), self.path_dim, device=device, dtype=dtype)
-        flat = self.source_mean.to(device=device, dtype=dtype) + eps @ self.source_cholesky.to(
+        flat = self.source_mean.to(device=device, dtype=dtype) + float(self.source_temperature) * (eps @ self.source_cholesky.to(
             device=device,
             dtype=dtype,
-        ).T
+        ).T)
         return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
 
     def forward(self, history: torch.Tensor, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:

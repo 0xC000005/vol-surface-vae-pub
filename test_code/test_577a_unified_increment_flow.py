@@ -197,6 +197,31 @@ def test_unified_increment_flow_accepts_conditional_latent_source() -> None:
     assert torch.isfinite(metrics["cumulative_mse"])
 
 
+def test_unified_increment_flow_source_temperature_scales_latent_source() -> None:
+    cfg = UnifiedIncrementFlowConfig(
+        history_len=4,
+        future_len=3,
+        n_vars=5,
+        hidden_dim=16,
+        time_embed_dim=8,
+        depth=2,
+        dropout=0.0,
+        source_mode="conditional_latent",
+        source_latent_dim=3,
+    )
+    model = UnifiedIncrementFlow(cfg)
+    history = torch.randn(64, 4, 5)
+
+    torch.manual_seed(123)
+    model.source_temperature = 1.0
+    source_1 = model.draw_source(64, device=torch.device("cpu"), dtype=torch.float32, history=history)
+    torch.manual_seed(123)
+    model.source_temperature = 2.0
+    source_2 = model.draw_source(64, device=torch.device("cpu"), dtype=torch.float32, history=history)
+
+    assert source_2.std() > source_1.std()
+
+
 def test_normal_score_increment_transform_is_bounded_and_invertible_on_quantiles() -> None:
     target = torch.linspace(-2.0, 2.0, steps=40).reshape(4, 2, 5).numpy()
     quantiles, _levels, normal_levels = fit_increment_normal_score(

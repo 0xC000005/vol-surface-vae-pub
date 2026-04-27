@@ -101511,3 +101511,73 @@ can be increased while cross-cell remains valid, continue by learning/calibratin
 that amplitude. If not, close the unified MLP path-flow branch.
 
 ---
+## 2026-04-27: Autoresearch 590 latent temperature diagnostic
+
+### Context
+
+589a showed that the latent bottleneck recovers cross-cell structure but collapses
+coverage and tails. The next diagnostic was whether a generic source-temperature
+increase could recover spread while preserving dependence.
+
+### Implementation
+
+Added a generic `source_temperature` hook to
+`UnifiedIncrementFlow` sampling and exposed it in
+`evaluate_588a_unified_flow_full11_bridge.py`.
+
+Focused tests: `11 passed`.
+
+### Runs
+
+Official bridge at temperature `2.0`:
+
+- `results/autoresearch/590a_latent_temperature_sweep/temp2_full11.json`;
+- `results/autoresearch/590a_latent_temperature_sweep/temp2_full11.md`.
+
+Official bridge at temperature `4.0`:
+
+- `results/autoresearch/590a_latent_temperature_sweep/temp4_full11.json`;
+- `results/autoresearch/590a_latent_temperature_sweep/temp4_full11.md`.
+
+### Result
+
+| Metric | temp 1.0 / 589a | temp 2.0 | temp 4.0 |
+|---|---:|---:|---:|
+| Official score | `3/11` | `2/11` | `1/11` |
+| Surface validity | PASS | PASS | FAIL |
+| Cross-cell structure | PASS | FAIL | FAIL |
+| Overall 90% coverage | `26.7%` | `47.3%` | `65.1%` |
+| h30 90% coverage | `28.9%` | `50.2%` | `68.2%` |
+| ACF | FAIL | PASS | PASS |
+| Daily-change KS pass cells | `1/25` | `5/25` | `10/25` |
+| Level KS pass cells | `2/25` | `3/25` | `1/25` |
+| Cross-cell corr ratio | `0.578` | `0.487` | `0.370` |
+| Pathwise max-jump KS | `0.999` | `0.991` | `0.833` |
+| q99 jump-scale pass cells | `1/25` | `5/25` | `11/25` |
+
+### Mechanism Read
+
+The spread frontier is unfavorable:
+
+- temperature improves coverage and local jump scale;
+- the same temperature damages cross-cell dependence;
+- higher temperature eventually breaks surface validity;
+- no tested scalar temperature exceeds the `3/11` base latent model;
+- even temp `4.0` remains far from pathwise, regime, and distributional gates.
+
+This is not a simple amplitude-calibration problem.
+
+### Decision
+
+Close the one-shot unified MLP path-flow branch as a frontier route.
+
+Carry forward two useful lessons:
+
+- cumulative/final-series-oriented loss is needed for level stability;
+- a narrow common stochastic bottleneck is needed for cross-cell dependence.
+
+The next paradigm should return to an autoregressive/state-space transition model
+that learns local jumps, mean reversion, and common-factor dependence stepwise,
+rather than another one-shot MLP path-flow variant.
+
+---
