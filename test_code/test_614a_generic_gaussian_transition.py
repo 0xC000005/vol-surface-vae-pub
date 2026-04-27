@@ -68,3 +68,33 @@ def test_gaussian_transition_scale_feature_mode():
     future = torch.rand(3, 2, 3)
     loss, _metrics = model.training_loss(history, future)
     assert torch.isfinite(loss)
+
+
+def test_student_t_transition_loss_and_sampling_are_finite():
+    torch.manual_seed(616)
+    cfg = GenericGaussianTransitionConfig(
+        history_len=4,
+        future_len=2,
+        n_cells=3,
+        n_quantiles=17,
+        memory_dim=12,
+        memory_layers=1,
+        memory_heads=3,
+        memory_ff=24,
+        head_hidden=24,
+        model_dropout=0.0,
+        distribution_family="student_t",
+        student_t_df=5.0,
+    )
+    model = GenericGaussianTransitionLaw(cfg)
+    levels = torch.linspace(0.01, 0.99, cfg.n_quantiles)
+    quantiles = torch.stack([torch.linspace(0.0, 1.0, cfg.n_quantiles) for _ in range(cfg.n_cells)])
+    model.set_empirical_quantiles(quantiles, levels)
+    history = torch.rand(3, 4, 3)
+    future = torch.rand(3, 2, 3)
+    loss, metrics = model.training_loss(history, future)
+    assert torch.isfinite(loss)
+    assert metrics["diag_mean"].item() > 0
+    samples = model.sample_batched(history[:1], n_samples=2, n_steps=2, chunk_size=1)
+    assert samples.shape == (1, 2, 2, 3)
+    assert torch.isfinite(samples).all()

@@ -28,6 +28,8 @@ class GenericGaussianTransitionConfig:
     diag_max: float = 3.0
     offdiag_scale: float = 0.25
     sample_temperature: float = 1.0
+    distribution_family: str = "gaussian"
+    student_t_df: float = 5.0
 
 
 class GenericGaussianTransitionLaw(nn.Module):
@@ -43,6 +45,10 @@ class GenericGaussianTransitionLaw(nn.Module):
         self.cfg = cfg
         if cfg.prefix_feature_mode not in {"basic", "scale"}:
             raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
+        if cfg.distribution_family not in {"gaussian", "student_t"}:
+            raise ValueError("distribution_family must be 'gaussian' or 'student_t'")
+        if float(cfg.student_t_df) <= 2.0:
+            raise ValueError("student_t_df must be > 2 for finite variance")
         feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -204,6 +210,29 @@ class GenericGaussianTransitionLaw(nn.Module):
         tril[..., diag_idx, diag_idx] = diag
         return mean, tril, diag
 
+    def _log_prob(self, target: torch.Tensor, mean: torch.Tensor, tril: torch.Tensor) -> torch.Tensor:
+        if self.cfg.distribution_family == "gaussian":
+            dist = torch.distributions.MultivariateNormal(mean, scale_tril=tril)
+            return dist.log_prob(target)
+        centered = target - mean
+        solve = torch.linalg.solve_triangular(
+            tril,
+            centered.unsqueeze(-1),
+            upper=False,
+        ).squeeze(-1)
+        quad = solve.square().sum(dim=-1)
+        diag = torch.diagonal(tril, dim1=-2, dim2=-1)
+        logdet = torch.log(diag).sum(dim=-1)
+        df = torch.as_tensor(float(self.cfg.student_t_df), device=target.device, dtype=target.dtype)
+        dim = torch.as_tensor(float(self.cfg.n_cells), device=target.device, dtype=target.dtype)
+        log_norm = (
+            torch.lgamma(0.5 * (df + dim))
+            - torch.lgamma(0.5 * df)
+            - 0.5 * dim * (torch.log(df) + math.log(math.pi))
+            - logdet
+        )
+        return log_norm - 0.5 * (df + dim) * torch.log1p(quad / df)
+
     def training_loss(
         self,
         history_values: torch.Tensor,
@@ -223,8 +252,7 @@ class GenericGaussianTransitionLaw(nn.Module):
             current_scores.reshape(bsz * horizon, n_vars),
         )
         target_flat = target.reshape(bsz * horizon, n_vars)
-        dist = torch.distributions.MultivariateNormal(mean, scale_tril=tril)
-        nll = -dist.log_prob(target_flat).mean()
+        nll = -self._log_prob(target_flat, mean, tril).mean()
         pred_error = target_flat - mean
         metrics = {
             "total": nll.detach(),
@@ -275,7 +303,17 @@ class GenericGaussianTransitionLaw(nn.Module):
                     device=mean.device,
                     dtype=mean.dtype,
                 )
-                transition = mean + temp * torch.bmm(tril, eps).squeeze(-1)
+                innovation = torch.bmm(tril, eps).squeeze(-1)
+                if self.cfg.distribution_family == "student_t":
+                    df = torch.full(
+                        (mean.shape[0], 1),
+                        float(self.cfg.student_t_df),
+                        device=mean.device,
+                        dtype=mean.dtype,
+                    )
+                    chi2 = torch.distributions.Gamma(0.5 * df, torch.full_like(df, 0.5)).sample()
+                    innovation = innovation / torch.sqrt((chi2 / df).clamp_min(1e-8))
+                transition = mean + temp * innovation
                 next_score = current_score + transition
                 next_values = self.scores_to_values(next_score)
                 frames.append(next_values.view(bsz, k, self.cfg.n_cells))

@@ -102700,3 +102700,72 @@ Next: keep exact likelihood training and the one-model state-panel framing, but 
 - `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp075_full11.md`
 
 ---
+## 2026-04-27: Autoresearch 616 Student-t likelihood transition
+
+### Context
+615a closed simple temperature calibration for the Gaussian likelihood model. The likelihood paradigm was useful for undercoverage, but Gaussian innovations had the wrong shape. 616a keeps the same one-model state-panel framing and exact NLL, replacing the Gaussian density with a fixed-DF multivariate Student-t transition.
+
+### Change
+Updated:
+- `diffusion/block_ar/generic_gaussian_transition_law.py`
+- `experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py`
+- `test_code/test_614a_generic_gaussian_transition.py`
+
+The likelihood model now supports `distribution_family=gaussian` and `distribution_family=student_t` with fixed `student_t_df`.
+
+Verification:
+- `python -m py_compile diffusion/block_ar/generic_gaussian_transition_law.py experiments/backfill/block_ar/train_614a_unified_ar_gaussian_likelihood.py experiments/backfill/block_ar/evaluate_614a_unified_ar_gaussian_likelihood.py`
+- `pytest test_code/test_614a_generic_gaussian_transition.py -q`
+- result: `3 passed`
+
+### Result
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- Student-t df `5`;
+- best epoch `4`;
+- best validation NLL `-9.594840`;
+- final validation NLL `-2.883219`;
+- finite sample rate `1.0`.
+
+Official IV bridge on 441 windows / 48 samples:
+- score: `4/11`;
+- passed: conditionality, block-AR, cointegration, cross-cell correlation;
+- failed: surface, coverage, time-series properties, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- cov90 overall `92.2%`;
+- conditional MAE reduction `7.9%`;
+- turbulent/calm width ratio `0.901`;
+- persistent severe undercoverage `397/11025 = 3.6%`;
+- daily-change KS `14/25`;
+- level KS `0/25`;
+- median-bias cells `21/25`;
+- kurtosis ratio `0.452`;
+- cointegration gen/GT `0.903`, worst-cell ratio `0.545`;
+- cross-cell corr/rank `0.747 / 1.833`;
+- mean-reversion ratio `0.427`;
+- pathwise max-jump KS `0.403`;
+- per-cell q99 jump-scale `6/25`.
+
+### Mechanism Read
+Student-t is directionally better than Gaussian but still not deployable.
+
+Versus 614a Gaussian, it improves conditionality, persistent undercoverage, median bias, cointegration worst-cell, mean-reversion ratio, and pathwise max-jump KS. The failures now concentrate around overcoverage, level occupancy, surface/calendar rate, per-cell tail imbalance, and weak h1 mean reversion.
+
+This supports the likelihood-family shift but not uncalibrated Student-t sampling.
+
+### Decision
+Keep Student-t likelihood alive.
+
+Next: run a controlled Student-t sampler-temperature diagnostic. Because Student-t already fixes pathwise max-jump KS at temp `1.0`, moderate down-temperature may reduce overcoverage/surface/tail-scale damage without fully losing the undercoverage gains. If it fails, the next step should target conditional mean/placement rather than only innovation shape.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_616a_joint38_ar_studentt_nll.md`
+- `models/backfill/616a_joint38_ar_studentt_nll_e8_w2048_s616/train_summary.json`
+- `models/backfill/616a_joint38_ar_studentt_nll_e8_w2048_s616/training_history.json`
+- `results/autoresearch/616a_joint38_ar_studentt_nll_e8_w2048/full11.json`
+- `results/autoresearch/616a_joint38_ar_studentt_nll_e8_w2048/full11.md`
+
+---
