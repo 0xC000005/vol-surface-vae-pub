@@ -101646,3 +101646,46 @@ correlation, or pathwise jump realism. If it cannot, return to the separated
 risk-policy framing around `510a/564a` rather than continuing architecture churn.
 
 ---
+## 2026-04-27: Autoresearch 592 AR common latent feasibility
+
+### Context
+
+591a selected an AR common-latent transition shift. Before coding it, I inspected
+the existing AR model and prior common-source experiments to avoid rerunning a
+falsified path under a new name.
+
+### Finding
+
+The current AR transition model already has fixed common-source machinery:
+
+- `path_source_corr`;
+- `path_source_ar`;
+- path-common source noise during training/sampling.
+
+Prior experiments already falsified that route:
+
+- 334a fixed path-common source inside the 330c AR flow: `3/11`;
+- 423a persistent source-noise FM from the 392a frontier: `6/11`;
+- 424a closed fixed persistent source noise and rejected a rho sweep.
+
+### Decision
+
+Do not implement 592a as another `path_source_corr` or temperature/rho sweep.
+
+A valid next experiment must be genuinely learned:
+
+- a scenario-level stochastic latent;
+- persistent injection into the AR transition memory across rollout;
+- training through rollout patch/final-series loss so the latent affects
+  long-horizon level/regime allocation.
+
+If this cannot be implemented as a small wrapper around the 510a/392a frontier
+model, do not code it. Return instead to the separated risk-policy product around
+`510a/564a`.
+
+### Artifact
+
+Added
+`experiments/backfill/block_ar/ANALYSIS_592a_ar_common_latent_feasibility.md`.
+
+---
