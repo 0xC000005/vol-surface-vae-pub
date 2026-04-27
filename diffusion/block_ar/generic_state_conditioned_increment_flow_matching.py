@@ -20,6 +20,9 @@ class GenericStateConditionedIncrementFMConfig(CausalFutureMemoryTransitionFMCon
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
     prefix_feature_mode: str = "basic"
+    conditional_source_scale: bool = False
+    source_scale_min: float = 0.5
+    source_scale_max: float = 2.0
 
 
 class GenericStateConditionedIncrementFlowMatching(nn.Module):
@@ -50,6 +53,15 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
         self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        if cfg.conditional_source_scale:
+            self.source_log_scale = nn.Sequential(
+                nn.LayerNorm(cfg.memory_dim),
+                nn.Linear(cfg.memory_dim, cfg.n_cells),
+            )
+            nn.init.zeros_(self.source_log_scale[-1].weight)
+            nn.init.zeros_(self.source_log_scale[-1].bias)
+        else:
+            self.source_log_scale = None
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(cfg.n_quantiles)
         self.register_buffer("quantile_levels", levels)
         self.register_buffer("level_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
@@ -170,6 +182,13 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
         )
         return self.memory_norm(self.memory(x, mask=mask))
 
+    def _conditional_source_scale(self, memory_state: torch.Tensor) -> torch.Tensor | None:
+        if self.source_log_scale is None:
+            return None
+        lo = math.log(float(self.cfg.source_scale_min))
+        hi = math.log(float(self.cfg.source_scale_max))
+        return torch.exp(self.source_log_scale(memory_state).clamp(lo, hi))
+
     def training_loss(
         self,
         history_level_values: torch.Tensor,
@@ -190,6 +209,9 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
 
         x1 = future_increment_scores
         x0 = torch.randn_like(x1)
+        source_scale = self._conditional_source_scale(memory_states)
+        if source_scale is not None:
+            x0 = x0 * source_scale
         bsz, horizon, n_vars = x1.shape
         t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
@@ -208,6 +230,15 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
             "target_increment_score_abs": x1.abs().mean().detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
+        if source_scale is not None:
+            metrics.update(
+                {
+                    "source_scale_mean": source_scale.mean().detach(),
+                    "source_scale_std": source_scale.std(unbiased=False).detach(),
+                    "source_scale_min": source_scale.min().detach(),
+                    "source_scale_max": source_scale.max().detach(),
+                }
+            )
         return fm_loss, metrics
 
     @torch.no_grad()
@@ -260,6 +291,9 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
                     device=level_scores.device,
                     dtype=level_scores.dtype,
                 )
+                source_scale = self._conditional_source_scale(memory_state)
+                if source_scale is not None:
+                    x = x * source_scale
                 for flow_step in range(self.cfg.flow_steps):
                     t = torch.full(
                         (bsz * k,),

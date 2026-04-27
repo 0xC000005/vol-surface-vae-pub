@@ -103221,3 +103221,28 @@ Scale-prefix features help conditionality and level occupancy, and they move tur
 - results/autoresearch/631a_joint38_statecond_increment_scale_e8_w2048/joint_panel.md
 
 ---
+## 2026-04-27: Autoresearch 632a conditional source-scale falsifier
+
+### Context
+631a still had weak turbulent widening. 632a tested a bounded conditional source-scale head on the same state-conditioned encoded-increment model, initialized at unit scale and bounded to [0.5, 2.0].
+
+### Result
+The IV full-suite score fell from 4/11 to 3/11. Surface explosion rose from 51.7% to 60.8%; turb/calm width ratio fell from 1.008 to 0.865; cross-cell corr/rank ratio fell from 0.939/1.156 to 0.762/1.488; pathwise max-jump KS worsened from 0.531 to 0.607; and cointegration failed on the worst-cell gate. The joint-panel audit also worsened: factor KS pass fell to 11/13, factor-factor generated mean absolute correlation fell to 0.100 versus validation 0.225, and IV-factor generated mean absolute correlation fell to 0.081 versus validation 0.149.
+
+The source scale collapsed to the lower bound: epoch 1 mean scale was 0.540; epoch 2 mean scale was 0.500 with zero std; best epoch 6 remained effectively 0.500.
+
+### Mechanism Read
+This repeats the earlier source-scale pathology in a cleaner architecture. The one-step flow-matching objective can reduce loss by shrinking the source distribution rather than learning useful state-dependent turbulent widening. It improves some marginal/median metrics but damages free-running dependence, regime behavior, and pathwise realism.
+
+### Decision
+Reject conditional source scale for this branch. Keep 631a as the active native joint learned base. Next should be post-experiment analysis/research ideation before adding more local knobs. The remaining problem likely needs a proper multi-step distributional objective or rollout-level scoring rule for calibrated scenario sets.
+
+### Artifacts
+- diffusion/block_ar/generic_state_conditioned_increment_flow_matching.py
+- experiments/backfill/block_ar/train_629a_state_conditioned_increment_flow.py
+- experiments/backfill/block_ar/ANALYSIS_632a_conditional_source_scale.md
+- models/backfill/632a_joint38_statecond_increment_scale_srcscale_e8_w2048_s632/best_model.pt
+- results/autoresearch/632a_joint38_statecond_increment_scale_srcscale_e8_w2048/full11.md
+- results/autoresearch/632a_joint38_statecond_increment_scale_srcscale_e8_w2048/joint_panel.md
+
+---

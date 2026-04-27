@@ -109,3 +109,47 @@ def test_scale_prefix_feature_mode_runs() -> None:
     )
 
     assert torch.isfinite(loss)
+
+
+def test_conditional_source_scale_starts_at_unit_scale() -> None:
+    torch.manual_seed(632)
+    cfg = GenericStateConditionedIncrementFMConfig(
+        history_len=3,
+        future_len=2,
+        n_cells=4,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=21,
+        conditioning_mode="prefix",
+        prefix_feature_mode="scale",
+        conditional_source_scale=True,
+        source_scale_min=0.5,
+        source_scale_max=2.0,
+    )
+    model = GenericStateConditionedIncrementFlowMatching(cfg)
+    quantiles = torch.linspace(-2.0, 2.0, cfg.n_quantiles).repeat(cfg.n_cells, 1)
+    model.set_empirical_quantiles(quantiles, quantiles)
+    history_state = torch.randn(2, cfg.history_len, cfg.n_cells)
+    history_increment = 0.1 * torch.randn(2, cfg.history_len, cfg.n_cells)
+    future_state = torch.randn(2, cfg.future_len, cfg.n_cells)
+    future_increment = 0.1 * torch.randn(2, cfg.future_len, cfg.n_cells)
+
+    loss, metrics = model.training_loss(
+        history_state,
+        history_increment,
+        future_state,
+        future_increment,
+    )
+    samples = model.sample_batched(history_state, history_increment, n_samples=2, n_steps=2, chunk_size=1)
+
+    assert torch.isfinite(loss)
+    assert torch.isclose(metrics["source_scale_mean"], torch.tensor(1.0), atol=1e-6)
+    assert samples.shape == (2, 2, 2, cfg.n_cells)
