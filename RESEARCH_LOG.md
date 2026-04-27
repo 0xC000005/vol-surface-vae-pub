@@ -103024,3 +103024,20 @@ Keep the encoded-coordinate implementation as a general preprocessing option for
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_622a_encoded_state_coordinate_result.md`, `models/backfill/622a_joint38_ar_transition_encoded_e8_w2048_s622/`, `results/autoresearch/622a_joint38_ar_transition_encoded_e8_w2048/full11.md`.
 
 ---
+## 2026-04-27: Autoresearch 623a: encoded-coordinate temperature diagnostic
+
+### Context
+622a encoded-coordinate training restored mean reversion but produced a high-biased, under-dispersed deck. 623a tested whether moderate scalar widening could make it risk-manager usable.
+
+### Result
+Temperature `1.5` on the frozen 622a checkpoint scored `2/11`: only `block_ar` and `cointegration` passed. Coverage improved to `77.1%` overall with h1/h7/h14/h30 at `90.6% / 83.1% / 76.1% / 70.1%`, but surface calendar arbitrage failed at `17.8%`, conditionality MAE reduction was `-7.6%`, daily-change KS fell to `3/25`, level KS stayed `1/25`, median-bias stayed `1/25`, cross-cell corr/rank failed at `0.244 / 3.281`, full-horizon mean reversion failed, and per-cell q99 jump-scale cells fell to `3/25`.
+
+### Mechanism Read
+The encoded-coordinate failure is not just missing width. Widening inflates intervals and recovers some aggregate coverage, but it cannot repair the wrong median path or preserve dependence geometry. It breaks exactly the structures a risk manager needs for coherent joint scenarios.
+
+### Decision
+Close encoded-coordinate scalar widening as a deployability fix. Keep the encoded preprocessing code as a general option, but do not keep sweeping temperature. The next iteration should select a sequence-level stochastic path-law direction that trains the full generated future path while preserving one shared IV-only/joint38 panel interface.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_623a_622a_encoded_temperature_diagnostic.md`, `results/autoresearch/623a_622a_encoded_temperature_diagnostic/temp150_full11.md`.
+
+---
