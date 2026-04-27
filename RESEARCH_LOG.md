@@ -103121,3 +103121,29 @@ Do not declare 610a, 612a, or 625a joint deployable. 610a remains the cleanest n
 - results/autoresearch/627a_joint_panel_audit/625a_joint_panel.md
 
 ---
+## 2026-04-27: Autoresearch 628a encoded-increment coordinate reset
+
+### Context
+627a showed native joint38 state-path models are mechanically one-model but attenuate anchor-factor and IV-factor dependence. 628a tested the user's data-coordinate concern directly: train one generic AR transition flow on encoded daily changes for all 38 channels, then reconstruct levels by integrating generated changes from the last observed state.
+
+### Result
+The IV full 11-suite scored 3/11. It passed conditionality, block-AR, and cross-cell correlation, but failed surface validity, coverage, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism. Key IV failures: surface explosion rate 76.6%, level KS 13/25, median-bias 18/25, mean-reversion aggregate ratio -0.149, pathwise max-jump KS 0.724, and pathwise q90/q99 jump ratios 28.117/698.619.
+
+The joint-panel audit improved sharply: factor daily-change KS mean 0.116 with 12/13 factors passing, median q99 absolute-change ratio 1.397 with 12/13 passing, factor-factor correlation shape 0.720 with generated mean absolute correlation 0.140 versus validation 0.225, and IV-factor correlation shape 0.849 with generated mean absolute correlation 0.113 versus validation 0.149.
+
+### Mechanism Read
+628a validates the principle that anchor factors should be modeled as encoded changes. It is the first native joint38 learned candidate that is directionally plausible for factor-change and IV-factor co-movement. But pure increment modeling loses level anchoring: the model sees recent increments, not the current state level, so sampled log changes can compound over 30 days into IV explosions, invalid factor ranges, weak mean reversion, and extreme jumps.
+
+### Decision
+Do not ship 628a. It is a decisive coordinate milestone, not a deployable risk model. Next: implement a unified state-conditioned increment law, modeling p(delta_{t+1} | recent encoded levels and recent encoded changes), then integrate generated deltas back to levels. This preserves the 628a joint-dependence gain while adding the missing state anchor without IV/factor-specific branches or post-hoc deck gluing.
+
+### Artifacts
+- experiments/backfill/block_ar/increment_coordinate_628_utils.py
+- experiments/backfill/block_ar/train_628a_unified_ar_increment_transition_flow.py
+- experiments/backfill/block_ar/evaluate_628a_unified_ar_increment_transition_flow.py
+- experiments/backfill/block_ar/ANALYSIS_628a_increment_coordinate.md
+- models/backfill/628a_joint38_ar_increment_e8_w2048_s628/best_model.pt
+- results/autoresearch/628a_joint38_ar_increment_e8_w2048/full11.md
+- results/autoresearch/628a_joint38_ar_increment_e8_w2048/joint_panel.md
+
+---

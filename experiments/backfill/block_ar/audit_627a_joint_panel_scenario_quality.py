@@ -24,7 +24,14 @@ from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  
     decode_state,
 )
 from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_system import set_seed  # noqa: E402
+from experiments.backfill.block_ar.increment_coordinate_628_utils import (  # noqa: E402
+    build_increment_coordinate_block,
+    reconstruct_state_from_increments,
+)
 from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import select_scope  # noqa: E402
+from experiments.backfill.block_ar.train_628a_unified_ar_increment_transition_flow import (  # noqa: E402
+    select_increment_scope,
+)
 
 
 def ks_statistic(a: np.ndarray, b: np.ndarray) -> float:
@@ -94,6 +101,27 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
     )
     if int(args.max_windows) > 0:
         val_indices = val_indices[: int(args.max_windows)]
+    if payload.get("model_coordinate") == "encoded_increment" or args.model_type == "628a":
+        block = build_increment_coordinate_block(
+            panel,
+            columns,
+            val_indices,
+            history_len=int(payload["config"]["history_len"]),
+            future_len=int(payload["config"]["future_len"]),
+            iv_count=int(args.iv_count),
+        )
+        scope = payload.get("state_scope", args.state_scope)
+        history, future, _history_state, _future_state, specs = select_increment_scope(
+            block,
+            scope,
+            int(args.iv_count),
+        )
+        expected = [spec["name"] for spec in payload.get("state_specs", [])]
+        actual = [spec.name for spec in specs]
+        if expected and expected != actual:
+            raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+        return history.astype(np.float32), future.astype(np.float32), specs, block
+
     block = build_unified_increment_block(
         panel,
         columns,
@@ -113,7 +141,7 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
 
 
 def load_native_model(model_type: str, checkpoint: str, device: torch.device) -> tuple[Any, dict[str, Any]]:
-    if model_type == "609a":
+    if model_type in {"609a", "628a"}:
         from diffusion.block_ar.generic_empirical_score_transition_flow_matching import load_model
 
         return load_model(checkpoint, device)
@@ -129,6 +157,7 @@ def generate_panel_samples(
     model: Any,
     history: np.ndarray,
     specs: list[Any],
+    raw_history: np.ndarray,
     *,
     samples: int,
     n_steps: int,
@@ -137,6 +166,7 @@ def generate_panel_samples(
     device: torch.device,
     sample_temperature: float,
     value_coordinate: str,
+    model_coordinate: str,
 ) -> np.ndarray:
     chunks: list[np.ndarray] = []
     for start in range(0, int(history.shape[0]), int(batch_size)):
@@ -150,7 +180,9 @@ def generate_panel_samples(
             temperature=float(sample_temperature),
         )
         arr = panel_samples.detach().cpu().numpy()
-        if value_coordinate == "encoded":
+        if model_coordinate == "encoded_increment":
+            arr = reconstruct_state_from_increments(raw_history[start:end, -1, :], arr, specs)
+        elif value_coordinate == "encoded":
             arr = decode_state(arr, specs).astype(np.float32)
         chunks.append(arr.astype(np.float32))
         print(f"  generated windows {end}/{history.shape[0]}", flush=True)
@@ -277,7 +309,7 @@ def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model_type", choices=["609a", "625a"], required=True)
+    parser.add_argument("--model_type", choices=["609a", "625a", "628a"], required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
     parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
@@ -302,6 +334,7 @@ def main() -> None:
     model, payload = load_native_model(args.model_type, args.checkpoint, device)
     history, future, specs, block = build_history_future(args, payload)
     value_coordinate = payload.get("value_coordinate", args.value_coordinate)
+    model_coordinate = payload.get("model_coordinate", "state")
     n_windows = min(int(args.max_windows), int(history.shape[0]))
     history = history[:n_windows]
     future = future[:n_windows]
@@ -314,6 +347,7 @@ def main() -> None:
         model,
         history,
         specs,
+        raw_history,
         samples=int(args.samples),
         n_steps=int(args.n_steps),
         batch_size=int(args.batch_size),
@@ -321,6 +355,7 @@ def main() -> None:
         device=device,
         sample_temperature=float(args.sample_temperature),
         value_coordinate=value_coordinate,
+        model_coordinate=model_coordinate,
     )
     summary = summarize_joint_quality(
         raw_history,
@@ -338,6 +373,7 @@ def main() -> None:
             "checkpoint_best_val": float(payload.get("best_val", float("nan"))),
             "state_scope": payload.get("state_scope", args.state_scope),
             "value_coordinate": value_coordinate,
+            "model_coordinate": model_coordinate,
             "n_windows": int(n_windows),
             "samples": int(args.samples),
             "n_steps": int(args.n_steps),
@@ -358,4 +394,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
