@@ -102629,3 +102629,74 @@ Next: run a controlled down-temperature diagnostic on 614a. If moderate sampler 
 - `results/autoresearch/614a_joint38_ar_gaussian_nll_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 615 Gaussian temperature diagnostic
+
+### Context
+614a showed that likelihood training improves aggregate coverage and persistent severe undercoverage, but the plain Gaussian transition is too diffuse and too smooth. 615a tested whether this is mainly a global sampling-scale problem.
+
+### Runs
+Checkpoint:
+- `models/backfill/614a_joint38_ar_gaussian_nll_e8_w2048_s614/best_model.pt`
+
+Diagnostics:
+- temp `0.50`: `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp050_full11.json`
+- temp `0.75`: `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp075_full11.json`
+
+### Result
+Baseline 614a temp `1.00`:
+- score `4/11`;
+- surface failed;
+- cov90 `90.9%`;
+- conditional MAE `6.7%`;
+- persistent severe undercoverage `4.0%`;
+- daily KS `12/25`;
+- level KS `0/25`;
+- median-bias cells `8/25`;
+- kurtosis ratio `0.305`;
+- mean-reversion ratio `0.304`;
+- pathwise KS `0.646`.
+
+Temp `0.50`:
+- score `3/11`;
+- surface passed;
+- cov90 `77.7%`;
+- conditional MAE `4.7%`;
+- persistent severe undercoverage `8.7%`;
+- daily KS `13/25`;
+- level KS `3/25`;
+- median-bias cells `9/25`;
+- cointegration worst-cell `0.216`;
+- mean-reversion ratio `0.218`;
+- pathwise KS `0.846`.
+
+Temp `0.75`:
+- score `4/11`;
+- surface passed;
+- cov90 `87.2%`;
+- conditional MAE `4.7%`;
+- persistent severe undercoverage `4.8%`;
+- daily KS `15/25`;
+- level KS `2/25`;
+- median-bias cells `9/25`;
+- cointegration worst-cell `0.254`;
+- mean-reversion ratio `0.248`;
+- pathwise KS `0.801`.
+
+### Mechanism Read
+Down-temperature is not enough. Temp `0.75` is better than `0.50` and recovers some surface/daily-change behavior, but the core failures remain: weak conditionality, poor level occupancy, median bias, weak mean reversion, and pathwise jump mismatch.
+
+The likelihood paradigm remains useful because persistent severe undercoverage can be brought under the gate, but the Gaussian transition family has the wrong shape. It produces broad probability mass without realistic conditional pull and tail geometry.
+
+### Decision
+Close simple temperature calibration for the Gaussian likelihood model.
+
+Next: keep exact likelihood training and the one-model state-panel framing, but replace Gaussian innovations with a fixed-degree-of-freedom multivariate Student-t transition over empirical-score increments. This is a clean density-family change, not a post-hoc calibration layer.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_615a_614a_temperature_diagnostic.md`
+- `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp050_full11.json`
+- `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp050_full11.md`
+- `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp075_full11.json`
+- `results/autoresearch/615a_614a_gaussian_temperature_diagnostic/temp075_full11.md`
+
+---
