@@ -58,6 +58,11 @@ def main() -> None:
     parser.add_argument(
         "--clean_nonpositive_log_levels", action="store_true", default=True
     )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -244,6 +249,7 @@ def main() -> None:
             "source_scale_max": float(args.source_scale_max),
             "source_loc_clip": float(args.source_loc_clip),
         },
+        "positive_level_policy": args.positive_level_policy,
         "head_policy": {
             "head_mode": args.head_mode,
             "head_hidden": int(args.head_hidden),
@@ -335,6 +341,7 @@ def main() -> None:
         "sample_smoke": smoke,
         "panel_metadata": panel_metadata,
         "generated_coordinate_policy": extra["generated_coordinate_policy"],
+        "positive_level_policy": args.positive_level_policy,
         "head_policy": extra["head_policy"],
         "output_dir": str(output_dir),
     }

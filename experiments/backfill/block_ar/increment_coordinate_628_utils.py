@@ -25,7 +25,9 @@ class IncrementCoordinateBlock:
     specs: list[UnifiedVariableSpec]
 
 
-def state_panel_from_specs(panel: np.ndarray, specs: list[UnifiedVariableSpec]) -> np.ndarray:
+def state_panel_from_specs(
+    panel: np.ndarray, specs: list[UnifiedVariableSpec]
+) -> np.ndarray:
     """Extract the unique raw state panel represented by `specs`."""
     panel = np.asarray(panel, dtype=np.float64)
     state = np.stack([panel[:, spec.source_index] for spec in specs], axis=1)
@@ -40,6 +42,7 @@ def build_increment_coordinate_block(
     history_len: int,
     future_len: int,
     iv_count: int = 25,
+    positive_level_policy: str = "reference_based",
 ) -> IncrementCoordinateBlock:
     """Build windows whose model coordinate is encoded daily changes.
 
@@ -48,7 +51,12 @@ def build_increment_coordinate_block(
     level-like variables and arithmetic differences for diff-level variables.
     """
     panel = np.asarray(panel, dtype=np.float64)
-    specs = build_unified_variable_specs(columns, panel=panel, iv_count=iv_count)
+    specs = build_unified_variable_specs(
+        columns,
+        panel=panel,
+        iv_count=iv_count,
+        positive_level_policy=positive_level_policy,
+    )
     state_panel = state_panel_from_specs(panel, specs)
     encoded_panel = encode_state(state_panel, specs)
 

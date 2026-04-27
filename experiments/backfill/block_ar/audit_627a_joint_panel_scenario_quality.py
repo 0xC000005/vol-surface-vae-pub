@@ -105,11 +105,19 @@ def build_history_future(
     args: argparse.Namespace, payload: dict[str, Any]
 ) -> tuple[HistoryInput, np.ndarray, list[Any], Any]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
+    positive_level_policy = payload.get(
+        "positive_level_policy",
+        payload.get("panel_metadata", {}).get(
+            "positive_level_policy",
+            getattr(args, "positive_level_policy", "reference_based"),
+        ),
+    )
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
             panel,
             columns,
             iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
         )
     _train_indices, val_indices = official_train_val_indices(
         test_start=int(args.test_start),
@@ -132,6 +140,7 @@ def build_history_future(
             history_len=int(payload["config"]["history_len"]),
             future_len=int(payload["config"]["future_len"]),
             iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
         )
         scope = payload.get("state_scope", args.state_scope)
         (
@@ -173,6 +182,7 @@ def build_history_future(
             history_len=int(payload["config"]["history_len"]),
             future_len=int(payload["config"]["future_len"]),
             iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
         )
         scope = payload.get("state_scope", args.state_scope)
         history, future, _history_state, _future_state, specs = select_increment_scope(
@@ -460,6 +470,11 @@ def main() -> None:
     parser.add_argument("--iv_count", type=int, default=25)
     parser.add_argument(
         "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
     )
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=32)

@@ -22,9 +22,15 @@ from diffusion.block_ar.generic_empirical_score_transition_flow_matching import 
     GenericEmpiricalScoreTransitionFlowMatching,
     save_checkpoint,
 )
-from experiments.backfill.block_ar._factor_conditioning_525_utils import official_train_val_indices  # noqa: E402
-from experiments.backfill.block_ar._panel_law_535_utils import load_aligned_iv_factor_panel  # noqa: E402
-from experiments.backfill.block_ar._rollout_220_utils import make_serializable  # noqa: E402
+from experiments.backfill.block_ar._factor_conditioning_525_utils import (
+    official_train_val_indices,
+)  # noqa: E402
+from experiments.backfill.block_ar._panel_law_535_utils import (
+    load_aligned_iv_factor_panel,
+)  # noqa: E402
+from experiments.backfill.block_ar._rollout_220_utils import (
+    make_serializable,
+)  # noqa: E402
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
     clean_nonpositive_log_level_factors,
 )
@@ -64,14 +70,20 @@ def select_increment_scope(
     raise ValueError(f"unknown state_scope {scope!r}")
 
 
-def build_blocks(args: argparse.Namespace) -> tuple[list[str], dict[str, Any], IncrementCoordinateBlock, IncrementCoordinateBlock]:
+def build_blocks(
+    args: argparse.Namespace,
+) -> tuple[
+    list[str], dict[str, Any], IncrementCoordinateBlock, IncrementCoordinateBlock
+]:
     panel, columns, dates = load_aligned_iv_factor_panel()
+    positive_level_policy = getattr(args, "positive_level_policy", "reference_based")
     cleaning_report: dict[str, Any] = {"enabled": False}
     if args.clean_nonpositive_log_levels:
         panel, cleaning_report = clean_nonpositive_log_level_factors(
             panel,
             columns,
             iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
         )
     train_indices, val_indices = official_train_val_indices(
         test_start=int(args.test_start),
@@ -88,6 +100,7 @@ def build_blocks(args: argparse.Namespace) -> tuple[list[str], dict[str, Any], I
         history_len=int(args.history_len),
         future_len=int(args.future_len),
         iv_count=int(args.iv_count),
+        positive_level_policy=positive_level_policy,
     )
     val_block = build_increment_coordinate_block(
         panel,
@@ -96,11 +109,13 @@ def build_blocks(args: argparse.Namespace) -> tuple[list[str], dict[str, Any], I
         history_len=int(args.history_len),
         future_len=int(args.future_len),
         iv_count=int(args.iv_count),
+        positive_level_policy=positive_level_policy,
     )
     metadata = {
         "dates_start": str(dates[0]) if len(dates) else None,
         "dates_end": str(dates[-1]) if len(dates) else None,
         "source_columns": columns,
+        "positive_level_policy": positive_level_policy,
         "cleaning_report": cleaning_report,
         "train_indices_start": int(train_indices[0]) if len(train_indices) else None,
         "train_indices_end": int(train_indices[-1]) if len(train_indices) else None,
@@ -133,7 +148,9 @@ def sample_smoke(
         chunk_size=int(chunk_size),
     )
     increments = sampled_increment.detach().cpu().numpy()
-    states = reconstruct_state_from_increments(history_state[:n, -1, :], increments, specs)
+    states = reconstruct_state_from_increments(
+        history_state[:n, -1, :], increments, specs
+    )
     report: dict[str, Any] = {
         "sample_increment_shape": list(increments.shape),
         "sample_state_shape": list(states.shape),
@@ -154,14 +171,23 @@ def sample_smoke(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--state_scope", choices=["iv_only", "joint38"], default="joint38")
+    parser.add_argument(
+        "--state_scope", choices=["iv_only", "joint38"], default="joint38"
+    )
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
     parser.add_argument("--max_train_windows", type=int, default=1024)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=4)
@@ -182,7 +208,9 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--path_source_corr", type=float, default=0.0)
     parser.add_argument("--path_source_ar", type=float, default=0.0)
-    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="basic")
+    parser.add_argument(
+        "--prefix_feature_mode", choices=["basic", "scale"], default="basic"
+    )
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -194,20 +222,26 @@ def main() -> None:
 
     np.random.seed(int(args.seed))
     torch.manual_seed(int(args.seed))
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     columns, panel_metadata, train_block, val_block = build_blocks(args)
-    train_history, train_future, train_state, _train_future_state, train_specs = select_increment_scope(
-        train_block,
-        args.state_scope,
-        int(args.iv_count),
+    train_history, train_future, train_state, _train_future_state, train_specs = (
+        select_increment_scope(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+        )
     )
-    val_history, val_future, val_state, _val_future_state, val_specs = select_increment_scope(
-        val_block,
-        args.state_scope,
-        int(args.iv_count),
+    val_history, val_future, val_state, _val_future_state, val_specs = (
+        select_increment_scope(
+            val_block,
+            args.state_scope,
+            int(args.iv_count),
+        )
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
         raise RuntimeError("train/val state specs differ")
@@ -258,7 +292,9 @@ def main() -> None:
         shuffle=False,
         drop_last=False,
     )
-    opt = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay)
+    )
 
     history_records: list[dict[str, Any]] = []
     best_val = float("inf")
@@ -271,6 +307,7 @@ def main() -> None:
         "iv_count": int(args.iv_count),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "panel_metadata": panel_metadata,
+        "positive_level_policy": args.positive_level_policy,
     }
     for epoch in range(1, int(args.epochs) + 1):
         model.train()
@@ -289,7 +326,9 @@ def main() -> None:
             total += float(loss.item()) * batch_n
             count += batch_n
             for key, value in metrics.items():
-                metric_sums[key] = metric_sums.get(key, 0.0) + float(value.item()) * batch_n
+                metric_sums[key] = (
+                    metric_sums.get(key, 0.0) + float(value.item()) * batch_n
+                )
         train_loss = total / max(count, 1)
         val_loss = eval_loss(model, val_loader, device)
         record = {
@@ -313,7 +352,9 @@ def main() -> None:
         )
 
     final_path = output_dir / "final_model.pt"
-    save_checkpoint(str(final_path), model, cfg, int(args.epochs), best_val, extra=extra)
+    save_checkpoint(
+        str(final_path), model, cfg, int(args.epochs), best_val, extra=extra
+    )
     smoke = sample_smoke(
         model,
         val_history[: int(args.sample_windows)],
@@ -336,7 +377,9 @@ def main() -> None:
         "val_shape": list(val_history.shape),
         "best_epoch": int(best_epoch),
         "best_val_loss": float(best_val),
-        "final_val_loss": float(history_records[-1]["val_loss"] if history_records else float("nan")),
+        "final_val_loss": float(
+            history_records[-1]["val_loss"] if history_records else float("nan")
+        ),
         "sample_smoke": smoke,
         "panel_metadata": panel_metadata,
         "output_dir": str(output_dir),
@@ -349,7 +392,9 @@ def main() -> None:
         json.dumps(make_serializable(summary), indent=2),
         encoding="utf-8",
     )
-    (output_dir / "args.json").write_text(json.dumps(make_serializable(vars(args)), indent=2), encoding="utf-8")
+    (output_dir / "args.json").write_text(
+        json.dumps(make_serializable(vars(args)), indent=2), encoding="utf-8"
+    )
     print(json.dumps(make_serializable(summary), indent=2))
 
 

@@ -15,9 +15,15 @@ import torch
 
 sys.path.insert(0, ".")
 
-from diffusion.block_ar.generic_state_conditioned_increment_flow_matching import load_model  # noqa: E402
-from experiments.backfill.block_ar._factor_conditioning_525_utils import official_train_val_indices  # noqa: E402
-from experiments.backfill.block_ar._panel_law_535_utils import load_aligned_iv_factor_panel  # noqa: E402
+from diffusion.block_ar.generic_state_conditioned_increment_flow_matching import (
+    load_model,
+)  # noqa: E402
+from experiments.backfill.block_ar._factor_conditioning_525_utils import (
+    official_train_val_indices,
+)  # noqa: E402
+from experiments.backfill.block_ar._panel_law_535_utils import (
+    load_aligned_iv_factor_panel,
+)  # noqa: E402
 from experiments.backfill.block_ar._rollout_220_utils import (  # noqa: E402
     build_rollout_windows,
     make_serializable,
@@ -41,13 +47,23 @@ from experiments.backfill.block_ar.train_629a_state_conditioned_increment_flow i
 )
 
 
-def build_val_block(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[Any], Any]:
+def build_val_block(
+    args: argparse.Namespace, payload: dict[str, Any]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[Any], Any]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
+    positive_level_policy = payload.get(
+        "positive_level_policy",
+        payload.get("panel_metadata", {}).get(
+            "positive_level_policy",
+            getattr(args, "positive_level_policy", "reference_based"),
+        ),
+    )
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
             panel,
             columns,
             iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
         )
     _train_indices, val_indices = official_train_val_indices(
         test_start=int(args.test_start),
@@ -64,9 +80,17 @@ def build_val_block(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[
         history_len=int(payload["config"]["history_len"]),
         future_len=int(payload["config"]["future_len"]),
         iv_count=int(args.iv_count),
+        positive_level_policy=positive_level_policy,
     )
     scope = payload.get("state_scope", args.state_scope)
-    history_level, history_increment, _future_level, _future_increment, history_raw, specs = select_state_increment_scope(
+    (
+        history_level,
+        history_increment,
+        _future_level,
+        _future_increment,
+        history_raw,
+        specs,
+    ) = select_state_increment_scope(
         block,
         scope,
         int(args.iv_count),
@@ -74,15 +98,27 @@ def build_val_block(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]
     if expected and expected != actual:
-        raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
-    return history_level.astype(np.float32), history_increment.astype(np.float32), history_raw.astype(np.float32), specs, block
+        raise RuntimeError(
+            "checkpoint state specs do not match rebuilt validation specs"
+        )
+    return (
+        history_level.astype(np.float32),
+        history_increment.astype(np.float32),
+        history_raw.astype(np.float32),
+        specs,
+        block,
+    )
 
 
 def alignment_diagnostics(block: Any, batch: Any, n_windows: int) -> dict[str, float]:
     history_iv = block.history_state[:n_windows, :, :25].reshape(n_windows, -1)
     future_iv = block.future_state[:n_windows, :, :25].reshape(n_windows, -1)
-    batch_history = batch.history_01.detach().cpu().numpy()[:n_windows].reshape(n_windows, -1)
-    batch_future = batch.future_01.detach().cpu().numpy()[:n_windows].reshape(n_windows, -1)
+    batch_history = (
+        batch.history_01.detach().cpu().numpy()[:n_windows].reshape(n_windows, -1)
+    )
+    batch_future = (
+        batch.future_01.detach().cpu().numpy()[:n_windows].reshape(n_windows, -1)
+    )
     return {
         "history_max_abs_error": float(np.max(np.abs(history_iv - batch_history))),
         "future_max_abs_error": float(np.max(np.abs(future_iv - batch_future))),
@@ -121,14 +157,22 @@ def generate_iv_samples(
             temperature=float(sample_temperature),
         )
         increment_arr = sampled_increment.detach().cpu().numpy()
-        panel_arr = reconstruct_state_from_increments(history_raw[start:end, -1, :], increment_arr, specs)
+        panel_arr = reconstruct_state_from_increments(
+            history_raw[start:end, -1, :], increment_arr, specs
+        )
         arr = panel_arr[..., :iv_count]
-        chunks.append(arr.reshape(end - start, int(samples), int(n_steps), 5, 5).astype(np.float32))
+        chunks.append(
+            arr.reshape(end - start, int(samples), int(n_steps), 5, 5).astype(
+                np.float32
+            )
+        )
         print(f"  generated windows {end}/{history_level.shape[0]}", flush=True)
     return np.concatenate(chunks, axis=0)
 
 
-def summarize_results(results: dict[str, Any], alignment: dict[str, float]) -> list[str]:
+def summarize_results(
+    results: dict[str, Any], alignment: dict[str, float]
+) -> list[str]:
     summary = results["summary"]
     coverage = results["coverage"]
     conditionality = results["conditionality"]
@@ -164,11 +208,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data_path", default="data/vol_surface_with_ret.npz")
-    parser.add_argument("--state_scope", choices=["iv_only", "joint38"], default="joint38")
+    parser.add_argument(
+        "--state_scope", choices=["iv_only", "joint38"], default="joint38"
+    )
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=48)
     parser.add_argument("--n_steps", type=int, default=30)
@@ -184,9 +237,13 @@ def main() -> None:
     args = parser.parse_args()
 
     set_seed(int(args.seed))
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     model, payload = load_model(args.checkpoint, device)
-    history_level, history_increment, history_raw, specs, block = build_val_block(args, payload)
+    history_level, history_increment, history_raw, specs, block = build_val_block(
+        args, payload
+    )
     cfg = payload["config"]
     n_windows = min(int(args.max_windows), int(history_level.shape[0]))
     history_level = history_level[:n_windows]
@@ -203,7 +260,10 @@ def main() -> None:
         split="val",
     )
     alignment = alignment_diagnostics(block, batch, n_windows)
-    if alignment["history_max_abs_error"] > 1e-6 or alignment["future_max_abs_error"] > 1e-6:
+    if (
+        alignment["history_max_abs_error"] > 1e-6
+        or alignment["future_max_abs_error"] > 1e-6
+    ):
         raise RuntimeError(f"629a/full-suite alignment failed: {alignment}")
 
     print(f"Generating {args.samples} samples for {n_windows} windows")
@@ -224,7 +284,9 @@ def main() -> None:
     )
     generation_time = time.time() - t0
     hist_norm_np = batch.history_norm.detach().cpu().numpy()[:n_windows]
-    samples_by_key = {history_key(hist_norm_np[i]): cond_samples[i] for i in range(n_windows)}
+    samples_by_key = {
+        history_key(hist_norm_np[i]): cond_samples[i] for i in range(n_windows)
+    }
     fixed_model = FixedDeployableSampler(samples_by_key).eval()
     results = run_suite(
         cond_samples=cond_samples,
@@ -247,7 +309,9 @@ def main() -> None:
         "checkpoint_best_val": float(payload.get("best_val", float("nan"))),
         "checkpoint_config": cfg,
         "state_scope": payload.get("state_scope", args.state_scope),
-        "model_coordinate": payload.get("model_coordinate", "state_conditioned_encoded_increment"),
+        "model_coordinate": payload.get(
+            "model_coordinate", "state_conditioned_encoded_increment"
+        ),
         "n_windows": int(n_windows),
         "samples": int(args.samples),
         "n_steps": int(args.n_steps),
@@ -260,7 +324,9 @@ def main() -> None:
     out_json = Path(args.output_json)
     out_md = Path(args.output_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(make_serializable(results), indent=2), encoding="utf-8")
+    out_json.write_text(
+        json.dumps(make_serializable(results), indent=2), encoding="utf-8"
+    )
     write_markdown_summary(
         out_md,
         "629a State-Conditioned Increment Flow Official IV 11-Suite",

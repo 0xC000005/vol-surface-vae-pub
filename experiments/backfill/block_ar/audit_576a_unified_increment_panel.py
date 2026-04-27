@@ -21,7 +21,9 @@ from experiments.backfill.block_ar._factor_conditioning_525_utils import (  # no
 from experiments.backfill.block_ar._panel_law_535_utils import (  # noqa: E402
     load_aligned_iv_factor_panel,
 )
-from experiments.backfill.block_ar._rollout_220_utils import make_serializable  # noqa: E402
+from experiments.backfill.block_ar._rollout_220_utils import (
+    make_serializable,
+)  # noqa: E402
 from experiments.backfill.block_ar.audit_569a_factor_panel_readiness import (  # noqa: E402
     window_boundary_summary,
 )
@@ -61,10 +63,15 @@ def build_unified_variable_specs(
     panel: np.ndarray | None = None,
     iv_count: int = 25,
     eps: float = 1e-8,
+    positive_level_policy: str = "reference_based",
 ) -> list[UnifiedVariableSpec]:
     """Build one state-variable list without duplicated level/return targets."""
     if len(columns) < iv_count:
         raise ValueError("columns shorter than iv_count")
+    if positive_level_policy not in {"reference_based", "observed_positive"}:
+        raise ValueError(
+            "positive_level_policy must be 'reference_based' or 'observed_positive'"
+        )
     name_to_idx = {name: idx for idx, name in enumerate(columns)}
     specs: list[UnifiedVariableSpec] = []
 
@@ -88,16 +95,21 @@ def build_unified_variable_specs(
         base = _base_factor_name(column)
         logret_name = f"factor:{base}_logret"
         diff_name = f"factor:{base}_diff"
-        if logret_name in name_to_idx:
-            values = None if panel is None else np.asarray(panel[:, idx], dtype=np.float64)
+        values = None if panel is None else np.asarray(panel[:, idx], dtype=np.float64)
+        observed_positive = (
+            positive_level_policy == "observed_positive"
+            and values is not None
+            and np.nanmin(values) > float(eps)
+        )
+        if logret_name in name_to_idx or observed_positive:
             if values is not None and np.nanmin(values) < -float(eps):
                 transform = "diff_level"
                 reference_column = None
                 reference_index = None
             else:
                 transform = "log_level"
-                reference_column = logret_name
-                reference_index = name_to_idx[logret_name]
+                reference_column = logret_name if logret_name in name_to_idx else None
+                reference_index = name_to_idx.get(logret_name)
         elif diff_name in name_to_idx:
             transform = "diff_level"
             reference_column = diff_name
@@ -125,6 +137,7 @@ def clean_nonpositive_log_level_factors(
     *,
     iv_count: int = 25,
     eps: float = 1e-8,
+    positive_level_policy: str = "reference_based",
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """Clean zero-filled nonnegative level series before log-coordinate use.
 
@@ -132,6 +145,10 @@ def clean_nonpositive_log_level_factors(
     unchanged and later assigned a difference-coordinate transform by
     `build_unified_variable_specs`.
     """
+    if positive_level_policy not in {"reference_based", "observed_positive"}:
+        raise ValueError(
+            "positive_level_policy must be 'reference_based' or 'observed_positive'"
+        )
     cleaned = np.asarray(panel, dtype=np.float32).copy()
     name_to_idx = {name: idx for idx, name in enumerate(columns)}
     cleaned_columns: dict[str, int] = {}
@@ -141,7 +158,8 @@ def clean_nonpositive_log_level_factors(
         if is_return_like_column(column):
             continue
         base = _base_factor_name(column)
-        if f"factor:{base}_logret" not in name_to_idx:
+        has_log_reference = f"factor:{base}_logret" in name_to_idx
+        if not has_log_reference and positive_level_policy != "observed_positive":
             continue
         values = cleaned[:, idx].astype(np.float64)
         if np.nanmin(values) < -float(eps):
@@ -175,7 +193,9 @@ def clean_nonpositive_log_level_factors(
     }
 
 
-def _state_from_panel(panel: np.ndarray, specs: list[UnifiedVariableSpec]) -> np.ndarray:
+def _state_from_panel(
+    panel: np.ndarray, specs: list[UnifiedVariableSpec]
+) -> np.ndarray:
     panel = np.asarray(panel, dtype=np.float64)
     state = np.stack([panel[:, spec.source_index] for spec in specs], axis=1)
     return state.astype(np.float64)
@@ -226,9 +246,15 @@ def build_unified_increment_block(
     history_len: int,
     future_len: int,
     iv_count: int = 25,
+    positive_level_policy: str = "reference_based",
 ) -> UnifiedIncrementBlock:
     panel = np.asarray(panel, dtype=np.float64)
-    specs = build_unified_variable_specs(columns, panel=panel, iv_count=iv_count)
+    specs = build_unified_variable_specs(
+        columns,
+        panel=panel,
+        iv_count=iv_count,
+        positive_level_policy=positive_level_policy,
+    )
     state_panel = _state_from_panel(panel, specs)
     encoded_panel = encode_state(state_panel, specs)
 
@@ -283,22 +309,36 @@ def _reference_increment_errors(
     errors: list[float] = []
     by_column: dict[str, float] = {}
     for spec_idx, spec in enumerate(block.specs):
-        if spec.reference_increment_index is None or spec.reference_increment_column is None:
+        if (
+            spec.reference_increment_index is None
+            or spec.reference_increment_column is None
+        ):
             continue
         ref_chunks = []
         for start in block.indices:
             hist_end = int(start) + int(history_len)
-            ref_chunks.append(panel[hist_end : hist_end + int(future_len), spec.reference_increment_index])
+            ref_chunks.append(
+                panel[
+                    hist_end : hist_end + int(future_len),
+                    spec.reference_increment_index,
+                ]
+            )
         reference = np.asarray(ref_chunks, dtype=np.float64)
         diff = np.abs(reference - block.future_increment[..., spec_idx])
         max_error = float(np.nanmax(diff)) if diff.size else float("nan")
         by_column[spec.name] = max_error
         errors.append(max_error)
-    finite = np.asarray([value for value in errors if np.isfinite(value)], dtype=np.float64)
+    finite = np.asarray(
+        [value for value in errors if np.isfinite(value)], dtype=np.float64
+    )
     return {
         "reference_increment_count": int(finite.size),
-        "reference_increment_max_abs_error": float(np.max(finite)) if finite.size else float("nan"),
-        "reference_increment_median_abs_error": float(np.median(finite)) if finite.size else float("nan"),
+        "reference_increment_max_abs_error": (
+            float(np.max(finite)) if finite.size else float("nan")
+        ),
+        "reference_increment_median_abs_error": (
+            float(np.median(finite)) if finite.size else float("nan")
+        ),
         "reference_increment_max_abs_error_by_state": by_column,
     }
 
@@ -313,7 +353,9 @@ def summarize_unified_increment_block(
     iv_count: int = 25,
 ) -> dict[str, Any]:
     target_names = [spec.name for spec in block.specs]
-    duplicate_target_names = sorted({name for name in target_names if target_names.count(name) > 1})
+    duplicate_target_names = sorted(
+        {name for name in target_names if target_names.count(name) > 1}
+    )
     return_like_targets = [name for name in target_names if is_return_like_column(name)]
     reconstruction_error = np.abs(block.future_state - block.reconstructed_future_state)
     floor_hits = 0
@@ -325,11 +367,15 @@ def summarize_unified_increment_block(
         "history_shape": list(block.history_state.shape),
         "future_state_shape": list(block.future_state.shape),
         "future_increment_shape": list(block.future_increment.shape),
-        "reconstructed_future_state_shape": list(block.reconstructed_future_state.shape),
+        "reconstructed_future_state_shape": list(
+            block.reconstructed_future_state.shape
+        ),
         "source_panel_channel_count": int(len(columns)),
         "target_state_channel_count": int(len(block.specs)),
         "iv_state_count": int(sum(spec.name.startswith("iv:") for spec in block.specs)),
-        "factor_state_count": int(sum(spec.name.startswith("factor:") for spec in block.specs)),
+        "factor_state_count": int(
+            sum(spec.name.startswith("factor:") for spec in block.specs)
+        ),
         "no_duplicate_target_names": not duplicate_target_names,
         "duplicate_target_names": duplicate_target_names,
         "no_return_like_targets": not return_like_targets,
@@ -366,12 +412,23 @@ def build_audit_report(
     val_size: int,
     iv_count: int = 25,
     clean_nonpositive_log_levels: bool = False,
+    positive_level_policy: str = "reference_based",
 ) -> dict[str, Any]:
     panel, columns, dates = load_aligned_iv_factor_panel()
     cleaning_report: dict[str, Any] = {"enabled": False}
     if clean_nonpositive_log_levels:
-        panel, cleaning_report = clean_nonpositive_log_level_factors(panel, columns, iv_count=iv_count)
-    specs = build_unified_variable_specs(columns, panel=panel, iv_count=iv_count)
+        panel, cleaning_report = clean_nonpositive_log_level_factors(
+            panel,
+            columns,
+            iv_count=iv_count,
+            positive_level_policy=positive_level_policy,
+        )
+    specs = build_unified_variable_specs(
+        columns,
+        panel=panel,
+        iv_count=iv_count,
+        positive_level_policy=positive_level_policy,
+    )
     horizons: dict[str, Any] = {}
     for future_len in future_lens:
         train_indices, val_indices = official_train_val_indices(
@@ -387,6 +444,7 @@ def build_audit_report(
             history_len=history_len,
             future_len=int(future_len),
             iv_count=iv_count,
+            positive_level_policy=positive_level_policy,
         )
         val_block = build_unified_increment_block(
             panel,
@@ -395,6 +453,7 @@ def build_audit_report(
             history_len=history_len,
             future_len=int(future_len),
             iv_count=iv_count,
+            positive_level_policy=positive_level_policy,
         )
         horizons[str(int(future_len))] = {
             "train": summarize_unified_increment_block(
@@ -423,6 +482,7 @@ def build_audit_report(
         "source_panel_columns": list(columns),
         "state_variable_count": int(len(specs)),
         "state_variables": [asdict(spec) for spec in specs],
+        "positive_level_policy": positive_level_policy,
         "cleaning": cleaning_report,
         "split_boundaries": window_boundary_summary(
             n_obs=int(panel.shape[0]),
@@ -443,6 +503,11 @@ def main() -> None:
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
     parser.add_argument("--clean_nonpositive_log_levels", action="store_true")
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -453,6 +518,7 @@ def main() -> None:
         val_size=args.val_size,
         iv_count=args.iv_count,
         clean_nonpositive_log_levels=args.clean_nonpositive_log_levels,
+        positive_level_policy=args.positive_level_policy,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

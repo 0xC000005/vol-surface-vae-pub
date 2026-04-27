@@ -104203,3 +104203,52 @@ distribution objective on this same backbone to target realized future movement
 and tail allocation directly.
 
 ---
+## 2026-04-27: Autoresearch 653a observed-positive factor coordinates
+
+### Context
+
+653a followed the 652a joint-model result and tested whether the remaining
+joint scenario support issue was partly a data-coordinate problem. Some anchor
+factors that are economically positive levels, such as Treasury yields and
+credit spreads, were represented as unconstrained diff-level variables because
+the panel had `_diff` diagnostics rather than `_logret` diagnostics.
+
+### Implementation
+
+- Added `positive_level_policy=observed_positive`.
+- Under this policy, any cleaned non-return anchor factor that is strictly
+  positive in the observed panel uses log-level coordinates.
+- Variables with observed negative values, such as crude oil in this panel,
+  remain diff-level.
+- The policy is optional and defaults to the old `reference_based` behavior.
+
+### Data Audit
+
+- Reconstruction max error stayed `0.0` for 30/60/90/152-day horizons.
+- No validation/test leakage was detected.
+- `us2y`, `us10y`, `aaa_oas`, and `bbb_oas` moved from diff-level to log-level.
+- Crude oil stayed diff-level because the panel contains negative observations.
+- Reference-increment max discrepancy dropped to about `0.0377`.
+
+### Results
+
+- `653a_joint38`: `4/11` on the IV suite.
+- Training smoke removed the negative-support pathology for positive-level
+  anchors: generated factor minimum was `0.656`.
+- IV metrics worsened versus 652a: daily-change KS `13/25`, level KS `3/25`,
+  conditionality MAE reduction `4.3%`, and pathwise max-jump KS `0.632`.
+- Joint audit stayed coherent but weaker: factor KS mean `0.1105`, factor KS
+  pass `12/13`, factor q99 pass `13/13`, factor-factor correlation `0.846`,
+  and IV-factor correlation `0.817`.
+
+### Decision
+
+Keep `observed_positive` as an optional risk-support preprocessing policy, not
+as the active IV-quality default. It is scientifically defensible for support
+realism, but it does not solve the IV path-law problem.
+
+The next principled move is a path distribution objective on the same
+shared-source multi-head backbone, targeting realized movement, tail allocation,
+and long-horizon path geometry directly.
+
+---
