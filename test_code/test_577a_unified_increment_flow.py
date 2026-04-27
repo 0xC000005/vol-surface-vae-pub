@@ -172,6 +172,31 @@ def test_unified_increment_flow_accepts_conditional_affine_source() -> None:
     assert metrics["source_prior_nll"] > 0
 
 
+def test_unified_increment_flow_accepts_conditional_latent_source() -> None:
+    cfg = UnifiedIncrementFlowConfig(
+        history_len=4,
+        future_len=3,
+        n_vars=5,
+        hidden_dim=16,
+        time_embed_dim=8,
+        depth=2,
+        dropout=0.0,
+        source_mode="conditional_latent",
+        source_latent_dim=3,
+    )
+    model = UnifiedIncrementFlow(cfg)
+    history = torch.randn(4, 4, 5)
+    target = torch.randn(4, 3, 5)
+
+    source = model.draw_source(4, device=torch.device("cpu"), dtype=torch.float32, history=history)
+    loss, metrics = model.training_loss(history, target, fm_loss_mode="cumulative_state")
+
+    assert source.shape == (4, 3, 5)
+    assert torch.isfinite(source).all()
+    assert torch.isfinite(loss)
+    assert torch.isfinite(metrics["cumulative_mse"])
+
+
 def test_normal_score_increment_transform_is_bounded_and_invertible_on_quantiles() -> None:
     target = torch.linspace(-2.0, 2.0, steps=40).reshape(4, 2, 5).numpy()
     quantiles, _levels, normal_levels = fit_increment_normal_score(

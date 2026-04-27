@@ -101411,3 +101411,103 @@ with the reset doctrine because a narrow stochastic bottleneck is allowed, while
 hard low-rank readouts or IV-specific clamps remain disallowed.
 
 ---
+## 2026-04-27: Autoresearch 589 conditional latent unified flow
+
+### Context
+
+588a showed 587a scores only `1/11` officially because the full-dimensional
+conditional-affine source has too many independent stochastic degrees of freedom.
+The next clean falsifier was a learned latent-bottleneck source.
+
+### Implementation
+
+Added `source_mode=conditional_latent` to
+`experiments/backfill/block_ar/train_577a_unified_increment_flow.py`.
+
+The source uses:
+
+- one shared history encoder;
+- one 32-dimensional stochastic latent;
+- one shared latent-to-full-path decoder;
+- cumulative encoded-state flow loss;
+- no empirical source bank;
+- no IV/factor-specific heads;
+- no hard low-rank readout.
+
+### Run
+
+Trained:
+
+```bash
+python experiments/backfill/block_ar/train_577a_unified_increment_flow.py \
+  --clean_nonpositive_log_levels \
+  --hidden_dim 384 \
+  --depth 5 \
+  --source_mode conditional_latent \
+  --source_latent_dim 32 \
+  --fm_loss_mode cumulative_state \
+  --epochs 20 \
+  --batch_size 64 \
+  --lr 7e-4 \
+  --sample_windows 128 \
+  --n_samples 8 \
+  --sample_steps 16 \
+  --output_dir models/backfill/589a_conditional_latent_cumulative_flow_s589 \
+  --seed 589 \
+  --device cuda
+```
+
+Custom audit and official bridge:
+
+- `results/autoresearch/589a_conditional_latent_cumulative_flow/audit.json`;
+- `results/autoresearch/589a_conditional_latent_cumulative_flow/full11.json`;
+- `results/autoresearch/589a_conditional_latent_cumulative_flow/full11.md`.
+
+Focused tests: `10 passed`.
+
+### Result
+
+Custom audit:
+
+- IV max: `1.017`;
+- IV 90% coverage: `0.261`;
+- factor 90% coverage: `0.225`;
+- increment effective rank: `7.17`;
+- IV endpoint corr: `0.667`;
+- factor endpoint corr: `0.052`.
+
+Official bridge:
+
+- score: `3/11`;
+- passes: surface validity, block-AR, cross-cell correlation;
+- overall 90% coverage: `26.7%`;
+- daily-change KS pass cells: `1/25`;
+- level KS pass cells: `2/25`;
+- cross-cell corr/rank ratios: `0.578 / 1.821`;
+- h1 mean-reversion ratio: `0.383`;
+- pathwise max-jump KS: `0.999`;
+- q99 jump-scale pass cells: `1/25`.
+
+### Mechanism Read
+
+The latent bottleneck fixed the intended dependence pathology:
+
+- official cross-cell correlation now passes;
+- official effective-rank ratio now passes;
+- surface explosion disappears.
+
+But it over-compresses stochastic amplitude:
+
+- coverage collapses;
+- daily tails are far too small;
+- pathwise jump incidence is zero;
+- local time-series statistics are too smooth.
+
+### Decision
+
+Keep the latent-bottleneck source alive for one diagnostic. Next step is a generic
+latent-source temperature sweep or amplitude diagnostic. If stochastic amplitude
+can be increased while cross-cell remains valid, continue by learning/calibrating
+that amplitude. If not, close the unified MLP path-flow branch.
+
+---

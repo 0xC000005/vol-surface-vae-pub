@@ -49,6 +49,7 @@ class UnifiedIncrementFlowConfig:
     source_loc_clip: float = 5.0
     source_log_scale_min: float = -3.0
     source_log_scale_max: float = 2.0
+    source_latent_dim: int = 32
 
 
 class UnifiedIncrementFlow(nn.Module):
@@ -95,6 +96,22 @@ class UnifiedIncrementFlow(nn.Module):
                 nn.init.zeros_(final.bias)
         else:
             self.source_head = None
+        if cfg.source_mode == "conditional_latent":
+            self.latent_param_head = nn.Linear(cfg.hidden_dim, 2 * int(cfg.source_latent_dim))
+            self.latent_path_loc = nn.Linear(cfg.hidden_dim, self.path_dim)
+            self.latent_path_decoder = nn.Sequential(
+                nn.Linear(cfg.hidden_dim + int(cfg.source_latent_dim), cfg.hidden_dim),
+                nn.SiLU(),
+                nn.Linear(cfg.hidden_dim, self.path_dim),
+            )
+            nn.init.zeros_(self.latent_param_head.weight)
+            nn.init.zeros_(self.latent_param_head.bias)
+            nn.init.zeros_(self.latent_path_loc.weight)
+            nn.init.zeros_(self.latent_path_loc.bias)
+        else:
+            self.latent_param_head = None
+            self.latent_path_loc = None
+            self.latent_path_decoder = None
 
     def set_source_gaussian(self, mean: torch.Tensor, cholesky: torch.Tensor) -> None:
         if mean.shape != (self.path_dim,):
@@ -145,6 +162,40 @@ class UnifiedIncrementFlow(nn.Module):
         flat = loc + eps * torch.exp(log_scale)
         return flat, loc, log_scale
 
+    def conditional_latent_params(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if self.latent_param_head is None or self.latent_path_loc is None:
+            raise RuntimeError("conditional_latent_params requires source_mode='conditional_latent'")
+        context = self._history_context(history)
+        latent_loc, latent_log_scale = self.latent_param_head(context).chunk(2, dim=-1)
+        latent_log_scale = torch.clamp(
+            latent_log_scale,
+            min=float(self.cfg.source_log_scale_min),
+            max=float(self.cfg.source_log_scale_max),
+        )
+        path_loc = self.latent_path_loc(context)
+        return path_loc, latent_loc, latent_log_scale
+
+    def _draw_conditional_latent_flat(
+        self,
+        history: torch.Tensor,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        if self.latent_path_decoder is None:
+            raise RuntimeError("conditional_latent source requires latent_path_decoder")
+        context = self._history_context(history.to(device=device, dtype=dtype))
+        latent_loc, latent_log_scale = self.latent_param_head(context).chunk(2, dim=-1)
+        latent_log_scale = torch.clamp(
+            latent_log_scale,
+            min=float(self.cfg.source_log_scale_min),
+            max=float(self.cfg.source_log_scale_max),
+        )
+        z = latent_loc + torch.randn_like(latent_loc) * torch.exp(latent_log_scale)
+        path_loc = self.latent_path_loc(context)
+        residual = self.latent_path_decoder(torch.cat([context, z], dim=-1))
+        return path_loc + residual
+
     def draw_source(
         self,
         batch_size: int,
@@ -157,6 +208,17 @@ class UnifiedIncrementFlow(nn.Module):
             if history is None:
                 raise RuntimeError("conditional_affine source requires history")
             flat, _loc, _log_scale = self._draw_conditional_affine_flat(
+                history,
+                device=device,
+                dtype=dtype,
+            )
+            if flat.shape[0] != int(batch_size):
+                raise ValueError(f"history batch {flat.shape[0]} does not match batch_size {batch_size}")
+            return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
+        if self.cfg.source_mode == "conditional_latent":
+            if history is None:
+                raise RuntimeError("conditional_latent source requires history")
+            flat = self._draw_conditional_latent_flat(
                 history,
                 device=device,
                 dtype=dtype,
@@ -540,7 +602,14 @@ def main() -> None:
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument(
         "--source_mode",
-        choices=["independent", "path_gaussian", "empirical_path", "empirical_conditional", "conditional_affine"],
+        choices=[
+            "independent",
+            "path_gaussian",
+            "empirical_path",
+            "empirical_conditional",
+            "conditional_affine",
+            "conditional_latent",
+        ],
         default="independent",
     )
     parser.add_argument("--conditional_source_topk", type=int, default=64)
@@ -549,6 +618,7 @@ def main() -> None:
     parser.add_argument("--source_loc_clip", type=float, default=5.0)
     parser.add_argument("--source_log_scale_min", type=float, default=-3.0)
     parser.add_argument("--source_log_scale_max", type=float, default=2.0)
+    parser.add_argument("--source_latent_dim", type=int, default=32)
     parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
     parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
     parser.add_argument("--increment_transform", choices=["standard", "normal_score"], default="standard")
@@ -610,6 +680,7 @@ def main() -> None:
         source_loc_clip=args.source_loc_clip,
         source_log_scale_min=args.source_log_scale_min,
         source_log_scale_max=args.source_log_scale_max,
+        source_latent_dim=args.source_latent_dim,
     )
     model = UnifiedIncrementFlow(cfg).to(device)
     source_diagnostics: dict[str, Any] = {"source_mode": args.source_mode}
@@ -652,6 +723,14 @@ def main() -> None:
             {
                 "source_prior_nll_weight": float(args.source_prior_nll_weight),
                 "source_loc_clip": float(args.source_loc_clip),
+                "source_log_scale_min": float(args.source_log_scale_min),
+                "source_log_scale_max": float(args.source_log_scale_max),
+            }
+        )
+    elif args.source_mode == "conditional_latent":
+        source_diagnostics.update(
+            {
+                "source_latent_dim": int(args.source_latent_dim),
                 "source_log_scale_min": float(args.source_log_scale_min),
                 "source_log_scale_max": float(args.source_log_scale_max),
             }
