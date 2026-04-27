@@ -102062,3 +102062,33 @@ Close bounded postforecast widening as a deployability solution. Do not run anot
 - `results/autoresearch/603a_510a_cell_horizon_postforecast_adapter/risk_readiness.md`
 
 ---
+## 2026-04-27: Autoresearch 604 asymmetric tail postforecast adapter
+
+### Context
+603a showed that symmetric per-cell/per-horizon widening cannot solve sparse cell/regime under-inclusion. Because many regime misses were directional (`bias=UP`, with realized futures below the lower band), 604a tested a monotone median-preserving asymmetric tail adapter with separate lower-tail and upper-tail widening scales.
+
+### Implementation
+Added `experiments/backfill/block_ar/evaluate_604a_asymmetric_tail_postforecast_adapter.py` and focused tests in `test_code/test_604a_asymmetric_tail_adapter.py`. The adapter keeps frozen 510a unchanged, fits per-cell/per-horizon lower and upper residual scales on the pre-validation calibration block, and applies a monotone median-preserving sample transform. Focused tests passed: `pytest test_code/test_604a_asymmetric_tail_adapter.py -q` -> `3 passed in 1.29s`.
+
+### Result
+604a scored `4/11`, still below broad 510a's `5/11` and not better than 602a/603a. Fitted lower scales were `1.000 / 1.150 / 1.750`; fitted upper scales were `1.050 / 1.450 / 2.150`. Overall 90% coverage was only `76.6%`; h1/h7/h14/h30 coverage was `88.4% / 77.0% / 76.1% / 73.3%`; conditional MAE reduction was `7.20%`; regime layer2 stayed `0/8`; turbulent h7/h14/h30 layer1 coverage failed; persistent severe undercoverage worsened to `13.2%`. Daily-change KS improved to `19/25`, level KS stayed weak at `3/25`, and pathwise max-jump KS improved to `0.139`.
+
+### Risk-Manager Readiness
+Risk readiness still failed. Broad 510a, 602a, 603a, and 604a all scored `1/4`. 604a's worst lower-only cell was `0.512` and worst regime cell was `0.270`, below 603a (`0.556` / `0.360`) and far below the `0.70` stress gate.
+
+### Mechanism Read
+The calibration block did not learn the missing stress direction. The fitted lower-tail scales were modest while upper-tail scales were larger, and validation undercoverage worsened in turbulent regimes. The missing mass is conditional and path-directional, not a stationary per-cell lower/upper residual width issue.
+
+### Decision
+Close asymmetric postforecast tail calibration. The postforecast overlay route now has three negative variants: 602a state/horizon symmetric scaling, 603a cell/horizon symmetric scaling, and 604a asymmetric tail scaling. Do not run another interval-scale adapter. The next step should be post-experiment analysis or paradigm ideation for path-location/stress-allocation mechanisms, or a clear data-requirement conclusion.
+
+### Artifacts
+- `experiments/backfill/block_ar/evaluate_604a_asymmetric_tail_postforecast_adapter.py`
+- `test_code/test_604a_asymmetric_tail_adapter.py`
+- `experiments/backfill/block_ar/ANALYSIS_604a_asymmetric_tail_postforecast_adapter.md`
+- `results/autoresearch/604a_510a_asymmetric_tail_postforecast_adapter/full11.json`
+- `results/autoresearch/604a_510a_asymmetric_tail_postforecast_adapter/full11.md`
+- `results/autoresearch/604a_510a_asymmetric_tail_postforecast_adapter/risk_readiness.json`
+- `results/autoresearch/604a_510a_asymmetric_tail_postforecast_adapter/risk_readiness.md`
+
+---
