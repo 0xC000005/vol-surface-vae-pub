@@ -22,6 +22,9 @@ class GenericEmpiricalScoreTransitionFMConfig(CausalFutureMemoryTransitionFMConf
     prefix_feature_mode: str = "basic"
     path_source_corr: float = 0.0
     path_source_ar: float = 0.0
+    conditional_source_scale: bool = False
+    source_scale_min: float = 0.25
+    source_scale_max: float = 4.0
 
 
 class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
@@ -51,6 +54,15 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
         self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        if cfg.conditional_source_scale:
+            self.source_log_scale = nn.Sequential(
+                nn.LayerNorm(cfg.memory_dim),
+                nn.Linear(cfg.memory_dim, cfg.n_cells),
+            )
+            nn.init.zeros_(self.source_log_scale[-1].weight)
+            nn.init.zeros_(self.source_log_scale[-1].bias)
+        else:
+            self.source_log_scale = None
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -188,6 +200,13 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
         )
         return math.sqrt(rho) * path_noise + math.sqrt(1.0 - rho) * temporal_noise
 
+    def _conditional_source_scale(self, memory_state: torch.Tensor) -> torch.Tensor | None:
+        if self.source_log_scale is None:
+            return None
+        lo = math.log(float(self.cfg.source_scale_min))
+        hi = math.log(float(self.cfg.source_scale_max))
+        return torch.exp(self.source_log_scale(memory_state).clamp(lo, hi))
+
     def training_loss(
         self,
         history_values: torch.Tensor,
@@ -202,6 +221,9 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
         current_scores = prefix_scores[:, start : start + self.cfg.future_len]
         x1 = future_scores - current_scores
         x0 = self._source_noise_like(x1)
+        source_scale = self._conditional_source_scale(memory_states)
+        if source_scale is not None:
+            x0 = x0 * source_scale
         bsz, horizon, n_vars = x1.shape
         t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
@@ -213,7 +235,7 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
             t.reshape(bsz * horizon),
         ).view_as(x1)
         fm_loss = F.mse_loss(pred_velocity, target_velocity)
-        return fm_loss, {
+        metrics = {
             "total": fm_loss.detach(),
             "fm_loss": fm_loss.detach(),
             "transition_std": x1.std(unbiased=False).detach(),
@@ -221,6 +243,16 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
             "target_velocity_std": target_velocity.std(unbiased=False).detach(),
             "memory_abs": memory_states.abs().mean().detach(),
         }
+        if source_scale is not None:
+            metrics.update(
+                {
+                    "source_scale_mean": source_scale.mean().detach(),
+                    "source_scale_std": source_scale.std(unbiased=False).detach(),
+                    "source_scale_min": source_scale.min().detach(),
+                    "source_scale_max": source_scale.max().detach(),
+                }
+            )
+        return fm_loss, metrics
 
     @torch.no_grad()
     def sample_batched(
@@ -275,6 +307,9 @@ class GenericEmpiricalScoreTransitionFlowMatching(nn.Module):
                         math.sqrt(rho) * path_source
                         + math.sqrt(1.0 - rho) * temporal_source[:, step]
                     )
+                source_scale = self._conditional_source_scale(memory_state)
+                if source_scale is not None:
+                    x = x * source_scale
                 for flow_step in range(self.cfg.flow_steps):
                     t = torch.full(
                         (bsz * k,),

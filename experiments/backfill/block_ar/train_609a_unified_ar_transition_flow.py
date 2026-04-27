@@ -201,6 +201,9 @@ def main() -> None:
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--path_source_corr", type=float, default=0.0)
     parser.add_argument("--path_source_ar", type=float, default=0.0)
+    parser.add_argument("--conditional_source_scale", action="store_true")
+    parser.add_argument("--source_scale_min", type=float, default=0.25)
+    parser.add_argument("--source_scale_max", type=float, default=4.0)
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="basic")
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
@@ -250,6 +253,9 @@ def main() -> None:
         prefix_feature_mode=args.prefix_feature_mode,
         path_source_corr=float(args.path_source_corr),
         path_source_ar=float(args.path_source_ar),
+        conditional_source_scale=bool(args.conditional_source_scale),
+        source_scale_min=float(args.source_scale_min),
+        source_scale_max=float(args.source_scale_max),
         conditioning_mode="prefix",
     )
     model = GenericEmpiricalScoreTransitionFlowMatching(cfg).to(device)

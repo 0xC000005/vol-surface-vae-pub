@@ -102431,3 +102431,70 @@ Next: learn conditional source scale inside the same generic AR transition model
 - `results/autoresearch/611a_610a_temperature_diagnostic/temp115_full11.md`
 
 ---
+## 2026-04-27: Autoresearch 612 conditional source scale
+
+### Context
+610a was the cleanest native joint learned law but scored `5/11`; 611a showed scalar sampling temperature was not a safe risk layer. 612a tested a still-generic alternative: infer per-variable source scale from the causal memory state inside the same joint38 AR transition-flow model.
+
+### Change
+Added conditional source scale to:
+- `diffusion/block_ar/generic_empirical_score_transition_flow_matching.py`
+- `experiments/backfill/block_ar/train_609a_unified_ar_transition_flow.py`
+- `test_code/test_609a_generic_empirical_score_transition.py`
+
+The model still uses one shared panel, one memory, one transition velocity, and one source-randomness mechanism for IV-only or joint38 state scopes.
+
+Verification:
+- `python -m py_compile diffusion/block_ar/generic_empirical_score_transition_flow_matching.py experiments/backfill/block_ar/train_609a_unified_ar_transition_flow.py experiments/backfill/block_ar/evaluate_609a_unified_ar_transition_flow.py`
+- `pytest test_code/test_609a_generic_empirical_score_transition.py -q`
+- result: `3 passed`
+
+### Result
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- conditional source scale clamp: `[0.25, 4.0]`;
+- best epoch: `7`;
+- best validation loss: `0.109902`.
+
+Important diagnostic: the source-scale head collapsed to the lower clamp after epoch 2. By epoch 8, `source_scale_mean/std/min/max = 0.25 / 0.0 / 0.25 / 0.25`.
+
+Official IV bridge on 441 windows / 48 samples:
+- score: `6/11`;
+- passed: surface, conditionality, time-series properties, block-AR, cointegration, cross-cell correlation;
+- failed: coverage, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- cov90 overall `77.4%`;
+- conditional MAE reduction `11.6%`;
+- turbulent/calm width ratio `0.910`;
+- daily-change KS `24/25`;
+- level KS `13/25`;
+- median-bias cells `18/25`;
+- persistent severe undercoverage `1026/11025 = 9.3%`;
+- regime layer2 `0/8`;
+- ACF correlation `0.981`;
+- kurtosis ratio `0.936`;
+- cointegration gen/GT `0.754`, worst-cell ratio `0.358`;
+- cross-cell corr/rank `0.888 / 1.494`;
+- mean-reversion ratio `0.600`;
+- pathwise max-jump KS `0.638`;
+- per-cell q99 jump-scale `22/25`.
+
+### Mechanism Read
+612a improved the headline score, but not by learning state-responsive risk width. Plain flow matching gives a trainable source scale a degenerate path: shrink the source toward the lower clamp and reduce velocity geometry. That explains the much lower validation loss plus continued failure on regime layer2, persistent undercoverage, and turbulent/calm width.
+
+The native joint AR route remains alive because conditionality, ACF/kurtosis, daily-change KS, cointegration, cross-cell structure, and level occupancy improved or stayed healthy. The learned-source-scale variant itself should be closed as a deployability layer.
+
+### Decision
+Do not keep stacking trainable width knobs. Next, use the existing `prefix_feature_mode=scale` route: keep one shared joint AR transition model and a fixed source distribution, but expose generic magnitude features (`abs(delta)`, `delta^2`) to the causal memory so regime-sensitive transition geometry can be learned without separate IV/factor paths or post-hoc calibration.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_612a_joint38_ar_condscale.md`
+- `models/backfill/612a_joint38_ar_condscale_e8_w2048_s612/train_summary.json`
+- `models/backfill/612a_joint38_ar_condscale_e8_w2048_s612/training_history.json`
+- `results/autoresearch/612a_joint38_ar_condscale_e8_w2048/full11.json`
+- `results/autoresearch/612a_joint38_ar_condscale_e8_w2048/full11.md`
+
+---

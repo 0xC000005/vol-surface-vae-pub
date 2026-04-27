@@ -56,3 +56,36 @@ def test_generic_transition_loss_and_sample_shapes():
     samples = model.sample_batched(history, n_samples=4, n_steps=3, chunk_size=2)
     assert samples.shape == (3, 4, 3, 6)
     assert torch.isfinite(samples).all()
+
+
+def test_conditional_source_scale_path():
+    cfg = GenericEmpiricalScoreTransitionFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=4,
+        n_quantiles=31,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        model_dropout=0.0,
+        conditioning_mode="prefix",
+        conditional_source_scale=True,
+    )
+    model = GenericEmpiricalScoreTransitionFlowMatching(cfg)
+    quantiles = torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles) for _ in range(cfg.n_cells)])
+    model.set_empirical_quantiles(quantiles)
+    history = torch.randn(2, 4, 4).clamp(-1.5, 1.5)
+    future = torch.randn(2, 3, 4).clamp(-1.5, 1.5)
+    loss, metrics = model.training_loss(history, future)
+    assert torch.isfinite(loss)
+    assert "source_scale_mean" in metrics
+    samples = model.sample_batched(history, n_samples=2, n_steps=2, chunk_size=1)
+    assert samples.shape == (2, 2, 2, 4)
+    assert torch.isfinite(samples).all()
