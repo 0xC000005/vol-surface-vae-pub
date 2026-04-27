@@ -103880,3 +103880,23 @@ After 641a solved native IV-plus-anchor-factor generation and 643a falsified sca
 Next experiment: 645a local conditional distribution alignment finetune for 641a. For each history, use nearby histories in score space to form an empirical local conditional future distribution, align generated futures to that local target with a sliced-Wasserstein-style loss, and keep an FM anchor. This is a training objective only: no retrieval at inference, no separate IV/factor loss, one shared 38-channel model.
 
 ---
+## 2026-04-27: Autoresearch 645a local conditional distribution finetune
+
+### Context
+645a implemented the 644a idea: local conditional distribution-alignment finetuning for 641a. It keeps one 38-channel mixed-coordinate model, uses local history neighborhoods only during training, aligns generated future level-score paths to local empirical future distributions, and keeps the FM anchor. No retrieval is used at inference.
+
+### Result
+- Focused tests: `6 passed`.
+- Training selected epoch 2 with validation total `0.7598`.
+- IV score stayed `4/11`.
+- IV metrics worsened in important places: cov90 `0.647 -> 0.581`, conditional MAE reduction `4.51% -> -1.08%`, level KS `4/25 -> 1/25`, median-bias pass `8/25 -> 2/25`, kurtosis ratio `0.946 -> 0.661`.
+- Positive movement: pathwise max-jump KS improved `0.610 -> 0.425`, cross-cell corr ratio `0.949 -> 0.967`, mean-reversion ratio `0.919 -> 0.932`.
+- Joint audit weakened marginally: factor KS mean `0.098 -> 0.123`, factor KS pass `12/13 -> 10/13`, q99 pass `13/13 -> 12/13`, while correlation shapes improved slightly.
+
+### Mechanism Read
+The local distributional objective supplies useful path/correlation geometry but a poor conditional location signal for this validation frame. It pulls paths toward local historical-center distributions, improving pathwise KS while making IV coverage, median placement, level distribution, and conditionality worse.
+
+### Decision
+Close 645a at this weight and do not weight-sweep by default. The next step should be a paradigm decision: either freeze 641a as the clean native joint risk-stress baseline with explicit limitations, or shift to a direct sequence-level probabilistic path model that trains the full future law natively.
+
+---
