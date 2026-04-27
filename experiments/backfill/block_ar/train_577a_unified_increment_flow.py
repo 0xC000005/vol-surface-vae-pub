@@ -29,6 +29,7 @@ from experiments.backfill.block_ar._rollout_220_utils import make_serializable  
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
     UnifiedIncrementBlock,
     build_unified_increment_block,
+    clean_nonpositive_log_level_factors,
     decode_state,
     encode_state,
 )
@@ -175,6 +176,9 @@ def _standardize(array: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.nda
 
 def _make_train_val_blocks(args: argparse.Namespace) -> tuple[np.ndarray, list[str], UnifiedIncrementBlock, UnifiedIncrementBlock]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
+    if getattr(args, "clean_nonpositive_log_levels", False):
+        panel, cleaning_report = clean_nonpositive_log_level_factors(panel, columns, iv_count=args.iv_count)
+        print(json.dumps({"panel_cleaning": cleaning_report}, indent=2))
     train_indices, val_indices = official_train_val_indices(
         test_start=args.test_start,
         val_size=args.val_size,
@@ -297,6 +301,7 @@ def main() -> None:
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
+    parser.add_argument("--clean_nonpositive_log_levels", action="store_true")
     parser.add_argument("--max_train_windows", type=int, default=0)
     parser.add_argument("--hidden_dim", type=int, default=256)
     parser.add_argument("--time_embed_dim", type=int, default=32)

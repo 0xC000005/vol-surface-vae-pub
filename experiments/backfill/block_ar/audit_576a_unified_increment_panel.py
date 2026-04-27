@@ -58,7 +58,9 @@ def _base_factor_name(column: str) -> str:
 def build_unified_variable_specs(
     columns: list[str],
     *,
+    panel: np.ndarray | None = None,
     iv_count: int = 25,
+    eps: float = 1e-8,
 ) -> list[UnifiedVariableSpec]:
     """Build one state-variable list without duplicated level/return targets."""
     if len(columns) < iv_count:
@@ -87,9 +89,15 @@ def build_unified_variable_specs(
         logret_name = f"factor:{base}_logret"
         diff_name = f"factor:{base}_diff"
         if logret_name in name_to_idx:
-            transform = "log_level"
-            reference_column = logret_name
-            reference_index = name_to_idx[logret_name]
+            values = None if panel is None else np.asarray(panel[:, idx], dtype=np.float64)
+            if values is not None and np.nanmin(values) < -float(eps):
+                transform = "diff_level"
+                reference_column = None
+                reference_index = None
+            else:
+                transform = "log_level"
+                reference_column = logret_name
+                reference_index = name_to_idx[logret_name]
         elif diff_name in name_to_idx:
             transform = "diff_level"
             reference_column = diff_name
@@ -109,6 +117,62 @@ def build_unified_variable_specs(
             )
         )
     return specs
+
+
+def clean_nonpositive_log_level_factors(
+    panel: np.ndarray,
+    columns: list[str],
+    *,
+    iv_count: int = 25,
+    eps: float = 1e-8,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Clean zero-filled nonnegative level series before log-coordinate use.
+
+    Negative-valued series are not forced into log coordinates. They are left
+    unchanged and later assigned a difference-coordinate transform by
+    `build_unified_variable_specs`.
+    """
+    cleaned = np.asarray(panel, dtype=np.float32).copy()
+    name_to_idx = {name: idx for idx, name in enumerate(columns)}
+    cleaned_columns: dict[str, int] = {}
+    diff_fallback_columns: list[str] = []
+    for idx in range(iv_count, len(columns)):
+        column = columns[idx]
+        if is_return_like_column(column):
+            continue
+        base = _base_factor_name(column)
+        if f"factor:{base}_logret" not in name_to_idx:
+            continue
+        values = cleaned[:, idx].astype(np.float64)
+        if np.nanmin(values) < -float(eps):
+            diff_fallback_columns.append(column)
+            continue
+        bad = ~np.isfinite(values) | (values <= float(eps))
+        if not np.any(bad):
+            continue
+        good_idx = np.flatnonzero(~bad)
+        if good_idx.size == 0:
+            raise ValueError(f"cannot clean {column}: no positive finite values")
+        filled = values.copy()
+        first = int(good_idx[0])
+        filled[:first] = filled[first]
+        last_value = float(filled[first])
+        for row in range(first + 1, filled.shape[0]):
+            if np.isfinite(filled[row]) and filled[row] > float(eps):
+                last_value = float(filled[row])
+            else:
+                filled[row] = last_value
+        cleaned[:, idx] = filled.astype(np.float32)
+        cleaned_columns[column] = int(np.sum(bad))
+    return cleaned, {
+        "enabled": True,
+        "eps": float(eps),
+        "cleaned_columns": cleaned_columns,
+        "diff_fallback_columns": diff_fallback_columns,
+        "n_cleaned_values": int(sum(cleaned_columns.values())),
+        "n_cleaned_columns": int(len(cleaned_columns)),
+        "n_diff_fallback_columns": int(len(diff_fallback_columns)),
+    }
 
 
 def _state_from_panel(panel: np.ndarray, specs: list[UnifiedVariableSpec]) -> np.ndarray:
@@ -164,7 +228,7 @@ def build_unified_increment_block(
     iv_count: int = 25,
 ) -> UnifiedIncrementBlock:
     panel = np.asarray(panel, dtype=np.float64)
-    specs = build_unified_variable_specs(columns, iv_count=iv_count)
+    specs = build_unified_variable_specs(columns, panel=panel, iv_count=iv_count)
     state_panel = _state_from_panel(panel, specs)
     encoded_panel = encode_state(state_panel, specs)
 
@@ -301,9 +365,13 @@ def build_audit_report(
     test_start: int,
     val_size: int,
     iv_count: int = 25,
+    clean_nonpositive_log_levels: bool = False,
 ) -> dict[str, Any]:
     panel, columns, dates = load_aligned_iv_factor_panel()
-    specs = build_unified_variable_specs(columns, iv_count=iv_count)
+    cleaning_report: dict[str, Any] = {"enabled": False}
+    if clean_nonpositive_log_levels:
+        panel, cleaning_report = clean_nonpositive_log_level_factors(panel, columns, iv_count=iv_count)
+    specs = build_unified_variable_specs(columns, panel=panel, iv_count=iv_count)
     horizons: dict[str, Any] = {}
     for future_len in future_lens:
         train_indices, val_indices = official_train_val_indices(
@@ -355,6 +423,7 @@ def build_audit_report(
         "source_panel_columns": list(columns),
         "state_variable_count": int(len(specs)),
         "state_variables": [asdict(spec) for spec in specs],
+        "cleaning": cleaning_report,
         "split_boundaries": window_boundary_summary(
             n_obs=int(panel.shape[0]),
             history_len=history_len,
@@ -373,6 +442,7 @@ def main() -> None:
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
+    parser.add_argument("--clean_nonpositive_log_levels", action="store_true")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -382,6 +452,7 @@ def main() -> None:
         test_start=args.test_start,
         val_size=args.val_size,
         iv_count=args.iv_count,
+        clean_nonpositive_log_levels=args.clean_nonpositive_log_levels,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
     build_unified_increment_block,
     build_unified_variable_specs,
+    clean_nonpositive_log_level_factors,
     summarize_unified_increment_block,
 )
 
@@ -91,3 +92,29 @@ def test_summarize_unified_increment_block_reports_clean_target_contract() -> No
     assert summary["reconstruction_max_abs_error"] < 1e-5
     assert summary["reference_increment_count"] == 2
     assert summary["reference_increment_max_abs_error"] < 1e-6
+
+
+def test_clean_nonpositive_log_level_factors_fills_zeros_and_preserves_negative_fallback() -> None:
+    panel = np.array(
+        [
+            [1.0, 0.0, 10.0, 0.0, 0.0],
+            [1.1, 100.0, -2.0, 0.1, -12.0],
+            [1.2, 110.0, 11.0, 0.095, 13.0],
+        ],
+        dtype=np.float32,
+    )
+    columns = [
+        "iv:00",
+        "factor:gold",
+        "factor:crude_oil",
+        "factor:gold_logret",
+        "factor:crude_oil_logret",
+    ]
+
+    cleaned, report = clean_nonpositive_log_level_factors(panel, columns, iv_count=1)
+    specs = build_unified_variable_specs(columns, panel=cleaned, iv_count=1)
+
+    assert report["cleaned_columns"] == {"factor:gold": 1}
+    assert report["diff_fallback_columns"] == ["factor:crude_oil"]
+    assert cleaned[0, 1] == 100.0
+    assert [spec.transform for spec in specs] == ["log_level", "log_level", "diff_level"]
