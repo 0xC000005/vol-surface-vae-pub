@@ -43,6 +43,7 @@ class UnifiedIncrementFlowConfig:
     time_embed_dim: int = 32
     depth: int = 4
     dropout: float = 0.05
+    source_mode: str = "independent"
 
 
 class UnifiedIncrementFlow(nn.Module):
@@ -73,6 +74,26 @@ class UnifiedIncrementFlow(nn.Module):
                 layers.append(nn.Dropout(cfg.dropout))
         layers.append(nn.Linear(cfg.hidden_dim, self.path_dim))
         self.net = nn.Sequential(*layers)
+        self.register_buffer("source_mean", torch.zeros(self.path_dim), persistent=True)
+        self.register_buffer("source_cholesky", torch.eye(self.path_dim), persistent=True)
+
+    def set_source_gaussian(self, mean: torch.Tensor, cholesky: torch.Tensor) -> None:
+        if mean.shape != (self.path_dim,):
+            raise ValueError(f"mean shape must be ({self.path_dim},), got {tuple(mean.shape)}")
+        if cholesky.shape != (self.path_dim, self.path_dim):
+            raise ValueError(
+                f"cholesky shape must be ({self.path_dim}, {self.path_dim}), got {tuple(cholesky.shape)}"
+            )
+        self.source_mean.copy_(mean.to(device=self.source_mean.device, dtype=self.source_mean.dtype))
+        self.source_cholesky.copy_(cholesky.to(device=self.source_cholesky.device, dtype=self.source_cholesky.dtype))
+
+    def draw_source(self, batch_size: int, *, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+        eps = torch.randn(int(batch_size), self.path_dim, device=device, dtype=dtype)
+        flat = self.source_mean.to(device=device, dtype=dtype) + eps @ self.source_cholesky.to(
+            device=device,
+            dtype=dtype,
+        ).T
+        return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
 
     def forward(self, history: torch.Tensor, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         if history.ndim != 3 or x_t.ndim != 3:
@@ -85,7 +106,7 @@ class UnifiedIncrementFlow(nn.Module):
         return velocity.reshape_as(x_t)
 
     def training_loss(self, history: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        noise = torch.randn_like(target)
+        noise = self.draw_source(target.shape[0], device=target.device, dtype=target.dtype)
         t = torch.rand(target.shape[0], device=target.device, dtype=target.dtype)
         shape = (target.shape[0],) + (1,) * (target.ndim - 1)
         x_t = (1.0 - t.reshape(shape)) * noise + t.reshape(shape) * target
@@ -104,13 +125,7 @@ class UnifiedIncrementFlow(nn.Module):
         self.eval()
         bsz = history.shape[0]
         repeated_history = history.repeat_interleave(int(n_samples), dim=0)
-        x = torch.randn(
-            bsz * int(n_samples),
-            self.cfg.future_len,
-            self.cfg.n_vars,
-            device=history.device,
-            dtype=history.dtype,
-        )
+        x = self.draw_source(bsz * int(n_samples), device=history.device, dtype=history.dtype)
         dt = 1.0 / float(n_steps)
         for step in range(int(n_steps)):
             t_value = torch.full((x.shape[0],), (step + 0.5) * dt, device=x.device, dtype=x.dtype)
@@ -124,6 +139,34 @@ def _fit_mean_std(array: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     std = flat.std(axis=0).astype(np.float32)
     std = np.maximum(std, 1e-6).astype(np.float32)
     return mean, std
+
+
+def fit_path_gaussian(
+    standardized_increment: np.ndarray,
+    *,
+    shrinkage: float,
+    jitter: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    flat = np.asarray(standardized_increment, dtype=np.float64).reshape(
+        standardized_increment.shape[0],
+        -1,
+    )
+    mean = flat.mean(axis=0)
+    centered = flat - mean
+    cov = (centered.T @ centered) / max(flat.shape[0] - 1, 1)
+    cov = 0.5 * (cov + cov.T)
+    diag = np.diag(np.diag(cov))
+    shrink = float(np.clip(shrinkage, 0.0, 1.0))
+    cov = (1.0 - shrink) * cov + shrink * diag
+    eye = np.eye(cov.shape[0], dtype=np.float64)
+    for scale in [1.0, 3.0, 10.0, 30.0, 100.0]:
+        try:
+            chol = np.linalg.cholesky(cov + float(jitter) * scale * eye)
+            return mean.astype(np.float32), chol.astype(np.float32)
+        except np.linalg.LinAlgError:
+            continue
+    chol = np.linalg.cholesky(cov + max(float(jitter), 1e-3) * 1000.0 * eye)
+    return mean.astype(np.float32), chol.astype(np.float32)
 
 
 def _standardize(array: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
@@ -259,6 +302,9 @@ def main() -> None:
     parser.add_argument("--time_embed_dim", type=int, default=32)
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--source_mode", choices=["independent", "path_gaussian"], default="independent")
+    parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
+    parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=7e-4)
@@ -295,8 +341,29 @@ def main() -> None:
         time_embed_dim=args.time_embed_dim,
         depth=args.depth,
         dropout=args.dropout,
+        source_mode=args.source_mode,
     )
     model = UnifiedIncrementFlow(cfg).to(device)
+    source_diagnostics: dict[str, Any] = {"source_mode": args.source_mode}
+    if args.source_mode == "path_gaussian":
+        source_mean, source_chol = fit_path_gaussian(
+            train_inc.detach().cpu().numpy(),
+            shrinkage=args.source_cov_shrinkage,
+            jitter=args.source_cov_jitter,
+        )
+        model.set_source_gaussian(
+            torch.from_numpy(source_mean).to(device),
+            torch.from_numpy(source_chol).to(device),
+        )
+        source_diagnostics.update(
+            {
+                "source_mean_abs": float(np.mean(np.abs(source_mean))),
+                "source_cholesky_diag_min": float(np.min(np.diag(source_chol))),
+                "source_cholesky_diag_max": float(np.max(np.diag(source_chol))),
+                "source_cov_shrinkage": float(args.source_cov_shrinkage),
+                "source_cov_jitter": float(args.source_cov_jitter),
+            }
+        )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     train_loader = DataLoader(
@@ -335,6 +402,7 @@ def main() -> None:
     print(f"Device: {device}")
     print(f"Train windows: {train_hist.shape[0]}  Val windows: {val_hist.shape[0]}")
     print(f"Target shape: {tuple(train_inc.shape[1:])}  Params: {sum(p.numel() for p in model.parameters()):,}")
+    print(json.dumps(source_diagnostics, indent=2))
     best_val = float("inf")
     best_epoch = -1
     records: list[dict[str, float]] = []
@@ -406,6 +474,7 @@ def main() -> None:
         "val_windows": int(val_hist.shape[0]),
         "target_shape": list(train_inc.shape[1:]),
         "config": asdict(cfg),
+        "source_diagnostics": source_diagnostics,
         "sample_audit": sample_audit,
     }
     (out_dir / "training_history.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
