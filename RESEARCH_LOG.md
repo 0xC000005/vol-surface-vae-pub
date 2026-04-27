@@ -103196,3 +103196,28 @@ Keep the 629a architecture and recent-window training frame as the active base. 
 - results/autoresearch/630a_joint38_statecond_increment_e8_all/joint_panel.md
 
 ---
+## 2026-04-27: Autoresearch 631a scale-prefix state features
+
+### Context
+630a falsified naive all-window scaling. 631a kept the 629a state-conditioned encoded-increment architecture on the better recent-window frame, but added a generic volatility-state prefix feature: encoded levels, increments, absolute increments, and squared increments.
+
+### Result
+The IV full-suite score improved from 3/11 to 4/11. It passes conditionality, block-AR, cointegration, and cross-cell correlation. Conditionality MAE reduction improved to 8.9%; level KS improved to 8/25; median-bias pass improved to 16/25; and turbulent/calm width ratio improved from 0.894 to 1.008. Remaining failures are surface explosion at 51.7%, coverage at 78.1% with per-cell failures, time-series tail scale, regime coverage, full-horizon mean reversion, and pathwise q90/q99 tail scale.
+
+The joint-panel audit remains strong but slightly below 629a on some anchor metrics: factor KS mean 0.115, factor q99 pass 13/13, factor-factor correlation 0.865, and IV-factor correlation 0.889.
+
+### Mechanism Read
+Scale-prefix features help conditionality and level occupancy, and they move turbulent/calm width in the right direction. They do not solve regime scaling. The model still has near-regime-invariant dispersion and a few excessive IV tail cells. This suggests the remaining problem is heteroscedastic source-scale control in the conditional flow, not another data-frame reset.
+
+### Decision
+631a is the active native joint learned base by IV score and risk-manager plausibility. Next: add a generic conditional source-scale head to the same state-conditioned increment model, initialized at unit scale and conservatively bounded. This is a standard conditional-flow heteroscedasticity mechanism and remains one model with no IV/factor branch or post-hoc deck gluing.
+
+### Artifacts
+- diffusion/block_ar/generic_state_conditioned_increment_flow_matching.py
+- experiments/backfill/block_ar/train_629a_state_conditioned_increment_flow.py
+- experiments/backfill/block_ar/ANALYSIS_631a_scale_prefix_features.md
+- models/backfill/631a_joint38_statecond_increment_scale_e8_w2048_s631/best_model.pt
+- results/autoresearch/631a_joint38_statecond_increment_scale_e8_w2048/full11.md
+- results/autoresearch/631a_joint38_statecond_increment_scale_e8_w2048/joint_panel.md
+
+---

@@ -158,6 +158,7 @@ def main() -> None:
     parser.add_argument("--model_dropout", type=float, default=0.05)
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
+    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="basic")
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -215,6 +216,7 @@ def main() -> None:
         sample_temperature=float(args.sample_temperature),
         n_quantiles=int(args.n_quantiles),
         cdf_eps=float(args.cdf_eps),
+        prefix_feature_mode=args.prefix_feature_mode,
         conditioning_mode="prefix",
     )
     model = GenericStateConditionedIncrementFlowMatching(cfg).to(device)

@@ -19,6 +19,7 @@ class GenericStateConditionedIncrementFMConfig(CausalFutureMemoryTransitionFMCon
 
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
+    prefix_feature_mode: str = "basic"
 
 
 class GenericStateConditionedIncrementFlowMatching(nn.Module):
@@ -32,7 +33,10 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
     def __init__(self, cfg: GenericStateConditionedIncrementFMConfig):
         super().__init__()
         self.cfg = cfg
-        self.feature_proj = nn.Linear(2 * cfg.n_cells, cfg.memory_dim)
+        if cfg.prefix_feature_mode not in {"basic", "scale"}:
+            raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
+        feature_mult = 4 if cfg.prefix_feature_mode == "scale" else 2
+        self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
         layer = nn.TransformerEncoderLayer(
             d_model=cfg.memory_dim,
@@ -138,6 +142,19 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
     def increment_scores_to_values(self, scores: torch.Tensor) -> torch.Tensor:
         return self._scores_to_values(scores, self.increment_quantiles)
 
+    def _prefix_features(self, level_scores: torch.Tensor, increment_scores: torch.Tensor) -> torch.Tensor:
+        if self.cfg.prefix_feature_mode == "scale":
+            return torch.cat(
+                [
+                    level_scores,
+                    increment_scores,
+                    increment_scores.abs(),
+                    increment_scores.square(),
+                ],
+                dim=-1,
+            )
+        return torch.cat([level_scores, increment_scores], dim=-1)
+
     def _encode_prefix(self, level_scores: torch.Tensor, increment_scores: torch.Tensor) -> torch.Tensor:
         if level_scores.shape != increment_scores.shape:
             raise ValueError("level_scores and increment_scores must have matching shapes")
@@ -145,7 +162,7 @@ class GenericStateConditionedIncrementFlowMatching(nn.Module):
         if seq_len > self.cfg.history_len + self.cfg.future_len:
             raise ValueError(f"prefix length {seq_len} exceeds configured maximum")
         pos = torch.arange(seq_len, device=level_scores.device)
-        x = self.feature_proj(torch.cat([level_scores, increment_scores], dim=-1))
+        x = self.feature_proj(self._prefix_features(level_scores, increment_scores))
         x = x + self.pos_embed(pos)[None, :, :]
         mask = torch.triu(
             torch.ones(seq_len, seq_len, device=level_scores.device, dtype=torch.bool),

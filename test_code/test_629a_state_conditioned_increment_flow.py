@@ -71,3 +71,41 @@ def test_state_conditioned_increment_quantiles_validate_shape() -> None:
         assert "level_quantiles" in str(exc)
     else:
         raise AssertionError("expected quantile shape validation failure")
+
+
+def test_scale_prefix_feature_mode_runs() -> None:
+    torch.manual_seed(631)
+    cfg = GenericStateConditionedIncrementFMConfig(
+        history_len=3,
+        future_len=2,
+        n_cells=4,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=21,
+        conditioning_mode="prefix",
+        prefix_feature_mode="scale",
+    )
+    model = GenericStateConditionedIncrementFlowMatching(cfg)
+    quantiles = torch.linspace(-2.0, 2.0, cfg.n_quantiles).repeat(cfg.n_cells, 1)
+    model.set_empirical_quantiles(quantiles, quantiles)
+    history_state = torch.randn(2, cfg.history_len, cfg.n_cells)
+    history_increment = 0.1 * torch.randn(2, cfg.history_len, cfg.n_cells)
+    future_state = torch.randn(2, cfg.future_len, cfg.n_cells)
+    future_increment = 0.1 * torch.randn(2, cfg.future_len, cfg.n_cells)
+
+    loss, _metrics = model.training_loss(
+        history_state,
+        history_increment,
+        future_state,
+        future_increment,
+    )
+
+    assert torch.isfinite(loss)
