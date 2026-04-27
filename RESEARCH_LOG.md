@@ -103833,3 +103833,18 @@ The IV side did not improve beyond the 4/11 native-joint frontier. Daily-change 
 641a becomes the clean native joint baseline for one-model IV plus anchor-factor generation. Do not add more coordinate branches. The next principled step is a post-experiment analysis of unified conditional spread/location calibration inside the same joint path law, not a return to separate IV and factor treatment.
 
 ---
+## 2026-04-27: Autoresearch 642a native joint tradeoff analysis
+
+### Context
+642a analyzed whether 641a should remain active after scoring only `4/11` on the IV suite, given that older broad-frame IV models such as 610a/612a score higher.
+
+### Findings
+- IV-score frontier: 612a is still the best broad-frame native joint IV scorer at `6/11`; 510a/596a/610a score `5/11`; 641a scores `4/11`.
+- Native joint scenario frontier: 641a is best for one-model IV-plus-anchor-factor generation. It has factor KS mean `0.098`, factor q99 pass `13/13`, factor-factor corr shape `0.866`, and IV-factor corr shape `0.852`.
+- 610a/612a are not acceptable replacements for the joint objective: their anchor-factor q99 pass rates are only `2/13` and `5/13`, with generated absolute factor co-movement far below GT.
+- 641a's IV failure is not daily-change/tail authenticity: daily-change KS passes `24/25`, q99 tail passes `23/25`, and surface explosion is `0.0%`. The failure is conditional level placement and interval width across the 30-day path.
+
+### Decision
+Do not abandon 641a if the target is a defensible joint scenario generator. The next lowest-risk falsifier is an evaluation-only sample-temperature sweep on 641a. This is a disclosed risk-policy calibration diagnostic, not a learned-law claim. If it improves coverage/pathwise KS without breaking daily-change KS, cross-cell structure, or native joint factor audit, continue from there. If it fails, move to objective-level conditional density/calibration rather than adding more sampling knobs.
+
+---
