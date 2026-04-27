@@ -101581,3 +101581,68 @@ that learns local jumps, mean reversion, and common-factor dependence stepwise,
 rather than another one-shot MLP path-flow variant.
 
 ---
+## 2026-04-27: Autoresearch 591 AR common latent paradigm shift
+
+### Context
+
+590a closed the simple latent-temperature repair for the one-shot unified MLP
+path-flow branch. The next HEAD step is a paradigm-shift decision, not another
+temperature/latent-dimension/depth sweep.
+
+### Decision Artifact
+
+Added
+`experiments/backfill/block_ar/DECISION_591a_after_unified_flow_closure.md`.
+
+### Closure
+
+Close the 575-590 unified path-flow branch as a frontier route.
+
+Best official scores:
+
+- 587a conditional-affine cumulative flow: `1/11`;
+- 589a conditional-latent cumulative flow: `3/11`;
+- 590a temp `2.0`: `2/11`;
+- 590a temp `4.0`: `1/11`.
+
+The branch produced two useful lessons:
+
+- final-series/cumulative loss stabilizes reconstructed levels;
+- narrow common stochastic bottlenecks recover cross-cell dependence.
+
+But the branch cannot jointly preserve:
+
+- coverage;
+- jump tails;
+- h1 mean reversion;
+- regime coverage;
+- cross-cell dependence;
+- surface validity.
+
+### Next Paradigm
+
+Return to the AR/state-space transition frontier.
+
+Selected candidate:
+
+- `592a = AR common-latent transition flow`.
+
+Principle:
+
+- start from the 392a/510a AR transition mechanics;
+- keep generated-state feedback and empirical-score support coordinates;
+- add one scenario-level common latent shared across rollout days/cells;
+- condition each transition step on that latent;
+- use final-series/patch objective so the latent affects long-horizon level and
+  regime occupancy;
+- avoid hard low-rank readouts, IV-specific clamps, retrieval, or post-hoc
+  evaluator filters.
+
+### Acceptance Gate
+
+592a must recover at least the `8/11` frontier, or improve a frontier failure
+without losing conditionality, cointegration, mean reversion, cross-cell
+correlation, or pathwise jump realism. If it cannot, return to the separated
+risk-policy framing around `510a/564a` rather than continuing architecture churn.
+
+---
