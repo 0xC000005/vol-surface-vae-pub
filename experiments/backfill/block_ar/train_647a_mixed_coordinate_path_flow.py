@@ -75,6 +75,11 @@ def main() -> None:
         "--prefix_feature_mode", choices=["basic", "scale"], default="scale"
     )
     parser.add_argument("--conditional_source_affine", action="store_true")
+    parser.add_argument(
+        "--source_affine_mode",
+        choices=["full", "horizon_scalar", "global_scalar"],
+        default="full",
+    )
     parser.add_argument("--source_scale_min", type=float, default=0.5)
     parser.add_argument("--source_scale_max", type=float, default=2.0)
     parser.add_argument("--source_loc_clip", type=float, default=3.0)
@@ -155,6 +160,7 @@ def main() -> None:
         conditioning_mode="prefix",
         level_score_channels=level_score_channels,
         conditional_source_affine=bool(args.conditional_source_affine),
+        source_affine_mode=args.source_affine_mode,
         source_scale_min=float(args.source_scale_min),
         source_scale_max=float(args.source_scale_max),
         source_loc_clip=float(args.source_loc_clip),
@@ -210,6 +216,7 @@ def main() -> None:
         },
         "source_policy": {
             "conditional_source_affine": bool(args.conditional_source_affine),
+            "source_affine_mode": args.source_affine_mode,
             "source_scale_min": float(args.source_scale_min),
             "source_scale_max": float(args.source_scale_max),
             "source_loc_clip": float(args.source_loc_clip),

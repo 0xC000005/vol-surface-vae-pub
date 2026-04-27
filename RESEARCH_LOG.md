@@ -104063,3 +104063,49 @@ source tokens so conditional width can change without independently distorting
 each cell and horizon.
 
 ---
+## 2026-04-27: Autoresearch 650a horizon-shared source path flow
+
+### Context
+
+649a showed that free per-horizon/per-channel conditional source affine improves
+conditionality and regime-width signal but breaks cross-cell geometry. 650a
+tested the clean constrained version: a horizon-shared source location and
+scale, common to all channels, inside the same native joint path flow.
+
+### Result
+
+- Code/artifacts:
+  `diffusion/block_ar/generic_mixed_coordinate_path_flow_matching.py`,
+  `experiments/backfill/block_ar/train_647a_mixed_coordinate_path_flow.py`,
+  `models/backfill/650a_joint38_mixed_path_horizon_source_e8_w2048_s650/best_model.pt`.
+- Focused tests passed:
+  `pytest test_code/test_647a_mixed_coordinate_path_flow.py -q`.
+- IV 11-suite stayed 3/11 at
+  `results/autoresearch/650a_joint38_mixed_path_horizon_source_e8_w2048_s650/full11.json`.
+- Positive signal: coverage improved to 69.3%; turbulent/calm width ratios were
+  >1 at h1/h7/h14/h30 but remained weak at 1.104/1.093/1.055/1.025.
+- Negative signal: conditionality still failed with MAE reduction 2.8% and
+  worst per-cell -16.6%; cross-cell correlation failed with ratio 0.403; mean
+  reversion failed with aggregate ratio 0.484; daily-change KS pass was 5/25;
+  pathwise max-jump KS was 0.595.
+- Joint audit at
+  `results/autoresearch/650a_joint38_mixed_path_horizon_source_e8_w2048_s650/joint_panel.json`:
+  factor KS mean 0.105, factor KS pass 13/13, factor q99 pass 11/13,
+  factor-factor corr 0.821, IV-factor corr 0.791.
+
+### Mechanism Read
+
+Horizon-sharing was not enough. It avoided some factor-tail damage relative to
+649a, but IV cross-cell geometry remained broken. The mechanism looks deeper
+than per-cell source freedom: source conditioning outside the flow gives the
+model a shortcut for conditional amplitude that weakens coherent joint path
+transport and long-horizon mean reversion.
+
+### Decision
+
+Close the conditional-source branch. 647a remains the clean native joint path
+baseline; 648a/649a/650a are negative or non-baseline variants. The next step
+should be post-experiment ideation or a new geometry-preserving paradigm, not
+another source-affine variant.
+
+---

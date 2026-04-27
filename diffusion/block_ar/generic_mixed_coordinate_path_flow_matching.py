@@ -22,6 +22,7 @@ class GenericMixedCoordinatePathFMConfig(CausalFutureMemoryTransitionFMConfig):
     prefix_feature_mode: str = "scale"
     level_score_channels: list[int] = field(default_factory=list)
     conditional_source_affine: bool = False
+    source_affine_mode: str = "full"
     source_scale_min: float = 0.5
     source_scale_max: float = 2.0
     source_loc_clip: float = 3.0
@@ -59,9 +60,20 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
         )
         self.history_norm = nn.LayerNorm(cfg.memory_dim)
         if cfg.conditional_source_affine:
+            if cfg.source_affine_mode == "full":
+                source_out_dim = 2 * cfg.future_len * cfg.n_cells
+            elif cfg.source_affine_mode == "horizon_scalar":
+                source_out_dim = 2 * cfg.future_len
+            elif cfg.source_affine_mode == "global_scalar":
+                source_out_dim = 2
+            else:
+                raise ValueError(
+                    "source_affine_mode must be 'full', 'horizon_scalar', "
+                    "or 'global_scalar'"
+                )
             self.source_affine = nn.Sequential(
                 nn.LayerNorm(cfg.memory_dim),
-                nn.Linear(cfg.memory_dim, 2 * cfg.future_len * cfg.n_cells),
+                nn.Linear(cfg.memory_dim, source_out_dim),
             )
             nn.init.zeros_(self.source_affine[-1].weight)
             nn.init.zeros_(self.source_affine[-1].bias)
@@ -257,19 +269,40 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
         if self.source_affine is None:
             return None, None
-        raw = self.source_affine(context).view(
-            context.shape[0],
-            self.cfg.future_len,
-            self.cfg.n_cells,
-            2,
-        )
-        loc_raw = raw[:, :horizon, :, 0]
-        log_scale_raw = raw[:, :horizon, :, 1]
+        if self.cfg.source_affine_mode == "full":
+            raw = self.source_affine(context).view(
+                context.shape[0],
+                self.cfg.future_len,
+                self.cfg.n_cells,
+                2,
+            )
+            loc_raw = raw[:, :horizon, :, 0]
+            log_scale_raw = raw[:, :horizon, :, 1]
+        elif self.cfg.source_affine_mode == "horizon_scalar":
+            raw = self.source_affine(context).view(
+                context.shape[0],
+                self.cfg.future_len,
+                2,
+            )
+            loc_raw = raw[:, :horizon, 0].unsqueeze(-1)
+            log_scale_raw = raw[:, :horizon, 1].unsqueeze(-1)
+        elif self.cfg.source_affine_mode == "global_scalar":
+            raw = self.source_affine(context)
+            loc_raw = raw[:, 0].view(context.shape[0], 1, 1)
+            log_scale_raw = raw[:, 1].view(context.shape[0], 1, 1)
+        else:
+            raise ValueError(
+                f"unknown source_affine_mode={self.cfg.source_affine_mode!r}"
+            )
         loc_clip = float(self.cfg.source_loc_clip)
         loc = loc_raw.clamp(-loc_clip, loc_clip) if loc_clip > 0 else loc_raw
         lo = math.log(float(self.cfg.source_scale_min))
         hi = math.log(float(self.cfg.source_scale_max))
         scale = torch.exp(log_scale_raw.clamp(lo, hi))
+        if loc.shape[-1] == 1:
+            loc = loc.expand(context.shape[0], horizon, self.cfg.n_cells)
+        if scale.shape[-1] == 1:
+            scale = scale.expand(context.shape[0], horizon, self.cfg.n_cells)
         return loc, scale
 
     def target_mixed_coordinates(
