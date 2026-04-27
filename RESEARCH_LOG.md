@@ -102349,3 +102349,85 @@ The next controlled diagnostic should evaluate moderate generic sample temperatu
 - `results/autoresearch/610a_joint38_ar_transition_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 611 temperature diagnostic
+
+### Context
+610a recovered several structural suites but remained underinclusive in sparse/high-move regimes. 611a tests whether the gap is a simple scalar sampling-spread issue before adding model architecture.
+
+### Change
+Added `--sample_temperature` to:
+- `experiments/backfill/block_ar/evaluate_609a_unified_ar_transition_flow.py`
+
+Verification:
+- `python -m py_compile experiments/backfill/block_ar/evaluate_609a_unified_ar_transition_flow.py`
+- `pytest test_code/test_609a_generic_empirical_score_transition.py -q`
+- result: `2 passed`
+
+### Runs
+Checkpoint:
+- `models/backfill/610a_joint38_ar_transition_e8_w2048_s610/best_model.pt`
+
+Temperature diagnostics:
+- temp `1.05`: `results/autoresearch/611a_610a_temperature_diagnostic/temp105_full11.json`
+- temp `1.15`: `results/autoresearch/611a_610a_temperature_diagnostic/temp115_full11.json`
+
+### Result
+Baseline temp `1.00` from 610a:
+- score `5/11`;
+- cov90 `75.7%`;
+- daily KS `24/25`;
+- level KS `2/25`;
+- cointegration worst-cell `0.328` pass;
+- pathwise max-jump KS `0.446` pass;
+- per-cell q99 jump-scale `21/25` pass.
+
+Temp `1.05`:
+- score `4/11`;
+- cov90 `76.9%`;
+- conditional MAE reduction `6.0%`;
+- turbulent/calm width `1.023`;
+- daily KS `23/25`;
+- level KS `2/25`;
+- median-bias cells `9/25`;
+- cointegration worst-cell `0.200` fail;
+- pathwise max-jump KS `0.379` pass;
+- per-cell q99 jump-scale `20/25` pass;
+- persistent severe undercoverage `10.9%`.
+
+Temp `1.15`:
+- score `4/11`;
+- cov90 `78.6%`;
+- conditional MAE reduction `4.1%`;
+- turbulent/calm width `1.019`;
+- daily KS `22/25`;
+- level KS `1/25`;
+- median-bias cells `7/25`;
+- pathwise max-jump KS `0.226` pass but per-cell q99 jump-scale `12/25` fail;
+- persistent severe undercoverage `10.7%`.
+
+### Mechanism Read
+Scalar temperature is not the missing risk layer. It slightly increases aggregate coverage but barely moves the real sparse-window/regime pathology:
+- persistent severe undercoverage stays around `11%`;
+- regime layer2 stays `0/8`;
+- turbulent/calm width remains close to `1.0`.
+
+It also damages important structure:
+- `1.05` breaks the weakest cointegration cell;
+- `1.15` breaks per-cell jump-tail realism and pathwise suite;
+- level KS and median bias worsen.
+
+The issue is state-dependent width/path placement, not global narrowness.
+
+### Decision
+Close scalar temperature as a deployability layer for 610a.
+
+Next: learn conditional source scale inside the same generic AR transition model. It should be a single architecture-generic mechanism that works for both IV-only and joint38: infer per-variable source scale from causal memory state and apply it in training and sampling.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_611a_610a_temperature_diagnostic.md`
+- `results/autoresearch/611a_610a_temperature_diagnostic/temp105_full11.json`
+- `results/autoresearch/611a_610a_temperature_diagnostic/temp105_full11.md`
+- `results/autoresearch/611a_610a_temperature_diagnostic/temp115_full11.json`
+- `results/autoresearch/611a_610a_temperature_diagnostic/temp115_full11.md`
+
+---

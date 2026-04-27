@@ -95,6 +95,7 @@ def generate_iv_samples(
     chunk_size: int,
     device: torch.device,
     iv_count: int,
+    sample_temperature: float,
 ) -> np.ndarray:
     chunks: list[np.ndarray] = []
     for start in range(0, int(history.shape[0]), int(batch_size)):
@@ -105,6 +106,7 @@ def generate_iv_samples(
             n_samples=int(samples),
             n_steps=int(n_steps),
             chunk_size=int(chunk_size),
+            temperature=float(sample_temperature),
         )
         arr = panel_samples.detach().cpu().numpy()[..., :iv_count]
         chunks.append(arr.reshape(end - start, int(samples), int(n_steps), 5, 5).astype(np.float32))
@@ -158,6 +160,7 @@ def main() -> None:
     parser.add_argument("--n_steps", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--chunk_size", type=int, default=8)
+    parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--conditionality_samples", type=int, default=32)
     parser.add_argument("--conditionality_max_batches", type=int, default=8)
     parser.add_argument("--seed", type=int, default=609)
@@ -198,6 +201,7 @@ def main() -> None:
         chunk_size=int(args.chunk_size),
         device=device,
         iv_count=int(args.iv_count),
+        sample_temperature=float(args.sample_temperature),
     )
     generation_time = time.time() - t0
     hist_norm_np = batch.history_norm.detach().cpu().numpy()[:n_windows]
@@ -227,6 +231,7 @@ def main() -> None:
         "n_windows": int(n_windows),
         "samples": int(args.samples),
         "n_steps": int(args.n_steps),
+        "sample_temperature": float(args.sample_temperature),
         "generation_time_s": float(generation_time),
         "device": str(device),
         "seed": int(args.seed),
