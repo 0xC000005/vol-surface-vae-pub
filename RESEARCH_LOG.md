@@ -104252,3 +104252,51 @@ shared-source multi-head backbone, targeting realized movement, tail allocation,
 and long-horizon path geometry directly.
 
 ---
+## 2026-04-27: Autoresearch 654a terminal path objective
+
+### Context
+
+654a tested a loss-level change on the 652a shared-source multi-head backbone.
+The architecture and reference-based joint coordinate stayed fixed. The goal was
+to target realized future movement and tail allocation without adding another
+model family.
+
+### Implementation
+
+- Added optional `terminal_path_loss_weight`, `terminal_tail_weight`, and
+  `terminal_tail_threshold` to the mixed-coordinate path flow config.
+- The standard flow-matching MSE remains the main objective.
+- When enabled, the predicted velocity implies a terminal path estimate
+  `x1_hat = x_t + (1 - t) * v_theta(...)`.
+- A smooth-L1 terminal path loss compares `x1_hat` with the realized mixed path,
+  with optional tail-coordinate upweighting.
+- The feature is disabled by default.
+
+### Results
+
+- `654a_joint38`: `4/11` on the IV suite.
+- Pathwise max-jump KS improved from 652a `0.619` to `0.570`, but still failed
+  the `<0.50` gate.
+- Conditionality worsened to `1.8%` MAE reduction.
+- Daily-change KS failed with `12/25` cells.
+- Level KS failed with `8/25` cells.
+- Tail-scale remained weak with `12/25` cells.
+- Joint audit remained strong: factor KS mean `0.0989`, factor KS pass `13/13`,
+  factor q99 pass `13/13`, factor-factor correlation `0.871`, and IV-factor
+  correlation `0.846`.
+
+### Interpretation
+
+The objective moved one intended pathwise metric but not enough, and the cost to
+conditionality and daily-change distribution was too high. A pointwise terminal
+loss still behaves like supervised path fitting toward the single realized
+future. It does not solve the conditional law allocation problem.
+
+### Decision
+
+Keep the terminal path objective as optional disabled-by-default code, but close
+this configuration as below the 652a backbone. The next objective experiment, if
+continued locally, should be a true sampled distribution score such as energy or
+sliced-Wasserstein over multiple generated futures, not another pointwise loss.
+
+---

@@ -97,6 +97,9 @@ def main() -> None:
     parser.add_argument("--source_scale_min", type=float, default=0.5)
     parser.add_argument("--source_scale_max", type=float, default=2.0)
     parser.add_argument("--source_loc_clip", type=float, default=3.0)
+    parser.add_argument("--terminal_path_loss_weight", type=float, default=0.0)
+    parser.add_argument("--terminal_tail_weight", type=float, default=0.0)
+    parser.add_argument("--terminal_tail_threshold", type=float, default=1.5)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -178,6 +181,9 @@ def main() -> None:
         source_scale_min=float(args.source_scale_min),
         source_scale_max=float(args.source_scale_max),
         source_loc_clip=float(args.source_loc_clip),
+        terminal_path_loss_weight=float(args.terminal_path_loss_weight),
+        terminal_tail_weight=float(args.terminal_tail_weight),
+        terminal_tail_threshold=float(args.terminal_tail_threshold),
     )
     if args.head_mode == "multihead":
         cfg = GenericMultiHeadMixedCoordinatePathFMConfig(
@@ -255,6 +261,11 @@ def main() -> None:
             "head_hidden": int(args.head_hidden),
             "shared_source": True,
             "shared_backbone": True,
+        },
+        "path_objective_policy": {
+            "terminal_path_loss_weight": float(args.terminal_path_loss_weight),
+            "terminal_tail_weight": float(args.terminal_tail_weight),
+            "terminal_tail_threshold": float(args.terminal_tail_threshold),
         },
     }
     for epoch in range(1, int(args.epochs) + 1):
@@ -343,6 +354,7 @@ def main() -> None:
         "generated_coordinate_policy": extra["generated_coordinate_policy"],
         "positive_level_policy": args.positive_level_policy,
         "head_policy": extra["head_policy"],
+        "path_objective_policy": extra["path_objective_policy"],
         "output_dir": str(output_dir),
     }
     (output_dir / "training_history.json").write_text(

@@ -26,6 +26,9 @@ class GenericMixedCoordinatePathFMConfig(CausalFutureMemoryTransitionFMConfig):
     source_scale_min: float = 0.5
     source_scale_max: float = 2.0
     source_loc_clip: float = 3.0
+    terminal_path_loss_weight: float = 0.0
+    terminal_tail_weight: float = 0.0
+    terminal_tail_threshold: float = 1.5
 
 
 class GenericMixedCoordinatePathFlowMatching(nn.Module):
@@ -366,14 +369,30 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
         target_velocity = x1 - x0
         pred_velocity = self.predict_velocity(x_t, context, t)
         fm_loss = F.mse_loss(pred_velocity, target_velocity)
+        loss = fm_loss
         metrics = {
-            "total": fm_loss.detach(),
+            "total": loss.detach(),
             "fm_loss": fm_loss.detach(),
             "target_mixed_coord_std": x1.std(unbiased=False).detach(),
             "target_mixed_coord_abs": x1.abs().mean().detach(),
             "target_velocity_std": target_velocity.std(unbiased=False).detach(),
             "context_abs": context.abs().mean().detach(),
         }
+        if float(self.cfg.terminal_path_loss_weight) > 0.0:
+            x1_pred = x_t + (1.0 - t[:, None, None]) * pred_velocity
+            terminal_error = F.smooth_l1_loss(x1_pred, x1, reduction="none")
+            if float(self.cfg.terminal_tail_weight) > 0.0:
+                tail_gate = (x1.abs() > float(self.cfg.terminal_tail_threshold)).to(
+                    terminal_error
+                )
+                weights = 1.0 + float(self.cfg.terminal_tail_weight) * tail_gate
+                terminal_loss = (terminal_error * weights).mean()
+                metrics["terminal_tail_rate"] = tail_gate.mean().detach()
+            else:
+                terminal_loss = terminal_error.mean()
+            loss = loss + float(self.cfg.terminal_path_loss_weight) * terminal_loss
+            metrics["terminal_path_loss"] = terminal_loss.detach()
+            metrics["total"] = loss.detach()
         if source_loc is not None and source_scale is not None:
             metrics.update(
                 {
@@ -384,7 +403,7 @@ class GenericMixedCoordinatePathFlowMatching(nn.Module):
                     "source_scale_max": source_scale.max().detach(),
                 }
             )
-        return fm_loss, metrics
+        return loss, metrics
 
     def mixed_coordinates_to_increment_values(
         self,
