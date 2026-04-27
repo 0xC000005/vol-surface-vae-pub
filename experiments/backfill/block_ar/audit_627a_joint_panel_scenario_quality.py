@@ -15,20 +15,30 @@ import torch
 
 sys.path.insert(0, ".")
 
-from experiments.backfill.block_ar._factor_conditioning_525_utils import official_train_val_indices  # noqa: E402
-from experiments.backfill.block_ar._panel_law_535_utils import load_aligned_iv_factor_panel  # noqa: E402
-from experiments.backfill.block_ar._rollout_220_utils import make_serializable  # noqa: E402
+from experiments.backfill.block_ar._factor_conditioning_525_utils import (
+    official_train_val_indices,
+)  # noqa: E402
+from experiments.backfill.block_ar._panel_law_535_utils import (
+    load_aligned_iv_factor_panel,
+)  # noqa: E402
+from experiments.backfill.block_ar._rollout_220_utils import (
+    make_serializable,
+)  # noqa: E402
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
     build_unified_increment_block,
     clean_nonpositive_log_level_factors,
     decode_state,
 )
-from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_system import set_seed  # noqa: E402
+from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_system import (
+    set_seed,
+)  # noqa: E402
 from experiments.backfill.block_ar.increment_coordinate_628_utils import (  # noqa: E402
     build_increment_coordinate_block,
     reconstruct_state_from_increments,
 )
-from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import select_scope  # noqa: E402
+from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import (
+    select_scope,
+)  # noqa: E402
 from experiments.backfill.block_ar.train_628a_unified_ar_increment_transition_flow import (  # noqa: E402
     select_increment_scope,
 )
@@ -91,7 +101,9 @@ def corr_similarity(gt: np.ndarray, gen: np.ndarray) -> dict[str, float]:
 HistoryInput = np.ndarray | tuple[np.ndarray, np.ndarray]
 
 
-def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[HistoryInput, np.ndarray, list[Any], Any]:
+def build_history_future(
+    args: argparse.Namespace, payload: dict[str, Any]
+) -> tuple[HistoryInput, np.ndarray, list[Any], Any]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
@@ -107,7 +119,10 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
     )
     if int(args.max_windows) > 0:
         val_indices = val_indices[: int(args.max_windows)]
-    if payload.get("model_coordinate") == "state_conditioned_encoded_increment" or args.model_type == "629a":
+    if payload.get("model_coordinate") in {
+        "state_conditioned_encoded_increment",
+        "state_conditioned_level_score",
+    } or args.model_type in {"629a", "638a"}:
         block = build_increment_coordinate_block(
             panel,
             columns,
@@ -117,23 +132,38 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
             iv_count=int(args.iv_count),
         )
         scope = payload.get("state_scope", args.state_scope)
-        history_level, history_increment, _future_level, future_increment, _history_state, specs = (
-            select_state_increment_scope(
-                block,
-                scope,
-                int(args.iv_count),
-            )
+        (
+            history_level,
+            history_increment,
+            _future_level,
+            future_increment,
+            _history_state,
+            specs,
+        ) = select_state_increment_scope(
+            block,
+            scope,
+            int(args.iv_count),
         )
         expected = [spec["name"] for spec in payload.get("state_specs", [])]
         actual = [spec.name for spec in specs]
         if expected and expected != actual:
-            raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+            raise RuntimeError(
+                "checkpoint state specs do not match rebuilt validation specs"
+            )
         return (
-            history_level.astype(np.float32),
-            history_increment.astype(np.float32),
-        ), future_increment.astype(np.float32), specs, block
+            (
+                history_level.astype(np.float32),
+                history_increment.astype(np.float32),
+            ),
+            future_increment.astype(np.float32),
+            specs,
+            block,
+        )
 
-    if payload.get("model_coordinate") == "encoded_increment" or args.model_type == "628a":
+    if (
+        payload.get("model_coordinate") == "encoded_increment"
+        or args.model_type == "628a"
+    ):
         block = build_increment_coordinate_block(
             panel,
             columns,
@@ -151,7 +181,9 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
         expected = [spec["name"] for spec in payload.get("state_specs", [])]
         actual = [spec.name for spec in specs]
         if expected and expected != actual:
-            raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+            raise RuntimeError(
+                "checkpoint state specs do not match rebuilt validation specs"
+            )
         return history.astype(np.float32), future.astype(np.float32), specs, block
 
     block = build_unified_increment_block(
@@ -164,21 +196,37 @@ def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> t
     )
     scope = payload.get("state_scope", args.state_scope)
     value_coordinate = payload.get("value_coordinate", args.value_coordinate)
-    history, future, specs = select_scope(block, scope, int(args.iv_count), value_coordinate)
+    history, future, specs = select_scope(
+        block, scope, int(args.iv_count), value_coordinate
+    )
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]
     if expected and expected != actual:
-        raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+        raise RuntimeError(
+            "checkpoint state specs do not match rebuilt validation specs"
+        )
     return history.astype(np.float32), future.astype(np.float32), specs, block
 
 
-def load_native_model(model_type: str, checkpoint: str, device: torch.device) -> tuple[Any, dict[str, Any]]:
+def load_native_model(
+    model_type: str, checkpoint: str, device: torch.device
+) -> tuple[Any, dict[str, Any]]:
     if model_type in {"609a", "628a"}:
-        from diffusion.block_ar.generic_empirical_score_transition_flow_matching import load_model
+        from diffusion.block_ar.generic_empirical_score_transition_flow_matching import (
+            load_model,
+        )
 
         return load_model(checkpoint, device)
     if model_type == "629a":
-        from diffusion.block_ar.generic_state_conditioned_increment_flow_matching import load_model
+        from diffusion.block_ar.generic_state_conditioned_increment_flow_matching import (
+            load_model,
+        )
+
+        return load_model(checkpoint, device)
+    if model_type == "638a":
+        from diffusion.block_ar.generic_state_conditioned_level_score_flow_matching import (
+            load_model,
+        )
 
         return load_model(checkpoint, device)
     if model_type == "625a":
@@ -205,10 +253,15 @@ def generate_panel_samples(
     model_coordinate: str,
 ) -> np.ndarray:
     chunks: list[np.ndarray] = []
-    n_history = int(history[0].shape[0] if isinstance(history, tuple) else history.shape[0])
+    n_history = int(
+        history[0].shape[0] if isinstance(history, tuple) else history.shape[0]
+    )
     for start in range(0, n_history, int(batch_size)):
         end = min(start + int(batch_size), n_history)
-        if model_coordinate == "state_conditioned_encoded_increment":
+        if model_coordinate in {
+            "state_conditioned_encoded_increment",
+            "state_conditioned_level_score",
+        }:
             history_level, history_increment = history
             panel_samples = model.sample_batched(
                 torch.from_numpy(history_level[start:end]).to(device),
@@ -228,8 +281,14 @@ def generate_panel_samples(
                 temperature=float(sample_temperature),
             )
         arr = panel_samples.detach().cpu().numpy()
-        if model_coordinate in {"encoded_increment", "state_conditioned_encoded_increment"}:
-            arr = reconstruct_state_from_increments(raw_history[start:end, -1, :], arr, specs)
+        if model_coordinate in {
+            "encoded_increment",
+            "state_conditioned_encoded_increment",
+            "state_conditioned_level_score",
+        }:
+            arr = reconstruct_state_from_increments(
+                raw_history[start:end, -1, :], arr, specs
+            )
         elif value_coordinate == "encoded":
             arr = decode_state(arr, specs).astype(np.float32)
         chunks.append(arr.astype(np.float32))
@@ -304,8 +363,13 @@ def summarize_joint_quality(
 
     iv_factor_mae = float(np.mean(np.abs(gt_iv_factor - gen_iv_factor)))
     iv_factor_corr = 0.0
-    if np.std(gt_iv_factor.reshape(-1)) > 1e-12 and np.std(gen_iv_factor.reshape(-1)) > 1e-12:
-        iv_factor_corr = float(np.corrcoef(gt_iv_factor.reshape(-1), gen_iv_factor.reshape(-1))[0, 1])
+    if (
+        np.std(gt_iv_factor.reshape(-1)) > 1e-12
+        and np.std(gen_iv_factor.reshape(-1)) > 1e-12
+    ):
+        iv_factor_corr = float(
+            np.corrcoef(gt_iv_factor.reshape(-1), gen_iv_factor.reshape(-1))[0, 1]
+        )
 
     return {
         "finite_rate": float(np.isfinite(samples_raw).mean()),
@@ -316,7 +380,9 @@ def summarize_joint_quality(
         "factor_delta_ks_mean": float(np.nanmean(marginal_ks)),
         "factor_delta_ks_pass_020": int(np.sum(np.asarray(marginal_ks) < 0.20)),
         "factor_tail_q99_ratio_median": float(np.nanmedian(tail_ratios)),
-        "factor_tail_q99_pass_05_20": int(np.sum((np.asarray(tail_ratios) >= 0.5) & (np.asarray(tail_ratios) <= 2.0))),
+        "factor_tail_q99_pass_05_20": int(
+            np.sum((np.asarray(tail_ratios) >= 0.5) & (np.asarray(tail_ratios) <= 2.0))
+        ),
         "factor_factor_corr": corr_similarity(gt_factor_corr, gen_factor_corr),
         "iv_factor_corr": {
             "matrix_corr": iv_factor_corr,
@@ -357,14 +423,18 @@ def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model_type", choices=["609a", "625a", "628a", "629a"], required=True)
+    parser.add_argument(
+        "--model_type", choices=["609a", "625a", "628a", "629a", "638a"], required=True
+    )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
     parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=32)
     parser.add_argument("--n_steps", type=int, default=30)
@@ -378,12 +448,16 @@ def main() -> None:
     args = parser.parse_args()
 
     set_seed(int(args.seed))
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     model, payload = load_native_model(args.model_type, args.checkpoint, device)
     history, future, specs, block = build_history_future(args, payload)
     value_coordinate = payload.get("value_coordinate", args.value_coordinate)
     model_coordinate = payload.get("model_coordinate", "state")
-    history_n = int(history[0].shape[0] if isinstance(history, tuple) else history.shape[0])
+    history_n = int(
+        history[0].shape[0] if isinstance(history, tuple) else history.shape[0]
+    )
     n_windows = min(int(args.max_windows), history_n)
     if isinstance(history, tuple):
         history = (history[0][:n_windows], history[1][:n_windows])
@@ -437,7 +511,9 @@ def main() -> None:
     out_json = Path(args.output_json)
     out_md = Path(args.output_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(make_serializable(result), indent=2), encoding="utf-8")
+    out_json.write_text(
+        json.dumps(make_serializable(result), indent=2), encoding="utf-8"
+    )
     write_markdown(out_md, "627a Joint-Panel Scenario Quality Audit", summary)
     print(json.dumps(make_serializable(result["summary"]), indent=2))
     print(f"Wrote {out_json}")
