@@ -102283,3 +102283,69 @@ Keep this branch alive. The next move should be a stronger 609-family training r
 - `results/autoresearch/609a_joint38_ar_transition_smoke/full11_smoke.md`
 
 ---
+## 2026-04-27: Autoresearch 610 scaled joint AR result
+
+### Context
+609a proved the native shared-state joint AR route was mechanically viable but undertrained. 610a keeps the same architecture and scales training before adding any new knobs.
+
+### Run
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- memory/token dim: `128`;
+- memory/token layers: `3`;
+- flow steps: `16`;
+- seed: `610`.
+
+Training result:
+- best epoch: `5`;
+- train loss `0.542 -> 0.254`;
+- best validation loss `0.4357`;
+- final validation loss `0.4484`;
+- finite sample rate `1.0`.
+
+### Official Result
+Official IV bridge on 441 windows / 48 samples:
+- score: `5/11`;
+- passed: surface, block-AR, cointegration, cross-cell correlation, pathwise jump realism;
+- failed: coverage, conditionality, time_series, regime_coverage, distributional_fidelity, mean_reversion.
+
+Key metrics:
+- cov90 overall `75.7%`;
+- h1/h7/h14/h30 cov90 `80.3% / 77.3% / 76.0% / 72.6%`;
+- conditional MAE reduction borderline `5.0%`, but per-cell conditionality fails;
+- turbulent/calm width ratio `1.009`;
+- daily-change KS `24/25`;
+- level KS `2/25`;
+- median-bias cells `11/25`;
+- bad coverage windows `36/441 = 8.2%`;
+- persistent severe undercoverage `1215/11025 = 11.0%`;
+- cointegration gen/GT `0.779`, worst-cell ratio `0.328`;
+- cross-cell corr/rank `0.880 / 1.492`;
+- aggregate mean-reversion ratio `0.892`;
+- pathwise max-jump KS `0.446`;
+- per-cell q99 jump-scale cells `21/25`.
+
+### Mechanism Read
+Scaling helped materially:
+- score improved from 609 smoke `3/11` to `5/11`;
+- cointegration recovered;
+- pathwise max-jump realism recovered;
+- cross-cell structure stayed healthy;
+- daily-change distribution became strong.
+
+The remaining issue is probability-mass allocation across future levels and regimes. The model is structurally coherent but underinclusive in sparse/high-move windows, does not widen enough in turbulent histories, has poor level occupancy, and has directional median bias in many cells.
+
+### Decision
+Keep the native joint AR route alive. 610a is not risk-manager deployable yet, but it is the cleanest joint learned law so far because IV and anchor factors share one transition model and one stochastic rollout.
+
+The next controlled diagnostic should evaluate moderate generic sample temperature on this checkpoint. If temperature improves coverage/regime inclusion without breaking daily-change, cointegration, cross-cell, and pathwise structure, it is a candidate disclosed risk-policy layer. If it breaks structure, the next model-side step should learn regime-responsive source scale inside the AR transition.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_610a_joint38_ar_transition_scaled.md`
+- `models/backfill/610a_joint38_ar_transition_e8_w2048_s610/train_summary.json`
+- `results/autoresearch/610a_joint38_ar_transition_e8_w2048/full11.json`
+- `results/autoresearch/610a_joint38_ar_transition_e8_w2048/full11.md`
+
+---
