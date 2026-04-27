@@ -103915,3 +103915,55 @@ Shift paradigm to a direct sequence-level conditional path law. 647a should gene
 If the direct path-law model cannot improve IV coverage/location while preserving 641a's joint factor audit, freeze 641a as the clean native joint risk-stress baseline with explicit limitations.
 
 ---
+## 2026-04-27: Autoresearch 647a native mixed-coordinate path flow
+
+### Context
+
+647a tested the cleanest reset after the one-step AR family appeared capped: a
+single native joint38 model that conditions on history and generates the full
+30-day future path in one mixed-coordinate flow. IV channels are generated as
+level-score deltas; anchor-factor channels are generated as encoded increment
+scores. The model has one history encoder and one future-path transformer, with
+no retrieval, no IV/factor gluing, no low-rank decoder, and no stress overlay.
+
+### Result
+
+- Code/artifacts:
+  `diffusion/block_ar/generic_mixed_coordinate_path_flow_matching.py`,
+  `experiments/backfill/block_ar/train_647a_mixed_coordinate_path_flow.py`,
+  `experiments/backfill/block_ar/evaluate_647a_mixed_coordinate_path_flow.py`,
+  `models/backfill/647a_joint38_mixed_path_flow_e8_w2048_s647/best_model.pt`.
+- Focused tests passed: `pytest test_code/test_647a_mixed_coordinate_path_flow.py test_code/test_641a_state_conditioned_mixed_coordinate_flow.py -q`.
+- IV 11-suite: 4/11 at
+  `results/autoresearch/647a_joint38_mixed_path_flow_e8_w2048_s647/full11.json`.
+  Passes were surface validity, block boundary smoothness, IV-EWMA
+  cointegration, and cross-cell correlation.
+- Main IV failures: coverage 66.3% overall 90% CI with h7/h14/h30 failing;
+  conditionality MAE reduction -0.7%; kurtosis ratio 0.337; per-cell q99
+  tail-scale pass 14/25; pathwise max-jump KS 0.618 versus the relaxed 0.50
+  gate.
+- Joint-panel audit was strong at
+  `results/autoresearch/647a_joint38_mixed_path_flow_e8_w2048_s647/joint_panel.json`:
+  factor delta KS mean 0.087, factor KS pass 13/13, factor q99 pass 11/13,
+  factor-factor correlation 0.829, IV-factor correlation 0.845.
+
+### Mechanism Read
+
+647a validates the unified native joint-panel direction: it produces coherent
+anchor-factor scenarios and preserves IV-factor dependence without post-hoc
+deck gluing. It does not solve the IV conditional path-law bottleneck. The
+failure is not invalid support, AR rollout drift, or separate factor treatment.
+The likely bottleneck is objective mismatch: plain flow-matching MSE on a
+single future tensor learns a smooth average transport that preserves support
+and correlation but does not directly optimize conditional coverage, tail
+allocation, or realized path probability.
+
+### Decision
+
+Keep 647a as the clean native joint baseline. Do not respond with scalar
+temperature, per-factor branches, or risk-policy stress overlays. The next
+principled move is to keep the same architecture and change the training
+objective toward a proper sample-based conditional law objective that sees
+multiple generated paths per history.
+
+---
