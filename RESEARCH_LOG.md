@@ -102498,3 +102498,65 @@ Do not keep stacking trainable width knobs. Next, use the existing `prefix_featu
 - `results/autoresearch/612a_joint38_ar_condscale_e8_w2048/full11.md`
 
 ---
+## 2026-04-27: Autoresearch 613 scale-prefix falsifier
+
+### Context
+612a showed that naive conditional source scale is degenerate under flow-matching loss: the source-scale head collapsed to the lower clamp. 613a tested a cleaner data-framing hypothesis before changing objectives: keep the same native joint38 AR transition-flow model and fixed source distribution, but feed generic magnitude features to the causal memory.
+
+### Run
+Training:
+- state scope: `joint38`;
+- epochs: `8`;
+- recent train windows: `2048`;
+- `prefix_feature_mode=scale`;
+- conditional source scale disabled;
+- seed: `613`.
+
+The scale-prefix memory sees `score`, `delta`, `abs(delta)`, and `delta^2`. This is generic across IV-only and joint38 panels, with no separate IV/factor path.
+
+Training result:
+- best epoch `2`;
+- best validation loss `0.463413`;
+- final validation loss `0.522760`;
+- finite sample rate `1.0`.
+
+### Result
+Official IV bridge on 441 windows / 48 samples:
+- score: `3/11`;
+- passed: surface, block-AR, cross-cell correlation;
+- failed: coverage, conditionality, time-series properties, cointegration, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+Key metrics:
+- cov90 overall `74.9%`;
+- conditional MAE reduction `8.0%`, but worst-cell MAE reduction `-17.5%`;
+- turbulent/calm width ratio `0.943`;
+- daily-change KS `22/25`;
+- level KS `4/25`;
+- median-bias cells `17/25`;
+- bad coverage windows `29/441 = 6.6%`;
+- persistent severe undercoverage `1408/11025 = 12.8%`;
+- regime layer2 `0/8`;
+- ACF correlation `0.983`;
+- kurtosis ratio `0.747`;
+- cointegration gen/GT `0.673`, but worst-cell ratio `0.224`;
+- cross-cell corr/rank `0.604 / 2.348`;
+- mean-reversion ratio `1.092`, active pass `10/12`, but full-horizon MR failed;
+- pathwise max-jump KS `0.413`, but per-cell q99 jump-scale `19/25`.
+
+### Mechanism Read
+Scale-prefix features did not fix the bottleneck. They made some local movement behavior more active, but the trade-off was worse level occupancy, worse sparse-window undercoverage, worse cointegration worst-cell, higher effective rank, and uneven per-cell tail scale.
+
+This falsifies the simple “memory lacks generic volatility features” explanation. The recurring issue is calibrated conditional probability mass, not merely missing prefix statistics.
+
+### Decision
+Close `prefix_feature_mode=scale` as the next deployable direction.
+
+The next principled move should be objective-level: keep the same generic state-panel framing and one shared memory/transition model, but replace flow-matching MSE with conditional density / NLL training so calibration and probability mass are optimized directly rather than indirectly through velocity MSE.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_613a_joint38_ar_scalefeat.md`
+- `models/backfill/613a_joint38_ar_scalefeat_e8_w2048_s613/train_summary.json`
+- `results/autoresearch/613a_joint38_ar_scalefeat_e8_w2048/full11.json`
+- `results/autoresearch/613a_joint38_ar_scalefeat_e8_w2048/full11.md`
+
+---
