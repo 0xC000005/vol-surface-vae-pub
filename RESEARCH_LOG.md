@@ -101110,3 +101110,102 @@ learned prior. If not, the next paradigm should move to a final-series-oriented
 path-token model rather than more source tricks.
 
 ---
+## 2026-04-27: Autoresearch 586 conditional affine source flow
+
+### Context
+
+585a identified the clean falsifier for the source-dominated unified flow branch:
+replace empirical future-path lookup with a learned conditional source prior.
+
+### Implementation
+
+Extended `experiments/backfill/block_ar/train_577a_unified_increment_flow.py`
+with:
+
+- `source_mode=conditional_affine`;
+- one history-conditioned Gaussian source head over the full future increment
+  tensor;
+- optional `source_prior_nll_weight`;
+- no empirical source bank for this run.
+
+Added focused test coverage in `test_code/test_577a_unified_increment_flow.py`
+and analysis in
+`experiments/backfill/block_ar/ANALYSIS_586a_conditional_affine_source_flow.md`.
+
+### Run
+
+Trained:
+
+```bash
+python experiments/backfill/block_ar/train_577a_unified_increment_flow.py \
+  --clean_nonpositive_log_levels \
+  --hidden_dim 384 \
+  --depth 5 \
+  --source_mode conditional_affine \
+  --source_prior_nll_weight 0.05 \
+  --epochs 20 \
+  --batch_size 64 \
+  --lr 7e-4 \
+  --sample_windows 128 \
+  --n_samples 8 \
+  --sample_steps 16 \
+  --output_dir models/backfill/586a_conditional_affine_source_flow_s586 \
+  --seed 586 \
+  --device cuda
+```
+
+Full audit:
+
+```bash
+python experiments/backfill/block_ar/audit_583a_unified_flow_sample_quality.py \
+  --checkpoint models/backfill/586a_conditional_affine_source_flow_s586/best_model.pt \
+  --sample_windows 441 \
+  --n_samples 32 \
+  --sample_steps 16 \
+  --seed 586 \
+  --device cuda \
+  --output results/autoresearch/586a_conditional_affine_source_flow/audit.json
+```
+
+Focused tests: `11 passed`.
+
+### Result
+
+Best validation loss: `1.8713`, much lower than 582c's `2.5459`.
+
+Full audit post-flow:
+
+- IV max: `455.48`;
+- IV q99.9%: `4.75`;
+- IV 90% coverage: `0.820`;
+- factor 90% coverage: `0.542`;
+- IV sample std / GT std: `7.56`;
+- IV endpoint corr: `0.101`;
+- factor endpoint corr: `0.009`.
+
+Source-only versus post-flow:
+
+- IV max reduced by `223.08`;
+- IV coverage improved by `0.032`;
+- factor coverage improved by `0.049`;
+- increment effective rank dropped from `906.0` to `256.9`.
+
+### Mechanism Read
+
+586a proves the learned conditional prior makes the flow do real work; this is no
+longer the 582c source-dominated pathology.
+
+But it also exposes a sharper failure: pointwise increment/velocity loss is
+misaligned with the reconstructed future state path. Small transformed-increment
+errors compound through cumulative log-level reconstruction, producing severe IV
+level explosions despite low validation loss.
+
+### Decision
+
+Do not tune source log-scale caps or add IV-specific clamps.
+
+Next experiment should use a final-series-oriented loss over cumulative encoded
+state error while keeping the same unified panel and conditional-affine source.
+This directly targets the compounding failure without separating IV and factors.
+
+---

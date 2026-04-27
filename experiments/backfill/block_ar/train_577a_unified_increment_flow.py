@@ -46,6 +46,9 @@ class UnifiedIncrementFlowConfig:
     dropout: float = 0.05
     source_mode: str = "independent"
     conditional_source_topk: int = 64
+    source_loc_clip: float = 5.0
+    source_log_scale_min: float = -3.0
+    source_log_scale_max: float = 2.0
 
 
 class UnifiedIncrementFlow(nn.Module):
@@ -80,6 +83,18 @@ class UnifiedIncrementFlow(nn.Module):
         self.register_buffer("source_cholesky", torch.eye(self.path_dim), persistent=True)
         self.register_buffer("source_bank", torch.empty(0, self.path_dim), persistent=True)
         self.register_buffer("source_keys", torch.empty(0, cfg.n_vars), persistent=True)
+        if cfg.source_mode == "conditional_affine":
+            self.source_head = nn.Sequential(
+                nn.Linear(cfg.hidden_dim, cfg.hidden_dim),
+                nn.SiLU(),
+                nn.Linear(cfg.hidden_dim, 2 * self.path_dim),
+            )
+            final = self.source_head[-1]
+            if isinstance(final, nn.Linear):
+                nn.init.zeros_(final.weight)
+                nn.init.zeros_(final.bias)
+        else:
+            self.source_head = None
 
     def set_source_gaussian(self, mean: torch.Tensor, cholesky: torch.Tensor) -> None:
         if mean.shape != (self.path_dim,):
@@ -100,6 +115,36 @@ class UnifiedIncrementFlow(nn.Module):
                 raise ValueError(f"keys shape must be ({bank.shape[0]}, {self.cfg.n_vars}), got {tuple(keys.shape)}")
             self.source_keys = keys.to(device=self.source_mean.device, dtype=self.source_mean.dtype).contiguous()
 
+    def _history_context(self, history: torch.Tensor) -> torch.Tensor:
+        _, h_n = self.history_encoder(history)
+        return h_n[-1]
+
+    def conditional_source_params(self, history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.source_head is None:
+            raise RuntimeError("conditional_source_params requires source_mode='conditional_affine'")
+        context = self._history_context(history)
+        loc_raw, log_scale_raw = self.source_head(context).chunk(2, dim=-1)
+        loc_clip = float(max(self.cfg.source_loc_clip, 1e-6))
+        loc = loc_clip * torch.tanh(loc_raw / loc_clip)
+        log_scale = torch.clamp(
+            log_scale_raw,
+            min=float(self.cfg.source_log_scale_min),
+            max=float(self.cfg.source_log_scale_max),
+        )
+        return loc, log_scale
+
+    def _draw_conditional_affine_flat(
+        self,
+        history: torch.Tensor,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        loc, log_scale = self.conditional_source_params(history.to(device=device, dtype=dtype))
+        eps = torch.randn(loc.shape, device=device, dtype=dtype)
+        flat = loc + eps * torch.exp(log_scale)
+        return flat, loc, log_scale
+
     def draw_source(
         self,
         batch_size: int,
@@ -108,6 +153,17 @@ class UnifiedIncrementFlow(nn.Module):
         dtype: torch.dtype,
         history: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        if self.cfg.source_mode == "conditional_affine":
+            if history is None:
+                raise RuntimeError("conditional_affine source requires history")
+            flat, _loc, _log_scale = self._draw_conditional_affine_flat(
+                history,
+                device=device,
+                dtype=dtype,
+            )
+            if flat.shape[0] != int(batch_size):
+                raise ValueError(f"history batch {flat.shape[0]} does not match batch_size {batch_size}")
+            return flat.reshape(int(batch_size), self.cfg.future_len, self.cfg.n_vars)
         if self.cfg.source_mode in {"empirical_path", "empirical_conditional"}:
             if self.source_bank.numel() == 0:
                 raise RuntimeError(f"{self.cfg.source_mode} source requires a non-empty source_bank")
@@ -142,23 +198,47 @@ class UnifiedIncrementFlow(nn.Module):
     def forward(self, history: torch.Tensor, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         if history.ndim != 3 or x_t.ndim != 3:
             raise ValueError("history and x_t must have shape (batch, time, vars)")
-        _, h_n = self.history_encoder(history)
-        context = h_n[-1]
+        context = self._history_context(history)
         t_embed = self.time_embed(t.reshape(-1, 1))
         flat_x = x_t.reshape(x_t.shape[0], -1)
         velocity = self.net(torch.cat([flat_x, context, t_embed], dim=1))
         return velocity.reshape_as(x_t)
 
-    def training_loss(self, history: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        noise = self.draw_source(target.shape[0], device=target.device, dtype=target.dtype, history=history)
+    def training_loss(
+        self,
+        history: torch.Tensor,
+        target: torch.Tensor,
+        *,
+        source_prior_nll_weight: float = 0.0,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        source_prior_nll = target.new_tensor(0.0)
+        if self.cfg.source_mode == "conditional_affine":
+            flat_noise, loc, log_scale = self._draw_conditional_affine_flat(
+                history,
+                device=target.device,
+                dtype=target.dtype,
+            )
+            noise = flat_noise.reshape_as(target)
+            target_flat = target.reshape(target.shape[0], -1)
+            inv_scale = torch.exp(-log_scale)
+            source_prior_nll = 0.5 * (
+                ((target_flat - loc) * inv_scale).square()
+                + 2.0 * log_scale
+                + float(np.log(2.0 * np.pi))
+            ).mean()
+        else:
+            noise = self.draw_source(target.shape[0], device=target.device, dtype=target.dtype, history=history)
         t = torch.rand(target.shape[0], device=target.device, dtype=target.dtype)
         shape = (target.shape[0],) + (1,) * (target.ndim - 1)
         x_t = (1.0 - t.reshape(shape)) * noise + t.reshape(shape) * target
         target_velocity = target - noise
         pred_velocity = self.forward(history, x_t, t)
-        loss = torch.mean((pred_velocity - target_velocity) ** 2)
+        fm_loss = torch.mean((pred_velocity - target_velocity) ** 2)
+        loss = fm_loss + float(source_prior_nll_weight) * source_prior_nll
         return loss, {
             "loss": loss.detach(),
+            "fm_loss": fm_loss.detach(),
+            "source_prior_nll": source_prior_nll.detach(),
             "target_std": target.detach().std(),
             "velocity_std": target_velocity.detach().std(),
             "pred_velocity_std": pred_velocity.detach().std(),
@@ -449,10 +529,14 @@ def main() -> None:
     parser.add_argument("--dropout", type=float, default=0.05)
     parser.add_argument(
         "--source_mode",
-        choices=["independent", "path_gaussian", "empirical_path", "empirical_conditional"],
+        choices=["independent", "path_gaussian", "empirical_path", "empirical_conditional", "conditional_affine"],
         default="independent",
     )
     parser.add_argument("--conditional_source_topk", type=int, default=64)
+    parser.add_argument("--source_prior_nll_weight", type=float, default=0.0)
+    parser.add_argument("--source_loc_clip", type=float, default=5.0)
+    parser.add_argument("--source_log_scale_min", type=float, default=-3.0)
+    parser.add_argument("--source_log_scale_max", type=float, default=2.0)
     parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
     parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
     parser.add_argument("--increment_transform", choices=["standard", "normal_score"], default="standard")
@@ -511,6 +595,9 @@ def main() -> None:
         dropout=args.dropout,
         source_mode=args.source_mode,
         conditional_source_topk=args.conditional_source_topk,
+        source_loc_clip=args.source_loc_clip,
+        source_log_scale_min=args.source_log_scale_min,
+        source_log_scale_max=args.source_log_scale_max,
     )
     model = UnifiedIncrementFlow(cfg).to(device)
     source_diagnostics: dict[str, Any] = {"source_mode": args.source_mode}
@@ -547,6 +634,15 @@ def main() -> None:
                 else None,
             }
         )
+    elif args.source_mode == "conditional_affine":
+        source_diagnostics.update(
+            {
+                "source_prior_nll_weight": float(args.source_prior_nll_weight),
+                "source_loc_clip": float(args.source_loc_clip),
+                "source_log_scale_min": float(args.source_log_scale_min),
+                "source_log_scale_max": float(args.source_log_scale_max),
+            }
+        )
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     train_loader = DataLoader(
@@ -570,7 +666,11 @@ def main() -> None:
         n_batches = 0
         for history, target in loader:
             with torch.set_grad_enabled(train_mode):
-                loss, metrics = model.training_loss(history, target)
+                loss, metrics = model.training_loss(
+                    history,
+                    target,
+                    source_prior_nll_weight=float(args.source_prior_nll_weight),
+                )
                 if train_mode:
                     optimizer.zero_grad(set_to_none=True)
                     loss.backward()
@@ -598,6 +698,10 @@ def main() -> None:
             "epoch": epoch,
             "train_loss": train_avg["loss"],
             "val_loss": val_avg["loss"],
+            "train_fm_loss": train_avg.get("fm_loss", train_avg["loss"]),
+            "val_fm_loss": val_avg.get("fm_loss", val_avg["loss"]),
+            "train_source_prior_nll": train_avg.get("source_prior_nll", 0.0),
+            "val_source_prior_nll": val_avg.get("source_prior_nll", 0.0),
             "val_target_std": val_avg["target_std"],
             "val_velocity_std": val_avg["velocity_std"],
             "val_pred_velocity_std": val_avg["pred_velocity_std"],
