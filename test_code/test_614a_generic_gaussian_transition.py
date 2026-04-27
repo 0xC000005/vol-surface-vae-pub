@@ -126,3 +126,32 @@ def test_mean_loss_weight_path_is_finite():
     loss, metrics = model.training_loss(history, future)
     assert torch.isfinite(loss)
     assert metrics["mean_loss"].item() >= 0
+
+
+def test_rollout_mean_loss_path_is_finite():
+    torch.manual_seed(620)
+    cfg = GenericGaussianTransitionConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=3,
+        n_quantiles=17,
+        memory_dim=12,
+        memory_layers=1,
+        memory_heads=3,
+        memory_ff=24,
+        head_hidden=24,
+        model_dropout=0.0,
+        distribution_family="student_t",
+        student_t_df=5.0,
+        rollout_mean_loss_weight=0.5,
+        rollout_mean_loss_steps=2,
+    )
+    model = GenericGaussianTransitionLaw(cfg)
+    levels = torch.linspace(0.01, 0.99, cfg.n_quantiles)
+    quantiles = torch.stack([torch.linspace(0.0, 1.0, cfg.n_quantiles) for _ in range(cfg.n_cells)])
+    model.set_empirical_quantiles(quantiles, levels)
+    history = torch.rand(3, 4, 3)
+    future = torch.rand(3, 3, 3)
+    loss, metrics = model.training_loss(history, future)
+    assert torch.isfinite(loss)
+    assert metrics["rollout_mean_loss"].item() >= 0

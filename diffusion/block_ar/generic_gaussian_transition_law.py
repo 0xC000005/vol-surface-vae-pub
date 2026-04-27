@@ -31,6 +31,9 @@ class GenericGaussianTransitionConfig:
     distribution_family: str = "gaussian"
     student_t_df: float = 5.0
     mean_loss_weight: float = 0.0
+    rollout_mean_loss_weight: float = 0.0
+    rollout_mean_loss_steps: int = 30
+    rollout_mean_loss_beta: float = 0.5
 
 
 class GenericGaussianTransitionLaw(nn.Module):
@@ -256,11 +259,34 @@ class GenericGaussianTransitionLaw(nn.Module):
         nll = -self._log_prob(target_flat, mean, tril).mean()
         mean_loss = F.smooth_l1_loss(mean, target_flat, beta=0.5)
         total = nll + float(self.cfg.mean_loss_weight) * mean_loss
+        rollout_loss = torch.zeros((), device=history_values.device, dtype=history_values.dtype)
+        if float(self.cfg.rollout_mean_loss_weight) > 0.0:
+            steps = max(1, min(int(self.cfg.rollout_mean_loss_steps), self.cfg.future_len))
+            rollout_prefix = history_scores
+            rollout_frames: list[torch.Tensor] = []
+            for _step in range(steps):
+                rollout_memory = self._encode_prefix_scores(rollout_prefix)[:, -1]
+                rollout_current = rollout_prefix[:, -1]
+                rollout_mean, _rollout_tril, _rollout_diag = self._params(
+                    rollout_memory,
+                    rollout_current,
+                )
+                rollout_next = rollout_current + rollout_mean
+                rollout_frames.append(rollout_next)
+                rollout_prefix = torch.cat([rollout_prefix, rollout_next[:, None, :]], dim=1)
+            rollout_path = torch.stack(rollout_frames, dim=1)
+            rollout_loss = F.smooth_l1_loss(
+                rollout_path,
+                future_scores[:, :steps],
+                beta=float(self.cfg.rollout_mean_loss_beta),
+            )
+            total = total + float(self.cfg.rollout_mean_loss_weight) * rollout_loss
         pred_error = target_flat - mean
         metrics = {
             "total": total.detach(),
             "nll": nll.detach(),
             "mean_loss": mean_loss.detach(),
+            "rollout_mean_loss": rollout_loss.detach(),
             "transition_std": target.std(unbiased=False).detach(),
             "transition_abs": target.abs().mean().detach(),
             "pred_error_abs": pred_error.abs().mean().detach(),

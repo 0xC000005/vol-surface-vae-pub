@@ -102966,3 +102966,22 @@ This targets train/sample mismatch directly while preserving one shared state-pa
 - `experiments/backfill/block_ar/ANALYSIS_619_likelihood_pathology_and_next.md`
 
 ---
+## 2026-04-27: Autoresearch 620a: recursive mean-rollout loss falsifier
+
+### Context
+620a tested the narrowest fix implied by the 619 likelihood-pathology analysis: keep the unified joint38 Student-t AR likelihood, but add a recursive smooth-L1 loss on the model's rolled predicted mean path over the 30-day future. The goal was to repair free-running level placement and mean reversion without adding separate IV/factor treatment, retrieval, hand-built stress decks, or post-hoc calibration.
+
+### Result
+620a scored `3/11` on the official broad-frame IV suite. It passed only `block_ar`, `cointegration`, and `cross_cell_correlation`, and failed `surface`, `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, and `pathwise_jump_realism`.
+
+Key metrics: cov90 `0.920`, conditionality MAE reduction `3.22%`, turbulent/calm width ratio `0.927`, regime layer2 `0/8`, daily-change KS `12/25`, level KS `0/25`, median-bias cells `13/25`, mean-reversion active pass `1/12`, max-jump KS `0.339`.
+
+### Mechanism Read
+The recursive mean path loss conflicts with the stochastic transition likelihood. It chases a deterministic future center while the risk scenario generator needs a calibrated conditional distribution over paths. The rollout loss decreased during training, but validation likelihood degraded after epoch 2 and the full suite regressed from the 617a likelihood frontier.
+
+### Decision
+Close this branch. Do not stack more auxiliary mean-placement losses onto the one-step likelihood family. The next principled move is analysis/ideation on whether to keep AR but train a sequence-level stochastic objective, or shift to a direct conditional future-path law that trains the same full path object it samples, with one shared panel interface for IV-only and 25+13 joint scenarios.
+
+Artifacts: `experiments/backfill/block_ar/ANALYSIS_620a_joint38_ar_studentt_rollmean_nll.md`, `models/backfill/620a_joint38_ar_studentt_rollmean_nll_e8_w2048_s620/`, `results/autoresearch/620a_joint38_ar_studentt_rollmean_nll_e8_w2048/full11.md`.
+
+---
