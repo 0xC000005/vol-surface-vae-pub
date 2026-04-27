@@ -103900,3 +103900,18 @@ The local distributional objective supplies useful path/correlation geometry but
 Close 645a at this weight and do not weight-sweep by default. The next step should be a paradigm decision: either freeze 641a as the clean native joint risk-stress baseline with explicit limitations, or shift to a direct sequence-level probabilistic path model that trains the full future law natively.
 
 ---
+## 2026-04-27: Autoresearch 646a post-645 paradigm decision
+
+### Context
+646a is the paradigm decision after 641a, 643a, and 645a. 641a solved native joint IV-plus-anchor-factor generation, but temperature and local distributional finetuning did not make the one-step/free-running family deployable.
+
+### Mechanism Read
+The active family is capped. One-step transition training is good at local daily changes, support validity, and co-movement, but bad at allocating full-path conditional probability mass over 30 days. Every repair moves one metric group while damaging another: temperature helps coverage/pathwise but breaks tail/correlation balance; local distribution alignment helps path geometry but worsens conditional location; likelihood-family shifts improve coverage but damage level/tail/mean-reversion properties.
+
+### Decision
+Shift paradigm to a direct sequence-level conditional path law. 647a should generate the entire future `[horizon, channels]` tensor jointly in the 641a mixed coordinate, conditioned on history level/increment scores, with one shared temporal/channel denoiser and a vanilla full-path flow/diffusion objective. No separate IV/factor treatment, no retrieval, no low-rank decoder, no stress deck.
+
+### Falsifier
+If the direct path-law model cannot improve IV coverage/location while preserving 641a's joint factor audit, freeze 641a as the clean native joint risk-stress baseline with explicit limitations.
+
+---
