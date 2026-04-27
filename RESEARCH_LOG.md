@@ -101878,3 +101878,38 @@ Prior conditional source-scale branches already closed the obvious learned-noise
 Close global temperature as a model route. It may remain a risk-policy overlay, but it is not a learned conditional law. The next principled step is a paradigm decision: either package a risk-policy overlay honestly, or move beyond IV-only state and train the same unified factor generator with informative joint factors so the model can learn where future level mass belongs.
 
 ---
+## 2026-04-27: Autoresearch 598 joint factor signal audit shift
+
+### Context
+
+593a-597a closed the clean IV-only routes around 510a: learned latent wrapper, same-frame audit, final-path joint objective, and global temperature/noise calibration. The stable broad-frame failure is conditional allocation of future level mass across sparse cells, regimes, and horizons.
+
+### Local Evidence
+
+Available data:
+
+- `data/vol_surface_with_ret.npz`: IV surface plus `ret`, `price`, `slopes`, `skews`, `levels`;
+- `data/multi_factor_data.npz`: 13 factor levels and 13 returns/diffs;
+- factor list: `spx`, `usdcad`, `usdjpy`, `dxy`, `copper`, `wheat`, `crude_oil`, `us2y`, `us10y`, `aaa_oas`, `bbb_oas`, `nikkei`, `gold`.
+
+Prior evidence:
+
+- Exp 100 found SPX returns mostly redundant after IV history.
+- 537a native 51-variable panel Cholesky transition scored `4/11`.
+- 573a/574a are risk-manager stress decks, not calibrated probability laws.
+- 575a/576a already defined and audited a native unified increment-panel framing.
+- 448a-450a and 597a close source-noise/temperature as a solution family.
+
+### Decision
+
+Paradigm shift: treat IV-only research as capped for now. The remaining learned-law path is a unified joint factor generator, but it must not be trained blindly.
+
+Next step is 599: a factor signal audit. Use same-frame 510a failure maps as targets and compare:
+
+- IV-only history summaries;
+- factor-history summaries;
+- IV+factor summaries.
+
+Targets should include per-window coverage floor failure, persistent undercoverage count, median-direction bias, and level-location error. Use simple time-ordered out-of-sample ridge/logistic models only. If factors add real lift, train a native joint generator. If not, the honest path is a risk-policy overlay around the best learned IV generator.
+
+---
