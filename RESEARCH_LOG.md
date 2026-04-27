@@ -101837,3 +101837,44 @@ The final-path objective improves a few path-geometry metrics, but it worsens th
 596a is not deployable and should not be weight-swept by default. The next principled step is to diagnose whether the missing uncertainty is an inference/sampling calibration issue in the existing AR flow or a learned transition-law limitation. Prefer a small noise-calibration diagnostic over another architecture change.
 
 ---
+## 2026-04-27: Autoresearch 597 global temperature diagnostic
+
+### Context
+
+596a showed that final-path joint-distribution finetuning narrows the scenario deck. 597a tested the simplest alternative explanation: maybe 510a is sound but under-sampled at inference.
+
+### Result
+
+Evaluated 510a final on the same 441-window broad frame with global sample temperature overrides:
+
+- `results/autoresearch/597b_510a_temp110_same441/full11.json`
+- `results/autoresearch/597a_510a_temp115_same441/full11.json`
+
+Same-frame comparison:
+
+- Score: `5/11 -> 4/11 -> 4/11` for temp `1.00 -> 1.10 -> 1.15`
+- Coverage90: `69.6% -> 73.4% -> 75.0%`
+- h1/h7/h14/h30 coverage90:
+  - temp 1.00: `79.4 / 70.4 / 68.7 / 66.2`
+  - temp 1.10: `82.5 / 74.7 / 72.7 / 69.4`
+  - temp 1.15: `84.5 / 76.7 / 73.8 / 71.0`
+- Persistent undercoverage: `16.2% -> 14.5% -> 13.8%`
+- Bad-window rate: `24.0% -> 18.6% -> 18.4%`
+- Level KS: `3/25 -> 2/25 -> 2/25`
+- Median-bias cells: `10/25 -> 9/25 -> 8/25`
+- Tail-scale cells: `24/25 -> 21/25 -> 15/25`
+- Daily-change KS: `25/25 -> 24/25 -> 17/25`
+- Pathwise max-jump KS: `0.463 -> 0.321 -> 0.258`
+- Regime layer2: always `0/8`
+
+### Mechanism Read
+
+The base model is under-dispersed in aggregate, because global temperature improves horizon coverage and bad-window coverage. But scalar widening is not a valid learned conditional scenario solution. It does not solve per-cell/regime allocation, leaves regime layer2 at `0/8`, worsens level and median-bias fidelity, and damages time-series/tail realism.
+
+Prior conditional source-scale branches already closed the obvious learned-noise route: `448a` collapsed scale and scored `4/11`; `449a` widening-only stayed at identity and scored `7/11`; `450a` joint conditional scale stayed near identity and scored `7/11`.
+
+### Decision
+
+Close global temperature as a model route. It may remain a risk-policy overlay, but it is not a learned conditional law. The next principled step is a paradigm decision: either package a risk-policy overlay honestly, or move beyond IV-only state and train the same unified factor generator with informative joint factors so the model can learn where future level mass belongs.
+
+---
