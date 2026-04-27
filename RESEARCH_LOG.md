@@ -103810,3 +103810,26 @@ Implement 641a as a one-model mixed-coordinate transition:
 Acceptance: preserve 638a's IV support/tail improvements while recovering 631a-like anchor-factor q99 and joint dependence.
 
 ---
+## 2026-04-27: Autoresearch 641a native mixed-coordinate joint flow
+
+### Context
+641a tested the clean one-model fix for the IV-plus-anchor-factor gluing objection. Instead of separately generating an IV deck and an anchor-factor deck, it trains one shared joint38 state-conditioned flow with one memory, one velocity network, one rollout, and one shared stochastic path. The generated-coordinate policy is fixed by data coordinate: `iv:*` channels generate empirical level-score deltas, while `factor:*` channels generate encoded increments.
+
+### Result
+- Checkpoint: `models/backfill/641a_joint38_mixedcoord_scale_e8_w2048_s641/best_model.pt`.
+- IV suite: `results/autoresearch/641a_joint38_mixedcoord_scale_e8_w2048_s641/full11.json`.
+- Joint audit: `results/autoresearch/641a_joint38_mixedcoord_scale_e8_w2048_s641/joint_panel.json`.
+- IV official score: `4/11`, passing surface validity, time-series properties, block-AR smoothness, and cross-cell correlation.
+- IV failures: coverage, conditionality, cointegration, regime coverage, distributional fidelity, mean-reversion full-horizon profile, and pathwise max-jump KS.
+- Key IV metrics: explosion `0.0%`, 90% coverage `64.7%`, conditional MAE reduction `4.5%`, turbulent/calm width ratio `0.997`, daily-change KS pass `24/25`, level KS pass `4/25`, median-bias pass `8/25`, q99 tail pass `23/25`, pathwise max-jump KS `0.610`.
+- Native joint audit: factor delta KS mean `0.098`, factor delta KS pass `<0.20` = `12/13`, factor q99 abs-delta pass `[0.5,2.0]` = `13/13`, factor-factor corr shape `0.866`, IV-factor corr shape `0.852`.
+
+### Mechanism Read
+The mixed-coordinate policy worked for the anchor-factor side and removed the methodological weakness of post-hoc scenario gluing. The factor paths now have realistic move scale and dependence inside the same per-scenario joint rollout.
+
+The IV side did not improve beyond the 4/11 native-joint frontier. Daily-change and tail statistics are mostly acceptable, but the generated IV levels are misplaced and too narrow over the horizon: coverage is low, level KS is weak, median placement is biased, turbulent/calm width is almost flat, and max-jump KS remains above gate.
+
+### Decision
+641a becomes the clean native joint baseline for one-model IV plus anchor-factor generation. Do not add more coordinate branches. The next principled step is a post-experiment analysis of unified conditional spread/location calibration inside the same joint path law, not a return to separate IV and factor treatment.
+
+---

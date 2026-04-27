@@ -122,7 +122,8 @@ def build_history_future(
     if payload.get("model_coordinate") in {
         "state_conditioned_encoded_increment",
         "state_conditioned_level_score",
-    } or args.model_type in {"629a", "638a"}:
+        "state_conditioned_mixed_coordinate",
+    } or args.model_type in {"629a", "638a", "641a"}:
         block = build_increment_coordinate_block(
             panel,
             columns,
@@ -229,6 +230,12 @@ def load_native_model(
         )
 
         return load_model(checkpoint, device)
+    if model_type == "641a":
+        from diffusion.block_ar.generic_state_conditioned_mixed_coordinate_flow_matching import (
+            load_model,
+        )
+
+        return load_model(checkpoint, device)
     if model_type == "625a":
         from diffusion.block_ar.generic_realnvp_transition_law import load_model
 
@@ -261,6 +268,7 @@ def generate_panel_samples(
         if model_coordinate in {
             "state_conditioned_encoded_increment",
             "state_conditioned_level_score",
+            "state_conditioned_mixed_coordinate",
         }:
             history_level, history_increment = history
             panel_samples = model.sample_batched(
@@ -285,6 +293,7 @@ def generate_panel_samples(
             "encoded_increment",
             "state_conditioned_encoded_increment",
             "state_conditioned_level_score",
+            "state_conditioned_mixed_coordinate",
         }:
             arr = reconstruct_state_from_increments(
                 raw_history[start:end, -1, :], arr, specs
@@ -424,7 +433,9 @@ def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--model_type", choices=["609a", "625a", "628a", "629a", "638a"], required=True
+        "--model_type",
+        choices=["609a", "625a", "628a", "629a", "638a", "641a"],
+        required=True,
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
