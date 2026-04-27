@@ -101312,3 +101312,102 @@ an official IV 11-suite bridge for unified-increment-flow checkpoints and score
 that official audit.
 
 ---
+## 2026-04-27: Autoresearch 588 unified flow full11 bridge
+
+### Context
+
+587a was promising under the custom unified-flow audit but had not been scored on
+the official IV 11-suite. The next required step was an official bridge before
+changing the model again.
+
+### Implementation
+
+Added `experiments/backfill/block_ar/evaluate_588a_unified_flow_full11_bridge.py`.
+
+The bridge:
+
+- loads unified increment-flow checkpoints;
+- verifies alignment between the unified IV panel and official validation windows;
+- samples reconstructed IV surfaces;
+- uses `FixedDeployableSampler` for conditionality calls;
+- writes official `full11.json` and `full11.md`.
+
+Added `test_code/test_588a_unified_flow_full11_bridge.py`.
+
+### Run
+
+Focused tests:
+
+```bash
+pytest test_code/test_588a_unified_flow_full11_bridge.py \
+  test_code/test_577a_unified_increment_flow.py -q
+```
+
+Result: `9 passed`.
+
+Official score:
+
+```bash
+python experiments/backfill/block_ar/evaluate_588a_unified_flow_full11_bridge.py \
+  --checkpoint models/backfill/587a_conditional_affine_cumulative_flow_s587/best_model.pt \
+  --max_windows 441 \
+  --samples 48 \
+  --sample_steps 16 \
+  --batch_size 32 \
+  --conditionality_samples 32 \
+  --conditionality_max_batches 8 \
+  --seed 588 \
+  --device cuda \
+  --output_json results/autoresearch/588a_587a_unified_flow_full11/full11.json \
+  --output_md results/autoresearch/588a_587a_unified_flow_full11/full11.md
+```
+
+### Result
+
+587a official score: `1/11`.
+
+Only `block_ar` passed. Failed suites:
+
+- surface;
+- coverage;
+- conditionality;
+- time_series;
+- cointegration;
+- regime_coverage;
+- distributional_fidelity;
+- cross_cell_correlation;
+- mean_reversion;
+- pathwise_jump_realism.
+
+Key metrics:
+
+- explosion rate: `14.9%`;
+- overall 90% coverage: `55.7%`;
+- h1/h7/h14/h30 90% coverage: `46.5% / 48.9% / 52.4% / 67.5%`;
+- daily-change KS pass cells: `7/25`;
+- level KS pass cells: `0/25`;
+- cross-cell corr/rank ratios: `0.197 / 3.228`;
+- cointegration gen/GT ratio: `0.284`;
+- h1 mean-reversion ratio: `0.307`;
+- pathwise max-jump KS: `0.788`.
+
+### Mechanism Read
+
+The official suite shows 587a is not a frontier candidate.
+
+The custom audit hid local structure failures. The full-dimensional
+conditional-affine source has too many independent stochastic degrees of freedom:
+cross-cell correlation is too low, effective rank is too high, and local tail
+scale is wrong. The cumulative loss fixed the 586a scale explosion, but it also
+over-smoothed most daily moves while leaving rare surface explosions.
+
+### Decision
+
+Close full-dimensional conditional-affine source as a frontier route.
+
+Next clean experiment: keep cumulative path loss but replace the full-dimensional
+independent source with a learned latent-bottleneck source. This is consistent
+with the reset doctrine because a narrow stochastic bottleneck is allowed, while
+hard low-rank readouts or IV-specific clamps remain disallowed.
+
+---
