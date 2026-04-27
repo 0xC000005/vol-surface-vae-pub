@@ -101765,3 +101765,36 @@ However, the learned common-latent wrapper is still not a useful improvement. It
 Close the learned common-latent wrapper branch as an improvement route. The next move should target the common broad-frame failure mechanism directly: conditional path-distribution calibration, especially per-window coverage floors, regime-cell coverage, level location, and active-cell mean-reversion geometry. Future score claims must distinguish the historical 192-window short-frame score from the 441-window broad-frame score.
 
 ---
+## 2026-04-27: Autoresearch 595 recent time-series ideation
+
+### Context
+
+594a closed the learned common-latent wrapper branch and showed that the real broad-frame bottleneck is conditional future-path calibration, not a missing wrapper. 595a checked recent time-series DNN work to choose the next clean direction.
+
+### Sources
+
+- DistDF, ICLR 2026: `https://openreview.net/forum?id=VrdLwUmzBy`
+- vLinear / WFMLoss, arXiv 2026: `https://arxiv.org/abs/2601.13768`
+- Sundial / TimeFlow, arXiv 2025: `https://arxiv.org/abs/2502.00816`
+- TSFlow, ICLR 2025: `https://openreview.net/forum?id=uxVBbSlKQ4`
+- TimePFN, AAAI 2025 / arXiv: `https://arxiv.org/abs/2502.16294`
+- MixLinear, ICLR 2026: `https://openreview.net/forum?id=QUj0KuCumD`
+
+### Read
+
+The strongest external signal is objective-level, not architecture-level. DistDF frames time-series forecasting as joint-distribution alignment and argues that direct losses can be biased under label autocorrelation. vLinear/WFMLoss similarly argues that final-series-oriented flow objectives can outperform velocity-oriented objectives. Sundial/TimeFlow and TSFlow support continuous generative path modeling, but they do not imply another small wrapper. TimePFN's synthetic prior route is interesting but is a larger fallback, not the immediate next step. MixLinear supports simplicity and efficiency but does not directly solve probabilistic scenario-law calibration.
+
+### Decision
+
+Run 596 as a clean final-path joint-distribution objective experiment:
+
+- Start from 510a final checkpoint.
+- Keep the native AR flow architecture unchanged.
+- Finetune the model directly, not a wrapper.
+- Use a full-path energy score plus sliced/projection Wasserstein terms over future paths.
+- Add only a small FM anchor to prevent transition-law drift.
+- Evaluate first on the same 441-window broad frame.
+
+This targets the actual failure mechanism: level location, per-window coverage floors, regime-cell coverage, aggregate kurtosis, and active-cell mean-reversion geometry. Do not add regime labels, per-cell hand corrections, low-rank decoders, bounded paths, or separate factor branches.
+
+---
