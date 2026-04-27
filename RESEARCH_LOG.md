@@ -103041,3 +103041,20 @@ Close encoded-coordinate scalar widening as a deployability fix. Keep the encode
 Artifacts: `experiments/backfill/block_ar/ANALYSIS_623a_622a_encoded_temperature_diagnostic.md`, `results/autoresearch/623a_622a_encoded_temperature_diagnostic/temp150_full11.md`.
 
 ---
+## 2026-04-27: Autoresearch 624a: conditional transition-flow likelihood paradigm
+
+### Context
+623a closed encoded-coordinate scalar widening: it recovered average coverage but broke dependence, surface, tails, and mean reversion while leaving median path bias. The next step needed a model-side paradigm selection, not another local width/preprocessing knob.
+
+### Decision
+Select a conditional normalizing-flow transition likelihood for 625a. The model keeps the native AR/state-feedback geometry and one shared `iv_only`/`joint38` panel interface, but replaces Gaussian/Student-t increments with an exact RealNVP-style conditional density over empirical-score increments.
+
+### Rationale
+This combines the useful parts of prior branches: exact likelihood training from 614-617, flexible learned transport from 609-612, and explicit generated-state feedback from the AR frontier. It avoids the known failures of one-shot path decoders, deterministic path bottlenecks, scalar temperature, deterministic mean-rollout loss, retrieval, and separate IV/factor composition.
+
+### Next
+Implement and run 625a on `joint38` in raw empirical-score state coordinates. Acceptance is improvement over the 5/11 Student-t/native-AR broad-frame frontier without losing the structural passes.
+
+Artifact: `experiments/backfill/block_ar/IDEA_624a_conditional_transition_flow_likelihood.md`.
+
+---
