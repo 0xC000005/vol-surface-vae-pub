@@ -101913,3 +101913,53 @@ Next step is 599: a factor signal audit. Use same-frame 510a failure maps as tar
 Targets should include per-window coverage floor failure, persistent undercoverage count, median-direction bias, and level-location error. Use simple time-ordered out-of-sample ridge/logistic models only. If factors add real lift, train a native joint generator. If not, the honest path is a risk-policy overlay around the best learned IV generator.
 
 ---
+## 2026-04-27: Autoresearch 599 factor signal audit
+
+### Context
+
+598a decided not to train another joint-factor generator blindly. 599a ran the proposed signal audit: do available factor histories explain the hard broad-frame 510a IV failure windows beyond IV history alone?
+
+### Result
+
+- Script: `experiments/backfill/block_ar/audit_599a_factor_signal_for_iv_failures.py`
+- Test: `test_code/test_599a_factor_signal_audit.py`
+- Output: `results/autoresearch/599a_factor_signal_for_iv_failures/audit.json`
+- Report: `results/autoresearch/599a_factor_signal_for_iv_failures/audit.md`
+- Focused test: `3 passed in 1.31s`
+
+Failure target summary:
+
+- bad-window rate `<50% coverage`: `23.6%`;
+- mean window coverage: `69.7%`;
+- persistent-undercoverage count: `4.01` cells/window;
+- median-bias fraction: `71.1%`;
+- level absolute error: `2.83 IV points`.
+
+Out-of-sample signal audit:
+
+- bad-window `<50%` target:
+  - IV-only: `R2=0.532`, `AUC=0.765`;
+  - factor-only: `R2=0.187`, `AUC=0.339`;
+  - IV+factor: `R2=0.382`, `AUC=0.609`.
+- persistent-undercoverage count:
+  - IV-only: `R2=0.868`;
+  - factor-only: `R2=0.295`;
+  - IV+factor: `R2=0.761`.
+- level absolute error:
+  - IV-only: `R2=0.575`;
+  - factor-only: `R2=-1.022`;
+  - IV+factor: `R2=-0.021`.
+- median-bias fraction:
+  - IV-only: `R2=-1.817`;
+  - factor-only: `R2=-3.188`;
+  - IV+factor: `R2=0.042`.
+
+### Mechanism Read
+
+The current factor panel does not explain the core hard risk failures. Factors hurt bad-window detection, persistent-undercoverage prediction, and level-error prediction relative to IV history alone. IV+factor helps median-bias fraction weakly, but that target is not enough to justify training a new joint generator.
+
+### Decision
+
+Do not train another native joint-factor generator merely because factors are available. The current learned-law path is constrained: IV-only methods are capped, source-noise/temperature is capped, and available factors do not add enough predictive signal for the hard IV failures. The honest next move is to report base learned-model metrics separately from any disclosed risk-policy overlay, or add genuinely informative state variables before claiming a calibrated learned conditional law.
+
+---
