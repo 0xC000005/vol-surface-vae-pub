@@ -102034,3 +102034,31 @@ Close frozen state-score aggregate widening as not deployable. The next step mus
 - `results/autoresearch/602a_510a_postforecast_risk_adapter/risk_readiness.md`
 
 ---
+## 2026-04-27: Autoresearch 603 510a cell-horizon postforecast adapter
+
+### Context
+602a showed that a state-score postforecast adapter improves aggregate coverage but does not target the sparse bad cell/regime slices. 603a tested the next and likely final calibration-layer falsifier: bounded per-cell/per-horizon widening around frozen 510a.
+
+### Setup
+Reused `evaluate_405a_interval_scale_calibrated_system.py` on `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`. Calibration used 441 pre-validation windows and 48 samples per window. Validation used the broad 441-window frame with 48 samples per window. The policy was widening-only residual scaling around the sample median, no regime bins, target coverage `0.95`, high-side cap disabled via `coverage_hi=1.0`, candidate scale range `[1.0, 2.0]`, and fitted scale range `1.075 / 1.475 / 1.900`.
+
+### Result
+603a scored `4/11`, same as 602a and below broad 510a's `5/11`. It improved aggregate inclusion but not deployability: coverage was `84.5%`, h1/h7/h14/h30 coverage was `89.7% / 82.5% / 84.7% / 82.4%`, conditional MAE reduction was `7.09%`, and pathwise max-jump KS was `0.202`. But regime layer2 remained `0/8`, persistent severe undercoverage was `7.3%`, daily-change KS was `13/25`, level KS was `1/25`, and per-cell extreme-jump scale was `14/25`.
+
+### Risk-Manager Readiness
+Risk-readiness still failed. Broad 510a, 602a, and 603a all scored `1/4`. Worst lower-only cell improved from base `0.478` to 602a `0.546` to 603a `0.556`; worst regime cell improved from base `0.213` to 602a `0.303` to 603a `0.360`. This is far below the `0.70` stress gate and comes with worse authenticity.
+
+### Mechanism Read
+The hard failure is not generic interval width and not a simple per-cell scale deficiency. It is sparse stress-path allocation by regime/window/horizon/path direction. Scaling residuals around the sample median cannot place mass into missing realized stress paths and distorts daily-change and jump-scale structure.
+
+### Decision
+Close bounded postforecast widening as a deployability solution. Do not run another scale-table variant. The next step should be post-experiment analysis or paradigm ideation around sparse stress allocation, or documentation that the available conditioning data are insufficient and what new state variables are required.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_603a_510a_cell_horizon_postforecast_adapter.md`
+- `results/autoresearch/603a_510a_cell_horizon_postforecast_adapter/full11.json`
+- `results/autoresearch/603a_510a_cell_horizon_postforecast_adapter/full11.md`
+- `results/autoresearch/603a_510a_cell_horizon_postforecast_adapter/risk_readiness.json`
+- `results/autoresearch/603a_510a_cell_horizon_postforecast_adapter/risk_readiness.md`
+
+---
