@@ -104151,3 +104151,55 @@ history encoder and one sampled latent/source path, while giving IV-surface
 channels and generic scalar anchor-factor channels separate readout heads.
 
 ---
+## 2026-04-27: Autoresearch 652a shared-source multi-head path flow
+
+### Context
+
+652a tested the decoder-expressiveness hypothesis on the clean native joint path
+model. The scientific object stayed the same: one history encoder, one sampled
+stochastic source, one future denoising backbone, and one model call for the
+full future panel. The only change was typed readout capacity: IV-surface
+channels and generic anchor-factor channels use separate value adapters/output
+heads.
+
+### Implementation
+
+- Added `GenericMultiHeadMixedCoordinatePathFlowMatching`.
+- Added `--head_mode multihead` and `--head_hidden` to the 647a trainer.
+- Updated 647a evaluation and the 627a joint-panel audit to load the multi-head
+  checkpoint format.
+- Added focused unit tests for finite loss/sampling, IV-only scope, and invalid
+  `iv_count` rejection.
+
+### Results
+
+- `652a_joint38`: `4/11` on the IV full suite.
+- `652a_ivonly`: `5/11` on the IV full suite.
+- IV-only passed conditionality with `6.6%` MAE reduction, daily-change KS with
+  `19/25` cells, cross-cell correlation with ratio `0.804`, and aggregate h1
+  mean reversion with gen/GT ratio `0.989`.
+- Joint38 native panel audit was strong: factor KS mean `0.0849`, factor KS
+  pass `13/13`, factor q99 pass `13/13`, factor-factor correlation `0.842`,
+  and IV-factor correlation `0.846`.
+
+### Interpretation
+
+The typed readout idea is valid and cleaner than post-hoc composition. It
+preserves shared randomness and gives a scientifically defensible native joint
+model for IV plus anchor factors.
+
+It is not yet risk-manager deployable as the final model. The unresolved issue
+is IV path-law calibration: uneven per-cell coverage, weak aggregate kurtosis,
+misallocated q99 movement across cells, unstable level occupancy, weak
+full-horizon mean reversion, and pathwise max-jump KS still failing.
+
+### Decision
+
+Keep the shared-source multi-head model as the active native joint backbone. The
+next move should not be another architecture branch. First fix the data
+coordinate where strictly positive anchor-factor levels are still represented in
+diff coordinates and can decode negative; then, if needed, add one path
+distribution objective on this same backbone to target realized future movement
+and tail allocation directly.
+
+---

@@ -124,7 +124,7 @@ def build_history_future(
         "state_conditioned_level_score",
         "state_conditioned_mixed_coordinate",
         "mixed_coordinate_path",
-    } or args.model_type in {"629a", "638a", "641a", "647a"}:
+    } or args.model_type in {"629a", "638a", "641a", "647a", "652a"}:
         block = build_increment_coordinate_block(
             panel,
             columns,
@@ -239,6 +239,12 @@ def load_native_model(
         return load_model(checkpoint, device)
     if model_type == "647a":
         from diffusion.block_ar.generic_mixed_coordinate_path_flow_matching import (
+            load_model,
+        )
+
+        return load_model(checkpoint, device)
+    if model_type == "652a":
+        from diffusion.block_ar.generic_multihead_mixed_coordinate_path_flow_matching import (
             load_model,
         )
 
@@ -443,7 +449,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model_type",
-        choices=["609a", "625a", "628a", "629a", "638a", "641a", "647a"],
+        choices=["609a", "625a", "628a", "629a", "638a", "641a", "647a", "652a"],
         required=True,
     )
     parser.add_argument("--checkpoint", required=True)
