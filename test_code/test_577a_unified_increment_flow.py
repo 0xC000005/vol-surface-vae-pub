@@ -9,6 +9,9 @@ from experiments.backfill.block_ar.train_577a_unified_increment_flow import (
     UnifiedIncrementFlow,
     UnifiedIncrementFlowConfig,
     fit_path_gaussian,
+    fit_increment_normal_score,
+    normal_score_inverse,
+    normal_score_transform,
 )
 
 
@@ -75,3 +78,21 @@ def test_unified_increment_flow_accepts_path_gaussian_source() -> None:
 
     assert source.shape == (4, 3, 5)
     assert torch.isfinite(source).all()
+
+
+def test_normal_score_increment_transform_is_bounded_and_invertible_on_quantiles() -> None:
+    target = torch.linspace(-2.0, 2.0, steps=40).reshape(4, 2, 5).numpy()
+    quantiles, _levels, normal_levels = fit_increment_normal_score(
+        target,
+        n_quantiles=21,
+        cdf_eps=1e-3,
+    )
+
+    scores = normal_score_transform(target, quantiles, normal_levels)
+    recovered = normal_score_inverse(scores, quantiles, normal_levels)
+    extreme = normal_score_inverse(scores * 100.0, quantiles, normal_levels)
+
+    assert recovered.shape == target.shape
+    assert abs(float(recovered.mean() - target.mean())) < 1e-4
+    assert extreme.max() <= quantiles[-1].max() + 1e-6
+    assert extreme.min() >= quantiles[0].min() - 1e-6

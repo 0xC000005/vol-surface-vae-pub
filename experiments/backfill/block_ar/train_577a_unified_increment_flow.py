@@ -174,6 +174,67 @@ def _standardize(array: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.nda
     return ((np.asarray(array, dtype=np.float32) - mean) / std).astype(np.float32)
 
 
+def _normal_score_levels(n_quantiles: int, cdf_eps: float) -> tuple[np.ndarray, np.ndarray]:
+    levels = np.linspace(float(cdf_eps), 1.0 - float(cdf_eps), int(n_quantiles), dtype=np.float64)
+    normal = torch.distributions.Normal(0.0, 1.0).icdf(torch.from_numpy(levels)).numpy()
+    return levels.astype(np.float32), normal.astype(np.float32)
+
+
+def fit_increment_normal_score(
+    increments: np.ndarray,
+    *,
+    n_quantiles: int,
+    cdf_eps: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    levels, normal_levels = _normal_score_levels(n_quantiles, cdf_eps)
+    flat = np.asarray(increments, dtype=np.float64).reshape(-1, increments.shape[-1])
+    quantiles = np.quantile(flat, levels.astype(np.float64), axis=0).astype(np.float64)
+    for col in range(quantiles.shape[1]):
+        quantiles[:, col] = np.maximum.accumulate(quantiles[:, col])
+        for row in range(1, quantiles.shape[0]):
+            if quantiles[row, col] <= quantiles[row - 1, col]:
+                quantiles[row, col] = quantiles[row - 1, col] + 1e-8
+    return quantiles.astype(np.float32), levels, normal_levels
+
+
+def normal_score_transform(
+    increments: np.ndarray,
+    quantiles: np.ndarray,
+    normal_levels: np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(increments, dtype=np.float64)
+    flat = values.reshape(-1, values.shape[-1])
+    out = np.empty_like(flat, dtype=np.float64)
+    for col in range(flat.shape[1]):
+        out[:, col] = np.interp(
+            flat[:, col],
+            quantiles[:, col],
+            normal_levels,
+            left=normal_levels[0],
+            right=normal_levels[-1],
+        )
+    return out.reshape(values.shape).astype(np.float32)
+
+
+def normal_score_inverse(
+    scores: np.ndarray,
+    quantiles: np.ndarray,
+    normal_levels: np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(scores, dtype=np.float64)
+    flat = values.reshape(-1, values.shape[-1])
+    out = np.empty_like(flat, dtype=np.float64)
+    for col in range(flat.shape[1]):
+        out[:, col] = np.interp(
+            flat[:, col],
+            normal_levels,
+            quantiles[:, col],
+            left=quantiles[0, col],
+            right=quantiles[-1, col],
+        )
+    return out.reshape(values.shape).astype(np.float32)
+
+
 def _make_train_val_blocks(args: argparse.Namespace) -> tuple[np.ndarray, list[str], UnifiedIncrementBlock, UnifiedIncrementBlock]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
     if getattr(args, "clean_nonpositive_log_levels", False):
@@ -208,13 +269,23 @@ def _make_train_val_blocks(args: argparse.Namespace) -> tuple[np.ndarray, list[s
 
 def _reconstruct_samples(
     history_state: np.ndarray,
-    standardized_samples: np.ndarray,
+    transformed_samples: np.ndarray,
     *,
+    increment_transform: str,
     inc_mean: np.ndarray,
     inc_std: np.ndarray,
+    inc_quantiles: np.ndarray | None,
+    normal_levels: np.ndarray | None,
     specs: list,
 ) -> np.ndarray:
-    samples = np.asarray(standardized_samples, dtype=np.float64) * inc_std + inc_mean
+    if increment_transform == "standard":
+        samples = np.asarray(transformed_samples, dtype=np.float64) * inc_std + inc_mean
+    elif increment_transform == "normal_score":
+        if inc_quantiles is None or normal_levels is None:
+            raise ValueError("normal_score inverse requires quantiles and normal_levels")
+        samples = normal_score_inverse(transformed_samples, inc_quantiles, normal_levels).astype(np.float64)
+    else:
+        raise ValueError(f"unknown increment_transform {increment_transform}")
     history_encoded = encode_state(np.asarray(history_state, dtype=np.float64), specs)
     last_encoded = history_encoded[:, -1, :][:, None, None, :]
     future_encoded = last_encoded + np.cumsum(samples, axis=2)
@@ -230,6 +301,9 @@ def _sample_audit(
     hist_std: np.ndarray,
     inc_mean: np.ndarray,
     inc_std: np.ndarray,
+    increment_transform: str,
+    inc_quantiles: np.ndarray | None,
+    normal_levels: np.ndarray | None,
     sample_windows: int,
     n_samples: int,
     n_steps: int,
@@ -240,11 +314,23 @@ def _sample_audit(
     samples_state = _reconstruct_samples(
         val_block.history_state[:n],
         samples_np,
+        increment_transform=increment_transform,
         inc_mean=inc_mean,
         inc_std=inc_std,
+        inc_quantiles=inc_quantiles,
+        normal_levels=normal_levels,
         specs=val_block.specs,
     )
-    target_inc_std = _standardize(val_block.future_increment[:n], inc_mean, inc_std)
+    if increment_transform == "standard":
+        target_inc_transformed = _standardize(val_block.future_increment[:n], inc_mean, inc_std)
+    else:
+        if inc_quantiles is None or normal_levels is None:
+            raise ValueError("normal_score transform requires quantiles and normal_levels")
+        target_inc_transformed = normal_score_transform(
+            val_block.future_increment[:n],
+            inc_quantiles,
+            normal_levels,
+        )
     sample_inc_std = samples_np.reshape(-1, samples_np.shape[-2], samples_np.shape[-1])
     return {
         "sample_windows": int(n),
@@ -253,7 +339,7 @@ def _sample_audit(
         "finite_sample_state_rate": float(np.isfinite(samples_state).mean()),
         "finite_sample_increment_rate": float(np.isfinite(samples_np).mean()),
         "standardized_increment_std_ratio": float(
-            np.std(sample_inc_std) / max(float(np.std(target_inc_std)), 1e-12)
+            np.std(sample_inc_std) / max(float(np.std(target_inc_transformed)), 1e-12)
         ),
         "iv_min": float(np.nanmin(samples_state[..., :25])),
         "iv_max": float(np.nanmax(samples_state[..., :25])),
@@ -275,6 +361,9 @@ def save_checkpoint(
     hist_std: np.ndarray,
     inc_mean: np.ndarray,
     inc_std: np.ndarray,
+    increment_transform: str,
+    inc_quantiles: np.ndarray | None,
+    normal_levels: np.ndarray | None,
     specs: list,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -288,6 +377,9 @@ def save_checkpoint(
             "history_std": hist_std.astype(np.float32),
             "increment_mean": inc_mean.astype(np.float32),
             "increment_std": inc_std.astype(np.float32),
+            "increment_transform": increment_transform,
+            "increment_quantiles": None if inc_quantiles is None else inc_quantiles.astype(np.float32),
+            "normal_score_levels": None if normal_levels is None else normal_levels.astype(np.float32),
             "state_variables": [asdict(spec) for spec in specs],
         },
         path,
@@ -310,6 +402,9 @@ def main() -> None:
     parser.add_argument("--source_mode", choices=["independent", "path_gaussian"], default="independent")
     parser.add_argument("--source_cov_shrinkage", type=float, default=0.05)
     parser.add_argument("--source_cov_jitter", type=float, default=1e-4)
+    parser.add_argument("--increment_transform", choices=["standard", "normal_score"], default="standard")
+    parser.add_argument("--n_increment_quantiles", type=int, default=501)
+    parser.add_argument("--increment_cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=7e-4)
@@ -333,10 +428,25 @@ def main() -> None:
     _panel, _columns, train_block, val_block = _make_train_val_blocks(args)
     hist_mean, hist_std = _fit_mean_std(train_block.history_state)
     inc_mean, inc_std = _fit_mean_std(train_block.future_increment)
+    inc_quantiles = None
+    normal_levels = None
     train_hist = torch.from_numpy(_standardize(train_block.history_state, hist_mean, hist_std)).to(device)
-    train_inc = torch.from_numpy(_standardize(train_block.future_increment, inc_mean, inc_std)).to(device)
+    if args.increment_transform == "standard":
+        train_inc_np = _standardize(train_block.future_increment, inc_mean, inc_std)
+        val_inc_np = _standardize(val_block.future_increment, inc_mean, inc_std)
+    else:
+        inc_quantiles, _levels, normal_levels = fit_increment_normal_score(
+            train_block.future_increment,
+            n_quantiles=args.n_increment_quantiles,
+            cdf_eps=args.increment_cdf_eps,
+        )
+        train_inc_np = normal_score_transform(train_block.future_increment, inc_quantiles, normal_levels)
+        val_inc_np = normal_score_transform(val_block.future_increment, inc_quantiles, normal_levels)
+        inc_mean = np.zeros_like(inc_mean, dtype=np.float32)
+        inc_std = np.ones_like(inc_std, dtype=np.float32)
+    train_inc = torch.from_numpy(train_inc_np).to(device)
     val_hist = torch.from_numpy(_standardize(val_block.history_state, hist_mean, hist_std)).to(device)
-    val_inc = torch.from_numpy(_standardize(val_block.future_increment, inc_mean, inc_std)).to(device)
+    val_inc = torch.from_numpy(val_inc_np).to(device)
 
     cfg = UnifiedIncrementFlowConfig(
         history_len=args.history_len,
@@ -445,6 +555,9 @@ def main() -> None:
                 hist_std=hist_std,
                 inc_mean=inc_mean,
                 inc_std=inc_std,
+                increment_transform=args.increment_transform,
+                inc_quantiles=inc_quantiles,
+                normal_levels=normal_levels,
                 specs=train_block.specs,
             )
 
@@ -457,6 +570,9 @@ def main() -> None:
         hist_std=hist_std,
         inc_mean=inc_mean,
         inc_std=inc_std,
+        increment_transform=args.increment_transform,
+        inc_quantiles=inc_quantiles,
+        normal_levels=normal_levels,
         specs=train_block.specs,
     )
     sample_audit = _sample_audit(
@@ -467,6 +583,9 @@ def main() -> None:
         hist_std=hist_std,
         inc_mean=inc_mean,
         inc_std=inc_std,
+        increment_transform=args.increment_transform,
+        inc_quantiles=inc_quantiles,
+        normal_levels=normal_levels,
         sample_windows=args.sample_windows,
         n_samples=args.n_samples,
         n_steps=args.sample_steps,
