@@ -1,0 +1,361 @@
+#!/usr/bin/env python
+"""627a: generic joint-panel scenario quality audit for native joint models."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+sys.path.insert(0, ".")
+
+from experiments.backfill.block_ar._factor_conditioning_525_utils import official_train_val_indices  # noqa: E402
+from experiments.backfill.block_ar._panel_law_535_utils import load_aligned_iv_factor_panel  # noqa: E402
+from experiments.backfill.block_ar._rollout_220_utils import make_serializable  # noqa: E402
+from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
+    build_unified_increment_block,
+    clean_nonpositive_log_level_factors,
+    decode_state,
+)
+from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_system import set_seed  # noqa: E402
+from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import select_scope  # noqa: E402
+
+
+def ks_statistic(a: np.ndarray, b: np.ndarray) -> float:
+    x = np.sort(np.asarray(a, dtype=np.float64).reshape(-1))
+    y = np.sort(np.asarray(b, dtype=np.float64).reshape(-1))
+    x = x[np.isfinite(x)]
+    y = y[np.isfinite(y)]
+    if x.size == 0 or y.size == 0:
+        return float("nan")
+    values = np.concatenate([x, y])
+    cdf_x = np.searchsorted(x, values, side="right") / float(x.size)
+    cdf_y = np.searchsorted(y, values, side="right") / float(y.size)
+    return float(np.max(np.abs(cdf_x - cdf_y)))
+
+
+def safe_corrcoef(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim != 2:
+        raise ValueError("expected 2d array")
+    if x.shape[0] < 3:
+        return np.eye(x.shape[1], dtype=np.float64)
+    std = x.std(axis=0)
+    keep = std > 1e-12
+    out = np.eye(x.shape[1], dtype=np.float64)
+    if np.sum(keep) >= 2:
+        corr = np.corrcoef(x[:, keep], rowvar=False)
+        out[np.ix_(keep, keep)] = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    return out
+
+
+def upper_tri_values(matrix: np.ndarray) -> np.ndarray:
+    idx = np.triu_indices(matrix.shape[0], k=1)
+    return matrix[idx]
+
+
+def corr_similarity(gt: np.ndarray, gen: np.ndarray) -> dict[str, float]:
+    gt_v = upper_tri_values(gt)
+    gen_v = upper_tri_values(gen)
+    if gt_v.size == 0:
+        corr = float("nan")
+    elif np.std(gt_v) < 1e-12 or np.std(gen_v) < 1e-12:
+        corr = 0.0
+    else:
+        corr = float(np.corrcoef(gt_v, gen_v)[0, 1])
+    return {
+        "upper_corr": corr,
+        "mae": float(np.mean(np.abs(gt_v - gen_v))) if gt_v.size else float("nan"),
+        "frobenius": float(np.linalg.norm(gt - gen) / max(np.linalg.norm(gt), 1e-12)),
+        "gt_mean_abs": float(np.mean(np.abs(gt_v))) if gt_v.size else float("nan"),
+        "gen_mean_abs": float(np.mean(np.abs(gen_v))) if gt_v.size else float("nan"),
+    }
+
+
+def build_history_future(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, list[Any], Any]:
+    panel, columns, _dates = load_aligned_iv_factor_panel()
+    if args.clean_nonpositive_log_levels:
+        panel, _cleaning_report = clean_nonpositive_log_level_factors(
+            panel,
+            columns,
+            iv_count=int(args.iv_count),
+        )
+    _train_indices, val_indices = official_train_val_indices(
+        test_start=int(args.test_start),
+        val_size=int(args.val_size),
+        history_len=int(payload["config"]["history_len"]),
+        future_len=int(payload["config"]["future_len"]),
+    )
+    if int(args.max_windows) > 0:
+        val_indices = val_indices[: int(args.max_windows)]
+    block = build_unified_increment_block(
+        panel,
+        columns,
+        val_indices,
+        history_len=int(payload["config"]["history_len"]),
+        future_len=int(payload["config"]["future_len"]),
+        iv_count=int(args.iv_count),
+    )
+    scope = payload.get("state_scope", args.state_scope)
+    value_coordinate = payload.get("value_coordinate", args.value_coordinate)
+    history, future, specs = select_scope(block, scope, int(args.iv_count), value_coordinate)
+    expected = [spec["name"] for spec in payload.get("state_specs", [])]
+    actual = [spec.name for spec in specs]
+    if expected and expected != actual:
+        raise RuntimeError("checkpoint state specs do not match rebuilt validation specs")
+    return history.astype(np.float32), future.astype(np.float32), specs, block
+
+
+def load_native_model(model_type: str, checkpoint: str, device: torch.device) -> tuple[Any, dict[str, Any]]:
+    if model_type == "609a":
+        from diffusion.block_ar.generic_empirical_score_transition_flow_matching import load_model
+
+        return load_model(checkpoint, device)
+    if model_type == "625a":
+        from diffusion.block_ar.generic_realnvp_transition_law import load_model
+
+        return load_model(checkpoint, device)
+    raise ValueError(f"unknown model_type {model_type!r}")
+
+
+@torch.no_grad()
+def generate_panel_samples(
+    model: Any,
+    history: np.ndarray,
+    specs: list[Any],
+    *,
+    samples: int,
+    n_steps: int,
+    batch_size: int,
+    chunk_size: int,
+    device: torch.device,
+    sample_temperature: float,
+    value_coordinate: str,
+) -> np.ndarray:
+    chunks: list[np.ndarray] = []
+    for start in range(0, int(history.shape[0]), int(batch_size)):
+        end = min(start + int(batch_size), int(history.shape[0]))
+        hist = torch.from_numpy(history[start:end]).to(device)
+        panel_samples = model.sample_batched(
+            hist,
+            n_samples=int(samples),
+            n_steps=int(n_steps),
+            chunk_size=int(chunk_size),
+            temperature=float(sample_temperature),
+        )
+        arr = panel_samples.detach().cpu().numpy()
+        if value_coordinate == "encoded":
+            arr = decode_state(arr, specs).astype(np.float32)
+        chunks.append(arr.astype(np.float32))
+        print(f"  generated windows {end}/{history.shape[0]}", flush=True)
+    return np.concatenate(chunks, axis=0)
+
+
+def panel_daily_changes(history: np.ndarray, future: np.ndarray) -> np.ndarray:
+    prev = np.concatenate([history[:, -1:, :], future[:, :-1, :]], axis=1)
+    return future - prev
+
+
+def summarize_joint_quality(
+    history_raw: np.ndarray,
+    future_raw: np.ndarray,
+    samples_raw: np.ndarray,
+    factor_names: list[str],
+    *,
+    iv_count: int,
+) -> dict[str, Any]:
+    gt_delta = panel_daily_changes(history_raw, future_raw)
+    sample_prev = np.concatenate(
+        [
+            np.repeat(history_raw[:, None, -1:, :], samples_raw.shape[1], axis=1),
+            samples_raw[:, :, :-1, :],
+        ],
+        axis=2,
+    )
+    gen_delta = samples_raw - sample_prev
+    factor_slice = slice(iv_count, samples_raw.shape[-1])
+    gt_factor_delta = gt_delta[..., factor_slice]
+    gen_factor_delta = gen_delta[..., factor_slice]
+    gt_factor_level = future_raw[..., factor_slice]
+    gen_factor_level = samples_raw[..., factor_slice]
+
+    marginal_ks = []
+    tail_ratios = []
+    range_rows = []
+    for idx, name in enumerate(factor_names):
+        gt_d = gt_factor_delta[..., idx]
+        gen_d = gen_factor_delta[..., idx]
+        marginal_ks.append(ks_statistic(gt_d, gen_d))
+        gt_q99 = float(np.quantile(np.abs(gt_d).reshape(-1), 0.99))
+        gen_q99 = float(np.quantile(np.abs(gen_d).reshape(-1), 0.99))
+        tail_ratios.append(gen_q99 / max(gt_q99, 1e-12))
+        gt_l = gt_factor_level[..., idx]
+        gen_l = gen_factor_level[..., idx]
+        range_rows.append(
+            {
+                "name": name,
+                "gt_min": float(np.nanmin(gt_l)),
+                "gt_max": float(np.nanmax(gt_l)),
+                "gen_min": float(np.nanmin(gen_l)),
+                "gen_max": float(np.nanmax(gen_l)),
+                "ks_delta": float(marginal_ks[-1]),
+                "q99_abs_delta_ratio": float(tail_ratios[-1]),
+            }
+        )
+
+    gt_factor_flat = gt_factor_delta.reshape(-1, gt_factor_delta.shape[-1])
+    gen_factor_flat = gen_factor_delta.reshape(-1, gen_factor_delta.shape[-1])
+    gt_iv_flat = gt_delta[..., :iv_count].reshape(-1, iv_count)
+    gen_iv_flat = gen_delta[..., :iv_count].reshape(-1, iv_count)
+    gt_all_flat = np.concatenate([gt_iv_flat, gt_factor_flat], axis=1)
+    gen_all_flat = np.concatenate([gen_iv_flat, gen_factor_flat], axis=1)
+    gt_all_corr = safe_corrcoef(gt_all_flat)
+    gen_all_corr = safe_corrcoef(gen_all_flat)
+    gt_factor_corr = gt_all_corr[iv_count:, iv_count:]
+    gen_factor_corr = gen_all_corr[iv_count:, iv_count:]
+    gt_iv_factor = gt_all_corr[:iv_count, iv_count:]
+    gen_iv_factor = gen_all_corr[:iv_count, iv_count:]
+
+    iv_factor_mae = float(np.mean(np.abs(gt_iv_factor - gen_iv_factor)))
+    iv_factor_corr = 0.0
+    if np.std(gt_iv_factor.reshape(-1)) > 1e-12 and np.std(gen_iv_factor.reshape(-1)) > 1e-12:
+        iv_factor_corr = float(np.corrcoef(gt_iv_factor.reshape(-1), gen_iv_factor.reshape(-1))[0, 1])
+
+    return {
+        "finite_rate": float(np.isfinite(samples_raw).mean()),
+        "n_windows": int(samples_raw.shape[0]),
+        "n_samples": int(samples_raw.shape[1]),
+        "future_len": int(samples_raw.shape[2]),
+        "n_factors": int(len(factor_names)),
+        "factor_delta_ks_mean": float(np.nanmean(marginal_ks)),
+        "factor_delta_ks_pass_020": int(np.sum(np.asarray(marginal_ks) < 0.20)),
+        "factor_tail_q99_ratio_median": float(np.nanmedian(tail_ratios)),
+        "factor_tail_q99_pass_05_20": int(np.sum((np.asarray(tail_ratios) >= 0.5) & (np.asarray(tail_ratios) <= 2.0))),
+        "factor_factor_corr": corr_similarity(gt_factor_corr, gen_factor_corr),
+        "iv_factor_corr": {
+            "matrix_corr": iv_factor_corr,
+            "mae": iv_factor_mae,
+            "gt_mean_abs": float(np.mean(np.abs(gt_iv_factor))),
+            "gen_mean_abs": float(np.mean(np.abs(gen_iv_factor))),
+        },
+        "per_factor": range_rows,
+    }
+
+
+def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
+    lines = [
+        f"# {title}",
+        "",
+        f"- finite rate: `{summary['finite_rate']:.4f}`",
+        f"- windows / samples / horizon: `{summary['n_windows']}` / `{summary['n_samples']}` / `{summary['future_len']}`",
+        f"- factor delta KS mean: `{summary['factor_delta_ks_mean']:.3f}`",
+        f"- factor delta KS pass <0.20: `{summary['factor_delta_ks_pass_020']}/{summary['n_factors']}`",
+        f"- factor q99 abs-delta ratio median: `{summary['factor_tail_q99_ratio_median']:.3f}`",
+        f"- factor q99 abs-delta pass [0.5,2.0]: `{summary['factor_tail_q99_pass_05_20']}/{summary['n_factors']}`",
+        f"- factor-factor corr upper-triangle corr: `{summary['factor_factor_corr']['upper_corr']:.3f}`",
+        f"- factor-factor corr MAE: `{summary['factor_factor_corr']['mae']:.3f}`",
+        f"- IV-factor corr matrix corr: `{summary['iv_factor_corr']['matrix_corr']:.3f}`",
+        f"- IV-factor corr MAE: `{summary['iv_factor_corr']['mae']:.3f}`",
+        "",
+        "| factor | KS(delta) | q99 abs-delta ratio | GT range | Gen range |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for row in summary["per_factor"]:
+        lines.append(
+            f"| {row['name']} | {row['ks_delta']:.3f} | {row['q99_abs_delta_ratio']:.3f} | "
+            f"[{row['gt_min']:.4g}, {row['gt_max']:.4g}] | [{row['gen_min']:.4g}, {row['gen_max']:.4g}] |"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model_type", choices=["609a", "625a"], required=True)
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
+    parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
+    parser.add_argument("--test_start", type=int, default=4511)
+    parser.add_argument("--val_size", type=int, default=441)
+    parser.add_argument("--iv_count", type=int, default=25)
+    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
+    parser.add_argument("--max_windows", type=int, default=441)
+    parser.add_argument("--samples", type=int, default=32)
+    parser.add_argument("--n_steps", type=int, default=30)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--chunk_size", type=int, default=8)
+    parser.add_argument("--sample_temperature", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=627)
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--output_json", required=True)
+    parser.add_argument("--output_md", required=True)
+    args = parser.parse_args()
+
+    set_seed(int(args.seed))
+    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    model, payload = load_native_model(args.model_type, args.checkpoint, device)
+    history, future, specs, block = build_history_future(args, payload)
+    value_coordinate = payload.get("value_coordinate", args.value_coordinate)
+    n_windows = min(int(args.max_windows), int(history.shape[0]))
+    history = history[:n_windows]
+    future = future[:n_windows]
+    raw_history = block.history_state[:n_windows]
+    raw_future = block.future_state[:n_windows]
+    factor_names = [spec.name for spec in specs[int(args.iv_count) :]]
+
+    t0 = time.time()
+    samples_raw = generate_panel_samples(
+        model,
+        history,
+        specs,
+        samples=int(args.samples),
+        n_steps=int(args.n_steps),
+        batch_size=int(args.batch_size),
+        chunk_size=int(args.chunk_size),
+        device=device,
+        sample_temperature=float(args.sample_temperature),
+        value_coordinate=value_coordinate,
+    )
+    summary = summarize_joint_quality(
+        raw_history,
+        raw_future,
+        samples_raw,
+        factor_names,
+        iv_count=int(args.iv_count),
+    )
+    result = {
+        "summary": summary,
+        "config": {
+            "model_type": args.model_type,
+            "checkpoint": args.checkpoint,
+            "checkpoint_epoch": int(payload.get("epoch", -1)),
+            "checkpoint_best_val": float(payload.get("best_val", float("nan"))),
+            "state_scope": payload.get("state_scope", args.state_scope),
+            "value_coordinate": value_coordinate,
+            "n_windows": int(n_windows),
+            "samples": int(args.samples),
+            "n_steps": int(args.n_steps),
+            "sample_temperature": float(args.sample_temperature),
+            "generation_time_s": float(time.time() - t0),
+            "seed": int(args.seed),
+        },
+    }
+    out_json = Path(args.output_json)
+    out_md = Path(args.output_md)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(make_serializable(result), indent=2), encoding="utf-8")
+    write_markdown(out_md, "627a Joint-Panel Scenario Quality Audit", summary)
+    print(json.dumps(make_serializable(result["summary"]), indent=2))
+    print(f"Wrote {out_json}")
+    print(f"Wrote {out_md}")
+
+
+if __name__ == "__main__":
+    main()
+

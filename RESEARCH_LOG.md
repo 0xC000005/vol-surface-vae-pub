@@ -103099,3 +103099,25 @@ Implement 627a as a joint-panel scenario audit for 610a, 612a, and 625a. Use it 
 Artifact: `experiments/backfill/block_ar/ANALYSIS_626a_native_joint_synthesis.md`.
 
 ---
+## 2026-04-27: Autoresearch 627a joint-panel audit
+
+### Context
+The IV-only full 11-suite does not show whether a native joint38 model is usable for 25 IV channels plus 13 anchor factors without post-hoc deck gluing. 627a added a generic joint-panel audit for 610a, 612a, and 625a covering finite generation, anchor-factor daily-change KS, factor tail-change ratios, factor-factor correlations, and IV-factor correlations.
+
+### Result
+All three candidates generated finite native joint paths, but none is joint-law deployable. 610a and 612a reached factor daily-change KS pass counts of 11/13, while 625a reached 8/13. Median q99 absolute-change ratios were still too wide: 2.365 for 610a, 2.114 for 612a, and 2.164 for 625a. Dependence was the main failure: validation factor-factor mean absolute correlation was 0.225, but generated paths produced only 0.054, 0.037, and 0.029 for 610a, 612a, and 625a respectively. IV-factor mean absolute correlation also compressed from 0.149 in validation truth to 0.075, 0.053, and 0.033.
+
+### Mechanism Read
+The native joint models are one-model in code, but they are not yet one coherent joint risk law. They preserve some rank/shape signal in the dependence matrix, especially 625a for IV-factor correlation shape, but they severely attenuate absolute co-movement and still create wide anchor-factor tail changes. This suggests a data-coordinate problem rather than a need for another special model knob: the current 609/625 branch trains state-level paths after empirical-score normalization, while risk scenarios are more naturally daily encoded changes integrated back to levels.
+
+### Decision
+Do not declare 610a, 612a, or 625a joint deployable. 610a remains the cleanest native joint base; 612a remains higher-count but pathologically less clean due source-scale behavior; 625a is a useful likelihood falsifier rather than the next base. Next: run 628a as a clean coordinate reset that trains one native joint AR transition law on unified encoded daily changes for all 38 channels, then reconstructs levels by integration for the IV and joint audits. This directly tests the concern that anchor factors should be generated as changes without adding IV/factor-specific branches.
+
+### Artifacts
+- experiments/backfill/block_ar/audit_627a_joint_panel_scenario_quality.py
+- experiments/backfill/block_ar/ANALYSIS_627a_joint_panel_audit.md
+- results/autoresearch/627a_joint_panel_audit/610a_joint_panel.md
+- results/autoresearch/627a_joint_panel_audit/612a_joint_panel.md
+- results/autoresearch/627a_joint_panel_audit/625a_joint_panel.md
+
+---
