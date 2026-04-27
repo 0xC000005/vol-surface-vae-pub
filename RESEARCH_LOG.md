@@ -102006,3 +102006,31 @@ Run 602a as a frozen-postforecast adapter audit on the 510a broad-frame generato
 - `experiments/backfill/block_ar/IDEA_601a_recent_ts_literature_boundary.md`
 
 ---
+## 2026-04-27: Autoresearch 602 510a postforecast risk adapter
+
+### Context
+601a selected a bounded frozen-postforecast adapter as the cleanest deployability-layer test after local factor and LGA signal audits were negative. 602a tested whether frozen 510a can become risk-manager usable through a disclosed widening-only state-score interval adapter, without retraining the learned core.
+
+### Setup
+Reused the existing 551a state-score interval adapter on `models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt`. The policy was conservative and bounded: target coverage `0.95`, high-side cap disabled via `coverage_hi=1.0`, widening-only scale range `[1.0, 1.8]`, fitted scale range `1.125 / 1.450 / 1.800`, 441 calibration windows, 441 validation windows, and 48 samples per window. Existing adapter/risk tests passed: `pytest test_code/test_551a_state_score_interval_scale.py test_code/test_552a_risk_readiness_audit.py -q` -> `8 passed in 1.34s`.
+
+### Result
+602a scored `4/11` on the broad-frame full suite. It improved aggregate inclusion: overall 90% coverage rose to `84.0%`, h1/h7/h14/h30 coverage became `90.5% / 83.8% / 83.4% / 81.2%`, conditional MAE reduction improved to `8.35%`, and pathwise max-jump KS improved to `0.191`. But it did not solve the actual deployability blocker: regime layer2 stayed `0/8`, worst lower-only coverage was only `0.546`, worst regime cell was `0.303`, level KS fell to `1/25`, daily-change KS fell to `13/25`, and persistent undercoverage remained `7.9%`.
+
+### Risk-Manager Readiness
+The risk audit compared broad 510a and 602a. Both scored `1/4` and failed stress readiness. Base 510a still ranked above 602a because 602a worsened scenario authenticity while not clearing lower-only coverage or lower-only regime inclusion.
+
+### Mechanism Read
+Aggregate widening is not the missing ingredient. The adapter can raise broad coverage, but the bad slices are specific cells/regimes/horizons. A state-only horizon scale cannot direct probability mass into those sparse slices and instead distorts daily-change and per-cell extreme-jump structure.
+
+### Decision
+Close frozen state-score aggregate widening as not deployable. The next step must directly target sparse cell/regime under-inclusion while preserving path authenticity, or document that the available conditioning signal is insufficient for risk-manager deployability without new state variables/data.
+
+### Artifacts
+- `experiments/backfill/block_ar/ANALYSIS_602a_510a_postforecast_risk_adapter.md`
+- `results/autoresearch/602a_510a_postforecast_risk_adapter/full11.json`
+- `results/autoresearch/602a_510a_postforecast_risk_adapter/full11.md`
+- `results/autoresearch/602a_510a_postforecast_risk_adapter/risk_readiness.json`
+- `results/autoresearch/602a_510a_postforecast_risk_adapter/risk_readiness.md`
+
+---
