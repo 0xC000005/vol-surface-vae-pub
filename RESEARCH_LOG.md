@@ -105379,3 +105379,39 @@ The contrast objective is not enough to break the IV-only 7/11 ceiling, but it i
 Keep the zero-center normalized-innovation AR flow as the active clean family. Promote 682a as the best native joint38 checkpoint so far within the clean general framework, but not a replacement for the historical 8/11 IV-only frontier. Next HEAD cycle should be post-experiment analysis or a focused experiment on the 682a failure mechanism before adding another loss knob: compare train/validation generated-path energy and shuffled-history contrast margins by horizon/regime/cell to determine whether the residual failures come from contrast undertraining, tail over-dispersion, or a horizon-specific mean-reversion bias.
 
 ---
+## 2026-04-28: 683a conditional contrast margin diagnostic
+
+### Context
+682a added a rollout-level shuffled-history contrast objective. It did not improve IV-only beyond 7/11, but it improved native joint38 from 5/11 to 6/11 while preserving anchor-factor panel realism. The required next step was a mechanism diagnostic before adding another loss knob.
+
+### Execute
+Ran an ad hoc correct-history versus shuffled-history rollout energy margin audit on train-tail and validation windows for four checkpoints:
+- IV pre-contrast: `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`
+- IV contrast: `models/backfill/682a_iv_rollout_condition_contrast_w005_e2_s6821/best_model.pt`
+- Joint38 pre-contrast: `models/backfill/676a_joint38_channel_level_alltrain_w005_e3_s6761/best_model.pt`
+- Joint38 contrast: `models/backfill/682a_joint38_rollout_condition_contrast_w005_e2_s6823/best_model.pt`
+
+The diagnostic uses per-window/horizon/cell univariate normalized-innovation energy. Positive margin means the correct-history rollout scores better against the realized future than a rolled-batch shuffled-history rollout.
+
+Artifacts:
+- `results/validations/2026-04-28/683a_condition_contrast_margin/674a_iv_precontrast.json`
+- `results/validations/2026-04-28/683a_condition_contrast_margin/682a_iv_contrast.json`
+- `results/validations/2026-04-28/683a_condition_contrast_margin/676a_joint_precontrast.json`
+- `results/validations/2026-04-28/683a_condition_contrast_margin/682a_joint_contrast.json`
+
+### Result
+IV-only margin did not strengthen on validation. 674a validation mean margin was `0.00215` with positive fraction `0.505`; 682a IV validation mean margin fell to `0.00056` with positive fraction `0.498`. The h7 and h14 validation margins were negative under 682a (`-0.00562`, `-0.00639`), consistent with no IV headline gain.
+
+Joint38 learned the contrast on train-tail but barely generalized it. 676a train-tail mean margin was `0.00085`; 682a joint train-tail margin rose to `0.00478`, with h7 train-tail margin rising to `0.01985`. On validation, however, 676a mean margin was essentially zero (`0.00002`) and 682a was only `0.00081`, with h7/h14/h30 all near-zero or negative (`-0.00158`, `-0.00218`, `-0.00214`).
+
+Regime margins also stayed weak on validation. 682a joint validation margins were `0.00027` calm, `0.00063` middle, and `0.00188` turbulent, all with positive fractions near 50%.
+
+### Mechanism Read
+682a did not fail because the contrast objective has no signal: the train-tail joint margin clearly increased. It failed to become a strong conditional law because the sampled-path contrast margin does not generalize materially to validation histories. The joint 6/11 improvement likely came from a regularization/median-allocation effect, not from learning a robust history-specific energy ordering across the validation distribution.
+
+This also explains why adding more weight blindly is risky: stronger contrast may further fit train-tail margins while worsening coverage, kurtosis, or h7 mean reversion on validation.
+
+### Decision
+Do not immediately increase contrast weight or add another objective. The next principled move is to make the conditional signal less batch-noise and split-specific while preserving the same framework. Candidate next experiment: replace rolled-batch negatives with harder, state-near negatives selected by history similarity or regime bucket, so the contrast asks a sharper conditional question without adding domain-specific post-hoc calibration. If that still fails to produce validation margin, the evidence will point to the encoder/conditioning representation rather than the generated-path objective.
+
+---
