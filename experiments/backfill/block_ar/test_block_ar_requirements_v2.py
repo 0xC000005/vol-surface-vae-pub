@@ -364,28 +364,35 @@ def run_risk_state_allocation_tests(
         min_bucket_size=min_bucket_size,
     )
 
-    observable_signal_present = abs(history_future_spearman) >= RISK_STATE_MIN_OBSERVABLE_SIGNAL
+    positive_future_signal_present = history_future_spearman >= RISK_STATE_MIN_OBSERVABLE_SIGNAL
     history_width_pass = history_width_spearman >= RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN
     future_width_pass = future_width_spearman >= RISK_STATE_MIN_FUTURE_WIDTH_SPEARMAN
-    bucket_pass = (
-        history_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
-        and future_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
+    history_bucket_pass = history_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
+    future_bucket_pass = future_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
+    history_ratio_pass = history_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
+    future_ratio_pass = future_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
+    observable_state_response_pass = (
+        history_width_pass
+        and history_bucket_pass
+        and history_ratio_pass
     )
-    ratio_pass = (
-        history_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
-        and future_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
+    oracle_future_alignment_pass = (
+        future_width_pass
+        and future_bucket_pass
+        and future_ratio_pass
     )
-    overall_pass = (
-        observable_signal_present
-        and history_width_pass
-        and future_width_pass
-        and bucket_pass
-        and ratio_pass
+    overall_pass = observable_state_response_pass and (
+        oracle_future_alignment_pass if positive_future_signal_present else True
+    )
+    overall_pass_rule = (
+        "observable_state_response_and_oracle_future_alignment"
+        if positive_future_signal_present
+        else "observable_state_response_only_future_signal_absent"
     )
 
     print(
         f"  Observable history/future activity rho: {history_future_spearman:.3f} "
-        f"(diagnostic signal floor |rho|>={RISK_STATE_MIN_OBSERVABLE_SIGNAL:.2f})"
+        f"(positive signal floor >={RISK_STATE_MIN_OBSERVABLE_SIGNAL:.2f})"
     )
     print(
         f"  Width vs history activity rho: {history_width_spearman:.3f} "
@@ -405,11 +412,21 @@ def run_risk_state_allocation_tests(
         f"  Future-bucket width monotonicity: {future_bucket_monotonicity:.3f}; "
         f"low/high ratio: {future_low_high_width_ratio:.3f}"
     )
+    print(
+        f"  Observable state response: "
+        f"{'PASS' if observable_state_response_pass else 'FAIL'}"
+    )
+    print(
+        f"  Oracle future alignment: "
+        f"{'PASS' if oracle_future_alignment_pass else 'FAIL'} "
+        f"({'gated' if positive_future_signal_present else 'informational'})"
+    )
     print(f"  Risk-state allocation diagnostic: {'PASS' if overall_pass else 'FAIL'}")
 
     return {
         "history_future_activity_spearman": float(history_future_spearman),
-        "observable_signal_present": bool(observable_signal_present),
+        "observable_signal_present": bool(positive_future_signal_present),
+        "positive_future_signal_present": bool(positive_future_signal_present),
         "observable_signal_floor": float(RISK_STATE_MIN_OBSERVABLE_SIGNAL),
         "history_width_spearman": float(history_width_spearman),
         "history_width_spearman_target": float(RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN),
@@ -421,9 +438,16 @@ def run_risk_state_allocation_tests(
         "history_bucket_width_monotonicity": float(history_bucket_monotonicity),
         "future_bucket_width_monotonicity": float(future_bucket_monotonicity),
         "bucket_monotonicity_target": float(RISK_STATE_MIN_BUCKET_MONOTONICITY),
+        "history_bucket_pass": bool(history_bucket_pass),
+        "future_bucket_pass": bool(future_bucket_pass),
         "history_low_high_width_ratio": float(history_low_high_width_ratio),
         "future_low_high_width_ratio": float(future_low_high_width_ratio),
         "low_high_width_ratio_target": float(RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO),
+        "history_ratio_pass": bool(history_ratio_pass),
+        "future_ratio_pass": bool(future_ratio_pass),
+        "observable_state_response_pass": bool(observable_state_response_pass),
+        "oracle_future_alignment_pass": bool(oracle_future_alignment_pass),
+        "overall_pass_rule": overall_pass_rule,
         "history_buckets": history_buckets,
         "future_buckets": future_buckets,
         "n_windows": int(cond_samples.shape[0]),

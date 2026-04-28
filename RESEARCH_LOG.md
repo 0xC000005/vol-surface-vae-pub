@@ -106273,3 +106273,31 @@ The next clean test-suite improvement is to split `risk_state_allocation` into t
 - `results/block_ar/707b_392a_risk_state_allocation_bridgefix/full11.md`
 
 ---
+## 2026-04-28: 708 split risk-state allocation pass criteria
+
+### Context
+707 showed that risk-state allocation needed two concepts: an observable history-state response and an oracle realized-future alignment. The old single `overall_pass` wrongly forced future alignment even when the split did not contain positive history-to-future activity signal.
+
+### Change
+Updated `risk_state_allocation` to report:
+- `observable_state_response_pass`: generated width responds to observable history risk state through width/history rank correlation, history-bucket monotonicity, and low/high history-risk width ratio.
+- `oracle_future_alignment_pass`: generated width ranks realized future activity. This is gated only when history/future activity Spearman is positive enough on the split.
+- `overall_pass_rule`: records whether the diagnostic used observable-state-only or observable-plus-oracle-future logic.
+
+### Results
+- 708a 510a split-pass audit: `7/11`; conditionality passed in this stochastic rerun; risk-state allocation passed by observable-state response. Width/history Spearman `0.298`; width/future Spearman `0.036`; oracle future alignment failed but was informational because history/future activity Spearman was `-0.088`.
+- 708b 392a split-pass audit: `6/11`; conditionality failed by MAE reduction; risk-state allocation still passed by observable-state response. Width/history Spearman `0.270`; width/future Spearman `0.031`; oracle future alignment failed but was informational for the same split-signal reason.
+
+### Mechanism Read
+This is not relaxing conditionality arbitrarily. It separates what the model can be asked to condition on from what is only known after the fact. The model should widen under higher-risk observed histories. It should not be required to rank realized future activity when the evaluated split itself does not show positive persistence from history activity to future activity under the chosen definition.
+
+### Decision
+Use `observable_state_response_pass` as the risk-manager conditionality evidence for risk-state allocation. Keep `oracle_future_alignment_pass` reported for research diagnosis, but do not treat it as a deployability gate unless the split has positive future-activity signal.
+
+### Artifacts
+- `results/block_ar/708a_510a_risk_state_splitpass/full11.json`
+- `results/block_ar/708a_510a_risk_state_splitpass/full11.md`
+- `results/block_ar/708b_392a_risk_state_splitpass/full11.json`
+- `results/block_ar/708b_392a_risk_state_splitpass/full11.md`
+
+---

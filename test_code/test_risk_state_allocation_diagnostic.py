@@ -89,3 +89,37 @@ def test_risk_state_allocation_counts_first_future_step_from_history() -> None:
 
     assert result["future_width_spearman"] > 0.95
     assert result["future_low_high_width_ratio"] > 4.0
+    assert result["oracle_future_alignment_pass"]
+    assert not result["observable_state_response_pass"]
+    assert not result["overall_pass"]
+
+
+def test_risk_state_allocation_overall_tracks_observable_state_when_future_signal_absent() -> None:
+    n_windows = 12
+    n_samples = 21
+    history_len = 4
+    horizon = 5
+    offsets = np.linspace(-1.0, 1.0, n_samples, dtype=np.float32)
+
+    history = np.zeros((n_windows, history_len, 1, 1), dtype=np.float32)
+    ground_truth = np.zeros((n_windows, horizon, 1, 1), dtype=np.float32)
+    samples = np.zeros((n_windows, n_samples, horizon, 1, 1), dtype=np.float32)
+    for i in range(n_windows):
+        history_activity = 0.01 * float(i + 1)
+        future_activity = 0.01 * float(n_windows - i)
+        history[i, :, 0, 0] = 0.5 + history_activity * np.arange(history_len)
+        ground_truth[i, :, 0, 0] = history[i, -1, 0, 0] + future_activity * np.arange(1, horizon + 1)
+        samples[i, :, :, 0, 0] = ground_truth[i, None, :, 0, 0] + offsets[:, None] * history_activity
+
+    result = run_risk_state_allocation_tests(
+        samples,
+        ground_truth,
+        history,
+        n_buckets=4,
+        min_bucket_size=2,
+    )
+
+    assert result["history_future_activity_spearman"] < 0.0
+    assert result["observable_state_response_pass"]
+    assert not result["oracle_future_alignment_pass"]
+    assert result["overall_pass"]
