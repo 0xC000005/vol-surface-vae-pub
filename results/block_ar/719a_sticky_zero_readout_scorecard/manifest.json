@@ -1,0 +1,76 @@
+{
+  "framework_id": "719a_zero_center_normalized_innovation_sticky_zero_readout_frozen",
+  "post_hoc_glued_decks": false,
+  "task_specific_loss_recipes": false,
+  "scope_values": {
+    "iv_only": {
+      "generated_coordinate": "state_aware_normalized_innovation_with_sticky_zero_readout",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler_with_train_atom_readout",
+      "training_protocol": "zero_center_alltrain_e3_samesampling_sticky_readout_gate025_q10",
+      "input_head": "iv_only",
+      "decoder_head": "iv_only",
+      "support_transform": "sticky_zero_readout_if_train_zero_rate_ge_025_else_identity"
+    },
+    "anchor_only": {
+      "generated_coordinate": "state_aware_normalized_innovation_with_sticky_zero_readout",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler_with_train_atom_readout",
+      "training_protocol": "zero_center_alltrain_e3_samesampling_sticky_readout_gate025_q10",
+      "input_head": "anchor_only",
+      "decoder_head": "anchor_only",
+      "support_transform": "sticky_zero_readout_if_train_zero_rate_ge_025_else_identity"
+    },
+    "joint": {
+      "generated_coordinate": "state_aware_normalized_innovation_with_sticky_zero_readout",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler_with_train_atom_readout",
+      "training_protocol": "zero_center_alltrain_e3_samesampling_sticky_readout_gate025_q10",
+      "input_head": "joint38",
+      "decoder_head": "joint38",
+      "support_transform": "sticky_zero_readout_if_train_zero_rate_ge_025_else_identity"
+    }
+  }
+}
