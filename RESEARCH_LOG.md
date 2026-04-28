@@ -104882,3 +104882,29 @@ Do not switch AR/one-shot, flow/diffusion/copula, or Transformer backbone based 
 - `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_val_normdiag.json`
 
 ---
+## 2026-04-28: 664a condition-diversity diagnostic shows weak innovation conditioning
+
+### Context
+After 663a repaired the IV support/data-object failure, the next required audit was condition-use rather than another architecture change. 664a added a paired-noise condition-diversity diagnostic: generate once with the true histories, generate again with deranged histories using the same stochastic draw sequence, then compare how much the mean forecast and sampled paths change.
+
+### Result
+- IV-only validation: encoded-increment shuffle MAE ratio `1.013`, condition-effect/std `0.521`; raw IV shuffle MAE ratio `1.192`.
+- IV-only train-tail: encoded-increment shuffle MAE ratio `1.011`, condition-effect/std `0.464`; raw IV shuffle MAE ratio `1.204`.
+- Joint38 validation: encoded-increment shuffle MAE ratio `1.009`, condition-effect/std `0.486`; raw-state shuffle MAE ratio `2.481`, factor raw ratio `2.482`, IV raw ratio `1.225`.
+- Joint38 train-tail: encoded-increment shuffle MAE ratio `1.007`, condition-effect/std `0.445`; raw-state shuffle MAE ratio `2.973`, factor raw ratio `2.974`, IV raw ratio `1.289`.
+
+### Mechanism Read
+The remaining failure is not primarily validation distribution shift. It is present on train-tail and validation: the model's generated raw paths respond to history mostly because the reconstruction starts from the current state and per-history scale, but the learned future encoded-innovation law changes very little when the history sequence is shuffled. This explains why 663a can preserve surface validity, some co-movement, and raw factor plausibility while still failing conditionality and long-horizon calibration.
+
+### Decision
+Do not switch backend yet. The next minimal model-side move should make conditioning causally necessary for the innovation law, not add post-hoc risk calibration. Candidate first-principles fixes include a condition-contrastive training term, a conditional score/proper-score rollout objective, or conditioning dropout/shuffle-negative regularization; choose one axis and test on IV-only, anchor-only, and joint38.
+
+### Artifacts
+- `experiments/backfill/block_ar/audit_664a_condition_diversity_diagnostics.py`
+- `test_code/test_664a_condition_diversity_diagnostics.py`
+- `results/validations/2026-04-27/664a_condition_diversity/iv_val_condition_diversity.json`
+- `results/validations/2026-04-27/664a_condition_diversity/iv_train_tail_condition_diversity.json`
+- `results/validations/2026-04-27/664a_condition_diversity/joint_val_condition_diversity.json`
+- `results/validations/2026-04-27/664a_condition_diversity/joint_train_tail_condition_diversity.json`
+
+---
