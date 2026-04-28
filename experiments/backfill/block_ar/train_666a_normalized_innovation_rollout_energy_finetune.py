@@ -74,6 +74,37 @@ def channelwise_path_energy_score(
     return score.mean(), target_dist.mean(), pair_dist.mean()
 
 
+def condition_negative_permutation(
+    model: GenericStateAwareNormalizedInnovationFlowMatching,
+    history_level_values: torch.Tensor,
+    history_normalized_innovation: torch.Tensor,
+    *,
+    mode: str,
+) -> torch.Tensor:
+    """Select generic in-batch negative histories for conditional contrast."""
+    bsz = int(history_level_values.shape[0])
+    if bsz < 2:
+        return torch.arange(bsz, device=history_level_values.device)
+    if mode == "roll":
+        return torch.roll(torch.arange(bsz, device=history_level_values.device), shifts=1)
+    if mode == "nearest_history":
+        with torch.no_grad():
+            level_scores = model.level_values_to_scores(history_level_values).detach()
+            features = torch.cat(
+                [
+                    level_scores.reshape(bsz, -1),
+                    history_normalized_innovation.detach().reshape(bsz, -1),
+                ],
+                dim=1,
+            )
+            features = features - features.mean(dim=0, keepdim=True)
+            features = features / features.std(dim=0, unbiased=False, keepdim=True).clamp_min(1e-6)
+            distances = torch.cdist(features, features, p=2)
+            distances.fill_diagonal_(float("inf"))
+            return torch.argmin(distances, dim=1)
+    raise ValueError("condition_rollout_negative_mode must be 'roll' or 'nearest_history'")
+
+
 def differentiable_rollout_paths(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     history_level_values: torch.Tensor,
@@ -199,6 +230,7 @@ def normalized_rollout_energy_loss(
     channel_level_energy_weight: float = 0.0,
     condition_rollout_contrast_weight: float = 0.0,
     condition_rollout_contrast_margin: float = 0.0,
+    condition_rollout_negative_mode: str = "roll",
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -256,7 +288,12 @@ def normalized_rollout_energy_loss(
         channel_level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         channel_level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     if float(condition_rollout_contrast_weight) > 0.0 and int(history_level_values.shape[0]) > 1:
-        perm = torch.roll(torch.arange(history_level_values.shape[0], device=history_level_values.device), shifts=1)
+        perm = condition_negative_permutation(
+            model,
+            history_level_values,
+            history_normalized_innovation,
+            mode=condition_rollout_negative_mode,
+        )
         neg_drift = None if drift_feature is None else drift_feature[perm]
         neg_sampled_norm, _neg_sampled_level = differentiable_rollout_paths(
             model,
@@ -329,6 +366,7 @@ def run_epoch(
     channel_level_energy_weight: float,
     condition_rollout_contrast_weight: float,
     condition_rollout_contrast_margin: float,
+    condition_rollout_negative_mode: str,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -360,6 +398,7 @@ def run_epoch(
                 channel_level_energy_weight=float(channel_level_energy_weight),
                 condition_rollout_contrast_weight=float(condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(condition_rollout_contrast_margin),
+                condition_rollout_negative_mode=condition_rollout_negative_mode,
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -408,6 +447,7 @@ def main() -> None:
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
+    parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
@@ -537,6 +577,7 @@ def main() -> None:
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
         "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
+        "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
         "velocity_readout_mode": args.velocity_readout_mode,
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
@@ -568,6 +609,7 @@ def main() -> None:
             channel_level_energy_weight=float(args.channel_level_energy_weight),
             condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
             condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
+            condition_rollout_negative_mode=args.condition_rollout_negative_mode,
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -588,6 +630,7 @@ def main() -> None:
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
                 condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
+                condition_rollout_negative_mode=args.condition_rollout_negative_mode,
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),

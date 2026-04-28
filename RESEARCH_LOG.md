@@ -105415,3 +105415,34 @@ This also explains why adding more weight blindly is risky: stronger contrast ma
 Do not immediately increase contrast weight or add another objective. The next principled move is to make the conditional signal less batch-noise and split-specific while preserving the same framework. Candidate next experiment: replace rolled-batch negatives with harder, state-near negatives selected by history similarity or regime bucket, so the contrast asks a sharper conditional question without adding domain-specific post-hoc calibration. If that still fails to produce validation margin, the evidence will point to the encoder/conditioning representation rather than the generated-path objective.
 
 ---
+## 2026-04-28: 684a nearest-history hard contrast falsifier
+
+### Context
+683a showed that 682a's rolled-batch contrast learned train-tail signal but produced weak validation margins. The clean next falsifier was to sharpen the negative condition without changing the generative core: use generic state-near hard negatives rather than arbitrary rolled-batch negatives.
+
+### Hypothesis
+If the rolled negative is too noisy and often too easy, selecting a nearest-history negative in encoded-level and normalized-innovation history space should make the contrast ask a sharper conditional question. This should improve validation conditional margins and ideally preserve or improve the 682a joint38 `6/11`.
+
+### Execute
+Added `condition_rollout_negative_mode={roll,nearest_history}` to the rollout-energy finetune script. `nearest_history` builds batch-standardized features from level scores and normalized innovation history, excludes self, and selects the nearest in-batch condition. Added a regression test for nearest-history contrast.
+
+Fine-tuned the 676a joint38 incumbent for two epochs with the same 682a settings except `condition_rollout_negative_mode=nearest_history`.
+
+Artifacts:
+- Model: `models/backfill/684a_joint38_nearest_condition_contrast_w005_e2_s6843/best_model.pt`
+- IV-facing high-sample suite: `results/validations/2026-04-28/684a_nearest_condition_contrast/joint_val_iv_full11_s96.json`
+- Joint panel audit: `results/validations/2026-04-28/684a_nearest_condition_contrast/joint_val_panel.json`
+- Margin diagnostic: `results/validations/2026-04-28/684a_nearest_condition_contrast/joint_margin_diag.json`
+
+### Result
+Nearest-history contrast improved the training objective (`best_val_total=1.8127` versus 682a's `1.8304`) and improved the validation margin diagnostic: mean validation margin rose from `0.00081` to `0.00189`, and h7/h30 margins moved from negative to positive.
+
+But the actual IV-facing suite regressed sharply from 682a's `6/11` to `4/11`. Coverage90 fell from `0.814` to `0.804`, calibration error worsened from `0.062` to `0.071`, level KS fell from `15/25` to `12/25`, median-bias fraction fell from `22/25` to `19/25`, cointegration failed because worst-cell ratio fell from `0.254` to `0.224`, and distributional fidelity failed again. The remaining h7 mean-reversion failure persisted. Panel quality stayed essentially unchanged: factor delta KS mean `0.100`, 11/13 factor KS pass, factor-factor corr `0.791`, IV-factor corr `0.893`.
+
+### Mechanism Read
+This falsifies the idea that stronger measured conditional energy margin is sufficient. Hard negatives can make the normalized-innovation margin look better while damaging integrated IV level law, median allocation, and cointegration. The 682a gain was likely a useful regularization effect of mild rolled contrast; pushing contrast toward harder condition discrimination over-optimizes a surrogate that is not aligned with the deployable scenario-quality gates.
+
+### Decision
+Do not continue by increasing contrast strength or making negatives harder. Keep 682a as the best native joint38 checkpoint in this clean family. The next HEAD cycle should be research ideation/post-experiment analysis rather than another contrast tweak: either redesign the conditional objective so it is level/path-law aware, or shift attention from the loss to the conditioning representation/encoder. Adding more contrast knobs now would violate the clean-pathology guard.
+
+---

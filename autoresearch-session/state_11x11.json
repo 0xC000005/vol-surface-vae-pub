@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 683,
-  "last_iteration_type": "post_experiment_analysis",
+  "iteration": 684,
+  "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "683a shows the sampled-path contrast objective has train-tail signal but weak validation generalization. Joint38 train-tail margin increased clearly under 682a, especially h7, while validation margins stayed near zero and h7/h14/h30 were near-zero or negative. The bottleneck is not just contrast weight; it is that rolled-batch negatives produce a noisy, split-specific conditional signal.",
-  "last_result_summary": "683a audited correct-history minus shuffled-history rollout energy margins for 674a IV, 682a IV, 676a joint, and 682a joint. IV validation margin weakened from 0.00215 pre-contrast to 0.00056 after contrast, with h7/h14 negative. Joint38 train-tail margin improved from 0.00085 to 0.00478 and h7 train-tail margin to 0.01985, but validation margin was only 0.00081 and h7/h14/h30 validation margins were -0.00158, -0.00218, and -0.00214. Regime validation margins remained tiny with positive fractions near 50%.",
-  "next_step_recommendation": "Do not simply raise contrast weight. Implement a sharper but still generic conditional contrast: replace rolled-batch negatives with state-near hard negatives chosen by history similarity or regime bucket, so the model must distinguish plausible nearby histories rather than arbitrary batch rolls. If hard negatives still fail to create validation margins, classify the remaining issue as encoder/conditioning representation failure.",
+  "current_bottleneck": "684a shows stronger normalized-innovation conditional margins are not sufficient and can be actively misaligned with deployable scenario quality. Nearest-history hard negatives improve the margin diagnostic and validation objective, but damage IV level KS, median allocation, cointegration, and distributional fidelity. The bottleneck is objective alignment with integrated level/path law, not simply conditional separability.",
+  "last_result_summary": "684a added condition_rollout_negative_mode=nearest_history and fine-tuned the 676a joint38 incumbent with the same 682a settings. Best val_total improved to 1.8127 versus 682a's 1.8304, and validation margin rose from 0.00081 to 0.00189. However high-sample IV-facing score regressed from 6/11 to 4/11: coverage90 0.804, calibration 0.071, level KS 12/25, median-bias fraction 19/25, cointegration worst-cell ratio 0.224 fail, distributional fidelity failed, and h7 mean-reversion still failed. Joint panel stayed acceptable with factor delta KS mean 0.100, 11/13 factor KS pass, factor-factor corr 0.791, and IV-factor corr 0.893.",
+  "next_step_recommendation": "Do not continue by increasing contrast weight or hardness. Keep 682a as the best clean native joint38 checkpoint. Next choose research_ideation or post_experiment_analysis: redesign the conditional objective so it is level/path-law aware, or shift from loss tweaks to conditioning representation/encoder diagnostics. Avoid adding more contrast knobs under the clean-pathology guard.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11, while 682a is now the best native joint38 checkpoint at 6/11 with acceptable anchor panel quality and preserved IV-factor co-movement.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "41e2104 feat: autoresearch 682a rollout condition contrast",
+  "last_commit": "ccf2be5 docs: autoresearch 683a contrast margin diagnostic",
   "resume_command_hint": "continue autoresearch"
 }

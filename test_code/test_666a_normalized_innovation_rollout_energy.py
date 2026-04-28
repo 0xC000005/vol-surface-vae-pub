@@ -243,3 +243,33 @@ def test_normalized_rollout_energy_loss_can_contrast_shuffled_history_rollouts()
     assert metrics_without_contrast["condition_rollout_contrast"].item() == 0.0
     assert metrics_with_contrast["condition_rollout_contrast"].item() > 0.0
     assert loss_with_contrast > loss_without_contrast
+
+
+def test_normalized_rollout_energy_loss_can_use_nearest_history_hard_negatives():
+    torch.manual_seed(47)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(53)
+    loss, metrics = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+        condition_rollout_contrast_weight=0.1,
+        condition_rollout_contrast_margin=0.0,
+        condition_rollout_negative_mode="nearest_history",
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["condition_rollout_contrast"].item() > 0.0
