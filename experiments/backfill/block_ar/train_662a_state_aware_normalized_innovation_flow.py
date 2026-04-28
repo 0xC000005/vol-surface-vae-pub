@@ -215,6 +215,7 @@ def main() -> None:
     parser.add_argument("--model_dropout", type=float, default=0.05)
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
+    parser.add_argument("--base_noise_rho", type=float, default=0.0)
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_drift"], default="scale")
     parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
@@ -302,6 +303,7 @@ def main() -> None:
         model_dropout=float(args.model_dropout),
         flow_steps=int(args.flow_steps),
         sample_temperature=float(args.sample_temperature),
+        base_noise_rho=float(args.base_noise_rho),
         n_quantiles=int(args.n_quantiles),
         cdf_eps=float(args.cdf_eps),
         prefix_feature_mode=args.prefix_feature_mode,
@@ -366,6 +368,7 @@ def main() -> None:
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
+            "base_noise_rho": float(cfg.base_noise_rho),
         },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
@@ -452,6 +455,7 @@ def main() -> None:
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
+            "base_noise_rho": float(cfg.base_noise_rho),
         },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],

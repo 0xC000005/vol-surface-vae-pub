@@ -148,18 +148,22 @@ def differentiable_rollout_paths(
         drift_rep = None
     else:
         drift_rep = drift_feature.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
+    base_noise = float(temperature) * model._base_noise_like(
+        torch.empty(
+            bsz * k,
+            int(n_steps),
+            model.cfg.n_cells,
+            device=history_level_values.device,
+            dtype=history_level_values.dtype,
+        )
+    )
     dt = 1.0 / float(max(1, int(flow_steps)))
     norm_frames: list[torch.Tensor] = []
     level_frames: list[torch.Tensor] = []
     for _step in range(int(n_steps)):
         memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[:, -1]
         current_level_score = prefix_level_scores[:, -1]
-        x = float(temperature) * torch.randn(
-            bsz * k,
-            model.cfg.n_cells,
-            device=history_level_values.device,
-            dtype=history_level_values.dtype,
-        )
+        x = base_noise[:, _step]
         for flow_step in range(max(1, int(flow_steps))):
             t = torch.full(
                 (bsz * k,),
@@ -453,6 +457,7 @@ def main() -> None:
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--base_noise_rho", type=float, default=None)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=4)
     parser.add_argument("--sample_steps", type=int, default=8)
@@ -470,6 +475,8 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model, payload = load_model(args.checkpoint, device)
+    if args.base_noise_rho is not None:
+        model.cfg.base_noise_rho = float(args.base_noise_rho)
     if args.velocity_readout_mode == "group_residual":
         enable_group_residual_velocity_readout(model, iv_count=int(args.iv_count))
     args.history_len = int(model.cfg.history_len)
@@ -578,6 +585,7 @@ def main() -> None:
         "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
         "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
+        "base_noise_rho": float(model.cfg.base_noise_rho),
         "velocity_readout_mode": args.velocity_readout_mode,
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),

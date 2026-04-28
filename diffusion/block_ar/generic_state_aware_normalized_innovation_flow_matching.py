@@ -22,6 +22,7 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     prefix_feature_mode: str = "scale"
     velocity_readout_mode: str = "shared"
     readout_iv_count: int = 25
+    base_noise_rho: float = 0.0
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -249,6 +250,23 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         return self.memory_norm(self.memory(x, mask=mask))
 
+    def _base_noise_like(self, reference: torch.Tensor, rho: float | None = None) -> torch.Tensor:
+        """Sample iid or AR(1)-correlated Gaussian base noise over the horizon axis."""
+        if reference.ndim != 3:
+            raise ValueError("reference must have shape [B,T,C]")
+        rho_value = float(self.cfg.base_noise_rho if rho is None else rho)
+        if abs(rho_value) < 1e-8:
+            return torch.randn_like(reference)
+        rho_value = max(-0.99, min(0.99, rho_value))
+        eps = torch.randn_like(reference)
+        frames = [eps[:, 0]]
+        innovation_scale = math.sqrt(max(1.0 - rho_value * rho_value, 1e-8))
+        prev = frames[0]
+        for step in range(1, reference.shape[1]):
+            prev = rho_value * prev + innovation_scale * eps[:, step]
+            frames.append(prev)
+        return torch.stack(frames, dim=1)
+
     def training_loss(
         self,
         history_level_values: torch.Tensor,
@@ -274,7 +292,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         current_level_scores = prefix_level_scores[:, start : start + self.cfg.future_len]
 
         x1 = future_normalized_innovation
-        x0 = torch.randn_like(x1)
+        x0 = self._base_noise_like(x1)
         bsz, horizon, n_vars = x1.shape
         t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
@@ -327,6 +345,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "condition_contrast_loss": contrast_loss.detach(),
             "condition_contrast_neg_loss": neg_loss.detach(),
             "condition_contrast_weight": torch.as_tensor(contrast_weight, device=x1.device, dtype=x1.dtype),
+            "base_noise_rho": torch.as_tensor(float(self.cfg.base_noise_rho), device=x1.device, dtype=x1.dtype),
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
             "local_scale_mean": scale.mean().detach(),
@@ -391,18 +410,22 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                     .expand(bsz, k, self.cfg.n_cells)
                     .reshape(bsz * k, self.cfg.n_cells)
                 )
+            base_noise = temp * self._base_noise_like(
+                torch.empty(
+                    bsz * k,
+                    int(n_steps),
+                    self.cfg.n_cells,
+                    device=level_scores.device,
+                    dtype=level_scores.dtype,
+                )
+            )
             frames: list[torch.Tensor] = []
             for _step in range(int(n_steps)):
                 memory_state = self._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[
                     :, -1
                 ]
                 current_level_score = prefix_level_scores[:, -1]
-                x = temp * torch.randn(
-                    bsz * k,
-                    self.cfg.n_cells,
-                    device=level_scores.device,
-                    dtype=level_scores.dtype,
-                )
+                x = base_noise[:, _step]
                 for flow_step in range(int(self.cfg.flow_steps)):
                     t = torch.full(
                         (bsz * k,),

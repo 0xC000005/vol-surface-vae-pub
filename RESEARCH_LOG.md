@@ -105475,3 +105475,35 @@ This is not factor-specific and is theory-backed: it changes the generative base
 Next HEAD cycle should implement the smallest path-correlated base-prior hook and run a joint38 falsifier. Do not continue the hard-negative branch. Keep 682a as the clean native joint38 incumbent.
 
 ---
+## 2026-04-28: 686a AR1 base-prior falsifier
+
+### Context
+685a proposed a literature-backed path-prior test after contrast objectives proved misaligned. The current AR flow uses iid Gaussian base noise at each future step. Training normalized innovations showed anti-persistence, not smoothing: global AR(1) rho `-0.214`, IV-cell mean `-0.318`, anchor mean near zero.
+
+### Hypothesis
+If iid base noise is making the flow learn temporal path structure and conditioning at the same time, a data-derived AR(1) base prior should improve integrated path-law behavior, especially h7 mean reversion and cointegration, without adding another loss knob.
+
+### Execute
+Added `base_noise_rho` to the normalized-innovation flow config. The model now samples AR(1)-correlated Gaussian base noise over the future horizon when `base_noise_rho != 0`, and uses the same base noise in teacher-forced flow training and differentiable rollout fine-tuning. Added a regression test that the AR(1) base-noise helper produces positive lag-1 correlation when configured.
+
+Estimated training rho from joint38 normalized innovations and fine-tuned the 676a joint38 incumbent for two epochs with `base_noise_rho=-0.21352030200845`, keeping the same channel-level rollout objective and no contrast term.
+
+Artifacts:
+- Model: `models/backfill/686a_joint38_ar1base_m021_channel_level_e2_s6863/best_model.pt`
+- IV-facing high-sample suite: `results/validations/2026-04-28/686a_ar1base_prior/joint_val_iv_full11_s96.json`
+- Joint panel audit: `results/validations/2026-04-28/686a_ar1base_prior/joint_val_panel.json`
+
+### Result
+The training objective improved early: best epoch was epoch 1 with `val_total=1.7851`, better than 682a and 684a. The suite did not improve. 686a reached only `4/11`, failing coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, and mean_reversion.
+
+The AR(1) prior narrowed the law too much. Coverage90 fell to `0.754`, calibration error worsened to `0.109`, persistent severe undercoverage rose to `7.1%`, level KS was only `14/25`, median-bias magnitude fell to `21/25`, and cointegration failed on worst-cell ratio `0.225`. Aggregate mean reversion improved to ratio `1.012`, but the h7 overshoot persisted at `1.410`. Pathwise KS still passed at `0.448`.
+
+Joint panel quality remained acceptable: factor delta KS mean `0.099`, 11/13 factor KS pass, all q99 factor tails pass, factor-factor corr `0.781`, and IV-factor corr `0.888`.
+
+### Mechanism Read
+The data-derived AR(1) base prior is not the missing piece in this form. It moves the model in the expected direction on aggregate mean reversion, but pays for it by reducing scenario width and damaging integrated level-law coverage. Like hard contrast, it improves an internal objective while worsening deployable IV gates. This suggests the active bottleneck is not merely the base noise temporal correlation; it is the model's allocation of uncertainty across level regions/cells/horizons.
+
+### Decision
+Do not continue tuning scalar rho. Keep the correlated-prior plumbing as a reusable falsification tool, but return the active checkpoint to 682a for native joint38. The next cycle should be analysis/ideation around uncertainty allocation: why the model persistently undercovers a small set of cells/horizons while preserving daily-change and factor panels, and whether this requires a representation change rather than another prior/loss scalar.
+
+---

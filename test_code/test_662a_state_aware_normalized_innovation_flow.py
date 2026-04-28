@@ -218,6 +218,34 @@ def test_scale_drift_prefix_conditions_on_drift_without_centering_increment():
     assert samples.shape == (5, 2, cfg.future_len, cfg.n_cells)
 
 
+def test_ar1_base_noise_like_has_temporal_correlation():
+    torch.manual_seed(71)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=8,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        base_noise_rho=0.8,
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    ref = torch.zeros(1024, cfg.future_len, cfg.n_cells)
+
+    noise = model._base_noise_like(ref)
+    lag_corr = torch.corrcoef(torch.stack([noise[:, :-1].reshape(-1), noise[:, 1:].reshape(-1)]))[0, 1]
+
+    assert lag_corr > 0.55
+
+
 def test_condition_contrast_loss_adds_ranking_penalty():
     torch.manual_seed(11)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(

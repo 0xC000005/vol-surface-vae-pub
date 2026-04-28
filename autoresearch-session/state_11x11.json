@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 685,
-  "last_iteration_type": "research_ideation",
+  "iteration": 686,
+  "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "685a reframes the post-contrast failure as a path-prior mismatch risk. The AR flow uses iid Gaussian base noise per future step, forcing the transition to learn both temporal path coherence and history conditioning. Contrast objectives can improve normalized-innovation separability while worsening integrated level law, so the next clean axis is the base path prior rather than another loss term.",
-  "last_result_summary": "685a literature-backed ideation after 684a: TSFlow/ICLR 2025 motivates data-dependent Gaussian-process or temporally structured priors for flow-matching time-series generation; TACTiS-2 motivates joint-law/dependence modeling rather than post-hoc deck contrast; TimeGrad remains a core AR diffusion baseline. Decision: stop hard-negative contrast, keep 682a as best native joint38, and test a path-correlated base-noise prior in the same normalized-innovation AR flow.",
-  "next_step_recommendation": "Implement the smallest generic path-correlated base-prior hook: estimate an AR(1) or exponential-kernel correlation for normalized innovations from training data, use correlated base noise consistently in teacher-forced flow training and free-running rollout sampling, then run a joint38 falsifier against 676a/682a. Keep architecture/data object fixed.",
+  "current_bottleneck": "686a shows scalar path-correlated base noise is not the missing piece. A data-derived AR(1) prior improves aggregate mean-reversion ratio and validation objective but narrows the generated law, worsening coverage, persistent undercoverage, level KS, median-bias magnitude, and cointegration. The active bottleneck is uncertainty allocation across level regions/cells/horizons, not just temporal correlation of base noise.",
+  "last_result_summary": "686a added base_noise_rho to the normalized-innovation flow and fine-tuned 676a joint38 with rho=-0.21352030200845 estimated from training normalized innovations. Best val_total improved to 1.7851, but high-sample IV-facing suite reached only 4/11: coverage90 0.754, calibration 0.109, persistent severe undercoverage 7.1%, level KS 14/25, median-bias magnitude 21/25, cointegration worst-cell ratio 0.225 fail, h7 mean-reversion ratio 1.410 fail, pathwise KS 0.448 pass. Joint panel stayed acceptable with factor delta KS mean 0.099, 11/13 factor KS pass, factor-factor corr 0.781, IV-factor corr 0.888.",
+  "next_step_recommendation": "Do not tune scalar rho further. Keep correlated-prior plumbing as a falsification tool but return active checkpoint to 682a for native joint38. Next run post-experiment analysis or ideation on uncertainty allocation: identify the persistent undercovered cells/horizons and whether the encoder/readout representation is failing to allocate width by level region.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11, while 682a is now the best native joint38 checkpoint at 6/11 with acceptable anchor panel quality and preserved IV-factor co-movement.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "2512129 feat: autoresearch 684a nearest condition contrast",
+  "last_commit": "e0f1299 docs: autoresearch 685a contrast failure ideation",
   "resume_command_hint": "continue autoresearch"
 }
