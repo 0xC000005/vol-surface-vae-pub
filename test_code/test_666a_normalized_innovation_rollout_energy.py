@@ -12,6 +12,7 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
 from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_energy_finetune import (
     differentiable_normalized_rollout_samples,
     effective_readout_iv_count,
+    marginal_crps_path_score,
     normalized_rollout_energy_loss,
     standardized_level_delta_paths,
 )
@@ -75,6 +76,17 @@ def test_standardized_level_delta_paths_are_unit_free_from_last_history_level():
 
     torch.testing.assert_close(sampled_delta, torch.tensor([[[[2.0, 1.5], [6.0, -3.0]]]]))
     torch.testing.assert_close(target_delta, torch.tensor([[[4.0, -1.0], [8.0, -5.0]]]))
+
+
+def test_marginal_crps_path_score_matches_two_member_crps():
+    samples = torch.tensor([[[[-1.0]], [[1.0]]]])
+    target = torch.tensor([[[0.0]]])
+
+    score, target_dist, pair_dist = marginal_crps_path_score(samples, target)
+
+    torch.testing.assert_close(score, torch.tensor(0.5))
+    torch.testing.assert_close(target_dist, torch.tensor(1.0))
+    torch.testing.assert_close(pair_dist, torch.tensor(1.0))
 
 
 def test_differentiable_normalized_rollout_samples_backpropagates():

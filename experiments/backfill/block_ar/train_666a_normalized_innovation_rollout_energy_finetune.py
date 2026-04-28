@@ -87,6 +87,34 @@ def channelwise_path_energy_score(
     return score.mean(), target_dist.mean(), pair_dist.mean()
 
 
+def marginal_crps_path_score(
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    horizon_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Coordinate-wise ensemble CRPS averaged across horizon and channels."""
+    if samples.ndim != 4 or target.ndim != 3:
+        raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
+    if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
+        raise ValueError("samples and target path dimensions do not match")
+    target_dist_grid = (samples - target[:, None, :, :]).abs().mean(dim=1)
+    pair_dist_grid = (samples[:, :, None, :, :] - samples[:, None, :, :, :]).abs().mean(dim=(1, 2))
+    score_grid = target_dist_grid - 0.5 * pair_dist_grid
+    if horizon_weights is not None:
+        if horizon_weights.shape != (samples.shape[-2],):
+            raise ValueError(
+                f"horizon_weights must have shape ({samples.shape[-2]},), "
+                f"got {tuple(horizon_weights.shape)}"
+            )
+        weights = horizon_weights.to(device=samples.device, dtype=samples.dtype)
+        weights = weights / weights.mean().clamp_min(1e-12)
+        score_grid = score_grid * weights.view(1, samples.shape[-2], 1)
+        target_dist_grid = target_dist_grid * weights.view(1, samples.shape[-2], 1)
+        pair_dist_grid = pair_dist_grid * weights.view(1, samples.shape[-2], 1)
+    return score_grid.mean(), target_dist_grid.mean(), pair_dist_grid.mean()
+
+
 def standardized_level_delta_paths(
     sampled_level: torch.Tensor,
     target_level: torch.Tensor,
@@ -266,6 +294,7 @@ def normalized_rollout_energy_loss(
     train_sample_count: int,
     rollout_flow_steps: int,
     energy_weight: float,
+    marginal_crps_weight: float = 0.0,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -308,6 +337,11 @@ def normalized_rollout_energy_loss(
         sampled_norm,
         future_normalized_innovation,
         eps=float(energy_eps),
+        horizon_weights=weights,
+    )
+    marginal_crps, marginal_crps_target_dist, marginal_crps_pair_dist = marginal_crps_path_score(
+        sampled_norm,
+        future_normalized_innovation,
         horizon_weights=weights,
     )
     if float(level_energy_weight) > 0.0:
@@ -380,6 +414,7 @@ def normalized_rollout_energy_loss(
     total = (
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
+        + float(marginal_crps_weight) * marginal_crps
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
         + float(condition_rollout_contrast_weight) * condition_rollout_contrast
@@ -390,6 +425,9 @@ def normalized_rollout_energy_loss(
         "energy": energy.detach(),
         "energy_target_dist": target_dist.detach(),
         "energy_pair_dist": pair_dist.detach(),
+        "marginal_crps": marginal_crps.detach(),
+        "marginal_crps_target_dist": marginal_crps_target_dist.detach(),
+        "marginal_crps_pair_dist": marginal_crps_pair_dist.detach(),
         "level_energy": level_energy.detach(),
         "level_energy_target_dist": level_target_dist.detach(),
         "level_energy_pair_dist": level_pair_dist.detach(),
@@ -424,6 +462,7 @@ def run_epoch(
     train_sample_count: int,
     rollout_flow_steps: int,
     energy_weight: float,
+    marginal_crps_weight: float,
     level_energy_weight: float,
     channel_level_energy_weight: float,
     channel_level_energy_coordinate: str,
@@ -457,6 +496,7 @@ def run_epoch(
                 train_sample_count=int(train_sample_count),
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
+                marginal_crps_weight=float(marginal_crps_weight),
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
                 channel_level_energy_coordinate=channel_level_energy_coordinate,
@@ -507,6 +547,7 @@ def main() -> None:
     parser.add_argument("--train_sample_count", type=int, default=4)
     parser.add_argument("--rollout_flow_steps", type=int, default=4)
     parser.add_argument("--energy_weight", type=float, default=0.2)
+    parser.add_argument("--marginal_crps_weight", type=float, default=0.0)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_coordinate", choices=["level", "scaled_delta"], default="level")
@@ -658,6 +699,7 @@ def main() -> None:
         "train_sample_count": int(args.train_sample_count),
         "rollout_flow_steps": int(args.rollout_flow_steps),
         "energy_weight": float(args.energy_weight),
+        "marginal_crps_weight": float(args.marginal_crps_weight),
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "channel_level_energy_coordinate": args.channel_level_energy_coordinate,
@@ -695,6 +737,7 @@ def main() -> None:
             train_sample_count=int(args.train_sample_count),
             rollout_flow_steps=int(args.rollout_flow_steps),
             energy_weight=float(args.energy_weight),
+            marginal_crps_weight=float(args.marginal_crps_weight),
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
             channel_level_energy_coordinate=args.channel_level_energy_coordinate,
@@ -717,6 +760,7 @@ def main() -> None:
                 train_sample_count=int(args.train_sample_count),
                 rollout_flow_steps=int(args.rollout_flow_steps),
                 energy_weight=float(args.energy_weight),
+                marginal_crps_weight=float(args.marginal_crps_weight),
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
                 channel_level_energy_coordinate=args.channel_level_energy_coordinate,

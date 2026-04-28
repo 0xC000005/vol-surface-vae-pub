@@ -105680,3 +105680,27 @@ Do not add another source-width parameter. The next principled experiment should
 694a should implement `marginal_crps_path_score(samples, target)` and run a joint38 experiment from the 676a baseline with `energy_weight=0.0`, `marginal_crps_weight=0.2`, `channel_level_energy_weight=0.05`, all else frozen. This is a controlled objective swap: high-dimensional path energy to aggregated marginal CRPS.
 
 ---
+## 2026-04-28: 694a marginal-CRPS rollout objective
+
+### Hypothesis
+High-dimensional path energy may be too weak for marginal coverage in a 30x38 scenario set. 694a replaced the normalized-path energy score with an aggregated coordinate-wise ensemble CRPS over normalized innovations, preserving the same AR flow, normalized-innovation data object, channel-level path term, and joint panel interface.
+
+### Execution
+- Added `marginal_crps_path_score(samples, target)` with a regression test against the two-member CRPS formula.
+- Added `--marginal_crps_weight`; ran a controlled objective swap from 676a with `energy_weight=0.0`, `marginal_crps_weight=0.2`, `channel_level_energy_weight=0.05`.
+- Trained `models/backfill/694a_joint38_marginal_crps_rollout_w02_e2_s6941`.
+- Ran validation IV full-suite and joint panel audit.
+- Regression tests passed: `pytest test_code/test_522a_38d_alignment.py test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` gave `21 passed`.
+
+### Results
+- Validation IV stayed `5/11`: coverage90 `0.788`, calibration error `0.075`, conditional MAE reduction `11.0%`, worst width ratio `1.590`, kurtosis ratio `1.405`, level KS `14/25`, median fraction `21/25`, bias magnitude `21/25`, h7 mean-reversion ratio `1.422`, pathwise KS `0.408`.
+- Compared with 676a/688a, CRPS moves in the right direction for conditional MAE and coverage floor but does not cross the strict coverage/distributional/regime gates.
+- Joint panel survived and slightly improved factor marginal realism: factor KS mean `0.099`, `11/13` factor KS pass, q99 pass `13/13`, factor-factor corr `0.790`, IV-factor corr `0.896`.
+
+### Mechanism Read
+Coordinate-wise CRPS is directionally useful but insufficient alone. It improves marginal calibration signals without breaking the joint panel, but it does not fix level occupancy, h7 mean-reversion, or per-regime/per-cell coverage. Since dependence metrics survived, the next principled step is not to abandon CRPS; it is to add a dependency-aware proper-score component, most likely a computationally bounded variogram-style rollout score.
+
+### Decision
+Keep marginal CRPS as a live objective component, but do not promote 694a. Next experiment should test CRPS plus a universal dependency/path score rather than reverting to source-scale or readout knobs.
+
+---
