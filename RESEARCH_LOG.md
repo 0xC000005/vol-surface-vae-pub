@@ -105942,3 +105942,46 @@ The failure is still clean: the current family can generate realistic daily chan
 Continue the current framework, but treat 701a as a falsification of naive memory-token risk-state conditioning. The next HEAD step is to diagnose and repair conditional uncertainty allocation directly, while preserving the same state-normalized innovation law and avoiding scope-specific recipes.
 
 ---
+## 2026-04-28: 702a risk-state control-path audit
+
+### Context
+701a showed that a history-only risk-state auxiliary can learn future stress ordering, but the validation scenario deck still failed coverage, conditionality, level allocation, mean reversion, and pathwise jump realism. The key question for 702a was whether the learned risk signal is bad, ignored, or connected to the wrong part of the sampler.
+
+### Audit
+Added `audit_702a_risk_state_conditioning_channel.py`, which measures:
+- predicted risk versus realized future normalized-innovation activity;
+- predicted risk versus history activity;
+- risk-context norm relative to memory norm;
+- velocity sensitivity to adding the risk context;
+- matched-seed sample ablation with the risk context enabled versus zeroed.
+
+Checkpoint audited: `models/backfill/701a_joint38_riskstate_innovscore_e8_s7011/best_model.pt`
+
+### Results
+Validation split:
+- risk0/future-activity Spearman `0.472`
+- risk0/history-activity Spearman `0.202`
+- history/future-activity Spearman `0.318`
+- context/memory norm ratio `0.0497`
+- mean velocity delta ratio from risk context `0.0426`
+- sampled width change versus zero-risk context `+1.16%`
+- normal sampled width/future-activity Spearman `0.041`
+
+Train-tail split:
+- risk0/future-activity Spearman `0.745`
+- risk0/history-activity Spearman `0.148`
+- history/future-activity Spearman `0.315`
+- context/memory norm ratio `0.0481`
+- mean velocity delta ratio from risk context `0.0506`
+- sampled width change versus zero-risk context `-0.68%`
+- normal sampled width/future-activity Spearman `-0.474`
+
+### Interpretation
+The risk target is not the main problem. The predicted risk score is more related to future activity than to history activity, especially on train-tail, so the auxiliary head is learning a real conditional stress signal.
+
+The control path is the problem. The risk context is only about five percent of memory norm, changes the velocity field by only four to five percent, and changes generated width by roughly one percent or less. More importantly, generated width does not rank histories by realized future activity. This explains why 701a improved the apparent turbulent/calm width ratio but did not fix coverage, per-cell conditionality, or pathwise jump realism.
+
+### Decision
+Treat 702a as post-experiment analysis, not a model win. The next minimal fix should preserve the same normalized-innovation AR flow but connect risk conditioning to the stochastic source scale rather than only to memory tokens. This is still a generic conditional law mechanism: history predicts uncertainty state; uncertainty state controls the noise source used by the flow.
+
+---
