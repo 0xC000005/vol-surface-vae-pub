@@ -15,6 +15,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
     marginal_crps_path_score,
     normalized_rollout_energy_loss,
     standardized_level_delta_paths,
+    structured_variogram_path_score,
 )
 
 
@@ -87,6 +88,15 @@ def test_marginal_crps_path_score_matches_two_member_crps():
     torch.testing.assert_close(score, torch.tensor(0.5))
     torch.testing.assert_close(target_dist, torch.tensor(1.0))
     torch.testing.assert_close(pair_dist, torch.tensor(1.0))
+
+
+def test_structured_variogram_path_score_matches_single_pair():
+    samples = torch.tensor([[[[0.0, 2.0]]]])
+    target = torch.tensor([[[0.0, 1.0]]])
+
+    score = structured_variogram_path_score(samples, target, power=1.0)
+
+    torch.testing.assert_close(score, torch.tensor(1.0))
 
 
 def test_differentiable_normalized_rollout_samples_backpropagates():

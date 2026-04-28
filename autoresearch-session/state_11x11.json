@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 694,
+  "iteration": 695,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Marginal calibration improves under coordinate-wise CRPS, but joint IV still fails level occupancy, per-cell/regime coverage, h7 mean-reversion, and time-series kurtosis. The objective now needs a dependency/path-aware proper-score component rather than architecture/source-scale knobs.",
-  "last_result_summary": "694a added marginal_crps_path_score and trained joint38 from 676a with energy_weight=0.0, marginal_crps_weight=0.2, channel_level_energy_weight=0.05. Tests passed (21 passed). Validation IV stayed 5/11: coverage90 0.788, calibration 0.075, conditional MAE +11.0%, worst width ratio 1.590, kurtosis ratio 1.405, level KS 14/25, median fraction 21/25, bias magnitude 21/25, h7 MR ratio 1.422, pathwise KS 0.408. Joint panel survived and factor KS mean improved to 0.099 with 11/13 factor KS pass and q99 13/13.",
-  "next_step_recommendation": "Keep CRPS as live but do not promote 694a. Next test CRPS plus a computationally bounded universal dependency/path score, likely a variogram-style score over structured horizon/channel pairs. Do not return to source-scale, readout, or scope-specific losses.",
+  "current_bottleneck": "Objective-term trade-off and identifiability. Marginal CRPS improves calibration/conditionality signals, while structured variogram improves dependency/path structure, but the additive recipe still cannot jointly satisfy coverage, level occupancy, regime coverage, kurtosis, and h7 mean reversion.",
+  "last_result_summary": "695a added structured_variogram_path_score and trained from 694a with marginal_crps_weight=0.2, variogram_weight=0.05, channel_level_energy_weight=0.05. Tests passed (22 passed). Validation IV stayed 5/11: coverage90 0.760, calibration 0.101, conditional MAE +10.3%, worst width ratio 1.493, kurtosis ratio 1.458, level KS 12/25, median fraction 20/25, bias magnitude 22/25, h7 MR ratio 1.365, pathwise KS 0.329. Panel survived: factor KS mean 0.099, 11/13 pass, q99 13/13, factor-factor corr 0.793, IV-factor corr 0.895.",
+  "next_step_recommendation": "Do post-experiment analysis before adding more score terms or weights. Compare 676a, 694a, and 695a to quantify the marginal-vs-dependency trade-off and decide whether the clean next move is objective balancing, score scheduling, or a different likelihood factorization.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11. The frozen tri-scope baseline is 674a/675a IV-only + 688a anchor-only + 676a joint38: anchor-only is realistic, joint panel is acceptable, but joint IV-facing is only 5/11. 689a group-head keeps joint at 5/11 and is a readout falsifier, not a new best. 682a remains the best native joint38 score at 6/11, but uses contrast and is not part of the frozen non-contrast framework-lock baseline.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending 694a commit",
+  "last_commit": "pending 695a commit",
   "resume_command_hint": "continue autoresearch"
 }

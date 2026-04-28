@@ -115,6 +115,41 @@ def marginal_crps_path_score(
     return score_grid.mean(), target_dist_grid.mean(), pair_dist_grid.mean()
 
 
+def structured_variogram_path_score(
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    power: float = 0.5,
+) -> torch.Tensor:
+    """Variogram score over adjacent time pairs and same-horizon channel pairs."""
+    if samples.ndim != 4 or target.ndim != 3:
+        raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
+    if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
+        raise ValueError("samples and target path dimensions do not match")
+    bsz, n_samples, horizon, n_cells = samples.shape
+    left_parts: list[torch.Tensor] = []
+    right_parts: list[torch.Tensor] = []
+    if horizon > 1:
+        temporal_left = torch.arange(horizon - 1, device=samples.device)[:, None] * n_cells
+        temporal_channels = torch.arange(n_cells, device=samples.device)[None, :]
+        left_parts.append((temporal_left + temporal_channels).reshape(-1))
+        right_parts.append((temporal_left + n_cells + temporal_channels).reshape(-1))
+    if n_cells > 1:
+        channel_pairs = torch.triu_indices(n_cells, n_cells, offset=1, device=samples.device)
+        horizon_offsets = torch.arange(horizon, device=samples.device)[:, None] * n_cells
+        left_parts.append((horizon_offsets + channel_pairs[0][None, :]).reshape(-1))
+        right_parts.append((horizon_offsets + channel_pairs[1][None, :]).reshape(-1))
+    if not left_parts:
+        return torch.zeros((), device=samples.device, dtype=samples.dtype)
+    left = torch.cat(left_parts)
+    right = torch.cat(right_parts)
+    sample_flat = samples.reshape(bsz, n_samples, horizon * n_cells)
+    target_flat = target.reshape(bsz, horizon * n_cells)
+    sample_diff = (sample_flat[:, :, left] - sample_flat[:, :, right]).abs().clamp_min(1e-12).pow(float(power))
+    target_diff = (target_flat[:, left] - target_flat[:, right]).abs().clamp_min(1e-12).pow(float(power))
+    return (sample_diff.mean(dim=1) - target_diff).square().mean()
+
+
 def standardized_level_delta_paths(
     sampled_level: torch.Tensor,
     target_level: torch.Tensor,
@@ -295,6 +330,8 @@ def normalized_rollout_energy_loss(
     rollout_flow_steps: int,
     energy_weight: float,
     marginal_crps_weight: float = 0.0,
+    variogram_weight: float = 0.0,
+    variogram_power: float = 0.5,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -343,6 +380,11 @@ def normalized_rollout_energy_loss(
         sampled_norm,
         future_normalized_innovation,
         horizon_weights=weights,
+    )
+    variogram = (
+        structured_variogram_path_score(sampled_norm, future_normalized_innovation, power=float(variogram_power))
+        if float(variogram_weight) > 0.0
+        else torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     )
     if float(level_energy_weight) > 0.0:
         level_energy, level_target_dist, level_pair_dist = full_path_energy_score(
@@ -415,6 +457,7 @@ def normalized_rollout_energy_loss(
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
         + float(marginal_crps_weight) * marginal_crps
+        + float(variogram_weight) * variogram
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
         + float(condition_rollout_contrast_weight) * condition_rollout_contrast
@@ -428,6 +471,7 @@ def normalized_rollout_energy_loss(
         "marginal_crps": marginal_crps.detach(),
         "marginal_crps_target_dist": marginal_crps_target_dist.detach(),
         "marginal_crps_pair_dist": marginal_crps_pair_dist.detach(),
+        "variogram": variogram.detach(),
         "level_energy": level_energy.detach(),
         "level_energy_target_dist": level_target_dist.detach(),
         "level_energy_pair_dist": level_pair_dist.detach(),
@@ -463,6 +507,8 @@ def run_epoch(
     rollout_flow_steps: int,
     energy_weight: float,
     marginal_crps_weight: float,
+    variogram_weight: float,
+    variogram_power: float,
     level_energy_weight: float,
     channel_level_energy_weight: float,
     channel_level_energy_coordinate: str,
@@ -497,6 +543,8 @@ def run_epoch(
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
                 marginal_crps_weight=float(marginal_crps_weight),
+                variogram_weight=float(variogram_weight),
+                variogram_power=float(variogram_power),
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
                 channel_level_energy_coordinate=channel_level_energy_coordinate,
@@ -548,6 +596,8 @@ def main() -> None:
     parser.add_argument("--rollout_flow_steps", type=int, default=4)
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--marginal_crps_weight", type=float, default=0.0)
+    parser.add_argument("--variogram_weight", type=float, default=0.0)
+    parser.add_argument("--variogram_power", type=float, default=0.5)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_coordinate", choices=["level", "scaled_delta"], default="level")
@@ -700,6 +750,8 @@ def main() -> None:
         "rollout_flow_steps": int(args.rollout_flow_steps),
         "energy_weight": float(args.energy_weight),
         "marginal_crps_weight": float(args.marginal_crps_weight),
+        "variogram_weight": float(args.variogram_weight),
+        "variogram_power": float(args.variogram_power),
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "channel_level_energy_coordinate": args.channel_level_energy_coordinate,
@@ -738,6 +790,8 @@ def main() -> None:
             rollout_flow_steps=int(args.rollout_flow_steps),
             energy_weight=float(args.energy_weight),
             marginal_crps_weight=float(args.marginal_crps_weight),
+            variogram_weight=float(args.variogram_weight),
+            variogram_power=float(args.variogram_power),
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
             channel_level_energy_coordinate=args.channel_level_energy_coordinate,
@@ -761,6 +815,8 @@ def main() -> None:
                 rollout_flow_steps=int(args.rollout_flow_steps),
                 energy_weight=float(args.energy_weight),
                 marginal_crps_weight=float(args.marginal_crps_weight),
+                variogram_weight=float(args.variogram_weight),
+                variogram_power=float(args.variogram_power),
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
                 channel_level_energy_coordinate=args.channel_level_energy_coordinate,

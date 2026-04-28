@@ -105704,3 +105704,27 @@ Coordinate-wise CRPS is directionally useful but insufficient alone. It improves
 Keep marginal CRPS as a live objective component, but do not promote 694a. Next experiment should test CRPS plus a universal dependency/path score rather than reverting to source-scale or readout knobs.
 
 ---
+## 2026-04-28: 695a CRPS plus structured variogram rollout
+
+### Hypothesis
+694a showed that marginal CRPS is directionally useful but insufficient. 695a added a bounded structured variogram-style rollout score over adjacent time pairs and same-horizon channel pairs to improve dependency/path structure without introducing scope-specific losses.
+
+### Execution
+- Added `structured_variogram_path_score(samples, target)` and `--variogram_weight/--variogram_power`.
+- Fine-tuned from 694a with `marginal_crps_weight=0.2`, `variogram_weight=0.05`, `channel_level_energy_weight=0.05`, and no high-dimensional energy term.
+- Trained `models/backfill/695a_joint38_crps_variogram_rollout_w005_e2_s6951`.
+- Ran validation IV full-suite and joint panel audit.
+- Regression tests passed: `pytest test_code/test_522a_38d_alignment.py test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` gave `22 passed`.
+
+### Results
+- Validation IV stayed `5/11`: coverage90 `0.760`, calibration error `0.101`, conditional MAE reduction `10.3%`, worst width ratio `1.493`, kurtosis ratio `1.458`, level KS `12/25`, median fraction `20/25`, bias magnitude `22/25`, h7 mean-reversion ratio `1.365`, pathwise KS `0.329`.
+- Compared with 694a, variogram improved cross-cell/path structure and pathwise KS but worsened coverage, calibration, level KS, and regime persistent undercoverage.
+- Joint panel survived: factor KS mean `0.099`, `11/13` factor KS pass, q99 pass `13/13`, factor-factor corr `0.793`, IV-factor corr `0.895`.
+
+### Mechanism Read
+The variogram term does what it should locally: it improves dependency/pathwise structure. The trade-off is that it pulls capacity away from marginal coverage and level occupancy. This confirms the objective can steer symptoms, but a simple additive CRPS+variogram recipe is not enough to resolve the core joint law failure.
+
+### Decision
+Do not promote 695a. The proper-score direction remains principled, but the next step should be post-experiment analysis of objective-term trade-offs before adding more scoring terms or weights. The clean bottleneck is now objective balancing/identifiability, not architecture expressiveness.
+
+---
