@@ -105605,3 +105605,28 @@ Do not add another decoder/readout variant. Keep 688a as the framework-lock base
 This falsifies "just add a more expressive output head" as the main explanation. The current bottleneck is a joint co-training allocation problem: the same core can model IV-only and anchor-only realism, but joint training still misallocates IV probability mass and uncertainty. The next principled step is not another decoder variant; it is a universal, scope-agnostic objective/data-object analysis or fix that preserves one scalar recipe across IV-only, anchor-only, and joint.
 
 ---
+## 2026-04-28: 691a standardized level-delta path-energy falsifier
+
+### Hypothesis
+The joint failure might come from the auxiliary channel-level path energy being measured in raw encoded-level units. In a heterogeneous joint panel, large unbounded anchor/equity-like levels can dominate this term and distort IV probability-mass allocation. A scope-agnostic fix is to score channel-level paths as standardized deltas from the last history level: `(future_level - last_history_level) / history_scale`.
+
+### Execution
+- Added `standardized_level_delta_paths(...)` and `--channel_level_energy_coordinate {level,scaled_delta}` to the 666a rollout-energy fine-tune.
+- Preserved the same generative core, scalar objective family, rollout settings, and weights; only the channel-level energy coordinate changed.
+- Trained 691a from the same joint base as 676a: `models/backfill/691a_joint38_scaled_delta_channel_level_w005_e3_s6911`.
+- Ran validation IV full-suite, train-tail IV full-suite, and joint panel audit.
+- Regression tests: `pytest test_code/test_522a_38d_alignment.py test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed, `18 passed`.
+
+### Results
+- Training objective worsened versus 676a: best `val_total=1.9166` versus `1.8016`.
+- Validation IV suite stayed `5/11`: coverage90 `0.739`, calibration error `0.116`, conditional MAE reduction `9.5%` but worst width ratio `1.457`, kurtosis ratio `1.481`, level KS `12/25`, median fraction `18/25`, h7 mean-reversion ratio `1.413`, pathwise KS `0.308`.
+- Train-tail IV suite stayed `5/11`: coverage90 `0.786`, calibration error `0.067`, conditional MAE reduction `2.4%`, worst width ratio `1.302`, kurtosis ratio `2.475`, level KS improved to `18/25`, median fraction improved to `25/25`, h7 mean-reversion ratio `1.469`, pathwise KS `0.395`.
+- Joint panel quality survived: factor KS mean `0.108`, `11/13` factor KS pass, q99 pass `13/13`, factor-factor corr `0.790`, IV-factor corr `0.887`.
+
+### Mechanism Read
+The unit-free level coordinate helps in-sample location/median allocation but does not fix uncertainty allocation. It narrows or misallocates coverage and leaves conditionality, kurtosis, regime coverage, and h7 mean reversion unresolved. This means the joint bottleneck is not just raw-level unit imbalance in the channel-level path score.
+
+### Decision
+691a is a useful falsifier but not the new framework incumbent. Keep 688a/676a as the frozen baseline and 689a/691a as attribution probes. The next move should target the conditional stochastic allocation itself: the model must condition the width/source-noise law or objective on history without adding scope-specific losses.
+
+---

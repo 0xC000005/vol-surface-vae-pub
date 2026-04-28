@@ -11,6 +11,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
     differentiable_normalized_rollout_samples,
     effective_readout_iv_count,
     normalized_rollout_energy_loss,
+    standardized_level_delta_paths,
 )
 
 
@@ -55,6 +56,23 @@ def test_effective_readout_iv_count_uses_scope_semantics():
     assert effective_readout_iv_count("iv_only", n_cells=25, iv_count=25) == 25
     assert effective_readout_iv_count("anchor_only", n_cells=13, iv_count=25) == 0
     assert effective_readout_iv_count("joint38", n_cells=38, iv_count=25) == 25
+
+
+def test_standardized_level_delta_paths_are_unit_free_from_last_history_level():
+    history_level = torch.tensor([[[10.0, 100.0], [11.0, 98.0]]])
+    sampled_level = torch.tensor([[[[12.0, 101.0], [14.0, 92.0]]]])
+    target_level = torch.tensor([[[13.0, 96.0], [15.0, 88.0]]])
+    scale = torch.tensor([[0.5, 2.0]])
+
+    sampled_delta, target_delta = standardized_level_delta_paths(
+        sampled_level,
+        target_level,
+        history_level,
+        scale,
+    )
+
+    torch.testing.assert_close(sampled_delta, torch.tensor([[[[2.0, 1.5], [6.0, -3.0]]]]))
+    torch.testing.assert_close(target_delta, torch.tensor([[[4.0, -1.0], [8.0, -5.0]]]))
 
 
 def test_differentiable_normalized_rollout_samples_backpropagates():

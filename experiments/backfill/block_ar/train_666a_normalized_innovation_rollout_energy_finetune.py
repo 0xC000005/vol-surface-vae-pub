@@ -86,6 +86,30 @@ def channelwise_path_energy_score(
     return score.mean(), target_dist.mean(), pair_dist.mean()
 
 
+def standardized_level_delta_paths(
+    sampled_level: torch.Tensor,
+    target_level: torch.Tensor,
+    history_level_values: torch.Tensor,
+    scale: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Convert level paths to unit-free deltas from the last conditioned level."""
+    if sampled_level.ndim != 4 or target_level.ndim != 3:
+        raise ValueError("Expected sampled_level [B,K,T,C] and target_level [B,T,C]")
+    if history_level_values.ndim != 3 or scale.ndim != 2:
+        raise ValueError("Expected history_level_values [B,H,C] and scale [B,C]")
+    if sampled_level.shape[0] != target_level.shape[0] or sampled_level.shape[2:] != target_level.shape[1:]:
+        raise ValueError("sampled_level and target_level path dimensions do not match")
+    if history_level_values.shape[0] != target_level.shape[0] or history_level_values.shape[-1] != target_level.shape[-1]:
+        raise ValueError("history_level_values dimensions do not match target_level")
+    if scale.shape != (target_level.shape[0], target_level.shape[-1]):
+        raise ValueError(f"scale must have shape {(target_level.shape[0], target_level.shape[-1])}")
+    base = history_level_values[:, -1, :]
+    safe_scale = scale.clamp_min(1e-8)
+    sampled_delta = (sampled_level - base[:, None, None, :]) / safe_scale[:, None, None, :]
+    target_delta = (target_level - base[:, None, :]) / safe_scale[:, None, :]
+    return sampled_delta, target_delta
+
+
 def condition_negative_permutation(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     history_level_values: torch.Tensor,
@@ -244,6 +268,7 @@ def normalized_rollout_energy_loss(
     temperature: float,
     level_energy_weight: float = 0.0,
     channel_level_energy_weight: float = 0.0,
+    channel_level_energy_coordinate: str = "level",
     condition_rollout_contrast_weight: float = 0.0,
     condition_rollout_contrast_margin: float = 0.0,
     condition_rollout_negative_mode: str = "roll",
@@ -293,9 +318,21 @@ def normalized_rollout_energy_loss(
         level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     if float(channel_level_energy_weight) > 0.0:
+        if channel_level_energy_coordinate == "level":
+            channel_samples = sampled_level
+            channel_target = future_level_values
+        elif channel_level_energy_coordinate == "scaled_delta":
+            channel_samples, channel_target = standardized_level_delta_paths(
+                sampled_level,
+                future_level_values,
+                history_level_values,
+                scale,
+            )
+        else:
+            raise ValueError("channel_level_energy_coordinate must be 'level' or 'scaled_delta'")
         channel_level_energy, channel_level_target_dist, channel_level_pair_dist = channelwise_path_energy_score(
-            sampled_level,
-            future_level_values,
+            channel_samples,
+            channel_target,
             eps=float(energy_eps),
             horizon_weights=weights,
         )
@@ -380,6 +417,7 @@ def run_epoch(
     energy_weight: float,
     level_energy_weight: float,
     channel_level_energy_weight: float,
+    channel_level_energy_coordinate: str,
     condition_rollout_contrast_weight: float,
     condition_rollout_contrast_margin: float,
     condition_rollout_negative_mode: str,
@@ -412,6 +450,7 @@ def run_epoch(
                 energy_weight=float(energy_weight),
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
+                channel_level_energy_coordinate=channel_level_energy_coordinate,
                 condition_rollout_contrast_weight=float(condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(condition_rollout_contrast_margin),
                 condition_rollout_negative_mode=condition_rollout_negative_mode,
@@ -461,6 +500,7 @@ def main() -> None:
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
+    parser.add_argument("--channel_level_energy_coordinate", choices=["level", "scaled_delta"], default="level")
     parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
     parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
@@ -602,6 +642,7 @@ def main() -> None:
         "energy_weight": float(args.energy_weight),
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
+        "channel_level_energy_coordinate": args.channel_level_energy_coordinate,
         "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
         "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
@@ -635,6 +676,7 @@ def main() -> None:
             energy_weight=float(args.energy_weight),
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
+            channel_level_energy_coordinate=args.channel_level_energy_coordinate,
             condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
             condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
             condition_rollout_negative_mode=args.condition_rollout_negative_mode,
@@ -656,6 +698,7 @@ def main() -> None:
                 energy_weight=float(args.energy_weight),
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
+                channel_level_energy_coordinate=args.channel_level_energy_coordinate,
                 condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
                 condition_rollout_negative_mode=args.condition_rollout_negative_mode,
