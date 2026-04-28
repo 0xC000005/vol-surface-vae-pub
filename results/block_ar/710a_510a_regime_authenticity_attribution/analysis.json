@@ -1,0 +1,244 @@
+{
+  "min_regime_cell": 0.7,
+  "n_undercovered_slices": 22,
+  "n_unique_undercovered_cells": 12,
+  "worst_undercovered_slices": [
+    {
+      "regime": "calm",
+      "horizon": 30,
+      "cell": [
+        3,
+        4
+      ],
+      "coverage": 0.5384615384615384,
+      "shortfall": 0.16153846153846152,
+      "level_ks": 0.38309027777777777,
+      "level_ks_fail": true,
+      "cointegration_ratio": 0.8333333333333334,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.9562572464346886
+    },
+    {
+      "regime": "turb",
+      "horizon": 30,
+      "cell": [
+        3,
+        4
+      ],
+      "coverage": 0.5384615384615384,
+      "shortfall": 0.16153846153846152,
+      "level_ks": 0.38309027777777777,
+      "level_ks_fail": true,
+      "cointegration_ratio": 0.8333333333333334,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.9562572464346886
+    },
+    {
+      "regime": "turb",
+      "horizon": 30,
+      "cell": [
+        4,
+        3
+      ],
+      "coverage": 0.5384615384615384,
+      "shortfall": 0.16153846153846152,
+      "level_ks": 0.3905555555555556,
+      "level_ks_fail": true,
+      "cointegration_ratio": 1.0833333333333333,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.6469871383160353
+    },
+    {
+      "regime": "turb",
+      "horizon": 7,
+      "cell": [
+        4,
+        3
+      ],
+      "coverage": 0.5641025641025641,
+      "shortfall": 0.13589743589743586,
+      "level_ks": 0.3905555555555556,
+      "level_ks_fail": true,
+      "cointegration_ratio": 1.0833333333333333,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.6469871383160353
+    },
+    {
+      "regime": "turb",
+      "horizon": 30,
+      "cell": [
+        2,
+        3
+      ],
+      "coverage": 0.5641025641025641,
+      "shortfall": 0.13589743589743586,
+      "level_ks": 0.2091666666666666,
+      "level_ks_fail": true,
+      "cointegration_ratio": 0.5789473684210527,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.893646851181984
+    },
+    {
+      "regime": "turb",
+      "horizon": 7,
+      "cell": [
+        2,
+        2
+      ],
+      "coverage": 0.6153846153846154,
+      "shortfall": 0.08461538461538454,
+      "level_ks": 0.10513888888888889,
+      "level_ks_fail": false,
+      "cointegration_ratio": 0.6818181818181819,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.840593408793211
+    },
+    {
+      "regime": "turb",
+      "horizon": 7,
+      "cell": [
+        3,
+        2
+      ],
+      "coverage": 0.6153846153846154,
+      "shortfall": 0.08461538461538454,
+      "level_ks": 0.10975694444444443,
+      "level_ks_fail": false,
+      "cointegration_ratio": 0.7894736842105263,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.5824106279760599
+    },
+    {
+      "regime": "turb",
+      "horizon": 7,
+      "cell": [
+        4,
+        2
+      ],
+      "coverage": 0.6153846153846154,
+      "shortfall": 0.08461538461538454,
+      "level_ks": 0.11708333333333332,
+      "level_ks_fail": false,
+      "cointegration_ratio": 0.8333333333333334,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.44738026335835457
+    },
+    {
+      "regime": "turb",
+      "horizon": 14,
+      "cell": [
+        4,
+        3
+      ],
+      "coverage": 0.6153846153846154,
+      "shortfall": 0.08461538461538454,
+      "level_ks": 0.3905555555555556,
+      "level_ks_fail": true,
+      "cointegration_ratio": 1.0833333333333333,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.6469871383160353
+    },
+    {
+      "regime": "turb",
+      "horizon": 30,
+      "cell": [
+        2,
+        4
+      ],
+      "coverage": 0.6153846153846154,
+      "shortfall": 0.08461538461538454,
+      "level_ks": 0.2574652777777778,
+      "level_ks_fail": true,
+      "cointegration_ratio": 0.42105263157894735,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 7.758163660764694
+    },
+    {
+      "regime": "calm",
+      "horizon": 1,
+      "cell": [
+        1,
+        0
+      ],
+      "coverage": 0.6410256410256411,
+      "shortfall": 0.058974358974358876,
+      "level_ks": 0.10218749999999993,
+      "level_ks_fail": false,
+      "cointegration_ratio": 0.19298245614035087,
+      "cointegration_fail": true,
+      "cell_mae_iv_points": 2.6159361004829407
+    },
+    {
+      "regime": "turb",
+      "horizon": 14,
+      "cell": [
+        4,
+        2
+      ],
+      "coverage": 0.6410256410256411,
+      "shortfall": 0.058974358974358876,
+      "level_ks": 0.11708333333333332,
+      "level_ks_fail": false,
+      "cointegration_ratio": 0.8333333333333334,
+      "cointegration_fail": false,
+      "cell_mae_iv_points": 0.44738026335835457
+    }
+  ],
+  "undercovered_cell_overlap": {
+    "cells": [
+      [
+        0,
+        3
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        1,
+        3
+      ],
+      [
+        1,
+        4
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        3,
+        2
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        2
+      ],
+      [
+        4,
+        3
+      ]
+    ],
+    "level_ks_fail_count": 6,
+    "level_ks_fail_rate": 0.5,
+    "cointegration_fail_count": 1,
+    "cointegration_fail_rate": 0.08333333333333333
+  },
+  "source": "results/block_ar/708a_510a_risk_state_splitpass/full11.json"
+}

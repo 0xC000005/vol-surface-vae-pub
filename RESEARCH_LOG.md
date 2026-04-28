@@ -106325,3 +106325,31 @@ Do not chase more conditionality knobs. The next useful model/system improvement
 - `results/block_ar/709a_risk_readiness_splitpass/risk_readiness.md`
 
 ---
+## 2026-04-28: 710 regime/authenticity failure attribution
+
+### Context
+709 showed that `510a_splitpass` is the closest risk-manager prototype but still fails lower-only regime coverage and scenario authenticity. Before any model repair, I ran a targeted attribution of regime under-inclusion against level-KS and cointegration/authenticity failures.
+
+### Change
+Added `analyze_710a_regime_authenticity_failure.py`, which reads a full11 result and lists undercovered regime/cell/horizon slices with coverage shortfall, level-KS statistic, cointegration ratio, and per-cell MAE. Added a focused regression test.
+
+### Results
+On `708a_510a_risk_state_splitpass`:
+- undercovered regime/cell/horizon slices: `22`
+- unique undercovered cells: `12`
+- level-KS failure overlap among undercovered cells: `0.500`
+- cointegration-failure overlap among undercovered cells: `0.083`
+- worst slices concentrate in high-tenor/skew cells: `[3,4]`, `[4,3]`, `[2,3]`, `[2,4]`, especially h30 and turbulent regimes.
+
+### Mechanism Read
+The lower-only regime failure is not primarily a global dependence/cointegration failure. It is also not a broad level-location failure: only half of undercovered cells fail level KS, and most have acceptable cointegration ratios. The dominant mechanism is localized regime under-inclusion in specific surface regions and horizons. A global widening repair would be poorly targeted and risks damaging level fidelity.
+
+### Decision
+The next repair should be local and structure-aware: improve coverage in the underincluded high-tenor/skew regime slices without global post-hoc widening. Candidate directions include local residual support enrichment or targeted training loss on regime/cell under-inclusion, but only if it stays generic and does not hard-code IV-specific cells.
+
+### Artifacts
+- `experiments/backfill/block_ar/analyze_710a_regime_authenticity_failure.py`
+- `results/block_ar/710a_510a_regime_authenticity_attribution/analysis.json`
+- `results/block_ar/710a_510a_regime_authenticity_attribution/analysis.md`
+
+---
