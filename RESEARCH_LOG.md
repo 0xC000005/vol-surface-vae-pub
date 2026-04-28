@@ -106301,3 +106301,27 @@ Use `observable_state_response_pass` as the risk-manager conditionality evidence
 - `results/block_ar/708b_392a_risk_state_splitpass/full11.md`
 
 ---
+## 2026-04-28: 709 risk-readiness with observable risk-state conditionality
+
+### Context
+After 708, conditionality under the risk-manager framing is no longer the main blocker: both 510a and 392a pass observable risk-state allocation. I updated the existing 552a risk-readiness audit rather than inventing a new deployability metric.
+
+### Change
+The risk-readiness audit now treats `risk_state_allocation.overall_pass` as valid conditionality evidence alongside the original deterministic conditionality gate and MAE reduction. The report also surfaces whether the risk-state pass came from observable state response or oracle future alignment.
+
+### Results
+- 709a risk-readiness on 708 artifacts ranks `510a_splitpass` above `392a_splitpass`.
+- `510a_splitpass`: stress score `2/4`, stress pass `False`; lower-only coverage `True` with cov90 `0.871` and worst cell `0.708`; conditionality `True`; risk-state allocation `True`; lower-only regime `False` with worst regime cell `0.538`; scenario authenticity `False`.
+- `392a_splitpass`: stress score `1/4`, stress pass `False`; warnings include level KS, regime undercoverage, and coverage underinclusion.
+
+### Mechanism Read
+The current IV frontier is closer to risk-manager-presentable than the old 11-suite score suggests, but it is still not fully presentable. The remaining blockers are not overcoverage and not observable risk-state conditionality. They are regime under-inclusion and scenario authenticity/dependence, especially strict regime-cell coverage and cointegration/dependence realism.
+
+### Decision
+Do not chase more conditionality knobs. The next useful model/system improvement should target regime under-inclusion and authenticity without broad post-hoc widening or task-specific hacks.
+
+### Artifacts
+- `results/block_ar/709a_risk_readiness_splitpass/risk_readiness.json`
+- `results/block_ar/709a_risk_readiness_splitpass/risk_readiness.md`
+
+---

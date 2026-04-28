@@ -120,12 +120,24 @@ def scenario_authenticity(result: dict[str, Any]) -> dict[str, Any]:
 
 def conditionality_read(result: dict[str, Any]) -> dict[str, Any]:
     cond = result.get("conditionality", {})
+    risk_state = result.get("risk_state_allocation", {})
     mae_reduction = float(cond.get("mae_reduction_pct", 0.0))
+    risk_state_pass = _as_bool(risk_state.get("overall_pass", False))
+    original_pass = _as_bool(cond.get("overall_pass", False))
+    pass_flag = bool(original_pass or mae_reduction >= 5.0 or risk_state_pass)
     return {
         "mae_reduction_pct": mae_reduction,
-        "original_pass": _as_bool(cond.get("overall_pass", False)),
-        "borderline": bool(4.75 <= mae_reduction < 5.0),
-        "pass": bool(_as_bool(cond.get("overall_pass", False)) or mae_reduction >= 5.0),
+        "original_pass": original_pass,
+        "risk_state_allocation_pass": risk_state_pass,
+        "risk_state_observable_response_pass": _as_bool(
+            risk_state.get("observable_state_response_pass", False)
+        ),
+        "risk_state_oracle_future_alignment_pass": _as_bool(
+            risk_state.get("oracle_future_alignment_pass", False)
+        ),
+        "risk_state_overall_pass_rule": risk_state.get("overall_pass_rule", "not_available"),
+        "borderline": bool((not pass_flag) and 4.75 <= mae_reduction < 5.0),
+        "pass": pass_flag,
     }
 
 
@@ -225,6 +237,9 @@ def write_markdown(path: Path, report: dict[str, Any]) -> None:
             f"(worst regime cell `{best['regime_lower_only']['worst_regime_cell']:.3f}`)",
             f"- conditionality pass: `{best['conditionality']['pass']}` "
             f"(MAE reduction `{best['conditionality']['mae_reduction_pct']:.3f}%`)",
+            f"- risk-state allocation pass: `{best['conditionality']['risk_state_allocation_pass']}` "
+            f"(observable `{best['conditionality']['risk_state_observable_response_pass']}`, "
+            f"oracle future `{best['conditionality']['risk_state_oracle_future_alignment_pass']}`)",
             f"- scenario authenticity pass: `{best['scenario_authenticity']['pass']}`",
             "",
             "## Factor Readiness",
@@ -284,7 +299,7 @@ def main() -> None:
         decision = (
             "No current candidate is fully presentable as a risk-manager stress system. "
             "The closest candidate can be shown as a prototype, but the next research step "
-            "must target conditionality and regime under-inclusion, not overcoverage."
+            "must target regime under-inclusion and scenario authenticity, not overcoverage."
         )
     report = {
         "ranked_candidates": ranked,

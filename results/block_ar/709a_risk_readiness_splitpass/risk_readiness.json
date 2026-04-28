@@ -1,0 +1,163 @@
+{
+  "ranked_candidates": [
+    {
+      "name": "510a_splitpass",
+      "original_n_pass": 7,
+      "original_failed_suites": [
+        "coverage",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "stress_pass": false,
+      "stress_score": 2,
+      "stress_score_total": 4,
+      "coverage_lower_only": {
+        "cov90": 0.8706736111111111,
+        "min_overall_90": 0.85,
+        "worst_cell": 0.7083333333333334,
+        "min_worst_cell": 0.7,
+        "horizon_pass": true,
+        "pass": true,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "regime_lower_only": {
+        "layer1_pass": true,
+        "layer3_pass": true,
+        "worst_regime_cell": 0.5384615384615384,
+        "min_regime_cell": 0.7,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "scenario_authenticity": {
+        "suite_passes": {
+          "surface": true,
+          "time_series": true,
+          "block_ar": true,
+          "cointegration": false,
+          "cross_cell_correlation": true,
+          "mean_reversion": true,
+          "pathwise_jump_realism": true,
+          "distributional_required_parts": true
+        },
+        "pass": false
+      },
+      "conditionality": {
+        "mae_reduction_pct": 5.456483194496166,
+        "original_pass": true,
+        "risk_state_allocation_pass": true,
+        "risk_state_observable_response_pass": true,
+        "risk_state_oracle_future_alignment_pass": false,
+        "risk_state_overall_pass_rule": "observable_state_response_only_future_signal_absent",
+        "borderline": false,
+        "pass": true
+      },
+      "distributional_authenticity": {
+        "required_parts": {
+          "daily_change_ks": true,
+          "median_bias": true,
+          "window_floor": true,
+          "explosion": true,
+          "cell_mae": true
+        },
+        "pass": true,
+        "level_ks_n_pass": 10,
+        "level_ks_pass": false,
+        "level_ks_treated_as_warning_for_stress": true
+      },
+      "warnings": [
+        "level_ks_warning",
+        "regime_undercoverage_warning"
+      ]
+    },
+    {
+      "name": "392a_splitpass",
+      "original_n_pass": 6,
+      "original_failed_suites": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "stress_pass": false,
+      "stress_score": 1,
+      "stress_score_total": 4,
+      "coverage_lower_only": {
+        "cov90": 0.8657152777777778,
+        "min_overall_90": 0.85,
+        "worst_cell": 0.6770833333333334,
+        "min_worst_cell": 0.7,
+        "horizon_pass": true,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "regime_lower_only": {
+        "layer1_pass": true,
+        "layer3_pass": true,
+        "worst_regime_cell": 0.5128205128205128,
+        "min_regime_cell": 0.7,
+        "pass": false,
+        "ignored_original_high_side_overcoverage_cap": true
+      },
+      "scenario_authenticity": {
+        "suite_passes": {
+          "surface": true,
+          "time_series": true,
+          "block_ar": true,
+          "cointegration": false,
+          "cross_cell_correlation": true,
+          "mean_reversion": true,
+          "pathwise_jump_realism": true,
+          "distributional_required_parts": true
+        },
+        "pass": false
+      },
+      "conditionality": {
+        "mae_reduction_pct": 4.176623717395259,
+        "original_pass": false,
+        "risk_state_allocation_pass": true,
+        "risk_state_observable_response_pass": true,
+        "risk_state_oracle_future_alignment_pass": false,
+        "risk_state_overall_pass_rule": "observable_state_response_only_future_signal_absent",
+        "borderline": false,
+        "pass": true
+      },
+      "distributional_authenticity": {
+        "required_parts": {
+          "daily_change_ks": true,
+          "median_bias": true,
+          "window_floor": true,
+          "explosion": true,
+          "cell_mae": true
+        },
+        "pass": true,
+        "level_ks_n_pass": 12,
+        "level_ks_pass": false,
+        "level_ks_treated_as_warning_for_stress": true
+      },
+      "warnings": [
+        "level_ks_warning",
+        "regime_undercoverage_warning",
+        "coverage_underinclusion_warning"
+      ]
+    }
+  ],
+  "factor_readiness": {
+    "available_non_iv_factors": [
+      "ret",
+      "price",
+      "slopes",
+      "skews",
+      "levels"
+    ],
+    "current_generator_scope": "iv_surface_only",
+    "multifactor_ready": false,
+    "recommended_factor_bridge": [
+      "condition on observed return/price/level/slope/skew history",
+      "generate IV scenarios jointly with factor-consistent return/level paths",
+      "evaluate factor-scenario coherence before claiming portfolio stress readiness"
+    ]
+  },
+  "decision": "No current candidate is fully presentable as a risk-manager stress system. The closest candidate can be shown as a prototype, but the next research step must target regime under-inclusion and scenario authenticity, not overcoverage."
+}

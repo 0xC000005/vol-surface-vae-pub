@@ -77,6 +77,23 @@ def test_score_candidate_separates_stress_readiness_from_original_suite() -> Non
     assert "level_ks_warning" in scored["warnings"]
 
 
+def test_score_candidate_accepts_risk_state_allocation_as_conditionality_evidence() -> None:
+    result = _candidate_result()
+    result["conditionality"] = {"overall_pass": False, "mae_reduction_pct": 1.0}
+    result["risk_state_allocation"] = {
+        "overall_pass": True,
+        "observable_state_response_pass": True,
+        "oracle_future_alignment_pass": False,
+        "overall_pass_rule": "observable_state_response_only_future_signal_absent",
+    }
+
+    scored = score_candidate("risk_state_demo", result)
+
+    assert scored["conditionality"]["pass"] is True
+    assert scored["conditionality"]["risk_state_allocation_pass"] is True
+    assert "conditionality_borderline" not in scored["warnings"]
+
+
 def test_factor_readiness_reports_available_non_iv_factors_and_model_gap() -> None:
     readiness = factor_readiness(["surface", "ret", "price", "slopes", "skews", "levels"])
 
