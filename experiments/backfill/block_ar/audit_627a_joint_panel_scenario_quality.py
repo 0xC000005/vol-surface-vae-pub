@@ -132,6 +132,19 @@ def state_block_alignment_diagnostics(
             "history_mean_abs_error": float("nan"),
             "future_mean_abs_error": float("nan"),
         }
+    block_history = np.asarray(block.history_state[:n], dtype=np.float64)
+    block_future = np.asarray(block.future_state[:n], dtype=np.float64)
+    if block_history.shape[-1] != len(specs):
+        block_specs = getattr(block, "specs", None)
+        if block_specs is None:
+            raise ValueError("block has wider state than specs but does not expose block.specs")
+        source_to_pos = {int(spec.source_index): idx for idx, spec in enumerate(block_specs)}
+        try:
+            positions = [source_to_pos[int(spec.source_index)] for spec in specs]
+        except KeyError as exc:
+            raise ValueError("selected specs are not present in block specs") from exc
+        block_history = block_history[..., positions]
+        block_future = block_future[..., positions]
     history_len = int(block.history_state.shape[1])
     future_len = int(block.future_state.shape[1])
     state_panel = state_panel_from_specs(panel, specs)
@@ -146,10 +159,10 @@ def state_block_alignment_diagnostics(
             ]
             for idx in block.indices[:n]
         ],
-        axis=0,
-    )
-    history_err = np.abs(block.history_state[:n] - expected_history)
-    future_err = np.abs(block.future_state[:n] - expected_future)
+            axis=0,
+        )
+    history_err = np.abs(block_history - expected_history)
+    future_err = np.abs(block_future - expected_future)
     return {
         "n_windows": int(n),
         "history_max_abs_error": float(np.max(history_err)) if n else float("nan"),

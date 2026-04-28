@@ -81,6 +81,31 @@ def test_state_block_alignment_diagnostics_detects_exact_panel_alignment() -> No
     assert out["n_windows"] == 2
 
 
+def test_state_block_alignment_diagnostics_handles_subset_specs() -> None:
+    class Block:
+        pass
+
+    panel = np.arange(8 * 4, dtype=np.float32).reshape(8, 4)
+    full_specs = [
+        UnifiedVariableSpec("a", "a", 0, "diff_level"),
+        UnifiedVariableSpec("b", "b", 1, "diff_level"),
+        UnifiedVariableSpec("c", "c", 2, "diff_level"),
+        UnifiedVariableSpec("d", "d", 3, "diff_level"),
+    ]
+    subset_specs = [full_specs[1], full_specs[3]]
+    block = Block()
+    block.indices = np.array([1])
+    block.specs = full_specs
+    block.history_state = panel[None, 1:4, :]
+    block.future_state = panel[None, 4:6, :]
+
+    out = state_block_alignment_diagnostics(panel, block, subset_specs)
+
+    assert out["history_max_abs_error"] == 0.0
+    assert out["future_max_abs_error"] == 0.0
+    assert out["n_windows"] == 1
+
+
 def test_conditional_panel_diagnostics_rewards_matched_scenario_centers() -> None:
     history = np.zeros((4, 2, 2), dtype=np.float32)
     future = np.array(
