@@ -105109,3 +105109,26 @@ Keep the channel-balanced score as a clean, general objective component, but do 
 - `results/validations/2026-04-27/672a_channel_level_energy/iv_val_full11.json`
 
 ---
+## 2026-04-28: 673a all-train windows repair level KS but not median bias
+
+### Context
+673a kept the 672a channel-balanced rollout objective fixed and changed only the training-data window: use all available training windows (`max_train_windows=0`) instead of the recent 2048-window slice. This tests whether the persistent validation level-law failures are partly data-diversity/convergence failures rather than architecture failures.
+
+### Result
+- IV-only `673a` reached `6/11`, still tied on headline score.
+- Coverage90 improved to `0.818`, calibration error improved to `0.057`, and persistent severe undercoverage improved to `4.1%`, passing the layer-3 regime gate.
+- Level KS improved materially from the `10/25` plateau to `15/25`, passing the level-KS subgate.
+- Median-bias pass count improved to `16/25` but still missed the `20/25` gate.
+- Mean reversion still failed due the h7 aggregate ratio (`1.357`), and conditional worst-cell width ratio stayed bad at `1.458`.
+
+### Mechanism Read
+This is the strongest evidence in the recent loop that the clean family is not purely architecture-capped. More diverse training data repairs level-law coverage substantially without changing the stochastic mechanism. The remaining failures are narrower: median bias, one conditional-width cell, regime layer-2 coverage, and h7 mean-reversion profile.
+
+### Decision
+Do not change paradigm. The next most principled move is longer convergence on the same all-window objective before adding any new component. This is Bitter-Lesson aligned: more data and training before extra hand-designed mechanisms.
+
+### Artifacts
+- `models/backfill/673a_iv_channel_level_alltrain_w005_e1_s6731/best_model.pt`
+- `results/validations/2026-04-27/673a_channel_level_alltrain/iv_val_full11.json`
+
+---
