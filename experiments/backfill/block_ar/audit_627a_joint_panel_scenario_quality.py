@@ -223,7 +223,7 @@ def build_history_future(
 def load_native_model(
     model_type: str, checkpoint: str, device: torch.device
 ) -> tuple[Any, dict[str, Any]]:
-    if model_type in {"609a", "628a"}:
+    if model_type in {"609a", "628a", "661a"}:
         from diffusion.block_ar.generic_empirical_score_transition_flow_matching import (
             load_model,
         )
@@ -475,6 +475,7 @@ def main() -> None:
             "647a",
             "652a",
             "658a",
+            "661a",
         ],
         required=True,
     )

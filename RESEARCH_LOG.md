@@ -104579,3 +104579,36 @@ Use train-tail audit as the next falsification gate. The next experiment should 
 - Comparison JSON: `results/autoresearch/660a_train_validation_generation_gap/diagnostics.json`
 
 ---
+## 2026-04-27: Autoresearch 661a generalized-510a joint AR falsifier
+
+### Context
+
+The user approved testing whether the empirically strong 510a-style AR transition could be generalized to a native joint IV-plus-anchor model without post-hoc gluing. 661a therefore kept one checkpoint, one shared causal memory, one shared stochastic source, and one transition flow over the full 38-channel encoded state panel, with a small patch-energy rollout objective added to the generic empirical-score AR trunk.
+
+### Result
+
+- Implementation: `experiments/backfill/block_ar/train_661a_generalized_510a_joint_patch_energy.py`, `evaluate_661a_generalized_510a_joint_patch_energy.py`, and `test_code/test_661a_generalized_510a_joint_patch_energy.py`.
+- Checkpoint: `models/backfill/661a_generalized_510a_joint_patch_encoded_s661/best_model.pt`.
+- Focused verification passed: `pytest test_code/test_661a_generalized_510a_joint_patch_energy.py test_code/test_609a_generic_empirical_score_transition.py -q`.
+- Train-tail IV audit scored `6/11`: cov90 `0.786`, daily KS `24/25`, level KS `22/25`, median-bias `25/25`, max-jump KS `0.171`, but failed coverage, conditionality, kurtosis/time-series, cointegration, and regime coverage.
+- Validation IV audit scored `4/11`: cov90 `0.563`, daily KS `23/25`, level KS `1/25`, median-bias `4/25`, max-jump KS `0.559`.
+- Train-tail joint audit was partially coherent: factor KS mean `0.118`, factor KS pass `12/13`, factor q99 pass `10/13`, factor-factor correlation shape `0.761`, IV-factor shape `0.801`.
+- Validation joint audit was weaker than the mixed-coordinate baselines: factor KS mean `0.142`, factor KS pass `10/13`, factor q99 pass `6/13`, factor-factor correlation shape `0.584`, IV-factor shape `0.689`, with strong attenuation of absolute correlation magnitudes.
+
+### Diagnosis
+
+661a is a useful falsifier, not a deployable replacement. The failure is not caused by the shared source or by inability to run one model over all channels. The failure is the absolute empirical-score state coordinate: the decoder is fitted on training support, so validation anchor factors that move beyond the training-era level range are clipped or pulled back. This makes the direct 510a empirical-score state transition unsuitable as a generic 38-channel level-panel model.
+
+### Decision
+
+Do not promote 661a as the active deployable joint model. Keep it as evidence that directly lifting 510a to absolute encoded levels is not enough for a general multivariate market panel. The best-supported native joint path remains the mixed-coordinate family: one shared stochastic model, but generated coordinates chosen by data semantics. IV-like bounded mean-reverting surfaces need level-score style support control; random-walk-like anchor factors need movement-from-current coordinates with state conditioning so they can extrapolate from the observed market level.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/ANALYSIS_661a_generalized_510a_joint_patch_result.md`
+- `results/autoresearch/661a_generalized_510a_joint_patch_encoded_s661/train_tail_full11.md`
+- `results/autoresearch/661a_generalized_510a_joint_patch_encoded_s661/full11.md`
+- `results/autoresearch/661a_generalized_510a_joint_patch_encoded_s661/train_tail_joint_panel.md`
+- `results/autoresearch/661a_generalized_510a_joint_patch_encoded_s661/joint_panel.md`
+
+---
