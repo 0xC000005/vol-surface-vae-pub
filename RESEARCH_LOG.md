@@ -105554,3 +105554,35 @@ The trade-off points to shared-readout/head interference or objective allocation
 Promote 688a as the first true framework-lock tri-scope baseline, not as deployable final. Next HEAD cycle should test separate support/group decoder heads under the same objective and same loss weights, because different heads are allowed while different losses are not. Do not add contrast, AR1 prior, or scope-specific calibration before this head-interference falsifier.
 
 ---
+## 2026-04-28: 689a group-head readout falsifier
+
+### Context
+688a established the first frozen tri-scope baseline and localized the blocker: anchor-only and joint anchor panels are realistic, but native joint38 degrades IV coverage, level law, kurtosis, and h7 mean reversion. Different input/output heads are allowed under the single-framework gate, while different loss recipes are not.
+
+### Hypothesis
+If the joint degradation is caused by forcing IV cells and anchor factors through one shared velocity output head, then a full group-specific output head should improve joint IV-facing quality while preserving the same stochastic core and scalar objective. This is stricter than 678a's residual readout because the IV and anchor groups get separate full output heads, initialized as an exact no-op from the shared head.
+
+### Execute
+Added `velocity_readout_mode=group_head` to the state-aware normalized-innovation AR flow. The upgrade copies the existing shared head into IV and anchor heads so enabling it starts with identical outputs. The finetune script now maps `iv_only -> all IV`, `anchor_only -> all anchor`, and `joint38 -> first 25 IV / remaining anchors` for group-head assignment. Added regression tests for no-op initialization and scope-aware readout split.
+
+Fine-tuned from `676a_joint38_channel_level_alltrain_w005_e3_s6761` for two epochs using the same objective as 678a/688a: rollout energy `0.2`, channel-level energy `0.05`, no contrast, no AR1 prior.
+
+Artifacts:
+- Model: `models/backfill/689a_joint38_grouphead_channel_level_alltrain_w005_e2_s6891/best_model.pt`
+- IV-facing suite: `results/validations/2026-04-28/689a_grouphead/joint_val_iv_full11.json`
+- Joint panel audit: `results/validations/2026-04-28/689a_grouphead/joint_val_panel.json`
+
+### Result
+Training objective improved slightly versus 676a: best `val_total=1.7975` versus `1.8016`. The IV-facing suite did not improve: `5/11`, with the same failed suites as 676a/678a: coverage, conditionality, time_series, regime_coverage, distributional_fidelity, and mean_reversion.
+
+Key IV metrics: coverage90 `0.757`, calibration error `0.101`, worst conditional width ratio `1.538`, kurtosis ratio `1.391`, level KS `12/25`, median-bias fraction `17/25`, median-bias magnitude `22/25`, h7 mean-reversion ratio `1.393`, pathwise KS `0.327`. Cointegration passed with stronger aggregate ratio `0.783` and panel quality survived: factor delta KS mean `0.107`, `11/13` factor KS pass, q99 pass `13/13`, factor-factor corr `0.795`, IV-factor corr `0.895`.
+
+### Mechanism Read
+Full group-specific output heads preserve factor realism and co-movement and improve some shape metrics, but they narrow/misallocate the IV law and worsen coverage/level distribution. Together with 678a, this falsifies simple output-head expressiveness as the main joint bottleneck.
+
+The remaining pattern is more fundamental: the shared stochastic core can co-model anchors and IV co-movement, but the joint training objective allocates probability mass poorly for IV level regions and horizons. This points away from more readout knobs and toward objective/data-object allocation diagnostics: train-tail versus validation, channel/group weighting, and whether the normalized-innovation target under joint co-training is over-penalizing IV uncertainty.
+
+### Decision / next step
+Do not add another decoder/readout variant. Keep 688a as the framework-lock baseline and treat 689a as a falsifier. The next HEAD cycle should be post-experiment analysis of objective allocation under the frozen recipe: compare IV-only 674a, joint 676a, and group-head 689a in train-tail/validation by cell/horizon to identify whether the joint IV loss is an in-training fit failure, validation shift, or scalar objective allocation failure.
+
+---

@@ -9,6 +9,7 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
 )
 from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_energy_finetune import (
     differentiable_normalized_rollout_samples,
+    effective_readout_iv_count,
     normalized_rollout_energy_loss,
 )
 
@@ -48,6 +49,12 @@ def _batch(model: GenericStateAwareNormalizedInnovationFlowMatching):
     increments = future_norm * scale[:, None, :] + center[:, None, :]
     future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
     return history_level, history_norm, future_level, future_norm, center, scale
+
+
+def test_effective_readout_iv_count_uses_scope_semantics():
+    assert effective_readout_iv_count("iv_only", n_cells=25, iv_count=25) == 25
+    assert effective_readout_iv_count("anchor_only", n_cells=13, iv_count=25) == 0
+    assert effective_readout_iv_count("joint38", n_cells=38, iv_count=25) == 25
 
 
 def test_differentiable_normalized_rollout_samples_backpropagates():

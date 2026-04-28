@@ -20,6 +20,7 @@ sys.path.insert(0, ".")
 
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
     load_model,
     save_checkpoint,
@@ -36,6 +37,17 @@ from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_
     sample_smoke,
     select_normalized_innovation_scope,
 )
+
+
+def effective_readout_iv_count(state_scope: str, *, n_cells: int, iv_count: int) -> int:
+    """Map panel scope to the IV/anchor split used by group readout heads."""
+    if state_scope == "iv_only":
+        return int(n_cells)
+    if state_scope == "anchor_only":
+        return 0
+    if state_scope == "joint38":
+        return min(max(int(iv_count), 0), int(n_cells))
+    raise ValueError(f"unknown state_scope {state_scope!r}")
 
 
 def channelwise_path_energy_score(
@@ -452,7 +464,7 @@ def main() -> None:
     parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
     parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
-    parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual"], default="shared")
+    parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
@@ -477,8 +489,16 @@ def main() -> None:
     model, payload = load_model(args.checkpoint, device)
     if args.base_noise_rho is not None:
         model.cfg.base_noise_rho = float(args.base_noise_rho)
-    if args.velocity_readout_mode == "group_residual":
-        enable_group_residual_velocity_readout(model, iv_count=int(args.iv_count))
+    if args.velocity_readout_mode in {"group_residual", "group_head"}:
+        readout_iv_count = effective_readout_iv_count(
+            payload.get("state_scope", args.state_scope),
+            n_cells=int(model.cfg.n_cells),
+            iv_count=int(args.iv_count),
+        )
+        if args.velocity_readout_mode == "group_residual":
+            enable_group_residual_velocity_readout(model, iv_count=readout_iv_count)
+        else:
+            enable_group_head_velocity_readout(model, iv_count=readout_iv_count)
     args.history_len = int(model.cfg.history_len)
     args.future_len = int(model.cfg.future_len)
     args.state_scope = payload.get("state_scope", args.state_scope)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import asdict, dataclass
 
@@ -75,6 +76,43 @@ class GroupResidualTokenTransitionVelocity(nn.Module):
         return out + residual
 
 
+class GroupHeadTokenTransitionVelocity(nn.Module):
+    """Shared token mixer with separate IV/anchor output heads."""
+
+    def __init__(
+        self,
+        cfg: GenericStateAwareNormalizedInnovationFMConfig,
+        base: MemoryConditionedTokenTransitionVelocity | None = None,
+    ):
+        super().__init__()
+        self.cfg = cfg
+        self.base = base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        self.iv_head = copy.deepcopy(self.base.out)
+        self.anchor_head = copy.deepcopy(self.base.out)
+        iv_count = min(max(int(cfg.readout_iv_count), 0), int(cfg.n_cells))
+        group_ids = torch.zeros(int(cfg.n_cells), dtype=torch.long)
+        if iv_count < int(cfg.n_cells):
+            group_ids[iv_count:] = 1
+        self.register_buffer("group_ids", group_ids)
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        current_logit: torch.Tensor,
+        memory_state: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden = self.base.hidden_tokens(x_t, current_logit, memory_state, t)
+        out = torch.empty(x_t.shape, device=x_t.device, dtype=x_t.dtype)
+        iv_mask = self.group_ids.to(device=out.device) == 0
+        anchor_mask = ~iv_mask
+        if bool(iv_mask.any()):
+            out[:, iv_mask] = self.iv_head(hidden[:, iv_mask, :]).squeeze(-1)
+        if bool(anchor_mask.any()):
+            out[:, anchor_mask] = self.anchor_head(hidden[:, anchor_mask, :]).squeeze(-1)
+        return out
+
+
 def enable_group_residual_velocity_readout(
     model: "GenericStateAwareNormalizedInnovationFlowMatching",
     *,
@@ -90,6 +128,24 @@ def enable_group_residual_velocity_readout(
     model.cfg.velocity_readout_mode = "group_residual"
     model.cfg.readout_iv_count = int(iv_count)
     upgraded = GroupResidualTokenTransitionVelocity(model.cfg, base=model.velocity)
+    model.velocity = upgraded.to(next(model.parameters()).device)
+
+
+def enable_group_head_velocity_readout(
+    model: "GenericStateAwareNormalizedInnovationFlowMatching",
+    *,
+    iv_count: int,
+) -> None:
+    """Upgrade a loaded shared-readout model to separate group heads as a no-op."""
+    if isinstance(model.velocity, GroupHeadTokenTransitionVelocity):
+        model.cfg.velocity_readout_mode = "group_head"
+        model.cfg.readout_iv_count = int(iv_count)
+        return
+    if not isinstance(model.velocity, MemoryConditionedTokenTransitionVelocity):
+        raise TypeError(f"unsupported velocity module {type(model.velocity).__name__}")
+    model.cfg.velocity_readout_mode = "group_head"
+    model.cfg.readout_iv_count = int(iv_count)
+    upgraded = GroupHeadTokenTransitionVelocity(model.cfg, base=model.velocity)
     model.velocity = upgraded.to(next(model.parameters()).device)
 
 
@@ -123,8 +179,10 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
         elif cfg.velocity_readout_mode == "group_residual":
             self.velocity = GroupResidualTokenTransitionVelocity(cfg)
+        elif cfg.velocity_readout_mode == "group_head":
+            self.velocity = GroupHeadTokenTransitionVelocity(cfg)
         else:
-            raise ValueError("velocity_readout_mode must be 'shared' or 'group_residual'")
+            raise ValueError("velocity_readout_mode must be 'shared', 'group_residual', or 'group_head'")
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )

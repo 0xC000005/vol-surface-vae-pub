@@ -7,6 +7,7 @@ sys.path.insert(0, ".")
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (
     GenericStateAwareNormalizedInnovationFMConfig,
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
 )
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
@@ -326,5 +327,40 @@ def test_group_residual_velocity_readout_starts_as_noop():
     after = model.velocity(x_t, current_level, memory_state, t)
 
     assert model.cfg.velocity_readout_mode == "group_residual"
+    assert model.cfg.readout_iv_count == 3
+    torch.testing.assert_close(after, before, atol=1e-6, rtol=1e-6)
+
+
+def test_group_head_velocity_readout_starts_as_noop():
+    torch.manual_seed(97)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=5,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    model.eval()
+    x_t = torch.randn(4, cfg.n_cells)
+    current_level = torch.randn(4, cfg.n_cells)
+    memory_state = torch.randn(4, cfg.memory_dim)
+    t = torch.rand(4)
+
+    before = model.velocity(x_t, current_level, memory_state, t)
+    enable_group_head_velocity_readout(model, iv_count=3)
+    after = model.velocity(x_t, current_level, memory_state, t)
+
+    assert model.cfg.velocity_readout_mode == "group_head"
     assert model.cfg.readout_iv_count == 3
     torch.testing.assert_close(after, before, atol=1e-6, rtol=1e-6)
