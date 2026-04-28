@@ -35,7 +35,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -64,6 +64,11 @@ from experiments.backfill.diffusion_poc.train_ddpm_poc import VolSurfaceDataset
 
 CONDITIONALITY_TURB_CALM_POLICY_TARGET = 1.15
 PATHWISE_MAX_JUMP_KS_GATE = 0.50
+RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN = 0.10
+RISK_STATE_MIN_FUTURE_WIDTH_SPEARMAN = 0.15
+RISK_STATE_MIN_BUCKET_MONOTONICITY = 0.50
+RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO = 1.05
+RISK_STATE_MIN_OBSERVABLE_SIGNAL = 0.10
 
 
 # =============================================================================
@@ -199,6 +204,218 @@ def hash_file(path: Optional[str]) -> Optional[str]:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()[:12]
+
+
+def _average_ranks(values: np.ndarray) -> np.ndarray:
+    """Return average ranks with ties, normalized only by downstream correlation."""
+    values = np.asarray(values, dtype=np.float64)
+    order = np.argsort(values, kind="mergesort")
+    ranks = np.empty(values.shape[0], dtype=np.float64)
+    sorted_values = values[order]
+    start = 0
+    while start < values.shape[0]:
+        end = start + 1
+        while end < values.shape[0] and sorted_values[end] == sorted_values[start]:
+            end += 1
+        avg_rank = 0.5 * (start + end - 1)
+        ranks[order[start:end]] = avg_rank
+        start = end
+    return ranks
+
+
+def _safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
+    """Tie-aware Spearman correlation returning 0 for constant/insufficient input."""
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    mask = np.isfinite(x) & np.isfinite(y)
+    if int(mask.sum()) < 3:
+        return 0.0
+    x_span = float(np.ptp(x[mask]))
+    y_span = float(np.ptp(y[mask]))
+    x_scale = max(float(np.max(np.abs(x[mask]))), 1.0)
+    y_scale = max(float(np.max(np.abs(y[mask]))), 1.0)
+    if x_span / x_scale < 1e-6 or y_span / y_scale < 1e-6:
+        return 0.0
+    xr = _average_ranks(x[mask])
+    yr = _average_ranks(y[mask])
+    if float(np.std(xr)) < 1e-12 or float(np.std(yr)) < 1e-12:
+        return 0.0
+    corr = float(np.corrcoef(xr, yr)[0, 1])
+    return corr if np.isfinite(corr) else 0.0
+
+
+def _path_activity(paths: np.ndarray, time_axis: int) -> np.ndarray:
+    """Mean squared path movement per leading window."""
+    paths = np.asarray(paths, dtype=np.float64)
+    if paths.shape[time_axis] < 2:
+        return np.zeros(paths.shape[0], dtype=np.float64)
+    diffs = np.diff(paths, axis=time_axis)
+    axes = tuple(axis for axis in range(diffs.ndim) if axis != 0)
+    return (diffs * diffs).mean(axis=axes)
+
+
+def _rank_buckets(values: np.ndarray, n_buckets: int, min_bucket_size: int) -> List[np.ndarray]:
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    valid = np.where(np.isfinite(values))[0]
+    if valid.shape[0] < max(2, min_bucket_size * 2):
+        return []
+    bucket_count = min(int(n_buckets), max(2, valid.shape[0] // int(min_bucket_size)))
+    sorted_idx = valid[np.argsort(values[valid], kind="mergesort")]
+    return [bucket for bucket in np.array_split(sorted_idx, bucket_count) if bucket.size > 0]
+
+
+def _bucket_summary(
+    sort_metric: np.ndarray,
+    history_activity: np.ndarray,
+    future_activity: np.ndarray,
+    generated_width: np.ndarray,
+    n_buckets: int,
+    min_bucket_size: int,
+) -> tuple[List[Dict[str, float]], float, float]:
+    buckets = _rank_buckets(sort_metric, n_buckets, min_bucket_size)
+    rows: List[Dict[str, float]] = []
+    for rank, idx in enumerate(buckets):
+        rows.append({
+            "bucket": int(rank),
+            "n_windows": int(idx.size),
+            "sort_metric_mean": float(np.mean(sort_metric[idx])),
+            "history_activity_mean": float(np.mean(history_activity[idx])),
+            "future_activity_mean": float(np.mean(future_activity[idx])),
+            "generated_width_mean": float(np.mean(generated_width[idx])),
+        })
+    if len(rows) < 2:
+        return rows, 0.0, 1.0
+    widths = np.array([row["generated_width_mean"] for row in rows], dtype=np.float64)
+    width_tol = max(float(np.max(np.abs(widths))), 1.0) * 1e-6
+    monotonicity = float(np.mean(np.diff(widths) > width_tol))
+    low_high_ratio = float(widths[-1] / max(widths[0], 1e-12))
+    if abs(low_high_ratio - 1.0) < 1e-5:
+        low_high_ratio = 1.0
+    return rows, monotonicity, low_high_ratio
+
+
+def run_risk_state_allocation_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+    history_01: np.ndarray,
+    n_buckets: int = 5,
+    min_bucket_size: int = 8,
+) -> Dict:
+    """Population-level test for conditional uncertainty allocation.
+
+    This is intentionally not part of the historical 11-suite count yet. The
+    question is not "does the median path predict the exact future path?", but
+    "does the scenario distribution allocate width to riskier market states?"
+    """
+    print("\n" + "=" * 60)
+    print("DIAGNOSTIC: RISK-STATE UNCERTAINTY ALLOCATION")
+    print("=" * 60)
+
+    cond_samples = np.asarray(cond_samples, dtype=np.float64)
+    ground_truth = np.asarray(ground_truth, dtype=np.float64)
+    history_01 = np.asarray(history_01, dtype=np.float64)
+    if cond_samples.ndim < 4:
+        raise ValueError("cond_samples must have shape (N, samples, T, ...)")
+    if ground_truth.shape[0] != cond_samples.shape[0] or history_01.shape[0] != cond_samples.shape[0]:
+        raise ValueError("cond_samples, ground_truth, and history_01 must share N windows")
+
+    q05 = np.quantile(cond_samples, 0.05, axis=1)
+    q95 = np.quantile(cond_samples, 0.95, axis=1)
+    generated_width = (q95 - q05).mean(axis=tuple(range(1, q95.ndim)))
+    generated_activity = _path_activity(cond_samples, time_axis=2)
+    history_activity = _path_activity(history_01, time_axis=1)
+    future_activity = _path_activity(ground_truth, time_axis=1)
+
+    history_future_spearman = _safe_spearman(history_activity, future_activity)
+    history_width_spearman = _safe_spearman(history_activity, generated_width)
+    future_width_spearman = _safe_spearman(future_activity, generated_width)
+    future_generated_activity_spearman = _safe_spearman(future_activity, generated_activity)
+
+    history_buckets, history_bucket_monotonicity, history_low_high_width_ratio = _bucket_summary(
+        history_activity,
+        history_activity,
+        future_activity,
+        generated_width,
+        n_buckets=n_buckets,
+        min_bucket_size=min_bucket_size,
+    )
+    future_buckets, future_bucket_monotonicity, future_low_high_width_ratio = _bucket_summary(
+        future_activity,
+        history_activity,
+        future_activity,
+        generated_width,
+        n_buckets=n_buckets,
+        min_bucket_size=min_bucket_size,
+    )
+
+    observable_signal_present = abs(history_future_spearman) >= RISK_STATE_MIN_OBSERVABLE_SIGNAL
+    history_width_pass = history_width_spearman >= RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN
+    future_width_pass = future_width_spearman >= RISK_STATE_MIN_FUTURE_WIDTH_SPEARMAN
+    bucket_pass = (
+        history_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
+        and future_bucket_monotonicity >= RISK_STATE_MIN_BUCKET_MONOTONICITY
+    )
+    ratio_pass = (
+        history_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
+        and future_low_high_width_ratio >= RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO
+    )
+    overall_pass = (
+        observable_signal_present
+        and history_width_pass
+        and future_width_pass
+        and bucket_pass
+        and ratio_pass
+    )
+
+    print(
+        f"  Observable history/future activity rho: {history_future_spearman:.3f} "
+        f"(diagnostic signal floor |rho|>={RISK_STATE_MIN_OBSERVABLE_SIGNAL:.2f})"
+    )
+    print(
+        f"  Width vs history activity rho: {history_width_spearman:.3f} "
+        f"(target >={RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN:.2f}) "
+        f"{'PASS' if history_width_pass else 'FAIL'}"
+    )
+    print(
+        f"  Width vs realized future activity rho: {future_width_spearman:.3f} "
+        f"(target >={RISK_STATE_MIN_FUTURE_WIDTH_SPEARMAN:.2f}) "
+        f"{'PASS' if future_width_pass else 'FAIL'}"
+    )
+    print(
+        f"  History-bucket width monotonicity: {history_bucket_monotonicity:.3f}; "
+        f"low/high ratio: {history_low_high_width_ratio:.3f}"
+    )
+    print(
+        f"  Future-bucket width monotonicity: {future_bucket_monotonicity:.3f}; "
+        f"low/high ratio: {future_low_high_width_ratio:.3f}"
+    )
+    print(f"  Risk-state allocation diagnostic: {'PASS' if overall_pass else 'FAIL'}")
+
+    return {
+        "history_future_activity_spearman": float(history_future_spearman),
+        "observable_signal_present": bool(observable_signal_present),
+        "observable_signal_floor": float(RISK_STATE_MIN_OBSERVABLE_SIGNAL),
+        "history_width_spearman": float(history_width_spearman),
+        "history_width_spearman_target": float(RISK_STATE_MIN_HISTORY_WIDTH_SPEARMAN),
+        "history_width_pass": bool(history_width_pass),
+        "future_width_spearman": float(future_width_spearman),
+        "future_width_spearman_target": float(RISK_STATE_MIN_FUTURE_WIDTH_SPEARMAN),
+        "future_width_pass": bool(future_width_pass),
+        "future_generated_activity_spearman": float(future_generated_activity_spearman),
+        "history_bucket_width_monotonicity": float(history_bucket_monotonicity),
+        "future_bucket_width_monotonicity": float(future_bucket_monotonicity),
+        "bucket_monotonicity_target": float(RISK_STATE_MIN_BUCKET_MONOTONICITY),
+        "history_low_high_width_ratio": float(history_low_high_width_ratio),
+        "future_low_high_width_ratio": float(future_low_high_width_ratio),
+        "low_high_width_ratio_target": float(RISK_STATE_MIN_LOW_HIGH_WIDTH_RATIO),
+        "history_buckets": history_buckets,
+        "future_buckets": future_buckets,
+        "n_windows": int(cond_samples.shape[0]),
+        "n_buckets": int(n_buckets),
+        "min_bucket_size": int(min_bucket_size),
+        "informational": True,
+        "overall_pass": bool(overall_pass),
+    }
 
 
 # =============================================================================

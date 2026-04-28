@@ -37,6 +37,7 @@ from experiments.backfill.block_ar.test_block_ar_requirements_v2 import (
     run_mean_reversion_tests,
     run_pathwise_jump_realism_tests,
     run_regime_coverage_tests,
+    run_risk_state_allocation_tests,
     run_surface_validity_tests,
     run_time_series_tests,
 )
@@ -228,6 +229,11 @@ def main() -> None:
         future_len=args.future_len,
     )
     regime_coverage = run_regime_coverage_tests(cond_samples, ground_truth, history_01)
+    risk_state_allocation = run_risk_state_allocation_tests(
+        cond_samples,
+        ground_truth,
+        history_01,
+    )
     distributional = run_distributional_fidelity_tests(cond_samples, ground_truth, history_01)
     cross_cell = run_cross_cell_correlation_tests(cond_samples, ground_truth)
     mean_reversion = run_mean_reversion_tests(cond_samples, ground_truth, history_01)
@@ -252,6 +258,7 @@ def main() -> None:
         "block_ar": block_ar,
         "cointegration": cointegration,
         "regime_coverage": regime_coverage,
+        "risk_state_allocation": risk_state_allocation,
         "distributional_fidelity": distributional,
         "cross_cell_correlation": cross_cell,
         "mean_reversion": mean_reversion,
@@ -288,6 +295,8 @@ def main() -> None:
         f"- block boundary ratio: `{block_ar['boundary_smoothness']['boundary_ratio']:.3f}`",
         f"- cointegration gen/GT ratio: `{cointegration.get('gen_gt_ratio', float('nan')):.3f}`",
         f"- regime coverage overall: `{regime_coverage['overall_pass']}`",
+        f"- risk-state allocation: `{risk_state_allocation['overall_pass']}`",
+        f"- risk-state width/future rho: `{risk_state_allocation['future_width_spearman']:.3f}`",
         "",
         "**Fidelity / Structure**",
         f"- daily-change KS pass cells: `{distributional['ks_test']['n_pass']}/25`",

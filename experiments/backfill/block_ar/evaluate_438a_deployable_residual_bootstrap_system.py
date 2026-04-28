@@ -52,6 +52,7 @@ from experiments.backfill.block_ar.test_block_ar_requirements_v2 import (  # noq
     run_mean_reversion_tests,
     run_pathwise_jump_realism_tests,
     run_regime_coverage_tests,
+    run_risk_state_allocation_tests,
     run_surface_validity_tests,
     run_time_series_tests,
 )
@@ -300,6 +301,11 @@ def run_suite(
         future_len=future_len,
     )
     regime_coverage = run_regime_coverage_tests(cond_samples, ground_truth, history_01)
+    risk_state_allocation = run_risk_state_allocation_tests(
+        cond_samples,
+        ground_truth,
+        history_01,
+    )
     distributional = run_distributional_fidelity_tests(cond_samples, ground_truth, history_01)
     cross_cell = run_cross_cell_correlation_tests(cond_samples, ground_truth)
     mean_reversion = run_mean_reversion_tests(cond_samples, ground_truth, history_01)
@@ -313,6 +319,7 @@ def run_suite(
         "block_ar": block_ar,
         "cointegration": cointegration,
         "regime_coverage": regime_coverage,
+        "risk_state_allocation": risk_state_allocation,
         "distributional_fidelity": distributional,
         "cross_cell_correlation": cross_cell,
         "mean_reversion": mean_reversion,
@@ -475,6 +482,7 @@ def main() -> None:
     conditionality = results["conditionality"]
     distributional = results["distributional_fidelity"]
     regime = results["regime_coverage"]
+    risk_state = results["risk_state_allocation"]
     cross_cell = results["cross_cell_correlation"]
     mean_rev = results["mean_reversion"]
     pathwise = results["pathwise_jump_realism"]
@@ -497,6 +505,8 @@ def main() -> None:
         f"- conditionality MAE reduction: `{conditionality.get('mae_reduction_pct', float('nan')):.2f}%`",
         f"- turb/calm ratio: `{conditionality.get('turb_calm_ratio', float('nan')):.3f}`",
         f"- regime layer2: `{regime['layer2_n_passing']}/{regime['layer2_n_total']}`",
+        f"- risk-state allocation: `{risk_state['overall_pass']}`",
+        f"- risk-state width/future rho: `{risk_state['future_width_spearman']:.3f}`",
         f"- daily-change KS pass cells: `{distributional['ks_test']['n_pass']}/25`",
         f"- level KS pass cells: `{distributional['ks_level_test']['n_pass']}/25`",
         f"- corr ratio/rank ratio: `{cross_cell['corr_ratio']:.3f}` / `{cross_cell['rank_ratio']:.3f}`",

@@ -106210,3 +106210,18 @@ Channel-aware dispersion calibration did not solve the problem. It increases sup
 Do not switch backend. The next principled repair should keep channel-aware uncertainty allocation but add a generic level-path/support fidelity term, preferably in the existing unit-free `scaled_delta` coordinate, so dispersion calibration cannot buy coverage by pushing levels into unrealistic regions. A lower dispersion weight is also justified by the bracket: weight `0` under-allocates; weight `0.50` over-allocates and distorts support.
 
 ---
+## 2026-04-28: 705a population risk-state allocation diagnostic
+
+### Context
+We reframed conditionality away from deterministic path prediction and toward population-level risk-state uncertainty allocation. Prior audits showed exact future path/center signal is weak, but history/future activity signal exists at the population level, which is the more defensible risk-manager question.
+
+### Change
+Added an informational `risk_state_allocation` diagnostic to the full-suite evaluators without changing the historical 11-suite score. The diagnostic compares generated scenario width against observable history activity and realized future activity using rank correlation, low/high bucket width ratios, and bucket monotonicity.
+
+### Interpretation
+This asks whether the conditional scenario distribution allocates more uncertainty to riskier market states, not whether it predicts the exact validation path. That makes the conditionality evidence closer to a risk-state allocation test and avoids over-penalizing models for not forecasting inherently noisy day-to-day market moves.
+
+### Verification
+Added focused regression tests for the diagnostic: a synthetic panel whose generated width tracks population activity passes, while a state-insensitive flat-width panel fails. The diagnostic is reported in JSON/markdown outputs but remains informational until we decide whether and how to promote it into the official suite.
+
+---
