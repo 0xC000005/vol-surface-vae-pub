@@ -105833,3 +105833,38 @@ Keep the innovation-score factorization alive. It is more principled and more ge
 2. Run a controlled continuation or reduced-budget rollout diagnostic to see whether the `6/11` result improves with full rollout training, then evaluate `iv_only` and `anchor_only` under the same frozen recipe.
 
 ---
+## 2026-04-28: 699b score-rollout continuation diagnostic
+
+### Hypothesis
+698b showed that innovation-score factorization is promising but made full rollout fine-tuning slow. If the bottleneck is only implementation cost, vectorizing the inverse innovation-score transform should make full rollout continuation feasible; if the score-coordinate family still improves with training, a continued checkpoint should improve the 698b `6/11`.
+
+### Implementation
+- Replaced the per-channel Python loop in `scores_to_normalized_innovations` with a vectorized gather over common quantile levels.
+- Behavior tests passed: `pytest test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` gave `22 passed`.
+
+### Speed Probe
+- Reduced probe: `models/backfill/699a_joint38_innovscore_rollout_speed_probe_b32_s6991`.
+- 32 train batches plus 8 val batches finished in `16s`, with train total `1.5175`, val total `1.2960` on the reduced validation subset.
+- This confirmed the implementation blocker was reduced enough to run a full continuation.
+
+### Full Continuation
+- Continued from `models/backfill/698b_joint38_innovscore_channel_level_alltrain_w005_e3_s6982/best_model.pt`.
+- Output: `models/backfill/699b_joint38_innovscore_rollout_cont_e2_s6992/best_model.pt`.
+- Epoch 1: train total `1.4851`, val total `1.5082` best.
+- Epoch 2: train total `1.4755`, val total `1.5087`.
+
+### Validation Result
+- IV full-suite validation at 96 samples stayed `6/11`, failing `coverage`, `conditionality`, `time_series`, `cointegration`, and `regime_coverage`.
+- Key metrics: cov90 `0.764`, calibration error `0.108`, conditional MAE reduction `9.5%`, worst width ratio `1.475`, turb/calm `1.105`, kurtosis ratio `1.510`, daily KS `25/25`, level KS `16/25`, median fraction `22/25`, bias magnitude `24/25`, corr/rank `0.939/1.296`, mean-reversion ratio `0.943`, pathwise KS `0.353`.
+
+### Comparison To 698b
+- 699b improved worst conditional width ratio (`1.475` vs `1.544`) and median bias magnitude (`24/25` vs `23/25`).
+- 699b worsened coverage (`0.764` vs `0.780`), calibration error (`0.108` vs `0.090`), level KS (`16/25` vs `18/25`), turb/calm ratio (`1.105` vs `1.113`), and pathwise KS (`0.353` vs `0.294`).
+- Internal rollout validation loss improved only slightly, and that did not translate into more suite passes.
+
+### Decision
+Do not keep spending iterations on longer rollout continuation alone. The score-coordinate factorization remains alive because 698b improved the joint branch over 676a and preserved panel realism, but rollout continuation is not the missing mechanism.
+
+Next step should be the single-framework gate: run the same score-coordinate recipe on `iv_only` and `anchor_only` to decide whether this is a general framework or just a joint38-specific improvement. If tri-scope holds, then address the remaining common failure class: conditionality/coverage allocation.
+
+---

@@ -299,23 +299,20 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         table = table.to(device=scores.device, dtype=scores.dtype)
         eps = float(self.cfg.cdf_eps)
         u_all = (0.5 * (1.0 + torch.erf(scores / math.sqrt(2.0)))).clamp(eps, 1.0 - eps)
-        cols: list[torch.Tensor] = []
-        for var in range(self.cfg.n_cells):
-            q = table[var]
-            flat = u_all[..., var].reshape(-1)
-            idx = torch.searchsorted(levels.contiguous(), flat.contiguous(), right=False)
-            idx_hi = idx.clamp(1, self.cfg.n_quantiles - 1)
-            idx_lo = idx_hi - 1
-            u_lo = levels[idx_lo]
-            u_hi = levels[idx_hi]
-            q_lo = q[idx_lo]
-            q_hi = q[idx_hi]
-            alpha = (flat - u_lo) / (u_hi - u_lo).clamp_min(1e-12)
-            value = q_lo + alpha.clamp(0.0, 1.0) * (q_hi - q_lo)
-            value = torch.where(flat <= levels[0], q[0], value)
-            value = torch.where(flat >= levels[-1], q[-1], value)
-            cols.append(value.view(scores.shape[:-1]))
-        return torch.stack(cols, dim=-1)
+        flat = u_all.reshape(-1, self.cfg.n_cells)
+        idx = torch.searchsorted(levels.contiguous(), flat.contiguous(), right=False)
+        idx_hi = idx.clamp(1, self.cfg.n_quantiles - 1)
+        idx_lo = idx_hi - 1
+        u_lo = levels[idx_lo]
+        u_hi = levels[idx_hi]
+        cell_idx = torch.arange(self.cfg.n_cells, device=scores.device)[None, :]
+        q_lo = table[cell_idx, idx_lo]
+        q_hi = table[cell_idx, idx_hi]
+        alpha = (flat - u_lo) / (u_hi - u_lo).clamp_min(1e-12)
+        value = q_lo + alpha.clamp(0.0, 1.0) * (q_hi - q_lo)
+        value = torch.where(flat <= levels[0], table[:, 0][None, :], value)
+        value = torch.where(flat >= levels[-1], table[:, -1][None, :], value)
+        return value.view_as(scores)
 
     def level_values_to_scores(self, values: torch.Tensor) -> torch.Tensor:
         self._check_quantiles()
