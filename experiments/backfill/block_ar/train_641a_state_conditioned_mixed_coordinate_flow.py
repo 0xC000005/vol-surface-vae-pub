@@ -22,6 +22,11 @@ from diffusion.block_ar.generic_state_conditioned_mixed_coordinate_flow_matching
     GenericStateConditionedMixedCoordinateFlowMatching,
     save_checkpoint,
 )
+from diffusion.block_ar.generic_multihead_state_conditioned_mixed_coordinate_flow_matching import (  # noqa: E402
+    GenericMultiHeadStateConditionedMixedCoordinateFMConfig,
+    GenericMultiHeadStateConditionedMixedCoordinateFlowMatching,
+    save_checkpoint as save_multihead_checkpoint,
+)
 from experiments.backfill.block_ar._rollout_220_utils import (
     make_serializable,
 )  # noqa: E402
@@ -71,6 +76,10 @@ def main() -> None:
     parser.add_argument("--model_dropout", type=float, default=0.05)
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
+    parser.add_argument(
+        "--head_mode", choices=["single", "multihead"], default="single"
+    )
+    parser.add_argument("--head_hidden", type=int, default=128)
     parser.add_argument(
         "--prefix_feature_mode", choices=["basic", "scale"], default="scale"
     )
@@ -129,7 +138,7 @@ def main() -> None:
     )
     n_vars = int(train_level.shape[-1])
     level_score_channels = list(range(min(int(args.iv_count), n_vars)))
-    cfg = GenericStateConditionedMixedCoordinateFMConfig(
+    cfg_kwargs = dict(
         history_len=int(args.history_len),
         future_len=int(args.future_len),
         n_cells=n_vars,
@@ -151,7 +160,22 @@ def main() -> None:
         conditioning_mode="prefix",
         level_score_channels=level_score_channels,
     )
-    model = GenericStateConditionedMixedCoordinateFlowMatching(cfg).to(device)
+    if args.head_mode == "multihead":
+        cfg = GenericMultiHeadStateConditionedMixedCoordinateFMConfig(
+            **cfg_kwargs,
+            iv_count=min(int(args.iv_count), n_vars),
+            head_hidden=int(args.head_hidden),
+        )
+        model = GenericMultiHeadStateConditionedMixedCoordinateFlowMatching(cfg).to(
+            device
+        )
+        checkpoint_writer = save_multihead_checkpoint
+        model_architecture = "multihead_state_conditioned_mixed_coordinate"
+    else:
+        cfg = GenericStateConditionedMixedCoordinateFMConfig(**cfg_kwargs)
+        model = GenericStateConditionedMixedCoordinateFlowMatching(cfg).to(device)
+        checkpoint_writer = save_checkpoint
+        model_architecture = "state_conditioned_mixed_coordinate"
     model.set_empirical_quantiles(
         torch.from_numpy(level_quantiles).to(device),
         torch.from_numpy(increment_quantiles).to(device),
@@ -191,6 +215,7 @@ def main() -> None:
     extra = {
         "state_scope": args.state_scope,
         "model_coordinate": "state_conditioned_mixed_coordinate",
+        "model_architecture": model_architecture,
         "iv_count": int(args.iv_count),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "panel_metadata": panel_metadata,
@@ -199,6 +224,12 @@ def main() -> None:
             "increment_channels": [
                 idx for idx in range(n_vars) if idx not in set(level_score_channels)
             ],
+        },
+        "head_policy": {
+            "head_mode": args.head_mode,
+            "head_hidden": int(args.head_hidden),
+            "shared_source": True,
+            "shared_transition_mixer": True,
         },
     }
     for epoch in range(1, int(args.epochs) + 1):
@@ -244,7 +275,9 @@ def main() -> None:
         if is_best:
             best_val = float(val_loss)
             best_epoch = int(epoch)
-            save_checkpoint(str(best_path), model, cfg, epoch, best_val, extra=extra)
+            checkpoint_writer(
+                str(best_path), model, cfg, epoch, best_val, extra=extra
+            )
         print(
             f"epoch {epoch:03d} train={train_loss:.6f} val={val_loss:.6f}"
             f"{' best' if is_best else ''}",
@@ -252,7 +285,7 @@ def main() -> None:
         )
 
     final_path = output_dir / "final_model.pt"
-    save_checkpoint(
+    checkpoint_writer(
         str(final_path), model, cfg, int(args.epochs), best_val, extra=extra
     )
     smoke = sample_smoke(
@@ -272,6 +305,7 @@ def main() -> None:
         "config": asdict(cfg),
         "state_scope": args.state_scope,
         "model_coordinate": "state_conditioned_mixed_coordinate",
+        "model_architecture": model_architecture,
         "n_state_vars": n_vars,
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "train_shape": list(train_level.shape),
@@ -284,6 +318,7 @@ def main() -> None:
         "sample_smoke": smoke,
         "panel_metadata": panel_metadata,
         "generated_coordinate_policy": extra["generated_coordinate_policy"],
+        "head_policy": extra["head_policy"],
         "output_dir": str(output_dir),
     }
     (output_dir / "training_history.json").write_text(

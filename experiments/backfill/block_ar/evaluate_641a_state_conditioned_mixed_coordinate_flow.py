@@ -14,7 +14,10 @@ import torch
 sys.path.insert(0, ".")
 
 from diffusion.block_ar.generic_state_conditioned_mixed_coordinate_flow_matching import (
-    load_model,
+    load_model as load_singlehead_model,
+)  # noqa: E402
+from diffusion.block_ar.generic_multihead_state_conditioned_mixed_coordinate_flow_matching import (
+    load_model as load_multihead_model,
 )  # noqa: E402
 from experiments.backfill.block_ar._rollout_220_utils import (  # noqa: E402
     build_rollout_windows,
@@ -66,7 +69,11 @@ def main() -> None:
     device = torch.device(
         args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
     )
-    model, payload = load_model(args.checkpoint, device)
+    probe = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    if probe.get("model_architecture") == "multihead_state_conditioned_mixed_coordinate":
+        model, payload = load_multihead_model(args.checkpoint, device)
+    else:
+        model, payload = load_singlehead_model(args.checkpoint, device)
     history_level, history_increment, history_raw, specs, block = build_val_block(
         args, payload
     )
@@ -137,6 +144,9 @@ def main() -> None:
         "state_scope": payload.get("state_scope", args.state_scope),
         "model_coordinate": payload.get(
             "model_coordinate", "state_conditioned_mixed_coordinate"
+        ),
+        "model_architecture": payload.get(
+            "model_architecture", "state_conditioned_mixed_coordinate"
         ),
         "generated_coordinate_policy": payload.get("generated_coordinate_policy", {}),
         "n_windows": int(n_windows),

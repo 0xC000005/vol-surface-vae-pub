@@ -104427,3 +104427,86 @@ Return to the native joint-generator path:
 The story should be: the model learns the conditional joint movement of the whole market panel. It should not be: generate IV first, generate factors separately, then attach a plausible factor story.
 
 ---
+## 2026-04-27: 658a AR-652 native joint typed-head AR result
+
+### Context
+
+After reviewing the full log, the most principled falsifier was not another
+one-shot path-flow variant but an AR analogue of `652a`: keep one native joint
+38-channel mechanism, one stochastic source, one state-conditioned transition,
+and allow only typed IV/factor readout heads. This directly tests whether the
+AR factorization that helped IV-only `392a/510a` can recover IV realism while
+preserving coherent IV + anchor-factor generation.
+
+### Implementation
+
+Added `658a` as a typed-head extension of the existing `641a` native joint
+mixed-coordinate AR transition. The old `641a` default remains unchanged; the
+new path is opt-in via `--head_mode multihead` and exposed through:
+
+- `diffusion/block_ar/generic_multihead_state_conditioned_mixed_coordinate_flow_matching.py`
+- `experiments/backfill/block_ar/train_658a_multihead_state_conditioned_mixed_coordinate_flow.py`
+- `experiments/backfill/block_ar/evaluate_658a_multihead_state_conditioned_mixed_coordinate_flow.py`
+
+The architecture remains clean: shared history encoder, shared AR transition
+mixer, shared flow source, IV level-score channels, anchor-factor increment
+channels, and separate final readout heads only.
+
+### Result
+
+Trained `models/backfill/658a_ar652_joint38_s658/best_model.pt`; best epoch was
+6 with validation loss `0.776925`.
+
+Official IV 11-suite:
+
+- score: `5/11`
+- failed: coverage, conditionality, time_series, regime_coverage,
+  distributional_fidelity, mean_reversion
+- cov90: `0.687`
+- conditionality MAE reduction: `-0.5%`
+- daily-change KS pass: `24/25`
+- level KS pass: `7/25`
+- median-bias pass: `12/25`
+- cross-cell corr ratio: `0.750`
+- mean-reversion aggregate ratio: `0.986`, but full-horizon active profile failed
+- pathwise max-jump KS: `0.480` pass
+
+Joint-panel audit:
+
+- factor delta KS mean: `0.109`
+- factor delta KS pass `<0.20`: `11/13`
+- factor q99 abs-delta pass `[0.5,2.0]`: `13/13`
+- factor-factor corr shape: `0.892`
+- IV-factor corr shape: `0.868`
+- IV-factor absolute correlation remains attenuated: generated mean abs `0.088`
+  versus GT `0.149`
+
+Artifacts:
+
+- `results/block_ar/658a_ar652_joint38_s658/full11.json`
+- `results/block_ar/658a_ar652_joint38_s658/full11.md`
+- `results/block_ar/658a_ar652_joint38_s658/joint_panel_audit.json`
+- `results/block_ar/658a_ar652_joint38_s658/joint_panel_audit.md`
+
+### Mechanism Read
+
+`658a` is a clean positive result relative to native joint one-shot `652a`
+because IV score rises from the one-shot native joint plateau around `4/11` to
+`5/11`, while the factor/joint audit remains broadly coherent. But it does not
+recover the historical IV-only `392a/510a` frontier. The remaining failure is
+not post-hoc gluing or decoder-head expressiveness alone; it is still the broad
+native-joint conditional law problem: undercoverage, weak conditional advantage,
+level occupancy/bias mismatch, and regime-cell coverage failures.
+
+### Decision
+
+Keep `658a` as the cleanest native joint AR baseline so far, not as a deployed
+solution. The AR revival is partially alive because it improves over the
+one-shot native joint line without sacrificing factor realism, but it is not a
+breakthrough. The next move should be a narrow post-result diagnostic comparing
+`641a`, `652a`, and `658a` on loss balance, IV/factor target scale, and
+conditional MAE/coverage by cell. Do not add another architectural knob until
+that diagnostic explains why typed AR improves daily/pathwise realism but still
+misses conditional coverage and level occupancy.
+
+---
