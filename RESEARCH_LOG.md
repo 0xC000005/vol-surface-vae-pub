@@ -105205,3 +105205,28 @@ Do not discard the paradigm: the shared stochastic mechanism can generate a cohe
 - `results/validations/2026-04-27/676a_joint38_channel_level_alltrain/panel_audit.json`
 
 ---
+## 2026-04-28: 677a high-sample joint audit confirms stable IV compromise
+
+### Context
+677a reran the 676a joint38 best checkpoint with a higher-sample evaluation (`samples=96`, `conditionality_samples=64`) to test whether the joint IV-facing failures were sampling noise.
+
+### Result
+- Joint38 `677a` stayed at `5/11`; the joint IV regression is stable.
+- Coverage improved modestly to coverage90 `0.814`, but strict per-cell coverage still failed.
+- Time-series kurtosis still failed with ratio `1.447`.
+- IV level KS stayed failed at `13/25`.
+- Median-bias fraction passed `22/25`, but bias magnitude stayed `21/25`, one short of the gate.
+- Mean reversion still failed due h7 profile; pathwise realism passed with KS `0.402`.
+- Remaining failed suites: coverage, conditionality, time series, regime coverage, distributional fidelity, mean reversion.
+
+### Mechanism Read
+Joint38 failures are not evaluation noise. The shared stochastic mechanism can generate coherent anchor factors, but the current single readout/objective compromises IV distributional geometry when heterogeneous anchors are included. This is consistent with a decoder/readout expressiveness bottleneck rather than a need to abandon AR flow matching or the state-normalized innovation data object.
+
+### Decision
+Do not switch stochastic paradigm. The next principled model change is within-family: keep one shared latent/history encoder and one shared stochastic flow source, but allow channel-type-aware or multi-head readouts for heterogeneous variable groups. This preserves methodological coherence while addressing the observed IV/anchor compromise.
+
+### Artifacts
+- `models/backfill/676a_joint38_channel_level_alltrain_w005_e3_s6761/best_model.pt`
+- `results/validations/2026-04-27/677a_676a_joint38_highsample/val_full11_s96.json`
+
+---

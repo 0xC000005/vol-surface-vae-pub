@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 676,
+  "iteration": 677,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "676a shows the 674a all-window channel-balanced recipe transfers to anchor-factor realism but compromises IV 11-suite quality in native joint38. Joint panel co-movement is coherent, but IV tail/level geometry regresses.",
-  "last_result_summary": "676a joint38 selected epoch 1. IV-facing full suite reached 5/11 with failures in coverage, conditionality, time_series, regime_coverage, distributional_fidelity, and mean_reversion. Panel audit was acceptable: factor KS mean 0.101, 11/13 factor KS pass, 13/13 factor q99 tail pass, factor-factor corr 0.791, and IV-factor corr 0.896.",
-  "next_step_recommendation": "Run a high-sample joint evaluation before changing architecture. If joint IV failures are stable, the next principled model change should be decoder/readout expressiveness within the same shared stochastic core, not a new stochastic mechanism.",
+  "current_bottleneck": "677a confirms the joint38 IV compromise is stable under high-sample evaluation. The shared stochastic core generates coherent anchor factors, but the current single readout/objective underfits heterogeneous IV/anchor geometry.",
+  "last_result_summary": "677a reevaluated 676a joint38 with samples=96 and remained 5/11. Coverage90 was 0.814 but strict per-cell coverage failed, kurtosis ratio 1.447 failed, IV level KS 13/25 failed, median-bias magnitude was 21/25 one short, mean reversion failed h7, and pathwise KS passed at 0.402.",
+  "next_step_recommendation": "Do not switch stochastic paradigm. Implement an in-family readout/decoder expressiveness change: one shared latent/history encoder and stochastic flow source, with channel-type-aware or multi-head velocity readouts for heterogeneous variable groups.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general IV/anchor/joint state-aware normalized-innovation family, 666a remains the best joint-audited checkpoint, while 674a/675a is the strongest recent IV-only candidate at 7/11 with high-sample evaluation: coverage90 0.845, level KS passed, mean reversion passed, and pathwise realism passed. A joint38 audit is required before promoting the 674a-style training recipe as the general baseline.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending 676a commit",
+  "last_commit": "pending 677a commit",
   "resume_command_hint": "continue autoresearch"
 }
