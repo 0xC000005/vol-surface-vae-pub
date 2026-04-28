@@ -79,6 +79,7 @@ def differentiable_rollout_paths(
     history_normalized_innovation: torch.Tensor,
     center: torch.Tensor,
     scale: torch.Tensor,
+    drift_feature: torch.Tensor | None = None,
     *,
     n_samples: int,
     n_steps: int,
@@ -111,11 +112,15 @@ def differentiable_rollout_paths(
     )
     center_rep = center.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
     scale_rep = scale.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
+    if drift_feature is None:
+        drift_rep = None
+    else:
+        drift_rep = drift_feature.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
     dt = 1.0 / float(max(1, int(flow_steps)))
     norm_frames: list[torch.Tensor] = []
     level_frames: list[torch.Tensor] = []
     for _step in range(int(n_steps)):
-        memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep)[:, -1]
+        memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[:, -1]
         current_level_score = prefix_level_scores[:, -1]
         x = float(temperature) * torch.randn(
             bsz * k,
@@ -149,6 +154,7 @@ def differentiable_normalized_rollout_samples(
     history_normalized_innovation: torch.Tensor,
     center: torch.Tensor,
     scale: torch.Tensor,
+    drift_feature: torch.Tensor | None = None,
     *,
     n_samples: int,
     n_steps: int,
@@ -162,6 +168,7 @@ def differentiable_normalized_rollout_samples(
         history_normalized_innovation,
         center,
         scale,
+        drift_feature,
         n_samples=int(n_samples),
         n_steps=int(n_steps),
         flow_steps=int(flow_steps),
@@ -178,6 +185,7 @@ def normalized_rollout_energy_loss(
     future_normalized_innovation: torch.Tensor,
     center: torch.Tensor,
     scale: torch.Tensor,
+    drift_feature: torch.Tensor | None = None,
     *,
     train_sample_count: int,
     rollout_flow_steps: int,
@@ -196,6 +204,7 @@ def normalized_rollout_energy_loss(
         future_normalized_innovation,
         center,
         scale,
+        drift_feature=drift_feature,
     )
     sampled_norm, sampled_level = differentiable_rollout_paths(
         model,
@@ -203,6 +212,7 @@ def normalized_rollout_energy_loss(
         history_normalized_innovation,
         center,
         scale,
+        drift_feature,
         n_samples=int(train_sample_count),
         n_steps=int(future_normalized_innovation.shape[1]),
         flow_steps=int(rollout_flow_steps),
@@ -293,7 +303,7 @@ def run_epoch(
     model.train(train_mode)
     sums: dict[str, float] = {}
     n_batches = 0
-    for history_level, history_norm, future_level, future_norm, center, scale in loader:
+    for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in loader:
         if int(max_batches) > 0 and n_batches >= int(max_batches):
             break
         with torch.set_grad_enabled(train_mode):
@@ -305,6 +315,7 @@ def run_epoch(
                 future_norm.to(device),
                 center.to(device),
                 scale.to(device),
+                drift_feature=drift_feature.to(device),
                 train_sample_count=int(train_sample_count),
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
@@ -345,6 +356,7 @@ def main() -> None:
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
+    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -388,11 +400,22 @@ def main() -> None:
     args.iv_upper_bound = float(norm_cfg.get("iv_upper_bound", payload.get("iv_upper_bound", args.iv_upper_bound)))
     args.scale_floor = float(norm_cfg.get("scale_floor", args.scale_floor))
     args.center_mode = norm_cfg.get("center_mode", args.center_mode)
+    args.drift_feature_mode = norm_cfg.get("drift_feature_mode", args.drift_feature_mode)
     half_life = norm_cfg.get("scale_half_life", args.scale_half_life)
     scale_half_life = None if half_life is None or float(half_life) <= 0.0 else float(half_life)
 
     _columns, panel_metadata, train_block, val_block = build_blocks(args)
-    train_level, train_norm, train_future_level, train_future_norm, train_center, train_scale, _train_raw, train_specs = (
+    (
+        train_level,
+        train_norm,
+        train_future_level,
+        train_future_norm,
+        train_center,
+        train_scale,
+        train_drift,
+        _train_raw,
+        train_specs,
+    ) = (
         select_normalized_innovation_scope(
             train_block,
             args.state_scope,
@@ -400,9 +423,20 @@ def main() -> None:
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
             center_mode=args.center_mode,
+            drift_feature_mode=args.drift_feature_mode,
         )
     )
-    val_level, val_norm, val_future_level, val_future_norm, val_center, val_scale, val_raw, val_specs = (
+    (
+        val_level,
+        val_norm,
+        val_future_level,
+        val_future_norm,
+        val_center,
+        val_scale,
+        val_drift,
+        val_raw,
+        val_specs,
+    ) = (
         select_normalized_innovation_scope(
             val_block,
             args.state_scope,
@@ -410,6 +444,7 @@ def main() -> None:
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
             center_mode=args.center_mode,
+            drift_feature_mode=args.drift_feature_mode,
         )
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
@@ -426,6 +461,7 @@ def main() -> None:
             torch.from_numpy(train_future_norm),
             torch.from_numpy(train_center),
             torch.from_numpy(train_scale),
+            torch.from_numpy(train_drift),
         ),
         batch_size=int(args.batch_size),
         shuffle=True,
@@ -439,6 +475,7 @@ def main() -> None:
             torch.from_numpy(val_future_norm),
             torch.from_numpy(val_center),
             torch.from_numpy(val_scale),
+            torch.from_numpy(val_drift),
         ),
         batch_size=int(args.batch_size),
         shuffle=False,
@@ -537,6 +574,7 @@ def main() -> None:
         val_norm[: int(args.sample_windows)],
         val_center[: int(args.sample_windows)],
         val_scale[: int(args.sample_windows)],
+        val_drift[: int(args.sample_windows)],
         val_raw[: int(args.sample_windows)],
         train_specs,
         samples=int(args.sample_count),

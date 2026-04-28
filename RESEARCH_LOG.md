@@ -105315,3 +105315,33 @@ The sampled-rollout objective fixes the free-running jump-shape overshoot caused
 Do not continue stacking objectives on full EWMA centering. The next normalization move should separate "history drift as information" from "history drift as deterministic reconstruction center": keep increment reconstruction zero-centered, but provide a history-only EWMA drift summary as a conditioning feature so the model can learn how much drift to use instead of being forced to add it every step.
 
 ---
+## 2026-04-28: 681a zero-center EWMA drift feature falsifier
+
+### Context
+680a showed that full EWMA mean centering plus rollout energy repairs pathwise jump shape, but still fails conditional allocation. The next clean normalization test separated drift as information from drift as deterministic reconstruction: keep the reconstruction center at zero, but add a history-only EWMA drift summary as an extra conditioning feature.
+
+### Execute
+Added `prefix_feature_mode=scale_drift` and `drift_feature_mode=ewma_mean`. The model now accepts a separate `drift_feature` tensor; existing checkpoints default to zero drift. Trained IV-only, anchor-only, and joint38 base models with bounded IV, zero reconstruction center, EWMA/RMS scale, and EWMA drift as conditioning information.
+
+Artifacts:
+- IV-only model: `models/backfill/681a_iv_stateaware_norminnov_zerocenter_ewmadriftfeat_boundediv_e8_w2048_s6811/best_model.pt`
+- Anchor-only model: `models/backfill/681a_anchor_stateaware_norminnov_zerocenter_ewmadriftfeat_boundediv_e8_w2048_s6812/best_model.pt`
+- Joint38 model: `models/backfill/681a_joint38_stateaware_norminnov_zerocenter_ewmadriftfeat_boundediv_e8_w2048_s6813/best_model.pt`
+- IV-only suite: `results/validations/2026-04-28/681a_zerocenter_ewmadrift_feature_base/iv_val_full11.json`
+- Joint IV-facing suite: `results/validations/2026-04-28/681a_zerocenter_ewmadrift_feature_base/joint_val_iv_full11.json`
+- Joint panel audit: `results/validations/2026-04-28/681a_zerocenter_ewmadrift_feature_base/joint_val_panel.json`
+
+### Result
+IV-only fell to 4/11. Coverage90 was 0.794 and calibration error 0.068, but level KS was only 8/25, median-bias magnitude 21/25, mean-reversion ratio 1.369, and pathwise max-jump KS 0.691 failed.
+
+Joint38 also reached only 4/11. Coverage90 was 0.771, conditional MAE reduction only 5.7%, kurtosis ratio 0.659 failed, IV level KS was 5/25, median-bias fraction 9/25, mean-reversion ratio 1.341, and pathwise max-jump KS 0.684 failed.
+
+The joint panel audit was not enough to justify the branch: factor delta KS mean 0.125 with 10/13 factors passing, q99 factor tails all passed but median q99 ratio rose to 1.350, factor-factor correlation was 0.831, and IV-factor correlation was 0.909.
+
+### Mechanism Read
+EWMA drift as a feature is still too strong a shortcut. Even when it is not added back as deterministic center, the model uses it in a way that over-amplifies mean reversion/drift and degrades level-law allocation. This suggests the repeated failures are not primarily from missing local drift information.
+
+### Decision
+Close the EWMA drift normalization branch. Return to the zero-center incumbent and target the real bottleneck directly: conditional allocation under generated paths. The next principled direction is a rollout-level conditional contrast/proper-score objective, where the correct history must score better than shuffled histories in sampled path space, rather than adding more level/drift preprocessing.
+
+---

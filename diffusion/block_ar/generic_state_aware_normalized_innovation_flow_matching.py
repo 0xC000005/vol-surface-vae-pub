@@ -102,9 +102,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     def __init__(self, cfg: GenericStateAwareNormalizedInnovationFMConfig):
         super().__init__()
         self.cfg = cfg
-        if cfg.prefix_feature_mode not in {"basic", "scale"}:
-            raise ValueError("prefix_feature_mode must be 'basic' or 'scale'")
-        feature_mult = 6 if cfg.prefix_feature_mode == "scale" else 4
+        if cfg.prefix_feature_mode not in {"basic", "scale", "scale_drift"}:
+            raise ValueError("prefix_feature_mode must be 'basic', 'scale', or 'scale_drift'")
+        feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
         layer = nn.TransformerEncoderLayer(
@@ -192,8 +192,25 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         normalized_innovation: torch.Tensor,
         center: torch.Tensor,
         scale: torch.Tensor,
+        drift_feature: torch.Tensor | None = None,
     ) -> torch.Tensor:
         center_feature, log_scale = self._scale_features(center, scale, level_scores.shape[1])
+        if self.cfg.prefix_feature_mode == "scale_drift":
+            if drift_feature is None:
+                drift_feature = torch.zeros_like(center)
+            drift_scaled, _unused = self._scale_features(drift_feature, scale, level_scores.shape[1])
+            return torch.cat(
+                [
+                    level_scores,
+                    normalized_innovation,
+                    normalized_innovation.abs(),
+                    normalized_innovation.square(),
+                    center_feature,
+                    log_scale,
+                    drift_scaled,
+                ],
+                dim=-1,
+            )
         if self.cfg.prefix_feature_mode == "scale":
             return torch.cat(
                 [
@@ -214,6 +231,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         normalized_innovation: torch.Tensor,
         center: torch.Tensor,
         scale: torch.Tensor,
+        drift_feature: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if level_scores.shape != normalized_innovation.shape:
             raise ValueError("level_scores and normalized_innovation must match")
@@ -221,7 +239,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if seq_len > self.cfg.history_len + self.cfg.future_len:
             raise ValueError(f"prefix length {seq_len} exceeds configured maximum")
         pos = torch.arange(seq_len, device=level_scores.device)
-        x = self.feature_proj(self._prefix_features(level_scores, normalized_innovation, center, scale))
+        x = self.feature_proj(
+            self._prefix_features(level_scores, normalized_innovation, center, scale, drift_feature)
+        )
         x = x + self.pos_embed(pos)[None, :, :]
         mask = torch.triu(
             torch.ones(seq_len, seq_len, device=level_scores.device, dtype=torch.bool),
@@ -237,6 +257,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         future_normalized_innovation: torch.Tensor,
         center: torch.Tensor,
         scale: torch.Tensor,
+        drift_feature: torch.Tensor | None = None,
         condition_contrast_weight: float = 0.0,
         condition_contrast_margin: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
@@ -247,7 +268,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             [history_normalized_innovation, future_normalized_innovation[:, :-1]],
             dim=1,
         )
-        hidden = self._encode_prefix(prefix_level_scores, prefix_norm, center, scale)
+        hidden = self._encode_prefix(prefix_level_scores, prefix_norm, center, scale, drift_feature)
         start = self.cfg.history_len - 1
         memory_states = hidden[:, start : start + self.cfg.future_len]
         current_level_scores = prefix_level_scores[:, start : start + self.cfg.future_len]
@@ -284,6 +305,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 neg_prefix_norm,
                 center[perm],
                 scale[perm],
+                None if drift_feature is None else drift_feature[perm],
             )
             neg_memory_states = neg_hidden[:, start : start + self.cfg.future_len]
             neg_current_level_scores = neg_prefix_level_scores[:, start : start + self.cfg.future_len]
@@ -309,6 +331,11 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "target_norm_abs": x1.abs().mean().detach(),
             "local_scale_mean": scale.mean().detach(),
             "local_scale_min": scale.min().detach(),
+            "drift_feature_abs": (
+                torch.zeros((), device=x1.device, dtype=x1.dtype)
+                if drift_feature is None
+                else drift_feature.abs().mean().detach()
+            ),
             "memory_abs": memory_states.abs().mean().detach(),
         }
 
@@ -319,6 +346,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         history_normalized_innovation: torch.Tensor,
         center: torch.Tensor,
         scale: torch.Tensor,
+        drift_feature: torch.Tensor | None = None,
         n_samples: int = 50,
         n_steps: int = 30,
         chunk_size: int = 8,
@@ -355,9 +383,19 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             )
             center_rep = center.unsqueeze(1).expand(bsz, k, self.cfg.n_cells).reshape(bsz * k, self.cfg.n_cells)
             scale_rep = scale.unsqueeze(1).expand(bsz, k, self.cfg.n_cells).reshape(bsz * k, self.cfg.n_cells)
+            if drift_feature is None:
+                drift_rep = None
+            else:
+                drift_rep = (
+                    drift_feature.unsqueeze(1)
+                    .expand(bsz, k, self.cfg.n_cells)
+                    .reshape(bsz * k, self.cfg.n_cells)
+                )
             frames: list[torch.Tensor] = []
             for _step in range(int(n_steps)):
-                memory_state = self._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep)[:, -1]
+                memory_state = self._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[
+                    :, -1
+                ]
                 current_level_score = prefix_level_scores[:, -1]
                 x = temp * torch.randn(
                     bsz * k,

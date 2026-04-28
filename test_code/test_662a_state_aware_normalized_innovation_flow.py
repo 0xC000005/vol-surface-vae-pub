@@ -159,6 +159,65 @@ def test_state_aware_normalized_innovation_flow_loss_and_sampling():
     assert torch.isfinite(samples).all()
 
 
+def test_scale_drift_prefix_conditions_on_drift_without_centering_increment():
+    torch.manual_seed(17)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale_drift",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    model.eval()
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    level_quantiles = torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells)
+    model.set_level_quantiles(level_quantiles, levels)
+
+    history_level = torch.randn(5, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(5, cfg.history_len, cfg.n_cells)
+    center = torch.zeros(5, cfg.n_cells)
+    drift_feature = torch.randn(5, cfg.n_cells) * 0.01
+    scale = torch.rand(5, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(5, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+
+    loss, metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        drift_feature=drift_feature,
+    )
+    samples = model.sample_batched(
+        history_level,
+        history_norm,
+        center,
+        scale,
+        drift_feature=drift_feature,
+        n_samples=2,
+        n_steps=cfg.future_len,
+        chunk_size=2,
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["drift_feature_abs"] > 0.0
+    assert samples.shape == (5, 2, cfg.future_len, cfg.n_cells)
+
+
 def test_condition_contrast_loss_adds_ranking_penalty():
     torch.manual_seed(11)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(

@@ -182,6 +182,7 @@ def build_history_future(
         if scale_half_life is not None and float(scale_half_life) <= 0.0:
             scale_half_life = None
         center_mode = norm_cfg.get("center_mode", "zero")
+        drift_feature_mode = norm_cfg.get("drift_feature_mode", "none")
         (
             history_level,
             history_norm,
@@ -189,6 +190,7 @@ def build_history_future(
             future_norm,
             center,
             scale,
+            drift_feature,
             _history_state,
             specs,
         ) = select_normalized_innovation_scope(
@@ -198,6 +200,7 @@ def build_history_future(
             scale_half_life=scale_half_life,
             scale_floor=float(norm_cfg.get("scale_floor", 1e-4)),
             center_mode=center_mode,
+            drift_feature_mode=drift_feature_mode,
         )
         expected = [spec["name"] for spec in payload.get("state_specs", [])]
         actual = [spec.name for spec in specs]
@@ -211,6 +214,7 @@ def build_history_future(
                 history_norm.astype(np.float32),
                 center.astype(np.float32),
                 scale.astype(np.float32),
+                drift_feature.astype(np.float32),
             ),
             future_norm.astype(np.float32),
             specs,
@@ -412,12 +416,13 @@ def generate_panel_samples(
                 temperature=float(sample_temperature),
             )
         elif model_coordinate == "state_aware_normalized_innovation":
-            history_level, history_norm, center, scale = history
+            history_level, history_norm, center, scale, drift_feature = history
             panel_samples = model.sample_batched(
                 torch.from_numpy(history_level[start:end]).to(device),
                 torch.from_numpy(history_norm[start:end]).to(device),
                 torch.from_numpy(center[start:end]).to(device),
                 torch.from_numpy(scale[start:end]).to(device),
+                drift_feature=torch.from_numpy(drift_feature[start:end]).to(device),
                 n_samples=int(samples),
                 n_steps=int(n_steps),
                 chunk_size=int(chunk_size),

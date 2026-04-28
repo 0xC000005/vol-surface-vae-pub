@@ -29,6 +29,7 @@ from experiments.backfill.block_ar.increment_coordinate_628_utils import (  # no
     reconstruct_state_from_increments,
 )
 from experiments.backfill.block_ar.normalized_innovation_662_utils import (  # noqa: E402
+    ewma_mean_center,
     normalize_increment_windows,
 )
 from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import (  # noqa: E402
@@ -51,7 +52,8 @@ def select_normalized_innovation_scope(
     scale_half_life: float | None,
     scale_floor: float,
     center_mode: str = "zero",
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any]]:
+    drift_feature_mode: str = "none",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any]]:
     if scope in {"joint38", "iv_only"}:
         history_level, history_increment, future_level, future_increment, history_raw, specs = (
             select_state_increment_scope(block, scope, iv_count)
@@ -73,6 +75,12 @@ def select_normalized_innovation_scope(
         scale_floor=float(scale_floor),
         center_mode=center_mode,
     )
+    if drift_feature_mode == "none":
+        drift_feature = np.zeros_like(center, dtype=np.float32)
+    elif drift_feature_mode == "ewma_mean":
+        drift_feature = ewma_mean_center(history_increment, half_life=scale_half_life)
+    else:
+        raise ValueError("drift_feature_mode must be 'none' or 'ewma_mean'")
     return (
         history_level.astype(np.float32),
         history_norm.astype(np.float32),
@@ -80,6 +88,7 @@ def select_normalized_innovation_scope(
         future_norm.astype(np.float32),
         center.astype(np.float32),
         scale.astype(np.float32),
+        drift_feature.astype(np.float32),
         history_raw.astype(np.float32),
         specs,
     )
@@ -97,7 +106,7 @@ def eval_loss(
     total = 0.0
     count = 0
     with torch.no_grad():
-        for history_level, history_norm, future_level, future_norm, center, scale in loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in loader:
             loss, _metrics = model.training_loss(
                 history_level.to(device),
                 history_norm.to(device),
@@ -105,6 +114,7 @@ def eval_loss(
                 future_norm.to(device),
                 center.to(device),
                 scale.to(device),
+                drift_feature=drift_feature.to(device),
                 condition_contrast_weight=float(condition_contrast_weight),
                 condition_contrast_margin=float(condition_contrast_margin),
             )
@@ -121,6 +131,7 @@ def sample_smoke(
     history_norm: np.ndarray,
     center: np.ndarray,
     scale: np.ndarray,
+    drift_feature: np.ndarray,
     history_state_raw: np.ndarray,
     specs: list[Any],
     *,
@@ -136,6 +147,7 @@ def sample_smoke(
         torch.from_numpy(history_norm[:n]).to(device),
         torch.from_numpy(center[:n]).to(device),
         torch.from_numpy(scale[:n]).to(device),
+        drift_feature=torch.from_numpy(drift_feature[:n]).to(device),
         n_samples=int(samples),
         n_steps=int(steps),
         chunk_size=int(chunk_size),
@@ -184,6 +196,7 @@ def main() -> None:
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
+    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -202,7 +215,7 @@ def main() -> None:
     parser.add_argument("--model_dropout", type=float, default=0.05)
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
-    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="scale")
+    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_drift"], default="scale")
     parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
     parser.add_argument("--sample_windows", type=int, default=64)
@@ -222,7 +235,17 @@ def main() -> None:
     scale_half_life = None if float(args.scale_half_life) <= 0.0 else float(args.scale_half_life)
 
     _columns, panel_metadata, train_block, val_block = build_blocks(args)
-    train_level, train_norm, train_future_level, train_future_norm, train_center, train_scale, _train_raw, train_specs = (
+    (
+        train_level,
+        train_norm,
+        train_future_level,
+        train_future_norm,
+        train_center,
+        train_scale,
+        train_drift,
+        _train_raw,
+        train_specs,
+    ) = (
         select_normalized_innovation_scope(
             train_block,
             args.state_scope,
@@ -230,9 +253,20 @@ def main() -> None:
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
             center_mode=args.center_mode,
+            drift_feature_mode=args.drift_feature_mode,
         )
     )
-    val_level, val_norm, val_future_level, val_future_norm, val_center, val_scale, val_raw, val_specs = (
+    (
+        val_level,
+        val_norm,
+        val_future_level,
+        val_future_norm,
+        val_center,
+        val_scale,
+        val_drift,
+        val_raw,
+        val_specs,
+    ) = (
         select_normalized_innovation_scope(
             val_block,
             args.state_scope,
@@ -240,6 +274,7 @@ def main() -> None:
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
             center_mode=args.center_mode,
+            drift_feature_mode=args.drift_feature_mode,
         )
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
@@ -285,6 +320,7 @@ def main() -> None:
             torch.from_numpy(train_future_norm),
             torch.from_numpy(train_center),
             torch.from_numpy(train_scale),
+            torch.from_numpy(train_drift),
         ),
         batch_size=int(args.batch_size),
         shuffle=True,
@@ -298,6 +334,7 @@ def main() -> None:
             torch.from_numpy(val_future_norm),
             torch.from_numpy(val_center),
             torch.from_numpy(val_scale),
+            torch.from_numpy(val_drift),
         ),
         batch_size=int(args.batch_size),
         shuffle=False,
@@ -313,6 +350,7 @@ def main() -> None:
     normalization = {
         "coordinate": "encoded_increment",
         "center_mode": args.center_mode,
+        "drift_feature_mode": args.drift_feature_mode,
         "scale_method": "ewma_rms",
         "scale_half_life": scale_half_life,
         "scale_floor": float(args.scale_floor),
@@ -342,7 +380,7 @@ def main() -> None:
         total = 0.0
         count = 0
         metric_sums: dict[str, float] = {}
-        for history_level, history_norm, future_level, future_norm, center, scale in train_loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in train_loader:
             opt.zero_grad(set_to_none=True)
             loss, metrics = model.training_loss(
                 history_level.to(device),
@@ -351,6 +389,7 @@ def main() -> None:
                 future_norm.to(device),
                 center.to(device),
                 scale.to(device),
+                drift_feature=drift_feature.to(device),
                 condition_contrast_weight=float(args.condition_contrast_weight),
                 condition_contrast_margin=float(args.condition_contrast_margin),
             )
@@ -394,6 +433,7 @@ def main() -> None:
         val_norm[: int(args.sample_windows)],
         val_center[: int(args.sample_windows)],
         val_scale[: int(args.sample_windows)],
+        val_drift[: int(args.sample_windows)],
         val_raw[: int(args.sample_windows)],
         train_specs,
         samples=int(args.sample_count),

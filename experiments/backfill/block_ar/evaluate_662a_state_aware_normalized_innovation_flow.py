@@ -125,6 +125,7 @@ def build_val_block(
         scale_half_life = None
     scale_floor = float(norm_cfg.get("scale_floor", getattr(args, "scale_floor", 1e-4)))
     center_mode = norm_cfg.get("center_mode", getattr(args, "center_mode", "zero"))
+    drift_feature_mode = norm_cfg.get("drift_feature_mode", getattr(args, "drift_feature_mode", "none"))
     (
         history_level,
         history_norm,
@@ -132,6 +133,7 @@ def build_val_block(
         _future_norm,
         center,
         scale,
+        drift_feature,
         history_raw,
         specs,
     ) = select_normalized_innovation_scope(
@@ -141,6 +143,7 @@ def build_val_block(
         scale_half_life=scale_half_life,
         scale_floor=scale_floor,
         center_mode=center_mode,
+        drift_feature_mode=drift_feature_mode,
     )
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]
@@ -151,6 +154,7 @@ def build_val_block(
         history_norm.astype(np.float32),
         center.astype(np.float32),
         scale.astype(np.float32),
+        drift_feature.astype(np.float32),
         history_raw.astype(np.float32),
         specs,
         block,
@@ -177,6 +181,7 @@ def generate_iv_samples(
     history_norm: np.ndarray,
     center: np.ndarray,
     scale: np.ndarray,
+    drift_feature: np.ndarray,
     history_raw: np.ndarray,
     specs: list[Any],
     *,
@@ -196,6 +201,7 @@ def generate_iv_samples(
             torch.from_numpy(history_norm[start:end]).to(device),
             torch.from_numpy(center[start:end]).to(device),
             torch.from_numpy(scale[start:end]).to(device),
+            drift_feature=torch.from_numpy(drift_feature[start:end]).to(device),
             n_samples=int(samples),
             n_steps=int(n_steps),
             chunk_size=int(chunk_size),
@@ -251,6 +257,7 @@ def main() -> None:
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
+    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=48)
     parser.add_argument("--n_steps", type=int, default=30)
@@ -268,13 +275,14 @@ def main() -> None:
     set_seed(int(args.seed))
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     model, payload = load_model(args.checkpoint, device)
-    history_level, history_norm, center, scale, history_raw, specs, block = build_val_block(args, payload)
+    history_level, history_norm, center, scale, drift_feature, history_raw, specs, block = build_val_block(args, payload)
     cfg = payload["config"]
     n_windows = min(int(args.max_windows), int(history_level.shape[0]))
     history_level = history_level[:n_windows]
     history_norm = history_norm[:n_windows]
     center = center[:n_windows]
     scale = scale[:n_windows]
+    drift_feature = drift_feature[:n_windows]
     history_raw = history_raw[:n_windows]
     batch = build_rollout_windows(
         data_path=args.data_path,
@@ -298,6 +306,7 @@ def main() -> None:
         history_norm,
         center,
         scale,
+        drift_feature,
         history_raw,
         specs,
         samples=int(args.samples),
