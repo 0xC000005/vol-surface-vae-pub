@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 715,
-  "last_iteration_type": "experiment",
+  "iteration": 716,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "714a tested a frozen tri-scope zero-center normalized-innovation AR flow repair with the same marginal CRPS objective across iv_only, anchor_only, and joint38. Framework consistency still passes, but IV, anchor, and joint gates fail. Anchor/joint conditional-panel checks now pass under the fixed audit, but factor_delta_ks still fails for 2/13 factors and IV coverage/regime/distributional fidelity remain failed.",
+  "current_framework_status": "715a attributed the 714a frozen-framework failures: framework consistency and joint co-movement are not the blockers. Anchor and joint fail on the same two spread-like factors (AAA/BBB OAS), while IV fails on turbulent long-horizon coverage and level fidelity. The next repair should target coordinate/support handling inside the same normalized-innovation AR flow framework rather than adding a new global loss or switching backend.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The frozen normalized-innovation family is not blocked by framework consistency; it is blocked by two performance failures: IV lower-tail/regime under-inclusion with poor level fidelity, and per-factor marginal mismatch concentrated in two anchor credit-spread factors under both anchor-only and joint38.",
-  "last_result_summary": "714a trained a same-recipe marginal-CRPS frozen repair on IV, anchor-only, and joint38. Scorecard: overall_pass=false; IV=false; anchor=false; joint=false; framework=true. IV stayed 7/11 but cov90 regressed to 0.800 and level-KS pass cells fell to 12/25. Anchor and joint now pass conditional-panel checks after the audit subset fix, and joint IV-factor matrix correlation is 0.909, but both still fail factor_delta_ks with 11/13 factors passing.",
-  "next_step_recommendation": "Run post-experiment trade-off attribution before any new architecture/loss change. Determine whether the remaining factor_delta_ks failures are localized support/scale errors in AAA/BBB OAS, whether IV lower-tail/regime under-inclusion shares the same cause, and whether the fix should be data-coordinate/support handling rather than another global dispersion loss.",
+  "current_bottleneck": "Two localized failures remain under the frozen normalized-innovation framework: IV turbulent long-horizon support is too narrow in specific cells, and positive spread-like anchor factors (AAA/BBB OAS) have central delta/level support mismatch in both anchor-only and joint38.",
+  "last_result_summary": "715a ran reproducible failure attribution on 714a artifacts. IV: cov90=0.800, h30 worst-cell=0.490, level-KS 12/25, regime layer2 2/8, layer3 catastrophic rate 0.059, but risk-state allocation passes. Anchor/joint: both fail only factor_delta_ks with the same failed factors, AAA/BBB OAS. Joint IV-factor matrix correlation remains strong at 0.909.",
+  "next_step_recommendation": "Run a same-framework coordinate/support repair experiment. Keep AR flow, normalized innovations, sampler, and tri-scope frozen recipe discipline, but test a generic support-aware positive-factor coordinate or state-dependent support scale that addresses spread-like factor overshoot and IV turbulent long-horizon undercoverage without task-specific losses.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. The clean frozen normalized-innovation baseline now has a precise 712a scorecard reading: framework=true but IV/anchor/joint=false. It is scientifically the right baseline for generality, but not deployable.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending-714a",
+  "last_commit": "pending-715a",
   "resume_command_hint": "continue autoresearch"
 }
