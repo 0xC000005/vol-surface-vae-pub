@@ -105345,3 +105345,37 @@ EWMA drift as a feature is still too strong a shortcut. Even when it is not adde
 Close the EWMA drift normalization branch. Return to the zero-center incumbent and target the real bottleneck directly: conditional allocation under generated paths. The next principled direction is a rollout-level conditional contrast/proper-score objective, where the correct history must score better than shuffled histories in sampled path space, rather than adding more level/drift preprocessing.
 
 ---
+## 2026-04-28: 682a rollout conditional contrast improves native joint38
+
+### Context
+681a closed the EWMA drift branch: adding history drift as either a reconstruction center or conditioning feature was too strong a shortcut and degraded level/path allocation. The next clean bottleneck was conditional allocation under generated paths, not another preprocessing knob.
+
+### Hypothesis
+A rollout-level conditional contrast objective should make the generated law use the correct history more strongly. The controlled test keeps the zero-center normalized-innovation AR flow, the all-window channel-balanced rollout objective, and the same stochastic core, but adds a small proper-score contrast: paths sampled from the correct history should have lower energy against the realized future than paths sampled from shuffled histories.
+
+### Execute
+Implemented `condition_rollout_contrast_weight` in `train_666a_normalized_innovation_rollout_energy_finetune.py`. The negative condition is a rolled batch history; the penalty is `softplus(pos_energy - neg_energy + margin)`, using normalized free-running path energy against the same realized future. Added a regression test proving the loss exposes a finite positive contrast term only when enabled.
+
+Fine-tuned both incumbent zero-center checkpoints for two epochs with `condition_rollout_contrast_weight=0.05`, keeping `energy_weight=0.2`, `channel_level_energy_weight=0.05`, `train_sample_count=2`, `rollout_flow_steps=4`, and all train windows.
+
+Artifacts:
+- IV-only model: `models/backfill/682a_iv_rollout_condition_contrast_w005_e2_s6821/best_model.pt`
+- Joint38 model: `models/backfill/682a_joint38_rollout_condition_contrast_w005_e2_s6823/best_model.pt`
+- IV-only high-sample suite: `results/validations/2026-04-28/682a_rollout_condition_contrast/iv_val_full11_s96.json`
+- Joint38 high-sample IV-facing suite: `results/validations/2026-04-28/682a_rollout_condition_contrast/joint_val_iv_full11_s96.json`
+- Joint38 panel audit: `results/validations/2026-04-28/682a_rollout_condition_contrast/joint_val_panel.json`
+
+### Result
+IV-only stayed at `7/11`, matching 675a but not improving the headline. Coverage90 fell from 0.845 to 0.815, calibration error worsened from 0.041 to 0.069, worst conditional width improved slightly from 1.539 to 1.510, level KS remained 15/25, median-bias remained 16/25 fraction and 22/25 magnitude, mean reversion passed, and pathwise KS improved to 0.368.
+
+Joint38 improved from the 677a high-sample `5/11` to `6/11`. Coverage90 stayed 0.814, conditional MAE reduction improved to 11.2%, worst conditional width improved to 1.504, level KS improved to 15/25, median-bias gates improved to 22/25 and 22/25, distributional fidelity passed, and pathwise KS stayed passing at 0.392. Remaining failed suites were coverage, conditionality, time_series, regime_coverage, and mean_reversion.
+
+The joint panel audit survived: factor delta KS mean 0.100, 11/13 factor KS pass, all 13 factor q99 tails pass, factor-factor correlation 0.793, and IV-factor correlation 0.897, essentially unchanged from 676a.
+
+### Mechanism Read
+The contrast objective is not enough to break the IV-only 7/11 ceiling, but it is a real joint-model improvement: it repairs native joint38 IV distributional fidelity without degrading anchor marginals or cross-factor dependency. The remaining joint failures are now narrower and more interpretable: conditional-width outlier, per-regime per-cell coverage, excess kurtosis, and h7 mean-reversion overshoot. This supports continuing the conditional-proper-score direction rather than switching paradigm, but the next step should diagnose why the contrast improves median/level allocation while overshooting tails and h7 mean reversion.
+
+### Decision
+Keep the zero-center normalized-innovation AR flow as the active clean family. Promote 682a as the best native joint38 checkpoint so far within the clean general framework, but not a replacement for the historical 8/11 IV-only frontier. Next HEAD cycle should be post-experiment analysis or a focused experiment on the 682a failure mechanism before adding another loss knob: compare train/validation generated-path energy and shuffled-history contrast margins by horizon/regime/cell to determine whether the residual failures come from contrast undertraining, tail over-dispersion, or a horizon-specific mean-reversion bias.
+
+---

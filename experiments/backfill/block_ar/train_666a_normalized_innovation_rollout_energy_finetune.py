@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.insert(0, ".")
@@ -196,6 +197,8 @@ def normalized_rollout_energy_loss(
     temperature: float,
     level_energy_weight: float = 0.0,
     channel_level_energy_weight: float = 0.0,
+    condition_rollout_contrast_weight: float = 0.0,
+    condition_rollout_contrast_margin: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -252,11 +255,40 @@ def normalized_rollout_energy_loss(
         channel_level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         channel_level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         channel_level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+    if float(condition_rollout_contrast_weight) > 0.0 and int(history_level_values.shape[0]) > 1:
+        perm = torch.roll(torch.arange(history_level_values.shape[0], device=history_level_values.device), shifts=1)
+        neg_drift = None if drift_feature is None else drift_feature[perm]
+        neg_sampled_norm, _neg_sampled_level = differentiable_rollout_paths(
+            model,
+            history_level_values[perm],
+            history_normalized_innovation[perm],
+            center[perm],
+            scale[perm],
+            neg_drift,
+            n_samples=int(train_sample_count),
+            n_steps=int(future_normalized_innovation.shape[1]),
+            flow_steps=int(rollout_flow_steps),
+            temperature=float(temperature),
+        )
+        neg_energy, _neg_target_dist, _neg_pair_dist = full_path_energy_score(
+            neg_sampled_norm,
+            future_normalized_innovation,
+            eps=float(energy_eps),
+            horizon_weights=weights,
+        )
+        condition_rollout_contrast = F.softplus(
+            energy - neg_energy + float(condition_rollout_contrast_margin)
+        )
+        condition_rollout_neg_energy = neg_energy
+    else:
+        condition_rollout_contrast = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        condition_rollout_neg_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     total = (
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
+        + float(condition_rollout_contrast_weight) * condition_rollout_contrast
     )
     metrics = {
         "total": total.detach(),
@@ -270,6 +302,9 @@ def normalized_rollout_energy_loss(
         "channel_level_energy": channel_level_energy.detach(),
         "channel_level_energy_target_dist": channel_level_target_dist.detach(),
         "channel_level_energy_pair_dist": channel_level_pair_dist.detach(),
+        "condition_rollout_contrast": condition_rollout_contrast.detach(),
+        "condition_rollout_pos_energy": energy.detach(),
+        "condition_rollout_neg_energy": condition_rollout_neg_energy.detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
         "target_level_std": future_level_values.std(unbiased=False).detach(),
@@ -292,6 +327,8 @@ def run_epoch(
     energy_weight: float,
     level_energy_weight: float,
     channel_level_energy_weight: float,
+    condition_rollout_contrast_weight: float,
+    condition_rollout_contrast_margin: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -321,6 +358,8 @@ def run_epoch(
                 energy_weight=float(energy_weight),
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
+                condition_rollout_contrast_weight=float(condition_rollout_contrast_weight),
+                condition_rollout_contrast_margin=float(condition_rollout_contrast_margin),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -367,6 +406,8 @@ def main() -> None:
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
+    parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
+    parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
@@ -494,6 +535,8 @@ def main() -> None:
         "energy_weight": float(args.energy_weight),
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
+        "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
+        "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
         "velocity_readout_mode": args.velocity_readout_mode,
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
@@ -523,6 +566,8 @@ def main() -> None:
             energy_weight=float(args.energy_weight),
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
+            condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
+            condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -541,6 +586,8 @@ def main() -> None:
                 energy_weight=float(args.energy_weight),
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
+                condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
+                condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),
