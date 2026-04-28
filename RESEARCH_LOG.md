@@ -104847,3 +104847,38 @@ Do not switch AR/flow/Transformer. The next minimal fix is a data-object change:
 - `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_val_normdiag.json`
 
 ---
+## 2026-04-28: 663a bounded IV coordinate repaired data-object failure
+
+### Context
+663a tested the smallest data-object repair after 662a: keep the state-aware normalized-innovation AR flow-matching backend fixed, but replace the IV log-level coordinate with an opt-in support-aware bounded-logit coordinate. The goal was to test whether the catastrophic 662a IV explosions were a coordinate/support failure rather than a backend failure.
+
+### Result
+- IV-only bounded coordinate: validation `3/11`, train-tail `3/11`.
+- Joint38 bounded coordinate: validation `5/11`, train-tail `5/11`.
+- Raw IV support pathology was repaired: generated raw paths were finite, IV nonpositive rate was `0.0`, and generated IV max was capped at `1.0` in both IV-only and joint diagnostics.
+- Joint38 validation panel remained broadly coherent for non-IV factors: factor KS mean `0.135`, factor tail q99 median ratio `1.155`, factor-factor corr shape `0.801`, IV-factor corr shape `0.893`.
+- Joint38 train-tail panel was stronger: factor KS mean `0.104`, `12/13` factor KS pass, all factor q99 tails pass, factor-factor corr shape `0.881`, IV-factor corr shape `0.931`.
+- Anchor-only remained mostly healthy but credit spreads are the persistent weak factor: validation factor KS mean `0.134`, `10/13` factor KS pass, all factor q99 tails pass, factor-factor corr shape `0.879`; AAA/BBB OAS had the worst KS.
+
+### Mechanism Read
+The 662a failure class is no longer primarily `data_object`: bounded-logit state coordinates fixed impossible IV-level compounding without changing the stochastic backend. The remaining failures are now `conditionality` / `calibration` / `pathwise_shape`: coverage is under-calibrated at longer horizons or weak cells, per-cell conditionality remains uneven, level-law/median-bias validation matching is weak, and pathwise max-jump KS remains just above the relaxed gate even when q90/q99 jump scales pass. The bounded coordinate also reveals ceiling saturation in a few extreme IV cells, so the next issue is tail-shape allocation inside a valid support, not raw numerical explosion.
+
+### Decision
+Do not switch AR/one-shot, flow/diffusion/copula, or Transformer backbone based on 663a. The clean next step is diagnostic: quantify whether remaining failures come from weak condition use, insufficient same-history diversity, or rollout calibration in the bounded coordinate. Only after that should we change the objective or calibration mechanism.
+
+### Artifacts
+- `models/backfill/663a_iv_stateaware_norminnov_boundediv_e8_w2048_s6631/best_model.pt`
+- `models/backfill/663a_anchor_stateaware_norminnov_boundediv_e8_w2048_s6632/best_model.pt`
+- `models/backfill/663a_joint38_stateaware_norminnov_boundediv_e8_w2048_s6633/best_model.pt`
+- `results/validations/2026-04-27/663a_iv_stateaware_norminnov_boundediv/iv_val_full11.json`
+- `results/validations/2026-04-27/663a_iv_stateaware_norminnov_boundediv/iv_train_tail_full11.json`
+- `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_val_iv_full11.json`
+- `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_train_tail_iv_full11.json`
+- `results/validations/2026-04-27/663a_anchor_stateaware_norminnov_boundediv/anchor_val_panel.json`
+- `results/validations/2026-04-27/663a_anchor_stateaware_norminnov_boundediv/anchor_train_tail_panel.json`
+- `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_val_panel.json`
+- `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_train_tail_panel.json`
+- `results/validations/2026-04-27/663a_iv_stateaware_norminnov_boundediv/iv_val_normdiag.json`
+- `results/validations/2026-04-27/663a_joint38_stateaware_norminnov_boundediv/joint_val_normdiag.json`
+
+---

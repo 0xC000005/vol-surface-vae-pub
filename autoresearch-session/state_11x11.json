@@ -4,9 +4,9 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 662,
+  "iteration": 663,
   "last_iteration_type": "experiment",
-  "active_family": "662a state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
+  "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; no strong rolling mean subtraction in first implementation",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "662a showed that state-aware normalized innovations are learnable for anchor factors and preserve joint co-movement, but the IV log-level data object is not support-respecting. Rare generated positive log-increment paths compound over 30 days and exponentiate into impossible IV levels even on train-tail.",
-  "last_result_summary": "662a trained three scopes with one fixed backend/object: IV-only, anchor-only, and joint38. IV-only scored 2/11 on validation and 2/11 on train-tail with explosion rates 85.0% and 84.3%. Joint38 scored 3/11 validation and 2/11 train-tail with explosion rates 95.4% and 94.1%. Anchor-only panel diagnostics were healthy: train-tail factor KS mean 0.088 with 12/13 KS pass, 13/13 q99-tail pass, and factor-factor corr shape 0.951; validation KS mean 0.158 with 9/13 KS pass, 13/13 q99-tail pass, and factor-factor corr shape 0.903. Joint co-movement was also learned: validation factor-factor corr shape 0.849 and IV-factor corr shape 0.883; train-tail 0.937 and 0.882. Generated-coordinate diagnostics showed IV normalized q99 mostly plausible (IV-only 23/25 pass, joint38 35/38 pass) and exact oracle reconstruction, but generated raw IV max reached 4.8e24 and 3.35e31.",
-  "next_step_recommendation": "Continue current methodology with the smallest data-object fix: keep AR flow matching, Transformer conditioning, and normalized innovations fixed, but replace the IV/surface log-level coordinate with a support-aware bounded coordinate so reconstructed IV paths cannot exponentiate to impossible levels. Rerun IV-only, anchor-only, and joint38 audits before considering any backend switch.",
+  "current_bottleneck": "663a fixed the 662a data-object failure by using a support-aware bounded-logit IV coordinate while keeping the AR flow-matching Transformer backend fixed. The remaining bottleneck is not invalid raw IV generation; it is conditionality/calibration/pathwise-shape inside valid support: long-horizon and weak-cell coverage under-calibrate, per-cell condition use is uneven, validation level-law/median-bias remains weak, and pathwise max-jump KS remains above gate despite q90/q99 jump scales passing.",
+  "last_result_summary": "663a trained IV-only, anchor-only, and joint38 with bounded-logit IV coordinates. IV-only scored 3/11 on validation and 3/11 on train-tail. Joint38 scored 5/11 on validation and 5/11 on train-tail. Raw IV support was repaired: generated paths were finite, IV nonpositive rate was 0.0, and IV max was capped at 1.0 in diagnostics. Joint38 validation panel: factor KS mean 0.135, factor q99 median ratio 1.155, factor-factor corr shape 0.801, IV-factor corr shape 0.893. Joint38 train-tail panel: factor KS mean 0.104, 12/13 factor KS pass, all factor q99 tails pass, factor-factor corr shape 0.881, IV-factor corr shape 0.931. Anchor-only remains mostly healthy but credit spreads remain the hardest factor, especially AAA/BBB OAS KS.",
+  "next_step_recommendation": "Do not switch backend or temporal factorization yet. Run targeted condition-use and same-history diversity diagnostics on the bounded-coordinate models to classify whether the remaining failures are weak conditioning, insufficient stochastic diversity, rollout calibration, or validation split shift. Only then change the objective/calibration mechanism, and change one axis at a time.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. For native IV+anchor joint generation, 641a/647a remain more defensible than 661a because they preserve one shared stochastic model while using mixed generated coordinates; 661a is a negative falsifier for absolute-level empirical-score lifting. 656a remains only a diagnostic stress-deck overlay because it is composed post hoc rather than generated by one mechanism.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending: 662a normalized-innovation three-scope falsifier",
+  "last_commit": "182fd73 feat: autoresearch 662a normalized innovation falsifier",
   "resume_command_hint": "continue autoresearch"
 }

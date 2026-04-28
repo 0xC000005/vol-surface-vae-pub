@@ -77,6 +77,9 @@ def build_blocks(
 ]:
     panel, columns, dates = load_aligned_iv_factor_panel()
     positive_level_policy = getattr(args, "positive_level_policy", "reference_based")
+    iv_transform = getattr(args, "iv_transform", "log_level")
+    iv_lower_bound = float(getattr(args, "iv_lower_bound", 1e-4))
+    iv_upper_bound = float(getattr(args, "iv_upper_bound", 1.0))
     cleaning_report: dict[str, Any] = {"enabled": False}
     if args.clean_nonpositive_log_levels:
         panel, cleaning_report = clean_nonpositive_log_level_factors(
@@ -101,6 +104,9 @@ def build_blocks(
         future_len=int(args.future_len),
         iv_count=int(args.iv_count),
         positive_level_policy=positive_level_policy,
+        iv_transform=iv_transform,
+        iv_lower_bound=iv_lower_bound,
+        iv_upper_bound=iv_upper_bound,
     )
     val_block = build_increment_coordinate_block(
         panel,
@@ -110,12 +116,18 @@ def build_blocks(
         future_len=int(args.future_len),
         iv_count=int(args.iv_count),
         positive_level_policy=positive_level_policy,
+        iv_transform=iv_transform,
+        iv_lower_bound=iv_lower_bound,
+        iv_upper_bound=iv_upper_bound,
     )
     metadata = {
         "dates_start": str(dates[0]) if len(dates) else None,
         "dates_end": str(dates[-1]) if len(dates) else None,
         "source_columns": columns,
         "positive_level_policy": positive_level_policy,
+        "iv_transform": iv_transform,
+        "iv_lower_bound": iv_lower_bound,
+        "iv_upper_bound": iv_upper_bound,
         "cleaning_report": cleaning_report,
         "train_indices_start": int(train_indices[0]) if len(train_indices) else None,
         "train_indices_end": int(train_indices[-1]) if len(train_indices) else None,

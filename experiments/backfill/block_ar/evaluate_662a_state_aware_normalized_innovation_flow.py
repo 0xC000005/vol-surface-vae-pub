@@ -65,6 +65,40 @@ def build_val_block(
             iv_count=int(args.iv_count),
             positive_level_policy=positive_level_policy,
         )
+    iv_transform = payload.get(
+        "iv_transform",
+        payload.get("normalization", {}).get(
+            "iv_transform",
+            payload.get("panel_metadata", {}).get(
+                "iv_transform",
+                getattr(args, "iv_transform", "log_level"),
+            ),
+        ),
+    )
+    iv_lower_bound = float(
+        payload.get(
+            "iv_lower_bound",
+            payload.get("normalization", {}).get(
+                "iv_lower_bound",
+                payload.get("panel_metadata", {}).get(
+                    "iv_lower_bound",
+                    getattr(args, "iv_lower_bound", 1e-4),
+                ),
+            ),
+        )
+    )
+    iv_upper_bound = float(
+        payload.get(
+            "iv_upper_bound",
+            payload.get("normalization", {}).get(
+                "iv_upper_bound",
+                payload.get("panel_metadata", {}).get(
+                    "iv_upper_bound",
+                    getattr(args, "iv_upper_bound", 1.0),
+                ),
+            ),
+        )
+    )
     _train_indices, val_indices = official_train_val_indices(
         test_start=int(args.test_start),
         val_size=int(args.val_size),
@@ -81,6 +115,9 @@ def build_val_block(
         future_len=int(payload["config"]["future_len"]),
         iv_count=int(args.iv_count),
         positive_level_policy=positive_level_policy,
+        iv_transform=iv_transform,
+        iv_lower_bound=iv_lower_bound,
+        iv_upper_bound=iv_upper_bound,
     )
     norm_cfg = payload.get("normalization", {})
     scale_half_life = norm_cfg.get("scale_half_life", getattr(args, "scale_half_life", 0.0))
@@ -206,6 +243,9 @@ def main() -> None:
     parser.add_argument("--iv_count", type=int, default=25)
     parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
     parser.add_argument("--positive_level_policy", choices=["reference_based", "observed_positive"], default="reference_based")
+    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
+    parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--max_windows", type=int, default=441)

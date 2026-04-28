@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
     UnifiedIncrementBlock,
     UnifiedVariableSpec,
+    encode_state,
     decode_state,
 )
 from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import select_scope  # noqa: E402
@@ -70,3 +71,24 @@ def test_select_scope_rejects_unknown_value_coordinate() -> None:
     with pytest.raises(ValueError, match="value_coordinate"):
         select_scope(_toy_block(), "joint38", iv_count=1, value_coordinate="bad")
 
+
+def test_bounded_logit_coordinate_roundtrips_and_respects_bounds() -> None:
+    specs = [
+        UnifiedVariableSpec(
+            name="iv:00",
+            source_column="iv:00",
+            source_index=0,
+            transform="bounded_logit",
+            lower_bound=1e-4,
+            upper_bound=1.0,
+        )
+    ]
+    state = np.array([[[0.02], [0.25], [0.995]]], dtype=np.float32)
+
+    encoded = encode_state(state, specs)
+    decoded = decode_state(encoded, specs)
+    extreme = decode_state(np.array([[[-1e6], [1e6]]], dtype=np.float32), specs)
+
+    assert np.allclose(decoded, state, atol=1e-6)
+    assert np.all(extreme >= 1e-4)
+    assert np.all(extreme <= 1.0)

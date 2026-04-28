@@ -172,6 +172,9 @@ def main() -> None:
     parser.add_argument("--max_train_windows", type=int, default=2048)
     parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
     parser.add_argument("--positive_level_policy", choices=["reference_based", "observed_positive"], default="reference_based")
+    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
+    parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--n_quantiles", type=int, default=401)
@@ -302,11 +305,17 @@ def main() -> None:
         "scale_method": "ewma_rms",
         "scale_half_life": scale_half_life,
         "scale_floor": float(args.scale_floor),
+        "iv_transform": args.iv_transform,
+        "iv_lower_bound": float(args.iv_lower_bound),
+        "iv_upper_bound": float(args.iv_upper_bound),
     }
     extra = {
         "state_scope": args.state_scope,
         "model_coordinate": "state_aware_normalized_innovation",
         "normalization": normalization,
+        "iv_transform": args.iv_transform,
+        "iv_lower_bound": float(args.iv_lower_bound),
+        "iv_upper_bound": float(args.iv_upper_bound),
         "iv_count": int(args.iv_count),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "panel_metadata": panel_metadata,

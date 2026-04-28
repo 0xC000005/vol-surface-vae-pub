@@ -37,6 +37,8 @@ class UnifiedVariableSpec:
     transform: str
     reference_increment_column: str | None = None
     reference_increment_index: int | None = None
+    lower_bound: float | None = None
+    upper_bound: float | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,9 @@ def build_unified_variable_specs(
     iv_count: int = 25,
     eps: float = 1e-8,
     positive_level_policy: str = "reference_based",
+    iv_transform: str = "log_level",
+    iv_lower_bound: float = 1e-4,
+    iv_upper_bound: float = 1.0,
 ) -> list[UnifiedVariableSpec]:
     """Build one state-variable list without duplicated level/return targets."""
     if len(columns) < iv_count:
@@ -72,6 +77,10 @@ def build_unified_variable_specs(
         raise ValueError(
             "positive_level_policy must be 'reference_based' or 'observed_positive'"
         )
+    if iv_transform not in {"log_level", "bounded_logit"}:
+        raise ValueError("iv_transform must be 'log_level' or 'bounded_logit'")
+    if iv_transform == "bounded_logit" and not iv_lower_bound < iv_upper_bound:
+        raise ValueError("iv_lower_bound must be less than iv_upper_bound")
     name_to_idx = {name: idx for idx, name in enumerate(columns)}
     specs: list[UnifiedVariableSpec] = []
 
@@ -84,7 +93,9 @@ def build_unified_variable_specs(
                 name=column,
                 source_column=column,
                 source_index=idx,
-                transform="log_level",
+                transform=iv_transform,
+                lower_bound=float(iv_lower_bound) if iv_transform == "bounded_logit" else None,
+                upper_bound=float(iv_upper_bound) if iv_transform == "bounded_logit" else None,
             )
         )
 
@@ -215,6 +226,15 @@ def encode_state(
         values = state[..., idx]
         if spec.transform == "log_level":
             encoded[..., idx] = np.log(np.maximum(values, eps))
+        elif spec.transform == "bounded_logit":
+            if spec.lower_bound is None or spec.upper_bound is None:
+                raise ValueError(f"bounded_logit spec {spec.name} requires bounds")
+            lower = float(spec.lower_bound)
+            upper = float(spec.upper_bound)
+            width = upper - lower
+            unit = (values - lower) / max(width, eps)
+            unit = np.clip(unit, eps, 1.0 - eps)
+            encoded[..., idx] = np.log(unit) - np.log1p(-unit)
         elif spec.transform == "diff_level":
             encoded[..., idx] = values
         else:
@@ -231,6 +251,14 @@ def decode_state(encoded: np.ndarray, specs: list[UnifiedVariableSpec]) -> np.nd
         values = encoded[..., idx]
         if spec.transform == "log_level":
             state[..., idx] = np.exp(values)
+        elif spec.transform == "bounded_logit":
+            if spec.lower_bound is None or spec.upper_bound is None:
+                raise ValueError(f"bounded_logit spec {spec.name} requires bounds")
+            lower = float(spec.lower_bound)
+            upper = float(spec.upper_bound)
+            clipped = np.clip(values, -60.0, 60.0)
+            unit = 1.0 / (1.0 + np.exp(-clipped))
+            state[..., idx] = lower + (upper - lower) * unit
         elif spec.transform == "diff_level":
             state[..., idx] = values
         else:
@@ -247,6 +275,9 @@ def build_unified_increment_block(
     future_len: int,
     iv_count: int = 25,
     positive_level_policy: str = "reference_based",
+    iv_transform: str = "log_level",
+    iv_lower_bound: float = 1e-4,
+    iv_upper_bound: float = 1.0,
 ) -> UnifiedIncrementBlock:
     panel = np.asarray(panel, dtype=np.float64)
     specs = build_unified_variable_specs(
@@ -254,6 +285,9 @@ def build_unified_increment_block(
         panel=panel,
         iv_count=iv_count,
         positive_level_policy=positive_level_policy,
+        iv_transform=iv_transform,
+        iv_lower_bound=iv_lower_bound,
+        iv_upper_bound=iv_upper_bound,
     )
     state_panel = _state_from_panel(panel, specs)
     encoded_panel = encode_state(state_panel, specs)

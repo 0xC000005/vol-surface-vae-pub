@@ -48,6 +48,8 @@ def _spec_to_dict(spec: Any) -> dict[str, Any]:
         "reference_increment_index": (
             None if spec.reference_increment_index is None else int(spec.reference_increment_index)
         ),
+        "lower_bound": getattr(spec, "lower_bound", None),
+        "upper_bound": getattr(spec, "upper_bound", None),
     }
 
 

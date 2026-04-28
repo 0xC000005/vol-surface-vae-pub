@@ -43,6 +43,9 @@ def build_increment_coordinate_block(
     future_len: int,
     iv_count: int = 25,
     positive_level_policy: str = "reference_based",
+    iv_transform: str = "log_level",
+    iv_lower_bound: float = 1e-4,
+    iv_upper_bound: float = 1.0,
 ) -> IncrementCoordinateBlock:
     """Build windows whose model coordinate is encoded daily changes.
 
@@ -56,6 +59,9 @@ def build_increment_coordinate_block(
         panel=panel,
         iv_count=iv_count,
         positive_level_policy=positive_level_policy,
+        iv_transform=iv_transform,
+        iv_lower_bound=iv_lower_bound,
+        iv_upper_bound=iv_upper_bound,
     )
     state_panel = state_panel_from_specs(panel, specs)
     encoded_panel = encode_state(state_panel, specs)
