@@ -106225,3 +106225,25 @@ This asks whether the conditional scenario distribution allocates more uncertain
 Added focused regression tests for the diagnostic: a synthetic panel whose generated width tracks population activity passes, while a state-insensitive flat-width panel fails. The diagnostic is reported in JSON/markdown outputs but remains informational until we decide whether and how to promote it into the official suite.
 
 ---
+## 2026-04-28: 706 risk-state allocation frontier audit
+
+### Context
+After adding the population-level `risk_state_allocation` diagnostic, I reran the two historical IV frontier checkpoints under the same 192-window / 48-sample validation setup: 510a (`509a_recent_patch_energy`) and 392a (`392a_recent_rollout_energy`).
+
+### Results
+- 706a 510a audit: score `7/11` in this stochastic rerun; failed coverage, conditionality, regime coverage, and distributional fidelity. Risk-state allocation failed. History/future activity Spearman was `-0.076`; generated width vs history activity Spearman was `0.259`; generated width vs realized future activity Spearman was `0.050`; history low/high width ratio was `1.079`.
+- 706b 392a audit: score `6/11` in this stochastic rerun; failed coverage, conditionality, cointegration, regime coverage, and distributional fidelity. Risk-state allocation failed. History/future activity Spearman was `-0.076`; generated width vs history activity Spearman was `0.297`; generated width vs realized future activity Spearman was `-0.010`; history low/high width ratio was `1.073`.
+
+### Mechanism Read
+The key finding is not that both models ignore the condition. Both widen with observable/history activity. The failure is that this validation split does not support a positive realized future-activity allocation target under the current aggregate activity metric: history/future activity Spearman is weakly negative. Therefore a hard validation gate requiring generated width to rank realized future activity would partly test future unpredictability or split noise, not only conditional learning.
+
+### Decision
+Keep the diagnostic informational for now. The cleaner risk-manager criterion is observable risk-state response: does the deck widen for higher-risk histories, with bucket monotonicity and low/high width ratio? The realized-future alignment metric should remain an oracle-style diagnostic and should only become a gate if the split itself has positive history/future risk-state signal under the selected activity definition.
+
+### Artifacts
+- `results/block_ar/706a_510a_risk_state_allocation_audit/full11.json`
+- `results/block_ar/706a_510a_risk_state_allocation_audit/full11.md`
+- `results/block_ar/706b_392a_risk_state_allocation_audit/full11.json`
+- `results/block_ar/706b_392a_risk_state_allocation_audit/full11.md`
+
+---
