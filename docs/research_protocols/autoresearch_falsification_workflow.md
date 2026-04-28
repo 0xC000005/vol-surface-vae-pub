@@ -202,6 +202,25 @@ The next iteration must then be a framework-lock experiment or a
 post-experiment analysis explaining why one frozen recipe trades off across
 scopes.
 
+## General Acceptance Scorecard
+
+For general conditional scenario-generator claims, the IV `11/11` suite is
+necessary but not sufficient. Every deployable/general framework claim must run
+the 712a acceptance scorecard:
+
+- IV gate: existing IV full 11-suite, with the old conditionality failure
+  replaceable by the population risk-state allocation diagnostic when that
+  diagnostic passes;
+- anchor gate: generic `anchor_only` panel realism, tail scale, dependence, and
+  population conditional response;
+- joint gate: native `joint` panel quality plus IV-factor co-movement;
+- framework gate: one frozen core recipe across `iv_only`, `anchor_only`, and
+  `joint`, with only allowed data-interface differences.
+
+The scorecard output is the source of truth for statements like "general
+deployable conditional law." IV-only stress prototypes must be labeled as such
+when they do not pass the scorecard.
+
 ## Trade-Off Attribution Gate
 
 Before adding a new knob after a tri-scope mismatch, the loop must explain why

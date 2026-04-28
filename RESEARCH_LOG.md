@@ -106384,3 +106384,52 @@ Stay on the normalized-innovation framework. The next experiment should be a fro
 - `results/block_ar/711a_norminnov_active_family_audit/analysis.json`
 
 ---
+## 2026-04-28: 712a general acceptance scorecard
+
+### Context
+
+The previous audit showed that the old IV conditionality gate was partly a data-framing issue and that IV `11/11` alone is not enough for the long-term objective. This iteration codified the acceptance target before continuing model research.
+
+### Result
+
+- Added `experiments/backfill/block_ar/acceptance_scorecard_712a.py`.
+- Added `docs/research_protocols/712a_general_acceptance_scorecard.md`.
+- Updated `docs/research_protocols/autoresearch_falsification_workflow.md` so future general/deployable claims must run the 712a scorecard.
+- Updated `autoresearch-session/goal_11x11.json` to clarify that IV `11/11` is necessary but not sufficient for general multivariate deployability.
+- Added tests in `test_code/test_712a_general_acceptance_scorecard.py`.
+
+### Scorecard Definition
+
+The scorecard has four gates:
+
+- IV gate: existing IV full 11-suite, with old `conditionality` replaceable by population risk-state allocation when risk-state allocation passes.
+- Anchor gate: anchor-only panel realism, tail scale, factor-factor dependence, and population conditional response.
+- Joint gate: native joint panel quality plus IV-factor co-movement.
+- Framework gate: one frozen core recipe across `iv_only`, `anchor_only`, and `joint`; only adapters/heads/support transforms may differ.
+
+### Current Frontier Read
+
+Running the scorecard on the current task-specialized frontier (`674a` IV, `688a` anchor, `698b` joint) gives `overall_pass=false`. All four gates fail:
+
+- IV fails effective suites: `coverage`, `regime_coverage`, `distributional_fidelity`.
+- Anchor fails: `factor_delta_ks`, `conditional_panel`.
+- Joint fails: `factor_delta_ks`, `conditional_panel`.
+- Framework fails because generated coordinate, loss weights, scalar loss terms, and training protocol differ across the mixed artifacts.
+
+### Decision
+
+Continue normalized-innovation research, but future progress must be reported against the 712a scorecard. The next model step should use one frozen framework recipe and target IV lower-tail/regime under-inclusion first, while not losing anchor/joint panel quality or framework consistency.
+
+### Verification
+
+- `pytest test_code/test_712a_general_acceptance_scorecard.py test_code/test_627a_joint_panel_audit.py test_code/test_552a_risk_readiness_audit.py test_code/test_risk_state_allocation_diagnostic.py -q`
+- `21 passed`
+
+### Artifacts
+
+- `experiments/backfill/block_ar/acceptance_scorecard_712a.py`
+- `docs/research_protocols/712a_general_acceptance_scorecard.md`
+- `results/block_ar/712a_general_acceptance_scorecard/current_task_specialized_frontier_scorecard.json`
+- `results/block_ar/712a_general_acceptance_scorecard/current_task_specialized_frontier_scorecard.md`
+
+---

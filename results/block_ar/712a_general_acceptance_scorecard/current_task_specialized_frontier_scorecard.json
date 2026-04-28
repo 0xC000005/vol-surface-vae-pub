@@ -1,0 +1,148 @@
+{
+  "scorecard_id": "712a_general_conditional_scenario_acceptance",
+  "overall_pass": false,
+  "gate_passes": {
+    "iv": false,
+    "anchor": false,
+    "joint": false,
+    "framework": false
+  },
+  "iv": {
+    "pass": false,
+    "original_n_pass": 7,
+    "n_total": 11,
+    "original_failed_suites": [
+      "coverage",
+      "conditionality",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "effective_failed_suites": [
+      "coverage",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "risk_state_allocation_pass": true,
+    "conditionality_pass": false,
+    "conditionality_policy": "risk_state_allocation_may_replace_old_conditionality_gate"
+  },
+  "anchor": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.1070287516716088,
+          "pass_count": 11,
+          "n_factors": 13
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 1.0288019985694887,
+          "pass_count": 13,
+          "n_factors": 13
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.8969523275161294,
+          "abs_corr_ratio": 0.6197591838813062
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": false,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": -100.0,
+          "history_activity_width_spearman": -1.0
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      }
+    }
+  },
+  "joint": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.10199466538752254,
+          "pass_count": 12,
+          "n_factors": 13
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 0.9517137846312999,
+          "pass_count": 13,
+          "n_factors": 13
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.8617364803264372,
+          "abs_corr_ratio": 0.4541886699104027
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": false,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": -100.0,
+          "history_activity_width_spearman": -1.0
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      },
+      "iv_factor_corr": {
+        "pass": true,
+        "value": {
+          "matrix_corr": 0.8933402230439342,
+          "abs_corr_ratio": 0.5262449802268087
+        },
+        "target": "matrix_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      }
+    }
+  },
+  "framework": {
+    "pass": false,
+    "framework_id": "current_task_specialized_frontier_not_single_framework",
+    "required_scopes": [
+      "iv_only",
+      "anchor_only",
+      "joint"
+    ],
+    "missing_scopes": [],
+    "allowed_scope_differences": [
+      "decoder_head",
+      "input_head"
+    ],
+    "disallowed_scope_differences": [
+      "generated_coordinate",
+      "loss_weights",
+      "scalar_loss_terms",
+      "training_protocol"
+    ],
+    "missing_locked_fields": [],
+    "post_hoc_glued_decks": false,
+    "task_specific_loss_recipes": false
+  }
+}

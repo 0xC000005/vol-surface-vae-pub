@@ -2,6 +2,9 @@
   "objective": "Reach 11/11 on the common full 11-suite for a generalizable conditional scenario generator over general financial factors.",
   "target_n_pass": 11,
   "metric": "summary.n_pass on evaluate_220h_full_multihorizon_v2_suite.py output",
+  "iv_11_suite_role": "necessary IV-surface quality score, not sufficient for general multivariate deployability",
+  "general_acceptance_metric": "overall_pass from experiments/backfill/block_ar/acceptance_scorecard_712a.py",
+  "general_acceptance_scorecard_ref": "docs/research_protocols/712a_general_acceptance_scorecard.md",
   "loop_name": "HEAD",
   "head_steps": [
     "Hypothesis",

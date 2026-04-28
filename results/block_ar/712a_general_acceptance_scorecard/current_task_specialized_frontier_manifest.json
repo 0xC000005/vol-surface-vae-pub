@@ -1,0 +1,73 @@
+{
+  "framework_id": "current_task_specialized_frontier_not_single_framework",
+  "post_hoc_glued_decks": false,
+  "task_specific_loss_recipes": false,
+  "scope_values": {
+    "iv_only": {
+      "generated_coordinate": "state_aware_normalized_innovation",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "674a_iv_only_protocol",
+      "input_head": "iv_only",
+      "decoder_head": "iv_only"
+    },
+    "anchor_only": {
+      "generated_coordinate": "state_aware_normalized_innovation",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "688a_anchor_only_protocol",
+      "input_head": "anchor_only",
+      "decoder_head": "anchor_only"
+    },
+    "joint": {
+      "generated_coordinate": "state_aware_normalized_innovation_score",
+      "normalization_family": "support_aware_zero_center_history_scale",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "innovation_score",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "innovation_score": 0.05,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "698b_joint38_protocol",
+      "input_head": "joint38",
+      "decoder_head": "joint38"
+    }
+  }
+}
