@@ -106353,3 +106353,34 @@ The next repair should be local and structure-aware: improve coverage in the und
 - `results/block_ar/710a_510a_regime_authenticity_attribution/analysis.md`
 
 ---
+## 2026-04-28: 711a normalized-innovation active-family audit
+
+### Context
+
+The prior 710a audit focused on the legacy 510a IV-only control. This iteration moved the audit target to the later state-level normalized-innovation conditional-law family, because that is the active generalizable framework for IV-only and joint38.
+
+### Result
+
+- Reran `674a_iv_channel_level_alltrain` with the current full 11-suite at `s64`: `7/11`.
+- Reran `698b_joint38_innovscore_channel_level_alltrain` with the current full 11-suite at `s64`: `7/11`.
+- Both normalized-innovation candidates now pass the split risk-state allocation diagnostic.
+- `674a` risk-state metrics: width/history rho `0.479`, width/future rho `0.313`, conditional MAE reduction `10.16%`.
+- `698b` risk-state metrics: width/history rho `0.353`, width/future rho `0.284`, conditional MAE reduction `9.77%`.
+- Risk-readiness audit still says no active-family candidate is deployable: `674a` and `698b` both score `1/4` under stress-readiness, while `510a_splitpass` remains `2/4` as an IV-only control.
+
+### Mechanism Read
+
+The active family is not failing because the encoder ignores conditioning. It allocates uncertainty by observable market activity and by realized future activity. The shared failure is local lower-tail/regime under-inclusion: `674a` has `23` undercovered regime/cell/horizon slices and `698b` has `39`. This is a dispersion/allocation failure inside the normalized-innovation law, not a reason to abandon the framework or return to 510a as the main path.
+
+### Decision
+
+Stay on the normalized-innovation framework. The next experiment should be a frozen-framework coverage repair targeting lower-tail/regime under-inclusion within the same state-normalized innovation law. Keep 510a only as a control because it is less generalizable even though its IV-only stress score is currently higher.
+
+### Artifacts
+
+- `results/block_ar/711a_norminnov_active_family_audit/674a_iv_val_s64_current.json`
+- `results/block_ar/711a_norminnov_active_family_audit/698b_joint38_val_s64_current.json`
+- `results/block_ar/711a_norminnov_active_family_audit/risk_readiness.json`
+- `results/block_ar/711a_norminnov_active_family_audit/analysis.json`
+
+---
