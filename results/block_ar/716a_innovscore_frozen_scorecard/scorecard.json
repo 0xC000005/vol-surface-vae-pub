@@ -1,0 +1,147 @@
+{
+  "scorecard_id": "712a_general_conditional_scenario_acceptance",
+  "overall_pass": false,
+  "gate_passes": {
+    "iv": false,
+    "anchor": false,
+    "joint": false,
+    "framework": true
+  },
+  "iv": {
+    "pass": false,
+    "original_n_pass": 5,
+    "n_total": 11,
+    "original_failed_suites": [
+      "coverage",
+      "conditionality",
+      "cointegration",
+      "regime_coverage",
+      "distributional_fidelity",
+      "pathwise_jump_realism"
+    ],
+    "effective_failed_suites": [
+      "coverage",
+      "cointegration",
+      "regime_coverage",
+      "distributional_fidelity",
+      "pathwise_jump_realism"
+    ],
+    "risk_state_allocation_pass": true,
+    "conditionality_pass": false,
+    "conditionality_policy": "risk_state_allocation_may_replace_old_conditionality_gate"
+  },
+  "anchor": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.1079326923076923,
+          "pass_count": 12,
+          "n_factors": 13
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 1.042706125790311,
+          "pass_count": 13,
+          "n_factors": 13
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.8765160017543208,
+          "abs_corr_ratio": 0.5442634559536224
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": true,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": 2.9697227487691586,
+          "history_activity_width_spearman": 0.9432142087604273
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      }
+    }
+  },
+  "joint": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.11427662945520088,
+          "pass_count": 11,
+          "n_factors": 13
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 1.0732822281523253,
+          "pass_count": 13,
+          "n_factors": 13
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.8765532864231006,
+          "abs_corr_ratio": 0.5422542327987638
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": true,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": 3.152855426175665,
+          "history_activity_width_spearman": 0.9224435228636909
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      },
+      "iv_factor_corr": {
+        "pass": true,
+        "value": {
+          "matrix_corr": 0.8925908176606591,
+          "abs_corr_ratio": 0.6203690864235909
+        },
+        "target": "matrix_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      }
+    }
+  },
+  "framework": {
+    "pass": true,
+    "framework_id": "716a_zero_center_normalized_innovation_score_frozen_base",
+    "required_scopes": [
+      "iv_only",
+      "anchor_only",
+      "joint"
+    ],
+    "missing_scopes": [],
+    "allowed_scope_differences": [
+      "decoder_head",
+      "input_head"
+    ],
+    "disallowed_scope_differences": [],
+    "missing_locked_fields": [],
+    "post_hoc_glued_decks": false,
+    "task_specific_loss_recipes": false
+  }
+}
