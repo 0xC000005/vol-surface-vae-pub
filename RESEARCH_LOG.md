@@ -104510,3 +104510,31 @@ that diagnostic explains why typed AR improves daily/pathwise realism but still
 misses conditional coverage and level occupancy.
 
 ---
+## 2026-04-27: 659a native joint IV anchor failure diagnostics
+
+### Context
+
+Ran a post-result diagnostic on the native joint IV + anchor-factor line after 641a/647a/652a/658a. The goal was to separate architecture failure from target/data-framing failure and to identify what interferes with realistic scenario generation for both the IV surface and the anchor list.
+
+### Findings
+
+- The clean native joint models are not failing because IV and anchors cannot share one source. They learn broad factor realism and IV-factor correlation shape, but underfit conditional IV level placement and attenuate per-scenario joint shock amplitude.
+- IV local realism is alive in the best coherent AR joint run, 658a: daily-change KS passes `24/25`, pathwise max-jump KS is `0.480`, corr ratio is `0.750`, and aggregate mean-reversion ratio is `0.986`. The IV failures are coverage, conditionality, regime-cell coverage, level occupancy, and some active-cell mean-reversion profile.
+- Anchor-factor daily realism is mostly alive: 658a factor delta KS mean is `0.109`, factor q99 pass is `13/13`, factor-factor corr shape is `0.892`, and IV-factor corr shape is `0.868`. The weakness is amplitude and level support: generated factor-factor mean absolute correlation is only `0.137` versus GT `0.225`, and IV-factor mean absolute correlation is `0.088` versus GT `0.149`.
+- Target-scale interference is real for the AR mixed-coordinate objective: train target IV std is `0.436`, anchor std is `1.005`, and dimension-weighted factor target share is `0.734`. One-shot path targets are less factor-dominated (`0.535` factor share), so this is an amplifier, not the only root cause.
+- Data framing is the deeper durable issue: IV train-vs-val future level KS mean is `0.534`, while IV delta KS mean is only `0.113`; anchor future level KS mean is `0.650`, while anchor delta KS mean is only `0.090`. The models can therefore learn realistic local movement while failing level occupancy and coverage.
+- The validation realized IV regime signal is weak: turbulent/calm future absolute-move ratio is `1.000` and the rank-corr proxy between history vol-of-vol and future absolute move is `0.007`. This explains why the regime-width/conditional-width gates have been hard to learn from available conditional signal.
+- 658a failure anatomy: worst IV level-KS cells are `iv:23=0.437`, `iv:02=0.425`, `iv:24=0.410`, `iv:18=0.403`, `iv:13=0.364`; lowest h30 coverage cells are `iv:13=0.401`, `iv:23=0.401`, `iv:02=0.422`, `iv:18=0.422`, `iv:07=0.433`.
+- Anchor failure anatomy: worst 658a delta-KS factors are `aaa_oas=0.246`, `spx=0.244`, `crude_oil=0.139`, `us2y=0.113`, `nikkei=0.112`; largest level-range excursions are `aaa_oas=2.735`, `gold=0.755`, `wheat=0.748`, `spx=0.654`, `bbb_oas=0.622` in fractions of validation GT range.
+
+### Decision
+
+Do not add another architecture component yet. The next principled falsifier is group-balanced training with the same architecture, same shared stochastic source, same AR rollout, and same data, but with IV level-score placement and anchor increments made comparably visible to the loss. If that improves IV coverage/level occupancy without damaging anchor KS/correlation, the current native-joint paradigm remains viable. If not, the bottleneck is missing conditional signal or data framing rather than decoder expressiveness.
+
+### Artifacts
+
+- Diagnostic script: `experiments/backfill/block_ar/analyze_659a_native_joint_failure_diagnostics.py`
+- Diagnostic report: `experiments/backfill/block_ar/ANALYSIS_659a_native_joint_failure_diagnostics.md`
+- JSON output: `results/autoresearch/659a_native_joint_failure_diagnostics/diagnostics.json`
+
+---
