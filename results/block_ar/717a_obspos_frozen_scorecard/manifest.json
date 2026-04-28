@@ -1,0 +1,73 @@
+{
+  "framework_id": "717a_zero_center_normalized_innovation_observed_positive_frozen",
+  "post_hoc_glued_decks": false,
+  "task_specific_loss_recipes": false,
+  "scope_values": {
+    "iv_only": {
+      "generated_coordinate": "state_aware_normalized_innovation",
+      "normalization_family": "support_aware_zero_center_history_scale_observed_positive",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "obspos_zero_center_e8_w2048_then_alltrain_channel_w005_e3",
+      "input_head": "iv_only",
+      "decoder_head": "iv_only"
+    },
+    "anchor_only": {
+      "generated_coordinate": "state_aware_normalized_innovation",
+      "normalization_family": "support_aware_zero_center_history_scale_observed_positive",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "obspos_zero_center_e8_w2048_then_alltrain_channel_w005_e3",
+      "input_head": "anchor_only",
+      "decoder_head": "anchor_only"
+    },
+    "joint": {
+      "generated_coordinate": "state_aware_normalized_innovation",
+      "normalization_family": "support_aware_zero_center_history_scale_observed_positive",
+      "temporal_factorization": "ar_daily",
+      "backend": "flow_matching",
+      "stochastic_source": "shared_noise_within_scope",
+      "shared_core": "state_encoder_transition",
+      "scalar_loss_terms": [
+        "fm",
+        "rollout_energy",
+        "channel_energy"
+      ],
+      "loss_weights": {
+        "fm": 1.0,
+        "rollout_energy": 0.2,
+        "channel_energy": 0.05
+      },
+      "sampler": "flow_sampler",
+      "training_protocol": "obspos_zero_center_e8_w2048_then_alltrain_channel_w005_e3",
+      "input_head": "joint38",
+      "decoder_head": "joint38"
+    }
+  }
+}
