@@ -105524,3 +105524,33 @@ The previous loop failure was a candidate-definition failure, not evidence that 
 Resume autoresearch with a framework-lock HEAD cycle: freeze the clean zero-centered normalized-innovation AR flow recipe with one universal rollout/channel-level objective, then run or audit IV-only, anchor-only, and joint under the exact same recipe. If the tri-scope result fails, perform trade-off attribution before adding any new knob.
 
 ---
+## 2026-04-28: 688a framework-lock tri-scope baseline
+
+### Context
+687a tightened the workflow: a framework candidate must be a frozen recipe evaluated across IV-only, anchor-only, and joint scopes. The clean non-contrast recipe already had IV-only `674a/675a` and joint38 `676a`, but anchor-only had only the earlier lighter `666a` recipe.
+
+### Hypothesis
+If the zero-centered normalized-innovation AR flow with one universal rollout/channel-level objective is a real general framework, then the missing anchor-only member should remain realistic under the exact same 674a/676a recipe: all train windows, three epochs with best-val selection, normalized rollout energy weight `0.2`, channel-level encoded-level energy weight `0.05`, `train_sample_count=2`, `rollout_flow_steps=4`, no contrast, no AR1 prior, shared readout.
+
+### Execute
+Trained anchor-only `688a` from `663a_anchor_stateaware_norminnov_boundediv_e8_w2048_s6632` with the frozen 674a/676a recipe. Best checkpoint selected epoch 1 with `val_total=1.7508`; epochs 2 and 3 did not improve. Ran a 48-sample anchor panel audit and reran the matching 676a joint IV-facing full suite at 96 samples for fair comparison with 675a.
+
+Artifacts:
+- Anchor model: `models/backfill/688a_anchor_channel_level_alltrain_w005_e3_s6881/best_model.pt`
+- Anchor panel audit: `results/validations/2026-04-28/688a_framework_lock/anchor_val_panel.json`
+- Joint high-sample IV-facing suite: `results/validations/2026-04-28/688a_framework_lock/joint_val_iv_full11_s96.json`
+
+### Result
+The frozen recipe is viable for anchor-only. Anchor panel audit: finite rate `1.0`, factor delta KS mean `0.107`, `11/13` factor KS pass, q99 tail pass `13/13`, factor-factor correlation `0.897` with MAE `0.112`. This is comparable to or slightly better than the earlier 666a anchor-only panel in correlation while using the same recipe as IV/joint.
+
+The same recipe remains weaker when trained natively on joint38. Joint IV-facing high-sample result is `5/11`, failing coverage, conditionality, time_series, regime_coverage, distributional_fidelity, and mean_reversion. Key metrics: coverage90 `0.816`, calibration error `0.057`, worst conditional width ratio `1.557`, kurtosis ratio `1.435`, level KS `14/25`, median-bias magnitude `21/25`, h7 mean-reversion ratio `1.414`, pathwise KS `0.402`. Joint panel quality remains acceptable: factor delta KS mean `0.101`, q99 pass `13/13`, factor-factor corr `0.791`, IV-factor corr `0.896`.
+
+### Mechanism Read
+This falsifies the idea that separate task frontiers are required because anchors cannot be modeled by the clean recipe. Anchors are not the blocker. The blocker is joint co-training: adding anchors to the same shared readout/core preserves factor realism and IV-factor co-movement, but degrades IV coverage, tail/kurtosis allocation, level law, and h7 mean reversion versus the IV-only member.
+
+The trade-off points to shared-readout/head interference or objective allocation across heterogeneous channel types, not to a need for data-type-specific losses. The next minimal fix should stay inside the single-framework gate: same stochastic core and same scalar objective, but test whether allowed data-interface separation through support/group-specific input-output heads reduces interference.
+
+### Decision / next step
+Promote 688a as the first true framework-lock tri-scope baseline, not as deployable final. Next HEAD cycle should test separate support/group decoder heads under the same objective and same loss weights, because different heads are allowed while different losses are not. Do not add contrast, AR1 prior, or scope-specific calibration before this head-interference falsifier.
+
+---
