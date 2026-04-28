@@ -105286,3 +105286,32 @@ Full EWMA mean centering is informative but too deterministic. It gives the mode
 Do not abandon the normalized-innovation AR flow. Also do not adopt full EWMA centering as the final data object yet. The next principled move is to keep 679a's data object and apply the already-validated sampled-rollout energy objective, because that objective directly targets the generated path overshoot without introducing a new architecture or a new post-hoc calibration knob.
 
 ---
+## 2026-04-28: 680a EWMA mean rollout-energy repair falsifier
+
+### Context
+679a showed that full EWMA mean centering is informative but too deterministic: it improved some drift and correlation behavior but repeatedly injected noisy local drift into sampled paths. The clean next test was not a new architecture, but the already-validated sampled-rollout energy objective, which directly scores generated paths.
+
+### Execute
+Fine-tuned the 679a IV-only and joint38 EWMA-centered base checkpoints with the same all-train channel-balanced rollout-energy recipe used in the recent zero-center line: normalized-innovation energy weight 0.2, channel level energy weight 0.05, train samples 2, rollout flow steps 4, horizon end weight 1.2, and no group-residual readout.
+
+Artifacts:
+- IV-only model: `models/backfill/680a_iv_ewmamean_channel_level_alltrain_w005_e3_s6801/best_model.pt`
+- Joint38 model: `models/backfill/680a_joint38_ewmamean_channel_level_alltrain_w005_e3_s6803/best_model.pt`
+- IV-only suite: `results/validations/2026-04-28/680a_ewmamean_rollout_energy/iv_val_full11.json`
+- Joint IV-facing suite: `results/validations/2026-04-28/680a_ewmamean_rollout_energy/joint_val_iv_full11.json`
+- Joint panel audit: `results/validations/2026-04-28/680a_ewmamean_rollout_energy/joint_val_panel.json`
+
+### Result
+IV-only remained 5/11. Rollout training repaired pathwise max-jump KS from 0.649 to 0.418 and moved IV level KS to a pass at 15/25 cells. However coverage90 was only 0.770, calibration error 0.104, worst conditional width ratio 1.589, cointegration failed, median-bias fraction was only 14/25, and full-horizon mean reversion failed.
+
+Joint38 improved from the 679a base 4/11 to 5/11. Pathwise max-jump KS improved from 0.695 to 0.361 and median-bias gates passed at 20/25 fraction and 22/25 magnitude. Coverage90 fell to 0.758, calibration error was 0.105, worst conditional width ratio was 1.414, kurtosis ratio was too high at 1.352, IV level KS was 14/25, and full-horizon mean reversion failed.
+
+The joint panel audit stayed acceptable: factor delta KS mean 0.108 with 11/13 factors below 0.20, all 13 factor q99 tail ratios passed, factor-factor correlation was 0.838, and IV-factor correlation was 0.897.
+
+### Mechanism Read
+The sampled-rollout objective fixes the free-running jump-shape overshoot caused by full EWMA centering, but not the conditional allocation problem. Full centering is still too hard-wired: it changes the generated drift path before the model has learned which parts of the recent drift should persist. That leaves coverage/regime failures and weak per-cell conditional width allocation.
+
+### Decision
+Do not continue stacking objectives on full EWMA centering. The next normalization move should separate "history drift as information" from "history drift as deterministic reconstruction center": keep increment reconstruction zero-centered, but provide a history-only EWMA drift summary as a conditioning feature so the model can learn how much drift to use instead of being forced to add it every step.
+
+---
