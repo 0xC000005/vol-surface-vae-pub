@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 670,
+  "iteration": 671,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "670a shows that aggressive global temperature calibration repairs aggregate coverage by injecting too much move-size variance, which breaks pathwise jump realism, tail-scale shape, kurtosis, and mean reversion. The bottleneck is not simple global underdispersion.",
-  "last_result_summary": "670a evaluated the 669a checkpoint at sample_temperature=1.15 and reached only 4/11. Coverage90 improved to 0.818 and calibration error to 0.047, but pathwise max-jump KS worsened to 0.683, q99 tail-scale pass count fell to 17/25, kurtosis ratio fell to 0.688, mean reversion failed, level KS stayed 10/25, and median-bias pass count fell to 11/25.",
-  "next_step_recommendation": "Reject sample_temperature=1.15. A smaller temperature is allowed as one bounded falsifier because 1.15 overshot, but if it fails the loop should return to training-objective design rather than post-hoc temperature scaling.",
+  "current_bottleneck": "671a closes global temperature as the primary path. Small temperature scaling is safe enough for pathwise realism but does not fix persistent per-cell level-law, conditional width, or regime coverage failures.",
+  "last_result_summary": "671a evaluated the 669a checkpoint at sample_temperature=1.05 and reached 6/11. Coverage90 improved to 0.764 but stayed below 666a at 0.777; pathwise max-jump KS stayed acceptable at 0.397; level KS stayed 10/25; median-bias stayed 12/25; conditional worst-cell width ratio stayed bad at 1.481; mean reversion failed again.",
+  "next_step_recommendation": "Return to training-objective design. The next hypothesis is that global path energy is dominated by high-scale/easy coordinates, so weak cells remain poorly calibrated; test a channel-balanced proper score rather than factor-specific knobs or more temperature scaling.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general IV/anchor/joint state-aware normalized-innovation family, 666a is the current best: IV-only and joint38 both reach 6/11 with one sampled-rollout objective and anchor-only remains acceptable. For native IV+anchor joint generation, this is more methodologically defensible than post-hoc glued stress decks because one stochastic mechanism generates the panel.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending 670a commit",
+  "last_commit": "pending 671a commit",
   "resume_command_hint": "continue autoresearch"
 }

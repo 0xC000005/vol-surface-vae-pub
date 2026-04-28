@@ -105063,3 +105063,26 @@ Reject `sample_temperature=1.15` as a deployable calibration. A smaller temperat
 - `results/validations/2026-04-27/670a_669a_temp115/iv_val_full11.json`
 
 ---
+## 2026-04-28: 671a small temperature is safe but not sufficient
+
+### Context
+671a tested the bounded version of the temperature-calibration axis after 670a overshot: evaluate the `669a` checkpoint with `sample_temperature=1.05`. This checks whether a small scalar calibration can recover coverage while preserving the pathwise and tail-shape realism gates.
+
+### Result
+- IV-only `671a` reached `6/11`, tying `669a` and `666a` but not improving the frontier.
+- Coverage90 improved from `0.732` at `669a` to `0.764`, but remained below `666a` at `0.777`.
+- Pathwise max-jump KS stayed acceptable at `0.397`, but mean reversion failed again.
+- Level KS stayed `10/25`; median-bias pass count stayed `12/25`; conditional worst-cell width ratio stayed bad at `1.481`.
+- Failed suites: coverage, conditionality, regime coverage, distributional fidelity, mean reversion.
+
+### Mechanism Read
+Small temperature scaling is safe enough for pathwise realism, but it does not target the persistent per-cell level-law and conditional-width failures. It mostly trades mean-reversion/shape details for a little aggregate coverage. Temperature is therefore not a primary solution.
+
+### Decision
+Close global temperature as the main improvement path. The next principled axis should return to objective design. The current hypothesis is that global path energy is dominated by high-scale/easy coordinates, so weak cells can remain poorly calibrated; a channel-balanced proper score is a cleaner next test than adding factor-specific knobs.
+
+### Artifacts
+- `models/backfill/669a_iv_norminnov_rollout_level_energy_w01_e1_s6691/best_model.pt`
+- `results/validations/2026-04-27/671a_669a_temp105/iv_val_full11.json`
+
+---
