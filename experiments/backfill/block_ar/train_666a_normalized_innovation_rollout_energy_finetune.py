@@ -20,6 +20,7 @@ sys.path.insert(0, ".")
 
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_conditional_base_noise_scale,
     enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
     load_model,
@@ -200,6 +201,9 @@ def differentiable_rollout_paths(
         memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[:, -1]
         current_level_score = prefix_level_scores[:, -1]
         x = base_noise[:, _step]
+        base_noise_scale = model._conditional_base_noise_scale(memory_state)
+        if base_noise_scale is not None:
+            x = x * base_noise_scale
         for flow_step in range(max(1, int(flow_steps))):
             t = torch.full(
                 (bsz * k,),
@@ -395,6 +399,11 @@ def normalized_rollout_energy_loss(
         "condition_rollout_contrast": condition_rollout_contrast.detach(),
         "condition_rollout_pos_energy": energy.detach(),
         "condition_rollout_neg_energy": condition_rollout_neg_energy.detach(),
+        "base_noise_scale_enabled": fm_metrics["base_noise_scale_enabled"].detach(),
+        "base_noise_scale_mean": fm_metrics["base_noise_scale_mean"].detach(),
+        "base_noise_scale_std": fm_metrics["base_noise_scale_std"].detach(),
+        "base_noise_scale_min": fm_metrics["base_noise_scale_min"].detach(),
+        "base_noise_scale_max": fm_metrics["base_noise_scale_max"].detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
         "target_level_std": future_level_values.std(unbiased=False).detach(),
@@ -510,6 +519,9 @@ def main() -> None:
     parser.add_argument("--energy_eps", type=float, default=1e-6)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--base_noise_rho", type=float, default=None)
+    parser.add_argument("--conditional_base_noise_scale", action="store_true")
+    parser.add_argument("--base_noise_scale_min", type=float, default=0.5)
+    parser.add_argument("--base_noise_scale_max", type=float, default=2.0)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=4)
     parser.add_argument("--sample_steps", type=int, default=8)
@@ -529,6 +541,12 @@ def main() -> None:
     model, payload = load_model(args.checkpoint, device)
     if args.base_noise_rho is not None:
         model.cfg.base_noise_rho = float(args.base_noise_rho)
+    if bool(args.conditional_base_noise_scale):
+        enable_conditional_base_noise_scale(
+            model,
+            scale_min=float(args.base_noise_scale_min),
+            scale_max=float(args.base_noise_scale_max),
+        )
     if args.velocity_readout_mode in {"group_residual", "group_head"}:
         readout_iv_count = effective_readout_iv_count(
             payload.get("state_scope", args.state_scope),
@@ -647,6 +665,9 @@ def main() -> None:
         "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
         "base_noise_rho": float(model.cfg.base_noise_rho),
+        "conditional_base_noise_scale": bool(model.cfg.conditional_base_noise_scale),
+        "base_noise_scale_min": float(model.cfg.base_noise_scale_min),
+        "base_noise_scale_max": float(model.cfg.base_noise_scale_max),
         "velocity_readout_mode": args.velocity_readout_mode,
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),

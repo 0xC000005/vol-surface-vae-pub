@@ -7,6 +7,7 @@ sys.path.insert(0, ".")
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (
     GenericStateAwareNormalizedInnovationFMConfig,
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_conditional_base_noise_scale,
     enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
 )
@@ -245,6 +246,65 @@ def test_ar1_base_noise_like_has_temporal_correlation():
     lag_corr = torch.corrcoef(torch.stack([noise[:, :-1].reshape(-1), noise[:, 1:].reshape(-1)]))[0, 1]
 
     assert lag_corr > 0.55
+
+
+def test_conditional_base_noise_scale_starts_at_unit_scale():
+    torch.manual_seed(83)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    enable_conditional_base_noise_scale(model, scale_min=0.5, scale_max=2.0)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    level_quantiles = torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells)
+    model.set_level_quantiles(level_quantiles, levels)
+
+    history_level = torch.randn(5, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(5, cfg.history_len, cfg.n_cells)
+    center = torch.randn(5, cfg.n_cells) * 0.01
+    scale = torch.rand(5, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(5, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+
+    loss, metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+    )
+    samples = model.sample_batched(
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=cfg.future_len,
+        chunk_size=2,
+    )
+
+    assert torch.isfinite(loss)
+    assert samples.shape == (5, 2, cfg.future_len, cfg.n_cells)
+    assert metrics["base_noise_scale_enabled"] == 1.0
+    assert torch.isclose(metrics["base_noise_scale_mean"], torch.tensor(1.0), atol=1e-6)
+    assert torch.isclose(metrics["base_noise_scale_min"], torch.tensor(1.0), atol=1e-6)
+    assert torch.isclose(metrics["base_noise_scale_max"], torch.tensor(1.0), atol=1e-6)
 
 
 def test_condition_contrast_loss_adds_ranking_penalty():

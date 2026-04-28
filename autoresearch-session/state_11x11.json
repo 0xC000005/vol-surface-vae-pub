@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 691,
+  "iteration": 692,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Joint IV conditional stochastic allocation under the frozen framework. 691a shows that making channel-level path energy unit-free via standardized level deltas improves in-sample level/median allocation but does not fix coverage, conditionality, kurtosis, regime coverage, or h7 mean reversion. The bottleneck is no longer raw-level unit imbalance or simple decoder expressiveness; it is how the shared AR flow allocates conditional width/source noise across histories and heterogeneous channels.",
-  "last_result_summary": "691a added standardized_level_delta_paths and channel_level_energy_coordinate=scaled_delta. Tests passed (18 passed). Training objective worsened versus 676a: best val_total=1.9166 vs 1.8016. Validation IV stayed 5/11: coverage90 0.739, calibration 0.116, conditional MAE +9.5% but worst width ratio 1.457, kurtosis ratio 1.481, level KS 12/25, median fraction 18/25, h7 MR ratio 1.413, pathwise KS 0.308. Train-tail stayed 5/11: level KS improved to 18/25 and median fraction to 25/25, but coverage/conditionality/kurtosis/regime/MR still failed. Joint panel survived: factor KS mean 0.108, 11/13 pass, q99 13/13, factor-factor corr 0.790, IV-factor corr 0.887.",
-  "next_step_recommendation": "Do not promote 691a. Treat it as a falsifier showing unit-free level scoring helps location but not uncertainty. Next target the conditional source-noise/width allocation in a scope-agnostic way, or run ideation if that cannot be done without adding a special-purpose knob.",
+  "current_bottleneck": "The normalized-innovation AR flow still cannot identify conditional uncertainty allocation in joint training. 692b shows that even when conditional source scale is included in differentiable rollout training, it collapses near the lower clamp and leaves coverage, conditionality, regime coverage, kurtosis, distributional fidelity, and h7 mean reversion unresolved.",
+  "last_result_summary": "692b added a unit-initialized conditional base-noise scale head and fixed differentiable rollout training to use it; tests passed (18 passed). The first 692a run was invalid because rollout training ignored the source scale; 692b is the valid rerun. The source scale still collapsed by epoch 2: validation mean/std/min/max 0.502/0.0068/0.500/0.551. Validation IV stayed 5/11: coverage90 0.770, calibration 0.093, conditional MAE +9.9% but worst width ratio 1.580, kurtosis ratio 1.381, level KS 15/25, median fraction 18/25, h7 MR ratio 1.433, pathwise KS 0.446. Joint panel survived with factor KS mean 0.108, 11/13 pass, q99 13/13, factor-factor corr 0.786, IV-factor corr 0.907.",
+  "next_step_recommendation": "Do not add another source-width knob. Source-scale is closed for this family unless the objective changes fundamentally. Next HEAD step should be research ideation/postmortem around proper scenario-set likelihood or scoring objectives that make conditional uncertainty identifiable without a degenerate scale shortcut.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11. The frozen tri-scope baseline is 674a/675a IV-only + 688a anchor-only + 676a joint38: anchor-only is realistic, joint panel is acceptable, but joint IV-facing is only 5/11. 689a group-head keeps joint at 5/11 and is a readout falsifier, not a new best. 682a remains the best native joint38 score at 6/11, but uses contrast and is not part of the frozen non-contrast framework-lock baseline.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending 691a commit",
+  "last_commit": "pending 692b commit",
   "resume_command_hint": "continue autoresearch"
 }

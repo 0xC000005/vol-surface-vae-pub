@@ -24,6 +24,9 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     velocity_readout_mode: str = "shared"
     readout_iv_count: int = 25
     base_noise_rho: float = 0.0
+    conditional_base_noise_scale: bool = False
+    base_noise_scale_min: float = 0.5
+    base_noise_scale_max: float = 2.0
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -149,6 +152,32 @@ def enable_group_head_velocity_readout(
     model.velocity = upgraded.to(next(model.parameters()).device)
 
 
+def _make_base_noise_scale_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+    head = nn.Sequential(
+        nn.LayerNorm(cfg.memory_dim),
+        nn.Linear(cfg.memory_dim, cfg.memory_dim),
+        nn.GELU(),
+        nn.Linear(cfg.memory_dim, cfg.n_cells),
+    )
+    nn.init.zeros_(head[-1].weight)
+    nn.init.zeros_(head[-1].bias)
+    return head
+
+
+def enable_conditional_base_noise_scale(
+    model: "GenericStateAwareNormalizedInnovationFlowMatching",
+    *,
+    scale_min: float,
+    scale_max: float,
+) -> None:
+    """Attach a unit-initialized conditional base-noise scale head."""
+    model.cfg.conditional_base_noise_scale = True
+    model.cfg.base_noise_scale_min = float(scale_min)
+    model.cfg.base_noise_scale_max = float(scale_max)
+    if model.base_noise_log_scale is None:
+        model.base_noise_log_scale = _make_base_noise_scale_head(model.cfg).to(next(model.parameters()).device)
+
+
 class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     """Generate normalized innovations while remaining level-aware.
 
@@ -183,6 +212,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             self.velocity = GroupHeadTokenTransitionVelocity(cfg)
         else:
             raise ValueError("velocity_readout_mode must be 'shared', 'group_residual', or 'group_head'")
+        self.base_noise_log_scale = (
+            _make_base_noise_scale_head(cfg) if bool(cfg.conditional_base_noise_scale) else None
+        )
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )
@@ -325,6 +357,13 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             frames.append(prev)
         return torch.stack(frames, dim=1)
 
+    def _conditional_base_noise_scale(self, memory_state: torch.Tensor) -> torch.Tensor | None:
+        if self.base_noise_log_scale is None:
+            return None
+        lo = math.log(float(self.cfg.base_noise_scale_min))
+        hi = math.log(float(self.cfg.base_noise_scale_max))
+        return torch.exp(self.base_noise_log_scale(memory_state).clamp(lo, hi))
+
     def training_loss(
         self,
         history_level_values: torch.Tensor,
@@ -351,6 +390,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
 
         x1 = future_normalized_innovation
         x0 = self._base_noise_like(x1)
+        base_noise_scale = self._conditional_base_noise_scale(memory_states)
+        if base_noise_scale is not None:
+            x0 = x0 * base_noise_scale
         bsz, horizon, n_vars = x1.shape
         t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
         x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
@@ -397,6 +439,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 pos_loss_per_window - neg_loss_per_window + float(condition_contrast_margin)
             ).mean()
         total_loss = fm_loss + contrast_weight * contrast_loss
+        if base_noise_scale is None:
+            base_noise_scale_enabled = torch.zeros((), device=x1.device, dtype=x1.dtype)
+            base_noise_scale_mean = torch.ones((), device=x1.device, dtype=x1.dtype)
+            base_noise_scale_std = torch.zeros((), device=x1.device, dtype=x1.dtype)
+            base_noise_scale_min = torch.ones((), device=x1.device, dtype=x1.dtype)
+            base_noise_scale_max = torch.ones((), device=x1.device, dtype=x1.dtype)
+        else:
+            base_noise_scale_enabled = torch.ones((), device=x1.device, dtype=x1.dtype)
+            base_noise_scale_mean = base_noise_scale.mean().detach()
+            base_noise_scale_std = base_noise_scale.std(unbiased=False).detach()
+            base_noise_scale_min = base_noise_scale.min().detach()
+            base_noise_scale_max = base_noise_scale.max().detach()
         return total_loss, {
             "total": total_loss.detach(),
             "fm_loss": fm_loss.detach(),
@@ -404,6 +458,11 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "condition_contrast_neg_loss": neg_loss.detach(),
             "condition_contrast_weight": torch.as_tensor(contrast_weight, device=x1.device, dtype=x1.dtype),
             "base_noise_rho": torch.as_tensor(float(self.cfg.base_noise_rho), device=x1.device, dtype=x1.dtype),
+            "base_noise_scale_enabled": base_noise_scale_enabled,
+            "base_noise_scale_mean": base_noise_scale_mean,
+            "base_noise_scale_std": base_noise_scale_std,
+            "base_noise_scale_min": base_noise_scale_min,
+            "base_noise_scale_max": base_noise_scale_max,
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
             "local_scale_mean": scale.mean().detach(),
@@ -484,6 +543,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 ]
                 current_level_score = prefix_level_scores[:, -1]
                 x = base_noise[:, _step]
+                base_noise_scale = self._conditional_base_noise_scale(memory_state)
+                if base_noise_scale is not None:
+                    x = x * base_noise_scale
                 for flow_step in range(int(self.cfg.flow_steps)):
                     t = torch.full(
                         (bsz * k,),

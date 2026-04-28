@@ -1,3 +1,4 @@
+import math
 import torch
 import sys
 
@@ -6,6 +7,7 @@ sys.path.insert(0, ".")
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (
     GenericStateAwareNormalizedInnovationFMConfig,
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_conditional_base_noise_scale,
 )
 from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_energy_finetune import (
     differentiable_normalized_rollout_samples,
@@ -97,6 +99,43 @@ def test_differentiable_normalized_rollout_samples_backpropagates():
     assert samples.shape == (5, 2, 3, 2)
     assert torch.isfinite(samples).all()
     assert any(param.grad is not None for param in model.parameters())
+
+
+def test_differentiable_rollout_uses_conditional_base_noise_scale():
+    torch.manual_seed(89)
+    model = _tiny_model()
+    history_level, history_norm, _future_level, _future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(97)
+    unit_samples = differentiable_normalized_rollout_samples(
+        model,
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=3,
+        flow_steps=2,
+        temperature=1.0,
+    )
+    enable_conditional_base_noise_scale(model, scale_min=0.25, scale_max=4.0)
+    with torch.no_grad():
+        model.base_noise_log_scale[-1].bias.fill_(math.log(0.5))
+
+    torch.manual_seed(97)
+    scaled_samples = differentiable_normalized_rollout_samples(
+        model,
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=3,
+        flow_steps=2,
+        temperature=1.0,
+    )
+
+    assert not torch.allclose(scaled_samples, unit_samples)
 
 
 def test_normalized_rollout_energy_loss_is_finite():

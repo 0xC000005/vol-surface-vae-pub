@@ -105630,3 +105630,27 @@ The unit-free level coordinate helps in-sample location/median allocation but do
 691a is a useful falsifier but not the new framework incumbent. Keep 688a/676a as the frozen baseline and 689a/691a as attribution probes. The next move should target the conditional stochastic allocation itself: the model must condition the width/source-noise law or objective on history without adding scope-specific losses.
 
 ---
+## 2026-04-28: 692b rollout-regularized source-scale falsifier
+
+### Hypothesis
+Prior source-scale branches collapsed under one-step flow matching. 692b tested whether the current multi-step rollout-energy objective can make a generic conditional base-noise scale learn useful heteroscedastic width instead of shrinking to the lower clamp.
+
+### Execution
+- Added a unit-initialized conditional base-noise scale head to the normalized-innovation AR flow, gated by `--conditional_base_noise_scale`.
+- Added tests that the head starts at unit scale and that differentiable rollout training actually uses the conditional base-noise scale.
+- Important correction: the first 692a training run was invalid for the intended hypothesis because the differentiable rollout path did not apply the source-scale head. The new test caught this; 692b is the valid rerun after fixing rollout training.
+- Trained 692b from 676a with the same rollout-energy recipe and source-scale clamp `[0.5, 2.0]`: `models/backfill/692b_joint38_cond_base_noise_scale_rollout_w005_e2_s6922`.
+
+### Results
+- The source-scale head still collapsed: by epoch 2, validation scale mean/std/min/max was `0.502 / 0.0068 / 0.500 / 0.551`.
+- Validation IV suite stayed `5/11`: coverage90 `0.770`, calibration error `0.093`, conditional MAE reduction `9.9%` but worst width ratio `1.580`, kurtosis ratio `1.381`, level KS `15/25`, median fraction `18/25`, h7 mean-reversion ratio `1.433`, pathwise KS `0.446`.
+- Joint panel survived but did not become a better law: factor KS mean `0.108`, `11/13` factor KS pass, q99 pass `13/13`, factor-factor corr `0.786`, IV-factor corr `0.907`.
+- Regression tests passed after the fix: `pytest test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` gave `18 passed`.
+
+### Mechanism Read
+Rollout-energy regularization is not enough to identify a learned conditional source scale. The optimizer still lowers the objective by shrinking the source distribution toward the clamp, while the free-running scenario law remains undercovered and regime-miscalibrated.
+
+### Decision
+Close learned source-scale as an active fix for this normalized-innovation family unless the objective is fundamentally changed. The next step should not be another source-width knob. It should be research ideation around a proper scenario-set likelihood/scoring objective or a data framing that makes conditional uncertainty identifiable without a degenerative scale shortcut.
+
+---
