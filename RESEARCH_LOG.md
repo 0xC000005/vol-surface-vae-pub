@@ -104538,3 +104538,44 @@ Do not add another architecture component yet. The next principled falsifier is 
 - JSON output: `results/autoresearch/659a_native_joint_failure_diagnostics/diagnostics.json`
 
 ---
+## 2026-04-27: 660a train validation generation gap diagnostic
+
+### Context
+
+Ran the requested train split generation audit for the current coherent native joint model `658a_ar652_joint38_s658`. The goal was to determine whether the validation failures are mainly train-validation mismatch / OOD generalization, or whether the model fails to learn the training distribution itself.
+
+### Method
+
+- Reused the existing 658a evaluator without changing the metric code.
+- Scored an in-training train-tail slice by setting `test_start=4070`, `val_size=441`, which makes the evaluator's scored pseudo-validation windows correspond to original training windows `3569..4009`.
+- Compared against the existing validation slice `test_start=4511`, `val_size=441`, original windows `4010..4450`.
+- Ran both the IV full 11-suite and the 38-channel joint-panel anchor audit.
+
+### Findings
+
+- The failure is not pure OOD. Train-tail improves materially: cov90 `0.829` vs validation `0.687`, conditional MAE reduction `5.79%` vs `-0.45%`, turbulent/calm width ratio `1.162` vs `0.956`, bad window-floor rate `3.9%` vs `18.6%`, mean reversion passes on train but fails on validation, and path max-jump KS improves from `0.480` to `0.154`.
+- The failure is also not pure validation shift. Train-tail still scores only `5/11` and still fails coverage, conditionality, time_series, cointegration, regime_coverage, and distributional_fidelity.
+- The robust learned part is local movement: train-tail daily IV KS passes `25/25`, validation daily IV KS passes `24/25`; factor q99 movement scale passes `13/13` on both; factor and IV-factor correlation shape are alive.
+- The unresolved in-sample part is conditional placement: train-tail level KS passes only `11/25`, median-bias passes only `14/25`, regime layer2 passes only `1/8`, and per-cell conditionality remains bad.
+- Anchor/joint audit also shows a mixed pattern. Train-tail factor delta KS mean improves to `0.092` from validation `0.109`, factor corr shape improves to `0.951` from `0.892`, and IV-factor shape improves to `0.932` from `0.868`. But shock amplitude is attenuated in both splits: IV-factor abs-corr ratio is `0.606` train-tail and `0.592` validation. Credit-spread factors remain hard, with `aaa_oas` worst-factor KS `0.306` on train-tail and `0.246` on validation.
+
+### Diagnosis
+
+This is a mixed failure:
+
+- OOD / train-validation shift is real and materially worsens validation coverage, conditionality, path extremes, and mean-reversion profile.
+- But the model has not learned a deployable training conditional law either. Conditional level/path placement, level occupancy, median placement, regime-cell coverage, and absolute joint shock amplitude remain weak even on train-tail windows.
+
+### Decision
+
+Use train-tail audit as the next falsification gate. The next experiment should test objective balance or explicit level-placement loss on the same native-joint AR architecture. If train-tail becomes strong but validation remains weak, the bottleneck moves to OOD calibration / adaptation. If train-tail remains weak, more validation tuning is wasted because the model has not learned the training law.
+
+### Artifacts
+
+- Train-tail IV suite: `results/block_ar/658a_ar652_joint38_s658/train_tail_full11.json`
+- Train-tail joint audit: `results/block_ar/658a_ar652_joint38_s658/train_tail_joint_panel_audit.json`
+- Comparison script: `experiments/backfill/block_ar/analyze_660a_train_validation_generation_gap.py`
+- Comparison report: `experiments/backfill/block_ar/ANALYSIS_660a_train_validation_generation_gap.md`
+- Comparison JSON: `results/autoresearch/660a_train_validation_generation_gap/diagnostics.json`
+
+---
