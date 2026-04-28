@@ -105017,3 +105017,26 @@ Keep 666a (`k=2`, `flow_steps=4`) as the rollout-energy baseline. Do not run joi
 - `results/validations/2026-04-27/668a_rollout_energy_k4/iv_val_full11.json`
 
 ---
+## 2026-04-28: 669a level-path energy stabilizes shape but not level law
+
+### Context
+669a added one proper-score component to the 666a sampled-rollout objective: an encoded-level path energy score with weight `0.1`, while keeping the normalized-innovation energy score at `0.2`, `train_sample_count=2`, and `rollout_flow_steps=4`. This directly tested whether the repeated level-law/regime failures are caused by optimizing only normalized innovations rather than generated level paths.
+
+### Result
+- IV-only `669a` reached `6/11`, tying `666a` but not improving the clean-family frontier.
+- Mean reversion recovered and pathwise max-jump KS improved to `0.291` versus `0.394` for `666a`.
+- Coverage90 fell to `0.732` versus `0.777` for `666a`, and calibration error worsened to `0.120`.
+- Level KS remained `10/25`, median-bias pass count fell to `12/25`, and the same distributional-fidelity gate still failed.
+- Failed suites: coverage, conditionality, cointegration, regime coverage, distributional fidelity.
+
+### Mechanism Read
+Directly scoring encoded levels stabilizes path shape and mean-reversion geometry, but it narrows or misallocates the predictive distribution. It does not fix the actual level-law bottleneck. The result argues against escalating the level-energy weight or running joint38 immediately: the added component improves shape realism but worsens coverage/calibration.
+
+### Decision
+Keep `666a` as the current clean-family baseline because it has the better deployability balance. Keep the level-energy code as an available diagnostic/proper-score component, but do not treat `669a` as the new base. The next one-axis move should be a small global sampling-temperature calibration on a pathwise-strong checkpoint, because the remaining failure pattern is undercoverage/level-law calibration rather than model instability.
+
+### Artifacts
+- `models/backfill/669a_iv_norminnov_rollout_level_energy_w01_e1_s6691/best_model.pt`
+- `results/validations/2026-04-27/669a_rollout_level_energy/iv_val_full11.json`
+
+---

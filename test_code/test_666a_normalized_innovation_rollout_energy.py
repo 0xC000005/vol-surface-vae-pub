@@ -99,3 +99,51 @@ def test_normalized_rollout_energy_loss_is_finite():
     assert torch.isfinite(loss)
     assert metrics["energy"] >= 0.0
     assert metrics["sample_norm_std"] > 0.0
+
+
+def test_normalized_rollout_energy_loss_can_score_level_paths():
+    torch.manual_seed(23)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(29)
+    loss_without_level, metrics_without_level = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        level_energy_weight=0.0,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+    torch.manual_seed(29)
+    loss_with_level, metrics_with_level = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        level_energy_weight=0.1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss_with_level)
+    assert metrics_without_level["level_energy"].item() == 0.0
+    assert metrics_with_level["level_energy"].item() > 0.0
+    assert loss_with_level > loss_without_level

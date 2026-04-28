@@ -36,7 +36,7 @@ from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_
 )
 
 
-def differentiable_normalized_rollout_samples(
+def differentiable_rollout_paths(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     history_level_values: torch.Tensor,
     history_normalized_innovation: torch.Tensor,
@@ -47,8 +47,8 @@ def differentiable_normalized_rollout_samples(
     n_steps: int,
     flow_steps: int,
     temperature: float,
-) -> torch.Tensor:
-    """Differentiable free-running sampler returning normalized innovations."""
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Differentiable free-running sampler returning normalized innovations and level paths."""
     if n_steps < 1 or n_steps > model.cfg.future_len:
         raise ValueError(f"expected n_steps in [1,{model.cfg.future_len}], got {n_steps}")
     level_scores = model.level_values_to_scores(history_level_values)
@@ -75,7 +75,8 @@ def differentiable_normalized_rollout_samples(
     center_rep = center.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
     scale_rep = scale.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
     dt = 1.0 / float(max(1, int(flow_steps)))
-    frames: list[torch.Tensor] = []
+    norm_frames: list[torch.Tensor] = []
+    level_frames: list[torch.Tensor] = []
     for _step in range(int(n_steps)):
         memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep)[:, -1]
         current_level_score = prefix_level_scores[:, -1]
@@ -97,11 +98,39 @@ def differentiable_normalized_rollout_samples(
         next_increment = next_norm * scale_rep + center_rep
         next_level_value = prefix_level_values[:, -1] + next_increment
         next_level_score = model.level_values_to_scores(next_level_value)
-        frames.append(next_norm.view(bsz, k, model.cfg.n_cells))
+        norm_frames.append(next_norm.view(bsz, k, model.cfg.n_cells))
+        level_frames.append(next_level_value.view(bsz, k, model.cfg.n_cells))
         prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
         prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
         prefix_norm = torch.cat([prefix_norm, next_norm[:, None, :]], dim=1)
-    return torch.stack(frames, dim=2)
+    return torch.stack(norm_frames, dim=2), torch.stack(level_frames, dim=2)
+
+
+def differentiable_normalized_rollout_samples(
+    model: GenericStateAwareNormalizedInnovationFlowMatching,
+    history_level_values: torch.Tensor,
+    history_normalized_innovation: torch.Tensor,
+    center: torch.Tensor,
+    scale: torch.Tensor,
+    *,
+    n_samples: int,
+    n_steps: int,
+    flow_steps: int,
+    temperature: float,
+) -> torch.Tensor:
+    """Differentiable free-running sampler returning normalized innovations."""
+    sampled_norm, _sampled_level = differentiable_rollout_paths(
+        model,
+        history_level_values,
+        history_normalized_innovation,
+        center,
+        scale,
+        n_samples=int(n_samples),
+        n_steps=int(n_steps),
+        flow_steps=int(flow_steps),
+        temperature=float(temperature),
+    )
+    return sampled_norm
 
 
 def normalized_rollout_energy_loss(
@@ -120,6 +149,7 @@ def normalized_rollout_energy_loss(
     horizon_end_weight: float,
     energy_eps: float,
     temperature: float,
+    level_energy_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -129,7 +159,7 @@ def normalized_rollout_energy_loss(
         center,
         scale,
     )
-    sampled_norm = differentiable_normalized_rollout_samples(
+    sampled_norm, sampled_level = differentiable_rollout_paths(
         model,
         history_level_values,
         history_normalized_innovation,
@@ -152,15 +182,35 @@ def normalized_rollout_energy_loss(
         eps=float(energy_eps),
         horizon_weights=weights,
     )
-    total = float(fm_anchor_weight) * fm_loss + float(energy_weight) * energy
+    if float(level_energy_weight) > 0.0:
+        level_energy, level_target_dist, level_pair_dist = full_path_energy_score(
+            sampled_level,
+            future_level_values,
+            eps=float(energy_eps),
+            horizon_weights=weights,
+        )
+    else:
+        level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+    total = (
+        float(fm_anchor_weight) * fm_loss
+        + float(energy_weight) * energy
+        + float(level_energy_weight) * level_energy
+    )
     metrics = {
         "total": total.detach(),
         "fm_loss": fm_loss.detach(),
         "energy": energy.detach(),
         "energy_target_dist": target_dist.detach(),
         "energy_pair_dist": pair_dist.detach(),
+        "level_energy": level_energy.detach(),
+        "level_energy_target_dist": level_target_dist.detach(),
+        "level_energy_pair_dist": level_pair_dist.detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
+        "target_level_std": future_level_values.std(unbiased=False).detach(),
+        "sample_level_std": sampled_level.std(unbiased=False).detach(),
         "sample_h1_std": sampled_norm[:, :, 0].std(unbiased=False).detach(),
         "sample_h30_std": sampled_norm[:, :, -1].std(unbiased=False).detach(),
         "memory_abs": fm_metrics["memory_abs"].detach(),
@@ -177,6 +227,7 @@ def run_epoch(
     train_sample_count: int,
     rollout_flow_steps: int,
     energy_weight: float,
+    level_energy_weight: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -203,6 +254,7 @@ def run_epoch(
                 train_sample_count=int(train_sample_count),
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
+                level_energy_weight=float(level_energy_weight),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -245,6 +297,7 @@ def main() -> None:
     parser.add_argument("--train_sample_count", type=int, default=4)
     parser.add_argument("--rollout_flow_steps", type=int, default=4)
     parser.add_argument("--energy_weight", type=float, default=0.2)
+    parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
@@ -339,6 +392,7 @@ def main() -> None:
         "train_sample_count": int(args.train_sample_count),
         "rollout_flow_steps": int(args.rollout_flow_steps),
         "energy_weight": float(args.energy_weight),
+        "level_energy_weight": float(args.level_energy_weight),
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
     }
@@ -365,6 +419,7 @@ def main() -> None:
             train_sample_count=int(args.train_sample_count),
             rollout_flow_steps=int(args.rollout_flow_steps),
             energy_weight=float(args.energy_weight),
+            level_energy_weight=float(args.level_energy_weight),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -381,6 +436,7 @@ def main() -> None:
                 train_sample_count=int(args.train_sample_count),
                 rollout_flow_steps=int(args.rollout_flow_steps),
                 energy_weight=float(args.energy_weight),
+                level_energy_weight=float(args.level_energy_weight),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),
