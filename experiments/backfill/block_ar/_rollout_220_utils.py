@@ -1281,6 +1281,34 @@ def load_one_day_kernel(
     return loader(checkpoint_path, device)
 
 
+def select_rollout_indices(
+    *,
+    test_start: int,
+    val_size: int,
+    history_len: int,
+    future_len: int,
+    max_windows: int | None,
+    split: str,
+) -> np.ndarray:
+    max_train_idx = int(test_start) - int(history_len) - int(future_len)
+    train_indices = np.arange(0, max_train_idx - int(val_size))
+    val_indices = np.arange(max_train_idx - int(val_size), max_train_idx)
+    if split == "train":
+        indices = train_indices
+        if max_windows is not None:
+            indices = indices[: int(max_windows)]
+    elif split == "train_tail":
+        n = int(val_size) if max_windows is None else int(max_windows)
+        indices = train_indices[-n:]
+    elif split == "val":
+        indices = val_indices
+        if max_windows is not None:
+            indices = indices[: int(max_windows)]
+    else:
+        raise ValueError(f"unknown split {split!r}")
+    return indices.astype(np.int64)
+
+
 def build_rollout_windows(
     data_path: str,
     history_len: int,
@@ -1295,12 +1323,14 @@ def build_rollout_windows(
     surfaces = raw["surface"].astype(np.float32)
     surf_tensor = torch.from_numpy(surfaces).to(device)
 
-    max_train_idx = test_start - history_len - future_len
-    train_indices = np.arange(0, max_train_idx - val_size)
-    val_indices = np.arange(max_train_idx - val_size, max_train_idx)
-    indices = train_indices if split == "train" else val_indices
-    if max_windows is not None:
-        indices = indices[:max_windows]
+    indices = select_rollout_indices(
+        test_start=test_start,
+        val_size=val_size,
+        history_len=history_len,
+        future_len=future_len,
+        max_windows=max_windows,
+        split=split,
+    )
 
     history_01, future_01 = build_multistep_windows(indices, surf_tensor, history_len, future_len)
     history_norm = normalize_iv(history_01)

@@ -105586,3 +105586,22 @@ The remaining pattern is more fundamental: the shared stochastic core can co-mod
 Do not add another decoder/readout variant. Keep 688a as the framework-lock baseline and treat 689a as a falsifier. The next HEAD cycle should be post-experiment analysis of objective allocation under the frozen recipe: compare IV-only 674a, joint 676a, and group-head 689a in train-tail/validation by cell/horizon to identify whether the joint IV loss is an in-training fit failure, validation shift, or scalar objective allocation failure.
 
 ---
+## 2026-04-28: 690a train-tail objective allocation diagnostic
+
+### Context
+690a completed the required post-experiment attribution after 689a. The question was whether joint IV degradation under the frozen tri-scope recipe is mainly validation distribution shift, weak training fit, or simple output-head interference.
+
+### Execution
+- Added `--eval_split {val,train,train_tail}` to the 662a/666a full-suite evaluator, backed by a shared `select_rollout_indices(...)` helper.
+- Added a regression test for the train-tail split semantics.
+- Ran train-tail full 11-suite audits for the frozen-recipe IV-only incumbent 674a, joint incumbent 676a, and group-head joint variant 689a.
+
+### Findings
+- 674a IV-only train-tail reached 7/11: coverage and level law are learnable under the normalized-innovation AR flow family, though conditionality, regime width, time-series kurtosis, and pathwise max-jump still fail.
+- 676a joint38 train-tail reached only 5/11: joint IV failure is already present on training-period windows, so it is not primarily a validation OOD explanation.
+- 689a group-head train-tail reached 6/11: group-specific heads repair some in-sample level/median allocation and preserve pathwise realism, but coverage, conditionality, kurtosis, and h7 mean reversion still fail. Validation remained 5/11.
+
+### Decision
+This falsifies "just add a more expressive output head" as the main explanation. The current bottleneck is a joint co-training allocation problem: the same core can model IV-only and anchor-only realism, but joint training still misallocates IV probability mass and uncertainty. The next principled step is not another decoder variant; it is a universal, scope-agnostic objective/data-object analysis or fix that preserves one scalar recipe across IV-only, anchor-only, and joint.
+
+---

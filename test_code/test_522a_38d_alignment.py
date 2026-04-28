@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.backfill.baselines.data_loader_38d import load_aligned_38d_data
 from experiments.backfill.baselines.evaluate_baselines_38d import reconstruct_iv_surfaces
-from experiments.backfill.block_ar._rollout_220_utils import build_rollout_windows
+from experiments.backfill.block_ar._rollout_220_utils import build_rollout_windows, select_rollout_indices
 from experiments.backfill.block_ar.evaluate_522a_38d_full11_bridge import (
     build_official_aligned_38d_windows,
 )
@@ -50,3 +50,20 @@ def test_522a_38d_windows_align_to_official_full_suite_future():
         atol=1e-7,
     )
     assert windows["history_changes"].shape == (3, 30, 38)
+
+
+def test_select_rollout_indices_supports_train_tail_split():
+    kwargs = dict(test_start=100, val_size=10, history_len=5, future_len=5)
+
+    np.testing.assert_array_equal(
+        select_rollout_indices(**kwargs, max_windows=3, split="train"),
+        np.array([0, 1, 2]),
+    )
+    np.testing.assert_array_equal(
+        select_rollout_indices(**kwargs, max_windows=3, split="train_tail"),
+        np.array([77, 78, 79]),
+    )
+    np.testing.assert_array_equal(
+        select_rollout_indices(**kwargs, max_windows=3, split="val"),
+        np.array([80, 81, 82]),
+    )

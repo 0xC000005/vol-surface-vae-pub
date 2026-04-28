@@ -18,15 +18,13 @@ sys.path.insert(0, ".")
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
     load_model,
 )
-from experiments.backfill.block_ar._factor_conditioning_525_utils import (  # noqa: E402
-    official_train_val_indices,
-)
 from experiments.backfill.block_ar._panel_law_535_utils import (  # noqa: E402
     load_aligned_iv_factor_panel,
 )
 from experiments.backfill.block_ar._rollout_220_utils import (  # noqa: E402
     build_rollout_windows,
     make_serializable,
+    select_rollout_indices,
     write_markdown_summary,
 )
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
@@ -99,18 +97,18 @@ def build_val_block(
             ),
         )
     )
-    _train_indices, val_indices = official_train_val_indices(
+    indices = select_rollout_indices(
         test_start=int(args.test_start),
         val_size=int(args.val_size),
         history_len=int(payload["config"]["history_len"]),
         future_len=int(payload["config"]["future_len"]),
+        max_windows=int(args.max_windows) if int(args.max_windows) > 0 else None,
+        split=args.eval_split,
     )
-    if int(args.max_windows) > 0:
-        val_indices = val_indices[: int(args.max_windows)]
     block = build_increment_coordinate_block(
         panel,
         columns,
-        val_indices,
+        indices,
         history_len=int(payload["config"]["history_len"]),
         future_len=int(payload["config"]["future_len"]),
         iv_count=int(args.iv_count),
@@ -246,6 +244,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data_path", default="data/vol_surface_with_ret.npz")
     parser.add_argument("--state_scope", choices=["iv_only", "joint38"], default="joint38")
+    parser.add_argument("--eval_split", choices=["val", "train", "train_tail"], default="val")
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
@@ -292,7 +291,7 @@ def main() -> None:
         val_size=int(args.val_size),
         max_windows=int(n_windows),
         device=device,
-        split="val",
+        split=args.eval_split,
     )
     alignment = alignment_diagnostics(block, batch, n_windows)
     if alignment["history_max_abs_error"] > 1e-6 or alignment["future_max_abs_error"] > 1e-6:
@@ -351,6 +350,7 @@ def main() -> None:
         "generation_time_s": float(generation_time),
         "device": str(device),
         "seed": int(args.seed),
+        "eval_split": args.eval_split,
         "alignment": alignment,
     }
     out_json = Path(args.output_json)
@@ -359,7 +359,7 @@ def main() -> None:
     out_json.write_text(json.dumps(make_serializable(results), indent=2), encoding="utf-8")
     write_markdown_summary(
         out_md,
-        "662a State-Aware Normalized-Innovation AR Flow Official IV 11-Suite",
+        f"662a State-Aware Normalized-Innovation AR Flow Official IV 11-Suite ({args.eval_split})",
         summarize_results(results, alignment),
     )
     print(json.dumps(make_serializable(results["summary"]), indent=2))
