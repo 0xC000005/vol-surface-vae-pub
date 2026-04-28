@@ -106433,3 +106433,40 @@ Continue normalized-innovation research, but future progress must be reported ag
 - `results/block_ar/712a_general_acceptance_scorecard/current_task_specialized_frontier_scorecard.md`
 
 ---
+## 2026-04-28: 713a frozen-framework scorecard baseline
+
+### Context
+
+712a first ran the new general acceptance scorecard on the task-specialized frontier (`674a` IV, `688a` anchor, `698b` joint), which failed all four gates including the framework gate. Before modifying the model, this iteration scored the true frozen normalized-innovation tri-scope baseline.
+
+### Result
+
+Scored `674a` IV-only + `688a` anchor-only + `676a` joint38 as one frozen zero-center normalized-innovation framework:
+
+- overall pass: `false`
+- IV gate: `false`
+- anchor gate: `false`
+- joint gate: `false`
+- framework gate: `true`
+
+### Mechanism Read
+
+The single-framework definition is not the immediate blocker for the frozen baseline: it passes the framework gate. The failure is performance under that frozen recipe:
+
+- IV fails effective suites: `coverage`, `regime_coverage`, `distributional_fidelity`.
+- Anchor fails: `factor_delta_ks`, `conditional_panel`.
+- Joint fails: `factor_delta_ks`, `conditional_panel`.
+
+This is cleaner than the task-specialized frontier read. The next repair can keep the framework frozen and should target the common performance failures, not framework consistency.
+
+### Decision
+
+Continue with a frozen-framework normalized-innovation repair. The first repair should target IV lower-tail/regime under-inclusion without changing backend/sampler/framework identity. It must then be checked against anchor and joint panel gates to avoid improving IV by breaking generality.
+
+### Artifacts
+
+- `results/block_ar/713a_frozen_framework_scorecard/674_688_676_frozen_baseline_manifest.json`
+- `results/block_ar/713a_frozen_framework_scorecard/scorecard.json`
+- `results/block_ar/713a_frozen_framework_scorecard/scorecard.md`
+
+---
