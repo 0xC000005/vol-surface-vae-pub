@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 718,
-  "last_iteration_type": "experiment",
+  "iteration": 719,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "717a tested observed-positive log-level support as a frozen tri-scope coordinate repair. Framework consistency passed, but IV regressed to 6/11 and anchor/joint still failed factor_delta_ks only on AAA/BBB OAS. Observed-positive support is rejected as the frozen base recipe.",
+  "current_framework_status": "718a completed post-experiment attribution after 717a. Framework consistency is not the blocker. OAS failure is now classified as sticky/zero-inflated spread dynamics inside a continuous-only normalized-innovation law; IV failure remains separate turbulent long-horizon undercoverage/level fidelity.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The viable base remains the zero-center normalized-coordinate incumbent. Remaining failures are still localized but now better classified: IV turbulent long-horizon undercoverage/level fidelity and AAA/BBB OAS marginal mismatch. OAS is not fixed by score-coordinate or observed-positive log-level support, so the likely issue is sticky/zero-inflated spread increments or state-dependent spread-jump dynamics rather than simple positive support.",
-  "last_result_summary": "717a trained/fine-tuned a frozen observed-positive normalized-innovation recipe on IV-only, anchor-only, and joint38. Scorecard: overall=false; framework=true; IV=false with 6/11 (cov90=0.715, daily KS 24/25, level KS 8/25, max-jump KS 0.344, risk-state allocation pass); anchor=false with factor KS 11/13 and AAA/BBB OAS failing; joint=false with factor KS 11/13, AAA/BBB failing, and IV-factor matrix corr 0.908.",
-  "next_step_recommendation": "Run post-experiment analysis before any new model change. Quantify AAA/BBB OAS zero/no-change mass, jump-state dependence, encoded-increment distribution, and train-vs-val mismatch; also compare IV long-horizon coverage to the incumbent. Only after root cause is clear consider a generic mixed discrete-continuous/sticky innovation coordinate or objective, and only if it can remain a single frozen framework across IV, anchor, and joint.",
+  "current_bottleneck": "Two local blockers remain. First, AAA/BBB OAS have high no-change mass and state-dependent jumps that continuous normalized innovations smear into small moves and occasional excessive excursions. Second, IV still has turbulent long-horizon undercoverage/level fidelity failure. OAS raw train/val drift is not the main explanation because validation OAS tails are calmer than train and raw-delta KS is moderate.",
+  "last_result_summary": "718a audited OAS data and recent variants. AAA zero-rate train/val=0.435/0.474; BBB=0.265/0.383. Validation raw q99 is calmer than train (AAA ratio 0.222, BBB 0.417). Raw train/val KS is moderate (AAA 0.058, BBB 0.136). Recent variants all leave AAA/BBB as blockers except partial anchor-only score-coordinate relief, while observed-positive support worsens OAS excursions. IV comparison shows 717 is worse than the 674/711 incumbent on cov90 and h30 worst-cell coverage.",
+  "next_step_recommendation": "Run a decisive experiment for a generic sticky/mixed discrete-continuous innovation coordinate for channels with empirical no-change atoms. Keep the core AR flow and frozen tri-scope protocol. The change should be variable-type/data-coordinate based, not OAS-specific and not a scope-specific loss recipe.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. The clean frozen normalized-innovation baseline now has a precise 712a scorecard reading: framework=true but IV/anchor/joint=false. It is scientifically the right baseline for generality, but not deployable.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "cb20f86",
+  "last_commit": "5fcd841",
   "resume_command_hint": "continue autoresearch"
 }
