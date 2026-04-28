@@ -147,3 +147,51 @@ def test_normalized_rollout_energy_loss_can_score_level_paths():
     assert metrics_without_level["level_energy"].item() == 0.0
     assert metrics_with_level["level_energy"].item() > 0.0
     assert loss_with_level > loss_without_level
+
+
+def test_normalized_rollout_energy_loss_can_score_channel_balanced_level_paths():
+    torch.manual_seed(31)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(37)
+    loss_without_channel, metrics_without_channel = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        channel_level_energy_weight=0.0,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+    torch.manual_seed(37)
+    loss_with_channel, metrics_with_channel = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        channel_level_energy_weight=0.1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss_with_channel)
+    assert metrics_without_channel["channel_level_energy"].item() == 0.0
+    assert metrics_with_channel["channel_level_energy"].item() > 0.0
+    assert loss_with_channel > loss_without_channel

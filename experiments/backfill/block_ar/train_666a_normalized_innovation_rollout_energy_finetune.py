@@ -36,6 +36,42 @@ from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_
 )
 
 
+def channelwise_path_energy_score(
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    eps: float = 1e-6,
+    horizon_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Energy score averaged per channel so weak coordinates are not washed out."""
+    if samples.ndim != 4 or target.ndim != 3:
+        raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
+    if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
+        raise ValueError("samples and target path dimensions do not match")
+    if horizon_weights is None:
+        weights = torch.ones(samples.shape[-2], device=samples.device, dtype=samples.dtype)
+    else:
+        if horizon_weights.shape != (samples.shape[-2],):
+            raise ValueError(
+                f"horizon_weights must have shape ({samples.shape[-2]},), "
+                f"got {tuple(horizon_weights.shape)}"
+            )
+        weights = horizon_weights.to(device=samples.device, dtype=samples.dtype)
+    weighted_samples = samples * weights.view(1, 1, samples.shape[-2], 1)
+    weighted_target = target * weights.view(1, target.shape[-2], 1)
+    per_channel_samples = weighted_samples.permute(0, 3, 1, 2)
+    per_channel_target = weighted_target.permute(0, 2, 1)
+    scale = torch.sqrt(weights.square().sum()).clamp_min(1e-12)
+    target_dist = torch.sqrt(
+        (per_channel_samples - per_channel_target[:, :, None, :]).pow(2).sum(dim=-1) + float(eps)
+    ).mean(dim=2) / scale
+    bsz, n_cells, n_samples, horizon = per_channel_samples.shape
+    flat_samples = per_channel_samples.reshape(bsz * n_cells, n_samples, horizon)
+    pair_dist = torch.cdist(flat_samples, flat_samples, p=2).mean(dim=(1, 2)).view(bsz, n_cells) / scale
+    score = target_dist - 0.5 * pair_dist
+    return score.mean(), target_dist.mean(), pair_dist.mean()
+
+
 def differentiable_rollout_paths(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     history_level_values: torch.Tensor,
@@ -150,6 +186,7 @@ def normalized_rollout_energy_loss(
     energy_eps: float,
     temperature: float,
     level_energy_weight: float = 0.0,
+    channel_level_energy_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -193,10 +230,22 @@ def normalized_rollout_energy_loss(
         level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+    if float(channel_level_energy_weight) > 0.0:
+        channel_level_energy, channel_level_target_dist, channel_level_pair_dist = channelwise_path_energy_score(
+            sampled_level,
+            future_level_values,
+            eps=float(energy_eps),
+            horizon_weights=weights,
+        )
+    else:
+        channel_level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        channel_level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        channel_level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     total = (
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
         + float(level_energy_weight) * level_energy
+        + float(channel_level_energy_weight) * channel_level_energy
     )
     metrics = {
         "total": total.detach(),
@@ -207,6 +256,9 @@ def normalized_rollout_energy_loss(
         "level_energy": level_energy.detach(),
         "level_energy_target_dist": level_target_dist.detach(),
         "level_energy_pair_dist": level_pair_dist.detach(),
+        "channel_level_energy": channel_level_energy.detach(),
+        "channel_level_energy_target_dist": channel_level_target_dist.detach(),
+        "channel_level_energy_pair_dist": channel_level_pair_dist.detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
         "target_level_std": future_level_values.std(unbiased=False).detach(),
@@ -228,6 +280,7 @@ def run_epoch(
     rollout_flow_steps: int,
     energy_weight: float,
     level_energy_weight: float,
+    channel_level_energy_weight: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -255,6 +308,7 @@ def run_epoch(
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
                 level_energy_weight=float(level_energy_weight),
+                channel_level_energy_weight=float(channel_level_energy_weight),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -298,6 +352,7 @@ def main() -> None:
     parser.add_argument("--rollout_flow_steps", type=int, default=4)
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
+    parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
@@ -393,6 +448,7 @@ def main() -> None:
         "rollout_flow_steps": int(args.rollout_flow_steps),
         "energy_weight": float(args.energy_weight),
         "level_energy_weight": float(args.level_energy_weight),
+        "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
     }
@@ -420,6 +476,7 @@ def main() -> None:
             rollout_flow_steps=int(args.rollout_flow_steps),
             energy_weight=float(args.energy_weight),
             level_energy_weight=float(args.level_energy_weight),
+            channel_level_energy_weight=float(args.channel_level_energy_weight),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -437,6 +494,7 @@ def main() -> None:
                 rollout_flow_steps=int(args.rollout_flow_steps),
                 energy_weight=float(args.energy_weight),
                 level_energy_weight=float(args.level_energy_weight),
+                channel_level_energy_weight=float(args.channel_level_energy_weight),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),

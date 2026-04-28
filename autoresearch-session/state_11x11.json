@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 671,
+  "iteration": 672,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "671a closes global temperature as the primary path. Small temperature scaling is safe enough for pathwise realism but does not fix persistent per-cell level-law, conditional width, or regime coverage failures.",
-  "last_result_summary": "671a evaluated the 669a checkpoint at sample_temperature=1.05 and reached 6/11. Coverage90 improved to 0.764 but stayed below 666a at 0.777; pathwise max-jump KS stayed acceptable at 0.397; level KS stayed 10/25; median-bias stayed 12/25; conditional worst-cell width ratio stayed bad at 1.481; mean reversion failed again.",
-  "next_step_recommendation": "Return to training-objective design. The next hypothesis is that global path energy is dominated by high-scale/easy coordinates, so weak cells remain poorly calibrated; test a channel-balanced proper score rather than factor-specific knobs or more temperature scaling.",
+  "current_bottleneck": "672a shows channel-balanced level scoring moves level diagnostics slightly but not enough to change gates. Persistent failures are per-cell level law, coverage, conditional width, regime layer-2 coverage, and h7 mean reversion.",
+  "last_result_summary": "672a IV-only added channel_level_energy_weight=0.05 and reached 6/11. Validation objective improved to 1.779, worst level KS improved to 0.363, and median-bias pass count improved to 13/25, but level KS pass count stayed 10/25, coverage90 was 0.757, pathwise KS was 0.394, and failed suites remained coverage, conditionality, regime coverage, distributional fidelity, and mean reversion.",
+  "next_step_recommendation": "Before adding new mechanisms, test data/training sufficiency: run the same clean objective with more train windows and/or longer convergence. This is more Bitter-Lesson aligned than another factor-specific or architecture-specific knob.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general IV/anchor/joint state-aware normalized-innovation family, 666a is the current best: IV-only and joint38 both reach 6/11 with one sampled-rollout objective and anchor-only remains acceptable. For native IV+anchor joint generation, this is more methodologically defensible than post-hoc glued stress decks because one stochastic mechanism generates the panel.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "pending 671a commit",
+  "last_commit": "pending 672a commit",
   "resume_command_hint": "continue autoresearch"
 }

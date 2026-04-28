@@ -105086,3 +105086,26 @@ Close global temperature as the main improvement path. The next principled axis 
 - `results/validations/2026-04-27/671a_669a_temp105/iv_val_full11.json`
 
 ---
+## 2026-04-28: 672a channel-balanced level score moves diagnostics but not gates
+
+### Context
+672a added a channel-balanced encoded-level path energy score with weight `0.05`, while keeping the 666a normalized-innovation rollout energy score unchanged. The hypothesis was that global path energy is dominated by high-scale/easy coordinates, allowing weak cells to remain poorly calibrated.
+
+### Result
+- IV-only `672a` reached `6/11`, tying the clean-family frontier but not improving it.
+- Validation objective improved to `1.779`, better than the 666a/669a variants, but suite pass count did not move.
+- Level KS pass count remained `10/25`, though worst level KS improved to `0.363`; median-bias pass count improved to `13/25`.
+- Coverage90 was `0.757`, below 666a's `0.777`; pathwise max-jump KS stayed acceptable at `0.394`.
+- Failed suites: coverage, conditionality, regime coverage, distributional fidelity, mean reversion.
+
+### Mechanism Read
+Channel-balanced level scoring moves level diagnostics in the right direction but not enough to change gates. The model remains stuck on persistent per-cell level-law and coverage failures. This looks less like missing level-awareness and more like either insufficient convergence/data diversity or an objective-suite mismatch where proper-score improvements do not map to the strict per-cell gates.
+
+### Decision
+Keep the channel-balanced score as a clean, general objective component, but do not promote `672a` over `666a`. The next principled test should check data/training sufficiency before adding new mechanisms: run the same clean objective with more available train windows and/or longer convergence rather than adding another architecture knob.
+
+### Artifacts
+- `models/backfill/672a_iv_norminnov_rollout_channel_level_w005_e1_s6721/best_model.pt`
+- `results/validations/2026-04-27/672a_channel_level_energy/iv_val_full11.json`
+
+---
