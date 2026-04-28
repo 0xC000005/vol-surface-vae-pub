@@ -105040,3 +105040,26 @@ Keep `666a` as the current clean-family baseline because it has the better deplo
 - `results/validations/2026-04-27/669a_rollout_level_energy/iv_val_full11.json`
 
 ---
+## 2026-04-28: 670a aggressive temperature calibration over-broadens paths
+
+### Context
+670a tested a calibration-only axis on the pathwise-strong `669a` checkpoint: evaluate with global `sample_temperature=1.15` instead of `1.0`. This asks whether the remaining undercoverage and regime-width failures can be repaired by a single backend-agnostic uncertainty calibration, without changing architecture or data preprocessing.
+
+### Result
+- IV-only `670a` reached only `4/11`, down from `669a` at `6/11`.
+- Overall coverage90 improved to `0.818` and calibration error improved to `0.047`.
+- The improvement was not usable: pathwise max-jump KS worsened to `0.683`, per-cell q99 tail-scale pass count fell to `17/25`, kurtosis ratio fell to `0.688`, and mean reversion failed again.
+- Level KS stayed `10/25` and median-bias pass count fell to `11/25`.
+- Failed suites: coverage, conditionality, time series, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+### Mechanism Read
+Aggressive global temperature fixes aggregate interval width by injecting too much move-size variance. It does not correct the level-law/median-bias problem and it breaks the risk-manager-critical realism gates. The bottleneck is not a simple global underdispersion that can be solved by turning up all noise.
+
+### Decision
+Reject `sample_temperature=1.15` as a deployable calibration. A smaller temperature may still be worth one bounded falsifier because `1.15` overshot, but any calibration must preserve pathwise jump realism and tail-scale shape. If even a small temperature fails, the next move should return to training-objective design rather than post-hoc temperature.
+
+### Artifacts
+- `models/backfill/669a_iv_norminnov_rollout_level_energy_w01_e1_s6691/best_model.pt`
+- `results/validations/2026-04-27/670a_669a_temp115/iv_val_full11.json`
+
+---
