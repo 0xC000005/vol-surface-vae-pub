@@ -28,7 +28,12 @@ Rules for this invocation:
    - create one focused git commit for that iteration
 5. If the pathology becomes unclear or the active line starts accumulating too many knobs, do not keep stacking local experiments:
    - switch to post-experiment analysis, research ideation, or paradigm shift as appropriate
-6. Continue until stopped only by:
+6. Enforce the single-framework candidate gate:
+   - a model is not a framework candidate unless the same frozen recipe is run on IV-only, anchor-only, and joint scopes
+   - allowed differences are input/output dimensions, support transforms, input heads, decoder heads, and deterministic channel/group balancing
+   - forbidden differences are scope-specific losses, loss weights, backend, prior, sampler, calibration layer, or post-hoc glued decks
+   - if the best scope-specific runs use different recipes, run framework-lock analysis/experiments before adding another knob
+7. Continue until stopped only by:
    - the goal being reached
    - `autoresearch-session/STOP` existing
    - the configured hard iteration cap being reached

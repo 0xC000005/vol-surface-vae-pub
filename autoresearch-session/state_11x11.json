@@ -4,11 +4,18 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 686,
-  "last_iteration_type": "experiment",
+  "iteration": 687,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
+  "single_framework_candidate_gate": "A framework candidate must freeze one recipe and evaluate it on iv_only, anchor_only, and joint. Allowed differences are input/output dimensionality, support transforms, input heads, decoder heads, and deterministic channel/group balancing. Scope-specific losses, loss weights, backend, prior, sampler, calibration layer, or glued separately sampled decks are not allowed for a framework claim.",
+  "tri_scope_candidate_scopes": [
+    "iv_only",
+    "anchor_only",
+    "joint"
+  ],
+  "current_framework_status": "Not yet validated as a single framework. 675a/674a, 666a, and 682a are related state-aware normalized-innovation runs, but their best recipes differ, so they are task-specialized frontiers until a frozen recipe is tested across all three scopes.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -25,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "686a shows scalar path-correlated base noise is not the missing piece. A data-derived AR(1) prior improves aggregate mean-reversion ratio and validation objective but narrows the generated law, worsening coverage, persistent undercoverage, level KS, median-bias magnitude, and cointegration. The active bottleneck is uncertainty allocation across level regions/cells/horizons, not just temporal correlation of base noise.",
-  "last_result_summary": "686a added base_noise_rho to the normalized-innovation flow and fine-tuned 676a joint38 with rho=-0.21352030200845 estimated from training normalized innovations. Best val_total improved to 1.7851, but high-sample IV-facing suite reached only 4/11: coverage90 0.754, calibration 0.109, persistent severe undercoverage 7.1%, level KS 14/25, median-bias magnitude 21/25, cointegration worst-cell ratio 0.225 fail, h7 mean-reversion ratio 1.410 fail, pathwise KS 0.448 pass. Joint panel stayed acceptable with factor delta KS mean 0.099, 11/13 factor KS pass, factor-factor corr 0.781, IV-factor corr 0.888.",
-  "next_step_recommendation": "Do not tune scalar rho further. Keep correlated-prior plumbing as a falsification tool but return active checkpoint to 682a for native joint38. Next run post-experiment analysis or ideation on uncertainty allocation: identify the persistent undercovered cells/horizons and whether the encoder/readout representation is failing to allocate width by level region.",
+  "current_bottleneck": "Workflow/candidate-definition bottleneck: recent autoresearch found task-specialized frontiers for IV-only, anchor-only, and joint, but did not force a single frozen recipe through all three scopes before treating a variant as a framework candidate. This made trade-offs hard to attribute and encouraged local frontier chasing.",
+  "last_result_summary": "687a tightened the autoresearch workflow: single-framework candidates must now freeze the generated coordinate, normalization family, temporal factorization, backend/stochastic source, shared core, scalar loss terms, loss weights, sampler, and training protocol, then run IV-only, anchor-only, and joint. Data-interface differences such as dimensions, support transforms, input/output heads, and deterministic channel/group balancing are allowed; scope-specific loss recipes or weights are not.",
+  "next_step_recommendation": "Run a framework-lock HEAD cycle. Freeze the clean zero-centered normalized-innovation AR flow recipe with one universal rollout/channel-level objective, then evaluate or rerun IV-only, anchor-only, and joint under the exact same recipe. If the tri-scope pattern fails, perform trade-off attribution before adding any new model knob.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11, while 682a is now the best native joint38 checkpoint at 6/11 with acceptable anchor panel quality and preserved IV-factor co-movement.",
@@ -35,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "e0f1299 docs: autoresearch 685a contrast failure ideation",
+  "last_commit": "97774d5 feat: autoresearch 686a ar1 base prior",
   "resume_command_hint": "continue autoresearch"
 }

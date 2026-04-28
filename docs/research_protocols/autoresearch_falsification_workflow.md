@@ -161,19 +161,79 @@ To avoid over-engineering for IV-only or joint-IV-anchor artifacts:
   drifting log asset, spread-like spike process, and correlated multi-factor
   process.
 
+## Single-Framework Candidate Gate
+
+An experiment is not a framework candidate just because it is best-in-class for
+one scope. A candidate must define a frozen `framework_id` and run the same
+recipe on all required scopes:
+
+- `iv_only`;
+- `anchor_only`;
+- `joint`.
+
+The `framework_id` freezes:
+
+- generated coordinate and normalization family;
+- temporal factorization;
+- backend and stochastic source;
+- shared core architecture;
+- scalar training objective, loss terms, loss weights, sampler, and training
+  protocol;
+- evaluation sample count and audit protocol used for candidate comparison.
+
+Allowed scope differences are limited to data-interface adaptations:
+
+- input dimension and output dimension;
+- support/coordinate transform implied by variable type;
+- input heads and decoder heads;
+- deterministic channel or group balancing computed by the same formula across
+  scopes.
+
+Not allowed in a framework candidate:
+
+- IV-specific, anchor-specific, or joint-specific loss recipes;
+- different rollout-energy or contrast weights per scope;
+- scope-specific backend, AR/one-shot, prior, sampler, or calibration layer;
+- post-hoc glue of separately sampled decks presented as one conditional law.
+
+If the best IV-only, anchor-only, and joint results come from different recipes,
+they must be labeled as task-specialized frontiers, not a validated framework.
+The next iteration must then be a framework-lock experiment or a
+post-experiment analysis explaining why one frozen recipe trades off across
+scopes.
+
+## Trade-Off Attribution Gate
+
+Before adding a new knob after a tri-scope mismatch, the loop must explain why
+one frozen recipe fails differently on `iv_only`, `anchor_only`, and `joint`.
+The report should compare:
+
+- train versus validation behavior for each scope;
+- marginal realism, path realism, conditionality, diversity, and dependency
+  failures for each scope;
+- whether the issue is caused by the data object, objective balancing, shared
+  core capacity, input/output head interference, or distribution shift;
+- whether a proposed change is a universal mechanism or a task-specific patch.
+
+Only after this attribution can a new model change be made. If the attribution
+is not clear, choose `post_experiment_analysis` or `research_ideation` rather
+than another experiment.
+
 ## Iteration Report Template
 
 Each autoresearch result should include:
 
 1. Hypothesis.
-2. Active research axis and axes held fixed.
-3. Methodology and knobs added.
-4. Required audits run.
-5. Result summary.
-6. Failure classification.
-7. Literature searched, if required by the Literature Search Gate.
-8. Minimal next fix.
-9. Explicit statement: continue current methodology or justify switch.
+2. Framework ID and Single-Framework Candidate Gate status.
+3. Active research axis and axes held fixed.
+4. Methodology and knobs added.
+5. Required audits run.
+6. Result summary.
+7. Failure classification.
+8. Trade-off attribution across scopes when applicable.
+9. Literature searched, if required by the Literature Search Gate.
+10. Minimal next fix.
+11. Explicit statement: continue current methodology or justify switch.
 
 ## Switch Bar
 

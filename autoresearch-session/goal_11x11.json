@@ -20,6 +20,9 @@
     "no_teacher_engineering_in_core_spec",
     "no_domain_specific_post_hoc_corrections",
     "no_evaluator_specific_hacks",
+    "single_framework_tri_scope_candidate_gate",
+    "no_task_specific_loss_recipes_for_framework_claims",
+    "data_adapters_heads_and_support_transforms_allowed",
     "append_RESEARCH_LOG_via_research-log-tail-append",
     "one_commit_per_iteration"
   ],

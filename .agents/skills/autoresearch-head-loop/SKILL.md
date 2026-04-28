@@ -103,6 +103,46 @@ Instead:
 
 The goal is not only `11/11`. The goal is `11/11` with a model that remains elegant, publishable, and defensible as a generalizable conditional scenario generator.
 
+## Single-Framework Candidate Gate
+
+For this repository, a result is **not** a validated framework candidate unless the same frozen `framework_id` is evaluated on:
+
+- `iv_only`
+- `anchor_only`
+- `joint`
+
+The `framework_id` freezes the generated coordinate, normalization family, temporal factorization, backend/stochastic source, shared core, scalar loss terms, loss weights, sampler, and training protocol.
+
+Allowed scope differences are only data-interface adaptations:
+
+- input and output dimensionality
+- support/coordinate transform implied by variable type
+- input heads and decoder heads
+- deterministic channel/group balancing from the same formula
+
+Not allowed for a single framework candidate:
+
+- IV-specific, anchor-specific, or joint-specific loss recipes
+- different rollout-energy or contrast weights per scope
+- scope-specific backend, prior, sampler, AR/one-shot choice, or calibration layer
+- post-hoc gluing of separately sampled decks presented as one joint conditional law
+
+If the best runs for IV-only, anchor-only, and joint use different recipes, label them as task-specialized frontiers and choose a framework-lock experiment or a post-experiment trade-off attribution before adding more knobs.
+
+## Trade-Off Attribution Gate
+
+When one frozen recipe works on one scope but fails on another, do not switch variants immediately. First classify the trade-off across:
+
+- train versus validation behavior
+- marginal realism
+- path realism
+- conditionality
+- diversity
+- dependency and co-movement
+- data object, objective balancing, shared-core capacity, head interference, and distribution shift
+
+If the trade-off mechanism is not clear enough to state in concrete causal terms, the next HEAD iteration must be `post_experiment_analysis` or `research_ideation`, not another model tweak.
+
 ## In-Session Workflow
 
 When the user says things like:

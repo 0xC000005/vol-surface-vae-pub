@@ -105507,3 +105507,20 @@ The data-derived AR(1) base prior is not the missing piece in this form. It move
 Do not continue tuning scalar rho. Keep the correlated-prior plumbing as a reusable falsification tool, but return the active checkpoint to 682a for native joint38. The next cycle should be analysis/ideation around uncertainty allocation: why the model persistently undercovers a small set of cells/horizons while preserving daily-change and factor panels, and whether this requires a representation change rather than another prior/loss scalar.
 
 ---
+## 2026-04-28: 687a single-framework workflow gate
+
+### Context
+The autoresearch loop had found useful task-specialized frontiers, but the workflow did not force a strict framework claim. IV-only, anchor-only, and joint results could be treated as related candidates even when they used different objective details or training recipes.
+
+### Workflow change
+A candidate is now valid only if one frozen `framework_id` is evaluated on `iv_only`, `anchor_only`, and `joint`. The framework freezes the generated coordinate, normalization family, temporal factorization, backend/stochastic source, shared core, scalar loss terms, loss weights, sampler, and training protocol.
+
+Allowed differences are limited to data-interface adaptations: input/output dimensionality, support transforms by variable type, input heads, decoder heads, and deterministic channel/group balancing computed by the same formula. Scope-specific losses, loss weights, backend choices, priors, samplers, calibration layers, or glued separately sampled decks are not allowed for a framework claim.
+
+### Mechanism read
+The previous loop failure was a candidate-definition failure, not evidence that three separate recipes are necessary. Best IV-only, anchor-only, and joint artifacts are currently task-specialized frontiers until a frozen recipe is tested across all three scopes.
+
+### Decision / next step
+Resume autoresearch with a framework-lock HEAD cycle: freeze the clean zero-centered normalized-innovation AR flow recipe with one universal rollout/channel-level objective, then run or audit IV-only, anchor-only, and joint under the exact same recipe. If the tri-scope result fails, perform trade-off attribution before adding any new knob.
+
+---
