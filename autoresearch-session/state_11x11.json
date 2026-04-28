@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 667,
+  "iteration": 668,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "667a shows the next bottleneck is not rollout integration fidelity. Increasing differentiable rollout flow steps from 4 to 8 improves pathwise max-jump KS but worsens overall suite balance, especially coverage, cointegration, distributional fidelity, and mean reversion.",
-  "last_result_summary": "667a IV-only with rollout_flow_steps=8 reached 5/11, below 666a IV-only at 6/11. Pathwise max-jump KS improved to 0.306, but coverage90 fell to 0.750, conditional MAE reduction fell to 9.8%, and failed suites were coverage, conditionality, cointegration, regime coverage, distributional fidelity, and mean reversion. Val rollout objective was also worse at 1.845 versus about 1.803 for 666a.",
-  "next_step_recommendation": "Keep 666a as the current clean-family baseline. Do not run joint38/anchor for flow_steps=8. The next one-axis experiment should test proper-score sample quality instead: keep rollout_flow_steps=4 and increase train_sample_count, or if that fails, consider a level-law-aware rollout term.",
+  "current_bottleneck": "668a shows neither longer rollout integration nor higher energy-score sample count is the direct next fix. The sampled-rollout family is promising (666a gives 6/11 on IV and joint), but improving coverage/level law without losing pathwise shape requires a targeted level-law/regime proper-score component, not generic broader energy estimation.",
+  "last_result_summary": "668a IV-only with train_sample_count=4 and rollout_flow_steps=4 reached 5/11 versus 666a IV-only at 6/11. Coverage90 improved to 0.798 and calibration error to 0.058, while conditional MAE reduction stayed 11.0%, but pathwise max-jump KS regressed to 0.548, level KS stayed 10/25, median-bias stayed 14/25, and failed suites were coverage, conditionality, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.",
+  "next_step_recommendation": "Keep 666a as the current clean-family baseline. Do not run joint38/anchor for k=4. The next one-axis experiment should add a level-law-aware rollout proper-score term, or a learned width/level calibration term, while preserving 666a k=2/flow_steps=4 pathwise shape.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general IV/anchor/joint state-aware normalized-innovation family, 666a is the current best: IV-only and joint38 both reach 6/11 with one sampled-rollout objective and anchor-only remains acceptable. For native IV+anchor joint generation, this is more methodologically defensible than post-hoc glued stress decks because one stochastic mechanism generates the panel.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "a4edeb6 feat: autoresearch 666a rollout energy",
+  "last_commit": "pending 668a commit",
   "resume_command_hint": "continue autoresearch"
 }

@@ -104994,3 +104994,26 @@ Do not spend joint38/anchor compute on `flow_steps=8`. Keep 666a as the current 
 - `results/validations/2026-04-27/667a_rollout_energy_fs8/iv_val_full11.json`
 
 ---
+## 2026-04-28: 668a higher rollout sample count trades coverage for pathwise shape
+
+### Context
+668a tested the other simple rollout-objective hyper-axis after 666a: keep rollout flow steps at `4`, but increase train sample count from `2` to `4` for IV-only. This checks whether 666a's remaining calibration failures are due to a noisy low-sample energy-score estimator.
+
+### Result
+- IV-only `668a` reached `5/11`, worse than `666a` IV-only `6/11`.
+- Coverage90 improved to `0.798` and calibration error improved to `0.058`, but pathwise max-jump KS regressed to `0.548` and failed.
+- Conditional MAE reduction stayed strong at `11.0%`, but per-cell width ratio still failed with worst cell `1.507`.
+- Level KS remained weak with `10/25` pass and median-bias `14/25` pass.
+- Failed suites: coverage, conditionality, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+
+### Mechanism Read
+Increasing energy-score sample count broadens/calibrates coverage but loses the pathwise jump-shape repair that made 666a useful. This is not simply estimator-noise underfitting. The objective now needs a more targeted way to preserve level-law/regime coverage without destroying pathwise max-jump shape.
+
+### Decision
+Keep 666a (`k=2`, `flow_steps=4`) as the rollout-energy baseline. Do not run joint38/anchor for `k=4`. The next principled move is a level-law-aware sampled rollout term or a conservative but learned width/level calibration term, applied as one additional proper-score component rather than a post-hoc risk knob.
+
+### Artifacts
+- `models/backfill/668a_iv_norminnov_rollout_energy_w02_k4_fs4_e1_s6681/best_model.pt`
+- `results/validations/2026-04-27/668a_rollout_energy_k4/iv_val_full11.json`
+
+---
