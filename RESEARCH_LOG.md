@@ -106059,3 +106059,86 @@ The source-scale control point is scientifically right, but the current objectiv
 This remains first-principles aligned if framed as a proper scoring/calibration fix: conditional scenario generation requires learning both conditional center and conditional dispersion. Current losses are rewarding path proximity more than calibrated conditional support.
 
 ---
+## 2026-04-28: 703a dispersion calibration control-path result
+
+### Context
+702b/702c showed that conditional source scaling is the right control point but collapses under FM-MSE and remains weak under vanilla rollout energy. 703a added one generic dispersion-calibration term to rollout training so the ensemble spread must match realized future normalized-innovation activity at the batch level.
+
+### Implementation
+Added `dispersion_calibration_loss` to `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+
+The loss has two parts:
+- a rank/z-score term: histories with higher realized future normalized-innovation activity should receive wider generated ensembles;
+- a global anti-collapse term: mean generated ensemble spread should not collapse far below realized future activity.
+
+This is scope-agnostic and does not use IV-specific labels.
+
+### Training Result
+Checkpoint: `models/backfill/703a_701a_riskstate_noisescale_dispcal_e3_s7031/best_model.pt`
+
+Training started from 701a with conditional source scale, rollout energy, risk-state preservation, and `dispersion_calibration_weight=0.50`.
+
+The immediate pathology improved:
+- epoch 3 source scale mean `0.730`, std `0.117`, max `0.991`
+- dispersion spread/target ratio `1.009`
+- dispersion spread/future-activity correlation `0.624`
+- sample normalized std `1.763` versus target normalized std `1.549`
+
+The 702c collapse was therefore fixed mechanically.
+
+### Risk-Channel Audit
+Validation split:
+- risk0/future-activity Spearman `0.490`
+- sampled width/future-activity Spearman `0.303`
+- zero-risk sampled width/future-activity Spearman `0.215`
+- risk context changes sampled width by `+2.97%`
+
+Train-tail split:
+- risk0/future-activity Spearman `0.758`
+- sampled width/future-activity Spearman `0.240`
+- zero-risk sampled width/future-activity Spearman `0.109`
+- risk context changes sampled width by `+5.26%`
+
+This is the first clear evidence that the intended uncertainty-control path can be moved in the right direction.
+
+### Full IV Validation Suite
+Score: `4/11`
+
+Passed:
+- surface validity
+- block-AR smoothness
+- cointegration
+- cross-cell correlation
+
+Failed:
+- coverage
+- conditionality
+- time-series properties
+- regime coverage
+- distributional fidelity
+- mean reversion
+- pathwise jump realism
+
+Important metrics:
+- cov90 `0.777`
+- conditional MAE reduction `5.0%`, but worst per-cell MAE reduction `-16.2%`
+- turbulent/calm width ratio `1.063`, failing the informational risk-policy target
+- time-series tail-scale cells `19/25`, just below gate
+- level KS only `4/25`
+- median-bias cells `11/25`
+- pathwise max-jump KS `0.640`
+
+### Joint-Panel Audit
+- factor delta KS mean `0.185`, only `8/13` factors passing
+- factor q99 ratio median `0.671`, with `13/13` still inside `[0.5, 2.0]`
+- factor-factor corr `0.780`
+- IV-factor corr `0.893`
+- conditional panel improvement `3.24%`
+
+### Interpretation
+703a proves the control path is real but the calibration target is too global. A single panel-wide future-activity target can improve aggregate uncertainty allocation while moving width into the wrong channels, cells, and horizons. This explains why risk-channel metrics improved while IV regime coverage, per-cell tail scale, level fidelity, and anchor factor KS degraded.
+
+### Decision
+Do not abandon the framework. The next principled step is not a backend switch and not a broader architecture. Replace the scalar/panel-wide dispersion calibration with a channel-aware, still generic dispersion calibration so each variable's ensemble spread is calibrated against that variable's realized normalized-innovation activity. This directly addresses the observed failure: correct aggregate spread, wrong allocation across channels.
+
+---

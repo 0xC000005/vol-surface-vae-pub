@@ -10,6 +10,7 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
     enable_conditional_base_noise_scale,
 )
 from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_energy_finetune import (
+    dispersion_calibration_loss,
     differentiable_normalized_rollout_samples,
     effective_readout_iv_count,
     marginal_crps_path_score,
@@ -98,6 +99,27 @@ def test_structured_variogram_path_score_matches_single_pair():
     score = structured_variogram_path_score(samples, target, power=1.0)
 
     torch.testing.assert_close(score, torch.tensor(1.0))
+
+
+def test_dispersion_calibration_penalizes_flat_underdispersed_spread():
+    target = torch.tensor(
+        [
+            [[2.0], [2.0]],
+            [[0.5], [0.5]],
+        ]
+    )
+    matched_samples = torch.tensor(
+        [
+            [[[2.0], [2.0]], [[-2.0], [-2.0]]],
+            [[[0.5], [0.5]], [[-0.5], [-0.5]]],
+        ]
+    )
+    flat_samples = torch.zeros_like(matched_samples) + 0.1
+
+    matched_loss, *_ = dispersion_calibration_loss(matched_samples, target)
+    flat_loss, *_ = dispersion_calibration_loss(flat_samples, target)
+
+    assert matched_loss < flat_loss
 
 
 def test_differentiable_normalized_rollout_samples_backpropagates():
@@ -396,3 +418,31 @@ def test_normalized_rollout_energy_loss_can_use_nearest_history_hard_negatives()
 
     assert torch.isfinite(loss)
     assert metrics["condition_rollout_contrast"].item() > 0.0
+
+
+def test_normalized_rollout_energy_loss_can_use_dispersion_calibration():
+    torch.manual_seed(59)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    loss, metrics = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        dispersion_calibration_weight=0.1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["dispersion_calibration"].item() >= 0.0
+    assert metrics["dispersion_spread_target_ratio"].item() >= 0.0

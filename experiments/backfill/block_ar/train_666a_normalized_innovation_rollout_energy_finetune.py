@@ -150,6 +150,39 @@ def structured_variogram_path_score(
     return (sample_diff.mean(dim=1) - target_diff).square().mean()
 
 
+def dispersion_calibration_loss(
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    eps: float = 1e-6,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Batch-wise calibration between ensemble spread and realized path activity.
+
+    The rank component asks high-realized-activity histories to receive wider
+    ensembles. The global component prevents the trivial low-spread solution.
+    """
+    if samples.ndim != 4 or target.ndim != 3:
+        raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
+    if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
+        raise ValueError("samples and target path dimensions do not match")
+    spread_activity = samples.var(dim=1, unbiased=False).mean(dim=(1, 2))
+    target_activity = target.square().mean(dim=(1, 2))
+    spread_z = (spread_activity - spread_activity.mean()) / spread_activity.std(unbiased=False).clamp_min(eps)
+    target_z = (target_activity - target_activity.mean()) / target_activity.std(unbiased=False).clamp_min(eps)
+    rank_mse = (spread_z - target_z.detach()).square().mean()
+    global_log_mse = (
+        torch.log(spread_activity.mean().clamp_min(eps))
+        - torch.log(target_activity.mean().detach().clamp_min(eps))
+    ).square()
+    spread_centered = spread_activity - spread_activity.mean()
+    target_centered = target_activity - target_activity.mean()
+    corr = (spread_centered * target_centered).mean() / (
+        spread_centered.std(unbiased=False).clamp_min(eps)
+        * target_centered.std(unbiased=False).clamp_min(eps)
+    )
+    return rank_mse + global_log_mse, rank_mse, global_log_mse, spread_activity.mean(), corr.detach()
+
+
 def standardized_level_delta_paths(
     sampled_level: torch.Tensor,
     target_level: torch.Tensor,
@@ -356,6 +389,7 @@ def normalized_rollout_energy_loss(
     condition_rollout_negative_mode: str = "roll",
     risk_state_weight: float = 0.0,
     risk_state_rank_weight: float = 0.0,
+    dispersion_calibration_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -402,6 +436,24 @@ def normalized_rollout_energy_loss(
         if float(variogram_weight) > 0.0
         else torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     )
+    if float(dispersion_calibration_weight) > 0.0:
+        (
+            dispersion_calibration,
+            dispersion_rank_mse,
+            dispersion_global_log_mse,
+            spread_activity_mean,
+            spread_future_activity_corr,
+        ) = dispersion_calibration_loss(
+            sampled_norm,
+            future_normalized_innovation,
+            eps=float(energy_eps),
+        )
+    else:
+        dispersion_calibration = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        dispersion_rank_mse = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        dispersion_global_log_mse = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        spread_activity_mean = sampled_norm.var(dim=1, unbiased=False).mean()
+        spread_future_activity_corr = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     if float(level_energy_weight) > 0.0:
         level_energy, level_target_dist, level_pair_dist = full_path_energy_score(
             sampled_level,
@@ -474,6 +526,7 @@ def normalized_rollout_energy_loss(
         + float(energy_weight) * energy
         + float(marginal_crps_weight) * marginal_crps
         + float(variogram_weight) * variogram
+        + float(dispersion_calibration_weight) * dispersion_calibration
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
         + float(condition_rollout_contrast_weight) * condition_rollout_contrast
@@ -488,6 +541,15 @@ def normalized_rollout_energy_loss(
         "marginal_crps_target_dist": marginal_crps_target_dist.detach(),
         "marginal_crps_pair_dist": marginal_crps_pair_dist.detach(),
         "variogram": variogram.detach(),
+        "dispersion_calibration": dispersion_calibration.detach(),
+        "dispersion_rank_mse": dispersion_rank_mse.detach(),
+        "dispersion_global_log_mse": dispersion_global_log_mse.detach(),
+        "dispersion_spread_activity_mean": spread_activity_mean.detach(),
+        "dispersion_target_activity_mean": future_normalized_innovation.square().mean().detach(),
+        "dispersion_spread_target_ratio": (
+            spread_activity_mean / future_normalized_innovation.square().mean().detach().clamp_min(1e-8)
+        ).detach(),
+        "dispersion_spread_future_activity_corr": spread_future_activity_corr.detach(),
         "level_energy": level_energy.detach(),
         "level_energy_target_dist": level_target_dist.detach(),
         "level_energy_pair_dist": level_pair_dist.detach(),
@@ -537,6 +599,7 @@ def run_epoch(
     condition_rollout_negative_mode: str,
     risk_state_weight: float,
     risk_state_rank_weight: float,
+    dispersion_calibration_weight: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -575,6 +638,7 @@ def run_epoch(
                 condition_rollout_negative_mode=condition_rollout_negative_mode,
                 risk_state_weight=float(risk_state_weight),
                 risk_state_rank_weight=float(risk_state_rank_weight),
+                dispersion_calibration_weight=float(dispersion_calibration_weight),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -630,6 +694,7 @@ def main() -> None:
     parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
     parser.add_argument("--risk_state_weight", type=float, default=0.0)
     parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
+    parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
@@ -786,6 +851,7 @@ def main() -> None:
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
         "risk_state_weight": float(args.risk_state_weight),
         "risk_state_rank_weight": float(args.risk_state_rank_weight),
+        "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "base_noise_rho": float(model.cfg.base_noise_rho),
         "conditional_base_noise_scale": bool(model.cfg.conditional_base_noise_scale),
         "base_noise_scale_min": float(model.cfg.base_noise_scale_min),
@@ -828,6 +894,7 @@ def main() -> None:
             condition_rollout_negative_mode=args.condition_rollout_negative_mode,
             risk_state_weight=float(args.risk_state_weight),
             risk_state_rank_weight=float(args.risk_state_rank_weight),
+            dispersion_calibration_weight=float(args.dispersion_calibration_weight),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -855,6 +922,7 @@ def main() -> None:
                 condition_rollout_negative_mode=args.condition_rollout_negative_mode,
                 risk_state_weight=float(args.risk_state_weight),
                 risk_state_rank_weight=float(args.risk_state_rank_weight),
+                dispersion_calibration_weight=float(args.dispersion_calibration_weight),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),
