@@ -105728,3 +105728,31 @@ The variogram term does what it should locally: it improves dependency/pathwise 
 Do not promote 695a. The proper-score direction remains principled, but the next step should be post-experiment analysis of objective-term trade-offs before adding more scoring terms or weights. The clean bottleneck is now objective balancing/identifiability, not architecture expressiveness.
 
 ---
+## 2026-04-28: 696a objective tradeoff analysis
+
+### Context
+696a compared the frozen joint objective variants after 690a-695a to decide whether to keep adding rollout-score terms or change the factorization.
+
+### Comparison
+| run | score | cov90 | calib | cond MAE | worst width | kurt | level KS | median frac | median mag | corr | h7 MR | path KS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 676a energy | 5/11 | 0.816 | 0.057 | 11.3 | 1.557 | 1.435 | 14/25 | 22/25 | 21/25 | 0.887 | 1.414 | 0.402 |
+| 689a group head | 5/11 | 0.757 | 0.101 | 9.6 | 1.538 | 1.391 | 12/25 | 17/25 | 22/25 | 0.940 | 1.393 | 0.327 |
+| 691a scaled-delta level score | 5/11 | 0.739 | 0.116 | 9.5 | 1.457 | 1.481 | 12/25 | 18/25 | 22/25 | 0.956 | 1.413 | 0.308 |
+| 692b source scale | 5/11 | 0.770 | 0.093 | 9.9 | 1.580 | 1.381 | 15/25 | 18/25 | 21/25 | 0.901 | 1.433 | 0.446 |
+| 694a CRPS | 5/11 | 0.788 | 0.075 | 11.0 | 1.590 | 1.405 | 14/25 | 21/25 | 21/25 | 0.893 | 1.422 | 0.408 |
+| 695a CRPS + variogram | 5/11 | 0.760 | 0.101 | 10.3 | 1.493 | 1.458 | 12/25 | 20/25 | 22/25 | 0.947 | 1.365 | 0.329 |
+
+### Findings
+- No objective/readout variant breaks the joint `5/11` ceiling.
+- 676a remains the best balanced joint baseline by coverage/calibration and level law.
+- CRPS improves conditional MAE and coverage-floor behavior but does not cross coverage or level gates.
+- Variogram improves dependency/pathwise and h7 mean-reversion ratio but worsens coverage and level occupancy.
+- Source scale remains invalid as a learned fix because it collapses to the lower clamp.
+
+### Decision
+Stop adding scalar score terms to the same direct normalized-innovation flow for now. The evidence says the bottleneck is factorization: one direct flow is being asked to learn marginal calibration, level occupancy, and dependence simultaneously, and the score terms trade these objectives off rather than solving them.
+
+The next principled move is a paradigm ideation around a conditional marginal-plus-dependence law: learn calibrated per-channel/per-horizon conditional marginals in normalized-innovation space, then learn a shared copula/dependency generator over PIT or score-residual variables. This is still generic across IV-only, anchor-only, and joint panels, and it is theory-backed by proper scoring plus copula factorization rather than being an IV-specific knob.
+
+---
