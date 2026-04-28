@@ -104971,3 +104971,26 @@ Continue this family. The next step should improve rollout calibration/condition
 - `results/validations/2026-04-27/666a_rollout_energy/anchor_val_condition_diversity.json`
 
 ---
+## 2026-04-28: 667a longer rollout integration hurts suite balance
+
+### Context
+667a tested one rollout-objective hyper-axis after 666a: keep the sampled-rollout normalized-innovation energy objective fixed, but increase differentiable rollout flow steps from `4` to `8` for IV-only. This was meant to reduce train/inference sampler mismatch without changing architecture, data object, or finance-specific calibration.
+
+### Result
+- IV-only `667a` reached `5/11`, worse than `666a` IV-only `6/11`.
+- Pathwise jump realism improved further: max-jump KS `0.306` versus `0.394` in 666a.
+- Coverage90 fell to `0.750` versus `0.777`; conditional MAE reduction fell to `9.8%` versus `11.42%`.
+- Failed suites: coverage, conditionality, cointegration, regime coverage, distributional fidelity, mean reversion.
+- Val training objective was also worse (`1.845` versus about `1.803` for the 666a IV one-epoch checkpoint).
+
+### Mechanism Read
+More accurate differentiable rollout integration is not the next bottleneck. It improves pathwise max-jump shape, but narrows or misallocates the distribution enough to hurt coverage, cointegration, and mean reversion. The 666a `flow_steps=4` objective remains the better balance.
+
+### Decision
+Do not spend joint38/anchor compute on `flow_steps=8`. Keep 666a as the current clean-family baseline. The next one-axis experiment should test sample-count/statistical proper-score quality rather than integration fidelity: keep rollout flow steps at `4` and increase train sample count, or add a level-law-aware rollout term only if sample count does not help.
+
+### Artifacts
+- `models/backfill/667a_iv_norminnov_rollout_energy_w02_k2_fs8_e1_s6671/best_model.pt`
+- `results/validations/2026-04-27/667a_rollout_energy_fs8/iv_val_full11.json`
+
+---

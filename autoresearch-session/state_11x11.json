@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 666,
+  "iteration": 667,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -25,9 +25,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "666a improves both IV-only and joint38 to 6/11 using sampled-rollout normalized-innovation energy, but still fails per-cell/regime coverage, level-law/median distributional fidelity, and encoded condition-diversity. The current bottleneck is rollout calibration and condition-sensitive allocation inside valid support, not pathwise jump shape.",
-  "last_result_summary": "666a fine-tuned clean 663a checkpoints with a differentiable sampled-rollout energy score on normalized innovations. IV-only reached 6/11: pathwise jump KS 0.394 pass, coverage90 0.777, conditional MAE reduction 11.42%. Joint38 also reached 6/11: pathwise jump KS 0.418 pass, mean reversion pass, coverage90 0.739, conditional MAE reduction 8.18%. Anchor-only stayed acceptable with factor KS mean 0.117, 11/13 KS pass, 13/13 q99-tail pass, factor corr shape 0.891. Encoded shuffle ratios stayed weak around 1.012 for IV/joint and 1.003 for anchor.",
-  "next_step_recommendation": "Continue sampled-rollout objective family and change one objective hyper-axis at a time. The most principled next experiment is a small rollout-objective calibration sweep, starting with longer differentiable rollout flow steps or higher sample count, because pathwise shape improved while coverage/level-law remain under-calibrated. Do not switch backend or add finance-specific calibration yet.",
+  "current_bottleneck": "667a shows the next bottleneck is not rollout integration fidelity. Increasing differentiable rollout flow steps from 4 to 8 improves pathwise max-jump KS but worsens overall suite balance, especially coverage, cointegration, distributional fidelity, and mean reversion.",
+  "last_result_summary": "667a IV-only with rollout_flow_steps=8 reached 5/11, below 666a IV-only at 6/11. Pathwise max-jump KS improved to 0.306, but coverage90 fell to 0.750, conditional MAE reduction fell to 9.8%, and failed suites were coverage, conditionality, cointegration, regime coverage, distributional fidelity, and mean reversion. Val rollout objective was also worse at 1.845 versus about 1.803 for 666a.",
+  "next_step_recommendation": "Keep 666a as the current clean-family baseline. Do not run joint38/anchor for flow_steps=8. The next one-axis experiment should test proper-score sample quality instead: keep rollout_flow_steps=4 and increase train_sample_count, or if that fails, consider a level-law-aware rollout term.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general IV/anchor/joint state-aware normalized-innovation family, 666a is the current best: IV-only and joint38 both reach 6/11 with one sampled-rollout objective and anchor-only remains acceptable. For native IV+anchor joint generation, this is more methodologically defensible than post-hoc glued stress decks because one stochastic mechanism generates the panel.",
@@ -35,6 +35,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "964551d feat: autoresearch 665a condition contrast",
+  "last_commit": "a4edeb6 feat: autoresearch 666a rollout energy",
   "resume_command_hint": "continue autoresearch"
 }
