@@ -105157,3 +105157,27 @@ Treat `674a` as the strongest recent IV-only clean-family candidate, but not yet
 - `results/validations/2026-04-27/674a_channel_level_alltrain_e3/iv_val_full11.json`
 
 ---
+## 2026-04-28: 675a high-sample audit promotes 674a IV to seven of eleven
+
+### Context
+675a reran the 674a best checkpoint with a higher-sample evaluation (`samples=96`, `conditionality_samples=64`) to test whether near-threshold failures were Monte Carlo noise rather than stable model failures.
+
+### Result
+- IV-only `675a` reached `7/11`, the first recent clean-family headline improvement.
+- Mean reversion passed under higher sampling: aggregate ratio `1.051`, active first-step cells `10/12`, and full-horizon overall pass.
+- Coverage improved further: coverage90 `0.845`, calibration error `0.041`, and per-horizon coverage all passed.
+- Level KS stayed passed at `15/25`; median bias stayed failed at `16/25`.
+- Pathwise jump realism stayed passed with KS `0.432`.
+- Remaining failed suites: coverage, conditionality, regime coverage, distributional fidelity.
+
+### Mechanism Read
+Some 674a failures were evaluation-noise-sensitive, especially mean reversion. The remaining failures are stable and localized: strict per-cell coverage, the persistent conditional width outlier, regime layer-2 per-cell coverage, and median bias. This confirms the all-window channel-balanced objective is a real improvement, not just a noisy 48-sample artifact.
+
+### Decision
+Promote `674a` plus high-sample evaluation as the strongest recent IV-only clean-family candidate (`7/11`). Do not add another IV-only mechanism immediately. The next principled step is to test whether this data/convergence/objective recipe transfers to joint38, because the project objective is a general IV plus anchor-factor generator rather than an IV-only model.
+
+### Artifacts
+- `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`
+- `results/validations/2026-04-27/675a_674a_highsample/iv_val_full11_s96.json`
+
+---
