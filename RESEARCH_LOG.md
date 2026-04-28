@@ -105654,3 +105654,29 @@ Rollout-energy regularization is not enough to identify a learned conditional so
 Close learned source-scale as an active fix for this normalized-innovation family unless the objective is fundamentally changed. The next step should not be another source-width knob. It should be research ideation around a proper scenario-set likelihood/scoring objective or a data framing that makes conditional uncertainty identifiable without a degenerative scale shortcut.
 
 ---
+## 2026-04-28: 693a proper-score objective ideation
+
+### Context
+After 690a-692b, the clean normalized-innovation AR family has a stable failure map:
+- simple decoder/head expressiveness is not sufficient;
+- raw level-unit imbalance is not sufficient;
+- learned source scale remains degenerate even when included in differentiable rollout training;
+- high-dimensional rollout energy improves path realism but does not reliably allocate conditional marginal coverage.
+
+### Literature Check
+- Gneiting and Raftery (2007) frame strictly proper scoring rules as the principled way to train/evaluate predictive distributions: <https://www.tandfonline.com/doi/abs/10.1198/016214506000001437>.
+- Scheuerer and Hamill (2015) explicitly note that the multivariate energy score is convenient for ensemble forecasts but has limited sensitivity to dependence/correlation misspecification; they propose variogram scoring to target multivariate structure: <https://doi.org/10.1175/MWR-D-14-00269.1>.
+- Recent scoring-rule work based on aggregation/transformation formalizes combining proper scores on transformed forecast targets, which supports using marginal CRPS plus later dependency scores as one scalar objective rather than ad hoc evaluator hacks: <https://ascmo.copernicus.org/articles/11/23/2025/>.
+- Recent time-series foundation/forecasting work such as Time-MoE keeps the temporal factorization autoregressive and scalable, but it does not solve our local issue directly because we cannot rely on external data and need realistic conditional scenario samples, not just point forecast accuracy: <https://proceedings.iclr.cc/paper_files/paper/2025/hash/558d48c1f08675daa636e09bfe94a89e-Abstract-Conference.html>.
+
+### Decision
+Do not add another source-width parameter. The next principled experiment should change the rollout scoring rule, not the architecture:
+- replace the high-dimensional normalized-path energy term with an aggregated coordinate-wise ensemble CRPS over normalized innovations;
+- keep the same AR flow, state-normalized innovation data object, support transforms, and channel-level path term;
+- use one scalar objective that is valid for `iv_only`, `anchor_only`, and `joint38`;
+- only consider variogram/dependency scoring after checking whether marginal CRPS improves coverage without destroying panel dependence.
+
+### Next Experiment
+694a should implement `marginal_crps_path_score(samples, target)` and run a joint38 experiment from the 676a baseline with `energy_weight=0.0`, `marginal_crps_weight=0.2`, `channel_level_energy_weight=0.05`, all else frozen. This is a controlled objective swap: high-dimensional path energy to aggregated marginal CRPS.
+
+---
