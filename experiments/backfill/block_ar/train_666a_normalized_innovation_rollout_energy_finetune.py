@@ -250,6 +250,13 @@ def differentiable_rollout_paths(
         drift_rep = None
     else:
         drift_rep = drift_feature.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
+    _risk_prediction, risk_context = model._risk_state_from_history(
+        prefix_level_scores,
+        prefix_norm,
+        center_rep,
+        scale_rep,
+        drift_rep,
+    )
     base_noise = float(temperature) * model._base_noise_like(
         torch.empty(
             bsz * k,
@@ -264,6 +271,8 @@ def differentiable_rollout_paths(
     level_frames: list[torch.Tensor] = []
     for _step in range(int(n_steps)):
         memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[:, -1]
+        if risk_context is not None:
+            memory_state = memory_state + risk_context
         current_level_score = prefix_level_scores[:, -1]
         x = base_noise[:, _step]
         base_noise_scale = model._conditional_base_noise_scale(memory_state)
@@ -345,6 +354,8 @@ def normalized_rollout_energy_loss(
     condition_rollout_contrast_weight: float = 0.0,
     condition_rollout_contrast_margin: float = 0.0,
     condition_rollout_negative_mode: str = "roll",
+    risk_state_weight: float = 0.0,
+    risk_state_rank_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -354,6 +365,8 @@ def normalized_rollout_energy_loss(
         center,
         scale,
         drift_feature=drift_feature,
+        risk_state_weight=float(risk_state_weight),
+        risk_state_rank_weight=float(risk_state_rank_weight),
     )
     sampled_norm, sampled_level = differentiable_rollout_paths(
         model,
@@ -489,6 +502,10 @@ def normalized_rollout_energy_loss(
         "base_noise_scale_std": fm_metrics["base_noise_scale_std"].detach(),
         "base_noise_scale_min": fm_metrics["base_noise_scale_min"].detach(),
         "base_noise_scale_max": fm_metrics["base_noise_scale_max"].detach(),
+        "risk_state_enabled": fm_metrics["risk_state_enabled"].detach(),
+        "risk_state_loss": fm_metrics["risk_state_loss"].detach(),
+        "risk_state_rank_loss": fm_metrics["risk_state_rank_loss"].detach(),
+        "risk_state_rank_rho": fm_metrics["risk_state_rank_rho"].detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
         "target_level_std": future_level_values.std(unbiased=False).detach(),
@@ -518,6 +535,8 @@ def run_epoch(
     condition_rollout_contrast_weight: float,
     condition_rollout_contrast_margin: float,
     condition_rollout_negative_mode: str,
+    risk_state_weight: float,
+    risk_state_rank_weight: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -554,6 +573,8 @@ def run_epoch(
                 condition_rollout_contrast_weight=float(condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(condition_rollout_contrast_margin),
                 condition_rollout_negative_mode=condition_rollout_negative_mode,
+                risk_state_weight=float(risk_state_weight),
+                risk_state_rank_weight=float(risk_state_rank_weight),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -607,6 +628,8 @@ def main() -> None:
     parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
     parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
+    parser.add_argument("--risk_state_weight", type=float, default=0.0)
+    parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
@@ -761,6 +784,8 @@ def main() -> None:
         "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
         "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
+        "risk_state_weight": float(args.risk_state_weight),
+        "risk_state_rank_weight": float(args.risk_state_rank_weight),
         "base_noise_rho": float(model.cfg.base_noise_rho),
         "conditional_base_noise_scale": bool(model.cfg.conditional_base_noise_scale),
         "base_noise_scale_min": float(model.cfg.base_noise_scale_min),
@@ -801,6 +826,8 @@ def main() -> None:
             condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
             condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
             condition_rollout_negative_mode=args.condition_rollout_negative_mode,
+            risk_state_weight=float(args.risk_state_weight),
+            risk_state_rank_weight=float(args.risk_state_rank_weight),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -826,6 +853,8 @@ def main() -> None:
                 condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
                 condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
                 condition_rollout_negative_mode=args.condition_rollout_negative_mode,
+                risk_state_weight=float(args.risk_state_weight),
+                risk_state_rank_weight=float(args.risk_state_rank_weight),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),

@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 702,
-  "last_iteration_type": "post_experiment_analysis",
+  "iteration": 703,
+  "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Risk signal exists but is weakly connected to generated dispersion. 702a showed 701a's risk score tracks realized future normalized-innovation activity, but the risk context is only ~5% of memory norm, changes velocity by only ~4-5%, and changes sampled width by ~1% or less.",
-  "last_result_summary": "702a audited 701a's risk-state conditioning channel. On validation, risk0/future-activity Spearman was 0.472 versus risk0/history-activity 0.202; on train-tail it was 0.745 versus 0.148. However context/memory norm was only 0.0497 val and 0.0481 train-tail, velocity delta ratio only 0.0426/0.0506, and matched-seed sample width changed only +1.16% on val and -0.68% on train-tail when risk context was enabled versus zeroed. Generated width did not rank histories by future activity.",
-  "next_step_recommendation": "Run the minimal repair: keep the same normalized-innovation AR flow and risk-state target, but connect history-conditioned risk to stochastic source scale using the generic conditional base-noise-scale path. This tests whether uncertainty allocation fails because the signal is absent or because it currently acts at the wrong control point.",
+  "current_bottleneck": "Conditional dispersion collapse. Risk scores predict future activity, and rollout energy improves path shape, but learned conditional source scaling collapses toward the lower clamp and does not allocate calibrated width by history/cell/horizon/regime.",
+  "last_result_summary": "702b enabled conditional source scale under FM-MSE; best val loss improved to 0.797 but scale collapsed to 0.5 and IV validation regressed to 3/11 with cov90 0.739 and persistent undercoverage 11.0%. 702c fixed rollout-energy risk-context mismatch and finetuned 701a with source scale plus rollout energy; pathwise KS improved to 0.319 and time-series passed, but score was still 5/11 with cov90 0.763, worst width 1.524, level KS 7/25, median-bias 10/25, and regime coverage failure. 702c joint panel stayed plausible: factor KS 12/13, q99 13/13, IV-factor corr 0.899. Risk-channel audit still showed tiny width effect and negative sampled width/future activity rank on audited subsets.",
+  "next_step_recommendation": "Do not switch backend. Add a generic anti-collapse/proper dispersion calibration term to rollout training so the model cannot improve objective by globally shrinking source noise. The target should be conditional ensemble spread versus realized normalized-innovation activity, applied population/batch-wise and scope-agnostically.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11. The frozen tri-scope baseline is 674a/675a IV-only + 688a anchor-only + 676a joint38. 698b remains the strongest clean native joint38 non-contrast score at 6/11; 701a risk-state conditioning is informative but regressed to 5/11 and should be treated as a falsification of naive memory-token risk-state injection.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "2f3a27a",
+  "last_commit": "d583ba2",
   "resume_command_hint": "continue autoresearch"
 }

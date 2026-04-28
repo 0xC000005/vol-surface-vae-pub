@@ -105985,3 +105985,77 @@ The control path is the problem. The risk context is only about five percent of 
 Treat 702a as post-experiment analysis, not a model win. The next minimal fix should preserve the same normalized-innovation AR flow but connect risk conditioning to the stochastic source scale rather than only to memory tokens. This is still a generic conditional law mechanism: history predicts uncertainty state; uncertainty state controls the noise source used by the flow.
 
 ---
+## 2026-04-28: 702b-702c source-scale repair falsification
+
+### Context
+702a showed that the risk-state signal exists but barely controls generated dispersion. 702b and 702c tested the minimal repair: connect the risk-conditioned state to the stochastic source scale, first under FM-MSE alone and then under sampled rollout energy.
+
+### Implementation Notes
+- Exposed `conditional_base_noise_scale`, `base_noise_scale_min`, and `base_noise_scale_max` in the 662a trainer.
+- Fixed a train/eval mismatch in the 666a differentiable rollout finetune: differentiable rollouts now add the model's risk context, matching `sample_batched`.
+- Added risk-state loss weights to the 666a rollout finetune so the risk head can be preserved during rollout scoring.
+
+### 702b: FM-MSE With Conditional Source Scale
+Checkpoint: `models/backfill/702b_joint38_riskstate_noisescale_innovscore_e8_s7022/best_model.pt`
+
+Training loss improved strongly versus 701a, with best validation loss `0.797`, but the source scale collapsed to the lower clamp:
+- epoch 1 scale mean `0.551`
+- epochs 2-8 scale mean approximately `0.500`
+
+Full IV validation suite:
+- Score: `3/11`
+- Failed: coverage, conditionality, time series, cointegration, regime coverage, distributional fidelity, mean reversion, pathwise jump realism
+- Overall cov90 `0.739`
+- Persistent severe undercoverage `11.0%`
+- Level KS `9/25`
+- Pathwise max-jump KS `0.613`
+
+Joint-panel audit:
+- factor delta KS mean `0.118`, `11/13` passing
+- factor q99 ratio `13/13` passing
+- factor-factor corr `0.849`
+- IV-factor corr `0.894`
+- conditional panel improvement `3.78%`
+
+Interpretation: FM-MSE uses the source-scale head as a shortcut. Shrinking the base source makes the velocity regression easier but under-disperses risk scenarios. This is not a deployable conditional law.
+
+### 702c: Rollout-Energy Finetune With Risk Context and Source Scale
+Checkpoint: `models/backfill/702c_701a_riskstate_noisescale_rollout_energy_e3_s7026/best_model.pt`
+
+Training started from 701a and enabled conditional source scale under sampled rollout energy. The rollout objective improved from validation total `1.202` to `1.037`, but the scale still moved toward the lower clamp:
+- epoch 1 scale mean `0.878`
+- epoch 2 scale mean `0.512`
+- epoch 3 scale mean `0.501`
+- epoch 3 target normalized std `1.548`, sampled normalized std `0.901`
+
+Full IV validation suite:
+- Score: `5/11`
+- Failed: coverage, conditionality, cointegration, regime coverage, distributional fidelity, mean reversion
+- Overall cov90 `0.763`
+- Per-horizon coverage passes, but per-cell later-horizon coverage fails
+- Conditionality MAE reduction `7.6%`, worst width ratio `1.524`
+- Time-series suite passes; kurtosis ratio `1.171`
+- Pathwise max-jump KS `0.319`, passing the relaxed gate
+- Level KS only `7/25`
+- Median-bias cells only `10/25`
+
+Risk-channel audit:
+- validation risk0/future-activity Spearman `0.481`
+- train-tail risk0/future-activity Spearman `0.748`
+- risk context remains small: context/memory ratio about `0.046-0.048`
+- sampled width change versus zeroed risk context only `+1.75%` on validation and `-0.22%` on train-tail
+- sampled width/future-activity Spearman is negative on both audited subsets
+
+Joint-panel audit:
+- factor delta KS mean `0.115`, `12/13` passing
+- factor q99 ratio `13/13` passing
+- factor-factor corr `0.793`
+- IV-factor corr `0.899`
+- conditional panel improvement `3.83%`
+
+### Decision
+The source-scale control point is scientifically right, but the current objective is still not sufficient. FM-MSE collapses the scale immediately, and rollout energy with the current weights improves path shape but still under-disperses and fails conditional uncertainty allocation. The next step should not be a backend switch. It should add an explicit, generic anti-collapse/dispersion calibration term tied to realized future normalized-innovation activity or ensemble spread, so the model cannot satisfy the loss by globally shrinking uncertainty.
+
+This remains first-principles aligned if framed as a proper scoring/calibration fix: conditional scenario generation requires learning both conditional center and conditional dispersion. Current losses are rewarding path proximity more than calibrated conditional support.
+
+---

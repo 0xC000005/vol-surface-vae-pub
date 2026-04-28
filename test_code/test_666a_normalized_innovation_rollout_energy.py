@@ -19,7 +19,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
 )
 
 
-def _tiny_model() -> GenericStateAwareNormalizedInnovationFlowMatching:
+def _tiny_model(risk_state_dim: int = 0) -> GenericStateAwareNormalizedInnovationFlowMatching:
     cfg = GenericStateAwareNormalizedInnovationFMConfig(
         history_len=4,
         future_len=3,
@@ -36,6 +36,7 @@ def _tiny_model() -> GenericStateAwareNormalizedInnovationFlowMatching:
         flow_steps=2,
         n_quantiles=17,
         prefix_feature_mode="scale",
+        risk_state_dim=int(risk_state_dim),
     )
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
     levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
@@ -158,6 +159,42 @@ def test_differentiable_rollout_uses_conditional_base_noise_scale():
     )
 
     assert not torch.allclose(scaled_samples, unit_samples)
+
+
+def test_differentiable_rollout_uses_risk_context():
+    torch.manual_seed(91)
+    model = _tiny_model(risk_state_dim=2)
+    history_level, history_norm, _future_level, _future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(103)
+    base_samples = differentiable_normalized_rollout_samples(
+        model,
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=3,
+        flow_steps=2,
+        temperature=1.0,
+    )
+    with torch.no_grad():
+        model.risk_context_proj[-1].bias.fill_(0.5)
+
+    torch.manual_seed(103)
+    risk_samples = differentiable_normalized_rollout_samples(
+        model,
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=3,
+        flow_steps=2,
+        temperature=1.0,
+    )
+
+    assert not torch.allclose(risk_samples, base_samples)
 
 
 def test_normalized_rollout_energy_loss_is_finite():

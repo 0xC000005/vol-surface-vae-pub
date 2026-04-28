@@ -221,6 +221,9 @@ def main() -> None:
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--base_noise_rho", type=float, default=0.0)
+    parser.add_argument("--conditional_base_noise_scale", action="store_true")
+    parser.add_argument("--base_noise_scale_min", type=float, default=0.5)
+    parser.add_argument("--base_noise_scale_max", type=float, default=2.0)
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_drift"], default="scale")
     parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
@@ -318,6 +321,9 @@ def main() -> None:
         flow_steps=int(args.flow_steps),
         sample_temperature=float(args.sample_temperature),
         base_noise_rho=float(args.base_noise_rho),
+        conditional_base_noise_scale=bool(args.conditional_base_noise_scale),
+        base_noise_scale_min=float(args.base_noise_scale_min),
+        base_noise_scale_max=float(args.base_noise_scale_max),
         n_quantiles=int(args.n_quantiles),
         cdf_eps=float(args.cdf_eps),
         prefix_feature_mode=args.prefix_feature_mode,
@@ -398,6 +404,9 @@ def main() -> None:
             "risk_state_weight": float(args.risk_state_weight),
             "risk_state_rank_weight": float(args.risk_state_rank_weight),
             "base_noise_rho": float(cfg.base_noise_rho),
+            "conditional_base_noise_scale": bool(cfg.conditional_base_noise_scale),
+            "base_noise_scale_min": float(cfg.base_noise_scale_min),
+            "base_noise_scale_max": float(cfg.base_noise_scale_max),
             "flow_coordinate": args.innovation_coordinate,
         },
         "iv_transform": args.iv_transform,
