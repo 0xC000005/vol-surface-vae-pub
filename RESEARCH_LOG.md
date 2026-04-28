@@ -105181,3 +105181,27 @@ Promote `674a` plus high-sample evaluation as the strongest recent IV-only clean
 - `results/validations/2026-04-27/675a_674a_highsample/iv_val_full11_s96.json`
 
 ---
+## 2026-04-28: 676a joint38 transfers anchor realism but compromises IV gates
+
+### Context
+676a tested whether the 674a/675a all-window channel-balanced recipe transfers from IV-only to native joint38 IV-plus-anchor generation. It used the joint38 663a checkpoint, the same stochastic core, all train windows, three epochs, and selected the best validation checkpoint.
+
+### Result
+- Joint38 `676a` selected epoch 1; later epochs worsened validation objective.
+- IV-facing 11-suite fell to `5/11`, worse than 666a joint and worse than 674a/675a IV-only.
+- IV failures included coverage, conditionality, time-series kurtosis, regime coverage, distributional fidelity, and mean reversion.
+- IV level KS regressed to `13/25`, while median-bias fraction passed `22/25` but bias magnitude missed `21/25` versus gate `22/25`.
+- Panel audit was substantially better than the IV score suggests: factor delta KS mean `0.101`, `11/13` factor KS pass, `13/13` factor tail pass, factor-factor corr upper-triangle corr `0.791`, and IV-factor corr matrix corr `0.896`.
+
+### Mechanism Read
+The all-window channel-balanced recipe transfers to anchor-factor realism but not to IV 11-suite quality. Native joint generation is coherent and not just a glued stress deck, but the shared single-head state-aware normalized-innovation objective appears to compromise IV tail/level geometry when anchors are included.
+
+### Decision
+Do not discard the paradigm: the shared stochastic mechanism can generate a coherent joint panel with acceptable anchor-factor realism. But do not promote 676a as the general baseline. Before changing architecture, run a high-sample joint evaluation to check whether mean reversion/pathwise/kurtosis failures are stable; if stable, the next principled model change is likely decoder/readout expressiveness within the same core, not a new stochastic mechanism.
+
+### Artifacts
+- `models/backfill/676a_joint38_channel_level_alltrain_w005_e3_s6761/best_model.pt`
+- `results/validations/2026-04-27/676a_joint38_channel_level_alltrain/val_full11.json`
+- `results/validations/2026-04-27/676a_joint38_channel_level_alltrain/panel_audit.json`
+
+---
