@@ -105132,3 +105132,28 @@ Do not change paradigm. The next most principled move is longer convergence on t
 - `results/validations/2026-04-27/673a_channel_level_alltrain/iv_val_full11.json`
 
 ---
+## 2026-04-28: 674a longer all-window convergence gives strongest recent IV profile
+
+### Context
+674a extended the 673a all-window channel-balanced objective to three epochs from the same 663a base checkpoint, using the same seed so epoch 1 reproduced 673a. This tested whether the level-KS improvement from data diversity can translate into stronger gates with more convergence.
+
+### Result
+- IV-only `674a` still reached `6/11`, but the submetrics are the strongest recent clean-family IV-only profile.
+- Best checkpoint was epoch 2 with validation objective `1.755`, better than 673a's `1.811`.
+- Coverage90 improved to `0.829`; calibration error improved to `0.051`; per-horizon coverage passed.
+- Level KS stayed passed at `15/25`; median-bias stayed `16/25`, still short of the `20/25` gate.
+- Persistent severe undercoverage improved to `3.7%`, passing the layer-3 regime gate.
+- Mean reversion failed narrowly: aggregate profile passed, but active first-step cells were `8/12` instead of the required `>=70%`.
+- Pathwise jump realism still passed with KS `0.451`, but margin is thinner than 666a/673a.
+
+### Mechanism Read
+Longer convergence helps coverage and keeps the level-KS repair from all-window training, but does not solve median bias or the localized conditional/regime coverage failures. The remaining failures are now close enough to thresholds that evaluation variance matters before adding more model machinery.
+
+### Decision
+Treat `674a` as the strongest recent IV-only clean-family candidate, but not yet a new general baseline because it is IV-only and still `6/11`. Next step should run a higher-sample evaluation of the same checkpoint to separate true failures from Monte Carlo noise, especially mean reversion, coverage, and pathwise KS.
+
+### Artifacts
+- `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`
+- `results/validations/2026-04-27/674a_channel_level_alltrain_e3/iv_val_full11.json`
+
+---
