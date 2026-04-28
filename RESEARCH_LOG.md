@@ -104612,3 +104612,238 @@ Do not promote 661a as the active deployable joint model. Keep it as evidence th
 - `results/autoresearch/661a_generalized_510a_joint_patch_encoded_s661/joint_panel.md`
 
 ---
+## 2026-04-27: Spec 662a state-aware normalized-innovation AR flow
+
+### Objective
+
+Start the next native joint-model path from the invariant stochastic object rather than raw/absolute levels. The target is a general multivariate conditional scenario generator that can handle bounded mean-reverting surfaces, drifting equity levels, rates, spreads, FX, commodities, and other financial factors without per-dataset hyperparameter tuning.
+
+### Modeling Spec
+
+Model the conditional law of normalized future innovations, not raw future levels:
+
+`p(z_{t+1:t+H} | current encoded state, recent encoded state path, recent normalized innovations, local scale/regime features)`
+
+where future levels are reconstructed by reversing the local normalization and integrating from the observed current state.
+
+Core requirements:
+
+- Keep one shared stochastic model, one checkpoint, and one joint rollout for all channels.
+- Do not generate separate IV and factor decks and glue them afterward.
+- Use typed invertible preprocessing only as a data-coordinate rule, not as a separate model branch.
+- Generated stochastic object: normalized innovations/movements in transformed coordinates.
+- Conditioning object: current encoded level, recent encoded levels, recent innovations, local center/scale, recent volatility/trend/regime summaries.
+- Reconstruction: unnormalize generated innovations using history-derived local statistics, integrate in encoded space from the last observed state, and decode back to raw market levels.
+
+### Why This Is Different From Pure Returns
+
+Pure return modeling is level-unaware and caused IV drift/explosion in earlier experiments. This spec is level-aware: levels are not the generated object, but they remain part of the conditioning state and reconstruction base. The model must learn relationships such as high IV level implying different drift/dispersion than low IV level, while equity-like factors can drift because returns are integrated from the current observed level.
+
+### Literature Alignment
+
+This follows the same broad principle as reversible/instance normalization and nonstationary time-series models: normalize the learning target for stationarity, but preserve or re-inject state information so the model does not lose level/regime context. It is also consistent with variable-token and multivariate probabilistic time-series models: cross-factor dependence should be learned jointly after variables are placed into a comparable stochastic coordinate.
+
+### Next Experiment
+
+Implement 662a as a state-aware normalized-innovation AR flow:
+
+- Build windows with encoded levels and daily encoded increments.
+- Compute per-window, per-channel robust local center and scale from history increments.
+- Convert history and future increments to normalized innovations.
+- Encode history as `[encoded level, normalized innovation, local center, local scale, abs/squared innovation]` features.
+- Train a shared AR conditional flow matching transition to generate future normalized innovations for all selected channels.
+- Sample future normalized innovations autoregressively, unnormalize them, integrate from the last encoded state, and decode to raw scenarios.
+- Evaluate first on train-tail and validation IV full suite plus joint-panel audit.
+
+### Success Criteria
+
+The first success target is not 11/11. The immediate falsification target is whether the model improves conditionality and joint-factor robustness without losing realistic path mechanics:
+
+- Condition-shuffle audit should show materially different generated distributions by history.
+- Train-tail IV should beat the 661a `6/11` or at least preserve its realism while improving conditionality.
+- Joint-panel validation should recover closer to 641a/647a factor realism: factor q99 pass near `11/13+`, factor correlation shape near `0.8+`, and IV-factor shape near `0.8+`.
+- If train-tail remains weak, the normalized-innovation idea is not sufficient and the bottleneck is not just trend/support mismatch.
+
+---
+## 2026-04-27: Protocol 662a normalized-innovation backend discipline
+
+### Purpose
+
+The previous 662a spec defined the modeling object, but not the workflow guardrails. This entry makes the protocol explicit so the loop does not become backend brute force.
+
+### Core Methodology
+
+The methodology is `state-aware normalized-innovation conditional law`, not Transformer, flow matching, diffusion, Student-t likelihood, or any other backend. The model should generate future movement in a normalized innovation coordinate, then reconstruct raw levels from the current observed market state.
+
+First normalization choice:
+
+- Transform raw levels into support-aware encoded levels.
+- Compute daily encoded increments.
+- Normalize increments by a history-only local scale.
+- Use a fixed EWMA/root-mean-square style scale estimator with a robust floor.
+- Do not subtract a strong rolling mean in the first implementation; conditional drift and mean reversion should be learned from state features.
+
+### Backend Policy
+
+Flow matching is only the first backend because it is already integrated and avoids imposing Gaussian or Student-t tail shape. It is not treated as required by the methodology.
+
+Do not switch backend because the score is bad. A backend switch is allowed only after diagnostics show that the data object/framing works but the sampler/objective cannot allocate conditional probability mass.
+
+### Required Failure Classification
+
+Every 662a-family iteration must classify failure before changing backend or architecture:
+
+- data framing failure: normalized innovations are not stable or realistic;
+- reconstruction failure: innovations are realistic but decoded levels fail;
+- conditionality failure: shuffled histories produce similar distributions;
+- diversity failure: same-history samples collapse;
+- dependency failure: marginal innovations work but cross-factor dependence fails;
+- distribution-shift failure: train-tail works but validation fails;
+- backend failure: framing works but flow/sampler/objective fails.
+
+Only backend failure justifies moving from flow matching to diffusion, copula, likelihood, or another backend.
+
+### Required Audits
+
+Before any backend switch, run and report:
+
+- train-tail IV full suite;
+- validation IV full suite;
+- train-tail joint-panel audit;
+- validation joint-panel audit;
+- condition-shuffle audit;
+- same-history sample-diversity audit;
+- innovation-space realism audit;
+- reconstruction sanity audit.
+
+### Workflow Artifact
+
+The enforced protocol is written to `docs/research_protocols/662a_normalized_innovation_protocol.md`. Future 662a-family research should cite this protocol and update the autoresearch state with the diagnosed failure category before any paradigm/backend switch.
+
+---
+## 2026-04-27: Protocol autoresearch falsification before model switching
+
+### Purpose
+
+The user flagged an important methodological risk: autoresearch can become lazy brute force if every bad result triggers a jump to the next architecture/backend. This entry formalizes the falsification workflow so future iterations must diagnose before switching.
+
+### Core Rule
+
+A bad score is not a model limitation. It is only evidence that something failed. The loop must classify the failure before changing model family, backend, AR/one-shot structure, loss, or calibration layer.
+
+### Failure Classes
+
+Future experiment reports must assign a primary failure class:
+
+- `data_object`: generated target is not stable/realistic/learnable after preprocessing.
+- `reconstruction`: inverse transform or alignment fails.
+- `train_fit`: model does not learn the in-training/train-tail law.
+- `conditionality`: shuffled histories produce similar distributions.
+- `diversity`: same-history samples collapse or ignore stochastic source.
+- `dependency`: marginals work but cross-factor/cross-cell dependence fails.
+- `calibration`: scenarios are realistic and conditional but width/location is wrong.
+- `distribution_shift`: train-tail works but validation fails materially.
+- `backend`: framing and diagnostics are adequate, but sampler/objective cannot allocate path probability mass.
+- `test_mismatch`: metric is shown by oracle/split audit to be unstable or inconsistent with the risk objective.
+
+Only `backend` justifies changing flow/diffusion/copula/likelihood backend. Only sustained `train_fit` or diagnosed representation limits justify changing architecture. Only `test_mismatch` justifies changing the test.
+
+### Required Audits Before Switch
+
+Before switching backend or architecture, report:
+
+- train-tail IV full suite;
+- validation IV full suite;
+- train-tail and validation joint-panel audits when joint data are used;
+- condition-shuffle audit;
+- same-history diversity audit;
+- data-object realism audit;
+- reconstruction/alignment audit;
+- comparison to the current incumbent on the same split and sample count.
+
+Skipped audits make the conclusion provisional.
+
+### Minimal-Fix Rule
+
+After a failure, make the smallest fix for the diagnosed failure class before trying a new paradigm. Do not add a new research knob unless it has a named failure class, default value, non-overfitting justification, removal criterion, and scope requirements.
+
+### Generalization Guardrail
+
+The same framework should run on `iv_only`, `anchor_only`, and `joint` scopes. Preprocessing rules must be support/coordinate based, not hand-tuned by factor name. A promoted mechanism should not improve one scope by breaking another without a diagnosis.
+
+### Workflow Artifact
+
+The workflow is saved at `docs/research_protocols/autoresearch_falsification_workflow.md`. Future autoresearch entries should follow its iteration report template and explicitly state whether the current methodology continues or a switch is justified.
+
+---
+## 2026-04-27: Protocol update research-axis discipline and literature-search gate
+
+### Purpose
+
+The falsification workflow needed one more guardrail: normalization, backend, AR/one-shot factorization, encoder choice, dependency modeling, and calibration are separate research axes. If multiple axes are changed at once, a result becomes hard to interpret and the loop becomes brute-force.
+
+### Research-Axis Discipline
+
+Future iterations must name the active research axis and hold other axes fixed unless the diagnosis proves coupling.
+
+Axes:
+
+- `data_object`: transforms, normalization, local scale/center estimator, generated coordinate.
+- `temporal_factorization`: AR, one-shot, or hybrid path-latent plus AR rollout.
+- `backend`: flow matching, diffusion, copula, likelihood, energy score, or sampler/objective.
+- `encoder`: Transformer, variable-token encoder, mixer, recurrent model, U-Net, etc.
+- `dependency_structure`: shared latent, dependency head, copula/attention interaction, correlation modeling.
+- `calibration`: post-model risk-policy calibration, reported separately from learned base-law metrics.
+
+Invalid next step example: after a failed 662a run, simultaneously switch EWMA to robust normalization, AR to one-shot, and flow to diffusion. That would not tell us what helped or hurt.
+
+Valid next step example: if failure is `data_object`, compare fixed EWMA/RMS scale to robust MAD/IQR scale while keeping backend, encoder, temporal factorization, training budget, and evaluation fixed.
+
+### Literature-Search Gate
+
+Online literature search is now part of the diagnosis workflow, not random inspiration. It is required when:
+
+- the same failure class appears in two consecutive iterations without progress;
+- a backend, encoder, temporal-factorization, or methodology switch is being considered;
+- a data-object or normalization failure is not understood;
+- the loop is running out of local first-principles fixes;
+- a model limitation is about to be declared.
+
+Each search must state the diagnostic question, sources/venues checked, what was learned, and whether it changes the next minimal fix.
+
+### Workflow Artifact
+
+`docs/research_protocols/autoresearch_falsification_workflow.md` now includes the research-axis matrix, literature-search gate, and updated iteration-report template.
+
+---
+## 2026-04-27: 662a normalized-innovation three-scope falsifier
+
+### Context
+Ran the first substantive 662a state-aware normalized-innovation AR flow across the three required scopes: IV-only, anchor-only, and joint38. This held the backend, AR factorization, Transformer conditioning, and EWMA/RMS normalization fixed so the scope comparison remained interpretable.
+
+### Result
+- IV-only checkpoint `models/backfill/662a_iv_stateaware_norminnov_ewma_e8_w2048_s6621/best_model.pt`: validation `2/11`, train-tail `2/11`. Validation explosion rate was `85.0%`; train-tail explosion rate was `84.3%`. Daily-change KS and cross-cell correlation could pass, but surface validity, conditionality, time-series tails, mean reversion, and pathwise jump realism failed.
+- Joint38 checkpoint `models/backfill/662a_joint38_stateaware_norminnov_ewma_e8_w2048_s6623/best_model.pt`: validation IV suite `3/11`, train-tail IV suite `2/11`. Validation explosion rate was `95.4%`; train-tail explosion rate was `94.1%`.
+- Anchor-only checkpoint `models/backfill/662a_anchor_stateaware_norminnov_ewma_e8_w2048_s6622/best_model.pt`: anchor panel diagnostics were materially healthier. Train-tail factor delta KS mean `0.088`, `12/13` KS pass, `13/13` q99-tail pass, factor-factor correlation shape `0.951`. Validation factor delta KS mean `0.158`, `9/13` KS pass, `13/13` q99-tail pass, factor-factor correlation shape `0.903`.
+- Joint panel diagnostics showed that shared stochastic joint co-movement is learnable despite bad IV decoded paths: validation factor-factor corr shape `0.849`, IV-factor corr shape `0.883`, and `13/13` factor q99-tail pass; train-tail factor-factor corr shape `0.937`, IV-factor corr shape `0.882`, and `13/13` factor q99-tail pass.
+- Generated-coordinate diagnostics: IV-only normalized q99 ratio median/max/pass was `0.875 / 3.038 / 23/25`; joint38 was `1.184 / 2.228 / 35/38`. Oracle reconstruction from true normalized increments was exact (`~6e-7` max abs error), but generated raw IV max reached `4.8e24` in IV-only and `3.35e31` in joint38.
+
+### Mechanism Read
+Primary failure class: `data_object`. Secondary: `reconstruction_stability` and `calibration`. The model can learn plausible local normalized innovations and anchor co-movement, but the current IV log-level coordinate is not support-respecting. Rare positive generated log-increment paths compound over 30 days and exponentiate into impossible IV levels. This is present on train-tail, so it is not mainly a validation distribution-shift issue. It is also not yet evidence for a backend or architecture failure.
+
+### Decision
+Do not switch AR/flow/Transformer. The next minimal fix is a data-object change: keep the 662a backend and training protocol fixed, but make the level coordinate support-aware for bounded IV/surface-like variables so generated paths cannot exponentiate to impossible raw levels. Then rerun the same three-scope audit.
+
+### Artifacts
+- `results/validations/2026-04-27/662a_iv_stateaware_norminnov/iv_val_full11.json`
+- `results/validations/2026-04-27/662a_iv_stateaware_norminnov/iv_train_tail_full11.json`
+- `results/validations/2026-04-27/662a_iv_stateaware_norminnov/iv_val_normdiag.json`
+- `results/validations/2026-04-27/662a_anchor_stateaware_norminnov/anchor_val_panel.json`
+- `results/validations/2026-04-27/662a_anchor_stateaware_norminnov/anchor_train_tail_panel.json`
+- `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_val_iv_full11.json`
+- `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_train_tail_iv_full11.json`
+- `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_val_panel.json`
+- `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_train_tail_panel.json`
+- `results/validations/2026-04-27/662a_joint38_stateaware_norminnov/joint_val_normdiag.json`
+
+---

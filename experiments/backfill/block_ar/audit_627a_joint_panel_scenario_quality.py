@@ -45,6 +45,9 @@ from experiments.backfill.block_ar.train_628a_unified_ar_increment_transition_fl
 from experiments.backfill.block_ar.train_629a_state_conditioned_increment_flow import (  # noqa: E402
     select_state_increment_scope,
 )
+from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_flow import (  # noqa: E402
+    select_normalized_innovation_scope,
+)
 
 
 def ks_statistic(a: np.ndarray, b: np.ndarray) -> float:
@@ -98,7 +101,7 @@ def corr_similarity(gt: np.ndarray, gen: np.ndarray) -> dict[str, float]:
     }
 
 
-HistoryInput = np.ndarray | tuple[np.ndarray, np.ndarray]
+HistoryInput = np.ndarray | tuple[np.ndarray, ...]
 
 
 def build_history_future(
@@ -127,6 +130,54 @@ def build_history_future(
     )
     if int(args.max_windows) > 0:
         val_indices = val_indices[: int(args.max_windows)]
+    if payload.get("model_coordinate") == "state_aware_normalized_innovation" or args.model_type == "662a":
+        block = build_increment_coordinate_block(
+            panel,
+            columns,
+            val_indices,
+            history_len=int(payload["config"]["history_len"]),
+            future_len=int(payload["config"]["future_len"]),
+            iv_count=int(args.iv_count),
+            positive_level_policy=positive_level_policy,
+        )
+        norm_cfg = payload.get("normalization", {})
+        scale_half_life = norm_cfg.get("scale_half_life", 0.0)
+        if scale_half_life is not None and float(scale_half_life) <= 0.0:
+            scale_half_life = None
+        (
+            history_level,
+            history_norm,
+            _future_level,
+            future_norm,
+            center,
+            scale,
+            _history_state,
+            specs,
+        ) = select_normalized_innovation_scope(
+            block,
+            payload.get("state_scope", args.state_scope),
+            int(args.iv_count),
+            scale_half_life=scale_half_life,
+            scale_floor=float(norm_cfg.get("scale_floor", 1e-4)),
+        )
+        expected = [spec["name"] for spec in payload.get("state_specs", [])]
+        actual = [spec.name for spec in specs]
+        if expected and expected != actual:
+            raise RuntimeError(
+                "checkpoint state specs do not match rebuilt validation specs"
+            )
+        return (
+            (
+                history_level.astype(np.float32),
+                history_norm.astype(np.float32),
+                center.astype(np.float32),
+                scale.astype(np.float32),
+            ),
+            future_norm.astype(np.float32),
+            specs,
+            block,
+        )
+
     if payload.get("model_coordinate") in {
         "state_conditioned_encoded_increment",
         "state_conditioned_level_score",
@@ -253,6 +304,12 @@ def load_native_model(
         )
 
         return load_model(checkpoint, device)
+    if model_type == "662a":
+        from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (
+            load_model,
+        )
+
+        return load_model(checkpoint, device)
     if model_type == "647a":
         from diffusion.block_ar.generic_mixed_coordinate_path_flow_matching import (
             load_model,
@@ -309,6 +366,18 @@ def generate_panel_samples(
                 chunk_size=int(chunk_size),
                 temperature=float(sample_temperature),
             )
+        elif model_coordinate == "state_aware_normalized_innovation":
+            history_level, history_norm, center, scale = history
+            panel_samples = model.sample_batched(
+                torch.from_numpy(history_level[start:end]).to(device),
+                torch.from_numpy(history_norm[start:end]).to(device),
+                torch.from_numpy(center[start:end]).to(device),
+                torch.from_numpy(scale[start:end]).to(device),
+                n_samples=int(samples),
+                n_steps=int(n_steps),
+                chunk_size=int(chunk_size),
+                temperature=float(sample_temperature),
+            )
         else:
             hist = torch.from_numpy(history[start:end]).to(device)
             panel_samples = model.sample_batched(
@@ -325,6 +394,7 @@ def generate_panel_samples(
             "state_conditioned_level_score",
             "state_conditioned_mixed_coordinate",
             "mixed_coordinate_path",
+            "state_aware_normalized_innovation",
         }:
             arr = reconstruct_state_from_increments(
                 raw_history[start:end, -1, :], arr, specs
@@ -339,6 +409,20 @@ def generate_panel_samples(
 def panel_daily_changes(history: np.ndarray, future: np.ndarray) -> np.ndarray:
     prev = np.concatenate([history[:, -1:, :], future[:, :-1, :]], axis=1)
     return future - prev
+
+
+def select_raw_state_scope(
+    block: Any,
+    scope: str,
+    iv_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    if scope == "joint38":
+        return block.history_state, block.future_state
+    if scope == "iv_only":
+        return block.history_state[..., :iv_count], block.future_state[..., :iv_count]
+    if scope == "anchor_only":
+        return block.history_state[..., iv_count:], block.future_state[..., iv_count:]
+    raise ValueError(f"unknown state_scope {scope!r}")
 
 
 def summarize_joint_quality(
@@ -390,8 +474,12 @@ def summarize_joint_quality(
 
     gt_factor_flat = gt_factor_delta.reshape(-1, gt_factor_delta.shape[-1])
     gen_factor_flat = gen_factor_delta.reshape(-1, gen_factor_delta.shape[-1])
-    gt_iv_flat = gt_delta[..., :iv_count].reshape(-1, iv_count)
-    gen_iv_flat = gen_delta[..., :iv_count].reshape(-1, iv_count)
+    if iv_count > 0:
+        gt_iv_flat = gt_delta[..., :iv_count].reshape(-1, iv_count)
+        gen_iv_flat = gen_delta[..., :iv_count].reshape(-1, iv_count)
+    else:
+        gt_iv_flat = np.empty((gt_factor_flat.shape[0], 0), dtype=np.float64)
+        gen_iv_flat = np.empty((gen_factor_flat.shape[0], 0), dtype=np.float64)
     gt_all_flat = np.concatenate([gt_iv_flat, gt_factor_flat], axis=1)
     gen_all_flat = np.concatenate([gen_iv_flat, gen_factor_flat], axis=1)
     gt_all_corr = safe_corrcoef(gt_all_flat)
@@ -401,15 +489,23 @@ def summarize_joint_quality(
     gt_iv_factor = gt_all_corr[:iv_count, iv_count:]
     gen_iv_factor = gen_all_corr[:iv_count, iv_count:]
 
-    iv_factor_mae = float(np.mean(np.abs(gt_iv_factor - gen_iv_factor)))
-    iv_factor_corr = 0.0
-    if (
-        np.std(gt_iv_factor.reshape(-1)) > 1e-12
-        and np.std(gen_iv_factor.reshape(-1)) > 1e-12
-    ):
-        iv_factor_corr = float(
-            np.corrcoef(gt_iv_factor.reshape(-1), gen_iv_factor.reshape(-1))[0, 1]
-        )
+    if iv_count > 0 and gt_iv_factor.size > 0:
+        iv_factor_mae = float(np.mean(np.abs(gt_iv_factor - gen_iv_factor)))
+        iv_factor_corr = 0.0
+        if (
+            np.std(gt_iv_factor.reshape(-1)) > 1e-12
+            and np.std(gen_iv_factor.reshape(-1)) > 1e-12
+        ):
+            iv_factor_corr = float(
+                np.corrcoef(gt_iv_factor.reshape(-1), gen_iv_factor.reshape(-1))[0, 1]
+            )
+        iv_factor_gt_mean_abs = float(np.mean(np.abs(gt_iv_factor)))
+        iv_factor_gen_mean_abs = float(np.mean(np.abs(gen_iv_factor)))
+    else:
+        iv_factor_mae = float("nan")
+        iv_factor_corr = float("nan")
+        iv_factor_gt_mean_abs = float("nan")
+        iv_factor_gen_mean_abs = float("nan")
 
     return {
         "finite_rate": float(np.isfinite(samples_raw).mean()),
@@ -427,8 +523,8 @@ def summarize_joint_quality(
         "iv_factor_corr": {
             "matrix_corr": iv_factor_corr,
             "mae": iv_factor_mae,
-            "gt_mean_abs": float(np.mean(np.abs(gt_iv_factor))),
-            "gen_mean_abs": float(np.mean(np.abs(gen_iv_factor))),
+            "gt_mean_abs": iv_factor_gt_mean_abs,
+            "gen_mean_abs": iv_factor_gen_mean_abs,
         },
         "per_factor": range_rows,
     }
@@ -476,11 +572,16 @@ def main() -> None:
             "652a",
             "658a",
             "661a",
+            "662a",
         ],
         required=True,
     )
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
+    parser.add_argument(
+        "--state_scope",
+        choices=["iv_only", "anchor_only", "joint38"],
+        default="joint38",
+    )
     parser.add_argument("--value_coordinate", choices=["raw", "encoded"], default="raw")
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
@@ -518,13 +619,24 @@ def main() -> None:
     )
     n_windows = min(int(args.max_windows), history_n)
     if isinstance(history, tuple):
-        history = (history[0][:n_windows], history[1][:n_windows])
+        history = tuple(item[:n_windows] for item in history)
     else:
         history = history[:n_windows]
     future = future[:n_windows]
-    raw_history = block.history_state[:n_windows]
-    raw_future = block.future_state[:n_windows]
-    factor_names = [spec.name for spec in specs[int(args.iv_count) :]]
+    state_scope = payload.get("state_scope", args.state_scope)
+    raw_history_full, raw_future_full = select_raw_state_scope(
+        block,
+        state_scope,
+        int(args.iv_count),
+    )
+    raw_history = raw_history_full[:n_windows]
+    raw_future = raw_future_full[:n_windows]
+    if state_scope == "joint38":
+        audit_iv_count = int(args.iv_count)
+        factor_names = [spec.name for spec in specs[audit_iv_count:]]
+    else:
+        audit_iv_count = 0
+        factor_names = [spec.name for spec in specs]
 
     t0 = time.time()
     samples_raw = generate_panel_samples(
@@ -546,7 +658,7 @@ def main() -> None:
         raw_future,
         samples_raw,
         factor_names,
-        iv_count=int(args.iv_count),
+        iv_count=int(audit_iv_count),
     )
     result = {
         "summary": summary,
@@ -558,6 +670,7 @@ def main() -> None:
             "state_scope": payload.get("state_scope", args.state_scope),
             "value_coordinate": value_coordinate,
             "model_coordinate": model_coordinate,
+            "audit_iv_count": int(audit_iv_count),
             "n_windows": int(n_windows),
             "samples": int(args.samples),
             "n_steps": int(args.n_steps),
