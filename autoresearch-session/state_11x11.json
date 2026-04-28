@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 704,
+  "iteration": 705,
   "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Correct aggregate dispersion but wrong channel/cell/horizon allocation. 703a proves dispersion calibration can move the intended control path, but a scalar panel-wide target distorts IV cell tails and anchor factors.",
-  "last_result_summary": "703a added a generic panel-wide dispersion calibration term. It prevented source-scale collapse: train spread/target ratio 1.009, spread/future-activity corr 0.624, scale mean 0.730/std 0.117. Risk-channel audit improved: sampled width/future-activity Spearman 0.303 val and 0.240 train-tail, with zero-risk controls lower. However full IV validation regressed to 4/11: cov90 0.777, worst width 1.376, turb/calm width 1.063, tail-scale 19/25, level KS 4/25, median-bias 11/25, pathwise KS 0.640. Joint panel also degraded: factor KS mean 0.185 with only 8/13 passing, though IV-factor corr stayed 0.893.",
-  "next_step_recommendation": "Replace scalar panel-wide dispersion calibration with channel-aware generic dispersion calibration. Each variable's ensemble spread should be calibrated against its own realized normalized-innovation activity so aggregate uncertainty does not move into the wrong channels.",
+  "current_bottleneck": "Innovation dispersion calibration without level/support fidelity. Channel-aware calibration moves uncertainty but can buy coverage by pushing transformed levels into unrealistic regions, causing IV ceiling hits, level KS collapse, mean-reversion failure, and anchor-factor KS degradation.",
+  "last_result_summary": "704a replaced scalar dispersion calibration with channel-aware calibration at the same weight 0.50. Risk-channel allocation improved modestly: sampled width/future activity Spearman 0.209 val and 0.307 train-tail, with zero-risk controls lower. But full IV validation collapsed to 2/11: surface failed, cov90 0.877 but conditional MAE -5.1%, tail-scale 8/25, coint failed, level KS 1/25, median-bias 6/25, ceiling 3.55% with worst cell 37.31%, mean-reversion ratio 0.415. Joint panel also degraded: factor KS 8/13 and conditional panel improvement 1.80%.",
+  "next_step_recommendation": "Keep the normalized-innovation AR flow. The next repair should combine weaker channel-aware dispersion calibration with a generic level-path/support fidelity term in scaled-delta coordinate, so uncertainty allocation cannot distort market levels. This is a targeted objective fix, not a backend switch.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11. The frozen tri-scope baseline is 674a/675a IV-only + 688a anchor-only + 676a joint38. 698b remains the strongest clean native joint38 non-contrast score at 6/11; 701a risk-state conditioning is informative but regressed to 5/11 and should be treated as a falsification of naive memory-token risk-state injection.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "0fba74b",
+  "last_commit": "9c47e23",
   "resume_command_hint": "continue autoresearch"
 }

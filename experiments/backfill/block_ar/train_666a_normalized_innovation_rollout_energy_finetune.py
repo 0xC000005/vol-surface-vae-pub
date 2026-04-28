@@ -155,6 +155,7 @@ def dispersion_calibration_loss(
     target: torch.Tensor,
     *,
     eps: float = 1e-6,
+    mode: str = "window",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batch-wise calibration between ensemble spread and realized path activity.
 
@@ -165,22 +166,67 @@ def dispersion_calibration_loss(
         raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
     if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
         raise ValueError("samples and target path dimensions do not match")
-    spread_activity = samples.var(dim=1, unbiased=False).mean(dim=(1, 2))
-    target_activity = target.square().mean(dim=(1, 2))
-    spread_z = (spread_activity - spread_activity.mean()) / spread_activity.std(unbiased=False).clamp_min(eps)
-    target_z = (target_activity - target_activity.mean()) / target_activity.std(unbiased=False).clamp_min(eps)
-    rank_mse = (spread_z - target_z.detach()).square().mean()
-    global_log_mse = (
-        torch.log(spread_activity.mean().clamp_min(eps))
-        - torch.log(target_activity.mean().detach().clamp_min(eps))
-    ).square()
-    spread_centered = spread_activity - spread_activity.mean()
-    target_centered = target_activity - target_activity.mean()
-    corr = (spread_centered * target_centered).mean() / (
-        spread_centered.std(unbiased=False).clamp_min(eps)
-        * target_centered.std(unbiased=False).clamp_min(eps)
-    )
-    return rank_mse + global_log_mse, rank_mse, global_log_mse, spread_activity.mean(), corr.detach()
+    if mode not in {"window", "channel", "window_channel"}:
+        raise ValueError("mode must be 'window', 'channel', or 'window_channel'")
+
+    def _loss_for_activity(
+        spread_activity: torch.Tensor,
+        target_activity: torch.Tensor,
+        *,
+        normalize_dim: int | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if normalize_dim is None:
+            spread_z = (spread_activity - spread_activity.mean()) / spread_activity.std(unbiased=False).clamp_min(eps)
+            target_z = (target_activity - target_activity.mean()) / target_activity.std(unbiased=False).clamp_min(eps)
+            global_loss = (
+                torch.log(spread_activity.mean().clamp_min(eps))
+                - torch.log(target_activity.mean().detach().clamp_min(eps))
+            ).square()
+        else:
+            spread_mean = spread_activity.mean(dim=normalize_dim, keepdim=True)
+            target_mean = target_activity.mean(dim=normalize_dim, keepdim=True)
+            spread_std = spread_activity.std(dim=normalize_dim, unbiased=False, keepdim=True).clamp_min(eps)
+            target_std = target_activity.std(dim=normalize_dim, unbiased=False, keepdim=True).clamp_min(eps)
+            spread_z = (spread_activity - spread_mean) / spread_std
+            target_z = (target_activity - target_mean) / target_std
+            global_loss = (
+                torch.log(spread_mean.squeeze(normalize_dim).clamp_min(eps))
+                - torch.log(target_mean.detach().squeeze(normalize_dim).clamp_min(eps))
+            ).square().mean()
+        rank_loss = (spread_z - target_z.detach()).square().mean()
+        spread_flat = spread_activity.reshape(-1)
+        target_flat = target_activity.reshape(-1)
+        spread_centered = spread_flat - spread_flat.mean()
+        target_centered = target_flat - target_flat.mean()
+        corr_value = (spread_centered * target_centered).mean() / (
+            spread_centered.std(unbiased=False).clamp_min(eps)
+            * target_centered.std(unbiased=False).clamp_min(eps)
+        )
+        return rank_loss, global_loss, spread_activity.mean(), corr_value
+
+    pieces: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
+    if mode in {"window", "window_channel"}:
+        pieces.append(
+            _loss_for_activity(
+                samples.var(dim=1, unbiased=False).mean(dim=(1, 2)),
+                target.square().mean(dim=(1, 2)),
+                normalize_dim=None,
+            )
+        )
+    if mode in {"channel", "window_channel"}:
+        pieces.append(
+            _loss_for_activity(
+                samples.var(dim=1, unbiased=False).mean(dim=1),
+                target.square().mean(dim=1),
+                normalize_dim=0,
+            )
+        )
+
+    rank_mse = torch.stack([piece[0] for piece in pieces]).mean()
+    global_log_mse = torch.stack([piece[1] for piece in pieces]).mean()
+    spread_activity_mean = torch.stack([piece[2] for piece in pieces]).mean()
+    corr = torch.stack([piece[3] for piece in pieces]).mean()
+    return rank_mse + global_log_mse, rank_mse, global_log_mse, spread_activity_mean, corr.detach()
 
 
 def standardized_level_delta_paths(
@@ -390,6 +436,7 @@ def normalized_rollout_energy_loss(
     risk_state_weight: float = 0.0,
     risk_state_rank_weight: float = 0.0,
     dispersion_calibration_weight: float = 0.0,
+    dispersion_calibration_mode: str = "window",
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -447,6 +494,7 @@ def normalized_rollout_energy_loss(
             sampled_norm,
             future_normalized_innovation,
             eps=float(energy_eps),
+            mode=dispersion_calibration_mode,
         )
     else:
         dispersion_calibration = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
@@ -600,6 +648,7 @@ def run_epoch(
     risk_state_weight: float,
     risk_state_rank_weight: float,
     dispersion_calibration_weight: float,
+    dispersion_calibration_mode: str,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -639,6 +688,7 @@ def run_epoch(
                 risk_state_weight=float(risk_state_weight),
                 risk_state_rank_weight=float(risk_state_rank_weight),
                 dispersion_calibration_weight=float(dispersion_calibration_weight),
+                dispersion_calibration_mode=dispersion_calibration_mode,
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -695,6 +745,7 @@ def main() -> None:
     parser.add_argument("--risk_state_weight", type=float, default=0.0)
     parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
+    parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
@@ -852,6 +903,7 @@ def main() -> None:
         "risk_state_weight": float(args.risk_state_weight),
         "risk_state_rank_weight": float(args.risk_state_rank_weight),
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
+        "dispersion_calibration_mode": args.dispersion_calibration_mode,
         "base_noise_rho": float(model.cfg.base_noise_rho),
         "conditional_base_noise_scale": bool(model.cfg.conditional_base_noise_scale),
         "base_noise_scale_min": float(model.cfg.base_noise_scale_min),
@@ -895,6 +947,7 @@ def main() -> None:
             risk_state_weight=float(args.risk_state_weight),
             risk_state_rank_weight=float(args.risk_state_rank_weight),
             dispersion_calibration_weight=float(args.dispersion_calibration_weight),
+            dispersion_calibration_mode=args.dispersion_calibration_mode,
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -923,6 +976,7 @@ def main() -> None:
                 risk_state_weight=float(args.risk_state_weight),
                 risk_state_rank_weight=float(args.risk_state_rank_weight),
                 dispersion_calibration_weight=float(args.dispersion_calibration_weight),
+                dispersion_calibration_mode=args.dispersion_calibration_mode,
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),

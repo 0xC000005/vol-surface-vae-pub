@@ -106142,3 +106142,71 @@ Important metrics:
 Do not abandon the framework. The next principled step is not a backend switch and not a broader architecture. Replace the scalar/panel-wide dispersion calibration with a channel-aware, still generic dispersion calibration so each variable's ensemble spread is calibrated against that variable's realized normalized-innovation activity. This directly addresses the observed failure: correct aggregate spread, wrong allocation across channels.
 
 ---
+## 2026-04-28: 704a channel dispersion calibration falsification
+
+### Context
+703a proved the uncertainty-control path can be moved, but scalar panel-wide dispersion calibration pushed uncertainty into the wrong places. 704a replaced that scalar target with channel-aware dispersion calibration, keeping the same weight (`0.50`) to isolate the target change.
+
+### Implementation
+`dispersion_calibration_loss` now supports:
+- `window`: the original scalar per-window target;
+- `channel`: per-channel activity/spread calibration across the batch;
+- `window_channel`: combined mode.
+
+704a used `mode=channel`.
+
+### Training Result
+Checkpoint: `models/backfill/704a_701a_riskstate_channel_dispcal_e3_s7041/best_model.pt`
+
+Training metrics:
+- epoch 3 source scale mean `0.733`, std `0.056`
+- spread/target ratio `0.794`
+- spread/future-activity correlation `0.218`
+- sample normalized std `1.567`, target normalized std `1.547`
+
+The channel target was less aggressive than 703a, but did not produce as strong a spread/activity ranking signal.
+
+### Risk-Channel Audit
+Validation:
+- risk0/future-activity Spearman `0.463`
+- sampled width/future-activity Spearman `0.209`
+- zero-risk width/future-activity Spearman `0.073`
+- risk context width effect `+1.24%`
+
+Train-tail:
+- risk0/future-activity Spearman `0.758`
+- sampled width/future-activity Spearman `0.307`
+- zero-risk width/future-activity Spearman `0.166`
+- risk context width effect `+1.30%`
+
+The intended control path still moves in the right direction, but more weakly than 703a.
+
+### Full IV Validation Suite
+Score: `2/11`
+
+Major failures:
+- surface validity fails due calendar arbitrage `16.3%`
+- coverage overall improves to cov90 `0.877`, but later-horizon per-cell coverage still fails
+- conditionality fails badly: MAE reduction `-5.1%`, worst per-cell MAE reduction `-92.3%`
+- tail-scale cells only `8/25`
+- cointegration fails
+- level KS only `1/25`
+- median-bias cells only `6/25`
+- ceiling rate `3.55%`, worst cell ceiling `37.31%`
+- mean reversion fails: aggregate ratio `0.415`
+- pathwise max-jump KS passes, but per-cell extreme jump scale only `8/25`
+
+### Joint-Panel Audit
+- factor delta KS mean `0.186`, only `8/13` passing
+- factor q99 ratio median `1.416`, `13/13` inside `[0.5,2.0]`
+- factor-factor corr `0.766`
+- IV-factor corr `0.872`
+- conditional panel improvement only `1.80%`
+
+### Interpretation
+Channel-aware dispersion calibration did not solve the problem. It increases support coverage but breaks level/support realism: IV cells hit ceilings, level distributions shift, mean reversion collapses, and anchor factor deltas become less realistic. The failure mechanism is now precise: calibrated innovation spread without a simultaneous level/support constraint can generate plausible uncertainty width in the transformed coordinate while producing implausible market levels.
+
+### Decision
+Do not switch backend. The next principled repair should keep channel-aware uncertainty allocation but add a generic level-path/support fidelity term, preferably in the existing unit-free `scaled_delta` coordinate, so dispersion calibration cannot buy coverage by pushing levels into unrealistic regions. A lower dispersion weight is also justified by the bracket: weight `0` under-allocates; weight `0.50` over-allocates and distorts support.
+
+---

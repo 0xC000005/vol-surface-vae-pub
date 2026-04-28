@@ -122,6 +122,33 @@ def test_dispersion_calibration_penalizes_flat_underdispersed_spread():
     assert matched_loss < flat_loss
 
 
+def test_dispersion_calibration_supports_channel_mode():
+    target = torch.tensor(
+        [
+            [[2.0, 0.5], [2.0, 0.5]],
+            [[0.5, 2.0], [0.5, 2.0]],
+        ]
+    )
+    matched_samples = torch.tensor(
+        [
+            [[[2.0, 0.5], [2.0, 0.5]], [[-2.0, -0.5], [-2.0, -0.5]]],
+            [[[0.5, 2.0], [0.5, 2.0]], [[-0.5, -2.0], [-0.5, -2.0]]],
+        ]
+    )
+
+    loss, rank_mse, global_log_mse, spread_mean, corr = dispersion_calibration_loss(
+        matched_samples,
+        target,
+        mode="channel",
+    )
+
+    assert torch.isfinite(loss)
+    assert rank_mse >= 0.0
+    assert global_log_mse >= 0.0
+    assert spread_mean > 0.0
+    assert corr > 0.0
+
+
 def test_differentiable_normalized_rollout_samples_backpropagates():
     torch.manual_seed(17)
     model = _tiny_model()
@@ -437,6 +464,7 @@ def test_normalized_rollout_energy_loss_can_use_dispersion_calibration():
         rollout_flow_steps=2,
         energy_weight=0.2,
         dispersion_calibration_weight=0.1,
+        dispersion_calibration_mode="channel",
         fm_anchor_weight=1.0,
         horizon_end_weight=1.2,
         energy_eps=1e-6,
