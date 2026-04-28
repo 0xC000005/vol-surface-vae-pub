@@ -28,6 +28,7 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     base_noise_scale_min: float = 0.5
     base_noise_scale_max: float = 2.0
     innovation_coordinate: str = "normalized"
+    risk_state_dim: int = 0
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -165,6 +166,26 @@ def _make_base_noise_scale_head(cfg: GenericStateAwareNormalizedInnovationFMConf
     return head
 
 
+def _make_risk_state_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+    head = nn.Sequential(
+        nn.LayerNorm(cfg.memory_dim),
+        nn.Linear(cfg.memory_dim, cfg.memory_dim),
+        nn.GELU(),
+        nn.Linear(cfg.memory_dim, cfg.risk_state_dim),
+    )
+    return head
+
+
+def _make_risk_context_proj(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+    proj = nn.Sequential(
+        nn.LayerNorm(cfg.risk_state_dim),
+        nn.Linear(cfg.risk_state_dim, cfg.memory_dim),
+    )
+    nn.init.zeros_(proj[-1].weight)
+    nn.init.zeros_(proj[-1].bias)
+    return proj
+
+
 def enable_conditional_base_noise_scale(
     model: "GenericStateAwareNormalizedInnovationFlowMatching",
     *,
@@ -217,6 +238,12 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             raise ValueError("velocity_readout_mode must be 'shared', 'group_residual', or 'group_head'")
         self.base_noise_log_scale = (
             _make_base_noise_scale_head(cfg) if bool(cfg.conditional_base_noise_scale) else None
+        )
+        self.risk_state_head = (
+            _make_risk_state_head(cfg) if int(cfg.risk_state_dim) > 0 else None
+        )
+        self.risk_context_proj = (
+            _make_risk_context_proj(cfg) if int(cfg.risk_state_dim) > 0 else None
         )
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
@@ -433,6 +460,79 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         hi = math.log(float(self.cfg.base_noise_scale_max))
         return torch.exp(self.base_noise_log_scale(memory_state).clamp(lo, hi))
 
+    def _risk_state_from_history(
+        self,
+        history_level_scores: torch.Tensor,
+        history_flow_coordinate: torch.Tensor,
+        center: torch.Tensor,
+        scale: torch.Tensor,
+        drift_feature: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        if self.risk_state_head is None or self.risk_context_proj is None:
+            return None, None
+        history_hidden = self._encode_prefix(
+            history_level_scores,
+            history_flow_coordinate,
+            center,
+            scale,
+            drift_feature,
+        )
+        predicted = self.risk_state_head(history_hidden[:, -1])
+        context = self.risk_context_proj(predicted)
+        return predicted, context
+
+    @staticmethod
+    def _future_risk_targets(future_flow_coordinate: torch.Tensor) -> torch.Tensor:
+        abs_x = future_flow_coordinate.abs()
+        activity = future_flow_coordinate.square().mean(dim=(1, 2))
+        mean_abs = abs_x.mean(dim=(1, 2))
+        max_abs = abs_x.amax(dim=(1, 2))
+        per_step = abs_x.mean(dim=2)
+        temporal_peak = per_step.amax(dim=1) / per_step.mean(dim=1).clamp_min(1e-8)
+        raw = torch.stack([activity, mean_abs, max_abs, temporal_peak], dim=1)
+        return torch.log1p(raw)
+
+    def _risk_state_losses(
+        self,
+        risk_prediction: torch.Tensor | None,
+        future_flow_coordinate: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if risk_prediction is None:
+            zero = future_flow_coordinate.new_zeros(())
+            return zero, zero, zero
+        target = self._future_risk_targets(future_flow_coordinate)
+        target = target[:, : risk_prediction.shape[1]]
+        target_z = (target - target.mean(dim=0, keepdim=True)) / target.std(
+            dim=0,
+            keepdim=True,
+            unbiased=False,
+        ).clamp_min(1e-6)
+        regression = F.mse_loss(risk_prediction, target_z.detach())
+        if risk_prediction.shape[0] < 2:
+            rank_loss = regression.new_zeros(())
+        else:
+            pred_score = risk_prediction[:, 0]
+            target_score = target[:, 0].detach()
+            pred_diff = pred_score[:, None] - pred_score[None, :]
+            target_diff = target_score[:, None] - target_score[None, :]
+            sign = target_diff.sign()
+            mask = target_diff.abs() > 1e-6
+            if bool(mask.any()):
+                rank_loss = F.softplus(-sign[mask] * pred_diff[mask]).mean()
+            else:
+                rank_loss = regression.new_zeros(())
+        rho = torch.zeros((), device=future_flow_coordinate.device, dtype=future_flow_coordinate.dtype)
+        if risk_prediction.shape[0] >= 3 and torch.std(risk_prediction[:, 0], unbiased=False) > 1e-8:
+            pred_rank = torch.argsort(torch.argsort(risk_prediction[:, 0])).to(future_flow_coordinate.dtype)
+            target_rank = torch.argsort(torch.argsort(target[:, 0])).to(future_flow_coordinate.dtype)
+            pred_rank = pred_rank - pred_rank.mean()
+            target_rank = target_rank - target_rank.mean()
+            rho = (pred_rank * target_rank).mean() / (
+                pred_rank.std(unbiased=False).clamp_min(1e-8)
+                * target_rank.std(unbiased=False).clamp_min(1e-8)
+            )
+        return regression, rank_loss, rho.detach()
+
     def training_loss(
         self,
         history_level_values: torch.Tensor,
@@ -444,6 +544,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         drift_feature: torch.Tensor | None = None,
         condition_contrast_weight: float = 0.0,
         condition_contrast_margin: float = 0.0,
+        risk_state_weight: float = 0.0,
+        risk_state_rank_weight: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
@@ -457,6 +559,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         hidden = self._encode_prefix(prefix_level_scores, prefix_norm, center, scale, drift_feature)
         start = self.cfg.history_len - 1
         memory_states = hidden[:, start : start + self.cfg.future_len]
+        risk_prediction, risk_context = self._risk_state_from_history(
+            history_level_scores,
+            history_flow_coordinate,
+            center,
+            scale,
+            drift_feature,
+        )
+        if risk_context is not None:
+            memory_states = memory_states + risk_context[:, None, :]
         current_level_scores = prefix_level_scores[:, start : start + self.cfg.future_len]
 
         x1 = future_flow_coordinate
@@ -497,6 +608,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 None if drift_feature is None else drift_feature[perm],
             )
             neg_memory_states = neg_hidden[:, start : start + self.cfg.future_len]
+            _neg_risk_prediction, neg_risk_context = self._risk_state_from_history(
+                history_level_scores[perm],
+                history_flow_coordinate[perm],
+                center[perm],
+                scale[perm],
+                None if drift_feature is None else drift_feature[perm],
+            )
+            if neg_risk_context is not None:
+                neg_memory_states = neg_memory_states + neg_risk_context[:, None, :]
             neg_current_level_scores = neg_prefix_level_scores[:, start : start + self.cfg.future_len]
             neg_pred_velocity = self.velocity(
                 x_t.reshape(bsz * horizon, n_vars),
@@ -509,7 +629,16 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             contrast_loss = F.softplus(
                 pos_loss_per_window - neg_loss_per_window + float(condition_contrast_margin)
             ).mean()
-        total_loss = fm_loss + contrast_weight * contrast_loss
+        risk_loss, risk_rank_loss, risk_rank_rho = self._risk_state_losses(
+            risk_prediction,
+            future_flow_coordinate,
+        )
+        total_loss = (
+            fm_loss
+            + contrast_weight * contrast_loss
+            + float(risk_state_weight) * risk_loss
+            + float(risk_state_rank_weight) * risk_rank_loss
+        )
         if base_noise_scale is None:
             base_noise_scale_enabled = torch.zeros((), device=x1.device, dtype=x1.dtype)
             base_noise_scale_mean = torch.ones((), device=x1.device, dtype=x1.dtype)
@@ -534,6 +663,16 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "base_noise_scale_std": base_noise_scale_std,
             "base_noise_scale_min": base_noise_scale_min,
             "base_noise_scale_max": base_noise_scale_max,
+            "risk_state_enabled": torch.as_tensor(
+                1.0 if risk_prediction is not None else 0.0,
+                device=x1.device,
+                dtype=x1.dtype,
+            ),
+            "risk_state_loss": risk_loss.detach(),
+            "risk_state_rank_loss": risk_rank_loss.detach(),
+            "risk_state_rank_rho": risk_rank_rho,
+            "risk_state_weight": torch.as_tensor(float(risk_state_weight), device=x1.device, dtype=x1.dtype),
+            "risk_state_rank_weight": torch.as_tensor(float(risk_state_rank_weight), device=x1.device, dtype=x1.dtype),
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_flow_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
@@ -600,6 +739,13 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                     .expand(bsz, k, self.cfg.n_cells)
                     .reshape(bsz * k, self.cfg.n_cells)
                 )
+            _risk_prediction, risk_context = self._risk_state_from_history(
+                prefix_level_scores,
+                prefix_norm,
+                center_rep,
+                scale_rep,
+                drift_rep,
+            )
             base_noise = temp * self._base_noise_like(
                 torch.empty(
                     bsz * k,
@@ -614,6 +760,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 memory_state = self._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[
                     :, -1
                 ]
+                if risk_context is not None:
+                    memory_state = memory_state + risk_context
                 current_level_score = prefix_level_scores[:, -1]
                 x = base_noise[:, _step]
                 base_noise_scale = self._conditional_base_noise_scale(memory_state)

@@ -6,10 +6,15 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.backfill.block_ar.audit_627a_joint_panel_scenario_quality import (  # noqa: E402
+    conditional_panel_diagnostics,
     corr_similarity,
     ks_statistic,
     safe_corrcoef,
+    state_block_alignment_diagnostics,
     summarize_joint_quality,
+)
+from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (  # noqa: E402
+    UnifiedVariableSpec,
 )
 
 
@@ -51,4 +56,45 @@ def test_summarize_joint_quality_shapes() -> None:
     assert summary["finite_rate"] == 1.0
     assert len(summary["per_factor"]) == 2
     assert "iv_factor_corr" in summary
+    assert "conditional_panel" in summary
 
+
+def test_state_block_alignment_diagnostics_detects_exact_panel_alignment() -> None:
+    class Block:
+        pass
+
+    panel = np.arange(8 * 3, dtype=np.float32).reshape(8, 3)
+    specs = [
+        UnifiedVariableSpec("a", "a", 0, "diff_level"),
+        UnifiedVariableSpec("c", "c", 2, "diff_level"),
+    ]
+    block = Block()
+    block.indices = np.array([1, 2])
+    state_panel = panel[:, [0, 2]]
+    block.history_state = np.stack([state_panel[1:4], state_panel[2:5]]).astype(np.float32)
+    block.future_state = np.stack([state_panel[4:6], state_panel[5:7]]).astype(np.float32)
+
+    out = state_block_alignment_diagnostics(panel, block, specs)
+
+    assert out["history_max_abs_error"] == 0.0
+    assert out["future_max_abs_error"] == 0.0
+    assert out["n_windows"] == 2
+
+
+def test_conditional_panel_diagnostics_rewards_matched_scenario_centers() -> None:
+    history = np.zeros((4, 2, 2), dtype=np.float32)
+    future = np.array(
+        [
+            [[0.0, 0.0], [0.0, 0.0]],
+            [[1.0, 1.0], [1.0, 1.0]],
+            [[2.0, 2.0], [2.0, 2.0]],
+            [[3.0, 3.0], [3.0, 3.0]],
+        ],
+        dtype=np.float32,
+    )
+    samples = future[:, None, :, :] + np.array([-0.1, 0.1], dtype=np.float32)[None, :, None, None]
+
+    out = conditional_panel_diagnostics(history, future, samples)
+
+    assert out["median_mae_reduction_vs_rolled_pct"] > 50.0
+    assert out["conditional_median_mae"] < out["rolled_median_mae"]

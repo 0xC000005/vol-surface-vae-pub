@@ -105868,3 +105868,77 @@ Do not keep spending iterations on longer rollout continuation alone. The score-
 Next step should be the single-framework gate: run the same score-coordinate recipe on `iv_only` and `anchor_only` to decide whether this is a general framework or just a joint38-specific improvement. If tri-scope holds, then address the remaining common failure class: conditionality/coverage allocation.
 
 ---
+## 2026-04-28: 700c conditional risk-state allocation pivot
+
+### Context
+After hardening the audits, 698b/699b remain validation `6/11` candidates but still fail coverage, conditionality, time-series kurtosis, cointegration, and regime coverage. The new 700a tri-scope conditional-signal audit showed that nearest-neighbor history in normalized-innovation space improves versus a rolled future deck but does not beat the global median baseline for `iv_only`, `anchor_only`, or `joint38`. Small 64-window overfit probes reduce train loss but immediately worsen validation loss across all three scopes.
+
+### Evidence
+- 700a tri-scope audit: NN conditional improvement versus global median is negative in every scope/split, roughly `-1.8%` to `-2.7%`.
+- History/future activity rank correlation is weak-to-moderate for IV and joint, and near zero for anchor train-tail.
+- 64-window score-coordinate overfit probes reduce train loss but best validation is epoch 1 for `iv_only`, `anchor_only`, and `joint38`.
+
+### Mechanism Read
+The current data framing does not support strong conditional path-center prediction from a 30-day history. The surviving conditional signal is more likely distributional: histories may help allocate scenario-set width, tail activity, jump incidence, and stress clustering even when the exact future center/path is weakly predictable.
+
+### Decision
+Pivot the active line to generic conditional risk-state allocation:
+- keep the normalized-innovation AR/flow generative core;
+- compute support-agnostic future stress summaries in normalized-innovation coordinates;
+- learn a low-dimensional history-conditioned risk state;
+- use ranking/contrastive scenario-set objectives so higher realized future stress histories produce wider or jumpier generated sample populations;
+- keep one formula across `iv_only`, `anchor_only`, and `joint38`.
+
+This targets conditionality, regime coverage, coverage allocation, pathwise jump realism, and possibly kurtosis without adding IV-specific knobs. It is not intended as a level-KS or point-center predictor.
+
+---
+## 2026-04-28: 701a risk-state allocation falsification
+
+### Context
+This iteration tested the conditional risk-state allocation idea as the next minimal change inside the state-level normalized-innovation conditional law. The goal was not to add a new generative backend, but to keep the same AR flow mechanism and give the history encoder an explicit, generic target for future stress allocation.
+
+### Implementation
+- Added an optional `risk_state_dim` branch to the generic state-aware normalized-innovation flow. The default remains disabled and old checkpoints remain compatible.
+- The risk branch predicts future normalized-innovation risk summaries from history only: mean squared activity, mean absolute innovation, max absolute innovation, and temporal peak ratio.
+- Added a within-batch z-scored risk-state regression term and an ordering/ranking term. The learned risk context is zero-initialized into the existing flow memory so it can help conditioning without changing the stochastic core.
+- Added trainer CLI flags for `risk_state_dim`, `risk_state_weight`, and `risk_state_rank_weight`.
+- Added a tri-scope conditional-signal audit and tests to separate data-object signal from architecture failure.
+
+### Diagnostic Baseline Before 701a
+The 700a tri-scope audit showed that nearest-neighbor conditioning in normalized-innovation space improves strongly over a rolled future deck but does not beat the global median baseline in IV-only, anchor-only, or joint38. This is evidence that the 30-day history contains weak direct conditional center/path signal for the next 30-day normalized innovations. The more plausible conditional signal is uncertainty and stress allocation, not point path prediction.
+
+Small 64-window overfit probes showed train loss can be reduced for IV-only, anchor-only, and joint38, but validation loss degrades quickly from the first epoch. This makes the current bottleneck more consistent with conditional generalization/data-object alignment than raw capacity.
+
+### 701a Experiment
+Checkpoint: `models/backfill/701a_joint38_riskstate_innovscore_e8_s7011/best_model.pt`
+
+Training command used joint38, score-coordinate normalized innovations, `risk_state_dim=4`, `risk_state_weight=0.10`, and `risk_state_rank_weight=0.05` for 8 epochs. The risk-state head learned the in-sample ordering signal: train risk-state rank rho improved from `0.514` at epoch 1 to `0.944` at epoch 8. Best validation loss was epoch 3 at approximately `1.425`.
+
+### Validation Results
+Full IV 11-suite on validation:
+- Score: `5/11`
+- Failed suites: coverage, conditionality, regime coverage, distributional fidelity, mean reversion, pathwise jump realism
+- Coverage: cov90 `0.846`, but per-cell coverage still fails at later horizons
+- Conditionality: MAE reduction `9.83%`, but worst per-cell width ratio `1.607`
+- Regime width: turbulent/calm width ratio `1.173` informational pass
+- Distributional fidelity: daily-change KS `25/25`, but IV level KS only `9/25`
+- Mean reversion: aggregate slope ratio `1.131`, but active-cell/full-horizon profile fails
+- Pathwise max-jump KS `0.625`, above the relaxed `0.50` gate
+
+Joint-panel audit on validation:
+- Factor delta KS mean `0.103`, with `12/13` factors passing the `<0.20` KS screen
+- Factor q99 absolute-delta ratio median `1.129`, with `13/13` factors passing `[0.5, 2.0]`
+- Factor-factor correlation upper-triangle corr `0.764`, MAE `0.161`
+- IV-factor correlation matrix corr `0.890`, MAE `0.090`
+- Conditional median MAE reduction vs rolled deck `3.50%`
+- History activity versus generated width Spearman `0.948`; future activity versus generated width Spearman `0.614`
+
+### Interpretation
+The auxiliary risk-state target is learnable, and it does make generated width strongly depend on observed historical activity. However, it does not yet solve the deployability bottleneck because it maps mostly to history activity, not sufficiently to realized future difficulty. This explains why turbulent/calm width can look better while coverage, per-cell conditionality, level allocation, and pathwise jump shape remain weak.
+
+The failure is still clean: the current family can generate realistic daily changes and broadly plausible joint factor tails, but it does not allocate uncertainty and level/path state finely enough across validation histories. The next step should not be a backend switch. It should be a post-experiment analysis/fix of the risk-state conditioning channel: quantify whether the risk context is used by the sampler, whether the targets are too activity-only, and whether the width-control signal needs to act on the stochastic scale rather than only the memory tokens.
+
+### Decision
+Continue the current framework, but treat 701a as a falsification of naive memory-token risk-state conditioning. The next HEAD step is to diagnose and repair conditional uncertainty allocation directly, while preserving the same state-normalized innovation law and avoiding scope-specific recipes.
+
+---

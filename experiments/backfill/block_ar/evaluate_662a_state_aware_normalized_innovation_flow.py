@@ -333,6 +333,7 @@ def main() -> None:
         conditionality_samples=int(args.conditionality_samples),
         conditionality_max_batches=int(args.conditionality_max_batches),
         device=device,
+        eval_split=args.eval_split,
     )
     results["config"] = {
         "mode": "662a_state_aware_normalized_innovation_flow",

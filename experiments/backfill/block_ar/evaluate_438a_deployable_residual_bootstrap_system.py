@@ -30,6 +30,7 @@ from experiments.backfill.block_ar._rollout_220_utils import (  # noqa: E402
     build_rollout_windows,
     load_one_day_kernel,
     make_serializable,
+    select_rollout_indices,
     write_markdown_summary,
 )
 from experiments.backfill.block_ar.evaluate_220h_full_multihorizon_v2_suite import (  # noqa: E402
@@ -173,9 +174,19 @@ class FixedDeployableSampler:
     pre-validation residual bank. The validation future is not available here.
     """
 
-    def __init__(self, samples_by_key: dict[bytes, np.ndarray]):
+    def __init__(
+        self,
+        samples_by_key: dict[bytes, np.ndarray],
+        *,
+        allow_fallback: bool = False,
+    ):
+        if not samples_by_key:
+            raise ValueError("samples_by_key must not be empty")
         self.samples_by_key = samples_by_key
+        self.allow_fallback = bool(allow_fallback)
         self.fallback = next(iter(samples_by_key.values()))
+        self.hit_count = 0
+        self.missing_count = 0
 
     def eval(self) -> "FixedDeployableSampler":
         return self
@@ -193,7 +204,18 @@ class FixedDeployableSampler:
         hist_np = history.detach().cpu().numpy()
         rows = []
         for hist in hist_np:
-            arr = self.samples_by_key.get(history_key(hist), self.fallback)
+            key = history_key(hist)
+            arr = self.samples_by_key.get(key)
+            if arr is None:
+                self.missing_count += 1
+                if not self.allow_fallback:
+                    raise KeyError(
+                        "missing history key in FixedDeployableSampler; "
+                        "audit would otherwise silently reuse an unrelated scenario deck"
+                    )
+                arr = self.fallback
+            else:
+                self.hit_count += 1
             if n_samples <= arr.shape[0]:
                 out = arr[:n_samples, :n_steps]
             else:
@@ -201,6 +223,28 @@ class FixedDeployableSampler:
                 out = np.tile(arr, (reps, 1, 1, 1))[:n_samples, :n_steps]
             rows.append(out)
         return torch.from_numpy(np.stack(rows, axis=0)).to(history.device)
+
+
+def rollout_start_for_split(
+    *,
+    test_start: int,
+    val_size: int,
+    history_len: int,
+    future_len: int,
+    n_windows: int,
+    eval_split: str,
+) -> int:
+    indices = select_rollout_indices(
+        test_start=int(test_start),
+        val_size=int(val_size),
+        history_len=int(history_len),
+        future_len=int(future_len),
+        max_windows=int(n_windows),
+        split=eval_split,
+    )
+    if indices.size == 0:
+        raise ValueError(f"no rollout windows selected for split {eval_split!r}")
+    return int(indices[0])
 
 
 def run_suite(
@@ -216,13 +260,20 @@ def run_suite(
     conditionality_samples: int,
     conditionality_max_batches: int,
     device: torch.device,
+    eval_split: str = "val",
 ) -> dict[str, Any]:
     ground_truth = batch.future_01.detach().cpu().numpy()
     history_01 = batch.history_01.detach().cpu().numpy()
     raw = np.load(data_path)
     returns = raw["ret"].astype(np.float64)
-    max_train_idx = test_start - history_len - future_len
-    rollout_start = max_train_idx - val_size
+    rollout_start = rollout_start_for_split(
+        test_start=test_start,
+        val_size=val_size,
+        history_len=history_len,
+        future_len=future_len,
+        n_windows=int(ground_truth.shape[0]),
+        eval_split=eval_split,
+    )
 
     surface = run_surface_validity_tests(cond_samples, ground_truth)
     coverage = run_ci_coverage_tests(cond_samples, ground_truth)
@@ -378,6 +429,7 @@ def main() -> None:
         conditionality_samples=args.conditionality_samples,
         conditionality_max_batches=args.conditionality_max_batches,
         device=device,
+        eval_split="val",
     )
 
     max_train_idx = args.test_start - args.history_len - args.future_len

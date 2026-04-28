@@ -260,6 +260,67 @@ def test_innovation_score_flow_loss_and_sampling_reconstructs_normalized_increme
     assert torch.isfinite(samples).all()
 
 
+def test_risk_state_allocation_loss_conditions_flow_context():
+    torch.manual_seed(701)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale",
+        risk_state_dim=4,
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    model.set_level_quantiles(torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells), levels)
+
+    history_level = torch.randn(6, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(6, cfg.history_len, cfg.n_cells)
+    center = torch.randn(6, cfg.n_cells) * 0.01
+    scale = torch.rand(6, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(6, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+
+    loss, metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        risk_state_weight=0.1,
+        risk_state_rank_weight=0.1,
+    )
+    loss.backward()
+    samples = model.sample_batched(
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=3,
+        n_steps=cfg.future_len,
+        chunk_size=2,
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["risk_state_enabled"].item() == 1.0
+    assert metrics["risk_state_loss"].item() >= 0.0
+    assert metrics["risk_state_rank_loss"].item() >= 0.0
+    assert samples.shape == (6, 3, cfg.future_len, cfg.n_cells)
+    assert torch.isfinite(samples).all()
+
+
 def test_scale_drift_prefix_conditions_on_drift_without_centering_increment():
     torch.manual_seed(17)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(

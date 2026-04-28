@@ -101,6 +101,8 @@ def eval_loss(
     *,
     condition_contrast_weight: float,
     condition_contrast_margin: float,
+    risk_state_weight: float,
+    risk_state_rank_weight: float,
 ) -> float:
     model.eval()
     total = 0.0
@@ -117,6 +119,8 @@ def eval_loss(
                 drift_feature=drift_feature.to(device),
                 condition_contrast_weight=float(condition_contrast_weight),
                 condition_contrast_margin=float(condition_contrast_margin),
+                risk_state_weight=float(risk_state_weight),
+                risk_state_rank_weight=float(risk_state_rank_weight),
             )
             batch_n = int(history_level.shape[0])
             total += float(loss.item()) * batch_n
@@ -220,6 +224,9 @@ def main() -> None:
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_drift"], default="scale")
     parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
+    parser.add_argument("--risk_state_dim", type=int, default=0)
+    parser.add_argument("--risk_state_weight", type=float, default=0.0)
+    parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -315,6 +322,7 @@ def main() -> None:
         cdf_eps=float(args.cdf_eps),
         prefix_feature_mode=args.prefix_feature_mode,
         innovation_coordinate=args.innovation_coordinate,
+        risk_state_dim=int(args.risk_state_dim),
         conditioning_mode="prefix",
     )
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg).to(device)
@@ -386,6 +394,9 @@ def main() -> None:
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
+            "risk_state_dim": int(args.risk_state_dim),
+            "risk_state_weight": float(args.risk_state_weight),
+            "risk_state_rank_weight": float(args.risk_state_rank_weight),
             "base_noise_rho": float(cfg.base_noise_rho),
             "flow_coordinate": args.innovation_coordinate,
         },
@@ -414,6 +425,8 @@ def main() -> None:
                 drift_feature=drift_feature.to(device),
                 condition_contrast_weight=float(args.condition_contrast_weight),
                 condition_contrast_margin=float(args.condition_contrast_margin),
+                risk_state_weight=float(args.risk_state_weight),
+                risk_state_rank_weight=float(args.risk_state_rank_weight),
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -430,6 +443,8 @@ def main() -> None:
             device,
             condition_contrast_weight=float(args.condition_contrast_weight),
             condition_contrast_margin=float(args.condition_contrast_margin),
+            risk_state_weight=float(args.risk_state_weight),
+            risk_state_rank_weight=float(args.risk_state_rank_weight),
         )
         record = {
             "epoch": int(epoch),
@@ -478,6 +493,9 @@ def main() -> None:
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
+            "risk_state_dim": int(args.risk_state_dim),
+            "risk_state_weight": float(args.risk_state_weight),
+            "risk_state_rank_weight": float(args.risk_state_rank_weight),
             "base_noise_rho": float(cfg.base_noise_rho),
             "flow_coordinate": args.innovation_coordinate,
         },

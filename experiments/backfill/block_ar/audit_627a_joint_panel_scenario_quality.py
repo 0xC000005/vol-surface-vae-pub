@@ -35,6 +35,7 @@ from experiments.backfill.block_ar.evaluate_438a_deployable_residual_bootstrap_s
 from experiments.backfill.block_ar.increment_coordinate_628_utils import (  # noqa: E402
     build_increment_coordinate_block,
     reconstruct_state_from_increments,
+    state_panel_from_specs,
 )
 from experiments.backfill.block_ar.train_609a_unified_ar_transition_flow import (
     select_scope,
@@ -101,12 +102,109 @@ def corr_similarity(gt: np.ndarray, gen: np.ndarray) -> dict[str, float]:
     }
 
 
+def _ordinal_spearman(x: np.ndarray, y: np.ndarray) -> float:
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    keep = np.isfinite(x) & np.isfinite(y)
+    x = x[keep]
+    y = y[keep]
+    if x.size < 3 or np.std(x) < 1e-12 or np.std(y) < 1e-12:
+        return float("nan")
+    rx = np.argsort(np.argsort(x)).astype(np.float64)
+    ry = np.argsort(np.argsort(y)).astype(np.float64)
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def state_block_alignment_diagnostics(
+    panel: np.ndarray,
+    block: Any,
+    specs: list[Any],
+    *,
+    n_windows: int | None = None,
+) -> dict[str, float | int]:
+    n = int(block.history_state.shape[0] if n_windows is None else n_windows)
+    n = min(n, int(block.history_state.shape[0]))
+    if n == 0:
+        return {
+            "n_windows": 0,
+            "history_max_abs_error": float("nan"),
+            "future_max_abs_error": float("nan"),
+            "history_mean_abs_error": float("nan"),
+            "future_mean_abs_error": float("nan"),
+        }
+    history_len = int(block.history_state.shape[1])
+    future_len = int(block.future_state.shape[1])
+    state_panel = state_panel_from_specs(panel, specs)
+    expected_history = np.stack(
+        [state_panel[int(idx) : int(idx) + history_len] for idx in block.indices[:n]],
+        axis=0,
+    )
+    expected_future = np.stack(
+        [
+            state_panel[
+                int(idx) + history_len : int(idx) + history_len + future_len
+            ]
+            for idx in block.indices[:n]
+        ],
+        axis=0,
+    )
+    history_err = np.abs(block.history_state[:n] - expected_history)
+    future_err = np.abs(block.future_state[:n] - expected_future)
+    return {
+        "n_windows": int(n),
+        "history_max_abs_error": float(np.max(history_err)) if n else float("nan"),
+        "future_max_abs_error": float(np.max(future_err)) if n else float("nan"),
+        "history_mean_abs_error": float(np.mean(history_err)) if n else float("nan"),
+        "future_mean_abs_error": float(np.mean(future_err)) if n else float("nan"),
+    }
+
+
+def conditional_panel_diagnostics(
+    history_raw: np.ndarray,
+    future_raw: np.ndarray,
+    samples_raw: np.ndarray,
+) -> dict[str, float]:
+    sample_median = np.median(samples_raw, axis=1)
+    rolled_median = np.roll(sample_median, shift=1, axis=0)
+    conditional_mae = float(np.mean(np.abs(sample_median - future_raw)))
+    rolled_mae = float(np.mean(np.abs(rolled_median - future_raw)))
+    mae_reduction = (
+        (rolled_mae - conditional_mae) / rolled_mae * 100.0
+        if rolled_mae > 1e-12
+        else 0.0
+    )
+
+    history_delta = np.diff(history_raw, axis=1)
+    history_activity = np.mean(history_delta * history_delta, axis=(1, 2))
+    lo = np.quantile(samples_raw, 0.05, axis=1)
+    hi = np.quantile(samples_raw, 0.95, axis=1)
+    sample_width = np.mean(hi - lo, axis=(1, 2))
+    future_activity = np.mean(
+        panel_daily_changes(history_raw, future_raw) ** 2,
+        axis=(1, 2),
+    )
+
+    return {
+        "conditional_median_mae": conditional_mae,
+        "rolled_median_mae": rolled_mae,
+        "median_mae_reduction_vs_rolled_pct": float(mae_reduction),
+        "history_activity_width_spearman": _ordinal_spearman(
+            history_activity,
+            sample_width,
+        ),
+        "future_activity_width_spearman": _ordinal_spearman(
+            future_activity,
+            sample_width,
+        ),
+    }
+
+
 HistoryInput = np.ndarray | tuple[np.ndarray, ...]
 
 
 def build_history_future(
     args: argparse.Namespace, payload: dict[str, Any]
-) -> tuple[HistoryInput, np.ndarray, list[Any], Any]:
+) -> tuple[HistoryInput, np.ndarray, list[Any], Any, dict[str, float | int]]:
     panel, columns, _dates = load_aligned_iv_factor_panel()
     positive_level_policy = payload.get(
         "positive_level_policy",
@@ -211,6 +309,7 @@ def build_history_future(
             raise RuntimeError(
                 "checkpoint state specs do not match rebuilt validation specs"
             )
+        alignment = state_block_alignment_diagnostics(panel, block, specs)
         return (
             (
                 history_level.astype(np.float32),
@@ -222,6 +321,7 @@ def build_history_future(
             future_norm.astype(np.float32),
             specs,
             block,
+            alignment,
         )
 
     if payload.get("model_coordinate") in {
@@ -261,6 +361,7 @@ def build_history_future(
             raise RuntimeError(
                 "checkpoint state specs do not match rebuilt validation specs"
             )
+        alignment = state_block_alignment_diagnostics(panel, block, specs)
         return (
             (
                 history_level.astype(np.float32),
@@ -269,6 +370,7 @@ def build_history_future(
             future_increment.astype(np.float32),
             specs,
             block,
+            alignment,
         )
 
     if (
@@ -299,7 +401,14 @@ def build_history_future(
             raise RuntimeError(
                 "checkpoint state specs do not match rebuilt validation specs"
             )
-        return history.astype(np.float32), future.astype(np.float32), specs, block
+        alignment = state_block_alignment_diagnostics(panel, block, specs)
+        return (
+            history.astype(np.float32),
+            future.astype(np.float32),
+            specs,
+            block,
+            alignment,
+        )
 
     block = build_unified_increment_block(
         panel,
@@ -320,7 +429,8 @@ def build_history_future(
         raise RuntimeError(
             "checkpoint state specs do not match rebuilt validation specs"
         )
-    return history.astype(np.float32), future.astype(np.float32), specs, block
+    alignment = state_block_alignment_diagnostics(panel, block, specs)
+    return history.astype(np.float32), future.astype(np.float32), specs, block, alignment
 
 
 def load_native_model(
@@ -583,6 +693,11 @@ def summarize_joint_quality(
             "gt_mean_abs": iv_factor_gt_mean_abs,
             "gen_mean_abs": iv_factor_gen_mean_abs,
         },
+        "conditional_panel": conditional_panel_diagnostics(
+            history_raw,
+            future_raw,
+            samples_raw,
+        ),
         "per_factor": range_rows,
     }
 
@@ -601,6 +716,8 @@ def write_markdown(path: Path, title: str, summary: dict[str, Any]) -> None:
         f"- factor-factor corr MAE: `{summary['factor_factor_corr']['mae']:.3f}`",
         f"- IV-factor corr matrix corr: `{summary['iv_factor_corr']['matrix_corr']:.3f}`",
         f"- IV-factor corr MAE: `{summary['iv_factor_corr']['mae']:.3f}`",
+        f"- conditional median MAE reduction vs rolled deck: `{summary['conditional_panel']['median_mae_reduction_vs_rolled_pct']:.2f}%`",
+        f"- history-activity vs generated-width Spearman: `{summary['conditional_panel']['history_activity_width_spearman']:.3f}`",
         "",
         "| factor | KS(delta) | q99 abs-delta ratio | GT range | Gen range |",
         "| --- | ---: | ---: | ---: | ---: |",
@@ -671,7 +788,12 @@ def main() -> None:
         args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
     )
     model, payload = load_native_model(args.model_type, args.checkpoint, device)
-    history, future, specs, block = build_history_future(args, payload)
+    history, future, specs, block, alignment = build_history_future(args, payload)
+    if (
+        alignment["history_max_abs_error"] > 1e-6
+        or alignment["future_max_abs_error"] > 1e-6
+    ):
+        raise RuntimeError(f"627a/joint-panel alignment failed: {alignment}")
     value_coordinate = payload.get("value_coordinate", args.value_coordinate)
     model_coordinate = payload.get("model_coordinate", "state")
     history_n = int(
@@ -737,6 +859,7 @@ def main() -> None:
             "sample_temperature": float(args.sample_temperature),
             "generation_time_s": float(time.time() - t0),
             "seed": int(args.seed),
+            "alignment": alignment,
         },
     }
     out_json = Path(args.output_json)
