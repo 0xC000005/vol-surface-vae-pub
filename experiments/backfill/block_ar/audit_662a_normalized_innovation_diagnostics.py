@@ -189,6 +189,7 @@ def build_scope(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[Any,
     scale_half_life = norm_cfg.get("scale_half_life", 0.0)
     if scale_half_life is not None and float(scale_half_life) <= 0.0:
         scale_half_life = None
+    center_mode = norm_cfg.get("center_mode", "zero")
     scope = payload.get("state_scope", args.state_scope)
     (
         history_level,
@@ -205,6 +206,7 @@ def build_scope(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[Any,
         int(args.iv_count),
         scale_half_life=scale_half_life,
         scale_floor=float(norm_cfg.get("scale_floor", args.scale_floor)),
+        center_mode=center_mode,
     )
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]

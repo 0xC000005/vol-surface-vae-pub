@@ -105255,3 +105255,34 @@ The group-residual readout mildly improves anchor marginal realism, but does not
 Do not add more readout knobs. Keep the shared stochastic AR flow family, but move the next falsifier to the data-object/normalization axis: introduce a history-only level-aware innovation center while preserving the same generic conditional law framing and evaluate IV-only, anchor-only, and joint38.
 
 ---
+## 2026-04-28: 679a EWMA mean centered normalized innovation falsifier
+
+### Context
+678a falsified readout expressiveness alone: group-residual heads slightly improved anchor marginals but did not repair IV conditional law. The next clean data-object falsifier was whether zero-centering encoded increments is the wrong normalization for heterogeneous factors.
+
+### Execute
+Added `center_mode=ewma_mean` to the normalized-innovation utility. This subtracts a history-only signed EWMA mean increment before dividing by the history-only EWMA RMS scale. The same state-aware normalized-innovation AR flow backend and bounded IV coordinate were kept fixed. Trained base models for IV-only, anchor-only, and joint38 with `max_train_windows=2048`, `epochs=8`, and no rollout-energy fine-tuning.
+
+Artifacts:
+- IV-only model: `models/backfill/679a_iv_stateaware_norminnov_ewmamean_boundediv_e8_w2048_s6791/best_model.pt`
+- Anchor-only model: `models/backfill/679a_anchor_stateaware_norminnov_ewmamean_boundediv_e8_w2048_s6792/best_model.pt`
+- Joint38 model: `models/backfill/679a_joint38_stateaware_norminnov_ewmamean_boundediv_e8_w2048_s6793/best_model.pt`
+- IV-only suite: `results/validations/2026-04-28/679a_ewmamean_base/iv_val_full11.json`
+- Joint IV-facing suite: `results/validations/2026-04-28/679a_ewmamean_base/joint_val_iv_full11.json`
+- Anchor panel audit: `results/validations/2026-04-28/679a_ewmamean_base/anchor_val_panel.json`
+- Joint panel audit: `results/validations/2026-04-28/679a_ewmamean_base/joint_val_panel.json`
+
+### Result
+IV-only reached 5/11. Coverage90 was 0.766, calibration error 0.094, conditional MAE reduction 11.3%, worst conditional width ratio 1.744, kurtosis ratio 0.927, IV level KS 14/25, median-bias magnitude 24/25, full-horizon mean reversion failed, and pathwise max-jump KS failed at 0.649.
+
+Joint38 reached 4/11 on the IV-facing suite. Coverage90 was 0.791, calibration error 0.063, conditional MAE reduction 10.4%, worst conditional width ratio 1.459, kurtosis ratio 0.778, IV level KS 9/25, median-bias magnitude 21/25, full-horizon mean reversion passed, and pathwise max-jump KS failed at 0.695.
+
+Anchor panel quality showed the trade-off. Anchor-only factor-factor correlation improved to 0.912 but factor delta KS worsened to 0.137 with 9/13 factors below 0.20. Joint panel factor-factor correlation was 0.840 and IV-factor correlation 0.901, but factor delta KS mean was 0.125 with 10/13 passing.
+
+### Mechanism Read
+Full EWMA mean centering is informative but too deterministic. It gives the model a local drift/mean-reversion state and improves some correlation and mean-reversion behavior, but because the center is added back at every sampled step, noisy local drift is repeatedly injected into the generated path. That creates jump-shape and level-law failures, especially in pathwise max-jump KS and IV level KS.
+
+### Decision
+Do not abandon the normalized-innovation AR flow. Also do not adopt full EWMA centering as the final data object yet. The next principled move is to keep 679a's data object and apply the already-validated sampled-rollout energy objective, because that objective directly targets the generated path overshoot without introducing a new architecture or a new post-hoc calibration knob.
+
+---

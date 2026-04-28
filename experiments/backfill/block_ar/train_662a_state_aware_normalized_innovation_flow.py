@@ -50,6 +50,7 @@ def select_normalized_innovation_scope(
     *,
     scale_half_life: float | None,
     scale_floor: float,
+    center_mode: str = "zero",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[Any]]:
     if scope in {"joint38", "iv_only"}:
         history_level, history_increment, future_level, future_increment, history_raw, specs = (
@@ -70,7 +71,7 @@ def select_normalized_innovation_scope(
         future_increment,
         half_life=scale_half_life,
         scale_floor=float(scale_floor),
-        center_mode="zero",
+        center_mode=center_mode,
     )
     return (
         history_level.astype(np.float32),
@@ -182,6 +183,7 @@ def main() -> None:
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
+    parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -227,6 +229,7 @@ def main() -> None:
             int(args.iv_count),
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
+            center_mode=args.center_mode,
         )
     )
     val_level, val_norm, val_future_level, val_future_norm, val_center, val_scale, val_raw, val_specs = (
@@ -236,6 +239,7 @@ def main() -> None:
             int(args.iv_count),
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
+            center_mode=args.center_mode,
         )
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
@@ -308,7 +312,7 @@ def main() -> None:
     t0 = time.time()
     normalization = {
         "coordinate": "encoded_increment",
-        "center_mode": "zero",
+        "center_mode": args.center_mode,
         "scale_method": "ewma_rms",
         "scale_half_life": scale_half_life,
         "scale_floor": float(args.scale_floor),

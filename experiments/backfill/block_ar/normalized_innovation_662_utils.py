@@ -38,6 +38,26 @@ def ewma_rms_scale(
     return np.maximum(rms, float(scale_floor)).astype(np.float32)
 
 
+def ewma_mean_center(
+    history_increment: np.ndarray,
+    *,
+    half_life: float | None = None,
+) -> np.ndarray:
+    """History-only signed EWMA mean for encoded increments."""
+    increments = np.asarray(history_increment, dtype=np.float64)
+    if increments.ndim != 3:
+        raise ValueError("history_increment must have shape [windows, history, channels]")
+    history_len = int(increments.shape[1])
+    if history_len < 1:
+        raise ValueError("history_increment must contain at least one history step")
+    if half_life is None:
+        half_life = max(float(history_len) / 3.0, 1.0)
+    ages = np.arange(history_len - 1, -1, -1, dtype=np.float64)
+    weights = np.power(0.5, ages / max(float(half_life), 1e-6))
+    weights = weights / np.sum(weights)
+    return np.sum(weights[None, :, None] * increments, axis=1).astype(np.float32)
+
+
 def normalize_increment_windows(
     history_increment: np.ndarray,
     future_increment: np.ndarray,
@@ -47,8 +67,6 @@ def normalize_increment_windows(
     center_mode: str = "zero",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Normalize encoded increments using history-only local statistics."""
-    if center_mode != "zero":
-        raise ValueError("662a v1 intentionally supports only center_mode='zero'")
     history = np.asarray(history_increment, dtype=np.float32)
     future = np.asarray(future_increment, dtype=np.float32)
     if history.ndim != 3 or future.ndim != 3:
@@ -56,7 +74,12 @@ def normalize_increment_windows(
     if history.shape[0] != future.shape[0] or history.shape[2] != future.shape[2]:
         raise ValueError("history and future increment dimensions are inconsistent")
     scale = ewma_rms_scale(history, half_life=half_life, scale_floor=scale_floor)
-    center = np.zeros((history.shape[0], history.shape[2]), dtype=np.float32)
+    if center_mode == "zero":
+        center = np.zeros((history.shape[0], history.shape[2]), dtype=np.float32)
+    elif center_mode == "ewma_mean":
+        center = ewma_mean_center(history, half_life=half_life)
+    else:
+        raise ValueError("center_mode must be 'zero' or 'ewma_mean'")
     history_norm = (history - center[:, None, :]) / scale[:, None, :]
     future_norm = (future - center[:, None, :]) / scale[:, None, :]
     return (

@@ -344,6 +344,7 @@ def main() -> None:
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
+    parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -386,6 +387,7 @@ def main() -> None:
     args.iv_lower_bound = float(norm_cfg.get("iv_lower_bound", payload.get("iv_lower_bound", args.iv_lower_bound)))
     args.iv_upper_bound = float(norm_cfg.get("iv_upper_bound", payload.get("iv_upper_bound", args.iv_upper_bound)))
     args.scale_floor = float(norm_cfg.get("scale_floor", args.scale_floor))
+    args.center_mode = norm_cfg.get("center_mode", args.center_mode)
     half_life = norm_cfg.get("scale_half_life", args.scale_half_life)
     scale_half_life = None if half_life is None or float(half_life) <= 0.0 else float(half_life)
 
@@ -397,6 +399,7 @@ def main() -> None:
             int(args.iv_count),
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
+            center_mode=args.center_mode,
         )
     )
     val_level, val_norm, val_future_level, val_future_norm, val_center, val_scale, val_raw, val_specs = (
@@ -406,6 +409,7 @@ def main() -> None:
             int(args.iv_count),
             scale_half_life=scale_half_life,
             scale_floor=float(args.scale_floor),
+            center_mode=args.center_mode,
         )
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:

@@ -124,6 +124,7 @@ def build_val_block(
     if scale_half_life is not None and float(scale_half_life) <= 0.0:
         scale_half_life = None
     scale_floor = float(norm_cfg.get("scale_floor", getattr(args, "scale_floor", 1e-4)))
+    center_mode = norm_cfg.get("center_mode", getattr(args, "center_mode", "zero"))
     (
         history_level,
         history_norm,
@@ -139,6 +140,7 @@ def build_val_block(
         int(args.iv_count),
         scale_half_life=scale_half_life,
         scale_floor=scale_floor,
+        center_mode=center_mode,
     )
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     actual = [spec.name for spec in specs]
@@ -248,6 +250,7 @@ def main() -> None:
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
+    parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=48)
     parser.add_argument("--n_steps", type=int, default=30)

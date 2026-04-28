@@ -68,6 +68,39 @@ def test_normalize_increment_windows_roundtrips_future_state():
     np.testing.assert_allclose(reconstructed, future_raw, rtol=1e-5, atol=1e-5)
 
 
+def test_ewma_mean_center_uses_history_only_signed_drift():
+    history_increment = np.array(
+        [
+            [
+                [0.0, 0.0],
+                [1.0, -2.0],
+                [3.0, -4.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+    future_increment = np.array([[[5.0, -6.0]]], dtype=np.float32)
+
+    history_norm, future_norm, center, scale = normalize_increment_windows(
+        history_increment,
+        future_increment,
+        half_life=1.0,
+        scale_floor=1e-6,
+        center_mode="ewma_mean",
+    )
+
+    ages = np.array([2.0, 1.0, 0.0])
+    weights = np.power(0.5, ages)
+    weights = weights / weights.sum()
+    expected_center = np.sum(weights[None, :, None] * history_increment, axis=1)
+    expected_scale = np.sqrt(np.sum(weights[None, :, None] * history_increment * history_increment, axis=1))
+
+    np.testing.assert_allclose(center, expected_center.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(scale, expected_scale.astype(np.float32), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(history_norm, (history_increment - center[:, None, :]) / scale[:, None, :])
+    np.testing.assert_allclose(future_norm, (future_increment - center[:, None, :]) / scale[:, None, :])
+
+
 def test_state_aware_normalized_innovation_flow_loss_and_sampling():
     torch.manual_seed(7)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(
