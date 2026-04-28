@@ -105756,3 +105756,40 @@ Stop adding scalar score terms to the same direct normalized-innovation flow for
 The next principled move is a paradigm ideation around a conditional marginal-plus-dependence law: learn calibrated per-channel/per-horizon conditional marginals in normalized-innovation space, then learn a shared copula/dependency generator over PIT or score-residual variables. This is still generic across IV-only, anchor-only, and joint panels, and it is theory-backed by proper scoring plus copula factorization rather than being an IV-specific knob.
 
 ---
+## 2026-04-28: 697a marginal-dependence factorization ideation
+
+### Hypothesis
+The 676a-695a objective/readout sweep capped at joint `5/11` because a single direct flow over normalized innovations is being asked to learn marginal calibration, heavy-tail shape, level occupancy, and cross-time/cross-channel dependence at the same time. Proper-score terms steer different symptoms but trade them off.
+
+### Literature And Prior Evidence
+- Proper scoring-rule theory supports evaluating full predictive distributions, but energy-score style objectives can be weak for dependence; variogram-style components target dependence but do not guarantee marginal calibration.
+- TACTiS-2 and related multivariate probabilistic forecasting work use a marginal-plus-copula/dependence decomposition: learn calibrated marginals, then model dependence between probability-integral transformed variables.
+- Local prior attempts matter: 323/492 showed that post-hoc independent marginal remaps around a weak or frozen copula are not path-law neutral, and 532a showed that a simple global Gaussian copula is too weak. Therefore the next move should not be another frozen-copula remap.
+
+### Decision
+Use the factorization idea only as a data-object/backend cleanup, not as a glued deck:
+
+1. Keep the same support-aware encoded-level state and history-only normalized innovation construction.
+2. Fit empirical marginal CDF/quantile tables for normalized innovations on the training split.
+3. Train/sample the same AR flow in innovation normal-score space.
+4. Invert sampled innovation scores back to normalized innovations before level reconstruction.
+5. Keep one frozen recipe across `iv_only`, `anchor_only`, and `joint38`; only dimensionality/support adapters may differ.
+
+### Why This Is Different From The Failed Copula Branches
+- It does not use a separate IV/factor deck or post-hoc pairing.
+- It does not freeze 392a/510a ranks as the copula.
+- It does not assume Gaussian/Student-t marginals.
+- It keeps the shared stochastic source and AR transition mechanism.
+- It makes the marginal law easier by construction, so the AR flow can spend capacity on conditional dependence and path allocation.
+
+### Next Experiment
+698a should implement a minimal `innovation_score` coordinate in the generic normalized-innovation AR flow:
+
+- add train-fitted innovation quantile buffers and invertible score transforms;
+- train and sample in score space while reconstructing levels from inverse-transformed normalized innovations;
+- leave architecture, AR flow, sampler, loss recipe, and tri-scope framework gate unchanged;
+- first run joint38 against 676a on the same validation and train-tail audits.
+
+If 698a cannot improve train-tail marginal/coverage behavior while preserving panel dependence, then the bottleneck is not merely marginal/dependence factorization and the loop should diagnose whether the remaining issue is conditionality or shared-core capacity.
+
+---
