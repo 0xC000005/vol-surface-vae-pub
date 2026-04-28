@@ -105446,3 +105446,32 @@ This falsifies the idea that stronger measured conditional energy margin is suff
 Do not continue by increasing contrast strength or making negatives harder. Keep 682a as the best native joint38 checkpoint in this clean family. The next HEAD cycle should be research ideation/post-experiment analysis rather than another contrast tweak: either redesign the conditional objective so it is level/path-law aware, or shift attention from the loss to the conditioning representation/encoder. Adding more contrast knobs now would violate the clean-pathology guard.
 
 ---
+## 2026-04-28: 685a ideation after contrast surrogate failure
+
+### Context
+684a falsified harder contrast negatives: validation contrast margin improved, but IV-facing level-law gates regressed from 6/11 to 4/11. The clean-pathology guard says not to stack more contrast knobs.
+
+### Literature Check
+Relevant recent work points to prior/path structure rather than more post-hoc sample contrast:
+- TSFlow, ICLR 2025, argues that fixed simple priors can make time-series flow/diffusion generation harder because prior and data path distributions differ; it uses Gaussian-process/data-dependent priors with conditional flow matching to better match temporal structure. Source: OpenReview `https://openreview.net/forum?id=uxVBbSlKQ4`.
+- TACTiS-2, ICLR 2024, frames multivariate probabilistic forecasting as marginal distribution plus attentional copula/dependence modeling with a simplified objective and curriculum. Source: ICLR proceedings `https://proceedings.iclr.cc/paper_files/paper/2024/hash/63796148c99205adb0fcac069cc714d4-Abstract-Conference.html`.
+- TimeGrad, ICML 2021, remains a useful baseline idea: AR diffusion forecasts sample conditional distributions step by step from a learned score/diffusion process rather than optimizing generated sample decks with weak surrogate scores. Source: PMLR `https://proceedings.mlr.press/v139/rasul21a.html`.
+
+### Read Against Our Evidence
+The contrast branch failed because the surrogate can improve while the integrated IV level law worsens. This is exactly a path-distribution alignment problem: the model can discriminate histories in normalized innovation space without producing the right integrated future level distribution, cointegration behavior, or h7 mean-reversion profile.
+
+The current AR flow samples fresh iid Gaussian base noise at each future step. Temporal dependence can only be created through the learned transition/prefix state. That is clean, but it may be making the vector field solve two problems at once: transform white independent local noise into realistic temporally coherent market paths, and condition those paths on history. TSFlow suggests a first-principles alternative: keep the same flow matching backend, but make the base path prior temporally structured and estimated from training normalized innovations.
+
+### Candidate Next Move
+Do not add another loss term. The next most principled experiment is a path-correlated base-noise prior for the normalized-innovation AR flow:
+- Estimate a generic AR(1) or exponential-kernel correlation of normalized innovations from the training split.
+- Use that same path-correlated base noise in teacher-forced flow training and free-running rollout sampling.
+- Keep the model architecture, data object, and existing rollout/channel-level objective fixed.
+- Compare against 682a/676a on native joint38, because 682a is the best clean joint checkpoint and 684a showed margin objectives are not reliable.
+
+This is not factor-specific and is theory-backed: it changes the generative base measure to better match time-series path geometry, rather than adding a domain-specific correction or evaluator hack. It is also falsifiable: if path-correlated prior improves level KS/cointegration/h7 mean reversion without losing anchor panel quality, the bottleneck was prior-path mismatch; if it fails, the bottleneck likely moves to the encoder/representation or to the AR factorization itself.
+
+### Decision
+Next HEAD cycle should implement the smallest path-correlated base-prior hook and run a joint38 falsifier. Do not continue the hard-negative branch. Keep 682a as the clean native joint38 incumbent.
+
+---
