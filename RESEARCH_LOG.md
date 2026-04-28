@@ -104940,3 +104940,34 @@ Do not adopt this teacher-forced contrast as the main methodology. Keep the boun
 - `results/validations/2026-04-27/665a_contrast_w03/anchor_val_condition_diversity.json`
 
 ---
+## 2026-04-28: 666a sampled-rollout energy improves IV and joint to 6/11
+
+### Context
+666a replaced the failed teacher-forced contrast idea with a sampled-rollout objective. It fine-tunes the clean 663a bounded-coordinate AR flow using a differentiable free-running sampler and an energy score on generated normalized-innovation paths, anchored by the original flow-matching loss. This keeps the backend and data object fixed while making the loss act on sampled rollouts instead of teacher-forced prefixes.
+
+### Result
+- IV-only one-epoch rollout-energy fine-tune reached `6/11`, improving over 663a `3/11` and 665a `5/11`. Pathwise jump realism passed with max-jump KS `0.394`; coverage90 was `0.777`; conditional MAE reduction was `11.42%`.
+- Joint38 one-epoch rollout-energy fine-tune also reached `6/11`, improving over 663a `5/11` and 665a `3/11`. Pathwise jump realism passed with max-jump KS `0.418`; mean reversion passed; coverage90 was `0.739`; conditional MAE reduction was `8.18%`.
+- Anchor-only stayed acceptable: factor KS mean `0.117`, `11/13` factor KS pass, all factor q99 tails pass, factor-factor corr shape `0.891`.
+- Encoded condition-diversity still did not move materially: IV-only encoded shuffle ratio `1.012`, joint38 `1.012`, anchor-only `1.003`. Raw-state shuffle ratios remained meaningful because state/scale reconstruction is condition-sensitive.
+
+### Mechanism Read
+Sampled-rollout scoring is a real improvement because it repairs pathwise max-jump shape and improves full-suite behavior in both IV-only and joint38 without harming anchor factors. It is more principled and general than 665a because the loss is applied to generated paths rather than only to teacher-forced negative histories. The remaining bottleneck is now narrower: per-cell/regime coverage and level-law/median distribution remain weak, while encoded innovation law still appears close to unconditional under the shuffle diagnostic.
+
+### Decision
+Continue this family. The next step should improve rollout calibration/conditionality without adding finance-specific knobs. Candidate minimal moves: tune the rollout objective along one axis only, such as longer rollout-flow steps, slightly higher sample count, or a distributional path term that targets level-law calibration; do not change architecture/backend yet.
+
+### Artifacts
+- `experiments/backfill/block_ar/train_666a_normalized_innovation_rollout_energy_finetune.py`
+- `test_code/test_666a_normalized_innovation_rollout_energy.py`
+- `models/backfill/666a_iv_norminnov_rollout_energy_w02_k2_fs4_e3_s6661/best_model.pt`
+- `models/backfill/666a_joint38_norminnov_rollout_energy_w02_k2_fs4_e1_s6663/best_model.pt`
+- `models/backfill/666a_anchor_norminnov_rollout_energy_w02_k2_fs4_e1_s6662/best_model.pt`
+- `results/validations/2026-04-27/666a_rollout_energy/iv_val_full11.json`
+- `results/validations/2026-04-27/666a_rollout_energy/joint_val_iv_full11.json`
+- `results/validations/2026-04-27/666a_rollout_energy/anchor_val_panel.json`
+- `results/validations/2026-04-27/666a_rollout_energy/iv_val_condition_diversity.json`
+- `results/validations/2026-04-27/666a_rollout_energy/joint_val_condition_diversity.json`
+- `results/validations/2026-04-27/666a_rollout_energy/anchor_val_condition_diversity.json`
+
+---
