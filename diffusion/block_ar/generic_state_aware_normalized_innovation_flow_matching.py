@@ -162,6 +162,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         future_normalized_innovation: torch.Tensor,
         center: torch.Tensor,
         scale: torch.Tensor,
+        condition_contrast_weight: float = 0.0,
+        condition_contrast_margin: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
@@ -187,10 +189,47 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             memory_states.reshape(bsz * horizon, self.cfg.memory_dim),
             t.reshape(bsz * horizon),
         ).view_as(x1)
-        fm_loss = F.mse_loss(pred_velocity, target_velocity)
-        return fm_loss, {
-            "total": fm_loss.detach(),
+        pos_loss_per_window = (pred_velocity - target_velocity).square().mean(dim=(1, 2))
+        fm_loss = pos_loss_per_window.mean()
+        contrast_weight = float(condition_contrast_weight)
+        contrast_loss = fm_loss.new_zeros(())
+        neg_loss = fm_loss.new_zeros(())
+        if contrast_weight > 0.0 and bsz > 1:
+            perm = torch.roll(torch.arange(bsz, device=x1.device), shifts=1)
+            neg_prefix_level_scores = torch.cat(
+                [history_level_scores[perm], future_level_scores[:, :-1]],
+                dim=1,
+            )
+            neg_prefix_norm = torch.cat(
+                [history_normalized_innovation[perm], future_normalized_innovation[:, :-1]],
+                dim=1,
+            )
+            neg_hidden = self._encode_prefix(
+                neg_prefix_level_scores,
+                neg_prefix_norm,
+                center[perm],
+                scale[perm],
+            )
+            neg_memory_states = neg_hidden[:, start : start + self.cfg.future_len]
+            neg_current_level_scores = neg_prefix_level_scores[:, start : start + self.cfg.future_len]
+            neg_pred_velocity = self.velocity(
+                x_t.reshape(bsz * horizon, n_vars),
+                neg_current_level_scores.reshape(bsz * horizon, n_vars),
+                neg_memory_states.reshape(bsz * horizon, self.cfg.memory_dim),
+                t.reshape(bsz * horizon),
+            ).view_as(x1)
+            neg_loss_per_window = (neg_pred_velocity - target_velocity).square().mean(dim=(1, 2))
+            neg_loss = neg_loss_per_window.mean()
+            contrast_loss = F.softplus(
+                pos_loss_per_window - neg_loss_per_window + float(condition_contrast_margin)
+            ).mean()
+        total_loss = fm_loss + contrast_weight * contrast_loss
+        return total_loss, {
+            "total": total_loss.detach(),
             "fm_loss": fm_loss.detach(),
+            "condition_contrast_loss": contrast_loss.detach(),
+            "condition_contrast_neg_loss": neg_loss.detach(),
+            "condition_contrast_weight": torch.as_tensor(contrast_weight, device=x1.device, dtype=x1.dtype),
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
             "local_scale_mean": scale.mean().detach(),

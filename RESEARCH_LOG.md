@@ -104908,3 +104908,35 @@ Do not switch backend yet. The next minimal model-side move should make conditio
 - `results/validations/2026-04-27/664a_condition_diversity/joint_train_tail_condition_diversity.json`
 
 ---
+## 2026-04-28: 665a teacher-forced condition contrast is not general enough
+
+### Context
+665a tested the smallest model-side response to 664a: keep bounded-logit IV coordinates, normalized innovations, AR flow matching, Transformer conditioning, horizon, model size, and data splits fixed; add one objective-axis change, a condition-shuffle contrastive ranking term with weight `0.3` and margin `0.0`.
+
+### Result
+- IV-only improved from 663a `3/11` to `5/11` on validation. Coverage90 was `0.737`; conditional MAE reduction was `7.48%`; time-series, cointegration, and cross-cell structure passed.
+- Joint38 degraded from 663a `5/11` to `3/11` on validation. Coverage90 improved to `0.807`, and overall conditional MAE reduction was `9.08%`, but time-series, cointegration, distributional fidelity, mean reversion, and pathwise realism failed.
+- Anchor-only stayed broadly acceptable: factor KS mean `0.120`, `11/13` KS pass, all factor q99 tails pass, factor-factor corr shape `0.886`. Credit spreads remained the weakest marginals.
+- Condition-diversity did not materially improve in encoded innovation space: IV-only encoded shuffle ratio `1.017`, joint38 `1.013`, anchor-only `1.003`. Raw-state ratios were larger because starting state/scale still condition reconstruction.
+
+### Mechanism Read
+The contrastive term is partly useful but not the right general solution. It can improve IV-only risk-suite metrics, but it is hackable under teacher-forced AR: the model can make shuffled teacher-forced negatives high-loss without making the sampled future innovation law strongly conditional. In joint38, the same term improves broad coverage but harms tail/pathwise shape and joint IV gates, so the objective is not generalizable enough.
+
+### Decision
+Do not adopt this teacher-forced contrast as the main methodology. Keep the bounded coordinate and condition-diversity diagnostic. The next principled move is to make conditioning matter in the sampled rollout itself, not only in a teacher-forced negative loss. Candidate next axis: a rollout-level conditional proper-score or rollout contrast computed on generated paths, with careful diagnostics to avoid turning into a hand-tuned calibration knob.
+
+### Artifacts
+- `diffusion/block_ar/generic_state_aware_normalized_innovation_flow_matching.py`
+- `experiments/backfill/block_ar/train_662a_state_aware_normalized_innovation_flow.py`
+- `test_code/test_662a_state_aware_normalized_innovation_flow.py`
+- `models/backfill/665a_iv_stateaware_norminnov_boundediv_contrast_w03_e8_w2048_s6651/best_model.pt`
+- `models/backfill/665a_anchor_stateaware_norminnov_boundediv_contrast_w03_e8_w2048_s6652/best_model.pt`
+- `models/backfill/665a_joint38_stateaware_norminnov_boundediv_contrast_w03_e8_w2048_s6653/best_model.pt`
+- `results/validations/2026-04-27/665a_contrast_w03/iv_val_full11.json`
+- `results/validations/2026-04-27/665a_contrast_w03/joint_val_iv_full11.json`
+- `results/validations/2026-04-27/665a_contrast_w03/anchor_val_panel.json`
+- `results/validations/2026-04-27/665a_contrast_w03/iv_val_condition_diversity.json`
+- `results/validations/2026-04-27/665a_contrast_w03/joint_val_condition_diversity.json`
+- `results/validations/2026-04-27/665a_contrast_w03/anchor_val_condition_diversity.json`
+
+---

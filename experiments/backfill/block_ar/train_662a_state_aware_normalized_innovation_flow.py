@@ -88,6 +88,9 @@ def eval_loss(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     loader: DataLoader,
     device: torch.device,
+    *,
+    condition_contrast_weight: float,
+    condition_contrast_margin: float,
 ) -> float:
     model.eval()
     total = 0.0
@@ -101,6 +104,8 @@ def eval_loss(
                 future_norm.to(device),
                 center.to(device),
                 scale.to(device),
+                condition_contrast_weight=float(condition_contrast_weight),
+                condition_contrast_margin=float(condition_contrast_margin),
             )
             batch_n = int(history_level.shape[0])
             total += float(loss.item()) * batch_n
@@ -196,6 +201,8 @@ def main() -> None:
     parser.add_argument("--flow_steps", type=int, default=16)
     parser.add_argument("--sample_temperature", type=float, default=1.0)
     parser.add_argument("--prefix_feature_mode", choices=["basic", "scale"], default="scale")
+    parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
+    parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
     parser.add_argument("--sample_windows", type=int, default=64)
     parser.add_argument("--sample_count", type=int, default=8)
     parser.add_argument("--sample_steps", type=int, default=16)
@@ -313,6 +320,11 @@ def main() -> None:
         "state_scope": args.state_scope,
         "model_coordinate": "state_aware_normalized_innovation",
         "normalization": normalization,
+        "training_objective": {
+            "base": "flow_matching_mse",
+            "condition_contrast_weight": float(args.condition_contrast_weight),
+            "condition_contrast_margin": float(args.condition_contrast_margin),
+        },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
         "iv_upper_bound": float(args.iv_upper_bound),
@@ -335,6 +347,8 @@ def main() -> None:
                 future_norm.to(device),
                 center.to(device),
                 scale.to(device),
+                condition_contrast_weight=float(args.condition_contrast_weight),
+                condition_contrast_margin=float(args.condition_contrast_margin),
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -345,7 +359,13 @@ def main() -> None:
             for key, value in metrics.items():
                 metric_sums[key] = metric_sums.get(key, 0.0) + float(value.item()) * batch_n
         train_loss = total / max(count, 1)
-        val_loss = eval_loss(model, val_loader, device)
+        val_loss = eval_loss(
+            model,
+            val_loader,
+            device,
+            condition_contrast_weight=float(args.condition_contrast_weight),
+            condition_contrast_margin=float(args.condition_contrast_margin),
+        )
         record = {
             "epoch": int(epoch),
             "train_loss": float(train_loss),
@@ -384,6 +404,11 @@ def main() -> None:
         "state_scope": args.state_scope,
         "model_coordinate": "state_aware_normalized_innovation",
         "normalization": normalization,
+        "training_objective": {
+            "base": "flow_matching_mse",
+            "condition_contrast_weight": float(args.condition_contrast_weight),
+            "condition_contrast_margin": float(args.condition_contrast_margin),
+        },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "train_shape": list(train_level.shape),
