@@ -197,6 +197,7 @@ def main() -> None:
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
+    parser.add_argument("--innovation_coordinate", choices=["normalized", "score"], default="normalized")
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -287,6 +288,12 @@ def main() -> None:
         n_quantiles=int(args.n_quantiles),
         cdf_eps=float(args.cdf_eps),
     )
+    innovation_quantiles, innovation_quantile_levels = fit_empirical_quantiles(
+        train_norm,
+        train_future_norm,
+        n_quantiles=int(args.n_quantiles),
+        cdf_eps=float(args.cdf_eps),
+    )
     cfg = GenericStateAwareNormalizedInnovationFMConfig(
         history_len=int(args.history_len),
         future_len=int(args.future_len),
@@ -307,6 +314,7 @@ def main() -> None:
         n_quantiles=int(args.n_quantiles),
         cdf_eps=float(args.cdf_eps),
         prefix_feature_mode=args.prefix_feature_mode,
+        innovation_coordinate=args.innovation_coordinate,
         conditioning_mode="prefix",
     )
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg).to(device)
@@ -314,6 +322,11 @@ def main() -> None:
         torch.from_numpy(level_quantiles).to(device),
         torch.from_numpy(quantile_levels).to(device),
     )
+    if args.innovation_coordinate == "score":
+        model.set_innovation_quantiles(
+            torch.from_numpy(innovation_quantiles).to(device),
+            torch.from_numpy(innovation_quantile_levels).to(device),
+        )
     train_loader = DataLoader(
         TensorDataset(
             torch.from_numpy(train_level),
@@ -359,16 +372,22 @@ def main() -> None:
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
         "iv_upper_bound": float(args.iv_upper_bound),
+        "innovation_coordinate": args.innovation_coordinate,
     }
     extra = {
         "state_scope": args.state_scope,
-        "model_coordinate": "state_aware_normalized_innovation",
+        "model_coordinate": (
+            "state_aware_normalized_innovation_score"
+            if args.innovation_coordinate == "score"
+            else "state_aware_normalized_innovation"
+        ),
         "normalization": normalization,
         "training_objective": {
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
             "base_noise_rho": float(cfg.base_noise_rho),
+            "flow_coordinate": args.innovation_coordinate,
         },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
@@ -449,13 +468,18 @@ def main() -> None:
         "args": vars(args),
         "config": asdict(cfg),
         "state_scope": args.state_scope,
-        "model_coordinate": "state_aware_normalized_innovation",
+        "model_coordinate": (
+            "state_aware_normalized_innovation_score"
+            if args.innovation_coordinate == "score"
+            else "state_aware_normalized_innovation"
+        ),
         "normalization": normalization,
         "training_objective": {
             "base": "flow_matching_mse",
             "condition_contrast_weight": float(args.condition_contrast_weight),
             "condition_contrast_margin": float(args.condition_contrast_margin),
             "base_noise_rho": float(cfg.base_noise_rho),
+            "flow_coordinate": args.innovation_coordinate,
         },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],

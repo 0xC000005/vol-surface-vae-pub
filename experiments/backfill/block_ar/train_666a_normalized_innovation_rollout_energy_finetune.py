@@ -190,10 +190,11 @@ def condition_negative_permutation(
     if mode == "nearest_history":
         with torch.no_grad():
             level_scores = model.level_values_to_scores(history_level_values).detach()
+            flow_coordinate = model._to_flow_coordinate(history_normalized_innovation).detach()
             features = torch.cat(
                 [
                     level_scores.reshape(bsz, -1),
-                    history_normalized_innovation.detach().reshape(bsz, -1),
+                    flow_coordinate.reshape(bsz, -1),
                 ],
                 dim=1,
             )
@@ -222,6 +223,7 @@ def differentiable_rollout_paths(
     if n_steps < 1 or n_steps > model.cfg.future_len:
         raise ValueError(f"expected n_steps in [1,{model.cfg.future_len}], got {n_steps}")
     level_scores = model.level_values_to_scores(history_level_values)
+    history_flow_coordinate = model._to_flow_coordinate(history_normalized_innovation)
     bsz = int(level_scores.shape[0])
     k = int(n_samples)
     prefix_level_values = (
@@ -237,7 +239,7 @@ def differentiable_rollout_paths(
         .clone()
     )
     prefix_norm = (
-        history_normalized_innovation.unsqueeze(1)
+        history_flow_coordinate.unsqueeze(1)
         .expand(bsz, k, model.cfg.history_len, model.cfg.n_cells)
         .reshape(bsz * k, model.cfg.history_len, model.cfg.n_cells)
         .clone()
@@ -275,7 +277,8 @@ def differentiable_rollout_paths(
                 dtype=history_level_values.dtype,
             )
             x = x + dt * model.velocity(x, current_level_score, memory_state, t)
-        next_norm = x
+        next_flow_coordinate = x
+        next_norm = model._from_flow_coordinate(next_flow_coordinate)
         next_increment = next_norm * scale_rep + center_rep
         next_level_value = prefix_level_values[:, -1] + next_increment
         next_level_score = model.level_values_to_scores(next_level_value)
@@ -283,7 +286,7 @@ def differentiable_rollout_paths(
         level_frames.append(next_level_value.view(bsz, k, model.cfg.n_cells))
         prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
         prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
-        prefix_norm = torch.cat([prefix_norm, next_norm[:, None, :]], dim=1)
+        prefix_norm = torch.cat([prefix_norm, next_flow_coordinate[:, None, :]], dim=1)
     return torch.stack(norm_frames, dim=2), torch.stack(level_frames, dim=2)
 
 

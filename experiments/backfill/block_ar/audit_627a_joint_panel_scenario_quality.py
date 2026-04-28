@@ -164,7 +164,10 @@ def build_history_future(
     )
     if int(args.max_windows) > 0:
         val_indices = val_indices[: int(args.max_windows)]
-    if payload.get("model_coordinate") == "state_aware_normalized_innovation" or args.model_type == "662a":
+    if payload.get("model_coordinate") in {
+        "state_aware_normalized_innovation",
+        "state_aware_normalized_innovation_score",
+    } or args.model_type == "662a":
         block = build_increment_coordinate_block(
             panel,
             columns,
@@ -415,7 +418,10 @@ def generate_panel_samples(
                 chunk_size=int(chunk_size),
                 temperature=float(sample_temperature),
             )
-        elif model_coordinate == "state_aware_normalized_innovation":
+        elif model_coordinate in {
+            "state_aware_normalized_innovation",
+            "state_aware_normalized_innovation_score",
+        }:
             history_level, history_norm, center, scale, drift_feature = history
             panel_samples = model.sample_batched(
                 torch.from_numpy(history_level[start:end]).to(device),
@@ -445,6 +451,7 @@ def generate_panel_samples(
             "state_conditioned_mixed_coordinate",
             "mixed_coordinate_path",
             "state_aware_normalized_innovation",
+            "state_aware_normalized_innovation_score",
         }:
             arr = reconstruct_state_from_increments(
                 raw_history[start:end, -1, :], arr, specs

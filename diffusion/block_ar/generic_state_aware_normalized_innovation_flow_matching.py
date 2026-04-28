@@ -27,6 +27,7 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     conditional_base_noise_scale: bool = False
     base_noise_scale_min: float = 0.5
     base_noise_scale_max: float = 2.0
+    innovation_coordinate: str = "normalized"
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -190,6 +191,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.cfg = cfg
         if cfg.prefix_feature_mode not in {"basic", "scale", "scale_drift"}:
             raise ValueError("prefix_feature_mode must be 'basic', 'scale', or 'scale_drift'")
+        if cfg.innovation_coordinate not in {"normalized", "score"}:
+            raise ValueError("innovation_coordinate must be 'normalized' or 'score'")
         feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -221,6 +224,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.register_buffer("quantile_levels", levels)
         self.register_buffer("level_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
         self.register_buffer("_quantiles_ready", torch.tensor(False, dtype=torch.bool))
+        self.register_buffer("innovation_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
+        self.register_buffer("_innovation_quantiles_ready", torch.tensor(False, dtype=torch.bool))
 
     def set_level_quantiles(
         self,
@@ -241,12 +246,32 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if not bool(self._quantiles_ready.item()):
             raise RuntimeError("level quantiles must be set before use")
 
-    def level_values_to_scores(self, values: torch.Tensor) -> torch.Tensor:
-        self._check_quantiles()
+    def set_innovation_quantiles(
+        self,
+        innovation_quantiles: torch.Tensor,
+        quantile_levels: torch.Tensor | None = None,
+    ) -> None:
+        expected = (self.cfg.n_cells, self.cfg.n_quantiles)
+        if innovation_quantiles.shape != expected:
+            raise ValueError(
+                f"innovation_quantiles must have shape {expected}, got {tuple(innovation_quantiles.shape)}"
+            )
+        self.innovation_quantiles.copy_(innovation_quantiles.to(self.innovation_quantiles))
+        if quantile_levels is not None:
+            if quantile_levels.shape != (self.cfg.n_quantiles,):
+                raise ValueError("quantile_levels must have shape (n_quantiles,)")
+            self.quantile_levels.copy_(quantile_levels.to(self.quantile_levels))
+        self._innovation_quantiles_ready.fill_(True)
+
+    def _check_innovation_quantiles(self) -> None:
+        if not bool(self._innovation_quantiles_ready.item()):
+            raise RuntimeError("innovation quantiles must be set before score-coordinate use")
+
+    def _values_to_scores_with_table(self, values: torch.Tensor, table: torch.Tensor) -> torch.Tensor:
         if values.shape[-1] != self.cfg.n_cells:
             raise ValueError(f"last dimension must be {self.cfg.n_cells}, got {values.shape[-1]}")
         levels = self.quantile_levels.to(device=values.device, dtype=values.dtype)
-        table = self.level_quantiles.to(device=values.device, dtype=values.dtype)
+        table = table.to(device=values.device, dtype=values.dtype)
         cols: list[torch.Tensor] = []
         for var in range(self.cfg.n_cells):
             q = table[var]
@@ -266,6 +291,53 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             score = torch.special.ndtri(u.clamp(eps, 1.0 - eps))
             cols.append(score.view(values.shape[:-1]))
         return torch.stack(cols, dim=-1)
+
+    def _scores_to_values_with_table(self, scores: torch.Tensor, table: torch.Tensor) -> torch.Tensor:
+        if scores.shape[-1] != self.cfg.n_cells:
+            raise ValueError(f"last dimension must be {self.cfg.n_cells}, got {scores.shape[-1]}")
+        levels = self.quantile_levels.to(device=scores.device, dtype=scores.dtype)
+        table = table.to(device=scores.device, dtype=scores.dtype)
+        eps = float(self.cfg.cdf_eps)
+        u_all = (0.5 * (1.0 + torch.erf(scores / math.sqrt(2.0)))).clamp(eps, 1.0 - eps)
+        cols: list[torch.Tensor] = []
+        for var in range(self.cfg.n_cells):
+            q = table[var]
+            flat = u_all[..., var].reshape(-1)
+            idx = torch.searchsorted(levels.contiguous(), flat.contiguous(), right=False)
+            idx_hi = idx.clamp(1, self.cfg.n_quantiles - 1)
+            idx_lo = idx_hi - 1
+            u_lo = levels[idx_lo]
+            u_hi = levels[idx_hi]
+            q_lo = q[idx_lo]
+            q_hi = q[idx_hi]
+            alpha = (flat - u_lo) / (u_hi - u_lo).clamp_min(1e-12)
+            value = q_lo + alpha.clamp(0.0, 1.0) * (q_hi - q_lo)
+            value = torch.where(flat <= levels[0], q[0], value)
+            value = torch.where(flat >= levels[-1], q[-1], value)
+            cols.append(value.view(scores.shape[:-1]))
+        return torch.stack(cols, dim=-1)
+
+    def level_values_to_scores(self, values: torch.Tensor) -> torch.Tensor:
+        self._check_quantiles()
+        return self._values_to_scores_with_table(values, self.level_quantiles)
+
+    def normalized_innovations_to_scores(self, values: torch.Tensor) -> torch.Tensor:
+        self._check_innovation_quantiles()
+        return self._values_to_scores_with_table(values, self.innovation_quantiles)
+
+    def scores_to_normalized_innovations(self, scores: torch.Tensor) -> torch.Tensor:
+        self._check_innovation_quantiles()
+        return self._scores_to_values_with_table(scores, self.innovation_quantiles)
+
+    def _to_flow_coordinate(self, normalized_innovation: torch.Tensor) -> torch.Tensor:
+        if self.cfg.innovation_coordinate == "score":
+            return self.normalized_innovations_to_scores(normalized_innovation)
+        return normalized_innovation
+
+    def _from_flow_coordinate(self, flow_coordinate: torch.Tensor) -> torch.Tensor:
+        if self.cfg.innovation_coordinate == "score":
+            return self.scores_to_normalized_innovations(flow_coordinate)
+        return flow_coordinate
 
     @staticmethod
     def _scale_features(center: torch.Tensor, scale: torch.Tensor, seq_len: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -378,9 +450,11 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
+        history_flow_coordinate = self._to_flow_coordinate(history_normalized_innovation)
+        future_flow_coordinate = self._to_flow_coordinate(future_normalized_innovation)
         prefix_level_scores = torch.cat([history_level_scores, future_level_scores[:, :-1]], dim=1)
         prefix_norm = torch.cat(
-            [history_normalized_innovation, future_normalized_innovation[:, :-1]],
+            [history_flow_coordinate, future_flow_coordinate[:, :-1]],
             dim=1,
         )
         hidden = self._encode_prefix(prefix_level_scores, prefix_norm, center, scale, drift_feature)
@@ -388,7 +462,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         memory_states = hidden[:, start : start + self.cfg.future_len]
         current_level_scores = prefix_level_scores[:, start : start + self.cfg.future_len]
 
-        x1 = future_normalized_innovation
+        x1 = future_flow_coordinate
         x0 = self._base_noise_like(x1)
         base_noise_scale = self._conditional_base_noise_scale(memory_states)
         if base_noise_scale is not None:
@@ -415,7 +489,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 dim=1,
             )
             neg_prefix_norm = torch.cat(
-                [history_normalized_innovation[perm], future_normalized_innovation[:, :-1]],
+                [history_flow_coordinate[perm], future_flow_coordinate[:, :-1]],
                 dim=1,
             )
             neg_hidden = self._encode_prefix(
@@ -464,6 +538,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "base_noise_scale_min": base_noise_scale_min,
             "base_noise_scale_max": base_noise_scale_max,
             "target_norm_std": x1.std(unbiased=False).detach(),
+            "target_flow_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
             "local_scale_mean": scale.mean().detach(),
             "local_scale_min": scale.min().detach(),
@@ -492,6 +567,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if n_steps < 1 or n_steps > self.cfg.future_len:
             raise ValueError(f"expected n_steps in [1,{self.cfg.future_len}], got {n_steps}")
         level_scores = self.level_values_to_scores(history_level_values)
+        history_flow_coordinate = self._to_flow_coordinate(history_normalized_innovation)
         bsz = int(level_scores.shape[0])
         chunk_size = max(1, min(int(chunk_size), int(n_samples)))
         temp = float(self.cfg.sample_temperature if temperature is None else temperature)
@@ -512,7 +588,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 .clone()
             )
             prefix_norm = (
-                history_normalized_innovation.unsqueeze(1)
+                history_flow_coordinate.unsqueeze(1)
                 .expand(bsz, k, self.cfg.history_len, self.cfg.n_cells)
                 .reshape(bsz * k, self.cfg.history_len, self.cfg.n_cells)
                 .clone()
@@ -554,14 +630,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                         dtype=level_scores.dtype,
                     )
                     x = x + dt * self.velocity(x, current_level_score, memory_state, t)
-                next_norm = x
+                next_flow_coordinate = x
+                next_norm = self._from_flow_coordinate(next_flow_coordinate)
                 next_increment = next_norm * scale_rep + center_rep
                 next_level_value = prefix_level_values[:, -1] + next_increment
                 next_level_score = self.level_values_to_scores(next_level_value)
                 frames.append(next_increment.view(bsz, k, self.cfg.n_cells))
                 prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
                 prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
-                prefix_norm = torch.cat([prefix_norm, next_norm[:, None, :]], dim=1)
+                prefix_norm = torch.cat([prefix_norm, next_flow_coordinate[:, None, :]], dim=1)
             outs.append(torch.stack(frames, dim=2))
         return torch.cat(outs, dim=1)
 
@@ -573,7 +650,17 @@ def load_model(
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(**payload["config"])
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
-    model.load_state_dict(payload["model_state_dict"], strict=True)
+    incompat = model.load_state_dict(payload["model_state_dict"], strict=False)
+    allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready"}
+    if cfg.innovation_coordinate == "score":
+        allowed_missing = set()
+    unexpected = set(incompat.unexpected_keys)
+    missing = set(incompat.missing_keys)
+    if unexpected or missing.difference(allowed_missing):
+        raise RuntimeError(
+            "checkpoint state dict mismatch: "
+            f"missing={sorted(missing)} unexpected={sorted(unexpected)}"
+        )
     model.to(device).eval()
     return model, payload
 

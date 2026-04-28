@@ -105793,3 +105793,43 @@ Use the factorization idea only as a data-object/backend cleanup, not as a glued
 If 698a cannot improve train-tail marginal/coverage behavior while preserving panel dependence, then the bottleneck is not merely marginal/dependence factorization and the loop should diagnose whether the remaining issue is conditionality or shared-core capacity.
 
 ---
+## 2026-04-28: 698b innovation-score joint falsifier
+
+### Hypothesis
+If the 676a-695a joint ceiling is caused by a marginal/dependence factorization problem, then converting normalized innovations through train-fitted empirical normal-score marginals should improve level occupancy and path realism without using a factor-specific head, post-hoc deck glue, or parametric Gaussian/Student-t marginal assumption.
+
+### Implementation
+- Added optional `innovation_coordinate="score"` to `GenericStateAwareNormalizedInnovationFlowMatching`.
+- Added train-fitted innovation quantile buffers plus `normalized_innovations_to_scores` and `scores_to_normalized_innovations`.
+- Training now uses score coordinates as the flow target/prefix when enabled, while sampling inverts generated scores back to normalized innovations before level reconstruction.
+- Updated rollout fine-tune and joint-panel audit to support the same coordinate.
+- Regression tests passed: `pytest test_code/test_522a_38d_alignment.py test_code/test_662a_state_aware_normalized_innovation_flow.py test_code/test_666a_normalized_innovation_rollout_energy.py -q` gave `24 passed`.
+
+### Runs
+- Base score-coordinate model: `models/backfill/698a_joint38_innovscore_boundediv_e8_w2048_s6981/best_model.pt`, best epoch `6`, best val loss `1.2833` in score coordinates.
+- Rollout fine-tune attempt: `models/backfill/698b_joint38_innovscore_channel_level_alltrain_w005_e3_s6982/best_model.pt`.
+- The full all-train rollout fine-tune was interrupted after epoch 1 because score-coordinate differentiable rollout is much slower than the normalized-coordinate baseline. Epoch 1 still produced a valid checkpoint: train total `1.5018`, val total `1.5144`. Loss units are not directly comparable to 676a because the flow target coordinate changed.
+
+### Validation Results
+- IV full-suite validation at 96 samples: `6/11`, failing `coverage`, `conditionality`, `time_series`, `cointegration`, and `regime_coverage`.
+- Key validation metrics: cov90 `0.780`, calibration error `0.090`, conditional MAE reduction `9.9%`, worst width ratio `1.544`, turb/calm ratio `1.113`, kurtosis ratio `1.508`, daily KS `25/25`, level KS `18/25`, median fraction `22/25`, bias magnitude `23/25`, corr/rank `0.942/1.292`, h1 mean-reversion ratio `0.925`, pathwise KS `0.294`.
+- Train-tail IV full-suite at 64 samples: `6/11`, failing `coverage`, `conditionality`, `time_series`, `regime_coverage`, and `distributional_fidelity`.
+- Joint-panel validation at 64 samples survived: factor delta KS mean `0.102`, factor KS pass `12/13`, factor q99 pass `13/13`, factor-factor corr shape `0.862`, IV-factor corr shape `0.893`.
+
+### Comparison To 676a
+- 676a validation at 96 samples was `5/11`: cov90 `0.814`, level KS `13/25`, median bias magnitude `21/25`, h1 mean-reversion failed at `1.020` by active-cell profile, pathwise KS `0.402`.
+- 698b validation improved the joint branch to `6/11` by passing distributional fidelity and mean reversion, improving level KS from `13/25` to `18/25`, bias magnitude from `21/25` to `23/25`, corr/rank from `0.891/1.368` to `0.942/1.292`, and pathwise KS from `0.402` to `0.294`.
+- The trade-off is lower coverage (`0.780` vs `0.814`) and still-weak conditionality/regime coverage. Kurtosis remains too high.
+
+### Failure Classification
+Primary failure class: `conditionality` with secondary `calibration` and `train_fit`.
+
+The score coordinate fixes a real marginal/path-law symptom and preserves joint factor realism, so the factorization is useful. But train-tail still fails conditionality and coverage, which means the remaining problem is not pure validation distribution shift. The model still underuses or misallocates history information for some cells/horizons.
+
+### Decision
+Keep the innovation-score factorization alive. It is more principled and more generic than adding another scalar score term. Do not call it a framework candidate yet because only joint38 has been evaluated. The next minimal step should address two issues before tri-scope promotion:
+
+1. Make score-coordinate rollout training computationally viable, most likely by vectorizing/caching the inverse innovation-score transform.
+2. Run a controlled continuation or reduced-budget rollout diagnostic to see whether the `6/11` result improves with full rollout training, then evaluate `iv_only` and `anchor_only` under the same frozen recipe.
+
+---
