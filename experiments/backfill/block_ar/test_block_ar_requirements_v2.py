@@ -254,6 +254,22 @@ def _path_activity(paths: np.ndarray, time_axis: int) -> np.ndarray:
     return (diffs * diffs).mean(axis=axes)
 
 
+def _future_activity_from_history(ground_truth: np.ndarray, history_01: np.ndarray) -> np.ndarray:
+    """Future activity including the h0->h1 bridge from the conditioning history."""
+    start = np.asarray(history_01, dtype=np.float64)[:, -1:, ...]
+    future_path = np.concatenate([start, np.asarray(ground_truth, dtype=np.float64)], axis=1)
+    return _path_activity(future_path, time_axis=1)
+
+
+def _generated_activity_from_history(cond_samples: np.ndarray, history_01: np.ndarray) -> np.ndarray:
+    """Generated path activity including the h0->h1 bridge for every sampled scenario."""
+    cond_samples = np.asarray(cond_samples, dtype=np.float64)
+    start = np.asarray(history_01, dtype=np.float64)[:, None, -1:, ...]
+    start = np.repeat(start, cond_samples.shape[1], axis=1)
+    generated_path = np.concatenate([start, cond_samples], axis=2)
+    return _path_activity(generated_path, time_axis=2)
+
+
 def _rank_buckets(values: np.ndarray, n_buckets: int, min_bucket_size: int) -> List[np.ndarray]:
     values = np.asarray(values, dtype=np.float64).reshape(-1)
     valid = np.where(np.isfinite(values))[0]
@@ -322,9 +338,9 @@ def run_risk_state_allocation_tests(
     q05 = np.quantile(cond_samples, 0.05, axis=1)
     q95 = np.quantile(cond_samples, 0.95, axis=1)
     generated_width = (q95 - q05).mean(axis=tuple(range(1, q95.ndim)))
-    generated_activity = _path_activity(cond_samples, time_axis=2)
     history_activity = _path_activity(history_01, time_axis=1)
-    future_activity = _path_activity(ground_truth, time_axis=1)
+    future_activity = _future_activity_from_history(ground_truth, history_01)
+    generated_activity = _generated_activity_from_history(cond_samples, history_01)
 
     history_future_spearman = _safe_spearman(history_activity, future_activity)
     history_width_spearman = _safe_spearman(history_activity, generated_width)

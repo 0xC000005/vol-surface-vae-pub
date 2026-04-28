@@ -106247,3 +106247,29 @@ Keep the diagnostic informational for now. The cleaner risk-manager criterion is
 - `results/block_ar/706b_392a_risk_state_allocation_audit/full11.md`
 
 ---
+## 2026-04-28: 707 risk-state bridge fix and corrected frontier audit
+
+### Context
+The first risk-state allocation diagnostic accidentally measured realized future activity using only `diff(future)`, excluding the transition from the last history day into h1. For a conditional scenario generator, that h0-to-h1 bridge is part of the future path and must be included.
+
+### Change
+Fixed `run_risk_state_allocation_tests` so future activity is computed on `[last_history, future]`, and generated path activity is computed on `[last_history, generated_future]` for each scenario. Added a regression test where all future risk is in the first h0-to-h1 jump; the diagnostic now detects that correctly.
+
+### Results
+- Split signal after the bridge fix remains weak/negative: validation first-192 history/future activity Spearman `-0.088`, train-tail-192 `-0.367`, full validation `-0.144`.
+- 707a corrected 510a audit: score `6/11`; risk-state allocation failed; width vs history activity Spearman `0.306`; width vs realized future activity Spearman `0.129`; history low/high width ratio `1.090`.
+- 707b corrected 392a audit: score `6/11`; risk-state allocation failed; width vs history activity Spearman `0.259`; width vs realized future activity Spearman `0.017`; history low/high width ratio `1.062`.
+
+### Mechanism Read
+The bridge omission was a real metric bug, but fixing it did not reverse the main conclusion. The current validation and nearby train-tail windows do not show positive aggregate history-to-future activity persistence under this risk-state definition. The models do respond to observable history risk by widening scenario decks, especially 510a, but realized future activity alignment should remain an oracle diagnostic rather than a hard conditionality gate on this split.
+
+### Decision
+The next clean test-suite improvement is to split `risk_state_allocation` into two explicit pass concepts: observable history-state width response and oracle realized-future alignment. Only the first is defensible as a risk-manager conditionality criterion when the data split itself lacks positive future-activity signal.
+
+### Artifacts
+- `results/block_ar/707a_510a_risk_state_allocation_bridgefix/full11.json`
+- `results/block_ar/707a_510a_risk_state_allocation_bridgefix/full11.md`
+- `results/block_ar/707b_392a_risk_state_allocation_bridgefix/full11.json`
+- `results/block_ar/707b_392a_risk_state_allocation_bridgefix/full11.md`
+
+---

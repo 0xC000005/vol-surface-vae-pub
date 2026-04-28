@@ -62,3 +62,30 @@ def test_risk_state_allocation_fails_when_width_is_state_insensitive() -> None:
     assert not result["overall_pass"]
     assert abs(result["future_width_spearman"]) < 1e-8
     assert result["future_low_high_width_ratio"] == 1.0
+
+
+def test_risk_state_allocation_counts_first_future_step_from_history() -> None:
+    n_windows = 10
+    n_samples = 21
+    horizon = 4
+    offsets = np.linspace(-1.0, 1.0, n_samples, dtype=np.float32)
+    history = np.full((n_windows, 3, 1, 1), 0.5, dtype=np.float32)
+    ground_truth = np.zeros((n_windows, horizon, 1, 1), dtype=np.float32)
+    samples = np.zeros((n_windows, n_samples, horizon, 1, 1), dtype=np.float32)
+
+    for i in range(n_windows):
+        first_step = 0.01 * float(i + 1)
+        future_level = 0.5 + first_step
+        ground_truth[i, :, 0, 0] = future_level
+        samples[i, :, :, 0, 0] = future_level + offsets[:, None] * first_step
+
+    result = run_risk_state_allocation_tests(
+        samples,
+        ground_truth,
+        history,
+        n_buckets=5,
+        min_bucket_size=2,
+    )
+
+    assert result["future_width_spearman"] > 0.95
+    assert result["future_low_high_width_ratio"] > 4.0

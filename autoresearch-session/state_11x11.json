@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 707,
+  "iteration": 708,
   "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Validation realized future activity is not positively rank-aligned with history activity under the aggregate activity diagnostic, so future-width alignment cannot be treated as a clean learned-law gate on this split. The defensible conditionality target should separate observable risk-state response from oracle realized-future alignment.",
-  "last_result_summary": "706 reran the two historical IV frontier checkpoints with the new risk_state_allocation diagnostic. 510a scored 7/11 in the stochastic rerun and 392a scored 6/11, but the new diagnostic showed the same key fact for both: history/future activity Spearman is -0.076. Both models widen with observable history activity (510a rho 0.259, 392a rho 0.297) but do not align generated width with realized future activity (510a rho 0.050, 392a rho -0.010).",
-  "next_step_recommendation": "Audit the same risk-state allocation metrics on train-tail or another split before changing the model. If train-tail has positive history/future activity signal but the models fail there, it is a model/objective issue. If train-tail also has weak signal, keep future-alignment as oracle diagnostic only and make observable risk-state width response the risk-manager conditionality criterion.",
+  "current_bottleneck": "Risk-state allocation now has the correct h0-to-h1 bridge, but the split still lacks positive aggregate history-to-future activity persistence. The bottleneck is test framing: observable history-state width response is defensible; realized future-activity width alignment is an oracle diagnostic unless the split has positive signal.",
+  "last_result_summary": "707 fixed the risk_state_allocation future-activity metric to include the last-history-to-h1 bridge and added a regression test for first-step-only future risk. Split signal remains weak/negative after the fix: validation first-192 rho -0.088, train-tail-192 rho -0.367, full validation rho -0.144. Corrected audits: 510a scored 6/11 with width/history rho 0.306 and width/future rho 0.129; 392a scored 6/11 with width/history rho 0.259 and width/future rho 0.017.",
+  "next_step_recommendation": "Split the risk_state_allocation diagnostic into observable_state_response_pass and oracle_future_alignment_pass. Keep overall_pass aligned to observable history-state response when observable/future signal is absent or negative, and report future alignment separately as oracle-style evidence.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain the historical short-frame best learned IV laws at 8/11 based on stored deterministic runs; stochastic reruns for 706 are lower at 7/11 and 6/11. Within the clean general state-aware normalized-innovation family, 674a/675a remains the strongest IV-only candidate at 7/11. The frozen tri-scope baseline is 674a/675a IV-only + 688a anchor-only + 676a joint38. 698b remains the strongest clean native joint38 non-contrast score at 6/11; 701a risk-state conditioning is informative but regressed to 5/11 and should be re-read using the new population-level risk-state allocation diagnostic.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "b6e5584",
+  "last_commit": "2f031e3",
   "resume_command_hint": "continue autoresearch"
 }
