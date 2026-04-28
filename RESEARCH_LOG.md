@@ -105230,3 +105230,28 @@ Do not switch stochastic paradigm. The next principled model change is within-fa
 - `results/validations/2026-04-27/677a_676a_joint38_highsample/val_full11_s96.json`
 
 ---
+## 2026-04-28: 678a joint38 group residual readout falsifier
+
+### Context
+676a/677a showed that the unified joint38 state-aware normalized-innovation AR flow can generate coherent anchor factors, but loses IV-facing quality versus the IV-only clean candidate. The clean falsifier was whether decoder/readout expressiveness, without changing the shared stochastic core, was the missing lever.
+
+### Execute
+Added a group-residual velocity readout to the existing token transition velocity. The base shared readout remains active and the group residual heads are zero-initialized, so enabling the mode starts as an exact no-op. Trained from the 676a joint38 checkpoint with all train windows, channel level energy weight 0.05, anchor FM weight 1.0, horizon-end weight 1.2, and `velocity_readout_mode=group_residual`.
+
+Artifacts:
+- Model: `models/backfill/678a_joint38_groupres_channel_level_alltrain_w005_e2_s6781/best_model.pt`
+- IV-facing suite: `results/validations/2026-04-27/678a_joint38_groupres_channel_level/val_full11.json`
+- Joint panel audit: `results/validations/2026-04-27/678a_joint38_groupres_channel_level/panel_audit.json`
+
+### Result
+The IV-facing suite remained 5/11. Failed suites were coverage, conditionality, time_series, regime_coverage, distributional_fidelity, and mean_reversion. Coverage90 fell to 0.784, calibration error was 0.077, worst conditional width ratio was 1.511, kurtosis ratio was 1.354, IV level KS passed only 12/25 cells, median-bias magnitude passed 21/25 cells, persistent severe undercoverage was 5.2%, and pathwise max-jump KS passed at 0.406.
+
+The joint panel audit was acceptable but not decisive: factor delta KS mean improved slightly to 0.095, 11/13 factors passed KS < 0.20, all 13 factor q99 tail ratios passed [0.5, 2.0], factor-factor correlation was 0.790, and IV-factor correlation was 0.892.
+
+### Mechanism Read
+The group-residual readout mildly improves anchor marginal realism, but does not repair the IV conditional law. The recurring IV failures are not primarily caused by insufficient per-group velocity-head expressiveness. The cleaner read is that the current normalized innovation state object is still miscentered/miscalibrated for heterogeneous levels: daily changes are realistic, but integrated levels remain biased and undercovered in hard cells.
+
+### Decision
+Do not add more readout knobs. Keep the shared stochastic AR flow family, but move the next falsifier to the data-object/normalization axis: introduce a history-only level-aware innovation center while preserving the same generic conditional law framing and evaluate IV-only, anchor-only, and joint38.
+
+---

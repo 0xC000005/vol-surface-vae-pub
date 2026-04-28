@@ -19,6 +19,7 @@ sys.path.insert(0, ".")
 
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_group_residual_velocity_readout,
     load_model,
     save_checkpoint,
 )
@@ -353,6 +354,7 @@ def main() -> None:
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
+    parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual"], default="shared")
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
@@ -374,6 +376,8 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model, payload = load_model(args.checkpoint, device)
+    if args.velocity_readout_mode == "group_residual":
+        enable_group_residual_velocity_readout(model, iv_count=int(args.iv_count))
     args.history_len = int(model.cfg.history_len)
     args.future_len = int(model.cfg.future_len)
     args.state_scope = payload.get("state_scope", args.state_scope)
@@ -449,6 +453,7 @@ def main() -> None:
         "energy_weight": float(args.energy_weight),
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
+        "velocity_readout_mode": args.velocity_readout_mode,
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
     }

@@ -20,6 +20,76 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     n_quantiles: int = 401
     cdf_eps: float = 1e-4
     prefix_feature_mode: str = "scale"
+    velocity_readout_mode: str = "shared"
+    readout_iv_count: int = 25
+
+
+class GroupResidualTokenTransitionVelocity(nn.Module):
+    """Shared velocity with zero-initialized IV/anchor residual readouts."""
+
+    def __init__(
+        self,
+        cfg: GenericStateAwareNormalizedInnovationFMConfig,
+        base: MemoryConditionedTokenTransitionVelocity | None = None,
+    ):
+        super().__init__()
+        self.cfg = cfg
+        self.base = base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        self.iv_head = self._make_residual_head(cfg.token_dim)
+        self.anchor_head = self._make_residual_head(cfg.token_dim)
+        iv_count = min(max(int(cfg.readout_iv_count), 0), int(cfg.n_cells))
+        group_ids = torch.zeros(int(cfg.n_cells), dtype=torch.long)
+        if iv_count < int(cfg.n_cells):
+            group_ids[iv_count:] = 1
+        self.register_buffer("group_ids", group_ids)
+
+    @staticmethod
+    def _make_residual_head(token_dim: int) -> nn.Sequential:
+        head = nn.Sequential(
+            nn.LayerNorm(token_dim),
+            nn.Linear(token_dim, token_dim),
+            nn.GELU(),
+            nn.Linear(token_dim, 1),
+        )
+        nn.init.zeros_(head[-1].weight)
+        nn.init.zeros_(head[-1].bias)
+        return head
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        current_logit: torch.Tensor,
+        memory_state: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden = self.base.hidden_tokens(x_t, current_logit, memory_state, t)
+        out = self.base.out(hidden).squeeze(-1)
+        residual = torch.zeros_like(out)
+        iv_mask = self.group_ids.to(device=out.device) == 0
+        anchor_mask = ~iv_mask
+        if bool(iv_mask.any()):
+            residual[:, iv_mask] = self.iv_head(hidden[:, iv_mask, :]).squeeze(-1)
+        if bool(anchor_mask.any()):
+            residual[:, anchor_mask] = self.anchor_head(hidden[:, anchor_mask, :]).squeeze(-1)
+        return out + residual
+
+
+def enable_group_residual_velocity_readout(
+    model: "GenericStateAwareNormalizedInnovationFlowMatching",
+    *,
+    iv_count: int,
+) -> None:
+    """Upgrade a loaded shared-readout model without changing its initial outputs."""
+    if isinstance(model.velocity, GroupResidualTokenTransitionVelocity):
+        model.cfg.velocity_readout_mode = "group_residual"
+        model.cfg.readout_iv_count = int(iv_count)
+        return
+    if not isinstance(model.velocity, MemoryConditionedTokenTransitionVelocity):
+        raise TypeError(f"unsupported velocity module {type(model.velocity).__name__}")
+    model.cfg.velocity_readout_mode = "group_residual"
+    model.cfg.readout_iv_count = int(iv_count)
+    upgraded = GroupResidualTokenTransitionVelocity(model.cfg, base=model.velocity)
+    model.velocity = upgraded.to(next(model.parameters()).device)
 
 
 class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
@@ -48,7 +118,12 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         self.memory = nn.TransformerEncoder(layer, num_layers=cfg.memory_layers)
         self.memory_norm = nn.LayerNorm(cfg.memory_dim)
-        self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        if cfg.velocity_readout_mode == "shared":
+            self.velocity = MemoryConditionedTokenTransitionVelocity(cfg)
+        elif cfg.velocity_readout_mode == "group_residual":
+            self.velocity = GroupResidualTokenTransitionVelocity(cfg)
+        else:
+            raise ValueError("velocity_readout_mode must be 'shared' or 'group_residual'")
         levels = (torch.arange(cfg.n_quantiles, dtype=torch.float32) + 0.5) / float(
             cfg.n_quantiles
         )

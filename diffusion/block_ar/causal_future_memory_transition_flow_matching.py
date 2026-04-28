@@ -53,7 +53,7 @@ class MemoryConditionedTokenTransitionVelocity(nn.Module):
             nn.Linear(cfg.token_dim, 1),
         )
 
-    def forward(
+    def hidden_tokens(
         self,
         x_t: torch.Tensor,
         current_logit: torch.Tensor,
@@ -75,6 +75,16 @@ class MemoryConditionedTokenTransitionVelocity(nn.Module):
             hidden = self.mixer(hidden)[:, 2:]
         else:
             raise ValueError(f"Unknown conditioning_mode={self.cfg.conditioning_mode!r}")
+        return hidden
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        current_logit: torch.Tensor,
+        memory_state: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden = self.hidden_tokens(x_t, current_logit, memory_state, t)
         return self.out(hidden).squeeze(-1)
 
 
