@@ -107803,3 +107803,42 @@ The K=15 stage reintroduces part of the full generated-prefix damage seen in 752
 Reject the K=5 -> K=15 scheduled-prefix curriculum as currently formulated. Do not keep increasing prefix length. The next line should target validation level-support allocation directly, most likely via a split-robust, data-derived support calibration layer around the 755a generator, while reporting it separately from the base learned model.
 
 ---
+## 2026-04-29: Autoresearch 759a state-local support calibration
+
+### Context
+759a tested the fallback from 757a/758a: a calibrated-system layer around the 755a base generator. The goal was to target validation level-support allocation without changing the learned normalized-innovation AR flow core. Calibration used train-tail windows only and then evaluated validation.
+
+### Implementation
+Added `experiments/backfill/block_ar/evaluate_759a_state_local_support_calibration.py`.
+
+Method:
+- Generate calibration samples on the training calibration split.
+- Group calibration windows by current IV level bucket per cell.
+- For each bucket, horizon, and cell, estimate a median residual shift and a conformal-style interval scale from training residuals.
+- Apply the state-local shift/scale to validation samples around each sample median.
+- Report calibrated-system metrics separately from the base learned model.
+
+### Execute
+- Base checkpoint: `models/backfill/755a_iv_shortprefix_fm_k5_w02_e2_s7551/best_model.pt`.
+- Calibration split: `train_tail`.
+- Evaluation split: `val`.
+- Calibration: 3 current-level buckets, residual quantile `0.90`, scale clipped to `[1.0, 1.5]`.
+- Artifact: `results/block_ar/759a_state_local_support_calibration/iv_val_full11_s64.{json,md}`.
+
+### Result
+- Validation calibrated system: `5/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`.
+- Compared with 755a validation:
+  - cov90 improved `0.817 -> 0.889` and calibration error improved `0.063 -> 0.017`.
+  - level-KS stayed `15/25`; median-bias improved only `15/25 -> 16/25`, still failing.
+  - regime layer-2 improved `0/8 -> 2/8`, but still failed.
+  - mean reversion and time-series passed.
+  - cointegration worst-cell stayed failing (`0.239 -> 0.227`).
+  - pathwise max-jump worsened from `0.395` to `0.501`, just over the gate.
+
+### Mechanism Read
+State-local support calibration moves the intended support axis, but the first version is too blunt. It improves aggregate and regime coverage but broadens path extremes enough to fail pathwise realism and produces some overcoverage, while not solving median-bias or cointegration worst-cell. Calibration is viable as a controlled system layer, but this exact residual shift/scale map is not deployable.
+
+### Decision
+Do not promote 759a. If calibration continues, the next calibration test must be more conservative and should avoid median shifting or cap scale more tightly. The base learned model remains 755a for the active short-prefix family.
+
+---
