@@ -107696,3 +107696,34 @@ Exposure bias remains plausible, but the static auxiliary formulation is probabl
 Do not continue scalar tuning of `free_running_fm_weight`. If exposure-bias work continues, the next experiment must be structural and curriculum-based: gradually introduce generated-prefix exposure or restrict it to short prefixes while preserving the normalized-innovation AR flow core, one stochastic source, and the same rollout/channel objective.
 
 ---
+## 2026-04-29: Autoresearch 755a short-prefix generated FM
+
+### Context
+755a tested the structural continuation selected by 754a. Static generated-prefix FM was rejected as a repair, but exposure bias remained plausible. This experiment kept the 674a checkpoint, normalized-innovation AR flow core, one stochastic source, and rollout/channel objective fixed, but limited generated-prefix FM to the first `5` future steps before falling back to teacher-forced prefixes.
+
+### Implementation
+- Added `--free_running_fm_prefix_steps`.
+- Default `0` preserves the prior full generated-prefix behavior.
+- If `K > 0`, the free-running FM auxiliary uses generated prefixes for the first `K` future steps and true future prefixes afterward.
+- Added a regression test for limited-prefix free-running FM.
+- Verification: `pytest test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed `21` tests.
+
+### Execute
+- Model: `models/backfill/755a_iv_shortprefix_fm_k5_w02_e2_s7551/best_model.pt`.
+- Validation full suite: `results/block_ar/755a_iv_shortprefix_fm_k5/iv_val_full11_s64.{json,md}`.
+- Train-tail full suite: `results/block_ar/755a_iv_shortprefix_fm_k5/iv_train_tail_full11_s64.{json,md}`.
+- Best checkpoint stayed at epoch 1 with validation training objective `2.0605`.
+
+### Result
+- Validation: `6/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- Validation key metrics: cov90 `0.817`, calibration error `0.063`, level-KS `15/25`, median-bias `15/25`, regime layer-2 `0/8`, persistent severe undercoverage `4.2%`, cointegration ratio `0.746` with worst-cell `0.239`, pathwise KS `0.395`, kurtosis ratio `1.099`, mean reversion pass.
+- Train-tail: `8/11`; failed `conditionality`, `time_series`, `regime_coverage`.
+- Train-tail key metrics: cov90 `0.843`, calibration error `0.031`, level-KS `21/25`, median-bias `25/25`, cointegration ratio `0.550`, worst-cell cointegration `0.279`, mean reversion pass, pathwise KS `0.490`, but kurtosis ratio `1.943`.
+
+### Mechanism Read
+This is the first useful exposure-bias result. Short-prefix generated exposure restores mean reversion and improves in-sample strict-suite fit to `8/11`, unlike full generated-prefix FM at weights `0.2` or `0.05`, both of which stayed `5/11` on train-tail. The full generated path was likely too off-manifold for a static auxiliary loss. However, validation still matches only `6/11`, so the binding problem shifts back to validation hard-cell coverage/level allocation and regime layer-2 rather than generic path realism.
+
+### Decision
+Promote short-prefix exposure as a promising active ingredient, but not as a solved deployable model. The next HEAD cycle should analyze the 755a train-tail versus validation gap: determine whether validation failure is mostly the known shifted-level hard cells, median-bias/coverage allocation, or a remaining conditionality/regime deficiency before adding another modeling change.
+
+---

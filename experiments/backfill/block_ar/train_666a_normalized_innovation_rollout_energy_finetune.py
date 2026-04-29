@@ -569,6 +569,7 @@ def normalized_rollout_energy_loss(
     dispersion_calibration_weight: float = 0.0,
     dispersion_calibration_mode: str = "window",
     free_running_fm_weight: float = 0.0,
+    free_running_fm_prefix_steps: int = 0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -596,12 +597,29 @@ def normalized_rollout_energy_loss(
         temperature=float(temperature),
     )
     if float(free_running_fm_weight) > 0.0:
+        prefix_level = sampled_level[:, 0].detach()
+        prefix_norm = sampled_norm[:, 0].detach()
+        prefix_steps = int(free_running_fm_prefix_steps)
+        if prefix_steps > 0:
+            prefix_steps = min(prefix_steps, int(future_normalized_innovation.shape[1]))
+            if prefix_steps < int(future_normalized_innovation.shape[1]):
+                prefix_level = torch.cat(
+                    [prefix_level[:, :prefix_steps], future_level_values[:, prefix_steps:].detach()],
+                    dim=1,
+                )
+                prefix_norm = torch.cat(
+                    [
+                        prefix_norm[:, :prefix_steps],
+                        future_normalized_innovation[:, prefix_steps:].detach(),
+                    ],
+                    dim=1,
+                )
         free_running_fm_loss = prefix_conditioned_flow_matching_loss(
             model,
             history_level_values,
             history_normalized_innovation,
-            sampled_level[:, 0].detach(),
-            sampled_norm[:, 0].detach(),
+            prefix_level,
+            prefix_norm,
             future_normalized_innovation,
             center,
             scale,
@@ -777,6 +795,11 @@ def normalized_rollout_energy_loss(
             device=fm_loss.device,
             dtype=fm_loss.dtype,
         ),
+        "free_running_fm_prefix_steps": torch.as_tensor(
+            int(free_running_fm_prefix_steps),
+            device=fm_loss.device,
+            dtype=fm_loss.dtype,
+        ),
         "base_noise_scale_enabled": fm_metrics["base_noise_scale_enabled"].detach(),
         "base_noise_scale_mean": fm_metrics["base_noise_scale_mean"].detach(),
         "base_noise_scale_std": fm_metrics["base_noise_scale_std"].detach(),
@@ -827,6 +850,7 @@ def run_epoch(
     dispersion_calibration_weight: float,
     dispersion_calibration_mode: str,
     free_running_fm_weight: float,
+    free_running_fm_prefix_steps: int,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -872,6 +896,7 @@ def run_epoch(
                 dispersion_calibration_weight=float(dispersion_calibration_weight),
                 dispersion_calibration_mode=dispersion_calibration_mode,
                 free_running_fm_weight=float(free_running_fm_weight),
+                free_running_fm_prefix_steps=int(free_running_fm_prefix_steps),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -933,6 +958,16 @@ def main() -> None:
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
     parser.add_argument("--free_running_fm_weight", type=float, default=0.0)
+    parser.add_argument(
+        "--free_running_fm_prefix_steps",
+        type=int,
+        default=0,
+        help=(
+            "If >0, use generated prefixes only for the first K future steps in the "
+            "free-running FM auxiliary and use teacher-forced prefixes afterward. "
+            "The default 0 preserves full generated-prefix behavior."
+        ),
+    )
     parser.add_argument("--state_tail_sampler_weight", type=float, default=0.0)
     parser.add_argument("--state_tail_sampler_quantile", type=float, default=0.8)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
@@ -1148,6 +1183,7 @@ def main() -> None:
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "dispersion_calibration_mode": args.dispersion_calibration_mode,
         "free_running_fm_weight": float(args.free_running_fm_weight),
+        "free_running_fm_prefix_steps": int(args.free_running_fm_prefix_steps),
         "state_tail_sampler_weight": float(args.state_tail_sampler_weight),
         "state_tail_sampler_quantile": float(args.state_tail_sampler_quantile),
         "state_tail_sampler_mean": float(train_state_tail_weights.mean()),
@@ -1200,6 +1236,7 @@ def main() -> None:
             dispersion_calibration_weight=float(args.dispersion_calibration_weight),
             dispersion_calibration_mode=args.dispersion_calibration_mode,
             free_running_fm_weight=float(args.free_running_fm_weight),
+            free_running_fm_prefix_steps=int(args.free_running_fm_prefix_steps),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -1233,6 +1270,7 @@ def main() -> None:
                 dispersion_calibration_weight=float(args.dispersion_calibration_weight),
                 dispersion_calibration_mode=args.dispersion_calibration_mode,
                 free_running_fm_weight=float(args.free_running_fm_weight),
+                free_running_fm_prefix_steps=int(args.free_running_fm_prefix_steps),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),

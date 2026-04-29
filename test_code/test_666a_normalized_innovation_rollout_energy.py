@@ -436,6 +436,36 @@ def test_normalized_rollout_energy_loss_can_use_free_running_fm():
     assert loss_with_free_running > loss_without_free_running
 
 
+def test_normalized_rollout_energy_loss_can_limit_free_running_prefix_steps():
+    torch.manual_seed(26)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(27)
+    loss, metrics = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        free_running_fm_weight=0.1,
+        free_running_fm_prefix_steps=1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["free_running_fm_loss"].item() > 0.0
+    assert metrics["free_running_fm_prefix_steps"].item() == 1.0
+
+
 def test_normalized_rollout_energy_loss_can_score_level_paths():
     torch.manual_seed(23)
     model = _tiny_model()
