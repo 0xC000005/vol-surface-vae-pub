@@ -107639,3 +107639,28 @@ Generated-prefix FM is not useless: it moves regime allocation and path realism 
 Do not promote 752a. The exposure-bias mechanism remains plausible, but the first implementation is over-regularizing the path transition. The next step should be a controlled curriculum/weight analysis rather than abandoning the mechanism or stacking another feature: test whether a milder generated-prefix FM weight preserves mean reversion while keeping the regime/path gains.
 
 ---
+## 2026-04-29: Autoresearch 753a mild generated-prefix FM falsifier
+
+### Context
+753a tested the narrow follow-up implied by 752a. The generated-prefix FM term moved regime/path axes in the intended direction at weight `0.2`, but damaged mean reversion and integrated level fidelity. 753a kept the same 674a checkpoint, normalized-innovation AR flow backend, one stochastic source, rollout/channel objective, and data object, changing only `free_running_fm_weight` from `0.2` to `0.05`.
+
+### Execute
+- Trained from `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`.
+- Model: `models/backfill/753a_iv_freeprefix_fm_w005_e2_s7531/best_model.pt`.
+- Validation full suite: `results/block_ar/753a_iv_freeprefix_fm_w005/iv_val_full11_s64.{json,md}`.
+- Train-tail full suite: `results/block_ar/753a_iv_freeprefix_fm_w005/iv_train_tail_full11_s64.{json,md}`.
+- Best checkpoint stayed at epoch 1 with validation training objective `1.8594`.
+
+### Result
+- Validation: `5/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`.
+- Validation key metrics: cov90 `0.785`, calibration error `0.097`, level-KS `9/25`, median-bias `13/25`, regime layer-2 `1/8`, persistent severe undercoverage `6.2%`, cointegration ratio `0.734` with worst-cell `0.224`, pathwise KS `0.373`, kurtosis ratio `1.062`.
+- Train-tail: `5/11`; failed `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `mean_reversion`.
+- Train-tail key metrics: cov90 `0.837`, calibration error `0.050`, level-KS `18/25`, median-bias `23/25`, regime layer-2 `2/8`, persistent severe undercoverage `2.3%`, cointegration ratio `0.458`, pathwise KS `0.477`, kurtosis ratio `1.868`.
+
+### Mechanism Read
+The exposure-bias hypothesis is not falsified as a real mechanism, but this implementation is not a deployable repair. Reducing the term from `0.2` to `0.05` recovers aggregate mean-reversion slope but still fails the full-horizon active mean-reversion gate and further weakens validation coverage/level support versus the incumbent. The failures persist on train-tail, so this is not only validation distribution shift.
+
+### Decision
+Do not continue scalar weight tuning of generated-prefix FM. The next HEAD cycle should be post-experiment attribution: determine whether generated-prefix FM is mismatched because it conditions on full generated paths too aggressively, because the auxiliary target conflicts with level/channel energy, or because the core AR transition needs a different training curriculum rather than a static auxiliary loss.
+
+---
