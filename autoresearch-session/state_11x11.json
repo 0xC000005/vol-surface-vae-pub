@@ -4,7 +4,7 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 733,
+  "iteration": 734,
   "last_iteration_type": "experiment",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -16,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "Active data now uses observed Yahoo ^VIX as factor:vix/factor:vix_logret. The IV-derived vix_proxy path is removed from active loaders and train/eval/audit scripts. 719a remains the methodology/risk-manager baseline family, but it is not yet a real-VIX tri-scope champion because the anchor/joint dimensionality changed. The next framework candidate must rerun one frozen recipe on iv_only, anchor_only, and joint using the 14-anchor observed panel.",
+  "current_framework_status": "734a evaluated a real-VIX frozen continuous normalized-innovation AR-flow recipe across iv_only, anchor_only, and joint. The framework gate passed: one generated coordinate, one AR flow backend, one stochastic source, one shared encoder/transition core, and one loss recipe, with only support/head/dimensionality differences. Model gates did not pass: IV-only was 6/11, joint IV-slice was 6/11, and anchor/joint panel gates failed factor-delta KS on AAA/BBB OAS and US2Y.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, output_law, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Need a single frozen real-VIX framework candidate across iv_only, anchor_only, and joint. Known pathology to monitor is sticky credit-spread increments: AAA/BBB OAS day-to-day movement is often zero or near-zero, so continuous generators can over-move them. Treat a mixed discrete-continuous repair as a generic support-aware low-activity-channel output law only if a sticky-channel audit proves the baseline continuous head has output-support failure; otherwise document it as a limitation.",
-  "last_result_summary": "733 handoff update removed active VIX proxy support and added observed Yahoo ^VIX to the local factor panel. Current panel has 25 IV cells plus 14 factor levels and 14 factor increments, including factor:vix and factor:vix_logret, with no vix_proxy. Focused VIX pipeline tests passed. Prior 732a dispersion-calibration result remains rejected.",
-  "next_step_recommendation": "Run the first real-VIX tri-scope framework-lock iteration: choose the 719a-style normalized-innovation recipe as the baseline, retrain/evaluate the same frozen recipe on iv_only, anchor_only, and joint with the updated 14-anchor panel, and include a sticky-channel audit before adding any new knob. If AAA/BBB OAS stickiness is the only serious defect and the audit shows output-support failure, test one generic support-aware mixed discrete-continuous low-activity-channel head with the same data-derived rule across scopes; otherwise document it as a limitation.",
+  "current_bottleneck": "The continuous normalized-innovation law is coherent but not yet deployable as a general tri-scope model. IV realism remains broadly good but calibration/regime coverage still fail; the joint checkpoint preserves IV-factor co-movement but slightly interferes with IV kurtosis/mean-reversion. Anchor and joint panels pass finite paths, tail scale, factor correlations, IV-factor correlation, and conditional panel response, but fail factor-delta KS because low-activity OAS/rate channels have support/frequency mismatch and some generated levels leave plausible support.",
+  "last_result_summary": "734a real-VIX framework-lock baseline: IV-only full suite 6/11 with failures coverage, conditionality, cointegration, regime_coverage, distributional_fidelity, but risk-state allocation passed. Joint checkpoint IV slice also 6/11 with failures coverage, conditionality, time_series, regime_coverage, mean_reversion; cointegration, median bias, correlation, and pathwise jumps passed. Anchor panel: finite_rate 1.0, factor_delta_ks_mean 0.1069, 12/14 factors pass KS<0.20, tail q99 14/14 pass, factor_corr upper_corr 0.902, conditional width rho 0.924. Joint panel: finite_rate 1.0, factor_delta_ks_mean 0.0969, 12/14 pass, tail q99 14/14 pass, factor_corr upper_corr 0.861, IV-factor corr 0.943, conditional width rho 0.945. Sticky audit says history-RMS scaling does not fully stationarize OAS tails: AAA normalized q99 11.60 train vs 4.30 validation and BBB 6.26 vs 3.66.",
+  "next_step_recommendation": "Choose post_experiment_analysis or a decisive experiment targeting one generic support/frequency-aware output law. Do not switch backend or add factor-name-specific rules. The most principled next experiment is a data-derived low-activity/mixed-support head or coordinate selected by no-change/near-no-change and support statistics, applied uniformly across iv_only, anchor_only, and joint while preserving the same AR flow core and scalar loss recipe. Before implementing, audit generated move-event rates and nonzero-jump tails for AAA/BBB/US2Y/VIX to decide whether the repair should be a mixed discrete-continuous output law, support-bounded inverse transform, or objective reweighting.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. 719a remains the pre-real-VIX unified methodology baseline: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals. Because observed VIX changed the factor panel, do not claim a current real-VIX tri-scope champion until rerun.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "88db2cc",
+  "last_commit": "pending_734a_commit",
   "resume_command_hint": "continue autoresearch"
 }

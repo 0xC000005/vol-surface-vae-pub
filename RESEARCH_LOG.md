@@ -107092,3 +107092,25 @@ Before adding a mixed head, autoresearch must run a sticky-channel audit: train/
 This does not change the next immediate target: first run the real-VIX tri-scope framework-lock baseline. It adds an allowed minimal fix only if the baseline shows an `output_support` failure concentrated in sticky low-activity channels.
 
 ---
+## 2026-04-29: 734a Real-VIX tri-scope continuous framework-lock baseline
+
+### Context
+Ran the first real-VIX tri-scope framework-lock baseline after replacing the IV-derived VIX proxy with observed Yahoo `^VIX`. The goal was to test whether the continuous state-aware normalized-innovation AR-flow recipe remains a coherent single framework across `iv_only`, `anchor_only`, and native `joint` panels.
+
+### Result
+- Artifacts: `results/block_ar/734a_realvix_framework_lock_baseline/`.
+- Framework gate: pass. The manifest freezes one generated coordinate, one AR flow backend, one stochastic source, one shared encoder/transition core, one sampler family, and one scalar loss recipe; only dimensionality, input/output heads, and support transforms differ by scope.
+- IV-only full suite: `6/11`. Failed `coverage`, old `conditionality`, `cointegration`, `regime_coverage`, and `distributional_fidelity`; risk-state allocation passed. Surface validity, ACF, kurtosis, daily-change KS, correlation structure, mean reversion, and pathwise jump realism passed.
+- Joint checkpoint IV slice: `6/11`. Failed `coverage`, old `conditionality`, `time_series`, `regime_coverage`, and `mean_reversion`; risk-state allocation passed. Cointegration, median-bias distributional fidelity, correlation, and pathwise jump realism passed.
+- Anchor panel: finite rate `1.0`, factor delta KS mean `0.1069`, `12/14` factors pass KS < `0.20`, tail q99 `14/14` pass, factor-factor upper correlation `0.902`, conditional panel width rho `0.924`.
+- Joint panel: finite rate `1.0`, factor delta KS mean `0.0969`, `12/14` factors pass KS < `0.20`, tail q99 `14/14` pass, factor-factor upper correlation `0.861`, IV-factor correlation `0.943`, conditional panel width rho `0.945`.
+
+### Mechanism Read
+This is not a collapse of the unified stochastic core. The joint model preserves IV-factor co-movement and conditional panel response, and the anchor/joint panels preserve tail scale and finite paths. The remaining anchor/joint defect is concentrated in low-activity rate/spread channels: AAA OAS, BBB OAS, and US2Y dominate the KS failures. The sticky-channel audit says history-RMS normalization is insufficient for OAS tails: AAA normalized q99 is `11.60` train versus `4.30` validation, and BBB is `6.26` versus `3.66`. This points to mixed support/frequency mismatch rather than a need to switch from AR flow matching.
+
+The run also exposed a raw support issue. Anchor-only continuous generation can create implausible levels, e.g. VIX max around `1255` and negative crude, while native joint generation reduces this substantially, e.g. VIX max around `62.5` and crude remains positive. That suggests the next repair should be a generic support-aware output law or coordinate, not post-hoc gluing or factor-name-specific snapping.
+
+### Decision
+Do not switch backend, temporal factorization, or core methodology yet. The next principled step is a data-derived support/frequency-aware output-law audit and repair: measure generated move-event rates and nonzero jump tails for low-activity channels, then test one generic mixed discrete-continuous or support-bounded adapter selected by channel statistics and shared across `iv_only`, `anchor_only`, and `joint`. If that requires factor-name-specific rules or scope-specific losses, reject it and document sticky spread/rate channels as a limitation.
+
+---
