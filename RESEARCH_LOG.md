@@ -106772,3 +106772,32 @@ The next decisive experiment should keep the AR flow core but add a generic stic
 If this diagnostic is positive, replace the empirical atom gate with a learned gate. If it fails, the normalized-innovation family likely needs a broader observation-model paradigm shift rather than more coordinate tweaks.
 
 ---
+## 2026-04-28: 724a sticky observation nonzero-mask diagnostic
+
+### Context
+
+723a reframed sticky OAS as a mixed observation object: update/no-update observation plus continuous nonzero economic move. 724a tested the minimal clean repair without changing the shared AR flow core: exact-zero sticky-channel future targets are masked out of the continuous flow-matching loss, then empirical atom readout restores no-update observations for the diagnostic.
+
+### Result
+
+Implemented optional `future_element_weight` in the normalized-innovation flow loss and added `--sticky_observation_loss nonzero_mask` to the 662a trainer. The focused regression suite passes: `pytest test_code/test_662a_state_aware_normalized_innovation_flow.py -q` gives 14/14.
+
+Anchor-only with atom readout remained below the single-framework bar: factor KS pass stayed 9/13, mean KS 0.138, AAA/BBB KS 0.231/0.335. Joint38 improved but still was not clean: factor KS pass 11/13, mean KS 0.116, AAA/BBB KS 0.154/0.255, with weaker dependency ratios.
+
+### Mechanism Read
+
+The atom mechanism works mechanically: generated no-update rates move close to validation no-update rates. The residual failure is nonzero-update scale allocation. Anchor-only OAS nonzero tails remain too wide after atom readout, while joint38 partially constrains OAS through IV context but still fails BBB.
+
+### Decision
+
+Reject masked-zero continuous loss as the next production framework repair. The next HEAD iteration should be post-experiment attribution on nonzero-update scale: compare train/validation/generated nonzero tails across OAS, rates, ordinary anchors, and the 712/721/724 variants before adding another loss or architecture knob.
+
+### Artifacts
+
+- `models/backfill/724a_anchor_sticky_obs_nonzero_mask_e8_w2048_s7242/best_model.pt`
+- `models/backfill/724a_joint38_sticky_obs_nonzero_mask_e8_w2048_s7243/best_model.pt`
+- `results/block_ar/724a_sticky_observation_nonzero_mask/atom_gate_analysis.json`
+- `results/block_ar/724a_sticky_observation_nonzero_mask/atom_gate_analysis.md`
+- `results/block_ar/724a_sticky_observation_nonzero_mask/analysis.md`
+
+---

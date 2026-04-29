@@ -1,0 +1,261 @@
+{
+  "iteration": "721a",
+  "purpose": "empirical hurdle atom-gate feasibility diagnostic",
+  "scopes": {
+    "anchor": {
+      "scope": "anchor_only",
+      "checkpoint": "models/backfill/724a_anchor_sticky_obs_nonzero_mask_e8_w2048_s7242/best_model.pt",
+      "seed": 7245,
+      "n_windows": 441,
+      "samples": 32,
+      "generation_time_s": 59.334444999694824,
+      "alignment": {
+        "n_windows": 441,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "train_alignment": {
+        "n_windows": 2048,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "selected_names": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ],
+      "train_zero_rate": {
+        "factor:aaa_oas": 0.43547239899635315,
+        "factor:bbb_oas": 0.2655670642852783
+      },
+      "global_atom_probability": {
+        "factor:aaa_oas": 0.43533533811569214,
+        "factor:bbb_oas": 0.26549482345581055
+      },
+      "history_bin_probability_mean": {
+        "factor:aaa_oas": 0.4539157450199127,
+        "factor:bbb_oas": 0.3046981692314148
+      },
+      "variants": {
+        "identity": {
+          "factor_delta_ks_mean": 0.1682619629048201,
+          "factor_delta_ks_pass_020": 9,
+          "factor_factor_abs_ratio": 0.7279830558283299,
+          "iv_factor_abs_ratio": NaN,
+          "conditional_reduction": 3.6158610854053816,
+          "focus_ks": {
+            "factor:aaa_oas": 0.43872826908541196,
+            "factor:bbb_oas": 0.5194869614512472
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 2.362055933484505e-06,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.11989997327327728,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.008847236633300781
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 0.0,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.10631362348794937,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.011358201503753662
+            }
+          }
+        },
+        "global_atom": {
+          "factor_delta_ks_mean": 0.13826657799872086,
+          "factor_delta_ks_pass_020": 9,
+          "factor_factor_abs_ratio": 0.6367120091319841,
+          "iv_factor_abs_ratio": NaN,
+          "conditional_reduction": 3.615912349246823,
+          "focus_ks": {
+            "factor:aaa_oas": 0.2323767006802721,
+            "factor:bbb_oas": 0.33589852607709747
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 0.4362788170823885,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.14835414290428162,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.011568665504455566
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 0.2659509637188209,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.12834766507148743,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.013374090194702148
+            }
+          }
+        },
+        "history_bin_atom": {
+          "factor_delta_ks_mean": 0.13811540641897785,
+          "factor_delta_ks_pass_020": 9,
+          "factor_factor_abs_ratio": 0.634430078154254,
+          "iv_factor_abs_ratio": NaN,
+          "conditional_reduction": 3.6159192195558596,
+          "focus_ks": {
+            "factor:aaa_oas": 0.2313704648526077,
+            "factor:bbb_oas": 0.3349395313681028
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 0.45395408163265305,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.15156301856040955,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.011937320232391357
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 0.30498866213151926,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.13011589646339417,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.014123916625976562
+            }
+          }
+        }
+      }
+    },
+    "joint": {
+      "scope": "joint38",
+      "checkpoint": "models/backfill/724a_joint38_sticky_obs_nonzero_mask_e8_w2048_s7243/best_model.pt",
+      "seed": 7246,
+      "n_windows": 441,
+      "samples": 32,
+      "generation_time_s": 100.4536406993866,
+      "alignment": {
+        "n_windows": 441,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "train_alignment": {
+        "n_windows": 2048,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "selected_names": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ],
+      "train_zero_rate": {
+        "factor:aaa_oas": 0.43547239899635315,
+        "factor:bbb_oas": 0.2655670642852783
+      },
+      "global_atom_probability": {
+        "factor:aaa_oas": 0.43533533811569214,
+        "factor:bbb_oas": 0.26549482345581055
+      },
+      "history_bin_probability_mean": {
+        "factor:aaa_oas": 0.4539157450199127,
+        "factor:bbb_oas": 0.3046981692314148
+      },
+      "variants": {
+        "identity": {
+          "factor_delta_ks_mean": 0.13220408890051746,
+          "factor_delta_ks_pass_020": 10,
+          "factor_factor_abs_ratio": 0.5082339080872668,
+          "iv_factor_abs_ratio": 0.6405822349345943,
+          "conditional_reduction": 3.0791064549039913,
+          "focus_ks": {
+            "factor:aaa_oas": 0.26519274376417235,
+            "factor:bbb_oas": 0.3487386621315193
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 0.0,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.05199878662824631,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.0079478919506073
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 9.44822373393802e-06,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.07756610959768295,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.009748995304107666
+            }
+          }
+        },
+        "global_atom": {
+          "factor_delta_ks_mean": 0.1163839467410896,
+          "factor_delta_ks_pass_020": 11,
+          "factor_factor_abs_ratio": 0.4613027231201616,
+          "iv_factor_abs_ratio": 0.6040708469114158,
+          "conditional_reduction": 3.079144475577061,
+          "focus_ks": {
+            "factor:aaa_oas": 0.1545753023431595,
+            "factor:bbb_oas": 0.2536942554799697
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 0.4328207671957672,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.06305336952209473,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.009879112243652344
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 0.266239134542706,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.08973302692174911,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.011129379272460938
+            }
+          }
+        },
+        "history_bin_atom": {
+          "factor_delta_ks_mean": 0.11644863073434503,
+          "factor_delta_ks_pass_020": 11,
+          "factor_factor_abs_ratio": 0.4608589538946533,
+          "iv_factor_abs_ratio": 0.6025392450278525,
+          "conditional_reduction": 3.0791276086453925,
+          "focus_ks": {
+            "factor:aaa_oas": 0.15389266817838249,
+            "factor:bbb_oas": 0.25521778155706726
+          },
+          "focus_zero": {
+            "factor:aaa_oas": {
+              "gt_zero_rate": 0.4743764172335601,
+              "gen_zero_rate": 0.45433673469387753,
+              "gt_abs_q99": 0.039999961853027344,
+              "gen_abs_q99": 0.061847083270549774,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.010392844676971436
+            },
+            "factor:bbb_oas": {
+              "gt_zero_rate": 0.3832955404383976,
+              "gen_zero_rate": 0.30425170068027213,
+              "gt_abs_q99": 0.04999995231628418,
+              "gen_abs_q99": 0.08958115428686142,
+              "gt_nonzero_abs_q50": 0.009999990463256836,
+              "gen_nonzero_abs_q50": 0.011703908443450928
+            }
+          }
+        }
+      }
+    }
+  },
+  "decision": "If empirical atom gates pass BBB while preserving correlation, implement a learned hurdle/sticky gate. If they do not, the nonzero continuous path distribution must be repaired before adding a gate to the production model."
+}

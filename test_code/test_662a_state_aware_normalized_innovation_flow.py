@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import sys
 import torch
 
@@ -159,6 +160,62 @@ def test_state_aware_normalized_innovation_flow_loss_and_sampling():
     assert metrics["target_norm_std"] > 0.0
     assert samples.shape == (5, 3, cfg.future_len, cfg.n_cells)
     assert torch.isfinite(samples).all()
+
+
+def test_future_element_weight_masks_flow_loss_terms():
+    torch.manual_seed(724)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    model.set_level_quantiles(torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells), levels)
+
+    history_level = torch.randn(4, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(4, cfg.history_len, cfg.n_cells)
+    center = torch.randn(4, cfg.n_cells) * 0.01
+    scale = torch.rand(4, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(4, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+    future_weight = torch.ones_like(future_norm)
+    future_weight[..., 1] = 0.0
+
+    loss, metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        future_element_weight=future_weight,
+    )
+
+    assert torch.isfinite(loss)
+    assert torch.isclose(metrics["future_element_weight_mean"], torch.tensor(0.5))
+    with pytest.raises(ValueError, match="future_element_weight must have shape"):
+        model.training_loss(
+            history_level,
+            history_norm,
+            future_level,
+            future_norm,
+            center,
+            scale,
+            future_element_weight=future_weight[:, :, :1],
+        )
 
 
 def test_innovation_score_coordinate_roundtrips_normalized_innovations():

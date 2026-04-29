@@ -150,6 +150,25 @@ def sticky_score_mask_from_block(
     }
 
 
+def sticky_observation_weight_from_block(
+    block: IncrementCoordinateBlock,
+    scope: str,
+    iv_count: int,
+    sticky_mask: np.ndarray,
+    *,
+    zero_eps: float,
+    zero_weight: float,
+) -> np.ndarray:
+    raw_history, raw_future = select_raw_scope_from_block(block, scope, iv_count)
+    raw_delta = panel_daily_changes(raw_history.astype(np.float64), raw_future.astype(np.float64))
+    weight = np.ones(raw_delta.shape, dtype=np.float32)
+    if bool(np.any(sticky_mask)):
+        zero = np.abs(raw_delta) <= float(zero_eps)
+        sticky = np.asarray(sticky_mask, dtype=bool)[None, None, :]
+        weight = np.where(zero & sticky, float(zero_weight), 1.0).astype(np.float32)
+    return weight
+
+
 def eval_loss(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     loader: DataLoader,
@@ -164,7 +183,7 @@ def eval_loss(
     total = 0.0
     count = 0
     with torch.no_grad():
-        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight in loader:
             loss, _metrics = model.training_loss(
                 history_level.to(device),
                 history_norm.to(device),
@@ -173,6 +192,7 @@ def eval_loss(
                 center.to(device),
                 scale.to(device),
                 drift_feature=drift_feature.to(device),
+                future_element_weight=future_weight.to(device),
                 condition_contrast_weight=float(condition_contrast_weight),
                 condition_contrast_margin=float(condition_contrast_margin),
                 risk_state_weight=float(risk_state_weight),
@@ -260,6 +280,8 @@ def main() -> None:
     parser.add_argument("--innovation_coordinate", choices=["normalized", "score", "hybrid_sticky_score"], default="normalized")
     parser.add_argument("--sticky_score_zero_eps", type=float, default=1e-10)
     parser.add_argument("--sticky_score_zero_rate_gate", type=float, default=0.25)
+    parser.add_argument("--sticky_observation_loss", choices=["none", "nonzero_mask"], default="none")
+    parser.add_argument("--sticky_observation_zero_weight", type=float, default=0.0)
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -414,6 +436,36 @@ def main() -> None:
         if sticky_mask.shape != (int(train_level.shape[-1]),):
             raise RuntimeError("sticky score mask shape does not match selected state scope")
         model.set_innovation_score_mask(torch.from_numpy(sticky_mask).to(device))
+    elif args.sticky_observation_loss == "nonzero_mask":
+        sticky_mask, sticky_score_report = sticky_score_mask_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.sticky_score_zero_eps),
+            zero_rate_gate=float(args.sticky_score_zero_rate_gate),
+        )
+    else:
+        sticky_mask = np.zeros(int(train_level.shape[-1]), dtype=bool)
+    if args.sticky_observation_loss == "nonzero_mask":
+        train_future_weight = sticky_observation_weight_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            sticky_mask,
+            zero_eps=float(args.sticky_score_zero_eps),
+            zero_weight=float(args.sticky_observation_zero_weight),
+        )
+        val_future_weight = sticky_observation_weight_from_block(
+            val_block,
+            args.state_scope,
+            int(args.iv_count),
+            sticky_mask,
+            zero_eps=float(args.sticky_score_zero_eps),
+            zero_weight=float(args.sticky_observation_zero_weight),
+        )
+    else:
+        train_future_weight = np.ones_like(train_future_norm, dtype=np.float32)
+        val_future_weight = np.ones_like(val_future_norm, dtype=np.float32)
     train_loader = DataLoader(
         TensorDataset(
             torch.from_numpy(train_level),
@@ -423,6 +475,7 @@ def main() -> None:
             torch.from_numpy(train_center),
             torch.from_numpy(train_scale),
             torch.from_numpy(train_drift),
+            torch.from_numpy(train_future_weight),
         ),
         batch_size=int(args.batch_size),
         shuffle=True,
@@ -437,6 +490,7 @@ def main() -> None:
             torch.from_numpy(val_center),
             torch.from_numpy(val_scale),
             torch.from_numpy(val_drift),
+            torch.from_numpy(val_future_weight),
         ),
         batch_size=int(args.batch_size),
         shuffle=False,
@@ -461,6 +515,10 @@ def main() -> None:
         "iv_upper_bound": float(args.iv_upper_bound),
         "innovation_coordinate": args.innovation_coordinate,
         "sticky_score": sticky_score_report,
+        "sticky_observation_loss": args.sticky_observation_loss,
+        "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
+        "train_future_weight_mean": float(np.mean(train_future_weight)),
+        "val_future_weight_mean": float(np.mean(val_future_weight)),
     }
     extra = {
         "state_scope": args.state_scope,
@@ -485,6 +543,8 @@ def main() -> None:
             "base_noise_scale_max": float(cfg.base_noise_scale_max),
             "flow_coordinate": args.innovation_coordinate,
             "sticky_score": sticky_score_report,
+            "sticky_observation_loss": args.sticky_observation_loss,
+            "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
         },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
@@ -500,7 +560,7 @@ def main() -> None:
         total = 0.0
         count = 0
         metric_sums: dict[str, float] = {}
-        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in train_loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight in train_loader:
             opt.zero_grad(set_to_none=True)
             loss, metrics = model.training_loss(
                 history_level.to(device),
@@ -510,6 +570,7 @@ def main() -> None:
                 center.to(device),
                 scale.to(device),
                 drift_feature=drift_feature.to(device),
+                future_element_weight=future_weight.to(device),
                 condition_contrast_weight=float(args.condition_contrast_weight),
                 condition_contrast_margin=float(args.condition_contrast_margin),
                 risk_state_weight=float(args.risk_state_weight),
@@ -588,6 +649,8 @@ def main() -> None:
             "base_noise_rho": float(cfg.base_noise_rho),
             "flow_coordinate": args.innovation_coordinate,
             "sticky_score": sticky_score_report,
+            "sticky_observation_loss": args.sticky_observation_loss,
+            "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
         },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],

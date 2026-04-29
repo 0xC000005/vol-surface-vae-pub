@@ -560,6 +560,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         center: torch.Tensor,
         scale: torch.Tensor,
         drift_feature: torch.Tensor | None = None,
+        future_element_weight: torch.Tensor | None = None,
         condition_contrast_weight: float = 0.0,
         condition_contrast_margin: float = 0.0,
         risk_state_weight: float = 0.0,
@@ -603,7 +604,17 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             memory_states.reshape(bsz * horizon, self.cfg.memory_dim),
             t.reshape(bsz * horizon),
         ).view_as(x1)
-        pos_loss_per_window = (pred_velocity - target_velocity).square().mean(dim=(1, 2))
+        velocity_error = (pred_velocity - target_velocity).square()
+        if future_element_weight is None:
+            pos_loss_per_window = velocity_error.mean(dim=(1, 2))
+            element_weight_mean = torch.ones((), device=x1.device, dtype=x1.dtype)
+        else:
+            weight = future_element_weight.to(device=x1.device, dtype=x1.dtype)
+            if weight.shape != x1.shape:
+                raise ValueError(f"future_element_weight must have shape {tuple(x1.shape)}, got {tuple(weight.shape)}")
+            denom = weight.sum(dim=(1, 2)).clamp_min(1.0)
+            pos_loss_per_window = (velocity_error * weight).sum(dim=(1, 2)) / denom
+            element_weight_mean = weight.mean().detach()
         fm_loss = pos_loss_per_window.mean()
         contrast_weight = float(condition_contrast_weight)
         contrast_loss = fm_loss.new_zeros(())
@@ -642,7 +653,12 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 neg_memory_states.reshape(bsz * horizon, self.cfg.memory_dim),
                 t.reshape(bsz * horizon),
             ).view_as(x1)
-            neg_loss_per_window = (neg_pred_velocity - target_velocity).square().mean(dim=(1, 2))
+            neg_velocity_error = (neg_pred_velocity - target_velocity).square()
+            if future_element_weight is None:
+                neg_loss_per_window = neg_velocity_error.mean(dim=(1, 2))
+            else:
+                denom = weight.sum(dim=(1, 2)).clamp_min(1.0)
+                neg_loss_per_window = (neg_velocity_error * weight).sum(dim=(1, 2)) / denom
             neg_loss = neg_loss_per_window.mean()
             contrast_loss = F.softplus(
                 pos_loss_per_window - neg_loss_per_window + float(condition_contrast_margin)
@@ -691,6 +707,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "risk_state_rank_rho": risk_rank_rho,
             "risk_state_weight": torch.as_tensor(float(risk_state_weight), device=x1.device, dtype=x1.dtype),
             "risk_state_rank_weight": torch.as_tensor(float(risk_state_rank_weight), device=x1.device, dtype=x1.dtype),
+            "future_element_weight_mean": element_weight_mean,
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_flow_std": x1.std(unbiased=False).detach(),
             "target_norm_abs": x1.abs().mean().detach(),
