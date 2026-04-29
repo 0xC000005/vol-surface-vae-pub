@@ -107727,3 +107727,30 @@ This is the first useful exposure-bias result. Short-prefix generated exposure r
 Promote short-prefix exposure as a promising active ingredient, but not as a solved deployable model. The next HEAD cycle should analyze the 755a train-tail versus validation gap: determine whether validation failure is mostly the known shifted-level hard cells, median-bias/coverage allocation, or a remaining conditionality/regime deficiency before adding another modeling change.
 
 ---
+## 2026-04-29: Autoresearch 756a short-prefix validation-gap attribution
+
+### Context
+756a analyzed why 755a reaches `8/11` on train-tail but only `6/11` on validation. This was required before adding another modeling change because 755a changed the active failure pattern: in-sample path-law realism improved materially, but validation hard cells remained weak.
+
+### Execute
+- Ran the 744a hard-cell condition-response audit on the 755a checkpoint.
+- Added and ran `experiments/backfill/block_ar/analyze_756a_shortprefix_validation_gap.py`.
+
+Artifacts:
+- Hard-cell audit: `results/block_ar/756a_755_hard_cell_condition_response/summary.json`.
+- Gap report: `results/block_ar/756a_shortprefix_validation_gap/summary.{json,md}`.
+
+### Findings
+- 755a train-tail reaches `8/11` and passes coverage, distributional fidelity, cointegration, mean reversion, pathwise realism, surface validity, block-AR, and cross-cell correlation.
+- 755a validation remains `6/11` and fails coverage, conditionality, cointegration worst-cell, regime layer-2, and median-bias distributional fidelity.
+- Validation hard-cell low-tertile cov90 remains below the incumbent: `0.289` for 755a versus `0.316` for 744a incumbent.
+- Validation hard-cell lower-miss remains slightly worse: `0.412` for 755a versus `0.395` for 744a incumbent.
+- Broad validation risk-state allocation passes, so the issue is not total absence of conditional response; it is per-cell/local level-support and regime-cell allocation.
+
+### Mechanism Read
+Short-prefix exposure mostly repairs the in-sample free-running path law. The remaining validation bottleneck is the same shifted-level hard-cell problem seen before, now exposed more clearly because train-tail strict behavior is much stronger. The model is not failing to generate realistic paths generally; it is failing to allocate enough support to shifted validation cells without damaging median and regime-cell calibration.
+
+### Decision
+Keep short-prefix exposure as the active ingredient. The next move should target validation level-support allocation rather than generic path realism. A clean next experiment should either schedule short-prefix exposure or introduce a split-robust, data-derived support/quantile calibration inside the normalized-innovation law; avoid scalar temperature tuning and avoid changing the core AR flow backend.
+
+---

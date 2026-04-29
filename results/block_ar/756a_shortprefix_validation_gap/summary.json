@@ -1,0 +1,159 @@
+{
+  "scorecards": [
+    {
+      "name": "734a_val_incumbent",
+      "path": "results/block_ar/734a_realvix_framework_lock_baseline/iv_val_full11_s64.json",
+      "n_pass": 6,
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.836384,
+      "calibration_error": 0.046442,
+      "level_ks_pass_cells": 17,
+      "median_bias_pass_cells": 16,
+      "daily_ks_pass_cells": 24,
+      "window_floor_pass": true,
+      "cointegration_ratio": 0.722689,
+      "cointegration_worst_cell_ratio": 0.208955,
+      "regime_layer2_pass_count": 0,
+      "regime_layer3_catastrophic_rate": 0.035465,
+      "risk_state_pass": true,
+      "history_width_spearman": 0.483583,
+      "future_width_spearman": 0.315806,
+      "time_series_pass": true,
+      "kurtosis_ratio": 1.002525,
+      "mean_reversion_pass": true,
+      "mean_reversion_ratio": 1.050486,
+      "pathwise_pass": true,
+      "pathwise_max_jump_ks": 0.44195
+    },
+    {
+      "name": "746a_train_tail_incumbent",
+      "path": "results/block_ar/746a_674a_train_tail_audit/iv_train_tail_full11_s64.json",
+      "n_pass": 6,
+      "failed_suites": [
+        "conditionality",
+        "time_series",
+        "cointegration",
+        "regime_coverage",
+        "pathwise_jump_realism"
+      ],
+      "cov90": 0.861001,
+      "calibration_error": 0.013944,
+      "level_ks_pass_cells": 20,
+      "median_bias_pass_cells": 25,
+      "daily_ks_pass_cells": 25,
+      "window_floor_pass": true,
+      "cointegration_ratio": 0.492359,
+      "cointegration_worst_cell_ratio": 0.276316,
+      "regime_layer2_pass_count": 2,
+      "regime_layer3_catastrophic_rate": 0.018685,
+      "risk_state_pass": false,
+      "history_width_spearman": 0.641219,
+      "future_width_spearman": 0.010584,
+      "time_series_pass": false,
+      "kurtosis_ratio": 1.783358,
+      "mean_reversion_pass": true,
+      "mean_reversion_ratio": 1.093434,
+      "pathwise_pass": false,
+      "pathwise_max_jump_ks": 0.529478
+    },
+    {
+      "name": "755a_val_shortprefix",
+      "path": "results/block_ar/755a_iv_shortprefix_fm_k5/iv_val_full11_s64.json",
+      "n_pass": 6,
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.817294,
+      "calibration_error": 0.063313,
+      "level_ks_pass_cells": 15,
+      "median_bias_pass_cells": 15,
+      "daily_ks_pass_cells": 24,
+      "window_floor_pass": true,
+      "cointegration_ratio": 0.746032,
+      "cointegration_worst_cell_ratio": 0.238806,
+      "regime_layer2_pass_count": 0,
+      "regime_layer3_catastrophic_rate": 0.042177,
+      "risk_state_pass": true,
+      "history_width_spearman": 0.472046,
+      "future_width_spearman": 0.341373,
+      "time_series_pass": true,
+      "kurtosis_ratio": 1.099133,
+      "mean_reversion_pass": true,
+      "mean_reversion_ratio": 1.048318,
+      "pathwise_pass": true,
+      "pathwise_max_jump_ks": 0.395465
+    },
+    {
+      "name": "755a_train_tail_shortprefix",
+      "path": "results/block_ar/755a_iv_shortprefix_fm_k5/iv_train_tail_full11_s64.json",
+      "n_pass": 8,
+      "failed_suites": [
+        "conditionality",
+        "time_series",
+        "regime_coverage"
+      ],
+      "cov90": 0.84341,
+      "calibration_error": 0.031175,
+      "level_ks_pass_cells": 21,
+      "median_bias_pass_cells": 25,
+      "daily_ks_pass_cells": 25,
+      "window_floor_pass": true,
+      "cointegration_ratio": 0.550143,
+      "cointegration_worst_cell_ratio": 0.278846,
+      "regime_layer2_pass_count": 1,
+      "regime_layer3_catastrophic_rate": 0.022676,
+      "risk_state_pass": false,
+      "history_width_spearman": 0.64825,
+      "future_width_spearman": -0.007492,
+      "time_series_pass": false,
+      "kurtosis_ratio": 1.943099,
+      "mean_reversion_pass": true,
+      "mean_reversion_ratio": 1.089652,
+      "pathwise_pass": true,
+      "pathwise_max_jump_ks": 0.489569
+    }
+  ],
+  "hard_cells": [
+    {
+      "name": "744a_incumbent",
+      "path": "results/block_ar/744a_iv_hard_cell_condition_response/summary.json",
+      "median_low_tertile_coverage90": 0.316327,
+      "median_hard_lower_miss_rate": 0.394558,
+      "median_abs_slope_gap": 0.057789
+    },
+    {
+      "name": "756a_755a",
+      "path": "results/block_ar/756a_755_hard_cell_condition_response/summary.json",
+      "median_low_tertile_coverage90": 0.289116,
+      "median_hard_lower_miss_rate": 0.411565,
+      "median_abs_slope_gap": 0.03747
+    }
+  ],
+  "attribution": {
+    "primary_read": "shortprefix_repairs_in_sample_path_law_but_not_validation_shifted_hard_cells",
+    "evidence": [
+      "755a train-tail reaches 8/11 and passes coverage, level distribution, median bias, cointegration, mean reversion, and pathwise realism.",
+      "755a validation stays 6/11 and still fails coverage, conditionality, cointegration worst-cell, regime coverage, and median-bias distributional fidelity.",
+      "Validation hard-cell low-tertile coverage remains below incumbent: 0.289116 versus 0.316327.",
+      "Validation hard-cell lower-miss remains slightly worse than incumbent: 0.411565 versus 0.394558."
+    ],
+    "failure_classification": {
+      "core_path_realism": "mostly_repaired_in_sample",
+      "validation_level_support": "still_binding",
+      "validation_conditionality": "broad_risk_state_passes_but_per_cell_width_gate_fails",
+      "regime_layer2": "still_binding_due_per_cell_regime_coverage_not_catastrophic_undercoverage",
+      "pure_capacity_or_full_prefix_loss": "not_supported_by_755a"
+    },
+    "decision": "Do not abandon short-prefix exposure. The next move should target validation level-support allocation, not generic path realism. A clean next experiment should either add a schedule around the short-prefix exposure or a split-robust, data-derived support/quantile calibration inside the same normalized-innovation law; avoid broad scalar temperature tuning."
+  }
+}
