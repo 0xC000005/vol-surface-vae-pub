@@ -1,0 +1,351 @@
+{
+  "iteration": "720a",
+  "purpose": "sticky-zero residual threshold and atom-mass attribution",
+  "scopes": {
+    "anchor": {
+      "scope": "anchor_only",
+      "checkpoint": "models/backfill/688a_anchor_channel_level_alltrain_w005_e3_s6881/best_model.pt",
+      "seed": 721,
+      "n_windows": 441,
+      "samples": 64,
+      "generation_time_s": 93.19237017631531,
+      "alignment": {
+        "n_windows": 441,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "train_alignment": {
+        "n_windows": 2048,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "variants": {
+        "identity": {
+          "summary": {
+            "factor_delta_ks_mean": 0.10710488255131115,
+            "factor_delta_ks_pass_020": 11,
+            "factor_factor_abs_ratio": 0.6159480216246799,
+            "iv_factor_abs_ratio": NaN,
+            "conditional_reduction": 4.517039085435718,
+            "focus_ks": {
+              "factor:aaa_oas": 0.28622094671201814,
+              "factor:bbb_oas": 0.2922571806500378
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 4.72411186696901e-06,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.03407036513090134,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.0043814778327941895
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 4.72411186696901e-06,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.050804734230041504,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.006015181541442871
+              }
+            }
+          }
+        },
+        "q0.1": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.009999990463256836,
+            "factor:bbb_oas": 0.009999990463256836
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.09381159515088087,
+            "factor_delta_ks_pass_020": 12,
+            "factor_factor_abs_ratio": 0.5950811188713898,
+            "iv_factor_abs_ratio": NaN,
+            "conditional_reduction": 4.517048471272681,
+            "focus_ks": {
+              "factor:aaa_oas": 0.18066184807256236,
+              "factor:bbb_oas": 0.22500354308390022
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.7446924603174603,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.03532286733388901,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.014268338680267334
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.6384412792894936,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.0513605922460556,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.015950560569763184
+              }
+            }
+          }
+        },
+        "q0.5": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.009999990463256836,
+            "factor:bbb_oas": 0.010000228881835938
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.09381214024071169,
+            "factor_delta_ks_pass_020": 12,
+            "factor_factor_abs_ratio": 0.595081642416285,
+            "iv_factor_abs_ratio": NaN,
+            "conditional_reduction": 4.517048471272681,
+            "focus_ks": {
+              "factor:aaa_oas": 0.18066184807256236,
+              "factor:bbb_oas": 0.22501062925170068
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.7446924603174603,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.03532286733388901,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.014268338680267334
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.6384495464852608,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.0513605922460556,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.01595073938369751
+              }
+            }
+          }
+        },
+        "q0.9": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.04000002145767212,
+            "factor:bbb_oas": 0.04999995231628418
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.11403215666608525,
+            "factor_delta_ks_pass_020": 11,
+            "factor_factor_abs_ratio": 0.5236882453313011,
+            "iv_factor_abs_ratio": NaN,
+            "conditional_reduction": 4.5171077425087605,
+            "focus_ks": {
+              "factor:aaa_oas": 0.2859315948601663,
+              "factor:bbb_oas": 0.38260109599395314
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.9641900510204081,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.05005471035838127,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.04517263174057007
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.9449900793650794,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.07111556082963943,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.057779908180236816
+              }
+            }
+          }
+        }
+      }
+    },
+    "joint": {
+      "scope": "joint38",
+      "checkpoint": "models/backfill/676a_joint38_channel_level_alltrain_w005_e3_s6761/best_model.pt",
+      "seed": 722,
+      "n_windows": 441,
+      "samples": 64,
+      "generation_time_s": 172.30707144737244,
+      "alignment": {
+        "n_windows": 441,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "train_alignment": {
+        "n_windows": 2048,
+        "history_max_abs_error": 0.0,
+        "future_max_abs_error": 0.0,
+        "history_mean_abs_error": 0.0,
+        "future_mean_abs_error": 0.0
+      },
+      "variants": {
+        "identity": {
+          "summary": {
+            "factor_delta_ks_mean": 0.10081127536484678,
+            "factor_delta_ks_pass_020": 11,
+            "factor_factor_abs_ratio": 0.3567818744659562,
+            "iv_factor_abs_ratio": 0.5450157168979157,
+            "conditional_reduction": 4.300506298264178,
+            "focus_ks": {
+              "factor:aaa_oas": 0.23856528722600157,
+              "factor:bbb_oas": 0.26022061602418745
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 2.362055933484505e-06,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.031846947968006134,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.004252254962921143
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 8.267195767195768e-06,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.05059129744768143,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.005657196044921875
+              }
+            }
+          }
+        },
+        "q0.1": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.009999990463256836,
+            "factor:bbb_oas": 0.009999990463256836
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.09162060657596373,
+            "factor_delta_ks_pass_020": 12,
+            "factor_factor_abs_ratio": 0.3464092704076471,
+            "iv_factor_abs_ratio": 0.5263464696754103,
+            "conditional_reduction": 4.300536238434736,
+            "focus_ks": {
+              "factor:aaa_oas": 0.15794713718820863,
+              "factor:bbb_oas": 0.22136007180650036
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.7534863945578232,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.03315145522356033,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.014174073934555054
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.6628011621315193,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.05128657817840576,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.015817880630493164
+              }
+            }
+          }
+        },
+        "q0.5": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.009999990463256836,
+            "factor:bbb_oas": 0.010000228881835938
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.09162115166579451,
+            "factor_delta_ks_pass_020": 12,
+            "factor_factor_abs_ratio": 0.34640779944022754,
+            "iv_factor_abs_ratio": 0.5263447108400526,
+            "conditional_reduction": 4.300536238434736,
+            "focus_ks": {
+              "factor:aaa_oas": 0.15794713718820863,
+              "factor:bbb_oas": 0.22136715797430082
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.7534863945578232,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.03315145522356033,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.014174073934555054
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.6628106103552532,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.05128657817840576,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.015817880630493164
+              }
+            }
+          }
+        },
+        "q0.9": {
+          "selected_names": [
+            "factor:aaa_oas",
+            "factor:bbb_oas"
+          ],
+          "thresholds": {
+            "factor:aaa_oas": 0.04000002145767212,
+            "factor:bbb_oas": 0.04999995231628418
+          },
+          "summary": {
+            "factor_delta_ks_mean": 0.11324949851735565,
+            "factor_delta_ks_pass_020": 11,
+            "factor_factor_abs_ratio": 0.31166158107758957,
+            "iv_factor_abs_ratio": 0.48160063146443394,
+            "conditional_reduction": 4.300539030698832,
+            "focus_ks": {
+              "factor:aaa_oas": 0.2777104591836735,
+              "factor:bbb_oas": 0.38277234504913077
+            },
+            "focus_zero": {
+              "factor:aaa_oas": {
+                "gt_zero_rate": 0.4743764172335601,
+                "gen_zero_rate": 0.9664032974300831,
+                "gt_abs_q99": 0.039999961853027344,
+                "gen_abs_q99": 0.048925552517175674,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.04493647813796997
+              },
+              "factor:bbb_oas": {
+                "gt_zero_rate": 0.3832955404383976,
+                "gen_zero_rate": 0.9535088340891912,
+                "gt_abs_q99": 0.04999995231628418,
+                "gen_abs_q99": 0.06926310062408447,
+                "gt_nonzero_abs_q50": 0.009999990463256836,
+                "gen_nonzero_abs_q50": 0.05781126022338867
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "decision": "If stronger train-derived thresholds move BBB below the KS gate without destroying correlation amplitude, sticky readout is a viable data-coordinate repair. If zero rates remain below GT or correlation collapses, the next model should use an explicit mixed discrete-continuous innovation variable rather than more threshold tuning."
+}

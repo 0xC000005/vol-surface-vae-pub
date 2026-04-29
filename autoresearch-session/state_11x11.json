@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 720,
-  "last_iteration_type": "experiment",
+  "iteration": 721,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "719a tested a frozen generic sticky-zero readout on the incumbent zero-center normalized-innovation framework. Framework consistency passed and only AAA/BBB OAS were selected by the empirical zero-rate rule, but the scorecard remains non-deployable: IV=false, anchor=false, joint=false.",
+  "current_framework_status": "720a completed residual analysis of 719a. Framework consistency is still not the blocker. Sticky-zero thresholding validates the no-change atom diagnosis directionally, but threshold tuning is rejected because it overproduces zeros and still leaves BBB OAS above the KS gate.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The sticky/no-change diagnosis is directionally validated but not solved. Tick-level sticky readout improves anchor and joint factor KS to 12/13, leaving BBB OAS just above the KS gate. Joint factor correlation amplitude also becomes a narrow blocker (abs_corr_ratio 0.345 vs gate 0.35). IV still has the separate coverage/regime/level-fidelity blocker.",
-  "last_result_summary": "719a applied sticky-zero readout to 688 anchor and 676 joint checkpoints while reusing 674/711 IV. Scorecard: overall=false; framework=true; IV=false (7/11 effective coverage/regime/fidelity failures); anchor=false with factor KS 12/13, mean 0.093, BBB KS 0.225; joint=false with factor KS 12/13, mean 0.091, BBB KS 0.221, IV-factor corr pass 0.894, factor-factor abs-corr ratio 0.345.",
-  "next_step_recommendation": "Run post-experiment residual analysis before changing the model: quantify for BBB whether the remaining KS error is zero-mass underproduction, nonzero tail/range error, or threshold/correlation tradeoff. If zero mass is the blocker, prefer an explicit mixed discrete-continuous/sticky innovation variable over a stronger post-hoc threshold.",
+  "current_bottleneck": "BBB OAS failure is a mixture modeling problem, not just missing exact-zero mass. q10/q50 sticky readout already overproduces zero moves but BBB KS remains above gate; q90 worsens BBB and attenuates factor correlation. IV still has separate coverage/regime/level-fidelity failure.",
+  "last_result_summary": "720a swept sticky thresholds on 688 anchor and 676 joint samples. Identity has generated OAS zero mass 0.0 vs GT AAA 0.474 and BBB 0.383. q10/q50 improve anchor/joint to 12/13 but overproduce zeros (BBB 0.638 anchor, 0.663 joint) while BBB KS remains 0.225/0.221. q90 worsens BBB to 0.383 and lowers factor-corr abs ratio to 0.312 in joint.",
+  "next_step_recommendation": "Do not tune sticky thresholds further. Run a mixed/hurdle innovation feasibility experiment: first an empirical atom-gate diagnostic to establish whether separating no-change probability from nonzero-move generation can clear BBB without breaking correlation, then implement a learned atom gate only if the diagnostic is positive.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. The clean frozen normalized-innovation baseline now has a precise 712a scorecard reading: framework=true but IV/anchor/joint=false. It is scientifically the right baseline for generality, but not deployable.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "55d8240",
+  "last_commit": "7f130e9",
   "resume_command_hint": "continue autoresearch"
 }
