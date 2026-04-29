@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 723,
-  "last_iteration_type": "experiment",
+  "iteration": 724,
+  "last_iteration_type": "research_ideation",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "722a tested hybrid sticky-score coordinates as a variable-type continuous-shape repair. The selector behaved correctly, but the coordinate was rejected because it over-widened sticky OAS tails and damaged broader factor marginal realism.",
+  "current_framework_status": "723a postmortem reframed the sticky OAS failure as an observation-model problem. The current coordinate-tweak branch is exhausted: thresholding, atom-only gates, and hybrid score coordinates all failed.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Sticky OAS cannot be fixed by atom gates alone or by empirical-score continuous coordinates. Threshold readout overproduces zeros and weakens correlations; atom gates leave BBB KS high; hybrid sticky-score creates extreme OAS tails. IV still has separate coverage/regime/level-fidelity failure.",
-  "last_result_summary": "722a added hybrid_sticky_score and trained IV/anchor/joint base models. Tests passed (13/13 focused unit tests). Selector: IV none, anchor/joint AAA+BBB. Anchor base factor KS 11/13 mean 0.110 with AAA KS 0.202, BBB 0.186, AAA q99 ratio 4.96, SPX KS 0.215. Joint base factor KS 11/13 mean 0.142 with AAA KS 0.180, BBB 0.320, AAA/BBB q99 ratios 6.64/3.57, SPX KS 0.234, IV-factor corr 0.904.",
-  "next_step_recommendation": "Run research ideation/postmortem before the next model change. The active sticky-coordinate branch has accumulated failed threshold, atom-gate, and score-coordinate repairs. Need identify a cleaner data object or objective for discrete/ticked/stale macro factors without over-engineering OAS or damaging IV.",
+  "current_bottleneck": "Sticky OAS should be modeled as observed move = update/no-update observation process + continuous nonzero economic move. The current continuous flow is trained on exact-zero sticky targets and nonzero updates as one object, which contaminates nonzero tails and makes atom/readout fixes brittle. IV still has separate coverage/regime/level-fidelity failure.",
+  "last_result_summary": "723a documented the postmortem: 718-722 falsified simple sticky support, threshold, atom-gate, and hybrid score repairs. The clean next hypothesis is a sticky observation adapter that masks exact-zero sticky targets out of the continuous flow loss and restores no-update observations through an empirical atom readout for the diagnostic.",
+  "next_step_recommendation": "Implement the minimal sticky-observation diagnostic: train/fine-tune with exact-zero sticky-channel future targets masked out of the FM loss, keep non-sticky channels unchanged, then evaluate with empirical atom readout. Use one frozen rule across IV-only, anchor-only, and joint38.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. The clean frozen normalized-innovation baseline now has a precise 712a scorecard reading: framework=true but IV/anchor/joint=false. It is scientifically the right baseline for generality, but not deployable.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "3c05a82",
+  "last_commit": "dae7966",
   "resume_command_hint": "continue autoresearch"
 }
