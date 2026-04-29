@@ -1,0 +1,27 @@
+{
+  "iteration": "761a",
+  "type": "post_experiment_analysis",
+  "base_model": {
+    "id": "755a",
+    "validation_score": "6/11",
+    "train_tail_score": "8/11",
+    "role": "best current learned short-prefix base generator"
+  },
+  "calibrated_system": {
+    "id": "760a",
+    "validation_score": "7/11",
+    "calibration_split": "train_tail",
+    "role": "best current recent-calibration validation system"
+  },
+  "transfer_diagnostic": {
+    "score": "5/11",
+    "calibration_split": "train",
+    "eval_split": "train_tail",
+    "interpretation": "calibration transfer across time is weak; rolling recent calibration should not be reported as pure learned conditional law"
+  },
+  "assessment": {
+    "rolling_calibration": "product-useful but scientifically limited",
+    "base_law_status": "755a remains active base; median/level allocation remains unsolved",
+    "next_direction": "level-coordinate proper scoring inside the learned law, reported separately from calibration"
+  }
+}

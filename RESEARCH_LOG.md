@@ -107869,3 +107869,23 @@ Conservative calibration confirms the support-calibration axis is real: validati
 Do not replace the 755a base model. Keep 760a as the best current validation calibrated-system result, but report it separately. The remaining unsolved base-model issue is median/level allocation and per-cell conditionality; the remaining calibrated-system issue is robust calibration transfer across time.
 
 ---
+## 2026-04-29: Autoresearch 761a calibration transfer assessment
+
+### Context
+761a assessed the meaning of 760a. The conservative calibration result improved validation to `7/11`, but the no-leakage transfer diagnostic, calibrated on older train and evaluated on train-tail, scored only `5/11`.
+
+### Evidence
+- 755a base validation: `6/11`, cov90 `0.817`, calerr `0.063`, level-KS `15/25`, median-bias `15/25`, cointegration worst-cell `0.239`, pathwise KS `0.395`.
+- 760a rolling calibrated validation: `7/11`, cov90 `0.874`, calerr `0.014`, level-KS `15/25`, median-bias `15/25`, cointegration worst-cell `0.328`, pathwise KS `0.489`.
+- 760a transfer diagnostic: `5/11`, cov90 `0.872`, calerr `0.007`, level-KS `23/25`, median-bias `25/25`, cointegration worst-cell `0.342`, pathwise KS `0.560`, kurtosis ratio `1.747`.
+
+### Mechanism Read
+Rolling calibration is product-useful but scientifically limited. It helps when recent calibration windows resemble validation, but it does not transfer robustly across time. It also does not solve the base model's validation median-bias failure. Therefore it should be reported as a calibrated risk-system layer, not as the base learned conditional law.
+
+### Decision
+Do not keep iterating calibration shape as the main research line. Keep 755a as the active base learned generator and 760a as the current best recent-calibration validation system. The next base-model direction should target median/level allocation directly inside the learned law, ideally with a level-coordinate proper scoring term rather than post-hoc shifting.
+
+Artifacts:
+- `results/block_ar/761a_calibration_transfer_assessment/summary.{json,md}`.
+
+---
