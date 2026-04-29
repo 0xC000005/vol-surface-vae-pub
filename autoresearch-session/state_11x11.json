@@ -4,8 +4,8 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 740,
-  "last_iteration_type": "experiment",
+  "iteration": 741,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "real_vix_tri_scope_handoff_ref": "docs/research_protocols/733_real_vix_tri_scope_handoff.md",
@@ -16,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "739a scorecard marks 734a as risk-manager-presentable under an explicit stress/conditional liquid-factor framing: IV scenario realism and risk-state allocation pass, liquid anchor and native joint realism pass, and IV-factor co-movement passes. 740a falsifies scalar IV sampling temperature as a strict-law fix: 1.025/1.05 improve global calibration and cointegration but reduce strict score to 5/11 and break pathwise jump realism plus full-horizon mean reversion.",
+  "current_framework_status": "739a scorecard marks 734a as risk-manager-presentable under an explicit stress/conditional liquid-factor framing: IV scenario realism and risk-state allocation pass, liquid anchor and native joint realism pass, and IV-factor co-movement passes. 740a/741a falsify scalar IV sampling temperature as a strict-law fix and localize the remaining IV coverage defect to two-sided cell/horizon/regime interval geometry.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, output_law, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Strict IV calibration failures are not a scalar-width problem. 740a shows global temperature broadens coverage but harms pathwise max-jump KS and h7 mean-reversion while strict per-cell coverage/regime layer-2 still fail. The next bottleneck is localization: determine whether coverage/regime failures are stable by cell, horizon, regime, or signed bias before adding any generic uncertainty-head or loss reweighting.",
-  "last_result_summary": "740a scalar temperature sweep on the 674a IV checkpoint: temp 1.000 baseline remains 6/11; temp 1.025 and 1.050 both score 5/11. Coverage improves (90% empirical 0.836 -> 0.853 -> 0.868; calibration error 0.046 -> 0.030 -> 0.015) and cointegration passes at warmed temps, but pathwise max-jump KS worsens 0.442 -> 0.514 -> 0.579, full-horizon mean reversion fails from h7 over-reversion, distributional median-bias cells regress 16/25 -> 14/25, and strict per-cell coverage/regime layer-2 remain failing.",
-  "next_step_recommendation": "Run a post-experiment coverage localization audit on baseline 734a versus 740a warmed outputs: map under/overcoverage by cell, horizon, regime, and signed median bias. If the pattern is stable and generic, consider one framework-level state/cell/horizon uncertainty mechanism or objective balancing; if unstable, keep 734a/739a as risk-manager-presentable and report strict calibration as a limitation.",
+  "current_bottleneck": "Strict IV calibration is now localized: baseline standard coverage has only 5 gate failures, concentrated in late-horizon cells (2,3), (3,3), (0,2), (1,3), while regime layer-2 has both undercoverage and overcoverage. The remaining problem is learned local interval geometry, not global diversity or scalar variance.",
+  "last_result_summary": "741a coverage localization: temp1000 baseline 6/11 with cov90 0.836, standard under/over cells 5/0, regime under/over cells 24/12, regime combos 0/8, path KS 0.442, MR full pass. Temp1025 and temp1050 improve cov90 to 0.853/0.868 but score 5/11; standard under/over become 5/2 and 4/6; regime under/over become 17/26 and 15/35; path KS worsens 0.514/0.579 and MR full fails. Four standard undercoverage cells, twelve regime undercoverage cells, and nine regime overcoverage cells persist across temperatures.",
+  "next_step_recommendation": "Next run a model-side experiment that teaches generic local uncertainty allocation without post-hoc scalar calibration: add a state/cell/horizon scale/readout component or proper local interval objective inside the same normalized-innovation AR flow framework. It must be shared and generic across scopes, not cell-name-specific.",
   "current_best_n_pass": 8,
   "current_best_model": "Strict-suite historical controls remain 392a/510a, but current risk-manager-presentable real-VIX liquid-factor candidate is 734a: IV checkpoint models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt with anchor models/backfill/734a_anchor_realvix_channel_level_alltrain_w005_e3_s7344/best_model.pt and joint models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt.",
   "current_best_note": "Do not report 734a as 11/11 or as a strict calibrated conditional law. Report it as a risk-manager-presentable liquid-factor conditional/stress scenario generator under 739a: IV realism and risk-state allocation pass, liquid anchor/joint pass, IV-factor co-movement passes, sticky OAS monitored as limitation, and strict coverage/regime calibration reported separately.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "0981578",
+  "last_commit": "04a56ab",
   "resume_command_hint": "continue autoresearch"
 }
