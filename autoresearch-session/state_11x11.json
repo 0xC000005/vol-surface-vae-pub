@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 725,
-  "last_iteration_type": "experiment",
+  "iteration": 726,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "724a falsified masked-zero sticky observation loss as a production framework repair. The atom/readout part works mechanically, but the anchor-only nonzero OAS movement law remains too wide and joint38 only partially repairs BBB through extra IV context.",
+  "current_framework_status": "725a attributed the 724a regression: masking exact zeros exposes broad training-tail OAS nonzero updates, while validation OAS is much calmer. This explains why atom probability fixes are capped and why anchor-only regressed relative to 721.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The sticky-channel blocker is no longer primarily no-update probability. 724a shows the remaining blocker is nonzero-update scale allocation for mixed-frequency OAS channels: anchor-only generated OAS nonzero tails are 2-4x too wide, while joint38 uses IV context to reduce but not eliminate BBB failure. IV still has separate coverage/regime/level-fidelity failure.",
-  "last_result_summary": "724a added optional per-element FM loss weights and trained anchor_only/joint38 with exact-zero sticky-channel future targets masked out. With empirical atom readout, anchor remained 9/13 factor KS (AAA/BBB .231/.335) and joint reached 11/13 factor KS (AAA/BBB .154/.255) but still failed BBB and weakened dependency ratios. Focused tests passed: 14/14.",
-  "next_step_recommendation": "Run a post-experiment attribution before another model tweak: compare train/validation nonzero-update scale distributions and generated nonzero tails for OAS, rates, and ordinary anchors under 712/721/724. Determine whether the fix should be history-conditioned nonzero scale, channel-frequency balanced objective, or a data-object/preprocessing change.",
+  "current_bottleneck": "Sticky-channel failure is nonzero-update scale allocation under regime shift. Validation OAS tails are much calmer than the training tail (AAA q99 0.040 vs train 0.330; BBB q99 0.050 vs train 0.140). 724 anchor learns too much train-tail scale; 721 matches validation scale only through accidental zero/nonzero damping. IV still has separate coverage/regime/level-fidelity failure.",
+  "last_result_summary": "725a produced a no-training attribution in results/block_ar/725a_nonzero_update_scale_attribution/. It showed 724 anchor OAS generated q99 is 3.79x/2.60x validation for AAA/BBB, while 721 is near validation q99. Joint 724 partially benefits from IV context but remains 1.55x/1.79x validation. Focused tests still pass: 14/14.",
+  "next_step_recommendation": "Before adding a repair, diagnose whether the existing normalized-innovation scale should have removed this regime shift: compare train/validation/generation in normalized nonzero update space and history local-scale space for OAS, rates, and ordinary anchors. If normalization fails, change the scale coordinate; if normalization works but generation is too wide, target conditional scale allocation.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. The clean frozen normalized-innovation baseline now has a precise 712a scorecard reading: framework=true but IV/anchor/joint=false. It is scientifically the right baseline for generality, but not deployable.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "d555245",
+  "last_commit": "6469eb9",
   "resume_command_hint": "continue autoresearch"
 }

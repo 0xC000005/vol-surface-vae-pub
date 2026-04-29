@@ -106801,3 +106801,34 @@ Reject masked-zero continuous loss as the next production framework repair. The 
 - `results/block_ar/724a_sticky_observation_nonzero_mask/analysis.md`
 
 ---
+## 2026-04-28: 725a nonzero-update scale attribution
+
+### Context
+
+724a showed the empirical atom readout was not enough: no-update rates became plausible, but OAS KS remained poor, especially anchor-only. 725a performed a no-training post-experiment attribution to determine whether the remaining blocker is no-update probability, nonzero-update scale, or train/validation regime shift.
+
+### Result
+
+Validation OAS is much calmer than the 2048-window training tail. AAA OAS nonzero q99 is 0.040 in validation versus 0.330 in train; BBB OAS nonzero q99 is 0.050 in validation versus 0.140 in train. Rates and SPX also shift, but OAS is the extreme case.
+
+For generated OAS under the history-bin atom readout:
+
+- 721 anchor is close to validation tail scale: AAA/BBB q99 ratios to validation are 0.97/1.14.
+- 724 anchor is too wide: AAA/BBB q99 ratios to validation are 3.79/2.60.
+- 724 joint is less bad but still wide: AAA/BBB q99 ratios to validation are 1.55/1.79.
+
+### Mechanism Read
+
+The masked-zero loss removed the accidental damping created by training the continuous law on a mixture of exact zeros and nonzero moves. That made the continuous OAS law learn more of the broad training-tail scale. This is scientifically cleaner than 721, but worse on the calmer validation split unless the model allocates nonzero-update scale conditionally.
+
+### Decision
+
+The next step should not be another atom-probability tweak. First diagnose whether the normalized-innovation coordinate should already have removed this train/validation scale shift. Compare train, validation, and generated OAS in normalized nonzero-update space and in history local-scale space. If normalization fails, repair the coordinate; if normalization works, repair conditional scale allocation.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/analyze_725a_nonzero_update_scale_attribution.py`
+- `results/block_ar/725a_nonzero_update_scale_attribution/analysis.json`
+- `results/block_ar/725a_nonzero_update_scale_attribution/analysis.md`
+
+---
