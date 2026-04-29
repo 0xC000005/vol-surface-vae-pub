@@ -107589,3 +107589,21 @@ Naive capacity scaling improves the supervised one-step objective and can repair
 Reject naive width/depth scaling as the next framework ingredient. Keep the 750a result as evidence that the active bottleneck is not raw model capacity alone. The next step should be research ideation or a more targeted transition mechanism that changes how uncertainty is propagated through the path, not just how much generic Transformer capacity is available.
 
 ---
+## 2026-04-29: Autoresearch 751a exposure-bias ideation
+
+### Context
+750a falsified naive shared-capacity scaling: one-step validation loss improved, but free-running scenario quality did not. This creates a more specific hypothesis: the active family is suffering from teacher-forced versus free-running exposure bias. During FM training the transition sees ground-truth future prefixes, but at deployment it must condition on its own generated prefixes for up to 30 steps.
+
+### Literature Check
+- Scheduled Sampling, NeurIPS 2015: explicitly identifies the discrepancy between training on the true previous token and inference on generated previous tokens, with accumulated sequence errors. Source: https://papers.nips.cc/paper_files/paper/2015/hash/e995f98d56967d946471af29d7bf99f1-Abstract.html
+- Learning on predictions, Physica D 2024: frames teacher forcing exposure bias as inconsistent training versus autoregressive inference and proposes scheduled autoregressive BPTT for long-horizon dynamics. Source: https://www.sciencedirect.com/science/article/pii/S016727892400321X
+- TimeGrad, ICML 2021: validates the general AR probabilistic/diffusion framing for multivariate time series, where samples are produced step-by-step from the conditional law. Source: https://proceedings.mlr.press/v139/rasul21a.html
+- TACTiS-2, ICLR 2024: reinforces that when dependency modeling and objective structure change, a curriculum can be part of the method rather than an ad hoc knob. Source: https://proceedings.iclr.cc/paper_files/paper/2024/hash/63796148c99205adb0fcac069cc714d4-Abstract-Conference.html
+
+### Mechanism Read
+The repeated pattern now fits exposure bias better than raw capacity or scalar calibration: teacher-forced one-step objectives can improve while free-running integrated levels, late-horizon coverage, and regime layer-2 coverage worsen. The existing rollout-energy loss scores generated paths but does not directly train the velocity field under generated prefixes. That leaves a mismatch between the prefix distribution used for velocity learning and the prefix distribution used at inference.
+
+### Decision
+The next experiment should add a targeted free-running prefix-consistency term to the existing rollout finetune. Keep the normalized-innovation data object, AR flow matching backend, one stochastic source, and rollout/channel objective. Add one auxiliary FM term that conditions the velocity on a detached generated prefix path while still predicting the true future innovation. This is scheduled-sampling-style training for the conditional law, not a post-hoc calibration layer or factor-specific knob.
+
+---
