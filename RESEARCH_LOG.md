@@ -107227,3 +107227,32 @@ Treat 734a as the current risk-manager-presentable real-VIX liquid-factor candid
 Do not claim strict 11/11 conditional-law success. Do not add another OAS knob unless the research objective explicitly shifts to a full hurdle/renewal observation model.
 
 ---
+## 2026-04-29: 739a Risk-manager deployability scorecard
+
+### Context
+738a showed that 734a is strong on liquid factors and native IV-plus-anchor co-movement if sticky quoted OAS is treated as a monitored observation-model limitation. 739a built an explicit risk-manager deployability scorecard, separating deployable stress/scenario realism from strict calibrated conditional-law success.
+
+### Result
+Artifact: `results/block_ar/739a_risk_manager_deployability_scorecard/scorecard.json`.
+
+- Overall risk-manager presentable: `true`.
+- Strict calibrated conditional-law pass: `false`.
+- IV scenario realism gate: pass. Surface validity, time-series properties, cross-cell correlation, mean reversion, pathwise jump realism, risk-state allocation, daily-change KS, and level KS pass.
+- IV strict monitoring failures remain: strict coverage and regime coverage are false; the full IV suite remains `6/11`.
+- Liquid anchor gate: pass. Liquid factor KS `12/12`, liquid tail-scale `12/12`, full factor-factor upper correlation `0.902`.
+- Native joint gate: pass. Liquid factor KS `12/12`, liquid tail-scale `12/12`, IV-factor correlation `0.943`, conditional width rho `0.945`.
+- Sticky OAS monitoring: fail/non-gated. Anchor AAA/BBB KS `0.261/0.355`; joint AAA/BBB KS `0.253/0.262`.
+
+### Mechanism Read
+734a is presentable as a risk-manager conditional/stress scenario generator for IV plus liquid anchors with real VIX and native co-movement. It is not presentable as a fully calibrated conditional law, and it is not a solved credit-spread model. The scorecard makes that separation explicit instead of hiding limitations behind a single pass/fail number.
+
+### Decision
+Use 734a/739a as the current risk-manager-presentable real-VIX liquid-factor candidate:
+
+- IV checkpoint: `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`.
+- Anchor checkpoint: `models/backfill/734a_anchor_realvix_channel_level_alltrain_w005_e3_s7344/best_model.pt`.
+- Joint checkpoint: `models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt`.
+
+For further autoresearch, do not keep patching sticky OAS inside the current flow. The next technical improvement should target IV calibration/coverage within the same framework if the goal remains publishable conditional-law quality. Start a separate hurdle/renewal observation paradigm only if credit-spread law is mandatory.
+
+---
