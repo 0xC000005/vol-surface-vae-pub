@@ -107114,3 +107114,23 @@ The run also exposed a raw support issue. Anchor-only continuous generation can 
 Do not switch backend, temporal factorization, or core methodology yet. The next principled step is a data-derived support/frequency-aware output-law audit and repair: measure generated move-event rates and nonzero jump tails for low-activity channels, then test one generic mixed discrete-continuous or support-bounded adapter selected by channel statistics and shared across `iv_only`, `anchor_only`, and `joint`. If that requires factor-name-specific rules or scope-specific losses, reject it and document sticky spread/rate channels as a limitation.
 
 ---
+## 2026-04-29: 735a Real-VIX sticky residual attribution
+
+### Context
+After 734a showed the real-VIX continuous normalized-innovation framework is coherent but fails anchor/joint factor-delta KS on low-activity rate/spread channels, 735a ran a post-experiment sticky residual attribution using the existing 720a sweep on the new real-VIX anchor and joint checkpoints.
+
+### Result
+- Artifacts: `results/block_ar/735a_realvix_sticky_residual_attribution/`.
+- Identity continuous generation has no exact no-change atom for OAS: generated zero rates are `0.000/0.000` for AAA/BBB versus validation `0.474/0.383`.
+- Anchor identity: `12/14` factor KS pass, mean KS `0.1068`, AAA KS `0.2612`, BBB KS `0.3544`, factor-correlation abs ratio `0.632`, conditional gain `5.01%`.
+- Joint identity: `12/14` factor KS pass, mean KS `0.0967`, AAA KS `0.2533`, BBB KS `0.2617`, factor-correlation abs ratio `0.467`, IV-factor abs ratio `0.648`, conditional gain `4.95%`.
+- Deterministic q0.1 no-change readout improves anchor and joint to `13/14` factor KS pass. Joint AAA passes at KS `0.1468`, but BBB remains failing at KS `0.2171`; anchor BBB remains `0.2751`.
+- Aggressive q0.9 readout over-snaps no-change mass and regresses dependence: anchor factor-correlation abs ratio falls to `0.550`, joint to `0.405`.
+
+### Mechanism Read
+The baseline failure is now sharply localized: the continuous head produces plausible nonzero tail scale but cannot represent the observation atom for sticky quoted spreads. A deterministic threshold proves that restoring no-change mass helps, but it is not an acceptable final law because it over-snaps and still does not fix BBB. This is different from the prior 724a masked-zero loss failure, where nonzero OAS tails became too wide; the current continuous 734a law has nonzero q99 close to validation, so the missing object is the no-update event itself.
+
+### Decision
+Do not switch away from the AR flow core. The next decisive repair is a generic learned mixed-support output law: select high no-change channels by train statistics, add a shared Bernoulli/no-update head trained inside the single objective, and leave the continuous AR flow as the nonzero-move law. The selector must be data-derived, not factor-name-specific; IV-only should be a no-op if no channels meet the rule. Reject the repair if it requires scope-specific loss recipes or repeats the 724a nonzero-tail/correlation regression.
+
+---
