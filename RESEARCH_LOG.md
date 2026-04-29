@@ -107374,3 +107374,36 @@ This explains why scalar temperature and interval score both failed: they widen 
 Do not add another scalar coverage, interval, or temperature knob. Treat strict IV hard-cell coverage as a mixed split-shift/local-geometry problem. The next principled HEAD step is research ideation or a controlled experiment around a generic robustness/local-geometry representation mechanism, still based on the 734a/674a AR normalized-innovation flow. If no clean generic mechanism improves this, keep 734a/739a as risk-manager-presentable and report strict calibrated-law coverage as a limitation rather than over-engineering the evaluator.
 
 ---
+## 2026-04-29: Autoresearch 744a IV hard-cell conditioning response audit
+
+### Context
+743a showed that the stable IV hard cells are not train-like validation targets: the level distribution shifted down roughly one train-tail standard deviation while one-day increments stayed comparatively train-like. 744a tested whether the incumbent 734a/674a model responds correctly to the shifted current-level state in those hard cells.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_744a_iv_hard_cell_condition_response.py` on the incumbent IV checkpoint `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`, using 64 samples over all 441 validation windows.
+
+Artifact: `results/block_ar/744a_iv_hard_cell_condition_response/summary.json` and `summary.md`.
+
+Summary:
+- median low-current-tertile 90% coverage across the four hard cells: `0.316`.
+- median hard-cell lower-tail miss rate: `0.395`.
+- median absolute slope gap between realized future versus current level and generated median versus current level: `0.058`.
+
+Hard-cell details:
+- h14 `(2,3)`: coverage `0.667`, lower miss `0.329`, upper miss `0.005`, low-tertile coverage `0.347`.
+- h30 `(0,2)`: coverage `0.628`, lower miss `0.365`, upper miss `0.007`, low-tertile coverage `0.551`.
+- h30 `(2,3)`: coverage `0.519`, lower miss `0.481`, upper miss `0.000`, low-tertile coverage `0.109`.
+- h30 `(3,3)`: coverage `0.576`, lower miss `0.424`, upper miss `0.000`, low-tertile coverage `0.286`.
+
+### Mechanism Read
+The hard-cell failure is directional and state-local. The incumbent mostly misses below the generated 5% band in the shifted low-current-level validation region. Width does increase with current level state, and generated median slopes are not completely insensitive, but the lower-tail allocation is not far enough into the shifted low-level region at late horizons.
+
+This makes the previous failures coherent:
+- scalar temperature widened everything and damaged path realism;
+- interval score acted like learned global widening and damaged level/path law;
+- the actual defect is local current-level geometry and late-horizon lower-tail allocation.
+
+### Decision
+Next experiment should target a generic local-geometry / state-encoder robustness mechanism while keeping the 734a/674a AR normalized-innovation flow core. Do not add more scalar temperature, interval-score, or hard-cell-specific corrections. The mechanism must be valid for IV-only, anchor-only, and joint scopes as a framework-level conditioning improvement, even if first falsified on IV hard cells.
+
+---
