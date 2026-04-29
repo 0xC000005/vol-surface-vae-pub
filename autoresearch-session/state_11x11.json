@@ -1,13 +1,14 @@
 {
   "objective_ref": "autoresearch-session/goal_11x11.json",
   "mode": "in_session",
-  "phase": "support_valid_continuous_flow_program",
+  "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
   "iteration": 733,
   "last_iteration_type": "experiment",
-  "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
+  "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
+  "real_vix_tri_scope_handoff_ref": "docs/research_protocols/733_real_vix_tri_scope_handoff.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
   "single_framework_candidate_gate": "A framework candidate must freeze one recipe and evaluate it on iv_only, anchor_only, and joint. Allowed differences are input/output dimensionality, support transforms, input heads, decoder heads, and deterministic channel/group balancing. Scope-specific losses, loss weights, backend, prior, sampler, calibration layer, or glued separately sampled decks are not allowed for a framework claim.",
   "tri_scope_candidate_scopes": [
@@ -15,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "719a remains frozen as the current risk-manager baseline candidate. 728a rejected the one allowed generic OAS coordinate repair. 729a added an optional local VIX-proxy data interface and showed the same framework can ingest a scalar volatility factor with good anchor/joint panel realism. 730a attributed the 729a IV-facing 5/11 result to the already-known joint-scope IV trade-off rather than a new VIX-specific failure.",
+  "current_framework_status": "Active data now uses observed Yahoo ^VIX as factor:vix/factor:vix_logret. The IV-derived vix_proxy path is removed from active loaders and train/eval/audit scripts. 719a remains the methodology/risk-manager baseline family, but it is not yet a real-VIX tri-scope champion because the anchor/joint dimensionality changed. The next framework candidate must rerun one frozen recipe on iv_only, anchor_only, and joint using the 14-anchor observed panel.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,16 +33,16 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Simple dispersion calibration can widen the joint IV ensemble but does not allocate support correctly: it improves aggregate coverage while damaging tail scale, level KS, pathwise jump realism, and factor marginal realism. The remaining problem is calibrated conditional support without broad tail inflation or level distortion.",
-  "last_result_summary": "732a fine-tuned the 676a joint38 normalized-coordinate checkpoint with the same rollout/channel-level recipe plus low channel dispersion calibration weight 0.05. IV full-suite fell to 3/11 despite coverage90 improving to 0.879 and calibration error 0.010: daily KS 21/25, level KS 8/25, kurtosis ratio 0.631, tail q99 pass 11/25, pathwise KS 0.767, h7 MR ratio 1.392. Joint panel also regressed: factor KS mean 0.141, 10/13 factor KS pass, tail median 1.527, while IV-factor corr 0.907 and conditional panel response survived.",
-  "next_step_recommendation": "Reject simple dispersion-calibration weights. Run research ideation, including literature search, for calibrated conditional support/coverage mechanisms that keep market-level paths realistic under the same general multivariate framework. Do not switch backend until the support-allocation mechanism is clearer.",
+  "current_bottleneck": "Need a single frozen real-VIX framework candidate across iv_only, anchor_only, and joint. Known pathology to monitor is sticky credit-spread increments: AAA/BBB OAS day-to-day movement is often zero or near-zero, so continuous generators can over-move them. Treat a sparse/sticky-increment repair as a generic low-activity-channel adapter only if diagnostics prove it is necessary; otherwise document it as a limitation.",
+  "last_result_summary": "733 handoff update removed active VIX proxy support and added observed Yahoo ^VIX to the local factor panel. Current panel has 25 IV cells plus 14 factor levels and 14 factor increments, including factor:vix and factor:vix_logret, with no vix_proxy. Focused VIX pipeline tests passed. Prior 732a dispersion-calibration result remains rejected.",
+  "next_step_recommendation": "Run the first real-VIX tri-scope framework-lock iteration: choose the 719a-style normalized-innovation recipe as the baseline, retrain/evaluate the same frozen recipe on iv_only, anchor_only, and joint with the updated 14-anchor panel, then classify failures before adding any new knob. If AAA/BBB OAS stickiness is the only serious defect, either document it as a limitation or test one generic sparse/sticky low-activity-channel adapter with the same rule across scopes.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
-  "current_best_note": "510a/392a remain historical IV-only controls. For current risk-manager multi-factor deployment, 719a is the baseline candidate: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals.",
+  "current_best_note": "510a/392a remain historical IV-only controls. 719a remains the pre-real-VIX unified methodology baseline: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals. Because observed VIX changed the factor panel, do not claim a current real-VIX tri-scope champion until rerun.",
   "oracle_feasibility_n_pass": 11,
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "8178580",
+  "last_commit": "d26de92",
   "resume_command_hint": "continue autoresearch"
 }

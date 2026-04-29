@@ -1,13 +1,11 @@
 {
-  "compass": "RC22 v4",
-  "iteration": 5,
-  "experiment_id": "168a",
-  "training_status": "running",
-  "phase": "training",
-  "hypothesis": "RC22 H5: K=4 baseline. Reduce ensemble from K=16 to K=4 to increase centering/spread gradient ratio. SOTA uses K=2-4. End-to-end, same architecture as baseline.",
-  "prediction": "S2 CI improves (centering gradient stronger). S3/S4/S5 preserved. Risk: S4 kurtosis, S9 correlation may degrade.",
-  "baseline": "164a_v3 softplus best: 6/9 (K=16). Sampled MR: ~56% GT.",
-  "branch": "autoresearch-session-rc22",
-  "training_command": "PYTHONPATH=. python -u experiments/backfill/block_ar/train_164a_v3_percell_bptt_softplus.py --epochs 20 --batch_size 64 --n_members 4 --noise_dim 32 --lambda_vs 1.0 --lambda_is 0.005 --is_warmup_epochs 10 --bptt_steps 5 --lambda_floor 2.5 --floor_tau 0.005 --floor_warmup_epochs 10 --output_dir models/backfill/afcrps_168a --device cuda",
-  "centering_protocol": "BOTH deterministic-path slope AND sampled first-step mean slope, 200 windows, 50+ MC draws"
+  "compass": "Real-VIX unified tri-scope conditional scenario generator",
+  "iteration": 733,
+  "experiment_id": "real_vix_tri_scope_framework_lock_next",
+  "phase": "handoff_ready",
+  "hypothesis": "A 719a-style state-aware normalized-innovation framework can be rerun as one frozen recipe across IV-only, observed-anchor-only, and joint IV+anchor scopes after replacing the IV-derived VIX proxy with observed Yahoo ^VIX.",
+  "prediction_L3": "The same generative core should preserve IV realism, anchor realism, joint co-movement, and population risk-state conditional response. Remaining defects, if any, should concentrate in calibration and sticky low-activity credit-spread channels rather than requiring separate IV/anchor mechanisms.",
+  "kill_gate": "Do not claim a publishable single framework if the recipe only works by changing loss weights, backend, sampler, calibration layer, or stochastic source across scopes. If AAA/BBB OAS stickiness remains the only serious issue, either document it as a limitation or test one generic low-activity-channel adapter.",
+  "warm_start": "719a methodology baseline, not a real-VIX checkpoint",
+  "baseline": "pre-real-VIX 719a family; real-VIX tri-scope champion not yet established"
 }

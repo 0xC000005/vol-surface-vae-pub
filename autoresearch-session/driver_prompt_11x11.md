@@ -54,11 +54,12 @@ Current reset doctrine:
 - if those return later, they must return only as explicit post-failure ablations
 
 Current active research direction:
-- freeze `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the risk-manager baseline candidate
-- preserve the single generation mechanism: AR normalized-innovation flow, one stochastic source, one frozen tri-scope framework
-- run at most one principled repair branch for the known sticky-spread defect: a generic, data-derived high-no-change / mixed-frequency nonzero-update scale coordinate or objective
-- accept the repair only if it improves AAA/BBB OAS without regressing IV surface realism, factor tail scale, conditional response, factor-factor dependence, or IV-factor co-movement
-- if that repair fails, document sticky OAS as a known limitation rather than stacking more OAS knobs
-- after the OAS decision, add VIX as an extension/generalization test of scalar volatility-factor behavior, not as a fix for the current OAS defect
+- use the real-VIX 14-anchor panel documented in `docs/research_protocols/733_real_vix_tri_scope_handoff.md`
+- `vix` is observed Yahoo Finance `^VIX`; do not use or reintroduce the IV-derived `vix_proxy`
+- treat `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the pre-real-VIX methodology/risk-manager baseline family, not as a current real-VIX champion checkpoint
+- preserve the single generation mechanism: AR normalized-innovation flow, one stochastic source, one frozen tri-scope framework unless diagnostics justify a switch
+- the next framework candidate must run one frozen recipe on `iv_only`, `anchor_only`, and `joint` with only allowed data-interface differences
+- known pathology: AAA/BBB OAS credit spreads are sticky and may require either a documented limitation or one generic low-activity-channel sparse/sticky adapter
+- do not add credit-specific or scope-specific knobs unless the failure diagnosis and literature/first-principles argument justify the mechanism as generic
 
 This invocation should leave the repository in a resumable state after every iteration.

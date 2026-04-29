@@ -107039,3 +107039,25 @@ The useful positive signal is that the stochastic core still preserves IV-factor
 Reject 732a as a candidate. Do not continue with simple dispersion-calibration weights. The next HEAD cycle should be research ideation, with literature search if needed, focused on calibrated conditional support/coverage without tail inflation or level distortion under the same general multivariate framework.
 
 ---
+## 2026-04-29: Real-VIX tri-scope handoff objective lock
+
+### Context
+The active long-term objective is now explicitly locked as one coherent conditional scenario generator across IV-only, observed-anchor-only, and joint IV+anchor scopes. "Single model" means one stochastic source and one shared generative core; different input/output heads and support-aware transforms remain allowed as data adapters.
+
+### Data Decision
+- Observed Yahoo Finance `^VIX` is now the active VIX factor as `factor:vix` plus `factor:vix_logret`.
+- The IV-derived `vix_proxy` is removed from active model/data plumbing and must not be used for framework claims.
+- The anchor panel is now the 14-factor observed panel: `spx`, `usdcad`, `usdjpy`, `dxy`, `copper`, `wheat`, `crude_oil`, `us2y`, `us10y`, `aaa_oas`, `bbb_oas`, `nikkei`, `gold`, `vix`.
+
+### Handoff Update
+Updated persistent autoresearch handoff files:
+- `autoresearch-session/config.json`
+- `autoresearch-session/current_state.json`
+- `autoresearch-session/state_11x11.json`
+- `autoresearch-session/driver_prompt_11x11.md`
+- `docs/research_protocols/733_real_vix_tri_scope_handoff.md`
+
+### Next Research Target
+Run the first real-VIX tri-scope framework-lock iteration: pick the 719a-style state-aware normalized-innovation recipe as the baseline family, then retrain/evaluate the same frozen recipe on `iv_only`, `anchor_only`, and `joint` using the updated 14-anchor panel. Do not add new knobs until the tri-scope failure attribution is clear. Treat sticky AAA/BBB OAS as a known pathology: either document it as a limitation or test one generic low-activity-channel sparse/sticky adapter, not a credit-specific hack.
+
+---
