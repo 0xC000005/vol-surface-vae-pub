@@ -4,7 +4,7 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 743,
+  "iteration": 744,
   "last_iteration_type": "post_experiment_analysis",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -16,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "739a scorecard marks 734a as risk-manager-presentable under an explicit stress/conditional liquid-factor framing: IV scenario realism and risk-state allocation pass, liquid anchor and native joint realism pass, and IV-factor co-movement passes. 740a/741a falsify scalar IV sampling temperature as a strict-law fix; 742a falsifies a proper interval-score fine-tune as an immediate repair because it buys aggregate coverage by damaging path/level realism. 743a shows the stable IV hard cells have large train-tail/validation level shift, so strict hard-cell coverage is partly a split-shift/local-geometry problem.",
+  "current_framework_status": "739a scorecard marks 734a as risk-manager-presentable under an explicit stress/conditional liquid-factor framing: IV scenario realism and risk-state allocation pass, liquid anchor and native joint realism pass, and IV-factor co-movement passes. 740a/741a falsify scalar IV sampling temperature as a strict-law fix; 742a falsifies a proper interval-score fine-tune as an immediate repair because it buys aggregate coverage by damaging path/level realism. 743a shows the stable IV hard cells have large train-tail/validation level shift, and 744a shows the incumbent mostly misses the lower tail in shifted low-current-level validation windows.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, output_law, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Strict IV hard-cell coverage is a mixed split-shift/local-geometry problem. The hardest late-horizon cells are shifted about one train-tail standard deviation lower in validation; level KS is large while one-day increment KS remains small. Global widening/calibration losses damage path law because the defect is local to integrated level-region geometry.",
-  "last_result_summary": "743a added and ran a hard-cell train/validation shift audit. All four stable undercovered hard cells from 741a have train-tail-vs-validation level KS >0.20: h14 (2,3)=0.401, h30 (0,2)=0.454, h30 (2,3)=0.447, h30 (3,3)=0.456. Validation containment inside train-tail empirical 90% level bands is low: 0.603, 0.542, 0.567, 0.499. Grid-wide level KS median is 0.279 with 570/750 horizon-cell pairs >0.20, but one-day increment KS median is only 0.088 with 0/750 >0.20.",
-  "next_step_recommendation": "Do not add another scalar coverage, interval, or temperature knob. Next choose research_ideation or a controlled experiment around a generic robustness/local-geometry representation mechanism based on 734a/674a. If no clean generic mechanism helps, preserve 734a/739a as risk-manager-presentable and report strict calibrated-law coverage as a split-shift limitation.",
+  "current_bottleneck": "Strict IV hard-cell coverage is a mixed split-shift/local-geometry problem. The hardest late-horizon cells are shifted about one train-tail standard deviation lower in validation, and the incumbent undercovers that shifted low-current-level region mostly through lower-tail misses. Global widening/calibration losses damage path law because the defect is directional and state-local.",
+  "last_result_summary": "744a generated 64-sample validation decks from the incumbent 674a IV checkpoint for all 441 validation windows and audited the four hard cells. Median low-current-tertile 90% coverage was only 0.316, median hard-cell lower-tail miss rate was 0.395, and median absolute slope gap between realized future vs current level and generated median vs current level was 0.058. Hard-cell lower miss rates were 0.329, 0.365, 0.481, and 0.424, with upper miss rates near zero.",
+  "next_step_recommendation": "Run a controlled experiment targeting generic local-geometry/state-encoder robustness while keeping the 734a/674a AR normalized-innovation flow core. Do not use scalar temperature, interval score, or hard-cell-specific corrections. The mechanism should be framework-level and later tri-scope compatible.",
   "current_best_n_pass": 8,
   "current_best_model": "Strict-suite historical controls remain 392a/510a, but current risk-manager-presentable real-VIX liquid-factor candidate is 734a: IV checkpoint models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt with anchor models/backfill/734a_anchor_realvix_channel_level_alltrain_w005_e3_s7344/best_model.pt and joint models/backfill/734a_joint39_realvix_channel_level_alltrain_w005_e3_s7345/best_model.pt.",
   "current_best_note": "Do not report 734a as 11/11 or as a strict calibrated conditional law. Report it as a risk-manager-presentable liquid-factor conditional/stress scenario generator under 739a: IV realism and risk-state allocation pass, liquid anchor/joint pass, IV-factor co-movement passes, sticky OAS monitored as limitation, and strict coverage/regime calibration reported separately.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "079aa24",
+  "last_commit": "7bee2fb",
   "resume_command_hint": "continue autoresearch"
 }
