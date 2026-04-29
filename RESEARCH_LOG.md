@@ -107754,3 +107754,27 @@ Short-prefix exposure mostly repairs the in-sample free-running path law. The re
 Keep short-prefix exposure as the active ingredient. The next move should target validation level-support allocation rather than generic path realism. A clean next experiment should either schedule short-prefix exposure or introduce a split-robust, data-derived support/quantile calibration inside the normalized-innovation law; avoid scalar temperature tuning and avoid changing the core AR flow backend.
 
 ---
+## 2026-04-29: Autoresearch 757a next-step ideation
+
+### Context
+757a chose the next move after 755a/756a. Short-prefix generated exposure repaired much of the train-tail path law, but validation still failed shifted-level hard-cell support. The choice was between a model-internal curriculum and a state-local support calibration layer.
+
+### Literature Anchors
+- Scheduled Sampling, NeurIPS 2015: teacher-forced sequence models can accumulate inference errors when conditioned on generated states. Source: https://papers.nips.cc/paper_files/paper/2015/hash/e995f98d56967d946471af29d7bf99f1-Abstract.html
+- Conformal Prediction Under Covariate Shift, NeurIPS 2019: weighted conformal calibration is principled under covariate shift when test covariates are known or density ratios are estimable. Source: https://papers.nips.cc/paper/8522-conformal-prediction-under-covariate-shift
+- EnbPI for dynamic time series, ICML 2021: conformal-style interval calibration can be adapted to dynamic time series. Source: https://proceedings.mlr.press/v139/xu21h.html
+
+### Decision
+Try the model-internal option first: a scheduled short-prefix curriculum. Calibration is theoretically defensible and risk-manager acceptable if framed as calibration, but it should be second-line because it turns the system into a calibrated generator rather than a pure learned conditional law.
+
+### Next Experiment
+Run a two-stage curriculum while keeping the normalized-innovation AR flow core, one stochastic source, rollout energy `0.2`, channel-level energy `0.05`, and `free_running_fm_weight=0.2` fixed:
+- Stage 1: start from 674a with `free_running_fm_prefix_steps=5`.
+- Stage 2: continue from stage 1 with `free_running_fm_prefix_steps=15`.
+
+Evaluate validation and train-tail full 11-suite. If this fails to improve validation support without keeping the 755a train-tail gains, then state-local weighted support calibration becomes the next fallback.
+
+Artifacts:
+- `results/block_ar/757a_next_step_ideation/summary.{json,md}`.
+
+---

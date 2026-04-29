@@ -1,0 +1,48 @@
+{
+  "iteration": "757a",
+  "type": "research_ideation",
+  "context": "755a short-prefix generated exposure reached 8/11 on train-tail but only 6/11 on validation; 756a attributed the remaining gap to shifted-level hard-cell support.",
+  "literature_anchors": [
+    {
+      "title": "Scheduled Sampling for Sequence Prediction with Recurrent Neural Networks",
+      "venue": "NeurIPS 2015",
+      "url": "https://papers.nips.cc/paper_files/paper/2015/hash/e995f98d56967d946471af29d7bf99f1-Abstract.html",
+      "role": "Supports gradual generated-prefix exposure rather than static teacher-forced training."
+    },
+    {
+      "title": "Conformal Prediction Under Covariate Shift",
+      "venue": "NeurIPS 2019",
+      "url": "https://papers.nips.cc/paper/8522-conformal-prediction-under-covariate-shift",
+      "role": "Supports data-derived weighted calibration under known/test covariate shift, but as calibration rather than pure learned law."
+    },
+    {
+      "title": "Conformal prediction interval for dynamic time-series",
+      "venue": "ICML 2021",
+      "url": "https://proceedings.mlr.press/v139/xu21h.html",
+      "role": "Supports conformal-style time-series interval calibration as a fallback if model-internal curriculum fails."
+    }
+  ],
+  "options": {
+    "scheduled_short_prefix_curriculum": {
+      "status": "selected_first",
+      "reason": "It is model-internal, preserves the AR flow core, and directly follows the 752a-756a mechanism read."
+    },
+    "state_local_weighted_support_calibration": {
+      "status": "fallback",
+      "reason": "It directly targets shifted validation support but is a calibrated-system layer and less Bitter-Lesson aligned."
+    }
+  },
+  "next_experiment": {
+    "description": "Scheduled prefix-length curriculum.",
+    "stage_1": "Start from 674a with free_running_fm_weight=0.2 and free_running_fm_prefix_steps=5.",
+    "stage_2": "Continue from stage 1 with free_running_fm_weight=0.2 and free_running_fm_prefix_steps=15.",
+    "fixed": [
+      "normalized-innovation coordinate",
+      "AR flow backend",
+      "one stochastic source",
+      "rollout energy weight 0.2",
+      "channel level energy weight 0.05",
+      "same validation/train-tail full-suite evaluation"
+    ]
+  }
+}
