@@ -169,6 +169,72 @@ def sticky_observation_weight_from_block(
     return weight
 
 
+def tail_asinh_scale_from_future_norm(
+    block: IncrementCoordinateBlock,
+    scope: str,
+    iv_count: int,
+    *,
+    sticky_mask: np.ndarray,
+    future_norm: np.ndarray,
+    zero_eps: float,
+    scale_quantile: float,
+    min_scale: float,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    raw_history, raw_future = select_raw_scope_from_block(block, scope, iv_count)
+    raw_delta = panel_daily_changes(raw_history.astype(np.float64), raw_future.astype(np.float64))
+    future_norm_arr = np.asarray(future_norm, dtype=np.float64)
+    sticky = np.asarray(sticky_mask, dtype=bool)
+    if future_norm_arr.shape != raw_delta.shape:
+        raise ValueError(
+            f"future_norm shape {future_norm_arr.shape} must match raw daily changes {raw_delta.shape}"
+        )
+    if sticky.shape != (raw_delta.shape[-1],):
+        raise ValueError(f"sticky_mask must have shape ({raw_delta.shape[-1]},), got {sticky.shape}")
+    if scope == "joint38":
+        specs = block.specs
+    elif scope == "iv_only":
+        specs = block.specs[:iv_count]
+    else:
+        specs = block.specs[iv_count:]
+    q = float(scale_quantile)
+    if not 0.0 <= q <= 1.0:
+        raise ValueError("tail-asinh scale quantile must be in [0, 1]")
+    scales = np.ones(raw_delta.shape[-1], dtype=np.float32)
+    rows: list[dict[str, Any]] = []
+    for idx, spec in enumerate(specs):
+        nonzero = (np.abs(raw_delta[..., idx]) > float(zero_eps)) & np.isfinite(future_norm_arr[..., idx])
+        values = np.abs(future_norm_arr[..., idx][nonzero])
+        if bool(sticky[idx]) and values.size:
+            scale = max(float(np.quantile(values, q)), float(min_scale))
+            scales[idx] = np.float32(scale)
+        rows.append(
+            {
+                "name": spec.name,
+                "selected": bool(sticky[idx]),
+                "nonzero_count": int(values.size),
+                "scale": float(scales[idx]),
+            }
+        )
+    return scales, {
+        "policy": "train_nonzero_normalized_abs_quantile_for_high_no_change_channels",
+        "zero_eps": float(zero_eps),
+        "scale_quantile": float(scale_quantile),
+        "min_scale": float(min_scale),
+        "selected_names": [row["name"] for row in rows if row["selected"]],
+        "rows": rows,
+    }
+
+
+def model_coordinate_from_innovation_coordinate(innovation_coordinate: str) -> str:
+    if innovation_coordinate == "score":
+        return "state_aware_normalized_innovation_score"
+    if innovation_coordinate == "hybrid_sticky_score":
+        return "state_aware_normalized_innovation_hybrid_score"
+    if innovation_coordinate == "hybrid_tail_asinh":
+        return "state_aware_normalized_innovation_tail_asinh"
+    return "state_aware_normalized_innovation"
+
+
 def eval_loss(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     loader: DataLoader,
@@ -277,9 +343,15 @@ def main() -> None:
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
-    parser.add_argument("--innovation_coordinate", choices=["normalized", "score", "hybrid_sticky_score"], default="normalized")
+    parser.add_argument(
+        "--innovation_coordinate",
+        choices=["normalized", "score", "hybrid_sticky_score", "hybrid_tail_asinh"],
+        default="normalized",
+    )
     parser.add_argument("--sticky_score_zero_eps", type=float, default=1e-10)
     parser.add_argument("--sticky_score_zero_rate_gate", type=float, default=0.25)
+    parser.add_argument("--tail_asinh_scale_quantile", type=float, default=0.5)
+    parser.add_argument("--tail_asinh_min_scale", type=float, default=0.5)
     parser.add_argument("--sticky_observation_loss", choices=["none", "nonzero_mask"], default="none")
     parser.add_argument("--sticky_observation_zero_weight", type=float, default=0.0)
     parser.add_argument("--n_quantiles", type=int, default=401)
@@ -420,6 +492,10 @@ def main() -> None:
         "policy": "disabled",
         "selected_names": [],
     }
+    tail_asinh_report: dict[str, Any] = {
+        "policy": "disabled",
+        "selected_names": [],
+    }
     if args.innovation_coordinate in {"score", "hybrid_sticky_score"}:
         model.set_innovation_quantiles(
             torch.from_numpy(innovation_quantiles).to(device),
@@ -436,6 +512,30 @@ def main() -> None:
         if sticky_mask.shape != (int(train_level.shape[-1]),):
             raise RuntimeError("sticky score mask shape does not match selected state scope")
         model.set_innovation_score_mask(torch.from_numpy(sticky_mask).to(device))
+    elif args.innovation_coordinate == "hybrid_tail_asinh":
+        sticky_mask, sticky_score_report = sticky_score_mask_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.sticky_score_zero_eps),
+            zero_rate_gate=float(args.sticky_score_zero_rate_gate),
+        )
+        if sticky_mask.shape != (int(train_level.shape[-1]),):
+            raise RuntimeError("tail-asinh mask shape does not match selected state scope")
+        tail_scales, tail_asinh_report = tail_asinh_scale_from_future_norm(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            sticky_mask=sticky_mask,
+            future_norm=train_future_norm,
+            zero_eps=float(args.sticky_score_zero_eps),
+            scale_quantile=float(args.tail_asinh_scale_quantile),
+            min_scale=float(args.tail_asinh_min_scale),
+        )
+        model.set_innovation_tail_asinh(
+            torch.from_numpy(sticky_mask).to(device),
+            torch.from_numpy(tail_scales).to(device),
+        )
     elif args.sticky_observation_loss == "nonzero_mask":
         sticky_mask, sticky_score_report = sticky_score_mask_from_block(
             train_block,
@@ -515,6 +615,7 @@ def main() -> None:
         "iv_upper_bound": float(args.iv_upper_bound),
         "innovation_coordinate": args.innovation_coordinate,
         "sticky_score": sticky_score_report,
+        "tail_asinh": tail_asinh_report,
         "sticky_observation_loss": args.sticky_observation_loss,
         "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
         "train_future_weight_mean": float(np.mean(train_future_weight)),
@@ -522,13 +623,7 @@ def main() -> None:
     }
     extra = {
         "state_scope": args.state_scope,
-        "model_coordinate": (
-            "state_aware_normalized_innovation_score"
-            if args.innovation_coordinate == "score"
-            else "state_aware_normalized_innovation_hybrid_score"
-            if args.innovation_coordinate == "hybrid_sticky_score"
-            else "state_aware_normalized_innovation"
-        ),
+        "model_coordinate": model_coordinate_from_innovation_coordinate(args.innovation_coordinate),
         "normalization": normalization,
         "training_objective": {
             "base": "flow_matching_mse",
@@ -543,6 +638,7 @@ def main() -> None:
             "base_noise_scale_max": float(cfg.base_noise_scale_max),
             "flow_coordinate": args.innovation_coordinate,
             "sticky_score": sticky_score_report,
+            "tail_asinh": tail_asinh_report,
             "sticky_observation_loss": args.sticky_observation_loss,
             "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
         },
@@ -554,6 +650,7 @@ def main() -> None:
         "panel_metadata": panel_metadata,
         "positive_level_policy": args.positive_level_policy,
         "sticky_score": sticky_score_report,
+        "tail_asinh": tail_asinh_report,
     }
     for epoch in range(1, int(args.epochs) + 1):
         model.train()
@@ -631,13 +728,7 @@ def main() -> None:
         "args": vars(args),
         "config": asdict(cfg),
         "state_scope": args.state_scope,
-        "model_coordinate": (
-            "state_aware_normalized_innovation_score"
-            if args.innovation_coordinate == "score"
-            else "state_aware_normalized_innovation_hybrid_score"
-            if args.innovation_coordinate == "hybrid_sticky_score"
-            else "state_aware_normalized_innovation"
-        ),
+        "model_coordinate": model_coordinate_from_innovation_coordinate(args.innovation_coordinate),
         "normalization": normalization,
         "training_objective": {
             "base": "flow_matching_mse",
@@ -649,6 +740,7 @@ def main() -> None:
             "base_noise_rho": float(cfg.base_noise_rho),
             "flow_coordinate": args.innovation_coordinate,
             "sticky_score": sticky_score_report,
+            "tail_asinh": tail_asinh_report,
             "sticky_observation_loss": args.sticky_observation_loss,
             "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
         },
@@ -662,6 +754,7 @@ def main() -> None:
         "sample_smoke": smoke,
         "panel_metadata": panel_metadata,
         "sticky_score": sticky_score_report,
+        "tail_asinh": tail_asinh_report,
         "output_dir": str(output_dir),
     }
     (output_dir / "training_history.json").write_text(json.dumps(make_serializable(history_records), indent=2), encoding="utf-8")

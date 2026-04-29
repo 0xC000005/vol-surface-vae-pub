@@ -212,9 +212,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.cfg = cfg
         if cfg.prefix_feature_mode not in {"basic", "scale", "scale_drift"}:
             raise ValueError("prefix_feature_mode must be 'basic', 'scale', or 'scale_drift'")
-        if cfg.innovation_coordinate not in {"normalized", "score", "hybrid_sticky_score"}:
+        if cfg.innovation_coordinate not in {"normalized", "score", "hybrid_sticky_score", "hybrid_tail_asinh"}:
             raise ValueError(
-                "innovation_coordinate must be 'normalized', 'score', or 'hybrid_sticky_score'"
+                "innovation_coordinate must be 'normalized', 'score', 'hybrid_sticky_score', or 'hybrid_tail_asinh'"
             )
         feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
@@ -256,6 +256,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.register_buffer("innovation_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
         self.register_buffer("_innovation_quantiles_ready", torch.tensor(False, dtype=torch.bool))
         self.register_buffer("innovation_score_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
+        self.register_buffer("innovation_tail_asinh_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
+        self.register_buffer("innovation_tail_asinh_scale", torch.ones(cfg.n_cells, dtype=torch.float32))
 
     def set_level_quantiles(
         self,
@@ -297,6 +299,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if mask.shape != (self.cfg.n_cells,):
             raise ValueError(f"innovation score mask must have shape ({self.cfg.n_cells},)")
         self.innovation_score_mask.copy_(mask.to(device=self.innovation_score_mask.device, dtype=torch.bool))
+
+    def set_innovation_tail_asinh(self, mask: torch.Tensor, scale: torch.Tensor) -> None:
+        expected = (self.cfg.n_cells,)
+        if mask.shape != expected:
+            raise ValueError(f"innovation tail-asinh mask must have shape {expected}, got {tuple(mask.shape)}")
+        if scale.shape != expected:
+            raise ValueError(f"innovation tail-asinh scale must have shape {expected}, got {tuple(scale.shape)}")
+        self.innovation_tail_asinh_mask.copy_(
+            mask.to(device=self.innovation_tail_asinh_mask.device, dtype=torch.bool)
+        )
+        safe_scale = scale.to(device=self.innovation_tail_asinh_scale.device, dtype=self.innovation_tail_asinh_scale.dtype)
+        self.innovation_tail_asinh_scale.copy_(safe_scale.clamp_min(1e-6))
 
     def _check_innovation_quantiles(self) -> None:
         if not bool(self._innovation_quantiles_ready.item()):
@@ -369,6 +383,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             mask = self.innovation_score_mask.to(device=normalized_innovation.device)
             mask = mask.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
             return torch.where(mask, scores, normalized_innovation)
+        if self.cfg.innovation_coordinate == "hybrid_tail_asinh":
+            mask = self.innovation_tail_asinh_mask.to(device=normalized_innovation.device)
+            mask = mask.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            scale = self.innovation_tail_asinh_scale.to(
+                device=normalized_innovation.device, dtype=normalized_innovation.dtype
+            )
+            scale = scale.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            compressed = torch.asinh(normalized_innovation / scale.clamp_min(1e-6))
+            return torch.where(mask, compressed, normalized_innovation)
         return normalized_innovation
 
     def _from_flow_coordinate(self, flow_coordinate: torch.Tensor) -> torch.Tensor:
@@ -378,6 +401,13 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             values = self.scores_to_normalized_innovations(flow_coordinate)
             mask = self.innovation_score_mask.to(device=flow_coordinate.device)
             mask = mask.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
+            return torch.where(mask, values, flow_coordinate)
+        if self.cfg.innovation_coordinate == "hybrid_tail_asinh":
+            mask = self.innovation_tail_asinh_mask.to(device=flow_coordinate.device)
+            mask = mask.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
+            scale = self.innovation_tail_asinh_scale.to(device=flow_coordinate.device, dtype=flow_coordinate.dtype)
+            scale = scale.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
+            values = scale * torch.sinh(flow_coordinate)
             return torch.where(mask, values, flow_coordinate)
         return flow_coordinate
 
@@ -831,11 +861,23 @@ def load_model(
     cfg = GenericStateAwareNormalizedInnovationFMConfig(**payload["config"])
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
     incompat = model.load_state_dict(payload["model_state_dict"], strict=False)
-    allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready", "innovation_score_mask"}
+    allowed_missing = {
+        "innovation_quantiles",
+        "_innovation_quantiles_ready",
+        "innovation_score_mask",
+        "innovation_tail_asinh_mask",
+        "innovation_tail_asinh_scale",
+    }
     if cfg.innovation_coordinate == "score":
-        allowed_missing = {"innovation_score_mask"}
+        allowed_missing = {
+            "innovation_score_mask",
+            "innovation_tail_asinh_mask",
+            "innovation_tail_asinh_scale",
+        }
     if cfg.innovation_coordinate == "hybrid_sticky_score":
-        allowed_missing = set()
+        allowed_missing = {"innovation_tail_asinh_mask", "innovation_tail_asinh_scale"}
+    if cfg.innovation_coordinate == "hybrid_tail_asinh":
+        allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready", "innovation_score_mask"}
     unexpected = set(incompat.unexpected_keys)
     missing = set(incompat.missing_keys)
     if unexpected or missing.difference(allowed_missing):

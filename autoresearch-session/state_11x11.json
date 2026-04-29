@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 728,
-  "last_iteration_type": "research_ideation",
+  "iteration": 729,
+  "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -15,7 +15,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "719a is frozen as the current risk-manager baseline candidate. 726a showed the current history-RMS normalized-innovation coordinate is adequate for ordinary anchors but not fully stationary for sticky OAS nonzero updates. The next repair should be one generic high-no-change/mixed-frequency OAS repair; if it fails without clean improvement, document OAS as a known limitation and move to VIX extension testing.",
+  "current_framework_status": "719a remains frozen as the current risk-manager baseline candidate. 728a/OAS-G1 tried the single allowed generic high-no-change tail-asinh coordinate repair and was rejected on anchor_only before tri-scope evaluation because BBB OAS KS worsened versus 719a. Sticky quoted spread factors are now documented as a known limitation rather than an axis for further knob stacking. Next active direction is VIX extension/generalization testing.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Risk-manager candidate 719a is broadly realistic but not a fully calibrated conditional law. Remaining defects are IV coverage/regime/distributional calibration and sticky BBB/AAA OAS marginal daily-change shape. OAS failure is partly coordinate nonstationarity: raw history-RMS normalization removes most shift for SPX/rates but OAS normalized nonzero q99 still shifts materially (AAA train/val 11.60/4.30; BBB 6.26/3.66).",
-  "last_result_summary": "Direction update: keep the general autoresearch workflow, but freeze 719a as the risk-manager baseline. Next priority is exactly one generic, data-derived repair for high-no-change/mixed-frequency channels, evaluated as a frozen tri-scope framework. If it does not improve OAS without regressing IV/joint realism, stop chasing OAS and document it as a limitation. Then add VIX as an extension/generalization test.",
-  "next_step_recommendation": "Run one decisive 719a-preserving repair experiment: deterministic frequency-aware tail compression or balanced nonzero-update objective for high-no-change channels, derived from train statistics and applied under one frozen framework across IV-only, anchor-only, and joint. Acceptance requires no regression to IV realism, factor tails, conditional response, or IV-factor co-movement. If rejected, document OAS limitation and queue VIX inclusion.",
+  "current_bottleneck": "The current risk-manager candidate is not blocked by broad realism: IV temporal/spatial realism, anchor/joint factor tail scale, conditional panel response, and IV-factor co-movement are acceptable under 719a. The unresolved issues are IV calibration and sticky quoted-spread daily-change shape; the clean OAS coordinate repair failed, so further spread-specific tuning is now considered a limitation risk. The next bottleneck is whether the same framework generalizes cleanly when VIX is added as a scalar volatility factor.",
+  "last_result_summary": "728a implemented `hybrid_tail_asinh`, a generic high-no-change coordinate selected by train no-change rate. On anchor_only, it selected only AAA/BBB OAS and used train-derived nonzero normalized scales 1.04/0.85. After the same 719-compatible rollout/channel fine-tune plus sticky-zero readout, anchor quality was finite=1.0, factor KS mean 0.1016, 12/13 pass, BBB KS 0.259, AAA KS 0.171, q99 tail pass 13/13, factor corr upper 0.861, conditional MAE improvement 5.17%. This is worse than 719a on BBB KS and dependence, so OAS-G1 is rejected.",
+  "next_step_recommendation": "Do not add another OAS repair knob. Freeze 719a as the risk-manager baseline with sticky OAS as a documented limitation, then run VIX-X1: add VIX to the anchor panel if available, rebuild the generic input panel, and evaluate whether the same state-aware normalized-innovation AR flow plus sticky readout handles IV-only, anchor+VIX, and joint+VIX without special treatment.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. For current risk-manager multi-factor deployment, 719a is the baseline candidate: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "ba8b0b2",
+  "last_commit": "a938c03",
   "resume_command_hint": "continue autoresearch"
 }

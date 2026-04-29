@@ -16,9 +16,15 @@ from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
     UnifiedVariableSpec,
     encode_state,
 )
+from experiments.backfill.block_ar.increment_coordinate_628_utils import (
+    IncrementCoordinateBlock,
+)
 from experiments.backfill.block_ar.normalized_innovation_662_utils import (
     normalize_increment_windows,
     reconstruct_state_from_normalized_increments,
+)
+from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_flow import (
+    tail_asinh_scale_from_future_norm,
 )
 
 
@@ -297,6 +303,94 @@ def test_hybrid_sticky_score_coordinate_only_scores_masked_channels():
     torch.testing.assert_close(flow[..., 2], values[..., 2])
     assert not torch.allclose(flow[..., 1], values[..., 1])
     torch.testing.assert_close(recovered, values, atol=1e-5, rtol=1e-5)
+
+
+def test_hybrid_tail_asinh_coordinate_only_compresses_masked_channels():
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=3,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        innovation_coordinate="hybrid_tail_asinh",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    model.set_innovation_tail_asinh(
+        torch.tensor([False, True, False]),
+        torch.tensor([1.0, 2.0, 1.0]),
+    )
+
+    values = torch.tensor([[[0.25, 4.00, -0.25], [1.0, -2.0, 0.0]]])
+    flow = model._to_flow_coordinate(values)
+    recovered = model._from_flow_coordinate(flow)
+
+    torch.testing.assert_close(flow[..., 0], values[..., 0])
+    torch.testing.assert_close(flow[..., 2], values[..., 2])
+    torch.testing.assert_close(flow[..., 1], torch.asinh(values[..., 1] / 2.0))
+    torch.testing.assert_close(recovered, values, atol=1e-5, rtol=1e-5)
+
+
+def test_tail_asinh_scale_from_future_norm_uses_generic_nonzero_updates():
+    specs = [
+        UnifiedVariableSpec("factor:a", "factor:a", 0, "diff_level"),
+        UnifiedVariableSpec("factor:b", "factor:b", 1, "diff_level"),
+        UnifiedVariableSpec("factor:c", "factor:c", 2, "diff_level"),
+    ]
+    history = np.array(
+        [
+            [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]],
+            [[2.0, 2.0, 2.0], [2.0, 2.0, 2.0]],
+        ],
+        dtype=np.float32,
+    )
+    future = np.array(
+        [
+            [[1.0, 3.0, 1.5], [1.0, 3.0, 2.0], [1.0, 5.0, 2.5]],
+            [[2.0, 4.0, 2.5], [2.0, 4.0, 3.0], [2.0, 6.0, 3.5]],
+        ],
+        dtype=np.float32,
+    )
+    block = IncrementCoordinateBlock(
+        history_increment=np.zeros_like(history),
+        future_increment=np.zeros_like(future),
+        history_state=history,
+        future_state=future,
+        indices=np.arange(history.shape[0]),
+        specs=specs,
+    )
+    future_norm = np.array(
+        [
+            [[0.0, 4.0, 1.0], [0.0, 0.0, 1.5], [0.0, 2.0, 2.0]],
+            [[0.0, 3.0, 1.0], [0.0, 0.0, 1.5], [0.0, 1.0, 2.0]],
+        ],
+        dtype=np.float32,
+    )
+    mask = np.array([True, True, False])
+
+    scale, report = tail_asinh_scale_from_future_norm(
+        block,
+        "anchor_only",
+        0,
+        sticky_mask=mask,
+        future_norm=future_norm,
+        zero_eps=1e-10,
+        scale_quantile=0.5,
+        min_scale=0.5,
+    )
+
+    np.testing.assert_allclose(scale, np.array([1.0, 2.5, 1.0], dtype=np.float32))
+    assert report["selected_names"] == ["factor:a", "factor:b"]
+    assert report["rows"][0]["nonzero_count"] == 0
+    assert report["rows"][1]["nonzero_count"] == 4
+    assert report["rows"][2]["selected"] is False
 
 
 def test_innovation_score_flow_loss_and_sampling_reconstructs_normalized_increments():

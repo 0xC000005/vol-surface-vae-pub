@@ -106889,3 +106889,28 @@ After the OAS decision, add VIX as an extension/generalization test. VIX is not 
 - `autoresearch-session/theory_queue.json`
 
 ---
+## 2026-04-28: Autoresearch 728a OAS-G1 tail-asinh repair rejected
+
+### Hypothesis
+728a tested the one allowed OAS-G1 repair from the current direction: keep the 719a lineage and add a single generic high-no-change coordinate repair. The repair is not OAS-name-specific. Channels whose train raw no-change rate exceeds the existing sticky threshold are transformed in flow space as `asinh(normalized_innovation / scale)`, where `scale` is the train nonzero absolute normalized-innovation median for that channel. The same mechanism is available for IV-only, anchor-only, and joint.
+
+### Execution
+- Added `hybrid_tail_asinh` to `GenericStateAwareNormalizedInnovationFlowMatching`.
+- Added train-derived high-no-change tail scale wiring to `train_662a_state_aware_normalized_innovation_flow.py`.
+- Added audit dispatch support and focused tests.
+- Verification passed: `python -m py_compile ...` and `pytest test_code/test_662a_state_aware_normalized_innovation_flow.py -q` gave `16 passed`.
+- Trained the anchor-only base with the same 662 recipe as the 719 lineage: `models/backfill/728a_anchor_tail_asinh_base_e8_w2048_s7282/best_model.pt`.
+- Fine-tuned with the same 666 rollout/channel-level recipe as 688a/719a: `models/backfill/728a_anchor_tail_asinh_channel_level_alltrain_w005_e3_s7284/best_model.pt`.
+- Evaluated with the same sticky-zero readout audit: `results/block_ar/728a_tail_asinh_scorecard/anchor_val_panel_s64.json`.
+
+### Findings
+- The selector behaved cleanly: only `factor:aaa_oas` and `factor:bbb_oas` were selected.
+- Train-derived tail-asinh scales were `1.0366` for AAA OAS and `0.8507` for BBB OAS.
+- Anchor audit after sticky-zero readout: finite `1.0`, factor KS mean `0.1016`, factor KS pass `12/13`, q99 tail pass `13/13`, factor-factor upper correlation `0.861`, conditional median MAE improvement vs rolled `5.17%`.
+- The repeated blocker did not improve: AAA OAS KS was `0.171`, BBB OAS KS was `0.259`.
+- Against 719a, this is a regression rather than a repair: 719a anchor had factor KS mean about `0.093`, BBB OAS KS about `0.225`, and factor-factor upper correlation about `0.891`.
+
+### Decision
+Reject OAS-G1 after the anchor-only falsifier. A tail-compressed continuous coordinate does not fix the sticky quoted-spread law and slightly worsens the key BBB OAS marginal plus dependence. Per the clean-pathology rule, do not add another OAS-specific repair knob. Freeze 719a as the current risk-manager baseline and document sticky OAS as a known limitation. The next active direction is VIX-X1: add VIX as a scalar volatility-factor extension and test whether the same framework generalizes without special treatment.
+
+---

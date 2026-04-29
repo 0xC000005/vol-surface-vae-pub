@@ -32,18 +32,18 @@
         "post-hoc gluing",
         "switching backend before falsifying this repair"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 1,
-      "status": "active",
+      "status": "rejected",
       "priority": 1
     },
     {
       "name": "OAS-LIMIT: document sticky spread limitation if OAS-G1 fails",
       "theory": "If one clean generic high-no-change repair fails, further OAS tuning risks becoming a research-knob stack. The honest risk-manager/paper claim should document sticky quoted spread factors as the limitation instead of chasing perfection.",
       "target": "Produce limitation note and model card language for 719a or its repaired successor.",
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 1,
-      "status": "queued",
+      "status": "completed",
       "priority": 2
     },
     {
@@ -52,7 +52,7 @@
       "target": "Validate generalization to VIX in anchor_only and joint without special treatment.",
       "attempts": 0,
       "max_attempts": 1,
-      "status": "queued",
+      "status": "active",
       "priority": 3
     }
   ],

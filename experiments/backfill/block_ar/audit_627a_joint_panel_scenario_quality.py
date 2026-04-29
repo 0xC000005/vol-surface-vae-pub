@@ -279,6 +279,7 @@ def build_history_future(
         "state_aware_normalized_innovation",
         "state_aware_normalized_innovation_score",
         "state_aware_normalized_innovation_hybrid_score",
+        "state_aware_normalized_innovation_tail_asinh",
     } or args.model_type == "662a":
         block = build_increment_coordinate_block(
             panel,
@@ -546,6 +547,7 @@ def generate_panel_samples(
             "state_aware_normalized_innovation",
             "state_aware_normalized_innovation_score",
             "state_aware_normalized_innovation_hybrid_score",
+            "state_aware_normalized_innovation_tail_asinh",
         }:
             history_level, history_norm, center, scale, drift_feature = history
             panel_samples = model.sample_batched(
@@ -578,6 +580,7 @@ def generate_panel_samples(
             "state_aware_normalized_innovation",
             "state_aware_normalized_innovation_score",
             "state_aware_normalized_innovation_hybrid_score",
+            "state_aware_normalized_innovation_tail_asinh",
         }:
             arr = reconstruct_state_from_increments(
                 raw_history[start:end, -1, :], arr, specs
