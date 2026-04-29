@@ -4,7 +4,7 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 731,
+  "iteration": 732,
   "last_iteration_type": "post_experiment_analysis",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The framework handles scalar volatility-factor extension mechanically, but joint-scope training still trades off IV full-suite calibration/root quality against multi-factor panel realism. The failing region is general joint IV calibration and state/path allocation, not VIX-specific ingestion.",
-  "last_result_summary": "730a post-experiment attribution added `experiments/backfill/block_ar/analyze_730a_vix_proxy_tradeoff_attribution.py` and wrote `results/block_ar/730a_vix_proxy_tradeoff_attribution/attribution.{json,md}`. 729a joint+VIX IV full-suite remains 5/11, matching prior 676a native joint 5/11, while 729a anchor+VIX and joint+VIX panels remain strong: anchor 13/14 KS pass, 14/14 tail pass, factor corr upper 0.912, VIX-proxy KS 0.104; joint 13/14 KS pass, 14/14 tail pass, IV-factor matrix corr 0.929, VIX-proxy KS 0.070. Classification: known joint-scope IV trade-off with successful VIX-proxy data-interface evidence.",
-  "next_step_recommendation": "Continue with a general joint-scope IV calibration/root-trade-off step under the same framework lock. Do not add VIX-specific knobs. Keep 719a as the risk-manager baseline and keep the VIX-proxy loader as optional data-interface evidence, not an independent VIX-law claim.",
+  "current_bottleneck": "The framework's joint-scope failure is now localized to conditional envelope and level-state allocation, not global path realism. One-day increment KS, ACF, and 729a kurtosis remain strong; undercoverage, weaker level KS, and h7 oversnap-back are the repeated IV-side costs when adding the factor panel.",
+  "last_result_summary": "731a added `experiments/backfill/block_ar/analyze_731a_joint_scope_iv_tradeoff.py` and wrote `results/block_ar/731a_joint_scope_iv_tradeoff/diagnostic.{json,md}`. Across 674a IV-only, 676a joint38, and 729a joint39+VIX: daily-change KS stays 24/25, ACF stays about 0.98, and 729a kurtosis ratio is 1.118. Coverage90 is 0.829/0.797/0.809, level-KS pass is 15/25, 13/25, 12/25, and mean-reversion h7 ratio is 1.343/1.420/1.405 while h30 stays near 1.0. Pathwise failure in 729a is near-threshold at 0.507 vs 0.50.",
+  "next_step_recommendation": "Run one framework-lock experiment targeting joint-scope conditional envelope and level-state allocation. The clean options are deterministic channel/group balancing from a single formula or a single multi-horizon rollout/root consistency objective applied across IV-only, anchor-only, and joint; do not switch backend or add scope/VIX-specific knobs.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. For current risk-manager multi-factor deployment, 719a is the baseline candidate: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "2ceedcb",
+  "last_commit": "44cf176",
   "resume_command_hint": "continue autoresearch"
 }

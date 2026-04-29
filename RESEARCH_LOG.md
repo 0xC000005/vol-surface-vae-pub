@@ -106974,3 +106974,29 @@ Because `vix_proxy` is derived from an IV surface column, it validates scalar vo
 Keep 719a as the current risk-manager baseline. Keep the VIX-proxy loader as useful evidence that the framework can ingest a scalar volatility factor. Continue by targeting the general joint-scope IV calibration/root trade-off across the same framework rather than repairing the VIX proxy specifically.
 
 ---
+## 2026-04-28: 731a Joint-scope IV trade-off diagnostic
+
+### Context
+730a showed the VIX-proxy result is not a new VIX-specific failure. The next required analysis was to localize the generic joint-scope IV trade-off before changing the model.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_731a_joint_scope_iv_tradeoff.py`.
+
+Artifacts:
+- `results/block_ar/731a_joint_scope_iv_tradeoff/diagnostic.json`
+- `results/block_ar/731a_joint_scope_iv_tradeoff/diagnostic.md`
+
+Comparison across learned full-suite artifacts:
+- 674a IV-only: 6/11, coverage90 0.829, coverage95 0.881, daily-change KS pass 24/25, level KS pass 15/25, ACF corr 0.983, kurtosis ratio 1.009, path KS 0.451, MR h7 1.343, MR h30 1.003.
+- 676a joint38: 5/11, coverage90 0.797, coverage95 0.850, daily-change KS pass 24/25, level KS pass 13/25, ACF corr 0.984, kurtosis ratio 1.446, path KS 0.394, MR h7 1.420, MR h30 1.037.
+- 729a joint39+VIX-proxy: 5/11, coverage90 0.809, coverage95 0.870, daily-change KS pass 24/25, level KS pass 12/25, ACF corr 0.982, kurtosis ratio 1.118, path KS 0.507, MR h7 1.405, MR h30 1.036.
+
+### Mechanism Read
+The joint-scope failure is not a global path realism collapse. One-day increment shape remains good, ACF is strong, and 729a kurtosis is acceptable. The primary failure class is joint-scope conditional envelope and level-state allocation: all learned runs under-cover, joint scope weakens level KS, and mean reversion failure is concentrated at h7 oversnap-back while h30 remains close to the ground-truth ratio.
+
+729a pathwise max-jump fails only narrowly at KS 0.507 versus a 0.50 gate, with per-cell q99 tails still passing 22/25. This is a guardrail symptom, not the root cause.
+
+### Decision
+Do not switch backend and do not add VIX-specific repair. The next principled experiment should target the general joint-scope conditional envelope / level-state allocation using one framework-lock change, such as deterministic channel/group balancing from a single formula or a single multi-horizon rollout/root consistency objective applied across IV-only, anchor-only, and joint.
+
+---
