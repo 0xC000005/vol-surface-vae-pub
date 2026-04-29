@@ -116,6 +116,46 @@ def marginal_crps_path_score(
     return score_grid.mean(), target_dist_grid.mean(), pair_dist_grid.mean()
 
 
+def interval_score_path_score(
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    alpha: float = 0.1,
+    horizon_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Central interval score for ensemble scenario paths.
+
+    The score is proper for a central (1-alpha) prediction interval and
+    penalizes both over-wide intervals and misses outside the interval.
+    """
+    if samples.ndim != 4 or target.ndim != 3:
+        raise ValueError("Expected samples [B,K,T,C] and target [B,T,C]")
+    if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
+        raise ValueError("samples and target path dimensions do not match")
+    alpha_value = float(alpha)
+    if not 0.0 < alpha_value < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
+    lo = torch.quantile(samples, alpha_value / 2.0, dim=1)
+    hi = torch.quantile(samples, 1.0 - alpha_value / 2.0, dim=1)
+    width = (hi - lo).clamp_min(0.0)
+    miss_low = (lo - target).clamp_min(0.0)
+    miss_high = (target - hi).clamp_min(0.0)
+    penalty = (2.0 / alpha_value) * (miss_low + miss_high)
+    score_grid = width + penalty
+    if horizon_weights is not None:
+        if horizon_weights.shape != (samples.shape[-2],):
+            raise ValueError(
+                f"horizon_weights must have shape ({samples.shape[-2]}), "
+                f"got {tuple(horizon_weights.shape)}"
+            )
+        weights = horizon_weights.to(device=samples.device, dtype=samples.dtype)
+        weights = weights / weights.mean().clamp_min(1e-12)
+        score_grid = score_grid * weights.view(1, samples.shape[-2], 1)
+        width = width * weights.view(1, samples.shape[-2], 1)
+        penalty = penalty * weights.view(1, samples.shape[-2], 1)
+    return score_grid.mean(), width.mean(), penalty.mean()
+
+
 def structured_variogram_path_score(
     samples: torch.Tensor,
     target: torch.Tensor,
@@ -424,6 +464,8 @@ def normalized_rollout_energy_loss(
     rollout_flow_steps: int,
     energy_weight: float,
     marginal_crps_weight: float = 0.0,
+    interval_score_weight: float = 0.0,
+    interval_alpha: float = 0.1,
     variogram_weight: float = 0.0,
     variogram_power: float = 0.5,
     fm_anchor_weight: float,
@@ -484,6 +526,17 @@ def normalized_rollout_energy_loss(
         future_normalized_innovation,
         horizon_weights=weights,
     )
+    if float(interval_score_weight) > 0.0:
+        interval_score, interval_width, interval_miss_penalty = interval_score_path_score(
+            sampled_norm,
+            future_normalized_innovation,
+            alpha=float(interval_alpha),
+            horizon_weights=weights,
+        )
+    else:
+        interval_score = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        interval_width = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        interval_miss_penalty = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     variogram = (
         structured_variogram_path_score(sampled_norm, future_normalized_innovation, power=float(variogram_power))
         if float(variogram_weight) > 0.0
@@ -579,6 +632,7 @@ def normalized_rollout_energy_loss(
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
         + float(marginal_crps_weight) * marginal_crps
+        + float(interval_score_weight) * interval_score
         + float(variogram_weight) * variogram
         + float(dispersion_calibration_weight) * dispersion_calibration
         + float(level_energy_weight) * level_energy
@@ -594,6 +648,9 @@ def normalized_rollout_energy_loss(
         "marginal_crps": marginal_crps.detach(),
         "marginal_crps_target_dist": marginal_crps_target_dist.detach(),
         "marginal_crps_pair_dist": marginal_crps_pair_dist.detach(),
+        "interval_score": interval_score.detach(),
+        "interval_width": interval_width.detach(),
+        "interval_miss_penalty": interval_miss_penalty.detach(),
         "variogram": variogram.detach(),
         "dispersion_calibration": dispersion_calibration.detach(),
         "dispersion_rank_mse": dispersion_rank_mse.detach(),
@@ -647,6 +704,8 @@ def run_epoch(
     rollout_flow_steps: int,
     energy_weight: float,
     marginal_crps_weight: float,
+    interval_score_weight: float,
+    interval_alpha: float,
     variogram_weight: float,
     variogram_power: float,
     level_energy_weight: float,
@@ -689,6 +748,8 @@ def run_epoch(
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
                 marginal_crps_weight=float(marginal_crps_weight),
+                interval_score_weight=float(interval_score_weight),
+                interval_alpha=float(interval_alpha),
                 variogram_weight=float(variogram_weight),
                 variogram_power=float(variogram_power),
                 level_energy_weight=float(level_energy_weight),
@@ -747,6 +808,8 @@ def main() -> None:
     parser.add_argument("--rollout_flow_steps", type=int, default=4)
     parser.add_argument("--energy_weight", type=float, default=0.2)
     parser.add_argument("--marginal_crps_weight", type=float, default=0.0)
+    parser.add_argument("--interval_score_weight", type=float, default=0.0)
+    parser.add_argument("--interval_alpha", type=float, default=0.1)
     parser.add_argument("--variogram_weight", type=float, default=0.0)
     parser.add_argument("--variogram_power", type=float, default=0.5)
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
@@ -933,6 +996,8 @@ def main() -> None:
         "rollout_flow_steps": int(args.rollout_flow_steps),
         "energy_weight": float(args.energy_weight),
         "marginal_crps_weight": float(args.marginal_crps_weight),
+        "interval_score_weight": float(args.interval_score_weight),
+        "interval_alpha": float(args.interval_alpha),
         "variogram_weight": float(args.variogram_weight),
         "variogram_power": float(args.variogram_power),
         "level_energy_weight": float(args.level_energy_weight),
@@ -979,6 +1044,8 @@ def main() -> None:
             rollout_flow_steps=int(args.rollout_flow_steps),
             energy_weight=float(args.energy_weight),
             marginal_crps_weight=float(args.marginal_crps_weight),
+            interval_score_weight=float(args.interval_score_weight),
+            interval_alpha=float(args.interval_alpha),
             variogram_weight=float(args.variogram_weight),
             variogram_power=float(args.variogram_power),
             level_energy_weight=float(args.level_energy_weight),
@@ -1009,6 +1076,8 @@ def main() -> None:
                 rollout_flow_steps=int(args.rollout_flow_steps),
                 energy_weight=float(args.energy_weight),
                 marginal_crps_weight=float(args.marginal_crps_weight),
+                interval_score_weight=float(args.interval_score_weight),
+                interval_alpha=float(args.interval_alpha),
                 variogram_weight=float(args.variogram_weight),
                 variogram_power=float(args.variogram_power),
                 level_energy_weight=float(args.level_energy_weight),

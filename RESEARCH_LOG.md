@@ -107306,3 +107306,40 @@ Do not add more scalar sampler calibration. The next principled model-side route
 - `results/block_ar/741a_iv_coverage_localization/summary.md`
 
 ---
+## 2026-04-29: 742a proper interval-score fine-tune falsifier
+
+### Context
+741a showed the strict IV calibration defect is local and two-sided, not a global variance shortage. 742a tested the cleanest objective-level repair inside the same normalized-innovation AR flow: add a proper central interval score over generated rollout samples, so the model is trained on local interval geometry rather than post-hoc sampler temperature.
+
+### Implementation
+- Added `interval_score_path_score(samples, target, alpha=0.1)` to `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+- Added CLI/objective plumbing: `--interval_score_weight` and `--interval_alpha`.
+- Added TDD coverage in `test_code/test_666a_normalized_innovation_rollout_energy.py`.
+- Verification: `python -m py_compile experiments/backfill/block_ar/train_666a_normalized_innovation_rollout_energy_finetune.py && pytest test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed, `17 passed`.
+
+### Experiment
+Fine-tuned from the incumbent IV checkpoint:
+`models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`.
+
+742a command used the same AR flow, normalized-innovation coordinate, rollout energy `0.2`, channel-level energy `0.05`, and added interval score weight `0.05` with 4 rollout samples for 2 epochs. Best checkpoint was epoch 1:
+`models/backfill/742a_iv_interval_score_w005_e2_s7421/best_model.pt`.
+
+### Result
+- 734a baseline: `6/11`; cov90 `0.836`, calibration error `0.046`, regime layer2 `0/8`, time-series pass true, level KS `17/25`, median-bias `16/25`, mean-reversion pass true, pathwise KS `0.442` pass.
+- 740a temp 1.025: `5/11`; cov90 `0.853`, calibration error `0.030`, regime layer2 `2/8`, cointegration pass true, but mean reversion/pathwise fail.
+- 742a interval score: `4/11`; failed coverage, old conditionality, time-series, regime coverage, distributional fidelity, mean reversion, and pathwise jump realism.
+- 742a improved aggregate coverage/calibration and cointegration: cov90 `0.866`, calibration error `0.018`, cointegration worst-cell ratio `0.269` pass.
+- The cost was structural: kurtosis ratio fell to `0.733`, very-small-move ratio fell to `0.849`, level KS dropped to `9/25`, median-bias cells to `12/25`, h7 mean-reversion ratio stayed failing at `1.352`, and pathwise max-jump KS worsened to `0.543`.
+
+### Mechanism Read
+The interval score is theoretically defensible, but in this implementation it behaves like a learned widening pressure. It improves aggregate interval calibration while distorting the local daily-change law, level occupancy, and pathwise jump ordering. This is the same broadening trade-off seen in 740a scalar temperature, now coming from the training objective rather than the sampler.
+
+### Decision
+Reject interval-score fine-tuning as the next active repair at this weight and do not weight-sweep by default. The bottleneck is not lack of an interval penalty; it is that the flow transport cannot locally reallocate interval geometry without moving the path law. Next step should be research ideation or a more structural but still clean mechanism: either a factorized marginal/dependence path law revisited under the real-VIX tri-scope data, or a model capacity/factorization audit focused on the late-horizon cells `(2,3)`, `(3,3)`, `(0,2)`.
+
+### Artifacts
+- `models/backfill/742a_iv_interval_score_w005_e2_s7421/`
+- `results/block_ar/742a_iv_interval_score/iv_val_full11_s64.json`
+- `results/block_ar/742a_iv_interval_score/iv_val_full11_s64.md`
+
+---

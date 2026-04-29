@@ -13,6 +13,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
     dispersion_calibration_loss,
     differentiable_normalized_rollout_samples,
     effective_readout_iv_count,
+    interval_score_path_score,
     marginal_crps_path_score,
     normalized_rollout_energy_loss,
     standardized_level_delta_paths,
@@ -99,6 +100,81 @@ def test_structured_variogram_path_score_matches_single_pair():
     score = structured_variogram_path_score(samples, target, power=1.0)
 
     torch.testing.assert_close(score, torch.tensor(1.0))
+
+
+def test_interval_score_path_score_matches_central_interval_formula():
+    samples = torch.tensor([[[[0.0]], [[2.0]]]])
+    covered_target = torch.tensor([[[1.0]]])
+    high_miss_target = torch.tensor([[[3.0]]])
+
+    covered_score, covered_width, covered_penalty = interval_score_path_score(
+        samples,
+        covered_target,
+        alpha=0.1,
+    )
+    high_score, high_width, high_penalty = interval_score_path_score(
+        samples,
+        high_miss_target,
+        alpha=0.1,
+    )
+
+    torch.testing.assert_close(covered_width, torch.tensor(1.8))
+    torch.testing.assert_close(covered_penalty, torch.tensor(0.0))
+    torch.testing.assert_close(covered_score, torch.tensor(1.8))
+    torch.testing.assert_close(high_width, torch.tensor(1.8))
+    torch.testing.assert_close(high_penalty, torch.tensor(22.0))
+    torch.testing.assert_close(high_score, torch.tensor(23.8))
+
+
+def test_normalized_rollout_energy_loss_can_use_interval_score():
+    torch.manual_seed(57)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(61)
+    loss_without_interval, metrics_without_interval = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=3,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        interval_score_weight=0.0,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+    torch.manual_seed(61)
+    loss_with_interval, metrics_with_interval = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=3,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        interval_score_weight=0.1,
+        interval_alpha=0.1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss_with_interval)
+    assert metrics_without_interval["interval_score"].item() == 0.0
+    assert metrics_with_interval["interval_score"].item() > 0.0
+    assert metrics_with_interval["interval_width"].item() >= 0.0
+    assert metrics_with_interval["interval_miss_penalty"].item() >= 0.0
+    assert loss_with_interval > loss_without_interval
 
 
 def test_dispersion_calibration_penalizes_flat_underdispersed_spread():
