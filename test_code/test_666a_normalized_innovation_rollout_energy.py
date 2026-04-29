@@ -16,6 +16,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
     interval_score_path_score,
     marginal_crps_path_score,
     normalized_rollout_energy_loss,
+    prefix_conditioned_flow_matching_loss,
     state_tail_sampling_weights,
     standardized_level_delta_paths,
     structured_variogram_path_score,
@@ -362,6 +363,77 @@ def test_normalized_rollout_energy_loss_is_finite():
     assert torch.isfinite(loss)
     assert metrics["energy"] >= 0.0
     assert metrics["sample_norm_std"] > 0.0
+
+
+def test_prefix_conditioned_flow_matching_loss_is_finite_and_trainable():
+    torch.manual_seed(21)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+    prefix_level = future_level + 0.01 * torch.randn_like(future_level)
+    prefix_norm = future_norm + 0.01 * torch.randn_like(future_norm)
+
+    loss = prefix_conditioned_flow_matching_loss(
+        model,
+        history_level,
+        history_norm,
+        prefix_level,
+        prefix_norm,
+        future_norm,
+        center,
+        scale,
+    )
+    loss.backward()
+
+    assert torch.isfinite(loss)
+    assert any(param.grad is not None for param in model.parameters())
+
+
+def test_normalized_rollout_energy_loss_can_use_free_running_fm():
+    torch.manual_seed(22)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(25)
+    loss_without_free_running, metrics_without_free_running = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        free_running_fm_weight=0.0,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+    torch.manual_seed(25)
+    loss_with_free_running, metrics_with_free_running = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        free_running_fm_weight=0.1,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss_with_free_running)
+    assert metrics_without_free_running["free_running_fm_loss"].item() == 0.0
+    assert metrics_with_free_running["free_running_fm_loss"].item() > 0.0
+    assert loss_with_free_running > loss_without_free_running
 
 
 def test_normalized_rollout_energy_loss_can_score_level_paths():

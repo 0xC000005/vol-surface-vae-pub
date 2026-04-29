@@ -107607,3 +107607,35 @@ The repeated pattern now fits exposure bias better than raw capacity or scalar c
 The next experiment should add a targeted free-running prefix-consistency term to the existing rollout finetune. Keep the normalized-innovation data object, AR flow matching backend, one stochastic source, and rollout/channel objective. Add one auxiliary FM term that conditions the velocity on a detached generated prefix path while still predicting the true future innovation. This is scheduled-sampling-style training for the conditional law, not a post-hoc calibration layer or factor-specific knob.
 
 ---
+## 2026-04-29: Autoresearch 752a generated-prefix FM falsifier
+
+### Context
+752a implemented the 751a exposure-bias hypothesis. The new term trains the velocity field under a detached generated future prefix while still targeting the true future normalized innovation. This keeps the same normalized-innovation data object, AR flow matching backend, one stochastic source, and rollout/channel objective; the only new axis is scheduled-sampling-style generated-prefix FM training.
+
+### Implementation
+- Added `prefix_conditioned_flow_matching_loss(...)` to `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+- Added CLI/objective metadata flag `--free_running_fm_weight`, default `0.0`, so existing runs are unchanged.
+- Added regression tests for finite/trainable prefix-conditioned FM and for enabling the term inside `normalized_rollout_energy_loss`.
+- Verification: `pytest test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed `20` tests.
+
+### Execute
+Trained from `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt` with the 674a rollout/channel recipe plus `free_running_fm_weight=0.2` for 2 epochs.
+
+Artifacts:
+- Model: `models/backfill/752a_iv_freeprefix_fm_w02_e2_s7521/best_model.pt`.
+- Validation: `results/block_ar/752a_iv_freeprefix_fm/iv_val_full11_s64.{json,md}`.
+- Train-tail: `results/block_ar/752a_iv_freeprefix_fm/iv_train_tail_full11_s64.{json,md}`.
+
+### Result
+- Validation: `5/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`.
+- Validation improved some target axes versus 734a: regime layer-2 `0/8 -> 2/8`, pathwise KS `0.442 -> 0.360`, future width rho `0.316 -> 0.336`, and kurtosis stayed valid at `1.029`.
+- Validation worsened other axes: cov90 `0.836 -> 0.806`, level-KS `17/25 -> 11/25`, median-bias `16/25 -> 13/25`, persistent severe undercoverage `3.5% -> 5.7%`, and mean reversion failed.
+- Train-tail: `5/11`; failed `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `mean_reversion`. Coverage stayed high at `0.855`, but the per-cell coverage gate and mean reversion failed; distributional fidelity still passed.
+
+### Mechanism Read
+Generated-prefix FM is not useless: it moves regime allocation and path realism in the intended direction without breaking daily increment realism. But `0.2` is too strong or misdirected: it weakens mean reversion and integrated level fidelity, and it does not repair the hard-cell lower-tail/local-level problem enough to beat the incumbent.
+
+### Decision
+Do not promote 752a. The exposure-bias mechanism remains plausible, but the first implementation is over-regularizing the path transition. The next step should be a controlled curriculum/weight analysis rather than abandoning the mechanism or stacking another feature: test whether a milder generated-prefix FM weight preserves mean reversion while keeping the regime/path gains.
+
+---

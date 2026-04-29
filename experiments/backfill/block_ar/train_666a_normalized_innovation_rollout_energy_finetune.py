@@ -480,6 +480,60 @@ def differentiable_normalized_rollout_samples(
     return sampled_norm
 
 
+def prefix_conditioned_flow_matching_loss(
+    model: GenericStateAwareNormalizedInnovationFlowMatching,
+    history_level_values: torch.Tensor,
+    history_normalized_innovation: torch.Tensor,
+    prefix_future_level_values: torch.Tensor,
+    prefix_future_normalized_innovation: torch.Tensor,
+    future_normalized_innovation: torch.Tensor,
+    center: torch.Tensor,
+    scale: torch.Tensor,
+    drift_feature: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """FM loss under an off-policy future prefix, for scheduled-sampling-style robustness."""
+    if prefix_future_level_values.shape != future_normalized_innovation.shape:
+        raise ValueError("prefix_future_level_values and future_normalized_innovation must match")
+    if prefix_future_normalized_innovation.shape != future_normalized_innovation.shape:
+        raise ValueError("prefix_future_normalized_innovation and future_normalized_innovation must match")
+    history_level_scores = model.level_values_to_scores(history_level_values)
+    prefix_future_level_scores = model.level_values_to_scores(prefix_future_level_values)
+    history_flow_coordinate = model._to_flow_coordinate(history_normalized_innovation)
+    prefix_future_flow_coordinate = model._to_flow_coordinate(prefix_future_normalized_innovation)
+    target_flow_coordinate = model._to_flow_coordinate(future_normalized_innovation)
+    prefix_level_scores = torch.cat([history_level_scores, prefix_future_level_scores[:, :-1]], dim=1)
+    prefix_flow_coordinate = torch.cat([history_flow_coordinate, prefix_future_flow_coordinate[:, :-1]], dim=1)
+    hidden = model._encode_prefix(prefix_level_scores, prefix_flow_coordinate, center, scale, drift_feature)
+    start = model.cfg.history_len - 1
+    memory_states = hidden[:, start : start + model.cfg.future_len]
+    _risk_prediction, risk_context = model._risk_state_from_history(
+        history_level_scores,
+        history_flow_coordinate,
+        center,
+        scale,
+        drift_feature,
+    )
+    if risk_context is not None:
+        memory_states = memory_states + risk_context[:, None, :]
+    current_level_scores = prefix_level_scores[:, start : start + model.cfg.future_len]
+    x1 = target_flow_coordinate
+    x0 = model._base_noise_like(x1)
+    base_noise_scale = model._conditional_base_noise_scale(memory_states)
+    if base_noise_scale is not None:
+        x0 = x0 * base_noise_scale
+    bsz, horizon, n_vars = x1.shape
+    t = torch.rand(bsz, horizon, device=x1.device, dtype=x1.dtype)
+    x_t = (1.0 - t[..., None]) * x0 + t[..., None] * x1
+    target_velocity = x1 - x0
+    pred_velocity = model.velocity(
+        x_t.reshape(bsz * horizon, n_vars),
+        current_level_scores.reshape(bsz * horizon, n_vars),
+        memory_states.reshape(bsz * horizon, model.cfg.memory_dim),
+        t.reshape(bsz * horizon),
+    ).view_as(x1)
+    return F.mse_loss(pred_velocity, target_velocity)
+
+
 def normalized_rollout_energy_loss(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     history_level_values: torch.Tensor,
@@ -514,6 +568,7 @@ def normalized_rollout_energy_loss(
     mixed_support_weight: float = 0.0,
     dispersion_calibration_weight: float = 0.0,
     dispersion_calibration_mode: str = "window",
+    free_running_fm_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     fm_loss, fm_metrics = model.training_loss(
         history_level_values,
@@ -540,6 +595,20 @@ def normalized_rollout_energy_loss(
         flow_steps=int(rollout_flow_steps),
         temperature=float(temperature),
     )
+    if float(free_running_fm_weight) > 0.0:
+        free_running_fm_loss = prefix_conditioned_flow_matching_loss(
+            model,
+            history_level_values,
+            history_normalized_innovation,
+            sampled_level[:, 0].detach(),
+            sampled_norm[:, 0].detach(),
+            future_normalized_innovation,
+            center,
+            scale,
+            drift_feature=drift_feature,
+        )
+    else:
+        free_running_fm_loss = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     weights = horizon_path_weights(
         int(future_normalized_innovation.shape[1]),
         end_weight=float(horizon_end_weight),
@@ -669,6 +738,7 @@ def normalized_rollout_energy_loss(
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
         + float(condition_rollout_contrast_weight) * condition_rollout_contrast
+        + float(free_running_fm_weight) * free_running_fm_loss
     )
     metrics = {
         "total": total.detach(),
@@ -701,6 +771,12 @@ def normalized_rollout_energy_loss(
         "condition_rollout_contrast": condition_rollout_contrast.detach(),
         "condition_rollout_pos_energy": energy.detach(),
         "condition_rollout_neg_energy": condition_rollout_neg_energy.detach(),
+        "free_running_fm_loss": free_running_fm_loss.detach(),
+        "free_running_fm_weight": torch.as_tensor(
+            float(free_running_fm_weight),
+            device=fm_loss.device,
+            dtype=fm_loss.dtype,
+        ),
         "base_noise_scale_enabled": fm_metrics["base_noise_scale_enabled"].detach(),
         "base_noise_scale_mean": fm_metrics["base_noise_scale_mean"].detach(),
         "base_noise_scale_std": fm_metrics["base_noise_scale_std"].detach(),
@@ -750,6 +826,7 @@ def run_epoch(
     mixed_support_weight: float,
     dispersion_calibration_weight: float,
     dispersion_calibration_mode: str,
+    free_running_fm_weight: float,
     fm_anchor_weight: float,
     horizon_end_weight: float,
     energy_eps: float,
@@ -794,6 +871,7 @@ def run_epoch(
                 mixed_support_weight=float(mixed_support_weight),
                 dispersion_calibration_weight=float(dispersion_calibration_weight),
                 dispersion_calibration_mode=dispersion_calibration_mode,
+                free_running_fm_weight=float(free_running_fm_weight),
                 fm_anchor_weight=float(fm_anchor_weight),
                 horizon_end_weight=float(horizon_end_weight),
                 energy_eps=float(energy_eps),
@@ -854,6 +932,7 @@ def main() -> None:
     parser.add_argument("--mixed_support_loss_weight", type=float, default=None)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
+    parser.add_argument("--free_running_fm_weight", type=float, default=0.0)
     parser.add_argument("--state_tail_sampler_weight", type=float, default=0.0)
     parser.add_argument("--state_tail_sampler_quantile", type=float, default=0.8)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
@@ -1068,6 +1147,7 @@ def main() -> None:
         "mixed_support_observation": getattr(model.cfg, "mixed_support_observation", "none"),
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "dispersion_calibration_mode": args.dispersion_calibration_mode,
+        "free_running_fm_weight": float(args.free_running_fm_weight),
         "state_tail_sampler_weight": float(args.state_tail_sampler_weight),
         "state_tail_sampler_quantile": float(args.state_tail_sampler_quantile),
         "state_tail_sampler_mean": float(train_state_tail_weights.mean()),
@@ -1119,6 +1199,7 @@ def main() -> None:
             mixed_support_weight=float(args.mixed_support_loss_weight),
             dispersion_calibration_weight=float(args.dispersion_calibration_weight),
             dispersion_calibration_mode=args.dispersion_calibration_mode,
+            free_running_fm_weight=float(args.free_running_fm_weight),
             fm_anchor_weight=float(args.fm_anchor_weight),
             horizon_end_weight=float(args.horizon_end_weight),
             energy_eps=float(args.energy_eps),
@@ -1151,6 +1232,7 @@ def main() -> None:
                 mixed_support_weight=float(args.mixed_support_loss_weight),
                 dispersion_calibration_weight=float(args.dispersion_calibration_weight),
                 dispersion_calibration_mode=args.dispersion_calibration_mode,
+                free_running_fm_weight=float(args.free_running_fm_weight),
                 fm_anchor_weight=float(args.fm_anchor_weight),
                 horizon_end_weight=float(args.horizon_end_weight),
                 energy_eps=float(args.energy_eps),
