@@ -106832,3 +106832,33 @@ The next step should not be another atom-probability tweak. First diagnose wheth
 - `results/block_ar/725a_nonzero_update_scale_attribution/analysis.md`
 
 ---
+## 2026-04-28: 726a normalized-scale adequacy diagnostic
+
+### Context
+
+725a showed raw OAS validation tails are much calmer than the training tail, and 724a over-widens OAS after masking zero observations. 726a asked whether the current state-normalized innovation coordinate should already remove that scale shift.
+
+### Result
+
+The coordinate works for ordinary channels but not fully for sticky OAS:
+
+- SPX raw q99 shifts from 54.14 train to 43.64 validation, but normalized q99 is stable at 4.00 train versus 4.11 validation.
+- US2Y and US10Y normalized q99 are also close across train/validation.
+- AAA OAS raw q99 shifts from 0.330 to 0.040; normalized q99 still shifts from 11.60 to 4.30.
+- BBB OAS raw q99 shifts from 0.140 to 0.050; normalized q99 still shifts from 6.26 to 3.66.
+
+### Mechanism Read
+
+History RMS scale is lower in validation and captures some regime change, but not enough for sticky mixed-frequency credit-spread channels. The OAS target remains nonstationary even after normalization, so 724a learns too much of the broad training normalized tail. This explains why atom probability repairs are capped and why 721's better validation tail scale was an accidental damping effect, not a clean law.
+
+### Decision
+
+The next repair should target the coordinate/objective for mixed-frequency nonzero updates, not another atom gate. The candidate should be deterministic from training statistics, scope-generic, and less aggressive than the globally empirical score coordinate that regressed IV in 716/722.
+
+### Artifacts
+
+- `experiments/backfill/block_ar/analyze_726a_normalized_scale_adequacy.py`
+- `results/block_ar/726a_normalized_scale_adequacy/analysis.json`
+- `results/block_ar/726a_normalized_scale_adequacy/analysis.md`
+
+---
