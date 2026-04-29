@@ -107000,3 +107000,42 @@ The joint-scope failure is not a global path realism collapse. One-day increment
 Do not switch backend and do not add VIX-specific repair. The next principled experiment should target the general joint-scope conditional envelope / level-state allocation using one framework-lock change, such as deterministic channel/group balancing from a single formula or a single multi-horizon rollout/root consistency objective applied across IV-only, anchor-only, and joint.
 
 ---
+## 2026-04-29: 732a Low-weight channel dispersion falsifier
+
+### Context
+731a localized the joint-scope IV failure to conditional envelope and level-state allocation rather than global path realism. 732a tested the smallest clean objective repair: continue the 676a joint38 normalized-coordinate checkpoint with the existing rollout/channel-level recipe and add only a low-weight generic channel dispersion calibration term (`0.05`, mode `channel`). This brackets the prior failed 704a high-weight channel dispersion run (`0.50`) without changing backend, sampler, coordinate, or scope-specific logic.
+
+### Result
+Checkpoint:
+- `models/backfill/732a_joint38_channel_dispcal005_channel_level_w005_e2_s7321/best_model.pt`
+
+Validation artifacts:
+- `results/block_ar/732a_joint38_channel_dispcal005/val_full11_s64.json`
+- `results/block_ar/732a_joint38_channel_dispcal005/joint_val_panel_s64.json`
+
+Training selected epoch 1 but validation objective worsened versus the 676a baseline (`best_val_total=1.9972`, compared with 676a about `1.8016`).
+
+IV full-suite result: `3/11`, failing coverage, conditionality, time_series, cointegration, regime_coverage, distributional_fidelity, mean_reversion, and pathwise_jump_realism.
+
+Key IV metrics:
+- coverage90 improved to `0.879`, coverage95 `0.923`, calibration error `0.010`.
+- daily-change KS pass fell to `21/25`; level KS fell to `8/25`.
+- kurtosis ratio fell to `0.631`; per-cell q99 tail-scale pass fell to `11/25`.
+- pathwise max-jump KS worsened to `0.767`; per-cell path q99 pass `11/25`.
+- h7 mean-reversion ratio remained too high at `1.392`, while h30 stayed acceptable at `0.994`.
+
+Joint panel result:
+- factor KS mean `0.141`, only `10/13` factor KS pass.
+- factor q99 tail median `1.527`, `13/13` still inside the broad tail gate.
+- IV-factor matrix corr `0.907`, so cross-market co-movement shape survived.
+- conditional panel MAE gain `3.49%` and history width Spearman `0.939` survived.
+
+### Mechanism Read
+732a proves the low-weight channel dispersion term can widen the ensemble and repair aggregate calibration, but it does so by inflating tail moves and distorting level-state allocation. This is the same failure class as 704a in milder form: calibrated spread in normalized-innovation space is not enough when the resulting market-level paths become unrealistic.
+
+The useful positive signal is that the stochastic core still preserves IV-factor co-movement and conditional panel response after widening. The blocker is support allocation: width must be added in the right market states/cells/horizons without turning into broad tail inflation.
+
+### Decision
+Reject 732a as a candidate. Do not continue with simple dispersion-calibration weights. The next HEAD cycle should be research ideation, with literature search if needed, focused on calibrated conditional support/coverage without tail inflation or level distortion under the same general multivariate framework.
+
+---

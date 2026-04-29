@@ -4,8 +4,8 @@
   "phase": "support_valid_continuous_flow_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 732,
-  "last_iteration_type": "post_experiment_analysis",
+  "iteration": 733,
+  "last_iteration_type": "experiment",
   "active_family": "663a bounded-IV state-aware normalized-innovation conditional law; first backend is AR flow matching but backend changes require protocol diagnostics",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "autoresearch_workflow_ref": "docs/research_protocols/autoresearch_falsification_workflow.md",
@@ -32,9 +32,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The framework's joint-scope failure is now localized to conditional envelope and level-state allocation, not global path realism. One-day increment KS, ACF, and 729a kurtosis remain strong; undercoverage, weaker level KS, and h7 oversnap-back are the repeated IV-side costs when adding the factor panel.",
-  "last_result_summary": "731a added `experiments/backfill/block_ar/analyze_731a_joint_scope_iv_tradeoff.py` and wrote `results/block_ar/731a_joint_scope_iv_tradeoff/diagnostic.{json,md}`. Across 674a IV-only, 676a joint38, and 729a joint39+VIX: daily-change KS stays 24/25, ACF stays about 0.98, and 729a kurtosis ratio is 1.118. Coverage90 is 0.829/0.797/0.809, level-KS pass is 15/25, 13/25, 12/25, and mean-reversion h7 ratio is 1.343/1.420/1.405 while h30 stays near 1.0. Pathwise failure in 729a is near-threshold at 0.507 vs 0.50.",
-  "next_step_recommendation": "Run one framework-lock experiment targeting joint-scope conditional envelope and level-state allocation. The clean options are deterministic channel/group balancing from a single formula or a single multi-horizon rollout/root consistency objective applied across IV-only, anchor-only, and joint; do not switch backend or add scope/VIX-specific knobs.",
+  "current_bottleneck": "Simple dispersion calibration can widen the joint IV ensemble but does not allocate support correctly: it improves aggregate coverage while damaging tail scale, level KS, pathwise jump realism, and factor marginal realism. The remaining problem is calibrated conditional support without broad tail inflation or level distortion.",
+  "last_result_summary": "732a fine-tuned the 676a joint38 normalized-coordinate checkpoint with the same rollout/channel-level recipe plus low channel dispersion calibration weight 0.05. IV full-suite fell to 3/11 despite coverage90 improving to 0.879 and calibration error 0.010: daily KS 21/25, level KS 8/25, kurtosis ratio 0.631, tail q99 pass 11/25, pathwise KS 0.767, h7 MR ratio 1.392. Joint panel also regressed: factor KS mean 0.141, 10/13 factor KS pass, tail median 1.527, while IV-factor corr 0.907 and conditional panel response survived.",
+  "next_step_recommendation": "Reject simple dispersion-calibration weights. Run research ideation, including literature search, for calibrated conditional support/coverage mechanisms that keep market-level paths realistic under the same general multivariate framework. Do not switch backend until the support-allocation mechanism is clearer.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. For current risk-manager multi-factor deployment, 719a is the baseline candidate: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals.",
@@ -42,6 +42,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "44cf176",
+  "last_commit": "8178580",
   "resume_command_hint": "continue autoresearch"
 }
