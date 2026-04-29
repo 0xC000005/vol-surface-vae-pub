@@ -52,6 +52,29 @@ This forces the model to learn relationships such as high-IV mean reversion,
 credit-spread regime behavior, equity return scale, and cross-factor stress
 co-movement from state rather than from a factor-specific branch.
 
+## Output Law Policy
+
+The default output law is continuous normalized innovation generation. This is
+not always the correct support. Some market channels can have a mixed support:
+many exact or near-zero daily moves plus occasional large nonzero moves.
+
+For those channels, a generic mixed discrete-continuous decoder head is allowed
+if a data-derived support audit justifies it:
+
+`P(move | state)` and `p(move_size | move, state)`.
+
+This is still the same conditional-law methodology. The shared history encoder,
+shared stochastic source, and shared generative core remain unchanged. The mixed
+head is a support-aware data adapter, not a credit-spread-specific correction.
+The same channel-selection rule and scalar objective recipe must be used across
+`iv_only`, `anchor_only`, and `joint` framework-candidate runs.
+
+Do not add the mixed head until the baseline continuous head has been audited on
+no-change mass, move-event rate, nonzero jump-size tails, and stress-state move
+frequency. If the mixed head helps only by a factor-name exception or a
+scope-specific loss recipe, reject it and document sticky channels as a
+limitation.
+
 ## Backend Policy
 
 Flow matching is the first backend because it is already integrated and does

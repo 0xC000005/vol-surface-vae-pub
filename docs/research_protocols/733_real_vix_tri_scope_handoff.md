@@ -60,6 +60,8 @@ Allowed differences are only data-interface adaptations:
 - input/output dimensionality;
 - support or coordinate transform implied by variable type;
 - input heads and decoder heads;
+- generic support-aware mixed discrete-continuous heads selected by one
+  data-derived no-change rule;
 - deterministic channel/group balancing from the same formula.
 
 Forbidden differences:
@@ -81,6 +83,11 @@ triggered by data statistics and can apply to any channel with similar behavior.
 If this does not work cleanly, document sticky spreads as a limitation and keep
 the main framework intact.
 
+The adapter is allowed only if it models the correct support:
+`P(move | state)` plus `p(move_size | move, state)`. It must preserve the same
+shared stochastic source and generative core, and it must be selected by one
+declared no-change statistic rather than by factor name.
+
 ## Next HEAD Iteration
 
 Run the first real-VIX tri-scope framework-lock iteration:
@@ -91,4 +98,8 @@ Run the first real-VIX tri-scope framework-lock iteration:
 3. Report IV 11-suite, anchor panel realism/dependence/conditional response,
    joint panel realism/dependence/conditional response, and IV-factor
    co-movement.
-4. Classify failures before adding any new knob.
+4. Include a sticky-channel audit: no-change mass, move-event rate, nonzero
+   jump tails, and stress-state move frequency for all anchor channels.
+5. Classify failures before adding any new knob. If sticky low-activity
+   channels are the only serious defect, the next minimal fix may be one
+   generic support-aware mixed head, tested as a frozen tri-scope framework.

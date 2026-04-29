@@ -26,6 +26,7 @@
     "single_framework_tri_scope_candidate_gate",
     "no_task_specific_loss_recipes_for_framework_claims",
     "data_adapters_heads_and_support_transforms_allowed",
+    "generic_support_aware_mixed_discrete_continuous_heads_allowed_when_data_derived",
     "append_RESEARCH_LOG_via_research-log-tail-append",
     "one_commit_per_iteration"
   ],

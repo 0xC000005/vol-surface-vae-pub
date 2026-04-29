@@ -5,7 +5,7 @@
   "phase": "handoff_ready",
   "hypothesis": "A 719a-style state-aware normalized-innovation framework can be rerun as one frozen recipe across IV-only, observed-anchor-only, and joint IV+anchor scopes after replacing the IV-derived VIX proxy with observed Yahoo ^VIX.",
   "prediction_L3": "The same generative core should preserve IV realism, anchor realism, joint co-movement, and population risk-state conditional response. Remaining defects, if any, should concentrate in calibration and sticky low-activity credit-spread channels rather than requiring separate IV/anchor mechanisms.",
-  "kill_gate": "Do not claim a publishable single framework if the recipe only works by changing loss weights, backend, sampler, calibration layer, or stochastic source across scopes. If AAA/BBB OAS stickiness remains the only serious issue, either document it as a limitation or test one generic low-activity-channel adapter.",
+  "kill_gate": "Do not claim a publishable single framework if the recipe only works by changing loss weights, backend, sampler, calibration layer, or stochastic source across scopes. If AAA/BBB OAS stickiness remains the only serious issue, run a sticky-channel audit first; only then document it as a limitation or test one generic support-aware mixed discrete-continuous low-activity-channel adapter selected by a data-derived rule.",
   "warm_start": "719a methodology baseline, not a real-VIX checkpoint",
   "baseline": "pre-real-VIX 719a family; real-VIX tri-scope champion not yet established"
 }

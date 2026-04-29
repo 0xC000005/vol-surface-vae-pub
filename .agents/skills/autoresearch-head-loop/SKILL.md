@@ -118,6 +118,8 @@ Allowed scope differences are only data-interface adaptations:
 - input and output dimensionality
 - support/coordinate transform implied by variable type
 - input heads and decoder heads
+- generic support-aware mixed discrete-continuous heads selected by one
+  data-derived rule
 - deterministic channel/group balancing from the same formula
 
 Not allowed for a single framework candidate:
@@ -125,6 +127,7 @@ Not allowed for a single framework candidate:
 - IV-specific, anchor-specific, or joint-specific loss recipes
 - different rollout-energy or contrast weights per scope
 - scope-specific backend, prior, sampler, AR/one-shot choice, or calibration layer
+- factor-name-specific sparse/sticky output heads
 - post-hoc gluing of separately sampled decks presented as one joint conditional law
 
 If the best runs for IV-only, anchor-only, and joint use different recipes, label them as task-specialized frontiers and choose a framework-lock experiment or a post-experiment trade-off attribution before adding more knobs.
@@ -142,6 +145,26 @@ When one frozen recipe works on one scope but fails on another, do not switch va
 - data object, objective balancing, shared-core capacity, head interference, and distribution shift
 
 If the trade-off mechanism is not clear enough to state in concrete causal terms, the next HEAD iteration must be `post_experiment_analysis` or `research_ideation`, not another model tweak.
+
+## Support-Aware Output Law Gate
+
+A mixed discrete-continuous sparse/sticky head is allowed only as a generic
+output-support adapter. It must be selected by a data-derived no-change or
+near-no-change statistic, not by factor name. It must preserve the same shared
+encoder, stochastic source, generative core, scalar objective recipe, sampler,
+and tri-scope framework ID.
+
+Before adding this head, the loop must run a sticky-channel audit:
+
+- no-change mass by channel on train and validation;
+- tolerance sensitivity for the no-change statistic;
+- baseline continuous-head error on move-event rate;
+- baseline continuous-head error on nonzero jump tails;
+- stress-state move frequency and cross-factor concurrence.
+
+Reject the head if it requires credit-specific rules, scope-specific weights, or
+post-hoc snapping. If the generic head fails, document sticky low-activity
+channels as a limitation instead of stacking more sparse-channel knobs.
 
 ## In-Session Workflow
 

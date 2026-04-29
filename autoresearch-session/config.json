@@ -36,6 +36,7 @@
       "support_or_coordinate_transform_implied_by_variable_type",
       "input_heads",
       "decoder_heads",
+      "generic_support_aware_mixed_discrete_continuous_heads_selected_by_one_data_derived_rule",
       "deterministic_channel_or_group_balancing_from_one_formula"
     ],
     "forbidden_scope_differences": [
@@ -44,6 +45,7 @@
       "scope_specific_backend",
       "scope_specific_sampler",
       "scope_specific_calibration_layer",
+      "factor_name_specific_sparse_or_sticky_channel_heads",
       "post_hoc_gluing_of_separately_sampled_decks",
       "iv_derived_vix_proxy"
     ],
@@ -62,6 +64,7 @@
     "joint_comovement_preserved": true,
     "conditionality_as_population_risk_state_allocation": true,
     "credit_spread_stickiness_tracked_as_known_pathology": true,
+    "support_aware_mixed_head_requires_sticky_channel_audit": true,
     "no_proxy_vix": true
   },
   "budget": {

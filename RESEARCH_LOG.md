@@ -107061,3 +107061,34 @@ Updated persistent autoresearch handoff files:
 Run the first real-VIX tri-scope framework-lock iteration: pick the 719a-style state-aware normalized-innovation recipe as the baseline family, then retrain/evaluate the same frozen recipe on `iv_only`, `anchor_only`, and `joint` using the updated 14-anchor panel. Do not add new knobs until the tri-scope failure attribution is clear. Treat sticky AAA/BBB OAS as a known pathology: either document it as a limitation or test one generic low-activity-channel sparse/sticky adapter, not a credit-specific hack.
 
 ---
+## 2026-04-29: Support-aware mixed output-law workflow gate
+
+### Context
+The spread discussion clarified a workflow gap: a competent conditional scenario generator should not force all channels into a purely continuous daily-move law. Sticky channels such as AAA/BBB OAS can have many exact or near-zero daily moves plus rare large jumps. A risk-manager-credible and statistically correct law should model both `P(move | state)` and `p(move_size | move, state)` when the data support has that mixed structure.
+
+### Workflow Update
+Added a formal support-aware output-law policy across the autoresearch materials:
+- New failure class: `output_support`.
+- New research axis: `output_law`.
+- New gate: `Support-Aware Output Law Gate`.
+- Mixed discrete-continuous heads are allowed only as generic data-derived adapters, not factor-name patches.
+- The adapter must preserve the same shared encoder, stochastic source, generative core, scalar objective recipe, sampler, and tri-scope framework ID.
+
+Updated files:
+- `.agents/skills/autoresearch-head-loop/SKILL.md`
+- `docs/research_protocols/autoresearch_falsification_workflow.md`
+- `docs/research_protocols/662a_normalized_innovation_protocol.md`
+- `docs/research_protocols/733_real_vix_tri_scope_handoff.md`
+- `autoresearch-session/driver_prompt_11x11.md`
+- `autoresearch-session/goal_11x11.json`
+- `autoresearch-session/config.json`
+- `autoresearch-session/state_11x11.json`
+- `autoresearch-session/current_state.json`
+
+### Guardrail
+Before adding a mixed head, autoresearch must run a sticky-channel audit: train/validation no-change mass, tolerance sensitivity, continuous-head error on move-event rate, nonzero jump tails, stress-state move frequency, and checks for alignment/stale-quote/reconstruction causes. If the generic adapter requires credit-specific rules, scope-specific weights, or post-hoc snapping, reject it and document sticky low-activity channels as a limitation.
+
+### Decision
+This does not change the next immediate target: first run the real-VIX tri-scope framework-lock baseline. It adds an allowed minimal fix only if the baseline shows an `output_support` failure concentrated in sticky low-activity channels.
+
+---

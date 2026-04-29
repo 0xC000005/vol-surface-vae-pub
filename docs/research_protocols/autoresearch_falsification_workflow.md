@@ -26,6 +26,10 @@ secondary classes:
 
 - `data_object`: the generated target is not stable, realistic, finite, or
   learnable after preprocessing.
+- `output_support`: the generated target is stable, but the decoder/output law
+  has the wrong support for the empirical channel type, such as forcing a
+  purely continuous daily move law onto a channel with a large atom or near-atom
+  at zero.
 - `reconstruction`: true normalized/generated objects reconstruct correctly in
   theory but not in implementation or audit alignment.
 - `train_fit`: the model does not learn the in-training/train-tail conditional
@@ -74,6 +78,8 @@ targets the diagnosed failure class.
 Examples:
 
 - `data_object`: change normalization/coordinate estimator, not backbone.
+- `output_support`: change the support-aware output law or typed decoder head,
+  not backend or factor-specific preprocessing.
 - `reconstruction`: fix inverse transform/alignment, not model.
 - `conditionality`: strengthen conditioning pathway or loss audit, not switch
   to diffusion by default.
@@ -93,6 +99,9 @@ axes in one iteration unless the failure diagnosis proves they are coupled.
 
 - `data_object`: transforms, normalization, local scale/center estimator, and
   generated coordinate.
+- `output_law`: support-aware decoder/output heads, such as continuous,
+  bounded, positive-level, or mixed discrete-continuous sparse/sticky movement
+  heads.
 - `temporal_factorization`: autoregressive, one-shot, or hybrid path-latent plus
   autoregressive rollout.
 - `backend`: flow matching, diffusion, copula, likelihood, energy score, or
@@ -125,6 +134,54 @@ Every new research knob must be logged with:
   applicable).
 
 If a knob cannot be assigned a failure class and removal criterion, do not add it.
+
+## Support-Aware Output Law Gate
+
+A mixed discrete-continuous output head is allowed when it is the statistically
+correct support for the data, not a factor-name patch. This gate exists for
+channels whose daily encoded increments have a large no-change or near-no-change
+mass plus rare nonzero jumps.
+
+Allowed form:
+
+- the shared encoder, shared generative core, and stochastic source remain the
+  same;
+- the adapter is typed by a data-derived support statistic, not by a factor name;
+- the head models both event probability and nonzero move size, for example
+  `P(move | state)` and `p(move_size | move, state)`;
+- the scalar training objective is one frozen framework recipe across
+  `iv_only`, `anchor_only`, and `joint`, with channel-type terms produced by the
+  same formula;
+- the same channel-selection rule is used across scopes.
+
+Required audits before adding this head:
+
+- train and validation no-change mass by channel in the generated coordinate;
+- sensitivity of the no-change statistic to the tolerance used for
+  "near-zero";
+- baseline continuous-head error on no-change mass, move-event rate, nonzero
+  jump-size tails, and stress-state move frequency;
+- check that the issue is not caused by data alignment, stale quotes, missing
+  values, or reconstruction error.
+
+Forbidden forms:
+
+- selecting `aaa_oas` or `bbb_oas` by name without a data-derived rule;
+- adding credit-spread-specific loss weights;
+- changing backend, sampler, stochastic source, or calibration layer only for
+  sparse channels;
+- post-hoc snapping sampled paths to zero after generation and presenting that
+  as a learned conditional law.
+
+Acceptance criteria:
+
+- no-change mass and move-event rate become realistic;
+- nonzero jump-size tails remain realistic;
+- stress-state widening remains possible and state-dependent;
+- IV realism, anchor dependence, conditional panel response, and joint
+  co-movement do not regress materially;
+- if these criteria fail, document sticky low-activity channels as a limitation
+  rather than stacking more sparse-channel knobs.
 
 ## Literature Search Gate
 
@@ -186,6 +243,8 @@ Allowed scope differences are limited to data-interface adaptations:
 - input dimension and output dimension;
 - support/coordinate transform implied by variable type;
 - input heads and decoder heads;
+- support-aware mixed discrete-continuous heads selected by one data-derived
+  rule;
 - deterministic channel or group balancing computed by the same formula across
   scopes.
 

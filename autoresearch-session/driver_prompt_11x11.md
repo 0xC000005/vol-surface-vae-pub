@@ -30,7 +30,7 @@ Rules for this invocation:
    - switch to post-experiment analysis, research ideation, or paradigm shift as appropriate
 6. Enforce the single-framework candidate gate:
    - a model is not a framework candidate unless the same frozen recipe is run on IV-only, anchor-only, and joint scopes
-   - allowed differences are input/output dimensions, support transforms, input heads, decoder heads, and deterministic channel/group balancing
+   - allowed differences are input/output dimensions, support transforms, input heads, decoder heads, generic support-aware mixed discrete-continuous heads selected by one data-derived rule, and deterministic channel/group balancing
    - forbidden differences are scope-specific losses, loss weights, backend, prior, sampler, calibration layer, or post-hoc glued decks
    - if the best scope-specific runs use different recipes, run framework-lock analysis/experiments before adding another knob
 7. Continue until stopped only by:
@@ -59,7 +59,8 @@ Current active research direction:
 - treat `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the pre-real-VIX methodology/risk-manager baseline family, not as a current real-VIX champion checkpoint
 - preserve the single generation mechanism: AR normalized-innovation flow, one stochastic source, one frozen tri-scope framework unless diagnostics justify a switch
 - the next framework candidate must run one frozen recipe on `iv_only`, `anchor_only`, and `joint` with only allowed data-interface differences
-- known pathology: AAA/BBB OAS credit spreads are sticky and may require either a documented limitation or one generic low-activity-channel sparse/sticky adapter
+- known pathology: AAA/BBB OAS credit spreads are sticky and may require either a documented limitation or one generic support-aware mixed discrete-continuous low-activity-channel adapter
+- before adding that adapter, run a sticky-channel audit: no-change mass, move-event rate, nonzero jump tails, and stress-state move frequency across anchor channels
 - do not add credit-specific or scope-specific knobs unless the failure diagnosis and literature/first-principles argument justify the mechanism as generic
 
 This invocation should leave the repository in a resumable state after every iteration.
