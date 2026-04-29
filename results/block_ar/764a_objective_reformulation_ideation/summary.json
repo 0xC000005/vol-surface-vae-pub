@@ -1,0 +1,67 @@
+{
+  "run_id": "764a",
+  "iteration_type": "research_ideation",
+  "context": "763a showed that 762a failed because the level-marginal CRPS term was a large extra objective component, not because proper level scoring is intrinsically invalid.",
+  "constraints": [
+    "preserve normalized-innovation AR flow core",
+    "preserve one stochastic source",
+    "avoid post-hoc calibration as the base learned-law claim",
+    "avoid stacking unnormalized scalar proper scores",
+    "do not switch backend or add readout/source-scale knobs without new evidence",
+    "keep the candidate compatible with iv_only, anchor_only, and joint scopes"
+  ],
+  "options": [
+    {
+      "name": "budget_matched_level_score_replacement",
+      "description": "Replace the raw channel-level energy term with standardized level-delta marginal CRPS using a weight derived from the incumbent level-score budget, instead of adding it as a new large term.",
+      "pros": [
+        "changes one objective-coordinate axis",
+        "keeps a proper score",
+        "avoids uncontrolled objective scale",
+        "preserves the 755a short-prefix exposure-bias repair"
+      ],
+      "cons": [
+        "still uses a scalar objective budget",
+        "may under-correct validation hard-cell level allocation",
+        "may repeat the 691a standardized-delta weakness if the problem is not objective scale"
+      ],
+      "decision": "recommended"
+    },
+    {
+      "name": "self_normalized_multi_score_objective",
+      "description": "Normalize each proper-score component by a detached batch or running scale so scalar weights are dimensionless.",
+      "pros": [
+        "more principled than raw additive score magnitudes",
+        "general across panel types"
+      ],
+      "cons": [
+        "new optimizer dynamics",
+        "more implementation surface",
+        "harder to interpret than the budget-matched replacement falsifier"
+      ],
+      "decision": "defer_until_budget_replacement_fails"
+    },
+    {
+      "name": "conditional_source_scale_or_new_readout",
+      "description": "Reopen conditional source-scale or readout expressiveness changes.",
+      "pros": [
+        "targets uncertainty allocation more directly"
+      ],
+      "cons": [
+        "already falsified as simple variants in 678a, 689a, 692b, and 702b/c",
+        "risks adding knobs before objective scale is resolved"
+      ],
+      "decision": "reject_for_next_iteration"
+    }
+  ],
+  "recommended_next_experiment": {
+    "run_id": "765a",
+    "hypothesis": "If 762a failed mainly because the added level CRPS was over-weighted relative to the existing level objective budget, then replacing the raw channel-level energy with a budget-matched standardized level-CRPS term should preserve 755a train-tail robustness while testing whether the proper level score helps validation allocation.",
+    "source_checkpoint": "models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt",
+    "base_recipe": "755a short-prefix generated FM K=5",
+    "change": "channel_level_energy_weight=0.0; level_marginal_crps_weight=0.007; level_marginal_crps_coordinate=scaled_delta",
+    "weight_derivation": "0.007 approximates the incumbent validation channel-level-energy contribution: 0.05 * 0.275 / 1.970 = 0.00698 from 762a/763a.",
+    "falsifier": "Reject if train-tail remains below 755a by more than one suite or validation coverage/level KS remains worse than 755a."
+  },
+  "decision": "Run the budget-matched replacement before any new architecture/backend/source-scale change."
+}

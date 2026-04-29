@@ -107944,3 +107944,30 @@ The 762a term is not wrong in principle, but it is not a clean repair in the cur
 Do not stack another scalar level loss or simply tune the 762a weight. The next step should be research ideation or a cleaner reformulation of the objective/readout interaction, with the same single-framework constraints preserved.
 
 ---
+## 2026-04-29: Autoresearch 764a objective reformulation ideation
+
+### Context
+764a used the 763a attribution to choose the next principled move. The requirement was to avoid another ungrounded scalar-loss tweak while keeping the normalized-innovation AR flow core and single-framework constraints.
+
+### Ideation
+Options considered:
+- Budget-matched level-score replacement: replace raw channel-level energy with standardized level-delta marginal CRPS at the same objective budget.
+- Self-normalized multi-score objective: normalize score terms by detached component scale, but defer because it changes optimizer dynamics.
+- Conditional source-scale or readout changes: reject for the next iteration because simple variants were already falsified in 678a, 689a, 692b, and 702b/c.
+
+### Decision
+The next experiment should be a budget-matched replacement, not an additive score stack:
+- keep the 755a short-prefix generated FM recipe;
+- set `channel_level_energy_weight=0.0`;
+- set `level_marginal_crps_weight=0.007`;
+- set `level_marginal_crps_coordinate=scaled_delta`.
+
+The weight is derived from 763a's objective budget: `0.05 * 0.275 / 1.970 = 0.00698`, matching the incumbent channel-level-energy contribution rather than tuning against the evaluator.
+
+### Falsifier
+Reject this replacement if train-tail remains below 755a by more than one suite or if validation coverage/level-KS remains worse than 755a. If it fails, do not keep sweeping nearby weights; move to broader objective/readout reformulation.
+
+Artifacts:
+- `results/block_ar/764a_objective_reformulation_ideation/summary.{json,md}`.
+
+---
