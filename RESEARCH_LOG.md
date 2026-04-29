@@ -107477,3 +107477,36 @@ The validation coverage and level-distribution failures are strongly split-shift
 Do not claim 11/11 is blocked only by validation OOD. Also do not chase validation hard cells with calibration knobs. The next HEAD step should be research ideation: decide whether a true robust/non-stationary encoder mechanism is worth implementing, or whether the evidence is now strong enough to frame 734a/739a as risk-manager-presentable with strict calibrated-law limitations. Any next model experiment must target train-tail and validation failure jointly, not just validation coverage.
 
 ---
+## 2026-04-29: Autoresearch 747a post-train-tail ideation
+
+### Context
+746a showed the incumbent 674a/734a passes train-tail coverage and distributional fidelity but fails different strict gates than validation. Validation coverage failures are strongly split-shift/local-level-region driven; train-tail still exposes conditionality, path-tail, and regime-layer weaknesses. 745a also rejected the cheap `scale_local` feature, so the next move should not be another simple feature or calibration knob.
+
+### Evidence Synthesis
+Local evidence now supports three constraints:
+
+1. The hard validation cells are rare/shifted current-level regions, not a global variance shortage.
+2. The model already receives level state and relative-level features were insufficient, so the failure is not just missing a coordinate.
+3. Train-tail coverage is good, so a pure coverage-widening objective is misdirected; it would likely repeat 740a/742a by damaging path realism.
+
+### Literature Read
+Recent time-series work points to distribution-shift and non-stationary conditioning rather than scalar calibration:
+
+- RevIN, ICLR 2022, treats changing time-series statistics as a central forecasting obstacle and uses reversible normalization to handle distribution shift: `https://openreview.net/forum?id=cGDAkQo1C0p`.
+- Non-stationary Transformers, NeurIPS 2022, warns that stationarization can remove important non-stationary information and proposes restoring it into attention: `https://openreview.net/forum?id=ucNDIDRNjjv`.
+- Local Geometry Attention, ICLR 2026, argues that standard attention can miss local temporal geometry under realistic corruptions and uses query-specific local metrics: `https://openreview.net/forum?id=NCQPCxN7ds`.
+- TACTiS-2 remains relevant for marginal/dependence factorization, but the global score-coordinate trial already showed that a naive marginal transform can hurt IV path/level geometry: `https://openreview.net/forum?id=xtOydkE1Ku`.
+
+### Decision
+Do not jump straight to a full custom attention architecture. The most principled next experiment is a data/objective-side robustness test: state-balanced rollout fine-tuning. Use a generic train-derived rare-state weight based on current level-score extremeness, not validation labels and not hard-cell names. This addresses the actual diagnosed problem: uniformly trained objectives underrepresent shifted/rare current-level regions, so the model learns good average coverage but poor local lower-tail allocation.
+
+The proposed 748a experiment should:
+- keep AR normalized-innovation flow, sampler, and rollout/channel objective fixed;
+- start from the 674a incumbent;
+- compute a per-window state-tail weight from train current level scores using a symmetric, data-derived rarity rule;
+- apply that weight to the existing training objective, not as post-hoc calibration;
+- evaluate both validation and train-tail full suites to ensure it improves rare-region robustness without breaking in-sample path/time-series realism.
+
+Reject it if it improves validation hard cells only by worsening train-tail path/tail realism or if it requires factor/cell-specific thresholds.
+
+---
