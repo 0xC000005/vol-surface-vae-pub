@@ -107531,3 +107531,36 @@ On train-tail, the same change also regressed the incumbent: 746a/674a train-tai
 Reject state-tail oversampling as the next framework ingredient. Do not tune its strength or quantile yet; that would be a sampler knob without evidence of the right mechanism. The next HEAD step should be post-experiment trade-off attribution on 734a/745a/748a/746a: identify whether the remaining hard-cell issue is a transition expressiveness problem, a state encoder/local geometry problem, or an unavoidable validation-level shift, before adding another architecture or loss term.
 
 ---
+## 2026-04-29: Autoresearch 749a IV trade-off attribution
+
+### Context
+749a was a post-experiment attribution step required by the workflow after 748a failed. The goal was to classify the recurring IV strict-suite bottleneck before adding another sampler, loss, or architecture branch.
+
+### Result
+- Added `experiments/backfill/block_ar/analyze_749a_iv_tradeoff_attribution.py`.
+- Ran a hard-cell conditioning response audit on the 748a checkpoint: `results/block_ar/749a_748_hard_cell_condition_response/summary.json`.
+- Produced a cross-run attribution report: `results/block_ar/749a_iv_tradeoff_attribution/summary.{json,md}`.
+
+Key scorecard comparison:
+- 734a validation incumbent: `6/11`, cov90 `0.836`, level KS `17/25`, pathwise KS `0.442`.
+- 742a interval-score: `4/11`, cov90 `0.866`, level KS `9/25`, pathwise KS `0.543`.
+- 745a scale-local prefix: `6/11`, cov90 `0.799`, level KS `12/25`, pathwise KS `0.324`.
+- 748a state-tail sampler: `6/11`, cov90 `0.748`, level KS `10/25`, pathwise KS `0.313`.
+- 746a incumbent train-tail: `6/11`, coverage/distribution passed but conditionality, time-series, cointegration, regime, and pathwise failed.
+- 748a train-tail: `5/11`, coverage and mean reversion also failed.
+
+Hard-cell comparison:
+- Incumbent median low-tertile hard-cell coverage90: `0.316327`.
+- 748a median low-tertile hard-cell coverage90: `0.095238`.
+- Incumbent median hard lower-miss rate: `0.394558`.
+- 748a median hard lower-miss rate: `0.571429`.
+
+### Mechanism Read
+Objective weighting is rejected as the primary bottleneck: interval-score and state-tail reweighting moved aggregate metrics but damaged the path/level law. Simple state geometry is insufficient: broad risk-state allocation already passes, while per-cell late-horizon hard cells remain undercovered. Validation split shift is real but incomplete: the incumbent passes train-tail coverage/distribution, yet still fails conditionality, time-series tails, cointegration, regime coverage, and pathwise jumps.
+
+The strongest current attribution is transition/readout capacity over the multi-step path: daily increments are mostly realistic, but integrated levels and late-horizon hard cells fail. The model responds to broad turbulent/calm regimes, but does not carry state-local directional tail geometry through the 30-day generated path.
+
+### Decision
+Do not continue tuning scalar losses, sampler weights, source-scale shortcuts, or simple output heads. The next experiment should change one architectural axis only: a minimal shared transition/readout capacity increase that preserves the normalized-innovation data object, AR flow matching backend, one stochastic source, and the same tri-scope framework recipe.
+
+---
