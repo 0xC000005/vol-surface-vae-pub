@@ -87,6 +87,13 @@ def score_iv_suite(result: dict[str, Any]) -> dict[str, Any]:
     n_total = int(summary.get("n_total", 11))
     risk_state_pass = _as_bool(_get(result, "risk_state_allocation", "overall_pass", default=False))
     conditionality_pass = _as_bool(_get(result, "conditionality", "overall_pass", default=False))
+    economic_link = result.get("iv_ewma_economic_link")
+    economic_link_present = isinstance(economic_link, dict)
+    economic_link_pass = (
+        _as_bool(economic_link.get("overall_pass", False))
+        if economic_link_present
+        else True
+    )
 
     effective_failed = []
     for suite in failed:
@@ -95,6 +102,8 @@ def score_iv_suite(result: dict[str, Any]) -> dict[str, Any]:
         if suite in IV_MONITORING_ONLY_SUITES:
             continue
         effective_failed.append(str(suite))
+    if economic_link_present and not economic_link_pass:
+        effective_failed.append("iv_ewma_economic_link")
     pass_flag = not effective_failed and n_total >= 11
     return {
         "pass": bool(pass_flag),
@@ -108,7 +117,9 @@ def score_iv_suite(result: dict[str, Any]) -> dict[str, Any]:
         "risk_state_allocation_pass": bool(risk_state_pass),
         "conditionality_pass": bool(conditionality_pass),
         "conditionality_policy": "risk_state_allocation_may_replace_old_conditionality_gate",
-        "cointegration_policy": "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined",
+        "cointegration_policy": "old_iv_ewma_cointegration_monitoring_only_separate_from_economic_link_gate",
+        "iv_ewma_economic_link_present": bool(economic_link_present),
+        "iv_ewma_economic_link_pass": bool(economic_link_pass),
     }
 
 

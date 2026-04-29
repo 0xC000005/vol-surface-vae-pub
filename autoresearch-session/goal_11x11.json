@@ -32,7 +32,8 @@
     "iv_mean_reversion_non_regression_hard_gate",
     "risk_manager_deployability_non_regression_required",
     "old_conditionality_replaced_by_risk_state_allocation",
-    "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined",
+    "old_iv_ewma_cointegration_monitoring_only",
+    "iv_ewma_economic_link_gate_when_available",
     "append_RESEARCH_LOG_via_research-log-tail-append",
     "one_commit_per_iteration"
   ],

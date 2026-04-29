@@ -49,6 +49,7 @@ from experiments.backfill.block_ar.test_block_ar_requirements_v2 import (  # noq
     run_conditionality_tests,
     run_cross_cell_correlation_tests,
     run_distributional_fidelity_tests,
+    run_iv_ewma_economic_link_tests,
     run_mean_reversion_tests,
     run_pathwise_jump_realism_tests,
     run_regime_coverage_tests,
@@ -300,6 +301,14 @@ def run_suite(
         history_len=history_len,
         future_len=future_len,
     )
+    iv_ewma_economic_link = run_iv_ewma_economic_link_tests(
+        cond_samples,
+        ground_truth,
+        returns=returns,
+        test_start=rollout_start,
+        history_len=history_len,
+        future_len=future_len,
+    )
     regime_coverage = run_regime_coverage_tests(cond_samples, ground_truth, history_01)
     risk_state_allocation = run_risk_state_allocation_tests(
         cond_samples,
@@ -318,6 +327,7 @@ def run_suite(
         "time_series": time_series,
         "block_ar": block_ar,
         "cointegration": cointegration,
+        "iv_ewma_economic_link": iv_ewma_economic_link,
         "regime_coverage": regime_coverage,
         "risk_state_allocation": risk_state_allocation,
         "distributional_fidelity": distributional,

@@ -58,7 +58,8 @@
     "iv_only_experiments_are_diagnostic_unless_tri_scope_locked": true,
     "iv_mean_reversion_non_regression_hard_gate": true,
     "risk_manager_deployability_non_regression_required": true,
-    "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined": true,
+    "old_iv_ewma_cointegration_monitoring_only": true,
+    "iv_ewma_economic_link_gate_when_available": true,
     "research_log_mandatory": "Every HEAD iteration appends RESEARCH_LOG.md via research-log-tail-append.",
     "one_commit_per_iteration": true
   },

@@ -41,7 +41,9 @@ Rules for this invocation:
    - IV mean reversion is a hard non-regression gate; losing it makes the model not risk-manager deployable even if coverage, CRPS, interval score, likelihood, or old cointegration improves
    - preserve IV scenario realism, risk-state uncertainty allocation, pathwise jumps, cross-cell dependency, anchor realism, joint IV-factor co-movement, and conditional panel response
    - old path-prediction conditionality is deprecated when risk-state uncertainty allocation passes
-   - old IV-EWMA cointegration is monitoring-only until a formal new cointegration/dependence gate is defined; do not call co-movement "new cointegration" unless the gate is specified
+   - old IV-EWMA cointegration is kept as a monitoring diagnostic
+   - when present, use `iv_ewma_economic_link` as the IV/EWMA economic-link gate for promotion; it is not cointegration because it does not test residual stationarity
+   - do not call co-movement "new cointegration" unless a residual-stationarity gate is specified
 8. Continue until stopped only by:
    - the goal being reached
    - `autoresearch-session/STOP` existing

@@ -22,6 +22,13 @@ The old IV-EWMA `cointegration` suite is not a replacement for cross-market or
 surface dependency quality. It remains a monitoring diagnostic until a formal
 new cointegration/dependence gate is defined.
 
+When available, the IV gate also consumes the additive `iv_ewma_economic_link`
+diagnostic. This is not cointegration. It checks whether generated median IV
+preserves the historical IV/EWMA relationship strength using pooled slope,
+Spearman correlation, R² ratio, and per-cell slope stability. It is a
+risk-realism economic-link gate, while the old Engle-Granger cointegration
+suite remains reported separately.
+
 The IV gate fails if coverage, regime coverage, path realism, distributional
 fidelity, mean reversion, surface validity, or dependency/co-movement suites
 fail. For the current scorecard, the dependency suite is cross-cell correlation

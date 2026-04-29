@@ -334,10 +334,11 @@ reversion or scenario realism, it is diagnostic or rejected, not promoted.
 
 Old path-prediction conditionality is replaced by population risk-state
 uncertainty allocation when that diagnostic passes. Old IV-EWMA cointegration
-has no formal replacement yet; it remains a monitor unless a new
-cointegration/dependence gate is explicitly defined. Do not rename cross-cell
-correlation or IV-factor co-movement as "new cointegration" without defining
-the gate.
+remains a monitor. The additive `iv_ewma_economic_link` diagnostic is the
+promotion-facing IV/EWMA economic-link gate when present, but it is not
+cointegration because it does not test residual stationarity. Do not rename
+cross-cell correlation or IV-factor co-movement as "new cointegration" without
+defining a separate residual-stationarity gate.
 
 ## Trade-Off Attribution Gate
 

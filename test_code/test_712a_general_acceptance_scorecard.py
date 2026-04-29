@@ -11,8 +11,8 @@ from experiments.backfill.block_ar.acceptance_scorecard_712a import (
 )
 
 
-def _iv_result(failed_suites=None, risk_state=True):
-    return {
+def _iv_result(failed_suites=None, risk_state=True, economic_link=None):
+    result = {
         "summary": {
             "n_pass": 10 if failed_suites else 11,
             "n_total": 11,
@@ -21,6 +21,9 @@ def _iv_result(failed_suites=None, risk_state=True):
         "conditionality": {"overall_pass": False},
         "risk_state_allocation": {"overall_pass": risk_state},
     }
+    if economic_link is not None:
+        result["iv_ewma_economic_link"] = {"overall_pass": economic_link}
+    return result
 
 
 def _panel_summary(n_factors=3):
@@ -100,8 +103,19 @@ def test_iv_suite_treats_old_cointegration_as_monitoring_only() -> None:
     assert scored["monitoring_only_suites"] == ["cointegration"]
     assert (
         scored["cointegration_policy"]
-        == "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined"
+        == "old_iv_ewma_cointegration_monitoring_only_separate_from_economic_link_gate"
     )
+
+
+def test_iv_suite_gates_new_iv_ewma_economic_link_when_present() -> None:
+    scored = score_iv_suite(
+        _iv_result(failed_suites=["conditionality"], risk_state=True, economic_link=False)
+    )
+
+    assert scored["pass"] is False
+    assert scored["effective_failed_suites"] == ["iv_ewma_economic_link"]
+    assert scored["iv_ewma_economic_link_present"] is True
+    assert scored["iv_ewma_economic_link_pass"] is False
 
 
 def test_anchor_panel_requires_marginals_tails_dependency_and_conditioning() -> None:

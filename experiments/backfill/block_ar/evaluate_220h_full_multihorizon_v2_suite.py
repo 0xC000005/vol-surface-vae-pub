@@ -34,6 +34,7 @@ from experiments.backfill.block_ar.test_block_ar_requirements_v2 import (
     run_conditionality_tests,
     run_cross_cell_correlation_tests,
     run_distributional_fidelity_tests,
+    run_iv_ewma_economic_link_tests,
     run_mean_reversion_tests,
     run_pathwise_jump_realism_tests,
     run_regime_coverage_tests,
@@ -228,6 +229,14 @@ def main() -> None:
         history_len=args.history_len,
         future_len=args.future_len,
     )
+    iv_ewma_economic_link = run_iv_ewma_economic_link_tests(
+        cond_samples,
+        ground_truth,
+        returns=returns,
+        test_start=rollout_start,
+        history_len=args.history_len,
+        future_len=args.future_len,
+    )
     regime_coverage = run_regime_coverage_tests(cond_samples, ground_truth, history_01)
     risk_state_allocation = run_risk_state_allocation_tests(
         cond_samples,
@@ -257,6 +266,7 @@ def main() -> None:
         "time_series": time_series,
         "block_ar": block_ar,
         "cointegration": cointegration,
+        "iv_ewma_economic_link": iv_ewma_economic_link,
         "regime_coverage": regime_coverage,
         "risk_state_allocation": risk_state_allocation,
         "distributional_fidelity": distributional,
@@ -294,6 +304,9 @@ def main() -> None:
         f"- time-series ACF corr: `{time_series['acf']['acf_correlation']:.3f}`",
         f"- block boundary ratio: `{block_ar['boundary_smoothness']['boundary_ratio']:.3f}`",
         f"- cointegration gen/GT ratio: `{cointegration.get('gen_gt_ratio', float('nan')):.3f}`",
+        f"- IV-EWMA economic link: `{iv_ewma_economic_link['overall_pass']}` "
+        f"(slope ratio `{iv_ewma_economic_link.get('slope_ratio', float('nan')):.3f}`, "
+        f"rho ratio `{iv_ewma_economic_link.get('spearman_ratio', float('nan')):.3f}`)",
         f"- regime coverage overall: `{regime_coverage['overall_pass']}`",
         f"- risk-state allocation: `{risk_state_allocation['overall_pass']}`",
         f"- risk-state observable response: `{risk_state_allocation.get('observable_state_response_pass', False)}`",

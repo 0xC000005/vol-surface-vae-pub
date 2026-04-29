@@ -221,6 +221,7 @@ def summarize_results(results: dict[str, Any], alignment: dict[str, float]) -> l
     conditionality = results["conditionality"]
     distributional = results["distributional_fidelity"]
     pathwise = results["pathwise_jump_realism"]
+    iv_link = results.get("iv_ewma_economic_link", {})
     return [
         "- source: `662a state-aware normalized-innovation AR flow`",
         f"- suite score: `{summary['n_pass']}/11`",
@@ -236,6 +237,9 @@ def summarize_results(results: dict[str, Any], alignment: dict[str, float]) -> l
         f"- level KS pass cells: `{distributional['ks_level_test']['n_pass']}/25`",
         f"- median-bias cells: `{distributional['median_bias']['n_pass']}/25`",
         f"- max-jump KS: `{pathwise['pathwise_max_jump']['ks_stat']:.3f}`",
+        f"- IV-EWMA economic link: `{iv_link.get('overall_pass', False)}` "
+        f"(slope ratio `{iv_link.get('slope_ratio', float('nan')):.3f}`, "
+        f"rho ratio `{iv_link.get('spearman_ratio', float('nan')):.3f}`)",
     ]
 
 

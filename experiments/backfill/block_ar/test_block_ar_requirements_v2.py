@@ -1967,6 +1967,156 @@ def run_cointegration_tests(
     }
 
 
+def run_iv_ewma_economic_link_tests(
+    cond_samples: np.ndarray,
+    ground_truth: np.ndarray,
+    returns: np.ndarray,
+    test_start: int,
+    history_len: int = 30,
+    future_len: int = 30,
+    ewma_lambda: float = 0.94,
+) -> Dict:
+    """Compare generated and GT IV/EWMA economic-link strength.
+
+    This is not an Engle-Granger cointegration test. It is an additive
+    relationship diagnostic: does the generated median IV surface preserve the
+    historical monotone/linear link to realized-vol EWMA at similar strength?
+    The old cointegration suite remains separate.
+    """
+    print("\n" + "=" * 60)
+    print("DIAGNOSTIC: IV-EWMA ECONOMIC LINK")
+    print("=" * 60)
+
+    cond_samples = np.asarray(cond_samples, dtype=np.float64)
+    ground_truth = np.asarray(ground_truth, dtype=np.float64)
+    returns = np.asarray(returns, dtype=np.float64)
+    N, _S, T, H, W = cond_samples.shape
+    use_t = min(T, int(future_len), ground_truth.shape[1])
+    gen_median = np.median(cond_samples[:, :, :use_t], axis=1)
+    gt = ground_truth[:, :use_t]
+
+    def compute_ewma_vol(ret_window: np.ndarray, warmup_returns: np.ndarray) -> np.ndarray:
+        if warmup_returns.size:
+            var = float(warmup_returns[0] ** 2)
+            for ret in warmup_returns[1:]:
+                var = ewma_lambda * var + (1.0 - ewma_lambda) * float(ret ** 2)
+        elif ret_window.size:
+            var = float(ret_window[0] ** 2)
+        else:
+            var = 0.0
+        path = []
+        for ret in ret_window[:use_t]:
+            var = ewma_lambda * var + (1.0 - ewma_lambda) * float(ret ** 2)
+            path.append(np.sqrt(var * 252.0))
+        return np.asarray(path, dtype=np.float64)
+
+    ewma_rows = []
+    valid_indices = []
+    for win_idx in range(N):
+        history_start = test_start + win_idx
+        future_start = history_start + history_len
+        if future_start + use_t > returns.shape[0]:
+            continue
+        warmup = returns[history_start:history_start + history_len]
+        future = returns[future_start:future_start + use_t]
+        ewma_rows.append(compute_ewma_vol(future, warmup))
+        valid_indices.append(win_idx)
+
+    if not valid_indices:
+        return {
+            "overall_pass": False,
+            "n_valid_windows": 0,
+            "methodology": "pooled_iv_ewma_relationship_strength",
+        }
+
+    valid = np.asarray(valid_indices, dtype=np.int64)
+    ewma = np.asarray(ewma_rows, dtype=np.float64)
+    ewma_grid = np.broadcast_to(ewma[:, :, None, None], (valid.size, use_t, H, W))
+    x = ewma_grid.reshape(-1)
+    gt_y = gt[valid].reshape(-1)
+    gen_y = gen_median[valid].reshape(-1)
+
+    gt_slope, gt_intercept, gt_r2 = _slope_intercept_r2(x, gt_y)
+    gen_slope, gen_intercept, gen_r2 = _slope_intercept_r2(x, gen_y)
+    gt_spearman = _safe_spearman(x, gt_y)
+    gen_spearman = _safe_spearman(x, gen_y)
+
+    slope_ratio = gen_slope / gt_slope if abs(gt_slope) > 1e-12 else float("nan")
+    r2_ratio = gen_r2 / gt_r2 if gt_r2 > 1e-12 else float("nan")
+    spearman_ratio = gen_spearman / gt_spearman if abs(gt_spearman) > 1e-12 else float("nan")
+
+    slope_sign_pass = bool(gt_slope <= 0 or gen_slope > 0)
+    slope_ratio_pass = bool(np.isfinite(slope_ratio) and 0.50 <= slope_ratio <= 2.00)
+    r2_ratio_pass = bool(gt_r2 < 0.02 or (np.isfinite(r2_ratio) and 0.35 <= r2_ratio <= 3.00))
+    spearman_pass = bool(
+        gt_spearman < 0.10
+        or (gen_spearman >= 0.05 and np.isfinite(spearman_ratio) and spearman_ratio >= 0.50)
+    )
+
+    per_cell_ratio = np.full((H, W), np.nan, dtype=np.float64)
+    per_cell_pass = np.zeros((H, W), dtype=bool)
+    per_cell_valid = np.zeros((H, W), dtype=bool)
+    for i in range(H):
+        for j in range(W):
+            cell_x = ewma.reshape(-1)
+            cell_gt = gt[valid, :use_t, i, j].reshape(-1)
+            cell_gen = gen_median[valid, :use_t, i, j].reshape(-1)
+            cell_gt_slope, _, _ = _slope_intercept_r2(cell_x, cell_gt)
+            cell_gen_slope, _, _ = _slope_intercept_r2(cell_x, cell_gen)
+            if abs(cell_gt_slope) <= 1e-12:
+                continue
+            per_cell_valid[i, j] = True
+            ratio = cell_gen_slope / cell_gt_slope
+            per_cell_ratio[i, j] = ratio
+            per_cell_pass[i, j] = bool(cell_gt_slope <= 0 or (cell_gen_slope > 0 and 0.25 <= ratio <= 4.00))
+
+    n_cell_valid = int(per_cell_valid.sum())
+    n_cell_pass = int((per_cell_pass & per_cell_valid).sum())
+    per_cell_pass_rate = n_cell_pass / n_cell_valid if n_cell_valid else 1.0
+    per_cell_slope_pass = per_cell_pass_rate >= 0.80
+    overall_pass = (
+        slope_sign_pass
+        and slope_ratio_pass
+        and r2_ratio_pass
+        and spearman_pass
+        and per_cell_slope_pass
+    )
+
+    print(f"  Windows tested: {valid.size}")
+    print(f"  GT slope/R²/Spearman:  {gt_slope:.4f} / {gt_r2:.4f} / {gt_spearman:.3f}")
+    print(f"  Gen slope/R²/Spearman: {gen_slope:.4f} / {gen_r2:.4f} / {gen_spearman:.3f}")
+    print(f"  Slope ratio: {slope_ratio:.3f} (gate [0.50, 2.00]) {'PASS' if slope_ratio_pass else 'FAIL'}")
+    print(f"  R² ratio: {r2_ratio:.3f} (gate [0.35, 3.00] when GT R² >= 0.02) {'PASS' if r2_ratio_pass else 'FAIL'}")
+    print(f"  Spearman ratio: {spearman_ratio:.3f} (gate >=0.50 when GT rho >=0.10) {'PASS' if spearman_pass else 'FAIL'}")
+    print(f"  Per-cell slope pass: {n_cell_pass}/{n_cell_valid} (gate >=80%) {'PASS' if per_cell_slope_pass else 'FAIL'}")
+
+    return {
+        "methodology": "pooled_iv_ewma_relationship_strength_not_engle_granger",
+        "n_valid_windows": int(valid.size),
+        "gt_slope": float(gt_slope),
+        "gen_slope": float(gen_slope),
+        "slope_ratio": float(slope_ratio),
+        "slope_sign_pass": slope_sign_pass,
+        "slope_ratio_pass": slope_ratio_pass,
+        "gt_intercept": float(gt_intercept),
+        "gen_intercept": float(gen_intercept),
+        "gt_r2": float(gt_r2),
+        "gen_r2": float(gen_r2),
+        "r2_ratio": float(r2_ratio),
+        "r2_ratio_pass": r2_ratio_pass,
+        "gt_spearman": float(gt_spearman),
+        "gen_spearman": float(gen_spearman),
+        "spearman_ratio": float(spearman_ratio),
+        "spearman_pass": spearman_pass,
+        "per_cell_slope_ratio": per_cell_ratio.tolist(),
+        "per_cell_slope_pass_count": n_cell_pass,
+        "per_cell_slope_valid_count": n_cell_valid,
+        "per_cell_slope_pass_rate": float(per_cell_pass_rate),
+        "per_cell_slope_pass": bool(per_cell_slope_pass),
+        "overall_pass": bool(overall_pass),
+    }
+
+
 # =============================================================================
 # Test Suite 7: Three-Layer Regime Coverage
 # =============================================================================

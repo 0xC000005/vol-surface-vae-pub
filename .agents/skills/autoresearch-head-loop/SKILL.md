@@ -192,10 +192,12 @@ realism, classify it as a diagnostic branch or rejected branch.
 
 Old path-prediction conditionality is deprecated for promotion decisions when
 the population risk-state uncertainty allocation diagnostic passes. The old
-IV-EWMA cointegration suite is a monitoring diagnostic until a formal new
-cointegration/dependence gate is defined; do not call cross-cell correlation or
-IV-factor co-movement "new cointegration" unless that gate is explicitly
-specified.
+IV-EWMA cointegration suite remains a monitoring diagnostic. The additive
+`iv_ewma_economic_link` diagnostic is the promotion-facing IV/EWMA economic-link
+gate when present, but it is not cointegration because it does not test
+residual stationarity. Do not call cross-cell correlation or IV-factor
+co-movement "new cointegration" unless a separate residual-stationarity gate is
+explicitly specified.
 
 ## Trade-Off Attribution Gate
 

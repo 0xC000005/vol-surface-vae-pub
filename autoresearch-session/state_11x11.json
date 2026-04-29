@@ -24,7 +24,7 @@
     "diagnostic_branch",
     "rejected_branch"
   ],
-  "promotion_policy": "A new model can replace the deployable incumbent only if the same framework recipe is evaluated on iv_only, anchor_only, and joint and passes tri-scope non-regression against 734a/739a. IV-only improvements can update iv_research_frontier only; they cannot be called the current deployable model. Old conditionality is replaced by risk-state uncertainty allocation when that diagnostic passes. Old IV-EWMA cointegration is monitoring-only until a formal new cointegration/dependence gate is defined.",
+  "promotion_policy": "A new model can replace the deployable incumbent only if the same framework recipe is evaluated on iv_only, anchor_only, and joint and passes tri-scope non-regression against 734a/739a. IV-only improvements can update iv_research_frontier only; they cannot be called the current deployable model. Old conditionality is replaced by risk-state uncertainty allocation when that diagnostic passes. Old IV-EWMA cointegration is kept as a monitoring diagnostic. The additive iv_ewma_economic_link diagnostic is the promotion-facing IV/EWMA economic-link gate when present, but it is not cointegration because it does not test residual stationarity.",
   "hard_non_regression_gates": [
     "iv_mean_reversion",
     "iv_scenario_realism",

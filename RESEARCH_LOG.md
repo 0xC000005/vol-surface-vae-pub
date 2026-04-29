@@ -108003,3 +108003,48 @@ The new evidence says the bottleneck is not simply missing a level proper score.
 Reject 765a as the active learned base model. Keep 755a as the active base IV learned generator. Do not tune another nearby scalar level-score weight. The next HEAD step should analyze or ideate a cleaner objective/readout separation that can improve level support without damaging transition-shape realism.
 
 ---
+## 2026-04-29: IV-EWMA Economic-Link Diagnostic Added
+
+### Context
+
+The previous workflow update correctly stopped treating old IV-EWMA Engle-Granger cointegration as a promotion blocker, but that left an ambiguity: cross-cell dependence and IV-factor co-movement are useful realism checks, but they are not cointegration and should not be described as a new cointegration test.
+
+### Change
+
+Added an additive `iv_ewma_economic_link` diagnostic for IV surfaces. It does not remove or replace the old Engle-Granger cointegration suite. It checks whether generated median IV preserves the historical IV/EWMA relationship strength using:
+
+- pooled IV-on-EWMA slope ratio;
+- pooled Spearman correlation ratio;
+- pooled R² ratio;
+- per-cell slope stability.
+
+The old `cointegration` suite remains reported separately as a monitoring diagnostic. Cross-cell correlation and IV-factor co-movement remain dependency/co-movement checks, not cointegration.
+
+### Implementation
+
+Updated:
+
+- `experiments/backfill/block_ar/test_block_ar_requirements_v2.py`
+- `experiments/backfill/block_ar/evaluate_220h_full_multihorizon_v2_suite.py`
+- `experiments/backfill/block_ar/evaluate_438a_deployable_residual_bootstrap_system.py`
+- `experiments/backfill/block_ar/evaluate_662a_state_aware_normalized_innovation_flow.py`
+- `experiments/backfill/block_ar/acceptance_scorecard_712a.py`
+- `test_code/test_iv_ewma_economic_link.py`
+- `test_code/test_712a_general_acceptance_scorecard.py`
+
+The 712a scorecard now gates `iv_ewma_economic_link` when present, while old IV-EWMA cointegration remains monitoring-only and separate.
+
+### Verification
+
+- `pytest test_code/test_iv_ewma_economic_link.py test_code/test_712a_general_acceptance_scorecard.py -q` passed, `10 passed`.
+- `python -m py_compile` passed for the updated evaluator and scorecard scripts.
+
+### Decision
+
+Future runs should report all three concepts distinctly:
+
+- old Engle-Granger IV-EWMA cointegration: monitoring;
+- new IV-EWMA economic-link diagnostic: promotion-facing IV/EWMA realism gate when present;
+- cross-cell/IV-factor co-movement: dependency realism, not cointegration.
+
+---
