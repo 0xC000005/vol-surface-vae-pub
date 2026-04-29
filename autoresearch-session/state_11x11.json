@@ -4,8 +4,8 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 737,
-  "last_iteration_type": "research_ideation",
+  "iteration": 738,
+  "last_iteration_type": "post_experiment_analysis",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "real_vix_tri_scope_handoff_ref": "docs/research_protocols/733_real_vix_tri_scope_handoff.md",
@@ -16,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "736a falsified the first learned mixed-support no-update head as a repair for the real-VIX tri-scope framework. The mechanism remains one shared AR normalized-innovation flow with a generic train-no-change-selected Bernoulli no-update head, but the anchor-only falsifier failed before joint retraining: factor KS stayed 12/14 and AAA/BBB OAS regressed. Do not promote this mixed-support variant as a framework candidate.",
+  "current_framework_status": "738a reframed the 734a continuous real-VIX framework as a liquid-factor candidate with sticky quoted OAS monitored separately. Excluding only factor:aaa_oas and factor:bbb_oas, 734a passes 12/12 liquid factor KS and 12/12 liquid tail-scale checks in both anchor-only and joint panels, while full factor correlation, IV-factor correlation, and conditional panel response already pass. This is risk-manager-presentable for liquid factors but not a publishable credit-spread law.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, output_law, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The current AR flow core remains coherent for liquid continuous factors, but sticky quoted OAS appears to be a different observation object: intermittent/stale quote updates with a point mass at zero plus conditional nonzero sizes. Recent intermittent-time-series literature supports explicit renewal/hurdle/Tweedie-style observation laws for this class; the simple Bernoulli add-on is not enough because event probability and nonzero scale are coupled.",
-  "last_result_summary": "737a literature-backed ideation after 736a: intermittent/sparse forecasting work treats zero-heavy series as a distinct probabilistic observation problem. Deep renewal processes model arrival timing and positive sizes; recent Tweedie likelihood work emphasizes a distribution with a point mass at zero and heavy tails. This supports the local evidence that sticky OAS should not be repaired by incremental threshold/gate knobs inside the same continuous innovation coordinate.",
-  "next_step_recommendation": "Next HEAD cycle should be a data/objective decision, not another OAS knob. Recommended: create a liquid-factor framework scorecard that treats sticky quoted OAS as a documented observation-model limitation, while preserving OAS diagnostics as non-gated risk-manager monitoring. In parallel, define a separate future paradigm only if the objective requires publishable credit-spread law: a full hurdle/renewal observation model with conditional nonzero scale, applied generically to intermittent channels. Do not change AR flow backend for liquid IV/anchor/joint factors based on OAS alone.",
+  "current_bottleneck": "Liquid-factor anchor/joint realism is now strong under the 734a continuous real-VIX framework, but IV-facing strict full-suite remains only 6/11 under current gates and sticky OAS remains a monitored limitation. The next deployability question is whether the IV strict failures are risk-manager-critical calibration defects or mostly strict probability-law gates that can be reported separately from scenario realism.",
+  "last_result_summary": "738a liquid-factor reframe from 734a artifacts: anchor liquid factors excluding AAA/BBB OAS pass 12/12 KS<0.20, KS mean 0.0734, and 12/12 q99 tail-scale; joint liquid factors pass 12/12 KS<0.20, KS mean 0.0701, and 12/12 q99 tail-scale. Full anchor factor corr upper_corr 0.902 and conditional gain 4.99%; full joint factor corr upper_corr 0.861, IV-factor corr 0.943, and conditional gain 4.97%. Sticky OAS remains failing and monitored.",
+  "next_step_recommendation": "Run a deployability scorecard for 734a under the explicit risk-manager framing: IV realism/conditional risk-state allocation, liquid anchor realism, native joint co-movement, and sticky OAS monitoring. Do not claim strict learned conditional law for credit spreads. If the scorecard is acceptable, document 734a as the current risk-manager-presentable real-VIX liquid-factor candidate and shift future work to either IV calibration or a separate hurdle observation paradigm for sticky spreads.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. 719a remains the pre-real-VIX unified methodology baseline: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals. Because observed VIX changed the factor panel, do not claim a current real-VIX tri-scope champion until rerun.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "a639f63",
+  "last_commit": "pending_738a_commit",
   "resume_command_hint": "continue autoresearch"
 }

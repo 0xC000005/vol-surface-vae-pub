@@ -107196,3 +107196,34 @@ Do not keep adding OAS-specific knobs inside the current flow backend. The next 
 Backend switching is not justified by the evidence. The issue is the observed object for sticky spreads, not AR flow matching itself.
 
 ---
+## 2026-04-29: 738a Liquid-factor real-VIX reframe
+
+### Context
+737a concluded that sticky AAA/BBB OAS should be treated as an observation-object limitation unless we start a broader hurdle/renewal paradigm. 738a quantified whether the existing 734a continuous real-VIX framework is acceptable for the remaining liquid anchors and native joint panel.
+
+### Result
+Artifact: `results/block_ar/738a_liquid_factor_reframe/analysis.json`.
+
+Using the 734a real-VIX continuous normalized-innovation framework and excluding only `factor:aaa_oas` and `factor:bbb_oas` from the hard liquid-factor gate:
+
+- Anchor liquid factors: `12/12` pass KS < `0.20`, mean KS `0.0734`, `12/12` pass q99 tail-scale.
+- Joint liquid factors: `12/12` pass KS < `0.20`, mean KS `0.0701`, `12/12` pass q99 tail-scale.
+- Full anchor dependency/conditional checks remain acceptable: factor-factor upper correlation `0.902`, conditional median MAE gain `4.99%`, history-activity width rho `0.924`.
+- Full joint dependency/conditional checks remain acceptable: factor-factor upper correlation `0.861`, IV-factor matrix correlation `0.943`, conditional median MAE gain `4.97%`, history-activity width rho `0.945`.
+- Sticky OAS remains monitored but not solved: anchor AAA/BBB KS `0.261/0.355`; joint AAA/BBB KS `0.253/0.262`.
+
+### Mechanism Read
+The general multivariate generator is not failing broadly. It handles liquid heterogeneous factors, native IV-plus-anchor co-movement, tail scale, and conditional panel response. The hard failure is concentrated in quoted/stale OAS observation mechanics. This supports a risk-manager liquid-factor scenario-generator framing, but not a claim that the model has learned a publishable conditional law for credit spreads.
+
+### Decision
+Treat 734a as the current risk-manager-presentable real-VIX liquid-factor candidate, with sticky OAS documented as a non-gated monitored limitation. The next HEAD step should build a deployability scorecard that separates:
+
+- base IV scenario realism and risk-state allocation;
+- liquid anchor and native joint realism;
+- IV-factor co-movement;
+- sticky OAS monitoring;
+- strict calibrated-law failures reported separately.
+
+Do not claim strict 11/11 conditional-law success. Do not add another OAS knob unless the research objective explicitly shifts to a full hurdle/renewal observation model.
+
+---
