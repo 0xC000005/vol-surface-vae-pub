@@ -1,0 +1,243 @@
+{
+  "config": {
+    "checkpoint": "models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt",
+    "localization_json": "results/block_ar/741a_iv_coverage_localization/summary.json",
+    "test_start": 4511,
+    "val_size": 441,
+    "max_windows": 441
+  },
+  "hard_key_source": [
+    {
+      "horizon": 14,
+      "row": 2,
+      "col": 3,
+      "cell_index": 13,
+      "baseline_coverage": 0.673469387755102
+    },
+    {
+      "horizon": 30,
+      "row": 0,
+      "col": 2,
+      "cell_index": 2,
+      "baseline_coverage": 0.6031746031746031
+    },
+    {
+      "horizon": 30,
+      "row": 2,
+      "col": 3,
+      "cell_index": 13,
+      "baseline_coverage": 0.5238095238095238
+    },
+    {
+      "horizon": 30,
+      "row": 3,
+      "col": 3,
+      "cell_index": 18,
+      "baseline_coverage": 0.5782312925170068
+    }
+  ],
+  "audit": {
+    "n_train_tail_windows": 441,
+    "n_val_windows": 441,
+    "grid_level_ks": {
+      "median": 0.27891156462585037,
+      "p90": 0.4151927437641724,
+      "max": 0.5419501133786848,
+      "n_gt_020": 570,
+      "n_total": 750
+    },
+    "grid_cum_change_ks": {
+      "median": 0.11564625850340138,
+      "p90": 0.20861678004535156,
+      "max": 0.2789115646258503,
+      "n_gt_020": 94,
+      "n_total": 750
+    },
+    "grid_increment_ks": {
+      "median": 0.08843537414965985,
+      "p90": 0.13174603174603186,
+      "max": 0.1541950113378684,
+      "n_gt_020": 0,
+      "n_total": 750
+    },
+    "hard_cells": [
+      {
+        "horizon": 14,
+        "row": 2,
+        "col": 3,
+        "cell_index": 13,
+        "baseline_coverage": 0.673469387755102,
+        "level_ks_train_tail_vs_val": 0.4013605442176871,
+        "cum_change_ks_train_tail_vs_val": 0.15873015873015883,
+        "path_increment_ks_train_tail_vs_val": 0.0843861354065436,
+        "level_train_tail": {
+          "q05": 0.07382859289646149,
+          "q50": 0.09170202165842056,
+          "q95": 0.13957412540912628,
+          "mean": 0.09681457740649614,
+          "std": 0.02007790714094047
+        },
+        "level_val": {
+          "q05": 0.050554607063531876,
+          "q50": 0.07785793393850327,
+          "q95": 0.09936150163412094,
+          "mean": 0.07627856856435876,
+          "std": 0.01602142095022426
+        },
+        "cum_change_train_tail": {
+          "q05": -0.02399347722530365,
+          "q50": -0.0006156712770462036,
+          "q95": 0.0405709370970726,
+          "mean": 0.0016191841151708918,
+          "std": 0.018798396367609403
+        },
+        "cum_change_val": {
+          "q05": -0.021553359925746918,
+          "q50": -0.0019455663859844208,
+          "q95": 0.0120844766497612,
+          "mean": -0.00281699117518066,
+          "std": 0.010906030116943986
+        },
+        "val_in_train_tail_80_interval_level": 0.5215419501133787,
+        "val_in_train_tail_90_interval_level": 0.6031746031746031,
+        "val_in_train_tail_95_interval_level": 0.6394557823129252,
+        "val_mean_shift_in_train_tail_std_level": -1.0228164196014404
+      },
+      {
+        "horizon": 30,
+        "row": 0,
+        "col": 2,
+        "cell_index": 2,
+        "baseline_coverage": 0.6031746031746031,
+        "level_ks_train_tail_vs_val": 0.45351473922902497,
+        "cum_change_ks_train_tail_vs_val": 0.20861678004535145,
+        "path_increment_ks_train_tail_vs_val": 0.10302343159486027,
+        "level_train_tail": {
+          "q05": 0.09349772334098816,
+          "q50": 0.12940874695777893,
+          "q95": 0.21436288952827454,
+          "mean": 0.13926490054987456,
+          "std": 0.038857808524131864
+        },
+        "level_val": {
+          "q05": 0.0668041780591011,
+          "q50": 0.09605275839567184,
+          "q95": 0.14843802154064178,
+          "mean": 0.10017754544679269,
+          "std": 0.02566910000669147
+        },
+        "cum_change_train_tail": {
+          "q05": -0.08038707077503204,
+          "q50": 0.000552743673324585,
+          "q95": 0.09469035267829895,
+          "mean": 0.005731589348813574,
+          "std": 0.050197041010984475
+        },
+        "cum_change_val": {
+          "q05": -0.06043693423271179,
+          "q50": -0.004423670470714569,
+          "q95": 0.033406853675842285,
+          "mean": -0.007488699127284307,
+          "std": 0.029019904384709555
+        },
+        "val_in_train_tail_80_interval_level": 0.4671201814058957,
+        "val_in_train_tail_90_interval_level": 0.5419501133786848,
+        "val_in_train_tail_95_interval_level": 0.5918367346938775,
+        "val_mean_shift_in_train_tail_std_level": -1.0059075355529785
+      },
+      {
+        "horizon": 30,
+        "row": 2,
+        "col": 3,
+        "cell_index": 13,
+        "baseline_coverage": 0.5238095238095238,
+        "level_ks_train_tail_vs_val": 0.4467120181405896,
+        "cum_change_ks_train_tail_vs_val": 0.23809523809523814,
+        "path_increment_ks_train_tail_vs_val": 0.08692365835222982,
+        "level_train_tail": {
+          "q05": 0.07382859289646149,
+          "q50": 0.09396946430206299,
+          "q95": 0.13957412540912628,
+          "mean": 0.09780307208734845,
+          "std": 0.020329539864088114
+        },
+        "level_val": {
+          "q05": 0.050372540950775146,
+          "q50": 0.07632321864366531,
+          "q95": 0.09574317187070847,
+          "mean": 0.07415293320134925,
+          "std": 0.01464251079636361
+        },
+        "cum_change_train_tail": {
+          "q05": -0.03815200924873352,
+          "q50": -0.0019211247563362122,
+          "q95": 0.05700816959142685,
+          "mean": 0.002607678796023198,
+          "std": 0.025760595215290796
+        },
+        "cum_change_val": {
+          "q05": -0.0262969508767128,
+          "q50": -0.0038354843854904175,
+          "q95": 0.012350238859653473,
+          "mean": -0.0049426265381901716,
+          "std": 0.013621678231260212
+        },
+        "val_in_train_tail_80_interval_level": 0.4875283446712018,
+        "val_in_train_tail_90_interval_level": 0.5668934240362812,
+        "val_in_train_tail_95_interval_level": 0.6031746031746031,
+        "val_mean_shift_in_train_tail_std_level": -1.1633390188217163
+      },
+      {
+        "horizon": 30,
+        "row": 3,
+        "col": 3,
+        "cell_index": 18,
+        "baseline_coverage": 0.5782312925170068,
+        "level_ks_train_tail_vs_val": 0.4557823129251701,
+        "cum_change_ks_train_tail_vs_val": 0.2517006802721089,
+        "path_increment_ks_train_tail_vs_val": 0.14353741496598638,
+        "level_train_tail": {
+          "q05": 0.10677327960729599,
+          "q50": 0.11944269388914108,
+          "q95": 0.15342044830322266,
+          "mean": 0.1234493256291024,
+          "std": 0.014582734981819894
+        },
+        "level_val": {
+          "q05": 0.08491085469722748,
+          "q50": 0.1067233607172966,
+          "q95": 0.12304545193910599,
+          "mean": 0.10570229983586572,
+          "std": 0.012428786697286734
+        },
+        "cum_change_train_tail": {
+          "q05": -0.02734553813934326,
+          "q50": 0.0007891803979873657,
+          "q95": 0.0397983193397522,
+          "mean": 0.002431839941039918,
+          "std": 0.01796630051802551
+        },
+        "cum_change_val": {
+          "q05": -0.01909816265106201,
+          "q50": -0.0027585476636886597,
+          "q95": 0.009392082691192627,
+          "mean": -0.00406461538506203,
+          "std": 0.009743040294043074
+        },
+        "val_in_train_tail_80_interval_level": 0.4875283446712018,
+        "val_in_train_tail_90_interval_level": 0.4988662131519274,
+        "val_in_train_tail_95_interval_level": 0.5192743764172335,
+        "val_mean_shift_in_train_tail_std_level": -1.2169896364212036
+      }
+    ]
+  },
+  "summary": {
+    "hard_cells_with_level_ks_gt_020": 4,
+    "hard_cells_total": 4,
+    "hard_cells_with_val_inside_train_tail_90_ge_080": 0,
+    "median_hard_level_ks": 0.450113,
+    "median_hard_val_in_train_tail_90": 0.554422
+  },
+  "mechanism_read": "The hard cells show meaningful train-tail/validation distribution shift if their level KS exceeds 0.20, but validation targets remain mostly inside train-tail empirical intervals if the 90% containment is high. That pattern separates data drift from pure impossibility.",
+  "decision": "Treat the defect primarily as a split-shift/oracle limitation before adding model complexity. A model-side fix is unlikely to be clean unless it uses a generic robustness/local-geometry mechanism."
+}

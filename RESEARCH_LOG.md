@@ -107343,3 +107343,34 @@ Reject interval-score fine-tuning as the next active repair at this weight and d
 - `results/block_ar/742a_iv_interval_score/iv_val_full11_s64.md`
 
 ---
+## 2026-04-29: Autoresearch 743a IV hard-cell shift audit
+
+### Context
+742a showed that a proper interval-score fine-tune improves aggregate coverage but damages path, level, kurtosis, and mean-reversion realism. Together with 740a scalar temperature, this suggested that the strict IV defect may be local interval geometry rather than missing global width. 743a audited whether the stable hard cells from 741a are actually train-like validation targets.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_743a_iv_hard_cell_shift.py`.
+
+Artifact: `results/block_ar/743a_iv_hard_cell_shift/summary.json` and `summary.md`.
+
+Stable hard cells from 741a all show large train-tail/validation level shift:
+
+- h14 cell `(2,3)`: level KS `0.401`, cumulative-change KS `0.159`, validation containment inside train-tail 90% level band `0.603`, mean shift `-1.023` train-tail std.
+- h30 cell `(0,2)`: level KS `0.454`, cumulative-change KS `0.209`, containment `0.542`, mean shift `-1.006`.
+- h30 cell `(2,3)`: level KS `0.447`, cumulative-change KS `0.238`, containment `0.567`, mean shift `-1.163`.
+- h30 cell `(3,3)`: level KS `0.456`, cumulative-change KS `0.252`, containment `0.499`, mean shift `-1.217`.
+
+Grid-wide split shift is also visible: level KS median `0.279` with `570/750` horizon-cell pairs above `0.20`. Cumulative-change shift is milder: median `0.116`, `94/750` above `0.20`. One-day increment shift is low: median `0.088`, `0/750` above `0.20`.
+
+### Literature Check
+Recent time-series work supports diagnosing this as local geometry / distribution-shift robustness, not just interval-width tuning. TACTiS-2 motivates marginal/dependence factorization for multivariate probabilistic forecasting (`https://openreview.net/forum?id=xtOydkE1Ku`). Local Geometry Attention, ICLR 2026, argues that standard attention can miss local temporal geometry under realistic corruptions and proposes query-specific local metrics (`https://openreview.net/forum?id=NCQPCxN7ds`). MixLinear is relevant only as a reminder that simple temporal/frequency structure can be competitive; it is not directly a conditional-law fix (`https://openreview.net/forum?id=IFGtG1o2qj`).
+
+### Mechanism Read
+The hard-cell strict coverage defect is not purely model capacity and not purely missing width. Validation levels for the hardest cells are shifted about one train-tail standard deviation lower, while daily increments remain fairly train-like. That means the scenario generator can have realistic one-day movement law and still fail strict level coverage after integration because the validation starting/ending level region is locally shifted.
+
+This explains why scalar temperature and interval score both failed: they widen or reshape the whole generated path law, but the defect is localized to level-region geometry and late-horizon integration under split shift.
+
+### Decision
+Do not add another scalar coverage, interval, or temperature knob. Treat strict IV hard-cell coverage as a mixed split-shift/local-geometry problem. The next principled HEAD step is research ideation or a controlled experiment around a generic robustness/local-geometry representation mechanism, still based on the 734a/674a AR normalized-innovation flow. If no clean generic mechanism improves this, keep 734a/739a as risk-manager-presentable and report strict calibrated-law coverage as a limitation rather than over-engineering the evaluator.
+
+---
