@@ -1,0 +1,74 @@
+{
+  "iteration": "765a",
+  "type": "experiment",
+  "hypothesis": "Replace the 755a raw channel-level energy term with a budget-matched proper level CRPS term in scaled-delta space, rather than stacking an additive level score.",
+  "source_checkpoint": "models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt",
+  "recipe": {
+    "free_running_fm_weight": 0.2,
+    "free_running_fm_prefix_steps": 5,
+    "channel_level_energy_weight": 0.0,
+    "level_marginal_crps_weight": 0.007,
+    "level_marginal_crps_coordinate": "scaled_delta",
+    "budget_derivation": "0.05 * 0.275 / 1.970 = 0.00698"
+  },
+  "training": {
+    "best_epoch": 1,
+    "best_val_total": 2.038331
+  },
+  "results": {
+    "765a_val": {
+      "score": "6/11",
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion"
+      ],
+      "cov90": 0.8144,
+      "calibration_error": 0.0679,
+      "level_ks_pass_cells": 14,
+      "bias_magnitude_pass_cells": 22,
+      "cointegration_ratio": 0.743,
+      "cointegration_worst": 0.313,
+      "mean_reversion_full_active_mean": 0.577,
+      "pathwise_ks": 0.383,
+      "kurtosis_ratio": 1.106
+    },
+    "765a_train_tail": {
+      "score": "7/11",
+      "failed_suites": [
+        "conditionality",
+        "time_series",
+        "regime_coverage",
+        "mean_reversion"
+      ],
+      "cov90": 0.847,
+      "calibration_error": 0.0314,
+      "level_ks_pass_cells": 22,
+      "bias_magnitude_pass_cells": 22,
+      "cointegration_ratio": 0.518,
+      "cointegration_worst": 0.279,
+      "mean_reversion_full_active_mean": 0.614,
+      "pathwise_ks": 0.464,
+      "kurtosis_ratio": 1.936
+    },
+    "755a_reference": {
+      "val_score": "6/11",
+      "train_tail_score": "8/11",
+      "val_level_ks_pass_cells": 15,
+      "train_tail_level_ks_pass_cells": 21,
+      "val_mean_reversion_full_active_mean": 0.738,
+      "train_tail_mean_reversion_full_active_mean": 0.812
+    },
+    "762a_reference": {
+      "val_score": "6/11",
+      "train_tail_score": "6/11",
+      "val_level_ks_pass_cells": 13,
+      "train_tail_level_ks_pass_cells": 19
+    }
+  },
+  "mechanism_read": "Budget matching validates the 763a objective-scale diagnosis by recovering train-tail coverage, level KS, and cointegration versus additive 762a. It still fails promotion because validation remains 6/11 and full-horizon mean reversion regresses versus 755a.",
+  "decision": "Reject 765a as active base model. Keep 755a as the learned base IV model; use 765a as evidence that objective/readout coupling, not scalar level-score absence alone, is the bottleneck.",
+  "next_step": "Run post-experiment analysis or research ideation on cleaner objective/readout separation instead of tuning another nearby scalar level-score weight."
+}

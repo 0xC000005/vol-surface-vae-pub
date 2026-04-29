@@ -107971,3 +107971,35 @@ Artifacts:
 - `results/block_ar/764a_objective_reformulation_ideation/summary.{json,md}`.
 
 ---
+## 2026-04-29: 765a Budget-Matched Level CRPS Replacement
+
+### Context
+
+764a selected a budget-matched replacement for the failed 762a additive level-marginal CRPS. The test kept the 755a short-prefix generated-prefix FM recipe but removed raw channel-level energy and added `level_marginal_crps_weight=0.007` in `scaled_delta` space.
+
+### Result
+
+Training selected epoch 1 with best validation training objective `2.0383`, better than the 755a internal objective around `2.0605` and much better than additive 762a around `2.1569`.
+
+Validation remained `6/11`, failing coverage, conditionality, regime_coverage, distributional_fidelity, and mean_reversion. Key validation metrics: cov90 `0.814`, calerr `0.068`, level KS `14/25`, bias magnitude `22/25`, coint ratio `0.743`, worst coint `0.313`, path KS `0.383`, kurtosis ratio `1.106`, mean-reversion full active mean `0.577`.
+
+Train-tail improved over 762a but did not preserve 755a: `7/11`, failing conditionality, time_series, regime_coverage, and mean_reversion. Key train-tail metrics: cov90 `0.847`, calerr `0.031`, level KS `22/25`, bias magnitude `22/25`, coint ratio `0.518`, worst coint `0.279`, path KS `0.464`, kurtosis ratio `1.936`, mean-reversion full active mean `0.614`.
+
+Artifacts:
+
+- `results/block_ar/765a_iv_shortprefix_levelcrps_budget/iv_val_full11_s64.json`
+- `results/block_ar/765a_iv_shortprefix_levelcrps_budget/iv_train_tail_full11_s64.json`
+- `results/block_ar/765a_iv_shortprefix_levelcrps_budget/summary.md`
+- `results/block_ar/765a_iv_shortprefix_levelcrps_budget/summary.json`
+
+### Mechanism Read
+
+Budget matching fixes the worst part of 762a, so 763a's objective-scale diagnosis was correct. Coverage, level KS, and cointegration recover materially on train-tail. But it still loses one train-tail suite versus 755a and does not improve validation beyond `6/11`.
+
+The new evidence says the bottleneck is not simply missing a level proper score. Level-support repair and full-horizon dynamic mean-reversion realism are coupled under the current objective/readout.
+
+### Decision
+
+Reject 765a as the active learned base model. Keep 755a as the active base IV learned generator. Do not tune another nearby scalar level-score weight. The next HEAD step should analyze or ideate a cleaner objective/readout separation that can improve level support without damaging transition-shape realism.
+
+---
