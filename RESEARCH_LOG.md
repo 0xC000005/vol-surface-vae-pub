@@ -107447,3 +107447,33 @@ The evidence now says the bottleneck is deeper than missing current-level displa
 Reject 745a as a replacement for 734a/739a. Keep the implementation as a falsification tool, but do not promote `scale_local` by default. Next HEAD step should be research ideation before another architecture change: decide whether to attempt a true local-geometry attention/robust encoder mechanism, revisit marginal/dependence factorization under the split-shift diagnosis, or declare strict IV calibrated-law coverage a limitation while preserving the risk-manager-presentable 734a/739a system.
 
 ---
+## 2026-04-29: Autoresearch 746a incumbent train-tail full-suite audit
+
+### Context
+745a rejected the simple `scale_local` prefix feature. Before another architecture change, 746a ran the required train-tail full-suite audit for the incumbent 734a/674a IV model to distinguish validation split shift from fundamental in-sample model failure.
+
+### Result
+Artifact: `results/block_ar/746a_674a_train_tail_audit/iv_train_tail_full11_s64.json` and `.md`.
+
+Train-tail incumbent result: `6/11`, with failed suites `conditionality`, `time_series`, `cointegration`, `regime_coverage`, and `pathwise_jump_realism`.
+
+Key comparison to validation 734a:
+- n_pass: validation `6/11`, train-tail `6/11`.
+- coverage: validation fails with cov90 `0.836`, calibration error `0.046`; train-tail passes with cov90 `0.861`, calibration error `0.014`, and every per-cell coverage gate passing.
+- distributional fidelity: validation fails with daily KS `24/25`, level KS `17/25`, median-bias `16/25`; train-tail passes with daily KS `25/25`, level KS `20/25`, median-bias `25/25`.
+- regime coverage remains failed: validation layer2 `0/8`, train-tail layer2 `2/8`.
+- risk-state allocation flips: validation passes with width/future-activity rho `0.316`; train-tail fails because width/future-activity rho is only `0.011` despite width/history rho `0.641`.
+- time-series flips: validation passes; train-tail fails with kurtosis ratio `1.783` and very-small-move ratio `1.108`.
+- pathwise flips: validation passes with path KS `0.442`; train-tail fails with path KS `0.529`.
+- cointegration remains near the gate but failed: validation aggregate ratio `0.723` with worst-cell ratio `0.209`; train-tail aggregate ratio `0.492` with worst-cell ratio `0.276`.
+
+### Mechanism Read
+The validation coverage and level-distribution failures are strongly split-shift/OOD driven: the same incumbent passes train-tail coverage and distributional fidelity. However, this is not a complete vindication of the model. Train-tail still fails conditionality, regime layer-2, time-series/pathwise realism, and aggregate cointegration. The in-sample failure pattern is different from validation, which means the strict suite is mixing two phenomena:
+
+- validation-specific level-region shift causes hard-cell coverage/distribution failures;
+- model-side limitations remain in conditional uncertainty allocation, path tails, and regime-cell calibration even where coverage is good.
+
+### Decision
+Do not claim 11/11 is blocked only by validation OOD. Also do not chase validation hard cells with calibration knobs. The next HEAD step should be research ideation: decide whether a true robust/non-stationary encoder mechanism is worth implementing, or whether the evidence is now strong enough to frame 734a/739a as risk-manager-presentable with strict calibrated-law limitations. Any next model experiment must target train-tail and validation failure jointly, not just validation coverage.
+
+---
