@@ -107664,3 +107664,35 @@ The exposure-bias hypothesis is not falsified as a real mechanism, but this impl
 Do not continue scalar weight tuning of generated-prefix FM. The next HEAD cycle should be post-experiment attribution: determine whether generated-prefix FM is mismatched because it conditions on full generated paths too aggressively, because the auxiliary target conflicts with level/channel energy, or because the core AR transition needs a different training curriculum rather than a static auxiliary loss.
 
 ---
+## 2026-04-29: Autoresearch 754a generated-prefix FM attribution
+
+### Context
+754a is the required post-experiment attribution after 752a/753a. Both generated-prefix FM weights moved some target axes but failed to beat the incumbent and stayed `5/11` on validation and train-tail. The goal was to decide whether to continue exposure-bias work, abandon it, or avoid further scalar tuning.
+
+### Execute
+Added and ran `experiments/backfill/block_ar/analyze_754a_freeprefix_fm_attribution.py`.
+
+Artifacts:
+- `results/block_ar/754a_freeprefix_fm_attribution/summary.json`
+- `results/block_ar/754a_freeprefix_fm_attribution/summary.md`
+
+The analysis compares:
+- `734a` validation incumbent.
+- `746a` train-tail incumbent audit.
+- `752a` validation/train-tail generated-prefix FM with weight `0.2`.
+- `753a` validation/train-tail generated-prefix FM with weight `0.05`.
+
+### Findings
+- Static generated-prefix FM is rejected as a repair: both weights score `5/11` on validation and `5/11` on train-tail.
+- The issue is not only validation distribution shift, because generated-prefix FM also fails train-tail coverage/conditionality/time-series/cointegration/regime/mean-reversion.
+- The intended axes move partly in the right direction: regime/path diagnostics improve in some cases and validation risk-state allocation remains valid.
+- The cost is unacceptable: coverage, level-KS, median allocation, and full-horizon active mean reversion regress versus the 734a/746a incumbent controls.
+- Lowering the weight from `0.2` to `0.05` recovers aggregate mean-reversion ratio but not the full-horizon active-cell gate, and it worsens validation cov90/level-KS.
+
+### Mechanism Read
+Exposure bias remains plausible, but the static auxiliary formulation is probably mismatched. It trains the velocity under generated prefixes that may already be biased while the level/channel energy separately scores integrated paths. That can create conflicting gradients. A second plausible mechanism is that generated-prefix exposure is introduced too strongly or too early rather than scheduled from teacher-forced to free-running prefixes.
+
+### Decision
+Do not continue scalar tuning of `free_running_fm_weight`. If exposure-bias work continues, the next experiment must be structural and curriculum-based: gradually introduce generated-prefix exposure or restrict it to short prefixes while preserving the normalized-innovation AR flow core, one stochastic source, and the same rollout/channel objective.
+
+---
