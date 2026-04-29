@@ -132,6 +132,7 @@ def fit_state_local_calibration(
     quantile: float,
     min_scale: float,
     max_scale: float,
+    location_shrink: float,
     eps: float,
 ) -> dict[str, Any]:
     flat_samples = samples.reshape(samples.shape[0], samples.shape[1], samples.shape[2], -1)
@@ -157,7 +158,7 @@ def fit_state_local_calibration(
                 continue
             bucket_residual = residual[mask, :, cell]
             bucket_half_width = half_width[mask, :, cell]
-            bucket_loc = np.median(bucket_residual, axis=0)
+            bucket_loc = float(location_shrink) * np.median(bucket_residual, axis=0)
             required_scale = np.quantile(
                 np.abs(bucket_residual - bucket_loc[None, :]) / np.maximum(bucket_half_width, float(eps)),
                 float(quantile),
@@ -174,6 +175,7 @@ def fit_state_local_calibration(
         "quantile": float(quantile),
         "min_scale": float(min_scale),
         "max_scale": float(max_scale),
+        "location_shrink": float(location_shrink),
     }
 
 
@@ -258,6 +260,7 @@ def main() -> None:
     parser.add_argument("--calibration_quantile", type=float, default=0.90)
     parser.add_argument("--min_scale", type=float, default=1.0)
     parser.add_argument("--max_scale", type=float, default=1.5)
+    parser.add_argument("--location_shrink", type=float, default=1.0)
     parser.add_argument("--eps", type=float, default=1e-6)
     parser.add_argument("--seed", type=int, default=759)
     parser.add_argument("--device", default="cuda")
@@ -282,6 +285,7 @@ def main() -> None:
         quantile=float(args.calibration_quantile),
         min_scale=float(args.min_scale),
         max_scale=float(args.max_scale),
+        location_shrink=float(args.location_shrink),
         eps=float(args.eps),
     )
     calibrated_samples = apply_state_local_calibration(
@@ -321,6 +325,7 @@ def main() -> None:
         "calibration_quantile": float(args.calibration_quantile),
         "min_scale": float(args.min_scale),
         "max_scale": float(args.max_scale),
+        "location_shrink": float(args.location_shrink),
         "calibration_scale_mean": float(np.mean(calibration["scale"])),
         "calibration_scale_max": float(np.max(calibration["scale"])),
         "calibration_abs_loc_mean": float(np.mean(np.abs(calibration["loc"]))),

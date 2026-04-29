@@ -107842,3 +107842,30 @@ State-local support calibration moves the intended support axis, but the first v
 Do not promote 759a. If calibration continues, the next calibration test must be more conservative and should avoid median shifting or cap scale more tightly. The base learned model remains 755a for the active short-prefix family.
 
 ---
+## 2026-04-29: Autoresearch 760a conservative support calibration
+
+### Context
+760a tested the conservative calibration follow-up implied by 759a. The 759a state-local residual shift/scale improved aggregate coverage but was too blunt: it widened path extremes and failed pathwise realism. 760a disabled median/location shift and reduced the maximum support scale from `1.5` to `1.25`.
+
+### Implementation
+- Extended `evaluate_759a_state_local_support_calibration.py` with `--location_shrink`.
+- `location_shrink=0.0` disables median residual shifts while retaining state-local scale calibration.
+
+### Execute
+- Base checkpoint: `models/backfill/755a_iv_shortprefix_fm_k5_w02_e2_s7551/best_model.pt`.
+- Validation calibrated system: calibration split `train_tail`, evaluation split `val`, `max_scale=1.25`, `location_shrink=0.0`.
+- No-leakage diagnostic: calibration split `train`, evaluation split `train_tail`, same calibration settings.
+- Artifacts: `results/block_ar/760a_conservative_support_calibration/iv_val_full11_s64.{json,md}` and `iv_train_tail_full11_s64.{json,md}`.
+
+### Result
+- Validation calibrated system: `7/11`; failed `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`.
+- Validation versus 755a: cov90 `0.817 -> 0.874`, calibration error `0.063 -> 0.014`, cointegration worst-cell `0.239 -> 0.328` and now passes, pathwise KS `0.395 -> 0.489` still passes, kurtosis ratio `1.099 -> 0.968`, mean reversion passes. Level-KS remains `15/25` and median-bias remains `15/25`.
+- No-leakage train-tail diagnostic: `5/11`; failed `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`, `pathwise_jump_realism`. Coverage calibration was strong, but pathwise KS worsened to `0.560` and kurtosis ratio was `1.747`.
+
+### Mechanism Read
+Conservative calibration confirms the support-calibration axis is real: validation improves from 755a `6/11` to `7/11` and repairs validation cointegration without breaking mean reversion or pathwise realism. But it is not a robust learned law: when calibrated on older train windows and evaluated on train-tail, it fails badly. This is best framed as a rolling calibrated-system layer using recent calibration data, not as a general model improvement.
+
+### Decision
+Do not replace the 755a base model. Keep 760a as the best current validation calibrated-system result, but report it separately. The remaining unsolved base-model issue is median/level allocation and per-cell conditionality; the remaining calibrated-system issue is robust calibration transfer across time.
+
+---
