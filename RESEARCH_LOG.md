@@ -107281,3 +107281,28 @@ Reject scalar temperature as a publishable calibration layer and do not stack mo
 - `results/block_ar/740a_iv_temperature_sweep/iv_val_full11_temp105_s64.json`
 
 ---
+## 2026-04-29: 741a IV coverage localization after temperature falsifier
+
+### Context
+741a followed the 740a scalar-temperature falsifier. Since global noise inflation improved aggregate coverage but damaged path realism and mean reversion, this iteration localized the strict IV coverage/regime failure before any further model change.
+
+### Result
+- Added and ran `experiments/backfill/block_ar/analyze_741a_iv_coverage_localization.py`.
+- Baseline temperature 1.000: `6/11`, cov90 `0.836`, calibration error `0.046`, standard coverage under/over cells `5/0`, regime layer-2 under/over cells `24/12`, layer-2 combos `0/8`, path KS `0.442`, full-horizon mean reversion pass true.
+- Temperature 1.025: `5/11`, cov90 `0.853`, calibration error `0.030`, standard under/over `5/2`, regime under/over `17/26`, layer-2 combos `2/8`, path KS `0.514`, full-horizon mean reversion false.
+- Temperature 1.050: `5/11`, cov90 `0.868`, calibration error `0.015`, standard under/over `4/6`, regime under/over `15/35`, layer-2 combos `1/8`, path KS `0.579`, full-horizon mean reversion false.
+- Standard undercoverage is highly concentrated and stable: 4 standard undercoverage cells persist across all temperatures, mainly late horizon cells `(2,3)`, `(3,3)`, `(0,2)`.
+- Regime layer-2 is both local and two-sided: 12 stable undercoverage cells and 9 stable overcoverage cells persist across all temperatures.
+
+### Mechanism Read
+The strict IV calibration defect is not a global variance shortage. It is local interval geometry: late-horizon upside-biased cells remain undercovered, while other calm/turb cells are already overcovered. A scalar sampler knob can only widen or narrow everything together, so it cannot resolve the two-sided regime-cell geometry and it breaks path realism as it broadens.
+
+### Decision
+Do not add more scalar sampler calibration. The next principled model-side route is a generic local uncertainty allocation mechanism tied to state/cell/horizon representation, or an objective that teaches local interval geometry during training. It must remain framework-level, not an evaluator-specific or cell-name-specific correction.
+
+### Artifacts
+- `experiments/backfill/block_ar/analyze_741a_iv_coverage_localization.py`
+- `results/block_ar/741a_iv_coverage_localization/summary.json`
+- `results/block_ar/741a_iv_coverage_localization/summary.md`
+
+---
