@@ -199,6 +199,42 @@ def _make_no_update_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> 
     return head
 
 
+def _prefix_feature_mult(prefix_feature_mode: str) -> int:
+    if prefix_feature_mode == "scale_drift":
+        return 7
+    if prefix_feature_mode == "scale_local":
+        return 8
+    if prefix_feature_mode == "scale":
+        return 6
+    if prefix_feature_mode == "basic":
+        return 4
+    raise ValueError("prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'")
+
+
+def enable_prefix_feature_mode(
+    model: "GenericStateAwareNormalizedInnovationFlowMatching",
+    *,
+    prefix_feature_mode: str,
+) -> None:
+    """Switch prefix features while preserving existing projection weights where possible."""
+    if prefix_feature_mode == model.cfg.prefix_feature_mode:
+        return
+    old_proj = model.feature_proj
+    old_in = int(old_proj.in_features)
+    new_in = _prefix_feature_mult(prefix_feature_mode) * int(model.cfg.n_cells)
+    model.cfg.prefix_feature_mode = prefix_feature_mode
+    new_proj = nn.Linear(new_in, int(model.cfg.memory_dim)).to(
+        device=old_proj.weight.device,
+        dtype=old_proj.weight.dtype,
+    )
+    with torch.no_grad():
+        new_proj.weight.zero_()
+        new_proj.bias.copy_(old_proj.bias)
+        n = min(old_in, new_in)
+        new_proj.weight[:, :n].copy_(old_proj.weight[:, :n])
+    model.feature_proj = new_proj
+
+
 def enable_conditional_base_noise_scale(
     model: "GenericStateAwareNormalizedInnovationFlowMatching",
     *,
@@ -223,15 +259,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     def __init__(self, cfg: GenericStateAwareNormalizedInnovationFMConfig):
         super().__init__()
         self.cfg = cfg
-        if cfg.prefix_feature_mode not in {"basic", "scale", "scale_drift"}:
-            raise ValueError("prefix_feature_mode must be 'basic', 'scale', or 'scale_drift'")
+        if cfg.prefix_feature_mode not in {"basic", "scale", "scale_local", "scale_drift"}:
+            raise ValueError("prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'")
         if cfg.innovation_coordinate not in {"normalized", "score", "hybrid_sticky_score", "hybrid_tail_asinh"}:
             raise ValueError(
                 "innovation_coordinate must be 'normalized', 'score', 'hybrid_sticky_score', or 'hybrid_tail_asinh'"
             )
         if cfg.mixed_support_observation not in {"none", "bernoulli_no_update"}:
             raise ValueError("mixed_support_observation must be 'none' or 'bernoulli_no_update'")
-        feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
+        feature_mult = _prefix_feature_mult(cfg.prefix_feature_mode)
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
         layer = nn.TransformerEncoderLayer(
@@ -497,6 +533,23 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                     normalized_innovation.square(),
                     center_feature,
                     log_scale,
+                ],
+                dim=-1,
+            )
+        if self.cfg.prefix_feature_mode == "scale_local":
+            anchor_pos = min(max(int(self.cfg.history_len) - 1, 0), int(level_scores.shape[1]) - 1)
+            anchor = level_scores[:, anchor_pos : anchor_pos + 1, :]
+            relative_level = level_scores - anchor
+            return torch.cat(
+                [
+                    level_scores,
+                    normalized_innovation,
+                    normalized_innovation.abs(),
+                    normalized_innovation.square(),
+                    center_feature,
+                    log_scale,
+                    relative_level,
+                    relative_level.abs(),
                 ],
                 dim=-1,
             )

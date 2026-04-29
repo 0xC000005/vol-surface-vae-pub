@@ -11,6 +11,7 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
     enable_conditional_base_noise_scale,
     enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
+    enable_prefix_feature_mode,
 )
 from experiments.backfill.block_ar.audit_576a_unified_increment_panel import (
     UnifiedVariableSpec,
@@ -674,6 +675,95 @@ def test_scale_drift_prefix_conditions_on_drift_without_centering_increment():
     assert torch.isfinite(loss)
     assert metrics["drift_feature_abs"] > 0.0
     assert samples.shape == (5, 2, cfg.future_len, cfg.n_cells)
+
+
+def test_scale_local_prefix_uses_current_level_geometry():
+    torch.manual_seed(744)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale_local",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    model.eval()
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    level_quantiles = torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells)
+    model.set_level_quantiles(level_quantiles, levels)
+
+    history_level = torch.randn(5, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(5, cfg.history_len, cfg.n_cells)
+    center = torch.zeros(5, cfg.n_cells)
+    scale = torch.rand(5, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(5, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+
+    loss, _metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+    )
+    samples = model.sample_batched(
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=2,
+        n_steps=cfg.future_len,
+        chunk_size=2,
+    )
+
+    assert model.feature_proj.in_features == 8 * cfg.n_cells
+    assert torch.isfinite(loss)
+    assert samples.shape == (5, 2, cfg.future_len, cfg.n_cells)
+
+
+def test_prefix_feature_mode_upgrade_preserves_existing_projection_columns():
+    torch.manual_seed(745)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        prefix_feature_mode="scale",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    old_weight = model.feature_proj.weight.detach().clone()
+    old_bias = model.feature_proj.bias.detach().clone()
+    old_in = model.feature_proj.in_features
+
+    enable_prefix_feature_mode(model, prefix_feature_mode="scale_local")
+
+    assert model.cfg.prefix_feature_mode == "scale_local"
+    assert model.feature_proj.in_features == 8 * cfg.n_cells
+    torch.testing.assert_close(model.feature_proj.weight[:, :old_in], old_weight)
+    torch.testing.assert_close(model.feature_proj.bias, old_bias)
+    assert torch.count_nonzero(model.feature_proj.weight[:, old_in:]) == 0
 
 
 def test_ar1_base_noise_like_has_temporal_correlation():

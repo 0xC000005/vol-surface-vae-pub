@@ -107407,3 +107407,43 @@ This makes the previous failures coherent:
 Next experiment should target a generic local-geometry / state-encoder robustness mechanism while keeping the 734a/674a AR normalized-innovation flow core. Do not add more scalar temperature, interval-score, or hard-cell-specific corrections. The mechanism must be valid for IV-only, anchor-only, and joint scopes as a framework-level conditioning improvement, even if first falsified on IV hard cells.
 
 ---
+## 2026-04-29: Autoresearch 745a scale-local prefix falsifier
+
+### Context
+744a localized the remaining IV strict-coverage defect: undercoverage is concentrated in shifted low-current-level validation windows and mostly appears as lower-tail misses. 745a tested the smallest generic encoder-side repair, without changing AR flow matching, the sampler, temporal factorization, or the rollout/channel objective.
+
+### Implementation
+Added `prefix_feature_mode=scale_local` to `GenericStateAwareNormalizedInnovationFlowMatching`. This appends each token's level-score displacement from the last observed state, plus its absolute displacement, to the existing scale prefix features. The idea is generic local geometry conditioning, not a hard-cell correction. Added `enable_prefix_feature_mode(...)` so existing scale checkpoints can be upgraded by copying old projection weights and zero-initializing new local-geometry columns.
+
+Verification: `python -m py_compile ... && pytest test_code/test_662a_state_aware_normalized_innovation_flow.py -q` passed `20/20`.
+
+### Experiment
+Fine-tuned from incumbent IV checkpoint `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt` with the same rollout/channel objective as 674a, changing only `--prefix_feature_mode scale_local`.
+
+Model: `models/backfill/745a_iv_scale_local_channel_level_e2_s7451/best_model.pt`.
+
+### Result
+Official IV 11-suite artifact: `results/block_ar/745a_iv_scale_local/iv_val_full11_s64.json`.
+
+745a scored `6/11`, with the same failed suites as 734a baseline: `coverage`, `conditionality`, `cointegration`, `regime_coverage`, and `distributional_fidelity`.
+
+Comparison to 734a baseline:
+- n_pass: `6/11 -> 6/11`.
+- cov90 worsened: `0.836 -> 0.799`; calibration error worsened `0.046 -> 0.072`.
+- regime layer2 improved slightly: `0/8 -> 2/8`, but still failed.
+- level KS worsened: `17/25 -> 12/25`; median-bias fraction worsened `16/25 -> 14/25`.
+- cointegration worst-cell ratio worsened: `0.209 -> 0.174`.
+- pathwise max-jump KS improved: `0.442 -> 0.324`.
+- mean reversion and time-series properties still passed.
+
+Hard-cell coverage did not improve: h14 `(2,3)` `0.673 -> 0.619`, h30 `(0,2)` `0.603 -> 0.592`, h30 `(2,3)` `0.524 -> 0.503`, h30 `(3,3)` `0.578 -> 0.517`.
+
+### Mechanism Read
+A simple relative-to-current-level feature changes path geometry in the expected direction for smoothness/pathwise realism, but it does not solve the shifted-region lower-tail allocation. It actually narrows or mis-centers the strict level law. This rejects the cheapest local-geometry feature as a strict-calibration fix.
+
+The evidence now says the bottleneck is deeper than missing current-level displacement information: the model sees level geometry, but the AR flow/objective still does not allocate enough late-horizon lower-tail mass in shifted validation regions without damaging level occupancy.
+
+### Decision
+Reject 745a as a replacement for 734a/739a. Keep the implementation as a falsification tool, but do not promote `scale_local` by default. Next HEAD step should be research ideation before another architecture change: decide whether to attempt a true local-geometry attention/robust encoder mechanism, revisit marginal/dependence factorization under the split-shift diagnosis, or declare strict IV calibrated-law coverage a limitation while preserving the risk-manager-presentable 734a/739a system.
+
+---

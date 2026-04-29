@@ -395,7 +395,7 @@ def main() -> None:
     parser.add_argument("--conditional_base_noise_scale", action="store_true")
     parser.add_argument("--base_noise_scale_min", type=float, default=0.5)
     parser.add_argument("--base_noise_scale_max", type=float, default=2.0)
-    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_drift"], default="scale")
+    parser.add_argument("--prefix_feature_mode", choices=["basic", "scale", "scale_local", "scale_drift"], default="scale")
     parser.add_argument("--condition_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_contrast_margin", type=float, default=0.0)
     parser.add_argument("--risk_state_dim", type=int, default=0)

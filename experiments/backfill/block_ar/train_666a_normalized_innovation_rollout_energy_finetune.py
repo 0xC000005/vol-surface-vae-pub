@@ -23,6 +23,7 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
     enable_conditional_base_noise_scale,
     enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
+    enable_prefix_feature_mode,
     load_model,
     save_checkpoint,
 )
@@ -824,6 +825,11 @@ def main() -> None:
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
+    parser.add_argument(
+        "--prefix_feature_mode",
+        choices=["checkpoint", "basic", "scale", "scale_local", "scale_drift"],
+        default="checkpoint",
+    )
     parser.add_argument("--fm_anchor_weight", type=float, default=1.0)
     parser.add_argument("--horizon_end_weight", type=float, default=1.2)
     parser.add_argument("--energy_eps", type=float, default=1e-6)
@@ -849,6 +855,8 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model, payload = load_model(args.checkpoint, device)
+    if args.prefix_feature_mode != "checkpoint":
+        enable_prefix_feature_mode(model, prefix_feature_mode=args.prefix_feature_mode)
     if args.base_noise_rho is not None:
         model.cfg.base_noise_rho = float(args.base_noise_rho)
     if bool(args.conditional_base_noise_scale):
