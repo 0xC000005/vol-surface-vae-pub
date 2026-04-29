@@ -106914,3 +106914,34 @@ After the OAS decision, add VIX as an extension/generalization test. VIX is not 
 Reject OAS-G1 after the anchor-only falsifier. A tail-compressed continuous coordinate does not fix the sticky quoted-spread law and slightly worsens the key BBB OAS marginal plus dependence. Per the clean-pathology rule, do not add another OAS-specific repair knob. Freeze 719a as the current risk-manager baseline and document sticky OAS as a known limitation. The next active direction is VIX-X1: add VIX as a scalar volatility-factor extension and test whether the same framework generalizes without special treatment.
 
 ---
+## 2026-04-28: Autoresearch 729a VIX-proxy extension trade-off
+
+### Hypothesis
+729a tested the VIX extension direction without external data. A search of the local factor files found no independent VIX column in `data/multi_factor_levels.parquet`, `data/multi_factor_returns.parquet`, `data/market_data_ohlcv.csv`, or the IV parquet. To keep the experiment local and explicit, 729a added an optional `vix_proxy` data-interface switch derived from the short ATM IV column (`ttm_one_month_moneyness_pt_one`). This is a scalar positive volatility proxy, not an independent VIX law.
+
+### Execution
+- Added optional `include_iv_vol_proxy` support to `load_aligned_iv_factor_panel`.
+- The proxy is appended as a normal positive factor level `factor:vix_proxy` with `factor:vix_proxy_logret`.
+- Threaded the proxy metadata through 662 base training, 666 rollout fine-tuning, 627/719 panel audits, and the 662 IV full-suite evaluator.
+- Added `test_code/test_729a_vix_proxy_panel_loader.py`.
+- Verification passed: py-compile of touched scripts and `pytest test_code/test_729a_vix_proxy_panel_loader.py test_code/test_662a_state_aware_normalized_innovation_flow.py -q` gave `17 passed`.
+
+### Data Audit
+- With the proxy enabled, the panel has `53` columns and `39` modeled state variables: 25 IV cells plus 14 factors.
+- `factor:vix_proxy` is inferred as `log_level` with `factor:vix_proxy_logret`.
+- Proxy range on the local panel: min `0.0569`, max `0.7952`, mean `0.1750`.
+
+### Results
+- Anchor+VIX checkpoint: `models/backfill/729a_anchor_vixproxy_channel_level_alltrain_w005_e3_s7294/best_model.pt`.
+- Anchor+VIX panel audit: `results/block_ar/729a_vixproxy_scorecard/anchor_val_panel_s64.json`.
+- Anchor+VIX metrics: finite `1.0`, factor KS mean `0.107`, KS pass `13/14`, q99 tail pass `14/14`, factor-factor upper correlation `0.912`, conditional MAE improvement vs rolled `4.89%`, VIX-proxy KS `0.104`, VIX-proxy q99 tail ratio `1.30`.
+- Joint+VIX checkpoint: `models/backfill/729a_joint39_vixproxy_channel_level_alltrain_w005_e3_s7296/best_model.pt`.
+- Joint+VIX panel audit: `results/block_ar/729a_vixproxy_scorecard/joint_val_panel_s64.json`.
+- Joint+VIX panel metrics: finite `1.0`, factor KS mean `0.098`, KS pass `13/14`, q99 tail pass `14/14`, factor-factor upper correlation `0.826`, IV-factor matrix correlation `0.929`, conditional MAE improvement vs rolled `4.19%`, VIX-proxy KS `0.070`, VIX-proxy q99 tail ratio `1.16`.
+- Joint+VIX IV full-suite: `results/block_ar/729a_vixproxy_scorecard/joint_iv_val_full11_s64.json`.
+- Joint+VIX IV full-suite score: `5/11`, failing `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`, and `pathwise_jump_realism`.
+
+### Decision
+The proxy extension is useful as a data-interface/generalization capability: the same state-aware normalized-innovation mechanism can ingest a scalar volatility factor and preserve anchor/joint panel realism without special heads or losses. It is not a new deployable replacement for 719a, because the joint+VIX checkpoint regresses IV-facing full-suite quality. The next HEAD step should be post-experiment attribution, not another model tweak: compare 729a against 719a/676a/688a and classify whether the regression is the known joint-scope IV calibration trade-off, redundancy from deriving VIX from IV, or a true framework limitation.
+
+---

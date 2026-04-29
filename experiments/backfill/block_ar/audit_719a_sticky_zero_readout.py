@@ -106,7 +106,19 @@ def train_raw_block(
     payload: dict[str, Any],
     state_scope: str,
 ) -> tuple[np.ndarray, np.ndarray, list[Any], dict[str, float | int]]:
-    panel, columns, _dates = load_aligned_iv_factor_panel()
+    panel_meta = payload.get("panel_metadata", {})
+    include_iv_vol_proxy = bool(panel_meta.get("include_iv_vol_proxy", getattr(args, "include_iv_vol_proxy", False)))
+    panel, columns, _dates = load_aligned_iv_factor_panel(
+        include_iv_vol_proxy=include_iv_vol_proxy,
+        iv_vol_proxy_column=panel_meta.get(
+            "iv_vol_proxy_column",
+            getattr(args, "iv_vol_proxy_column", "ttm_one_month_moneyness_pt_one"),
+        ),
+        iv_vol_proxy_name=panel_meta.get(
+            "iv_vol_proxy_name",
+            getattr(args, "iv_vol_proxy_name", "vix_proxy"),
+        ),
+    )
     opts = payload_panel_options(args, payload)
     if args.clean_nonpositive_log_levels:
         panel, _cleaning_report = clean_nonpositive_log_level_factors(
@@ -230,6 +242,9 @@ def main() -> None:
     parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
     parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
+    parser.add_argument("--include_iv_vol_proxy", action="store_true")
+    parser.add_argument("--iv_vol_proxy_column", default="ttm_one_month_moneyness_pt_one")
+    parser.add_argument("--iv_vol_proxy_name", default="vix_proxy")
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--samples", type=int, default=32)
     parser.add_argument("--n_steps", type=int, default=30)

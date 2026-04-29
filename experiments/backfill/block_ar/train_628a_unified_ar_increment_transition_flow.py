@@ -75,7 +75,14 @@ def build_blocks(
 ) -> tuple[
     list[str], dict[str, Any], IncrementCoordinateBlock, IncrementCoordinateBlock
 ]:
-    panel, columns, dates = load_aligned_iv_factor_panel()
+    include_iv_vol_proxy = bool(getattr(args, "include_iv_vol_proxy", False))
+    iv_vol_proxy_column = getattr(args, "iv_vol_proxy_column", "ttm_one_month_moneyness_pt_one")
+    iv_vol_proxy_name = getattr(args, "iv_vol_proxy_name", "vix_proxy")
+    panel, columns, dates = load_aligned_iv_factor_panel(
+        include_iv_vol_proxy=include_iv_vol_proxy,
+        iv_vol_proxy_column=iv_vol_proxy_column,
+        iv_vol_proxy_name=iv_vol_proxy_name,
+    )
     positive_level_policy = getattr(args, "positive_level_policy", "reference_based")
     iv_transform = getattr(args, "iv_transform", "log_level")
     iv_lower_bound = float(getattr(args, "iv_lower_bound", 1e-4))
@@ -128,6 +135,9 @@ def build_blocks(
         "iv_transform": iv_transform,
         "iv_lower_bound": iv_lower_bound,
         "iv_upper_bound": iv_upper_bound,
+        "include_iv_vol_proxy": include_iv_vol_proxy,
+        "iv_vol_proxy_column": iv_vol_proxy_column if include_iv_vol_proxy else None,
+        "iv_vol_proxy_name": iv_vol_proxy_name if include_iv_vol_proxy else None,
         "cleaning_report": cleaning_report,
         "train_indices_start": int(train_indices[0]) if len(train_indices) else None,
         "train_indices_end": int(train_indices[-1]) if len(train_indices) else None,

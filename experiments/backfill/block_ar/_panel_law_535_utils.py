@@ -20,12 +20,35 @@ def load_aligned_iv_factor_panel(
     iv_parquet: str = "data/spx_vol_surface_history_full_data_fixed.parquet",
     factor_levels_parquet: str = "data/multi_factor_levels.parquet",
     factor_returns_parquet: str = "data/multi_factor_returns.parquet",
+    *,
+    include_iv_vol_proxy: bool = False,
+    iv_vol_proxy_column: str = "ttm_one_month_moneyness_pt_one",
+    iv_vol_proxy_name: str = "vix_proxy",
 ) -> tuple[np.ndarray, list[str], pd.DatetimeIndex]:
     iv_npz = np.load(iv_path)
     iv = iv_npz["surface"].astype(np.float32).reshape(iv_npz["surface"].shape[0], -1)
-    iv_dates = pd.DatetimeIndex(pd.to_datetime(pd.read_parquet(iv_parquet)["date"]))
+    iv_frame = pd.read_parquet(iv_parquet)
+    iv_dates = pd.DatetimeIndex(pd.to_datetime(iv_frame["date"]))
     factor_levels = pd.read_parquet(factor_levels_parquet).reindex(iv_dates)
     factor_returns = pd.read_parquet(factor_returns_parquet).reindex(iv_dates)
+    if include_iv_vol_proxy:
+        if iv_vol_proxy_column not in iv_frame.columns:
+            raise ValueError(f"IV volatility proxy column not found: {iv_vol_proxy_column!r}")
+        proxy_name = str(iv_vol_proxy_name)
+        if not proxy_name:
+            raise ValueError("iv_vol_proxy_name must be non-empty")
+        proxy = pd.Series(
+            pd.to_numeric(iv_frame[iv_vol_proxy_column], errors="coerce").to_numpy(dtype=np.float64),
+            index=iv_dates,
+            name=proxy_name,
+        )
+        proxy = proxy.replace([np.inf, -np.inf], np.nan).ffill().bfill()
+        if (proxy <= 0.0).any():
+            raise ValueError(f"IV volatility proxy must be positive for log-return transform: {iv_vol_proxy_column}")
+        factor_levels = pd.concat([factor_levels, proxy], axis=1)
+        proxy_logret = np.log(proxy).diff().fillna(0.0).astype(np.float64)
+        proxy_logret.name = f"{proxy_name}_logret"
+        factor_returns = pd.concat([factor_returns, proxy_logret], axis=1)
     factor = pd.concat([factor_levels, factor_returns], axis=1)
     factor = factor.replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
     if factor.isna().any().any():

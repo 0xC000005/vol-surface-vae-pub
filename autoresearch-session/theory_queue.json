@@ -48,12 +48,21 @@
     },
     {
       "name": "VIX-X1: add VIX as scalar volatility-factor extension",
-      "theory": "VIX is not in the current anchor list. Adding it after the OAS decision tests whether the same framework handles a scalar positive mean-reverting volatility factor with clustering, distinct from sticky OAS and from the 25-cell IV surface.",
-      "target": "Validate generalization to VIX in anchor_only and joint without special treatment.",
+      "theory": "No independent VIX column is available locally, so 729a used a clearly labeled short-ATM-IV-derived `vix_proxy` to test scalar volatility-factor mechanics without external data. This validates the data interface but not an independent VIX law.",
+      "target": "Validate generalization to a scalar volatility proxy in anchor_only and joint without special treatment.",
+      "attempts": 1,
+      "max_attempts": 1,
+      "status": "completed_with_limitations",
+      "priority": 3
+    },
+    {
+      "name": "729A-ATTR: VIX-proxy joint trade-off attribution",
+      "theory": "729a passed anchor+VIX and joint+VIX panel realism but regressed the joint IV-facing full suite to 5/11. Before any new model change, classify whether this is the known joint-scope IV calibration trade-off, proxy redundancy/interference from deriving VIX from IV, or a true framework limitation.",
+      "target": "Compare 729a against 719a/676a/688a on IV full-suite, panel realism, dependency, and VIX-proxy diagnostics, then choose whether to keep the proxy extension as a data-interface capability or pursue a model/objective repair.",
       "attempts": 0,
       "max_attempts": 1,
       "status": "active",
-      "priority": 3
+      "priority": 4
     }
   ],
   "exhausted": [
