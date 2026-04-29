@@ -107778,3 +107778,28 @@ Artifacts:
 - `results/block_ar/757a_next_step_ideation/summary.{json,md}`.
 
 ---
+## 2026-04-29: Autoresearch 758a prefix-curriculum falsifier
+
+### Context
+758a tested the 757a scheduled-prefix curriculum. The hypothesis was that K=5 short-prefix exposure repaired train-tail realism but might not expose the model enough to later generated-prefix states; a second stage at K=15 might improve late-horizon validation support without jumping directly to full generated prefixes.
+
+### Execute
+- Stage 1: from 674a, one epoch with `free_running_fm_prefix_steps=5`, `free_running_fm_weight=0.2`.
+- Stage 2: from stage 1, one epoch with `free_running_fm_prefix_steps=15`, `free_running_fm_weight=0.2`.
+- Final model: `models/backfill/758a_iv_prefix_curriculum_k15_stage2_s7582/best_model.pt`.
+- Validation full suite: `results/block_ar/758a_iv_prefix_curriculum_k5_k15/iv_val_full11_s64.{json,md}`.
+- Train-tail full suite: `results/block_ar/758a_iv_prefix_curriculum_k5_k15/iv_train_tail_full11_s64.{json,md}`.
+
+### Result
+- Validation: `6/11`; failed `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`.
+- Validation versus 755a: cointegration improved from failing worst-cell `0.239` to passing `0.304`, but level-KS fell from `15/25` to `13/25` and mean reversion failed.
+- Train-tail: `6/11`; failed `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `mean_reversion`.
+- Train-tail versus 755a: score fell from `8/11` to `6/11`; coverage and level distribution remained strong, but cointegration worst-cell fell from `0.279` to `0.216` and mean reversion failed.
+
+### Mechanism Read
+The K=15 stage reintroduces part of the full generated-prefix damage seen in 752a/753a. Longer generated-prefix exposure can improve some validation structural metrics, especially cointegration, but it damages mean-reversion and does not improve coverage or regime layer-2. The 755a fixed K=5 model remains the better active candidate.
+
+### Decision
+Reject the K=5 -> K=15 scheduled-prefix curriculum as currently formulated. Do not keep increasing prefix length. The next line should target validation level-support allocation directly, most likely via a split-robust, data-derived support calibration layer around the 755a generator, while reporting it separately from the base learned model.
+
+---
