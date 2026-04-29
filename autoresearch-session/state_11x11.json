@@ -62,6 +62,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "92eaf32",
+  "last_commit": "7751e3e",
   "resume_command_hint": "continue autoresearch"
 }
