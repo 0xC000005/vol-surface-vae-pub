@@ -106862,3 +106862,30 @@ The next repair should target the coordinate/objective for mixed-frequency nonze
 - `results/block_ar/726a_normalized_scale_adequacy/analysis.md`
 
 ---
+## 2026-04-28: 719a baseline OAS repair and VIX extension direction
+
+### Context
+
+After reviewing 719a as the latest risk-manager-acceptable candidate, we clarified that the general autoresearch workflow should remain intact. The update is only to the active research direction/queue so future `continue autoresearch` invocations do not drift into broad architecture switching when the current defect is already localized.
+
+### Direction Update
+
+Freeze `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the current risk-manager baseline candidate. It is not a fully calibrated conditional law, but it has strong scenario realism: IV temporal/spatial realism passes, anchor/joint factor tails pass, conditional panel response passes, and IV-factor co-movement passes.
+
+The next active research branch is exactly one generic OAS repair: a data-derived high-no-change / mixed-frequency nonzero-update scale coordinate or objective. It must preserve the same AR normalized-innovation flow mechanism, one stochastic source, and one frozen tri-scope framework.
+
+### Acceptance Rule
+
+Accept the OAS repair only if it improves AAA/BBB OAS without regressing IV realism, factor tail scale, conditional response, factor-factor dependence, or IV-factor co-movement. If it fails, document sticky OAS as a known limitation rather than stacking more OAS-specific knobs.
+
+### Follow-On
+
+After the OAS decision, add VIX as an extension/generalization test. VIX is not currently in the anchor list, and should be used to test scalar volatility-factor behavior, not to fix the current OAS defect.
+
+### Files Updated
+
+- `autoresearch-session/state_11x11.json`
+- `autoresearch-session/driver_prompt_11x11.md`
+- `autoresearch-session/theory_queue.json`
+
+---

@@ -1,97 +1,65 @@
-[
-  {
-    "name": "RC22 H1 (old): Loss Rebalancing (IS=0.005, VS=1.0)",
-    "theory": "Fix gradient budget: IS 66%->14%, VS 5%->23%.",
-    "attempts": 1,
-    "max_attempts": 2,
-    "status": "exhausted",
-    "result": "166a: 5/9 best, 4/9 final. S4 perfect (1.000), S8 median_bias PASS. But S2 still FAIL. IS reduction was the primary driver."
+{
+  "compass": "719a risk-manager baseline plus OAS decision and VIX extension (2026-04-28)",
+  "baseline": {
+    "name": "719a_zero_center_normalized_innovation_sticky_zero_readout_frozen",
+    "role": "current risk-manager acceptable multi-factor baseline",
+    "framework_claim": "single AR normalized-innovation flow mechanism with deterministic train-derived sticky readout; evaluated on iv_only, anchor_only, and joint",
+    "known_strengths": [
+      "IV surface/spatial realism, ACF, kurtosis, cointegration, mean reversion, and pathwise jump realism pass under the risk-manager framing",
+      "anchor and joint factor tail scale pass 13/13",
+      "anchor and joint conditional panel response pass strongly",
+      "joint IV-factor co-movement passes"
+    ],
+    "known_defects": [
+      "IV coverage, regime coverage, and distributional calibration remain imperfect",
+      "BBB/AAA OAS sticky-spread marginal daily-change law remains the repeated anchor/joint blocker",
+      "joint factor-factor mean absolute correlation amplitude narrowly misses the 0.35 gate in 719a"
+    ]
   },
-  {
-    "name": "RC22 H1 (v2): Factorized Decoder with Split Conditioning",
-    "theory": "Post-attention noise injection via L@eps prevents rank compression. Split conditioning via FiLM.",
-    "attempts": 1,
-    "max_attempts": 2,
-    "status": "exhausted",
-    "result": "167a: 5/9 (S3 regression). L died from 4 confounded issues (WD 27x, FiLM bug, oversized head, CLN competition). Codex-verified x2."
-  },
-  {
-    "name": "RC22 H1 (v3): Clean Isolation Test (167b)",
-    "theory": "Remove all 4 confounds from 167a. Binary diagnostic: can L@eps work at all?",
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "result": "167b: 6/9 in 20 epochs. L alive (norm 0.12, growing). Factor directions align with GT (PC1: 0.93, PC2: 0.82). Per-cell spread matches GT (r=0.979). BUT: mean reversion collapsed to 12% GT because CLN was frozen. Not end-to-end viable (CLN freeze is unprincipled). Codex: solved diagnostic, not practical frontier (CI 0.811 vs baseline 0.813)."
-  },
-  {
-    "name": "RC22 H1 (v4): End-to-End Factorized — CLN Active (167d)",
-    "theory": "167b proved L can work when confounds removed. The key question: can L survive with CLN active and trainable? Keep only the standard/publishable fixes: (2) wd=0 for load_head+FiLM, (3) FiLM (1+gamma)*h+beta, (4) simple Linear load_head. Drop fix (1) CLN freeze — let CLN train normally. Train from scratch. If L survives → factorization is end-to-end viable. If L dies → CLN competition IS the fundamental blocker, not WD/FiLM/head-size.",
-    "target": "L_norm stable (not dying). L_eff_rank >2.5. MR slope near baseline (-0.22). S3 PASS. Total >= 6/9.",
-    "kill_condition": "L_norm declines like 167a. base/load grad ratio returns >3. L_eff_rank stays ~2.",
-    "if_fails": "Factorization is dead as publication path under end-to-end constraint. Pivot to loss-level research (H5 K reduction, H6 stop-gradient routing).",
-    "attempts": 1,
-    "max_attempts": 1,
-    "status": "completed",
-    "budget": "20 epochs (~35 min)",
-    "result": "167d: 5/9 (S3 worst-cell FAIL). L survived e2e (L_norm 0.07-0.14 stable). BUT doesn't beat baseline. Gradient asymmetry (not competition): CLN dominates 15-24x at edge cells. Sampled MR=67% GT. Factorization solves trainability, not the frontier."
-  },
-  {
-    "name": "RC22 H5: K Reduction (K=4, end-to-end centering probe)",
-    "theory": "Low K increases centering/spread gradient ratio within CRPS. K=16 centering/spread=1.07. K=4 should give ~1.5x. SOTA uses K=2-4 (FGN, AIFS-CRPS). End-to-end, philosophy-consistent, directly targets S2 centering which is the real frontier blocker. Confirmed by 6 Codex reviews.",
-    "target": "S2 centering improves. Sampled MR slope closer to GT. Individual scenarios more authentic.",
-    "kill_condition": "Spread collapses (std < 50% baseline). Or S4 kurtosis destroyed. Or S9 correlation breaks.",
-    "note": "Highest priority. Directly targets the REAL blocker (centering, baseline ~56% GT). Does not depend on factorization. Centering protocol: measure BOTH deterministic + sampled mean slopes.",
-    "attempts": 0,
-    "max_attempts": 2,
-    "status": "active"
-  },
-  {
-    "name": "RC22 H2: K Reduction (K=8, B=32) — original",
-    "theory": "SOTA uses K=2-4. Our K=16 has centering/spread ratio 1.07. K=8 gives 1.14.",
-    "target": "S2 centering improves.",
-    "kill_condition": "Spread collapses (std < 50% baseline).",
-    "note": "Superseded by H5 (K=4 is more aggressive and Codex-recommended). Keep for reference.",
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "queued"
-  },
-  {
-    "name": "RC22 H3: Encoder Contrastive Loss",
-    "theory": "Encoder condition 98% shared. InfoNCE pushes regimes apart.",
-    "target": "Encoder probe accuracy improvement.",
-    "kill_condition": "Probe accuracy doesn't improve.",
-    "note": "Issue was not encoder discrimination (167a investigation proved). Low priority.",
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "queued"
-  },
-  {
-    "name": "RC22 H4: Structure Loss on Factor Loadings",
-    "theory": "Add explicit rank incentive: -logdet(L^T L + εI). afCRPS only rewards ||l_c|| (row norm), not orthogonality.",
-    "target": "L_eff_rank > 3. S2 PASS. Total >= 7/9.",
-    "kill_condition": "Structure loss conflicts with CRPS.",
-    "note": "Only relevant if factorization survives (H1v4 passes). Otherwise moot.",
-    "attempts": 0,
-    "max_attempts": 2,
-    "status": "queued"
-  },
-  {
-    "name": "RC22 H6: Loss-Routing — Stop-Gradient on Spread Through Base Path",
-    "theory": "Change optimization geometry so base_head gets centering gradient but spread gradient routes only through L@eps. Keeps CRPS end-to-end. Not an auxiliary loss — a gradient routing modification. Prevents the base path from being corrupted by spread pressure. Codex-suggested in review #4.",
-    "target": "Base_head learns centering (MR slope near GT). L@eps handles spread/diversity. Both active end-to-end.",
-    "kill_condition": "Stop-gradient kills training stability or breaks convergence.",
-    "note": "Only if H1v4 fails AND H5 insufficient. This is the loss-level research direction. Requires careful design — which gradient components to stop where.",
-    "attempts": 0,
-    "max_attempts": 2,
-    "status": "queued"
-  },
-  {
-    "name": "RC22 H1 (v3b): Warm-Start Factorized (167c) — DIAGNOSTIC ONLY",
-    "theory": "Warm-start from baseline to test upper bound: can factor path + baseline centering coexist? Copy output_proj -> base_head, add load_head with wd=0, two-phase training.",
-    "target": "L alive + MR preserved at baseline level (50% GT).",
-    "note": "NOT end-to-end. NOT publishable as mainline method. Only for mechanistic understanding if 167d fails. Codex review #4: 'lower information gain per GPU hour than 167d'.",
-    "attempts": 0,
-    "max_attempts": 1,
-    "status": "queued"
-  }
-]
+  "directions": [
+    {
+      "name": "OAS-G1: generic high-no-change nonzero-update scale repair",
+      "theory": "726a showed history-RMS normalized innovations are stable for SPX/rates but not for sticky OAS nonzero updates. A deterministic, train-derived frequency-aware tail coordinate or balanced nonzero-update objective may make high-no-change channels comparable across regimes without naming OAS or changing the core generator.",
+      "target": "Improve AAA/BBB OAS factor KS in anchor_only and joint while preserving IV realism, factor tail scale, conditional response, factor-factor dependence, and IV-factor co-movement.",
+      "allowed_changes": [
+        "data-derived high-no-change channel rule",
+        "coordinate/objective repair applied identically by rule across iv_only, anchor_only, and joint",
+        "same AR normalized-innovation flow backend and stochastic source"
+      ],
+      "forbidden_changes": [
+        "OAS-name-specific thresholds",
+        "scope-specific losses or loss weights",
+        "post-hoc gluing",
+        "switching backend before falsifying this repair"
+      ],
+      "attempts": 0,
+      "max_attempts": 1,
+      "status": "active",
+      "priority": 1
+    },
+    {
+      "name": "OAS-LIMIT: document sticky spread limitation if OAS-G1 fails",
+      "theory": "If one clean generic high-no-change repair fails, further OAS tuning risks becoming a research-knob stack. The honest risk-manager/paper claim should document sticky quoted spread factors as the limitation instead of chasing perfection.",
+      "target": "Produce limitation note and model card language for 719a or its repaired successor.",
+      "attempts": 0,
+      "max_attempts": 1,
+      "status": "queued",
+      "priority": 2
+    },
+    {
+      "name": "VIX-X1: add VIX as scalar volatility-factor extension",
+      "theory": "VIX is not in the current anchor list. Adding it after the OAS decision tests whether the same framework handles a scalar positive mean-reverting volatility factor with clustering, distinct from sticky OAS and from the 25-cell IV surface.",
+      "target": "Validate generalization to VIX in anchor_only and joint without special treatment.",
+      "attempts": 0,
+      "max_attempts": 1,
+      "status": "queued",
+      "priority": 3
+    }
+  ],
+  "exhausted": [
+    "Observed-positive/log support for OAS (717a): worsened OAS excursions and IV coverage",
+    "Simple sticky-zero/atom probability tweaks (719a-721a): helped but capped by BBB nonzero shape",
+    "Hybrid/global empirical score coordinate for sticky channels (722a): over-widened tails and contaminated ordinary factors",
+    "Masked-zero continuous loss (724a): cleaner observation model but over-learned broad training-tail OAS scale"
+  ]
+}

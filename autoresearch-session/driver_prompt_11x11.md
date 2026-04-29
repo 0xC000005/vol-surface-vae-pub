@@ -53,4 +53,12 @@ Current reset doctrine:
 - do not assume bounded idio or EC side paths in the core spec
 - if those return later, they must return only as explicit post-failure ablations
 
+Current active research direction:
+- freeze `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the risk-manager baseline candidate
+- preserve the single generation mechanism: AR normalized-innovation flow, one stochastic source, one frozen tri-scope framework
+- run at most one principled repair branch for the known sticky-spread defect: a generic, data-derived high-no-change / mixed-frequency nonzero-update scale coordinate or objective
+- accept the repair only if it improves AAA/BBB OAS without regressing IV surface realism, factor tail scale, conditional response, factor-factor dependence, or IV-factor co-movement
+- if that repair fails, document sticky OAS as a known limitation rather than stacking more OAS knobs
+- after the OAS decision, add VIX as an extension/generalization test of scalar volatility-factor behavior, not as a fix for the current OAS defect
+
 This invocation should leave the repository in a resumable state after every iteration.
