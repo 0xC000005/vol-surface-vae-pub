@@ -59,10 +59,19 @@
       "name": "729A-ATTR: VIX-proxy joint trade-off attribution",
       "theory": "729a passed anchor+VIX and joint+VIX panel realism but regressed the joint IV-facing full suite to 5/11. Before any new model change, classify whether this is the known joint-scope IV calibration trade-off, proxy redundancy/interference from deriving VIX from IV, or a true framework limitation.",
       "target": "Compare 729a against 719a/676a/688a on IV full-suite, panel realism, dependency, and VIX-proxy diagnostics, then choose whether to keep the proxy extension as a data-interface capability or pursue a model/objective repair.",
-      "attempts": 0,
+      "attempts": 1,
       "max_attempts": 1,
-      "status": "active",
+      "status": "completed",
       "priority": 4
+    },
+    {
+      "name": "JOINT-IV-CAL: general joint-scope IV calibration/root trade-off",
+      "theory": "730a showed the VIX-proxy extension is not the root failure: 729a joint+VIX reproduces the prior 676a joint IV 5/11 full-suite result while preserving strong panel realism. The next clean target is the generic trade-off where joint multi-factor realism weakens IV coverage, regime coverage, level fidelity, mean-reversion, and pathwise allocation relative to the frozen 719a baseline.",
+      "target": "Improve joint-scope IV full-suite calibration and state/path allocation without VIX-specific knobs, post-hoc gluing, scope-specific loss recipes, or sacrificing anchor/joint panel realism.",
+      "attempts": 0,
+      "max_attempts": 2,
+      "status": "active",
+      "priority": 5
     }
   ],
   "exhausted": [

@@ -106945,3 +106945,32 @@ Reject OAS-G1 after the anchor-only falsifier. A tail-compressed continuous coor
 The proxy extension is useful as a data-interface/generalization capability: the same state-aware normalized-innovation mechanism can ingest a scalar volatility factor and preserve anchor/joint panel realism without special heads or losses. It is not a new deployable replacement for 719a, because the joint+VIX checkpoint regresses IV-facing full-suite quality. The next HEAD step should be post-experiment attribution, not another model tweak: compare 729a against 719a/676a/688a and classify whether the regression is the known joint-scope IV calibration trade-off, redundancy from deriving VIX from IV, or a true framework limitation.
 
 ---
+## 2026-04-28: 730a VIX proxy trade-off attribution
+
+### Context
+729a added an optional local `vix_proxy` data-interface extension from the short-ATM IV column because no independent VIX column exists in the local factor/market/IV files. Anchor+VIX and joint+VIX panel audits looked plausible, but joint+VIX IV full-suite quality was only 5/11, so the required next step was attribution rather than another model change.
+
+### Result
+Added and ran `experiments/backfill/block_ar/analyze_730a_vix_proxy_tradeoff_attribution.py`.
+
+Artifacts:
+- `results/block_ar/730a_vix_proxy_tradeoff_attribution/attribution.json`
+- `results/block_ar/730a_vix_proxy_tradeoff_attribution/attribution.md`
+
+Key comparison:
+- 719a IV scorecard: 7/11 effective IV score, failing coverage, regime coverage, distributional fidelity.
+- 674a IV-only full artifact: 6/11, coverage90 0.829, level-KS pass 15/25, pathwise KS 0.451, MR ratio 1.037.
+- 676a joint38 full artifact: 5/11, coverage90 0.797, level-KS pass 13/25, pathwise KS 0.394, MR ratio 1.013.
+- 729a joint39+VIX-proxy full artifact: 5/11, coverage90 0.809, level-KS pass 12/25, pathwise KS 0.507, MR ratio 1.066.
+- 729a anchor+VIX panel: 13/14 factor KS pass, 14/14 tail pass, factor corr upper 0.912, conditional MAE gain 4.887%, VIX-proxy KS 0.104.
+- 729a joint+VIX panel: 13/14 factor KS pass, 14/14 tail pass, factor corr upper 0.826, IV-factor matrix corr 0.929, conditional MAE gain 4.190%, VIX-proxy KS 0.070.
+
+### Mechanism Read
+729a does not expose a new VIX-specific failure class. Its joint+VIX IV full-suite pass count matches the prior native joint 676a result at 5/11, while panel-level factor realism and IV-factor co-movement remain strong. The regression relative to the 719a risk-manager baseline is therefore the known joint-scope IV calibration/root trade-off, not a reason to add VIX-specific knobs.
+
+Because `vix_proxy` is derived from an IV surface column, it validates scalar volatility-factor ingestion and scenario plumbing, not an independent observed-VIX law. It should stay as an optional data-interface extension and not be claimed as a new market factor unless real VIX data is added later.
+
+### Decision
+Keep 719a as the current risk-manager baseline. Keep the VIX-proxy loader as useful evidence that the framework can ingest a scalar volatility factor. Continue by targeting the general joint-scope IV calibration/root trade-off across the same framework rather than repairing the VIX proxy specifically.
+
+---
