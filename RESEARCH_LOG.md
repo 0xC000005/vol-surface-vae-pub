@@ -107889,3 +107889,34 @@ Artifacts:
 - `results/block_ar/761a_calibration_transfer_assessment/summary.{json,md}`.
 
 ---
+## 2026-04-29: Autoresearch 762a level-marginal CRPS falsifier
+
+### Context
+762a followed the 761a decision not to keep iterating post-hoc calibration as the main research line. The hypothesis was that a base-model proper scoring term on level paths could improve median/level allocation inside the learned conditional law.
+
+### Implementation
+- Added a generic `level_marginal_crps_weight` to `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+- Default is off.
+- The default coordinate is `scaled_delta`: future level paths are converted to deltas from the last conditioned level and divided by the history-only scale.
+- Added a focused regression test; `pytest test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed `22` tests.
+
+### Execute
+- Source checkpoint: `models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt`.
+- Recipe: 755a short-prefix generated FM with `free_running_fm_weight=0.2`, `free_running_fm_prefix_steps=5`, and `channel_level_energy_weight=0.05`.
+- Changed axis: `level_marginal_crps_weight=0.05`, `level_marginal_crps_coordinate=scaled_delta`.
+- Model: `models/backfill/762a_iv_shortprefix_levelcrps_w005_s7621/best_model.pt`.
+- Artifacts: `results/block_ar/762a_iv_shortprefix_levelcrps_w005/`.
+
+### Result
+- Validation: `6/11`; failed `coverage`, `conditionality`, `regime_coverage`, `distributional_fidelity`, `mean_reversion`.
+- Validation versus 755a: cov90 worsened `0.817 -> 0.780`, calerr worsened `0.063 -> 0.099`, level-KS worsened `15/25 -> 13/25`, median-bias worsened `15/25 -> 14/25`, while cointegration worst-cell improved `0.239 -> 0.269` and passed.
+- Train-tail: `6/11`; failed `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`.
+- Train-tail versus 755a: score fell `8/11 -> 6/11`; coverage, cointegration, and risk-state allocation degraded.
+
+### Mechanism Read
+The level marginal CRPS term is not an adequate base-law repair. It is a principled proper score, but in this recipe it creates a central-level/structural-dynamics trade-off: cointegration/pathwise geometry improves in places, while coverage, level distribution, mean-reversion profile, and train-tail robustness degrade.
+
+### Decision
+Reject 762a as a promotion candidate. Keep 755a as the active base learned generator and 760a as a separate rolling calibrated risk-system layer. The next step should analyze why level allocation and structural dynamics trade off under the current readout/objective before adding another scalar loss knob.
+
+---

@@ -557,6 +557,8 @@ def normalized_rollout_energy_loss(
     horizon_end_weight: float,
     energy_eps: float,
     temperature: float,
+    level_marginal_crps_weight: float = 0.0,
+    level_marginal_crps_coordinate: str = "scaled_delta",
     level_energy_weight: float = 0.0,
     channel_level_energy_weight: float = 0.0,
     channel_level_energy_coordinate: str = "level",
@@ -690,6 +692,30 @@ def normalized_rollout_energy_loss(
         level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+    if float(level_marginal_crps_weight) > 0.0:
+        if level_marginal_crps_coordinate == "level":
+            level_crps_samples = sampled_level
+            level_crps_target = future_level_values
+        elif level_marginal_crps_coordinate == "scaled_delta":
+            level_crps_samples, level_crps_target = standardized_level_delta_paths(
+                sampled_level,
+                future_level_values,
+                history_level_values,
+                scale,
+            )
+        else:
+            raise ValueError("level_marginal_crps_coordinate must be 'level' or 'scaled_delta'")
+        level_marginal_crps, level_marginal_crps_target_dist, level_marginal_crps_pair_dist = (
+            marginal_crps_path_score(
+                level_crps_samples,
+                level_crps_target,
+                horizon_weights=weights,
+            )
+        )
+    else:
+        level_marginal_crps = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        level_marginal_crps_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        level_marginal_crps_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     if float(channel_level_energy_weight) > 0.0:
         if channel_level_energy_coordinate == "level":
             channel_samples = sampled_level
@@ -753,6 +779,7 @@ def normalized_rollout_energy_loss(
         + float(interval_score_weight) * interval_score
         + float(variogram_weight) * variogram
         + float(dispersion_calibration_weight) * dispersion_calibration
+        + float(level_marginal_crps_weight) * level_marginal_crps
         + float(level_energy_weight) * level_energy
         + float(channel_level_energy_weight) * channel_level_energy
         + float(condition_rollout_contrast_weight) * condition_rollout_contrast
@@ -780,6 +807,9 @@ def normalized_rollout_energy_loss(
             spread_activity_mean / future_normalized_innovation.square().mean().detach().clamp_min(1e-8)
         ).detach(),
         "dispersion_spread_future_activity_corr": spread_future_activity_corr.detach(),
+        "level_marginal_crps": level_marginal_crps.detach(),
+        "level_marginal_crps_target_dist": level_marginal_crps_target_dist.detach(),
+        "level_marginal_crps_pair_dist": level_marginal_crps_pair_dist.detach(),
         "level_energy": level_energy.detach(),
         "level_energy_target_dist": level_target_dist.detach(),
         "level_energy_pair_dist": level_pair_dist.detach(),
@@ -838,6 +868,8 @@ def run_epoch(
     interval_alpha: float,
     variogram_weight: float,
     variogram_power: float,
+    level_marginal_crps_weight: float,
+    level_marginal_crps_coordinate: str,
     level_energy_weight: float,
     channel_level_energy_weight: float,
     channel_level_energy_coordinate: str,
@@ -884,6 +916,8 @@ def run_epoch(
                 interval_alpha=float(interval_alpha),
                 variogram_weight=float(variogram_weight),
                 variogram_power=float(variogram_power),
+                level_marginal_crps_weight=float(level_marginal_crps_weight),
+                level_marginal_crps_coordinate=level_marginal_crps_coordinate,
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
                 channel_level_energy_coordinate=channel_level_energy_coordinate,
@@ -946,6 +980,12 @@ def main() -> None:
     parser.add_argument("--interval_alpha", type=float, default=0.1)
     parser.add_argument("--variogram_weight", type=float, default=0.0)
     parser.add_argument("--variogram_power", type=float, default=0.5)
+    parser.add_argument("--level_marginal_crps_weight", type=float, default=0.0)
+    parser.add_argument(
+        "--level_marginal_crps_coordinate",
+        choices=["level", "scaled_delta"],
+        default="scaled_delta",
+    )
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_coordinate", choices=["level", "scaled_delta"], default="level")
@@ -1170,6 +1210,8 @@ def main() -> None:
         "interval_alpha": float(args.interval_alpha),
         "variogram_weight": float(args.variogram_weight),
         "variogram_power": float(args.variogram_power),
+        "level_marginal_crps_weight": float(args.level_marginal_crps_weight),
+        "level_marginal_crps_coordinate": args.level_marginal_crps_coordinate,
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "channel_level_energy_coordinate": args.channel_level_energy_coordinate,
@@ -1224,6 +1266,8 @@ def main() -> None:
             interval_alpha=float(args.interval_alpha),
             variogram_weight=float(args.variogram_weight),
             variogram_power=float(args.variogram_power),
+            level_marginal_crps_weight=float(args.level_marginal_crps_weight),
+            level_marginal_crps_coordinate=args.level_marginal_crps_coordinate,
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
             channel_level_energy_coordinate=args.channel_level_energy_coordinate,
@@ -1258,6 +1302,8 @@ def main() -> None:
                 interval_alpha=float(args.interval_alpha),
                 variogram_weight=float(args.variogram_weight),
                 variogram_power=float(args.variogram_power),
+                level_marginal_crps_weight=float(args.level_marginal_crps_weight),
+                level_marginal_crps_coordinate=args.level_marginal_crps_coordinate,
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
                 channel_level_energy_coordinate=args.channel_level_energy_coordinate,

@@ -562,6 +562,55 @@ def test_normalized_rollout_energy_loss_can_score_channel_balanced_level_paths()
     assert loss_with_channel > loss_without_channel
 
 
+def test_normalized_rollout_energy_loss_can_score_level_marginal_crps():
+    torch.manual_seed(33)
+    model = _tiny_model()
+    history_level, history_norm, future_level, future_norm, center, scale = _batch(model)
+
+    torch.manual_seed(39)
+    loss_without_crps, metrics_without_crps = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        level_marginal_crps_weight=0.0,
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+    torch.manual_seed(39)
+    loss_with_crps, metrics_with_crps = normalized_rollout_energy_loss(
+        model,
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        train_sample_count=2,
+        rollout_flow_steps=2,
+        energy_weight=0.2,
+        level_marginal_crps_weight=0.1,
+        level_marginal_crps_coordinate="scaled_delta",
+        fm_anchor_weight=1.0,
+        horizon_end_weight=1.2,
+        energy_eps=1e-6,
+        temperature=1.0,
+    )
+
+    assert torch.isfinite(loss_with_crps)
+    assert metrics_without_crps["level_marginal_crps"].item() == 0.0
+    assert metrics_with_crps["level_marginal_crps"].item() > 0.0
+    assert loss_with_crps > loss_without_crps
+
+
 def test_normalized_rollout_energy_loss_can_contrast_shuffled_history_rollouts():
     torch.manual_seed(41)
     model = _tiny_model()

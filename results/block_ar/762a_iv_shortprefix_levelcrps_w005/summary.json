@@ -1,0 +1,58 @@
+{
+  "run_id": "762a",
+  "iteration_type": "experiment",
+  "hypothesis": "Adding a generic level-coordinate marginal CRPS term in standardized level-delta space to the 755a short-prefix AR flow should improve median/level allocation without post-hoc calibration.",
+  "implementation": {
+    "source_checkpoint": "models/backfill/674a_iv_channel_level_alltrain_w005_e3_s6731/best_model.pt",
+    "model_checkpoint": "models/backfill/762a_iv_shortprefix_levelcrps_w005_s7621/best_model.pt",
+    "base_recipe": "755a short-prefix generated FM K=5 with channel-level energy",
+    "changed_axis": "level_marginal_crps_weight=0.05, level_marginal_crps_coordinate=scaled_delta",
+    "best_epoch": 1,
+    "best_val_total": 2.1569208332470486
+  },
+  "validation": {
+    "score": "6/11",
+    "failed": [
+      "coverage",
+      "conditionality",
+      "regime_coverage",
+      "distributional_fidelity",
+      "mean_reversion"
+    ],
+    "cov90": 0.7798427815570673,
+    "calibration_error": 0.09906273620559335,
+    "level_ks_pass": "13/25",
+    "median_bias_pass": "14/25",
+    "cointegration_ratio": 0.7320261437908496,
+    "cointegration_worst_cell": 0.2686567164179104,
+    "mean_reversion_pass": false,
+    "pathwise_ks": 0.33990929705215417,
+    "kurtosis_ratio": 1.1355117116188218
+  },
+  "train_tail": {
+    "score": "6/11",
+    "failed": [
+      "coverage",
+      "conditionality",
+      "time_series",
+      "cointegration",
+      "regime_coverage"
+    ],
+    "cov90": 0.8235071806500378,
+    "calibration_error": 0.05430587049634669,
+    "level_ks_pass": "19/25",
+    "median_bias_pass": "25/25",
+    "cointegration_ratio": 0.45845272206303733,
+    "cointegration_worst_cell": 0.1981981981981982,
+    "mean_reversion_pass": true,
+    "pathwise_ks": 0.4414965986394558,
+    "kurtosis_ratio": 1.9550596773740978
+  },
+  "comparison_to_755a": {
+    "validation_score": "6/11 vs 6/11",
+    "train_tail_score": "6/11 vs 8/11",
+    "validation_changes": "cointegration becomes passable by worst-cell ratio, but coverage, level-KS, median-bias, and mean-reversion degrade.",
+    "train_tail_changes": "in-sample level marginal metrics remain decent but cointegration, time-series kurtosis, risk-state allocation, and coverage degrade versus 755a."
+  },
+  "decision": "Reject this level-marginal-CRPS variant as a promotion candidate. The failure mechanism is not lack of any level proper score; the new score creates a central-level/structural-dynamics trade-off and does not replace 755a."
+}
