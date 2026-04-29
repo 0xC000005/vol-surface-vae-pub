@@ -4,8 +4,8 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 735,
-  "last_iteration_type": "post_experiment_analysis",
+  "iteration": 736,
+  "last_iteration_type": "experiment",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "real_vix_tri_scope_handoff_ref": "docs/research_protocols/733_real_vix_tri_scope_handoff.md",
@@ -16,7 +16,7 @@
     "anchor_only",
     "joint"
   ],
-  "current_framework_status": "734a evaluated a real-VIX frozen continuous normalized-innovation AR-flow recipe across iv_only, anchor_only, and joint. The framework gate passed: one generated coordinate, one AR flow backend, one stochastic source, one shared encoder/transition core, and one loss recipe, with only support/head/dimensionality differences. Model gates did not pass: IV-only was 6/11, joint IV-slice was 6/11, and anchor/joint panel gates failed factor-delta KS on AAA/BBB OAS and US2Y.",
+  "current_framework_status": "736a falsified the first learned mixed-support no-update head as a repair for the real-VIX tri-scope framework. The mechanism remains one shared AR normalized-innovation flow with a generic train-no-change-selected Bernoulli no-update head, but the anchor-only falsifier failed before joint retraining: factor KS stayed 12/14 and AAA/BBB OAS regressed. Do not promote this mixed-support variant as a framework candidate.",
   "normalization_policy": "support-aware encoded levels; daily encoded increments; history-only fixed EWMA/RMS scale with robust floor; zero center remains the deployable incumbent. 679a/680a falsified full EWMA mean centering as too deterministic even with rollout-energy repair; 681a falsified EWMA drift as an added conditioning feature because it still over-amplified drift/mean-reversion and damaged level/path allocation.",
   "backend_switch_policy": "Do not switch AR/one-shot, flow/diffusion/copula, or Transformer/other backbone until required audits classify the failure as backend failure rather than data framing, reconstruction, conditionality, diversity, dependency, or distribution shift.",
   "research_axis_policy": "Change one axis per iteration unless diagnostics prove coupling. Axes: data_object, output_law, temporal_factorization, backend, encoder, dependency_structure, calibration.",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "The current continuous head has no exact no-change atom for sticky quoted OAS channels, while validation has large no-change mass. A deterministic threshold readout can improve the panel score but over-snaps and still leaves BBB above the KS gate, so the remaining clean path is a generic learned mixed-support observation/output law rather than another threshold or backend change.",
-  "last_result_summary": "735a sticky residual attribution on the real-VIX 734a checkpoints: identity continuous generation has AAA/BBB gen zero rates 0.0/0.0 versus validation 0.474/0.383 in both anchor and joint. Anchor identity: 12/14 factor KS pass, mean KS 0.1068, AAA KS 0.2612, BBB KS 0.3544. Joint identity: 12/14 pass, mean KS 0.0967, AAA KS 0.2533, BBB KS 0.2617. Deterministic q0.1 no-change readout improves anchor to 13/14 and joint to 13/14, with AAA passing in joint at KS 0.1468, but BBB remains failing at 0.2171 joint and 0.2751 anchor; q0.9 over-snaps and regresses correlation.",
-  "next_step_recommendation": "Run one decisive learned mixed-support output-law experiment if implementation scope is acceptable: a generic high-no-change-channel Bernoulli/no-update head trained with BCE plus the existing continuous AR flow loss, sharing the same encoder/transition core and selected only by train no-change statistics. Keep IV-only no-op because no IV channels are selected. Reject if it needs factor-name-specific rules, separate loss weights by scope, or if nonzero OAS tails/correlation regress like 724a. If implementation would be too large for the current session, do a narrower design/feasibility spike first.",
+  "current_bottleneck": "Sticky quoted OAS is no longer just a missing atom problem. The learned no-update head restores exact-zero mass but over-sticks AAA/BBB and leaves nonzero move medians too small, while prior masked-zero training over-widened nonzero tails. This is a coupled discrete-event plus nonzero-scale allocation problem under train/validation regime shift; further OAS-specific fixes risk violating the clean-pathology guard.",
+  "last_result_summary": "736a added a generic mixed-support Bernoulli no-update head to the normalized-innovation flow, wired it through 662a and 666a, and added focused tests. Verification: py_compile passed and test_code/test_662a_state_aware_normalized_innovation_flow.py passed 18/18. Anchor base selected only factor:aaa_oas and factor:bbb_oas. After rollout fine-tune, anchor panel stayed at 12/14 factor KS pass, mean KS 0.1045, tail q99 14/14 pass, factor corr upper 0.884, conditional width rho 0.937. AAA/BBB regressed: AAA KS 0.2654 and BBB KS 0.3341. Attribution showed learned identity zero rates AAA/BBB 0.615/0.434 versus validation 0.474/0.383, with nonzero q50 0.004/0.006 versus validation 0.010/0.010, so the head over-zeroes and under-scales small nonzero moves.",
+  "next_step_recommendation": "Do not stack another sticky-spread knob. Choose research_ideation/post_experiment_analysis to decide whether to (a) document OAS as a limitation and continue with the continuous real-VIX framework as the risk-manager candidate, (b) revise the anchor data object for quoted/stale spread channels outside the model, or (c) make a broader observation-model paradigm shift with explicit hurdle likelihood and conditional nonzero scale. Backend switching is not justified by 736a.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. 719a remains the pre-real-VIX unified methodology baseline: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals. Because observed VIX changed the factor panel, do not claim a current real-VIX tri-scope champion until rerun.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "d70f2a0",
+  "last_commit": "pending_736a_commit",
   "resume_command_hint": "continue autoresearch"
 }

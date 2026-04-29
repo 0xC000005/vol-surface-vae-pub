@@ -35,6 +35,7 @@ from experiments.backfill.block_ar.train_628a_unified_ar_increment_transition_fl
     build_blocks,
 )
 from experiments.backfill.block_ar.train_662a_state_aware_normalized_innovation_flow import (  # noqa: E402
+    no_update_target_from_block,
     sample_smoke,
     select_normalized_innovation_scope,
 )
@@ -292,6 +293,7 @@ def differentiable_rollout_paths(
     center: torch.Tensor,
     scale: torch.Tensor,
     drift_feature: torch.Tensor | None = None,
+    future_no_update_target: torch.Tensor | None = None,
     *,
     n_samples: int,
     n_steps: int,
@@ -416,6 +418,7 @@ def normalized_rollout_energy_loss(
     center: torch.Tensor,
     scale: torch.Tensor,
     drift_feature: torch.Tensor | None = None,
+    future_no_update_target: torch.Tensor | None = None,
     *,
     train_sample_count: int,
     rollout_flow_steps: int,
@@ -435,6 +438,7 @@ def normalized_rollout_energy_loss(
     condition_rollout_negative_mode: str = "roll",
     risk_state_weight: float = 0.0,
     risk_state_rank_weight: float = 0.0,
+    mixed_support_weight: float = 0.0,
     dispersion_calibration_weight: float = 0.0,
     dispersion_calibration_mode: str = "window",
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
@@ -446,8 +450,10 @@ def normalized_rollout_energy_loss(
         center,
         scale,
         drift_feature=drift_feature,
+        future_no_update_target=future_no_update_target,
         risk_state_weight=float(risk_state_weight),
         risk_state_rank_weight=float(risk_state_rank_weight),
+        mixed_support_weight=float(mixed_support_weight),
     )
     sampled_norm, sampled_level = differentiable_rollout_paths(
         model,
@@ -616,6 +622,10 @@ def normalized_rollout_energy_loss(
         "risk_state_loss": fm_metrics["risk_state_loss"].detach(),
         "risk_state_rank_loss": fm_metrics["risk_state_rank_loss"].detach(),
         "risk_state_rank_rho": fm_metrics["risk_state_rank_rho"].detach(),
+        "mixed_support_enabled": fm_metrics["mixed_support_enabled"].detach(),
+        "mixed_support_bce_loss": fm_metrics["mixed_support_bce_loss"].detach(),
+        "mixed_support_selected_count": fm_metrics["mixed_support_selected_count"].detach(),
+        "mixed_support_target_rate": fm_metrics["mixed_support_target_rate"].detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
         "target_level_std": future_level_values.std(unbiased=False).detach(),
@@ -647,6 +657,7 @@ def run_epoch(
     condition_rollout_negative_mode: str,
     risk_state_weight: float,
     risk_state_rank_weight: float,
+    mixed_support_weight: float,
     dispersion_calibration_weight: float,
     dispersion_calibration_mode: str,
     fm_anchor_weight: float,
@@ -660,7 +671,7 @@ def run_epoch(
     model.train(train_mode)
     sums: dict[str, float] = {}
     n_batches = 0
-    for history_level, history_norm, future_level, future_norm, center, scale, drift_feature in loader:
+    for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, no_update_target in loader:
         if int(max_batches) > 0 and n_batches >= int(max_batches):
             break
         with torch.set_grad_enabled(train_mode):
@@ -673,6 +684,7 @@ def run_epoch(
                 center.to(device),
                 scale.to(device),
                 drift_feature=drift_feature.to(device),
+                future_no_update_target=no_update_target.to(device),
                 train_sample_count=int(train_sample_count),
                 rollout_flow_steps=int(rollout_flow_steps),
                 energy_weight=float(energy_weight),
@@ -687,6 +699,7 @@ def run_epoch(
                 condition_rollout_negative_mode=condition_rollout_negative_mode,
                 risk_state_weight=float(risk_state_weight),
                 risk_state_rank_weight=float(risk_state_rank_weight),
+                mixed_support_weight=float(mixed_support_weight),
                 dispersion_calibration_weight=float(dispersion_calibration_weight),
                 dispersion_calibration_mode=dispersion_calibration_mode,
                 fm_anchor_weight=float(fm_anchor_weight),
@@ -744,6 +757,7 @@ def main() -> None:
     parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
     parser.add_argument("--risk_state_weight", type=float, default=0.0)
     parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
+    parser.add_argument("--mixed_support_loss_weight", type=float, default=None)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
@@ -800,6 +814,13 @@ def main() -> None:
     args.scale_floor = float(norm_cfg.get("scale_floor", args.scale_floor))
     args.center_mode = norm_cfg.get("center_mode", args.center_mode)
     args.drift_feature_mode = norm_cfg.get("drift_feature_mode", args.drift_feature_mode)
+    if args.mixed_support_loss_weight is None:
+        args.mixed_support_loss_weight = float(
+            norm_cfg.get(
+                "mixed_support_loss_weight",
+                payload.get("training_objective", {}).get("mixed_support_loss_weight", 0.0),
+            )
+        )
     half_life = norm_cfg.get("scale_half_life", args.scale_half_life)
     scale_half_life = None if half_life is None or float(half_life) <= 0.0 else float(half_life)
 
@@ -851,6 +872,24 @@ def main() -> None:
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     if expected and expected != [spec.name for spec in train_specs]:
         raise RuntimeError("checkpoint state specs do not match rebuilt specs")
+    mixed_support_enabled = getattr(model.cfg, "mixed_support_observation", "none") == "bernoulli_no_update"
+    zero_eps = float(norm_cfg.get("mixed_support_zero_eps", 1e-10))
+    if mixed_support_enabled:
+        train_no_update_target = no_update_target_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=zero_eps,
+        )
+        val_no_update_target = no_update_target_from_block(
+            val_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=zero_eps,
+        )
+    else:
+        train_no_update_target = np.zeros_like(train_future_norm, dtype=np.float32)
+        val_no_update_target = np.zeros_like(val_future_norm, dtype=np.float32)
 
     train_loader = DataLoader(
         TensorDataset(
@@ -861,6 +900,7 @@ def main() -> None:
             torch.from_numpy(train_center),
             torch.from_numpy(train_scale),
             torch.from_numpy(train_drift),
+            torch.from_numpy(train_no_update_target),
         ),
         batch_size=int(args.batch_size),
         shuffle=True,
@@ -875,6 +915,7 @@ def main() -> None:
             torch.from_numpy(val_center),
             torch.from_numpy(val_scale),
             torch.from_numpy(val_drift),
+            torch.from_numpy(val_no_update_target),
         ),
         batch_size=int(args.batch_size),
         shuffle=False,
@@ -902,6 +943,8 @@ def main() -> None:
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
         "risk_state_weight": float(args.risk_state_weight),
         "risk_state_rank_weight": float(args.risk_state_rank_weight),
+        "mixed_support_loss_weight": float(args.mixed_support_loss_weight),
+        "mixed_support_observation": getattr(model.cfg, "mixed_support_observation", "none"),
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "dispersion_calibration_mode": args.dispersion_calibration_mode,
         "base_noise_rho": float(model.cfg.base_noise_rho),
@@ -946,6 +989,7 @@ def main() -> None:
             condition_rollout_negative_mode=args.condition_rollout_negative_mode,
             risk_state_weight=float(args.risk_state_weight),
             risk_state_rank_weight=float(args.risk_state_rank_weight),
+            mixed_support_weight=float(args.mixed_support_loss_weight),
             dispersion_calibration_weight=float(args.dispersion_calibration_weight),
             dispersion_calibration_mode=args.dispersion_calibration_mode,
             fm_anchor_weight=float(args.fm_anchor_weight),
@@ -975,6 +1019,7 @@ def main() -> None:
                 condition_rollout_negative_mode=args.condition_rollout_negative_mode,
                 risk_state_weight=float(args.risk_state_weight),
                 risk_state_rank_weight=float(args.risk_state_rank_weight),
+                mixed_support_weight=float(args.mixed_support_loss_weight),
                 dispersion_calibration_weight=float(args.dispersion_calibration_weight),
                 dispersion_calibration_mode=args.dispersion_calibration_mode,
                 fm_anchor_weight=float(args.fm_anchor_weight),

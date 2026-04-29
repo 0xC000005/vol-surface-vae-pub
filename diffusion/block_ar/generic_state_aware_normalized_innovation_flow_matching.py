@@ -29,6 +29,7 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     base_noise_scale_max: float = 2.0
     innovation_coordinate: str = "normalized"
     risk_state_dim: int = 0
+    mixed_support_observation: str = "none"
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -186,6 +187,18 @@ def _make_risk_context_proj(cfg: GenericStateAwareNormalizedInnovationFMConfig) 
     return proj
 
 
+def _make_no_update_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+    head = nn.Sequential(
+        nn.LayerNorm(cfg.memory_dim),
+        nn.Linear(cfg.memory_dim, cfg.memory_dim),
+        nn.GELU(),
+        nn.Linear(cfg.memory_dim, cfg.n_cells),
+    )
+    nn.init.zeros_(head[-1].weight)
+    nn.init.zeros_(head[-1].bias)
+    return head
+
+
 def enable_conditional_base_noise_scale(
     model: "GenericStateAwareNormalizedInnovationFlowMatching",
     *,
@@ -216,6 +229,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             raise ValueError(
                 "innovation_coordinate must be 'normalized', 'score', 'hybrid_sticky_score', or 'hybrid_tail_asinh'"
             )
+        if cfg.mixed_support_observation not in {"none", "bernoulli_no_update"}:
+            raise ValueError("mixed_support_observation must be 'none' or 'bernoulli_no_update'")
         feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -241,6 +256,11 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.base_noise_log_scale = (
             _make_base_noise_scale_head(cfg) if bool(cfg.conditional_base_noise_scale) else None
         )
+        self.no_update_head = (
+            _make_no_update_head(cfg)
+            if cfg.mixed_support_observation == "bernoulli_no_update"
+            else None
+        )
         self.risk_state_head = (
             _make_risk_state_head(cfg) if int(cfg.risk_state_dim) > 0 else None
         )
@@ -258,6 +278,8 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.register_buffer("innovation_score_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
         self.register_buffer("innovation_tail_asinh_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
         self.register_buffer("innovation_tail_asinh_scale", torch.ones(cfg.n_cells, dtype=torch.float32))
+        self.register_buffer("no_update_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
+        self.register_buffer("no_update_prior_rate", torch.zeros(cfg.n_cells, dtype=torch.float32))
 
     def set_level_quantiles(
         self,
@@ -311,6 +333,26 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         safe_scale = scale.to(device=self.innovation_tail_asinh_scale.device, dtype=self.innovation_tail_asinh_scale.dtype)
         self.innovation_tail_asinh_scale.copy_(safe_scale.clamp_min(1e-6))
+
+    def set_mixed_support_no_update(self, mask: torch.Tensor, prior_rate: torch.Tensor) -> None:
+        if self.no_update_head is None:
+            raise RuntimeError("mixed support no-update head is not enabled")
+        if mask.shape != (self.cfg.n_cells,):
+            raise ValueError(f"mask must have shape ({self.cfg.n_cells},)")
+        if prior_rate.shape != (self.cfg.n_cells,):
+            raise ValueError(f"prior_rate must have shape ({self.cfg.n_cells},)")
+        mask = mask.to(device=self.no_update_mask.device, dtype=torch.bool)
+        prior = prior_rate.to(device=self.no_update_prior_rate.device, dtype=torch.float32)
+        prior = prior.clamp(0.0, 1.0)
+        self.no_update_mask.copy_(mask)
+        self.no_update_prior_rate.copy_(prior)
+        eps = torch.finfo(prior.dtype).eps
+        safe_prior = prior.clamp(eps, 1.0 - eps)
+        bias = torch.logit(safe_prior)
+        bias = torch.where(prior <= 0.0, torch.full_like(bias, -80.0), bias)
+        bias = torch.where(prior >= 1.0, torch.full_like(bias, 80.0), bias)
+        with torch.no_grad():
+            self.no_update_head[-1].bias.copy_(bias.to(self.no_update_head[-1].bias.device))
 
     def _check_innovation_quantiles(self) -> None:
         if not bool(self._innovation_quantiles_ready.item()):
@@ -581,6 +623,27 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             )
         return regression, rank_loss, rho.detach()
 
+    def _mixed_support_loss(
+        self,
+        memory_states: torch.Tensor,
+        future_no_update_target: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        zero = memory_states.new_zeros(())
+        if self.no_update_head is None:
+            return zero, zero, zero
+        mask = self.no_update_mask.to(device=memory_states.device)
+        selected_count = mask.to(memory_states.dtype).sum()
+        if not bool(mask.any()) or future_no_update_target is None:
+            return zero, zero, selected_count.detach()
+        target = future_no_update_target.to(device=memory_states.device, dtype=memory_states.dtype)
+        logits = self.no_update_head(memory_states)
+        if target.shape != logits.shape:
+            raise ValueError(f"future_no_update_target must have shape {tuple(logits.shape)}, got {tuple(target.shape)}")
+        expanded_mask = mask.view(1, 1, self.cfg.n_cells).expand_as(target)
+        loss = F.binary_cross_entropy_with_logits(logits[expanded_mask], target[expanded_mask])
+        target_rate = target[expanded_mask].mean().detach()
+        return loss, target_rate, selected_count.detach()
+
     def training_loss(
         self,
         history_level_values: torch.Tensor,
@@ -591,10 +654,12 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         scale: torch.Tensor,
         drift_feature: torch.Tensor | None = None,
         future_element_weight: torch.Tensor | None = None,
+        future_no_update_target: torch.Tensor | None = None,
         condition_contrast_weight: float = 0.0,
         condition_contrast_margin: float = 0.0,
         risk_state_weight: float = 0.0,
         risk_state_rank_weight: float = 0.0,
+        mixed_support_weight: float = 0.0,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
@@ -697,11 +762,16 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             risk_prediction,
             future_flow_coordinate,
         )
+        mixed_support_loss, mixed_support_target_rate, mixed_support_selected_count = self._mixed_support_loss(
+            memory_states,
+            future_no_update_target,
+        )
         total_loss = (
             fm_loss
             + contrast_weight * contrast_loss
             + float(risk_state_weight) * risk_loss
             + float(risk_state_rank_weight) * risk_rank_loss
+            + float(mixed_support_weight) * mixed_support_loss
         )
         if base_noise_scale is None:
             base_noise_scale_enabled = torch.zeros((), device=x1.device, dtype=x1.dtype)
@@ -737,6 +807,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "risk_state_rank_rho": risk_rank_rho,
             "risk_state_weight": torch.as_tensor(float(risk_state_weight), device=x1.device, dtype=x1.dtype),
             "risk_state_rank_weight": torch.as_tensor(float(risk_state_rank_weight), device=x1.device, dtype=x1.dtype),
+            "mixed_support_enabled": torch.as_tensor(
+                1.0 if self.no_update_head is not None and bool(self.no_update_mask.any()) else 0.0,
+                device=x1.device,
+                dtype=x1.dtype,
+            ),
+            "mixed_support_bce_loss": mixed_support_loss.detach(),
+            "mixed_support_weight": torch.as_tensor(float(mixed_support_weight), device=x1.device, dtype=x1.dtype),
+            "mixed_support_selected_count": mixed_support_selected_count.to(device=x1.device, dtype=x1.dtype),
+            "mixed_support_target_rate": mixed_support_target_rate.to(device=x1.device, dtype=x1.dtype),
             "future_element_weight_mean": element_weight_mean,
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_flow_std": x1.std(unbiased=False).detach(),
@@ -843,6 +922,14 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 next_flow_coordinate = x
                 next_norm = self._from_flow_coordinate(next_flow_coordinate)
                 next_increment = next_norm * scale_rep + center_rep
+                if self.no_update_head is not None and bool(self.no_update_mask.any()):
+                    logits = self.no_update_head(memory_state)
+                    probs = torch.sigmoid(logits)
+                    no_update = torch.rand_like(probs) < probs
+                    no_update = no_update & self.no_update_mask.to(device=probs.device).view(1, self.cfg.n_cells)
+                    next_increment = torch.where(no_update, torch.zeros_like(next_increment), next_increment)
+                    next_norm = (next_increment - center_rep) / scale_rep.clamp_min(1e-8)
+                    next_flow_coordinate = self._to_flow_coordinate(next_norm)
                 next_level_value = prefix_level_values[:, -1] + next_increment
                 next_level_score = self.level_values_to_scores(next_level_value)
                 frames.append(next_increment.view(bsz, k, self.cfg.n_cells))
@@ -867,17 +954,32 @@ def load_model(
         "innovation_score_mask",
         "innovation_tail_asinh_mask",
         "innovation_tail_asinh_scale",
+        "no_update_mask",
+        "no_update_prior_rate",
     }
     if cfg.innovation_coordinate == "score":
         allowed_missing = {
             "innovation_score_mask",
             "innovation_tail_asinh_mask",
             "innovation_tail_asinh_scale",
+            "no_update_mask",
+            "no_update_prior_rate",
         }
     if cfg.innovation_coordinate == "hybrid_sticky_score":
-        allowed_missing = {"innovation_tail_asinh_mask", "innovation_tail_asinh_scale"}
+        allowed_missing = {
+            "innovation_tail_asinh_mask",
+            "innovation_tail_asinh_scale",
+            "no_update_mask",
+            "no_update_prior_rate",
+        }
     if cfg.innovation_coordinate == "hybrid_tail_asinh":
-        allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready", "innovation_score_mask"}
+        allowed_missing = {
+            "innovation_quantiles",
+            "_innovation_quantiles_ready",
+            "innovation_score_mask",
+            "no_update_mask",
+            "no_update_prior_rate",
+        }
     unexpected = set(incompat.unexpected_keys)
     missing = set(incompat.missing_keys)
     if unexpected or missing.difference(allowed_missing):

@@ -224,6 +224,111 @@ def test_future_element_weight_masks_flow_loss_terms():
         )
 
 
+def test_mixed_support_no_update_loss_uses_selected_channels_only():
+    torch.manual_seed(735)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=3,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        mixed_support_observation="bernoulli_no_update",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    model.set_level_quantiles(torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells), levels)
+    model.set_mixed_support_no_update(
+        torch.tensor([False, True, False]),
+        torch.tensor([0.01, 0.75, 0.01]),
+    )
+
+    history_level = torch.randn(4, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(4, cfg.history_len, cfg.n_cells)
+    center = torch.randn(4, cfg.n_cells) * 0.01
+    scale = torch.rand(4, cfg.n_cells) * 0.05 + 0.01
+    future_norm = torch.randn(4, cfg.future_len, cfg.n_cells)
+    increments = future_norm * scale[:, None, :] + center[:, None, :]
+    future_level = history_level[:, -1:, :] + torch.cumsum(increments, dim=1)
+    no_update_target = torch.zeros_like(future_norm)
+    no_update_target[:, ::2, 1] = 1.0
+    no_update_target[..., 0] = 1.0
+
+    loss, metrics = model.training_loss(
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        future_no_update_target=no_update_target,
+        mixed_support_weight=0.7,
+    )
+
+    assert torch.isfinite(loss)
+    assert metrics["mixed_support_enabled"].item() == 1.0
+    assert metrics["mixed_support_selected_count"].item() == 1.0
+    assert torch.isclose(metrics["mixed_support_target_rate"], torch.tensor(2.0 / 3.0))
+    assert metrics["mixed_support_bce_loss"] > 0.0
+    torch.testing.assert_close(
+        loss.detach(),
+        metrics["fm_loss"] + 0.7 * metrics["mixed_support_bce_loss"],
+    )
+
+
+def test_mixed_support_sampling_emits_exact_no_update_for_selected_channels():
+    torch.manual_seed(736)
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=2,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=1,
+        n_quantiles=17,
+        mixed_support_observation="bernoulli_no_update",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    model.set_level_quantiles(torch.stack([torch.linspace(-2.0, 2.0, cfg.n_quantiles)] * cfg.n_cells), levels)
+    model.set_mixed_support_no_update(
+        torch.tensor([False, True]),
+        torch.tensor([0.01, 1.0]),
+    )
+
+    history_level = torch.randn(3, cfg.history_len, cfg.n_cells) * 0.2
+    history_norm = torch.randn(3, cfg.history_len, cfg.n_cells)
+    center = torch.randn(3, cfg.n_cells) * 0.01
+    scale = torch.rand(3, cfg.n_cells) * 0.05 + 0.01
+    samples = model.sample_batched(
+        history_level,
+        history_norm,
+        center,
+        scale,
+        n_samples=4,
+        n_steps=cfg.future_len,
+        chunk_size=2,
+    )
+
+    assert samples.shape == (3, 4, cfg.future_len, cfg.n_cells)
+    torch.testing.assert_close(samples[..., 1], torch.zeros_like(samples[..., 1]))
+
+
 def test_innovation_score_coordinate_roundtrips_normalized_innovations():
     cfg = GenericStateAwareNormalizedInnovationFMConfig(
         history_len=4,

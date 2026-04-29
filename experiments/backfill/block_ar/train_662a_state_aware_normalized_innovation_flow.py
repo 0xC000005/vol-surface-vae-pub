@@ -169,6 +169,18 @@ def sticky_observation_weight_from_block(
     return weight
 
 
+def no_update_target_from_block(
+    block: IncrementCoordinateBlock,
+    scope: str,
+    iv_count: int,
+    *,
+    zero_eps: float,
+) -> np.ndarray:
+    raw_history, raw_future = select_raw_scope_from_block(block, scope, iv_count)
+    raw_delta = panel_daily_changes(raw_history.astype(np.float64), raw_future.astype(np.float64))
+    return (np.abs(raw_delta) <= float(zero_eps)).astype(np.float32)
+
+
 def tail_asinh_scale_from_future_norm(
     block: IncrementCoordinateBlock,
     scope: str,
@@ -244,12 +256,13 @@ def eval_loss(
     condition_contrast_margin: float,
     risk_state_weight: float,
     risk_state_rank_weight: float,
+    mixed_support_weight: float,
 ) -> float:
     model.eval()
     total = 0.0
     count = 0
     with torch.no_grad():
-        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight in loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight, no_update_target in loader:
             loss, _metrics = model.training_loss(
                 history_level.to(device),
                 history_norm.to(device),
@@ -259,10 +272,12 @@ def eval_loss(
                 scale.to(device),
                 drift_feature=drift_feature.to(device),
                 future_element_weight=future_weight.to(device),
+                future_no_update_target=no_update_target.to(device),
                 condition_contrast_weight=float(condition_contrast_weight),
                 condition_contrast_margin=float(condition_contrast_margin),
                 risk_state_weight=float(risk_state_weight),
                 risk_state_rank_weight=float(risk_state_rank_weight),
+                mixed_support_weight=float(mixed_support_weight),
             )
             batch_n = int(history_level.shape[0])
             total += float(loss.item()) * batch_n
@@ -354,6 +369,10 @@ def main() -> None:
     parser.add_argument("--tail_asinh_min_scale", type=float, default=0.5)
     parser.add_argument("--sticky_observation_loss", choices=["none", "nonzero_mask"], default="none")
     parser.add_argument("--sticky_observation_zero_weight", type=float, default=0.0)
+    parser.add_argument("--mixed_support_observation", choices=["none", "bernoulli_no_update"], default="none")
+    parser.add_argument("--mixed_support_zero_eps", type=float, default=1e-10)
+    parser.add_argument("--mixed_support_zero_rate_gate", type=float, default=0.25)
+    parser.add_argument("--mixed_support_loss_weight", type=float, default=1.0)
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -481,6 +500,7 @@ def main() -> None:
         prefix_feature_mode=args.prefix_feature_mode,
         innovation_coordinate=args.innovation_coordinate,
         risk_state_dim=int(args.risk_state_dim),
+        mixed_support_observation=args.mixed_support_observation,
         conditioning_mode="prefix",
     )
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg).to(device)
@@ -493,6 +513,10 @@ def main() -> None:
         "selected_names": [],
     }
     tail_asinh_report: dict[str, Any] = {
+        "policy": "disabled",
+        "selected_names": [],
+    }
+    mixed_support_report: dict[str, Any] = {
         "policy": "disabled",
         "selected_names": [],
     }
@@ -546,6 +570,37 @@ def main() -> None:
         )
     else:
         sticky_mask = np.zeros(int(train_level.shape[-1]), dtype=bool)
+    if args.mixed_support_observation == "bernoulli_no_update":
+        mixed_mask, mixed_support_report = sticky_score_mask_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.mixed_support_zero_eps),
+            zero_rate_gate=float(args.mixed_support_zero_rate_gate),
+        )
+        mixed_prior = np.array(
+            [float(row["zero_rate"]) for row in mixed_support_report["rows"]],
+            dtype=np.float32,
+        )
+        model.set_mixed_support_no_update(
+            torch.from_numpy(mixed_mask).to(device),
+            torch.from_numpy(mixed_prior).to(device),
+        )
+        train_no_update_target = no_update_target_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.mixed_support_zero_eps),
+        )
+        val_no_update_target = no_update_target_from_block(
+            val_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.mixed_support_zero_eps),
+        )
+    else:
+        train_no_update_target = np.zeros_like(train_future_norm, dtype=np.float32)
+        val_no_update_target = np.zeros_like(val_future_norm, dtype=np.float32)
     if args.sticky_observation_loss == "nonzero_mask":
         train_future_weight = sticky_observation_weight_from_block(
             train_block,
@@ -576,6 +631,7 @@ def main() -> None:
             torch.from_numpy(train_scale),
             torch.from_numpy(train_drift),
             torch.from_numpy(train_future_weight),
+            torch.from_numpy(train_no_update_target),
         ),
         batch_size=int(args.batch_size),
         shuffle=True,
@@ -591,6 +647,7 @@ def main() -> None:
             torch.from_numpy(val_scale),
             torch.from_numpy(val_drift),
             torch.from_numpy(val_future_weight),
+            torch.from_numpy(val_no_update_target),
         ),
         batch_size=int(args.batch_size),
         shuffle=False,
@@ -618,8 +675,15 @@ def main() -> None:
         "tail_asinh": tail_asinh_report,
         "sticky_observation_loss": args.sticky_observation_loss,
         "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
+        "mixed_support": mixed_support_report,
+        "mixed_support_observation": args.mixed_support_observation,
+        "mixed_support_zero_eps": float(args.mixed_support_zero_eps),
+        "mixed_support_zero_rate_gate": float(args.mixed_support_zero_rate_gate),
+        "mixed_support_loss_weight": float(args.mixed_support_loss_weight),
         "train_future_weight_mean": float(np.mean(train_future_weight)),
         "val_future_weight_mean": float(np.mean(val_future_weight)),
+        "train_no_update_target_mean": float(np.mean(train_no_update_target)),
+        "val_no_update_target_mean": float(np.mean(val_no_update_target)),
     }
     extra = {
         "state_scope": args.state_scope,
@@ -641,6 +705,9 @@ def main() -> None:
             "tail_asinh": tail_asinh_report,
             "sticky_observation_loss": args.sticky_observation_loss,
             "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
+            "mixed_support": mixed_support_report,
+            "mixed_support_observation": args.mixed_support_observation,
+            "mixed_support_loss_weight": float(args.mixed_support_loss_weight),
         },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
@@ -651,13 +718,14 @@ def main() -> None:
         "positive_level_policy": args.positive_level_policy,
         "sticky_score": sticky_score_report,
         "tail_asinh": tail_asinh_report,
+        "mixed_support": mixed_support_report,
     }
     for epoch in range(1, int(args.epochs) + 1):
         model.train()
         total = 0.0
         count = 0
         metric_sums: dict[str, float] = {}
-        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight in train_loader:
+        for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, future_weight, no_update_target in train_loader:
             opt.zero_grad(set_to_none=True)
             loss, metrics = model.training_loss(
                 history_level.to(device),
@@ -668,10 +736,12 @@ def main() -> None:
                 scale.to(device),
                 drift_feature=drift_feature.to(device),
                 future_element_weight=future_weight.to(device),
+                future_no_update_target=no_update_target.to(device),
                 condition_contrast_weight=float(args.condition_contrast_weight),
                 condition_contrast_margin=float(args.condition_contrast_margin),
                 risk_state_weight=float(args.risk_state_weight),
                 risk_state_rank_weight=float(args.risk_state_rank_weight),
+                mixed_support_weight=float(args.mixed_support_loss_weight),
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -690,6 +760,7 @@ def main() -> None:
             condition_contrast_margin=float(args.condition_contrast_margin),
             risk_state_weight=float(args.risk_state_weight),
             risk_state_rank_weight=float(args.risk_state_rank_weight),
+            mixed_support_weight=float(args.mixed_support_loss_weight),
         )
         record = {
             "epoch": int(epoch),
@@ -743,6 +814,9 @@ def main() -> None:
             "tail_asinh": tail_asinh_report,
             "sticky_observation_loss": args.sticky_observation_loss,
             "sticky_observation_zero_weight": float(args.sticky_observation_zero_weight),
+            "mixed_support": mixed_support_report,
+            "mixed_support_observation": args.mixed_support_observation,
+            "mixed_support_loss_weight": float(args.mixed_support_loss_weight),
         },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
@@ -755,6 +829,7 @@ def main() -> None:
         "panel_metadata": panel_metadata,
         "sticky_score": sticky_score_report,
         "tail_asinh": tail_asinh_report,
+        "mixed_support": mixed_support_report,
         "output_dir": str(output_dir),
     }
     (output_dir / "training_history.json").write_text(json.dumps(make_serializable(history_records), indent=2), encoding="utf-8")

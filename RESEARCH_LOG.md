@@ -107134,3 +107134,34 @@ The baseline failure is now sharply localized: the continuous head produces plau
 Do not switch away from the AR flow core. The next decisive repair is a generic learned mixed-support output law: select high no-change channels by train statistics, add a shared Bernoulli/no-update head trained inside the single objective, and leave the continuous AR flow as the nonzero-move law. The selector must be data-derived, not factor-name-specific; IV-only should be a no-op if no channels meet the rule. Reject the repair if it requires scope-specific loss recipes or repeats the 724a nonzero-tail/correlation regression.
 
 ---
+## 2026-04-29: 736a Learned mixed-support no-update head falsifier
+
+### Context
+735a localized the real-VIX anchor/joint blocker to sticky quoted OAS channels: the continuous normalized-innovation head generated essentially no exact no-change mass, while validation AAA/BBB OAS had large no-update rates. 736a tested the cleanest learned repair allowed by the workflow: a generic train-no-change-selected Bernoulli no-update head sharing the existing AR normalized-innovation encoder/transition core.
+
+### Implementation
+- Added `mixed_support_observation="bernoulli_no_update"` to `GenericStateAwareNormalizedInnovationFlowMatching`.
+- Added a selected-channel no-update head trained with BCE inside the same objective; selected channels are chosen only by train raw no-change rate.
+- Sampling sets selected-channel increments to exact zero when the Bernoulli no-update event fires, then re-encodes the actual snapped increment for the AR prefix.
+- Wired the target through both `train_662a_state_aware_normalized_innovation_flow.py` and `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+- Added focused tests for selected-channel BCE and exact no-update sampling.
+
+Verification:
+- `python -m py_compile diffusion/block_ar/generic_state_aware_normalized_innovation_flow_matching.py experiments/backfill/block_ar/train_662a_state_aware_normalized_innovation_flow.py experiments/backfill/block_ar/train_666a_normalized_innovation_rollout_energy_finetune.py`
+- `pytest test_code/test_662a_state_aware_normalized_innovation_flow.py -q` passed `18/18`.
+
+### Result
+- Artifacts: `results/block_ar/736a_realvix_mixed_support/`.
+- Anchor base selected only `factor:aaa_oas` and `factor:bbb_oas`, so the selector was generic and not factor-name hard-coded.
+- Anchor base audit: `12/14` factor KS pass, mean KS `0.1224`, AAA KS `0.2452`, BBB KS `0.3238`.
+- Anchor rollout fine-tune audit: `12/14` factor KS pass, mean KS `0.1045`, tail q99 `14/14` pass, factor-factor upper correlation `0.884`, conditional gain `5.02%`.
+- The target channels regressed versus the continuous 734a baseline: AAA KS `0.2654`, BBB KS `0.3341`.
+- Attribution on the fine-tuned mixed model: AAA/BBB generated zero rates `0.615/0.434` versus validation `0.474/0.383`; nonzero q50 `0.004/0.006` versus validation `0.010/0.010`.
+
+### Mechanism Read
+The learned no-update head restores exact-zero observations but over-sticks the OAS paths and leaves the small nonzero move distribution under-scaled. This means the sticky-spread blocker is not just a missing atom. It is a coupled hurdle problem: update/no-update probability and conditional nonzero move scale have to be learned together under train/validation regime shift. Prior 724a masked-zero training failed in the opposite direction by over-widening nonzero OAS tails, so simply separating zeros from nonzeros is also insufficient.
+
+### Decision
+Reject 736a as a framework repair. Do not train the joint or IV versions because the anchor-only falsifier already fails the single-framework candidate gate. The next HEAD step should not add another OAS-specific knob. Choose a research-ideation or post-experiment decision: either document sticky OAS as a limitation of the otherwise coherent real-VIX normalized-innovation framework, revise the quoted-spread data object, or make a broader observation-model paradigm shift with an explicit hurdle likelihood and conditional nonzero scale.
+
+---
