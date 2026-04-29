@@ -1,64 +1,30 @@
-# RC22 Autoresearch Results Log
+# Post-W3 Autoresearch Results Log
 
-**Session**: RC22 — Factorized Decoder & Factor Structure
-**Branch**: autoresearch-session-rc22
-**Started**: 2026-04-02
-**Previous**: RC21 → 8 H1 experiments exhausted, Pareto frontier proved (6/9 three ways)
+**Session**: Post-W3 stacking compass
+**Branch**: diffusion-poc-v1
+**Started**: 2026-04-21
+**Baseline**: 251h (4/11) — W3 clamp removal, co-champion with 250ac
+**Target**: cross 5/11+, continue until all 11 suites pass OR user stops
 
-## Baseline (from RC20.6, trained with IS=0.05 VS=0.5)
+## Iteration #0 — Baseline
 
-| Metric | Softplus best (ep11) | Target |
-|--------|---------------------|--------|
-| Suites | 6/9 | 7+/9 |
-| S2 coverage | FAIL | PASS |
-| Noise eff_rank | ~2 (PC1=74%) | >3 (toward GT PC1=52%) |
-| Gradient budget | CRPS 29%, VS 5%, IS 66% | Fixed in 166a |
+- Checkpoint: `models/backfill/251h_noclamp_from251b_s42/best_model.pt`
+- n_pass: 4/11
+- Passing suites: surface, block_ar, cross_cell_correlation, distributional_fidelity
+- Failing suites: coverage, conditionality, time_series, cointegration, regime_coverage, mean_reversion, pathwise_jump_realism
+- Key sub-metrics:
+  - conditionality.width_turb_calm_ratio: ~1.00 (gate >= 1.15)
+  - regime_coverage.layer2/3: FAIL
+  - mean_reversion.mr_gt_ratio: 0.511 (gate >= 0.70)
+  - time_series.kurtosis_ratio: 2.49 (gate [0.8, 1.25])
+  - pathwise_jump_realism.ks_stat: 0.836 (gate <= 0.20)
 
-## Key Evidence
-- IS at lambda=0.05 was 66% of gradient (10x miscalibrated) — primary distortion
-- CRPS gives ~2.9x more spread than centering gradient (qualitatively robust)
-- Decoder attention compresses 27 noise dims to PC1=74% (GT: PC1=52%, 5 factors)
-- Model achieves GT factor structure at ep10, CRPS destroys by ep40
-- noise_dim reduction falsified (bottleneck is decoder attention, not noise input)
-- Oracle debiasing → 100% coverage on ALL models (spread adequate, centering wrong)
-- Individual authenticity: conditional mean emerges from realistic scenarios, no aux MSE
-- Encoder 98/2 split: NOT collapse, downstream conditioning pathway is the issue
+## Theory queue (initial)
 
-## Iterations
+1. NW2 (W3+H1) — regime modulation on unclamped baseline [priority 1]
+2. Constraint audit A (idio_scale_clip) [priority 2]
+3. NW3 (triple stack) [priority 3, queued]
+4. Constraint audit B (log_sigma_z) [priority 4, queued]
+5. NW4 (kurtosis investigation) [priority 5, queued]
 
-| # | Exp ID | Direction | Key Metrics | Decision |
-|---|--------|-----------|-------------|----------|
-| 1 | 166a | Loss rebalance: IS=0.005 VS=1.0 | 5/9 best (S4=1.000, S8 bias PASS) S2 FAIL | EXHAUSTED — loss tuning ceiling reached |
-| 2 | 167a | Factorized decoder + split conditioning | 5/9 best, 5/9 final. L_eff_rank=2 (never developed 5 factors). L_norm: 0.08→0.01. S3 FAIL. | VALUABLE FAILURE — 4 confounded issues found (Codex x2) |
-| 3 | 167b | Clean isolation: freeze CLN, wd=0, fix FiLM, simple head | 6/9 (20ep). L alive (norm 0.12). GT alignment: PC1=0.93, r=0.979. MR collapsed 12% GT. | COMPLETED — L works, but CLN freeze kills centering. Not e2e viable. |
-| — | 167d | End-to-end factorized: CLN active + fixes 2-4 | Target: L survives, MR near baseline (-0.22) | NEXT (20ep, ~35 min). Highest info-gain. |
-
-## RC22 v2 Key Finding (from 166a + 3 Codex reviews)
-- The architecture traces a Pareto frontier (baseline/V2/166a all 6/9 different compositions)
-- Loss tuning cannot escape this frontier — architectural change required
-- Factorized output (base_head + load_head) separates drift from factor structure post-attention
-- Split conditioning (cond_resid via FiLM for load_head) addresses 98/2 encoder dominance
-- Codex corrections: small random init for load_head, detached EMA for cond_ref, under-reversion kill check
-
-## RC22 v3 Key Finding (from 167a investigation + Codex x2)
-- 167a failed due to 4 confounded issues, NOT "architecture alone can't work"
-- afCRPS gradient to L: d(spread)/d(L) proportional to ||l_c|| (row norm), NOT rank
-- Weight decay removed 27x more from load_head than gradient added (confirmed)
-- FiLM bug: gamma*h+beta suppresses input at init (should be (1+gamma)*h+beta)
-- load_head 128→128→5 hidden layer had 35,444x WD/grad on first layer
-- L was always rank-2 (never used more than 2 of 5 output dimensions)
-- Factor-only output is intrinsically low-rank (PC1=86%, eff_rank=3.1) even without CLN
-- Full model eff_rank was actually 8.5-9.4 (CLN-dominated), not 2.55 as initially reported
-- Codex consensus: one clean retry (167b), then abandon if L stays rank-2
-
-## RC22 v4 Key Finding (from 167b + 3 follow-ups + Codex x4)
-- 167b VALIDATED factorization: L alive, GT-aligned (PC1: 0.93), per-cell spread r=0.979
-- BUT: mean reversion collapsed (12% GT) because CLN freeze removes centering
-- 167b didn't move practical frontier: CI 0.811 vs baseline 0.813
-- Factor diversity is ORTHOGONAL to suite frontier: S9 already passes, S2 is centering
-- End-to-end hard constraint: warm-start/freeze recipes are diagnostic-only, not publishable
-- Codex review #4: "just keep engineering architecture" no longer supported by evidence
-- Priority pivot: 167d (e2e factorized) > K=4 probe > 167c (diagnostic) > loss-routing
-- The REAL remaining blocker is centering (afCRPS 2.9x spread bias), not factor rank
-- wd=0 and simple Linear head are standard, publishable optimizer choices
-- CLN freeze is the ONLY unprincipled fix — 167d tests whether it's needed
+---

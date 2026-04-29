@@ -246,3 +246,4 @@ external/csdi
 .agents/
 .gemini/
 scripts/
+.hermes/

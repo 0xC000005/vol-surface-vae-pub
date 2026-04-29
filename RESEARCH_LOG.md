@@ -108082,3 +108082,98 @@ Do not promote 766a over 734a/739a. The short-prefix recipe is a valid active re
 Keep 734a/739a as the protected deployable tri-scope incumbent. Use 766a as the active tri-scope research base, with 755a retained as the IV-only frontier reference. The next principled experiment should target the localized blockers without switching away from the AR normalized-innovation flow core: a generic data-derived mixed/no-update output law for sticky low-activity channels, plus a non-regressing IV coverage/level-allocation repair.
 
 ---
+## 2026-04-29: Management Report Model Selection And Reconstruction Audit
+
+### Context
+The paper-ready management report comparison was generated for two candidate framework lines:
+
+- `734a/739a` protected real-VIX stress-scenario-ready tri-scope incumbent.
+- `755a/766a` short-prefix line, with `755a` as IV-only frontier and `766a` as the tri-scope transfer.
+
+Reports were generated at:
+
+- `results/block_ar/management_report_734a739a_stress_ready/`
+- `results/block_ar/management_report_755a766a_shortprefix/`
+
+Each report includes IV-only figures 1, 2, 3, 4, 5, 7a, 7b, 8, 9, and 11, plus anchor-only diagnostics A1-A5.
+
+### Reconstruction Audit
+The report runner now records oracle reconstruction diagnostics in each manifest:
+
+- IV reconstruction max absolute error: `1.192e-07`, mean absolute error: `1.166e-09`.
+- Anchor reconstruction max absolute error: `0.000e+00`, mean absolute error: `0.000e+00`.
+
+This confirms the plot data path correctly integrates generated encoded increments from the last observed raw history state and decodes back to raw levels for both IV and anchor factors.
+
+### Plotting Fix
+The original anchor A1 was misleading because it selected one global anchor-activity turbulent window for every factor. That could make, for example, the gold panel use a window turbulent mainly because of Nikkei/SPX scale rather than gold-specific activity. A1 now selects factor-specific calm and turbulent histories and annotates each panel with history activity and 90% future coverage. IV daily-change/P&L plots now include the h1 move from the last observed history level.
+
+### Selection Decision
+The headline paper/report model should remain `734a/739a`, not `755a/766a`.
+
+Reason: `755a` improves IV-only validation and train-tail diagnostics, but the gain does not transfer cleanly to native joint generation. The tri-scope objective makes native joint behavior a veto axis. `734a/739a` retains better native joint IV level/median support while anchor-only results are approximately tied and sticky OAS remains a shared monitored limitation.
+
+### Paper Framing
+Use `734a/739a` as a risk-manager stress-scenario generator with documented calibration limitations. Report `755a/766a` as an ablation: short-prefix exposure improves IV-only behavior, but is not yet the promoted unified tri-scope model.
+
+---
+## 2026-04-29: Literature Positioning For State-Normalized Innovation Scenario Generator
+
+### Context
+After selecting `734a/739a` as the headline stress-scenario-ready model, we checked recent and major-conference time-series literature to understand whether the proposed novelty is genuinely new or already standard.
+
+### Literature Check
+Relevant nearby work:
+
+- RevIN, ICLR 2022: reversible instance normalization removes/restores per-instance statistics to handle distribution shift.
+- Non-stationary Transformers, NeurIPS 2022: stationarization plus de-stationary attention addresses non-stationarity and over-stationarization.
+- Multivariate probabilistic forecasting via conditioned normalizing flows, ICLR 2021: autoregressive deep model with conditional normalizing flow distribution for high-dimensional multivariate time series.
+- CSDI, NeurIPS 2021: conditional score-based diffusion for imputation, interpolation, and probabilistic forecasting.
+- Diffusion-TS, ICLR 2024: diffusion model for general multivariate time-series generation, with conditional extensions.
+- TACTiS-2, ICLR 2024: transformer attentional copula for flexible multivariate probabilistic prediction.
+- CoFinDiff, IJCAI 2025: controllable financial diffusion model for synthetic financial time series with trend/volatility conditions.
+- Arbitrage-free IV surface VAE, SIAM JFM 2023: financial-specific IV surface generation through SDE parameter projection plus VAE.
+
+### Novelty Assessment
+Individual ingredients are not novel by themselves:
+
+- Normalization/denormalization for non-stationarity exists.
+- Autoregressive probabilistic generation with flows/diffusions exists.
+- Conditional financial synthetic data generation exists.
+- IV-surface generative modeling exists.
+
+The defensible contribution is the unified formulation:
+
+> A state-spec normalized-innovation conditional scenario generator for heterogeneous financial factor panels, where bounded IV cells, positive market levels, rates/spreads, VIX, and other anchors are mapped into appropriate state coordinates; future uncertainty is generated as normalized innovations with one shared generative mechanism; and paths are integrated back into valid raw market levels for IV-only, anchor-only, and native joint panels.
+
+### Paper Framing
+The paper should not present a five-point novelty list. It should tell a coherent story:
+
+Existing deep time-series generators either focus on generic probabilistic forecasting/generation or on financial synthetic data with narrower control variables. In risk management, however, scenario generators must jointly satisfy conditionality, path realism, heterogeneous variable geometry, and raw-level validity across instruments. We address this by moving the generative problem from raw levels to state-normalized innovations, preserving a single stochastic generator while allowing variable-specific observation transforms. The contribution is therefore a problem formulation and deployable modeling framework, not a new flow-matching theory.
+
+### Suggested Contribution Claim
+Use language close to:
+
+"We introduce a state-normalized innovation framework for conditional scenario generation in heterogeneous financial panels. The method separates observation geometry from stochastic path generation: each market variable is encoded through a reusable state specification, future uncertainty is generated in normalized innovation coordinates by a shared autoregressive flow, and scenarios are decoded by integrating innovations back to raw market levels. This enables one generative mechanism to support implied-volatility surfaces, liquid anchor factors, and native joint scenarios while preserving structural realism important for risk management."
+
+### Caveat
+The method should be positioned as a structurally realistic conditional stress-scenario generator with documented calibration limitations, not as a solved fully calibrated conditional probability law.
+
+---
+## 2026-04-29: Refined General Framework Narrative
+
+### Context
+The novelty narrative was refined to avoid treating IV-only, anchor-only, and joint panels as model concepts. Those are evaluation data cases, not separate methods. The paper should present the method as a general heterogeneous multivariate time-series scenario-generation framework, with finance as the motivating application and stress test.
+
+### Accepted Narrative
+We propose a general framework for conditional scenario generation in heterogeneous multivariate time series. The central idea is to separate the geometry of each observed variable from the stochastic mechanism that generates future paths. Each variable is first mapped into a state coordinate appropriate to its support and dynamics, such as bounded, positive, signed, slowly moving, or sparse-moving series. The model then generates future normalized innovations in this common representation using one shared stochastic path generator. Finally, generated innovations are integrated back into the original observation space, producing realistic future trajectories in the units users actually care about.
+
+Finance should be framed as the application, not the definition of the method. The financial risk setting is useful because it contains strong heterogeneity: bounded implied-volatility surfaces, trending equity indices, mean-reverting volatility measures, rates, credit spreads, commodities, and other market variables. The same framework is evaluated under multiple data configurations: volatility-surface variables alone, non-volatility market variables alone, and their combined panel. These are not separate methods; they are stress tests of whether the same modeling principle remains valid as the variable universe changes.
+
+### Contribution Claim
+The contribution is a state-normalized innovation formulation for heterogeneous conditional scenario generation. Rather than forcing all variables into one raw-space loss or hand-building a separate model per data type, the method uses variable-appropriate state maps while preserving a single stochastic generative mechanism. This allows the model to generate pathwise scenarios for mixed-variable panels without treating each variable family as a separate modeling problem.
+
+### Wording Discipline
+Avoid saying the method "works for any type of factor" without qualification. Use the defensible claim: the framework is designed for heterogeneous multivariate time series beyond finance, provided each variable can be assigned a valid state representation and inverse reconstruction map.
+
+---
