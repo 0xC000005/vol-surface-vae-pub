@@ -280,6 +280,65 @@ The scorecard output is the source of truth for statements like "general
 deployable conditional law." IV-only stress prototypes must be labeled as such
 when they do not pass the scorecard.
 
+## Incumbent, Frontier, And Promotion Discipline
+
+The loop must maintain separate labels so research branches cannot overwrite a
+deployable model by accident:
+
+- `deployable_tri_scope_incumbent`: best risk-manager-presentable framework
+  evaluated on `iv_only`, `anchor_only`, and `joint`. Current real-VIX
+  incumbent: `734a/739a`.
+- `iv_research_frontier`: best IV-only research result. Current frontier:
+  `755a`, because it improves train-tail strict-suite behavior but is not yet a
+  validated tri-scope framework.
+- `diagnostic_branch`: a run that explains a failure mechanism but cannot be
+  promoted.
+- `rejected_branch`: a run that violates hard non-regression gates.
+
+Promotion to deployable incumbent requires tri-scope evidence. An IV-only run
+may become the IV research frontier, but it cannot replace the deployable
+tri-scope incumbent until the same recipe has been evaluated on all three
+scopes and passes non-regression against `734a/739a`.
+
+## Tri-Scope Non-Regression Gate
+
+Every serious candidate model must run:
+
+- `iv_only`;
+- `anchor_only`;
+- `joint`.
+
+Single-scope experiments are allowed only as diagnostics. They must be labeled
+as non-promotable and compared against the appropriate incumbent/frontier.
+
+For deployable promotion, the candidate must not regress the risk-manager
+properties that made the incumbent usable:
+
+- IV mean reversion must remain acceptable. This is a hard gate.
+- IV scenario realism must remain acceptable: surface validity, time-series
+  realism, cross-cell dependence, daily-change and level distributions,
+  pathwise jump realism, and population risk-state uncertainty allocation.
+- Anchor-only realism must not regress: finite paths, factor daily-change
+  realism, factor tail scale, factor-factor dependence, and conditional panel
+  response.
+- Native joint quality must not regress: IV slice realism, IV-factor
+  co-movement, factor-factor dependence, and conditional panel response.
+- Sticky low-activity channels such as OAS may remain monitored limitations
+  unless the current iteration explicitly tests a generic support-aware
+  observation adapter.
+
+Strict conditional-law work is still allowed, but it cannot sacrifice
+risk-manager deployability. If a proper-score, interval-score, temperature, or
+likelihood-oriented repair improves one strict metric while losing IV mean
+reversion or scenario realism, it is diagnostic or rejected, not promoted.
+
+Old path-prediction conditionality is replaced by population risk-state
+uncertainty allocation when that diagnostic passes. Old IV-EWMA cointegration
+has no formal replacement yet; it remains a monitor unless a new
+cointegration/dependence gate is explicitly defined. Do not rename cross-cell
+correlation or IV-factor co-movement as "new cointegration" without defining
+the gate.
+
 ## Trade-Off Attribution Gate
 
 Before adding a new knob after a tri-scope mismatch, the loop must explain why

@@ -27,6 +27,12 @@
     "no_task_specific_loss_recipes_for_framework_claims",
     "data_adapters_heads_and_support_transforms_allowed",
     "generic_support_aware_mixed_discrete_continuous_heads_allowed_when_data_derived",
+    "tri_scope_evaluation_required_for_promotable_candidates",
+    "maintain_deployable_incumbent_and_iv_research_frontier_separately",
+    "iv_mean_reversion_non_regression_hard_gate",
+    "risk_manager_deployability_non_regression_required",
+    "old_conditionality_replaced_by_risk_state_allocation",
+    "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined",
     "append_RESEARCH_LOG_via_research-log-tail-append",
     "one_commit_per_iteration"
   ],

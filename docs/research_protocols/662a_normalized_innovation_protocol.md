@@ -116,6 +116,33 @@ If an iteration fails, the next step must name one failure category from the
 Backend Policy and attempt the smallest fix for that category before changing
 backend or architecture.
 
+## Promotion And Non-Regression
+
+The 662a-family is a general multivariate time-series framework only when the
+same recipe has been evaluated on `iv_only`, `anchor_only`, and `joint`.
+Single-scope probes are diagnostic and may at most update the corresponding
+research frontier.
+
+For deployable promotion, compare against both:
+
+- the deployable tri-scope incumbent `734a/739a`;
+- the IV-only research frontier `755a` when the change is IV-side.
+
+Hard non-regression gates:
+
+- IV mean reversion must remain acceptable.
+- IV scenario realism must remain acceptable: surface validity, ACF/kurtosis
+  and move-size realism, cross-cell dependency, level/daily-change
+  distributions, pathwise jump realism, and population risk-state uncertainty
+  allocation.
+- Anchor and joint panel realism must not regress while improving IV.
+- Native IV-factor co-movement must remain acceptable in joint runs.
+
+Chasing a stricter conditional-law objective cannot override these gates. A
+proper score, CRPS, interval score, sampler temperature, or likelihood repair
+that damages mean reversion or scenario realism is diagnostic evidence, not a
+candidate for deployment.
+
 ## Switch Rules
 
 Do not switch AR versus one-shot, flow versus diffusion, or transformer versus

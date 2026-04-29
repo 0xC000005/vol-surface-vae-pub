@@ -2,10 +2,10 @@
   "compass": "Real-VIX unified tri-scope conditional scenario generator",
   "iteration": 733,
   "experiment_id": "real_vix_tri_scope_framework_lock_next",
-  "phase": "handoff_ready",
-  "hypothesis": "A 719a-style state-aware normalized-innovation framework can be rerun as one frozen recipe across IV-only, observed-anchor-only, and joint IV+anchor scopes after replacing the IV-derived VIX proxy with observed Yahoo ^VIX.",
-  "prediction_L3": "The same generative core should preserve IV realism, anchor realism, joint co-movement, and population risk-state conditional response. Remaining defects, if any, should concentrate in calibration and sticky low-activity credit-spread channels rather than requiring separate IV/anchor mechanisms.",
-  "kill_gate": "Do not claim a publishable single framework if the recipe only works by changing loss weights, backend, sampler, calibration layer, or stochastic source across scopes. If AAA/BBB OAS stickiness remains the only serious issue, run a sticky-channel audit first; only then document it as a limitation or test one generic support-aware mixed discrete-continuous low-activity-channel adapter selected by a data-derived rule.",
-  "warm_start": "719a methodology baseline, not a real-VIX checkpoint",
-  "baseline": "pre-real-VIX 719a family; real-VIX tri-scope champion not yet established"
+  "phase": "incumbent_protected_tri_scope_research",
+  "hypothesis": "The deployable real-VIX tri-scope incumbent 734a/739a should remain protected while the IV-only 755a short-prefix exposure ingredient is tested as a frozen tri-scope framework candidate.",
+  "prediction_L3": "A promotable candidate must preserve IV mean reversion and risk-manager scenario realism while matching or improving anchor-only and joint panel realism/co-movement. IV-only improvements are diagnostic until the same recipe is run on IV-only, anchor-only, and joint.",
+  "kill_gate": "Reject deployable promotion if IV mean reversion regresses, IV scenario realism regresses, anchor/joint realism regresses, or the run only works by changing loss weights, backend, sampler, calibration layer, or stochastic source across scopes. Old conditionality is replaced by risk-state allocation when it passes. Old IV-EWMA cointegration is monitoring-only until a formal new gate is defined.",
+  "warm_start": "734a/739a deployable tri-scope incumbent plus 755a IV-only research frontier",
+  "baseline": "deployable incumbent: 734a/739a; IV research frontier: 755a; rejected diagnostic branch: 765a"
 }

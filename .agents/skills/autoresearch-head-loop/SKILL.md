@@ -132,6 +132,71 @@ Not allowed for a single framework candidate:
 
 If the best runs for IV-only, anchor-only, and joint use different recipes, label them as task-specialized frontiers and choose a framework-lock experiment or a post-experiment trade-off attribution before adding more knobs.
 
+## Incumbent And Promotion Gate
+
+The loop must keep separate incumbent roles. Do not let a newer diagnostic
+branch silently replace a deployable baseline.
+
+- `deployable_tri_scope_incumbent`: the best risk-manager-presentable
+  IV/anchor/joint framework. Current real-VIX incumbent: `734a/739a`.
+- `iv_research_frontier`: the best IV-only strict-suite or diagnostic frontier.
+  Current frontier: `755a`.
+- `diagnostic_branch`: any experiment that explains a failure mechanism but has
+  not passed tri-scope non-regression.
+- `rejected_branch`: any branch that violates hard non-regression gates.
+
+A model can be promoted over the deployable tri-scope incumbent only after it
+runs `iv_only`, `anchor_only`, and `joint` under the same framework recipe and
+passes the Tri-Scope Non-Regression Gate below. An IV-only improvement can be
+promoted only to `iv_research_frontier`, never to deployable incumbent.
+
+## Tri-Scope Non-Regression Gate
+
+Every serious candidate experiment must evaluate all three scopes:
+
+- `iv_only`
+- `anchor_only`
+- `joint`
+
+Short single-scope probes are allowed only when explicitly labeled
+`diagnostic_branch`; they are not promotable and must not be described as the
+current model.
+
+For promotion, compare against the relevant incumbents, not only against the
+previous iteration:
+
+- against `734a/739a` for deployable tri-scope quality;
+- against `755a` for IV-only research-frontier quality when the experiment is
+  an IV-side repair.
+
+Hard non-regression blockers for deployable promotion:
+
+- IV mean reversion remains acceptable. Losing IV mean reversion makes the
+  candidate not risk-manager deployable, even if strict coverage or likelihood
+  metrics improve.
+- IV scenario realism remains acceptable: surface validity, time-series
+  realism, cross-cell dependence, pathwise jump realism, daily-change
+  distribution, level distribution, and risk-state uncertainty allocation.
+- Anchor-only realism does not regress: finite paths, factor daily-change
+  distribution, factor tail scale, factor-factor dependence, and conditional
+  panel response.
+- Native joint realism does not regress: IV slice realism, IV-factor
+  co-movement, factor-factor dependence, and conditional panel response.
+- Sticky/intermittent channels are monitored separately unless a generic
+  support-aware observation adapter is being tested.
+
+Do not chase a strictly proper conditional-law objective by sacrificing
+risk-manager deployability. If a strict-law repair improves coverage, interval
+score, CRPS, or old cointegration while breaking mean reversion or scenario
+realism, classify it as a diagnostic branch or rejected branch.
+
+Old path-prediction conditionality is deprecated for promotion decisions when
+the population risk-state uncertainty allocation diagnostic passes. The old
+IV-EWMA cointegration suite is a monitoring diagnostic until a formal new
+cointegration/dependence gate is defined; do not call cross-cell correlation or
+IV-factor co-movement "new cointegration" unless that gate is explicitly
+specified.
+
 ## Trade-Off Attribution Gate
 
 When one frozen recipe works on one scope but fails on another, do not switch variants immediately. First classify the trade-off across:

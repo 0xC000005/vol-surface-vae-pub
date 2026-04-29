@@ -18,8 +18,14 @@ Use the existing IV full 11-suite. The old `conditionality` failure may be
 replaced by the population risk-state allocation diagnostic when that diagnostic
 passes. Non-conditional failures are never hidden.
 
+The old IV-EWMA `cointegration` suite is not a replacement for cross-market or
+surface dependency quality. It remains a monitoring diagnostic until a formal
+new cointegration/dependence gate is defined.
+
 The IV gate fails if coverage, regime coverage, path realism, distributional
-fidelity, mean reversion, surface validity, or dependence suites fail.
+fidelity, mean reversion, surface validity, or dependency/co-movement suites
+fail. For the current scorecard, the dependency suite is cross-cell correlation
+and effective-rank preservation, not the old IV-EWMA cointegration monitor.
 
 ### Anchor Gate
 
@@ -68,6 +74,22 @@ backend/sampler/calibration, and glued separately sampled decks.
 The scorecard is stricter than risk-manager prototype readiness. A model may be
 useful as an IV stress prototype while failing this scorecard. It should not be
 described as a deployable generic conditional law until this scorecard passes.
+
+## Non-Regression Policy
+
+The scorecard is also an incumbent-protection tool. A new candidate is not
+promotable if it loses properties that made the current incumbent usable:
+
+- IV mean reversion is a hard non-regression gate.
+- IV scenario realism must remain acceptable: surface validity, time-series
+  realism, cross-cell dependency, daily-change and level distributions,
+  pathwise jump realism, and population risk-state allocation.
+- Anchor-only and native-joint panel realism must be checked together with IV
+  so improvements in one scope do not hide regressions in another.
+
+Single-scope experiments may inform research, but they cannot establish a
+general model. Promotion requires `iv_only`, `anchor_only`, and `joint`
+evidence under one framework recipe with only allowed data-interface adapters.
 
 ## Current Implication
 

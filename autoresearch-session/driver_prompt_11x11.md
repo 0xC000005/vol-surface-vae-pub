@@ -33,7 +33,16 @@ Rules for this invocation:
    - allowed differences are input/output dimensions, support transforms, input heads, decoder heads, generic support-aware mixed discrete-continuous heads selected by one data-derived rule, and deterministic channel/group balancing
    - forbidden differences are scope-specific losses, loss weights, backend, prior, sampler, calibration layer, or post-hoc glued decks
    - if the best scope-specific runs use different recipes, run framework-lock analysis/experiments before adding another knob
-7. Continue until stopped only by:
+7. Enforce incumbent and non-regression discipline:
+   - keep `734a/739a` as the deployable real-VIX tri-scope incumbent until a new recipe beats it on IV-only, anchor-only, and joint
+   - keep `755a` as the IV-only research frontier until a better IV-only run beats it without losing hard IV realism gates
+   - label every run as deployable_incumbent, iv_research_frontier, diagnostic_branch, or rejected_branch
+   - every serious candidate must run IV-only, anchor-only, and joint; single-scope probes are diagnostic only and cannot be promoted
+   - IV mean reversion is a hard non-regression gate; losing it makes the model not risk-manager deployable even if coverage, CRPS, interval score, likelihood, or old cointegration improves
+   - preserve IV scenario realism, risk-state uncertainty allocation, pathwise jumps, cross-cell dependency, anchor realism, joint IV-factor co-movement, and conditional panel response
+   - old path-prediction conditionality is deprecated when risk-state uncertainty allocation passes
+   - old IV-EWMA cointegration is monitoring-only until a formal new cointegration/dependence gate is defined; do not call co-movement "new cointegration" unless the gate is specified
+8. Continue until stopped only by:
    - the goal being reached
    - `autoresearch-session/STOP` existing
    - the configured hard iteration cap being reached
@@ -59,6 +68,8 @@ Current active research direction:
 - treat `719a_zero_center_normalized_innovation_sticky_zero_readout_frozen` as the pre-real-VIX methodology/risk-manager baseline family, not as a current real-VIX champion checkpoint
 - preserve the single generation mechanism: AR normalized-innovation flow, one stochastic source, one frozen tri-scope framework unless diagnostics justify a switch
 - the next framework candidate must run one frozen recipe on `iv_only`, `anchor_only`, and `joint` with only allowed data-interface differences
+- the next promotable candidate must compare directly against `734a/739a` and, for IV-side changes, `755a`
+- do not promote a model that regresses IV mean reversion or risk-manager scenario realism
 - known pathology: AAA/BBB OAS credit spreads are sticky and may require either a documented limitation or one generic support-aware mixed discrete-continuous low-activity-channel adapter
 - before adding that adapter, run a sticky-channel audit: no-change mass, move-event rate, nonzero jump tails, and stress-state move frequency across anchor channels
 - do not add credit-specific or scope-specific knobs unless the failure diagnosis and literature/first-principles argument justify the mechanism as generic

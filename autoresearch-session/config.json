@@ -54,6 +54,11 @@
     "no_evaluator_specific_hacks": true,
     "no_factor_name_specific_preprocessing_unless_documented_as_limitation_or_generic_sparse_process_adapter": true,
     "mechanistic_understanding_before_switching": true,
+    "tri_scope_evaluation_required_for_promotable_candidates": true,
+    "iv_only_experiments_are_diagnostic_unless_tri_scope_locked": true,
+    "iv_mean_reversion_non_regression_hard_gate": true,
+    "risk_manager_deployability_non_regression_required": true,
+    "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined": true,
     "research_log_mandatory": "Every HEAD iteration appends RESEARCH_LOG.md via research-log-tail-append.",
     "one_commit_per_iteration": true
   },
@@ -65,6 +70,12 @@
     "conditionality_as_population_risk_state_allocation": true,
     "credit_spread_stickiness_tracked_as_known_pathology": true,
     "support_aware_mixed_head_requires_sticky_channel_audit": true,
+    "deployable_tri_scope_incumbent": "734a/739a",
+    "iv_research_frontier": "755a",
+    "candidate_promotion_requires_iv_anchor_joint_non_regression": true,
+    "mean_reversion_regression_rejects_deployable_promotion": true,
+    "old_conditionality_deprecated_in_favor_of_risk_state_allocation": true,
+    "old_cointegration_is_monitoring_not_promotion_blocker": true,
     "no_proxy_vix": true
   },
   "budget": {
@@ -75,5 +86,5 @@
   "created_at": "2026-04-29",
   "branch": "diffusion-poc-v1",
   "compass": "Real-VIX unified tri-scope conditional scenario generator",
-  "current_champion": "No real-VIX tri-scope champion yet; rerun the 719a-style unified framework on IV-only, anchor-only, and joint with the updated 14-anchor panel."
+  "current_champion": "Deployable tri-scope incumbent: 734a/739a under risk-manager liquid-factor framing. IV-only research frontier: 755a. Do not promote a new model unless it runs iv_only, anchor_only, and joint and preserves IV mean reversion plus risk-manager scenario realism."
 }

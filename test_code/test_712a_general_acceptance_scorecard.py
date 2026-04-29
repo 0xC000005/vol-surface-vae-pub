@@ -90,6 +90,20 @@ def test_iv_suite_does_not_hide_non_conditional_failures() -> None:
     assert scored["effective_failed_suites"] == ["coverage"]
 
 
+def test_iv_suite_treats_old_cointegration_as_monitoring_only() -> None:
+    scored = score_iv_suite(
+        _iv_result(failed_suites=["conditionality", "cointegration"], risk_state=True)
+    )
+
+    assert scored["pass"] is True
+    assert scored["effective_failed_suites"] == []
+    assert scored["monitoring_only_suites"] == ["cointegration"]
+    assert (
+        scored["cointegration_policy"]
+        == "old_iv_ewma_cointegration_monitoring_only_until_new_gate_defined"
+    )
+
+
 def test_anchor_panel_requires_marginals_tails_dependency_and_conditioning() -> None:
     scored = score_anchor_panel(_panel_summary())
 

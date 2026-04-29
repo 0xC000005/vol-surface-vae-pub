@@ -71,6 +71,26 @@ Forbidden differences:
 - separate IV and anchor decks glued after sampling;
 - IV-derived VIX proxy.
 
+## Current Incumbents And Non-Regression
+
+The current deployable tri-scope incumbent is `734a/739a`: a real-VIX
+framework-lock result that is risk-manager-presentable for IV plus liquid
+anchors and native joint co-movement, while treating sticky OAS as a monitored
+limitation.
+
+The current IV-only research frontier is `755a`: short-prefix generated
+exposure improves IV train-tail strict-suite behavior but has not yet been
+validated as a tri-scope framework.
+
+Do not promote a candidate over `734a/739a` unless it runs `iv_only`,
+`anchor_only`, and `joint` and does not regress risk-manager properties. IV mean
+reversion is a hard gate. If a strict-law repair improves coverage, interval
+score, or old cointegration but loses IV mean reversion, it is not deployable.
+
+Do not treat an IV-only improvement as a general model until it has passed the
+tri-scope framework gate. Do not treat a later diagnostic run as "current" if
+it is worse than the incumbent on deployability.
+
 ## Known Pathology
 
 AAA/BBB OAS credit spreads are sticky: day-to-day increments are often exactly
