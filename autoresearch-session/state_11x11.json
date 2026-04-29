@@ -4,8 +4,8 @@
   "phase": "real_vix_unified_tri_scope_program",
   "archived_prior_program": "205-265 retained as baselines/falsification history only",
   "archived_prior_iteration": 34,
-  "iteration": 736,
-  "last_iteration_type": "experiment",
+  "iteration": 737,
+  "last_iteration_type": "research_ideation",
   "active_family": "state-aware normalized-innovation conditional law with one stochastic source and one shared generative core; first backend remains AR flow matching unless diagnostics justify a switch",
   "active_protocol_ref": "docs/research_protocols/662a_normalized_innovation_protocol.md",
   "real_vix_tri_scope_handoff_ref": "docs/research_protocols/733_real_vix_tri_scope_handoff.md",
@@ -33,9 +33,9 @@
     "reconstruction_alignment",
     "incumbent_same_split_comparison"
   ],
-  "current_bottleneck": "Sticky quoted OAS is no longer just a missing atom problem. The learned no-update head restores exact-zero mass but over-sticks AAA/BBB and leaves nonzero move medians too small, while prior masked-zero training over-widened nonzero tails. This is a coupled discrete-event plus nonzero-scale allocation problem under train/validation regime shift; further OAS-specific fixes risk violating the clean-pathology guard.",
-  "last_result_summary": "736a added a generic mixed-support Bernoulli no-update head to the normalized-innovation flow, wired it through 662a and 666a, and added focused tests. Verification: py_compile passed and test_code/test_662a_state_aware_normalized_innovation_flow.py passed 18/18. Anchor base selected only factor:aaa_oas and factor:bbb_oas. After rollout fine-tune, anchor panel stayed at 12/14 factor KS pass, mean KS 0.1045, tail q99 14/14 pass, factor corr upper 0.884, conditional width rho 0.937. AAA/BBB regressed: AAA KS 0.2654 and BBB KS 0.3341. Attribution showed learned identity zero rates AAA/BBB 0.615/0.434 versus validation 0.474/0.383, with nonzero q50 0.004/0.006 versus validation 0.010/0.010, so the head over-zeroes and under-scales small nonzero moves.",
-  "next_step_recommendation": "Do not stack another sticky-spread knob. Choose research_ideation/post_experiment_analysis to decide whether to (a) document OAS as a limitation and continue with the continuous real-VIX framework as the risk-manager candidate, (b) revise the anchor data object for quoted/stale spread channels outside the model, or (c) make a broader observation-model paradigm shift with explicit hurdle likelihood and conditional nonzero scale. Backend switching is not justified by 736a.",
+  "current_bottleneck": "The current AR flow core remains coherent for liquid continuous factors, but sticky quoted OAS appears to be a different observation object: intermittent/stale quote updates with a point mass at zero plus conditional nonzero sizes. Recent intermittent-time-series literature supports explicit renewal/hurdle/Tweedie-style observation laws for this class; the simple Bernoulli add-on is not enough because event probability and nonzero scale are coupled.",
+  "last_result_summary": "737a literature-backed ideation after 736a: intermittent/sparse forecasting work treats zero-heavy series as a distinct probabilistic observation problem. Deep renewal processes model arrival timing and positive sizes; recent Tweedie likelihood work emphasizes a distribution with a point mass at zero and heavy tails. This supports the local evidence that sticky OAS should not be repaired by incremental threshold/gate knobs inside the same continuous innovation coordinate.",
+  "next_step_recommendation": "Next HEAD cycle should be a data/objective decision, not another OAS knob. Recommended: create a liquid-factor framework scorecard that treats sticky quoted OAS as a documented observation-model limitation, while preserving OAS diagnostics as non-gated risk-manager monitoring. In parallel, define a separate future paradigm only if the objective requires publishable credit-spread law: a full hurdle/renewal observation model with conditional nonzero scale, applied generically to intermittent channels. Do not change AR flow backend for liquid IV/anchor/joint factors based on OAS alone.",
   "current_best_n_pass": 8,
   "current_best_model": "392a and 510a frontier tie: 392a at models/backfill/392a_recent_rollout_energy_w005_s42/best_model.pt; 510a at models/backfill/509a_recent_patch_energy_l5_w005_s42/final_model.pt",
   "current_best_note": "510a/392a remain historical IV-only controls. 719a remains the pre-real-VIX unified methodology baseline: IV 7/11 with broad temporal/spatial realism, anchor/joint factor tails and conditional response passing, IV-factor co-movement passing, and residual failures concentrated in IV calibration plus BBB/AAA OAS sticky-spread marginals. Because observed VIX changed the factor panel, do not claim a current real-VIX tri-scope champion until rerun.",
@@ -43,6 +43,6 @@
   "oracle_feasibility_note": "435a reaches 11/11 only as a validation-future oracle upper bound; it is not a deployable or learned conditional scenario generator.",
   "goal_reached": false,
   "hard_stop_iteration": null,
-  "last_commit": "3522ed2",
+  "last_commit": "pending_737a_commit",
   "resume_command_hint": "continue autoresearch"
 }

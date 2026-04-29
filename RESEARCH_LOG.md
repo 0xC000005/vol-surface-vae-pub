@@ -107165,3 +107165,34 @@ The learned no-update head restores exact-zero observations but over-sticks the 
 Reject 736a as a framework repair. Do not train the joint or IV versions because the anchor-only falsifier already fails the single-framework candidate gate. The next HEAD step should not add another OAS-specific knob. Choose a research-ideation or post-experiment decision: either document sticky OAS as a limitation of the otherwise coherent real-VIX normalized-innovation framework, revise the quoted-spread data object, or make a broader observation-model paradigm shift with an explicit hurdle likelihood and conditional nonzero scale.
 
 ---
+## 2026-04-29: 737a Sticky OAS observation-object decision
+
+### Context
+736a falsified the simple learned mixed-support no-update head: it restored exact-zero mass, but over-stuck AAA/BBB OAS and under-scaled small nonzero moves. Per the workflow, this required ideation rather than another sticky-spread knob.
+
+### Literature Check
+- Intermittent/sparse forecasting literature treats zero-heavy time series as a distinct observation problem, not as ordinary continuous noise. Deep renewal-process work frames sparse series through event arrivals plus positive sizes, and connects the framework to neural sequence models.
+- Recent probabilistic intermittent forecasting work with Tweedie likelihood emphasizes that useful distributions for intermittent series can have both a point mass at zero and heavy tails.
+- This aligns with our local evidence: OAS requires coupled event/no-event probability and conditional nonzero-move scale, not just a continuous flow plus a threshold or a Bernoulli atom.
+
+Sources:
+- `https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0259764`
+- `https://www.sciencedirect.com/science/article/pii/S0169207025000974`
+
+### Mechanism Read
+The OAS failure should be treated as an observation-object mismatch. AAA/BBB OAS are quoted/sticky/stale series with large no-update mass and regime-shifted nonzero tails. The liquid-factor normalized-innovation law still looks coherent: IV and ordinary anchors preserve many path, tail, correlation, and conditional-response properties. The repeated failures are localized to sticky quoted spreads, and every incremental repair has hit the same trade-off:
+
+- threshold/atom readout restores zeros but over-snaps and leaves BBB failing;
+- masked-zero continuous loss over-widens nonzero OAS tails;
+- tail-asinh and score coordinates regress tails or dependence;
+- learned Bernoulli no-update head over-sticks and under-scales small nonzero moves.
+
+### Decision
+Do not keep adding OAS-specific knobs inside the current flow backend. The next principled move is a data/objective decision:
+
+- For a risk-manager deployable general scenario generator, define a liquid-factor framework scorecard and keep sticky OAS as a monitored limitation rather than a hard single-framework gate.
+- If publishable credit-spread law is mandatory, start a separate broader observation-model paradigm: a generic hurdle/renewal-style observation law with conditional nonzero scale for all intermittent channels, not a small patch on the continuous coordinate.
+
+Backend switching is not justified by the evidence. The issue is the observed object for sticky spreads, not AR flow matching itself.
+
+---
