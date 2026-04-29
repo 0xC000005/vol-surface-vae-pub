@@ -107564,3 +107564,28 @@ The strongest current attribution is transition/readout capacity over the multi-
 Do not continue tuning scalar losses, sampler weights, source-scale shortcuts, or simple output heads. The next experiment should change one architectural axis only: a minimal shared transition/readout capacity increase that preserves the normalized-innovation data object, AR flow matching backend, one stochastic source, and the same tri-scope framework recipe.
 
 ---
+## 2026-04-29: Autoresearch 750a scaled transition capacity falsifier
+
+### Context
+750a tested the 749a attribution directly: if the active family is failing because the shared AR transition/readout is too weak, then a larger but otherwise identical normalized-innovation AR flow should improve free-running scenario quality. This was a Bitter-Lesson-style scale test, not a new data object or calibration layer.
+
+### Execute
+- Trained a wider/deeper IV-only base model from scratch using the same normalized-innovation law and one stochastic source: `memory_dim=192`, `memory_layers=4`, `token_dim=192`, `token_layers=4`, all train windows, 8 epochs.
+- Base model: `models/backfill/750a_iv_scaled_transition_base_alltrain_e8_s7501/best_model.pt`, best epoch 5, best one-step validation loss `1.4807`.
+- Evaluated base model: `results/block_ar/750a_iv_scaled_transition/base_iv_val_full11_s64.{json,md}`.
+- Applied the same rollout/channel finetune recipe as the incumbent: 3 epochs, rollout energy `0.2`, channel level energy `0.05`, horizon-end weight `1.2`.
+- Finetuned model: `models/backfill/750a_iv_scaled_transition_channel_level_alltrain_w005_e3_s7503/best_model.pt`, best epoch 3, best val total `1.7675`.
+- Evaluated finetuned validation and train-tail: `results/block_ar/750a_iv_scaled_transition/finetuned_iv_val_full11_s64.{json,md}` and `finetuned_iv_train_tail_full11_s64.{json,md}`.
+
+### Result
+- Base validation: `3/11`; coverage `0.732`, level-KS `7/25`, median-bias `6/25`, kurtosis ratio `0.689`, pathwise KS `0.703`.
+- Finetuned validation: `6/11`; failed `coverage`, `conditionality`, `time_series`, `regime_coverage`, `distributional_fidelity`. Coverage fell to `0.702`, level-KS `10/25`, median-bias `12/25`, kurtosis ratio `1.379`, pathwise KS `0.344`, and cointegration passed with aggregate ratio `0.651` and worst-cell ratio `0.299`.
+- Finetuned train-tail: `6/11`; failed `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`. Coverage `0.816`, level-KS `20/25`, median-bias `25/25`, kurtosis ratio `2.364`, pathwise KS `0.439`.
+
+### Mechanism Read
+Naive capacity scaling improves the supervised one-step objective and can repair some transition-shape metrics after rollout finetuning, especially validation cointegration and pathwise max-jump. But it does not solve the binding scenario-law problem: validation coverage, level distribution, median allocation, and regime layer-2 coverage all worsen versus the 734a incumbent. The model is not simply too small. Larger shared transition capacity without an objective/data-object change learns a sharper or more distorted integrated level law.
+
+### Decision
+Reject naive width/depth scaling as the next framework ingredient. Keep the 750a result as evidence that the active bottleneck is not raw model capacity alone. The next step should be research ideation or a more targeted transition mechanism that changes how uncertainty is propagated through the path, not just how much generic Transformer capacity is available.
+
+---
