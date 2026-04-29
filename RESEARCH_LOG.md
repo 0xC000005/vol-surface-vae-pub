@@ -107920,3 +107920,27 @@ The level marginal CRPS term is not an adequate base-law repair. It is a princip
 Reject 762a as a promotion candidate. Keep 755a as the active base learned generator and 760a as a separate rolling calibrated risk-system layer. The next step should analyze why level allocation and structural dynamics trade off under the current readout/objective before adding another scalar loss knob.
 
 ---
+## 2026-04-29: Autoresearch 763a level-CRPS trade-off attribution
+
+### Context
+763a analyzed why the principled 762a level-marginal CRPS term failed. The goal was to avoid immediately tuning another scalar loss and instead attribute the 755a -> 762a trade-off.
+
+### Execute
+- Added `experiments/backfill/block_ar/analyze_763a_levelcrps_tradeoff.py`.
+- Inputs: 755a and 762a validation/train-tail full-suite outputs plus training histories.
+- Artifact: `results/block_ar/763a_levelcrps_tradeoff/summary.{json,md}`.
+
+### Findings
+- 762a validation stayed `6/11` but worsened cov90 `0.817 -> 0.780`, calerr `0.063 -> 0.099`, level-KS `15/25 -> 13/25`, median-bias `15/25 -> 14/25`, and mean reversion failed.
+- 762a train-tail dropped from 755a `8/11` to `6/11`, so the problem is not only validation shift.
+- The weighted level-CRPS contribution is `0.0985`, about `7.2x` the weighted channel-level-energy contribution `0.0138`.
+- Validation sample normalized std shrank `0.844 -> 0.807` (`-4.4%`), and validation sample level std shrank `0.729 -> 0.686` (`-5.9%`).
+- Largest h30 coverage deterioration was `-0.150` at cell `[1,2]`.
+
+### Mechanism Read
+The 762a term is not wrong in principle, but it is not a clean repair in the current objective. It behaves like a strong central-location pressure, narrows generated support, and competes with structural dynamics. That explains the simultaneous pattern: some validation cointegration/pathwise geometry improves, but coverage, level distribution, mean-reversion profile, and train-tail robustness degrade.
+
+### Decision
+Do not stack another scalar level loss or simply tune the 762a weight. The next step should be research ideation or a cleaner reformulation of the objective/readout interaction, with the same single-framework constraints preserved.
+
+---

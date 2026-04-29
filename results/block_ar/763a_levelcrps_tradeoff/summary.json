@@ -1,0 +1,167 @@
+{
+  "summary": {
+    "decision": "reject_762a",
+    "mechanism": "The level marginal CRPS term is a proper score but its current scale narrows generated support and competes with structural dynamics. It improves some validation cointegration/pathwise geometry while worsening coverage, level-KS, median-bias, mean reversion, and train-tail robustness.",
+    "next_step": "Do not stack another scalar level loss. Analyze objective/readout interaction or consider a cleaner reformulation that avoids adding proper scores with uncontrolled relative scale."
+  },
+  "validation": {
+    "755a": {
+      "score": "6/11",
+      "failed": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8172940287226002,
+      "calerr": 0.063313009154279,
+      "level_ks": 15,
+      "median_bias": 15,
+      "daily_ks": 24,
+      "cointegration_ratio": 0.746031746031746,
+      "cointegration_worst": 0.23880597014925373,
+      "mean_reversion": true,
+      "mr_active_mean": 0.7375,
+      "pathwise_ks": 0.39546485260770975,
+      "kurtosis_ratio": 1.099133320268231,
+      "risk_state_allocation": true
+    },
+    "762a": {
+      "score": "6/11",
+      "failed": [
+        "coverage",
+        "conditionality",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion"
+      ],
+      "cov90": 0.7798427815570673,
+      "calerr": 0.09906273620559335,
+      "level_ks": 13,
+      "median_bias": 14,
+      "daily_ks": 24,
+      "cointegration_ratio": 0.7320261437908496,
+      "cointegration_worst": 0.2686567164179104,
+      "mean_reversion": false,
+      "mr_active_mean": 0.6183333333333334,
+      "pathwise_ks": 0.33990929705215417,
+      "kurtosis_ratio": 1.1355117116188218,
+      "risk_state_allocation": true
+    }
+  },
+  "train_tail": {
+    "755a": {
+      "score": "8/11",
+      "failed": [
+        "conditionality",
+        "time_series",
+        "regime_coverage"
+      ],
+      "cov90": 0.8434104308390022,
+      "calerr": 0.031174603174603174,
+      "level_ks": 21,
+      "median_bias": 25,
+      "daily_ks": 25,
+      "cointegration_ratio": 0.5501432664756447,
+      "cointegration_worst": 0.2788461538461538,
+      "mean_reversion": true,
+      "mr_active_mean": 0.8122222222222223,
+      "pathwise_ks": 0.4895691609977324,
+      "kurtosis_ratio": 1.9430986256236165,
+      "risk_state_allocation": false
+    },
+    "762a": {
+      "score": "6/11",
+      "failed": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "cointegration",
+        "regime_coverage"
+      ],
+      "cov90": 0.8235071806500378,
+      "calerr": 0.05430587049634669,
+      "level_ks": 19,
+      "median_bias": 25,
+      "daily_ks": 25,
+      "cointegration_ratio": 0.45845272206303733,
+      "cointegration_worst": 0.1981981981981982,
+      "mean_reversion": true,
+      "mr_active_mean": 0.6683333333333333,
+      "pathwise_ks": 0.4414965986394558,
+      "kurtosis_ratio": 1.9550596773740978,
+      "risk_state_allocation": false
+    }
+  },
+  "training_objective": {
+    "755_best_epoch": 1,
+    "762_best_epoch": 1,
+    "755_val_total": 2.0605020001530647,
+    "762_val_total": 2.1569208332470486,
+    "755_weighted_components": {
+      "val_fm_loss": 1.457014071089881,
+      "val_energy": 0.2854138772402491,
+      "val_channel_level_energy": 0.013876175867127522,
+      "val_free_running_fm_loss": 0.30419786508594243,
+      "sum_tracked": 2.0605019892831997
+    },
+    "762_weighted_components": {
+      "val_fm_loss": 1.4531770050525665,
+      "val_energy": 0.2845139648233141,
+      "val_channel_level_energy": 0.013756933688585247,
+      "val_free_running_fm_loss": 0.3069574277315821,
+      "val_level_marginal_crps": 0.09851549906390054,
+      "sum_tracked": 2.1569208303599483
+    },
+    "level_crps_component_vs_channel_energy": 7.161152426404682
+  },
+  "sample_spread": {
+    "755_val_sample_norm_std": 0.8442157432436943,
+    "762_val_sample_norm_std": 0.8071321727974075,
+    "755_val_sample_level_std": 0.7291878451194082,
+    "762_val_sample_level_std": 0.6858762662325587,
+    "target_norm_std": 1.486665247806481,
+    "target_level_std": 0.6808799771325929,
+    "norm_std_delta_pct": -0.04392665114701866,
+    "level_std_delta_pct": -0.059397011588635196
+  },
+  "grid_deltas_val_762_minus_755": {
+    "coverage_h30": {
+      "mean_delta": -0.054693877551020405,
+      "median_delta": -0.038548752834467126,
+      "max_abs_delta": -0.14965986394557818,
+      "max_abs_delta_cell": [
+        1,
+        2
+      ]
+    },
+    "level_ks": {
+      "mean_delta": 0.013786848072562355,
+      "median_delta": 0.018397581254724127,
+      "max_abs_delta": 0.05009826152683294,
+      "max_abs_delta_cell": [
+        2,
+        3
+      ]
+    },
+    "median_above_frac": {
+      "mean_delta": 0.04653061224489797,
+      "median_delta": 0.05306122448979589,
+      "max_abs_delta": 0.08027210884353742,
+      "max_abs_delta_cell": [
+        3,
+        1
+      ]
+    },
+    "cointegration_ratio": {
+      "mean_delta": 0.010697092311577294,
+      "median_delta": -0.02777777777777779,
+      "max_abs_delta": 0.736842105263158,
+      "max_abs_delta_cell": [
+        3,
+        1
+      ]
+    }
+  }
+}
