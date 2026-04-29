@@ -202,6 +202,46 @@ def test_innovation_score_coordinate_roundtrips_normalized_innovations():
     torch.testing.assert_close(recovered, values, atol=1e-5, rtol=1e-5)
 
 
+def test_hybrid_sticky_score_coordinate_only_scores_masked_channels():
+    cfg = GenericStateAwareNormalizedInnovationFMConfig(
+        history_len=4,
+        future_len=3,
+        n_cells=3,
+        memory_dim=16,
+        memory_layers=1,
+        memory_heads=2,
+        memory_ff=32,
+        token_dim=16,
+        token_layers=1,
+        token_heads=2,
+        token_ff=32,
+        time_dim=8,
+        flow_steps=2,
+        n_quantiles=17,
+        innovation_coordinate="hybrid_sticky_score",
+    )
+    model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
+    levels = torch.linspace(0.05, 0.95, cfg.n_quantiles)
+    quantiles = torch.stack(
+        [
+            torch.linspace(-4.0, 4.0, cfg.n_quantiles),
+            torch.linspace(-2.0, 2.0, cfg.n_quantiles),
+            torch.linspace(-1.0, 1.0, cfg.n_quantiles),
+        ]
+    )
+    model.set_innovation_quantiles(quantiles, levels)
+    model.set_innovation_score_mask(torch.tensor([False, True, False]))
+
+    values = torch.tensor([[[0.25, 0.50, -0.25], [1.0, -0.5, 0.0]]])
+    flow = model._to_flow_coordinate(values)
+    recovered = model._from_flow_coordinate(flow)
+
+    torch.testing.assert_close(flow[..., 0], values[..., 0])
+    torch.testing.assert_close(flow[..., 2], values[..., 2])
+    assert not torch.allclose(flow[..., 1], values[..., 1])
+    torch.testing.assert_close(recovered, values, atol=1e-5, rtol=1e-5)
+
+
 def test_innovation_score_flow_loss_and_sampling_reconstructs_normalized_increments():
     torch.manual_seed(107)
     cfg = GenericStateAwareNormalizedInnovationFMConfig(

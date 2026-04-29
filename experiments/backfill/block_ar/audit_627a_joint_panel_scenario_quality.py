@@ -278,6 +278,7 @@ def build_history_future(
     if payload.get("model_coordinate") in {
         "state_aware_normalized_innovation",
         "state_aware_normalized_innovation_score",
+        "state_aware_normalized_innovation_hybrid_score",
     } or args.model_type == "662a":
         block = build_increment_coordinate_block(
             panel,
@@ -544,6 +545,7 @@ def generate_panel_samples(
         elif model_coordinate in {
             "state_aware_normalized_innovation",
             "state_aware_normalized_innovation_score",
+            "state_aware_normalized_innovation_hybrid_score",
         }:
             history_level, history_norm, center, scale, drift_feature = history
             panel_samples = model.sample_batched(
@@ -575,6 +577,7 @@ def generate_panel_samples(
             "mixed_coordinate_path",
             "state_aware_normalized_innovation",
             "state_aware_normalized_innovation_score",
+            "state_aware_normalized_innovation_hybrid_score",
         }:
             arr = reconstruct_state_from_increments(
                 raw_history[start:end, -1, :], arr, specs

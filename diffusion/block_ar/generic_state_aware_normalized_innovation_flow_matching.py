@@ -212,8 +212,10 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.cfg = cfg
         if cfg.prefix_feature_mode not in {"basic", "scale", "scale_drift"}:
             raise ValueError("prefix_feature_mode must be 'basic', 'scale', or 'scale_drift'")
-        if cfg.innovation_coordinate not in {"normalized", "score"}:
-            raise ValueError("innovation_coordinate must be 'normalized' or 'score'")
+        if cfg.innovation_coordinate not in {"normalized", "score", "hybrid_sticky_score"}:
+            raise ValueError(
+                "innovation_coordinate must be 'normalized', 'score', or 'hybrid_sticky_score'"
+            )
         feature_mult = 7 if cfg.prefix_feature_mode == "scale_drift" else 6 if cfg.prefix_feature_mode == "scale" else 4
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -253,6 +255,7 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         self.register_buffer("_quantiles_ready", torch.tensor(False, dtype=torch.bool))
         self.register_buffer("innovation_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
         self.register_buffer("_innovation_quantiles_ready", torch.tensor(False, dtype=torch.bool))
+        self.register_buffer("innovation_score_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
 
     def set_level_quantiles(
         self,
@@ -289,6 +292,11 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 raise ValueError("quantile_levels must have shape (n_quantiles,)")
             self.quantile_levels.copy_(quantile_levels.to(self.quantile_levels))
         self._innovation_quantiles_ready.fill_(True)
+
+    def set_innovation_score_mask(self, mask: torch.Tensor) -> None:
+        if mask.shape != (self.cfg.n_cells,):
+            raise ValueError(f"innovation score mask must have shape ({self.cfg.n_cells},)")
+        self.innovation_score_mask.copy_(mask.to(device=self.innovation_score_mask.device, dtype=torch.bool))
 
     def _check_innovation_quantiles(self) -> None:
         if not bool(self._innovation_quantiles_ready.item()):
@@ -356,11 +364,21 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     def _to_flow_coordinate(self, normalized_innovation: torch.Tensor) -> torch.Tensor:
         if self.cfg.innovation_coordinate == "score":
             return self.normalized_innovations_to_scores(normalized_innovation)
+        if self.cfg.innovation_coordinate == "hybrid_sticky_score":
+            scores = self.normalized_innovations_to_scores(normalized_innovation)
+            mask = self.innovation_score_mask.to(device=normalized_innovation.device)
+            mask = mask.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            return torch.where(mask, scores, normalized_innovation)
         return normalized_innovation
 
     def _from_flow_coordinate(self, flow_coordinate: torch.Tensor) -> torch.Tensor:
         if self.cfg.innovation_coordinate == "score":
             return self.scores_to_normalized_innovations(flow_coordinate)
+        if self.cfg.innovation_coordinate == "hybrid_sticky_score":
+            values = self.scores_to_normalized_innovations(flow_coordinate)
+            mask = self.innovation_score_mask.to(device=flow_coordinate.device)
+            mask = mask.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
+            return torch.where(mask, values, flow_coordinate)
         return flow_coordinate
 
     @staticmethod
@@ -796,8 +814,10 @@ def load_model(
     cfg = GenericStateAwareNormalizedInnovationFMConfig(**payload["config"])
     model = GenericStateAwareNormalizedInnovationFlowMatching(cfg)
     incompat = model.load_state_dict(payload["model_state_dict"], strict=False)
-    allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready"}
+    allowed_missing = {"innovation_quantiles", "_innovation_quantiles_ready", "innovation_score_mask"}
     if cfg.innovation_coordinate == "score":
+        allowed_missing = {"innovation_score_mask"}
+    if cfg.innovation_coordinate == "hybrid_sticky_score":
         allowed_missing = set()
     unexpected = set(incompat.unexpected_keys)
     missing = set(incompat.missing_keys)

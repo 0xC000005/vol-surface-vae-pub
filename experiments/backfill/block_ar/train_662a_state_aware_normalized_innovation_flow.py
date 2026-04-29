@@ -94,6 +94,62 @@ def select_normalized_innovation_scope(
     )
 
 
+def select_raw_scope_from_block(
+    block: IncrementCoordinateBlock,
+    scope: str,
+    iv_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    if scope == "joint38":
+        return block.history_state, block.future_state
+    if scope == "iv_only":
+        return block.history_state[..., :iv_count], block.future_state[..., :iv_count]
+    if scope == "anchor_only":
+        return block.history_state[..., iv_count:], block.future_state[..., iv_count:]
+    raise ValueError(f"unknown state_scope {scope!r}")
+
+
+def panel_daily_changes(history: np.ndarray, future: np.ndarray) -> np.ndarray:
+    prev = np.concatenate([history[:, -1:, :], future[:, :-1, :]], axis=1)
+    return future - prev
+
+
+def sticky_score_mask_from_block(
+    block: IncrementCoordinateBlock,
+    scope: str,
+    iv_count: int,
+    *,
+    zero_eps: float,
+    zero_rate_gate: float,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    raw_history, raw_future = select_raw_scope_from_block(block, scope, iv_count)
+    history_delta = np.diff(raw_history.astype(np.float64), axis=1)
+    future_delta = panel_daily_changes(raw_history.astype(np.float64), raw_future.astype(np.float64))
+    all_delta = np.concatenate([history_delta, future_delta], axis=1)
+    zero_rate = np.mean(np.abs(all_delta) <= float(zero_eps), axis=(0, 1))
+    mask = zero_rate >= float(zero_rate_gate)
+    if scope == "joint38":
+        specs = block.specs
+    elif scope == "iv_only":
+        specs = block.specs[:iv_count]
+    else:
+        specs = block.specs[iv_count:]
+    rows = [
+        {
+            "name": spec.name,
+            "selected": bool(mask[idx]),
+            "zero_rate": float(zero_rate[idx]),
+        }
+        for idx, spec in enumerate(specs)
+    ]
+    return mask.astype(bool), {
+        "policy": "train_raw_no_change_rate",
+        "zero_eps": float(zero_eps),
+        "zero_rate_gate": float(zero_rate_gate),
+        "selected_names": [row["name"] for row in rows if row["selected"]],
+        "rows": rows,
+    }
+
+
 def eval_loss(
     model: GenericStateAwareNormalizedInnovationFlowMatching,
     loader: DataLoader,
@@ -201,7 +257,9 @@ def main() -> None:
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
     parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
-    parser.add_argument("--innovation_coordinate", choices=["normalized", "score"], default="normalized")
+    parser.add_argument("--innovation_coordinate", choices=["normalized", "score", "hybrid_sticky_score"], default="normalized")
+    parser.add_argument("--sticky_score_zero_eps", type=float, default=1e-10)
+    parser.add_argument("--sticky_score_zero_rate_gate", type=float, default=0.25)
     parser.add_argument("--n_quantiles", type=int, default=401)
     parser.add_argument("--cdf_eps", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=8)
@@ -336,11 +394,26 @@ def main() -> None:
         torch.from_numpy(level_quantiles).to(device),
         torch.from_numpy(quantile_levels).to(device),
     )
-    if args.innovation_coordinate == "score":
+    sticky_score_report: dict[str, Any] = {
+        "policy": "disabled",
+        "selected_names": [],
+    }
+    if args.innovation_coordinate in {"score", "hybrid_sticky_score"}:
         model.set_innovation_quantiles(
             torch.from_numpy(innovation_quantiles).to(device),
             torch.from_numpy(innovation_quantile_levels).to(device),
         )
+    if args.innovation_coordinate == "hybrid_sticky_score":
+        sticky_mask, sticky_score_report = sticky_score_mask_from_block(
+            train_block,
+            args.state_scope,
+            int(args.iv_count),
+            zero_eps=float(args.sticky_score_zero_eps),
+            zero_rate_gate=float(args.sticky_score_zero_rate_gate),
+        )
+        if sticky_mask.shape != (int(train_level.shape[-1]),):
+            raise RuntimeError("sticky score mask shape does not match selected state scope")
+        model.set_innovation_score_mask(torch.from_numpy(sticky_mask).to(device))
     train_loader = DataLoader(
         TensorDataset(
             torch.from_numpy(train_level),
@@ -387,12 +460,15 @@ def main() -> None:
         "iv_lower_bound": float(args.iv_lower_bound),
         "iv_upper_bound": float(args.iv_upper_bound),
         "innovation_coordinate": args.innovation_coordinate,
+        "sticky_score": sticky_score_report,
     }
     extra = {
         "state_scope": args.state_scope,
         "model_coordinate": (
             "state_aware_normalized_innovation_score"
             if args.innovation_coordinate == "score"
+            else "state_aware_normalized_innovation_hybrid_score"
+            if args.innovation_coordinate == "hybrid_sticky_score"
             else "state_aware_normalized_innovation"
         ),
         "normalization": normalization,
@@ -408,6 +484,7 @@ def main() -> None:
             "base_noise_scale_min": float(cfg.base_noise_scale_min),
             "base_noise_scale_max": float(cfg.base_noise_scale_max),
             "flow_coordinate": args.innovation_coordinate,
+            "sticky_score": sticky_score_report,
         },
         "iv_transform": args.iv_transform,
         "iv_lower_bound": float(args.iv_lower_bound),
@@ -416,6 +493,7 @@ def main() -> None:
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
         "panel_metadata": panel_metadata,
         "positive_level_policy": args.positive_level_policy,
+        "sticky_score": sticky_score_report,
     }
     for epoch in range(1, int(args.epochs) + 1):
         model.train()
@@ -495,6 +573,8 @@ def main() -> None:
         "model_coordinate": (
             "state_aware_normalized_innovation_score"
             if args.innovation_coordinate == "score"
+            else "state_aware_normalized_innovation_hybrid_score"
+            if args.innovation_coordinate == "hybrid_sticky_score"
             else "state_aware_normalized_innovation"
         ),
         "normalization": normalization,
@@ -507,6 +587,7 @@ def main() -> None:
             "risk_state_rank_weight": float(args.risk_state_rank_weight),
             "base_noise_rho": float(cfg.base_noise_rho),
             "flow_coordinate": args.innovation_coordinate,
+            "sticky_score": sticky_score_report,
         },
         "n_state_vars": int(train_level.shape[-1]),
         "state_specs": [_spec_to_dict(spec) for spec in train_specs],
@@ -517,6 +598,7 @@ def main() -> None:
         "final_val_loss": float(history_records[-1]["val_loss"] if history_records else float("nan")),
         "sample_smoke": smoke,
         "panel_metadata": panel_metadata,
+        "sticky_score": sticky_score_report,
         "output_dir": str(output_dir),
     }
     (output_dir / "training_history.json").write_text(json.dumps(make_serializable(history_records), indent=2), encoding="utf-8")
