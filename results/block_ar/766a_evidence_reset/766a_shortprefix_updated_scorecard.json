@@ -1,0 +1,150 @@
+{
+  "scorecard_id": "712a_general_conditional_scenario_acceptance",
+  "overall_pass": false,
+  "gate_passes": {
+    "iv": false,
+    "anchor": false,
+    "joint": false,
+    "framework": true
+  },
+  "iv": {
+    "pass": false,
+    "original_n_pass": 7,
+    "n_total": 11,
+    "original_failed_suites": [
+      "coverage",
+      "conditionality",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "effective_failed_suites": [
+      "coverage",
+      "regime_coverage",
+      "distributional_fidelity"
+    ],
+    "monitoring_only_suites": [],
+    "risk_state_allocation_pass": true,
+    "conditionality_pass": false,
+    "conditionality_policy": "risk_state_allocation_may_replace_old_conditionality_gate",
+    "cointegration_policy": "old_iv_ewma_cointegration_monitoring_only_separate_from_economic_link_gate",
+    "iv_ewma_economic_link_present": true,
+    "iv_ewma_economic_link_pass": true
+  },
+  "anchor": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.10900002362055934,
+          "pass_count": 12,
+          "n_factors": 14
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 0.9432067884050448,
+          "pass_count": 14,
+          "n_factors": 14
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.9033091883415708,
+          "abs_corr_ratio": 0.62445611948552
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": true,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": 4.892960618465215,
+          "history_activity_width_spearman": 0.9284152821967949
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      }
+    }
+  },
+  "joint": {
+    "pass": false,
+    "checks": {
+      "finite_rate": {
+        "pass": true,
+        "value": 1.0,
+        "target": ">=0.999"
+      },
+      "factor_delta_ks": {
+        "pass": false,
+        "value": {
+          "mean": 0.09570384205269408,
+          "pass_count": 12,
+          "n_factors": 14
+        },
+        "target": "mean<=0.20 and all factors pass"
+      },
+      "factor_tail_scale": {
+        "pass": true,
+        "value": {
+          "median": 1.0400975550861862,
+          "pass_count": 14,
+          "n_factors": 14
+        },
+        "target": "median in [0.5,2.0] and all factors pass"
+      },
+      "factor_factor_corr": {
+        "pass": true,
+        "value": {
+          "upper_corr": 0.8658259790739814,
+          "abs_corr_ratio": 0.49239305187434207
+        },
+        "target": "upper_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      },
+      "conditional_panel": {
+        "pass": true,
+        "value": {
+          "median_mae_reduction_vs_rolled_pct": 4.868684632007422,
+          "history_activity_width_spearman": 0.9499178692456004
+        },
+        "target": "median_mae_reduction>=0 and history_activity_width_spearman>=0.10"
+      },
+      "iv_factor_corr": {
+        "pass": true,
+        "value": {
+          "matrix_corr": 0.9423396420697021,
+          "abs_corr_ratio": 0.6787829031514742
+        },
+        "target": "matrix_corr>=0.50 and generated/GT mean abs corr>=0.35"
+      }
+    }
+  },
+  "framework": {
+    "pass": true,
+    "framework_id": "766a_realvix_shortprefix_fm_k5_state_aware_normalized_innovation",
+    "required_scopes": [
+      "iv_only",
+      "anchor_only",
+      "joint"
+    ],
+    "missing_scopes": [],
+    "allowed_scope_differences": [
+      "decoder_head",
+      "input_dim",
+      "input_head",
+      "output_dim",
+      "support_transform"
+    ],
+    "disallowed_scope_differences": [],
+    "missing_locked_fields": [],
+    "post_hoc_glued_decks": false,
+    "task_specific_loss_recipes": false
+  }
+}

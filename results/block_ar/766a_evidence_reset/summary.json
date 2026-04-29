@@ -1,0 +1,241 @@
+{
+  "iteration": "766a",
+  "claim": "evidence_reset_tri_scope_rerun",
+  "primary_decision": "Do not promote 766a over the protected 734a/739a deployable incumbent. Use the short-prefix recipe as the active research ingredient only after tri-scope non-regression, because it improves IV-only validation but does not fix sticky anchor channels and regresses native joint IV level support.",
+  "iv_results": [
+    {
+      "name": "734a_iv_only_incumbent_rerun",
+      "path": "results/block_ar/766a_evidence_reset/734a_iv_val_full11_s64.json",
+      "score": "5/11",
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion"
+      ],
+      "cov90": 0.8393,
+      "calibration_error": 0.0442,
+      "level_ks_pass": "15/25",
+      "median_bias_pass": "16/25",
+      "risk_state_allocation": true,
+      "mean_reversion": false,
+      "old_cointegration": false,
+      "iv_ewma_economic_link": true,
+      "pathwise_ks": 0.4385,
+      "regime_layer2": "1/8"
+    },
+    {
+      "name": "734a_native_joint_iv_slice_rerun",
+      "path": "results/block_ar/766a_evidence_reset/734a_joint_iv_val_full11_s64.json",
+      "score": "6/11",
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "time_series",
+        "regime_coverage",
+        "mean_reversion"
+      ],
+      "cov90": 0.8143,
+      "calibration_error": 0.0597,
+      "level_ks_pass": "19/25",
+      "median_bias_pass": "22/25",
+      "risk_state_allocation": true,
+      "mean_reversion": false,
+      "old_cointegration": true,
+      "iv_ewma_economic_link": true,
+      "pathwise_ks": 0.2925,
+      "regime_layer2": "1/8"
+    },
+    {
+      "name": "755a_iv_only_shortprefix_frontier_rerun",
+      "path": "results/block_ar/766a_evidence_reset/755a_iv_val_full11_s64.json",
+      "score": "7/11",
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8178,
+      "calibration_error": 0.0632,
+      "level_ks_pass": "15/25",
+      "median_bias_pass": "15/25",
+      "risk_state_allocation": true,
+      "mean_reversion": true,
+      "old_cointegration": true,
+      "iv_ewma_economic_link": true,
+      "pathwise_ks": 0.3866,
+      "regime_layer2": "1/8"
+    },
+    {
+      "name": "755a_iv_only_shortprefix_train_tail_rerun",
+      "path": "results/block_ar/766a_evidence_reset/755a_iv_train_tail_full11_s64.json",
+      "score": "8/11",
+      "failed_suites": [
+        "conditionality",
+        "time_series",
+        "regime_coverage"
+      ],
+      "cov90": 0.8429,
+      "calibration_error": 0.0324,
+      "level_ks_pass": "22/25",
+      "median_bias_pass": "25/25",
+      "risk_state_allocation": false,
+      "mean_reversion": true,
+      "old_cointegration": true,
+      "iv_ewma_economic_link": true,
+      "pathwise_ks": 0.483,
+      "regime_layer2": "2/8"
+    },
+    {
+      "name": "766a_native_joint_shortprefix_iv_slice",
+      "path": "results/block_ar/766a_evidence_reset/766a_joint_iv_val_full11_s64.json",
+      "score": "6/11",
+      "failed_suites": [
+        "coverage",
+        "conditionality",
+        "cointegration",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "cov90": 0.8026,
+      "calibration_error": 0.0756,
+      "level_ks_pass": "13/25",
+      "median_bias_pass": "17/25",
+      "risk_state_allocation": true,
+      "mean_reversion": true,
+      "old_cointegration": false,
+      "iv_ewma_economic_link": true,
+      "pathwise_ks": 0.371,
+      "regime_layer2": "1/8"
+    }
+  ],
+  "panel_results": [
+    {
+      "name": "734a_anchor_only_incumbent_rerun",
+      "path": "results/block_ar/766a_evidence_reset/734a_anchor_val_panel_s64.json",
+      "finite_rate": 1.0,
+      "factor_delta_ks_mean": 0.1069,
+      "factor_delta_ks_pass": "12/14",
+      "factor_tail_q99_pass": "14/14",
+      "factor_factor_corr": 0.907,
+      "iv_factor_corr": null,
+      "conditional_mae_reduction_pct": 5.111,
+      "history_width_spearman": 0.9263,
+      "failing_factors_ks_020": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ]
+    },
+    {
+      "name": "734a_native_joint_panel_rerun",
+      "path": "results/block_ar/766a_evidence_reset/734a_joint_val_panel_s64.json",
+      "finite_rate": 1.0,
+      "factor_delta_ks_mean": 0.0971,
+      "factor_delta_ks_pass": "12/14",
+      "factor_tail_q99_pass": "14/14",
+      "factor_factor_corr": 0.8628,
+      "iv_factor_corr": 0.9472,
+      "conditional_mae_reduction_pct": 5.011,
+      "history_width_spearman": 0.9502,
+      "failing_factors_ks_020": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ]
+    },
+    {
+      "name": "766a_anchor_only_shortprefix_transfer",
+      "path": "results/block_ar/766a_evidence_reset/766a_anchor_val_panel_s64.json",
+      "finite_rate": 1.0,
+      "factor_delta_ks_mean": 0.109,
+      "factor_delta_ks_pass": "12/14",
+      "factor_tail_q99_pass": "14/14",
+      "factor_factor_corr": 0.9033,
+      "iv_factor_corr": null,
+      "conditional_mae_reduction_pct": 4.893,
+      "history_width_spearman": 0.9284,
+      "failing_factors_ks_020": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ]
+    },
+    {
+      "name": "766a_native_joint_shortprefix_transfer",
+      "path": "results/block_ar/766a_evidence_reset/766a_joint_val_panel_s64.json",
+      "finite_rate": 1.0,
+      "factor_delta_ks_mean": 0.0957,
+      "factor_delta_ks_pass": "12/14",
+      "factor_tail_q99_pass": "14/14",
+      "factor_factor_corr": 0.8658,
+      "iv_factor_corr": 0.9423,
+      "conditional_mae_reduction_pct": 4.869,
+      "history_width_spearman": 0.9499,
+      "failing_factors_ks_020": [
+        "factor:aaa_oas",
+        "factor:bbb_oas"
+      ]
+    }
+  ],
+  "scorecards": [
+    {
+      "name": "734a_updated_scorecard",
+      "path": "results/block_ar/766a_evidence_reset/734a_updated_scorecard.json",
+      "overall_pass": false,
+      "gate_passes": {
+        "iv": false,
+        "anchor": false,
+        "joint": false,
+        "framework": true
+      },
+      "iv_effective_failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity",
+        "mean_reversion"
+      ],
+      "anchor_failed": [
+        "factor_delta_ks"
+      ],
+      "joint_failed": [
+        "factor_delta_ks"
+      ],
+      "framework_pass": true
+    },
+    {
+      "name": "766a_shortprefix_updated_scorecard",
+      "path": "results/block_ar/766a_evidence_reset/766a_shortprefix_updated_scorecard.json",
+      "overall_pass": false,
+      "gate_passes": {
+        "iv": false,
+        "anchor": false,
+        "joint": false,
+        "framework": true
+      },
+      "iv_effective_failed": [
+        "coverage",
+        "regime_coverage",
+        "distributional_fidelity"
+      ],
+      "anchor_failed": [
+        "factor_delta_ks"
+      ],
+      "joint_failed": [
+        "factor_delta_ks"
+      ],
+      "framework_pass": true
+    }
+  ],
+  "next_research_base": {
+    "deployable_incumbent": "734a/739a real-VIX tri-scope framework",
+    "active_research_candidate": "766a short-prefix tri-scope transfer, with 755a remaining the IV-only frontier reference",
+    "do_not_use": "the accidental 2048-window anchor transfer artifact; it was not an all-train recipe match and is excluded from scorecards"
+  },
+  "remaining_bottlenecks": [
+    "IV validation coverage/regime layer-2 and level/median allocation",
+    "native joint IV level support versus IV-only 755a",
+    "sticky low-activity AAA/BBB OAS no-update mass in anchor and joint panels",
+    "single-seed summary sensitivity around borderline old cointegration and mean-reversion gates"
+  ]
+}
