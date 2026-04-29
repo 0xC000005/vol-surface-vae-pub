@@ -107256,3 +107256,28 @@ Use 734a/739a as the current risk-manager-presentable real-VIX liquid-factor can
 For further autoresearch, do not keep patching sticky OAS inside the current flow. The next technical improvement should target IV calibration/coverage within the same framework if the goal remains publishable conditional-law quality. Start a separate hurdle/renewal observation paradigm only if credit-spread law is mandatory.
 
 ---
+## 2026-04-29: 740a IV scalar temperature calibration falsifier
+
+### Context
+After 739a marked the real-VIX liquid-factor system as risk-manager-presentable but not a strict calibrated conditional law, 740a tested the least invasive IV calibration axis: scalar sampling temperature on the existing 674a IV checkpoint. The goal was to determine whether strict IV coverage/regime failures are mostly width calibration rather than structural.
+
+### Result
+- Baseline 734a / temperature 1.000: `6/11`; failed coverage, old conditionality, cointegration, regime coverage, distributional fidelity.
+- Temperature 1.025: `5/11`; failed coverage, old conditionality, regime coverage, distributional fidelity, mean reversion, pathwise jump realism.
+- Temperature 1.050: `5/11`; same failures as 1.025.
+- Coverage improved monotonically but stayed strict-failing: 90% empirical coverage `0.836 -> 0.853 -> 0.868`; calibration error `0.046 -> 0.030 -> 0.015`.
+- Cointegration fixed under both warmed samplers: worst-cell ratio `0.209 -> 0.403/0.326`, overall pass true.
+- The cost was not acceptable: pathwise max-jump KS worsened `0.442 -> 0.514 -> 0.579` and failed the relaxed `<0.50` gate; full-horizon mean reversion also failed at warmed temperatures because h7 over-reversion stayed high (`1.343 -> 1.359 -> 1.379`).
+- Distributional median-bias cells regressed `16/25 -> 14/25`, while strict per-cell coverage/regime layer-2 still failed.
+
+### Mechanism Read
+Scalar temperature is too blunt. It broadens intervals and repairs some cointegration/coverage diagnostics, but it changes the one-step/path increment law globally. The failures are spatial/horizon-local: some cells/horizons remain undercovered while others become overcovered, and global noise inflation worsens pathwise jump ordering and early-horizon mean-reversion profile.
+
+### Decision
+Reject scalar temperature as a publishable calibration layer and do not stack more global sampler knobs. The next principled step is a post-experiment coverage localization audit: identify whether strict IV coverage/regime failures concentrate by cell, horizon, regime, or signed bias. If the defect is local and stable, consider a single generic state/cell/horizon uncertainty-head or loss reweighting mechanism; if unstable, keep 734a/739a as risk-manager-presentable and report strict calibration as a limitation.
+
+### Artifacts
+- `results/block_ar/740a_iv_temperature_sweep/iv_val_full11_temp1025_s64.json`
+- `results/block_ar/740a_iv_temperature_sweep/iv_val_full11_temp105_s64.json`
+
+---
