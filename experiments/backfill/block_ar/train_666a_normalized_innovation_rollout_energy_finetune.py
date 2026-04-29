@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 sys.path.insert(0, ".")
 
@@ -51,6 +51,36 @@ def effective_readout_iv_count(state_scope: str, *, n_cells: int, iv_count: int)
     if state_scope == "joint38":
         return min(max(int(iv_count), 0), int(n_cells))
     raise ValueError(f"unknown state_scope {state_scope!r}")
+
+
+def state_tail_sampling_weights(
+    history_level_values: np.ndarray,
+    *,
+    tail_quantile: float,
+    strength: float,
+) -> np.ndarray:
+    """Symmetric train-derived weights for rare current-level regions."""
+    current = np.asarray(history_level_values, dtype=np.float64)[:, -1, :]
+    n_windows, n_cells = current.shape
+    if n_windows < 2 or float(strength) <= 0.0:
+        return np.ones(n_windows, dtype=np.float32)
+    q = min(max(float(tail_quantile), 0.0), 0.999)
+    ranks = np.empty_like(current, dtype=np.float64)
+    for cell in range(n_cells):
+        values = current[:, cell]
+        if float(np.max(values) - np.min(values)) <= 1e-12:
+            ranks[:, cell] = 0.5
+            continue
+        order = np.argsort(values, kind="mergesort")
+        sorted_vals = values[order]
+        left = np.searchsorted(sorted_vals, values, side="left")
+        right = np.searchsorted(sorted_vals, values, side="right")
+        ranks[:, cell] = (left + right + 1.0) / (2.0 * float(n_windows))
+    tail_depth = 2.0 * np.abs(ranks - 0.5)
+    rarity = np.maximum((tail_depth - q) / max(1.0 - q, 1e-6), 0.0).mean(axis=1)
+    weights = 1.0 + float(strength) * rarity
+    weights = weights / max(float(weights.mean()), 1e-8)
+    return weights.astype(np.float32)
 
 
 def channelwise_path_energy_score(
@@ -824,6 +854,8 @@ def main() -> None:
     parser.add_argument("--mixed_support_loss_weight", type=float, default=None)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
     parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
+    parser.add_argument("--state_tail_sampler_weight", type=float, default=0.0)
+    parser.add_argument("--state_tail_sampler_quantile", type=float, default=0.8)
     parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
     parser.add_argument(
         "--prefix_feature_mode",
@@ -962,6 +994,21 @@ def main() -> None:
         train_no_update_target = np.zeros_like(train_future_norm, dtype=np.float32)
         val_no_update_target = np.zeros_like(val_future_norm, dtype=np.float32)
 
+    train_sampler = None
+    train_shuffle = True
+    train_state_tail_weights = np.ones(int(train_level.shape[0]), dtype=np.float32)
+    if float(args.state_tail_sampler_weight) > 0.0:
+        train_state_tail_weights = state_tail_sampling_weights(
+            train_level,
+            tail_quantile=float(args.state_tail_sampler_quantile),
+            strength=float(args.state_tail_sampler_weight),
+        )
+        train_sampler = WeightedRandomSampler(
+            torch.as_tensor(train_state_tail_weights, dtype=torch.double),
+            num_samples=int(train_state_tail_weights.shape[0]),
+            replacement=True,
+        )
+        train_shuffle = False
     train_loader = DataLoader(
         TensorDataset(
             torch.from_numpy(train_level),
@@ -974,7 +1021,8 @@ def main() -> None:
             torch.from_numpy(train_no_update_target),
         ),
         batch_size=int(args.batch_size),
-        shuffle=True,
+        shuffle=train_shuffle,
+        sampler=train_sampler,
         drop_last=True,
     )
     val_loader = DataLoader(
@@ -1020,6 +1068,10 @@ def main() -> None:
         "mixed_support_observation": getattr(model.cfg, "mixed_support_observation", "none"),
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "dispersion_calibration_mode": args.dispersion_calibration_mode,
+        "state_tail_sampler_weight": float(args.state_tail_sampler_weight),
+        "state_tail_sampler_quantile": float(args.state_tail_sampler_quantile),
+        "state_tail_sampler_mean": float(train_state_tail_weights.mean()),
+        "state_tail_sampler_max": float(train_state_tail_weights.max()),
         "base_noise_rho": float(model.cfg.base_noise_rho),
         "conditional_base_noise_scale": bool(model.cfg.conditional_base_noise_scale),
         "base_noise_scale_min": float(model.cfg.base_noise_scale_min),

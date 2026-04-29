@@ -16,6 +16,7 @@ from experiments.backfill.block_ar.train_666a_normalized_innovation_rollout_ener
     interval_score_path_score,
     marginal_crps_path_score,
     normalized_rollout_energy_loss,
+    state_tail_sampling_weights,
     standardized_level_delta_paths,
     structured_variogram_path_score,
 )
@@ -63,6 +64,20 @@ def test_effective_readout_iv_count_uses_scope_semantics():
     assert effective_readout_iv_count("iv_only", n_cells=25, iv_count=25) == 25
     assert effective_readout_iv_count("anchor_only", n_cells=13, iv_count=25) == 0
     assert effective_readout_iv_count("joint38", n_cells=38, iv_count=25) == 25
+
+
+def test_state_tail_sampling_weights_upweight_rare_current_levels():
+    history = torch.zeros(5, 3, 2).numpy()
+    history[:, -1, 0] = [-3.0, -0.1, 0.0, 0.1, 3.0]
+    history[:, -1, 1] = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    weights = state_tail_sampling_weights(history, tail_quantile=0.5, strength=2.0)
+
+    assert weights.shape == (5,)
+    assert weights[0] > weights[2]
+    assert weights[-1] > weights[2]
+    assert abs(float(weights.mean()) - 1.0) < 1e-6
+    assert float(weights.min()) > 0.0
 
 
 def test_standardized_level_delta_paths_are_unit_free_from_last_history_level():

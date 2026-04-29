@@ -107510,3 +107510,24 @@ The proposed 748a experiment should:
 Reject it if it improves validation hard cells only by worsening train-tail path/tail realism or if it requires factor/cell-specific thresholds.
 
 ---
+## 2026-04-29: Autoresearch 748a state-tail sampler falsifier
+
+### Context
+748a tested the clean robustness hypothesis selected in 747a: keep the 674a AR normalized-innovation flow, sampler, rollout/channel objective, and stochastic source fixed, but train with a generic state-tail weighted sampler. The sampler weight is data-derived from current level-score extremeness across cells, with `tail_quantile=0.70` and `strength=2.0`; it is a training-only rebalancing mechanism, not a post-hoc calibration layer.
+
+### Result
+- Implementation: added `state_tail_sampling_weights(...)` plus `--state_tail_sampler_weight` and `--state_tail_sampler_quantile` to `train_666a_normalized_innovation_rollout_energy_finetune.py`.
+- Verification: `pytest test_code/test_666a_normalized_innovation_rollout_energy.py -q` passed `18` tests.
+- Training: `models/backfill/748a_iv_state_tail_sampler_q70_w2_e2_s7481/best_model.pt`, best epoch 1, train sampler max weight about `2.30`.
+- Validation full 11-suite: `6/11`; failed `coverage`, `conditionality`, `cointegration`, `regime_coverage`, `distributional_fidelity`.
+- Train-tail full 11-suite: `5/11`; failed `coverage`, `conditionality`, `time_series`, `cointegration`, `regime_coverage`, `mean_reversion`.
+
+### Mechanism Read
+State-tail oversampling did not repair the validation hard-cell shift. Relative to the 734a validation incumbent, 748a lowered overall 90% coverage from `0.836` to `0.748`, worsened calibration error from `0.046` to `0.117`, reduced level-KS pass cells from `17/25` to `10/25`, and increased persistent severe undercoverage from `3.5%` to `8.4%`. It did slightly improve validation pathwise max-jump KS from `0.442` to `0.313`, but that is not the binding failure.
+
+On train-tail, the same change also regressed the incumbent: 746a/674a train-tail was `6/11` with coverage and distributional fidelity passing, while 748a is `5/11` with coverage failing, kurtosis ratio worsening from `1.783` to `1.944`, very-small-move ratio worsening from `1.108` to `1.146`, cointegration ratio worsening from `0.492` to `0.449`, and mean reversion now failing. The failure is therefore not a validation-only gain/loss trade-off; reweighting rare current states changes the path law and width response but does not add the missing state-local transition/readout capacity.
+
+### Decision
+Reject state-tail oversampling as the next framework ingredient. Do not tune its strength or quantile yet; that would be a sampler knob without evidence of the right mechanism. The next HEAD step should be post-experiment trade-off attribution on 734a/745a/748a/746a: identify whether the remaining hard-cell issue is a transition expressiveness problem, a state encoder/local geometry problem, or an unavoidable validation-level shift, before adding another architecture or loss term.
+
+---
