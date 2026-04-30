@@ -49,7 +49,9 @@ def test_522a_38d_windows_align_to_official_full_suite_future():
         batch.future_01.numpy(),
         atol=1e-7,
     )
-    assert windows["history_changes"].shape == (3, 30, 38)
+    expected_dim = data["joint_changes_38"].shape[-1]
+    assert windows["history_changes"].shape == (3, 30, expected_dim)
+    assert windows["future_changes"].shape == (3, 30, expected_dim)
 
 
 def test_select_rollout_indices_supports_train_tail_split():

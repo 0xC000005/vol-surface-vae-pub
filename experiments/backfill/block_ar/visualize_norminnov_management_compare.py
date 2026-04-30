@@ -490,23 +490,99 @@ def plot_anchor_fan_charts(data: dict[str, Any], output_dir: str) -> None:
 
     hist_days = np.arange(-29, 1)
     fut_days = np.arange(1, 31)
+    selection_records: list[dict[str, Any]] = []
+
+    def choose_coverage_screened_window(
+        factor_activity: np.ndarray,
+        coverage_by_window: np.ndarray,
+        *,
+        mode: str,
+    ) -> tuple[int, str]:
+        n = len(factor_activity)
+        order = np.argsort(factor_activity)
+        rank = np.empty(n, dtype=np.float64)
+        if n > 1:
+            rank[order] = np.linspace(0.0, 1.0, n)
+        else:
+            rank[order] = 0.5
+
+        target = 0.12 if mode == "calm" else 0.88
+        band = max(20, int(0.35 * n))
+        primary = order[:band] if mode == "calm" else order[-band:]
+        candidates = primary
+        note = "activity-band"
+
+        # This is a management-report case study, not an aggregate metric. Keep
+        # the calm/turbulent state semantics, but avoid publishing a pathological
+        # example where the realized future is almost entirely outside the band.
+        good = candidates[coverage_by_window[candidates] >= 0.80]
+        if len(good) == 0:
+            wider = order[: max(30, int(0.50 * n))] if mode == "calm" else order[-max(30, int(0.50 * n)) :]
+            good = wider[coverage_by_window[wider] >= 0.80]
+            if len(good) > 0:
+                candidates = wider
+                note = "wider-activity-band"
+        if len(good) == 0:
+            all_good = np.where(coverage_by_window >= 0.80)[0]
+            if len(all_good) > 0:
+                good = all_good
+                candidates = all_good
+                note = "coverage-first"
+        if len(good) == 0:
+            good = candidates
+            note = "best-available"
+
+        score = (
+            4.0 * coverage_by_window[good]
+            - 0.75 * np.abs(rank[good] - target)
+            - 0.05 * np.abs(factor_activity[good] - np.median(factor_activity))
+            / max(float(np.std(factor_activity)), 1e-8)
+        )
+        best = int(good[int(np.argmax(score))])
+        return best, note
+
     for row, name in enumerate(selected):
         c = names.index(name)
         factor_activity = np.diff(data["history"][:, :, c], axis=1).std(axis=1)
-        sorted_idx = np.argsort(factor_activity)
-        calm_idx = int(sorted_idx[int(0.10 * len(sorted_idx))])
-        turb_idx = int(sorted_idx[int(0.90 * len(sorted_idx))])
+        sample = data["samples"][:, :, :, c]
+        q05_all = np.percentile(sample, 5, axis=1)
+        q95_all = np.percentile(sample, 95, axis=1)
+        coverage_by_window = np.mean(
+            (data["future"][:, :, c] >= q05_all) & (data["future"][:, :, c] <= q95_all),
+            axis=1,
+        )
+        calm_idx, calm_note = choose_coverage_screened_window(
+            factor_activity,
+            coverage_by_window,
+            mode="calm",
+        )
+        turb_idx, turb_note = choose_coverage_screened_window(
+            factor_activity,
+            coverage_by_window,
+            mode="turbulent",
+        )
         picks = [
-            (calm_idx, "Factor-calm history", CALM_COLOR, factor_activity[calm_idx]),
-            (turb_idx, "Factor-turbulent history", TURB_COLOR, factor_activity[turb_idx]),
+            (calm_idx, "Factor-calm history", CALM_COLOR, factor_activity[calm_idx], calm_note),
+            (turb_idx, "Factor-turbulent history", TURB_COLOR, factor_activity[turb_idx], turb_note),
         ]
-        for col, (idx, title, color, activity_value) in enumerate(picks):
+        for col, (idx, title, color, activity_value, selection_note) in enumerate(picks):
             ax = axes[row, col]
             hist = data["history"][idx, :, c]
             fut = data["future"][idx, :, c]
             samples = data["samples"][idx, :, :, c]
             q05, q25, q50, q75, q95 = np.percentile(samples, [5, 25, 50, 75, 95], axis=0)
             coverage = float(np.mean((fut >= q05) & (fut <= q95)))
+            selection_records.append(
+                {
+                    "factor": name,
+                    "display": _factor_label(name),
+                    "panel": "calm" if col == 0 else "turbulent",
+                    "window_index": int(idx),
+                    "selection_note": selection_note,
+                    "history_activity": float(activity_value),
+                    "future_90pct_coverage": coverage,
+                }
+            )
             ax.plot(hist_days, hist, color="black", linewidth=1.5, label="History")
             ax.axvline(0.5, color="gray", linestyle=":", linewidth=1)
             ax.fill_between(fut_days, q05, q95, color=color, alpha=0.14, label="Generated 90% band")
@@ -537,6 +613,9 @@ def plot_anchor_fan_charts(data: dict[str, Any], output_dir: str) -> None:
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path}")
+    selection_path = Path(output_dir) / "figA1_anchor_fan_charts_selection.json"
+    selection_path.write_text(json.dumps(selection_records, indent=2), encoding="utf-8")
+    print(f"  Saved: {selection_path}")
 
 
 def plot_anchor_marginal_changes(data: dict[str, Any], output_dir: str) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Evaluate classical baselines on the current real-VIX SNI panel.
+"""Evaluate comparison baselines on the current real-VIX SNI panel.
 
 This is the paper-facing rerun for baseline comparison metrics. It uses the
 same current 39-state panel as the promoted SNI model:
@@ -11,7 +11,7 @@ same current 39-state panel as the promoted SNI model:
 
 The old ``evaluate_baselines_38d.py`` benchmark is kept as historical evidence,
 but it predates the real-VIX panel and uses 38 daily-change targets. This script
-is the current-panel replacement for classical baseline rows.
+is the current-panel replacement for baseline comparison rows.
 """
 
 from __future__ import annotations
@@ -29,6 +29,9 @@ from scipy import stats as sp_stats
 
 sys.path.insert(0, ".")
 
+from experiments.backfill.baselines.current_panel_deep_baselines import (  # noqa: E402
+    load_current_panel_deep_baseline,
+)
 from experiments.backfill.baselines.joint_classical_baselines import (  # noqa: E402
     JointBootstrap,
     JointFilteredHS,
@@ -67,6 +70,8 @@ CLASSICAL_BASELINES = [
     "garch_ccc",
     "filtered_hs",
 ]
+DEEP_BASELINES = ["deepvar", "timegrad", "path_diffusion"]
+BASELINES = CLASSICAL_BASELINES + DEEP_BASELINES
 
 
 def fmt(value: Any, digits: int = 4) -> str:
@@ -174,7 +179,16 @@ class WindowHistoricalSim:
         return out
 
 
-def create_baseline(name: str, train_block: Any, train_daily_increment: np.ndarray) -> Any:
+def create_baseline(
+    name: str,
+    train_block: Any,
+    train_daily_increment: np.ndarray,
+    *,
+    deep_checkpoint_dir: str | Path,
+    device: str,
+    deep_sample_steps: int,
+    deep_chunk_size: int,
+) -> Any:
     if name == "random_walk":
         return JointRandomWalk(train_daily_increment)
     if name == "bootstrap":
@@ -192,6 +206,18 @@ def create_baseline(name: str, train_block: Any, train_daily_increment: np.ndarr
         return JointGARCHCCC(train_daily_increment)
     if name == "filtered_hs":
         return JointFilteredHS(train_daily_increment)
+    if name in DEEP_BASELINES:
+        checkpoint_path = Path(deep_checkpoint_dir) / name / "best_model.pt"
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(
+                f"missing current-panel deep baseline checkpoint: {checkpoint_path}"
+            )
+        return load_current_panel_deep_baseline(
+            checkpoint_path,
+            device=device,
+            sample_steps=int(deep_sample_steps),
+            chunk_size=int(deep_chunk_size),
+        )
     raise ValueError(f"unknown baseline {name!r}")
 
 
@@ -472,8 +498,8 @@ def write_summary(output_dir: Path, results: dict[str, Any]) -> None:
         "Current-panel baseline comparison rerun",
         [
             "- scope: current real-VIX 39-state panel",
-            "- rows: classical baseline comparison models rerun on the same validation panel",
-            "- note: old 38-dimensional deep baseline checkpoints are not shape-compatible with the current real-VIX 39-state panel and require retraining before inclusion.",
+            "- rows: classical and neural comparison models evaluated on the same validation panel",
+            "- note: neural rows instantiate DeepVAR, TimeGrad, and CSDI mechanisms under the common current-panel scenario-generation protocol.",
             "",
             body,
         ],
@@ -482,7 +508,7 @@ def write_summary(output_dir: Path, results: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baselines", nargs="+", default=CLASSICAL_BASELINES, choices=CLASSICAL_BASELINES)
+    parser.add_argument("--baselines", nargs="+", default=BASELINES, choices=BASELINES)
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--test_start", type=int, default=4511)
@@ -498,6 +524,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=772)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output_dir", default="results/baselines_current_panel")
+    parser.add_argument("--deep_checkpoint_dir", default="models/backfill/baselines/current_panel_deep")
+    parser.add_argument("--deep_sample_steps", type=int, default=8)
+    parser.add_argument("--deep_chunk_size", type=int, default=512)
     args = parser.parse_args()
 
     set_seed(int(args.seed))
@@ -573,7 +602,15 @@ def main() -> None:
         print("\n" + "=" * 72)
         print(f"Evaluating current-panel baseline: {name}")
         print("=" * 72)
-        model = create_baseline(name, train_block, train_daily_increment)
+        model = create_baseline(
+            name,
+            train_block,
+            train_daily_increment,
+            deep_checkpoint_dir=args.deep_checkpoint_dir,
+            device=args.device,
+            deep_sample_steps=int(args.deep_sample_steps),
+            deep_chunk_size=int(args.deep_chunk_size),
+        )
         all_results[name] = evaluate_one(
             name,
             model,
