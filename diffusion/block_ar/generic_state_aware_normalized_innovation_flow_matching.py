@@ -15,7 +15,9 @@ from diffusion.block_ar.causal_future_memory_transition_flow_matching import (
 
 
 @dataclass
-class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransitionFMConfig):
+class GenericStateAwareNormalizedInnovationFMConfig(
+    CausalFutureMemoryTransitionFMConfig
+):
     """Flow for normalized innovations conditioned on encoded state."""
 
     n_quantiles: int = 401
@@ -30,6 +32,98 @@ class GenericStateAwareNormalizedInnovationFMConfig(CausalFutureMemoryTransition
     innovation_coordinate: str = "normalized"
     risk_state_dim: int = 0
     mixed_support_observation: str = "none"
+    velocity_mixer_mode: str = "transformer"
+    adaptive_graph_k: int = 8
+
+
+class AdaptiveGraphResidualTokenTransitionVelocity(nn.Module):
+    """Context-adaptive channel graph residual around the existing token mixer.
+
+    The wrapped base velocity remains the generative core. This module adds a
+    zero-initialized residual message pass over the per-channel hidden tokens, so
+    enabling it on a pretrained checkpoint is initially output-preserving. The
+    learned graph is recomputed from the current token states at each call.
+    """
+
+    def __init__(
+        self,
+        cfg: GenericStateAwareNormalizedInnovationFMConfig,
+        base: MemoryConditionedTokenTransitionVelocity | None = None,
+    ):
+        super().__init__()
+        self.cfg = cfg
+        self.base = (
+            base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        )
+        dim = int(cfg.token_dim)
+        self.q_proj = nn.Linear(dim, dim, bias=False)
+        self.k_proj = nn.Linear(dim, dim, bias=False)
+        self.v_proj = nn.Linear(dim, dim, bias=False)
+        self.rel_proj = nn.Sequential(
+            nn.Linear(2, dim),
+            nn.GELU(),
+            nn.Linear(dim, dim),
+        )
+        self.residual = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Linear(dim, dim),
+        )
+        nn.init.zeros_(self.residual[-1].weight)
+        nn.init.zeros_(self.residual[-1].bias)
+        cell_pos = torch.linspace(0.0, 1.0, int(cfg.n_cells)).view(int(cfg.n_cells), 1)
+        rel = cell_pos[None, :, :] - cell_pos[:, None, :]
+        rel_abs = rel.abs()
+        self.register_buffer(
+            "relative_cell_features", torch.cat([rel, rel_abs], dim=-1)
+        )
+
+    def _graph_residual(self, hidden: torch.Tensor) -> torch.Tensor:
+        bsz, n_cells, dim = hidden.shape
+        if n_cells <= 1:
+            return torch.zeros_like(hidden)
+        k_neighbors = min(max(int(self.cfg.adaptive_graph_k), 1), n_cells)
+        q = self.q_proj(hidden)
+        k = self.k_proj(hidden)
+        v = self.v_proj(hidden)
+        score = torch.matmul(q, k.transpose(1, 2)) / math.sqrt(float(dim))
+        rel_bias = self.rel_proj(
+            self.relative_cell_features[:n_cells, :n_cells].to(
+                device=hidden.device,
+                dtype=hidden.dtype,
+            )
+        ).mean(dim=-1)
+        score = score + rel_bias[None, :, :]
+        top_idx = torch.topk(score, k=k_neighbors, dim=-1).indices
+        expanded_idx = top_idx[..., None].expand(-1, -1, -1, dim)
+        neighbor_v = torch.gather(
+            v[:, None, :, :].expand(-1, n_cells, -1, -1), 2, expanded_idx
+        )
+        neighbor_score = torch.gather(score, 2, top_idx)
+        weight = torch.softmax(neighbor_score, dim=-1)
+        message = (neighbor_v * weight[..., None]).sum(dim=2)
+        return self.residual(message)
+
+    def hidden_tokens(
+        self,
+        x_t: torch.Tensor,
+        current_logit: torch.Tensor,
+        memory_state: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden = self.base.hidden_tokens(x_t, current_logit, memory_state, t)
+        return hidden + self._graph_residual(hidden)
+
+    def forward(
+        self,
+        x_t: torch.Tensor,
+        current_logit: torch.Tensor,
+        memory_state: torch.Tensor,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden = self.hidden_tokens(x_t, current_logit, memory_state, t)
+        return self.base.out(hidden).squeeze(-1)
 
 
 class GroupResidualTokenTransitionVelocity(nn.Module):
@@ -42,7 +136,9 @@ class GroupResidualTokenTransitionVelocity(nn.Module):
     ):
         super().__init__()
         self.cfg = cfg
-        self.base = base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        self.base = (
+            base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        )
         self.iv_head = self._make_residual_head(cfg.token_dim)
         self.anchor_head = self._make_residual_head(cfg.token_dim)
         iv_count = min(max(int(cfg.readout_iv_count), 0), int(cfg.n_cells))
@@ -78,7 +174,9 @@ class GroupResidualTokenTransitionVelocity(nn.Module):
         if bool(iv_mask.any()):
             residual[:, iv_mask] = self.iv_head(hidden[:, iv_mask, :]).squeeze(-1)
         if bool(anchor_mask.any()):
-            residual[:, anchor_mask] = self.anchor_head(hidden[:, anchor_mask, :]).squeeze(-1)
+            residual[:, anchor_mask] = self.anchor_head(
+                hidden[:, anchor_mask, :]
+            ).squeeze(-1)
         return out + residual
 
 
@@ -92,7 +190,9 @@ class GroupHeadTokenTransitionVelocity(nn.Module):
     ):
         super().__init__()
         self.cfg = cfg
-        self.base = base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        self.base = (
+            base if base is not None else MemoryConditionedTokenTransitionVelocity(cfg)
+        )
         self.iv_head = copy.deepcopy(self.base.out)
         self.anchor_head = copy.deepcopy(self.base.out)
         iv_count = min(max(int(cfg.readout_iv_count), 0), int(cfg.n_cells))
@@ -115,7 +215,9 @@ class GroupHeadTokenTransitionVelocity(nn.Module):
         if bool(iv_mask.any()):
             out[:, iv_mask] = self.iv_head(hidden[:, iv_mask, :]).squeeze(-1)
         if bool(anchor_mask.any()):
-            out[:, anchor_mask] = self.anchor_head(hidden[:, anchor_mask, :]).squeeze(-1)
+            out[:, anchor_mask] = self.anchor_head(hidden[:, anchor_mask, :]).squeeze(
+                -1
+            )
         return out
 
 
@@ -155,7 +257,28 @@ def enable_group_head_velocity_readout(
     model.velocity = upgraded.to(next(model.parameters()).device)
 
 
-def _make_base_noise_scale_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+def enable_adaptive_graph_velocity_mixer(
+    model: "GenericStateAwareNormalizedInnovationFlowMatching",
+    *,
+    k_neighbors: int,
+) -> None:
+    """Attach an output-preserving adaptive channel graph residual mixer."""
+    model.cfg.velocity_mixer_mode = "adaptive_graph_residual"
+    model.cfg.adaptive_graph_k = int(k_neighbors)
+    if isinstance(model.velocity, AdaptiveGraphResidualTokenTransitionVelocity):
+        model.velocity.cfg.adaptive_graph_k = int(k_neighbors)
+        return
+    if not isinstance(model.velocity, MemoryConditionedTokenTransitionVelocity):
+        raise TypeError(f"unsupported velocity module {type(model.velocity).__name__}")
+    upgraded = AdaptiveGraphResidualTokenTransitionVelocity(
+        model.cfg, base=model.velocity
+    )
+    model.velocity = upgraded.to(next(model.parameters()).device)
+
+
+def _make_base_noise_scale_head(
+    cfg: GenericStateAwareNormalizedInnovationFMConfig,
+) -> nn.Sequential:
     head = nn.Sequential(
         nn.LayerNorm(cfg.memory_dim),
         nn.Linear(cfg.memory_dim, cfg.memory_dim),
@@ -167,7 +290,9 @@ def _make_base_noise_scale_head(cfg: GenericStateAwareNormalizedInnovationFMConf
     return head
 
 
-def _make_risk_state_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+def _make_risk_state_head(
+    cfg: GenericStateAwareNormalizedInnovationFMConfig,
+) -> nn.Sequential:
     head = nn.Sequential(
         nn.LayerNorm(cfg.memory_dim),
         nn.Linear(cfg.memory_dim, cfg.memory_dim),
@@ -177,7 +302,9 @@ def _make_risk_state_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) ->
     return head
 
 
-def _make_risk_context_proj(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+def _make_risk_context_proj(
+    cfg: GenericStateAwareNormalizedInnovationFMConfig,
+) -> nn.Sequential:
     proj = nn.Sequential(
         nn.LayerNorm(cfg.risk_state_dim),
         nn.Linear(cfg.risk_state_dim, cfg.memory_dim),
@@ -187,7 +314,9 @@ def _make_risk_context_proj(cfg: GenericStateAwareNormalizedInnovationFMConfig) 
     return proj
 
 
-def _make_no_update_head(cfg: GenericStateAwareNormalizedInnovationFMConfig) -> nn.Sequential:
+def _make_no_update_head(
+    cfg: GenericStateAwareNormalizedInnovationFMConfig,
+) -> nn.Sequential:
     head = nn.Sequential(
         nn.LayerNorm(cfg.memory_dim),
         nn.Linear(cfg.memory_dim, cfg.memory_dim),
@@ -208,7 +337,9 @@ def _prefix_feature_mult(prefix_feature_mode: str) -> int:
         return 6
     if prefix_feature_mode == "basic":
         return 4
-    raise ValueError("prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'")
+    raise ValueError(
+        "prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'"
+    )
 
 
 def enable_prefix_feature_mode(
@@ -246,7 +377,9 @@ def enable_conditional_base_noise_scale(
     model.cfg.base_noise_scale_min = float(scale_min)
     model.cfg.base_noise_scale_max = float(scale_max)
     if model.base_noise_log_scale is None:
-        model.base_noise_log_scale = _make_base_noise_scale_head(model.cfg).to(next(model.parameters()).device)
+        model.base_noise_log_scale = _make_base_noise_scale_head(model.cfg).to(
+            next(model.parameters()).device
+        )
 
 
 class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
@@ -259,14 +392,28 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     def __init__(self, cfg: GenericStateAwareNormalizedInnovationFMConfig):
         super().__init__()
         self.cfg = cfg
-        if cfg.prefix_feature_mode not in {"basic", "scale", "scale_local", "scale_drift"}:
-            raise ValueError("prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'")
-        if cfg.innovation_coordinate not in {"normalized", "score", "hybrid_sticky_score", "hybrid_tail_asinh"}:
+        if cfg.prefix_feature_mode not in {
+            "basic",
+            "scale",
+            "scale_local",
+            "scale_drift",
+        }:
+            raise ValueError(
+                "prefix_feature_mode must be 'basic', 'scale', 'scale_local', or 'scale_drift'"
+            )
+        if cfg.innovation_coordinate not in {
+            "normalized",
+            "score",
+            "hybrid_sticky_score",
+            "hybrid_tail_asinh",
+        }:
             raise ValueError(
                 "innovation_coordinate must be 'normalized', 'score', 'hybrid_sticky_score', or 'hybrid_tail_asinh'"
             )
         if cfg.mixed_support_observation not in {"none", "bernoulli_no_update"}:
-            raise ValueError("mixed_support_observation must be 'none' or 'bernoulli_no_update'")
+            raise ValueError(
+                "mixed_support_observation must be 'none' or 'bernoulli_no_update'"
+            )
         feature_mult = _prefix_feature_mult(cfg.prefix_feature_mode)
         self.feature_proj = nn.Linear(feature_mult * cfg.n_cells, cfg.memory_dim)
         self.pos_embed = nn.Embedding(cfg.history_len + cfg.future_len, cfg.memory_dim)
@@ -288,9 +435,25 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         elif cfg.velocity_readout_mode == "group_head":
             self.velocity = GroupHeadTokenTransitionVelocity(cfg)
         else:
-            raise ValueError("velocity_readout_mode must be 'shared', 'group_residual', or 'group_head'")
+            raise ValueError(
+                "velocity_readout_mode must be 'shared', 'group_residual', or 'group_head'"
+            )
+        if cfg.velocity_mixer_mode == "adaptive_graph_residual":
+            if cfg.velocity_readout_mode != "shared":
+                raise ValueError(
+                    "adaptive_graph_residual currently supports shared velocity readout only"
+                )
+            self.velocity = AdaptiveGraphResidualTokenTransitionVelocity(
+                cfg, base=self.velocity
+            )
+        elif cfg.velocity_mixer_mode != "transformer":
+            raise ValueError(
+                "velocity_mixer_mode must be 'transformer' or 'adaptive_graph_residual'"
+            )
         self.base_noise_log_scale = (
-            _make_base_noise_scale_head(cfg) if bool(cfg.conditional_base_noise_scale) else None
+            _make_base_noise_scale_head(cfg)
+            if bool(cfg.conditional_base_noise_scale)
+            else None
         )
         self.no_update_head = (
             _make_no_update_head(cfg)
@@ -307,15 +470,31 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             cfg.n_quantiles
         )
         self.register_buffer("quantile_levels", levels)
-        self.register_buffer("level_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
+        self.register_buffer(
+            "level_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles)
+        )
         self.register_buffer("_quantiles_ready", torch.tensor(False, dtype=torch.bool))
-        self.register_buffer("innovation_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles))
-        self.register_buffer("_innovation_quantiles_ready", torch.tensor(False, dtype=torch.bool))
-        self.register_buffer("innovation_score_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
-        self.register_buffer("innovation_tail_asinh_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
-        self.register_buffer("innovation_tail_asinh_scale", torch.ones(cfg.n_cells, dtype=torch.float32))
-        self.register_buffer("no_update_mask", torch.zeros(cfg.n_cells, dtype=torch.bool))
-        self.register_buffer("no_update_prior_rate", torch.zeros(cfg.n_cells, dtype=torch.float32))
+        self.register_buffer(
+            "innovation_quantiles", torch.zeros(cfg.n_cells, cfg.n_quantiles)
+        )
+        self.register_buffer(
+            "_innovation_quantiles_ready", torch.tensor(False, dtype=torch.bool)
+        )
+        self.register_buffer(
+            "innovation_score_mask", torch.zeros(cfg.n_cells, dtype=torch.bool)
+        )
+        self.register_buffer(
+            "innovation_tail_asinh_mask", torch.zeros(cfg.n_cells, dtype=torch.bool)
+        )
+        self.register_buffer(
+            "innovation_tail_asinh_scale", torch.ones(cfg.n_cells, dtype=torch.float32)
+        )
+        self.register_buffer(
+            "no_update_mask", torch.zeros(cfg.n_cells, dtype=torch.bool)
+        )
+        self.register_buffer(
+            "no_update_prior_rate", torch.zeros(cfg.n_cells, dtype=torch.float32)
+        )
 
     def set_level_quantiles(
         self,
@@ -324,7 +503,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     ) -> None:
         expected = (self.cfg.n_cells, self.cfg.n_quantiles)
         if level_quantiles.shape != expected:
-            raise ValueError(f"level_quantiles must have shape {expected}, got {tuple(level_quantiles.shape)}")
+            raise ValueError(
+                f"level_quantiles must have shape {expected}, got {tuple(level_quantiles.shape)}"
+            )
         self.level_quantiles.copy_(level_quantiles.to(self.level_quantiles))
         if quantile_levels is not None:
             if quantile_levels.shape != (self.cfg.n_quantiles,):
@@ -346,7 +527,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             raise ValueError(
                 f"innovation_quantiles must have shape {expected}, got {tuple(innovation_quantiles.shape)}"
             )
-        self.innovation_quantiles.copy_(innovation_quantiles.to(self.innovation_quantiles))
+        self.innovation_quantiles.copy_(
+            innovation_quantiles.to(self.innovation_quantiles)
+        )
         if quantile_levels is not None:
             if quantile_levels.shape != (self.cfg.n_quantiles,):
                 raise ValueError("quantile_levels must have shape (n_quantiles,)")
@@ -355,22 +538,37 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
 
     def set_innovation_score_mask(self, mask: torch.Tensor) -> None:
         if mask.shape != (self.cfg.n_cells,):
-            raise ValueError(f"innovation score mask must have shape ({self.cfg.n_cells},)")
-        self.innovation_score_mask.copy_(mask.to(device=self.innovation_score_mask.device, dtype=torch.bool))
+            raise ValueError(
+                f"innovation score mask must have shape ({self.cfg.n_cells},)"
+            )
+        self.innovation_score_mask.copy_(
+            mask.to(device=self.innovation_score_mask.device, dtype=torch.bool)
+        )
 
-    def set_innovation_tail_asinh(self, mask: torch.Tensor, scale: torch.Tensor) -> None:
+    def set_innovation_tail_asinh(
+        self, mask: torch.Tensor, scale: torch.Tensor
+    ) -> None:
         expected = (self.cfg.n_cells,)
         if mask.shape != expected:
-            raise ValueError(f"innovation tail-asinh mask must have shape {expected}, got {tuple(mask.shape)}")
+            raise ValueError(
+                f"innovation tail-asinh mask must have shape {expected}, got {tuple(mask.shape)}"
+            )
         if scale.shape != expected:
-            raise ValueError(f"innovation tail-asinh scale must have shape {expected}, got {tuple(scale.shape)}")
+            raise ValueError(
+                f"innovation tail-asinh scale must have shape {expected}, got {tuple(scale.shape)}"
+            )
         self.innovation_tail_asinh_mask.copy_(
             mask.to(device=self.innovation_tail_asinh_mask.device, dtype=torch.bool)
         )
-        safe_scale = scale.to(device=self.innovation_tail_asinh_scale.device, dtype=self.innovation_tail_asinh_scale.dtype)
+        safe_scale = scale.to(
+            device=self.innovation_tail_asinh_scale.device,
+            dtype=self.innovation_tail_asinh_scale.dtype,
+        )
         self.innovation_tail_asinh_scale.copy_(safe_scale.clamp_min(1e-6))
 
-    def set_mixed_support_no_update(self, mask: torch.Tensor, prior_rate: torch.Tensor) -> None:
+    def set_mixed_support_no_update(
+        self, mask: torch.Tensor, prior_rate: torch.Tensor
+    ) -> None:
         if self.no_update_head is None:
             raise RuntimeError("mixed support no-update head is not enabled")
         if mask.shape != (self.cfg.n_cells,):
@@ -378,7 +576,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if prior_rate.shape != (self.cfg.n_cells,):
             raise ValueError(f"prior_rate must have shape ({self.cfg.n_cells},)")
         mask = mask.to(device=self.no_update_mask.device, dtype=torch.bool)
-        prior = prior_rate.to(device=self.no_update_prior_rate.device, dtype=torch.float32)
+        prior = prior_rate.to(
+            device=self.no_update_prior_rate.device, dtype=torch.float32
+        )
         prior = prior.clamp(0.0, 1.0)
         self.no_update_mask.copy_(mask)
         self.no_update_prior_rate.copy_(prior)
@@ -388,15 +588,23 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         bias = torch.where(prior <= 0.0, torch.full_like(bias, -80.0), bias)
         bias = torch.where(prior >= 1.0, torch.full_like(bias, 80.0), bias)
         with torch.no_grad():
-            self.no_update_head[-1].bias.copy_(bias.to(self.no_update_head[-1].bias.device))
+            self.no_update_head[-1].bias.copy_(
+                bias.to(self.no_update_head[-1].bias.device)
+            )
 
     def _check_innovation_quantiles(self) -> None:
         if not bool(self._innovation_quantiles_ready.item()):
-            raise RuntimeError("innovation quantiles must be set before score-coordinate use")
+            raise RuntimeError(
+                "innovation quantiles must be set before score-coordinate use"
+            )
 
-    def _values_to_scores_with_table(self, values: torch.Tensor, table: torch.Tensor) -> torch.Tensor:
+    def _values_to_scores_with_table(
+        self, values: torch.Tensor, table: torch.Tensor
+    ) -> torch.Tensor:
         if values.shape[-1] != self.cfg.n_cells:
-            raise ValueError(f"last dimension must be {self.cfg.n_cells}, got {values.shape[-1]}")
+            raise ValueError(
+                f"last dimension must be {self.cfg.n_cells}, got {values.shape[-1]}"
+            )
         levels = self.quantile_levels.to(device=values.device, dtype=values.dtype)
         table = table.to(device=values.device, dtype=values.dtype)
         cols: list[torch.Tensor] = []
@@ -419,9 +627,13 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             cols.append(score.view(values.shape[:-1]))
         return torch.stack(cols, dim=-1)
 
-    def _scores_to_values_with_table(self, scores: torch.Tensor, table: torch.Tensor) -> torch.Tensor:
+    def _scores_to_values_with_table(
+        self, scores: torch.Tensor, table: torch.Tensor
+    ) -> torch.Tensor:
         if scores.shape[-1] != self.cfg.n_cells:
-            raise ValueError(f"last dimension must be {self.cfg.n_cells}, got {scores.shape[-1]}")
+            raise ValueError(
+                f"last dimension must be {self.cfg.n_cells}, got {scores.shape[-1]}"
+            )
         levels = self.quantile_levels.to(device=scores.device, dtype=scores.dtype)
         table = table.to(device=scores.device, dtype=scores.dtype)
         eps = float(self.cfg.cdf_eps)
@@ -459,15 +671,23 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if self.cfg.innovation_coordinate == "hybrid_sticky_score":
             scores = self.normalized_innovations_to_scores(normalized_innovation)
             mask = self.innovation_score_mask.to(device=normalized_innovation.device)
-            mask = mask.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            mask = mask.view(
+                *([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells
+            )
             return torch.where(mask, scores, normalized_innovation)
         if self.cfg.innovation_coordinate == "hybrid_tail_asinh":
-            mask = self.innovation_tail_asinh_mask.to(device=normalized_innovation.device)
-            mask = mask.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            mask = self.innovation_tail_asinh_mask.to(
+                device=normalized_innovation.device
+            )
+            mask = mask.view(
+                *([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells
+            )
             scale = self.innovation_tail_asinh_scale.to(
                 device=normalized_innovation.device, dtype=normalized_innovation.dtype
             )
-            scale = scale.view(*([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells)
+            scale = scale.view(
+                *([1] * (normalized_innovation.ndim - 1)), self.cfg.n_cells
+            )
             compressed = torch.asinh(normalized_innovation / scale.clamp_min(1e-6))
             return torch.where(mask, compressed, normalized_innovation)
         return normalized_innovation
@@ -483,14 +703,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         if self.cfg.innovation_coordinate == "hybrid_tail_asinh":
             mask = self.innovation_tail_asinh_mask.to(device=flow_coordinate.device)
             mask = mask.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
-            scale = self.innovation_tail_asinh_scale.to(device=flow_coordinate.device, dtype=flow_coordinate.dtype)
+            scale = self.innovation_tail_asinh_scale.to(
+                device=flow_coordinate.device, dtype=flow_coordinate.dtype
+            )
             scale = scale.view(*([1] * (flow_coordinate.ndim - 1)), self.cfg.n_cells)
             values = scale * torch.sinh(flow_coordinate)
             return torch.where(mask, values, flow_coordinate)
         return flow_coordinate
 
     @staticmethod
-    def _scale_features(center: torch.Tensor, scale: torch.Tensor, seq_len: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def _scale_features(
+        center: torch.Tensor, scale: torch.Tensor, seq_len: int
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         safe_scale = scale.clamp_min(1e-8)
         center_feature = center / safe_scale
         log_scale = torch.log(safe_scale)
@@ -507,11 +731,15 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         scale: torch.Tensor,
         drift_feature: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        center_feature, log_scale = self._scale_features(center, scale, level_scores.shape[1])
+        center_feature, log_scale = self._scale_features(
+            center, scale, level_scores.shape[1]
+        )
         if self.cfg.prefix_feature_mode == "scale_drift":
             if drift_feature is None:
                 drift_feature = torch.zeros_like(center)
-            drift_scaled, _unused = self._scale_features(drift_feature, scale, level_scores.shape[1])
+            drift_scaled, _unused = self._scale_features(
+                drift_feature, scale, level_scores.shape[1]
+            )
             return torch.cat(
                 [
                     level_scores,
@@ -537,7 +765,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 dim=-1,
             )
         if self.cfg.prefix_feature_mode == "scale_local":
-            anchor_pos = min(max(int(self.cfg.history_len) - 1, 0), int(level_scores.shape[1]) - 1)
+            anchor_pos = min(
+                max(int(self.cfg.history_len) - 1, 0), int(level_scores.shape[1]) - 1
+            )
             anchor = level_scores[:, anchor_pos : anchor_pos + 1, :]
             relative_level = level_scores - anchor
             return torch.cat(
@@ -553,7 +783,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 ],
                 dim=-1,
             )
-        return torch.cat([level_scores, normalized_innovation, center_feature, log_scale], dim=-1)
+        return torch.cat(
+            [level_scores, normalized_innovation, center_feature, log_scale], dim=-1
+        )
 
     def _encode_prefix(
         self,
@@ -570,7 +802,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             raise ValueError(f"prefix length {seq_len} exceeds configured maximum")
         pos = torch.arange(seq_len, device=level_scores.device)
         x = self.feature_proj(
-            self._prefix_features(level_scores, normalized_innovation, center, scale, drift_feature)
+            self._prefix_features(
+                level_scores, normalized_innovation, center, scale, drift_feature
+            )
         )
         x = x + self.pos_embed(pos)[None, :, :]
         mask = torch.triu(
@@ -579,7 +813,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         return self.memory_norm(self.memory(x, mask=mask))
 
-    def _base_noise_like(self, reference: torch.Tensor, rho: float | None = None) -> torch.Tensor:
+    def _base_noise_like(
+        self, reference: torch.Tensor, rho: float | None = None
+    ) -> torch.Tensor:
         """Sample iid or AR(1)-correlated Gaussian base noise over the horizon axis."""
         if reference.ndim != 3:
             raise ValueError("reference must have shape [B,T,C]")
@@ -596,7 +832,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             frames.append(prev)
         return torch.stack(frames, dim=1)
 
-    def _conditional_base_noise_scale(self, memory_state: torch.Tensor) -> torch.Tensor | None:
+    def _conditional_base_noise_scale(
+        self, memory_state: torch.Tensor
+    ) -> torch.Tensor | None:
         if self.base_noise_log_scale is None:
             return None
         lo = math.log(float(self.cfg.base_noise_scale_min))
@@ -664,10 +902,19 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 rank_loss = F.softplus(-sign[mask] * pred_diff[mask]).mean()
             else:
                 rank_loss = regression.new_zeros(())
-        rho = torch.zeros((), device=future_flow_coordinate.device, dtype=future_flow_coordinate.dtype)
-        if risk_prediction.shape[0] >= 3 and torch.std(risk_prediction[:, 0], unbiased=False) > 1e-8:
-            pred_rank = torch.argsort(torch.argsort(risk_prediction[:, 0])).to(future_flow_coordinate.dtype)
-            target_rank = torch.argsort(torch.argsort(target[:, 0])).to(future_flow_coordinate.dtype)
+        rho = torch.zeros(
+            (), device=future_flow_coordinate.device, dtype=future_flow_coordinate.dtype
+        )
+        if (
+            risk_prediction.shape[0] >= 3
+            and torch.std(risk_prediction[:, 0], unbiased=False) > 1e-8
+        ):
+            pred_rank = torch.argsort(torch.argsort(risk_prediction[:, 0])).to(
+                future_flow_coordinate.dtype
+            )
+            target_rank = torch.argsort(torch.argsort(target[:, 0])).to(
+                future_flow_coordinate.dtype
+            )
             pred_rank = pred_rank - pred_rank.mean()
             target_rank = target_rank - target_rank.mean()
             rho = (pred_rank * target_rank).mean() / (
@@ -688,12 +935,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         selected_count = mask.to(memory_states.dtype).sum()
         if not bool(mask.any()) or future_no_update_target is None:
             return zero, zero, selected_count.detach()
-        target = future_no_update_target.to(device=memory_states.device, dtype=memory_states.dtype)
+        target = future_no_update_target.to(
+            device=memory_states.device, dtype=memory_states.dtype
+        )
         logits = self.no_update_head(memory_states)
         if target.shape != logits.shape:
-            raise ValueError(f"future_no_update_target must have shape {tuple(logits.shape)}, got {tuple(target.shape)}")
+            raise ValueError(
+                f"future_no_update_target must have shape {tuple(logits.shape)}, got {tuple(target.shape)}"
+            )
         expanded_mask = mask.view(1, 1, self.cfg.n_cells).expand_as(target)
-        loss = F.binary_cross_entropy_with_logits(logits[expanded_mask], target[expanded_mask])
+        loss = F.binary_cross_entropy_with_logits(
+            logits[expanded_mask], target[expanded_mask]
+        )
         target_rate = target[expanded_mask].mean().detach()
         return loss, target_rate, selected_count.detach()
 
@@ -716,14 +969,20 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         history_level_scores = self.level_values_to_scores(history_level_values)
         future_level_scores = self.level_values_to_scores(future_level_values)
-        history_flow_coordinate = self._to_flow_coordinate(history_normalized_innovation)
+        history_flow_coordinate = self._to_flow_coordinate(
+            history_normalized_innovation
+        )
         future_flow_coordinate = self._to_flow_coordinate(future_normalized_innovation)
-        prefix_level_scores = torch.cat([history_level_scores, future_level_scores[:, :-1]], dim=1)
+        prefix_level_scores = torch.cat(
+            [history_level_scores, future_level_scores[:, :-1]], dim=1
+        )
         prefix_norm = torch.cat(
             [history_flow_coordinate, future_flow_coordinate[:, :-1]],
             dim=1,
         )
-        hidden = self._encode_prefix(prefix_level_scores, prefix_norm, center, scale, drift_feature)
+        hidden = self._encode_prefix(
+            prefix_level_scores, prefix_norm, center, scale, drift_feature
+        )
         start = self.cfg.history_len - 1
         memory_states = hidden[:, start : start + self.cfg.future_len]
         risk_prediction, risk_context = self._risk_state_from_history(
@@ -735,7 +994,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         )
         if risk_context is not None:
             memory_states = memory_states + risk_context[:, None, :]
-        current_level_scores = prefix_level_scores[:, start : start + self.cfg.future_len]
+        current_level_scores = prefix_level_scores[
+            :, start : start + self.cfg.future_len
+        ]
 
         x1 = future_flow_coordinate
         x0 = self._base_noise_like(x1)
@@ -759,7 +1020,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         else:
             weight = future_element_weight.to(device=x1.device, dtype=x1.dtype)
             if weight.shape != x1.shape:
-                raise ValueError(f"future_element_weight must have shape {tuple(x1.shape)}, got {tuple(weight.shape)}")
+                raise ValueError(
+                    f"future_element_weight must have shape {tuple(x1.shape)}, got {tuple(weight.shape)}"
+                )
             denom = weight.sum(dim=(1, 2)).clamp_min(1.0)
             pos_loss_per_window = (velocity_error * weight).sum(dim=(1, 2)) / denom
             element_weight_mean = weight.mean().detach()
@@ -794,7 +1057,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             )
             if neg_risk_context is not None:
                 neg_memory_states = neg_memory_states + neg_risk_context[:, None, :]
-            neg_current_level_scores = neg_prefix_level_scores[:, start : start + self.cfg.future_len]
+            neg_current_level_scores = neg_prefix_level_scores[
+                :, start : start + self.cfg.future_len
+            ]
             neg_pred_velocity = self.velocity(
                 x_t.reshape(bsz * horizon, n_vars),
                 neg_current_level_scores.reshape(bsz * horizon, n_vars),
@@ -806,18 +1071,24 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 neg_loss_per_window = neg_velocity_error.mean(dim=(1, 2))
             else:
                 denom = weight.sum(dim=(1, 2)).clamp_min(1.0)
-                neg_loss_per_window = (neg_velocity_error * weight).sum(dim=(1, 2)) / denom
+                neg_loss_per_window = (neg_velocity_error * weight).sum(
+                    dim=(1, 2)
+                ) / denom
             neg_loss = neg_loss_per_window.mean()
             contrast_loss = F.softplus(
-                pos_loss_per_window - neg_loss_per_window + float(condition_contrast_margin)
+                pos_loss_per_window
+                - neg_loss_per_window
+                + float(condition_contrast_margin)
             ).mean()
         risk_loss, risk_rank_loss, risk_rank_rho = self._risk_state_losses(
             risk_prediction,
             future_flow_coordinate,
         )
-        mixed_support_loss, mixed_support_target_rate, mixed_support_selected_count = self._mixed_support_loss(
-            memory_states,
-            future_no_update_target,
+        mixed_support_loss, mixed_support_target_rate, mixed_support_selected_count = (
+            self._mixed_support_loss(
+                memory_states,
+                future_no_update_target,
+            )
         )
         total_loss = (
             fm_loss
@@ -843,8 +1114,12 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "fm_loss": fm_loss.detach(),
             "condition_contrast_loss": contrast_loss.detach(),
             "condition_contrast_neg_loss": neg_loss.detach(),
-            "condition_contrast_weight": torch.as_tensor(contrast_weight, device=x1.device, dtype=x1.dtype),
-            "base_noise_rho": torch.as_tensor(float(self.cfg.base_noise_rho), device=x1.device, dtype=x1.dtype),
+            "condition_contrast_weight": torch.as_tensor(
+                contrast_weight, device=x1.device, dtype=x1.dtype
+            ),
+            "base_noise_rho": torch.as_tensor(
+                float(self.cfg.base_noise_rho), device=x1.device, dtype=x1.dtype
+            ),
             "base_noise_scale_enabled": base_noise_scale_enabled,
             "base_noise_scale_mean": base_noise_scale_mean,
             "base_noise_scale_std": base_noise_scale_std,
@@ -858,17 +1133,32 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             "risk_state_loss": risk_loss.detach(),
             "risk_state_rank_loss": risk_rank_loss.detach(),
             "risk_state_rank_rho": risk_rank_rho,
-            "risk_state_weight": torch.as_tensor(float(risk_state_weight), device=x1.device, dtype=x1.dtype),
-            "risk_state_rank_weight": torch.as_tensor(float(risk_state_rank_weight), device=x1.device, dtype=x1.dtype),
+            "risk_state_weight": torch.as_tensor(
+                float(risk_state_weight), device=x1.device, dtype=x1.dtype
+            ),
+            "risk_state_rank_weight": torch.as_tensor(
+                float(risk_state_rank_weight), device=x1.device, dtype=x1.dtype
+            ),
             "mixed_support_enabled": torch.as_tensor(
-                1.0 if self.no_update_head is not None and bool(self.no_update_mask.any()) else 0.0,
+                (
+                    1.0
+                    if self.no_update_head is not None
+                    and bool(self.no_update_mask.any())
+                    else 0.0
+                ),
                 device=x1.device,
                 dtype=x1.dtype,
             ),
             "mixed_support_bce_loss": mixed_support_loss.detach(),
-            "mixed_support_weight": torch.as_tensor(float(mixed_support_weight), device=x1.device, dtype=x1.dtype),
-            "mixed_support_selected_count": mixed_support_selected_count.to(device=x1.device, dtype=x1.dtype),
-            "mixed_support_target_rate": mixed_support_target_rate.to(device=x1.device, dtype=x1.dtype),
+            "mixed_support_weight": torch.as_tensor(
+                float(mixed_support_weight), device=x1.device, dtype=x1.dtype
+            ),
+            "mixed_support_selected_count": mixed_support_selected_count.to(
+                device=x1.device, dtype=x1.dtype
+            ),
+            "mixed_support_target_rate": mixed_support_target_rate.to(
+                device=x1.device, dtype=x1.dtype
+            ),
             "future_element_weight_mean": element_weight_mean,
             "target_norm_std": x1.std(unbiased=False).detach(),
             "target_flow_std": x1.std(unbiased=False).detach(),
@@ -898,12 +1188,18 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
         **_: object,
     ) -> torch.Tensor:
         if n_steps < 1 or n_steps > self.cfg.future_len:
-            raise ValueError(f"expected n_steps in [1,{self.cfg.future_len}], got {n_steps}")
+            raise ValueError(
+                f"expected n_steps in [1,{self.cfg.future_len}], got {n_steps}"
+            )
         level_scores = self.level_values_to_scores(history_level_values)
-        history_flow_coordinate = self._to_flow_coordinate(history_normalized_innovation)
+        history_flow_coordinate = self._to_flow_coordinate(
+            history_normalized_innovation
+        )
         bsz = int(level_scores.shape[0])
         chunk_size = max(1, min(int(chunk_size), int(n_samples)))
-        temp = float(self.cfg.sample_temperature if temperature is None else temperature)
+        temp = float(
+            self.cfg.sample_temperature if temperature is None else temperature
+        )
         dt = 1.0 / float(self.cfg.flow_steps)
         outs: list[torch.Tensor] = []
         for start in range(0, int(n_samples), chunk_size):
@@ -926,8 +1222,16 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                 .reshape(bsz * k, self.cfg.history_len, self.cfg.n_cells)
                 .clone()
             )
-            center_rep = center.unsqueeze(1).expand(bsz, k, self.cfg.n_cells).reshape(bsz * k, self.cfg.n_cells)
-            scale_rep = scale.unsqueeze(1).expand(bsz, k, self.cfg.n_cells).reshape(bsz * k, self.cfg.n_cells)
+            center_rep = (
+                center.unsqueeze(1)
+                .expand(bsz, k, self.cfg.n_cells)
+                .reshape(bsz * k, self.cfg.n_cells)
+            )
+            scale_rep = (
+                scale.unsqueeze(1)
+                .expand(bsz, k, self.cfg.n_cells)
+                .reshape(bsz * k, self.cfg.n_cells)
+            )
             if drift_feature is None:
                 drift_rep = None
             else:
@@ -954,9 +1258,9 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
             )
             frames: list[torch.Tensor] = []
             for _step in range(int(n_steps)):
-                memory_state = self._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[
-                    :, -1
-                ]
+                memory_state = self._encode_prefix(
+                    prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep
+                )[:, -1]
                 if risk_context is not None:
                     memory_state = memory_state + risk_context
                 current_level_score = prefix_level_scores[:, -1]
@@ -979,16 +1283,28 @@ class GenericStateAwareNormalizedInnovationFlowMatching(nn.Module):
                     logits = self.no_update_head(memory_state)
                     probs = torch.sigmoid(logits)
                     no_update = torch.rand_like(probs) < probs
-                    no_update = no_update & self.no_update_mask.to(device=probs.device).view(1, self.cfg.n_cells)
-                    next_increment = torch.where(no_update, torch.zeros_like(next_increment), next_increment)
-                    next_norm = (next_increment - center_rep) / scale_rep.clamp_min(1e-8)
+                    no_update = no_update & self.no_update_mask.to(
+                        device=probs.device
+                    ).view(1, self.cfg.n_cells)
+                    next_increment = torch.where(
+                        no_update, torch.zeros_like(next_increment), next_increment
+                    )
+                    next_norm = (next_increment - center_rep) / scale_rep.clamp_min(
+                        1e-8
+                    )
                     next_flow_coordinate = self._to_flow_coordinate(next_norm)
                 next_level_value = prefix_level_values[:, -1] + next_increment
                 next_level_score = self.level_values_to_scores(next_level_value)
                 frames.append(next_increment.view(bsz, k, self.cfg.n_cells))
-                prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
-                prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
-                prefix_norm = torch.cat([prefix_norm, next_flow_coordinate[:, None, :]], dim=1)
+                prefix_level_values = torch.cat(
+                    [prefix_level_values, next_level_value[:, None, :]], dim=1
+                )
+                prefix_level_scores = torch.cat(
+                    [prefix_level_scores, next_level_score[:, None, :]], dim=1
+                )
+                prefix_norm = torch.cat(
+                    [prefix_norm, next_flow_coordinate[:, None, :]], dim=1
+                )
             outs.append(torch.stack(frames, dim=2))
         return torch.cat(outs, dim=1)
 

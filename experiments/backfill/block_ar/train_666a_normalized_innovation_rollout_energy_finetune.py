@@ -20,6 +20,7 @@ sys.path.insert(0, ".")
 
 from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (  # noqa: E402
     GenericStateAwareNormalizedInnovationFlowMatching,
+    enable_adaptive_graph_velocity_mixer,
     enable_conditional_base_noise_scale,
     enable_group_head_velocity_readout,
     enable_group_residual_velocity_readout,
@@ -27,7 +28,9 @@ from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching 
     load_model,
     save_checkpoint,
 )
-from experiments.backfill.block_ar._rollout_220_utils import make_serializable  # noqa: E402
+from experiments.backfill.block_ar._rollout_220_utils import (
+    make_serializable,
+)  # noqa: E402
 from experiments.backfill.block_ar.train_596a_final_path_joint_objective import (  # noqa: E402
     full_path_energy_score,
     horizon_path_weights,
@@ -96,7 +99,9 @@ def channelwise_path_energy_score(
     if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
         raise ValueError("samples and target path dimensions do not match")
     if horizon_weights is None:
-        weights = torch.ones(samples.shape[-2], device=samples.device, dtype=samples.dtype)
+        weights = torch.ones(
+            samples.shape[-2], device=samples.device, dtype=samples.dtype
+        )
     else:
         if horizon_weights.shape != (samples.shape[-2],):
             raise ValueError(
@@ -109,12 +114,19 @@ def channelwise_path_energy_score(
     per_channel_samples = weighted_samples.permute(0, 3, 1, 2)
     per_channel_target = weighted_target.permute(0, 2, 1)
     scale = torch.sqrt(weights.square().sum()).clamp_min(1e-12)
-    target_dist = torch.sqrt(
-        (per_channel_samples - per_channel_target[:, :, None, :]).pow(2).sum(dim=-1) + float(eps)
-    ).mean(dim=2) / scale
+    target_dist = (
+        torch.sqrt(
+            (per_channel_samples - per_channel_target[:, :, None, :]).pow(2).sum(dim=-1)
+            + float(eps)
+        ).mean(dim=2)
+        / scale
+    )
     bsz, n_cells, n_samples, horizon = per_channel_samples.shape
     flat_samples = per_channel_samples.reshape(bsz * n_cells, n_samples, horizon)
-    pair_dist = torch.cdist(flat_samples, flat_samples, p=2).mean(dim=(1, 2)).view(bsz, n_cells) / scale
+    pair_dist = (
+        torch.cdist(flat_samples, flat_samples, p=2).mean(dim=(1, 2)).view(bsz, n_cells)
+        / scale
+    )
     score = target_dist - 0.5 * pair_dist
     return score.mean(), target_dist.mean(), pair_dist.mean()
 
@@ -131,7 +143,9 @@ def marginal_crps_path_score(
     if samples.shape[0] != target.shape[0] or samples.shape[2:] != target.shape[1:]:
         raise ValueError("samples and target path dimensions do not match")
     target_dist_grid = (samples - target[:, None, :, :]).abs().mean(dim=1)
-    pair_dist_grid = (samples[:, :, None, :, :] - samples[:, None, :, :, :]).abs().mean(dim=(1, 2))
+    pair_dist_grid = (
+        (samples[:, :, None, :, :] - samples[:, None, :, :, :]).abs().mean(dim=(1, 2))
+    )
     score_grid = target_dist_grid - 0.5 * pair_dist_grid
     if horizon_weights is not None:
         if horizon_weights.shape != (samples.shape[-2],):
@@ -202,13 +216,19 @@ def structured_variogram_path_score(
     left_parts: list[torch.Tensor] = []
     right_parts: list[torch.Tensor] = []
     if horizon > 1:
-        temporal_left = torch.arange(horizon - 1, device=samples.device)[:, None] * n_cells
+        temporal_left = (
+            torch.arange(horizon - 1, device=samples.device)[:, None] * n_cells
+        )
         temporal_channels = torch.arange(n_cells, device=samples.device)[None, :]
         left_parts.append((temporal_left + temporal_channels).reshape(-1))
         right_parts.append((temporal_left + n_cells + temporal_channels).reshape(-1))
     if n_cells > 1:
-        channel_pairs = torch.triu_indices(n_cells, n_cells, offset=1, device=samples.device)
-        horizon_offsets = torch.arange(horizon, device=samples.device)[:, None] * n_cells
+        channel_pairs = torch.triu_indices(
+            n_cells, n_cells, offset=1, device=samples.device
+        )
+        horizon_offsets = (
+            torch.arange(horizon, device=samples.device)[:, None] * n_cells
+        )
         left_parts.append((horizon_offsets + channel_pairs[0][None, :]).reshape(-1))
         right_parts.append((horizon_offsets + channel_pairs[1][None, :]).reshape(-1))
     if not left_parts:
@@ -217,8 +237,18 @@ def structured_variogram_path_score(
     right = torch.cat(right_parts)
     sample_flat = samples.reshape(bsz, n_samples, horizon * n_cells)
     target_flat = target.reshape(bsz, horizon * n_cells)
-    sample_diff = (sample_flat[:, :, left] - sample_flat[:, :, right]).abs().clamp_min(1e-12).pow(float(power))
-    target_diff = (target_flat[:, left] - target_flat[:, right]).abs().clamp_min(1e-12).pow(float(power))
+    sample_diff = (
+        (sample_flat[:, :, left] - sample_flat[:, :, right])
+        .abs()
+        .clamp_min(1e-12)
+        .pow(float(power))
+    )
+    target_diff = (
+        (target_flat[:, left] - target_flat[:, right])
+        .abs()
+        .clamp_min(1e-12)
+        .pow(float(power))
+    )
     return (sample_diff.mean(dim=1) - target_diff).square().mean()
 
 
@@ -248,8 +278,12 @@ def dispersion_calibration_loss(
         normalize_dim: int | None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if normalize_dim is None:
-            spread_z = (spread_activity - spread_activity.mean()) / spread_activity.std(unbiased=False).clamp_min(eps)
-            target_z = (target_activity - target_activity.mean()) / target_activity.std(unbiased=False).clamp_min(eps)
+            spread_z = (spread_activity - spread_activity.mean()) / spread_activity.std(
+                unbiased=False
+            ).clamp_min(eps)
+            target_z = (target_activity - target_activity.mean()) / target_activity.std(
+                unbiased=False
+            ).clamp_min(eps)
             global_loss = (
                 torch.log(spread_activity.mean().clamp_min(eps))
                 - torch.log(target_activity.mean().detach().clamp_min(eps))
@@ -257,14 +291,24 @@ def dispersion_calibration_loss(
         else:
             spread_mean = spread_activity.mean(dim=normalize_dim, keepdim=True)
             target_mean = target_activity.mean(dim=normalize_dim, keepdim=True)
-            spread_std = spread_activity.std(dim=normalize_dim, unbiased=False, keepdim=True).clamp_min(eps)
-            target_std = target_activity.std(dim=normalize_dim, unbiased=False, keepdim=True).clamp_min(eps)
+            spread_std = spread_activity.std(
+                dim=normalize_dim, unbiased=False, keepdim=True
+            ).clamp_min(eps)
+            target_std = target_activity.std(
+                dim=normalize_dim, unbiased=False, keepdim=True
+            ).clamp_min(eps)
             spread_z = (spread_activity - spread_mean) / spread_std
             target_z = (target_activity - target_mean) / target_std
             global_loss = (
-                torch.log(spread_mean.squeeze(normalize_dim).clamp_min(eps))
-                - torch.log(target_mean.detach().squeeze(normalize_dim).clamp_min(eps))
-            ).square().mean()
+                (
+                    torch.log(spread_mean.squeeze(normalize_dim).clamp_min(eps))
+                    - torch.log(
+                        target_mean.detach().squeeze(normalize_dim).clamp_min(eps)
+                    )
+                )
+                .square()
+                .mean()
+            )
         rank_loss = (spread_z - target_z.detach()).square().mean()
         spread_flat = spread_activity.reshape(-1)
         target_flat = target_activity.reshape(-1)
@@ -298,7 +342,13 @@ def dispersion_calibration_loss(
     global_log_mse = torch.stack([piece[1] for piece in pieces]).mean()
     spread_activity_mean = torch.stack([piece[2] for piece in pieces]).mean()
     corr = torch.stack([piece[3] for piece in pieces]).mean()
-    return rank_mse + global_log_mse, rank_mse, global_log_mse, spread_activity_mean, corr.detach()
+    return (
+        rank_mse + global_log_mse,
+        rank_mse,
+        global_log_mse,
+        spread_activity_mean,
+        corr.detach(),
+    )
 
 
 def standardized_level_delta_paths(
@@ -312,15 +362,25 @@ def standardized_level_delta_paths(
         raise ValueError("Expected sampled_level [B,K,T,C] and target_level [B,T,C]")
     if history_level_values.ndim != 3 or scale.ndim != 2:
         raise ValueError("Expected history_level_values [B,H,C] and scale [B,C]")
-    if sampled_level.shape[0] != target_level.shape[0] or sampled_level.shape[2:] != target_level.shape[1:]:
+    if (
+        sampled_level.shape[0] != target_level.shape[0]
+        or sampled_level.shape[2:] != target_level.shape[1:]
+    ):
         raise ValueError("sampled_level and target_level path dimensions do not match")
-    if history_level_values.shape[0] != target_level.shape[0] or history_level_values.shape[-1] != target_level.shape[-1]:
+    if (
+        history_level_values.shape[0] != target_level.shape[0]
+        or history_level_values.shape[-1] != target_level.shape[-1]
+    ):
         raise ValueError("history_level_values dimensions do not match target_level")
     if scale.shape != (target_level.shape[0], target_level.shape[-1]):
-        raise ValueError(f"scale must have shape {(target_level.shape[0], target_level.shape[-1])}")
+        raise ValueError(
+            f"scale must have shape {(target_level.shape[0], target_level.shape[-1])}"
+        )
     base = history_level_values[:, -1, :]
     safe_scale = scale.clamp_min(1e-8)
-    sampled_delta = (sampled_level - base[:, None, None, :]) / safe_scale[:, None, None, :]
+    sampled_delta = (sampled_level - base[:, None, None, :]) / safe_scale[
+        :, None, None, :
+    ]
     target_delta = (target_level - base[:, None, :]) / safe_scale[:, None, :]
     return sampled_delta, target_delta
 
@@ -337,11 +397,15 @@ def condition_negative_permutation(
     if bsz < 2:
         return torch.arange(bsz, device=history_level_values.device)
     if mode == "roll":
-        return torch.roll(torch.arange(bsz, device=history_level_values.device), shifts=1)
+        return torch.roll(
+            torch.arange(bsz, device=history_level_values.device), shifts=1
+        )
     if mode == "nearest_history":
         with torch.no_grad():
             level_scores = model.level_values_to_scores(history_level_values).detach()
-            flow_coordinate = model._to_flow_coordinate(history_normalized_innovation).detach()
+            flow_coordinate = model._to_flow_coordinate(
+                history_normalized_innovation
+            ).detach()
             features = torch.cat(
                 [
                     level_scores.reshape(bsz, -1),
@@ -350,11 +414,15 @@ def condition_negative_permutation(
                 dim=1,
             )
             features = features - features.mean(dim=0, keepdim=True)
-            features = features / features.std(dim=0, unbiased=False, keepdim=True).clamp_min(1e-6)
+            features = features / features.std(
+                dim=0, unbiased=False, keepdim=True
+            ).clamp_min(1e-6)
             distances = torch.cdist(features, features, p=2)
             distances.fill_diagonal_(float("inf"))
             return torch.argmin(distances, dim=1)
-    raise ValueError("condition_rollout_negative_mode must be 'roll' or 'nearest_history'")
+    raise ValueError(
+        "condition_rollout_negative_mode must be 'roll' or 'nearest_history'"
+    )
 
 
 def differentiable_rollout_paths(
@@ -373,7 +441,9 @@ def differentiable_rollout_paths(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Differentiable free-running sampler returning normalized innovations and level paths."""
     if n_steps < 1 or n_steps > model.cfg.future_len:
-        raise ValueError(f"expected n_steps in [1,{model.cfg.future_len}], got {n_steps}")
+        raise ValueError(
+            f"expected n_steps in [1,{model.cfg.future_len}], got {n_steps}"
+        )
     level_scores = model.level_values_to_scores(history_level_values)
     history_flow_coordinate = model._to_flow_coordinate(history_normalized_innovation)
     bsz = int(level_scores.shape[0])
@@ -396,12 +466,24 @@ def differentiable_rollout_paths(
         .reshape(bsz * k, model.cfg.history_len, model.cfg.n_cells)
         .clone()
     )
-    center_rep = center.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
-    scale_rep = scale.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
+    center_rep = (
+        center.unsqueeze(1)
+        .expand(bsz, k, model.cfg.n_cells)
+        .reshape(bsz * k, model.cfg.n_cells)
+    )
+    scale_rep = (
+        scale.unsqueeze(1)
+        .expand(bsz, k, model.cfg.n_cells)
+        .reshape(bsz * k, model.cfg.n_cells)
+    )
     if drift_feature is None:
         drift_rep = None
     else:
-        drift_rep = drift_feature.unsqueeze(1).expand(bsz, k, model.cfg.n_cells).reshape(bsz * k, model.cfg.n_cells)
+        drift_rep = (
+            drift_feature.unsqueeze(1)
+            .expand(bsz, k, model.cfg.n_cells)
+            .reshape(bsz * k, model.cfg.n_cells)
+        )
     _risk_prediction, risk_context = model._risk_state_from_history(
         prefix_level_scores,
         prefix_norm,
@@ -422,7 +504,9 @@ def differentiable_rollout_paths(
     norm_frames: list[torch.Tensor] = []
     level_frames: list[torch.Tensor] = []
     for _step in range(int(n_steps)):
-        memory_state = model._encode_prefix(prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep)[:, -1]
+        memory_state = model._encode_prefix(
+            prefix_level_scores, prefix_norm, center_rep, scale_rep, drift_rep
+        )[:, -1]
         if risk_context is not None:
             memory_state = memory_state + risk_context
         current_level_score = prefix_level_scores[:, -1]
@@ -445,8 +529,12 @@ def differentiable_rollout_paths(
         next_level_score = model.level_values_to_scores(next_level_value)
         norm_frames.append(next_norm.view(bsz, k, model.cfg.n_cells))
         level_frames.append(next_level_value.view(bsz, k, model.cfg.n_cells))
-        prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None, :]], dim=1)
-        prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None, :]], dim=1)
+        prefix_level_values = torch.cat(
+            [prefix_level_values, next_level_value[:, None, :]], dim=1
+        )
+        prefix_level_scores = torch.cat(
+            [prefix_level_scores, next_level_score[:, None, :]], dim=1
+        )
         prefix_norm = torch.cat([prefix_norm, next_flow_coordinate[:, None, :]], dim=1)
     return torch.stack(norm_frames, dim=2), torch.stack(level_frames, dim=2)
 
@@ -493,17 +581,31 @@ def prefix_conditioned_flow_matching_loss(
 ) -> torch.Tensor:
     """FM loss under an off-policy future prefix, for scheduled-sampling-style robustness."""
     if prefix_future_level_values.shape != future_normalized_innovation.shape:
-        raise ValueError("prefix_future_level_values and future_normalized_innovation must match")
+        raise ValueError(
+            "prefix_future_level_values and future_normalized_innovation must match"
+        )
     if prefix_future_normalized_innovation.shape != future_normalized_innovation.shape:
-        raise ValueError("prefix_future_normalized_innovation and future_normalized_innovation must match")
+        raise ValueError(
+            "prefix_future_normalized_innovation and future_normalized_innovation must match"
+        )
     history_level_scores = model.level_values_to_scores(history_level_values)
-    prefix_future_level_scores = model.level_values_to_scores(prefix_future_level_values)
+    prefix_future_level_scores = model.level_values_to_scores(
+        prefix_future_level_values
+    )
     history_flow_coordinate = model._to_flow_coordinate(history_normalized_innovation)
-    prefix_future_flow_coordinate = model._to_flow_coordinate(prefix_future_normalized_innovation)
+    prefix_future_flow_coordinate = model._to_flow_coordinate(
+        prefix_future_normalized_innovation
+    )
     target_flow_coordinate = model._to_flow_coordinate(future_normalized_innovation)
-    prefix_level_scores = torch.cat([history_level_scores, prefix_future_level_scores[:, :-1]], dim=1)
-    prefix_flow_coordinate = torch.cat([history_flow_coordinate, prefix_future_flow_coordinate[:, :-1]], dim=1)
-    hidden = model._encode_prefix(prefix_level_scores, prefix_flow_coordinate, center, scale, drift_feature)
+    prefix_level_scores = torch.cat(
+        [history_level_scores, prefix_future_level_scores[:, :-1]], dim=1
+    )
+    prefix_flow_coordinate = torch.cat(
+        [history_flow_coordinate, prefix_future_flow_coordinate[:, :-1]], dim=1
+    )
+    hidden = model._encode_prefix(
+        prefix_level_scores, prefix_flow_coordinate, center, scale, drift_feature
+    )
     start = model.cfg.history_len - 1
     memory_states = hidden[:, start : start + model.cfg.future_len]
     _risk_prediction, risk_context = model._risk_state_from_history(
@@ -606,7 +708,10 @@ def normalized_rollout_energy_loss(
             prefix_steps = min(prefix_steps, int(future_normalized_innovation.shape[1]))
             if prefix_steps < int(future_normalized_innovation.shape[1]):
                 prefix_level = torch.cat(
-                    [prefix_level[:, :prefix_steps], future_level_values[:, prefix_steps:].detach()],
+                    [
+                        prefix_level[:, :prefix_steps],
+                        future_level_values[:, prefix_steps:].detach(),
+                    ],
                     dim=1,
                 )
                 prefix_norm = torch.cat(
@@ -628,7 +733,9 @@ def normalized_rollout_energy_loss(
             drift_feature=drift_feature,
         )
     else:
-        free_running_fm_loss = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        free_running_fm_loss = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
     weights = horizon_path_weights(
         int(future_normalized_innovation.shape[1]),
         end_weight=float(horizon_end_weight),
@@ -641,24 +748,32 @@ def normalized_rollout_energy_loss(
         eps=float(energy_eps),
         horizon_weights=weights,
     )
-    marginal_crps, marginal_crps_target_dist, marginal_crps_pair_dist = marginal_crps_path_score(
-        sampled_norm,
-        future_normalized_innovation,
-        horizon_weights=weights,
-    )
-    if float(interval_score_weight) > 0.0:
-        interval_score, interval_width, interval_miss_penalty = interval_score_path_score(
+    marginal_crps, marginal_crps_target_dist, marginal_crps_pair_dist = (
+        marginal_crps_path_score(
             sampled_norm,
             future_normalized_innovation,
-            alpha=float(interval_alpha),
             horizon_weights=weights,
+        )
+    )
+    if float(interval_score_weight) > 0.0:
+        interval_score, interval_width, interval_miss_penalty = (
+            interval_score_path_score(
+                sampled_norm,
+                future_normalized_innovation,
+                alpha=float(interval_alpha),
+                horizon_weights=weights,
+            )
         )
     else:
         interval_score = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
         interval_width = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        interval_miss_penalty = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        interval_miss_penalty = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
     variogram = (
-        structured_variogram_path_score(sampled_norm, future_normalized_innovation, power=float(variogram_power))
+        structured_variogram_path_score(
+            sampled_norm, future_normalized_innovation, power=float(variogram_power)
+        )
         if float(variogram_weight) > 0.0
         else torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
     )
@@ -676,11 +791,19 @@ def normalized_rollout_energy_loss(
             mode=dispersion_calibration_mode,
         )
     else:
-        dispersion_calibration = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        dispersion_rank_mse = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        dispersion_global_log_mse = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        dispersion_calibration = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        dispersion_rank_mse = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        dispersion_global_log_mse = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
         spread_activity_mean = sampled_norm.var(dim=1, unbiased=False).mean()
-        spread_future_activity_corr = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        spread_future_activity_corr = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
     if float(level_energy_weight) > 0.0:
         level_energy, level_target_dist, level_pair_dist = full_path_energy_score(
             sampled_level,
@@ -704,18 +827,28 @@ def normalized_rollout_energy_loss(
                 scale,
             )
         else:
-            raise ValueError("level_marginal_crps_coordinate must be 'level' or 'scaled_delta'")
-        level_marginal_crps, level_marginal_crps_target_dist, level_marginal_crps_pair_dist = (
-            marginal_crps_path_score(
-                level_crps_samples,
-                level_crps_target,
-                horizon_weights=weights,
+            raise ValueError(
+                "level_marginal_crps_coordinate must be 'level' or 'scaled_delta'"
             )
+        (
+            level_marginal_crps,
+            level_marginal_crps_target_dist,
+            level_marginal_crps_pair_dist,
+        ) = marginal_crps_path_score(
+            level_crps_samples,
+            level_crps_target,
+            horizon_weights=weights,
         )
     else:
-        level_marginal_crps = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        level_marginal_crps_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        level_marginal_crps_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        level_marginal_crps = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        level_marginal_crps_target_dist = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        level_marginal_crps_pair_dist = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
     if float(channel_level_energy_weight) > 0.0:
         if channel_level_energy_coordinate == "level":
             channel_samples = sampled_level
@@ -728,18 +861,31 @@ def normalized_rollout_energy_loss(
                 scale,
             )
         else:
-            raise ValueError("channel_level_energy_coordinate must be 'level' or 'scaled_delta'")
-        channel_level_energy, channel_level_target_dist, channel_level_pair_dist = channelwise_path_energy_score(
-            channel_samples,
-            channel_target,
-            eps=float(energy_eps),
-            horizon_weights=weights,
+            raise ValueError(
+                "channel_level_energy_coordinate must be 'level' or 'scaled_delta'"
+            )
+        channel_level_energy, channel_level_target_dist, channel_level_pair_dist = (
+            channelwise_path_energy_score(
+                channel_samples,
+                channel_target,
+                eps=float(energy_eps),
+                horizon_weights=weights,
+            )
         )
     else:
-        channel_level_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        channel_level_target_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        channel_level_pair_dist = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-    if float(condition_rollout_contrast_weight) > 0.0 and int(history_level_values.shape[0]) > 1:
+        channel_level_energy = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        channel_level_target_dist = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        channel_level_pair_dist = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+    if (
+        float(condition_rollout_contrast_weight) > 0.0
+        and int(history_level_values.shape[0]) > 1
+    ):
         perm = condition_negative_permutation(
             model,
             history_level_values,
@@ -770,8 +916,12 @@ def normalized_rollout_energy_loss(
         )
         condition_rollout_neg_energy = neg_energy
     else:
-        condition_rollout_contrast = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
-        condition_rollout_neg_energy = torch.zeros((), device=fm_loss.device, dtype=fm_loss.dtype)
+        condition_rollout_contrast = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
+        condition_rollout_neg_energy = torch.zeros(
+            (), device=fm_loss.device, dtype=fm_loss.dtype
+        )
     total = (
         float(fm_anchor_weight) * fm_loss
         + float(energy_weight) * energy
@@ -802,9 +952,12 @@ def normalized_rollout_energy_loss(
         "dispersion_rank_mse": dispersion_rank_mse.detach(),
         "dispersion_global_log_mse": dispersion_global_log_mse.detach(),
         "dispersion_spread_activity_mean": spread_activity_mean.detach(),
-        "dispersion_target_activity_mean": future_normalized_innovation.square().mean().detach(),
+        "dispersion_target_activity_mean": future_normalized_innovation.square()
+        .mean()
+        .detach(),
         "dispersion_spread_target_ratio": (
-            spread_activity_mean / future_normalized_innovation.square().mean().detach().clamp_min(1e-8)
+            spread_activity_mean
+            / future_normalized_innovation.square().mean().detach().clamp_min(1e-8)
         ).detach(),
         "dispersion_spread_future_activity_corr": spread_future_activity_corr.detach(),
         "level_marginal_crps": level_marginal_crps.detach(),
@@ -841,7 +994,9 @@ def normalized_rollout_energy_loss(
         "risk_state_rank_rho": fm_metrics["risk_state_rank_rho"].detach(),
         "mixed_support_enabled": fm_metrics["mixed_support_enabled"].detach(),
         "mixed_support_bce_loss": fm_metrics["mixed_support_bce_loss"].detach(),
-        "mixed_support_selected_count": fm_metrics["mixed_support_selected_count"].detach(),
+        "mixed_support_selected_count": fm_metrics[
+            "mixed_support_selected_count"
+        ].detach(),
         "mixed_support_target_rate": fm_metrics["mixed_support_target_rate"].detach(),
         "target_norm_std": future_normalized_innovation.std(unbiased=False).detach(),
         "sample_norm_std": sampled_norm.std(unbiased=False).detach(),
@@ -894,7 +1049,16 @@ def run_epoch(
     model.train(train_mode)
     sums: dict[str, float] = {}
     n_batches = 0
-    for history_level, history_norm, future_level, future_norm, center, scale, drift_feature, no_update_target in loader:
+    for (
+        history_level,
+        history_norm,
+        future_level,
+        future_norm,
+        center,
+        scale,
+        drift_feature,
+        no_update_target,
+    ) in loader:
         if int(max_batches) > 0 and n_batches >= int(max_batches):
             break
         with torch.set_grad_enabled(train_mode):
@@ -921,8 +1085,12 @@ def run_epoch(
                 level_energy_weight=float(level_energy_weight),
                 channel_level_energy_weight=float(channel_level_energy_weight),
                 channel_level_energy_coordinate=channel_level_energy_coordinate,
-                condition_rollout_contrast_weight=float(condition_rollout_contrast_weight),
-                condition_rollout_contrast_margin=float(condition_rollout_contrast_margin),
+                condition_rollout_contrast_weight=float(
+                    condition_rollout_contrast_weight
+                ),
+                condition_rollout_contrast_margin=float(
+                    condition_rollout_contrast_margin
+                ),
                 condition_rollout_negative_mode=condition_rollout_negative_mode,
                 risk_state_weight=float(risk_state_weight),
                 risk_state_rank_weight=float(risk_state_rank_weight),
@@ -951,22 +1119,36 @@ def run_epoch(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--state_scope", choices=["iv_only", "anchor_only", "joint38"], default="joint38")
+    parser.add_argument(
+        "--state_scope",
+        choices=["iv_only", "anchor_only", "joint38"],
+        default="joint38",
+    )
     parser.add_argument("--history_len", type=int, default=30)
     parser.add_argument("--future_len", type=int, default=30)
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
     parser.add_argument("--max_train_windows", type=int, default=2048)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
-    parser.add_argument("--positive_level_policy", choices=["reference_based", "observed_positive"], default="reference_based")
-    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
+    parser.add_argument(
+        "--iv_transform", choices=["log_level", "bounded_logit"], default="log_level"
+    )
     parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
-    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
+    parser.add_argument(
+        "--drift_feature_mode", choices=["none", "ewma_mean"], default="none"
+    )
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
@@ -988,15 +1170,27 @@ def main() -> None:
     )
     parser.add_argument("--level_energy_weight", type=float, default=0.0)
     parser.add_argument("--channel_level_energy_weight", type=float, default=0.0)
-    parser.add_argument("--channel_level_energy_coordinate", choices=["level", "scaled_delta"], default="level")
+    parser.add_argument(
+        "--channel_level_energy_coordinate",
+        choices=["level", "scaled_delta"],
+        default="level",
+    )
     parser.add_argument("--condition_rollout_contrast_weight", type=float, default=0.0)
     parser.add_argument("--condition_rollout_contrast_margin", type=float, default=0.0)
-    parser.add_argument("--condition_rollout_negative_mode", choices=["roll", "nearest_history"], default="roll")
+    parser.add_argument(
+        "--condition_rollout_negative_mode",
+        choices=["roll", "nearest_history"],
+        default="roll",
+    )
     parser.add_argument("--risk_state_weight", type=float, default=0.0)
     parser.add_argument("--risk_state_rank_weight", type=float, default=0.0)
     parser.add_argument("--mixed_support_loss_weight", type=float, default=None)
     parser.add_argument("--dispersion_calibration_weight", type=float, default=0.0)
-    parser.add_argument("--dispersion_calibration_mode", choices=["window", "channel", "window_channel"], default="window")
+    parser.add_argument(
+        "--dispersion_calibration_mode",
+        choices=["window", "channel", "window_channel"],
+        default="window",
+    )
     parser.add_argument("--free_running_fm_weight", type=float, default=0.0)
     parser.add_argument(
         "--free_running_fm_prefix_steps",
@@ -1010,7 +1204,17 @@ def main() -> None:
     )
     parser.add_argument("--state_tail_sampler_weight", type=float, default=0.0)
     parser.add_argument("--state_tail_sampler_quantile", type=float, default=0.8)
-    parser.add_argument("--velocity_readout_mode", choices=["shared", "group_residual", "group_head"], default="shared")
+    parser.add_argument(
+        "--velocity_readout_mode",
+        choices=["shared", "group_residual", "group_head"],
+        default="shared",
+    )
+    parser.add_argument(
+        "--velocity_mixer_mode",
+        choices=["checkpoint", "transformer", "adaptive_graph_residual"],
+        default="checkpoint",
+    )
+    parser.add_argument("--adaptive_graph_k", type=int, default=8)
     parser.add_argument(
         "--prefix_feature_mode",
         choices=["checkpoint", "basic", "scale", "scale_local", "scale_drift"],
@@ -1037,12 +1241,32 @@ def main() -> None:
 
     torch.manual_seed(int(args.seed))
     np.random.seed(int(args.seed))
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model, payload = load_model(args.checkpoint, device)
     if args.prefix_feature_mode != "checkpoint":
         enable_prefix_feature_mode(model, prefix_feature_mode=args.prefix_feature_mode)
+    if args.velocity_mixer_mode != "checkpoint":
+        if args.velocity_mixer_mode == "adaptive_graph_residual":
+            enable_adaptive_graph_velocity_mixer(
+                model, k_neighbors=int(args.adaptive_graph_k)
+            )
+        elif args.velocity_mixer_mode == "transformer":
+            if (
+                getattr(model.cfg, "velocity_mixer_mode", "transformer")
+                != "transformer"
+            ):
+                raise ValueError(
+                    "cannot downgrade an adaptive-graph checkpoint to transformer"
+                )
+            model.cfg.velocity_mixer_mode = "transformer"
+        else:
+            raise ValueError(
+                f"unsupported velocity_mixer_mode {args.velocity_mixer_mode!r}"
+            )
     if args.base_noise_rho is not None:
         model.cfg.base_noise_rho = float(args.base_noise_rho)
     if bool(args.conditional_base_noise_scale):
@@ -1065,21 +1289,37 @@ def main() -> None:
     args.future_len = int(model.cfg.future_len)
     args.state_scope = payload.get("state_scope", args.state_scope)
     norm_cfg = payload.get("normalization", {})
-    args.iv_transform = norm_cfg.get("iv_transform", payload.get("iv_transform", args.iv_transform))
-    args.iv_lower_bound = float(norm_cfg.get("iv_lower_bound", payload.get("iv_lower_bound", args.iv_lower_bound)))
-    args.iv_upper_bound = float(norm_cfg.get("iv_upper_bound", payload.get("iv_upper_bound", args.iv_upper_bound)))
+    args.iv_transform = norm_cfg.get(
+        "iv_transform", payload.get("iv_transform", args.iv_transform)
+    )
+    args.iv_lower_bound = float(
+        norm_cfg.get(
+            "iv_lower_bound", payload.get("iv_lower_bound", args.iv_lower_bound)
+        )
+    )
+    args.iv_upper_bound = float(
+        norm_cfg.get(
+            "iv_upper_bound", payload.get("iv_upper_bound", args.iv_upper_bound)
+        )
+    )
     args.scale_floor = float(norm_cfg.get("scale_floor", args.scale_floor))
     args.center_mode = norm_cfg.get("center_mode", args.center_mode)
-    args.drift_feature_mode = norm_cfg.get("drift_feature_mode", args.drift_feature_mode)
+    args.drift_feature_mode = norm_cfg.get(
+        "drift_feature_mode", args.drift_feature_mode
+    )
     if args.mixed_support_loss_weight is None:
         args.mixed_support_loss_weight = float(
             norm_cfg.get(
                 "mixed_support_loss_weight",
-                payload.get("training_objective", {}).get("mixed_support_loss_weight", 0.0),
+                payload.get("training_objective", {}).get(
+                    "mixed_support_loss_weight", 0.0
+                ),
             )
         )
     half_life = norm_cfg.get("scale_half_life", args.scale_half_life)
-    scale_half_life = None if half_life is None or float(half_life) <= 0.0 else float(half_life)
+    scale_half_life = (
+        None if half_life is None or float(half_life) <= 0.0 else float(half_life)
+    )
 
     _columns, panel_metadata, train_block, val_block = build_blocks(args)
     (
@@ -1092,16 +1332,14 @@ def main() -> None:
         train_drift,
         _train_raw,
         train_specs,
-    ) = (
-        select_normalized_innovation_scope(
-            train_block,
-            args.state_scope,
-            int(args.iv_count),
-            scale_half_life=scale_half_life,
-            scale_floor=float(args.scale_floor),
-            center_mode=args.center_mode,
-            drift_feature_mode=args.drift_feature_mode,
-        )
+    ) = select_normalized_innovation_scope(
+        train_block,
+        args.state_scope,
+        int(args.iv_count),
+        scale_half_life=scale_half_life,
+        scale_floor=float(args.scale_floor),
+        center_mode=args.center_mode,
+        drift_feature_mode=args.drift_feature_mode,
     )
     (
         val_level,
@@ -1113,23 +1351,23 @@ def main() -> None:
         val_drift,
         val_raw,
         val_specs,
-    ) = (
-        select_normalized_innovation_scope(
-            val_block,
-            args.state_scope,
-            int(args.iv_count),
-            scale_half_life=scale_half_life,
-            scale_floor=float(args.scale_floor),
-            center_mode=args.center_mode,
-            drift_feature_mode=args.drift_feature_mode,
-        )
+    ) = select_normalized_innovation_scope(
+        val_block,
+        args.state_scope,
+        int(args.iv_count),
+        scale_half_life=scale_half_life,
+        scale_floor=float(args.scale_floor),
+        center_mode=args.center_mode,
+        drift_feature_mode=args.drift_feature_mode,
     )
     if [spec.name for spec in train_specs] != [spec.name for spec in val_specs]:
         raise RuntimeError("train/val state specs differ")
     expected = [spec["name"] for spec in payload.get("state_specs", [])]
     if expected and expected != [spec.name for spec in train_specs]:
         raise RuntimeError("checkpoint state specs do not match rebuilt specs")
-    mixed_support_enabled = getattr(model.cfg, "mixed_support_observation", "none") == "bernoulli_no_update"
+    mixed_support_enabled = (
+        getattr(model.cfg, "mixed_support_observation", "none") == "bernoulli_no_update"
+    )
     zero_eps = float(norm_cfg.get("mixed_support_zero_eps", 1e-10))
     if mixed_support_enabled:
         train_no_update_target = no_update_target_from_block(
@@ -1194,7 +1432,9 @@ def main() -> None:
         shuffle=False,
         drop_last=False,
     )
-    optimizer = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay)
+    )
     best_val = float("inf")
     best_epoch = -1
     records: list[dict[str, Any]] = []
@@ -1215,13 +1455,19 @@ def main() -> None:
         "level_energy_weight": float(args.level_energy_weight),
         "channel_level_energy_weight": float(args.channel_level_energy_weight),
         "channel_level_energy_coordinate": args.channel_level_energy_coordinate,
-        "condition_rollout_contrast_weight": float(args.condition_rollout_contrast_weight),
-        "condition_rollout_contrast_margin": float(args.condition_rollout_contrast_margin),
+        "condition_rollout_contrast_weight": float(
+            args.condition_rollout_contrast_weight
+        ),
+        "condition_rollout_contrast_margin": float(
+            args.condition_rollout_contrast_margin
+        ),
         "condition_rollout_negative_mode": args.condition_rollout_negative_mode,
         "risk_state_weight": float(args.risk_state_weight),
         "risk_state_rank_weight": float(args.risk_state_rank_weight),
         "mixed_support_loss_weight": float(args.mixed_support_loss_weight),
-        "mixed_support_observation": getattr(model.cfg, "mixed_support_observation", "none"),
+        "mixed_support_observation": getattr(
+            model.cfg, "mixed_support_observation", "none"
+        ),
         "dispersion_calibration_weight": float(args.dispersion_calibration_weight),
         "dispersion_calibration_mode": args.dispersion_calibration_mode,
         "free_running_fm_weight": float(args.free_running_fm_weight),
@@ -1235,12 +1481,18 @@ def main() -> None:
         "base_noise_scale_min": float(model.cfg.base_noise_scale_min),
         "base_noise_scale_max": float(model.cfg.base_noise_scale_max),
         "velocity_readout_mode": args.velocity_readout_mode,
+        "velocity_mixer_mode": getattr(model.cfg, "velocity_mixer_mode", "transformer"),
+        "adaptive_graph_k": int(
+            getattr(model.cfg, "adaptive_graph_k", args.adaptive_graph_k)
+        ),
         "fm_anchor_weight": float(args.fm_anchor_weight),
         "horizon_end_weight": float(args.horizon_end_weight),
     }
     extra = {
         "state_scope": args.state_scope,
-        "model_coordinate": payload.get("model_coordinate", "state_aware_normalized_innovation"),
+        "model_coordinate": payload.get(
+            "model_coordinate", "state_aware_normalized_innovation"
+        ),
         "normalization": norm_cfg,
         "finetune_objective": objective,
         "iv_transform": args.iv_transform,
@@ -1271,8 +1523,12 @@ def main() -> None:
             level_energy_weight=float(args.level_energy_weight),
             channel_level_energy_weight=float(args.channel_level_energy_weight),
             channel_level_energy_coordinate=args.channel_level_energy_coordinate,
-            condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
-            condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
+            condition_rollout_contrast_weight=float(
+                args.condition_rollout_contrast_weight
+            ),
+            condition_rollout_contrast_margin=float(
+                args.condition_rollout_contrast_margin
+            ),
             condition_rollout_negative_mode=args.condition_rollout_negative_mode,
             risk_state_weight=float(args.risk_state_weight),
             risk_state_rank_weight=float(args.risk_state_rank_weight),
@@ -1307,8 +1563,12 @@ def main() -> None:
                 level_energy_weight=float(args.level_energy_weight),
                 channel_level_energy_weight=float(args.channel_level_energy_weight),
                 channel_level_energy_coordinate=args.channel_level_energy_coordinate,
-                condition_rollout_contrast_weight=float(args.condition_rollout_contrast_weight),
-                condition_rollout_contrast_margin=float(args.condition_rollout_contrast_margin),
+                condition_rollout_contrast_weight=float(
+                    args.condition_rollout_contrast_weight
+                ),
+                condition_rollout_contrast_margin=float(
+                    args.condition_rollout_contrast_margin
+                ),
                 condition_rollout_negative_mode=args.condition_rollout_negative_mode,
                 risk_state_weight=float(args.risk_state_weight),
                 risk_state_rank_weight=float(args.risk_state_rank_weight),
@@ -1335,7 +1595,9 @@ def main() -> None:
         if val_total < best_val:
             best_val = val_total
             best_epoch = int(epoch)
-            save_checkpoint(str(best_path), model, model.cfg, epoch, best_val, extra=extra)
+            save_checkpoint(
+                str(best_path), model, model.cfg, epoch, best_val, extra=extra
+            )
         print(
             f"epoch {epoch:03d} train_total={train_metrics['total']:.6f} "
             f"val_total={val_total:.6f}{' best' if best_epoch == epoch else ''}",
@@ -1343,7 +1605,9 @@ def main() -> None:
         )
 
     final_path = output_dir / "final_model.pt"
-    save_checkpoint(str(final_path), model, model.cfg, int(args.epochs), best_val, extra=extra)
+    save_checkpoint(
+        str(final_path), model, model.cfg, int(args.epochs), best_val, extra=extra
+    )
     smoke = sample_smoke(
         model,
         val_level[: int(args.sample_windows)],
@@ -1370,9 +1634,15 @@ def main() -> None:
         "sample_smoke": smoke,
         "output_dir": str(output_dir),
     }
-    (output_dir / "training_history.json").write_text(json.dumps(make_serializable(records), indent=2), encoding="utf-8")
-    (output_dir / "train_summary.json").write_text(json.dumps(make_serializable(summary), indent=2), encoding="utf-8")
-    (output_dir / "args.json").write_text(json.dumps(make_serializable(vars(args)), indent=2), encoding="utf-8")
+    (output_dir / "training_history.json").write_text(
+        json.dumps(make_serializable(records), indent=2), encoding="utf-8"
+    )
+    (output_dir / "train_summary.json").write_text(
+        json.dumps(make_serializable(summary), indent=2), encoding="utf-8"
+    )
+    (output_dir / "args.json").write_text(
+        json.dumps(make_serializable(vars(args)), indent=2), encoding="utf-8"
+    )
     print(json.dumps(make_serializable(summary), indent=2))
 
 

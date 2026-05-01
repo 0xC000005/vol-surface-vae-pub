@@ -108177,3 +108177,23 @@ The contribution is a state-normalized innovation formulation for heterogeneous 
 Avoid saying the method "works for any type of factor" without qualification. Use the defensible claim: the framework is designed for heterogeneous multivariate time series beyond finance, provided each variable can be assigned a valid state representation and inverse reconstruction map.
 
 ---
+## 2026-05-01: 767a ASTGI-style adaptive graph tri-scope smoke
+
+### Context
+User required the ASTGI/ASTHGI-inspired idea to be tri-scope robust, not IV-only. I implemented an ASTGI-style adaptive channel-graph residual mixer inside the existing state-normalized innovation AR flow core. The SNI coordinate, autoregressive flow-matching generator, shared stochastic source, short-prefix exposure recipe, rollout energy terms, sampler, and data-interface rules remain unchanged.
+
+### Result
+The new mixer compiles and passes a synthetic forward/backward smoke test. A real-checkpoint load/upgrade smoke on the IV checkpoint succeeds and increases parameters from 863,361 to 962,689 with `velocity_mixer_mode=adaptive_graph_residual` and `adaptive_graph_k=8`.
+
+A tri-scope diagnostic smoke run with identical bounded recipe completed:
+- `iv_only`: `models/backfill/767a_smoke_iv_astgi_graph_k8_shortprefix_s7671`, best val total 1.231631, finite sampled state rate 1.0, sample shape `[4, 2, 4, 25]`.
+- `anchor_only`: `models/backfill/767a_smoke_anchor_astgi_graph_k8_shortprefix_s7672`, best val total 2.088787, finite sampled state rate 1.0, sample shape `[4, 2, 4, 14]`.
+- `joint38`: `models/backfill/767a_smoke_joint38_astgi_graph_k8_shortprefix_s7673`, best val total 1.570634, finite sampled state rate 1.0, sample shape `[4, 2, 4, 39]`.
+
+### Mechanism Read
+This is a clean dependency-structure change, not a new objective or a scope-specific knob. The residual is zero-initialized, so it starts as an output-preserving wrapper around the incumbent token transition and can learn context-adaptive cross-channel messages during fine-tuning. That makes it a valid candidate for the next full tri-scope experiment.
+
+### Decision / Next Step
+Do not promote 767a from the smoke result. The full promotion-grade tri-scope run remains compute-pending: no CUDA is visible in this session, and the full CPU IV run did not reach an epoch-level result in reasonable interactive time. The next step is to run the full frozen 767a recipe on `iv_only`, `anchor_only`, and `joint38` in a GPU-capable environment, then evaluate against 734a/739a and 755a with the current tri-scope suite.
+
+---
