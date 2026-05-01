@@ -145,6 +145,7 @@ def summarize_variant(
     return {
         "factor_delta_ks_mean": summary["factor_delta_ks_mean"],
         "factor_delta_ks_pass_020": summary["factor_delta_ks_pass_020"],
+        "n_factors": summary["n_factors"],
         "factor_factor_abs_ratio": summary["factor_factor_corr"]["gen_mean_abs"]
         / max(summary["factor_factor_corr"]["gt_mean_abs"], 1e-12),
         "iv_factor_abs_ratio": summary["iv_factor_corr"]["gen_mean_abs"]
@@ -268,7 +269,7 @@ def write_markdown(path: Path, report: dict[str, Any]) -> None:
             aaa_zero = focus_zero.get("factor:aaa_oas", {})
             bbb_zero = focus_zero.get("factor:bbb_oas", {})
             lines.append(
-                f"| `{scope_name}` | `{variant}` | `{s['factor_delta_ks_pass_020']}/13` | "
+                f"| `{scope_name}` | `{variant}` | `{s['factor_delta_ks_pass_020']}/{s['n_factors']}` | "
                 f"`{s['factor_delta_ks_mean']:.3f}` | "
                 f"`{focus_ks.get('factor:aaa_oas', float('nan')):.3f}` | "
                 f"`{focus_ks.get('factor:bbb_oas', float('nan')):.3f}` | "

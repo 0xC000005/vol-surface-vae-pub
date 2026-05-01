@@ -108226,3 +108226,34 @@ Do not promote 768a over the deployable 734a/739a incumbent or the IV-only 755a 
 - `results/block_ar/768a_astgi_graph_triscope/768a_joint_val_panel_s64.json`
 
 ---
+## 2026-05-01: 769a sticky-channel audit on 768a
+
+### Context
+After 768a localized the remaining anchor/joint gate failure to AAA OAS and BBB OAS, 769a reran the existing sticky-channel diagnostics on the current adaptive-graph checkpoints. Before relying on the outputs, I fixed the diagnostic markdown denominator: the real-VIX anchor panel has 14 factors, not the older 13-factor panel.
+
+### Result
+- Empirical atom-gate diagnostic:
+  - Anchor identity: `12/14`, mean KS `0.117`, AAA KS `0.268`, BBB KS `0.377`, zero gen/GT `0.000/0.474` and `0.000/0.383`.
+  - Anchor history-bin atom: `12/14`, mean KS `0.110`, AAA KS `0.231`, BBB KS `0.325`, zero gen/GT `0.454/0.474` and `0.305/0.383`.
+  - Joint identity: `12/14`, mean KS `0.115`, AAA KS `0.247`, BBB KS `0.297`.
+  - Joint history-bin atom: `12/14`, mean KS `0.112`, AAA KS `0.211`, BBB KS `0.300`.
+- Threshold sweep:
+  - q0.1/q0.5 improves both anchor and joint to `13/14`, with AAA below the KS gate.
+  - BBB remains above gate: `0.291` anchor and `0.251` joint.
+  - The improvement comes from over-snapping: generated zero rates overshoot validation zero rates. Anchor AAA/BBB become `0.763/0.649` versus GT `0.474/0.383`; joint AAA/BBB become `0.740/0.653` versus GT `0.474/0.383`.
+
+### Mechanism Read
+The current 768a sticky failure matches the previous 735a/736a conclusion. The continuous law has no exact no-update atom for quoted/sticky spreads. Adding an empirical atom improves AAA but does not fix BBB. Stronger threshold snapping can improve the pass count, but only by creating too many no-update days, so it is not a valid conditional law. This is a coupled observation-law problem: update/no-update probability and conditional nonzero move scale must be learned together, or the sticky spread channels should remain a documented limitation.
+
+### Decision
+Do not add another sticky threshold or simple Bernoulli no-update head to the current framework. Prior 736a already falsified the learned no-update head, and 769a confirms that atom repair is capped on 768a as well. Continue autoresearch by returning to the non-sticky frontier: improve IV coverage/regime calibration while protecting mean reversion and tri-scope dependency. If credit-spread law becomes mandatory, start a broader generic hurdle/renewal observation-model paradigm rather than stacking OAS-specific knobs.
+
+### Artifacts
+- `experiments/backfill/block_ar/analyze_720a_sticky_residual_sweep.py`
+- `experiments/backfill/block_ar/analyze_721a_empirical_atom_gate.py`
+- `results/block_ar/769a_sticky_channel_audit/atom_gate_768a.json`
+- `results/block_ar/769a_sticky_channel_audit/atom_gate_768a.md`
+- `results/block_ar/769a_sticky_channel_audit/threshold_sweep_768a.json`
+- `results/block_ar/769a_sticky_channel_audit/threshold_sweep_768a.md`
+
+---
