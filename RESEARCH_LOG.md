@@ -108197,3 +108197,32 @@ This is a clean dependency-structure change, not a new objective or a scope-spec
 Do not promote 767a from the smoke result. The full promotion-grade tri-scope run remains compute-pending: no CUDA is visible in this session, and the full CPU IV run did not reach an epoch-level result in reasonable interactive time. The next step is to run the full frozen 767a recipe on `iv_only`, `anchor_only`, and `joint38` in a GPU-capable environment, then evaluate against 734a/739a and 755a with the current tri-scope suite.
 
 ---
+## 2026-05-01: 768a post-experiment analysis: adaptive graph tri-scope scoring
+
+### Context
+768a completed the full GPU tri-scope rerun of the 767a ASTGI-style adaptive graph residual mixer inside the existing state-aware normalized-innovation AR flow-matching core. The recipe was frozen across `iv_only`, `anchor_only`, and native `joint38`, with only dimensionality/support-interface differences allowed.
+
+### Result
+- Framework scorecard: overall `false`; gates `iv=false`, `anchor=false`, `joint=false`, `framework=true`.
+- IV-only validation: `7/11`; effective failures are coverage, regime coverage, and distributional fidelity. Risk-state allocation, mean reversion, ACF, kurtosis, pathwise jump realism, and IV/EWMA economic link pass.
+- IV train-tail: `8/11`; coverage and distributional fidelity pass, but risk-state allocation and time-series realism fail.
+- Native joint checkpoint IV slice: `8/11`; distributional fidelity passes, but coverage and regime coverage still fail.
+- Anchor-only panel: finite rate `1.0`, factor delta-KS mean `0.117`, `12/14` factors pass, tail q99 median ratio `0.981`, factor-factor corr `0.919`, conditional width Spearman `0.907`.
+- Native joint panel: finite rate `1.0`, factor delta-KS mean `0.115`, `12/14` factors pass, tail q99 median ratio `1.066`, factor-factor corr `0.868`, IV-factor corr `0.946`, conditional width Spearman `0.945`.
+- Failed anchor factors remain AAA OAS and BBB OAS. VIX is acceptable in both anchor-only and joint audits.
+
+### Mechanism Read
+Adaptive graph mixing is not the missing dependency mechanism: it preserves mean reversion and improves/maintains native joint co-movement, and the joint checkpoint IV slice even reaches `8/11` with level distribution passing. The remaining failures are support/calibration problems: IV coverage/regime width allocation and sticky low-activity credit-spread daily-change shape.
+
+### Decision
+Do not promote 768a over the deployable 734a/739a incumbent or the IV-only 755a frontier. Keep it as a clean diagnostic branch. The next principled step is not another graph-capacity tweak; it is a generic sticky-channel audit before any mixed discrete-continuous support adapter is allowed. If the sticky pattern is data-derived and applies generically across channels, test a hurdle-style output adapter inside the same SNI AR flow framework. Otherwise document sticky OAS as a limitation and return to IV coverage/regime calibration without sacrificing mean reversion.
+
+### Artifacts
+- `results/block_ar/768a_astgi_graph_triscope/768a_scorecard.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_iv_val_full11_s64.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_iv_train_tail_full11_s64.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_joint_iv_val_full11_s64.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_anchor_val_panel_s64.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_joint_val_panel_s64.json`
+
+---
