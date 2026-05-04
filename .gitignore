@@ -230,6 +230,11 @@ research/
 AGENTS.md
 GEMINI.md
 
+# Local/private manuscript drafts and backups
+paper/
+docs/paper/
+archived_docs/paper_backups/
+
 # Vector DB artifacts (mcp-local-rag)
 lancedb/
 # Note: embedding model (~90MB) cached in ~/.cache/, not in repo

@@ -108257,3 +108257,66 @@ Do not add another sticky threshold or simple Bernoulli no-update head to the cu
 - `results/block_ar/769a_sticky_channel_audit/threshold_sweep_768a.md`
 
 ---
+## 2026-05-01: 770a adaptive graph attribution read
+
+### Context
+After the 768a ASTGI-style adaptive graph tri-scope run, the open question was whether the learned graph is interpretable/useful enough to showcase in the paper rather than treating the adaptive graph as a black-box capacity tweak.
+
+### Experiment
+Added and ran an inference-only graph attribution diagnostic on the native joint 768a checkpoint. The diagnostic reads the learned top-k adaptive graph at the first rollout step over 441 validation windows, removes self-edges for cross-channel interpretation, splits histories by IV activity into calm/turbulent quintiles, compares graph edges with empirical absolute daily-change correlations, and measures the graph residual's velocity effect.
+
+### Findings
+- Graph residual is active but modest: hidden residual/base norm ratio `0.0019`; velocity delta/base norm ratio `0.0140`; mean absolute velocity delta `0.0023` versus base velocity absolute mean `0.1675`.
+- Off-diagonal graph structure is interpretable but IV-dominated. For IV-surface targets, anchor-source mass is `0.1575` overall, `0.1919` in calm-history windows, and `0.1972` in turbulent-history windows. For anchor targets, IV-source mass is `0.9559`, so anchors primarily read the IV surface rather than each other.
+- Top anchor sources into IV targets are plausible risk-state variables: VIX `0.0385`, USDJPY `0.0287`, US2Y `0.0255`, BBB OAS `0.0170`, SPX `0.0104` mean graph weight per IV target.
+- Regime shift is visible: VIX is the top IV source in calm histories, while US2Y and BBB OAS gain weight in turbulent histories.
+- Graph edges are not a strong empirical correlation estimator: edge-vs-absolute-correlation Pearson `0.1020`, Spearman `0.0674`. This should not be sold as a faithful learned correlation graph.
+- Existing metric comparison remains mixed but directionally useful for native joint dependency: 768a improves native joint IV slice from `6/11` to `8/11` versus 766a and improves IV-factor corr matrix `0.9423 -> 0.9456`, IV-factor corr MAE `0.0819 -> 0.0760`, factor-factor abs-corr ratio through scorecard `0.492 -> 0.554`, while factor marginal delta-KS regresses `0.0957 -> 0.1152`.
+
+### Decision
+The adaptive graph is worth showing only as an appendix or diagnostic interpretability figure, not as a central theoretical proof. Use the group-mass and top-anchor-source figures if the paper needs evidence that the shared stochastic joint model learns cross-channel routing. Do not overclaim: the residual effect is small and edge-correlation alignment is weak. The main paper should still emphasize the SNI AR flow framework and distributional objective; the adaptive graph can be framed as a lightweight dependency-structure module that improved native joint dependency diagnostics without solving support/calibration limitations.
+
+### Artifacts
+- `experiments/backfill/block_ar/analyze_770a_adaptive_graph_attribution.py`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_adaptive_graph_attribution.json`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_adaptive_graph_attribution.md`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_group_mass_matrices.png`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_top_anchor_sources_for_iv.png`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_offdiag_adjacency_heatmap.png`
+
+---
+## 2026-05-01: Adaptive graph paper framing and KS interpretation
+
+### Context
+After reading the 768a adaptive graph and the follow-up VIX-row sanity check, the paper question is not whether adaptive graph is the main method. It is whether it is worth mentioning as a lightweight add-on inside the same state-normalized innovation AR flow framework: small architectural cost, minimal tri-scope regression, and modest/native-joint dependency benefit.
+
+### Tri-scope evidence
+- IV-only scorecard did not improve but did not materially regress at the headline level: `7/11` before/after in the available scorecards. The 768a IV-only rerun keeps mean reversion, ACF, kurtosis, pathwise jump realism, and IV/EWMA economic link alive; failures remain coverage, old conditionality, regime coverage, and distributional fidelity.
+- Anchor-only regression is small and mixed rather than catastrophic: factor delta-KS mean worsens `0.1090 -> 0.1170` with pass count still `12/14`, while factor-factor corr improves `0.9033 -> 0.9192` and abs-corr ratio improves `0.6245 -> 0.6771`. Conditional width Spearman softens `0.9284 -> 0.9071`.
+- Native joint gains are modest but directionally relevant for the paper's co-modeling story: factor-factor abs-corr ratio improves `0.4924 -> 0.5538`, IV-factor abs-corr ratio improves `0.6788 -> 0.7323`, IV-factor matrix corr improves `0.9423 -> 0.9456`, and IV-factor MAE improves `0.0819 -> 0.0760`.
+- Native joint also has a real tradeoff: factor delta-KS mean worsens `0.0957 -> 0.1152`, and conditional median MAE reduction softens `4.87% -> 4.58%`. Therefore this is not a pure frontier improvement.
+- The native joint checkpoint's IV slice improves from `6/11` to `8/11`, mainly because distributional fidelity turns on: daily-change KS remains `24/25`, level KS improves `13/25 -> 16/25`, and median-bias improves `17/25 -> 20/25`. Coverage remains weak and slightly lower (`0.8026 -> 0.7912` at 90%).
+
+### Graph/latent-space diagnostic read
+- The 770a diagnostic reads the learned top-k adaptive graph inside the latent token velocity mixer over 441 validation windows. Rows are target channels being updated; columns are attended/source-token channels. This is information routing in latent space, not causal direction and not an economic structural graph.
+- The graph residual is active but small: hidden residual/base norm ratio `0.0019`, velocity delta/base norm ratio `0.0140`, mean absolute velocity delta `0.0023` versus base velocity absolute mean `0.1675`.
+- Group-level routing is interpretable enough for an appendix: IV-surface targets allocate `0.1575` off-diagonal mass to anchor factors overall, `0.1919` in calm-history windows, and `0.1972` in turbulent-history windows. Anchor targets allocate `0.9559` of off-diagonal mass to IV-surface channels, so the joint model mostly uses the IV surface as the common latent state backbone.
+- Named-source bars must be presented cautiously. For IV targets, top attended anchor tokens are VIX `0.0385`, USDJPY `0.0287`, US2Y `0.0255`, BBB OAS `0.0170`, and SPX `0.0104`; this should not be narrated as USDJPY economically driving IV.
+- The VIX target sanity row is economically cleaner: when the target is VIX, the top attended tokens are all IV cells (`iv:12`, `iv:17`, `iv:00`, `iv:13`, `iv:06`, `iv:07`, `iv:04`, ...). So the graph is not saying VIX is driven by USDJPY; it is saying VIX and IV-surface tokens share latent volatility-state information.
+- Graph edges are weak as an empirical correlation estimator: edge-vs-absolute-correlation Pearson `0.1020`, Spearman `0.0674`. Do not sell the graph as a learned correlation matrix or causal market graph.
+
+### KS / CKS interpretation
+Here CKS refers to the channel/marginal KS diagnostics we have been using for daily-change and level distribution sanity. The useful finding is narrow: adaptive graph does not fix marginal KS globally. In anchor/joint factor panels, factor delta-KS slightly worsens even while co-movement metrics improve. In the native joint IV slice, however, the distributional-fidelity block improves because level KS and median-bias cell counts cross the gate while daily-change KS stays strong. This supports the interpretation that adaptive graph helps latent joint routing and level placement in the native joint IV slice, but it is not a general marginal-distribution repair.
+
+### Paper decision
+Mention adaptive graph as an optional dependency-structure add-on, not as the central novelty. The central method remains state-normalized innovation autoregressive flow matching with a proper distributional objective. The graph add-on can be framed as: within the same generative core and shared stochastic source, a lightweight learned channel-routing residual produced modest native-joint dependency gains with minimal IV-only/anchor-only headline regression. Put group-level routing and named-target sanity rows in the appendix if used. Do not put dense attention heatmaps or named top-anchor bars in the main paper unless the caption explicitly says attention mass is not causal/economic direction.
+
+### Artifacts
+- `results/block_ar/768a_astgi_graph_triscope/768a_scorecard.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_joint_val_panel_s64.json`
+- `results/block_ar/768a_astgi_graph_triscope/768a_joint_iv_val_full11_s64.json`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_adaptive_graph_attribution.json`
+- `results/block_ar/770a_adaptive_graph_attribution/770a_adaptive_graph_attribution.md`
+- `experiments/backfill/block_ar/analyze_770a_adaptive_graph_attribution.py`
+
+---
