@@ -71,6 +71,16 @@ GEN_COLOR = "#C62828"
 CALM_COLOR = "#1976D2"
 TURB_COLOR = "#D32F2F"
 NEUTRAL_COLOR = "#455A64"
+PATH_COLORS = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#9467bd",
+    "#8c564b",
+    "#17becf",
+    "#bcbd22",
+    "#e377c2",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -270,6 +280,104 @@ def _factor_index(names: list[str], factor: str) -> int | None:
     return names.index(factor) if factor in names else None
 
 
+def _window_coverage_1d(future: np.ndarray, samples: np.ndarray) -> np.ndarray:
+    q05 = np.percentile(samples, 5, axis=1)
+    q95 = np.percentile(samples, 95, axis=1)
+    return np.mean((future >= q05) & (future <= q95), axis=1)
+
+
+def _standardize(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    return (values - np.nanmean(values)) / max(float(np.nanstd(values)), 1e-8)
+
+
+def _select_case_window(
+    score: np.ndarray,
+    coverage: np.ndarray,
+    *,
+    min_coverage: float = 0.80,
+) -> tuple[int, float]:
+    score = np.asarray(score, dtype=np.float64)
+    coverage = np.asarray(coverage, dtype=np.float64)
+    for threshold in [min_coverage, 0.70, 0.60, 0.50, 0.0]:
+        candidates = np.where(np.isfinite(score) & (coverage >= threshold))[0]
+        if len(candidates) > 0:
+            adjusted = score[candidates] + 2.0 * coverage[candidates]
+            return int(candidates[int(np.argmax(adjusted))]), float(threshold)
+    return int(np.nanargmax(score)), 0.0
+
+
+def _plot_case_path(
+    *,
+    history: np.ndarray,
+    future: np.ndarray,
+    samples: np.ndarray,
+    title: str,
+    ylabel: str,
+    path: Path,
+    seed: int,
+    normalize_to_start: bool = False,
+) -> dict[str, Any]:
+    hist = np.asarray(history, dtype=np.float64)
+    fut = np.asarray(future, dtype=np.float64)
+    sim = np.asarray(samples, dtype=np.float64)
+    if normalize_to_start:
+        base = float(hist[-1])
+        if abs(base) > 1e-12:
+            hist = 100.0 * hist / base
+            fut = 100.0 * fut / base
+            sim = 100.0 * sim / base
+            ylabel = f"{ylabel} (history end = 100)"
+
+    q05, q25, q50, q75, q95 = np.percentile(sim, [5, 25, 50, 75, 95], axis=0)
+    coverage = float(np.mean((fut >= q05) & (fut <= q95)))
+    hist_days = np.arange(-29, 1)
+    fut_days = np.arange(1, 31)
+    rng = np.random.default_rng(seed)
+    sample_path_idx = rng.choice(sim.shape[0], size=min(6, sim.shape[0]), replace=False)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 5.2))
+    ax.plot(hist_days, hist, color="black", linewidth=1.8, label="History")
+    ax.axvline(0.5, color="gray", linestyle=":", linewidth=1)
+    ax.fill_between(fut_days, q05, q95, color=GEN_COLOR, alpha=0.14, label="Generated 90% band")
+    ax.fill_between(fut_days, q25, q75, color=GEN_COLOR, alpha=0.24, label="Generated IQR")
+    for j, path_idx in enumerate(sample_path_idx):
+        ax.plot(
+            fut_days,
+            sim[path_idx],
+            color=PATH_COLORS[j % len(PATH_COLORS)],
+            linewidth=1.25,
+            alpha=0.86,
+            label="Generated sample paths" if j == 0 else None,
+        )
+    ax.plot(fut_days, q50, color=GEN_COLOR, linewidth=2.0, label="Generated median")
+    ax.plot(fut_days, fut, color=GT_COLOR, linestyle="--", linewidth=2.3, label="Ground truth")
+    ax.set_title(title, fontweight="bold")
+    ax.set_xlabel("Day")
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.25)
+    ax.text(
+        0.02,
+        0.95,
+        f"GT inside 90% band: {coverage:.0%}",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.88),
+    )
+    ax.legend(fontsize=8, loc="lower left")
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+    return {
+        "path": str(path),
+        "coverage": coverage,
+        "sample_path_indices": [int(i) for i in sample_path_idx],
+        "normalized_to_history_end": bool(normalize_to_start),
+    }
+
+
 def plot_iv_temporal_properties_paper(data: dict[str, Any], output_dir: str) -> None:
     gt_delta = _iv_future_deltas(data["history"], data["future"])
     gen_delta = _iv_sample_deltas(data["history"], data["samples"])
@@ -457,6 +565,48 @@ def plot_iv_marginal_daily_changes_paper(data: dict[str, Any], output_dir: str) 
     print(f"  Saved: {path}")
 
 
+def plot_iv_case_study(data: dict[str, Any], output_dir: str) -> None:
+    """Rule-selected IV case study for path realism and GT-in-band coverage."""
+    # A mid-tenor wing cell is visually useful because it has enough movement to
+    # show burst/reversion behavior without collapsing into a nearly flat line.
+    r, c = 2, 4  # 6M, K=1.30
+    hist = data["history"][:, :, r, c]
+    fut = data["future"][:, :, r, c]
+    sim = data["samples"][:, :, :, r, c]
+    coverage = _window_coverage_1d(fut, sim)
+    start = hist[:, -1]
+    peak = np.max(fut, axis=1)
+    end = fut[:, -1]
+    up_burst = peak - start
+    reversion = peak - end
+    score = _standardize(up_burst) + _standardize(reversion) + 0.5 * _standardize(data["vol_of_vol"])
+    idx, min_cov_used = _select_case_window(score, coverage, min_coverage=0.80)
+    path = Path(output_dir) / "figC1_iv_burst_reversion_case.png"
+    record = _plot_case_path(
+        history=hist[idx],
+        future=fut[idx],
+        samples=sim[idx],
+        title="Case Study: Structured-Surface Burst and Reversion",
+        ylabel=f"IV level ({v1.MATURITY_LABELS[r]}, K={v1.MONEYNESS_LABELS[c]})",
+        path=path,
+        seed=912_000 + idx,
+    )
+    record.update(
+        {
+            "case": "structured_surface_burst_reversion",
+            "window_index": int(idx),
+            "cell": f"{v1.MATURITY_LABELS[r]} K={v1.MONEYNESS_LABELS[c]}",
+            "selection_rule": "maximize future IV burst plus reversion among windows with high GT-in-band coverage",
+            "minimum_coverage_used": float(min_cov_used),
+            "future_up_burst": float(up_burst[idx]),
+            "future_reversion": float(reversion[idx]),
+        }
+    )
+    selection_path = Path(output_dir) / "figC1_iv_burst_reversion_case_selection.json"
+    selection_path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    print(f"  Saved: {selection_path}")
+
+
 def write_iv_report(data: dict[str, Any], output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
     v1.OUTPUT_DIR = output_dir
@@ -469,6 +619,7 @@ def write_iv_report(data: dict[str, Any], output_dir: str) -> None:
     v1.plot_surface_structure(data)
     v1.plot_surface_heatmaps(data)
     plot_iv_marginal_daily_changes_paper(data, output_dir)
+    plot_iv_case_study(data, output_dir)
     v1.plot_kurtosis_heatmap(data)
     plot_mean_reversion_clustering(data, output_dir, summary_path=None)
     plot_burst_reversion_paths(data, output_dir, summary_path=None)
@@ -491,6 +642,7 @@ def plot_anchor_fan_charts(data: dict[str, Any], output_dir: str) -> None:
     hist_days = np.arange(-29, 1)
     fut_days = np.arange(1, 31)
     selection_records: list[dict[str, Any]] = []
+    n_path_overlay = 6
 
     def choose_coverage_screened_window(
         factor_activity: np.ndarray,
@@ -572,12 +724,19 @@ def plot_anchor_fan_charts(data: dict[str, Any], output_dir: str) -> None:
             samples = data["samples"][idx, :, :, c]
             q05, q25, q50, q75, q95 = np.percentile(samples, [5, 25, 50, 75, 95], axis=0)
             coverage = float(np.mean((fut >= q05) & (fut <= q95)))
+            rng = np.random.default_rng(734_000 + 101 * int(idx) + 17 * int(c) + int(col))
+            sample_path_idx = rng.choice(
+                samples.shape[0],
+                size=min(n_path_overlay, samples.shape[0]),
+                replace=False,
+            )
             selection_records.append(
                 {
                     "factor": name,
                     "display": _factor_label(name),
                     "panel": "calm" if col == 0 else "turbulent",
                     "window_index": int(idx),
+                    "sample_path_indices": [int(i) for i in sample_path_idx],
                     "selection_note": selection_note,
                     "history_activity": float(activity_value),
                     "future_90pct_coverage": coverage,
@@ -587,6 +746,15 @@ def plot_anchor_fan_charts(data: dict[str, Any], output_dir: str) -> None:
             ax.axvline(0.5, color="gray", linestyle=":", linewidth=1)
             ax.fill_between(fut_days, q05, q95, color=color, alpha=0.14, label="Generated 90% band")
             ax.fill_between(fut_days, q25, q75, color=color, alpha=0.22, label="Generated IQR")
+            for j, path_idx in enumerate(sample_path_idx):
+                ax.plot(
+                    fut_days,
+                    samples[path_idx],
+                    color=PATH_COLORS[j % len(PATH_COLORS)],
+                    linewidth=1.05,
+                    alpha=0.82,
+                    label="Generated sample paths" if j == 0 else None,
+                )
             ax.plot(fut_days, q50, color=color, linewidth=1.8, label="Generated median")
             ax.plot(fut_days, fut, color=GT_COLOR, linestyle="--", linewidth=2.0, label="Ground truth")
             if row == 0:
@@ -820,6 +988,88 @@ def plot_anchor_rates_credit_diagnostics(data: dict[str, Any], output_dir: str) 
     print(f"  Saved: {path}")
 
 
+def plot_anchor_behavior_case_studies(data: dict[str, Any], output_dir: str) -> None:
+    """Rule-selected anchor cases for visually interpretable path realism."""
+    names = data["spec_names"]
+    records: list[dict[str, Any]] = []
+
+    vix_idx = _factor_index(names, "factor:vix")
+    if vix_idx is not None:
+        hist = data["history"][:, :, vix_idx]
+        fut = data["future"][:, :, vix_idx]
+        sim = data["samples"][:, :, :, vix_idx]
+        coverage = _window_coverage_1d(fut, sim)
+        start = hist[:, -1]
+        peak = np.max(fut, axis=1)
+        end = fut[:, -1]
+        spike = peak - start
+        reversion = peak - end
+        score = _standardize(start) + _standardize(spike) + _standardize(reversion)
+        idx, min_cov_used = _select_case_window(score, coverage, min_coverage=0.80)
+        record = _plot_case_path(
+            history=hist[idx],
+            future=fut[idx],
+            samples=sim[idx],
+            title="Case Study: VIX Spike and Reversion",
+            ylabel="VIX level",
+            path=Path(output_dir) / "figC2_vix_spike_reversion_case.png",
+            seed=913_000 + idx,
+        )
+        record.update(
+            {
+                "case": "vix_spike_reversion",
+                "window_index": int(idx),
+                "factor": "factor:vix",
+                "selection_rule": "maximize elevated VIX state plus future spike and reversion among windows with high GT-in-band coverage",
+                "minimum_coverage_used": float(min_cov_used),
+                "future_spike": float(spike[idx]),
+                "future_reversion": float(reversion[idx]),
+            }
+        )
+        records.append(record)
+
+    spx_idx = _factor_index(names, "factor:spx")
+    if spx_idx is not None:
+        hist = data["history"][:, :, spx_idx]
+        fut = data["future"][:, :, spx_idx]
+        sim = data["samples"][:, :, :, spx_idx]
+        coverage = _window_coverage_1d(fut, sim)
+        start = np.maximum(np.abs(hist[:, -1]), 1e-8)
+        cumulative_move = np.abs(fut[:, -1] - hist[:, -1]) / start
+        path_range = (np.max(fut, axis=1) - np.min(fut, axis=1)) / start
+        daily_abs = np.sum(np.abs(_future_deltas(data["history"], data["future"])[:, :, spx_idx]), axis=1)
+        trend_efficiency = np.abs(fut[:, -1] - hist[:, -1]) / np.maximum(daily_abs, 1e-8)
+        score = _standardize(cumulative_move) + 0.5 * _standardize(path_range) + 0.5 * trend_efficiency
+        idx, min_cov_used = _select_case_window(score, coverage, min_coverage=0.80)
+        record = _plot_case_path(
+            history=hist[idx],
+            future=fut[idx],
+            samples=sim[idx],
+            title="Case Study: Equity Index Directional Move",
+            ylabel="S&P 500 level",
+            path=Path(output_dir) / "figC3_spx_directional_move_case.png",
+            seed=914_000 + idx,
+            normalize_to_start=True,
+        )
+        record.update(
+            {
+                "case": "spx_directional_move",
+                "window_index": int(idx),
+                "factor": "factor:spx",
+                "selection_rule": "maximize 30-day directional equity move and trend efficiency among windows with high GT-in-band coverage",
+                "minimum_coverage_used": float(min_cov_used),
+                "future_cumulative_move": float(cumulative_move[idx]),
+                "future_path_range": float(path_range[idx]),
+                "future_trend_efficiency": float(trend_efficiency[idx]),
+            }
+        )
+        records.append(record)
+
+    selection_path = Path(output_dir) / "figC_anchor_behavior_cases_selection.json"
+    selection_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    print(f"  Saved: {selection_path}")
+
+
 def write_anchor_report(data: dict[str, Any], output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
     print(f"Writing anchor report to {output_dir}")
@@ -828,6 +1078,7 @@ def write_anchor_report(data: dict[str, Any], output_dir: str) -> None:
     plot_anchor_factor_correlation(data, output_dir)
     plot_anchor_vix_spx_cases(data, output_dir)
     plot_anchor_rates_credit_diagnostics(data, output_dir)
+    plot_anchor_behavior_case_studies(data, output_dir)
 
 
 def write_manifest(output_root: str, args: argparse.Namespace, iv_data: dict[str, Any] | None, anchor_data: dict[str, Any] | None) -> None:
