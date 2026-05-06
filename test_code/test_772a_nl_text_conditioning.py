@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -14,6 +15,7 @@ from experiments.backfill.block_ar.nl_text_conditioning import (
     build_contrast_texts,
     build_contrastive_examples,
     cosine_similarity,
+    embed_texts_with_openai,
     load_description_records,
     normalize_rows,
     project_embeddings_with_adapter,
@@ -26,8 +28,7 @@ def _description_record() -> dict:
         "window_id": "smoke_joint39_001",
         "panel_version": "joint39",
         "canonical_machine_text": (
-            "SPX: DOWN LARGE, VIX: UP LARGE, US2Y: DOWN LARGE, "
-            "BBB_OAS: WIDER LARGE"
+            "SPX: DOWN LARGE, VIX: UP LARGE, US2Y: DOWN LARGE, " "BBB_OAS: WIDER LARGE"
         ),
         "revised_description": (
             "A pronounced risk-off window with equities down, volatility up, "
@@ -148,9 +149,7 @@ def test_anchor_similarity_metrics_separates_positive_and_negative_roles() -> No
             dtype=np.float32,
         )
     )
-    metrics = anchor_similarity_metrics(
-        embeddings, ["anchor", "positive", "negative"]
-    )
+    metrics = anchor_similarity_metrics(embeddings, ["anchor", "positive", "negative"])
     assert metrics["positive_mean_cosine"] > metrics["negative_mean_cosine"]
     assert metrics["separation_mean"] > 0.0
 
@@ -180,6 +179,51 @@ def test_train_contrastive_projection_reduces_loss_on_toy_hard_negatives() -> No
     )
     assert result["projected"].shape == (5, 3)
     assert result["loss_last"] < result["loss_first"]
-    assert result["projected_metrics"]["separation_mean"] > result["raw_metrics"][
-        "separation_mean"
-    ]
+    assert (
+        result["projected_metrics"]["separation_mean"]
+        > result["raw_metrics"]["separation_mean"]
+    )
+
+
+def test_embed_texts_with_openai_batches_requests(tmp_path: Path) -> None:
+    class FakeEmbeddings:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def create(self, *, model: str, input: list[str]) -> SimpleNamespace:
+            assert model == "fake-embedding-model"
+            self.calls.append(list(input))
+            data = [
+                SimpleNamespace(
+                    index=index, embedding=[float(len(text)), float(len(self.calls))]
+                )
+                for index, text in enumerate(input)
+            ]
+            return SimpleNamespace(data=list(reversed(data)))
+
+    fake_embeddings = FakeEmbeddings()
+    fake_client = SimpleNamespace(embeddings=fake_embeddings)
+
+    embeddings = embed_texts_with_openai(
+        ["a", "bb", "ccc", "dddd", "eeeee"],
+        model="fake-embedding-model",
+        dotenv_path=tmp_path / ".missing",
+        batch_size=2,
+        client=fake_client,
+    )
+
+    assert fake_embeddings.calls == [["a", "bb"], ["ccc", "dddd"], ["eeeee"]]
+    assert embeddings.shape == (5, 2)
+    assert np.allclose(
+        embeddings,
+        np.array(
+            [
+                [1.0, 1.0],
+                [2.0, 1.0],
+                [3.0, 2.0],
+                [4.0, 2.0],
+                [5.0, 3.0],
+            ],
+            dtype=np.float32,
+        ),
+    )

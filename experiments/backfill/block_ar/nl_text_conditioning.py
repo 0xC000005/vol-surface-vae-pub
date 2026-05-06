@@ -369,18 +369,30 @@ def embed_texts_with_openai(
     *,
     model: str = DEFAULT_EMBEDDING_MODEL,
     dotenv_path: str | Path = ".env",
+    batch_size: int = 512,
+    client: Any | None = None,
 ) -> np.ndarray:
     """Call the OpenAI Embeddings API for a list of texts."""
 
     if not texts:
         raise ValueError("texts must not be empty")
+    if int(batch_size) <= 0:
+        raise ValueError("batch_size must be positive")
     load_dotenv_key(dotenv_path)
-    from openai import OpenAI
+    if client is None:
+        from openai import OpenAI
 
-    client = OpenAI()
-    response = client.embeddings.create(model=model, input=texts)
-    ordered = sorted(response.data, key=lambda item: item.index)
-    vectors = [item.embedding for item in ordered]
+        client = OpenAI()
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), int(batch_size)):
+        batch = texts[start : start + int(batch_size)]
+        response = client.embeddings.create(model=model, input=batch)
+        ordered = sorted(response.data, key=lambda item: item.index)
+        vectors.extend(item.embedding for item in ordered)
+    if len(vectors) != len(texts):
+        raise ValueError(
+            f"OpenAI returned {len(vectors)} embeddings for {len(texts)} texts"
+        )
     return np.asarray(vectors, dtype=np.float32)
 
 

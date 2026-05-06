@@ -99,7 +99,9 @@ def _fact(market: str, delta: float, evidence_name: str) -> dict[str, Any]:
     }
 
 
-def key_market_summary(history_raw: np.ndarray, spec_names: list[str]) -> list[dict[str, Any]]:
+def key_market_summary(
+    history_raw: np.ndarray, spec_names: list[str]
+) -> list[dict[str, Any]]:
     """Summarize observed 30-day history moves into key market facts."""
 
     history = np.asarray(history_raw, dtype=np.float32)
@@ -141,29 +143,47 @@ def _market_token_text(facts: list[dict[str, Any]]) -> str:
 
 def _classify_shock(facts: list[dict[str, Any]]) -> tuple[str, float, list[str]]:
     by_market = _fact_lookup(facts)
-    if _is(by_market, "SPX", "down") and _is(by_market, "VIX", "up") and _is(by_market, "BBB_OAS", "wider"):
+    if (
+        _is(by_market, "SPX", "down")
+        and _is(by_market, "VIX", "up")
+        and _is(by_market, "BBB_OAS", "wider")
+    ):
         if _is(by_market, "US2Y", "down") or _is(by_market, "US10Y", "down"):
-            return "growth_liquidity_panic", 0.82, [
-                "equity selloff",
-                "volatility spike",
-                "credit widening",
-                "rates lower",
-            ]
+            return (
+                "growth_liquidity_panic",
+                0.82,
+                [
+                    "equity selloff",
+                    "volatility spike",
+                    "credit widening",
+                    "rates lower",
+                ],
+            )
         if _is(by_market, "US2Y", "up") or _is(by_market, "US10Y", "up"):
-            return "inflationary_risk_off_rates_shock", 0.72, [
+            return (
+                "inflationary_risk_off_rates_shock",
+                0.72,
+                [
+                    "equity selloff",
+                    "volatility spike",
+                    "credit widening",
+                    "rates higher",
+                ],
+            )
+        return (
+            "risk_off_stress",
+            0.70,
+            [
                 "equity selloff",
                 "volatility spike",
                 "credit widening",
-                "rates higher",
-            ]
-        return "risk_off_stress", 0.70, [
-            "equity selloff",
-            "volatility spike",
-            "credit widening",
-        ]
+            ],
+        )
     if _is(by_market, "SPX", "up") and _is(by_market, "VIX", "down"):
         return "risk_on_recovery", 0.70, ["equity rally", "volatility compression"]
-    if _is(by_market, "CRUDE_OIL", "up") and (_is(by_market, "US2Y", "up") or _is(by_market, "US10Y", "up")):
+    if _is(by_market, "CRUDE_OIL", "up") and (
+        _is(by_market, "US2Y", "up") or _is(by_market, "US10Y", "up")
+    ):
         return "commodity_inflation_shock", 0.65, ["commodity pressure", "rates higher"]
     return "mixed_cross_asset_repricing", 0.45, ["mixed market signals"]
 
@@ -228,7 +248,9 @@ def build_scenario_narrative_bundle(
             "text": primary,
             "shock_type": shock_type,
             "confidence": confidence,
-            "grounding_status": "analogy_not_observed_fact" if unsupported else "market_fact_supported",
+            "grounding_status": (
+                "analogy_not_observed_fact" if unsupported else "market_fact_supported"
+            ),
             "observed_fact_tokens": token_text,
             "unsupported_claims": unsupported,
             "alternative_interpretations": [alternative],
@@ -246,8 +268,7 @@ def build_scenario_narrative_bundle(
         {
             "id": "market_implication_style",
             "text": (
-                "Market implication summary for scenario generation: "
-                f"{token_text}."
+                "Market implication summary for scenario generation: " f"{token_text}."
             ),
             "shock_type": "explicit_market_implications",
             "confidence": 0.95,
@@ -301,7 +322,9 @@ def build_scenario_narrative_bundle(
             "observed_facts_source": "30-day historical joint39 panel window",
             "external_news_used": False,
             "causality_claim_policy": "macro stories are marked inferred unless directly observed",
-            "unsupported_claims": sorted({claim for item in narratives for claim in item["unsupported_claims"]}),
+            "unsupported_claims": sorted(
+                {claim for item in narratives for claim in item["unsupported_claims"]}
+            ),
         },
     }
 
@@ -430,7 +453,9 @@ def description_bundle_to_narrative_bundle(
             }
             for item in payload.get("structured_audit", [])
         ],
-        "narrative_drivers": [str(item["market"]) for item in payload.get("structured_audit", [])],
+        "narrative_drivers": [
+            str(item["market"]) for item in payload.get("structured_audit", [])
+        ],
         "narratives": narratives,
         "contrastive_narratives": contrastive,
         "hallucination_audit": {
@@ -518,7 +543,9 @@ def _load_selection_manifest_rows(path: str | Path, split: str) -> list[dict[str
     if not isinstance(splits, dict):
         raise ValueError("selection manifest must contain a splits object")
     split_name = str(split)
-    split_order = ["train", "validation", "test"] if split_name == "all" else [split_name]
+    split_order = (
+        ["train", "validation", "test"] if split_name == "all" else [split_name]
+    )
     rows: list[dict[str, Any]] = []
     for name in split_order:
         raw_rows = splits.get(name, [])
@@ -526,9 +553,13 @@ def _load_selection_manifest_rows(path: str | Path, split: str) -> list[dict[str
             raise ValueError(f"selection manifest split {name!r} must be a list")
         for row in raw_rows:
             if not isinstance(row, dict):
-                raise ValueError(f"selection manifest split {name!r} contains a non-object row")
+                raise ValueError(
+                    f"selection manifest split {name!r} contains a non-object row"
+                )
             if "window_index" not in row:
-                raise ValueError(f"selection manifest split {name!r} row is missing window_index")
+                raise ValueError(
+                    f"selection manifest split {name!r} row is missing window_index"
+                )
             rows.append({**row, "manifest_split": name})
     if not rows:
         raise ValueError(f"selection manifest has no rows for split={split_name!r}")
@@ -547,7 +578,9 @@ def _metadata_with_manifest_row(
         {
             "window_index": window_index,
             "window_id": str(row.get("window_id", f"joint39_val_{window_index:04d}")),
-            "source_index": int(row.get("source_index", base_metadata.get("source_index", window_index))),
+            "source_index": int(
+                row.get("source_index", base_metadata.get("source_index", window_index))
+            ),
             "selection_reasons": list(row.get("selection_reasons", [])),
             "manifest_split": str(row.get("manifest_split", "")),
         }
@@ -576,7 +609,9 @@ def apply_manifest_window_selection(
 ) -> dict[str, Any]:
     """Slice pipeline arrays by original manifest window indices."""
 
-    indices = np.asarray([int(row["window_index"]) for row in manifest_rows], dtype=np.int64)
+    indices = np.asarray(
+        [int(row["window_index"]) for row in manifest_rows], dtype=np.int64
+    )
     if len(set(indices.tolist())) != len(indices):
         raise ValueError("selection manifest contains duplicate window_index rows")
     n_available = int(history_raw.shape[0])
@@ -642,7 +677,9 @@ def build_narrative_bundles(
     """Build or load narrative bundles for the selected training windows."""
 
     label_backend = str(args.label_backend)
-    cache_path = Path(args.label_cache or Path(args.output_dir) / "narrative_label_cache.jsonl")
+    cache_path = Path(
+        args.label_cache or Path(args.output_dir) / "narrative_label_cache.jsonl"
+    )
     cache = _read_label_cache(cache_path) if label_backend == "openai" else {}
     bundles: list[dict[str, Any] | None] = [None] * int(history_raw.shape[0])
     missing: list[tuple[int, str]] = []
@@ -651,7 +688,9 @@ def build_narrative_bundles(
         window_id = str(metadata.get("window_id", f"joint39_val_{idx:04d}"))
         if label_backend == "rule":
             bundles[idx] = _attach_window_metadata_to_bundle(
-                build_scenario_narrative_bundle(window_id, history_raw[idx], spec_names),
+                build_scenario_narrative_bundle(
+                    window_id, history_raw[idx], spec_names
+                ),
                 metadata,
             )
             continue
@@ -675,9 +714,13 @@ def build_narrative_bundles(
             max_output_tokens=int(args.label_max_output_tokens),
         )
         metadata = window_metadata[idx] if idx < len(window_metadata) else {}
-        return idx, window_id, _attach_window_metadata_to_bundle(
-            description_bundle_to_narrative_bundle(description),
-            metadata,
+        return (
+            idx,
+            window_id,
+            _attach_window_metadata_to_bundle(
+                description_bundle_to_narrative_bundle(description),
+                metadata,
+            ),
         )
 
     if missing:
@@ -756,7 +799,9 @@ def hash_text_embeddings(texts: list[str], *, dim: int = 512) -> np.ndarray:
 class NarrativeAdapter(nn.Module):
     """Train text/narrative embeddings into the generator memory space."""
 
-    def __init__(self, embedding_dim: int, condition_dim: int, hidden_dim: int | None = None):
+    def __init__(
+        self, embedding_dim: int, condition_dim: int, hidden_dim: int | None = None
+    ):
         super().__init__()
         hidden = int(hidden_dim or min(512, max(condition_dim * 2, embedding_dim // 2)))
         self.net = nn.Sequential(
@@ -825,7 +870,9 @@ def train_narrative_adapter(
             anchor = pred_norm[anchors[0]]
             pos = pred_norm[positives] @ anchor
             neg = pred_norm[negatives] @ anchor
-            terms.append(F.relu(float(contrastive_margin) - pos[:, None] + neg[None, :]).mean())
+            terms.append(
+                F.relu(float(contrastive_margin) - pos[:, None] + neg[None, :]).mean()
+            )
         if terms:
             contrast = torch.stack(terms).mean()
         loss = mse + 0.2 * cosine_loss + float(contrastive_weight) * contrast
@@ -871,7 +918,9 @@ def compute_memory_targets(
     return np.concatenate(chunks, axis=0)
 
 
-def nearest_memory_indices(query: np.ndarray, targets: np.ndarray, *, top_k: int = 3) -> list[dict[str, Any]]:
+def nearest_memory_indices(
+    query: np.ndarray, targets: np.ndarray, *, top_k: int = 3
+) -> list[dict[str, Any]]:
     q = np.asarray(query, dtype=np.float32)
     target_norm = normalize_rows(targets)
     q_norm = q / max(float(np.linalg.norm(q)), 1e-8)
@@ -888,7 +937,9 @@ def retrieval_weights(
     if not analogue_rows:
         return []
     temp = max(float(temperature), 1e-6)
-    scores = np.asarray([float(row["cosine"]) for row in analogue_rows], dtype=np.float64)
+    scores = np.asarray(
+        [float(row["cosine"]) for row in analogue_rows], dtype=np.float64
+    )
     logits = (scores - float(scores.max())) / temp
     weights = np.exp(logits)
     weights = weights / max(float(weights.sum()), 1e-12)
@@ -997,15 +1048,23 @@ def sample_with_memory_condition(
     outs: list[torch.Tensor] = []
     for start in range(0, int(n_samples), int(chunk_size)):
         k = min(int(chunk_size), int(n_samples) - start)
-        prefix_level_values = h_level.expand(k, model.cfg.history_len, model.cfg.n_cells).clone()
-        prefix_level_scores = level_scores.expand(k, model.cfg.history_len, model.cfg.n_cells).clone()
-        prefix_norm = history_flow.expand(k, model.cfg.history_len, model.cfg.n_cells).clone()
+        prefix_level_values = h_level.expand(
+            k, model.cfg.history_len, model.cfg.n_cells
+        ).clone()
+        prefix_level_scores = level_scores.expand(
+            k, model.cfg.history_len, model.cfg.n_cells
+        ).clone()
+        prefix_norm = history_flow.expand(
+            k, model.cfg.history_len, model.cfg.n_cells
+        ).clone()
         center_rep = ctr.expand(k, model.cfg.n_cells)
         scale_rep = scl.expand(k, model.cfg.n_cells)
         drift_rep = drift.expand(k, model.cfg.n_cells)
         memory_state = memory_base.expand(k, model.cfg.memory_dim)
         base_noise = temp * model._base_noise_like(
-            torch.empty(k, int(n_steps), model.cfg.n_cells, device=device, dtype=h_level.dtype)
+            torch.empty(
+                k, int(n_steps), model.cfg.n_cells, device=device, dtype=h_level.dtype
+            )
         )
         frames: list[torch.Tensor] = []
         for step in range(int(n_steps)):
@@ -1028,8 +1087,12 @@ def sample_with_memory_condition(
             next_level_value = prefix_level_values[:, -1] + next_increment
             next_level_score = model.level_values_to_scores(next_level_value)
             frames.append(next_increment)
-            prefix_level_values = torch.cat([prefix_level_values, next_level_value[:, None]], dim=1)
-            prefix_level_scores = torch.cat([prefix_level_scores, next_level_score[:, None]], dim=1)
+            prefix_level_values = torch.cat(
+                [prefix_level_values, next_level_value[:, None]], dim=1
+            )
+            prefix_level_scores = torch.cat(
+                [prefix_level_scores, next_level_score[:, None]], dim=1
+            )
             prefix_norm = torch.cat([prefix_norm, next_flow[:, None]], dim=1)
         outs.append(torch.stack(frames, dim=1))
     return torch.cat(outs, dim=0).cpu().numpy().astype(np.float32)[None]
@@ -1120,8 +1183,12 @@ def summarize_retrieval_generated_states(
     }
 
 
-def _load_joint39_block(args: argparse.Namespace, payload: dict[str, Any]) -> tuple[Any, ...]:
-    from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovation_flow import build_val_block
+def _load_joint39_block(
+    args: argparse.Namespace, payload: dict[str, Any]
+) -> tuple[Any, ...]:
+    from experiments.backfill.block_ar.evaluate_662a_state_aware_normalized_innovation_flow import (
+        build_val_block,
+    )
 
     return build_val_block(args, payload)
 
@@ -1139,8 +1206,12 @@ def _enforce_production_label_policy(args: argparse.Namespace) -> None:
     )
 
 
-def _reconstruct_states(history_last: np.ndarray, increments: np.ndarray, specs: list[Any]) -> np.ndarray:
-    from experiments.backfill.block_ar.increment_coordinate_628_utils import reconstruct_state_from_increments
+def _reconstruct_states(
+    history_last: np.ndarray, increments: np.ndarray, specs: list[Any]
+) -> np.ndarray:
+    from experiments.backfill.block_ar.increment_coordinate_628_utils import (
+        reconstruct_state_from_increments,
+    )
 
     return reconstruct_state_from_increments(history_last, increments, specs)
 
@@ -1151,15 +1222,21 @@ def _spec_names(specs: list[Any]) -> list[str]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     _enforce_production_label_policy(args)
 
-    from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import load_model
+    from diffusion.block_ar.generic_state_aware_normalized_innovation_flow_matching import (
+        load_model,
+    )
 
-    device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
+    device = torch.device(
+        args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
+    )
     model, payload = load_model(args.checkpoint, device)
     (
         history_level,
@@ -1218,9 +1295,11 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "window_index": idx,
                     "window_id": f"joint39_val_{idx:04d}",
-                    "source_index": full_window_metadata[idx].get("source_index", idx)
-                    if idx < len(full_window_metadata)
-                    else idx,
+                    "source_index": (
+                        full_window_metadata[idx].get("source_index", idx)
+                        if idx < len(full_window_metadata)
+                        else idx
+                    ),
                 },
             )
             for idx in range(n)
@@ -1248,9 +1327,7 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         for bundle in bundles
     ]
     rejected_label_windows = [
-        row["window_id"]
-        for row in label_validation
-        if row["errors"]
+        row["window_id"] for row in label_validation if row["errors"]
     ]
     if rejected_label_windows and not bool(args.allow_invalid_labels):
         keep = np.asarray(
@@ -1279,11 +1356,15 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             texts,
             model=args.embedding_model,
             dotenv_path=args.dotenv,
+            batch_size=int(args.embedding_batch_size),
         )
     else:
         text_embeddings = hash_text_embeddings(texts, dim=int(args.hash_dim))
     target_indices = np.asarray(
-        [-1 if example["target_index"] is None else int(example["target_index"]) for example in examples],
+        [
+            -1 if example["target_index"] is None else int(example["target_index"])
+            for example in examples
+        ],
         dtype=np.int64,
     )
     roles = [str(example["role"]) for example in examples]
@@ -1321,12 +1402,17 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             [query_text],
             model=args.embedding_model,
             dotenv_path=args.dotenv,
+            batch_size=int(args.embedding_batch_size),
         )
     else:
         query_embedding = hash_text_embeddings([query_text], dim=int(args.hash_dim))
     adapter.eval()
     with torch.no_grad():
-        query_condition = adapter(torch.from_numpy(normalize_rows(query_embedding)).float()).cpu().numpy()[0]
+        query_condition = (
+            adapter(torch.from_numpy(normalize_rows(query_embedding)).float())
+            .cpu()
+            .numpy()[0]
+        )
     analogues = nearest_memory_indices(
         query_condition,
         memory_targets,
@@ -1378,13 +1464,28 @@ def run_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "checkpoint": args.checkpoint,
         "embedding_backend": args.embedding_backend,
-        "embedding_model": args.embedding_model if args.embedding_backend == "openai" else None,
+        "embedding_model": (
+            args.embedding_model if args.embedding_backend == "openai" else None
+        ),
+        "embedding_batch_size": (
+            int(args.embedding_batch_size)
+            if args.embedding_backend == "openai"
+            else None
+        ),
         "label_backend": args.label_backend,
         "label_model": args.label_model if args.label_backend == "openai" else None,
         "local_test": bool(getattr(args, "local_test", False)),
-        "label_cache": str(args.label_cache or Path(args.output_dir) / "narrative_label_cache.jsonl"),
-        "selection_manifest": str(selection_manifest_path) if selection_manifest_path else None,
-        "manifest_split": str(getattr(args, "manifest_split", "")) if selection_manifest_path else None,
+        "label_cache": str(
+            args.label_cache or Path(args.output_dir) / "narrative_label_cache.jsonl"
+        ),
+        "selection_manifest": (
+            str(selection_manifest_path) if selection_manifest_path else None
+        ),
+        "manifest_split": (
+            str(getattr(args, "manifest_split", ""))
+            if selection_manifest_path
+            else None
+        ),
         "requested_train_windows": int(len(window_metadata)),
         "window_metadata": window_metadata,
         "source_indices": source_indices.astype(int).tolist(),
@@ -1455,13 +1556,20 @@ def main() -> None:
     parser.add_argument("--label-max-output-tokens", type=int, default=5000)
     parser.add_argument("--label-concurrency", type=int, default=4)
     parser.add_argument("--allow-invalid-labels", action="store_true")
-    parser.add_argument("--embedding-backend", choices=["openai", "hash"], default="openai")
+    parser.add_argument(
+        "--embedding-backend", choices=["openai", "hash"], default="openai"
+    )
     parser.add_argument("--embedding-model", default="text-embedding-3-small")
+    parser.add_argument("--embedding-batch-size", type=int, default=512)
     parser.add_argument("--hash-dim", type=int, default=512)
     parser.add_argument("--dotenv", default=".env")
     parser.add_argument("--train-windows", type=int, default=8)
     parser.add_argument("--selection-manifest")
-    parser.add_argument("--manifest-split", choices=["train", "validation", "test", "all"], default="all")
+    parser.add_argument(
+        "--manifest-split",
+        choices=["train", "validation", "test", "all"],
+        default="all",
+    )
     parser.add_argument("--adapter-steps", type=int, default=400)
     parser.add_argument("--adapter-lr", type=float, default=1e-3)
     parser.add_argument("--contrastive-weight", type=float, default=0.25)
@@ -1479,20 +1587,32 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=773)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--state_scope", choices=["joint38"], default="joint38")
-    parser.add_argument("--eval_split", choices=["val", "train", "train_tail"], default="val")
+    parser.add_argument(
+        "--eval_split", choices=["val", "train", "train_tail"], default="val"
+    )
     parser.add_argument("--test_start", type=int, default=4511)
     parser.add_argument("--val_size", type=int, default=441)
     parser.add_argument("--max_windows", type=int, default=441)
     parser.add_argument("--iv_count", type=int, default=25)
-    parser.add_argument("--clean_nonpositive_log_levels", action="store_true", default=True)
-    parser.add_argument("--positive_level_policy", choices=["reference_based", "observed_positive"], default="reference_based")
-    parser.add_argument("--iv_transform", choices=["log_level", "bounded_logit"], default="log_level")
+    parser.add_argument(
+        "--clean_nonpositive_log_levels", action="store_true", default=True
+    )
+    parser.add_argument(
+        "--positive_level_policy",
+        choices=["reference_based", "observed_positive"],
+        default="reference_based",
+    )
+    parser.add_argument(
+        "--iv_transform", choices=["log_level", "bounded_logit"], default="log_level"
+    )
     parser.add_argument("--iv_lower_bound", type=float, default=1e-4)
     parser.add_argument("--iv_upper_bound", type=float, default=1.0)
     parser.add_argument("--scale_half_life", type=float, default=0.0)
     parser.add_argument("--scale_floor", type=float, default=1e-4)
     parser.add_argument("--center_mode", choices=["zero", "ewma_mean"], default="zero")
-    parser.add_argument("--drift_feature_mode", choices=["none", "ewma_mean"], default="none")
+    parser.add_argument(
+        "--drift_feature_mode", choices=["none", "ewma_mean"], default="none"
+    )
     args = parser.parse_args()
     report = run_pipeline(args)
     print(

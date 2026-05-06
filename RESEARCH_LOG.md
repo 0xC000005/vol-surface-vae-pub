@@ -109357,3 +109357,70 @@ uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772
 Result: `56 passed`.
 
 ---
+## 2026-05-06: Representative manifest OpenAI narrative pilot at 182 usable windows
+
+### Context
+Scaled the manifest-preserved natural-language scenario pilot beyond the earlier 51-window smoke/pilot. The goal was to label a larger representative set with OpenAI narratives, preserve original `window_index` / `source_index` and manifest split provenance, rerun bridge and scenario-level evaluation, and only run the architecture bake-off if the larger evaluation showed the bridge as the bottleneck.
+
+### Manifest and labeling
+- Manifest artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/window_selection_manifest_representative_220/window_selection_manifest.json`.
+- Available windows: 441. Manifest selected 192 candidate windows, with 9 embargo-excluded rows, leaving 183 train/validation/test rows before label validation.
+- Split before label rejection: 129 train, 25 validation, 29 test.
+- OpenAI pipeline artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_openai_schema_v2_representative_220/narrative_pipeline_report.json`.
+- Label backend: OpenAI (`gpt-5.4-mini`). Embedding backend: OpenAI (`text-embedding-3-small`).
+- One label was rejected by the hallucination-aware validator: `joint39_val_0240`, error `external_catalyst_requires_grounding`.
+- Usable post-validation split: 128 train, 25 validation, 29 test.
+- Training examples: 2,293. Memory target shape: `[182, 128]`. Narrative adapter loss improved from 1.2713986635 to 0.0316140354 in the pipeline run.
+
+### Engineering note
+The first scaled run exposed a real OpenAI embeddings request-limit bug: the script attempted to send 343,207 embedding tokens in one request, above the 300,000-token per-request limit. I fixed `embed_texts_with_openai` to chunk embedding calls with `--embedding-batch-size` support and added a fake-client regression test that verifies batching and output-order preservation.
+
+### Bridge evaluation
+Bridge artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_bridge_eval_openai_schema_v2_representative_220/bridge_eval_report.json`.
+
+- Split source: manifest.
+- Train windows: 128. Validation windows excluded from fitting/eval: 25. Held-out test windows: 29.
+- Held-out examples: 126.
+- Held-out mean target cosine: 0.8596868326.
+- Held-out median target cosine: 0.8739060164.
+- Held-out hard-negative mean gap: 0.8834532106.
+- Held-out hard-negative mean margin: 0.6780735773.
+- Held-out recall@1 within test pool: 0.0793650794.
+- Held-out recall@3 within test pool: 0.1746031746.
+- Held-out median true rank within test pool: 10.0.
+
+Interpretation: the larger split does not show bridge collapse. The held-out target cosine and hard-negative separation are strong enough that architecture replacement is not the immediate bottleneck.
+
+### Scenario-level evaluation
+Scenario artifact: `experiments/backfill/block_ar/nl_scenario_demo_outputs/manifest_scenario_level_eval_openai_schema_v2_representative_220/scenario_level_eval_report.json`.
+
+Held-out windows: 29.
+
+Narrative generator top-k versus persistence:
+- Energy score improvement: +21.3287647612%.
+- Ensemble CRPS improvement: +17.3929441102%.
+- 80% coverage mean: 0.6409961686.
+- Mean-path MAE improvement: -8.7118678907%.
+- Mean-path RMSE improvement: -5.2156249291%.
+- Terminal MAE improvement: -8.6070966891%.
+
+Historical replay top-k versus persistence:
+- Energy score improvement: +10.0320638053%.
+- Ensemble CRPS improvement: +4.8903154908%.
+- 80% coverage mean: 0.3987621574.
+
+Oracle generator with true history versus persistence:
+- Energy score improvement: +10.0268859711%.
+- Ensemble CRPS improvement: +4.8409501152%.
+- 80% coverage mean: 0.3892425582.
+
+Interpretation: on the larger representative held-out set, the narrative-conditioned generator is again better as a scenario-distribution tool than as a point-forecasting tool. It improves distributional scores and coverage versus persistence, historical replay, and this oracle-generator evaluation, while mean-path point-error metrics remain worse than persistence.
+
+### Decision
+Skipped the architecture bake-off for this run. The larger evaluation supports the current conclusion that bridge architecture is not yet the primary bottleneck; the more principled next focus is evaluation coverage, label quality/validation, scenario utility metrics, and possibly larger runs before architecture churn.
+
+### Verification
+- `uv run python -m py_compile experiments/backfill/block_ar/nl_narrative_grounded_scenario_pipeline.py experiments/backfill/block_ar/nl_condition_bridge_evaluation.py experiments/backfill/block_ar/nl_scenario_level_evaluation.py experiments/backfill/block_ar/nl_window_selection_manifest.py experiments/backfill/block_ar/nl_bridge_architecture_bakeoff.py experiments/backfill/block_ar/nl_web_evidence_enrichment.py experiments/backfill/block_ar/nl_scenario_descriptions.py experiments/backfill/block_ar/nl_text_conditioning.py` passed.
+- `uv run pytest test_code/test_771a_nl_scenario_descriptions.py test_code/test_772a_nl_text_conditioning.py test_code/test_773a_narrative_grounded_pipeline.py test_code/test_774a_nl_web_evidence_enrichment.py test_code/test_775a_nl_condition_bridge_evaluation.py test_code/test_776a_nl_scenario_level_evaluation.py test_code/test_777a_nl_bridge_architecture_bakeoff.py test_code/test_778a_nl_window_selection_manifest.py -q` passed: 57 tests.
+
+---
