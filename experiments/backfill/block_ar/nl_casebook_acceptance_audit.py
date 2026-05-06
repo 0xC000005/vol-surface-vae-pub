@@ -361,7 +361,85 @@ def _unsupported_causality_rule(case: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def audit_case(case: dict[str, Any]) -> dict[str, Any]:
+def _product_framing_by_window(
+    product_report_package: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    if not product_report_package:
+        return {}
+    case_framing = product_report_package.get("case_framing")
+    if isinstance(case_framing, dict):
+        return {
+            str(window_id): framing
+            for window_id, framing in case_framing.items()
+            if isinstance(framing, dict)
+        }
+    rows: dict[str, dict[str, Any]] = {}
+    for report in _as_list(product_report_package.get("case_reports")):
+        if not isinstance(report, dict) or not report.get("window_id"):
+            continue
+        rows[str(report["window_id"])] = {
+            "framing_ready": bool(report.get("framing_ready")),
+            "framing_checks": _as_dict(report.get("framing_checks")),
+            "report_contract": report.get("report_contract"),
+        }
+    return rows
+
+
+def _product_framing_satisfies_point_warning(framing: dict[str, Any] | None) -> bool:
+    if not framing:
+        return False
+    checks = _as_dict(framing.get("framing_checks"))
+    return (
+        bool(framing.get("framing_ready"))
+        and str(framing.get("report_contract", ""))
+        == "scenario_distribution_not_point_forecast"
+        and bool(checks.get("not_point_forecast_statement"))
+        and bool(checks.get("distribution_metrics_present"))
+        and bool(checks.get("historical_analogues_present"))
+        and bool(checks.get("grounding_section_present"))
+    )
+
+
+def _apply_product_report_framing(
+    rules: list[dict[str, Any]],
+    *,
+    product_framing: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not _product_framing_satisfies_point_warning(product_framing):
+        return rules
+    updated: list[dict[str, Any]] = []
+    for rule in rules:
+        if (
+            rule.get("name") == "point_path_framing"
+            and rule.get("code") == "point_path_lags_persistence"
+            and rule.get("status") == "warning"
+        ):
+            updated.append(
+                {
+                    **rule,
+                    "status": "pass",
+                    "code": "distributional_product_framing_satisfied",
+                    "reason": (
+                        "The product report explicitly frames this as a "
+                        "scenario distribution and historical-analogue tool, "
+                        "not a point forecast."
+                    ),
+                    "evidence": {
+                        **_as_dict(rule.get("evidence")),
+                        "product_framing": product_framing,
+                    },
+                }
+            )
+            continue
+        updated.append(rule)
+    return updated
+
+
+def audit_case(
+    case: dict[str, Any],
+    *,
+    product_framing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Apply production-facing acceptance rules to one casebook case."""
 
     rules = [
@@ -372,6 +450,7 @@ def audit_case(case: dict[str, Any]) -> dict[str, Any]:
         _point_path_framing_rule(case),
         _unsupported_causality_rule(case),
     ]
+    rules = _apply_product_report_framing(rules, product_framing=product_framing)
     status = _worst_status([rule["status"] for rule in rules])
     rule_counts = Counter(rule["status"] for rule in rules)
     bottlenecks = sorted(
@@ -438,11 +517,16 @@ def build_acceptance_audit(
     casebook: dict[str, Any],
     *,
     title: str = "Risk Manager Casebook Acceptance Audit",
+    product_report_package: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an aggregate acceptance audit from a casebook."""
 
+    product_framing = _product_framing_by_window(product_report_package)
     case_results = [
-        audit_case(case)
+        audit_case(
+            case,
+            product_framing=product_framing.get(str(case.get("window_id", ""))),
+        )
         for case in _as_list(casebook.get("cases"))
         if isinstance(case, dict)
     ]
@@ -465,6 +549,11 @@ def build_acceptance_audit(
         "title": title,
         "status": "casebook_acceptance_audit",
         "source_casebook_title": casebook.get("title"),
+        "source_product_report_title": (
+            (product_report_package or {}).get("title")
+            if isinstance(product_report_package, dict)
+            else None
+        ),
         "summary": {
             "case_count": case_count,
             "status_counts": status_counts_dict,
@@ -557,11 +646,19 @@ def render_acceptance_markdown(audit: dict[str, Any]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--casebook", required=True)
+    parser.add_argument("--product-report-summary")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--title", default="Risk Manager Casebook Acceptance Audit")
     args = parser.parse_args()
 
-    audit = build_acceptance_audit(_load_json(args.casebook), title=args.title)
+    product_report_package = (
+        _load_json(args.product_report_summary) if args.product_report_summary else None
+    )
+    audit = build_acceptance_audit(
+        _load_json(args.casebook),
+        title=args.title,
+        product_report_package=product_report_package,
+    )
     output_dir = Path(args.output_dir)
     json_path = output_dir / "acceptance_audit.json"
     markdown_path = output_dir / "acceptance_audit.md"

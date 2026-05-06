@@ -7,6 +7,9 @@ from experiments.backfill.block_ar.nl_casebook_acceptance_audit import (
     build_acceptance_audit,
     render_acceptance_markdown,
 )
+from experiments.backfill.block_ar.nl_product_scenario_report import (
+    build_product_report_package,
+)
 
 
 def _case(
@@ -121,6 +124,26 @@ def test_build_acceptance_audit_summarizes_status_regime_and_bottlenecks() -> No
         "warning": 1,
     }
     assert audit["summary"]["bottleneck_counts"]["bridge_alignment"] == 1
+
+
+def test_product_report_framing_satisfies_point_path_warning() -> None:
+    casebook = _casebook([_case()])
+    product_package = build_product_report_package(casebook)
+
+    audit = build_acceptance_audit(
+        casebook,
+        product_report_package=product_package,
+    )
+
+    result = audit["case_results"][0]
+    assert result["status"] == "pass"
+    assert "point_path_lags_persistence" not in result["warning_codes"]
+    assert "product_framing" not in result["bottleneck_tags"]
+    assert any(
+        rule["code"] == "distributional_product_framing_satisfied"
+        and rule["status"] == "pass"
+        for rule in result["rules"]
+    )
 
 
 def test_render_acceptance_markdown_contains_gate_and_case_table() -> None:
